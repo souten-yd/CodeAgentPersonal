@@ -884,7 +884,7 @@ if (window.visualViewport) {
 }
 
 // ── INIT ──
-addEventListener('load', () => {
+addEventListener('load', async () => {
   checkHealth();
   loadProjects();
   loadLLMEndpoints();
@@ -892,8 +892,8 @@ addEventListener('load', () => {
   initCtxSlider();
   refreshSkills();
   initStepsSlider();
-  loadHistory(currentProject);
-  loadJobs(currentProject);  // ← 起動時にジョブ一覧も読む
+  await loadHistory(currentProject); // 先に履歴を復元してから
+  await loadJobs(currentProject);    // 実行中ジョブを検出・自動再接続
   setInterval(checkHealth, 10000);
 });
 
@@ -972,21 +972,13 @@ async function loadJobs(project) {
     const d = await r.json();
     const jobs = d.jobs || [];
     renderJobs(jobs);
-    // ページロード時に実行中ジョブがあれば通知バナーを表示
+    // ページロード時に実行中ジョブがあれば自動再接続
     const runningJob = jobs.find(j => j.status === 'running');
     if (runningJob && !busy) {
-      showResumeBanner(runningJob);
+      addLog('info','job', `実行中のジョブを検出 — 自動再接続: ${runningJob.message.slice(0,40)}`);
+      resumeJob(runningJob.id);
     }
   } catch(e) {}
-}
-function showResumeBanner(job) {
-  const existing = document.getElementById('resume-banner');
-  if (existing) existing.remove();
-  const banner = document.createElement('div');
-  banner.id = 'resume-banner';
-  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:var(--amber);color:#000;padding:8px 16px;display:flex;align-items:center;gap:10px;font-size:13px;font-family:var(--font-mono)';
-  banner.innerHTML = `<span>▶ 実行中のジョブがあります: ${esc(job.message.slice(0,50))}</span><button onclick="resumeJob('${esc(job.id)}');document.getElementById('resume-banner').remove()" style="margin-left:auto;background:#000;color:var(--amber);border:none;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px">再接続</button><button onclick="this.parentElement.remove()" style="background:transparent;border:none;cursor:pointer;font-size:14px">✕</button>`;
-  document.body.prepend(banner);
 }
 function renderJobs(jobs) {
   const el = document.getElementById('job-list');
@@ -1100,8 +1092,8 @@ async function selectProject(name) {
   closeDrawer();
   document.getElementById('messages').innerHTML = `<div class="msg system"><div class="msg-role">system</div><div class="msg-bubble">Project: ${esc(name)}</div></div>`;
   chatHistory = [];
-  loadHistory(name);
-  loadJobs(name);
+  await loadHistory(name);
+  await loadJobs(name);
   refreshFileBrowser();
   addLog('info','project','Switched to: '+name);
 }
@@ -1137,6 +1129,8 @@ function renderHistorySession(s) {
   um.className = 'msg user history';
   um.innerHTML = `<div class="msg-role">You</div><div class="msg-bubble">${esc(s.message)}</div><div class="msg-ts">${ts}</div>`;
   messages().appendChild(um);
+  addToHistory('user', s.message); // chatHistory に追加して後続メッセージでコンテキスト維持
+  addLog('ok','history', `[${ts}] ${s.message.slice(0,50)}`);
 
   if (!s.result) return;
 
@@ -1153,16 +1147,19 @@ function renderHistorySession(s) {
     tb.innerHTML = `<div class="msg-role">Plan</div><div class="task-block">${items}</div>`;
     messages().appendChild(tb);
     // final result
+    const summary = s.result.summary || '';
     const am = document.createElement('div');
     am.className = 'msg assistant history';
-    am.innerHTML = `<div class="msg-role">Agent</div><div class="msg-bubble">${esc(s.result.summary||'')}</div><div class="msg-ts">${ts}</div>`;
+    am.innerHTML = `<div class="msg-role">Agent</div><div class="msg-bubble">${esc(summary)}</div><div class="msg-ts">${ts}</div>`;
     messages().appendChild(am);
+    addToHistory('assistant', summary);
   } else if (s.mode === 'chat' && s.result.output) {
     const am = document.createElement('div');
     am.className = 'msg assistant history';
     const mdHtml = mdRenderer ? renderMd(s.result.output) : `<span style="white-space:pre-wrap">${esc(s.result.output)}</span>`;
     am.innerHTML = `<div class="msg-role">Agent</div><div class="msg-bubble md" data-raw="${esc(s.result.output).replace(/"/g,'&quot;')}">${mdHtml}</div><button class="md-toggle active" onclick="toggleMdBubble(this)" title="Toggle Markdown/Raw">MD</button><div class="msg-ts">${ts}</div>`;
     messages().appendChild(am);
+    addToHistory('assistant', s.result.output);
   }
   scrollMsgs();
 }
