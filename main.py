@@ -1888,6 +1888,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                 print(f"[ModelManager] no switch needed for {best_key}")
 
             for i, todo in enumerate(todos):
+              try:  # ← per-task guard: 1タスクの例外がジョブ全体を止めないよう保護
                 write("task_start", {
                     "task_id": todo["id"], "title": todo["title"],
                     "task_index": i, "total": total
@@ -1942,11 +1943,11 @@ def run_job_background(job_id: str, req: "JobRequest"):
                 def _run_stage(title_prefix, ctx, steps_limit):
                     """execute_task_streamを安全に実行してtask_status/outputを返す"""
                     _steps, _status, _output = [], "pending", ""
-                    write("task_start", {
-                        "task_id": todo["id"], "title": f"{title_prefix}{todo['title']}",
-                        "task_index": i, "total": total
-                    })
                     try:
+                        write("task_start", {
+                            "task_id": todo["id"], "title": f"{title_prefix}{todo['title']}",
+                            "task_index": i, "total": total
+                        })
                         for ev in execute_task_stream(
                             task_detail=todo["detail"], context=ctx,
                             max_steps=steps_limit, project=project,
@@ -2172,6 +2173,28 @@ JSON形式で出力:
                         f"このエラーを踏まえて次のタスクを実行してください。"
                     )
                     write("progress", {"pct": int((i+1)/total*100), "label": f"task {i+1}/{total} failed (skill proposed)"})
+
+              except Exception as _per_task_ex:
+                # 1タスクで予期しない例外が発生しても残りのタスクを継続する
+                _per_task_msg = f"[per-task exception] {str(_per_task_ex)[:300]}"
+                print(f"[JOB {job_id}] task {i+1}/{total} per-task exception: {_per_task_msg}")
+                try:
+                    write("task_error", {
+                        "task_id": todo.get("id", i+1),
+                        "title": todo.get("title", ""),
+                        "error": _per_task_msg,
+                    })
+                except Exception:
+                    pass
+                # resultsにまだ記録されていなければエラーとして追加
+                if not any(r.get("task_id") == todo.get("id") for r in results):
+                    results.append({
+                        "task_id": todo.get("id", i+1),
+                        "title": todo.get("title", ""),
+                        "status": "error",
+                        "output": _per_task_msg,
+                        "steps": [],
+                    })
 
             done_count = sum(1 for r in results if r["status"] == "done")
 
