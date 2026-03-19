@@ -183,6 +183,5 @@ echo   LAN   : http://%LAN_IP%:8000/
 echo   Mode  : %MODE%  Model: %INITIAL_MODEL%
 echo ==============================================
 echo.
-echo [Launcher] Closing in 3 seconds...
-timeout /t 3 >nul
-exit
+echo [Launcher] Ready. Type 'exit' to close this window.
+cmd /k
