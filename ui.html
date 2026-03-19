@@ -1603,11 +1603,11 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
   let _taskResultsMap = new Map();
   let _lastSeq = -1;
   let _pollCount = 0;
-  const _MAX_POLL = 2880; // 最大24分
+  const _MAX_POLL = 4800; // 最大24分 (300ms×4800)
 
   while (_pollCount < _MAX_POLL) {
     if (!firstPollImmediate || _pollCount > 0) {
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 300));
     }
     _pollCount++;
     let pollData;
@@ -1642,6 +1642,15 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
           action: ''
         });
         addLog('info','task', `[${taskNum}/${taskTotal}] ${ev.title||''}`);
+      } else if (ev.type === 'llm_thinking') {
+        // LLMが次のアクションを生成中
+        setCard(progCard, {
+          action: '🤔 考え中...',
+          stepNum: ev.step_num ? `${ev.step_num}/${ev.max_steps||'?'}` : '-/-',
+        });
+      } else if (ev.type === 'tool_result') {
+        // ツール実行完了 → LLMが次のアクションを生成中
+        setCard(progCard, {action: `✓ ${ev.action||'tool'} 完了 → 次のアクションを生成中...`});
       } else if (ev.type === 'tool_call' || ev.type === 'step') {
         allSteps.push(ev);
         const _ptok = ev.prompt_tokens||0;

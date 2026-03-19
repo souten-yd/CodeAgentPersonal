@@ -305,7 +305,7 @@ class ModelManager:
 
             emit("model_switching", f"Unloading {prev_name}...", 10, spec["load_sec"])
             self._kill()
-            _mm_time.sleep(1)
+            _mm_time.sleep(0.5)
 
             emit("model_switching", f"Loading {spec['name']}...", 30,
                  max(0, int(self._switch_eta - _mm_time.time())))
@@ -376,9 +376,9 @@ class ModelManager:
 
         import requests as _req
         health = f"http://127.0.0.1:{self.llm_port}/health"
-        for i in range(90):
-            _mm_time.sleep(2)
-            elapsed = i * 2
+        for i in range(180):
+            _mm_time.sleep(1)
+            elapsed = i
             remaining = max(0, int(self._switch_eta - _mm_time.time()))
             pct = min(90, 30 + elapsed * 60 // spec["load_sec"])
             emit("model_switching", f"Loading {spec['name']}... {elapsed}s", pct, remaining)
@@ -3361,6 +3361,8 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
 
     for step in range(max_steps):
         messages = _trim_messages(messages, _current_n_ctx, reserve_output=4096)
+        # LLM生成開始を通知（フロントエンドで「考え中」表示に使う）
+        yield {"type": "llm_thinking", "step_num": step + 1, "max_steps": max_steps}
         try:
             reply, usage = call_llm_chat(messages, llm_url=llm_url)
         except HTTPException as _ctx_ex:
