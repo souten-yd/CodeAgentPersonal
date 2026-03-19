@@ -970,23 +970,68 @@ async function loadJobs(project) {
   try {
     const r = await fetch(API+`/projects/${encodeURIComponent(project)}/jobs?limit=10`);
     const d = await r.json();
-    renderJobs(d.jobs || []);
+    const jobs = d.jobs || [];
+    renderJobs(jobs);
+    // ページロード時に実行中ジョブがあれば通知バナーを表示
+    const runningJob = jobs.find(j => j.status === 'running');
+    if (runningJob && !busy) {
+      showResumeBanner(runningJob);
+    }
   } catch(e) {}
+}
+function showResumeBanner(job) {
+  const existing = document.getElementById('resume-banner');
+  if (existing) existing.remove();
+  const banner = document.createElement('div');
+  banner.id = 'resume-banner';
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:var(--amber);color:#000;padding:8px 16px;display:flex;align-items:center;gap:10px;font-size:13px;font-family:var(--font-mono)';
+  banner.innerHTML = `<span>▶ 実行中のジョブがあります: ${esc(job.message.slice(0,50))}</span><button onclick="resumeJob('${esc(job.id)}');document.getElementById('resume-banner').remove()" style="margin-left:auto;background:#000;color:var(--amber);border:none;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px">再接続</button><button onclick="this.parentElement.remove()" style="background:transparent;border:none;cursor:pointer;font-size:14px">✕</button>`;
+  document.body.prepend(banner);
 }
 function renderJobs(jobs) {
   const el = document.getElementById('job-list');
   if (!el) return;
   if (!jobs.length) { el.innerHTML='<div style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">No jobs yet</div>'; return; }
   el.innerHTML = jobs.map(j => {
-    const icon = j.status==='done'?'✓':j.status==='error'?'✗':j.status==='running'?'▶':'○';
-    const col = j.status==='done'?'var(--accent)':j.status==='error'?'var(--red)':j.status==='running'?'var(--amber)':'var(--text3)';
+    const isRunning = j.status === 'running';
+    const icon = j.status==='done'?'✓':j.status==='error'?'✗':isRunning?'▶':'○';
+    const col = j.status==='done'?'var(--accent)':j.status==='error'?'var(--red)':isRunning?'var(--amber)':'var(--text3)';
     const ts = j.created_at ? j.created_at.slice(11,16) : '';
-    return `<div style="display:flex;align-items:center;gap:7px;padding:5px 7px;background:var(--bg2);border:1px solid var(--border);border-radius:5px;cursor:pointer;font-size:11px" onclick="replayJob('${esc(j.id)}')">
+    const liveBadge = isRunning ? `<span style="font-size:9px;background:var(--amber);color:#000;border-radius:3px;padding:1px 4px;flex-shrink:0">LIVE</span>` : '';
+    const clickFn = isRunning ? `resumeJob('${esc(j.id)}')` : `replayJob('${esc(j.id)}')`;
+    return `<div style="display:flex;align-items:center;gap:7px;padding:5px 7px;background:var(--bg2);border:1px solid ${isRunning?'var(--amber)':'var(--border)'};border-radius:5px;cursor:pointer;font-size:11px" onclick="${clickFn}">
       <span style="color:${col};flex-shrink:0">${icon}</span>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono)">${esc(j.message.slice(0,40))}</span>
+      ${liveBadge}
       <span style="color:var(--text3);flex-shrink:0;font-family:var(--font-mono)">${ts}</span>
     </div>`;
   }).join('');
+}
+async function resumeJob(jobId) {
+  closeDrawer();
+  if (busy) { addLog('warn','job','別のジョブが実行中です'); return; }
+  setBusy(true);
+  startTimer();
+  try {
+    const r = await fetch(API+`/jobs/${jobId}?project=${encodeURIComponent(currentProject)}`);
+    const d = await r.json();
+    addMsg('user', d.message);
+    addToHistory('user', d.message);
+    const planStep = (d.steps||[]).find(s => s.type === 'plan');
+    const allPlannedTasks = planStep ? (planStep.data.tasks || []) : [];
+    const label = d.status === 'running'
+      ? `Resuming job (${allPlannedTasks.length} tasks)...`
+      : `Replaying job (${allPlannedTasks.length} tasks)...`;
+    const progCard = addProgressCard(label, allPlannedTasks.length);
+    await _watchJobPolling(jobId, allPlannedTasks, {}, progCard, true);
+  } catch(e) {
+    stopTimer();
+    addMsg('error', 'Resume error: '+e.message);
+    addLog('err','job', e.message);
+  }
+  setBusy(false);
+  loadProjects();
+  refreshFileBrowser();
 }
 async function replayJob(jobId) {
   closeDrawer();
@@ -1547,6 +1592,193 @@ async function revisePlan(originalMsg) {
   setBusy(false);
 }
 
+// ── ジョブポーリング共通ロジック（executePlan / resumeJobで共用）──
+// jobId: 監視するジョブID
+// allPlannedTasks: 計画タスク配列（可変 - plan イベントで補完される）
+// planMeta: {savedRequirements, savedApproach, savedVerification, savedSummary}
+// progCard: プログレスカードDOM要素
+// firstPollImmediate: true=最初のポーリングを即時実行（再接続時に過去イベントを素早く取得）
+async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firstPollImmediate) {
+  _currentJobId = jobId;
+  const { savedRequirements=[], savedApproach='', savedVerification=[], savedSummary='' } = planMeta || {};
+  addLog('info','plan', `Watching ${allPlannedTasks.length} tasks (job: ${jobId})`);
+  let allSteps = [];
+  let _taskResultsMap = new Map();
+  let _lastSeq = -1;
+  let _pollCount = 0;
+  const _MAX_POLL = 2880; // 最大24分
+
+  while (_pollCount < _MAX_POLL) {
+    if (!firstPollImmediate || _pollCount > 0) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+    _pollCount++;
+    let pollData;
+    try {
+      const pr = await fetch(
+        API+`/jobs/${jobId}/poll?project=${encodeURIComponent(currentProject)}&after=${_lastSeq}`
+      );
+      pollData = await pr.json();
+    } catch(e) { console.warn('task poll error', e); continue; }
+
+    for (const _step of (pollData.steps || [])) {
+      _lastSeq = _step.seq;
+      const ev = {..._step.data, type: _step.type, seq: _step.seq};
+      if (ev.type === 'model_switching' || ev.type === 'model_ready' || ev.type === 'model_error') {
+        handleModelSwitchEvent(ev, progCard);
+        const badge = document.getElementById('model-badge');
+        if (badge && ev.type === 'model_ready') {
+          badge.textContent = (ev.message || '').replace('is ready','').trim();
+          badge.style.color = 'var(--text3)';
+        } else if (badge && ev.type === 'model_switching') {
+          badge.style.color = 'var(--amber)';
+        }
+        addLog('info','model', ev.message || ev.type);
+        continue;
+      }
+      if (ev.type === 'task_start') {
+        const taskNum = (ev.task_index||0)+1;
+        const taskTotal = ev.total||'?';
+        setCard(progCard, {
+          label: 'Task ' + taskNum + '/' + taskTotal + ': ' + (ev.title||''),
+          pct: ev.total ? Math.round((ev.task_index||0)/ev.total*100) : 0,
+          action: ''
+        });
+        addLog('info','task', `[${taskNum}/${taskTotal}] ${ev.title||''}`);
+      } else if (ev.type === 'tool_call' || ev.type === 'step') {
+        allSteps.push(ev);
+        const _ptok = ev.prompt_tokens||0;
+        const _ctok = ev.completion_tokens||0;
+        const _ctxStr = _ptok > 0 ? `${_ptok+_ctok}/${_current_n_ctx_ui||'?'}` : '--/--';
+        setCard(progCard, {
+          action:  (ev.action||'') + ': ' + (ev.thought||''),
+          tps:     ev.tps||0,
+          ctx:     _ctxStr,
+          stepNum: ev.step_num ? `${ev.step_num}/${ev.max_steps||'?'}` : '-/-',
+        });
+        addLog('info','tool', `${ev.action||''}: ${(ev.thought||'')}`);
+      } else if (ev.type === 'task_done') {
+        _taskResultsMap.set(ev.task_id, {
+          task_id: ev.task_id, title: ev.title||'',
+          status: 'done', output: ev.output||'', steps: ev.steps||[]
+        });
+        if (allPlannedTasks.length) setCard(progCard, {pct: Math.round(_taskResultsMap.size/allPlannedTasks.length*100)});
+        addLog('ok','task', `done: ${ev.title||ev.task_id}`);
+      } else if (ev.type === 'task_error') {
+        if (!_taskResultsMap.has(ev.task_id) || _taskResultsMap.get(ev.task_id).status !== 'done') {
+          _taskResultsMap.set(ev.task_id, {
+            task_id: ev.task_id, title: ev.title||'',
+            status: 'error', output: ev.error||'', steps: []
+          });
+        }
+        addLog('err','task', `error: ${ev.title||ev.task_id} - ${(ev.error||'')}`);
+      } else if (ev.type === 'progress') {
+        setCard(progCard, {pct: ev.pct||0, label: ev.label||''});
+        addLog('info','progress', ev.label||`${ev.pct}%`);
+      } else if (ev.type === 'verify_start' || ev.type === 'verify_result' || ev.type === 'verify_phase') {
+        const vMsg = ev.phase || ev.message || ev.summary || 'Verifying...';
+        const vDetail = ev.summary ? ` (${ev.summary})` : ev.score !== undefined ? ` score:${ev.score}` : '';
+        setCard(progCard, {action: '🔍 ' + vMsg + vDetail});
+        addLog('info','verify', vMsg + vDetail);
+      } else if (ev.type === 'verify_done') {
+        const passed = ev.passed ? '✅ PASS' : '⚠️ WARN';
+        const score = ev.score !== undefined ? ` score:${ev.score}` : '';
+        setCard(progCard, {action: `${passed}${score} — ${ev.summary||''}`});
+        addLog(ev.passed ? 'ok' : 'warn', 'verify', `${passed}${score} ${ev.summary||''}`);
+      } else if (ev.type === 'task_options') {
+        _taskOptionsMap[`${_currentJobId}_${ev.task_id}`] = ev.options || [];
+        showTaskOptions(ev, _currentJobId);
+        addLog('warn','task', `⚠ 4回試行失敗: ${ev.title||''} — 対応案を選択してください`);
+      } else if (ev.type === 'skill_hint') {
+        addLog('warn','skill', `Missing tool: ${ev.missing_tool} — will be proposed`);
+      } else if (ev.type === 'skill_proposals') {
+        const proposals = ev.proposals || [];
+        const stats = ev.stats || {};
+        if (proposals.length) {
+          addLog('info','skill', `Auto-analyzed: ${proposals.length} skill proposals (${stats.tool_calls||0} tool calls, ${stats.errors||0} errors)`);
+          switchTab('skills');
+          const el = document.getElementById('skill-proposals');
+          if (el) {
+            el._proposals = proposals;
+            el.innerHTML = '<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">🔍 Auto-Analyzed Proposals</div>' +
+              proposals.map((p,i) => `
+                <div style="border:1px solid var(--accent-border);border-radius:6px;padding:10px 12px;background:var(--accent-bg);margin-bottom:8px">
+                  <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px">${esc(p.name)}</div>
+                  <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${esc(p.description)}</div>
+                  ${p.rationale ? `<div style="font-size:10px;color:var(--text3);margin-bottom:6px;font-style:italic">${esc(p.rationale)}</div>` : ''}
+                  <details style="margin-bottom:6px"><summary style="font-size:10px;color:var(--text3);cursor:pointer">▶ code</summary>
+                    <pre style="font-size:10px;font-family:var(--font-mono);color:var(--text2);white-space:pre-wrap;word-break:break-all;margin:4px 0 0;padding:6px;background:var(--bg3);border-radius:4px;max-height:160px;overflow-y:auto">${esc(p.tool_code||'')}</pre>
+                  </details>
+                  <div style="display:flex;gap:6px">
+                    <button onclick="saveSkillProposal(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">✓ Save</button>
+                    <button onclick="planSkillImpl(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:600;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">⚙ Implement</button>
+                  </div>
+                </div>`).join('');
+          }
+          refreshSkills();
+        }
+      } else if (ev.type === 'error') {
+        addLog('err','job', ev.error || JSON.stringify(ev));
+      } else if (ev.type === 'plan') {
+        // planイベントでタスクリストを補完（再接続時に有用）
+        if ((ev.tasks||[]).length > allPlannedTasks.length) {
+          allPlannedTasks.splice(0, allPlannedTasks.length, ...ev.tasks);
+          setCard(progCard, {label: `Watching ${allPlannedTasks.length} tasks...`});
+        }
+        addLog('info','plan', `${(ev.tasks||[]).length} tasks received`);
+      }
+    }
+    if (pollData.status === 'done' || pollData.status === 'error') break;
+  }
+
+  // ポーリング終了後、念のりもう一度全ステップを取得（取りこぼし防止）
+  try {
+    const finalPoll = await fetch(
+      API+`/jobs/${jobId}/poll?project=${encodeURIComponent(currentProject)}&after=${_lastSeq}`
+    );
+    const finalData = await finalPoll.json();
+    for (const _step of (finalData.steps || [])) {
+      const ev = {..._step.data, type: _step.type, seq: _step.seq};
+      if (ev.type === 'task_done') {
+        _taskResultsMap.set(ev.task_id, {task_id: ev.task_id, title: ev.title||'', status: 'done', output: ev.output||'', steps: ev.steps||[]});
+      } else if (ev.type === 'task_error') {
+        if (!_taskResultsMap.has(ev.task_id) || _taskResultsMap.get(ev.task_id).status !== 'done') {
+          _taskResultsMap.set(ev.task_id, {task_id: ev.task_id, title: ev.title||'', status: 'error', output: ev.error||'', steps: []});
+        }
+      } else if (ev.type === 'tool_call' || ev.type === 'step') {
+        allSteps.push(ev);
+      }
+    }
+  } catch(e) {}
+  const taskResults = [..._taskResultsMap.values()];
+
+  progCard.remove();
+  stopTimer();
+
+  if (taskResults.length || allPlannedTasks.length) {
+    taskResults.forEach(t => {
+      (t.steps || []).forEach(s => { if (s) allSteps.push(s); });
+    });
+    addTaskBlock(taskResults, allPlannedTasks, {
+      requirements: savedRequirements,
+      approach:     savedApproach,
+      verification: savedVerification,
+      summary:      savedSummary,
+    });
+    if (allSteps.length) addStepsBlock(allSteps);
+    renderStepsToOutput(allSteps);
+  }
+  const doneCount = taskResults.filter(t=>t.status==='done').length;
+  const errCount = taskResults.filter(t=>t.status==='error').length;
+  const totalTasks = allPlannedTasks.length || taskResults.length;
+  const summaryText = errCount > 0
+    ? `${totalTasks}タスク中${doneCount}件完了、${errCount}件エラー`
+    : `${totalTasks}タスク中${doneCount}件完了`;
+  addMsg(doneCount===totalTasks?'assistant':'error', summaryText);
+  addToHistory('assistant', summaryText);
+  detectHtml({tasks: taskResults.map(t=>({steps: t.steps||[]}))});
+}
+
 async function executePlan() {
   if (!pendingPlan) return;
   const card = document.getElementById('plan-approval-card');
@@ -1593,185 +1825,8 @@ async function executePlan() {
       })
     });
     const {job_id: jobId} = await submitRes.json();
-    _currentJobId = jobId;
     addLog('ok','job', `Job submitted: ${jobId}`);
-
-    // ポーリングで進捗取得（SSEよりシンプルで確実）
-    const allPlannedTasks = [...tasks]; // 全計画タスクを保持
-    addLog('info','plan', `Executing ${allPlannedTasks.length} tasks`);
-    let allSteps = [];
-    let _taskResultsMap = new Map(); // task_id → result (重複排除用)
-    let _lastSeq = -1;
-    let _pollCount = 0;
-    const _MAX_POLL = 2880; // 最大24分
-
-    while (_pollCount < _MAX_POLL) {
-      await new Promise(r => setTimeout(r, 500));
-      _pollCount++;
-      let pollData;
-      try {
-        const pr = await fetch(
-          API+`/jobs/${jobId}/poll?project=${encodeURIComponent(currentProject)}&after=${_lastSeq}`
-        );
-        pollData = await pr.json();
-      } catch(e) { console.warn('task poll error', e); continue; }
-
-      for (const _step of (pollData.steps || [])) {
-        _lastSeq = _step.seq;
-        const ev = {..._step.data, type: _step.type, seq: _step.seq};
-        if (ev.type === 'model_switching' || ev.type === 'model_ready' || ev.type === 'model_error') {
-          handleModelSwitchEvent(ev, progCard);
-          const badge = document.getElementById('model-badge');
-          if (badge && ev.type === 'model_ready') {
-            badge.textContent = (ev.message || '').replace('is ready','').trim();
-            badge.style.color = 'var(--text3)';
-          } else if (badge && ev.type === 'model_switching') {
-            badge.style.color = 'var(--amber)';
-          }
-          addLog('info','model', ev.message || ev.type);
-          continue;
-        }
-        // イベントタイプ別処理（インライン）
-        if (ev.type === 'task_start') {
-          const taskNum = (ev.task_index||0)+1;
-          const taskTotal = ev.total||'?';
-          setCard(progCard, {
-            label: 'Task ' + taskNum + '/' + taskTotal + ': ' + (ev.title||''),
-            pct: ev.total ? Math.round((ev.task_index||0)/ev.total*100) : 0,
-            action: ''
-          });
-          addLog('info','task', `[${taskNum}/${taskTotal}] ${ev.title||''}`);
-        } else if (ev.type === 'tool_call' || ev.type === 'step') {
-          allSteps.push(ev);
-          const _ptok = ev.prompt_tokens||0;
-          const _ctok = ev.completion_tokens||0;
-          const _ctxStr = _ptok > 0 ? `${_ptok+_ctok}/${_current_n_ctx_ui||'?'}` : '--/--';
-          setCard(progCard, {
-            action:  (ev.action||'') + ': ' + (ev.thought||''),
-            tps:     ev.tps||0,
-            ctx:     _ctxStr,
-            stepNum: ev.step_num ? `${ev.step_num}/${ev.max_steps||'?'}` : '-/-',
-          });
-          addLog('info','tool', `${ev.action||''}: ${(ev.thought||'')}`);
-        } else if (ev.type === 'task_done') {
-          _taskResultsMap.set(ev.task_id, {
-            task_id: ev.task_id, title: ev.title||'',
-            status: 'done', output: ev.output||'', steps: ev.steps||[]
-          });
-          if (allPlannedTasks.length) setCard(progCard, {pct: Math.round(_taskResultsMap.size/allPlannedTasks.length*100)});
-          addLog('ok','task', `done: ${ev.title||ev.task_id}`);
-        } else if (ev.type === 'task_error') {
-          // 既にdone（リトライ成功）の場合は上書きしない
-          if (!_taskResultsMap.has(ev.task_id) || _taskResultsMap.get(ev.task_id).status !== 'done') {
-            _taskResultsMap.set(ev.task_id, {
-              task_id: ev.task_id, title: ev.title||'',
-              status: 'error', output: ev.error||'', steps: []
-            });
-          }
-          addLog('err','task', `error: ${ev.title||ev.task_id} - ${(ev.error||'')}`);
-        } else if (ev.type === 'progress') {
-          setCard(progCard, {pct: ev.pct||0, label: ev.label||''});
-          addLog('info','progress', ev.label||`${ev.pct}%`);
-        } else if (ev.type === 'verify_start' || ev.type === 'verify_result' || ev.type === 'verify_phase') {
-          const vMsg = ev.phase || ev.message || ev.summary || 'Verifying...';
-          const vDetail = ev.summary ? ` (${ev.summary})` : ev.score !== undefined ? ` score:${ev.score}` : '';
-          setCard(progCard, {action: '🔍 ' + vMsg + vDetail});
-          addLog('info','verify', vMsg + vDetail);
-        } else if (ev.type === 'verify_done') {
-          const passed = ev.passed ? '✅ PASS' : '⚠️ WARN';
-          const score = ev.score !== undefined ? ` score:${ev.score}` : '';
-          setCard(progCard, {action: `${passed}${score} — ${ev.summary||''}`});
-          addLog(ev.passed ? 'ok' : 'warn', 'verify', `${passed}${score} ${ev.summary||''}`);
-        } else if (ev.type === 'task_options') {
-          // 全フォールバック失敗 → ユーザーに対応案を選択させる
-          _taskOptionsMap[`${_currentJobId}_${ev.task_id}`] = ev.options || [];
-          showTaskOptions(ev, _currentJobId);
-          addLog('warn','task', `⚠ 4回試行失敗: ${ev.title||''} — 対応案を選択してください`);
-        } else if (ev.type === 'skill_hint') {
-          addLog('warn','skill', `Missing tool: ${ev.missing_tool} — will be proposed`);
-        } else if (ev.type === 'skill_proposals') {
-          // サーバー側分析による自動スキル提案
-          const proposals = ev.proposals || [];
-          const stats = ev.stats || {};
-          if (proposals.length) {
-            addLog('info','skill', `Auto-analyzed: ${proposals.length} skill proposals (${stats.tool_calls||0} tool calls, ${stats.errors||0} errors)`);
-            switchTab('skills');
-            const el = document.getElementById('skill-proposals');
-            if (el) {
-              el._proposals = proposals;
-              el.innerHTML = '<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">🔍 Auto-Analyzed Proposals</div>' +
-                proposals.map((p,i) => `
-                  <div style="border:1px solid var(--accent-border);border-radius:6px;padding:10px 12px;background:var(--accent-bg);margin-bottom:8px">
-                    <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px">${esc(p.name)}</div>
-                    <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${esc(p.description)}</div>
-                    ${p.rationale ? `<div style="font-size:10px;color:var(--text3);margin-bottom:6px;font-style:italic">${esc(p.rationale)}</div>` : ''}
-                    <details style="margin-bottom:6px"><summary style="font-size:10px;color:var(--text3);cursor:pointer">▶ code</summary>
-                      <pre style="font-size:10px;font-family:var(--font-mono);color:var(--text2);white-space:pre-wrap;word-break:break-all;margin:4px 0 0;padding:6px;background:var(--bg3);border-radius:4px;max-height:160px;overflow-y:auto">${esc(p.tool_code||'')}</pre>
-                    </details>
-                    <div style="display:flex;gap:6px">
-                      <button onclick="saveSkillProposal(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">✓ Save</button>
-                      <button onclick="planSkillImpl(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:600;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">⚙ Implement</button>
-                    </div>
-                  </div>`).join('');
-            }
-            refreshSkills();
-          }
-        } else if (ev.type === 'error') {
-          addLog('err','job', ev.error || JSON.stringify(ev));
-        } else if (ev.type === 'plan') {
-          addLog('info','plan', `${(ev.tasks||[]).length} tasks received`);
-        }
-      }
-      if (pollData.status === 'done' || pollData.status === 'error') break;
-    }
-
-    // ポーリング終了後、念のりもう一度全ステップを取得（取りこぼし防止）
-    try {
-      const finalPoll = await fetch(
-        API+`/jobs/${jobId}/poll?project=${encodeURIComponent(currentProject)}&after=${_lastSeq}`
-      );
-      const finalData = await finalPoll.json();
-      for (const _step of (finalData.steps || [])) {
-        const ev = {..._step.data, type: _step.type, seq: _step.seq};
-        if (ev.type === 'task_done') {
-          _taskResultsMap.set(ev.task_id, {task_id: ev.task_id, title: ev.title||'', status: 'done', output: ev.output||'', steps: ev.steps||[]});
-        } else if (ev.type === 'task_error') {
-          if (!_taskResultsMap.has(ev.task_id) || _taskResultsMap.get(ev.task_id).status !== 'done') {
-            _taskResultsMap.set(ev.task_id, {task_id: ev.task_id, title: ev.title||'', status: 'error', output: ev.error||'', steps: []});
-          }
-        } else if (ev.type === 'tool_call' || ev.type === 'step') {
-          allSteps.push(ev);
-        }
-      }
-    } catch(e) {}
-    const taskResults = [..._taskResultsMap.values()]; // final pollの成否に関わらずMap→配列化
-
-    progCard.remove();
-    stopTimer();
-
-    if (taskResults.length || allPlannedTasks.length) {
-      // task_done内のstepsもallStepsに追加（Outputタブに表示するため）
-      taskResults.forEach(t => {
-        (t.steps || []).forEach(s => { if (s) allSteps.push(s); });
-      });
-      addTaskBlock(taskResults, allPlannedTasks, {
-        requirements: savedRequirements,
-        approach:     savedApproach,
-        verification: savedVerification,
-        summary:      savedSummary,
-      });
-      if (allSteps.length) addStepsBlock(allSteps);
-      renderStepsToOutput(allSteps);
-    }
-    const doneCount = taskResults.filter(t=>t.status==='done').length;
-    const errCount = taskResults.filter(t=>t.status==='error').length;
-    const totalTasks = allPlannedTasks.length || taskResults.length;
-    const summaryText = errCount > 0
-      ? `${totalTasks}タスク中${doneCount}件完了、${errCount}件エラー`
-      : `${totalTasks}タスク中${doneCount}件完了`;
-    addMsg(doneCount===totalTasks?'assistant':'error', summaryText);
-    addToHistory('assistant', summaryText);
-    detectHtml({tasks: taskResults.map(t=>({steps: t.steps||[]}))});
+    await _watchJobPolling(jobId, [...tasks], {savedRequirements, savedApproach, savedVerification, savedSummary}, progCard, false);
 
   } catch(e) {
     progCard.remove(); stopTimer();
