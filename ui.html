@@ -627,6 +627,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     <button class="hdr-icon-btn" id="search-toggle" onclick="toggleSearch()" title="Web Search: OFF — click to enable">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     </button>
+    <button class="hdr-icon-btn" id="streaming-toggle" onclick="toggleStreaming()" title="LLM Streaming: ON — click to disable" style="font-size:14px;opacity:1">⚡</button>
     <button class="hdr-icon-btn" id="llm-btn" onclick="openLLMManager()" title="LLM Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
     </button>
@@ -864,6 +865,7 @@ let currentProject = 'default';
 let htmlFiles = [];
 let editorOpen = false;
 let searchEnabled = false;
+let streamingEnabled = true;  // サーバーデフォルトと同期
 let activeLlmUrl = '';    // 空文字 = サーバーデフォルト(LLM_URL)
 let llmEndpoints = [];    // {name, url, status:'ok'|'err'|'unk'}
 let pendingPlan = null;   // 承認待ちのプラン
@@ -889,6 +891,7 @@ addEventListener('load', async () => {
   loadProjects();
   loadLLMEndpoints();
   initSearch();
+  initStreaming();
   initCtxSlider();
   refreshSkills();
   initStepsSlider();
@@ -1642,8 +1645,14 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
           action: ''
         });
         addLog('info','task', `[${taskNum}/${taskTotal}] ${ev.title||''}`);
+      } else if (ev.type === 'llm_streaming') {
+        // ストリーミングモード: TPS・token数をリアルタイム更新
+        setCard(progCard, {
+          action: `⚡ 生成中... ${ev.tokens||0} tok`,
+          tps: ev.tps || 0,
+        });
       } else if (ev.type === 'llm_thinking') {
-        // LLMが次のアクションを生成中
+        // 非ストリーミングモード: 生成中インジケータ
         setCard(progCard, {
           action: '🤔 考え中...',
           stepNum: ev.step_num ? `${ev.step_num}/${ev.max_steps||'?'}` : '-/-',
@@ -2446,6 +2455,34 @@ function applySearchUI(enabled) {
   btn.classList.toggle('search-on', enabled);
   btn.style.opacity = enabled ? '1' : '0.4';
   btn.title = enabled ? 'Web Search: ON — click to disable' : 'Web Search: OFF — click to enable';
+}
+
+// ── STREAMING TOGGLE ──
+async function initStreaming() {
+  try {
+    const r = await fetch(API + '/streaming/status');
+    const d = await r.json();
+    applyStreamingUI(d.enabled);
+  } catch(e) {}
+}
+
+async function toggleStreaming() {
+  const next = !streamingEnabled;
+  try {
+    const r = await fetch(API + (next ? '/streaming/enable' : '/streaming/disable'), {method: 'POST'});
+    const d = await r.json();
+    applyStreamingUI(d.enabled);
+    addLog(d.enabled ? 'ok' : 'warn', 'streaming',
+      d.enabled ? 'LLMストリーミング有効 — TPS/tokenがリアルタイム表示' : 'LLMストリーミング無効 — 生成完了まで待機');
+  } catch(e) { addLog('err', 'streaming', e.message); }
+}
+
+function applyStreamingUI(enabled) {
+  streamingEnabled = enabled;
+  const btn = document.getElementById('streaming-toggle');
+  if (!btn) return;
+  btn.style.opacity = enabled ? '1' : '0.35';
+  btn.title = enabled ? 'LLM Streaming: ON — click to disable' : 'LLM Streaming: OFF — click to enable';
 }
 
 // ── LLM MANAGER ──

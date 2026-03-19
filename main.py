@@ -71,6 +71,11 @@ _search_enabled = False
 _search_num_results: int = 5  # デフォルト5件
 
 # =========================
+# LLMストリーミング 有効/無効フラグ（デフォルトON）
+# =========================
+_llm_streaming: bool = True
+
+# =========================
 # ModelManager（動的モデル切り替え）
 # =========================
 
@@ -1588,6 +1593,87 @@ def call_llm_chat(messages: list, llm_url: str = "") -> tuple:
             raise HTTPException(status_code=502, detail=f"LLM unreachable after retry ({url}): {e2}")
     except requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"LLM unreachable ({url}): {e}")
+
+
+def call_llm_chat_streaming(messages: list, llm_url: str = ""):
+    """
+    stream=True でLLMを呼び出すジェネレータ。
+    - 生成中: {"type":"llm_streaming","tps":N,"tokens":N} を約1秒ごとにyield
+    - 完了時: {"type":"llm_done","content":str,"usage":dict} をyield
+    - エラー時: {"type":"llm_error","status_code":N,"error":str} をyield
+    """
+    import time as _t
+    url = llm_url.strip() or LLM_URL
+    max_tokens = min(_current_n_ctx - _estimate_tokens(messages) - 64, 32768)
+    payload = {
+        "messages": messages,
+        "temperature": 0.7,
+        "max_tokens": max_tokens,
+        "stream": True,
+    }
+    if _model_manager.current_parser == "qwen_think":
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
+
+    t0 = _t.perf_counter()
+    last_emit = t0
+    content = ""
+    comp_tokens = 0
+    prompt_tokens = 0
+
+    try:
+        with requests.post(url, json=payload, stream=True, timeout=600) as resp:
+            if resp.status_code >= 400:
+                yield {"type": "llm_error", "status_code": resp.status_code,
+                       "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+                return
+            for raw_line in resp.iter_lines():
+                line = (raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line).strip()
+                if not line or not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                except Exception:
+                    continue
+                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                token_text = delta.get("content") or delta.get("reasoning_content") or ""
+                content += token_text
+                # llama.cppは最終チャンクにusageを含める
+                if chunk.get("usage"):
+                    u = chunk["usage"]
+                    prompt_tokens = u.get("prompt_tokens", 0)
+                    comp_tokens = u.get("completion_tokens", 0)
+                elif token_text:
+                    comp_tokens += 1  # usageが来るまでの近似カウント
+                # 約1秒ごとにTPS進捗を通知（DB書き込み負荷を抑えるため）
+                now = _t.perf_counter()
+                if now - last_emit >= 1.0:
+                    elapsed = now - t0
+                    tps = round(comp_tokens / elapsed, 1) if elapsed > 0 else 0
+                    yield {"type": "llm_streaming", "tps": tps, "tokens": comp_tokens}
+                    last_emit = now
+    except requests.exceptions.ReadTimeout:
+        yield {"type": "llm_error", "status_code": 408, "error": "LLM timeout (streaming)"}
+        return
+    except requests.RequestException as e:
+        yield {"type": "llm_error", "status_code": 502, "error": str(e)}
+        return
+
+    elapsed = _t.perf_counter() - t0
+    if comp_tokens == 0:
+        comp_tokens = max(1, len(content.split()))
+    tps = round(comp_tokens / elapsed, 1) if elapsed > 0 and comp_tokens > 0 else 0
+    yield {
+        "type": "llm_done",
+        "content": content,
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": comp_tokens,
+            "tps": tps,
+        }
+    }
 
 
 def call_llm(messages: list, llm_url: str = "") -> tuple:
@@ -3361,22 +3447,55 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
 
     for step in range(max_steps):
         messages = _trim_messages(messages, _current_n_ctx, reserve_output=4096)
-        # LLM生成開始を通知（フロントエンドで「考え中」表示に使う）
-        yield {"type": "llm_thinking", "step_num": step + 1, "max_steps": max_steps}
-        try:
-            reply, usage = call_llm_chat(messages, llm_url=llm_url)
-        except HTTPException as _ctx_ex:
-            if _ctx_ex.status_code == 413:
-                print(f"[execute_task_stream] context exceeded, force trimming...")
-                messages = _trim_messages(messages, _current_n_ctx // 2, reserve_output=2048)
-                try:
-                    reply, usage = call_llm_chat(messages, llm_url=llm_url)
-                except Exception as _e2:
-                    yield {"type": "task_error", "error": f"Context exceeded after trim: {_e2}", "steps": steps}
+
+        if _llm_streaming:
+            # ストリーミングモード: トークン生成中にTPS/tokenをリアルタイム通知
+            reply, usage = None, {"prompt_tokens": 0, "completion_tokens": 0, "tps": 0}
+            try:
+                for _sev in call_llm_chat_streaming(messages, llm_url=llm_url):
+                    if _sev["type"] == "llm_streaming":
+                        yield _sev  # フロントエンドへTPS進捗を転送
+                    elif _sev["type"] == "llm_done":
+                        reply, usage = _sev["content"], _sev["usage"]
+                    elif _sev["type"] == "llm_error":
+                        raise HTTPException(
+                            status_code=_sev.get("status_code", 502),
+                            detail=_sev["error"]
+                        )
+            except HTTPException as _ctx_ex:
+                if _ctx_ex.status_code == 413:
+                    print(f"[execute_task_stream] context exceeded (stream), force trimming...")
+                    messages = _trim_messages(messages, _current_n_ctx // 2, reserve_output=2048)
+                    for _sev in call_llm_chat_streaming(messages, llm_url=llm_url):
+                        if _sev["type"] == "llm_done":
+                            reply, usage = _sev["content"], _sev["usage"]
+                        elif _sev["type"] == "llm_error":
+                            yield {"type": "task_error", "error": f"Context exceeded after trim: {_sev['error']}", "steps": steps}
+                            return
+                    if reply is None:
+                        yield {"type": "task_error", "error": "Context exceeded after trim", "steps": steps}
+                        return
+                else:
+                    yield {"type": "task_error", "error": str(_ctx_ex.detail), "steps": steps}
                     return
-            else:
-                yield {"type": "task_error", "error": str(_ctx_ex.detail), "steps": steps}
-                return
+        else:
+            # 非ストリーミングモード: 生成中は「考え中」を表示
+            yield {"type": "llm_thinking", "step_num": step + 1, "max_steps": max_steps}
+            try:
+                reply, usage = call_llm_chat(messages, llm_url=llm_url)
+            except HTTPException as _ctx_ex:
+                if _ctx_ex.status_code == 413:
+                    print(f"[execute_task_stream] context exceeded, force trimming...")
+                    messages = _trim_messages(messages, _current_n_ctx // 2, reserve_output=2048)
+                    try:
+                        reply, usage = call_llm_chat(messages, llm_url=llm_url)
+                    except Exception as _e2:
+                        yield {"type": "task_error", "error": f"Context exceeded after trim: {_e2}", "steps": steps}
+                        return
+                else:
+                    yield {"type": "task_error", "error": str(_ctx_ex.detail), "steps": steps}
+                    return
+
         action_obj = extract_json(reply)
 
         if action_obj is None:
@@ -3748,6 +3867,28 @@ def search_disable():
     global _search_enabled
     _search_enabled = False
     print("[SEARCH] Web search DISABLED by user")
+    return {"enabled": False}
+
+# =========================
+# LLMストリーミング 有効/無効 API
+# =========================
+
+@app.get("/streaming/status")
+def streaming_status():
+    return {"enabled": _llm_streaming}
+
+@app.post("/streaming/enable")
+def streaming_enable():
+    global _llm_streaming
+    _llm_streaming = True
+    print("[STREAMING] LLM streaming ENABLED")
+    return {"enabled": True}
+
+@app.post("/streaming/disable")
+def streaming_disable():
+    global _llm_streaming
+    _llm_streaming = False
+    print("[STREAMING] LLM streaming DISABLED")
     return {"enabled": False}
 
 # =========================
