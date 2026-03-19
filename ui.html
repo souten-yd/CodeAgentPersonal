@@ -1,0 +1,2520 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>CodeAgent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script>
+// ── SKILL MANAGEMENT ──
+
+function showTaskOptions(ev, jobId) {
+  const options = ev.options || [];
+  const autoChosen = ev.auto_chosen;
+  const autoReason = ev.auto_reason || '';
+  const taskId  = ev.task_id;
+  const w = messages();
+  const d = document.createElement('div');
+  d.className = 'msg system';
+  d.id = `task-options-${taskId}`;
+
+  const diffColor = {'easy':'var(--accent)','medium':'var(--amber)','hard':'var(--red)'};
+  // 自動選択済みの場合はハイライト表示
+  const optHtml = options.map((o,i) => `
+    <div style="border:1px solid var(--border2);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--bg2)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <span style="font-size:12px;font-weight:700;color:var(--text)">${esc(o.title)}</span>
+        <span style="font-size:10px;padding:1px 6px;border-radius:10px;border:1px solid ${diffColor[o.difficulty]||'var(--border2)'};color:${diffColor[o.difficulty]||'var(--text3)'}">${o.difficulty||''}</span>
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">${esc(o.description||'')}</div>
+      <button onclick="chooseTaskOption('${jobId}',${taskId},${i})" 
+        style="width:100%;padding:6px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">
+        ▶ この案で実行
+      </button>
+    </div>`).join('');
+
+  const autoNote = autoChosen
+    ? `<div style="font-size:11px;padding:6px 8px;background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:4px;margin-bottom:8px;color:var(--accent)">🤖 プランナーLLMが案${autoChosen}を自動選択: ${esc(autoReason)}</div>`
+    : '';
+  const selectionLabel = autoChosen ? '確認・変更（実行済み）' : '対応案を選択してください';
+  d.innerHTML = `
+    <div class="msg-role" style="color:${autoChosen ? 'var(--accent)' : 'var(--amber)'}">
+      ${autoChosen ? '🤖 自動選択して実行' : '⚠ 対応案の選択が必要'}
+    </div>
+    <div style="padding:10px 12px">
+      <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px">タスク: ${esc(ev.title||'')}</div>
+      <div style="font-size:11px;color:var(--red);margin-bottom:8px;word-break:break-all">${esc((ev.error||'').slice(0,120))}</div>
+      ${autoNote}
+      <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">${selectionLabel}</div>
+      ${optHtml}
+    </div>`;
+  w.appendChild(d);
+  scrollMsgs();
+
+  // プログレスカードを「選択待ち」に更新
+  if (typeof progCard !== 'undefined' && progCard) {
+    setCard(progCard, {action: '⏸ ユーザー選択待ち: ' + esc(ev.title||'')});
+  }
+}
+
+async function chooseTaskOption(jobId, taskId, optIdx) {
+  const card = document.getElementById(`task-options-${taskId}`);
+  if (!card) return;
+  const btns = card.querySelectorAll('button');
+  const btn = btns[optIdx];
+  if (!btn) return;
+
+  // 選択したオプションデータを取得
+  // task_optionsイベントのoptionsは_taskOptionsMapに保存しておく
+  const opts = _taskOptionsMap[`${jobId}_${taskId}`] || [];
+  const chosen = opts[optIdx];
+  if (!chosen) return;
+
+  btn.disabled = true;
+  btn.textContent = '⟳ 送信中...';
+  btns.forEach((b,i) => { if(i!==optIdx) b.disabled = true; });
+
+  try {
+    await fetch(API+`/jobs/${jobId}/respond`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        task_id: taskId,
+        option: chosen,
+        project: currentProject
+      })
+    });
+    btn.textContent = '✓ 選択済み';
+    card.style.opacity = '0.6';
+    addLog('ok','task', `選択: ${chosen.title}`);
+  } catch(e) {
+    btn.textContent = 'エラー';
+    addLog('err','task', `option send error: ${e.message}`);
+  }
+}
+
+const _taskOptionsMap = {};  // jobId_taskId -> options array
+
+async function refreshSkills() {
+  try {
+    const r = await fetch(API+'/skills');
+    const d = await r.json();
+    renderSkills(d.skills || []);
+  } catch(e) { console.warn('skills fetch error', e); }
+}
+
+function renderSkills(skills) {
+  const el = document.getElementById('skills-list');
+  if (!el) return;
+  if (!skills.length) {
+    el.innerHTML = `<div style="font-size:11px;color:var(--text3);padding:8px;line-height:1.8">
+      スキルなし。<br>
+      <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">C:\\AI\\skills\\スキル名\\SKILL.md</code> に配置するか、<br>
+      タスク完了後の提案から保存できます。
+    </div>`;
+    return;
+  }
+  el.innerHTML = skills.map(s => {
+    const isCa = s.source === 'codeagent';
+    const srcBadge = isCa
+      ? `<span style="font-size:9px;color:var(--blue);padding:1px 5px;border:1px solid rgba(68,136,255,.3);border-radius:3px">⚙ CodeAgent</span>`
+      : `<span style="font-size:9px;color:var(--text3);padding:1px 5px;border:1px solid var(--border);border-radius:3px">👤 user</span>`;
+    const kws = (s.keywords||[]).map(k =>
+      `<span style="background:var(--bg3);padding:1px 5px;border-radius:3px;font-size:10px">${esc(k)}</span>`
+    ).join(' ');
+    return `
+    <div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;background:var(--bg2)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span style="font-size:12px;font-weight:700;color:var(--accent);font-family:var(--font-mono)">${esc(s.name)}</span>
+          ${srcBadge}
+          <span style="font-size:9px;color:var(--text3)">v${esc(s.version||'1.0')}</span>
+        </div>
+        <div style="display:flex;gap:5px;align-items:center;flex-shrink:0">
+          <span style="font-size:10px;color:var(--text3)">×${s.usage_count||0}</span>
+          <button onclick="deleteSkill('${esc(s.name)}')" style="font-size:10px;padding:1px 6px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:3px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:5px">${esc(s.description)}</div>
+      ${kws ? `<div style="margin-bottom:5px;display:flex;flex-wrap:wrap;gap:3px">${kws}</div>` : ''}
+      <div style="display:flex;gap:5px;margin-top:5px">
+        <button onclick="proposeSkillImprovement('${esc(s.name)}')" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">↑ Improve</button>
+        <button onclick="testSkill('${esc(s.name)}')" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">▶ Test</button>
+      </div>
+      ${s.tool_code ? `<details style="margin-top:6px">
+        <summary style="font-size:10px;color:var(--text3);cursor:pointer">▶ SKILL.md code</summary>
+        <pre style="font-size:10px;font-family:var(--font-mono);color:var(--text2);white-space:pre-wrap;word-break:break-all;margin:4px 0 0 0;padding:6px;background:var(--bg3);border-radius:4px;overflow-x:auto;max-height:180px">${esc(s.tool_code)}</pre>
+      </details>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function deleteSkill(name) {
+  if (!confirm('Delete skill: ' + name + '?')) return;
+  await fetch(API+'/skills/'+encodeURIComponent(name), {method:'DELETE'});
+  refreshSkills();
+}
+
+</script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0b;--bg1:#111113;--bg2:#18181c;--bg3:#222228;
+  --border:#2a2a32;--border2:#3a3a46;
+  --text:#e8e8f0;--text2:#8888a0;--text3:#4a4a60;
+  --accent:#00ff88;--accent-bg:rgba(0,255,136,.07);--accent-border:rgba(0,255,136,.22);
+  --blue:#4488ff;--blue-bg:rgba(68,136,255,.09);
+  --red:#ff4466;--amber:#ffaa00;
+  --font-ui:'Syne',sans-serif;--font-mono:'DM Mono',monospace;
+  --r:8px;--r2:12px;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font-ui)}
+body{display:flex;flex-direction:column;overflow:hidden}
+
+/* ── HEADER ── */
+header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 14px;
+  padding-left:max(14px, env(safe-area-inset-left));
+  padding-right:max(14px, env(safe-area-inset-right));
+  height:52px;
+  border-bottom:1px solid var(--border);
+  background:var(--bg1);
+  flex-shrink:0;position:relative;z-index:20
+}
+.logo{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:700;letter-spacing:.05em}
+.logo-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.hdr-mid{display:flex;align-items:center;gap:6px}
+.proj-btn{display:flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:5px 10px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);transition:border-color .15s;user-select:none}
+.proj-btn:hover{border-color:var(--border2);color:var(--text)}
+.proj-name{max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mode-wrap{display:flex;background:var(--bg2);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.mode-btn{padding:5px 12px;font-size:12px;font-weight:600;font-family:var(--font-ui);letter-spacing:.04em;cursor:pointer;border:none;background:transparent;color:var(--text2);transition:all .15s}
+.mode-btn.active{background:var(--bg3);color:var(--text)}
+.hdr-right{display:flex;align-items:center;gap:8px}
+.search-toggle{
+  display:flex;align-items:center;gap:5px;
+  padding:5px 10px;border-radius:6px;
+  border:1px solid var(--border);background:var(--bg2);
+  color:var(--text2);font-family:var(--font-ui);font-size:11px;font-weight:600;
+  cursor:pointer;transition:all .2s;letter-spacing:.03em;flex-shrink:0;
+}
+.search-toggle:hover{border-color:var(--border2);color:var(--text)}
+.search-toggle.on{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
+.search-toggle #search-icon{font-size:12px}
+.sdot{width:6px;height:6px;border-radius:50%;background:var(--text3);transition:all .3s;flex-shrink:0}
+.tok-display{display:none}
+@media(max-width:480px){.tok-display span.tok-label{display:none}}
+.sdot.ok{background:var(--accent);box-shadow:0 0 6px var(--accent)}
+.sdot.warn{background:var(--amber)}.sdot.err{background:var(--red)}
+.stext{font-size:11px;font-family:var(--font-mono);color:var(--text2)}
+
+/* ── MOBILE TABS (≤768px only) ── */
+.mob-tabs{display:none;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0}
+.mob-tab{flex:1;padding:10px 4px;text-align:center;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--text2);cursor:pointer;border:none;background:transparent;font-family:var(--font-ui);border-bottom:2px solid transparent;transition:all .15s}
+.mob-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+@media(max-width:768px){
+  .mob-tabs{display:flex}
+  .panel-tabs{display:none !important}  /* ← iPhone二重タブ修正 */
+}
+
+/* ── LAYOUT ── */
+.app-body{
+  display:flex;flex:1;overflow:hidden;
+  height:calc(100vh - 52px);
+  height:calc(100dvh - 52px);/* iOS Safari dynamic viewport */
+}
+@media(max-width:768px){
+  .app-body{
+    height:calc(100vh - 52px - 44px);
+    height:calc(100dvh - 52px - 44px);
+  }
+  .chat-col{
+    /* flex layout: messages flex-grow, input always visible at bottom */
+    display:flex!important;flex-direction:column!important;
+    height:100%;max-height:100%;
+  }
+  .panel-col{height:100%;max-height:100%;display:flex;flex-direction:column}
+  .mob-hidden{display:none!important}
+}
+@media(min-width:769px){
+  .chat-col{width:520px;flex-shrink:0;border-right:1px solid var(--border)}
+  .panel-col{flex:1}
+}
+
+/* ── CHAT COL ── */
+.chat-col{display:flex;flex-direction:column;background:var(--bg1);overflow:hidden;min-height:0}
+.messages{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
+.messages::-webkit-scrollbar{width:3px}
+.messages::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* messages */
+.msg{display:flex;flex-direction:column;gap:3px;animation:msgIn .18s ease}
+@keyframes msgIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.msg-role{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);padding:0 4px}
+.msg.user .msg-role{color:var(--blue);text-align:right}
+.msg.user{align-items:flex-end}
+.msg-bubble{max-width:92%;padding:9px 13px;border-radius:var(--r2);font-size:13px;line-height:1.6;border:1px solid var(--border);background:var(--bg2);color:var(--text);white-space:pre-wrap;word-break:break-word}
+/* plan-cardを含むsystemメッセージは幅を広げる */
+.msg.system{width:100%}
+.msg.system .msg-bubble{max-width:100%;padding:0;border:none;background:transparent}
+.msg.user .msg-bubble{background:var(--blue-bg);border-color:rgba(68,136,255,.25)}
+.msg.system .msg-bubble{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent);font-family:var(--font-mono);font-size:12px}
+.msg.error .msg-bubble{background:rgba(255,68,102,.08);border-color:rgba(255,68,102,.25);color:var(--red);font-family:var(--font-mono);font-size:12px}
+.msg.history .msg-bubble{opacity:.7;border-style:dashed}
+.msg.user:hover .msg-edit-btn{opacity:1}
+.msg-edit-btn{opacity:0;transition:opacity .15s;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text3);font-size:10px;font-weight:600;font-family:var(--font-ui);padding:2px 7px;cursor:pointer;margin-top:4px;align-self:flex-end}
+.msg-edit-btn:hover{border-color:var(--blue);color:var(--blue)}
+.msg-edit-area{width:92%;background:var(--blue-bg);border:1px solid rgba(68,136,255,.4);border-radius:var(--r2);padding:8px 10px;font-family:var(--font-ui);font-size:13px;color:var(--text);resize:none;outline:none;line-height:1.5;margin-top:4px}
+.msg-edit-actions{display:flex;gap:6px;margin-top:4px;justify-content:flex-end;width:92%}
+.msg-edit-send{padding:5px 14px;background:var(--blue);border:none;border-radius:6px;color:#fff;font-family:var(--font-ui);font-size:12px;font-weight:600;cursor:pointer}
+.msg-edit-cancel{padding:5px 10px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text2);font-family:var(--font-ui);font-size:12px;cursor:pointer}
+.msg-ts{font-size:10px;color:var(--text3);padding:0 4px;font-family:var(--font-mono)}
+
+/* ── MARKDOWN RENDERING ── */
+.md h1,.md h2,.md h3,.md h4{font-weight:600;margin:.7em 0 .3em;color:var(--text)}
+.md h1{font-size:16px}.md h2{font-size:15px}.md h3{font-size:14px}
+.md p{margin:.4em 0;line-height:1.65}
+.md p:first-child{margin-top:0}.md p:last-child{margin-bottom:0}
+.md ul,.md ol{padding-left:18px;margin:.4em 0}
+.md li{margin:.2em 0;line-height:1.6}
+.md code{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-family:var(--font-mono);font-size:12px;color:var(--accent)}
+.md pre{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;overflow-x:auto;margin:.5em 0}
+.md pre code{background:none;border:none;padding:0;color:var(--text2);font-size:12px;line-height:1.7}
+.md blockquote{border-left:3px solid var(--accent-border);margin:.4em 0;padding:.3em 10px;color:var(--text2);background:var(--accent-bg);border-radius:0 var(--r) var(--r) 0}
+.md table{border-collapse:collapse;width:100%;margin:.5em 0;font-size:12px}
+.md th,.md td{border:1px solid var(--border);padding:5px 10px;text-align:left}
+.md th{background:var(--bg3);font-weight:600;color:var(--text)}
+.md td{color:var(--text2)}
+.md tr:nth-child(even) td{background:rgba(255,255,255,.02)}
+.md a{color:var(--blue);text-decoration:none}.md a:hover{text-decoration:underline}
+.md hr{border:none;border-top:1px solid var(--border);margin:.6em 0}
+.md strong{font-weight:600;color:var(--text)}
+.md em{font-style:italic;color:var(--text2)}
+
+/* MDトグルボタン */
+.md-toggle{
+  display:inline-flex;align-items:center;gap:4px;
+  margin-top:5px;padding:2px 8px;border-radius:4px;
+  border:1px solid var(--border);background:transparent;
+  font-size:10px;font-weight:600;color:var(--text3);
+  cursor:pointer;font-family:var(--font-ui);letter-spacing:.04em;
+  transition:all .15s;
+}
+.md-toggle:hover{border-color:var(--border2);color:var(--text2)}
+.md-toggle.active{border-color:var(--accent-border);color:var(--accent);background:var(--accent-bg)}
+
+/* steps */
+.steps-block{border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-top:3px}
+.steps-hdr{display:flex;align-items:center;justify-content:space-between;padding:6px 11px;background:var(--bg3);cursor:pointer;font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--text2);user-select:none}
+.steps-hdr:hover{color:var(--text)}
+.steps-body{display:none}
+.steps-body.open{display:block}
+.step-item{display:flex;gap:7px;padding:5px 11px;border-top:1px solid var(--border);font-size:11px;font-family:var(--font-mono)}
+.step-action{color:var(--accent);font-weight:500}
+.step-thought{color:var(--text2);font-size:10px;margin-top:1px}
+.step-result{color:var(--text3);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px}
+
+/* task blocks */
+.task-block{border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-top:3px}
+.task-item{display:flex;align-items:center;gap:9px;padding:7px 11px;border-top:1px solid var(--border);font-size:12px}
+.task-item:first-child{border-top:none}
+.tbadge{font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;letter-spacing:.04em;text-transform:uppercase}
+.bd-done{background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-border)}
+.bd-err{background:rgba(255,68,102,.1);color:var(--red);border:1px solid rgba(255,68,102,.25)}
+.bd-skip{background:var(--bg3);color:var(--text3);border:1px solid var(--border)}
+.bd-run{background:rgba(255,170,0,.1);color:var(--amber);border:1px solid rgba(255,170,0,.25)}
+
+/* ── PLAN APPROVAL CARD ── */
+.plan-card{border:1px solid var(--accent-border);border-radius:var(--r2);background:var(--accent-bg);margin-top:3px;overflow:hidden;width:100%}
+.plan-card-header{padding:10px 13px;font-size:13px;font-weight:700;color:var(--accent);letter-spacing:.05em;border-bottom:1px solid var(--accent-border);display:flex;align-items:center;gap:8px;word-break:break-word;white-space:normal;flex-wrap:wrap}
+.plan-tasks{padding:8px 0}
+.plan-task-row{display:flex;align-items:flex-start;gap:8px;padding:6px 13px;border-bottom:1px solid rgba(0,255,136,.08)}
+.plan-task-row:last-child{border-bottom:none}
+.plan-task-num{flex-shrink:0;width:20px;height:20px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);font-size:10px;font-weight:700;color:var(--text2);display:flex;align-items:center;justify-content:center;margin-top:1px}
+.plan-task-content{flex:1;min-width:0}
+.plan-task-title{font-size:12px;font-weight:600;color:var(--text);margin-bottom:2px}
+.plan-task-detail{font-size:12px;color:var(--text2);line-height:1.5;word-break:break-word;white-space:pre-wrap}
+.plan-task-edit{flex-shrink:0;padding:3px 8px;font-size:10px;font-weight:600;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text2);cursor:pointer;font-family:var(--font-ui);transition:all .15s}
+.plan-task-edit:hover{border-color:var(--border2);color:var(--text)}
+/* ── CLARIFY CARD ── */
+.clarify-card{border:1px solid var(--amber);border-radius:var(--r2);background:rgba(255,170,0,.06);margin-top:3px;overflow:hidden;width:100%}
+.clarify-header{padding:10px 13px;font-size:13px;font-weight:600;color:var(--amber);border-bottom:1px solid rgba(255,170,0,.2);display:flex;align-items:center;gap:8px}
+.clarify-question{padding:10px 13px;font-size:13px;color:var(--text);line-height:1.6}
+.clarify-options{padding:8px 13px;display:flex;flex-direction:column;gap:7px}
+.clarify-option{
+  padding:9px 14px;border:1px solid rgba(255,170,0,.3);border-radius:var(--r);
+  background:var(--bg2);color:var(--text);font-family:var(--font-ui);font-size:13px;
+  cursor:pointer;text-align:left;transition:all .15s;
+}
+.clarify-option:hover{border-color:var(--amber);background:rgba(255,170,0,.1);color:var(--amber)}
+.clarify-free{padding:8px 13px;border-top:1px solid rgba(255,170,0,.15)}
+.clarify-free-row{display:flex;gap:7px}
+.clarify-free-input{
+  flex:1;padding:8px 11px;background:var(--bg2);border:1px solid var(--border);
+  border-radius:var(--r);font-family:var(--font-ui);font-size:13px;color:var(--text);
+  outline:none;transition:border-color .15s;
+}
+.clarify-free-input:focus{border-color:rgba(255,170,0,.5)}
+.clarify-free-input::placeholder{color:var(--text3)}
+.clarify-send{
+  padding:8px 14px;background:var(--amber);border:none;border-radius:var(--r);
+  color:var(--bg);font-family:var(--font-ui);font-size:12px;font-weight:700;cursor:pointer;
+  transition:opacity .15s;flex-shrink:0;
+}
+.clarify-send:hover{opacity:.85}
+.plan-section{padding:8px 13px;border-top:1px solid rgba(0,255,136,.08)}
+.plan-section-title{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--accent);opacity:.7;margin-bottom:5px}
+.plan-req-item{font-size:12px;color:var(--text2);padding:2px 0 2px 10px;border-left:2px solid var(--accent-border);margin-bottom:4px;line-height:1.5}
+.plan-approach-text{font-size:12px;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.plan-verify-item{font-size:11px;color:var(--text2);padding:2px 0 2px 10px;border-left:2px solid rgba(68,136,255,.4);margin-bottom:3px}
+/* Model selector in plan card */
+.plan-model-bar{padding:10px 13px;border-top:1px solid rgba(0,255,136,.12);background:rgba(0,255,136,.03);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.plan-model-label{font-size:11px;color:var(--text3);flex-shrink:0}
+.plan-model-badge{font-size:11px;font-weight:700;color:var(--accent);font-family:var(--font-mono);flex:1}
+.plan-model-eta{font-size:11px;color:var(--amber);font-family:var(--font-mono)}
+.plan-model-sel{font-size:11px;font-family:var(--font-ui);background:var(--bg2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:3px 7px;cursor:pointer}
+.plan-model-sel:focus{outline:none;border-color:var(--accent)}
+.plan-model-switching{font-size:11px;color:var(--amber);font-family:var(--font-mono);display:flex;align-items:center;gap:6px}
+.plan-actions{display:flex;gap:8px;padding:10px 13px;border-top:1px solid var(--accent-border);background:rgba(0,255,136,.04)}
+.plan-execute-btn{flex:1;padding:9px;font-size:13px;font-weight:700;background:var(--accent);border:none;border-radius:var(--r);color:var(--bg);cursor:pointer;font-family:var(--font-ui);letter-spacing:.04em;transition:opacity .15s}
+.plan-execute-btn:hover{opacity:.85}
+.plan-revise-btn{padding:9px 14px;font-size:12px;font-weight:600;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);color:var(--text2);cursor:pointer;font-family:var(--font-ui);transition:all .15s}
+.plan-revise-btn:hover{border-color:var(--border2);color:var(--text)}
+
+/* ── PROGRESS CARD ── */
+.progress-card{border:1px solid var(--border);border-radius:var(--r2);background:var(--bg2);margin-top:3px;overflow:hidden;padding:12px 14px}
+.prog-label{font-size:12px;color:var(--text2);margin-bottom:6px}
+.prog-title{font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.prog-bar-wrap{background:var(--bg3);border-radius:4px;height:4px;overflow:hidden;margin-bottom:8px}
+.prog-bar{height:100%;background:var(--accent);border-radius:4px;transition:width .4s ease;box-shadow:0 0 8px rgba(0,255,136,.4)}
+.prog-meta{display:flex;flex-direction:column;gap:3px;font-size:11px;font-family:var(--font-mono);color:var(--text2)}
+.prog-task-name{
+  font-size:12px;font-weight:600;color:var(--text);
+  margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  min-height:16px;
+}
+.prog-step-row{
+  font-size:11px;color:var(--accent);font-family:var(--font-mono);
+  margin-top:2px;min-height:14px;
+}
+.prog-action{font-size:11px;color:var(--text3);font-family:var(--font-mono);margin-top:0;word-break:break-all;white-space:pre-wrap;min-height:14px;line-height:1.5}
+.thinking-dots span{display:inline-block;width:4px;height:4px;border-radius:50%;background:var(--accent);margin:0 1px;animation:dot .8s ease-in-out infinite}
+.thinking-dots span:nth-child(2){animation-delay:.15s}
+.thinking-dots span:nth-child(3){animation-delay:.3s}
+@keyframes dot{0%,80%,100%{transform:scale(.6);opacity:.3}40%{transform:scale(1);opacity:1}}
+
+/* input */
+.input-area{
+  padding:10px 12px;
+  padding-bottom:max(10px, env(safe-area-inset-bottom));
+  border-top:1px solid var(--border);
+  background:var(--bg1);
+  flex-shrink:0;
+  /* iOSでキーボードが出ても隠れないように */
+  position:relative;z-index:5;
+}
+.input-wrap{position:relative;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);transition:border-color .15s}
+.input-wrap:focus-within{border-color:var(--accent-border)}
+textarea#input{width:100%;padding:9px 42px 9px 13px;background:transparent;border:none;outline:none;resize:none;font-family:var(--font-ui);font-size:13px;color:var(--text);line-height:1.5;max-height:110px;min-height:40px}
+textarea#input::placeholder{color:var(--text3)}
+.send-btn{position:absolute;right:7px;bottom:7px;width:28px;height:28px;border-radius:6px;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;opacity:.9}
+.send-btn:hover{opacity:1;box-shadow:0 0 10px rgba(0,255,136,.3)}
+.send-btn:disabled{background:var(--bg3);opacity:.5;cursor:not-allowed;box-shadow:none}
+.send-btn svg{width:13px;height:13px;fill:var(--bg)}
+
+/* ── PANEL COL ── */
+.panel-col{display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+.panel-tabs{display:flex;align-items:center;padding:0 14px;height:44px;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0;gap:2px}
+.tab-btn{padding:5px 12px;font-size:12px;font-weight:600;letter-spacing:.04em;border-radius:6px;cursor:pointer;border:none;background:transparent;color:var(--text2);font-family:var(--font-ui);transition:all .15s}
+.tab-btn:hover{color:var(--text);background:var(--bg2)}
+.tab-btn.active{color:var(--accent);background:var(--accent-bg)}
+.tab-spacer{flex:1}
+.tab-label{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);font-family:var(--font-mono)}
+.tab-content{display:none;flex:1;overflow:hidden;flex-direction:column;min-height:0}
+.tab-content.active{display:flex}
+
+/* output */
+.code-output{flex:1;overflow-y:auto;padding:16px;font-family:var(--font-mono);font-size:12px;line-height:1.7}
+.code-output::-webkit-scrollbar{width:3px}
+.code-output::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.cb{background:var(--bg1);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;margin-bottom:10px}
+.cb-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
+.cb-lang{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text3)}
+.cb-title{font-size:11px;color:var(--accent);font-weight:500}
+.cb-text{color:var(--text2);white-space:pre-wrap;word-break:break-all}
+.cb-out{color:var(--accent);white-space:pre-wrap;word-break:break-all}
+.cb-err{color:var(--red);white-space:pre-wrap;word-break:break-all}
+.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text3)}
+.empty-icon{font-size:28px;opacity:.25}.empty-text{font-size:12px;font-family:var(--font-mono)}
+.kw{color:#cc99ff}.str{color:#99dd99}.num{color:var(--amber)}.cm{color:var(--text3)}
+
+/* preview */
+.preview-layout{display:flex;flex:1;overflow:hidden}
+.file-browser{
+  width:200px;flex-shrink:0;display:flex;flex-direction:column;
+  border-right:1px solid var(--border);background:var(--bg1);overflow:hidden;
+}
+@media(max-width:768px){
+  .preview-layout{flex-direction:column}
+  .file-browser{width:100%;height:220px;flex-shrink:0;border-right:none;border-bottom:1px solid var(--border)}
+}
+.fb-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+.fb-title{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text3)}
+.fb-refresh{background:transparent;border:none;color:var(--text2);cursor:pointer;font-size:14px;padding:2px 4px;border-radius:4px;transition:color .15s}
+.fb-refresh:hover{color:var(--text)}
+.fb-list{flex:1;overflow-y:auto;padding:6px}
+.fb-list::-webkit-scrollbar{width:3px}
+.fb-list::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.fb-empty{font-size:11px;color:var(--text3);font-family:var(--font-mono);padding:8px 6px}
+.fb-file{
+  display:flex;align-items:center;gap:6px;padding:5px 7px;border-radius:5px;
+  cursor:pointer;font-size:11px;font-family:var(--font-mono);color:var(--text2);
+  transition:all .12s;border:1px solid transparent;
+}
+.fb-file:hover{background:var(--bg2);color:var(--text);border-color:var(--border)}
+.fb-file.active{background:var(--accent-bg);color:var(--accent);border-color:var(--accent-border)}
+.fb-file-icon{flex-shrink:0;font-size:11px}
+.fb-file-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fb-file-run{
+  flex-shrink:0;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;
+  border:1px solid var(--border);background:var(--bg3);color:var(--text3);
+  cursor:pointer;transition:all .12s;font-family:var(--font-ui);opacity:0;
+}
+.fb-file:hover .fb-file-run{opacity:1}
+.fb-file-run:hover{border-color:var(--accent-border);color:var(--accent);background:var(--accent-bg)}
+.fb-editor-section{
+  border-top:1px solid var(--border);display:flex;flex-direction:column;
+  flex-shrink:0;height:200px;
+}
+.fb-editor-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:5px 10px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;
+}
+#code-editor{
+  flex:1;resize:none;background:var(--bg);border:none;outline:none;
+  color:var(--text);font-family:var(--font-mono);font-size:11px;
+  padding:8px 10px;line-height:1.7;tab-size:2;
+}
+.fb-run-btn{
+  flex-shrink:0;padding:6px;background:var(--accent);border:none;
+  color:var(--bg);font-family:var(--font-ui);font-size:11px;font-weight:700;
+  cursor:pointer;transition:opacity .15s;letter-spacing:.03em;
+}
+.fb-run-btn:hover{opacity:.85}
+.fb-run-btn:disabled{background:var(--bg3);color:var(--text3);cursor:not-allowed}
+.preview-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.preview-toolbar{display:flex;align-items:center;gap:6px;padding:7px 14px;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0;flex-wrap:wrap}
+.preview-url{flex:1;min-width:80px;padding:4px 9px;background:var(--bg2);border:1px solid var(--border);border-radius:5px;font-size:11px;font-family:var(--font-mono);color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pv-btn{padding:4px 10px;border-radius:5px;font-size:11px;font-weight:600;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;transition:all .15s;font-family:var(--font-ui);flex-shrink:0}
+.pv-btn:hover{border-color:var(--border2);color:var(--text)}
+.pv-btn.run{border-color:var(--accent-border);color:var(--accent);background:var(--accent-bg)}
+.editor-wrap{display:none;flex-direction:column;border-bottom:1px solid var(--border);background:var(--bg)}
+.editor-wrap.open{display:flex;height:200px}
+.editor-hdr{display:flex;align-items:center;justify-content:space-between;padding:5px 14px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.lang-sel{background:var(--bg);border:1px solid var(--border);color:var(--text2);font-family:var(--font-mono);font-size:11px;padding:3px 6px;border-radius:4px;cursor:pointer}
+.lang-sel option{background:var(--bg)}
+#code-editor{flex:1;resize:none;background:var(--bg);border:none;outline:none;color:var(--text);font-family:var(--font-mono);font-size:12px;padding:10px 14px;line-height:1.7;tab-size:2}
+iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
+.preview-ph{flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:9px;color:var(--text3)}
+
+/* log */
+.log-output{flex:1;overflow-y:auto;padding:14px 16px;font-family:var(--font-mono);font-size:11px;line-height:1.9}
+.log-output::-webkit-scrollbar{width:3px}
+.log-output::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.log-line{display:flex;gap:10px}
+.ltime{color:var(--text3);flex-shrink:0;width:68px}
+.llvl{flex-shrink:0;width:44px;font-weight:500}
+.llvl.info{color:var(--blue)}.llvl.ok{color:var(--accent)}.llvl.warn{color:var(--amber)}.llvl.err{color:var(--red)}
+.lmsg{color:var(--text2);flex:1;word-break:break-all}
+
+/* ── PROJECT DRAWER ── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;display:none;backdrop-filter:blur(2px)}
+.overlay.open{display:block}
+.drawer{position:fixed;top:0;left:0;bottom:0;width:270px;background:var(--bg1);border-right:1px solid var(--border);z-index:51;display:flex;flex-direction:column;transform:translateX(-100%);transition:transform .22s ease}
+.drawer.open{transform:none}
+.dwr-hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+.dwr-title{font-size:14px;font-weight:700;letter-spacing:.05em}
+.dwr-close{width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
+.proj-list{flex:1;overflow-y:auto;padding:8px}
+.proj-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--r);cursor:pointer;border:1px solid transparent;margin-bottom:3px;transition:all .15s}
+.proj-item:hover{background:var(--bg2);border-color:var(--border)}
+.proj-item.active{background:var(--accent-bg);border-color:var(--accent-border)}
+.proj-item.active .proj-iname{color:var(--accent)}
+.proj-iname{font-size:13px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proj-icount{font-size:10px;color:var(--text3);font-family:var(--font-mono)}
+.proj-del{width:20px;height:20px;border-radius:4px;border:none;background:transparent;color:var(--text3);cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;flex-shrink:0}
+.proj-item:hover .proj-del{opacity:1}
+.proj-del:hover{color:var(--red);background:rgba(255,68,102,.1)}
+.dwr-footer{padding:10px;border-top:1px solid var(--border);flex-shrink:0}
+.new-proj-row{display:flex;gap:6px}
+.new-proj-input{flex:1;padding:7px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);font-family:var(--font-ui);font-size:12px;color:var(--text);outline:none;transition:border-color .15s}
+.new-proj-input:focus{border-color:var(--accent-border)}
+.new-proj-input::placeholder{color:var(--text3)}
+.new-proj-btn{padding:7px 12px;background:var(--accent);border:none;border-radius:var(--r);font-family:var(--font-ui);font-size:12px;font-weight:700;color:var(--bg);cursor:pointer;transition:opacity .15s}
+.new-proj-btn:hover{opacity:.85}
+
+::-webkit-scrollbar{width:3px;height:3px}
+
+/* header icon buttons */
+.hdr-icon-btn{width:30px;height:30px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
+.hdr-icon-btn svg{width:14px;height:14px}
+.hdr-icon-btn:hover{border-color:var(--border2);color:var(--text)}
+.hdr-icon-btn.search-on{border-color:var(--accent-border);color:var(--accent);background:var(--accent-bg)}
+.hdr-icon-btn.search-on:hover{box-shadow:0 0 8px rgba(0,255,136,.2)}
+
+.search-badge{position:absolute;top:-4px;right:-4px;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 5px var(--accent)}
+
+/* LLM Manager modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;display:none;align-items:center;justify-content:center;backdrop-filter:blur(3px)}
+.modal-overlay.open{display:flex}
+.modal{background:var(--bg1);border:1px solid var(--border);border-radius:var(--r2);width:min(520px,96vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden}
+.modal-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--border);flex-shrink:0}
+.modal-title{font-size:14px;font-weight:700;letter-spacing:.05em}
+.modal-close{width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
+.modal-body{flex:1;overflow-y:auto;padding:16px 18px}
+.modal-footer{padding:12px 18px;border-top:1px solid var(--border);flex-shrink:0}
+.llm-add-form{display:flex;flex-direction:column;gap:8px;margin-bottom:16px;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r)}
+.llm-form-row{display:flex;gap:8px}
+.llm-input{flex:1;padding:7px 10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);font-family:var(--font-mono);font-size:12px;color:var(--text);outline:none;transition:border-color .15s}
+.llm-input:focus{border-color:var(--accent-border)}
+.llm-input::placeholder{color:var(--text3)}
+.llm-btn{padding:7px 14px;border-radius:var(--r);font-family:var(--font-ui);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;flex-shrink:0;white-space:nowrap}
+.llm-btn.primary{background:var(--accent);border:none;color:var(--bg)}
+.llm-btn.primary:hover{opacity:.85}
+.llm-btn.secondary{background:var(--bg3);border:1px solid var(--border);color:var(--text2)}
+.llm-btn.secondary:hover{border-color:var(--border2);color:var(--text)}
+.llm-list{display:flex;flex-direction:column;gap:6px}
+.llm-item{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);transition:all .15s}
+.llm-item.active{border-color:var(--accent-border);background:var(--accent-bg)}
+.llm-item-info{flex:1;min-width:0}
+.llm-item-name{font-size:13px;font-weight:600;margin-bottom:2px}
+.llm-item.active .llm-item-name{color:var(--accent)}
+.llm-item-url{font-size:11px;color:var(--text2);font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.llm-item-status{flex-shrink:0;font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;text-transform:uppercase}
+.llm-stat-ok{background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-border)}
+.llm-stat-err{background:rgba(255,68,102,.1);color:var(--red);border:1px solid rgba(255,68,102,.25)}
+.llm-stat-unk{background:var(--bg3);color:var(--text3);border:1px solid var(--border)}
+.llm-item-btns{display:flex;gap:4px;flex-shrink:0}
+.llm-act-btn{padding:4px 9px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--bg3);color:var(--text2);font-family:var(--font-ui);transition:all .15s}
+.llm-act-btn:hover{border-color:var(--border2);color:var(--text)}
+.llm-act-btn.del:hover{border-color:rgba(255,68,102,.4);color:var(--red);background:rgba(255,68,102,.08)}
+.llm-act-btn.sel{border-color:var(--accent-border);color:var(--accent);background:var(--accent-bg)}
+.test-result{margin-top:8px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);font-size:11px;font-family:var(--font-mono);color:var(--text2);display:none}
+.test-result.open{display:block}
+.section-label{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><div class="logo-dot"></div>CodeAgent</div>
+  <div class="hdr-mid">
+    <div class="proj-btn" onclick="toggleDrawer()">
+      <span>◈</span><span class="proj-name" id="proj-display">default</span><span style="font-size:9px;color:var(--text3)">▼</span>
+    </div>
+    <div class="mode-wrap">
+      <button class="mode-btn active" id="btn-chat" onclick="setMode('chat')">Chat</button>
+      <button class="mode-btn" id="btn-task" onclick="setMode('task')">Task</button>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <button class="hdr-icon-btn" id="search-toggle" onclick="toggleSearch()" title="Web Search: OFF — click to enable">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    </button>
+    <button class="hdr-icon-btn" id="llm-btn" onclick="openLLMManager()" title="LLM Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+    </button>
+    <div class="tok-display" id="tok-display" style="display:none;align-items:center;gap:5px;font-size:11px;font-family:var(--font-mono);color:var(--text2)">
+      <span id="tok-total" style="color:var(--accent)"></span>
+      <span style="color:var(--text3)">tok</span>
+      <span id="tok-tps" style="color:var(--amber)"></span>
+    </div>
+    <span id="model-badge" title="Current model" style="font-size:10px;font-family:var(--font-mono);color:var(--text3);padding:2px 8px;border:1px solid var(--border);border-radius:10px;display:none;cursor:default"></span>
+    <div class="sdot" id="sdot"></div>
+    <span class="stext" id="stext">—</span>
+  </div>
+</header>
+
+<div class="mob-tabs">
+  <button class="mob-tab active" id="mob-chat" onclick="mobSwitch('chat')">Chat</button>
+  <button class="mob-tab" id="mob-output" onclick="mobSwitch('output')">Output</button>
+  <button class="mob-tab" id="mob-preview" onclick="mobSwitch('preview')">Preview</button>
+  <button class="mob-tab" id="mob-log" onclick="mobSwitch('log')">Log</button>
+  <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skills</button>
+</div>
+
+<div class="app-body">
+  <!-- CHAT -->
+  <div class="chat-col" id="chat-col">
+    <div class="messages" id="messages">
+      <div class="msg system">
+        <div class="msg-role">system</div>
+        <div class="msg-bubble">CodeAgent ready. Select a project to begin.</div>
+      </div>
+    </div>
+    <div class="input-area">
+      <div class="input-wrap">
+        <textarea id="input" placeholder="指示を入力..." rows="1"
+          onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+        <button class="send-btn" id="send-btn" onclick="send()">
+          <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL -->
+  <div class="panel-col" id="panel-col">
+    <div class="panel-tabs">
+      <button class="tab-btn active" onclick="switchTab('output')">Output</button>
+      <button class="tab-btn" onclick="switchTab('preview')">Preview</button>
+      <button class="tab-btn" onclick="switchTab('log')">Log</button>
+      <button class="tab-btn" onclick="switchTab('skills')">Skills</button>
+      <div class="tab-spacer"></div>
+      <span class="tab-label" id="tab-label">—</span>
+    </div>
+
+    <div class="tab-content active" id="tab-output">
+      <div class="code-output" id="code-output">
+        <div class="empty-state"><div class="empty-icon">⌘</div><div class="empty-text">No output yet</div></div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-preview">
+      <div class="preview-layout">
+
+        <!-- 左: ファイルブラウザ -->
+        <div class="file-browser" id="file-browser">
+          <div class="fb-header">
+            <span class="fb-title">Files</span>
+            <button class="fb-refresh" onclick="refreshFileBrowser()" title="Refresh">↺</button>
+          </div>
+          <div class="fb-list" id="fb-list">
+            <div class="fb-empty">No files yet</div>
+          </div>
+        </div>
+
+        <!-- 右: プレビュー/実行結果 -->
+        <div class="preview-wrap">
+          <div class="preview-toolbar">
+            <span class="preview-url" id="preview-url" title="Current file">No file loaded</span>
+            <button class="pv-btn run" id="run-btn" onclick="runCurrentFile()" style="display:none">▶ Run</button>
+            <button class="pv-btn" onclick="refreshPreview()">↺</button>
+            <button class="pv-btn" onclick="openNew()">↗</button>
+          </div>
+          <div class="preview-ph" id="preview-ph">
+            <div style="font-size:26px;opacity:.2">◻</div>
+            <div style="font-size:11px;font-family:var(--font-mono);text-align:center">
+              Select a file from the list
+            </div>
+          </div>
+          <div id="run-output" style="display:none;flex:1;overflow-y:auto;padding:16px;font-family:var(--font-mono);font-size:12px;line-height:1.7;background:var(--bg)"></div>
+          <iframe id="preview-frame" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-log">
+      <div class="log-output" id="log-output"></div>
+
+    <div class="tab-content" id="tab-skills" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Skills / SKILL.md</span>
+        <button onclick="refreshSkills()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ Reload</button>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.6;padding:6px 8px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)">
+        📁 <code style="background:var(--bg3);padding:1px 4px;border-radius:3px">C:\AI\skills\スキル名\SKILL.md</code><br>
+        共有資産: ユーザー追加 / CodeAgent提案スキルを同じフォルダで管理
+      </div>
+      <div id="skills-list" style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:12px;color:var(--text3)">Loading...</div>
+      </div>
+      <div id="skill-proposals" style="margin-top:12px"></div>
+    </div>
+    </div>
+  </div>
+</div>
+
+<!-- LLM MANAGER MODAL -->
+<div class="modal-overlay" id="llm-modal" onclick="if(event.target===this)closeLLMManager()">
+  <div class="modal">
+    <div class="modal-hdr">
+      <span class="modal-title">LLM Endpoints</span>
+      <button class="modal-close" onclick="closeLLMManager()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="section-label">Add New Endpoint</div>
+      <div class="llm-add-form">
+        <div class="llm-form-row">
+          <input class="llm-input" id="llm-new-name" placeholder="Name  (e.g. Qwen35B-local)" style="flex:.4">
+          <input class="llm-input" id="llm-new-url" placeholder="URL  e.g. http://192.168.1.10:8080/v1/chat/completions">
+        </div>
+        <div class="llm-form-row">
+          <button class="llm-btn secondary" onclick="testNewLLM()">⚡ Test</button>
+          <button class="llm-btn primary" onclick="addLLM()" style="flex:1">+ Add</button>
+        </div>
+        <div class="test-result" id="new-test-result"></div>
+      </div>
+      <div class="section-label">Saved Endpoints</div>
+      <div class="llm-list" id="llm-list"></div>
+    </div>
+    <div style="padding:14px 16px;border-top:1px solid var(--border)">
+      <div class="section-label" style="margin-bottom:10px">Search Results</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <input type="range" id="search-num-slider"
+          min="1" max="20" step="1" value="5"
+          style="flex:1;accent-color:var(--accent);cursor:pointer"
+          oninput="updateSearchNumLabel(this.value)" onchange="applySearchNum(this.value)">
+        <span id="search-num-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:40px;text-align:right">5</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--text3);font-family:var(--font-mono)">
+        <span>1</span><span>10</span><span>20</span>
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:var(--text3)">
+        More results = richer context but slower responses.
+      </div>
+    </div>
+    <div style="padding:14px 16px;border-top:1px solid var(--border)">
+      <div class="section-label" style="margin-bottom:10px">Context Length</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <input type="range" id="ctx-slider"
+          min="512" max="32768" step="512" value="32768"
+          style="flex:1;accent-color:var(--accent);cursor:pointer"
+          oninput="updateCtxLabel(this.value)" onchange="applyCtxLen(this.value)">
+        <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:56px;text-align:right">32768</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--text3);font-family:var(--font-mono)">
+        <span>512</span>
+        <span id="ctx-max-label">max: 32768</span>
+        <span id="ctx-slider-max">32768</span>
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:var(--text3)">
+        Shorter = faster responses. Longer = more context but uses more VRAM.
+      </div>
+    </div>
+    <div style="padding:14px 16px;border-top:1px solid var(--border)">
+      <div class="section-label" style="margin-bottom:10px">Max Tool Steps</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <input type="range" id="steps-slider"
+          min="1" max="100" step="1" value="20"
+          style="flex:1;accent-color:var(--accent);cursor:pointer"
+          oninput="updateStepsLabel(this.value)">
+        <span id="steps-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:40px;text-align:right">20</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--text3);font-family:var(--font-mono)">
+        <span>1</span><span>50</span><span>100</span>
+      </div>
+      <div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.04em">失敗時の対応選択</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px" id="auto-select-desc">🤖 プランナーLLMが自動選択</div>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="auto-select-toggle" checked
+            style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer"
+            onchange="toggleAutoSelect(this.checked)">
+          <span style="font-size:11px;color:var(--text2)" id="auto-select-label">Auto</span>
+        </label>
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:var(--text3);line-height:1.5">
+        ⚠ 無制限に近い設定はLLMが同じ操作を繰り返すループに陥るリスクがあります。推奨: 10〜25。
+      </div>
+    </div>
+    <div class="modal-footer" style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">
+      Endpoints are saved in browser localStorage. No data sent to external services.
+    </div>
+  </div>
+</div>
+
+<!-- PROJECT DRAWER -->
+<div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="dwr-hdr">
+    <span class="dwr-title">Projects</span>
+    <button class="dwr-close" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="proj-list" id="proj-list"></div>
+  <div style="border-top:1px solid var(--border);padding:10px">
+    <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:8px">Recent Jobs</div>
+    <div id="job-list" style="display:flex;flex-direction:column;gap:4px"></div>
+  </div>
+  <div class="dwr-footer">
+    <div class="new-proj-row">
+      <input class="new-proj-input" id="new-proj-input" placeholder="New project name..."
+        onkeydown="if(event.key==='Enter')createProject()">
+      <button class="new-proj-btn" onclick="createProject()">+</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+let mode = 'chat';
+let busy = false;
+let maxSteps = 20;
+let autoSelectOption = true; // プランナーLLMによる自動選択
+let currentProject = 'default';
+let htmlFiles = [];
+let editorOpen = false;
+let searchEnabled = false;
+let activeLlmUrl = '';    // 空文字 = サーバーデフォルト(LLM_URL)
+let llmEndpoints = [];    // {name, url, status:'ok'|'err'|'unk'}
+let pendingPlan = null;   // 承認待ちのプラン
+let progressEl = null;    // 現在のプログレスカード
+let timerInterval = null;
+let startTime = null;
+
+// ── iOS Safari キーボード対応 ──
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    const body = document.querySelector('.app-body');
+    if (!body) return;
+    const headerH = (document.querySelector('header') || {offsetHeight:52}).offsetHeight;
+    const mob = document.querySelector('.mob-tabs');
+    const tabsH = mob && getComputedStyle(mob).display !== 'none' ? mob.offsetHeight : 0;
+    body.style.height = (window.visualViewport.height - headerH - tabsH) + 'px';
+  });
+}
+
+// ── INIT ──
+addEventListener('load', () => {
+  checkHealth();
+  loadProjects();
+  loadLLMEndpoints();
+  initSearch();
+  initCtxSlider();
+  refreshSkills();
+  initStepsSlider();
+  loadHistory(currentProject);
+  loadJobs(currentProject);  // ← 起動時にジョブ一覧も読む
+  setInterval(checkHealth, 10000);
+});
+
+// ── HEALTH ──
+async function checkHealth() {
+  // モデルバッジ更新
+  try {
+    const mr = await fetch(API+'/model/status');
+    const md = await mr.json();
+    const badge = document.getElementById('model-badge');
+    if (badge && md.current_name) {
+      badge.style.display = 'inline';
+      badge.textContent = md.current_name;
+      badge.style.color = md.status === 'switching' ? 'var(--amber)' : 'var(--text3)';
+      badge.style.borderColor = md.status === 'switching' ? 'var(--amber)' : 'var(--border)';
+      badge.title = md.current_name + ' | VRAM: ' + md.vram_gb + 'GB | ' + md.status;
+    }
+  } catch(e) {}
+  try {
+    const r = await fetch(API+'/health', {signal:AbortSignal.timeout(3000)});
+    const d = await r.json();
+    const ok = d.llm === 'ok';
+    setStatus(ok?'ok':'warn', ok?'LLM ready':'LLM loading...');
+  } catch(e) { setStatus('err','offline'); }
+}
+function setStatus(cls, text) {
+  document.getElementById('sdot').className = 'sdot '+cls;
+  document.getElementById('stext').textContent = text;
+}
+
+// ── MODE ──
+function setMode(m) {
+  mode = m;
+  ['chat','task'].forEach(x => document.getElementById('btn-'+x).classList.toggle('active', x===m));
+}
+
+// ── MOBILE ──
+function mobSwitch(name) {
+  ['chat','output','preview','log','skills'].forEach(t => document.getElementById('mob-'+t)?.classList.remove('active'));
+  document.getElementById('mob-'+name)?.classList.add('active');
+  const cc = document.getElementById('chat-col');
+  const pc = document.getElementById('panel-col');
+  if (name === 'chat') { cc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden'); }
+  else { cc.classList.add('mob-hidden'); pc.classList.remove('mob-hidden');
+    if (name !== 'chat') switchTab(name === 'output' ? 'output' : name === 'preview' ? 'preview' : name === 'skills' ? 'skills' : 'log'); }
+}
+
+// ── PANEL TABS ──
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach((b,i) =>
+    b.classList.toggle('active', ['output','preview','log','skills'][i]===name));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  if (name === 'preview') refreshFileBrowser();
+}
+
+// ── DRAWER ──
+function toggleDrawer() {
+  const open = document.getElementById('drawer').classList.contains('open');
+  open ? closeDrawer() : (document.getElementById('drawer').classList.add('open'), document.getElementById('overlay').classList.add('open'), loadProjects());
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('overlay').classList.remove('open');
+}
+async function loadProjects() {
+  try {
+    const r = await fetch(API+'/projects');
+    const d = await r.json();
+    renderProjects(d.projects || []);
+  } catch(e) {}
+}
+async function loadJobs(project) {
+  try {
+    const r = await fetch(API+`/projects/${encodeURIComponent(project)}/jobs?limit=10`);
+    const d = await r.json();
+    renderJobs(d.jobs || []);
+  } catch(e) {}
+}
+function renderJobs(jobs) {
+  const el = document.getElementById('job-list');
+  if (!el) return;
+  if (!jobs.length) { el.innerHTML='<div style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">No jobs yet</div>'; return; }
+  el.innerHTML = jobs.map(j => {
+    const icon = j.status==='done'?'✓':j.status==='error'?'✗':j.status==='running'?'▶':'○';
+    const col = j.status==='done'?'var(--accent)':j.status==='error'?'var(--red)':j.status==='running'?'var(--amber)':'var(--text3)';
+    const ts = j.created_at ? j.created_at.slice(11,16) : '';
+    return `<div style="display:flex;align-items:center;gap:7px;padding:5px 7px;background:var(--bg2);border:1px solid var(--border);border-radius:5px;cursor:pointer;font-size:11px" onclick="replayJob('${esc(j.id)}')">
+      <span style="color:${col};flex-shrink:0">${icon}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono)">${esc(j.message.slice(0,40))}</span>
+      <span style="color:var(--text3);flex-shrink:0;font-family:var(--font-mono)">${ts}</span>
+    </div>`;
+  }).join('');
+}
+async function replayJob(jobId) {
+  closeDrawer();
+  try {
+    const r = await fetch(API+`/jobs/${jobId}?project=${encodeURIComponent(currentProject)}`);
+    const d = await r.json();
+    addLog('ok','replay',`Job ${jobId}: ${d.status}`);
+
+    // ユーザーメッセージ
+    addMsg('user', d.message);
+
+    // ステップを分類
+    const steps = d.steps || [];
+    const allToolCalls = steps
+      .filter(s => s.type === 'tool_call')
+      .map(s => ({...s.data, type:'tool_call'}));
+    const doneStep = steps.find(s => s.type === 'done');
+    const taskSteps = steps.filter(s => s.type === 'task_done').map(s => s.data);
+
+    // タスク結果ブロック
+    if (taskSteps.length) {
+      addTaskBlock(taskSteps);
+    }
+
+    // ツールチェイン
+    if (allToolCalls.length) {
+      addStepsBlock(allToolCalls);
+      renderStepsToOutput(allToolCalls);
+    }
+
+    // 最終結果メッセージ
+    if (doneStep) {
+      const res = doneStep.data;
+      const msg = d.mode === 'task'
+        ? (res.summary || `${(res.tasks||[]).length} tasks completed`)
+        : (res.result || '');
+      if (msg) {
+        const successClass = (d.status === 'done') ? 'assistant' : 'error';
+        addMsg(successClass, `📂 [復元] ${msg}`);
+      }
+    } else {
+      addMsg('system', `📂 Job ${jobId} [${d.status}] — ${d.step_count} steps`);
+    }
+
+    // HTML検出してPreviewに表示
+    detectHtml({steps: allToolCalls});
+
+  } catch(e) { addLog('err','replay',e.message); }
+}
+function renderProjects(list) {
+  const el = document.getElementById('proj-list');
+  if (!list.length) { el.innerHTML='<div style="padding:12px;font-size:12px;color:var(--text3)">No projects</div>'; return; }
+  el.innerHTML = list.map(p => `
+    <div class="proj-item${p.name===currentProject?' active':''}" onclick="selectProject('${esc(p.name)}')">
+      <span>◈</span>
+      <div style="flex:1;min-width:0">
+        <div class="proj-iname">${esc(p.name)}</div>
+        <div class="proj-icount">${p.file_count} file${p.file_count!==1?'s':''}</div>
+      </div>
+      <button class="proj-del" onclick="event.stopPropagation();deleteProject('${esc(p.name)}')">✕</button>
+    </div>`).join('');
+}
+async function selectProject(name) {
+  currentProject = name;
+  document.getElementById('proj-display').textContent = name;
+  closeDrawer();
+  document.getElementById('messages').innerHTML = `<div class="msg system"><div class="msg-role">system</div><div class="msg-bubble">Project: ${esc(name)}</div></div>`;
+  chatHistory = [];
+  loadHistory(name);
+  loadJobs(name);
+  refreshFileBrowser();
+  addLog('info','project','Switched to: '+name);
+}
+async function createProject() {
+  const input = document.getElementById('new-proj-input');
+  const name = input.value.trim(); if (!name) return;
+  await fetch(API+'/projects', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})});
+  input.value = '';
+  selectProject(name.replace(/[^a-zA-Z0-9_\-]/g,'_'));
+  loadProjects();
+}
+async function deleteProject(name) {
+  if (!confirm(`Delete project "${name}"?`)) return;
+  await fetch(API+'/projects/'+encodeURIComponent(name), {method:'DELETE'});
+  if (currentProject===name) selectProject('default');
+  loadProjects();
+}
+
+// ── HISTORY LOADING ──
+async function loadHistory(project) {
+  try {
+    const r = await fetch(API+'/projects/'+encodeURIComponent(project)+'/history');
+    const d = await r.json();
+    if (!d.sessions?.length) return;
+    for (const s of d.sessions) renderHistorySession(s);
+    addLog('ok','history',`Loaded ${d.sessions.length} sessions for ${project}`);
+  } catch(e) { addLog('err','history', e.message); }
+}
+function renderHistorySession(s) {
+  const ts = s.timestamp ? s.timestamp.slice(0,16).replace('T',' ') : '';
+  // user message
+  const um = document.createElement('div');
+  um.className = 'msg user history';
+  um.innerHTML = `<div class="msg-role">You</div><div class="msg-bubble">${esc(s.message)}</div><div class="msg-ts">${ts}</div>`;
+  messages().appendChild(um);
+
+  if (!s.result) return;
+
+  if (s.mode === 'task' && s.result.tasks) {
+    // task block
+    const tb = document.createElement('div');
+    tb.className = 'msg system history';
+    const items = s.result.tasks.map(t => {
+      const cls = t.status==='done'?'bd-done':t.status==='error'?'bd-err':'bd-skip';
+      const ic = t.status==='done'?'✓':t.status==='error'?'✗':'—';
+      const col = t.status==='done'?'var(--accent)':t.status==='error'?'var(--red)':'var(--text3)';
+      return `<div class="task-item"><span style="color:${col};flex-shrink:0;width:14px">${ic}</span><span style="flex:1;font-size:12px">${esc(t.title)}</span><span class="tbadge ${cls}">${t.status}</span></div>`;
+    }).join('');
+    tb.innerHTML = `<div class="msg-role">Plan</div><div class="task-block">${items}</div>`;
+    messages().appendChild(tb);
+    // final result
+    const am = document.createElement('div');
+    am.className = 'msg assistant history';
+    am.innerHTML = `<div class="msg-role">Agent</div><div class="msg-bubble">${esc(s.result.summary||'')}</div><div class="msg-ts">${ts}</div>`;
+    messages().appendChild(am);
+  } else if (s.mode === 'chat' && s.result.output) {
+    const am = document.createElement('div');
+    am.className = 'msg assistant history';
+    const mdHtml = mdRenderer ? renderMd(s.result.output) : `<span style="white-space:pre-wrap">${esc(s.result.output)}</span>`;
+    am.innerHTML = `<div class="msg-role">Agent</div><div class="msg-bubble md" data-raw="${esc(s.result.output).replace(/"/g,'&quot;')}">${mdHtml}</div><button class="md-toggle active" onclick="toggleMdBubble(this)" title="Toggle Markdown/Raw">MD</button><div class="msg-ts">${ts}</div>`;
+    messages().appendChild(am);
+  }
+  scrollMsgs();
+}
+
+// ── INPUT ──
+function autoResize(el) { el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,110)+'px'; }
+function handleKey(e) { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();} }
+function messages() { return document.getElementById('messages'); }
+function scrollMsgs() { const m=messages(); m.scrollTop=m.scrollHeight; }
+
+// ── TOKEN TRACKING ──
+let totalPromptTokens = 0;
+let totalCompTokens = 0;
+
+function updateTokenDisplay(compTokens, tps) {
+  totalCompTokens += compTokens;
+  const disp = document.getElementById('tok-display');
+  const totEl = document.getElementById('tok-total');
+  const tpsEl = document.getElementById('tok-tps');
+  if (!disp) return;
+  disp.style.display = 'flex';
+  if (totEl) totEl.textContent = totalCompTokens.toLocaleString();
+  if (tpsEl && tps > 0) tpsEl.textContent = tps.toFixed(1) + ' t/s';
+}
+
+function resetTokenDisplay() {
+  totalCompTokens = 0;
+  const totEl = document.getElementById('tok-total');
+  const tpsEl = document.getElementById('tok-tps');
+  if (totEl) totEl.textContent = '';
+  if (tpsEl) tpsEl.textContent = '';
+}
+
+// ── PREVIEW RUN CURRENT FILE ──
+function runCurrentFile() {
+  if (fbActiveFile) runFile(fbActiveFile);
+}
+
+// ── CLARIFY CARD ──
+let _currentJobId = null;   // 実行中のjob_id（respond APIに使う）
+
+function showClarifyCard(jobId, question, options) {
+  _currentJobId = jobId;
+  const w = messages();
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.id = 'clarify-card-' + jobId;
+
+  const optionsHtml = options.map((opt, i) =>
+    `<button class="clarify-option" onclick="respondToClarify(${JSON.stringify(jobId)}, ${JSON.stringify(opt)}, this.closest('.clarify-card'))">${esc(opt)}</button>`
+  ).join('');
+
+  div.innerHTML = `
+    <div class="msg-role">Clarification Needed</div>
+    <div class="clarify-card">
+      <div class="clarify-header">
+        <span>❓</span>
+        <span>選択してください</span>
+      </div>
+      <div class="clarify-question">${esc(question)}</div>
+      <div class="clarify-options">${optionsHtml}</div>
+      <div class="clarify-free">
+        <div class="clarify-free-row">
+          <input class="clarify-free-input" id="clarify-input-${esc(jobId)}"
+            placeholder="または自由入力..."
+            onkeydown="if(event.key==='Enter')respondToClarify(${JSON.stringify(jobId)}, this.value, this.closest('.clarify-card'))">
+          <button class="clarify-send" onclick="respondToClarify(${JSON.stringify(jobId)}, document.getElementById('clarify-input-${esc(jobId)}').value, this.closest('.clarify-card'))">送信</button>
+        </div>
+      </div>
+    </div>`;
+  w.appendChild(div);
+  scrollMsgs();
+  // モバイルの場合はchatタブに切り替え
+  if (window.innerWidth <= 768) mobSwitch('chat');
+}
+
+async function respondToClarify(jobId, answer, cardEl) {
+  const text = (answer || '').trim();
+  if (!text) return;
+  // カードを無効化
+  cardEl.querySelectorAll('button, input').forEach(el => el.disabled = true);
+  cardEl.style.opacity = '0.5';
+  // ユーザーの選択をメッセージとして表示
+  addMsg('user', `回答: ${text}`);
+  addToHistory('user', `回答: ${text}`);
+  try {
+    await fetch(API+`/jobs/${jobId}/respond`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({answer: text, project: currentProject})
+    });
+    addLog('ok', 'clarify', `Job ${jobId} resumed: ${text}`);
+  } catch(e) {
+    addLog('err', 'clarify', e.message);
+    addMsg('error', 'Failed to send answer: ' + e.message);
+  }
+}
+
+// ── CHAT HISTORY ──
+let chatHistory = [];
+function addToHistory(role, text) { chatHistory.push({role, text}); }
+
+function truncateHistoryAfter(msgEl) {
+  const w = messages();
+  const allMsgs = Array.from(w.querySelectorAll('.msg.user,.msg.assistant,.msg.error'));
+  const idx = allMsgs.indexOf(msgEl);
+  if (idx < 0) return;
+  for (let i = idx; i < allMsgs.length; i++) {
+    let sib = allMsgs[i].nextElementSibling;
+    while (sib && !sib.classList.contains('msg')) { const tmp = sib.nextElementSibling; sib.remove(); sib = tmp; }
+    allMsgs[i].remove();
+  }
+  const usersBefore = allMsgs.slice(0, idx).filter(e => e.classList.contains('user')).length;
+  chatHistory = chatHistory.slice(0, usersBefore * 2);
+}
+
+function startEditMsg(btn) {
+  if (busy) return;
+  const msgEl = btn.closest('.msg');
+  const bubble = msgEl.querySelector('.msg-bubble');
+  const originalText = msgEl.dataset.msgText || bubble.textContent || '';
+  bubble.style.display = 'none';
+  btn.style.display = 'none';
+  const ta = document.createElement('textarea');
+  ta.className = 'msg-edit-area';
+  ta.value = originalText;
+  ta.rows = Math.min(originalText.split('\n').length + 1, 8);
+  const acts = document.createElement('div');
+  acts.className = 'msg-edit-actions';
+  acts.innerHTML = '<button class="msg-edit-cancel" onclick="cancelEdit(this.closest(\'.msg\'))">Cancel</button>'
+    + '<button class="msg-edit-send" onclick="submitEdit(this.closest(\'.msg\'))">↩ Re-run</button>';
+  msgEl.appendChild(ta);
+  msgEl.appendChild(acts);
+  ta.focus();
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitEdit(msgEl);
+    if (e.key === 'Escape') cancelEdit(msgEl);
+  });
+}
+
+function cancelEdit(msgEl) {
+  const bubble = msgEl.querySelector('.msg-bubble');
+  const btn = msgEl.querySelector('.msg-edit-btn');
+  if (bubble) bubble.style.display = '';
+  if (btn) btn.style.display = '';
+  msgEl.querySelector('.msg-edit-area')?.remove();
+  msgEl.querySelector('.msg-edit-actions')?.remove();
+}
+
+async function submitEdit(msgEl) {
+  const ta = msgEl.querySelector('.msg-edit-area');
+  const newText = ta?.value?.trim();
+  if (!newText || busy) return;
+  truncateHistoryAfter(msgEl);
+  const bubble = msgEl.querySelector('.msg-bubble');
+  const btn = msgEl.querySelector('.msg-edit-btn');
+  if (bubble) { bubble.textContent = newText; bubble.style.display = ''; }
+  if (btn) btn.style.display = '';
+  msgEl.querySelector('.msg-edit-area')?.remove();
+  msgEl.querySelector('.msg-edit-actions')?.remove();
+  msgEl.dataset.msgText = newText;
+  addLog('info','edit','Re-running from edited message');
+  await sendMessage(newText);
+}
+
+// ── SEND ──
+async function send() {
+  if (busy) return;
+  const input = document.getElementById('input');
+  const msg = input.value.trim(); if (!msg) return;
+  input.value = ''; input.style.height = 'auto';
+  await sendMessage(msg);
+}
+async function sendMessage(msg) {
+  resetTokenDisplay();
+  addMsg('user', msg);
+  addToHistory('user', msg);
+  addLog('info','send',`[${mode}][${currentProject}] ${msg}`);
+
+  if (mode === 'task') {
+    // Task mode: plan first → approval → execute
+    setBusy(true);
+    const progEl = addProgressCard('Generating plan...');
+    try {
+      const r = await fetch(API+'/plan', {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({message:msg, project:currentProject, llm_url:activeLlmUrl})});
+      const d = await r.json();
+      progEl.remove();
+
+      // d.tasksがない・空・配列でない場合のフォールバック
+      // planData全体（requirements/approach/verificationを含む）を渡す
+      const planData = (d.tasks && d.tasks.length > 0)
+        ? d
+        : { tasks: [{ id: 1, title: '実行', detail: msg }], summary: msg };
+      showPlanApproval(msg, planData);
+    } catch(e) {
+      progEl.remove();
+      addMsg('error', 'Plan request failed: ' + (e.message || String(e)));
+      addLog('err', 'plan', e.message || String(e));
+    }
+    setBusy(false);
+  } else {
+    // Chat mode: direct execute
+    setBusy(true);
+    const progEl = addProgressCard('Working...');
+    startTimer();
+    try {
+      // chatもジョブキュー経由に（DB永続化）
+      const submitRes = await fetch(API+'/jobs/submit', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({message:msg, max_steps:maxSteps, project:currentProject,
+          search_enabled:searchEnabled, llm_url:activeLlmUrl,
+          mode:'chat', chat_history:chatHistory.slice(-10)})});
+      const submitData = await submitRes.json();
+      const jobId = submitData.job_id;
+      _currentJobId = jobId;
+      addLog('ok','job', `Chat job: ${jobId}`);
+
+      // ポーリングで完了を待つ（SSEよりシンプルで確実）
+      let chatResult = null;
+      let chatSteps = [];
+      let lastSeq = -1;
+      let pollCount = 0;
+      const MAX_POLL = 480; // 最大4分 (500ms x 480)
+
+      while (pollCount < MAX_POLL) {
+        await new Promise(r => setTimeout(r, 500));
+        pollCount++;
+        try {
+          const pollRes = await fetch(
+            API+`/jobs/${jobId}/poll?project=${encodeURIComponent(currentProject)}&after=${lastSeq}`
+          );
+          const pollData = await pollRes.json();
+          for (const s of (pollData.steps || [])) {
+            lastSeq = s.seq;
+            const ev = {...s.data, type: s.type, seq: s.seq};
+            if (ev.type === 'tool_call') {
+              chatSteps.push(ev);
+              setCard(progEl, {action: `${ev.action}: ${(ev.thought||'')}`});
+            } else if (ev.type === 'model_switching') {
+              setCard(progEl, {label: ev.message || 'Switching model...', action: `eta ${ev.eta_sec||'?'}s`});
+            } else if (ev.type === 'model_ready') {
+              setCard(progEl, {label: 'Working...', action: ''});
+            } else if (ev.type === 'done') {
+              chatResult = ev;
+            } else if (ev.type === 'error') {
+              chatResult = {result: '[Error] ' + (ev.error || 'Unknown error')};
+            }
+          }
+          if (pollData.status === 'done' || pollData.status === 'error') break;
+        } catch(e) { console.warn('poll error', e); }
+      }
+
+      progEl.remove();
+      stopTimer();
+      if (!chatResult) { addMsg('error', 'Job timed out or failed'); }
+      else {
+        const out = chatResult.result || '(no output)';
+        addMsg('assistant', out);
+        addToHistory('assistant', out);
+        if (chatSteps.length) { addStepsBlock(chatSteps); renderStepsToOutput(chatSteps); }
+      }
+    } catch(e) {
+      progEl.remove(); stopTimer();
+      addMsg('error','Request failed: '+e.message);
+    }
+    setBusy(false);
+  }
+}
+
+// ── MODEL SELECTOR (in plan card) ──
+function buildModelBar(recKey, recName, switchNeeded, etaSec, catalog) {
+  const options = Object.entries(catalog)
+    .filter(([k, v]) => v.available)
+    .map(([k, v]) =>
+      `<option value="${esc(k)}" ${k===recKey?'selected':''}>${esc(v.name)} (${v.vram_gb}GB)</option>`
+    ).join('');
+  const etaLabel = switchNeeded && etaSec > 0 && recKey !== 'auto'
+    ? `<span class="plan-model-eta">~${etaSec}s load</span>`
+    : '';
+  const autoSelected = !recKey || recKey === 'auto';
+  return `<div class="plan-model-bar">
+    <span class="plan-model-label">Model:</span>
+    <select class="plan-model-sel" id="plan-model-sel" onchange="updatePlanModel(this.value)">
+      <option value="auto" ${autoSelected?'selected':''}>⚡ Auto (task-based)</option>
+      ${options}
+    </select>
+    ${etaLabel}
+    <div id="plan-model-status" style="font-size:10px;color:var(--text3)"></div>
+  </div>`;
+}
+
+function updatePlanModel(key) {
+  if (pendingPlan) pendingPlan.recommended_model = key;
+  const statusEl = document.getElementById('plan-model-status');
+  if (!statusEl) return;
+  if (key === 'auto') {
+    statusEl.textContent = 'Auto: best model selected per task';
+    statusEl.style.color = 'var(--text3)';
+    return;
+  }
+  fetch(API + '/model/status').then(r => r.json()).then(d => {
+    if (d.current_key === key) {
+      statusEl.textContent = '✓ already loaded';
+      statusEl.style.color = 'var(--text3)';
+    } else {
+      const eta = d.catalog[key]?.load_sec || 60;
+      statusEl.textContent = `⚡ ~${eta}s to switch`;
+      statusEl.style.color = 'var(--amber)';
+    }
+  }).catch(() => {});
+}
+
+// モデル切り替えイベントをSSEで受け取ってプログレスに反映
+function handleModelSwitchEvent(ev, progCard) {
+  if (ev.type === 'model_switching') {
+    setCard(progCard, {
+      label: '⚙ ' + (ev.message || 'Switching model...'),
+      pct: ev.pct || 0,
+      counter: ev.eta_sec > 0 ? `~${ev.eta_sec}s` : '',
+    });
+  } else if (ev.type === 'model_ready') {
+    setCard(progCard, {
+      label: '✓ ' + (ev.message || 'Model ready'),
+      pct: 100,
+    });
+    addLog('ok', 'model', ev.message || 'ready');
+  } else if (ev.type === 'model_error') {
+    setCard(progCard, { label: '✗ Model switch failed', pct: -1 });
+    addLog('err', 'model', ev.message || 'error');
+  }
+}
+
+// ── PLAN APPROVAL ──
+function showPlanApproval(originalMsg, planData) {
+  const tasks = Array.isArray(planData) ? planData : (planData.tasks || []);
+  const summary = Array.isArray(planData) ? '' : (planData.summary || '');
+  const requirements = Array.isArray(planData) ? [] : (planData.requirements || []);
+  const approach = Array.isArray(planData) ? '' : (planData.approach || '');
+  const verification = Array.isArray(planData) ? [] : (planData.verification || []);
+  const recommendedModel = Array.isArray(planData) ? '' : (planData.recommended_model || '');
+  const recommendedName = Array.isArray(planData) ? '' : (planData.recommended_model_name || '');
+  const modelSwitchNeeded = Array.isArray(planData) ? false : (planData.model_switch_needed || false);
+  const switchEta = Array.isArray(planData) ? 0 : (planData.switch_eta_sec || 0);
+  const catalog = Array.isArray(planData) ? {} : (planData.catalog || {});
+
+  const w = messages();
+  // 既存カードがあれば除去（重複防止）
+  const existingCard = document.getElementById('plan-approval-card');
+  if (existingCard) existingCard.remove();
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.id = 'plan-approval-card';
+
+  const reqHtml = requirements.length
+    ? `<div class="plan-section"><div class="plan-section-title">📋 要件</div>${requirements.map(r=>`<div class="plan-req-item">${esc(r)}</div>`).join('')}</div>`
+    : '';
+  const approachHtml = approach
+    ? `<div class="plan-section"><div class="plan-section-title">🏗 実装方針</div><div class="plan-approach-text">${esc(approach)}</div></div>`
+    : '';
+  const taskRows = tasks.map((t,i) => `
+    <div class="plan-task-row" id="ptask-${i}">
+      <div class="plan-task-num">${i+1}</div>
+      <div class="plan-task-content">
+        <div class="plan-task-title">${esc(t.title)}</div>
+        <div class="plan-task-detail" id="pdetail-${i}">${esc(t.detail)}</div>
+      </div>
+      <button class="plan-task-edit" onclick="editPlanTask(${i})">Edit</button>
+    </div>`).join('');
+  const verifyHtml = verification.length
+    ? `<div class="plan-section"><div class="plan-section-title">✅ 検証項目</div>${verification.map(v=>`<div class="plan-verify-item">${esc(v)}</div>`).join('')}</div>`
+    : '';
+
+  div.innerHTML = `
+    <div class="msg-role">Requirements & Plan</div>
+    <div class="plan-card">
+      <div class="plan-card-header">
+        <div class="thinking-dots"><span></span><span></span><span></span></div>
+        <span>${esc(summary) || tasks.length + ' tasks planned'}</span>
+      </div>
+      ${reqHtml}${approachHtml}
+      <div class="plan-section">
+        <div class="plan-section-title">⚙ Tasks (${tasks.length})</div>
+        <div class="plan-tasks">${taskRows}</div>
+      </div>
+      ${verifyHtml}
+      ${buildModelBar(recommendedModel || 'auto', recommendedName, modelSwitchNeeded, switchEta, catalog)}
+      <div class="plan-actions">
+        <button class="plan-revise-btn" onclick="revisePlan('${esc(originalMsg).replace(/'/g,"\'")}')">↺ Revise</button>
+        <button class="plan-execute-btn" onclick="executePlan()">▶ Execute</button>
+      </div>
+    </div>`;
+  w.appendChild(div);
+  scrollMsgs();
+  pendingPlan = { message: originalMsg, tasks: JSON.parse(JSON.stringify(tasks)), requirements, approach, verification, summary, recommended_model: recommendedModel || 'auto' };
+}
+
+
+function editPlanTask(i) {
+  const detailEl = document.getElementById('pdetail-'+i);
+  const current = pendingPlan.tasks[i].detail;
+  const newVal = prompt('Edit task detail:', current);
+  if (newVal !== null && newVal.trim()) {
+    pendingPlan.tasks[i].detail = newVal.trim();
+    detailEl.textContent = newVal.trim();
+  }
+}
+
+async function revisePlan(originalMsg) {
+  const instruction = prompt('Revision instructions (e.g. "add a test task"):', '');
+  if (!instruction) return;
+  const card = document.getElementById('plan-approval-card');
+  if (card) card.remove();
+  pendingPlan = null;
+  setBusy(true);
+  const progEl = addProgressCard('Re-planning...');
+  try {
+    const r = await fetch(API+'/plan', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({message: originalMsg + '\n\n[Revision] ' + instruction, project:currentProject})});
+    const d = await r.json();
+    progEl.remove();
+    const planData = (d.tasks && d.tasks.length > 0)
+      ? d
+      : { tasks: [{ id: 1, title: '実行', detail: originalMsg }] };
+    showPlanApproval(originalMsg, planData);
+  } catch(e) { progEl.remove(); addMsg('error', e.message); }
+  setBusy(false);
+}
+
+async function executePlan() {
+  if (!pendingPlan) return;
+  const card = document.getElementById('plan-approval-card');
+  if (card) {
+    // ボタンを隠して承認済み表示にする（カード自体は残す）
+    const actions = card.querySelector('.plan-actions');
+    if (actions) actions.style.display = 'none';
+    const header = card.querySelector('.plan-card-header');
+    if (header) {
+      header.style.opacity = '0.6';
+      const dots = header.querySelector('.thinking-dots');
+      if (dots) dots.innerHTML = '<span style="color:var(--accent)">✓</span>';
+    }
+  }
+
+  const tasks = pendingPlan.tasks;
+  const msg = pendingPlan.message;
+  const selectedModel = pendingPlan.recommended_model || 'auto';
+  const savedRequirements = pendingPlan.requirements || [];
+  const savedApproach     = pendingPlan.approach     || '';
+  const savedVerification = pendingPlan.verification || [];
+  const savedSummary      = pendingPlan.summary      || '';
+  // 'auto' の場合は llm_url を空にしてサーバー側で自動分類
+  const taskLlmUrl = (selectedModel === 'auto') ? '' : activeLlmUrl;
+  const forcedModel = (selectedModel === 'auto') ? '' : selectedModel;
+  pendingPlan = null;
+
+  setBusy(true);
+  const progCard = addProgressCard(`Starting ${tasks.length} tasks...`, tasks.length);
+  startTimer();
+
+  try {
+    // ジョブをDBに登録（即座に返る）
+    const submitRes = await fetch(API+'/jobs/submit', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        message: msg, project: currentProject,
+        approved_tasks: tasks, max_steps: maxSteps,
+        search_enabled: searchEnabled,
+        llm_url: taskLlmUrl,
+        recommended_model: forcedModel,
+        auto_select_option: autoSelectOption,
+        mode: 'task', chat_history: chatHistory.slice(-10)
+      })
+    });
+    const {job_id: jobId} = await submitRes.json();
+    _currentJobId = jobId;
+    addLog('ok','job', `Job submitted: ${jobId}`);
+
+    // ポーリングで進捗取得（SSEよりシンプルで確実）
+    const allPlannedTasks = [...tasks]; // 全計画タスクを保持
+    addLog('info','plan', `Executing ${allPlannedTasks.length} tasks`);
+    let allSteps = [];
+    let taskResults = [];
+    let _lastSeq = -1;
+    let _pollCount = 0;
+    const _MAX_POLL = 2880; // 最大24分
+
+    while (_pollCount < _MAX_POLL) {
+      await new Promise(r => setTimeout(r, 500));
+      _pollCount++;
+      let pollData;
+      try {
+        const pr = await fetch(
+          API+`/jobs/${jobId}/poll?project=${encodeURIComponent(currentProject)}&after=${_lastSeq}`
+        );
+        pollData = await pr.json();
+      } catch(e) { console.warn('task poll error', e); continue; }
+
+      for (const _step of (pollData.steps || [])) {
+        _lastSeq = _step.seq;
+        const ev = {..._step.data, type: _step.type, seq: _step.seq};
+        if (ev.type === 'model_switching' || ev.type === 'model_ready' || ev.type === 'model_error') {
+          handleModelSwitchEvent(ev, progCard);
+          const badge = document.getElementById('model-badge');
+          if (badge && ev.type === 'model_ready') {
+            badge.textContent = (ev.message || '').replace('is ready','').trim();
+            badge.style.color = 'var(--text3)';
+          } else if (badge && ev.type === 'model_switching') {
+            badge.style.color = 'var(--amber)';
+          }
+          addLog('info','model', ev.message || ev.type);
+          continue;
+        }
+        // イベントタイプ別処理（インライン）
+        if (ev.type === 'task_start') {
+          const taskNum = (ev.task_index||0)+1;
+          const taskTotal = ev.total||'?';
+          setCard(progCard, {
+            label: 'Task ' + taskNum + '/' + taskTotal + ': ' + (ev.title||''),
+            pct: ev.total ? Math.round((ev.task_index||0)/ev.total*100) : 0,
+            action: ''
+          });
+          addLog('info','task', `[${taskNum}/${taskTotal}] ${ev.title||''}`);
+        } else if (ev.type === 'tool_call' || ev.type === 'step') {
+          allSteps.push(ev);
+          const _ptok = ev.prompt_tokens||0;
+          const _ctok = ev.completion_tokens||0;
+          const _ctxStr = _ptok > 0 ? `${_ptok+_ctok}/${_current_n_ctx_ui||'?'}` : '--/--';
+          setCard(progCard, {
+            action:  (ev.action||'') + ': ' + (ev.thought||''),
+            tps:     ev.tps||0,
+            ctx:     _ctxStr,
+            stepNum: ev.step_num ? `${ev.step_num}/${ev.max_steps||'?'}` : '-/-',
+          });
+          addLog('info','tool', `${ev.action||''}: ${(ev.thought||'')}`);
+        } else if (ev.type === 'task_done') {
+          taskResults.push({
+            task_id: ev.task_id, title: ev.title||'',
+            status: 'done', output: ev.output||'', steps: ev.steps||[]
+          });
+          if (ev.total) setCard(progCard, {pct: Math.round(taskResults.length/ev.total*100)});
+          addLog('ok','task', `done: ${ev.title||ev.task_id}`);
+        } else if (ev.type === 'task_error') {
+          taskResults.push({
+            task_id: ev.task_id, title: ev.title||'',
+            status: 'error', output: ev.error||'', steps: []
+          });
+          addLog('err','task', `error: ${ev.title||ev.task_id} - ${(ev.error||'')}`);
+        } else if (ev.type === 'progress') {
+          setCard(progCard, {pct: ev.pct||0, label: ev.label||''});
+          addLog('info','progress', ev.label||`${ev.pct}%`);
+        } else if (ev.type === 'verify_start' || ev.type === 'verify_result' || ev.type === 'verify_phase') {
+          const vMsg = ev.phase || ev.message || ev.summary || 'Verifying...';
+          const vDetail = ev.summary ? ` (${ev.summary})` : ev.score !== undefined ? ` score:${ev.score}` : '';
+          setCard(progCard, {action: '🔍 ' + vMsg + vDetail});
+          addLog('info','verify', vMsg + vDetail);
+        } else if (ev.type === 'verify_done') {
+          const passed = ev.passed ? '✅ PASS' : '⚠️ WARN';
+          const score = ev.score !== undefined ? ` score:${ev.score}` : '';
+          setCard(progCard, {action: `${passed}${score} — ${ev.summary||''}`});
+          addLog(ev.passed ? 'ok' : 'warn', 'verify', `${passed}${score} ${ev.summary||''}`);
+        } else if (ev.type === 'task_options') {
+          // 全フォールバック失敗 → ユーザーに対応案を選択させる
+          _taskOptionsMap[`${_currentJobId}_${ev.task_id}`] = ev.options || [];
+          showTaskOptions(ev, _currentJobId);
+          addLog('warn','task', `⚠ 4回試行失敗: ${ev.title||''} — 対応案を選択してください`);
+        } else if (ev.type === 'skill_hint') {
+          addLog('warn','skill', `Missing tool: ${ev.missing_tool} — will be proposed`);
+        } else if (ev.type === 'skill_proposals') {
+          // サーバー側分析による自動スキル提案
+          const proposals = ev.proposals || [];
+          const stats = ev.stats || {};
+          if (proposals.length) {
+            addLog('info','skill', `Auto-analyzed: ${proposals.length} skill proposals (${stats.tool_calls||0} tool calls, ${stats.errors||0} errors)`);
+            switchTab('skills');
+            const el = document.getElementById('skill-proposals');
+            if (el) {
+              el._proposals = proposals;
+              el.innerHTML = '<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">🔍 Auto-Analyzed Proposals</div>' +
+                proposals.map((p,i) => `
+                  <div style="border:1px solid var(--accent-border);border-radius:6px;padding:10px 12px;background:var(--accent-bg);margin-bottom:8px">
+                    <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px">${esc(p.name)}</div>
+                    <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${esc(p.description)}</div>
+                    ${p.rationale ? `<div style="font-size:10px;color:var(--text3);margin-bottom:6px;font-style:italic">${esc(p.rationale)}</div>` : ''}
+                    <details style="margin-bottom:6px"><summary style="font-size:10px;color:var(--text3);cursor:pointer">▶ code</summary>
+                      <pre style="font-size:10px;font-family:var(--font-mono);color:var(--text2);white-space:pre-wrap;word-break:break-all;margin:4px 0 0;padding:6px;background:var(--bg3);border-radius:4px;max-height:160px;overflow-y:auto">${esc(p.tool_code||'')}</pre>
+                    </details>
+                    <div style="display:flex;gap:6px">
+                      <button onclick="saveSkillProposal(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">✓ Save</button>
+                      <button onclick="planSkillImpl(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:600;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">⚙ Implement</button>
+                    </div>
+                  </div>`).join('');
+            }
+            refreshSkills();
+          }
+        } else if (ev.type === 'error') {
+          addLog('err','job', ev.error || JSON.stringify(ev));
+        } else if (ev.type === 'plan') {
+          addLog('info','plan', `${(ev.tasks||[]).length} tasks received`);
+        }
+      }
+      if (pollData.status === 'done' || pollData.status === 'error') break;
+    }
+
+    // ポーリング終了後、念のりもう一度全ステップを取得（取りこぼし防止）
+    try {
+      const finalPoll = await fetch(
+        API+`/jobs/${jobId}/poll?project=${encodeURIComponent(currentProject)}&after=${_lastSeq}`
+      );
+      const finalData = await finalPoll.json();
+      for (const _step of (finalData.steps || [])) {
+        const ev = {..._step.data, type: _step.type, seq: _step.seq};
+        if (ev.type === 'task_done') {
+          taskResults.push({task_id: ev.task_id, title: ev.title||'', status: 'done', output: ev.output||'', steps: ev.steps||[]});
+        } else if (ev.type === 'task_error') {
+          taskResults.push({task_id: ev.task_id, title: ev.title||'', status: 'error', output: ev.error||'', steps: []});
+        } else if (ev.type === 'tool_call' || ev.type === 'step') {
+          allSteps.push(ev);
+        }
+      }
+    } catch(e) {}
+
+    progCard.remove();
+    stopTimer();
+
+    if (taskResults.length || allPlannedTasks.length) {
+      // task_done内のstepsもallStepsに追加（Outputタブに表示するため）
+      taskResults.forEach(t => {
+        (t.steps || []).forEach(s => { if (s) allSteps.push(s); });
+      });
+      addTaskBlock(taskResults, allPlannedTasks, {
+        requirements: savedRequirements,
+        approach:     savedApproach,
+        verification: savedVerification,
+        summary:      savedSummary,
+      });
+      if (allSteps.length) addStepsBlock(allSteps);
+      renderStepsToOutput(allSteps);
+    }
+    const doneCount = taskResults.filter(t=>t.status==='done').length;
+    const errCount = taskResults.filter(t=>t.status==='error').length;
+    const summaryText = errCount > 0
+      ? `${taskResults.length}タスク中${doneCount}件完了、${errCount}件エラー`
+      : `${taskResults.length}タスク中${doneCount}件完了`;
+    addMsg(doneCount===taskResults.length?'assistant':'error', summaryText);
+    addToHistory('assistant', summaryText);
+    detectHtml({tasks: taskResults.map(t=>({steps: t.steps||[]}))});
+
+  } catch(e) {
+    progCard.remove(); stopTimer();
+    addMsg('error', 'Job error: '+e.message);
+    addLog('err','job', e.message);
+  }
+  setBusy(false);
+  loadProjects();
+  refreshFileBrowser();
+}
+
+// ── PROGRESS CARD ──
+function addProgressCard(label, totalTasks) {
+  const w = messages();
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+  const pct = 0;
+  div.innerHTML = `<div class="msg-bubble progress-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div class="prog-label" style="margin-bottom:0">${esc(label)}</div>
+      <span class="prog-elapsed" style="font-size:11px;font-family:var(--font-mono);color:var(--text3);flex-shrink:0;margin-left:8px">0s</span>
+    </div>
+    <div class="prog-bar-wrap"><div class="prog-bar" style="width:0%"></div></div>
+    <div class="prog-meta" style="margin-top:6px">
+      <span class="prog-action"></span>
+    </div>
+    <div class="prog-stats" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.06)">
+      <span class="prog-stat-tps"  style="font-size:10px;font-family:var(--font-mono);color:var(--text3)">-- tok/s</span>
+      <span class="prog-stat-ctx"  style="font-size:10px;font-family:var(--font-mono);color:var(--text3)">ctx: --/--</span>
+      <span class="prog-stat-step" style="font-size:10px;font-family:var(--font-mono);color:var(--text3)">step: -/-</span>
+    </div>
+  </div>`;
+  div._refs = {
+    label:   div.querySelector('.prog-label'),
+    bar:     div.querySelector('.prog-bar'),
+    elapsed: div.querySelector('.prog-elapsed'),
+    action:  div.querySelector('.prog-action'),
+    tps:     div.querySelector('.prog-stat-tps'),
+    ctx:     div.querySelector('.prog-stat-ctx'),
+    stepNum: div.querySelector('.prog-stat-step'),
+  };
+  w.appendChild(div);
+  w.scrollTop = w.scrollHeight;
+  return div;
+}
+
+function setCard(card, opts) {
+  if (!card || !card._refs) return;
+  const r = card._refs;
+  if (opts.label   !== undefined) r.label.textContent  = opts.label;
+  if (opts.action  !== undefined) r.action.textContent = opts.action;
+  if (opts.elapsed !== undefined) r.elapsed.textContent = opts.elapsed;
+  if (opts.pct     !== undefined) {
+    const p = Math.max(0, Math.min(100, opts.pct));
+    r.bar.style.width = p + '%';
+  }
+  if (opts.taskName !== undefined) r.label.textContent = opts.taskName;
+  if (opts.tps      !== undefined && r.tps)     r.tps.textContent     = opts.tps > 0 ? opts.tps.toFixed(1)+' tok/s' : '-- tok/s';
+  if (opts.ctx      !== undefined && r.ctx)     r.ctx.textContent     = 'ctx: '+opts.ctx;
+  if (opts.stepNum  !== undefined && r.stepNum) r.stepNum.textContent = 'step: '+opts.stepNum;
+  card.closest('.msg-list, #messages')?.scrollTo?.({top: 999999});
+}
+
+function updateProgressCard(card, label, pct, _t, elapsed, est, taskCounter, taskName, stepInfo) {
+  // 後方互換: setCardに委譲
+  const opts = {};
+  if (label !== undefined && label !== null) opts.label = label;
+  if (pct   !== undefined && pct   !== null) opts.pct = pct;
+  if (elapsed !== undefined) opts.elapsed = elapsed;
+  if (est     !== undefined) opts.est     = est;
+  if (taskCounter !== undefined) opts.counter  = taskCounter;
+  if (taskName    !== undefined) opts.taskName = taskName;
+  if (stepInfo    !== undefined) opts.stepInfo = stepInfo;
+  setCard(card, opts);
+}
+function updateProgressStep(card, action, thought, stepNum, maxStep) {
+  setCard(card, {
+    stepInfo: `step ${stepNum}/${maxStep}`,
+    action: `${action}${thought ? ': ' + thought : ''}`
+  });
+}
+function updateProgressAction(card, text) {
+  setCard(card, {action: text});
+}
+function startTimer() {
+  startTime = Date.now();
+  timerInterval = setInterval(() => {
+    const t = fmtTime((Date.now()-startTime)/1000);
+    document.querySelectorAll('.msg.assistant').forEach(wrap => {
+      if (wrap._refs) {
+        wrap._refs.elapsed.textContent = t;
+        // コンテキスト使用率に応じて色変化
+        const ctxEl = wrap._refs.ctx;
+        if (ctxEl && _current_n_ctx_ui > 0) {
+          const m = ctxEl.textContent.match(/ctx: (\d+)\//);
+          if (m) {
+            const ratio = parseInt(m[1]) / _current_n_ctx_ui;
+            ctxEl.style.color = ratio > 0.95 ? 'var(--red)' : ratio > 0.8 ? 'var(--amber)' : 'var(--text3)';
+          }
+        }
+      }
+    });
+  }, 1000);
+}
+function stopTimer() { clearInterval(timerInterval); timerInterval = null; }
+function fmtTime(sec) {
+  const s = Math.round(sec);
+  return s < 60 ? `${s}s` : `${Math.floor(s/60)}m${s%60}s`;
+}
+
+// ── MESSAGES ──
+// マークダウンレンダリング設定
+const mdRenderer = (() => {
+  if (typeof marked === 'undefined') return null;
+  marked.setOptions({
+    breaks: true,
+    gfm: true,
+  });
+  return marked;
+})();
+
+function renderMd(text) {
+  if (!mdRenderer) return `<span style="white-space:pre-wrap">${esc(text)}</span>`;
+  try { return mdRenderer.parse(text); }
+  catch(e) { return `<span style="white-space:pre-wrap">${esc(text)}</span>`; }
+}
+
+function addMsg(role, text) {
+  const w = messages();
+  const d = document.createElement('div');
+  d.className = 'msg '+role;
+  d.dataset.msgText = text;
+  const labels = {user:'You', assistant:'Agent', system:'System', error:'Error'};
+  const isMd = (role === 'assistant') && mdRenderer;
+  const bubble = isMd
+    ? `<div class="msg-bubble md">${renderMd(text)}</div>`
+    : `<div class="msg-bubble">${esc(text)}</div>`;
+  const toggle = isMd
+    ? `<button class="md-toggle active" onclick="toggleMdBubble(this)" title="Toggle Markdown/Raw">MD</button>`
+    : '';
+  const editBtn = (role === 'user')
+    ? `<button class="msg-edit-btn" onclick="startEditMsg(this)">✎ Edit</button>`
+    : '';
+  d.innerHTML = `<div class="msg-role">${labels[role]||role}</div>${bubble}${toggle}${editBtn}`;
+  if (isMd) d.querySelector('.msg-bubble').dataset.raw = text;
+  w.appendChild(d); scrollMsgs(); return d;
+}
+
+function toggleMdBubble(btn) {
+  const bubble = btn.previousElementSibling;
+  const isMdNow = bubble.classList.contains('md');
+  if (isMdNow) {
+    // raw表示に切替
+    bubble.classList.remove('md');
+    bubble.style.whiteSpace = 'pre-wrap';
+    bubble.style.fontFamily = 'var(--font-mono)';
+    bubble.style.fontSize = '12px';
+    bubble.textContent = bubble.dataset.raw || bubble.textContent;
+    btn.classList.remove('active');
+    btn.textContent = 'RAW';
+  } else {
+    // MD表示に切替
+    bubble.classList.add('md');
+    bubble.style.whiteSpace = '';
+    bubble.style.fontFamily = '';
+    bubble.style.fontSize = '';
+    bubble.innerHTML = renderMd(bubble.dataset.raw || bubble.textContent);
+    btn.classList.add('active');
+    btn.textContent = 'MD';
+  }
+}
+function addStepsBlock(steps) {
+  const w = messages();
+  const toolSteps = steps.filter(s=>s.type==='tool_call');
+  if (!toolSteps.length) return;
+  const d = document.createElement('div'); d.className = 'msg assistant';
+  const icons = {read_file:'📄',write_file:'✏️',patch_function:'🔧',run_python:'▶',run_file:'▶',list_files:'📁'};
+  const items = toolSteps.map(s=>`<div class="step-item">
+    <span>${icons[s.action]||'◆'}</span>
+    <div style="flex:1;min-width:0">
+      <span class="step-action">${s.action}</span>
+      ${s.thought?`<div class="step-thought">${esc(s.thought)}</div>`:''}
+      ${s.result_preview?`<div class="step-result">${esc(s.result_preview)}</div>`:''}
+    </div></div>`).join('');
+  d.innerHTML = `<div class="msg-role">Steps</div>
+    <div class="steps-block">
+      <div class="steps-hdr" onclick="this.nextElementSibling.classList.toggle('open')">
+        <span>${toolSteps.length} tool call${toolSteps.length>1?'s':''}</span><span style="font-size:9px">▼</span>
+      </div>
+      <div class="steps-body">${items}</div>
+    </div>`;
+  w.appendChild(d); scrollMsgs();
+}
+function addTaskBlock(tasks, allPlannedTasks, planMeta) {
+  // allPlannedTasksがあれば、未実行タスクをSKIPPEDとして補完
+  const planned = allPlannedTasks || tasks;
+  const resultMap = {};
+  tasks.forEach(t => { resultMap[t.task_id] = t; });
+
+  const merged = planned.map(p => {
+    const r = resultMap[p.id] || resultMap[p.task_id];
+    if (r) return r;
+    return { task_id: p.id, title: p.title||'', status: 'skipped', output: '' };
+  });
+
+  const w = messages();
+  const d = document.createElement('div'); d.className = 'msg system';
+
+  const items = merged.map(t => {
+    const cls = t.status==='done'?'bd-done':t.status==='error'?'bd-err':t.status==='skipped'?'bd-skip':'bd-run';
+    const ic  = t.status==='done'?'✓':t.status==='error'?'✗':'—';
+    const col = t.status==='done'?'var(--accent)':t.status==='error'?'var(--red)':'var(--text3)';
+    const badge = t.status==='done'?'DONE':t.status==='error'?'ERROR':t.status==='skipped'?'SKIPPED':'RUNNING';
+    return `<div class="task-item">
+      <span style="color:${col};flex-shrink:0;width:14px;font-weight:700">${ic}</span>
+      <span style="flex:1;font-size:13px;font-weight:${t.status==='done'||t.status==='error'?'600':'400'}">${esc(t.title)}</span>
+      <span class="tbadge ${cls}">${badge}</span></div>`;
+  }).join('');
+
+  // Requirements & Plan セクション（planMetaがある場合）
+  let metaHtml = '';
+  if (planMeta) {
+    const reqs = planMeta.requirements || [];
+    const appr = planMeta.approach || '';
+    const veri = planMeta.verification || [];
+
+    const reqHtml = reqs.length
+      ? `<div class="plan-section"><div class="plan-section-title">📋 要件</div>${reqs.map(r=>`<div class="plan-req-item">${esc(r)}</div>`).join('')}</div>`
+      : '';
+    const apprHtml = appr
+      ? `<div class="plan-section"><div class="plan-section-title">🏗 実装方針</div><div class="plan-approach-text">${esc(appr)}</div></div>`
+      : '';
+    const veriHtml = veri.length
+      ? `<div class="plan-section"><div class="plan-section-title" style="color:var(--blue)">✅ 検証項目</div>${veri.map(v=>`<div class="plan-verify-item">${esc(v)}</div>`).join('')}</div>`
+      : '';
+    if (reqHtml || apprHtml || veriHtml) {
+      metaHtml = `<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:4px">${reqHtml}${apprHtml}${veriHtml}</div>`;
+    }
+  }
+
+  d.innerHTML = `<div class="msg-role">REQUIREMENTS & PLAN</div><div class="task-block">${items}${metaHtml}</div>`;
+  w.insertBefore(d, w.lastChild); scrollMsgs();
+}
+
+// ── OUTPUT PANEL ──
+function renderStepsToOutput(steps) {
+  const out = document.getElementById('code-output');
+  out.innerHTML = '';
+  let has = false;
+  steps.forEach(s => {
+    if (!s || s.type !== 'tool_call') return;
+    if (s.action === 'run_python' || s.action === 'run_file') {
+      has = true;
+      const b = document.createElement('div'); b.className = 'cb';
+      const res = (s.result_preview||'').trim();
+      const isErr = res.startsWith('ERROR') || res.includes('Traceback');
+      b.innerHTML = `<div class="cb-hdr"><span class="cb-lang">stdout</span><span class="cb-title">${esc(s.action)}${s.input?.path?' → '+s.input.path:''}</span></div>
+        <div class="${isErr?'cb-err':'cb-out'}">${esc(res||'(no output)')}</div>`;
+      out.appendChild(b);
+    }
+    if (s.action === 'write_file' || s.action === 'patch_function') {
+      has = true;
+      const b = document.createElement('div'); b.className = 'cb';
+      const code = s.input?.content || s.input?.new_code || '';
+      const fp = s.input?.path || '';
+      const ext = fp.split('.').pop().toLowerCase();
+      const isRunnable = ['py','js','html'].includes(ext);
+      const runBtnHtml = isRunnable
+        ? `<button class="pv-btn run" style="font-size:10px;padding:2px 8px" onclick="switchTab('preview');setTimeout(()=>runFile('${esc(fp)}'),100)">▶ Run</button>`
+        : '';
+      b.innerHTML = `<div class="cb-hdr">
+        <span class="cb-lang">${s.action==='patch_function'?'patch':'file'}</span>
+        <span class="cb-title">${esc(fp)}${s.input?.function_name?' :: '+s.input.function_name:''}</span>
+        ${runBtnHtml}
+      </div>
+      <div class="cb-text">${synHL(code.slice(0,600))}${code.length>600?`\n<span style="color:var(--text3)">... (${code.length-600} more)</span>`:''}</div>`;
+      out.appendChild(b);
+    }
+  });
+  if (!has) out.innerHTML = '<div class="empty-state"><div class="empty-icon">◎</div><div class="empty-text">No runnable output</div></div>';
+  document.getElementById('tab-label').textContent = steps.filter(s=>s?.type==='tool_call').length + ' ops';
+}
+
+// ── HTML PREVIEW ──
+function detectHtml(data) {
+  const allSteps = data.tasks
+    ? data.tasks.flatMap(t => t.steps || [])
+    : (data.steps || []);
+  const found = allSteps.filter(s => s?.action==='write_file' && s.input?.path?.endsWith('.html')).map(s=>s.input.path);
+  if (found.length) {
+    htmlFiles = found;
+    loadPreview(htmlFiles[htmlFiles.length-1]);
+    switchTab('preview');
+  }
+  refreshFileBrowser();
+}
+async function loadPreview(path) {
+  try {
+    const r = await fetch(API+'/workspace/'+currentProject+'/'+path);
+    if (!r.ok) throw new Error('fetch failed');
+    showInFrame(await r.text());
+    document.getElementById('preview-url').textContent = 'workspace/'+currentProject+'/'+path;
+  } catch(e) { addLog('warn','preview','Cannot fetch: '+e.message); }
+}
+function showInFrame(html) {
+  const f = document.getElementById('preview-frame');
+  const ph = document.getElementById('preview-ph');
+  f.src = URL.createObjectURL(new Blob([html], {type:'text/html'}));
+  f.style.display = 'block'; ph.style.display = 'none';
+}
+function refreshPreview() { if (htmlFiles.length) loadPreview(htmlFiles[htmlFiles.length-1]); }
+function openNew() { if (htmlFiles.length) window.open(API+'/workspace/'+currentProject+'/'+htmlFiles[htmlFiles.length-1]); }
+
+// ── FILE BROWSER ──
+let fbActiveFile = null;
+
+async function refreshFileBrowser() {
+  try {
+    const r = await fetch(API+'/projects/'+encodeURIComponent(currentProject)+'/files');
+    const d = await r.json();
+    renderFileBrowser(d.files || []);
+  } catch(e) { addLog('err','files',e.message); }
+}
+
+function renderFileBrowser(files) {
+  const list = document.getElementById('fb-list');
+  if (!files.length) { list.innerHTML='<div class="fb-empty">No files yet</div>'; return; }
+
+  const ext2icon = {
+    py:'🐍', js:'📜', html:'🌐', css:'🎨',
+    json:'📋', md:'📝', txt:'📄', sh:'⚙',
+    csv:'📊', png:'🖼', jpg:'🖼', gif:'🖼',
+  };
+
+  list.innerHTML = files.map(f => {
+    const ext = f.split('.').pop().toLowerCase();
+    const icon = ext2icon[ext] || '📄';
+    const isRunnable = ['py','js','html'].includes(ext);
+    const runLabel = {py:'Run', js:'Run', html:'View'}[ext] || '';
+    return `<div class="fb-file${fbActiveFile===f?' active':''}" onclick="openFile('${esc(f)}')" data-file="${esc(f)}">
+      <span class="fb-file-icon">${icon}</span>
+      <span class="fb-file-name" title="${esc(f)}">${esc(f)}</span>
+      ${isRunnable ? `<button class="fb-file-run" onclick="event.stopPropagation();runFile('${esc(f)}')">${runLabel}</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function openFile(path) {
+  fbActiveFile = path;
+  document.querySelectorAll('.fb-file').forEach(el => {
+    el.classList.toggle('active', el.dataset.file === path);
+  });
+  const ext = path.split('.').pop().toLowerCase();
+  document.getElementById('preview-url').textContent = path;
+  // Runボタンの表示制御
+  const runBtn = document.getElementById('run-btn');
+  if (runBtn) runBtn.style.display = ['py','js','html'].includes(ext) ? '' : 'none';
+
+  if (ext === 'html') {
+    // HTMLはプレビュー表示
+    try {
+      const r = await fetch(API+'/workspace/'+currentProject+'/'+path);
+      if (!r.ok) throw new Error(r.status);
+      showInFrame(await r.text());
+      addLog('ok','preview','Loaded: '+path);
+    } catch(e) { addLog('err','preview','Cannot load: '+e.message); }
+  } else {
+    // テキストファイルはソースをrun-outputに表示
+    try {
+      const r = await fetch(API+'/workspace/'+currentProject+'/'+path);
+      if (!r.ok) throw new Error(r.status);
+      const text = await r.text();
+      showRunOutput(syntaxHL(text), false);
+      // エディタにも読み込む
+      const ed = document.getElementById('code-editor');
+      if (ed) { ed.value = text; setEditorLang(ext); }
+      addLog('ok','files','Opened: '+path);
+    } catch(e) { addLog('err','files','Cannot read: '+e.message); }
+  }
+}
+
+async function runFile(path) {
+  const ext = path.split('.').pop().toLowerCase();
+  document.getElementById('preview-url').textContent = '▶ Running: '+path;
+  addLog('info','run',path);
+
+  if (ext === 'html') {
+    openFile(path); return;
+  }
+
+  if (ext === 'py') {
+    const btn = document.getElementById('run-btn');
+    if (btn) { btn.textContent='...'; btn.disabled=true; }
+    try {
+      const r = await fetch(API+'/chat', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          message: `workspace内の${currentProject}/${path}をrun_fileツールで実行して結果を教えて`,
+          max_steps: 5, project: currentProject,
+          search_enabled: false, llm_url: activeLlmUrl
+        })
+      });
+      const d = await r.json();
+      const out = d.result || d.error || '(no output)';
+      showRunOutput(esc(out), out.includes('Error') || out.includes('Traceback'));
+      document.getElementById('preview-url').textContent = '▶ '+path+' (done)';
+      addLog('ok','run',path+': '+out.slice(0,60));
+    } catch(e) {
+      showRunOutput(esc('Error: '+e.message), true);
+    }
+    if (btn) { btn.textContent='▶ Run'; btn.disabled=false; }
+    return;
+  }
+
+  if (ext === 'js') {
+    // JSはiframe内で実行
+    try {
+      const r = await fetch(API+'/workspace/'+currentProject+'/'+path);
+      const code = await r.text();
+      showInFrame(`<!DOCTYPE html><html><body style="background:#0a0a0b;color:#e8e8f0;font-family:monospace;padding:16px">
+        <script>try{${code}}catch(e){document.body.innerHTML+='<pre style="color:#ff4466">'+e+'</pre>';}<\/script>
+      </body></html>`);
+    } catch(e) { addLog('err','run',e.message); }
+  }
+}
+
+function showRunOutput(html, isError) {
+  const frame = document.getElementById('preview-frame');
+  const ph = document.getElementById('preview-ph');
+  const out = document.getElementById('run-output');
+  frame.style.display = 'none';
+  ph.style.display = 'none';
+  out.style.display = 'block';
+  out.style.color = isError ? 'var(--red)' : 'var(--accent)';
+  out.innerHTML = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0">${html}</pre>`;
+}
+
+function setEditorLang(ext) {
+  const sel = document.getElementById('editor-lang');
+  if (!sel) return;
+  const map = {py:'python', js:'javascript', html:'html'};
+  if (map[ext]) sel.value = map[ext];
+}
+
+// プロジェクト切り替え時・タブ切り替え時にファイルリストを更新
+const _origSwitchTab = switchTab;
+
+// ── INLINE EDITOR ──
+function toggleEditor() { /* editor is always visible in new layout */ }
+function editorKey(e) {
+  if(e.key==='Tab'){e.preventDefault();const t=e.target,s=t.selectionStart;t.value=t.value.slice(0,s)+'  '+t.value.slice(t.selectionEnd);t.selectionStart=t.selectionEnd=s+2;}
+  if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)) runEditorCode();
+}
+async function runEditorCode() {
+  const code = document.getElementById('code-editor').value.trim(); if (!code) return;
+  const lang = document.getElementById('editor-lang').value;
+  if (lang === 'html') { showInFrame(code); document.getElementById('preview-url').textContent='(inline HTML)'; return; }
+  if (lang === 'javascript') {
+    showInFrame(`<!DOCTYPE html><html><body><script>try{${code}}catch(e){document.body.innerHTML='<pre style="color:red">'+e+'</pre>';}<\/script></body></html>`);
+    document.getElementById('preview-url').textContent='(inline JS)'; return;
+  }
+  if (lang === 'python') {
+    const btn = document.getElementById('run-btn'); btn.textContent='...'; btn.disabled=true;
+    try {
+      const r = await fetch(API+'/chat', {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({message:`次のPythonコードを実行してください:\n\`\`\`python\n${code}\n\`\`\``, max_steps:5, project:currentProject, search_enabled:false, llm_url:activeLlmUrl})});
+      const d = await r.json();
+      showInFrame(`<!DOCTYPE html><html><body style="background:#0a0a0b;color:#00ff88;font-family:monospace;padding:16px;white-space:pre-wrap">${esc(d.result||d.error||'')}</body></html>`);
+    } catch(e) { addLog('err','editor',e.message); }
+    btn.textContent='▶ Run'; btn.disabled=false;
+  }
+}
+
+// ── LOG ──
+function addLog(level, tag, msg) {
+  const out = document.getElementById('log-output');
+  const t = new Date().toTimeString().slice(0,8);
+  const d = document.createElement('div'); d.className = 'log-line';
+  d.innerHTML = `<span class="ltime">${t}</span><span class="llvl ${level}">${level.toUpperCase()}</span>
+    <span class="lmsg"><span style="color:var(--text3)">[${esc(tag)}]</span> ${esc(String(msg))}</span>`;
+  out.appendChild(d); out.scrollTop = out.scrollHeight;
+}
+
+// ── MAX STEPS SLIDER ──
+function initStepsSlider() {
+  const savedAutoSelect = localStorage.getItem('auto_select_option');
+  if (savedAutoSelect !== null) {
+    autoSelectOption = savedAutoSelect === '1';
+    const chk = document.getElementById('auto-select-toggle');
+    if (chk) { chk.checked = autoSelectOption; toggleAutoSelect(autoSelectOption); }
+  }
+  const saved = parseInt(localStorage.getItem('max_steps') || '20');
+  maxSteps = saved;
+  const slider = document.getElementById('steps-slider');
+  const label = document.getElementById('steps-label');
+  if (slider) slider.value = saved;
+  if (label) label.textContent = saved;
+}
+function updateStepsLabel(val) {
+  maxSteps = parseInt(val);
+  const el = document.getElementById('steps-label');
+  if (el) el.textContent = val;
+  localStorage.setItem('max_steps', val);
+}
+
+// ── SEARCH NUM RESULTS SLIDER ──
+async function initSearchNumSlider() {
+  try {
+    const r = await fetch(API+'/search/status');
+    const d = await r.json();
+    const n = d.num_results || 5;
+    const slider = document.getElementById('search-num-slider');
+    const label = document.getElementById('search-num-label');
+    if (slider) slider.value = n;
+    if (label) label.textContent = n;
+  } catch(e) {}
+}
+function updateSearchNumLabel(val) {
+  const el = document.getElementById('search-num-label');
+  if (el) el.textContent = val;
+}
+async function applySearchNum(val) {
+  try {
+    await fetch(API+'/search/num', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({num_results: parseInt(val)})
+    });
+    addLog('ok','search', `num_results set to ${val}`);
+  } catch(e) { addLog('err','search', e.message); }
+}
+
+// ── CONTEXT LENGTH SLIDER ──
+let _current_n_ctx_ui = 32768; // UIが知っているn_ctx（統計表示用）
+
+async function initCtxSlider() {
+  try {
+    // llama-serverの最大コンテキスト長を取得
+    const r = await fetch(API+'/llm/props');
+    const d = await r.json();
+    const maxCtx = d.n_ctx || 32768;
+
+    // サーバー側の現在値も取得
+    const cr = await fetch(API+'/llm/ctx');
+    const cd = await cr.json();
+    const curCtx = cd.n_ctx || maxCtx;
+
+    const slider = document.getElementById('ctx-slider');
+    const label = document.getElementById('ctx-label');
+    const maxLabel = document.getElementById('ctx-max-label');
+    const maxRight = document.getElementById('ctx-slider-max');
+
+    if (slider) {
+      slider.max = maxCtx;
+      slider.value = curCtx;
+    }
+    _current_n_ctx_ui = curCtx; // 統計表示に使用
+    if (label) label.textContent = curCtx.toLocaleString();
+    if (maxLabel) maxLabel.textContent = 'max: ' + maxCtx.toLocaleString();
+    if (maxRight) maxRight.textContent = maxCtx.toLocaleString();
+
+    addLog('ok', 'ctx', `n_ctx=${curCtx} / max=${maxCtx}`);
+  } catch(e) {
+    addLog('warn', 'ctx', 'Could not fetch llm props: ' + e.message);
+  }
+}
+
+function updateCtxLabel(val) {
+  const n = parseInt(val);
+  const el = document.getElementById('ctx-label');
+  if (el) el.textContent = n.toLocaleString();
+}
+
+async function applyCtxLen(val) {
+  const n = parseInt(val);
+  try {
+    await fetch(API+'/llm/ctx', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({n_ctx: n})
+    });
+    _current_n_ctx_ui = n;
+    addLog('ok', 'ctx', 'Context length set to ' + n.toLocaleString());
+  } catch(e) {
+    addLog('err', 'ctx', e.message);
+  }
+}
+
+// ── SEARCH TOGGLE ──
+async function initSearch() {
+  try {
+    const r = await fetch(API+'/search/status');
+    const d = await r.json();
+    applySearchUI(d.enabled);
+  } catch(e) {}
+}
+
+async function toggleSearch() {
+  const next = !searchEnabled;
+  try {
+    const r = await fetch(API+(next?'/search/enable':'/search/disable'), {method:'POST'});
+    const d = await r.json();
+    applySearchUI(d.enabled);
+    addLog(d.enabled?'ok':'warn','search', d.enabled?'Web search ENABLED — queries are sanitized before sending':'Web search DISABLED');
+  } catch(e) { addLog('err','search',e.message); }
+}
+
+function applySearchUI(enabled) {
+  searchEnabled = enabled;
+  const btn = document.getElementById('search-toggle');
+  if (!btn) return;
+  btn.classList.toggle('search-on', enabled);
+  btn.style.opacity = enabled ? '1' : '0.4';
+  btn.title = enabled ? 'Web Search: ON — click to disable' : 'Web Search: OFF — click to enable';
+}
+
+// ── LLM MANAGER ──
+function loadLLMEndpoints() {
+  try {
+    llmEndpoints = JSON.parse(localStorage.getItem('llm_endpoints') || '[]');
+    // デフォルトエンドポイントがなければ追加
+    if (!llmEndpoints.find(e => e.name === 'Default')) {
+      llmEndpoints.unshift({name:'Default', url:'', status:'unk', active:true});
+      saveLLMEndpoints();
+    }
+    const active = llmEndpoints.find(e => e.active);
+    if (active) activeLlmUrl = active.url || '';
+    updateLLMBtnLabel();
+  } catch(e) { llmEndpoints = [{name:'Default', url:'', status:'unk', active:true}]; }
+}
+function saveLLMEndpoints() {
+  localStorage.setItem('llm_endpoints', JSON.stringify(llmEndpoints));
+}
+function updateLLMBtnLabel() {
+  const active = llmEndpoints.find(e => e.active) || llmEndpoints[0];
+  const btn = document.getElementById('llm-btn');
+  if (active && active.name !== 'Default') {
+    btn.style.borderColor = 'var(--accent-border)';
+    btn.style.color = 'var(--accent)';
+  } else {
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  }
+}
+function openLLMManager() {
+  document.getElementById('llm-modal').classList.add('open');
+  initStepsSlider();
+  initSearchNumSlider();
+  renderLLMList();
+}
+function closeLLMManager() {
+  document.getElementById('llm-modal').classList.remove('open');
+}
+function renderLLMList() {
+  const el = document.getElementById('llm-list');
+  if (!llmEndpoints.length) { el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:8px">No endpoints saved.</div>'; return; }
+  el.innerHTML = llmEndpoints.map((ep, i) => `
+    <div class="llm-item${ep.active?' active':''}">
+      <div class="llm-item-info">
+        <div class="llm-item-name">${esc(ep.name)}</div>
+        <div class="llm-item-url">${ep.url ? esc(ep.url) : '(server default)'}</div>
+      </div>
+      <span class="llm-item-status ${ep.status==='ok'?'llm-stat-ok':ep.status==='err'?'llm-stat-err':'llm-stat-unk'}">${ep.status==='ok'?'OK':ep.status==='err'?'ERR':'?'}</span>
+      <div class="llm-item-btns">
+        ${i>0?`<button class="llm-act-btn" onclick="testLLM(${i})">Test</button>`:''}
+        ${ep.active?'<button class="llm-act-btn sel">Active</button>':`<button class="llm-act-btn" onclick="selectLLM(${i})">Select</button>`}
+        ${i>0?`<button class="llm-act-btn del" onclick="deleteLLM(${i})">✕</button>`:''}
+      </div>
+    </div>`).join('');
+}
+async function testNewLLM() {
+  const url = document.getElementById('llm-new-url').value.trim();
+  if (!url) return;
+  const res = document.getElementById('new-test-result');
+  res.className = 'test-result open';
+  res.textContent = 'Testing...';
+  try {
+    const r = await fetch(API+'/llm/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})});
+    const d = await r.json();
+    const ok = d.chat;
+    res.style.color = ok ? 'var(--accent)' : 'var(--red)';
+    res.textContent = ok
+      ? `✓ Connected  health=${d.health}  models: ${d.models.slice(0,3).join(', ')||'n/a'}`
+      : `✗ Failed: ${d.chat_error||'no response'}`;
+  } catch(e) { res.style.color='var(--red)'; res.textContent='✗ Error: '+e.message; }
+}
+async function testLLM(i) {
+  const ep = llmEndpoints[i];
+  if (!ep) return;
+  renderLLMList(); // show testing state
+  try {
+    const r = await fetch(API+'/llm/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url: ep.url})});
+    const d = await r.json();
+    llmEndpoints[i].status = d.chat ? 'ok' : 'err';
+    saveLLMEndpoints();
+    renderLLMList();
+  } catch(e) { llmEndpoints[i].status = 'err'; saveLLMEndpoints(); renderLLMList(); }
+}
+function addLLM() {
+  const name = document.getElementById('llm-new-name').value.trim();
+  const url = document.getElementById('llm-new-url').value.trim();
+  if (!name || !url) { alert('Name and URL are required'); return; }
+  // URLをchat/completions形式に補正
+  let finalUrl = url;
+  if (!finalUrl.endsWith('/v1/chat/completions')) {
+    finalUrl = finalUrl.replace(/\/+$/, '') + '/v1/chat/completions';
+  }
+  llmEndpoints.push({name, url: finalUrl, status:'unk', active:false});
+  saveLLMEndpoints();
+  document.getElementById('llm-new-name').value = '';
+  document.getElementById('llm-new-url').value = '';
+  document.getElementById('new-test-result').className = 'test-result';
+  renderLLMList();
+  addLog('info','llm','Added: '+name);
+}
+function selectLLM(i) {
+  llmEndpoints.forEach((ep, idx) => ep.active = idx === i);
+  activeLlmUrl = llmEndpoints[i].url || '';
+  saveLLMEndpoints();
+  updateLLMBtnLabel();
+  renderLLMList();
+  addLog('ok','llm','Active: '+llmEndpoints[i].name+(activeLlmUrl?' ('+activeLlmUrl+')':' (server default)'));
+}
+function deleteLLM(i) {
+  if (i === 0) return; // Default は削除不可
+  if (!confirm('Delete endpoint "'+llmEndpoints[i].name+'"?')) return;
+  const wasActive = llmEndpoints[i].active;
+  llmEndpoints.splice(i, 1);
+  if (wasActive) { llmEndpoints[0].active = true; activeLlmUrl = ''; }
+  saveLLMEndpoints();
+  updateLLMBtnLabel();
+  renderLLMList();
+}
+
+// ── UTILS ──
+function setBusy(b) { busy=b; document.getElementById('send-btn').disabled=b; }
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function synHL(c){return esc(c).replace(/\b(def|class|import|from|return|if|else|elif|for|while|try|except|with|as|pass|True|False|None|async|await)\b/g,'<span class="kw">$1</span>').replace(/(#[^\n]*)/g,'<span class="cm">$1</span>').replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g,'<span class="str">$1</span>').replace(/\b(\d+\.?\d*)\b/g,'<span class="num">$1</span>')}
+
+function openSkillFolder() { addLog("info","skill","Skill folder: C:\\AI\\skills\\"); }
+function proposeSkillImprovement(skillName) {
+  const msg = 'スキル「'+skillName+'」を見直してください。汎用性・エラー処理・出力品質に問題があれば修正し、C:\\AI\\skills\\ に上書き保存してください。';
+  document.getElementById('chat-input').value = msg;
+  addLog('info','skill', 'Improve: ' + skillName);
+}
+function testSkill(skillName) {
+  const msg = 'スキル「'+skillName+'」の動作テストをしてください。テストケースを作成・実行し、問題があれば修正も提案してください。';
+  document.getElementById('chat-input').value = msg;
+  addLog('info','skill', 'Test: ' + skillName);
+}
+
+</script>
+</body>
+</html>
