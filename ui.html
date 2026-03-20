@@ -1128,6 +1128,16 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px">
           <span>512</span><span id="ctx-max-label">max: 32768</span><span id="ctx-slider-max">32768</span>
         </div>
+        <div style="margin-top:10px;margin-bottom:6px;font-size:11px;color:var(--text2)">最大出力トークン数</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="max-output-slider" min="256" max="32768" step="256" value="8192"
+            style="flex:1;accent-color:var(--accent);cursor:pointer"
+            oninput="updateMaxOutputLabel(this.value)" onchange="applyMaxOutputTokens(this.value)">
+          <span id="max-output-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">8192</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px">
+          <span>256</span><span>最大出力 (max: 32768)</span><span>32768</span>
+        </div>
         <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">LLM URL（空=サーバーデフォルト）</div>
         <input type="text" id="llm-url-input" placeholder="http://localhost:8080/v1/chat/completions"
           style="width:100%;padding:6px 8px;font-size:10px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--font-mono);box-sizing:border-box"
@@ -1361,6 +1371,13 @@ async function loadSettingsFromDb() {
     const cl = document.getElementById('ctx-label');
     if (cs) cs.value = ctx;
     if (cl) cl.textContent = ctx;
+
+    // Max output tokens
+    const maxOut = parseInt(d.max_output_tokens) || 8192;
+    const mos = document.getElementById('max-output-slider');
+    const mol = document.getElementById('max-output-label');
+    if (mos) mos.value = maxOut;
+    if (mol) mol.textContent = maxOut;
 
     // LLM URL
     const url = d.llm_url || '';
@@ -3315,6 +3332,17 @@ async function applyCtxLen(val) {
   } catch(e) {
     addLog('err', 'ctx', e.message);
   }
+}
+
+function updateMaxOutputLabel(val) {
+  const el = document.getElementById('max-output-label');
+  if (el) el.textContent = parseInt(val).toLocaleString();
+}
+
+async function applyMaxOutputTokens(val) {
+  const n = Math.max(256, Math.min(32768, parseInt(val)));
+  await _saveSettingDb('max_output_tokens', n);
+  addLog('ok', 'ctx', `最大出力トークン数: ${n.toLocaleString()}`);
 }
 
 // ── SEARCH TOGGLE ──

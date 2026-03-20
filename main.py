@@ -29,6 +29,9 @@ async def lifespan(app):
     # 起動時: 前回の残骸コンテナをクリーンアップ（後方定義のためglobals経由）
     cleanup = globals().get("_cleanup_server_containers")
     if cleanup: cleanup()
+    # 起動時: DBから設定を復元
+    _load_settings_on_startup = globals().get("_restore_settings_from_db")
+    if _load_settings_on_startup: _load_settings_on_startup()
     yield
     # 終了時: サーバーコンテナを全て停止
     cleanup = globals().get("_cleanup_server_containers")
@@ -1976,6 +1979,7 @@ SETTINGS_DEFAULTS = {
     "search_num":         "5",
     "streaming_enabled":  "true",
     "ctx_size":           "32768",
+    "max_output_tokens":  "8192",       # LLM最大出力トークン数
     "llm_url":            "",
     "llm_port":           "8080",
 }
@@ -2030,6 +2034,30 @@ def settings_set_bulk(data: dict):
             conn.commit()
         finally:
             conn.close()
+
+
+def _restore_settings_from_db():
+    """起動時にDBから設定を読み込んでサーバーグローバルに反映"""
+    global _search_enabled, _llm_streaming, _current_n_ctx, _current_max_output_tokens
+    try:
+        all_s = settings_get_all()
+        if "search_enabled" in all_s:
+            _search_enabled = str(all_s["search_enabled"]).lower() in ("true", "1", "yes")
+        if "streaming_enabled" in all_s:
+            _llm_streaming = str(all_s["streaming_enabled"]).lower() in ("true", "1", "yes")
+        if "ctx_size" in all_s:
+            try:
+                _current_n_ctx = int(all_s["ctx_size"])
+            except Exception:
+                pass
+        if "max_output_tokens" in all_s:
+            try:
+                _current_max_output_tokens = max(256, min(int(all_s["max_output_tokens"]), 32768))
+            except Exception:
+                pass
+        print(f"[settings] restored from DB: ctx={_current_n_ctx} max_out={_current_max_output_tokens} stream={_llm_streaming} search={_search_enabled}")
+    except Exception as e:
+        print(f"[settings] restore warning: {e}")
 
 
 # =========================
@@ -2325,10 +2353,15 @@ def call_llm_chat(messages: list, llm_url: str = "") -> tuple:
     (content, usage_dict) を返す。
     """
     url = llm_url.strip() or LLM_URL
+    prompt_tok = _estimate_tokens(messages)
+    avail = max(256, _current_n_ctx - prompt_tok - 64)
+    max_out = min(avail, _current_max_output_tokens)
+    if avail <= 256:
+        print(f"[CTX WARNING] コンテキスト長不足: n_ctx={_current_n_ctx} prompt_tokens≈{prompt_tok} 残余={avail} — 出力が極端に短くなる可能性があります")
     payload = {
         "messages": messages,
         "temperature": 0.7,
-        "max_tokens": min(_current_n_ctx - _estimate_tokens(messages) - 64, 32768),
+        "max_tokens": max_out,
     }
     # Qwen3.5/Coder: enable_thinking=falseをAPIで指定（--reasoning-budget 0と二重保険）
     if _model_manager.current_parser == "qwen_think":
@@ -2347,10 +2380,12 @@ def call_llm_chat(messages: list, llm_url: str = "") -> tuple:
             raise
         # llama-server 500 エラーオブジェクトの場合、error.message からテキストを抽出
         if "error" in data and "choices" not in data:
-            err_msg = data["error"].get("message", "")
-            # エラーメッセージにモデル出力が含まれている場合がある
-            if "context" in err_msg.lower() and "exceed" in err_msg.lower():
-                raise HTTPException(status_code=413, detail=f"Context exceeded: {err_msg[:200]}")
+            err_msg = data["error"].get("message", "") if isinstance(data["error"], dict) else str(data["error"])
+            err_lower = err_msg.lower()
+            if any(kw in err_lower for kw in ("context", "token", "exceed", "too long", "kv cache")):
+                ctx_msg = f"[CTX ERROR] コンテキスト長が不足しています: {err_msg[:200]} (n_ctx={_current_n_ctx}, prompt≈{prompt_tok})"
+                print(ctx_msg)
+                raise HTTPException(status_code=413, detail=ctx_msg)
             print(f"[LLM] server error: {err_msg[:100]}")
             # チャンネル形式のテキストを抽出して返す
             content = err_msg
@@ -2395,7 +2430,14 @@ def call_llm_chat_streaming(messages: list, llm_url: str = ""):
     """
     import time as _t
     url = llm_url.strip() or LLM_URL
-    max_tokens = min(_current_n_ctx - _estimate_tokens(messages) - 64, 32768)
+    prompt_tok = _estimate_tokens(messages)
+    avail = max(256, _current_n_ctx - prompt_tok - 64)
+    max_tokens = min(avail, _current_max_output_tokens)
+    if avail <= 256:
+        print(f"[CTX WARNING] コンテキスト長不足 (streaming): n_ctx={_current_n_ctx} prompt≈{prompt_tok} 残余={avail}")
+        yield {"type": "llm_error", "status_code": 413,
+               "error": f"[CTX ERROR] コンテキスト長が不足しています (n_ctx={_current_n_ctx}, prompt≈{prompt_tok}, 残余={avail})。設定でコンテキスト長を増やすか会話履歴をリセットしてください。"}
+        return
     payload = {
         "messages": messages,
         "temperature": 0.7,
@@ -2413,6 +2455,12 @@ def call_llm_chat_streaming(messages: list, llm_url: str = ""):
 
     try:
         with requests.post(url, json=payload, stream=True, timeout=600) as resp:
+            if resp.status_code == 413 or resp.status_code == 400:
+                err_body = resp.text[:300]
+                ctx_msg = f"[CTX ERROR] コンテキスト長が不足しています (HTTP {resp.status_code}): {err_body}"
+                print(ctx_msg)
+                yield {"type": "llm_error", "status_code": resp.status_code, "error": ctx_msg}
+                return
             if resp.status_code >= 400:
                 yield {"type": "llm_error", "status_code": resp.status_code,
                        "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
@@ -2428,6 +2476,17 @@ def call_llm_chat_streaming(messages: list, llm_url: str = ""):
                     chunk = json.loads(data_str)
                 except Exception:
                     continue
+                # コンテキスト超過エラーをストリーム内で検出
+                if "error" in chunk and "choices" not in chunk:
+                    err_msg = chunk["error"].get("message", "") if isinstance(chunk["error"], dict) else str(chunk["error"])
+                    err_lower = err_msg.lower()
+                    if any(kw in err_lower for kw in ("context", "token", "exceed", "too long", "kv cache")):
+                        ctx_msg = f"[CTX ERROR] コンテキスト長が不足しています: {err_msg[:200]}"
+                        print(ctx_msg)
+                        yield {"type": "llm_error", "status_code": 413, "error": ctx_msg}
+                        return
+                    yield {"type": "llm_error", "status_code": 500, "error": err_msg[:200]}
+                    return
                 delta = chunk.get("choices", [{}])[0].get("delta", {})
                 token_text = delta.get("content") or delta.get("reasoning_content") or ""
                 content += token_text
@@ -2474,10 +2533,15 @@ def call_llm(messages: list, llm_url: str = "") -> tuple:
     エージェントツール用: JSON出力を強制。
     """
     url = llm_url.strip() or LLM_URL
+    prompt_tok = _estimate_tokens(messages)
+    avail = max(256, _current_n_ctx - prompt_tok - 64)
+    max_out = min(avail, _current_max_output_tokens)
+    if avail <= 256:
+        print(f"[CTX WARNING] コンテキスト長不足 (agent): n_ctx={_current_n_ctx} prompt≈{prompt_tok} 残余={avail}")
     payload = {
         "messages": messages,
         "temperature": 0.2,
-        "max_tokens": min(_current_n_ctx - _estimate_tokens(messages) - 64, 32768),
+        "max_tokens": max_out,
     }
     # Qwen3.5/Coder: enable_thinking=falseをAPIで指定
     if _model_manager.current_parser == "qwen_think":
@@ -2494,9 +2558,12 @@ def call_llm(messages: list, llm_url: str = "") -> tuple:
                 raise requests.RequestException(f"HTTP {res.status_code}: {res.text[:200]}")
             raise
         if "error" in data and "choices" not in data:
-            err_msg = data["error"].get("message", "")
-            if "context" in err_msg.lower() and "exceed" in err_msg.lower():
-                raise HTTPException(status_code=413, detail=f"Context exceeded: {err_msg[:200]}")
+            err_msg = data["error"].get("message", "") if isinstance(data["error"], dict) else str(data["error"])
+            err_lower = err_msg.lower()
+            if any(kw in err_lower for kw in ("context", "token", "exceed", "too long", "kv cache")):
+                ctx_msg = f"[CTX ERROR] コンテキスト長が不足しています: {err_msg[:200]} (n_ctx={_current_n_ctx}, prompt≈{prompt_tok})"
+                print(ctx_msg)
+                raise HTTPException(status_code=413, detail=ctx_msg)
             print(f"[LLM] server error (agent): {err_msg[:100]}")
             content = err_msg  # チャンネル形式テキストとして扱う
         else:
@@ -4799,7 +4866,8 @@ def llm_props():
 # コンテキスト長設定
 # =========================
 
-_current_n_ctx: int = 32768  # デフォルト
+_current_n_ctx: int = 32768            # コンテキストウィンドウ長
+_current_max_output_tokens: int = 8192  # 最大出力トークン数（UI設定）
 # モデル別推奨コンテキスト長の目安:
 # Qwen3-Coder-Next  : 16384〜32768 (Q3_K_Sでは16384を推奨)
 # Mistral-Small-3.2 : 16384〜32768
@@ -5579,7 +5647,7 @@ def save_settings_api(req: dict):
     """複数設定を一括保存"""
     settings_set_bulk(req)
     # search/streaming などサーバー側フラグも同期
-    global _search_enabled, _llm_streaming, _current_n_ctx
+    global _search_enabled, _llm_streaming, _current_n_ctx, _current_max_output_tokens
     if "search_enabled" in req:
         _search_enabled = str(req["search_enabled"]).lower() in ("true", "1", "yes")
     if "streaming_enabled" in req:
@@ -5587,6 +5655,11 @@ def save_settings_api(req: dict):
     if "ctx_size" in req:
         try:
             _current_n_ctx = int(req["ctx_size"])
+        except Exception:
+            pass
+    if "max_output_tokens" in req:
+        try:
+            _current_max_output_tokens = max(256, min(int(req["max_output_tokens"]), 32768))
         except Exception:
             pass
     return {"ok": True, "saved": list(req.keys())}
