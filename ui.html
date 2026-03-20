@@ -2281,9 +2281,28 @@ async function selectProject(name) {
 async function createProject() {
   const input = document.getElementById('new-proj-input');
   const name = input.value.trim(); if (!name) return;
-  await fetch(API+'/projects', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})});
+  const safeName = name.replace(/[^a-zA-Z0-9_\-]/g,'_') || 'default';
+  let r = await fetch(API+'/projects', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name})
+  });
+  let d = await r.json();
+  if (d.existed && !d.overwritten) {
+    const ok = confirm(`Project "${safeName}" already exists. Reset its files and reuse it?`);
+    if (!ok) {
+      addLog('warn','project',`Project exists: ${safeName}`);
+      return;
+    }
+    r = await fetch(API+'/projects', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name, overwrite:true})
+    });
+    d = await r.json();
+  }
   input.value = '';
-  selectProject(name.replace(/[^a-zA-Z0-9_\-]/g,'_'));
+  selectProject(safeName);
   loadProjects();
 }
 async function deleteProject(name) {

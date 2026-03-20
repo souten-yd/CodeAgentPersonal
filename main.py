@@ -156,6 +156,34 @@ def _migrate_existing_data():
 
 _migrate_existing_data()
 
+def _repair_nested_project_dirs():
+    """旧パス処理で project/project/... になった構成を安全に平坦化する。"""
+    if not os.path.isdir(WORK_DIR):
+        return
+    for project in os.listdir(WORK_DIR):
+        project_root = os.path.join(WORK_DIR, project)
+        nested_root = os.path.join(project_root, project)
+        if not os.path.isdir(project_root) or not os.path.isdir(nested_root):
+            continue
+        entries = [name for name in os.listdir(project_root) if not name.startswith(".")]
+        if entries != [project]:
+            continue
+        try:
+            for name in os.listdir(nested_root):
+                src = os.path.join(nested_root, name)
+                dst = os.path.join(project_root, name)
+                if os.path.exists(dst):
+                    print(f"[repair] skip nested move because destination exists: {dst}")
+                    break
+                _shutil.move(src, dst)
+            else:
+                _shutil.rmtree(nested_root, ignore_errors=True)
+                print(f"[repair] flattened nested project dir: {project}/{project}")
+        except Exception as e:
+            print(f"[repair] WARN: {nested_root}: {e}")
+
+_repair_nested_project_dirs()
+
 # =========================
 # 機密情報管理（.codeagent/ — Gitに絶対コミットしない）
 # =========================
@@ -1181,6 +1209,55 @@ def get_project_context(project: str, limit: int = 5) -> str:
     except:
         return ""
 
+def _normalize_project_name(name: str) -> str:
+    raw = str(name or "").strip()
+    cleaned = re.sub(r"[^a-zA-Z0-9_\-]", "_", raw)
+    return cleaned or "default"
+
+def _project_root(project: str = "default") -> str:
+    safe_project = _normalize_project_name(project)
+    root = os.path.abspath(os.path.join(WORK_DIR, safe_project))
+    work_abs = os.path.abspath(WORK_DIR)
+    if root != work_abs and not root.startswith(work_abs + os.sep):
+        raise ValueError(f"invalid project: {project}")
+    return root
+
+def _normalize_project_relpath(path: str, project: str = "default") -> str:
+    raw = str(path or "").replace("\\", "/").strip()
+    while raw.startswith("./"):
+        raw = raw[2:]
+    for prefix in (f"workspace/{project}/", f"{project}/", "workspace/"):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix):]
+            break
+    normalized = os.path.normpath(raw).replace("\\", "/").lstrip("/")
+    if normalized in ("", "."):
+        raise ValueError("empty path")
+    if normalized == ".." or normalized.startswith("../"):
+        raise ValueError(f"path escapes project: {path}")
+    return normalized
+
+def _project_path(project: str, path: str) -> tuple[str, str]:
+    rel = _normalize_project_relpath(path, project)
+    root = _project_root(project)
+    full = os.path.abspath(os.path.join(root, rel))
+    if full != root and not full.startswith(root + os.sep):
+        raise ValueError(f"path escapes project: {path}")
+    return full, rel
+
+def _reset_project_dir(project: str) -> str:
+    root = _project_root(project)
+    os.makedirs(root, exist_ok=True)
+    for name in os.listdir(root):
+        target = os.path.join(root, name)
+        try:
+            if os.path.isdir(target) and not os.path.islink(target):
+                _shutil.rmtree(target, ignore_errors=True)
+            else:
+                os.remove(target)
+        except FileNotFoundError:
+            pass
+    return root
 
 # =========================
 # ツール定義
@@ -1193,7 +1270,7 @@ def edit_file(path: str, old_str: str, new_str: str, project: str = "default") -
     存在しない・複数ある場合はエラーを返し再試行を促す。
     """
     try:
-        full = os.path.join(WORK_DIR, project, path)
+        full, path = _project_path(project, path)
         with open(full, "r", encoding="utf-8") as f:
             content = f.read()
         count = content.count(old_str)
@@ -1228,7 +1305,7 @@ def read_file(path: str, start_line: int = None, end_line: int = None, project: 
     大きなファイルは get_outline で構造把握してから必要箇所だけ読むこと。
     """
     try:
-        full = os.path.join(WORK_DIR, project, path)
+        full, path = _project_path(project, path)
         with open(full, "r", encoding="utf-8") as f:
             content = f.read()
         lines = content.splitlines()
@@ -1256,7 +1333,7 @@ def get_outline(path: str, project: str = "default") -> str:
     数千行のファイルでも全体を読まずに構造把握できる。
     """
     try:
-        full = os.path.join(WORK_DIR, project, path)
+        full, path = _project_path(project, path)
         with open(full, "r", encoding="utf-8") as f:
             content = f.read()
         lines = content.splitlines()
@@ -1307,11 +1384,12 @@ def get_outline(path: str, project: str = "default") -> str:
 
 def list_files(subdir: str = "", project: str = "default") -> str:
     try:
-        target = os.path.join(WORK_DIR, project, subdir) if subdir else os.path.join(WORK_DIR, project)
+        project_root = _project_root(project)
+        target = os.path.join(project_root, _normalize_project_relpath(subdir, project)) if subdir else project_root
         result = []
         for root, dirs, files in os.walk(target):
             dirs[:] = [d for d in dirs if not d.startswith(".")]
-            rel = os.path.relpath(root, os.path.join(WORK_DIR, project)).replace("\\", "/")
+            rel = os.path.relpath(root, project_root).replace("\\", "/")
             for f in files:
                 path = (rel + "/" + f).lstrip("./").lstrip("/")
                 if rel in (".", ""):
@@ -1680,7 +1758,7 @@ def stop_server(port: int = 8888) -> str:
 
 def write_file(path: str, content: str, project: str = "default") -> str:
     try:
-        full = os.path.join(WORK_DIR, project, path)
+        full, path = _project_path(project, path)
         os.makedirs(os.path.dirname(full), exist_ok=True)
         with open(full, "w", encoding="utf-8") as f:
             f.write(content)
@@ -1691,7 +1769,7 @@ def write_file(path: str, content: str, project: str = "default") -> str:
 
 def patch_function(path: str, function_name: str, new_code: str, project: str = "default") -> str:
     try:
-        full = os.path.join(WORK_DIR, project, path)
+        full, path = _project_path(project, path)
         with open(full, "r", encoding="utf-8") as f:
             source = f.read()
 
@@ -1725,7 +1803,7 @@ def patch_function(path: str, function_name: str, new_code: str, project: str = 
 
         ast.parse(new_source)  # 構文チェック
 
-        with open(os.path.join(WORK_DIR, project, path), "w", encoding="utf-8") as f:
+        with open(full, "w", encoding="utf-8") as f:
             f.write(new_source)
 
         return f"ok: patched function '{function_name}' in {path} (lines {start+1}-{end})"
@@ -1784,6 +1862,7 @@ def run_file(path: str, project: str = "default", timeout: int = None) -> str:
     """
     _timeout = _clamp_docker_timeout("run_file", timeout)
     try:
+        _, rel_path = _project_path(project, path)
         check = subprocess.run(
             ["docker", "inspect", "--format", "{{.State.Running}}", SANDBOX_CONTAINER],
             capture_output=True, text=True, encoding="utf-8", errors="replace"
@@ -1791,12 +1870,8 @@ def run_file(path: str, project: str = "default", timeout: int = None) -> str:
         use_exec = check.returncode == 0 and check.stdout.strip() == "true"
 
         # pathにプロジェクト名が含まれていない場合は付加
-        if not path.startswith(project + "/") and not path.startswith(project + "\\"):
-            container_path = f"/app/{project}/{path}"
-            work_dir = f"/app/{project}"
-        else:
-            container_path = f"/app/{path}"
-            work_dir = f"/app/{project}"
+        container_path = f"/app/{project}/{rel_path}"
+        work_dir = f"/app/{project}"
 
         if use_exec:
             cmd = ["docker", "exec", "-w", work_dir, SANDBOX_CONTAINER, "python", container_path]
@@ -3256,6 +3331,7 @@ class ChatRequest(BaseModel):
 
 class ProjectRequest(BaseModel):
     name: str
+    overwrite: bool = False
 
 class LLMTestRequest(BaseModel):
     url: str
@@ -4987,16 +5063,23 @@ def list_projects():
 @app.post("/projects")
 def create_project(req: ProjectRequest):
     """新規プロジェクトを作成する"""
-    name = re.sub(r"[^a-zA-Z0-9_\-]", "_", req.name)
-    path = os.path.join(WORK_DIR, name)
-    os.makedirs(path, exist_ok=True)
-    return {"created": name}
+    name = _normalize_project_name(req.name)
+    path = _project_root(name)
+    existed = os.path.isdir(path)
+    has_files = existed and any(os.scandir(path))
+    if existed and has_files and not req.overwrite:
+        return {"created": name, "existed": True, "overwritten": False, "file_count": len(list(os.scandir(path)))}
+    if req.overwrite:
+        _reset_project_dir(name)
+    else:
+        os.makedirs(path, exist_ok=True)
+    return {"created": name, "existed": existed, "overwritten": bool(req.overwrite and existed)}
 
 @app.delete("/projects/{name}")
 def delete_project(name: str):
     """プロジェクトを削除する"""
     import shutil
-    path = os.path.join(WORK_DIR, name)
+    path = _project_root(name)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Project not found")
     shutil.rmtree(path)
@@ -5005,7 +5088,7 @@ def delete_project(name: str):
 @app.get("/projects/{name}/files")
 def project_files(name: str):
     """Project file list for preview tab."""
-    path = os.path.join(WORK_DIR, name)
+    path = _project_root(name)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Project not found")
     files = []
