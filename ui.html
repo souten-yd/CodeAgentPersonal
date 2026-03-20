@@ -815,6 +815,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <button class="tab-btn" onclick="switchTab('log')">Log</button>
       <button class="tab-btn" onclick="switchTab('skills')">Skills</button>
       <button class="tab-btn" onclick="switchTab('memory')">Memory</button>
+      <button class="tab-btn" onclick="switchTab('git')">Git</button>
+      <button class="tab-btn" onclick="switchTab('models')">Models</button>
       <div class="tab-spacer"></div>
       <span class="tab-label" id="tab-label">—</span>
     </div>
@@ -915,6 +917,97 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="font-size:12px;color:var(--text3)">Loading...</div>
       </div>
     </div>
+
+    <!-- GIT TAB -->
+    <div class="tab-content" id="tab-git" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Git</span>
+        <button onclick="refreshGitStatus()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ Refresh</button>
+      </div>
+      <!-- Status -->
+      <pre id="git-status-out" style="font-size:11px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:8px;white-space:pre-wrap;word-break:break-all;max-height:100px;overflow-y:auto">Loading...</pre>
+      <!-- Actions row -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <button onclick="gitCommitUI()" style="font-size:11px;padding:4px 10px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">+ Commit</button>
+        <button onclick="gitBranchUI()" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">⎇ Branch</button>
+        <button onclick="gitResetUI()" style="font-size:11px;padding:4px 10px;border:1px solid rgba(255,68,102,.4);background:rgba(255,68,102,.08);color:var(--red);border-radius:4px;cursor:pointer">↩ Reset</button>
+        <button onclick="gitDiffUI()" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">~ Diff</button>
+      </div>
+      <!-- Inline commit form -->
+      <div id="git-commit-form" style="display:none;border:1px solid var(--accent-border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--accent-bg)">
+        <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:5px">Commit message</div>
+        <input id="git-commit-msg" type="text" placeholder="feat: ..." style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono);margin-bottom:6px">
+        <div style="display:flex;gap:5px">
+          <button onclick="doGitCommit()" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Commit</button>
+          <button onclick="document.getElementById('git-commit-form').style.display='none'" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <!-- Inline branch form -->
+      <div id="git-branch-form" style="display:none;border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px">Branch name</div>
+        <input id="git-branch-name" type="text" placeholder="feature/my-feature" style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono);margin-bottom:6px">
+        <div style="display:flex;gap:5px">
+          <button onclick="doGitBranch(true)" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Create & Switch</button>
+          <button onclick="doGitBranch(false)" style="flex:1;padding:5px;font-size:11px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:4px;cursor:pointer">Switch only</button>
+          <button onclick="document.getElementById('git-branch-form').style.display='none'" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <!-- Diff output -->
+      <div id="git-diff-out" style="display:none;margin-bottom:8px">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Diff</div>
+        <pre style="font-size:10px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto" id="git-diff-content"></pre>
+      </div>
+      <!-- Git log -->
+      <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em">Commit Log</div>
+      <div id="git-log-list" style="display:flex;flex-direction:column;gap:4px">
+        <div style="font-size:11px;color:var(--text3)">—</div>
+      </div>
+      <!-- Result display -->
+      <div id="git-result" style="font-size:11px;font-family:var(--font-mono);color:var(--accent);padding:6px 8px;background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:5px;margin-top:8px;display:none;white-space:pre-wrap"></div>
+    </div>
+
+    <!-- MODELS DB TAB -->
+    <div class="tab-content" id="tab-models" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Model Database</span>
+        <button onclick="refreshModelDb()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺</button>
+      </div>
+      <!-- Scan folder -->
+      <div style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px">Scan folder for GGUF models</div>
+        <div style="display:flex;gap:5px;margin-bottom:5px">
+          <input id="model-scan-folder" type="text" placeholder="E:\LLMs" style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)">
+          <button onclick="doModelScan()" style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Scan</button>
+        </div>
+        <div style="font-size:10px;color:var(--text3)">サブフォルダを含む全.ggufファイルを検出。VLM(マルチモーダル)は自動判定</div>
+      </div>
+      <!-- Add manually -->
+      <div id="model-add-form" style="display:none;border:1px solid var(--accent-border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--accent-bg)">
+        <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:5px">モデルを手動で追加</div>
+        <input id="model-add-name" type="text" placeholder="Model name" style="width:100%;padding:4px 8px;margin-bottom:4px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+        <input id="model-add-path" type="text" placeholder="C:\path\to\model.gguf" style="width:100%;padding:4px 8px;margin-bottom:4px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+        <input id="model-add-url" type="text" placeholder="LLM URL (e.g. http://127.0.0.1:8080/v1/chat/completions)" style="width:100%;padding:4px 8px;margin-bottom:6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+        <div style="display:flex;gap:4px;margin-bottom:5px">
+          <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px">
+            <input type="checkbox" id="model-add-vlm" style="accent-color:var(--accent)"> VLM (マルチモーダル)
+          </label>
+        </div>
+        <div style="display:flex;gap:5px">
+          <button onclick="doModelAdd()" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">追加</button>
+          <button onclick="document.getElementById('model-add-form').style.display='none'" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+        <span id="model-db-stats" style="font-size:10px;color:var(--text3)">Loading...</span>
+        <button onclick="document.getElementById('model-add-form').style.display='block'" style="font-size:10px;padding:3px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">+ Add</button>
+      </div>
+      <!-- Model list -->
+      <div id="model-db-list" style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:12px;color:var(--text3)">Loading...</div>
+      </div>
+      <div id="model-scan-result" style="font-size:11px;color:var(--accent);margin-top:8px;padding:6px 8px;border-radius:5px;display:none"></div>
+    </div>
+
     </div>
   </div>
 </div>
@@ -1018,6 +1111,23 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             oninput="updateSearchNumLabel(this.value)" onchange="applySearchNum(this.value)">
           <span id="search-num-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:28px;text-align:right">5</span>
         </div>
+      </div>
+
+      <!-- MCP設定 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔗 MCP (Model Context Protocol)</div>
+      <div style="padding:4px 0 14px">
+        <div style="font-size:10px;color:var(--text3);line-height:1.7;margin-bottom:8px;padding:6px 8px;background:var(--bg2);border-radius:5px;border:1px solid var(--border)">
+          <b style="color:var(--text2)">MCPサーバー（このCodeAgent）:</b><br>
+          <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">/mcp</code> エンドポイントで他エージェントからツールを呼び出せます<br>
+          <button onclick="showMcpInfo()" style="font-size:10px;padding:2px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:3px;cursor:pointer;margin-top:4px">サーバー情報表示</button>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:5px;font-weight:700">外部MCPサーバーをテスト</div>
+        <div style="display:flex;gap:5px;margin-bottom:5px">
+          <input id="mcp-test-url" type="text" placeholder="http://localhost:3000/mcp"
+            style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+          <button onclick="testMcpServer()" style="padding:5px 10px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Test</button>
+        </div>
+        <pre id="mcp-test-result" style="display:none;font-size:10px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:8px;white-space:pre-wrap;max-height:120px;overflow-y:auto"></pre>
       </div>
 
     </div>
@@ -1168,13 +1278,245 @@ function _renderSkillProposals(proposals, stats) {
 
 // ── PANEL TABS ──
 function switchTab(name) {
+  const tabNames = ['output','preview','log','skills','memory','git','models'];
   document.querySelectorAll('.tab-btn').forEach((b,i) =>
-    b.classList.toggle('active', ['output','preview','log','skills','memory'][i]===name));
+    b.classList.toggle('active', tabNames[i]===name));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   document.getElementById('tab-'+name)?.classList.add('active');
   if (name === 'preview') refreshFileBrowser();
   if (name === 'skills') refreshSkills();
   if (name === 'memory') refreshMemory();
+  if (name === 'git') refreshGitStatus();
+  if (name === 'models') refreshModelDb();
+}
+
+// ── GIT ──
+async function refreshGitStatus() {
+  const el = document.getElementById('git-status-out');
+  if (el) el.textContent = 'Loading...';
+  try {
+    const r = await fetch(API+'/git/status?project='+encodeURIComponent(currentProject));
+    const d = await r.json();
+    if (el) el.textContent = d.status || '(clean)';
+    await refreshGitLog();
+  } catch(e) { if (el) el.textContent = 'Error: '+e.message; }
+}
+
+async function refreshGitLog() {
+  try {
+    const r = await fetch(API+'/git/log?project='+encodeURIComponent(currentProject)+'&limit=10');
+    const d = await r.json();
+    const el = document.getElementById('git-log-list');
+    if (!el) return;
+    if (!d.commits || !d.commits.length) {
+      el.innerHTML = '<div style="font-size:11px;color:var(--text3)">No commits yet</div>';
+      return;
+    }
+    el.innerHTML = d.commits.map(c =>
+      `<div style="border:1px solid var(--border);border-radius:5px;padding:6px 8px;background:var(--bg2)">
+        <div style="display:flex;gap:6px;align-items:baseline">
+          <code style="font-size:10px;color:var(--amber)">${esc(c.hash)}</code>
+          <span style="font-size:11px;color:var(--text);flex:1">${esc(c.message)}</span>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">${esc(c.author)} · ${esc(c.when)}</div>
+      </div>`).join('');
+  } catch(e) {}
+}
+
+function gitCommitUI() {
+  document.getElementById('git-commit-form').style.display='block';
+  document.getElementById('git-branch-form').style.display='none';
+  document.getElementById('git-diff-out').style.display='none';
+  document.getElementById('git-commit-msg').focus();
+}
+
+function gitBranchUI() {
+  document.getElementById('git-branch-form').style.display='block';
+  document.getElementById('git-commit-form').style.display='none';
+  document.getElementById('git-branch-name').focus();
+}
+
+async function gitResetUI() {
+  if (!confirm('git reset --hard で全変更を破棄しますか？この操作は取り消せません。')) return;
+  try {
+    const r = await fetch(API+'/git/reset', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({project: currentProject, mode:'hard'})
+    });
+    const d = await r.json();
+    showGitResult(d.result);
+    refreshGitStatus();
+  } catch(e) { showGitResult('Error: '+e.message); }
+}
+
+async function gitDiffUI() {
+  const diffEl = document.getElementById('git-diff-out');
+  if (diffEl.style.display !== 'none') { diffEl.style.display='none'; return; }
+  try {
+    const r = await fetch(API+'/git/diff?project='+encodeURIComponent(currentProject));
+    const d = await r.json();
+    document.getElementById('git-diff-content').textContent = d.diff || '(no diff)';
+    diffEl.style.display = 'block';
+  } catch(e) { showGitResult('Error: '+e.message); }
+}
+
+async function doGitCommit() {
+  const msg = document.getElementById('git-commit-msg').value.trim();
+  if (!msg) { alert('Commit message required'); return; }
+  try {
+    const r = await fetch(API+'/git/commit', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({project: currentProject, message: msg})
+    });
+    const d = await r.json();
+    document.getElementById('git-commit-form').style.display='none';
+    document.getElementById('git-commit-msg').value='';
+    showGitResult(d.result);
+    refreshGitStatus();
+  } catch(e) { showGitResult('Error: '+e.message); }
+}
+
+async function doGitBranch(create) {
+  const name = document.getElementById('git-branch-name').value.trim();
+  if (!name) { alert('Branch name required'); return; }
+  try {
+    const r = await fetch(API+'/git/checkout', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({project: currentProject, name, create})
+    });
+    const d = await r.json();
+    document.getElementById('git-branch-form').style.display='none';
+    document.getElementById('git-branch-name').value='';
+    showGitResult(d.result);
+    refreshGitStatus();
+  } catch(e) { showGitResult('Error: '+e.message); }
+}
+
+function showGitResult(text) {
+  const el = document.getElementById('git-result');
+  if (!el) return;
+  el.textContent = text;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display='none', 5000);
+}
+
+// ── MODEL DATABASE ──
+async function refreshModelDb() {
+  try {
+    const [rstat, rlist] = await Promise.all([
+      fetch(API+'/models/db/status'),
+      fetch(API+'/models/db')
+    ]);
+    const stat = await rstat.json();
+    const data = await rlist.json();
+    const statEl = document.getElementById('model-db-stats');
+    if (statEl) statEl.textContent = `${stat.total} models · ${stat.benchmarked} benchmarked · VLM: ${stat.has_vlm?'yes':'no'}`;
+    renderModelDb(data.models || []);
+  } catch(e) { console.warn('model db error', e); }
+}
+
+function renderModelDb(models) {
+  const el = document.getElementById('model-db-list');
+  if (!el) return;
+  if (!models.length) {
+    el.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:8px">No models. Use Scan to detect GGUF files.</div>';
+    return;
+  }
+  el.innerHTML = models.map(m => {
+    const vram = m.vram_mb > 0 ? `${(m.vram_mb/1024).toFixed(1)}GB` : '—';
+    const ram = m.ram_mb > 0 ? `${(m.ram_mb/1024).toFixed(1)}GB` : '—';
+    const tps = m.tok_per_sec > 0 ? `${m.tok_per_sec} tok/s` : '—';
+    const load = m.load_sec > 0 ? `${m.load_sec}s` : '—';
+    const size = m.file_size_mb > 0 ? `${(m.file_size_mb/1024).toFixed(1)}GB` : '';
+    const vlmBadge = m.is_vlm ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--amber);color:var(--amber);border-radius:3px">VLM</span>` : '';
+    const benchBtn = m.tok_per_sec <= 0
+      ? `<button onclick="doBenchmark('${esc(m.id)}')" style="font-size:10px;padding:2px 7px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">⚡ Bench</button>`
+      : '';
+    return `
+    <div style="border:1px solid var(--border);border-radius:6px;padding:9px 10px;background:var(--bg2)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;flex:1;min-width:0">
+          <span style="font-size:11px;font-weight:700;color:var(--accent);font-family:var(--font-mono);word-break:break-all">${esc(m.name)}</span>
+          ${vlmBadge}
+          ${m.quantization ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--border);color:var(--text3);border-radius:3px">${esc(m.quantization)}</span>` : ''}
+          ${size ? `<span style="font-size:9px;color:var(--text3)">${size}</span>` : ''}
+        </div>
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          ${benchBtn}
+          <button onclick="deleteModelDb('${esc(m.id)}')" style="font-size:10px;padding:2px 6px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:3px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--text3);margin-bottom:3px">
+        <span>VRAM: <b style="color:var(--text2)">${vram}</b></span>
+        <span>RAM: <b style="color:var(--text2)">${ram}</b></span>
+        <span>Speed: <b style="color:var(--accent)">${tps}</b></span>
+        <span>Load: <b style="color:var(--text2)">${load}</b></span>
+      </div>
+      ${m.notes ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">${esc(m.notes)}</div>` : ''}
+      ${m.llm_url ? `<div style="font-size:10px;font-family:var(--font-mono);color:var(--blue);margin-top:2px">${esc(m.llm_url)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function doModelScan() {
+  const folder = document.getElementById('model-scan-folder').value.trim();
+  if (!folder) { alert('フォルダパスを入力してください'); return; }
+  const resultEl = document.getElementById('model-scan-result');
+  if (resultEl) { resultEl.textContent = 'Scanning...'; resultEl.style.display='block'; }
+  try {
+    const r = await fetch(API+'/models/db/scan', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({folder})
+    });
+    const d = await r.json();
+    if (resultEl) resultEl.textContent = `✓ Found ${d.found} models, added ${d.added} new`;
+    refreshModelDb();
+    addLog('ok','models', `Scan: ${d.found} found, ${d.added} added from ${folder}`);
+  } catch(e) {
+    if (resultEl) resultEl.textContent = 'Error: '+e.message;
+    addLog('err','models', e.message);
+  }
+}
+
+async function doModelAdd() {
+  const name = document.getElementById('model-add-name').value.trim();
+  const path = document.getElementById('model-add-path').value.trim();
+  const llm_url = document.getElementById('model-add-url').value.trim();
+  const is_vlm = document.getElementById('model-add-vlm').checked;
+  if (!name || !path) { alert('Name and path required'); return; }
+  try {
+    const r = await fetch(API+'/models/db', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, path, llm_url, is_vlm})
+    });
+    const d = await r.json();
+    document.getElementById('model-add-form').style.display='none';
+    ['model-add-name','model-add-path','model-add-url'].forEach(id => document.getElementById(id).value='');
+    refreshModelDb();
+    addLog('ok','models', 'Added: '+name);
+  } catch(e) { addLog('err','models', e.message); }
+}
+
+async function deleteModelDb(mid) {
+  if (!confirm('このモデルをDBから削除しますか？')) return;
+  try {
+    await fetch(API+'/models/db/'+mid, {method:'DELETE'});
+    refreshModelDb();
+    addLog('ok','models','Deleted model '+mid);
+  } catch(e) { addLog('err','models',e.message); }
+}
+
+async function doBenchmark(mid) {
+  addLog('info','models', 'Benchmarking model '+mid+'...');
+  try {
+    const r = await fetch(API+'/models/db/benchmark/'+mid, {method:'POST'});
+    const d = await r.json();
+    addLog('ok','models', d.message || 'Benchmark started');
+    // Poll for result
+    setTimeout(refreshModelDb, 5000);
+    setTimeout(refreshModelDb, 15000);
+    setTimeout(refreshModelDb, 30000);
+  } catch(e) { addLog('err','models', e.message); }
 }
 
 // ── DRAWER ──
@@ -2869,6 +3211,38 @@ function selectLLM(i) {
 function setBusy(b) { busy=b; document.getElementById('send-btn').disabled=b; }
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function synHL(c){return esc(c).replace(/\b(def|class|import|from|return|if|else|elif|for|while|try|except|with|as|pass|True|False|None|async|await)\b/g,'<span class="kw">$1</span>').replace(/(#[^\n]*)/g,'<span class="cm">$1</span>').replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g,'<span class="str">$1</span>').replace(/\b(\d+\.?\d*)\b/g,'<span class="num">$1</span>')}
+
+// ── MCP ──
+async function showMcpInfo() {
+  try {
+    const r = await fetch(API+'/mcp/info');
+    const d = await r.json();
+    const el = document.getElementById('mcp-test-result');
+    if (el) {
+      el.textContent = `MCP Server: ${API}/mcp\nProtocol: ${d.protocol}\nTools (${d.tools_count}):\n${d.tool_names.map(t=>'  - '+t).join('\n')}`;
+      el.style.display = 'block';
+    }
+  } catch(e) { addLog('err','mcp', e.message); }
+}
+
+async function testMcpServer() {
+  const url = document.getElementById('mcp-test-url')?.value.trim();
+  if (!url) return;
+  const el = document.getElementById('mcp-test-result');
+  if (el) { el.textContent = 'Testing...'; el.style.display='block'; }
+  try {
+    const r = await fetch(url, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list',params:{}})
+    });
+    const d = await r.json();
+    const tools = d.result?.tools || [];
+    if (el) el.textContent = `✓ Connected\nTools (${tools.length}):\n`+tools.map(t=>`  - ${t.name}: ${(t.description||'').slice(0,60)}`).join('\n');
+  } catch(e) {
+    if (el) { el.textContent = '✗ Error: '+e.message; el.style.color='var(--red)'; }
+  }
+}
 
 function openSkillFolder() { addLog("info","skill","Skill folder: C:\\AI\\skills\\"); }
 function proposeSkillImprovement(skillName) {

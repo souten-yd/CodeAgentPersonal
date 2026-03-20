@@ -1590,6 +1590,359 @@ def web_search(query: str, num_results: int = 0) -> str:
         return f"Search error: {e}"
 
 
+# =========================
+# Git ツール
+# =========================
+
+def _git_run(args: list, cwd: str) -> tuple:
+    """gitコマンドを指定ディレクトリで実行し (returncode, stdout, stderr) を返す"""
+    try:
+        result = subprocess.run(
+            ["git"] + args,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30
+        )
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
+    except FileNotFoundError:
+        return -1, "", "git not found. Please install git."
+    except subprocess.TimeoutExpired:
+        return -1, "", "git command timed out"
+    except Exception as e:
+        return -1, "", str(e)
+
+
+def _git_ensure_repo(cwd: str) -> str | None:
+    """gitリポジトリがなければ初期化。エラーがあれば文字列を返す"""
+    os.makedirs(cwd, exist_ok=True)
+    if not os.path.exists(os.path.join(cwd, ".git")):
+        rc, _, err = _git_run(["init"], cwd)
+        if rc != 0:
+            return f"ERROR: git init failed: {err}"
+        _git_run(["config", "user.email", "codeagent@local"], cwd)
+        _git_run(["config", "user.name", "CodeAgent"], cwd)
+    else:
+        rc_u, out_u, _ = _git_run(["config", "user.email"], cwd)
+        if not out_u:
+            _git_run(["config", "user.email", "codeagent@local"], cwd)
+            _git_run(["config", "user.name", "CodeAgent"], cwd)
+    return None
+
+
+def git_status(project: str = "default") -> str:
+    """プロジェクトのgit変更一覧を返す（M=変更, A=追加, ?=未追跡）"""
+    cwd = os.path.join(WORK_DIR, project)
+    err_msg = _git_ensure_repo(cwd)
+    if err_msg:
+        return err_msg
+    rc, out, err = _git_run(["status", "--short"], cwd)
+    if rc != 0:
+        return f"ERROR: {err}"
+    # ブランチ情報も追加
+    rc2, branch, _ = _git_run(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
+    branch_str = f"[branch: {branch}]\n" if rc2 == 0 else ""
+    return branch_str + (out if out else "clean (no changes)")
+
+
+def git_diff(path: str = "", project: str = "default") -> str:
+    """変更差分を返す。pathを指定するとそのファイルのみ表示"""
+    cwd = os.path.join(WORK_DIR, project)
+    if not os.path.exists(os.path.join(cwd, ".git")):
+        return "ERROR: not a git repository. Use git_status to initialize."
+    args = ["diff"] + ([path] if path else [])
+    rc, out, err = _git_run(args, cwd)
+    if rc != 0:
+        return f"ERROR: {err}"
+    if not out:
+        args2 = ["diff", "--cached"] + ([path] if path else [])
+        rc2, out2, _ = _git_run(args2, cwd)
+        if out2:
+            return f"[staged changes]\n{out2[:4000]}"
+        return "no diff (clean)"
+    return out[:4000]
+
+
+def git_commit(message: str, project: str = "default") -> str:
+    """全変更をステージして指定メッセージでコミットする"""
+    cwd = os.path.join(WORK_DIR, project)
+    err_msg = _git_ensure_repo(cwd)
+    if err_msg:
+        return err_msg
+    rc, _, err = _git_run(["add", "-A"], cwd)
+    if rc != 0:
+        return f"ERROR: git add failed: {err}"
+    rc, out, err = _git_run(["commit", "-m", message], cwd)
+    if rc != 0:
+        if "nothing to commit" in (err + out):
+            return "nothing to commit, working tree clean"
+        return f"ERROR: git commit failed: {err or out}"
+    return f"ok: committed\n{out}"
+
+
+def git_checkout_branch(name: str, create: bool = True, project: str = "default") -> str:
+    """ブランチを作成して切り替える。create=Falseは既存ブランチへの切り替えのみ"""
+    cwd = os.path.join(WORK_DIR, project)
+    if not os.path.exists(os.path.join(cwd, ".git")):
+        return "ERROR: not a git repository. Use git_commit to initialize."
+    args = ["checkout", "-b", name] if create else ["checkout", name]
+    rc, out, err = _git_run(args, cwd)
+    if rc != 0:
+        if "already exists" in err:
+            rc2, out2, err2 = _git_run(["checkout", name], cwd)
+            if rc2 != 0:
+                return f"ERROR: {err2}"
+            return f"ok: switched to existing branch '{name}'"
+        return f"ERROR: {err}"
+    action = "created and switched to" if create else "switched to"
+    return f"ok: {action} branch '{name}'"
+
+
+def git_reset(mode: str = "hard", project: str = "default") -> str:
+    """エージェントの変更を全てリセット。mode='hard'で全変更破棄、'soft'でステージのみ解除"""
+    cwd = os.path.join(WORK_DIR, project)
+    if not os.path.exists(os.path.join(cwd, ".git")):
+        return "ERROR: not a git repository"
+    if mode not in ("hard", "soft", "mixed"):
+        mode = "hard"
+    rc, out, err = _git_run(["reset", f"--{mode}", "HEAD"], cwd)
+    if rc != 0:
+        if "ambiguous argument" in err or "unknown revision" in err:
+            _git_run(["rm", "-r", "--cached", "."], cwd)
+            return "ok: unstaged all (no commits yet)"
+        return f"ERROR: {err}"
+    note = "\n(注: 未追跡ファイルは残ります)" if mode == "hard" else ""
+    return f"ok: reset --{mode}\n{out}{note}"
+
+
+# =========================
+# MCP (Model Context Protocol) クライアント
+# =========================
+
+def mcp_call(server_url: str, tool_name: str, arguments: dict = None) -> str:
+    """
+    外部MCPサーバーのツールを呼び出す（MCPクライアント）。
+    server_url: MCPサーバーのエンドポイントURL
+    tool_name: 呼び出すツール名
+    arguments: ツールへの引数dict
+    """
+    if arguments is None:
+        arguments = {}
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": arguments}
+    }
+    try:
+        resp = requests.post(
+            server_url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=30
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if "error" in data:
+            code = data["error"].get("code", "")
+            msg = data["error"].get("message", "")
+            return f"ERROR: MCP error {code}: {msg}"
+        result = data.get("result", {})
+        content = result.get("content", [])
+        if content:
+            texts = [c.get("text", "") for c in content if c.get("type") == "text"]
+            return "\n".join(texts) if texts else str(result)
+        return str(result)
+    except requests.exceptions.ConnectionError:
+        return f"ERROR: Cannot connect to MCP server at {server_url}"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def mcp_list_tools(server_url: str) -> str:
+    """外部MCPサーバーのツール一覧を取得する"""
+    payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+    try:
+        resp = requests.post(server_url, json=payload,
+                             headers={"Content-Type": "application/json"}, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        tools = data.get("result", {}).get("tools", [])
+        if not tools:
+            return "No tools available"
+        lines = [f"- {t['name']}: {t.get('description','')[:80]}" for t in tools]
+        return f"MCP tools at {server_url}:\n" + "\n".join(lines)
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+# =========================
+# モデルデータベース
+# =========================
+
+MODEL_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_db.db")
+_model_db_lock = __import__("threading").Lock()
+
+
+def _get_model_db():
+    conn = sqlite3.connect(MODEL_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS models (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            path TEXT NOT NULL,
+            is_vlm INTEGER DEFAULT 0,
+            vram_mb INTEGER DEFAULT -1,
+            ram_mb INTEGER DEFAULT -1,
+            load_sec REAL DEFAULT -1,
+            tok_per_sec REAL DEFAULT -1,
+            llm_url TEXT DEFAULT '',
+            ctx_size INTEGER DEFAULT 4096,
+            gpu_layers INTEGER DEFAULT 999,
+            quantization TEXT DEFAULT '',
+            file_size_mb INTEGER DEFAULT -1,
+            notes TEXT DEFAULT '',
+            benchmarked_at TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    return conn
+
+
+def model_db_list() -> list:
+    with _model_db_lock:
+        conn = _get_model_db()
+        try:
+            rows = conn.execute("SELECT * FROM models ORDER BY name ASC").fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+
+def model_db_add(info: dict) -> str:
+    mid = info.get("id") or str(uuid.uuid4())[:12]
+    now = datetime.now().isoformat()
+    with _model_db_lock:
+        conn = _get_model_db()
+        try:
+            conn.execute("""
+                INSERT OR REPLACE INTO models
+                (id, name, path, is_vlm, vram_mb, ram_mb, load_sec, tok_per_sec,
+                 llm_url, ctx_size, gpu_layers, quantization, file_size_mb, notes, benchmarked_at, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                mid,
+                info.get("name", ""),
+                info.get("path", ""),
+                1 if info.get("is_vlm") else 0,
+                info.get("vram_mb", -1),
+                info.get("ram_mb", -1),
+                info.get("load_sec", -1),
+                info.get("tok_per_sec", -1),
+                info.get("llm_url", ""),
+                info.get("ctx_size", 4096),
+                info.get("gpu_layers", 999),
+                info.get("quantization", ""),
+                info.get("file_size_mb", -1),
+                info.get("notes", ""),
+                info.get("benchmarked_at", ""),
+                info.get("created_at", now),
+            ))
+            conn.commit()
+            return mid
+        finally:
+            conn.close()
+
+
+def model_db_delete(mid: str):
+    with _model_db_lock:
+        conn = _get_model_db()
+        try:
+            conn.execute("DELETE FROM models WHERE id=?", (mid,))
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def model_db_update(mid: str, updates: dict):
+    allowed = {"name", "path", "is_vlm", "vram_mb", "ram_mb", "load_sec",
+               "tok_per_sec", "llm_url", "ctx_size", "gpu_layers",
+               "quantization", "file_size_mb", "notes", "benchmarked_at"}
+    sets = {k: v for k, v in updates.items() if k in allowed}
+    if not sets:
+        return
+    with _model_db_lock:
+        conn = _get_model_db()
+        try:
+            clause = ", ".join(f"{k}=?" for k in sets)
+            conn.execute(f"UPDATE models SET {clause} WHERE id=?", [*sets.values(), mid])
+            conn.commit()
+        finally:
+            conn.close()
+
+
+_VLM_PATTERNS = re.compile(
+    r"(?:llava|bakllava|moondream|idefics|minicpm.v|cogvlm|qwen.?vl|internvl|phi.?vision|"
+    r"pixtral|llama.?3.?2.?vision|minicpm.?vision|smolvlm|paligemma|florence|"
+    r"gemma.?3|janus|vision|vlm|mmproj|visual)", re.I)
+
+
+def _detect_vlm(path: str, name: str) -> bool:
+    return bool(_VLM_PATTERNS.search((os.path.basename(path) + " " + name).lower()))
+
+
+def _get_file_size_mb(path: str) -> int:
+    try:
+        return int(os.path.getsize(path) / (1024 * 1024))
+    except:
+        return -1
+
+
+def _guess_quantization(path: str) -> str:
+    fname = os.path.basename(path).upper()
+    for q in ["Q2_K", "IQ2_M", "IQ3_M", "Q3_K_S", "Q3_K_M", "Q3_K_L",
+              "Q4_0", "Q4_K_S", "Q4_K_M", "Q5_K_S", "Q5_K_M", "Q6_K",
+              "Q8_0", "F16", "BF16"]:
+        if q in fname:
+            return q
+    return ""
+
+
+def model_db_scan_folder(folder: str) -> list:
+    """
+    指定フォルダ（全サブフォルダ含む）のGGUFファイルを検索して
+    モデル情報リストを返す（DBへの登録は含まない）
+    """
+    results = []
+    if not os.path.isdir(folder):
+        return results
+    existing_paths = {m["path"] for m in model_db_list()}
+    for root, dirs, files in os.walk(folder):
+        for fname in files:
+            if not fname.lower().endswith(".gguf"):
+                continue
+            full_path = os.path.join(root, fname)
+            if full_path in existing_paths:
+                continue
+            rel = os.path.relpath(root, folder)
+            top_dir = rel.split(os.sep)[0] if rel != "." else ""
+            model_name = (top_dir + "/" if top_dir else "") + os.path.splitext(fname)[0]
+            is_vlm = _detect_vlm(full_path, model_name)
+            results.append({
+                "name": model_name,
+                "path": full_path,
+                "is_vlm": is_vlm,
+                "quantization": _guess_quantization(full_path),
+                "file_size_mb": _get_file_size_mb(full_path),
+                "vram_mb": -1, "ram_mb": -1, "load_sec": -1, "tok_per_sec": -1,
+                "llm_url": "", "ctx_size": 4096, "gpu_layers": 999, "notes": "scanned",
+            })
+    return results
+
 
 # =========================
 # JSON抽出（LLM出力が汚くても壊れない）
@@ -2022,6 +2375,13 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 - setup_venv: {"requirements": ["flask","numpy"]}  ← Pythonプロジェクトで.venv構築＋requirements.txt生成（実行はユーザーが行う）
 - web_search: {"query": "検索クエリ", "num_results": 5}
 - clarify: {"question": "質問", "options": ["選択肢1", "選択肢2"]}
+- git_status: {"project": "..."}  ← プロジェクトのgit変更一覧（M=変更 A=追加 ?=未追跡）。タスク開始前に実行推奨
+- git_diff: {"path": "foo.py", "project": "..."}  ← 差分確認。pathを省略すると全体差分
+- git_commit: {"message": "feat: 機能追加", "project": "..."}  ← 全変更をステージ→コミット
+- git_checkout_branch: {"name": "feature/xxx", "create": true, "project": "..."}  ← ブランチ作成・切替
+- git_reset: {"mode": "hard", "project": "..."}  ← 変更を全て破棄（エージェントのミス修正用Undo）。mode: hard/soft/mixed
+- mcp_call: {"server_url": "http://...", "tool_name": "tool", "arguments": {}}  ← 外部MCPサーバーのツール呼び出し
+- mcp_list_tools: {"server_url": "http://..."}  ← 外部MCPサーバーのツール一覧取得
 
 【戦略】
 1. まず list_files でファイル構成を把握
@@ -2031,6 +2391,8 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 5. 実行後エラーがあれば必ず自分で修正して再実行
 6. HTTPサーバー起動は run_python ではなく run_server を使う（run_pythonはサーバー系タイムアウトする）
 7. 要件が曖昧な場合は clarify でユーザーに確認
+9. 【Gitワークフロー】タスク開始時に git_checkout_branch でfeatureブランチを作成し、
+   完了後に git_commit でコミットすること。失敗時は git_reset で即座に復元できる。
 8. 【タイムアウト対策】"ERROR: timeout (Xs)" が返ってきた場合:
    a. まず処理を分割・軽量化して再試行（最優先）
    b. 分割が困難な場合のみ timeout パラメータを推定実行時間で指定して再実行（その実行限りの一時設定）
@@ -2092,6 +2454,15 @@ TOOLS = {
     "setup_venv": setup_venv,
     "stop_server": stop_server,
     "web_search": web_search,
+    # Git ツール
+    "git_status": git_status,
+    "git_diff": git_diff,
+    "git_commit": git_commit,
+    "git_checkout_branch": git_checkout_branch,
+    "git_reset": git_reset,
+    # MCP クライアント
+    "mcp_call": mcp_call,
+    "mcp_list_tools": mcp_list_tools,
 }
 
 # =========================
@@ -4757,6 +5128,258 @@ def delete_skill_api(name: str):
 def reload_skills():
     skills = _load_all_skills(force=True)
     return {"ok": True, "count": len(skills)}
+
+
+# =========================
+# Git API
+# =========================
+
+@app.get("/git/status")
+def git_status_api(project: str = "default"):
+    return {"status": git_status(project), "project": project}
+
+@app.post("/git/commit")
+def git_commit_api(req: dict):
+    project = req.get("project", "default")
+    message = req.get("message", "CodeAgent commit")
+    return {"result": git_commit(message, project)}
+
+@app.post("/git/checkout")
+def git_checkout_api(req: dict):
+    project = req.get("project", "default")
+    name = req.get("name", "")
+    create = req.get("create", True)
+    if not name:
+        raise HTTPException(400, "branch name required")
+    return {"result": git_checkout_branch(name, create, project)}
+
+@app.post("/git/reset")
+def git_reset_api(req: dict):
+    project = req.get("project", "default")
+    mode = req.get("mode", "hard")
+    return {"result": git_reset(mode, project)}
+
+@app.get("/git/diff")
+def git_diff_api(project: str = "default", path: str = ""):
+    return {"diff": git_diff(path, project)}
+
+@app.get("/git/log")
+def git_log_api(project: str = "default", limit: int = 10):
+    cwd = os.path.join(WORK_DIR, project)
+    if not os.path.exists(os.path.join(cwd, ".git")):
+        return {"log": "no git repository", "commits": []}
+    rc, out, err = _git_run(
+        ["log", f"--max-count={limit}", "--pretty=format:%h|%s|%an|%ar"],
+        cwd
+    )
+    commits = []
+    if rc == 0 and out:
+        for line in out.splitlines():
+            parts = line.split("|", 3)
+            if len(parts) == 4:
+                commits.append({"hash": parts[0], "message": parts[1],
+                                 "author": parts[2], "when": parts[3]})
+    return {"commits": commits}
+
+
+# =========================
+# MCP サーバー API (JSON-RPC 2.0)
+# =========================
+
+@app.post("/mcp")
+async def mcp_server_endpoint(request: Request):
+    """
+    MCPサーバーエンドポイント（JSON-RPC 2.0）。
+    他エージェントからCodeAgentのツールをMCP経由で呼び出せる。
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return {"jsonrpc": "2.0", "id": None,
+                "error": {"code": -32700, "message": "Parse error"}}
+
+    method = body.get("method", "")
+    req_id = body.get("id", 1)
+    params = body.get("params", {})
+
+    def ok(result):
+        return {"jsonrpc": "2.0", "id": req_id, "result": result}
+
+    def err(code, message):
+        return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
+
+    if method == "initialize":
+        return ok({
+            "protocolVersion": "2024-11-05",
+            "capabilities": {"tools": {"listChanged": False}},
+            "serverInfo": {"name": "codeagent", "version": "1.0"}
+        })
+
+    elif method == "notifications/initialized":
+        return {}
+
+    elif method == "tools/list":
+        import inspect
+        tools_list = []
+        for tname, fn in TOOLS.items():
+            sig = inspect.signature(fn)
+            props = {}
+            required = []
+            for pname, param in sig.parameters.items():
+                if pname == "project":
+                    continue
+                ann = param.annotation
+                ptype = "integer" if ann is int else ("boolean" if ann is bool else "string")
+                props[pname] = {"type": ptype, "description": pname}
+                if param.default is inspect.Parameter.empty:
+                    required.append(pname)
+            tools_list.append({
+                "name": tname,
+                "description": (fn.__doc__ or tname).strip().splitlines()[0][:120],
+                "inputSchema": {"type": "object", "properties": props, "required": required}
+            })
+        return ok({"tools": tools_list})
+
+    elif method == "tools/call":
+        tool_name = params.get("name", "")
+        arguments = params.get("arguments", {})
+        if tool_name not in TOOLS:
+            return err(-32601, f"Tool not found: {tool_name}")
+        try:
+            result = TOOLS[tool_name](**arguments)
+            return ok({"content": [{"type": "text", "text": str(result)}]})
+        except TypeError as e:
+            return err(-32602, f"Invalid params: {e}")
+        except Exception as e:
+            return err(-32603, f"Internal error: {e}")
+
+    else:
+        return err(-32601, f"Method not found: {method}")
+
+@app.get("/mcp/info")
+def mcp_info():
+    """MCPサーバー情報とツール一覧を返す"""
+    return {
+        "name": "codeagent",
+        "version": "1.0",
+        "protocol": "2024-11-05",
+        "endpoint": "/mcp",
+        "tools_count": len(TOOLS),
+        "tool_names": list(TOOLS.keys()),
+    }
+
+
+# =========================
+# モデルデータベース API
+# =========================
+
+@app.get("/models/db")
+def list_models_db_api():
+    models = model_db_list()
+    return {"models": models, "count": len(models)}
+
+@app.post("/models/db")
+def add_model_db_api(req: dict):
+    if not req.get("name") or not req.get("path"):
+        raise HTTPException(400, "name and path required")
+    mid = model_db_add(req)
+    return {"ok": True, "id": mid}
+
+@app.put("/models/db/{mid}")
+def update_model_db_api(mid: str, req: dict):
+    model_db_update(mid, req)
+    return {"ok": True}
+
+@app.delete("/models/db/{mid}")
+def delete_model_db_api(mid: str):
+    model_db_delete(mid)
+    return {"ok": True}
+
+@app.get("/models/db/status")
+def model_db_status_api():
+    models = model_db_list()
+    benchmarked = [m for m in models if m.get("tok_per_sec", -1) > 0]
+    has_vlm = any(m.get("is_vlm") for m in models)
+    return {
+        "has_models": len(models) > 0,
+        "total": len(models),
+        "benchmarked": len(benchmarked),
+        "has_vlm": has_vlm,
+        "db_path": MODEL_DB_PATH,
+    }
+
+@app.post("/models/db/scan")
+def scan_model_folder_api(req: dict):
+    folder = req.get("folder", "")
+    if not folder:
+        raise HTTPException(400, "folder required")
+    results = model_db_scan_folder(folder)
+    added = 0
+    for m in results:
+        model_db_add(m)
+        added += 1
+    return {"ok": True, "found": len(results), "added": added,
+            "models": results}
+
+@app.post("/models/db/benchmark/{mid}")
+def benchmark_model_api(mid: str):
+    """
+    指定モデルのベンチマークをバックグラウンドで実行する。
+    benchmark_mem.pyの関数を流用してVRAM/RAM/速度を計測。
+    """
+    models = model_db_list()
+    model = next((m for m in models if m["id"] == mid), None)
+    if not model:
+        raise HTTPException(404, "model not found")
+
+    import threading as _bt
+    def _run_bench():
+        try:
+            # benchmark_mem.pyからヘルパー関数をインポート
+            import sys as _sys
+            bench_dir = os.path.dirname(os.path.abspath(__file__))
+            if bench_dir not in _sys.path:
+                _sys.path.insert(0, bench_dir)
+            from benchmark_mem import (start_server_with_log, stop_server as _stop,
+                                        parse_llama_log, infer, measure_baseline,
+                                        get_memory, LLAMA_SERVER)
+            path = model["path"]
+            ctx = model.get("ctx_size", 4096)
+            ngl = model.get("gpu_layers", 999)
+            if not os.path.exists(path):
+                model_db_update(mid, {"notes": f"BENCHMARK SKIP: file not found {path}"})
+                return
+            baseline = measure_baseline()
+            proc, load_sec, log_text = start_server_with_log(path, ctx, ngl)
+            if not load_sec:
+                _stop(proc)
+                model_db_update(mid, {"notes": "BENCHMARK FAIL: server did not start"})
+                return
+            log_mem = parse_llama_log(log_text)
+            mem_now = get_memory()
+            vram_delta = (mem_now["vram"] - baseline["vram"]
+                          if mem_now["vram"] >= 0 and baseline["vram"] >= 0 else -1)
+            ram_delta = (mem_now["ram"] - baseline["ram"]
+                         if mem_now["ram"] >= 0 and baseline["ram"] >= 0 else -1)
+            inf = infer()
+            _stop(proc)
+            updates = {
+                "load_sec": round(load_sec, 1),
+                "vram_mb": log_mem["gpu_total_mib"] if log_mem["gpu_total_mib"] > 0 else vram_delta,
+                "ram_mb": log_mem["cpu_total_mib"] if log_mem["cpu_total_mib"] > 0 else ram_delta,
+                "tok_per_sec": inf.get("gen", -1) if inf.get("ok") else -1,
+                "benchmarked_at": datetime.now().isoformat(),
+                "notes": f"gen={inf.get('gen','?')} tok/s load={round(load_sec,1)}s",
+            }
+            model_db_update(mid, updates)
+            print(f"[ModelDB] benchmark done: {model['name']} {updates}")
+        except Exception as e:
+            model_db_update(mid, {"notes": f"BENCHMARK ERROR: {e}"})
+            print(f"[ModelDB] benchmark error: {e}")
+
+    _bt.Thread(target=_run_bench, daemon=True).start()
+    return {"ok": True, "message": f"Benchmarking {model['name']} in background..."}
+
 
 # =========================
 # パーマネントメモリ API
