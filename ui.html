@@ -824,6 +824,18 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <span style="font-size:11px;color:var(--text2)" id="auto-select-label">Auto</span>
         </label>
       </div>
+      <div style="margin-top:10px;display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.04em">SKILL自動生成</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px" id="auto-skill-desc">⚙ 失敗時にSKILLを自動生成</div>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="auto-skill-toggle" checked
+            style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer"
+            onchange="toggleAutoSkill(this.checked)">
+          <span style="font-size:11px;color:var(--text2)">Auto</span>
+        </label>
+      </div>
       <div style="margin-top:6px;font-size:11px;color:var(--text3);line-height:1.5">
         ⚠ 無制限に近い設定はLLMが同じ操作を繰り返すループに陥るリスクがあります。推奨: 10〜25。
       </div>
@@ -861,6 +873,7 @@ let mode = 'chat';
 let busy = false;
 let maxSteps = 20;
 let autoSelectOption = true; // プランナーLLMによる自動選択
+let autoSkillGeneration = true; // 失敗時にSKILLを自動生成
 let currentProject = 'default';
 let htmlFiles = [];
 let editorOpen = false;
@@ -1703,7 +1716,11 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
       } else if (ev.type === 'task_options') {
         _taskOptionsMap[`${_currentJobId}_${ev.task_id}`] = ev.options || [];
         showTaskOptions(ev, _currentJobId);
-        addLog('warn','task', `⚠ 4回試行失敗: ${ev.title||''} — 対応案を選択してください`);
+        const autoMsg = ev.auto_chosen ? `🤖 案${ev.auto_chosen}を自動選択: ${ev.auto_reason||''}` : '⚠ 対応案を選択してください';
+        addLog(ev.auto_chosen ? 'ok' : 'warn','task', `4回試行失敗: ${ev.title||''} — ${autoMsg}`);
+      } else if (ev.type === 'skill_generated') {
+        addLog('ok','skill', `⚙ SKILL自動生成: ${ev.skill_name} — ${ev.description||''} (理由: ${ev.rationale||''})`);
+        refreshSkills();
       } else if (ev.type === 'skill_hint') {
         addLog('warn','skill', `Missing tool: ${ev.missing_tool} — will be proposed`);
       } else if (ev.type === 'skill_proposals') {
@@ -1836,6 +1853,7 @@ async function executePlan() {
         llm_url: taskLlmUrl,
         recommended_model: forcedModel,
         auto_select_option: autoSelectOption,
+        auto_skill_generation: autoSkillGeneration,
         mode: 'task', chat_history: chatHistory.slice(-10)
       })
     });
@@ -2325,6 +2343,22 @@ function addLog(level, tag, msg) {
   out.appendChild(d); out.scrollTop = out.scrollHeight;
 }
 
+// ── AUTO SELECT / SKILL TOGGLES ──
+function toggleAutoSelect(val) {
+  autoSelectOption = !!val;
+  const desc = document.getElementById('auto-select-desc');
+  const label = document.getElementById('auto-select-label');
+  if (desc) desc.textContent = autoSelectOption ? '🤖 プランナーLLMが自動選択' : '👤 ユーザーが手動選択';
+  if (label) label.textContent = autoSelectOption ? 'Auto' : 'Manual';
+  localStorage.setItem('auto_select_option', autoSelectOption ? '1' : '0');
+}
+function toggleAutoSkill(val) {
+  autoSkillGeneration = !!val;
+  const desc = document.getElementById('auto-skill-desc');
+  if (desc) desc.textContent = autoSkillGeneration ? '⚙ 失敗時にSKILLを自動生成' : '⚙ SKILL自動生成 無効';
+  localStorage.setItem('auto_skill_generation', autoSkillGeneration ? '1' : '0');
+}
+
 // ── MAX STEPS SLIDER ──
 function initStepsSlider() {
   const savedAutoSelect = localStorage.getItem('auto_select_option');
@@ -2332,6 +2366,12 @@ function initStepsSlider() {
     autoSelectOption = savedAutoSelect === '1';
     const chk = document.getElementById('auto-select-toggle');
     if (chk) { chk.checked = autoSelectOption; toggleAutoSelect(autoSelectOption); }
+  }
+  const savedAutoSkill = localStorage.getItem('auto_skill_generation');
+  if (savedAutoSkill !== null) {
+    autoSkillGeneration = savedAutoSkill === '1';
+    const chk2 = document.getElementById('auto-skill-toggle');
+    if (chk2) { chk2.checked = autoSkillGeneration; toggleAutoSkill(autoSkillGeneration); }
   }
   const saved = parseInt(localStorage.getItem('max_steps') || '20');
   maxSteps = saved;

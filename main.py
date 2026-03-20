@@ -894,18 +894,28 @@ BROWSER_CONTAINER = "codeagent_browser"
 BROWSER_IMAGE     = "mcr.microsoft.com/playwright/python:v1.49.0-jammy"
 
 def _ensure_browser_container(project: str) -> bool:
-    """Playwrightコンテナが起動中でなければ起動する"""
+    """Playwrightコンテナが起動中でなければ起動する（イメージも検証する）"""
+    extra_hosts = ["--add-host=host.docker.internal:host-gateway"] if os.name != "nt" else []
     check = _sp.run(
         ["docker", "inspect", "--format", "{{.State.Running}}", BROWSER_CONTAINER],
         capture_output=True, text=True
     )
     if check.returncode == 0 and check.stdout.strip() == "true":
-        return True
+        # イメージが正しいか確認（異なるイメージで起動している場合は再作成）
+        img_check = _sp.run(
+            ["docker", "inspect", "--format", "{{.Config.Image}}", BROWSER_CONTAINER],
+            capture_output=True, text=True
+        )
+        current_image = img_check.stdout.strip() if img_check.returncode == 0 else ""
+        if BROWSER_IMAGE in current_image or current_image in BROWSER_IMAGE:
+            return True  # 正しいイメージで起動中
+        print(f"[browser] wrong image detected ({current_image!r}), recreating with {BROWSER_IMAGE!r}")
     # 既存のコンテナを削除してから起動
     _sp.run(["docker", "rm", "-f", BROWSER_CONTAINER], capture_output=True)
     result = _sp.run([
         "docker", "run", "-d", "--name", BROWSER_CONTAINER,
         "--memory=1g", "--cpus=2",
+        *extra_hosts,
         "-v", f"{os.path.abspath(WORK_DIR)}:/app",
         BROWSER_IMAGE,
         "tail", "-f", "/dev/null"  # コンテナを起動したまま待機
@@ -963,16 +973,28 @@ def run_browser(script: str, project: str = "default") -> str:
         ]
 
     try:
-        result = _sp.run(cmd, capture_output=True, text=True, timeout=60,
+        result = _sp.run(cmd, capture_output=True, text=True, timeout=90,
                          encoding="utf-8", errors="replace")
         out = (result.stdout + result.stderr).strip()
+        # playwrightモジュールが見つからない場合はコンテナのイメージが不正→再作成して再試行
+        if use_exec and "No module named 'playwright'" in out:
+            print("[browser] playwright missing in container, force-recreating with correct image...")
+            _sp.run(["docker", "rm", "-f", BROWSER_CONTAINER], capture_output=True)
+            if _ensure_browser_container(project):
+                cmd2 = ["docker", "exec", "-w", f"/app/{project}",
+                        BROWSER_CONTAINER, "python", f"/app/{project}/_browser_run.py"]
+                result2 = _sp.run(cmd2, capture_output=True, text=True, timeout=90,
+                                  encoding="utf-8", errors="replace")
+                out = (result2.stdout + result2.stderr).strip()
+            else:
+                return "ERROR: Playwrightコンテナの再作成に失敗しました。Dockerが利用可能か確認してください。"
         # スクリーンショットが保存されたか確認
         ss_path = os.path.join(project_dir, "screenshot.png")
         if os.path.exists(ss_path):
             out += f"\n[screenshot saved: screenshot.png ({os.path.getsize(ss_path)} bytes)]"
         return out[:4000] or "(no output)"
     except _sp.TimeoutExpired:
-        return "ERROR: timeout (60s)"
+        return "ERROR: timeout (90s)"
     except Exception as e:
         return f"ERROR: {e}"
 
@@ -1855,6 +1877,7 @@ class JobRequest(BaseModel):
     chat_history: list = []
     recommended_model: str = ""   # planが推奨したモデルキー（空なら自動判断）
     auto_select_option: bool = True  # True: プランナーLLMが対応案を自動選択 / False: ユーザー手動選択
+    auto_skill_generation: bool = True  # True: 失敗時に不足スキルを自動生成して再試行
 
 def run_job_background(job_id: str, req: "JobRequest"):
     """
@@ -2092,7 +2115,13 @@ def run_job_background(job_id: str, req: "JobRequest"):
 3回目: {err2[:100]}
 
 このタスクを完了させるための対応案を3件提示してください。
-各案は異なるアプローチで具体的に記述してください。
+各案は異なる技術的アプローチで具体的に記述してください。
+
+【重要な制約】
+- 「スキップ」「タスクの省略」「次へ進む」のような案は絶対に提案しないこと
+- 「ユーザーに委ねる」「手動実装依頼」「ユーザーが実装」のような案は絶対に提案しないこと
+- 必ずコードエージェント自身が実行できる技術的な解決策を3件提案すること
+- 例: ライブラリ変更、アルゴリズム変更、ファイル分割、別APIの使用、エラー原因の根本対処 など
 
 JSON形式で出力:
 {{"options": [
@@ -2113,9 +2142,9 @@ JSON形式で出力:
 
                     if not options:
                         options = [
-                            {"id": 1, "title": "スキップ", "description": "このタスクをスキップして次に進む", "difficulty": "easy", "detail": "このタスクはスキップします。finalでスキップした旨を返してください。"},
-                            {"id": 2, "title": "タスク分割", "description": "タスクをより小さく分割して再実行", "difficulty": "medium", "detail": f"次のタスクを小さなステップに分割して実行してください: {todo['detail'][:200]}"},
-                            {"id": 3, "title": "手動実装依頼", "description": "ユーザーへの実装手順を提示して終了", "difficulty": "hard", "detail": "実装できなかった理由と手動実装のための手順をoutputに記載してfinalを返してください。"},
+                            {"id": 1, "title": "タスク分割", "description": "タスクをより小さなステップに分割して段階的に実行", "difficulty": "medium", "detail": f"次のタスクを小さなステップに分割して、一つずつ確実に実行してください: {todo['detail'][:200]}"},
+                            {"id": 2, "title": "最小実装", "description": "エラー箇所を特定して最小限の変更で問題を修正", "difficulty": "easy", "detail": f"エラーの根本原因を特定し、最小限の変更で問題を解決してください。別ライブラリや別APIの使用も検討してください。タスク: {todo['detail'][:150]}"},
+                            {"id": 3, "title": "代替手段", "description": "別のツールやライブラリを使って同等の機能を実現", "difficulty": "hard", "detail": f"これまでのアプローチを完全に変え、別のライブラリ・ツール・手法で同じ目標を達成してください。タスク: {todo['detail'][:150]}"},
                         ]
 
                     # ──── 自動選択モード（プランナーLLM） ────
@@ -2157,6 +2186,11 @@ JSON形式で出力:
 
 【対応案】
 """ + "\n".join(f"案{o['id']}: [{o['difficulty']}] {o['title']} — {o['description']}" for o in options) + f"""
+
+【選択ルール】
+- 「スキップ」「省略」「ユーザーに委ねる」内容の案は絶対に選ばないこと
+- コードエージェントが自律的に実行できる技術的な解決策を選ぶこと
+- エラー履歴を踏まえて最も根本解決できる案を選ぶこと
 
 最も成功確率が高い案を1つ選んでJSON出力してください:
 {{"choice": 1, "reason": "選択理由（1文）"}}"""
@@ -2221,12 +2255,56 @@ JSON形式で出力:
                         job_update_status(project, job_id, "running")
                         chosen = _job_option_choices.pop(f"{job_id}_{todo['id']}", None)
 
+                    # ── SKILL自動生成（auto_skill_generation が有効な場合） ──
+                    auto_skill_gen = getattr(req, 'auto_skill_generation', True)
+                    skill_context_note = ""
+                    if auto_skill_gen:
+                        try:
+                            # エラー内容からSKILL生成の必要性を判断
+                            all_errors = f"{err0}\n{err1}\n{err2}"
+                            skill_gen_prompt = f"""コードエージェントのタスク失敗を分析し、不足しているツール・機能をSKILLとして実装してください。
+
+【失敗したタスク】{todo['title']}
+【エラー履歴】{all_errors[:400]}
+
+不足している機能があれば、それを実現するPythonツール関数を1件実装してください。
+不足がなければ {{"skill": null}} を返してください。
+
+【出力JSONのみ】
+{{"skill": {{"name": "snake_case名", "description": "説明", "version": "1.0", "os": ["win32", "linux"], "keywords": ["kw"], "tool_code": "def name(project:str, arg:str)->str:\\n    return result", "usage_example": "", "rationale": "不足していた理由", "source": "codeagent"}}}}"""
+                            skill_reply, _ = call_llm_chat(
+                                [{"role": "user", "content": skill_gen_prompt}],
+                                llm_url=task_url
+                            )
+                            skill_parsed = extract_json(skill_reply, parser=_model_manager.current_parser)
+                            new_skill = (skill_parsed or {}).get("skill")
+                            if new_skill and new_skill.get("name") and new_skill.get("tool_code"):
+                                # スキルを保存
+                                skill_path = os.path.join(SKILLS_DIR, new_skill["name"])
+                                os.makedirs(skill_path, exist_ok=True)
+                                _write_skill_md(new_skill, os.path.join(skill_path, "SKILL.md"))
+                                # スキルキャッシュをリセット
+                                global _skills_cache, _skills_cache_time
+                                _skills_cache = {}
+                                _skills_cache_time = 0
+                                skill_context_note = f"\n\n【自動生成スキル】新たに '{new_skill['name']}' スキルが生成されました。このスキルを活用してタスクを実行してください。"
+                                write("skill_generated", {
+                                    "skill_name": new_skill["name"],
+                                    "description": new_skill.get("description", ""),
+                                    "rationale": new_skill.get("rationale", ""),
+                                    "task_id": todo["id"],
+                                })
+                                print(f"[JOB {job_id}] auto-generated skill: {new_skill['name']}")
+                        except Exception as _sge:
+                            print(f"[JOB {job_id}] skill auto-generation failed: {_sge}")
+
                     # 選択案で再実行
                     if chosen:
                         chosen_title = chosen.get("title", "選択案")
                         ctx3 = (f"{context}\n\n【選択された対応案】{chosen_title}\n"
                                 f"{chosen.get('description','')}\n\n"
-                                f"【実行指示】{chosen.get('detail', todo['detail'])}")
+                                f"【実行指示】{chosen.get('detail', todo['detail'])}"
+                                f"{skill_context_note}")
                         task_steps, task_status, task_output = _run_stage(f"[{chosen_title}] ", ctx3, req.max_steps)
                     else:
                         task_status = "done"
