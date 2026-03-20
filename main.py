@@ -15,6 +15,7 @@ import uuid
 import logging
 import asyncio
 import sys
+import difflib
 from datetime import datetime
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
@@ -38,6 +39,8 @@ async def lifespan(app):
     if _cleanup_catalog_rows: _cleanup_catalog_rows()
     _seed_model_catalog = globals().get("seed_default_model_catalog")
     if _seed_model_catalog: _seed_model_catalog()
+    _schedule_model_load = globals().get("schedule_default_model_load")
+    if _schedule_model_load: _schedule_model_load(reason="startup")
     yield
     # 終了時: サーバーコンテナを全て停止
     cleanup = globals().get("_cleanup_server_containers")
@@ -188,6 +191,7 @@ import time as _mm_time
 
 DEFAULT_MODEL_CATALOG = {}
 DEFAULT_TASK_MODEL_MAP = {}
+MODEL_ROLE_OPTIONS = ("plan", "chat", "search", "verify", "code", "complex", "reason", "multi")
 
 
 def _parse_extra_args(raw) -> list[str]:
@@ -295,12 +299,44 @@ def get_runtime_model_catalog(include_disabled: bool = False) -> dict:
     return catalog
 
 
-def get_runtime_task_model_map(catalog: dict | None = None) -> dict:
+def _role_setting_key(role: str) -> str:
+    return f"role_model_{role}"
+
+
+def _safe_settings_get(key: str, default: str = "") -> str:
+    getter = globals().get("settings_get")
+    if callable(getter):
+        try:
+            return getter(key)
+        except Exception:
+            return default
+    return default
+
+
+def _get_auto_role_model_map(catalog: dict | None = None) -> dict:
     catalog = catalog or get_runtime_model_catalog()
     task_map = {}
     for key, spec in catalog.items():
         for role in spec.get("auto_roles", []):
-            task_map[role] = key
+            task_map.setdefault(role, key)
+    return task_map
+
+
+def get_runtime_task_model_map(catalog: dict | None = None, include_disabled: bool = False) -> dict:
+    catalog = catalog or get_runtime_model_catalog(include_disabled=include_disabled)
+    auto_map = _get_auto_role_model_map(catalog)
+    planner_key = auto_map.get("plan") or (next(iter(catalog.keys())) if catalog else "")
+    task_map = {}
+    for role in MODEL_ROLE_OPTIONS:
+        override = _safe_settings_get(_role_setting_key(role), "").strip()
+        if override and override in catalog:
+            task_map[role] = override
+            continue
+        if role in auto_map:
+            task_map[role] = auto_map[role]
+            continue
+        if planner_key:
+            task_map[role] = planner_key
     return task_map
 
 
@@ -315,12 +351,55 @@ def _slugify_model_key(text: str) -> str:
 
 def choose_model_for_role(role: str, include_disabled: bool = False) -> str:
     catalog = get_runtime_model_catalog(include_disabled=include_disabled)
-    for key, spec in catalog.items():
-        if role in spec.get("auto_roles", []):
-            return key
+    task_map = get_runtime_task_model_map(catalog, include_disabled=include_disabled)
+    if role in task_map:
+        return task_map[role]
     if catalog:
         return next(iter(catalog.keys()))
     return ""
+
+
+def _model_health_ok(port: int) -> bool:
+    try:
+        import requests as _r
+        return _r.get(f"http://127.0.0.1:{port}/health", timeout=2).status_code == 200
+    except Exception:
+        return False
+
+
+def _choose_default_startup_model() -> str:
+    return (
+        choose_model_for_role("plan", include_disabled=True)
+        or choose_model_for_role("chat", include_disabled=True)
+        or choose_model_for_role("code", include_disabled=True)
+    )
+
+
+def schedule_default_model_load(reason: str = "", force: bool = False) -> tuple[bool, str]:
+    if not model_db_exists():
+        return False, "no_model_db"
+    models = [m for m in model_db_list() if int(m.get("enabled", 1) or 1) != 0 and m.get("path")]
+    if not models:
+        return False, "no_models"
+    if not force and _model_health_ok(_model_manager.llm_port):
+        _model_manager._sync_current_model()
+        return False, "already_running"
+
+    key = _choose_default_startup_model()
+    if not key:
+        return False, "no_startup_model"
+
+    import threading as _t
+
+    def _worker():
+        try:
+            print(f"[ModelManager] auto-load requested ({reason or 'unspecified'}) -> {key}")
+            _model_manager.ensure_model(key)
+        except Exception as e:
+            print(f"[ModelManager] auto-load error ({reason or 'unspecified'}): {e}")
+
+    _t.Thread(target=_worker, daemon=True).start()
+    return True, key
 
 
 def _fallback_role_recommendations(models: list[dict]) -> dict[str, list[str]]:
@@ -869,7 +948,7 @@ def _analyze_job_for_memory(job_id: str, project: str, llm_url: str = ""):
     try:
         logs = job_log_get(job_id)
         if not logs:
-            return
+            return {"ok": True, "saved": 0, "reason": "no_logs"}
         # ログサマリーを構築
         task_summaries = []
         errors = []
@@ -891,7 +970,7 @@ def _analyze_job_for_memory(job_id: str, project: str, llm_url: str = ""):
 
         # タスク完了がなければスキップ（空ジョブ）
         if not task_summaries:
-            return
+            return {"ok": True, "saved": 0, "reason": "no_task_summaries"}
 
         log_summary = "\n".join(task_summaries[-20:])
         error_summary = "\n".join(set(errors[:8]))
@@ -934,8 +1013,10 @@ def _analyze_job_for_memory(job_id: str, project: str, llm_url: str = ""):
                 saved += 1
         if saved:
             print(f"[MEMORY] {saved} entries saved from job {job_id}")
+        return {"ok": True, "saved": saved, "reason": "completed"}
     except Exception as e:
         print(f"[MEMORY] analyze error: {e}")
+        return {"ok": False, "saved": 0, "reason": str(e)}
 
 
 def save_session(session_id: str, project: str, message: str, mode: str, result: dict):
@@ -2250,11 +2331,17 @@ def model_db_update(mid: str, updates: dict):
 
 def _normalize_benchmark_profile(profile: dict, ctx: int, use_vlm: bool) -> dict:
     inf = profile.get("inference", {}) if isinstance(profile, dict) else {}
+    log_vram = profile.get("log_gpu_mib", -1)
+    log_ram = profile.get("log_cpu_mib", -1)
+    counter_vram = profile.get("counter_vram_delta", -1)
+    counter_ram = profile.get("counter_ram_delta", -1)
+    chosen_vram = log_vram if isinstance(log_vram, (int, float)) and log_vram > 0 else counter_vram
+    chosen_ram = log_ram if isinstance(log_ram, (int, float)) and log_ram > 0 else counter_ram
     return {
         "mode": "vlm" if use_vlm else "text",
         "ctx_size": ctx,
-        "vram_mb": profile.get("log_gpu_mib", profile.get("counter_vram_delta", -1)),
-        "ram_mb": profile.get("log_cpu_mib", profile.get("counter_ram_delta", -1)),
+        "vram_mb": chosen_vram if isinstance(chosen_vram, (int, float)) else -1,
+        "ram_mb": chosen_ram if isinstance(chosen_ram, (int, float)) else -1,
         "load_sec": profile.get("load_sec", -1),
         "tok_per_sec": inf.get("gen", -1) if inf.get("ok") else -1,
         "benchmarked_at": datetime.now().isoformat(),
@@ -2334,6 +2421,8 @@ SETTINGS_DEFAULTS = {
     "ctx_size":           "16384",
     "llm_url":            "",
 }
+for _role in MODEL_ROLE_OPTIONS:
+    SETTINGS_DEFAULTS.setdefault(_role_setting_key(_role), "")
 
 def settings_get(key: str) -> str:
     """1件取得。存在しなければデフォルト値を返す"""
@@ -3585,41 +3674,53 @@ JSON形式で出力:
                     skill_context_note = ""
                     if auto_skill_gen:
                         try:
-                            # エラー内容からSKILL生成の必要性を判断
                             all_errors = f"{err0}\n{err1}\n{err2}"
-                            skill_gen_prompt = f"""コードエージェントのタスク失敗を分析し、不足しているツール・機能をSKILLとして実装してください。
+                            existing_skill_lines = []
+                            for skill in _active_skills()[:12]:
+                                kw = ", ".join(skill.get("keywords", [])[:6])
+                                existing_skill_lines.append(f"- {skill.get('name','')}: {skill.get('description','')} | keywords={kw}")
+                            existing_skill_text = "\n".join(existing_skill_lines) or "(なし)"
+                            skill_gen_prompt = f"""コードエージェントのタスク失敗を分析し、既存スキルで対応可能か、新規作成が必要かを厳密に判断してください。
 
 【失敗したタスク】{todo['title']}
 【エラー履歴】{all_errors[:400]}
+【既存スキル候補】
+{existing_skill_text}
 
-不足している機能があれば、それを実現するPythonツール関数を1件実装してください。
-不足がなければ {{"skill": null}} を返してください。
+ルール:
+- 既存スキルと機能が近い場合は新規作成せず update を選ぶ
+- 共通化できる場合も update を選び、target に既存スキル名を入れる
+- 本当に新機能が必要な場合だけ create を選ぶ
+- 不足がなければ decision=none
+- JSON以外は返さない
 
 【出力JSONのみ】
-{{"skill": {{"name": "snake_case名", "description": "説明", "version": "1.0", "os": ["win32", "linux"], "keywords": ["kw"], "tool_code": "def name(project:str, arg:str)->str:\\n    return result", "usage_example": "", "rationale": "不足していた理由", "source": "codeagent"}}}}"""
+{{"decision":"none|create|update","target":"既存スキル名または空文字","merge_reason":"判断理由","skill":{{"name":"snake_case名","description":"説明","version":"1.0","os":["win32","linux"],"keywords":["kw"],"tool_code":"def name(project:str, arg:str)->str:\\n    return result","usage_example":"","rationale":"不足していた理由","source":"codeagent"}}}}"""
                             skill_reply, _ = call_llm_chat(
                                 [{"role": "user", "content": skill_gen_prompt}],
                                 llm_url=task_url
                             )
                             skill_parsed = extract_json(skill_reply, parser=_model_manager.current_parser)
+                            decision = str((skill_parsed or {}).get("decision") or "").strip().lower()
                             new_skill = (skill_parsed or {}).get("skill")
-                            if new_skill and new_skill.get("name") and new_skill.get("tool_code"):
-                                # スキルを保存
-                                skill_path = os.path.join(SKILLS_DIR, new_skill["name"])
-                                os.makedirs(skill_path, exist_ok=True)
-                                _write_skill_md(new_skill, os.path.join(skill_path, "SKILL.md"))
-                                # スキルキャッシュをリセット
-                                global _skills_cache, _skills_cache_time
-                                _skills_cache = {}
-                                _skills_cache_time = 0
-                                skill_context_note = f"\n\n【自動生成スキル】新たに '{new_skill['name']}' スキルが生成されました。このスキルを活用してタスクを実行してください。"
+                            target_skill = str((skill_parsed or {}).get("target") or "").strip()
+                            merge_reason = str((skill_parsed or {}).get("merge_reason") or "").strip()
+                            if decision in ("create", "update") and new_skill and new_skill.get("name") and new_skill.get("tool_code"):
+                                if decision == "update" and target_skill:
+                                    new_skill["name"] = target_skill
+                                save_result = _upsert_skill(new_skill, merge_reason=merge_reason or "auto skill refinement", prefer_merge=True)
+                                action_label = "更新" if save_result.get("action") == "updated" else "生成"
+                                skill_context_note = f"\n\n【自動生成スキル】'{save_result.get('skill_name', new_skill['name'])}' スキルを{action_label}しました。このスキルを活用してタスクを実行してください。"
                                 write("skill_generated", {
-                                    "skill_name": new_skill["name"],
+                                    "skill_name": save_result.get("skill_name", new_skill["name"]),
+                                    "action": save_result.get("action", decision),
+                                    "version": save_result.get("version", ""),
+                                    "matched_skill": save_result.get("matched_skill", ""),
                                     "description": new_skill.get("description", ""),
-                                    "rationale": new_skill.get("rationale", ""),
+                                    "rationale": merge_reason or new_skill.get("rationale", ""),
                                     "task_id": todo["id"],
                                 })
-                                print(f"[JOB {job_id}] auto-generated skill: {new_skill['name']}")
+                                print(f"[JOB {job_id}] auto-skill {save_result.get('action','created')}: {save_result.get('skill_name', new_skill['name'])}")
                         except Exception as _sge:
                             print(f"[JOB {job_id}] skill auto-generation failed: {_sge}")
 
@@ -3737,9 +3838,26 @@ JSON形式で出力:
             # ジョブログからパーマネントメモリに知識を抽出（常時バックグラウンドで実行）
             _mem_llm_url = req.llm_url.strip() or LLM_URL
             import threading as _mem_thread
+            def _memory_worker():
+                result = _analyze_job_for_memory(job_id, project, _mem_llm_url)
+                try:
+                    if result and result.get("ok"):
+                        saved = int(result.get("saved", 0) or 0)
+                        reason = result.get("reason", "completed")
+                        message = f"メモリ抽出が完了しました ({saved}件保存)" if saved > 0 else f"メモリ抽出が完了しました (保存なし: {reason})"
+                        write("memory_done", {"job_id": job_id, "saved": saved, "reason": reason, "message": message})
+                    else:
+                        write("memory_done", {
+                            "job_id": job_id,
+                            "saved": 0,
+                            "reason": (result or {}).get("reason", "unknown_error"),
+                            "message": f"メモリ抽出でエラー: {(result or {}).get('reason', 'unknown_error')}",
+                            "error": True
+                        })
+                except Exception:
+                    pass
             _mem_thread.Thread(
-                target=_analyze_job_for_memory,
-                args=(job_id, project, _mem_llm_url),
+                target=_memory_worker,
                 daemon=True
             ).start()
             write("memory_analyzing", {"job_id": job_id, "message": "実行ログからメモリを抽出中..."})
@@ -3890,11 +4008,24 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
     # ツールのパスはプロジェクトフォルダ内の相対パスで指定（例: "index.html", "src/app.py"）
     # プロジェクトフォルダ: workspace/{project}/
     project_note = f"\n\n【作業フォルダ】workspace/{project}/ - ファイルパスはこのフォルダ内の相対パスで指定してください。"
-    base_prompt = SYSTEM_PROMPT + project_note
+    base_prompt = _build_system_prompt(project) + project_note
     project_prompt = base_prompt + (f"\n\n{past_work}" if past_work else "")
     user_content = task_detail
     if context:
         user_content = f"【前のタスクの結果】\n{context}\n\n【今のタスク】\n{task_detail}"
+
+    # パーマネントメモリ参照: 通常実行ループでも関連知識を注入する
+    try:
+        mem_query = task_detail
+        mem_hits = memory_search(mem_query, limit=3)
+        if mem_hits:
+            mem_note = "\n\n【過去の経験・知識（メモリ）】\n" + "\n".join(
+                f"- [{h['category']}] {h['title']}: {h['content'][:200]}"
+                for h in mem_hits
+            )
+            user_content = user_content + mem_note
+    except Exception:
+        pass
 
     # Chat形式: 過去の会話履歴を先に並べる
     history_msgs = []
@@ -5476,6 +5607,16 @@ def model_switch(req: dict):
     _t.Thread(target=do_switch, daemon=True).start()
     return {"switching_to": key, "eta_sec": runtime_catalog[key]["load_sec"]}
 
+
+@app.post("/model/auto-load")
+def model_auto_load(req: dict | None = None):
+    req = req or {}
+    started, detail = schedule_default_model_load(
+        reason=req.get("reason", "api"),
+        force=bool(req.get("force", False))
+    )
+    return {"ok": True, "started": started, "detail": detail}
+
 @app.post("/jobs/{job_id}/respond")
 def respond_to_job(job_id: str, req: dict):
     """
@@ -5742,6 +5883,93 @@ def _load_skill_functions() -> dict:
             print(f"[SKILLS] load fn error {skill['name']}: {e}")
     return result
 
+def _skill_terms(*values) -> set[str]:
+    text = " ".join(str(v or "") for v in values).lower()
+    return set(re.findall(r"[a-z0-9_+-]{2,}", text))
+
+def _skill_similarity(existing: dict, incoming: dict) -> float:
+    existing_name = str(existing.get("name", ""))
+    incoming_name = str(incoming.get("name", ""))
+    existing_desc = str(existing.get("description", ""))
+    incoming_desc = str(incoming.get("description", ""))
+    name_ratio = difflib.SequenceMatcher(None, existing_name.lower(), incoming_name.lower()).ratio()
+    desc_ratio = difflib.SequenceMatcher(None, existing_desc.lower(), incoming_desc.lower()).ratio()
+    existing_terms = _skill_terms(existing_name, existing_desc, existing.get("keywords", []))
+    incoming_terms = _skill_terms(incoming_name, incoming_desc, incoming.get("keywords", []))
+    overlap = len(existing_terms & incoming_terms) / max(1, len(existing_terms | incoming_terms)) if (existing_terms or incoming_terms) else 0.0
+    return round(name_ratio * 0.45 + desc_ratio * 0.20 + overlap * 0.35, 4)
+
+def _find_similar_skills(candidate: dict, limit: int = 3) -> list[dict]:
+    scored = []
+    for skill in _active_skills():
+        score = _skill_similarity(skill, candidate)
+        if score >= 0.35:
+            scored.append({"skill": skill, "score": score})
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return scored[:limit]
+
+def _bump_skill_version(version: str | None, part: str = "minor") -> str:
+    nums = [int(x) for x in re.findall(r"\d+", str(version or "1.0"))]
+    while len(nums) < 3:
+        nums.append(0)
+    major, minor, patch = nums[:3]
+    if part == "major":
+        major, minor, patch = major + 1, 0, 0
+    elif part == "patch":
+        patch += 1
+    else:
+        minor += 1
+        patch = 0
+    return f"{major}.{minor}" if patch == 0 else f"{major}.{minor}.{patch}"
+
+def _merge_skill(existing: dict, incoming: dict, merge_reason: str = "") -> dict:
+    merged = dict(existing)
+    merged["name"] = existing.get("name") or incoming.get("name")
+    existing_desc = str(existing.get("description", "")).strip()
+    incoming_desc = str(incoming.get("description", "")).strip()
+    merged["description"] = incoming_desc if len(incoming_desc) >= len(existing_desc) else existing_desc
+    merged["keywords"] = sorted(set(existing.get("keywords", []) or []) | set(incoming.get("keywords", []) or []))
+    merged["os"] = sorted(set(existing.get("os", []) or ["win32"]) | set(incoming.get("os", []) or ["win32"]))
+    incoming_code = str(incoming.get("tool_code", "")).strip()
+    if incoming_code:
+        merged["tool_code"] = incoming_code
+    merged["usage_example"] = incoming.get("usage_example") or existing.get("usage_example", "")
+    merged["version"] = _bump_skill_version(existing.get("version"), "minor")
+    merged["source"] = incoming.get("source") or existing.get("source") or "codeagent"
+    rationale_parts = [str(existing.get("rationale", "")).strip(), str(incoming.get("rationale", "")).strip(), merge_reason.strip()]
+    merged["rationale"] = "\n\n".join(part for part in rationale_parts if part)
+    merged["usage_count"] = max(int(existing.get("usage_count", 0) or 0), int(incoming.get("usage_count", 0) or 0))
+    return merged
+
+def _upsert_skill(req: dict, merge_reason: str = "", prefer_merge: bool = True) -> dict:
+    incoming = dict(req or {})
+    name = str(incoming.get("name", "")).strip()
+    if not name:
+        raise HTTPException(400, "name required")
+    incoming["name"] = name
+    incoming.setdefault("version", "1.0")
+    incoming.setdefault("source", "user")
+    _load_all_skills(force=True)
+    skills = _load_all_skills()
+    target = skills.get(name)
+    similar = []
+    if not target and prefer_merge:
+        similar = _find_similar_skills(incoming, limit=3)
+        if similar and similar[0]["score"] >= 0.72:
+            target = similar[0]["skill"]
+
+    if target:
+        merged = _merge_skill(target, incoming, merge_reason)
+        path = target.get("path") or _skill_save_path(target["name"])
+        _write_skill_md(merged, path)
+        _load_all_skills(force=True)
+        return {"ok": True, "action": "updated", "path": path, "skill_name": merged["name"], "version": merged.get("version", ""), "matched_skill": target.get("name", ""), "similar": [{"name": s["skill"]["name"], "score": s["score"]} for s in similar]}
+
+    path = _skill_save_path(name)
+    _write_skill_md(incoming, path)
+    _load_all_skills(force=True)
+    return {"ok": True, "action": "created", "path": path, "skill_name": incoming["name"], "version": incoming.get("version", "1.0"), "similar": [{"name": s["skill"]["name"], "score": s["score"]} for s in similar]}
+
 def _skill_save_path(name: str, scope: str = "shared") -> str:
     """スキルの保存先: C:\AI\skills\スキル名\SKILL.md"""
     safe = "".join(c for c in name if c.isalnum() or c in "_-")
@@ -5791,13 +6019,7 @@ def list_skills_api():
 
 @app.post("/skills")
 def create_skill_api(req: dict):
-    name = req.get("name","").strip()
-    if not name: raise HTTPException(400, "name required")
-    scope = "shared"  # 全スキルをC:\AI\skills\に統一
-    path = _skill_save_path(name, scope)
-    _write_skill_md(req, path)
-    _load_all_skills(force=True)
-    return {"ok": True, "path": path}
+    return _upsert_skill(req, merge_reason="manual save", prefer_merge=True)
 
 @app.delete("/skills/{name}")
 def delete_skill_api(name: str):
@@ -5973,6 +6195,7 @@ def add_model_db_api(req: dict):
     if not req.get("name") or not req.get("path"):
         raise HTTPException(400, "name and path required")
     mid = model_db_add(req)
+    schedule_default_model_load(reason="model_add")
     return {"ok": True, "id": mid}
 
 @app.put("/models/db/{mid}")
@@ -6112,6 +6335,7 @@ def _run_model_scan_job(job_id: str, folder: str):
             initialized_roles += 1
 
         final_models = model_db_list()
+        schedule_default_model_load(reason="scan_complete")
         _set_model_scan_state(
             running=False,
             done=True,
@@ -6172,6 +6396,7 @@ def benchmark_model_api(mid: str):
         try:
             updates = benchmark_model_profiles(model)
             model_db_update(mid, updates)
+            schedule_default_model_load(reason="benchmark_complete")
             print(f"[ModelDB] benchmark done: {model['name']} {updates}")
         except Exception as e:
             model_db_update(mid, {"notes": f"BENCHMARK ERROR: {e}"})
@@ -6186,6 +6411,65 @@ def toggle_model_enabled(mid: str, req: dict):
     enabled = req.get("enabled", True)
     model_db_update(mid, {"enabled": 1 if enabled else 0})
     return {"ok": True, "enabled": enabled}
+
+
+@app.get("/models/roles")
+def get_model_role_assignments_api():
+    catalog = get_runtime_model_catalog(include_disabled=True)
+    models = model_db_list()
+    task_map = get_runtime_task_model_map(catalog, include_disabled=True)
+    planner_key = task_map.get("plan") or (next(iter(catalog.keys())) if catalog else "")
+    assignments = {}
+    auto_map = _get_auto_role_model_map(catalog)
+    for role in MODEL_ROLE_OPTIONS:
+        explicit = settings_get(_role_setting_key(role)).strip()
+        chosen = task_map.get(role, "")
+        if explicit and explicit in catalog:
+            source = "explicit"
+        elif role in auto_map:
+            source = "auto"
+        elif chosen:
+            source = "planner_fallback"
+        else:
+            source = "unassigned"
+        assignments[role] = {
+            "model_key": chosen,
+            "source": source,
+        }
+    return {
+        "roles": list(MODEL_ROLE_OPTIONS),
+        "planner_key": planner_key,
+        "assignments": assignments,
+        "models": [
+            {
+                "id": m.get("id", ""),
+                "model_key": m.get("model_key", ""),
+                "name": m.get("name", ""),
+                "enabled": int(m.get("enabled", 1) or 1),
+                "auto_roles": [x.strip() for x in str(m.get("auto_roles", "")).split(",") if x.strip()],
+            }
+            for m in models
+        ],
+    }
+
+
+@app.post("/models/roles")
+def save_model_role_assignments_api(req: dict):
+    assignments = req.get("assignments", {})
+    if not isinstance(assignments, dict):
+        raise HTTPException(400, "assignments must be an object")
+    catalog = get_runtime_model_catalog(include_disabled=True)
+    updates = {}
+    for role, model_key in assignments.items():
+        if role not in MODEL_ROLE_OPTIONS:
+            continue
+        key = str(model_key or "").strip()
+        if key and key not in catalog:
+            raise HTTPException(400, f"Unknown model for role {role}: {key}")
+        updates[_role_setting_key(role)] = key
+    if updates:
+        settings_set_bulk(updates)
+    return {"ok": True, "saved_roles": [k.removeprefix("role_model_") for k in updates.keys()]}
 
 
 # =========================

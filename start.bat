@@ -77,14 +77,12 @@ REM ==============================================
 set MODE=1
 echo.
 echo [AUTO MODE]
-echo   Port 8080: GPT-OSS-20B  basic always-on  11.5GB VRAM  154 tok/s
-echo   Auto-switch: code-Qwen35, complex-Coder, verify-Mistral
+echo   Model startup is DB-managed
+echo   If model_db exists, the recommended startup LLM will auto-load
 echo.
-set INITIAL_MODEL=basic
+set INITIAL_MODEL=
+set STARTUP_PROFILE=auto
 set PRIMARY_PORT=8080
-
-echo [1/1] Starting GPT-OSS-20B on port 8080...
-start /B /D "%~dp0" "LLM-Basic [8080]" "%LLAMA%" --model "%MODEL_GPT_OSS%" --port 8080 --host 0.0.0.0 --ctx-size 16384 -ngl 999 --threads 8 --no-mmap --log-disable
 goto :start_api
 
 REM ==============================================
@@ -93,13 +91,11 @@ REM ==============================================
 :qwen35
 echo.
 echo [QWEN35 MODE]
-echo   Port 8080: Qwen3.5-35B  19.7GB  28 tok/s  ctx=32768
+echo   Startup preference selected, but actual load is DB-managed
 echo.
-set INITIAL_MODEL=qwen35
+set INITIAL_MODEL=
+set STARTUP_PROFILE=qwen35
 set PRIMARY_PORT=8080
-
-echo [1/1] Starting Qwen3.5-35B on port 8080...
-start /B /D "%~dp0" "LLM-Qwen35 [8080]" "%LLAMA%" --model "%MODEL_QWEN35%" --port 8080 --host 0.0.0.0 --ctx-size 32768 -ngl 999 --threads 12 --no-mmap --parallel 1 --batch-size 2048 --ubatch-size 64 --cache-type-k q8_0 --cache-type-v q8_0 --jinja --reasoning-budget 0 --log-disable
 goto :start_api
 
 REM ==============================================
@@ -108,13 +104,11 @@ REM ==============================================
 :coder
 echo.
 echo [CODER MODE]
-echo   Port 8080: Qwen3-Coder-Next  32.2GB (VRAM16GB+RAM16GB)  ctx=32768
+echo   Startup preference selected, but actual load is DB-managed
 echo.
-set INITIAL_MODEL=coder
+set INITIAL_MODEL=
+set STARTUP_PROFILE=coder
 set PRIMARY_PORT=8080
-
-echo [1/1] Starting Qwen3-Coder-Next on port 8080...
-start /B /D "%~dp0" "LLM-Coder [8080]" "%LLAMA%" --model "%MODEL_CODER%" --port 8080 --host 0.0.0.0 --ctx-size 32768 -ngl 31 --threads 12 --no-mmap --jinja --reasoning-budget 0 --log-disable
 goto :start_api
 
 REM ==============================================
@@ -123,13 +117,11 @@ REM ==============================================
 :mistral
 echo.
 echo [MISTRAL MODE]
-echo   Port 8080: Mistral-Small-3.2-24B  11.2GB  37 tok/s  ctx=8192
+echo   Startup preference selected, but actual load is DB-managed
 echo.
-set INITIAL_MODEL=mistral
+set INITIAL_MODEL=
+set STARTUP_PROFILE=mistral
 set PRIMARY_PORT=8080
-
-echo [1/1] Starting Mistral-Small-3.2-24B on port 8080...
-start /B /D "%~dp0" "LLM-Mistral [8080]" "%LLAMA%" --model "%MODEL_MISTRAL%" --port 8080 --host 0.0.0.0 --ctx-size 8192 -ngl 999 --threads 8 --no-mmap --log-disable
 goto :start_api
 
 REM ==============================================
@@ -171,6 +163,20 @@ if not "%API_HTTP_CODE%"=="200" (
 echo [OK] FastAPI ready
 
 echo.
+echo Checking model database...
+set MODEL_DB_EXISTS=
+set MODEL_DB_TOTAL=
+for /f "tokens=1,2 delims=|" %%a in ('python -c "import json,urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:8000/models/db/status')); print(str(1 if d.get('db_exists') else 0) + '|' + str(d.get('total', 0)))" 2^>nul') do (
+    set MODEL_DB_EXISTS=%%a
+    set MODEL_DB_TOTAL=%%b
+)
+if not "%MODEL_DB_EXISTS%"=="1" goto :skip_llm_wait
+if "%MODEL_DB_TOTAL%"=="0" goto :skip_llm_wait
+
+echo [ModelDB] Found %MODEL_DB_TOTAL% model(s). Requesting default LLM load...
+curl -s -X POST http://127.0.0.1:8000/model/auto-load -H "Content-Type: application/json" -d "{\"reason\":\"start_bat\"}" >nul 2>&1
+
+echo.
 echo Waiting for LLM on port %PRIMARY_PORT%...
 set /a WAIT_SEC=0
 set HTTP_CODE=
@@ -188,6 +194,13 @@ if not "%HTTP_CODE%"=="200" (
     goto :wait_loop
 )
 echo [OK] LLM ready
+goto :after_llm_wait
+
+:skip_llm_wait
+echo [WAIT] model_db is missing or empty. Skipping LLM startup wait.
+echo        Run Models tab scan/add/benchmark first; FastAPI will auto-load after DB is created.
+
+:after_llm_wait
 
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4" ^| findstr /v "127.0.0.1"') do (
     set LAN_IP=%%a
@@ -201,7 +214,7 @@ echo ==============================================
 echo  CodeAgent ready!
 echo   Local : http://localhost:8000/
 echo   LAN   : http://%LAN_IP%:8000/
-echo   Mode  : %MODE%  Model: %INITIAL_MODEL%
+echo   Mode  : %MODE%  Profile: %STARTUP_PROFILE%
 echo ==============================================
 echo.
 echo [Launcher] Ready. Type 'exit' to close this window.

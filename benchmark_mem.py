@@ -38,6 +38,20 @@ def get_vram_mib() -> int:
             return int(v)
     except Exception:
         pass
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10
+        )
+        vals = []
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            if line.isdigit():
+                vals.append(int(line))
+        if vals:
+            return sum(vals)
+    except Exception:
+        pass
     return -1
 
 
@@ -81,13 +95,13 @@ def parse_llama_log(log_text: str) -> dict:
     cpu_mib = 0
     breakdown = {}
     patterns = [
-        (r"ROCm0 model buffer size\s*=\s*([\d.]+)\s*MiB", "gpu", "model_gpu"),
-        (r"CPU_Mapped model buffer size\s*=\s*([\d.]+)\s*MiB", "cpu", "model_cpu"),
-        (r"ROCm0 KV buffer size\s*=\s*([\d.]+)\s*MiB", "gpu", "kv_cache_gpu"),
-        (r"ROCm0 RS buffer size\s*=\s*([\d.]+)\s*MiB", "gpu", "rs_buffer"),
-        (r"ROCm0 compute buffer size\s*=\s*([\d.]+)\s*MiB", "gpu", "compute_gpu"),
-        (r"ROCm_Host\s+output buffer size\s*=\s*([\d.]+)\s*MiB", "cpu", "output_host"),
-        (r"ROCm_Host compute buffer size\s*=\s*([\d.]+)\s*MiB", "cpu", "compute_host"),
+        (r"(?:ROCm|CUDA|Vulkan|Metal)\d*\s+model buffer size\s*=\s*([\d.]+)\s*MiB", "gpu", "model_gpu"),
+        (r"CPU(?:_Mapped)?\s+model buffer size\s*=\s*([\d.]+)\s*MiB", "cpu", "model_cpu"),
+        (r"(?:ROCm|CUDA|Vulkan|Metal)\d*\s+KV buffer size\s*=\s*([\d.]+)\s*MiB", "gpu", "kv_cache_gpu"),
+        (r"(?:ROCm|CUDA|Vulkan|Metal)\d*\s+RS buffer size\s*=\s*([\d.]+)\s*MiB", "gpu", "rs_buffer"),
+        (r"(?:ROCm|CUDA|Vulkan|Metal)\d*\s+compute buffer size\s*=\s*([\d.]+)\s*MiB", "gpu", "compute_gpu"),
+        (r"(?:ROCm|CUDA|Vulkan|Metal)_Host\s+output buffer size\s*=\s*([\d.]+)\s*MiB", "cpu", "output_host"),
+        (r"(?:ROCm|CUDA|Vulkan|Metal)_Host\s+compute buffer size\s*=\s*([\d.]+)\s*MiB", "cpu", "compute_host"),
     ]
     for pattern, kind, label in patterns:
         m = re.search(pattern, log_text)

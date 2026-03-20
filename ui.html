@@ -130,6 +130,7 @@ function renderSkills(skills) {
           <span style="font-size:12px;font-weight:700;color:var(--accent);font-family:var(--font-mono)">${esc(s.name)}</span>
           ${srcBadge}
           <span style="font-size:9px;color:var(--text3)">v${esc(s.version||'1.0')}</span>
+          <span style="font-size:9px;color:var(--green);padding:1px 5px;border:1px solid rgba(0,255,157,.24);border-radius:3px">Tool</span>
         </div>
         <div style="display:flex;gap:5px;align-items:center;flex-shrink:0">
           <span style="font-size:10px;color:var(--text3)">×${s.usage_count||0}</span>
@@ -795,7 +796,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <span style="color:var(--text3)">tok</span>
       <span id="tok-tps" style="color:var(--amber)"></span>
     </div>
-    <span id="model-badge" title="Current model" style="font-size:10px;font-family:var(--font-mono);color:var(--text3);padding:2px 8px;border:1px solid var(--border);border-radius:10px;display:none;cursor:default"></span>
+    <span id="model-badge" title="Current model" style="font-size:10px;font-family:var(--font-mono);color:var(--text3);padding:2px 8px;border:1px solid var(--border);border-radius:10px;display:none;cursor:default;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
     <div class="sdot" id="sdot"></div>
     <span class="stext" id="stext">—</span>
   </div>
@@ -808,6 +809,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <button class="mob-tab" id="mob-log" onclick="mobSwitch('log')">Log</button>
   <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skills</button>
   <button class="mob-tab" id="mob-memory" onclick="mobSwitch('memory')">Memory</button>
+  <button class="mob-tab" id="mob-git" onclick="mobSwitch('git')">Git</button>
+  <button class="mob-tab" id="mob-models" onclick="mobSwitch('models')">Models</button>
 </div>
 
 <div class="app-body">
@@ -1007,6 +1010,14 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <button id="model-scan-btn" onclick="doModelScan(true)" style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer;white-space:nowrap">Benchmark</button>
         </div>
         <div style="font-size:10px;color:var(--text3)">入力値はDBに自動保存。サブフォルダ含む全.ggufを検出・VLM自動判定</div>
+      </div>
+
+      <div id="model-role-panel" style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px">Role Routing</div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">ロールごとに使用モデルを選択できます。未設定時は planner 推奨モデルを初期値として使います。</div>
+        <div id="model-role-list" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
+          <div style="font-size:11px;color:var(--text3)">Loading roles...</div>
+        </div>
       </div>
 
       <!-- フィルタ -->
@@ -1421,6 +1432,7 @@ addEventListener('load', async () => {
   loadProjects();
   initCtxSlider();
   refreshModelDb();
+  refreshModelRoles();
   refreshSkills();
   await loadHistory(currentProject);
   await loadJobs(currentProject);
@@ -1436,7 +1448,7 @@ async function checkHealth() {
     const badge = document.getElementById('model-badge');
     if (badge && md.current_name) {
       badge.style.display = 'inline';
-      badge.textContent = md.current_name;
+      badge.textContent = formatModelShortName(md.current_name);
       badge.style.color = md.status === 'switching' ? 'var(--amber)' : 'var(--text3)';
       badge.style.borderColor = md.status === 'switching' ? 'var(--amber)' : 'var(--border)';
       badge.title = md.current_name + ' | VRAM: ' + md.vram_gb + 'GB | ' + md.status;
@@ -1454,6 +1466,24 @@ function setStatus(cls, text) {
   document.getElementById('stext').textContent = text;
 }
 
+function formatModelShortName(name) {
+  const raw = (name || '').trim();
+  if (!raw) return 'LLM';
+  const lower = raw.toLowerCase();
+
+  let family = 'LLM';
+  if (lower.includes('gpt-oss') || lower.includes('gpt_oss')) family = 'GPT';
+  else if (lower.includes('qwen')) family = 'Qwen';
+  else if (lower.includes('mistral')) family = 'Mistral';
+  else if (lower.includes('llama')) family = 'Llama';
+  else if (lower.includes('gemma')) family = 'Gemma';
+  else if (lower.includes('phi')) family = 'Phi';
+
+  const sizeMatch = lower.match(/(\d+(?:\.\d+)?)\s*b\b/);
+  const size = sizeMatch ? sizeMatch[1].replace(/\.0$/, '') + 'B' : '';
+  return size ? `${family}-${size}` : family;
+}
+
 // ── MODE ──
 function setMode(m) {
   mode = m;
@@ -1462,13 +1492,19 @@ function setMode(m) {
 
 // ── MOBILE ──
 function mobSwitch(name) {
-  ['chat','output','preview','log','skills','memory'].forEach(t => document.getElementById('mob-'+t)?.classList.remove('active'));
+  ['chat','output','preview','log','skills','memory','git','models'].forEach(t => document.getElementById('mob-'+t)?.classList.remove('active'));
   document.getElementById('mob-'+name)?.classList.add('active');
   const cc = document.getElementById('chat-col');
   const pc = document.getElementById('panel-col');
   if (name === 'chat') { cc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden'); }
   else { cc.classList.add('mob-hidden'); pc.classList.remove('mob-hidden');
-    switchTab(name === 'output' ? 'output' : name === 'preview' ? 'preview' : name === 'skills' ? 'skills' : name === 'memory' ? 'memory' : 'log'); }
+    switchTab(name === 'output' ? 'output'
+      : name === 'preview' ? 'preview'
+      : name === 'skills' ? 'skills'
+      : name === 'memory' ? 'memory'
+      : name === 'git' ? 'git'
+      : name === 'models' ? 'models'
+      : 'log'); }
 }
 
 // ── SKILL PROPOSALS ──
@@ -1492,6 +1528,7 @@ function _renderSkillProposals(proposals, stats) {
         <div style="display:flex;gap:6px">
           <button onclick="saveSkillProposal(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">✓ Save</button>
           <button onclick="planSkillImpl(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:600;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">⚙ Implement</button>
+          <button onclick="discardSkillProposal(${i})" style="padding:5px 10px;font-size:11px;font-weight:600;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:4px;cursor:pointer">✕</button>
         </div>
       </div>`).join('');
   // Skills タブに切り替えて提案をスクロール表示（モバイル対応）
@@ -1499,6 +1536,70 @@ function _renderSkillProposals(proposals, stats) {
   if (isMobile) mobSwitch('skills');
   else switchTab('skills');
   setTimeout(() => el.scrollIntoView({behavior:'smooth', block:'nearest'}), 150);
+}
+
+async function saveSkillProposal(i) {
+  const el = document.getElementById('skill-proposals');
+  const proposals = el?._proposals || [];
+  const p = proposals[i];
+  if (!p) return;
+  try {
+    const r = await fetch(API+'/skills', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(p)
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || d.error || 'save failed');
+    addLog('ok','skill', `${d.action === 'updated' ? 'Updated' : 'Saved'} skill: ${d.skill_name || p.name}${d.version ? ` v${d.version}` : ''}`);
+    await refreshSkills();
+    discardSkillProposal(i, false);
+  } catch(e) {
+    addLog('err','skill', `save failed: ${e.message}`);
+  }
+}
+
+async function planSkillImpl(i) {
+  const el = document.getElementById('skill-proposals');
+  const proposals = el?._proposals || [];
+  const p = proposals[i];
+  if (!p) return;
+  try {
+    const r = await fetch(API+'/skills', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(p)
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || d.error || 'save failed');
+    addLog('ok','skill', `${d.action === 'updated' ? 'Updated' : 'Saved'} skill: ${d.skill_name || p.name}${d.version ? ` v${d.version}` : ''}`);
+    await refreshSkills();
+    discardSkillProposal(i, false);
+    setMode('task');
+    const input = document.getElementById('input');
+    if (input) {
+      input.value = `スキル ${p.name} を実装・改善してください。説明: ${p.description || ''}`;
+      input.focus();
+    }
+    addLog('ok','skill', `Saved and prepared implementation task: ${p.name}`);
+  } catch(e) {
+    addLog('err','skill', `implement prep failed: ${e.message}`);
+  }
+}
+
+function discardSkillProposal(i, logIt = true) {
+  const el = document.getElementById('skill-proposals');
+  const proposals = [...(el?._proposals || [])];
+  if (!proposals[i]) return;
+  const removed = proposals[i];
+  proposals.splice(i, 1);
+  if (el) el._proposals = proposals;
+  if (!proposals.length) {
+    if (el) el.innerHTML = '';
+  } else {
+    _renderSkillProposals(proposals, {});
+  }
+  if (logIt) addLog('warn','skill', `Discarded proposal: ${removed.name}`);
 }
 
 // ── PANEL TABS ──
@@ -1512,7 +1613,7 @@ function switchTab(name) {
   if (name === 'skills') refreshSkills();
   if (name === 'memory') refreshMemory();
   if (name === 'git') refreshGitStatus();
-  if (name === 'models') refreshModelDb();
+  if (name === 'models') { refreshModelDb(); refreshModelRoles(); }
 }
 
 // ── GIT ──
@@ -1629,6 +1730,7 @@ function showGitResult(text) {
 let _allModels = [];
 let _modelBenchmarkView = {};
 let _scanPollTimer = null;
+let _modelRoleState = null;
 
 function asText(value) {
   return value == null ? '' : String(value);
@@ -1686,6 +1788,58 @@ async function refreshModelDb(prefetchedModels = null, prefetchedStat = null) {
     console.warn('model db error', e);
     const el = document.getElementById('model-db-list');
     if (el) el.innerHTML = '<div style="font-size:11px;color:var(--red);padding:8px">Failed to load models.</div>';
+  }
+}
+
+async function refreshModelRoles() {
+  const el = document.getElementById('model-role-list');
+  if (!el) return;
+  try {
+    const r = await fetch(API+'/models/roles');
+    if (!r.ok) throw new Error('failed to load model roles');
+    const d = await r.json();
+    _modelRoleState = d;
+    const plannerKey = d.planner_key || '';
+    const modelMap = Object.fromEntries((d.models || []).map(m => [m.model_key, m]));
+    el.innerHTML = (d.roles || []).map(role => {
+      const a = d.assignments?.[role] || {};
+      const selectedKey = a.model_key || plannerKey || '';
+      const source = a.source || 'unassigned';
+      const badgeColor = source === 'explicit' ? 'var(--accent)' : (source === 'auto' ? 'var(--blue)' : 'var(--amber)');
+      const options = (d.models || [])
+        .filter(m => Number(m.enabled ?? 1) !== 0)
+        .map(m => `<option value="${esc(m.model_key)}" ${m.model_key===selectedKey?'selected':''}>${esc(formatModelShortName(m.name || m.model_key))}</option>`)
+        .join('');
+      return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg)">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:5px">
+          <span style="font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--text2);text-transform:uppercase">${esc(role)}</span>
+          <span style="font-size:9px;color:${badgeColor}">${esc(source)}</span>
+        </div>
+        <select onchange="saveRoleModel('${esc(role)}', this.value)"
+          style="width:100%;padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-ui)">
+          ${options}
+        </select>
+        <div style="font-size:9px;color:var(--text3);margin-top:4px">${esc(modelMap[selectedKey]?.name || plannerKey || 'unassigned')}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<div style="font-size:11px;color:var(--red)">Failed to load roles: ${esc(e.message)}</div>`;
+  }
+}
+
+async function saveRoleModel(role, modelKey) {
+  try {
+    const r = await fetch(API+'/models/roles', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({assignments: {[role]: modelKey}})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'failed to save role assignment');
+    addLog('ok', 'models', `Role ${role} -> ${modelKey}`);
+    await refreshModelRoles();
+  } catch(e) {
+    addLog('err', 'models', e.message);
   }
 }
 
@@ -2462,7 +2616,7 @@ function buildModelBar(recKey, recName, switchNeeded, etaSec, catalog) {
   const options = Object.entries(catalog)
     .filter(([k, v]) => v.available)
     .map(([k, v]) =>
-      `<option value="${esc(k)}" ${k===recKey?'selected':''}>${esc(v.name)} (${v.vram_gb}GB)</option>`
+      `<option value="${esc(k)}" ${k===recKey?'selected':''}>${esc(formatModelShortName(v.name))} (${v.vram_gb}GB)</option>`
     ).join('');
   const etaLabel = switchNeeded && etaSec > 0 && recKey !== 'auto'
     ? `<span class="plan-model-eta">~${etaSec}s load</span>`
@@ -2726,14 +2880,17 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
         addLog(ev.passed ? 'ok' : 'warn', 'verify', `${passed}${score} ${ev.summary||''}`);
       } else if (ev.type === 'task_options') {
         _taskOptionsMap[`${_currentJobId}_${ev.task_id}`] = ev.options || [];
-        showTaskOptions(ev, _currentJobId);
         const autoMsg = ev.auto_chosen ? `🤖 案${ev.auto_chosen}を自動選択: ${ev.auto_reason||''}` : '⚠ 対応案を選択してください';
         addLog(ev.auto_chosen ? 'ok' : 'warn','task', `4回試行失敗: ${ev.title||''} — ${autoMsg}`);
+        if (!ev.auto_chosen) showTaskOptions(ev, _currentJobId);
       } else if (ev.type === 'skill_generated') {
-        addLog('ok','skill', `⚙ SKILL自動生成: ${ev.skill_name} — ${ev.description||''} (理由: ${ev.rationale||''})`);
+        const action = ev.action === 'updated' ? 'updated' : 'created';
+        addLog('ok','skill', `Auto-skill ${action}: ${ev.skill_name}${ev.version ? ` v${ev.version}` : ''} - ${ev.description||''} ${ev.rationale ? `(reason: ${ev.rationale})` : ''}`);
         refreshSkills();
       } else if (ev.type === 'memory_analyzing') {
         addLog('info','memory', `🧠 ${ev.message||'メモリ抽出中...'}`);
+      } else if (ev.type === 'memory_done') {
+        addLog(ev.error ? 'warn' : 'ok','memory', `🧠 ${ev.message||'メモリ抽出が完了しました'}`);
       } else if (ev.type === 'skill_hint') {
         addLog('warn','skill', `Missing tool: ${ev.missing_tool} — will be proposed`);
       } else if (ev.type === 'skill_proposals') {
