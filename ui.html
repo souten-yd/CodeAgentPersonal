@@ -355,10 +355,9 @@ header{
   .mob-tabs{display:flex}
   .panel-tabs{display:none !important}
 }
-/* iPhone safe area */
+/* iPhone safe area: home indicator padding at bottom only */
 @supports(padding:env(safe-area-inset-bottom)){
   .input-area{padding-bottom:max(10px,env(safe-area-inset-bottom))}
-  .mob-tabs{padding-bottom:env(safe-area-inset-bottom)}
 }
 
 /* ── LAYOUT ── */
@@ -369,8 +368,9 @@ header{
 }
 @media(max-width:768px){
   .app-body{
-    height:calc(100vh - 52px - 44px);
-    height:calc(100dvh - 52px - 44px);
+    flex:1;
+    min-height:0;
+    height:auto;
   }
   .chat-col{
     /* flex layout: messages flex-grow, input always visible at bottom */
@@ -1292,6 +1292,18 @@ async function selectProject(name) {
   await loadJobs(name);
   refreshFileBrowser();
   addLog('info','project','Switched to: '+name);
+  // 最終ジョブ結果を復元（リロード後の再表示）
+  try {
+    const raw = localStorage.getItem('lastJob_' + name);
+    if (raw) {
+      const d = JSON.parse(raw);
+      const age = (Date.now() - (d.savedAt||0)) / 1000 / 3600; // hours
+      if (age < 72 && (d.taskResults||[]).length) { // 3日以内のみ
+        addMsg('system', `📋 前回のジョブ結果を復元しました (${new Date(d.savedAt).toLocaleString()})`);
+        addTaskBlock(d.taskResults, d.allPlannedTasks||[], d.planMeta||{});
+      }
+    }
+  } catch(e) {}
 }
 async function createProject() {
   const input = document.getElementById('new-proj-input');
@@ -1323,7 +1335,7 @@ function renderHistorySession(s) {
   // user message
   const um = document.createElement('div');
   um.className = 'msg user history';
-  um.innerHTML = `<div class="msg-role">You</div><div class="msg-bubble">${esc(s.message)}</div><div class="msg-ts">${ts}</div>`;
+  um.innerHTML = `<div class="msg-role">Boss</div><div class="msg-bubble">${esc(s.message)}</div><div class="msg-ts">${ts}</div>`;
   messages().appendChild(um);
   addToHistory('user', s.message); // chatHistory に追加して後続メッセージでコンテキスト維持
   addLog('ok','history', `[${ts}] ${s.message.slice(0,50)}`);
@@ -1857,7 +1869,7 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
         allSteps.push(ev);
         const _ptok = ev.prompt_tokens||0;
         const _ctok = ev.completion_tokens||0;
-        const _ctxStr = _ptok > 0 ? `${_ptok+_ctok}/${_current_n_ctx_ui||'?'}` : '--/--';
+        const _ctxStr = _ptok > 0 ? `${(_ptok+_ctok).toLocaleString()}/${(_current_n_ctx_ui||0).toLocaleString()}` : `--/${(_current_n_ctx_ui||'?').toLocaleString()}`;
         setCard(progCard, {
           action:  (ev.action||'') + ': ' + (ev.thought||''),
           tps:     ev.tps||0,
@@ -1973,12 +1985,23 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
     taskResults.forEach(t => {
       (t.steps || []).forEach(s => { if (s) allSteps.push(s); });
     });
-    addTaskBlock(taskResults, allPlannedTasks, {
+    const planMeta = {
       requirements: savedRequirements,
       approach:     savedApproach,
       verification: savedVerification,
       summary:      savedSummary,
-    });
+    };
+    addTaskBlock(taskResults, allPlannedTasks, planMeta);
+    // プロジェクトごとに最終ジョブ結果を保存（リロード後に復元）
+    try {
+      const saveData = {
+        taskResults: taskResults.map(t => ({task_id:t.task_id,title:t.title,status:t.status,output:(t.output||'').slice(0,500)})),
+        allPlannedTasks: allPlannedTasks.map(t => ({id:t.id,title:t.title,detail:(t.detail||'').slice(0,200)})),
+        planMeta,
+        savedAt: Date.now(),
+      };
+      localStorage.setItem('lastJob_' + currentProject, JSON.stringify(saveData));
+    } catch(e) {}
     if (allSteps.length) addStepsBlock(allSteps);
     renderStepsToOutput(allSteps);
   }
@@ -2061,27 +2084,31 @@ function addProgressCard(label, totalTasks) {
   const pct = 0;
   div.innerHTML = `<div class="msg-bubble progress-card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <div class="prog-label" style="margin-bottom:0">${esc(label)}</div>
-      <span class="prog-elapsed" style="font-size:11px;font-family:var(--font-mono);color:var(--text3);flex-shrink:0;margin-left:8px">0s</span>
+      <div class="prog-label" style="margin-bottom:0;font-size:12px;font-weight:700;color:var(--text2)">${esc(label)}</div>
+      <span class="prog-elapsed" style="font-size:11px;font-family:var(--font-mono);color:var(--accent);flex-shrink:0;margin-left:8px">0s</span>
     </div>
     <div class="prog-bar-wrap"><div class="prog-bar" style="width:0%"></div></div>
-    <div class="prog-meta" style="margin-top:6px">
-      <span class="prog-action"></span>
+    <div style="margin-top:7px;padding:6px 8px;background:rgba(255,255,255,.03);border-radius:6px;border:1px solid rgba(255,255,255,.06)">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+        <span class="prog-stat-step" style="font-size:10px;font-family:var(--font-mono);color:var(--accent);background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:4px;padding:1px 5px;flex-shrink:0">step -/-</span>
+        <span class="prog-action-tool" style="font-size:11px;font-family:var(--font-mono);color:var(--blue);font-weight:600;flex-shrink:0"></span>
+      </div>
+      <div class="prog-action" style="font-size:11px;color:var(--text2);line-height:1.4;word-break:break-word;min-height:14px"></div>
     </div>
-    <div class="prog-stats" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.06)">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:5px;align-items:center">
       <span class="prog-stat-tps"  style="font-size:10px;font-family:var(--font-mono);color:var(--text3)">-- tok/s</span>
       <span class="prog-stat-ctx"  style="font-size:10px;font-family:var(--font-mono);color:var(--text3)">ctx: --/--</span>
-      <span class="prog-stat-step" style="font-size:10px;font-family:var(--font-mono);color:var(--text3)">step: -/-</span>
     </div>
   </div>`;
   div._refs = {
-    label:   div.querySelector('.prog-label'),
-    bar:     div.querySelector('.prog-bar'),
-    elapsed: div.querySelector('.prog-elapsed'),
-    action:  div.querySelector('.prog-action'),
-    tps:     div.querySelector('.prog-stat-tps'),
-    ctx:     div.querySelector('.prog-stat-ctx'),
-    stepNum: div.querySelector('.prog-stat-step'),
+    label:      div.querySelector('.prog-label'),
+    bar:        div.querySelector('.prog-bar'),
+    elapsed:    div.querySelector('.prog-elapsed'),
+    action:     div.querySelector('.prog-action'),
+    actionTool: div.querySelector('.prog-action-tool'),
+    tps:        div.querySelector('.prog-stat-tps'),
+    ctx:        div.querySelector('.prog-stat-ctx'),
+    stepNum:    div.querySelector('.prog-stat-step'),
   };
   w.appendChild(div);
   w.scrollTop = w.scrollHeight;
@@ -2092,7 +2119,17 @@ function setCard(card, opts) {
   if (!card || !card._refs) return;
   const r = card._refs;
   if (opts.label   !== undefined) r.label.textContent  = opts.label;
-  if (opts.action  !== undefined) r.action.textContent = opts.action;
+  if (opts.action  !== undefined) {
+    // "toolName: thought text" を分割して別表示
+    const colonIdx = opts.action.indexOf(': ');
+    if (r.actionTool && colonIdx > 0) {
+      r.actionTool.textContent = opts.action.slice(0, colonIdx);
+      r.action.textContent = opts.action.slice(colonIdx + 2);
+    } else {
+      if (r.actionTool) r.actionTool.textContent = '';
+      r.action.textContent = opts.action;
+    }
+  }
   if (opts.elapsed !== undefined) r.elapsed.textContent = opts.elapsed;
   if (opts.pct     !== undefined) {
     const p = Math.max(0, Math.min(100, opts.pct));
@@ -2101,7 +2138,7 @@ function setCard(card, opts) {
   if (opts.taskName !== undefined) r.label.textContent = opts.taskName;
   if (opts.tps      !== undefined && r.tps)     r.tps.textContent     = opts.tps > 0 ? opts.tps.toFixed(1)+' tok/s' : '-- tok/s';
   if (opts.ctx      !== undefined && r.ctx)     r.ctx.textContent     = 'ctx: '+opts.ctx;
-  if (opts.stepNum  !== undefined && r.stepNum) r.stepNum.textContent = 'step: '+opts.stepNum;
+  if (opts.stepNum  !== undefined && r.stepNum) r.stepNum.textContent = 'step '+opts.stepNum;
   card.closest('.msg-list, #messages')?.scrollTo?.({top: 999999});
 }
 
@@ -2174,7 +2211,7 @@ function addMsg(role, text) {
   const d = document.createElement('div');
   d.className = 'msg '+role;
   d.dataset.msgText = text;
-  const labels = {user:'You', assistant:'Agent', system:'System', error:'Error'};
+  const labels = {user:'Boss', assistant:'Agent', system:'System', error:'Error'};
   const isMd = (role === 'assistant') && mdRenderer;
   const bubble = isMd
     ? `<div class="msg-bubble md">${renderMd(text)}</div>`

@@ -2060,14 +2060,15 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 def _build_system_prompt(project: str = "") -> str:
     """
     SYSTEM_PROMPTにスキル一覧を注入して返す（OpenClaw互換）。
-    スキルは C:\\AI\\skills\\ の SKILL.md から自動ロード。
+    スキルは ./skills/ の SKILL.md から自動ロード。
+    {project} プレースホルダーを実際のプロジェクト名に置換する。
     """
-    # _skills_to_prompt_injectionは後方定義のためglobals()経由で取得
+    base = SYSTEM_PROMPT.replace("{project}", project) if project else SYSTEM_PROMPT
     inject_fn = globals().get("_skills_to_prompt_injection")
     injection = inject_fn() if inject_fn else ""
     if not injection:
-        return SYSTEM_PROMPT
-    return SYSTEM_PROMPT + injection
+        return base
+    return base + injection
 
 
 # =========================
@@ -3272,8 +3273,9 @@ def verify_and_fix(
           "summary": f"{len(req_results)-len(missing)}/{len(req_results)} met"})
 
     # ── 総合判定 ──
-    unit_pass_rate = (len(unit_results) - len(unit_failed)) / max(len(unit_results), 1)
-    integ_pass_rate = (len(integ_results) - len(failed_integ)) / max(len(integ_results), 1)
+    # テスト対象がない場合はそのフェーズを満点扱い（HTML/JSプロジェクト等でPyファイルなし）
+    unit_pass_rate = (len(unit_results) - len(unit_failed)) / len(unit_results) if unit_results else 1.0
+    integ_pass_rate = (len(integ_results) - len(failed_integ)) / len(integ_results) if integ_results else 1.0
     total_score = int(unit_pass_rate * 40 + integ_pass_rate * 30 + req_score * 0.3)
     total_score = min(100, max(0, total_score))
     critical_count = len([i for i in all_issues if i.get("severity") == "critical"])
@@ -3708,7 +3710,7 @@ def list_projects():
     projects = []
     for name in sorted(os.listdir(WORK_DIR)):
         path = os.path.join(WORK_DIR, name)
-        if os.path.isdir(path) and not name.startswith("_"):
+        if os.path.isdir(path) and not name.startswith("_") and '{' not in name:
             files = []
             for root, _, fs in os.walk(path):
                 for f in fs:
