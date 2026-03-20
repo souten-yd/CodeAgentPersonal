@@ -331,6 +331,22 @@ header{
 .search-toggle:hover{border-color:var(--border2);color:var(--text)}
 .search-toggle.on{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
 .search-toggle #search-icon{font-size:12px}
+.settings-btn{
+  padding:6px 12px;font-size:11px;font-weight:700;border-radius:6px;cursor:pointer;
+  transition:all .15s ease;border:1px solid var(--border);background:var(--bg2);color:var(--text2);
+}
+.settings-btn:hover{border-color:var(--border2);color:var(--text)}
+.settings-btn.primary{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
+.settings-btn.solid{border-color:var(--accent);background:var(--accent);color:var(--bg)}
+.settings-btn.success{border-color:rgba(40,167,69,.28);background:rgba(40,167,69,.14);color:#7ee2a0}
+.settings-btn.ghost{background:transparent}
+.settings-btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.settings-btn-row .settings-btn{min-width:110px;justify-content:center;display:inline-flex;align-items:center}
+.settings-note{font-size:10px;color:var(--text3);margin-top:4px;line-height:1.5}
+.model-edit-grid{display:grid;grid-template-columns:1.4fr .9fr .9fr auto;gap:6px;margin-top:8px}
+.model-edit-grid2{display:grid;grid-template-columns:110px 110px auto;gap:6px;margin-top:6px;align-items:center}
+.scan-row{display:flex;gap:5px}
+.model-toolbar{display:flex;gap:5px;margin-bottom:8px;align-items:center}
 .sdot{width:6px;height:6px;border-radius:50%;background:var(--text3);transition:all .3s;flex-shrink:0}
 .tok-display{display:none}
 @media(max-width:480px){.tok-display span.tok-label{display:none}}
@@ -354,6 +370,13 @@ header{
 @media(max-width:768px){
   .mob-tabs{display:flex}
   .panel-tabs{display:none !important}
+  .model-edit-grid{grid-template-columns:1fr 1fr}
+  .model-edit-grid .settings-btn{grid-column:1 / -1}
+  .model-edit-grid2{grid-template-columns:1fr}
+  .settings-btn-row .settings-btn{min-width:0;flex:1 1 calc(50% - 4px)}
+  .scan-row{flex-direction:column}
+  .model-toolbar{flex-wrap:wrap;align-items:flex-start}
+  .model-toolbar input[type="text"]{min-width:100%}
 }
 /* iPhone safe area: home indicator padding at bottom only */
 @supports(padding:env(safe-area-inset-bottom)){
@@ -864,6 +887,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
     <div class="tab-content" id="tab-log">
       <div class="log-output" id="log-output"></div>
+    </div>
 
     <div class="tab-content" id="tab-skills" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -907,7 +931,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);resize:vertical"></textarea>
         <input id="mem-keywords" type="text" placeholder="キーワード（カンマ区切り）"
           style="width:100%;padding:4px 8px;margin-bottom:8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
-        <div style="display:flex;gap:5px">
+        <div class="scan-row">
           <button onclick="saveNewMemory()" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">保存</button>
           <button onclick="hideAddMemoryForm()" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
         </div>
@@ -976,17 +1000,17 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <!-- ルートフォルダ（設定DB連動） -->
       <div style="border:1px solid var(--accent-border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--accent-bg)">
         <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:5px">LLMルートフォルダ</div>
-        <div style="display:flex;gap:5px;margin-bottom:4px">
+        <div class="scan-row">
           <input id="model-root-folder" type="text" placeholder="E:\LLMs"
             style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)"
             oninput="saveRootFolder(this.value)">
-          <button onclick="doModelScan(true)" style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer;white-space:nowrap">↺ スキャン</button>
+          <button id="model-scan-btn" onclick="doModelScan(true)" style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer;white-space:nowrap">Benchmark</button>
         </div>
         <div style="font-size:10px;color:var(--text3)">入力値はDBに自動保存。サブフォルダ含む全.ggufを検出・VLM自動判定</div>
       </div>
 
       <!-- フィルタ -->
-      <div style="display:flex;gap:5px;margin-bottom:8px;align-items:center">
+      <div class="model-toolbar">
         <input id="model-filter" type="text" placeholder="🔍 モデルを絞り込み..."
           oninput="filterModelList(this.value)"
           style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
@@ -1038,6 +1062,11 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div id="model-db-list" style="display:flex;flex-direction:column;gap:6px">
         <div style="font-size:12px;color:var(--text3)">Loading...</div>
       </div>
+      <datalist id="parser-options">
+        <option value="json"></option>
+        <option value="qwen_think"></option>
+        <option value="gpt_oss"></option>
+      </datalist>
     </div>
 
     </div>
@@ -1061,7 +1090,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <input type="text" id="settings-root-folder" placeholder="E:\LLMs"
             style="flex:1;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)"
             oninput="saveRootFolder(this.value)">
-          <button onclick="doModelScanFromSettings()" style="padding:6px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:5px;color:var(--bg);cursor:pointer;white-space:nowrap">今すぐスキャン</button>
+          <button id="settings-scan-btn" onclick="doModelScanFromSettings()" style="padding:6px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:5px;color:var(--bg);cursor:pointer;white-space:nowrap">Benchmark</button>
         </div>
         <div id="settings-scan-result" style="display:none;font-size:10px;color:var(--accent);margin-top:4px"></div>
       </div>
@@ -1120,28 +1149,19 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
         <div style="margin-bottom:6px;font-size:11px;color:var(--text2)">コンテキスト長</div>
         <div style="display:flex;align-items:center;gap:8px">
-          <input type="range" id="ctx-slider" min="512" max="32768" step="512" value="32768"
+          <input type="range" id="ctx-slider" min="512" max="32768" step="512" value="16384"
             style="flex:1;accent-color:var(--accent);cursor:pointer"
             oninput="updateCtxLabel(this.value)" onchange="applyCtxLen(this.value)">
-          <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">32768</span>
+          <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">16384</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px">
           <span>512</span><span id="ctx-max-label">max: 32768</span><span id="ctx-slider-max">32768</span>
-        </div>
-        <div style="margin-top:10px;margin-bottom:6px;font-size:11px;color:var(--text2)">最大出力トークン数</div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <input type="range" id="max-output-slider" min="256" max="32768" step="256" value="8192"
-            style="flex:1;accent-color:var(--accent);cursor:pointer"
-            oninput="updateMaxOutputLabel(this.value)" onchange="applyMaxOutputTokens(this.value)">
-          <span id="max-output-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">8192</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px">
-          <span>256</span><span>最大出力 (max: 32768)</span><span>32768</span>
         </div>
         <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">LLM URL（空=サーバーデフォルト）</div>
         <input type="text" id="llm-url-input" placeholder="http://localhost:8080/v1/chat/completions"
           style="width:100%;padding:6px 8px;font-size:10px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--font-mono);box-sizing:border-box"
           oninput="activeLlmUrl=this.value.trim(); _saveSettingDb('llm_url', this.value.trim())">
+        <div class="settings-note">Blank is normal. If unset, the server uses its default local LLM endpoint.</div>
       </div>
 
       <!-- Web検索 -->
@@ -1237,16 +1257,17 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <!-- リモートURL表示 -->
         <div style="margin-bottom:10px">
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">リモートURL</div>
-          <code id="gh-remote-url" style="font-size:10px;color:var(--text3);font-family:var(--font-mono)">未設定</code>
+          <code id="gh-remote-url" style="font-size:10px;color:var(--text3);font-family:var(--font-mono)">Not set</code>
+          <div class="settings-note">Not set is normal before repo init or before a remote is configured.</div>
         </div>
 
         <!-- アクションボタン -->
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-          <button onclick="saveGhRepoConfig()" style="padding:5px 12px;font-size:11px;font-weight:700;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">設定保存</button>
-          <button onclick="testGhConnection()" style="padding:5px 12px;font-size:11px;font-weight:700;border:1px solid #6f42c1;background:rgba(111,66,193,.12);color:#a78bfa;border-radius:4px;cursor:pointer">接続確認</button>
-          <button onclick="initGhRepo()" style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Init (リポジトリ作成)</button>
-          <button onclick="syncGhRepo()" style="padding:5px 12px;font-size:11px;font-weight:700;background:#28a745;border:none;border-radius:4px;color:#fff;cursor:pointer">Sync (Push)</button>
-          <button onclick="loadGhRepoStatus()" style="padding:5px 12px;font-size:11px;border:1px solid var(--border);background:transparent;color:var(--text2);border-radius:4px;cursor:pointer">状態確認</button>
+        <div class="settings-btn-row">
+          <button onclick="saveGhRepoConfig()" class="settings-btn primary">Save Config</button>
+          <button onclick="testGhConnection()" class="settings-btn ghost">Test Connection</button>
+          <button onclick="initGhRepo()" class="settings-btn solid">Init Repo</button>
+          <button onclick="syncGhRepo()" class="settings-btn success">Sync Push</button>
+          <button onclick="loadGhRepoStatus()" class="settings-btn">Check Status</button>
         </div>
         <pre id="gh-repo-status" style="display:none;font-size:10px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:8px;white-space:pre-wrap;max-height:150px;overflow-y:auto"></pre>
       </div>
@@ -1367,18 +1388,11 @@ async function loadSettingsFromDb() {
     if (snl) snl.textContent = snum;
 
     // Ctx size
-    const ctx = parseInt(d.ctx_size) || 32768;
+    const ctx = parseInt(d.ctx_size) || 16384;
     const cs = document.getElementById('ctx-slider');
     const cl = document.getElementById('ctx-label');
     if (cs) cs.value = ctx;
     if (cl) cl.textContent = ctx;
-
-    // Max output tokens
-    const maxOut = parseInt(d.max_output_tokens) || 8192;
-    const mos = document.getElementById('max-output-slider');
-    const mol = document.getElementById('max-output-label');
-    if (mos) mos.value = maxOut;
-    if (mol) mol.textContent = maxOut;
 
     // LLM URL
     const url = d.llm_url || '';
@@ -1401,10 +1415,12 @@ async function _saveSettingDb(key, value) {
 
 // ── INIT ──
 addEventListener('load', async () => {
+  localStorage.removeItem('llm_endpoints'); // 旧LLMエンドポイント設定をクリーンアップ
   await loadSettingsFromDb();   // DBから設定を復元（localStorage優先ではなくDB優先）
   checkHealth();
   loadProjects();
   initCtxSlider();
+  refreshModelDb();
   refreshSkills();
   await loadHistory(currentProject);
   await loadJobs(currentProject);
@@ -1610,178 +1626,298 @@ function showGitResult(text) {
 }
 
 // ── MODEL DATABASE ──
-let _allModels = [];  // 全モデルをキャッシュしてフィルタに使う
+let _allModels = [];
+let _modelBenchmarkView = {};
+let _scanPollTimer = null;
 
-async function refreshModelDb() {
+function asText(value) {
+  return value == null ? '' : String(value);
+}
+
+function getModelProfiles(model) {
   try {
-    const [rstat, rlist] = await Promise.all([
-      fetch(API+'/models/db/status'),
-      fetch(API+'/models/db')
-    ]);
-    const stat = await rstat.json();
-    const data = await rlist.json();
-    const statEl = document.getElementById('model-db-stats');
-    const enabled = (data.models||[]).filter(m => m.enabled !== 0).length;
-    const total = (data.models||[]).length;
-    if (statEl) statEl.textContent = `${total} models (有効: ${enabled}) · benchmarked: ${stat.benchmarked} · VLM: ${stat.has_vlm?'yes':'no'}`;
-    _allModels = data.models || [];
+    return typeof model?.benchmark_profiles === 'string' && model.benchmark_profiles
+      ? JSON.parse(model.benchmark_profiles)
+      : (model?.benchmark_profiles || {});
+  } catch(_) {
+    return {};
+  }
+}
+
+function getModelBenchmarkMode(model) {
+  if (!model?.has_mmproj) return 'text';
+  return _modelBenchmarkView[model.id] || 'text';
+}
+
+function updateModelDbStats(models, stat = null) {
+  const statEl = document.getElementById('model-db-stats');
+  if (!statEl) return;
+  const list = Array.isArray(models) ? models : [];
+  const total = list.length;
+  const enabled = list.filter(m => Number(m?.enabled ?? 1) !== 0).length;
+  const benchmarked = stat?.benchmarked ?? list.filter(m => Number(m?.tok_per_sec ?? -1) > 0).length;
+  const hasVlm = stat?.has_vlm ?? list.some(m => !!m?.is_vlm);
+  if (stat && stat.db_exists === false && total === 0) {
+    statEl.textContent = 'No model DB yet. Run benchmark to create it.';
+    return;
+  }
+  statEl.textContent = `${total} models (enabled: ${enabled}) ? benchmarked: ${benchmarked} ? VLM: ${hasVlm ? 'yes' : 'no'}`;
+}
+
+async function refreshModelDb(prefetchedModels = null, prefetchedStat = null) {
+  try {
+    let stat = prefetchedStat;
+    let models = prefetchedModels;
+    if (!stat || !Array.isArray(models)) {
+      const [rstat, rlist] = await Promise.all([
+        fetch(API+'/models/db/status'),
+        fetch(API+'/models/db')
+      ]);
+      if (!rstat.ok) throw new Error('failed to load model db status');
+      if (!rlist.ok) throw new Error('failed to load model db list');
+      stat = await rstat.json();
+      const data = await rlist.json();
+      models = data.models;
+    }
+    _allModels = Array.isArray(models) ? models : [];
+    updateModelDbStats(_allModels, stat);
     filterModelList(document.getElementById('model-filter')?.value || '');
-  } catch(e) { console.warn('model db error', e); }
+  } catch(e) {
+    console.warn('model db error', e);
+    const el = document.getElementById('model-db-list');
+    if (el) el.innerHTML = '<div style="font-size:11px;color:var(--red);padding:8px">Failed to load models.</div>';
+  }
 }
 
 function filterModelList(query) {
-  const q = (query||'').toLowerCase();
+  const q = asText(query).toLowerCase();
   const enabledOnly = document.getElementById('filter-enabled-only')?.checked;
   const vlmOnly = document.getElementById('filter-vlm-only')?.checked;
-  let models = _allModels;
-  if (q) models = models.filter(m => m.name.toLowerCase().includes(q) || (m.notes||'').toLowerCase().includes(q) || (m.quantization||'').toLowerCase().includes(q));
-  if (enabledOnly) models = models.filter(m => m.enabled !== 0);
-  if (vlmOnly) models = models.filter(m => m.is_vlm);
+  let models = Array.isArray(_allModels) ? [..._allModels] : [];
+  if (q) {
+    models = models.filter(m => [m?.name, m?.model_key, m?.notes, m?.quantization].some(v => asText(v).toLowerCase().includes(q)));
+  }
+  if (enabledOnly) models = models.filter(m => Number(m?.enabled ?? 1) !== 0);
+  if (vlmOnly) models = models.filter(m => !!m?.is_vlm);
   renderModelDb(models);
+}
+
+function renderModelCard(m) {
+  try {
+    const enabled = Number(m?.enabled ?? 1) !== 0;
+    const profiles = getModelProfiles(m);
+    const mode = getModelBenchmarkMode(m);
+    const activeProfile = profiles[mode] || profiles.text || profiles.vlm || {};
+    const activeTps = Number(activeProfile.tok_per_sec);
+    const modelTps = Number(m?.tok_per_sec);
+    const vram = Number(activeProfile.vram_mb) > 0 ? `${(Number(activeProfile.vram_mb)/1024).toFixed(1)}GB` : (Number(m?.vram_mb) > 0 ? `${(Number(m.vram_mb)/1024).toFixed(1)}GB` : '-');
+    const ram = Number(activeProfile.ram_mb) > 0 ? `${(Number(activeProfile.ram_mb)/1024).toFixed(1)}GB` : (Number(m?.ram_mb) > 0 ? `${(Number(m.ram_mb)/1024).toFixed(1)}GB` : '-');
+    const tps = activeTps > 0 ? `${activeTps} tok/s` : (modelTps > 0 ? `${modelTps} tok/s` : '-');
+    const load = Number(activeProfile.load_sec) > 0 ? `${activeProfile.load_sec}s` : (Number(m?.load_sec) > 0 ? `${m.load_sec}s` : '-');
+    const benchCtx = Number(activeProfile.ctx_size || m?.ctx_size || 4096);
+    const size = Number(m?.file_size_mb) > 0 ? `${(Number(m.file_size_mb)/1024).toFixed(1)}GB` : '';
+    const enabledBorder = enabled ? 'var(--border)' : 'rgba(255,68,102,.25)';
+    const enabledBg = enabled ? 'var(--bg2)' : 'rgba(255,68,102,.04)';
+    const name = asText(m?.name || m?.model_key || '(unnamed model)');
+    const vlmBadge = m?.is_vlm ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--amber);color:var(--amber);border-radius:3px">VLM</span>` : '';
+    const mmprojBadge = m?.has_mmproj ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--blue);color:var(--blue);border-radius:3px">mmproj</span>` : '';
+    const benchBtn = `<button onclick="doBenchmark('${esc(asText(m?.id))}')" title="Run benchmark"
+           style="font-size:10px;padding:2px 7px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">Bench</button>`;
+    const toggleLabel = enabled ? 'On' : 'Off';
+    const toggleColor = enabled ? 'var(--accent)' : 'var(--text3)';
+    return `
+    <div style="border:1px solid ${enabledBorder};border-radius:6px;padding:9px 10px;background:${enabledBg};transition:all .15s">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;flex:1;min-width:0">
+          <span style="font-size:11px;font-weight:700;color:${enabled?'var(--accent)':'var(--text3)'};font-family:var(--font-mono);word-break:break-all">${esc(name)}</span>
+          ${vlmBadge}
+          ${mmprojBadge}
+          ${m?.quantization ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--border);color:var(--text3);border-radius:3px">${esc(asText(m.quantization))}</span>` : ''}
+          ${size ? `<span style="font-size:9px;color:var(--text3)">${size}</span>` : ''}
+        </div>
+        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+          <button onclick="toggleModelEnabled('${esc(asText(m?.id))}', ${!enabled})"
+            style="font-size:10px;padding:2px 8px;border:1px solid ${toggleColor};background:${enabled?'rgba(0,255,136,.1)':'rgba(255,68,102,.08)'};color:${toggleColor};border-radius:10px;cursor:pointer;font-weight:700">
+            ${toggleLabel}
+          </button>
+          ${benchBtn}
+          <button onclick="deleteModelDb('${esc(asText(m?.id))}')"
+            style="font-size:10px;padding:2px 6px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:3px;cursor:pointer">Delete</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--text3);margin-bottom:2px">
+        <span>Mode: <b style="color:var(--text2)">${esc(asText(mode).toUpperCase())}</b></span>
+        <span>Bench ctx: <b style="color:var(--text2)">${benchCtx}</b></span>
+        <span>VRAM: <b style="color:var(--text2)">${vram}</b></span>
+        <span>RAM: <b style="color:var(--text2)">${ram}</b></span>
+        <span>Speed: <b style="color:${activeTps>0 || modelTps>0?'var(--accent)':'var(--text3)'}">${tps}</b></span>
+        <span>Load: <b style="color:var(--text2)">${load}</b></span>
+      </div>
+      ${m?.has_mmproj ? `<div style="display:flex;justify-content:flex-end;margin:4px 0 0">
+        <label style="font-size:10px;color:var(--text2);display:flex;align-items:center;gap:6px">
+          benchmark view
+          <select onchange="_modelBenchmarkView['${esc(asText(m?.id))}']=this.value; filterModelList(document.getElementById('model-filter')?.value || '')"
+            style="padding:3px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+            <option value="text" ${mode==='text'?'selected':''}>Text</option>
+            <option value="vlm" ${mode==='vlm'?'selected':''}>VLM</option>
+          </select>
+        </label>
+      </div>` : ''}
+      <div class="model-edit-grid">
+        <input id="roles-${esc(asText(m?.id))}" type="text" value="${esc(asText(m?.auto_roles||''))}" placeholder="roles: plan,chat,code"
+          style="padding:4px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+        <input id="parser-${esc(asText(m?.id))}" type="text" value="${esc(asText(m?.parser||'json'))}" placeholder="parser"
+          list="parser-options"
+          style="padding:4px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+        <input id="key-${esc(asText(m?.id))}" type="text" value="${esc(asText(m?.model_key||''))}" placeholder="model_key"
+          style="padding:4px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)">
+        <button onclick="saveModelDb('${esc(asText(m?.id))}')" style="font-size:10px;padding:4px 10px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">Save</button>
+      </div>
+      <div class="model-edit-grid2">
+        <input id="ctx-${esc(asText(m?.id))}" type="number" min="512" max="32768" value="${esc(asText(m?.ctx_size||4096))}"
+          style="padding:4px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+        <input id="gpu-${esc(asText(m?.id))}" type="number" min="0" max="999" value="${esc(asText(m?.gpu_layers||999))}"
+          style="padding:4px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+        <label style="font-size:10px;color:var(--text2);display:flex;align-items:center;gap:5px">
+          <input id="enabled-${esc(asText(m?.id))}" type="checkbox" ${enabled?'checked':''} style="accent-color:var(--accent)"> enabled
+        </label>
+      </div>
+      ${m?.notes ? `<div style="font-size:10px;color:var(--text3)">${esc(asText(m.notes))}</div>` : ''}
+      ${m?.mmproj_path ? `<div style="font-size:9px;font-family:var(--font-mono);color:var(--amber);margin-top:2px">mmproj: ${esc(asText(m.mmproj_path))}</div>` : ''}
+      ${m?.llm_url ? `<div style="font-size:9px;font-family:var(--font-mono);color:var(--blue);margin-top:1px;word-break:break-all">${esc(asText(m.llm_url))}</div>` : ''}
+    </div>`;
+  } catch (err) {
+    console.warn('render model error', err, m);
+    return `<div style="border:1px solid rgba(255,68,102,.3);border-radius:6px;padding:9px 10px;background:rgba(255,68,102,.04);font-size:11px;color:var(--red)">Failed to render model: ${esc(asText(m?.name || m?.model_key || m?.id || 'unknown'))}</div>`;
+  }
 }
 
 function renderModelDb(models) {
   const el = document.getElementById('model-db-list');
   if (!el) return;
-  if (!models.length) {
-    el.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:8px">モデルなし。ルートフォルダを指定してスキャンしてください。</div>';
+  if (!Array.isArray(models) || !models.length) {
+    el.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:8px">No models yet. Set the root folder and run benchmark.</div>';
     return;
   }
-  el.innerHTML = models.map(m => {
-    const enabled = m.enabled !== 0;
-    const vram = m.vram_mb > 0 ? `${(m.vram_mb/1024).toFixed(1)}GB` : '—';
-    const ram  = m.ram_mb  > 0 ? `${(m.ram_mb /1024).toFixed(1)}GB` : '—';
-    const tps  = m.tok_per_sec > 0 ? `${m.tok_per_sec} tok/s` : '—';
-    const load = m.load_sec > 0 ? `${m.load_sec}s` : '—';
-    const size = m.file_size_mb > 0 ? `${(m.file_size_mb/1024).toFixed(1)}GB` : '';
-    const enabledBorder = enabled ? 'var(--border)' : 'rgba(255,68,102,.25)';
-    const enabledBg = enabled ? 'var(--bg2)' : 'rgba(255,68,102,.04)';
-    const vlmBadge = m.is_vlm
-      ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--amber);color:var(--amber);border-radius:3px">VLM</span>` : '';
-    const benchBtn = m.tok_per_sec <= 0
-      ? `<button onclick="doBenchmark('${esc(m.id)}')" title="ベンチマーク実行"
-           style="font-size:10px;padding:2px 7px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">⚡</button>` : '';
-    const toggleLabel = enabled ? '有効' : '無効';
-    const toggleColor = enabled ? 'var(--accent)' : 'var(--text3)';
-    return `
-    <div style="border:1px solid ${enabledBorder};border-radius:6px;padding:9px 10px;background:${enabledBg};transition:all .15s">
-      <!-- ヘッダー行 -->
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;flex:1;min-width:0">
-          <span style="font-size:11px;font-weight:700;color:${enabled?'var(--accent)':'var(--text3)'};font-family:var(--font-mono);word-break:break-all">${esc(m.name)}</span>
-          ${vlmBadge}
-          ${m.quantization ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--border);color:var(--text3);border-radius:3px">${esc(m.quantization)}</span>` : ''}
-          ${size ? `<span style="font-size:9px;color:var(--text3)">${size}</span>` : ''}
-        </div>
-        <!-- 有効/無効トグル + ベンチ + 削除 -->
-        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
-          <button onclick="toggleModelEnabled('${esc(m.id)}', ${!enabled})"
-            style="font-size:10px;padding:2px 8px;border:1px solid ${toggleColor};background:${enabled?'rgba(0,255,136,.1)':'rgba(255,68,102,.08)'};color:${toggleColor};border-radius:10px;cursor:pointer;font-weight:700">
-            ${toggleLabel}
-          </button>
-          ${benchBtn}
-          <button onclick="deleteModelDb('${esc(m.id)}')"
-            style="font-size:10px;padding:2px 6px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:3px;cursor:pointer">✕</button>
-        </div>
-      </div>
-      <!-- 性能データ -->
-      <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--text3);margin-bottom:2px">
-        <span>VRAM: <b style="color:var(--text2)">${vram}</b></span>
-        <span>RAM: <b style="color:var(--text2)">${ram}</b></span>
-        <span>Speed: <b style="color:${m.tok_per_sec>0?'var(--accent)':'var(--text3)'}">${tps}</b></span>
-        <span>Load: <b style="color:var(--text2)">${load}</b></span>
-      </div>
-      ${m.notes ? `<div style="font-size:10px;color:var(--text3)">${esc(m.notes)}</div>` : ''}
-      ${m.llm_url ? `<div style="font-size:9px;font-family:var(--font-mono);color:var(--blue);margin-top:1px;word-break:break-all">${esc(m.llm_url)}</div>` : ''}
-    </div>`;
-  }).join('');
+  el.innerHTML = models.map(renderModelCard).join('');
 }
 
-async function toggleModelEnabled(mid, enable) {
+function setScanButtonsState(running) {
+  const modelBtn = document.getElementById('model-scan-btn');
+  const settingsBtn = document.getElementById('settings-scan-btn');
+  [modelBtn, settingsBtn].forEach(btn => {
+    if (!btn) return;
+    btn.disabled = !!running;
+    btn.textContent = running ? 'Benchmarking...' : 'Benchmark';
+    btn.style.opacity = running ? '0.8' : '1';
+    btn.style.cursor = running ? 'progress' : 'pointer';
+  });
+}
+
+function setModelScanResult(message, kind='info') {
+  const colors = {
+    info: ['var(--bg2)', 'var(--text2)', 'var(--border)'],
+    ok: ['var(--accent-bg)', 'var(--accent)', 'var(--accent-border)'],
+    err: ['rgba(255,68,102,.08)', 'var(--red)', 'rgba(255,68,102,.3)']
+  };
+  const [bg, fg, border] = colors[kind] || colors.info;
+  const resultEl = document.getElementById('model-scan-result');
+  if (resultEl) {
+    resultEl.textContent = message;
+    resultEl.style.display = 'block';
+    resultEl.style.background = bg;
+    resultEl.style.color = fg;
+    resultEl.style.border = `1px solid ${border}`;
+  }
+  const sResultEl = document.getElementById('settings-scan-result');
+  if (sResultEl) {
+    sResultEl.textContent = message;
+    sResultEl.style.display = 'block';
+    sResultEl.style.color = fg;
+  }
+}
+
+function formatScanProgress(state) {
+  const current = Number(state?.current || 0);
+  const total = Number(state?.total || 0);
+  const summary = asText(state?.summary || 'Waiting...');
+  return `${current}/${total} : ${summary}`;
+}
+
+async function pollModelScanStatus() {
   try {
-    await fetch(API+'/models/db/toggle/'+mid, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({enabled: enable})
-    });
-    // ローカルキャッシュも即時更新（再フェッチより速い）
-    const m = _allModels.find(x => x.id === mid);
-    if (m) m.enabled = enable ? 1 : 0;
-    filterModelList(document.getElementById('model-filter')?.value || '');
-    // stats更新
-    const enabled = _allModels.filter(x => x.enabled !== 0).length;
-    const statEl = document.getElementById('model-db-stats');
-    if (statEl) {
-      const total = _allModels.length;
-      const benchmarked = _allModels.filter(x => x.tok_per_sec > 0).length;
-      const hasVlm = _allModels.some(x => x.is_vlm);
-      statEl.textContent = `${total} models (有効: ${enabled}) · benchmarked: ${benchmarked} · VLM: ${hasVlm?'yes':'no'}`;
+    const r = await fetch(API+'/models/db/scan/status');
+    const state = await r.json();
+    if (!state || (!state.running && !state.done && !state.error && !state.total)) {
+      setScanButtonsState(false);
+      return;
     }
-    addLog('ok','models', (enable?'有効':'無効')+': '+(_allModels.find(x=>x.id===mid)||{}).name);
-  } catch(e) { addLog('err','models', e.message); }
-}
-
-// ルートフォルダの保存（デバウンス付き）
-let _rootFolderTimer = null;
-function saveRootFolder(val) {
-  // 両方のUI入力欄を同期
-  const a = document.getElementById('model-root-folder');
-  const b = document.getElementById('settings-root-folder');
-  if (a && a.value !== val) a.value = val;
-  if (b && b.value !== val) b.value = val;
-  clearTimeout(_rootFolderTimer);
-  _rootFolderTimer = setTimeout(async () => {
-    try {
-      await fetch(API+'/settings', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({llm_root_folder: val})
-      });
-    } catch(e) {}
-  }, 600);
+    setModelScanResult(formatScanProgress(state), state.error ? 'err' : (state.done ? 'ok' : 'info'));
+    if (state.running) {
+      clearTimeout(_scanPollTimer);
+      _scanPollTimer = setTimeout(pollModelScanStatus, 1200);
+      return;
+    }
+    setScanButtonsState(false);
+    if (state.error) {
+      setModelScanResult(`${formatScanProgress(state)} / error: ${state.error}`, 'err');
+      addLog('err','models', state.error);
+      return;
+    }
+    const prefetchedModels = Array.isArray(state.models) ? state.models : null;
+    const prefetchedStat = prefetchedModels
+      ? { benchmarked: state.benchmarked, has_vlm: prefetchedModels.some(m => !!m?.is_vlm), db_exists: true, total: prefetchedModels.length }
+      : null;
+    const total = Number(state.total || state.found || 0);
+    const doneMessage = `${total}/${total} : Benchmark complete / found ${state.found || 0} / added ${state.added || 0} / updated ${state.updated || 0} / benchmarked ${state.benchmarked || 0}${state.initialized_roles ? ` / roles ${state.initialized_roles}` : ''}${state.planner_model ? ` / planner ${state.planner_model}` : ''}`;
+    setModelScanResult(doneMessage, 'ok');
+    await refreshModelDb(prefetchedModels, prefetchedStat);
+    if ((!_allModels || !_allModels.length) && prefetchedModels?.length) {
+      _allModels = prefetchedModels;
+      updateModelDbStats(_allModels, prefetchedStat);
+      filterModelList(document.getElementById('model-filter')?.value || '');
+    }
+    addLog('ok','models', doneMessage);
+  } catch(e) {
+    setScanButtonsState(false);
+    setModelScanResult('0/0 : Failed to read benchmark status', 'err');
+    addLog('err','models', e.message);
+  }
 }
 
 async function doModelScan(useRootFolder) {
   const folder = useRootFolder
     ? (document.getElementById('model-root-folder')?.value || '').trim()
     : (document.getElementById('model-scan-folder')?.value || '').trim();
-  if (!folder) { alert('ルートフォルダを入力してください'); return; }
-  const resultEl = document.getElementById('model-scan-result');
-  if (resultEl) {
-    resultEl.textContent = '🔍 スキャン中...';
-    resultEl.style.display = 'block';
-    resultEl.style.background = 'var(--bg2)';
-    resultEl.style.color = 'var(--text2)';
-    resultEl.style.border = '1px solid var(--border)';
-  }
+  if (!folder) { alert('Please set the root folder first.'); return; }
+  setScanButtonsState(true);
+  setModelScanResult('0/0 : Preparing benchmark...', 'info');
   try {
     const r = await fetch(API+'/models/db/scan', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({folder})
     });
     const d = await r.json();
-    if (resultEl) {
-      resultEl.textContent = `✓ ${folder}  →  ${d.found}件検出 / ${d.added}件追加`;
-      resultEl.style.color = 'var(--accent)';
-      resultEl.style.border = '1px solid var(--accent-border)';
-      resultEl.style.background = 'var(--accent-bg)';
+    if (!r.ok) throw new Error(d.detail || d.error || 'scan request failed');
+    if (d.ok === false && d.running) {
+      setModelScanResult('0/0 : Another benchmark is already running', 'info');
+      pollModelScanStatus();
+      return;
     }
-    // Settings側の結果も更新
-    const sResultEl = document.getElementById('settings-scan-result');
-    if (sResultEl) {
-      sResultEl.textContent = `✓ ${d.found}件検出 / ${d.added}件追加`;
-      sResultEl.style.display = 'block';
-    }
-    await refreshModelDb();
-    addLog('ok','models', `Scan: ${d.found} found, ${d.added} added from ${folder}`);
+    setModelScanResult('0/0 : Scanning folder...', 'info');
+    addLog('info','models', `Benchmark started from ${folder}`);
+    clearTimeout(_scanPollTimer);
+    pollModelScanStatus();
   } catch(e) {
-    if (resultEl) { resultEl.textContent = '✗ Error: '+e.message; resultEl.style.color='var(--red)'; }
+    setScanButtonsState(false);
+    setModelScanResult(`0/0 : Error ${e.message}`, 'err');
     addLog('err','models', e.message);
   }
 }
 
 async function doModelScanFromSettings() {
-  // settings-root-folder の値を model-root-folder にコピーしてからスキャン
   const folder = document.getElementById('settings-root-folder')?.value.trim();
-  if (!folder) { alert('ルートフォルダを入力してください'); return; }
+  if (!folder) { alert('Please set the root folder first.'); return; }
   const rf = document.getElementById('model-root-folder');
   if (rf) rf.value = folder;
   await doModelScan(true);
@@ -3279,19 +3415,19 @@ async function applySearchNum(val) {
 }
 
 // ── CONTEXT LENGTH SLIDER ──
-let _current_n_ctx_ui = 32768; // UIが知っているn_ctx（統計表示用）
+let _current_n_ctx_ui = 16384; // UIが知っているn_ctx（統計表示用）
 
 async function initCtxSlider() {
   try {
     // llama-serverの最大コンテキスト長を取得
     const r = await fetch(API+'/llm/props');
     const d = await r.json();
-    const maxCtx = d.n_ctx || 32768;
+    const maxCtx = Math.min(32768, (d.n_ctx || 32768));
 
     // サーバー側の現在値も取得
     const cr = await fetch(API+'/llm/ctx');
     const cd = await cr.json();
-    const curCtx = cd.n_ctx || maxCtx;
+    const curCtx = Math.max(512, Math.min(maxCtx, (cd.n_ctx || 16384)));
 
     const slider = document.getElementById('ctx-slider');
     const label = document.getElementById('ctx-label');
@@ -3335,16 +3471,6 @@ async function applyCtxLen(val) {
   }
 }
 
-function updateMaxOutputLabel(val) {
-  const el = document.getElementById('max-output-label');
-  if (el) el.textContent = parseInt(val).toLocaleString();
-}
-
-async function applyMaxOutputTokens(val) {
-  const n = Math.max(256, Math.min(32768, parseInt(val)));
-  await _saveSettingDb('max_output_tokens', n);
-  addLog('ok', 'ctx', `最大出力トークン数: ${n.toLocaleString()}`);
-}
 
 // ── SEARCH TOGGLE ──
 async function initSearch() {
@@ -3417,7 +3543,7 @@ function closeSettings() {
 
 function _removedLLMManager() {
 function saveLLMEndpoints() {
-  localStorage.setItem('llm_endpoints', JSON.stringify(llmEndpoints));
+  localStorage.removeItem('llm_endpoints');
 }
 function updateLLMBtnLabel() {
   const active = llmEndpoints.find(e => e.active) || llmEndpoints[0];
@@ -3563,8 +3689,8 @@ async function loadGhRepoConfig() {
     if (repoName) repoName.value = d.github_repo_name || 'codeagent-data';
     if (visibility) visibility.value = d.github_repo_visibility || 'private';
     if (branch) branch.value = d.github_default_branch || 'main';
-    if (remoteUrl) remoteUrl.textContent = d.github_remote_url || '未設定';
-    if (tokenStatus) tokenStatus.textContent = d.has_token ? '✓ トークン保存済み' : '未設定';
+    if (remoteUrl) remoteUrl.textContent = d.github_remote_url || 'Not set (remote missing)';
+    if (tokenStatus) tokenStatus.textContent = d.has_token ? 'Token saved' : 'Not set';
     if (tokenStatus) tokenStatus.style.color = d.has_token ? 'var(--accent)' : 'var(--text3)';
   } catch(e) { addLog('err','gh', e.message); }
 }
@@ -3699,3 +3825,4 @@ function testSkill(skillName) {
 </script>
 </body>
 </html>
+

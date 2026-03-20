@@ -143,20 +143,6 @@ if exist "%UI_SRC%" (
     echo [UI] ui.html copied
 )
 
-
-echo.
-echo Waiting for LLM on port %PRIMARY_PORT%...
-set /a WAIT_SEC=0
-:wait_loop
-timeout /t 2 >nul
-set /a WAIT_SEC+=2
-for /f %%i in ('curl -s -o nul -w "%%{http_code}" http://127.0.0.1:%PRIMARY_PORT%/health 2^>nul') do set HTTP_CODE=%%i
-if not "%HTTP_CODE%"=="200" (
-    echo   Loading... %WAIT_SEC%s
-    goto :wait_loop
-)
-echo [OK] LLM ready
-
 set CODEAGENT_LLM_PLANNER=http://127.0.0.1:%PRIMARY_PORT%/v1/chat/completions
 set CODEAGENT_LLM_EXECUTOR=http://127.0.0.1:%PRIMARY_PORT%/v1/chat/completions
 set CODEAGENT_LLM_CHAT=http://127.0.0.1:%PRIMARY_PORT%/v1/chat/completions
@@ -166,7 +152,42 @@ set CODEAGENT_LLM_MODE=%MODE%
 echo.
 echo [FastAPI] Starting CodeAgent on port 8000...
 start /B "CodeAgent [8000]" python -m uvicorn main:app --host 0.0.0.0 --port 8000 --log-level info --app-dir "%~dp0"
-timeout /t 3 >nul
+echo Waiting for FastAPI on port 8000...
+set /a API_WAIT_SEC=0
+:wait_api
+timeout /t 2 >nul
+set /a API_WAIT_SEC+=2
+for /f %%i in ('curl -s -o nul -w "%%{http_code}" http://127.0.0.1:8000/health 2^>nul') do set API_HTTP_CODE=%%i
+if not "%API_HTTP_CODE%"=="200" (
+    echo   FastAPI loading... %API_WAIT_SEC%s
+    if %API_WAIT_SEC% GEQ 30 (
+        echo [ERROR] FastAPI did not become ready.
+        echo         If this is the first run and model_db.db does not exist, startup should skip DB restore.
+        echo         Check the log above for any Python traceback.
+        exit /b 1
+    )
+    goto :wait_api
+)
+echo [OK] FastAPI ready
+
+echo.
+echo Waiting for LLM on port %PRIMARY_PORT%...
+set /a WAIT_SEC=0
+set HTTP_CODE=
+:wait_loop
+timeout /t 2 >nul
+set /a WAIT_SEC+=2
+for /f %%i in ('curl -s -o nul -w "%%{http_code}" http://127.0.0.1:%PRIMARY_PORT%/health 2^>nul') do set HTTP_CODE=%%i
+if not "%HTTP_CODE%"=="200" (
+    echo   LLM loading... %WAIT_SEC%s
+    if %WAIT_SEC% GEQ 180 (
+        echo [WARN] LLM is still not ready after %WAIT_SEC%s.
+        echo        FastAPI is running, so open the UI and check server logs or model settings.
+        goto :show
+    )
+    goto :wait_loop
+)
+echo [OK] LLM ready
 
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4" ^| findstr /v "127.0.0.1"') do (
     set LAN_IP=%%a

@@ -32,6 +32,12 @@ async def lifespan(app):
     # 起動時: DBから設定を復元
     _load_settings_on_startup = globals().get("_restore_settings_from_db")
     if _load_settings_on_startup: _load_settings_on_startup()
+    _cleanup_legacy_settings = globals().get("_cleanup_legacy_llm_settings")
+    if _cleanup_legacy_settings: _cleanup_legacy_settings()
+    _cleanup_catalog_rows = globals().get("_cleanup_legacy_catalog_rows")
+    if _cleanup_catalog_rows: _cleanup_catalog_rows()
+    _seed_model_catalog = globals().get("seed_default_model_catalog")
+    if _seed_model_catalog: _seed_model_catalog()
     yield
     # 終了時: サーバーコンテナを全て停止
     cleanup = globals().get("_cleanup_server_containers")
@@ -77,6 +83,10 @@ SANDBOX_CONTAINER = "claude_sandbox"
 
 os.makedirs(WORK_DIR, exist_ok=True)
 
+
+def get_default_llama_server_path() -> str:
+    return os.environ.get("LLAMA_SERVER_PATH", os.path.join(BASE_DIR, "llama", "llama-server.exe"))
+
 # =========================
 # Dockerタイムアウトガードレール
 # =========================
@@ -117,6 +127,8 @@ _llm_streaming: bool = True
 # パーマネントメモリ（全プロジェクト共有）
 # =========================
 MEMORY_DB = os.path.join(CA_DATA_DIR, "memory.db")
+MODEL_DB_PATH = os.environ.get("CODEAGENT_MODEL_DB_PATH", os.path.join(CA_DATA_DIR, "model_db.db"))
+SKILLS_DIR = os.path.join(CA_DATA_DIR, "skills")
 
 # =========================
 # 起動時データ移行（既存ファイルを ca_data/ へ移動）
@@ -174,92 +186,255 @@ import subprocess as _sp
 import threading as _mm_thread
 import time as _mm_time
 
-MODEL_CATALOG = {
-    # ── ベーシック（常時待機・高速） ──────────────────────────
-    # 実測: VRAM 11,487 MiB / RAM 639 MiB / gen 154 tok/s / load 6s
-    # Qwen9B(86 tok/s)より1.75倍高速。切替後モデルもVRAM13.8GBのため差小さい
-    "basic": {
-        "name": "GPT-OSS-20B",
-        "path": os.environ.get("MODEL_GPT_OSS", ""),
-        "ctx": 16384, "gpu_layers": 999, "threads": 8,
-        "vram_gb": 11.5, "load_sec": 6, "parser": "gpt_oss",
-        "description": "Always-on base. VRAM 11.5GB ctx=16K. 154 tok/s. o3-mini level",
-    },
-    # ── ルーター（超軽量・分類専用） ─────────────────────────
-    # 実測: VRAM 1,630 MiB / RAM 284 MiB / gen 291 tok/s / load 2s
-    "router": {
-        "name": "LFM2.5-1.2B",
-        "path": os.environ.get("MODEL_ROUTER", ""),
-        "ctx": 4096, "gpu_layers": 999, "threads": 4,
-        "vram_gb": 1.6, "load_sec": 2, "parser": "json",
-        "description": "Ultra-fast router only. VRAM 1.6GB. 291 tok/s",
-    },
-    # ── 汎用・推論（GPT-OSS） ────────────────────────────────
-    # 実測: VRAM 11,487 MiB / RAM 639 MiB / gen 154 tok/s / load 6s
-    "gpt_oss": {
-        "name": "GPT-OSS-20B",
-        "path": os.environ.get("MODEL_GPT_OSS", ""),
-        "ctx": 16384, "gpu_layers": 999, "threads": 8,
-        "vram_gb": 11.8, "load_sec": 6, "parser": "gpt_oss",
-        "description": "Best balance: VRAM 11.8GB ctx=16K. 154 tok/s. o3-mini level",
-    },
-    # ── 汎用バランス（Gemma） ────────────────────────────────
-    # 実測: VRAM 8,486 MiB / RAM 944 MiB / gen 60 tok/s / load 4s
-    # ctx=16KでKVが1GBと大きいため8Kを推奨
-    "gemma": {
-        "name": "Gemma-3-12B",
-        "path": os.environ.get("MODEL_GEMMA", ""),
-        "ctx": 8192, "gpu_layers": 999, "threads": 8,
-        "vram_gb": 8.0, "load_sec": 4, "parser": "json",
-        "description": "Balanced. VRAM 8GB ctx=8K. 60 tok/s. KV grows fast",
-    },
-    # ── 検証・JSON安定（Mistral） ────────────────────────────
-    # 実測: VRAM 10,778 MiB / RAM 455 MiB / gen 37 tok/s / load 6s
-    # ctx=32KでKVが5GB増 → 8K推奨
-    "mistral": {
-        "name": "Mistral-Small-3.2-24B",
-        "path": os.environ.get("MODEL_MISTRAL", ""),
-        "ctx": 8192, "gpu_layers": 999, "threads": 8,
-        "vram_gb": 11.2, "load_sec": 6, "parser": "json",
-        "description": "JSON stable. VRAM 11.2GB ctx=8K. 37 tok/s",
-    },
-    # ── 高品質コード（Qwen35） ───────────────────────────────
-    # 実測: VRAM 13,841 MiB固定 / RAMオフロード 8,320 MiB(ctx=32K) / gen 22 tok/s / load 12s
-    # ctx=32Kでも総メモリ21.6GB < RAM空き24.9GB → 32K OK
-    "qwen35": {
-        "name": "Qwen3.5-35B-A3B",
-        "path": os.environ.get("MODEL_QWEN35", ""),
-        "ctx": 32768, "gpu_layers": 999, "threads": 12,
-        "vram_gb": 19.7, "load_sec": 12, "parser": "qwen_think",
-        "parallel": 1, "batch_size": 2048, "ubatch_size": 64,
-        "cache_type_k": "q8_0", "cache_type_v": "q8_0",
-        "extra_args": ["--jinja", "--log-disable"],
-        "description": "Code quality. VRAM 19.7GB ctx=32K. 28 tok/s",
-    },
-    # ── 最高品質コード（Coder-Next） ─────────────────────────
-    # 実測: VRAM 13,849 MiB固定 / RAMオフロード 19,192 MiB(ctx=32K) / gen 13 tok/s / load 20s
-    # ctx=32Kで総32.3GB。RAM空き24.9GBをわずかに超えるが実測OKのため採用
-    "coder": {
-        "name": "Qwen3-Coder-Next",
-        "path": os.environ.get("MODEL_CODER", ""),
-        "ctx": 32768, "gpu_layers": 42, "threads": 12,
-        "vram_gb": 32.2, "load_sec": 20, "parser": "qwen_think",
-        "parallel": 1, "batch_size": 2048, "ubatch_size": 64,
-        "cache_type_k": "q8_0", "cache_type_v": "q8_0",
-        "extra_args": ["--jinja", "--log-disable"],
-        "description": "Best code. SWE-bench 70.6%. VRAM 32.2GB ctx=32K. 13 tok/s",
-    },
-}
-TASK_MODEL_MAP = {
-    "code":    "qwen35",   # コード実装 → 35B MoE
-    "complex": "coder",    # 複雑デバッグ → Coder-Next
-    "plan":    "basic",    # プランニング → Qwen9B (高速)
-    "chat":    "basic",    # 会話 → Qwen9B
-    "search":  "basic",    # 調査 → Qwen9B
-    "verify":  "mistral",  # 検証 → Mistral (JSON安定)
-    "reason":  "gpt_oss",  # 推論・数学 → GPT-OSS
-    "multi":   "gemma",    # バランス → Gemma3
-}
+DEFAULT_MODEL_CATALOG = {}
+DEFAULT_TASK_MODEL_MAP = {}
+
+
+def _parse_extra_args(raw) -> list[str]:
+    if isinstance(raw, list):
+        return [str(x) for x in raw if str(x).strip()]
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return [str(x) for x in data if str(x).strip()]
+    except Exception:
+        pass
+    return [part.strip() for part in str(raw).split(",") if part.strip()]
+
+
+def _infer_parser_name(*parts) -> str:
+    joined = " ".join(str(p or "") for p in parts).lower()
+    if "gpt-oss" in joined or "gpt_oss" in joined:
+        return "gpt_oss"
+    if "qwen" in joined:
+        return "qwen_think"
+    return "json"
+
+
+def _runtime_spec_from_row(row: dict) -> dict:
+    vram_mb = row.get("vram_mb", -1)
+    try:
+        vram_gb = round(float(vram_mb) / 1024, 1) if float(vram_mb) > 0 else -1
+    except Exception:
+        vram_gb = -1
+    auto_roles = [x.strip() for x in str(row.get("auto_roles", "")).split(",") if x.strip()]
+    ctx = int(row.get("ctx_size", 4096) or 4096)
+    if ctx < 16384 and any(role in auto_roles for role in ("plan", "search")):
+        ctx = 16384
+    inferred_parser = _infer_parser_name(
+        row.get("name", ""),
+        row.get("model_key", ""),
+        row.get("path", "")
+    )
+    parser = (row.get("parser") or "").strip() or inferred_parser
+    if parser == "json" and inferred_parser != "json":
+        parser = inferred_parser
+    return {
+        "name": row.get("name", "") or row.get("model_key", ""),
+        "path": row.get("path", ""),
+        "ctx": ctx,
+        "gpu_layers": int(row.get("gpu_layers", 999) or 999),
+        "threads": int(row.get("threads", 8) or 8),
+        "vram_gb": vram_gb,
+        "load_sec": max(1, int(float(row.get("load_sec", 1) or 1))),
+        "parser": parser,
+        "description": row.get("description", "") or row.get("notes", ""),
+        "parallel": int(row.get("parallel", -1) or -1),
+        "batch_size": int(row.get("batch_size", -1) or -1),
+        "ubatch_size": int(row.get("ubatch_size", -1) or -1),
+        "cache_type_k": row.get("cache_type_k", "") or "",
+        "cache_type_v": row.get("cache_type_v", "") or "",
+        "extra_args": _parse_extra_args(row.get("extra_args", "")),
+        "auto_roles": auto_roles,
+    }
+
+
+def _parse_benchmark_profiles(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _model_text_tps(model: dict) -> float:
+    profiles = _parse_benchmark_profiles(model.get("benchmark_profiles", ""))
+    text_profile = profiles.get("text", {}) if isinstance(profiles, dict) else {}
+    for value in (text_profile.get("tok_per_sec"), model.get("tok_per_sec", -1)):
+        try:
+            v = float(value)
+            if v > 0:
+                return v
+        except Exception:
+            pass
+    return -1.0
+
+
+def get_runtime_model_catalog(include_disabled: bool = False) -> dict:
+    catalog = {}
+    rows = model_db_list() if "model_db_list" in globals() else []
+    for row in rows:
+        model_key = (row.get("model_key") or "").strip()
+        if not model_key:
+            continue
+        if row.get("enabled", 1) == 0:
+            if not include_disabled:
+                catalog.pop(model_key, None)
+                continue
+            spec = _runtime_spec_from_row(row)
+            spec["disabled"] = True
+            catalog[model_key] = spec
+            continue
+        catalog[model_key] = _runtime_spec_from_row(row)
+    return catalog
+
+
+def get_runtime_task_model_map(catalog: dict | None = None) -> dict:
+    catalog = catalog or get_runtime_model_catalog()
+    task_map = {}
+    for key, spec in catalog.items():
+        for role in spec.get("auto_roles", []):
+            task_map[role] = key
+    return task_map
+
+
+def get_model_spec(model_key: str) -> dict:
+    return get_runtime_model_catalog(include_disabled=True).get(model_key, {})
+
+
+def _slugify_model_key(text: str) -> str:
+    safe = re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_")
+    return safe[:64] or f"model_{uuid.uuid4().hex[:8]}"
+
+
+def choose_model_for_role(role: str, include_disabled: bool = False) -> str:
+    catalog = get_runtime_model_catalog(include_disabled=include_disabled)
+    for key, spec in catalog.items():
+        if role in spec.get("auto_roles", []):
+            return key
+    if catalog:
+        return next(iter(catalog.keys()))
+    return ""
+
+
+def _fallback_role_recommendations(models: list[dict]) -> dict[str, list[str]]:
+    recommendations: dict[str, list[str]] = {}
+    if not models:
+        return recommendations
+
+    def parser_rank(model: dict) -> int:
+        parser = (model.get("parser") or "").strip()
+        if parser == "json":
+            return 3
+        if parser in ("gpt_oss", "qwen_think"):
+            return 2
+        return 1
+
+    by_speed = sorted(models, key=lambda m: _model_text_tps(m), reverse=True)
+    planner = by_speed[0]
+    verifier = sorted(models, key=lambda m: (parser_rank(m), _model_text_tps(m)), reverse=True)[0]
+    coder = sorted(
+        models,
+        key=lambda m: (
+            1 if any(tag in ((m.get("name", "") + " " + m.get("model_key", "")).lower()) for tag in ("coder", "code", "qwen")) else 0,
+            _model_text_tps(m),
+        ),
+        reverse=True,
+    )[0]
+    chat = planner
+
+    for model in models:
+        roles: list[str] = []
+        if model["id"] == planner["id"]:
+            roles.extend(["plan", "search"])
+        if model["id"] == verifier["id"]:
+            roles.append("verify")
+        if model["id"] == coder["id"]:
+            roles.extend(["code", "complex"])
+        if model["id"] == chat["id"]:
+            roles.extend(["chat", "reason"])
+        if model.get("is_vlm"):
+            roles.append("multi")
+        recommendations[model["id"]] = list(dict.fromkeys(roles))
+    return recommendations
+
+
+def recommend_roles_with_planner(models: list[dict]) -> tuple[str, dict[str, list[str]]]:
+    candidates = [m for m in models if int(m.get("enabled", 1) or 1) != 0]
+    if not candidates:
+        return "", {}
+    planner_model = max(candidates, key=lambda m: _model_text_tps(m))
+    planner_key = (planner_model.get("model_key") or "").strip()
+    fallback = _fallback_role_recommendations(candidates)
+    if not planner_key:
+        return "", fallback
+
+    previous_key = _model_manager.current_key
+    try:
+        _model_manager.ensure_model(planner_key)
+        planner_url = _model_manager.llm_url
+        planner_parser = get_model_spec(planner_key).get("parser", "json")
+        summary = []
+        for model in candidates:
+            profiles = _parse_benchmark_profiles(model.get("benchmark_profiles", ""))
+            summary.append({
+                "id": model.get("id"),
+                "model_key": model.get("model_key"),
+                "name": model.get("name"),
+                "is_vlm": bool(model.get("is_vlm")),
+                "has_mmproj": bool(model.get("has_mmproj")),
+                "parser": model.get("parser"),
+                "ctx_size": model.get("ctx_size"),
+                "gpu_layers": model.get("gpu_layers"),
+                "tok_per_sec": _model_text_tps(model),
+                "profiles": profiles,
+                "quantization": model.get("quantization", ""),
+                "file_size_mb": model.get("file_size_mb", -1),
+            })
+        prompt = (
+            "You are choosing default roles for a local multi-model coding assistant.\n"
+            "Use each model at most for the roles it fits best.\n"
+            "Available roles: plan, chat, search, verify, code, complex, reason, multi.\n"
+            "Return strict JSON only in the form:\n"
+            "{\"recommendations\":[{\"id\":\"...\",\"roles\":[\"plan\",\"chat\"]}]}\n"
+            "Rules:\n"
+            "- The fastest reliable text model should usually get plan.\n"
+            "- Prefer strong JSON/reliable models for verify.\n"
+            "- Prefer strongest coding models for code/complex.\n"
+            "- VLM-capable models may get multi.\n"
+            "- Leave roles empty for weak or redundant models.\n\n"
+            f"Models:\n{json.dumps(summary, ensure_ascii=False)}"
+        )
+        reply, _usage = call_llm_chat([{"role": "user", "content": prompt}], llm_url=planner_url)
+        parsed = extract_json(reply, parser=planner_parser)
+        items = parsed.get("recommendations", []) if isinstance(parsed, dict) else []
+        recs: dict[str, list[str]] = {}
+        for item in items:
+            mid = str(item.get("id", "")).strip()
+            roles = [str(x).strip() for x in item.get("roles", []) if str(x).strip()]
+            if mid:
+                recs[mid] = list(dict.fromkeys(roles))
+        if recs:
+            for mid, roles in fallback.items():
+                recs.setdefault(mid, roles)
+            return planner_key, recs
+    except Exception as e:
+        print(f"[ModelDB] role recommendation fallback: {e}")
+    finally:
+        if previous_key and previous_key != _model_manager.current_key:
+            try:
+                _model_manager.ensure_model(previous_key)
+            except Exception:
+                pass
+    return planner_key, fallback
+
+
 ROUTER_PROMPT = """Classify the user request into ONE word.
 Options: code, complex, plan, chat, search, verify
 - code: writing/fixing code, implementing features
@@ -272,10 +447,10 @@ Reply with ONLY the single word."""
 
 class ModelManager:
     def __init__(self):
-        self.llama_path      = os.environ.get("LLAMA_SERVER_PATH", r"C:\llama-cpp\llama-server.exe")
+        self.llama_path      = get_default_llama_server_path()
         self.llm_port        = int(os.environ.get("LLM_PORT", "8080"))
         self.router_url      = os.environ.get("ROUTER_URL", "")
-        self.current_key     = os.environ.get("INITIAL_MODEL", "basic")
+        self.current_key     = os.environ.get("INITIAL_MODEL", "") or choose_model_for_role("chat", include_disabled=True)
         self._process        = None
         self._lock           = _mm_thread.Lock()
         self._status         = "ready"
@@ -296,7 +471,7 @@ class ModelManager:
                     data.get("default_generation_settings", {}).get("model") or ""
                 ).replace("\\", "/").lower()
                 if model_path:
-                    for key, spec in MODEL_CATALOG.items():
+                    for key, spec in get_runtime_model_catalog(include_disabled=True).items():
                         p = spec.get("path", "").replace("\\", "/").lower()
                         if p and p in model_path:
                             if key != self.current_key:
@@ -313,7 +488,13 @@ class ModelManager:
     @property
     def current_parser(self) -> str:
         """現在ロード中のモデルのパーサー種別を返す"""
-        return MODEL_CATALOG.get(self.current_key, {}).get("parser", "json")
+        return get_model_spec(self.current_key).get("parser", "json")
+
+    def _catalog(self, include_disabled: bool = False) -> dict:
+        return get_runtime_model_catalog(include_disabled=include_disabled)
+
+    def _task_model_map(self) -> dict:
+        return get_runtime_task_model_map(self._catalog())
 
     def classify(self, message: str, plan_result: dict = None) -> str:
         """
@@ -350,7 +531,7 @@ class ModelManager:
                 "temperature": 0.0, "max_tokens": 8,
             }, timeout=6)
             word = r.json()["choices"][0]["message"]["content"].strip().lower().split()[0].rstrip(".,!")
-            key = TASK_MODEL_MAP.get(word, "basic")
+            key = self._task_model_map().get(word) or choose_model_for_role(word)
             print(f"[Router] LFM: '{word}' -> {key}")
             return key
         except Exception as e:
@@ -374,16 +555,19 @@ class ModelManager:
                          "実装", "作成", "修正", "デバッグ", "コード"]
 
         if n >= 7 or any(k in txt for k in complex_keywords):
-            return "coder"
+            return self._task_model_map().get("complex") or choose_model_for_role("complex")
         elif n >= 3 or any(k in txt for k in code_keywords):
-            return "qwen35"
+            return self._task_model_map().get("code") or choose_model_for_role("code")
         else:
-            return "basic"
+            return self._task_model_map().get("chat") or choose_model_for_role("chat")
 
     def ensure_model(self, key: str, on_event=None) -> bool:
         """必要なら切り替え、不要なら即return True"""
-        if not MODEL_CATALOG.get(key, {}).get("path"):
-            key = "basic"
+        catalog = self._catalog()
+        if not catalog.get(key, {}).get("path"):
+            key = self._task_model_map().get("chat") or choose_model_for_role("chat")
+        if not key or key not in catalog:
+            return False
         if key == self.current_key and self._status == "ready":
             return True
         return self._switch(key, on_event)
@@ -395,9 +579,10 @@ class ModelManager:
 
         with self._lock:
             self._status = "switching"
-            spec = MODEL_CATALOG[key]
+            catalog = self._catalog()
+            spec = catalog[key]
             self._switch_eta = _mm_time.time() + spec["load_sec"]
-            prev_name = MODEL_CATALOG.get(self.current_key, {}).get("name", "current")
+            prev_name = catalog.get(self.current_key, {}).get("name", "current")
 
             emit("model_switching", f"Unloading {prev_name}...", 10, spec["load_sec"])
             self._kill()
@@ -450,15 +635,15 @@ class ModelManager:
             "--no-mmap",
         ]
         # モデル別オプション
-        if "parallel" in spec:
+        if spec.get("parallel", -1) and spec.get("parallel", -1) > 0:
             cmd += ["--parallel", str(spec["parallel"])]
-        if "batch_size" in spec:
+        if spec.get("batch_size", -1) and spec.get("batch_size", -1) > 0:
             cmd += ["--batch-size", str(spec["batch_size"])]
-        if "ubatch_size" in spec:
+        if spec.get("ubatch_size", -1) and spec.get("ubatch_size", -1) > 0:
             cmd += ["--ubatch-size", str(spec["ubatch_size"])]
-        if "cache_type_k" in spec:
+        if spec.get("cache_type_k"):
             cmd += ["--cache-type-k", spec["cache_type_k"]]
-        if "cache_type_v" in spec:
+        if spec.get("cache_type_v"):
             cmd += ["--cache-type-v", spec["cache_type_v"]]
         for arg in spec.get("extra_args", []):
             cmd.append(arg)
@@ -491,7 +676,8 @@ class ModelManager:
         # switching中でない場合は実際のモデルと同期
         if self._status != "switching":
             self._sync_current_model()
-        spec = MODEL_CATALOG.get(self.current_key, {})
+        catalog = self._catalog()
+        spec = catalog.get(self.current_key, {})
         return {
             "status": self._status,
             "current_key": self.current_key,
@@ -502,7 +688,7 @@ class ModelManager:
                 k: {"name": v["name"], "description": v["description"],
                     "vram_gb": v["vram_gb"], "load_sec": v["load_sec"],
                     "available": bool(v["path"])}
-                for k, v in MODEL_CATALOG.items()
+                for k, v in catalog.items()
             },
         }
 
@@ -1043,17 +1229,35 @@ def list_files(subdir: str = "", project: str = "default") -> str:
         target = os.path.join(WORK_DIR, project, subdir) if subdir else os.path.join(WORK_DIR, project)
         result = []
         for root, dirs, files in os.walk(target):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
             rel = os.path.relpath(root, os.path.join(WORK_DIR, project)).replace("\\", "/")
             for f in files:
                 path = (rel + "/" + f).lstrip("./").lstrip("/")
                 if rel in (".", ""):
                     path = f
+                if _should_hide_preview_path(path):
+                    continue
                 result.append(path)
-        # .history.dbは除外
-        result = [r for r in result if not r.endswith(".history.db") and not r.endswith("_run.py") and not r.endswith("_venv_run.py")]
         return "\n".join(result) if result else "(empty)"
     except Exception as e:
         return f"ERROR: {e}"
+
+
+def _should_hide_preview_path(rel_path: str) -> bool:
+    normalized = str(rel_path or '').replace('\\', '/').strip('/')
+    if not normalized:
+        return True
+    parts = [p for p in normalized.split('/') if p and p != '.']
+    if not parts:
+        return True
+    if any(part.startswith('.') for part in parts):
+        return True
+    lower_name = parts[-1].lower()
+    if lower_name in {'.history.db'}:
+        return True
+    if lower_name.endswith('_run.py') or lower_name.endswith('_venv_run.py'):
+        return True
+    return False
 
 def _server_container_name(port: int) -> str:
     return f"codeagent_server_{port}"
@@ -1846,16 +2050,22 @@ def mcp_list_tools(server_url: str) -> str:
 # モデルデータベース
 # =========================
 
-MODEL_DB_PATH = os.path.join(CA_DATA_DIR, "model_db.db")
 _model_db_lock = __import__("threading").Lock()
 
 
-def _get_model_db():
+def model_db_exists() -> bool:
+    return os.path.exists(MODEL_DB_PATH)
+
+
+def _get_model_db(create_if_missing: bool = True):
+    if (not create_if_missing) and (not os.path.exists(MODEL_DB_PATH)):
+        return None
     conn = sqlite3.connect(MODEL_DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("""
         CREATE TABLE IF NOT EXISTS models (
             id TEXT PRIMARY KEY,
+            model_key TEXT DEFAULT '',
             name TEXT NOT NULL,
             path TEXT NOT NULL,
             is_vlm INTEGER DEFAULT 0,
@@ -1867,6 +2077,19 @@ def _get_model_db():
             llm_url TEXT DEFAULT '',
             ctx_size INTEGER DEFAULT 4096,
             gpu_layers INTEGER DEFAULT 999,
+            threads INTEGER DEFAULT 8,
+            parser TEXT DEFAULT 'json',
+            description TEXT DEFAULT '',
+            parallel INTEGER DEFAULT -1,
+            batch_size INTEGER DEFAULT -1,
+            ubatch_size INTEGER DEFAULT -1,
+            cache_type_k TEXT DEFAULT '',
+            cache_type_v TEXT DEFAULT '',
+            extra_args TEXT DEFAULT '',
+            auto_roles TEXT DEFAULT '',
+            benchmark_profiles TEXT DEFAULT '',
+            has_mmproj INTEGER DEFAULT 0,
+            mmproj_path TEXT DEFAULT '',
             quantization TEXT DEFAULT '',
             file_size_mb INTEGER DEFAULT -1,
             notes TEXT DEFAULT '',
@@ -1874,12 +2097,29 @@ def _get_model_db():
             created_at TEXT NOT NULL
         )
     """)
-    # 既存DBへのマイグレーション: enabled列が無ければ追加
-    try:
-        conn.execute("ALTER TABLE models ADD COLUMN enabled INTEGER DEFAULT 1")
-        conn.commit()
-    except Exception:
-        pass  # 既に存在する場合は無視
+    # 既存DBへのマイグレーション: 列が無ければ追加
+    for ddl in [
+        "ALTER TABLE models ADD COLUMN model_key TEXT DEFAULT ''",
+        "ALTER TABLE models ADD COLUMN enabled INTEGER DEFAULT 1",
+        "ALTER TABLE models ADD COLUMN threads INTEGER DEFAULT 8",
+        "ALTER TABLE models ADD COLUMN parser TEXT DEFAULT 'json'",
+        "ALTER TABLE models ADD COLUMN description TEXT DEFAULT ''",
+        "ALTER TABLE models ADD COLUMN parallel INTEGER DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN batch_size INTEGER DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN ubatch_size INTEGER DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN cache_type_k TEXT DEFAULT ''",
+        "ALTER TABLE models ADD COLUMN cache_type_v TEXT DEFAULT ''",
+        "ALTER TABLE models ADD COLUMN extra_args TEXT DEFAULT ''",
+        "ALTER TABLE models ADD COLUMN auto_roles TEXT DEFAULT ''",
+        "ALTER TABLE models ADD COLUMN benchmark_profiles TEXT DEFAULT ''",
+        "ALTER TABLE models ADD COLUMN has_mmproj INTEGER DEFAULT 0",
+        "ALTER TABLE models ADD COLUMN mmproj_path TEXT DEFAULT ''",
+    ]:
+        try:
+            conn.execute(ddl)
+            conn.commit()
+        except Exception:
+            pass
 
     # ユーザー設定テーブル（キーバリューストア）
     conn.execute("""
@@ -1895,7 +2135,9 @@ def _get_model_db():
 
 def model_db_list() -> list:
     with _model_db_lock:
-        conn = _get_model_db()
+        conn = _get_model_db(create_if_missing=False)
+        if conn is None:
+            return []
         try:
             rows = conn.execute("SELECT * FROM models ORDER BY name ASC").fetchall()
             return [dict(r) for r in rows]
@@ -1903,7 +2145,24 @@ def model_db_list() -> list:
             conn.close()
 
 
+def model_db_find_by_path(path: str) -> dict | None:
+    with _model_db_lock:
+        conn = _get_model_db(create_if_missing=False)
+        if conn is None:
+            return None
+        try:
+            row = conn.execute("SELECT * FROM models WHERE path=?", (path,)).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+
+def seed_default_model_catalog():
+    return
+
+
 def model_db_add(info: dict) -> str:
+    info = _infer_model_db_metadata(dict(info))
     mid = info.get("id") or str(uuid.uuid4())[:12]
     now = datetime.now().isoformat()
     with _model_db_lock:
@@ -1911,14 +2170,19 @@ def model_db_add(info: dict) -> str:
         try:
             conn.execute("""
                 INSERT OR REPLACE INTO models
-                (id, name, path, is_vlm, vram_mb, ram_mb, load_sec, tok_per_sec,
-                 llm_url, ctx_size, gpu_layers, quantization, file_size_mb, notes, benchmarked_at, created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                (id, model_key, name, path, is_vlm, enabled, vram_mb, ram_mb, load_sec, tok_per_sec,
+                 llm_url, ctx_size, gpu_layers, threads, parser, description,
+                 parallel, batch_size, ubatch_size, cache_type_k, cache_type_v, extra_args,
+                 benchmark_profiles,
+                 auto_roles, has_mmproj, mmproj_path, quantization, file_size_mb, notes, benchmarked_at, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 mid,
+                info.get("model_key", ""),
                 info.get("name", ""),
                 info.get("path", ""),
                 1 if info.get("is_vlm") else 0,
+                1 if info.get("enabled", 1) else 0,
                 info.get("vram_mb", -1),
                 info.get("ram_mb", -1),
                 info.get("load_sec", -1),
@@ -1926,6 +2190,19 @@ def model_db_add(info: dict) -> str:
                 info.get("llm_url", ""),
                 info.get("ctx_size", 4096),
                 info.get("gpu_layers", 999),
+                info.get("threads", 8),
+                info.get("parser", "json"),
+                info.get("description", ""),
+                info.get("parallel", -1),
+                info.get("batch_size", -1),
+                info.get("ubatch_size", -1),
+                info.get("cache_type_k", ""),
+                info.get("cache_type_v", ""),
+                info.get("extra_args", ""),
+                info.get("benchmark_profiles", ""),
+                info.get("auto_roles", ""),
+                1 if info.get("has_mmproj") else 0,
+                info.get("mmproj_path", ""),
                 info.get("quantization", ""),
                 info.get("file_size_mb", -1),
                 info.get("notes", ""),
@@ -1940,7 +2217,9 @@ def model_db_add(info: dict) -> str:
 
 def model_db_delete(mid: str):
     with _model_db_lock:
-        conn = _get_model_db()
+        conn = _get_model_db(create_if_missing=False)
+        if conn is None:
+            return
         try:
             conn.execute("DELETE FROM models WHERE id=?", (mid,))
             conn.commit()
@@ -1949,20 +2228,94 @@ def model_db_delete(mid: str):
 
 
 def model_db_update(mid: str, updates: dict):
-    allowed = {"name", "path", "is_vlm", "enabled", "vram_mb", "ram_mb", "load_sec",
-               "tok_per_sec", "llm_url", "ctx_size", "gpu_layers",
-               "quantization", "file_size_mb", "notes", "benchmarked_at"}
+    allowed = {"model_key", "name", "path", "is_vlm", "enabled", "vram_mb", "ram_mb", "load_sec",
+               "tok_per_sec", "llm_url", "ctx_size", "gpu_layers", "threads", "parser",
+               "description", "parallel", "batch_size", "ubatch_size", "cache_type_k",
+               "cache_type_v", "extra_args", "auto_roles", "benchmark_profiles", "has_mmproj", "mmproj_path", "quantization", "file_size_mb",
+               "notes", "benchmarked_at"}
     sets = {k: v for k, v in updates.items() if k in allowed}
     if not sets:
         return
     with _model_db_lock:
-        conn = _get_model_db()
+        conn = _get_model_db(create_if_missing=False)
+        if conn is None:
+            return
         try:
             clause = ", ".join(f"{k}=?" for k in sets)
             conn.execute(f"UPDATE models SET {clause} WHERE id=?", [*sets.values(), mid])
             conn.commit()
         finally:
             conn.close()
+
+
+def _normalize_benchmark_profile(profile: dict, ctx: int, use_vlm: bool) -> dict:
+    inf = profile.get("inference", {}) if isinstance(profile, dict) else {}
+    return {
+        "mode": "vlm" if use_vlm else "text",
+        "ctx_size": ctx,
+        "vram_mb": profile.get("log_gpu_mib", profile.get("counter_vram_delta", -1)),
+        "ram_mb": profile.get("log_cpu_mib", profile.get("counter_ram_delta", -1)),
+        "load_sec": profile.get("load_sec", -1),
+        "tok_per_sec": inf.get("gen", -1) if inf.get("ok") else -1,
+        "benchmarked_at": datetime.now().isoformat(),
+    }
+
+
+def benchmark_model_record(model: dict, use_vlm: bool = False) -> dict:
+    import sys as _sys
+    bench_dir = os.path.dirname(os.path.abspath(__file__))
+    if bench_dir not in _sys.path:
+        _sys.path.insert(0, bench_dir)
+    from benchmark_mem import (
+        run_single_benchmark,
+    )
+
+    path = model["path"]
+    ctx = model.get("ctx_size", 4096)
+    ngl = model.get("gpu_layers", 999)
+    mmproj_path = model.get("mmproj_path", "") if use_vlm else ""
+    if not os.path.exists(path):
+        return {"notes": f"BENCHMARK SKIP: file not found {path}"}
+    if use_vlm and (not mmproj_path or not os.path.exists(mmproj_path)):
+        return {"notes": "BENCHMARK SKIP: mmproj file not found"}
+
+    result = run_single_benchmark(path, ctx=ctx, ngl=ngl, mmproj_path=mmproj_path)
+    if not result.get("ok"):
+        return {"notes": f"BENCHMARK FAIL: {result.get('error', 'unknown error')}"}
+    profile = _normalize_benchmark_profile(result, ctx=ctx, use_vlm=use_vlm)
+    return {
+        **profile,
+        "notes": f"{profile['mode']} gen={profile['tok_per_sec']} tok/s load={profile['load_sec']}s",
+    }
+
+
+def benchmark_model_profiles(model: dict) -> dict:
+    profiles: dict[str, dict] = {}
+    text_profile = benchmark_model_record(model, use_vlm=False)
+    if "load_sec" in text_profile:
+        profiles["text"] = text_profile
+    if model.get("has_mmproj") and model.get("mmproj_path"):
+        vlm_profile = benchmark_model_record(model, use_vlm=True)
+        if "load_sec" in vlm_profile:
+            profiles["vlm"] = vlm_profile
+
+    active = profiles.get("text") or profiles.get("vlm")
+    updates = {
+        "benchmark_profiles": json.dumps(profiles, ensure_ascii=False),
+    }
+    if active:
+        updates.update({
+            "load_sec": active.get("load_sec", -1),
+            "vram_mb": active.get("vram_mb", -1),
+            "ram_mb": active.get("ram_mb", -1),
+            "tok_per_sec": active.get("tok_per_sec", -1),
+            "benchmarked_at": active.get("benchmarked_at", ""),
+            "notes": f"text={profiles.get('text', {}).get('tok_per_sec', '-')} tok/s"
+                     + (f" vlm={profiles.get('vlm', {}).get('tok_per_sec', '-')} tok/s" if "vlm" in profiles else ""),
+        })
+    elif text_profile.get("notes"):
+        updates["notes"] = text_profile["notes"]
+    return updates
 
 
 # =========================
@@ -1978,16 +2331,16 @@ SETTINGS_DEFAULTS = {
     "search_enabled":     "false",
     "search_num":         "5",
     "streaming_enabled":  "true",
-    "ctx_size":           "32768",
-    "max_output_tokens":  "8192",       # LLM最大出力トークン数
+    "ctx_size":           "16384",
     "llm_url":            "",
-    "llm_port":           "8080",
 }
 
 def settings_get(key: str) -> str:
     """1件取得。存在しなければデフォルト値を返す"""
     with _model_db_lock:
-        conn = _get_model_db()
+        conn = _get_model_db(create_if_missing=False)
+        if conn is None:
+            return SETTINGS_DEFAULTS.get(key, "")
         try:
             row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
             return row["value"] if row else SETTINGS_DEFAULTS.get(key, "")
@@ -2011,7 +2364,9 @@ def settings_set(key: str, value: str):
 def settings_get_all() -> dict:
     """全設定をdictで返す（未設定キーはデフォルト値で補完）"""
     with _model_db_lock:
-        conn = _get_model_db()
+        conn = _get_model_db(create_if_missing=False)
+        if conn is None:
+            return dict(SETTINGS_DEFAULTS)
         try:
             rows = conn.execute("SELECT key, value FROM settings").fetchall()
         finally:
@@ -2038,8 +2393,11 @@ def settings_set_bulk(data: dict):
 
 def _restore_settings_from_db():
     """起動時にDBから設定を読み込んでサーバーグローバルに反映"""
-    global _search_enabled, _llm_streaming, _current_n_ctx, _current_max_output_tokens
+    global _search_enabled, _llm_streaming, _current_n_ctx
     try:
+        if not model_db_exists():
+            print(f"[settings] model DB not found at {MODEL_DB_PATH}; using defaults")
+            return
         all_s = settings_get_all()
         if "search_enabled" in all_s:
             _search_enabled = str(all_s["search_enabled"]).lower() in ("true", "1", "yes")
@@ -2047,17 +2405,39 @@ def _restore_settings_from_db():
             _llm_streaming = str(all_s["streaming_enabled"]).lower() in ("true", "1", "yes")
         if "ctx_size" in all_s:
             try:
-                _current_n_ctx = int(all_s["ctx_size"])
+                _current_n_ctx = max(512, min(int(all_s["ctx_size"]), 32768))
             except Exception:
                 pass
-        if "max_output_tokens" in all_s:
-            try:
-                _current_max_output_tokens = max(256, min(int(all_s["max_output_tokens"]), 32768))
-            except Exception:
-                pass
-        print(f"[settings] restored from DB: ctx={_current_n_ctx} max_out={_current_max_output_tokens} stream={_llm_streaming} search={_search_enabled}")
+        print(f"[settings] restored from DB: ctx={_current_n_ctx} stream={_llm_streaming} search={_search_enabled}")
     except Exception as e:
         print(f"[settings] restore warning: {e}")
+
+
+def _cleanup_legacy_llm_settings():
+    """過去版のLLM設定キーを settings テーブルから削除する。"""
+    legacy_keys = ("max_output_tokens", "llm_port")
+    with _model_db_lock:
+        conn = _get_model_db(create_if_missing=False)
+        if conn is None:
+            return
+        try:
+            q = ",".join("?" for _ in legacy_keys)
+            conn.execute(f"DELETE FROM settings WHERE key IN ({q})", legacy_keys)
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def _cleanup_legacy_catalog_rows():
+    with _model_db_lock:
+        conn = _get_model_db(create_if_missing=False)
+        if conn is None:
+            return
+        try:
+            conn.execute("DELETE FROM models WHERE notes='bundled' OR id LIKE 'catalog_%'")
+            conn.commit()
+        finally:
+            conn.close()
 
 
 # =========================
@@ -2117,6 +2497,51 @@ def _guess_quantization(path: str) -> str:
     return ""
 
 
+def _choose_mmproj_for_model(model_path: str, mmproj_candidates: list[str], sibling_model_count: int = 1) -> str:
+    if not mmproj_candidates:
+        return ""
+    model_stem = os.path.splitext(os.path.basename(model_path))[0].lower()
+    model_parts = [p for p in re.split(r"[_.\-\s]+", model_stem) if len(p) >= 3 and p != "gguf"]
+    scored: list[tuple[int, str]] = []
+    for mmproj_path in mmproj_candidates:
+        mmproj_stem = os.path.splitext(os.path.basename(mmproj_path))[0].lower()
+        score = sum(1 for part in model_parts if part in mmproj_stem)
+        scored.append((score, mmproj_path))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    if scored and scored[0][0] > 0:
+        return scored[0][1]
+    if len(mmproj_candidates) == 1 and sibling_model_count <= 1:
+        return mmproj_candidates[0]
+    return ""
+
+
+def _infer_model_db_metadata(info: dict) -> dict:
+    model_key = (info.get("model_key") or "").strip()
+    if not model_key:
+        model_key = _slugify_model_key(info.get("name") or os.path.splitext(os.path.basename(info.get("path", "")))[0])
+    extra_args = info.get("extra_args", "")
+    if isinstance(extra_args, list):
+        extra_args = json.dumps(extra_args, ensure_ascii=False)
+    return {
+        **info,
+        "model_key": model_key,
+        "parser": (info.get("parser") or "").strip() or _infer_parser_name(
+            info.get("name", ""),
+            model_key,
+            info.get("path", "")
+        ),
+        "description": info.get("description", "") or "",
+        "threads": int(info.get("threads", 8) or 8),
+        "parallel": int(info.get("parallel", -1) or -1),
+        "batch_size": int(info.get("batch_size", -1) or -1),
+        "ubatch_size": int(info.get("ubatch_size", -1) or -1),
+        "cache_type_k": info.get("cache_type_k", "") or "",
+        "cache_type_v": info.get("cache_type_v", "") or "",
+        "extra_args": extra_args,
+        "auto_roles": info.get("auto_roles", "") or "",
+    }
+
+
 def model_db_scan_folder(folder: str) -> list:
     """
     指定フォルダ（全サブフォルダ含む）のGGUFファイルを検索して
@@ -2125,27 +2550,42 @@ def model_db_scan_folder(folder: str) -> list:
     results = []
     if not os.path.isdir(folder):
         return results
-    existing_paths = {m["path"] for m in model_db_list()}
-    for root, dirs, files in os.walk(folder):
+
+    mmproj_by_dir: dict[str, list[str]] = {}
+    model_files: list[tuple[str, str]] = []
+    model_count_by_dir: dict[str, int] = {}
+
+    for root, _dirs, files in os.walk(folder):
         for fname in files:
             if not fname.lower().endswith(".gguf"):
                 continue
             full_path = os.path.join(root, fname)
-            if full_path in existing_paths:
-                continue
-            rel = os.path.relpath(root, folder)
-            top_dir = rel.split(os.sep)[0] if rel != "." else ""
-            model_name = (top_dir + "/" if top_dir else "") + os.path.splitext(fname)[0]
-            is_vlm = _detect_vlm(full_path, model_name)
-            results.append({
-                "name": model_name,
-                "path": full_path,
-                "is_vlm": is_vlm,
-                "quantization": _guess_quantization(full_path),
-                "file_size_mb": _get_file_size_mb(full_path),
-                "vram_mb": -1, "ram_mb": -1, "load_sec": -1, "tok_per_sec": -1,
-                "llm_url": "", "ctx_size": 4096, "gpu_layers": 999, "notes": "scanned",
-            })
+            if "mmproj" in fname.lower():
+                mmproj_by_dir.setdefault(root, []).append(full_path)
+            else:
+                model_files.append((root, full_path))
+                model_count_by_dir[root] = model_count_by_dir.get(root, 0) + 1
+
+    for root, full_path in model_files:
+        fname = os.path.basename(full_path)
+        rel = os.path.relpath(root, folder)
+        top_dir = rel.split(os.sep)[0] if rel != "." else ""
+        model_name = (top_dir + "/" if top_dir else "") + os.path.splitext(fname)[0]
+        mmproj_candidates = mmproj_by_dir.get(root, [])
+        mmproj_path = _choose_mmproj_for_model(full_path, mmproj_candidates, model_count_by_dir.get(root, 1))
+        has_mmproj = bool(mmproj_path)
+        is_vlm = _detect_vlm(full_path, model_name) or has_mmproj
+        results.append(_infer_model_db_metadata({
+            "name": model_name,
+            "path": full_path,
+            "is_vlm": is_vlm,
+            "has_mmproj": has_mmproj,
+            "mmproj_path": mmproj_path,
+            "quantization": _guess_quantization(full_path),
+            "file_size_mb": _get_file_size_mb(full_path),
+            "vram_mb": -1, "ram_mb": -1, "load_sec": -1, "tok_per_sec": -1,
+            "llm_url": "", "ctx_size": 16384, "gpu_layers": 999, "notes": "scanned",
+        }))
     return results
 
 
@@ -2345,7 +2785,7 @@ def extract_json(text: str, parser: str = "json"):
 # LLM呼び出し
 # =========================
 
-def call_llm_chat(messages: list, llm_url: str = "") -> tuple:
+def call_llm_chat(messages: list, llm_url: str = "", max_output_tokens: int | None = None) -> tuple:
     """
     chatモード専用: JSON強制なし、通常の会話応答。
     thinking モデル対応: content が空なら reasoning_content を使用。
@@ -2355,7 +2795,8 @@ def call_llm_chat(messages: list, llm_url: str = "") -> tuple:
     url = llm_url.strip() or LLM_URL
     prompt_tok = _estimate_tokens(messages)
     avail = max(256, _current_n_ctx - prompt_tok - 64)
-    max_out = min(avail, _current_max_output_tokens)
+    requested_cap = 32768 if max_output_tokens is None else max(256, int(max_output_tokens))
+    max_out = min(avail, requested_cap, 32768)
     if avail <= 256:
         print(f"[CTX WARNING] コンテキスト長不足: n_ctx={_current_n_ctx} prompt_tokens≈{prompt_tok} 残余={avail} — 出力が極端に短くなる可能性があります")
     payload = {
@@ -2408,7 +2849,11 @@ def call_llm_chat(messages: list, llm_url: str = "") -> tuple:
         print(f"[call_llm_chat] timeout, retrying with trimmed context...")
         messages = _trim_messages(messages, _current_n_ctx // 2, reserve_output=2048)
         payload["messages"] = messages
-        payload["max_tokens"] = min(_current_n_ctx // 2 - _estimate_tokens(messages) - 64, 8192)
+        payload["max_tokens"] = min(
+            _current_n_ctx // 2 - _estimate_tokens(messages) - 64,
+            requested_cap,
+            32768
+        )
         try:
             res = requests.post(url, json=payload, timeout=300)
             data = res.json()
@@ -2432,7 +2877,7 @@ def call_llm_chat_streaming(messages: list, llm_url: str = ""):
     url = llm_url.strip() or LLM_URL
     prompt_tok = _estimate_tokens(messages)
     avail = max(256, _current_n_ctx - prompt_tok - 64)
-    max_tokens = min(avail, _current_max_output_tokens)
+    max_tokens = min(avail, 32768)
     if avail <= 256:
         print(f"[CTX WARNING] コンテキスト長不足 (streaming): n_ctx={_current_n_ctx} prompt≈{prompt_tok} 残余={avail}")
         yield {"type": "llm_error", "status_code": 413,
@@ -2535,7 +2980,7 @@ def call_llm(messages: list, llm_url: str = "") -> tuple:
     url = llm_url.strip() or LLM_URL
     prompt_tok = _estimate_tokens(messages)
     avail = max(256, _current_n_ctx - prompt_tok - 64)
-    max_out = min(avail, _current_max_output_tokens)
+    max_out = min(avail, 32768)
     if avail <= 256:
         print(f"[CTX WARNING] コンテキスト長不足 (agent): n_ctx={_current_n_ctx} prompt≈{prompt_tok} 残余={avail}")
     payload = {
@@ -2829,7 +3274,8 @@ def run_job_background(job_id: str, req: "JobRequest"):
             # ── プランニング後・実行前にモデル選択 ──
             # モデル選択: UIで手動指定 > Auto（heuristic_classify）
             forced_model = (req.recommended_model or "").strip()
-            if forced_model and forced_model != "auto" and forced_model in MODEL_CATALOG:
+            runtime_catalog = get_runtime_model_catalog()
+            if forced_model and forced_model != "auto" and forced_model in runtime_catalog:
                 # UIで手動選択されたモデルを使用
                 best_key = forced_model
                 print(f"[ModelManager] user selected: {best_key}")
@@ -2838,13 +3284,13 @@ def run_job_background(job_id: str, req: "JobRequest"):
                 best_key = _model_manager.current_key
                 print(f"[ModelManager] auto: keeping current model {best_key}")
 
-            if best_key != _model_manager.current_key and MODEL_CATALOG.get(best_key, {}).get("path"):
+            if best_key != _model_manager.current_key and runtime_catalog.get(best_key, {}).get("path"):
                 write("model_switching", {
                     "from": _model_manager.current_key,
                     "to": best_key,
-                    "model_name": MODEL_CATALOG.get(best_key, {}).get("name", best_key),
-                    "eta_sec": MODEL_CATALOG.get(best_key, {}).get("load_sec", 60),
-                    "message": f"Loading {MODEL_CATALOG.get(best_key,{}).get('name',best_key)}..."
+                    "model_name": runtime_catalog.get(best_key, {}).get("name", best_key),
+                    "eta_sec": runtime_catalog.get(best_key, {}).get("load_sec", 60),
+                    "message": f"Loading {runtime_catalog.get(best_key,{}).get('name',best_key)}..."
                 })
                 def _on_switch(ev):
                     write(ev.get("type","model_event"), ev)
@@ -3028,11 +3474,13 @@ JSON形式で出力:
                     chosen = None
 
                     if auto_select:
+                        planner_key = choose_model_for_role("plan", include_disabled=True) or _model_manager.current_key
+                        planner_spec = get_model_spec(planner_key)
                         write("model_switching", {
                             "from": prev_model_key,
-                            "to": "basic",
-                            "model_name": MODEL_CATALOG.get("basic", {}).get("name", "Planner"),
-                            "eta_sec": MODEL_CATALOG.get("basic", {}).get("load_sec", 30),
+                            "to": planner_key,
+                            "model_name": planner_spec.get("name", "Planner"),
+                            "eta_sec": planner_spec.get("load_sec", 30),
                             "message": "対応案を分析中: プランナーLLMをロード中..."
                         })
                         write("task_start", {
@@ -3043,7 +3491,7 @@ JSON形式で出力:
 
                         # コードLLMをアンロードしてプランナーをロード
                         planner_switched = _model_manager.ensure_model(
-                            "basic",
+                            planner_key,
                             on_event=lambda ev: write(ev.get("type","model_event"), ev)
                         )
                         planner_url = _model_manager.llm_url
@@ -3092,11 +3540,12 @@ JSON形式で出力:
                             print(f"[JOB {job_id}] planner selection failed: {_se}")
 
                         # プランナーをアンロードしてコードLLMを復帰
+                        prev_spec = get_model_spec(prev_model_key)
                         write("model_switching", {
-                            "from": "basic",
+                            "from": planner_key,
                             "to": prev_model_key,
-                            "model_name": MODEL_CATALOG.get(prev_model_key, {}).get("name", prev_model_key),
-                            "eta_sec": MODEL_CATALOG.get(prev_model_key, {}).get("load_sec", 30),
+                            "model_name": prev_spec.get("name", prev_model_key),
+                            "eta_sec": prev_spec.get("load_sec", 30),
                             "message": f"プランナー選択完了: {chosen['title']} — コードLLMを復帰中..."
                         })
                         _model_manager.ensure_model(
@@ -3297,9 +3746,10 @@ JSON形式で出力:
 
         job_update_status(project, job_id, "done")
 
-        # ジョブ完了後にbasicモデルに戻す（次のジョブのため）
-        if not req.llm_url.strip() and _model_manager.current_key != "basic":
-            _model_manager.ensure_model("basic")
+        # ジョブ完了後にチャット用ロールのモデルに戻す（次のジョブのため）
+        chat_key = choose_model_for_role("chat")
+        if not req.llm_url.strip() and chat_key and _model_manager.current_key != chat_key:
+            _model_manager.ensure_model(chat_key)
 
     except Exception as e:
         import traceback
@@ -3368,7 +3818,7 @@ PLANNER_PROMPT = """あなたはソフトウェアアーキテクト兼タスク
   - 設定ファイル変更・ドキュメント作成のみのタスク
   - データサイエンス・ML（学習スクリプト等は単体テストより出力検証が適切）"""
 
-# GPT-OSS-20B用: チャンネル形式でも確実にパースできるシンプル版
+# Channel-style outputでも確実にパースできるシンプル版
 PLANNER_PROMPT_SIMPLE = """あなたはタスク分解AIです。
 
 ユーザーの指示を実行可能な小タスクのリストに分解してください。
@@ -3389,22 +3839,22 @@ PLANNER_PROMPT_SIMPLE = """あなたはタスク分解AIです。
 def plan(user_message: str, project: str = "default") -> dict:
     """
     要件定義・実装方針・タスクリストを返す。
-    プランナーは常にGPT-OSS-20B（basic/gpt_oss）を使用。
+    プランナーは role=plan に割り当てられたモデルを使用。
     戻り値: {summary, requirements, approach, verification, tasks}
     """
-    # プランナーは常にgpt_ossパーサー（LLM_URL_PLANNERは8080固定 = 起動時のGPT-OSS）
-    # モデル切り替え中でも起動時のモデル（GPT-OSS）を呼ぶ
-    parser = MODEL_CATALOG.get("basic", {}).get("parser", "gpt_oss")
+    planner_key = choose_model_for_role("plan", include_disabled=True) or _model_manager.current_key
+    if planner_key and _model_manager.current_key != planner_key:
+        _model_manager.ensure_model(planner_key)
+    parser = get_model_spec(planner_key).get("parser", "json")
     prompt = PLANNER_PROMPT  # 常に5フィールド完全版
     messages = [
         {"role": "system", "content": prompt},
         {"role": "user", "content": user_message}
     ]
     # thinkingモデル対応: response_format強制なし
-    reply, _usage = call_llm_chat(messages, llm_url=LLM_URL_PLANNER)
-    # GPT-OSSパーサーでJSONを抽出
+    reply, _usage = call_llm_chat(messages, llm_url=LLM_URL_PLANNER, max_output_tokens=16384)
     parsed = extract_json(reply, parser=parser)
-    print(f"[PLAN] planner=GPT-OSS parser={parser} parsed={'OK' if parsed and 'tasks' in parsed else 'FAIL'}")
+    print(f"[PLAN] planner={planner_key or 'unknown'} parser={parser} parsed={'OK' if parsed and 'tasks' in parsed else 'FAIL'}")
     if parsed is None or 'tasks' not in parsed:
         print(f"[PLAN] fallback to single task. reply[:300]={reply[:300]}")
 
@@ -4069,11 +4519,10 @@ def plan_only(req: ChatRequest):
         }
         print(f"[PLAN] error: {e}")
 
-    # コードエージェント（Taskモード）はqwen35をデフォルト推奨
-    # heuristic_classifyの結果がbasicでもqwen35を推奨する
     recommended_key = _model_manager.classify(req.message, plan_result=result)
     # ※ basicのまま推奨（UIでAutoを選べば現在のモデルを使う）
-    recommended_spec = MODEL_CATALOG.get(recommended_key, {})
+    runtime_catalog = get_runtime_model_catalog()
+    recommended_spec = runtime_catalog.get(recommended_key, {})
     current_key = _model_manager.current_key
 
     return {
@@ -4088,8 +4537,8 @@ def plan_only(req: ChatRequest):
         "switch_eta_sec": recommended_spec.get("load_sec", 0) if recommended_key != current_key else 0,
         "catalog": {k: {"name": v["name"], "vram_gb": v["vram_gb"],
                         "available": bool(v["path"])}
-                    for k, v in MODEL_CATALOG.items()
-                    if k not in ("basic", "router")},  # basicとrouterはUIに不要
+                    for k, v in runtime_catalog.items()
+                    if bool(v.get("path"))},
     }
 
 # =========================
@@ -4424,22 +4873,19 @@ def delete_project(name: str):
 
 @app.get("/projects/{name}/files")
 def project_files(name: str):
-    """プロジェクト内ファイル一覧"""
+    """Project file list for preview tab."""
     path = os.path.join(WORK_DIR, name)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Project not found")
     files = []
-    for root, _, fs in os.walk(path):
+    for root, dirs, fs in os.walk(path):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
         for f in fs:
-            rel = os.path.relpath(os.path.join(root, f), path)
+            rel = os.path.relpath(os.path.join(root, f), path).replace("\\", "/")
+            if _should_hide_preview_path(rel):
+                continue
             files.append(rel)
     return {"project": name, "files": sorted(files)}
-
-
-# =========================
-# SSE進捗ストリーム用ジェネレータ
-# =========================
-
 def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15, project: str = "default", search_enabled: bool = True, llm_url: str = "", job_id: str = "", task_id: int = 0, task_title: str = ""):
     """
     execute_task のジェネレータ版。
@@ -4844,7 +5290,7 @@ def project_history(name: str, limit: int = 50):
 def llm_props():
     """llama-serverのプロパティ(最大コンテキスト長等)を返す"""
     try:
-        res = requests.get("http://localhost:8080/props", timeout=5)
+        res = requests.get(f"http://127.0.0.1:{_model_manager.llm_port}/props", timeout=5)
         if res.status_code == 200:
             data = res.json()
             # /propsのn_ctxが信頼できる場合はそれを使用
@@ -4866,8 +5312,7 @@ def llm_props():
 # コンテキスト長設定
 # =========================
 
-_current_n_ctx: int = 32768            # コンテキストウィンドウ長
-_current_max_output_tokens: int = 8192  # 最大出力トークン数（UI設定）
+_current_n_ctx: int = 8192             # コンテキストウィンドウ長
 # モデル別推奨コンテキスト長の目安:
 # Qwen3-Coder-Next  : 16384〜32768 (Q3_K_Sでは16384を推奨)
 # Mistral-Small-3.2 : 16384〜32768
@@ -4883,7 +5328,7 @@ def set_ctx(req: dict):
     """UIからコンテキスト長を変更する（llm_urlのmax_tokensに反映）"""
     global _current_n_ctx
     n = int(req.get("n_ctx", _current_n_ctx))
-    _current_n_ctx = max(512, n)
+    _current_n_ctx = max(512, min(32768, n))
     return {"n_ctx": _current_n_ctx}
 
 # =========================
@@ -5021,14 +5466,15 @@ def model_status():
 @app.post("/model/switch")
 def model_switch(req: dict):
     """手動でモデルを切り替える。非同期で実行。"""
-    key = req.get("model", "basic")
-    if key not in MODEL_CATALOG:
+    key = req.get("model") or choose_model_for_role("chat", include_disabled=True)
+    runtime_catalog = get_runtime_model_catalog()
+    if key not in runtime_catalog:
         raise HTTPException(status_code=400, detail=f"Unknown model: {key}")
     import threading as _t
     def do_switch():
         _model_manager.ensure_model(key)
     _t.Thread(target=do_switch, daemon=True).start()
-    return {"switching_to": key, "eta_sec": MODEL_CATALOG[key]["load_sec"]}
+    return {"switching_to": key, "eta_sec": runtime_catalog[key]["load_sec"]}
 
 @app.post("/jobs/{job_id}/respond")
 def respond_to_job(job_id: str, req: dict):
@@ -5167,7 +5613,6 @@ def analyze_job_for_skills(job_id: str, project: str = "default"):
 
 # スキルフォルダ: C:\AI\skills\ に一本化
 # ユーザー追加・CodeAgent提案スキルを共有資産として格納
-SKILLS_DIR = os.path.join(CA_DATA_DIR, "skills")
 os.makedirs(SKILLS_DIR, exist_ok=True)
 # 後方互換のエイリアス
 SKILLS_GLOBAL_DIR  = SKILLS_DIR
@@ -5546,6 +5991,7 @@ def model_db_status_api():
     benchmarked = [m for m in models if m.get("tok_per_sec", -1) > 0]
     has_vlm = any(m.get("is_vlm") for m in models)
     return {
+        "db_exists": model_db_exists(),
         "has_models": len(models) > 0,
         "total": len(models),
         "benchmarked": len(benchmarked),
@@ -5553,18 +5999,162 @@ def model_db_status_api():
         "db_path": MODEL_DB_PATH,
     }
 
+
+
+_model_scan_lock = __import__("threading").Lock()
+_model_scan_state: dict[str, object] = {
+    "running": False,
+    "done": False,
+    "job_id": "",
+    "folder": "",
+    "phase": "idle",
+    "current": 0,
+    "total": 0,
+    "summary": "",
+    "planner_model": "",
+    "initialized_roles": 0,
+    "found": 0,
+    "added": 0,
+    "updated": 0,
+    "benchmarked": 0,
+    "error": "",
+}
+
+
+def _set_model_scan_state(**updates):
+    with _model_scan_lock:
+        _model_scan_state.update(updates)
+
+
+def get_model_scan_state() -> dict:
+    with _model_scan_lock:
+        return dict(_model_scan_state)
+
+
+def _run_model_scan_job(job_id: str, folder: str):
+    _set_model_scan_state(
+        running=True,
+        done=False,
+        job_id=job_id,
+        folder=folder,
+        phase="scan",
+        current=0,
+        total=0,
+        summary="Scanning folders...",
+        planner_model="",
+        initialized_roles=0,
+        found=0,
+        added=0,
+        updated=0,
+        benchmarked=0,
+        error="",
+    )
+    try:
+        results = model_db_scan_folder(folder)
+        total = len(results)
+        _set_model_scan_state(total=total, found=total, summary="Preparing benchmarks...")
+        added = 0
+        updated = 0
+        benchmarked = 0
+        saved_models = []
+        if total == 0:
+            _set_model_scan_state(
+                running=False,
+                done=True,
+                phase="done",
+                summary="No GGUF models found.",
+                models=[],
+            )
+            return
+        for idx, m in enumerate(results, start=1):
+            model_name = m.get("name") or os.path.basename(m.get("path", "")) or f"model {idx}"
+            _set_model_scan_state(
+                phase="benchmark",
+                current=idx,
+                total=total,
+                summary=f"Benchmarking {model_name}",
+            )
+            existing = model_db_find_by_path(m["path"])
+            if existing:
+                model_db_update(existing["id"], m)
+                model_id = existing["id"]
+                updated += 1
+            else:
+                model_id = model_db_add(m)
+                added += 1
+            saved = model_db_find_by_path(m["path"]) or {"id": model_id, **m}
+            updates = benchmark_model_profiles(saved)
+            model_db_update(model_id, updates)
+            merged = dict(saved)
+            merged.update(updates)
+            saved_models.append(merged)
+            benchmarked += 1
+            _set_model_scan_state(added=added, updated=updated, benchmarked=benchmarked)
+
+        _set_model_scan_state(
+            phase="planner",
+            current=total,
+            total=total,
+            summary="Choosing planner and recommended roles...",
+        )
+        planner_key, recommendations = recommend_roles_with_planner(saved_models)
+        initialized_roles = 0
+        for model in saved_models:
+            existing_roles = [x.strip() for x in str(model.get("auto_roles", "")).split(",") if x.strip()]
+            if existing_roles:
+                continue
+            roles = recommendations.get(model["id"], [])
+            if not roles:
+                continue
+            joined = ",".join(roles)
+            model_db_update(model["id"], {"auto_roles": joined})
+            model["auto_roles"] = joined
+            initialized_roles += 1
+
+        final_models = model_db_list()
+        _set_model_scan_state(
+            running=False,
+            done=True,
+            phase="done",
+            current=total,
+            total=total,
+            summary="Benchmark complete.",
+            planner_model=planner_key,
+            initialized_roles=initialized_roles,
+            found=total,
+            added=added,
+            updated=updated,
+            benchmarked=benchmarked,
+            models=final_models,
+        )
+    except Exception as e:
+        _set_model_scan_state(
+            running=False,
+            done=True,
+            phase="error",
+            summary="Benchmark failed.",
+            error=str(e),
+        )
+        print(f"[ModelDB] scan error: {e}")
+
 @app.post("/models/db/scan")
 def scan_model_folder_api(req: dict):
     folder = req.get("folder", "")
     if not folder:
         raise HTTPException(400, "folder required")
-    results = model_db_scan_folder(folder)
-    added = 0
-    for m in results:
-        model_db_add(m)
-        added += 1
-    return {"ok": True, "found": len(results), "added": added,
-            "models": results}
+    job_id = str(uuid.uuid4())[:8]
+    state = get_model_scan_state()
+    if state.get("running"):
+        return {"ok": False, "running": True, "job_id": state.get("job_id", "")}
+    import threading as _scan_thread
+    _scan_thread.Thread(target=_run_model_scan_job, args=(job_id, folder), daemon=True).start()
+    return {"ok": True, "running": True, "job_id": job_id}
+
+
+
+@app.get("/models/db/scan/status")
+def model_scan_status_api():
+    return get_model_scan_state()
 
 @app.post("/models/db/benchmark/{mid}")
 def benchmark_model_api(mid: str):
@@ -5580,42 +6170,7 @@ def benchmark_model_api(mid: str):
     import threading as _bt
     def _run_bench():
         try:
-            # benchmark_mem.pyからヘルパー関数をインポート
-            import sys as _sys
-            bench_dir = os.path.dirname(os.path.abspath(__file__))
-            if bench_dir not in _sys.path:
-                _sys.path.insert(0, bench_dir)
-            from benchmark_mem import (start_server_with_log, stop_server as _stop,
-                                        parse_llama_log, infer, measure_baseline,
-                                        get_memory, LLAMA_SERVER)
-            path = model["path"]
-            ctx = model.get("ctx_size", 4096)
-            ngl = model.get("gpu_layers", 999)
-            if not os.path.exists(path):
-                model_db_update(mid, {"notes": f"BENCHMARK SKIP: file not found {path}"})
-                return
-            baseline = measure_baseline()
-            proc, load_sec, log_text = start_server_with_log(path, ctx, ngl)
-            if not load_sec:
-                _stop(proc)
-                model_db_update(mid, {"notes": "BENCHMARK FAIL: server did not start"})
-                return
-            log_mem = parse_llama_log(log_text)
-            mem_now = get_memory()
-            vram_delta = (mem_now["vram"] - baseline["vram"]
-                          if mem_now["vram"] >= 0 and baseline["vram"] >= 0 else -1)
-            ram_delta = (mem_now["ram"] - baseline["ram"]
-                         if mem_now["ram"] >= 0 and baseline["ram"] >= 0 else -1)
-            inf = infer()
-            _stop(proc)
-            updates = {
-                "load_sec": round(load_sec, 1),
-                "vram_mb": log_mem["gpu_total_mib"] if log_mem["gpu_total_mib"] > 0 else vram_delta,
-                "ram_mb": log_mem["cpu_total_mib"] if log_mem["cpu_total_mib"] > 0 else ram_delta,
-                "tok_per_sec": inf.get("gen", -1) if inf.get("ok") else -1,
-                "benchmarked_at": datetime.now().isoformat(),
-                "notes": f"gen={inf.get('gen','?')} tok/s load={round(load_sec,1)}s",
-            }
+            updates = benchmark_model_profiles(model)
             model_db_update(mid, updates)
             print(f"[ModelDB] benchmark done: {model['name']} {updates}")
         except Exception as e:
@@ -5645,21 +6200,22 @@ def get_settings_api():
 @app.post("/settings")
 def save_settings_api(req: dict):
     """複数設定を一括保存"""
+    req = {k: v for k, v in req.items() if k not in ("max_output_tokens", "llm_port")}
+    if "ctx_size" in req:
+        try:
+            req["ctx_size"] = str(max(512, min(32768, int(req["ctx_size"]))))
+        except Exception:
+            req.pop("ctx_size", None)
     settings_set_bulk(req)
     # search/streaming などサーバー側フラグも同期
-    global _search_enabled, _llm_streaming, _current_n_ctx, _current_max_output_tokens
+    global _search_enabled, _llm_streaming, _current_n_ctx
     if "search_enabled" in req:
         _search_enabled = str(req["search_enabled"]).lower() in ("true", "1", "yes")
     if "streaming_enabled" in req:
         _llm_streaming = str(req["streaming_enabled"]).lower() in ("true", "1", "yes")
     if "ctx_size" in req:
         try:
-            _current_n_ctx = int(req["ctx_size"])
-        except Exception:
-            pass
-    if "max_output_tokens" in req:
-        try:
-            _current_max_output_tokens = max(256, min(int(req["max_output_tokens"]), 32768))
+            _current_n_ctx = max(512, min(32768, int(req["ctx_size"])))
         except Exception:
             pass
     return {"ok": True, "saved": list(req.keys())}
@@ -5958,7 +6514,7 @@ def trigger_memory_analysis(job_id: str, project: str = "default"):
 @app.get("/health")
 def health():
     try:
-        res = requests.get("http://localhost:8080/health", timeout=3)
+        res = requests.get(f"http://127.0.0.1:{_model_manager.llm_port}/health", timeout=3)
         llm_ok = res.status_code == 200
     except Exception:
         llm_ok = False
