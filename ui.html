@@ -156,6 +156,132 @@ async function deleteSkill(name) {
   refreshSkills();
 }
 
+// ── PERMANENT MEMORY ──
+let _memSearchTimer = null;
+
+async function refreshMemory() {
+  try {
+    const r = await fetch(API+'/memory');
+    const d = await r.json();
+    renderMemory(d.entries || []);
+  } catch(e) { console.warn('memory fetch error', e); }
+}
+
+async function searchMemory(q) {
+  clearTimeout(_memSearchTimer);
+  _memSearchTimer = setTimeout(async () => {
+    try {
+      const url = q.trim() ? API+'/memory?q='+encodeURIComponent(q) : API+'/memory';
+      const r = await fetch(url);
+      const d = await r.json();
+      renderMemory(d.entries || []);
+    } catch(e) {}
+  }, 300);
+}
+
+const _catColor = {
+  error_solution: 'var(--red)',
+  env_knowledge: 'var(--blue)',
+  workflow: 'var(--amber)',
+  general: 'var(--text3)'
+};
+const _catLabel = {
+  error_solution: '🔧 error_solution',
+  env_knowledge: '🌐 env_knowledge',
+  workflow: '⚙ workflow',
+  general: '📝 general'
+};
+
+function renderMemory(entries) {
+  const el = document.getElementById('memory-list');
+  const stats = document.getElementById('memory-stats');
+  if (!el) return;
+  if (stats) stats.textContent = `${entries.length} entries`;
+  if (!entries.length) {
+    el.innerHTML = `<div style="font-size:11px;color:var(--text3);padding:8px">
+      メモリなし。タスク実行後に自動的に知識が蓄積されます。</div>`;
+    return;
+  }
+  el.innerHTML = entries.map(e => {
+    const catColor = _catColor[e.category] || 'var(--text3)';
+    const catLabel = _catLabel[e.category] || e.category;
+    const kws = (e.keywords||[]).map(k =>
+      `<span style="background:var(--bg3);padding:1px 4px;border-radius:3px;font-size:9px">${esc(k)}</span>`
+    ).join(' ');
+    const proj = e.source_project && e.source_project !== 'global' ? ` · ${esc(e.source_project)}` : '';
+    const date = (e.updated_at||'').slice(0,10);
+    return `
+    <div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;background:var(--bg2)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+        <div style="flex:1">
+          <span style="font-size:11px;font-weight:700;color:var(--text)">${esc(e.title)}</span>
+          <span style="font-size:9px;color:${catColor};margin-left:6px;padding:1px 5px;border:1px solid ${catColor};border-radius:3px;opacity:.7">${catLabel}</span>
+        </div>
+        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;margin-left:6px">
+          <span style="font-size:9px;color:var(--text3)">×${e.usage_count||0}${proj}</span>
+          <button onclick="editMemoryInline('${esc(e.id)}')" style="font-size:9px;padding:1px 5px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">✏</button>
+          <button onclick="deleteMemory('${esc(e.id)}')" style="font-size:9px;padding:1px 5px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:3px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:5px;line-height:1.5">${esc(e.content)}</div>
+      ${kws ? `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px">${kws}</div>` : ''}
+      <div style="font-size:9px;color:var(--text3)">${date}</div>
+    </div>`;
+  }).join('');
+}
+
+async function deleteMemory(id) {
+  if (!confirm('このメモリを削除しますか？')) return;
+  await fetch(API+'/memory/'+encodeURIComponent(id), {method:'DELETE'});
+  refreshMemory();
+}
+
+function showAddMemoryForm() {
+  const f = document.getElementById('memory-add-form');
+  if (f) { f.style.display = 'block'; document.getElementById('mem-title')?.focus(); }
+}
+function hideAddMemoryForm() {
+  const f = document.getElementById('memory-add-form');
+  if (f) f.style.display = 'none';
+}
+
+async function saveNewMemory() {
+  const category = document.getElementById('mem-category')?.value || 'general';
+  const title = document.getElementById('mem-title')?.value?.trim();
+  const content = document.getElementById('mem-content')?.value?.trim();
+  const kwRaw = document.getElementById('mem-keywords')?.value || '';
+  const keywords = kwRaw.split(',').map(k=>k.trim()).filter(Boolean);
+  if (!title || !content) { alert('タイトルと内容は必須です'); return; }
+  await fetch(API+'/memory', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({category, title, content, keywords, source_project:'manual'})
+  });
+  hideAddMemoryForm();
+  document.getElementById('mem-title').value = '';
+  document.getElementById('mem-content').value = '';
+  document.getElementById('mem-keywords').value = '';
+  refreshMemory();
+  addLog('ok','memory', `メモリ追加: ${title}`);
+}
+
+async function editMemoryInline(id) {
+  // メモリ一覧から該当エントリを取得して編集フォームに流し込む
+  try {
+    const r = await fetch(API+'/memory');
+    const d = await r.json();
+    const e = (d.entries||[]).find(x => x.id === id);
+    if (!e) return;
+    const newContent = prompt('内容を編集:', e.content);
+    if (newContent === null) return;
+    await fetch(API+'/memory/'+encodeURIComponent(id), {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({...e, content: newContent.trim()})
+    });
+    refreshMemory();
+    addLog('ok','memory', `メモリ更新: ${e.title}`);
+  } catch(ex) { console.error(ex); }
+}
+
 </script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -213,12 +339,25 @@ header{
 .stext{font-size:11px;font-family:var(--font-mono);color:var(--text2)}
 
 /* ── MOBILE TABS (≤768px only) ── */
-.mob-tabs{display:none;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0}
-.mob-tab{flex:1;padding:10px 4px;text-align:center;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--text2);cursor:pointer;border:none;background:transparent;font-family:var(--font-ui);border-bottom:2px solid transparent;transition:all .15s}
+.mob-tabs{
+  display:none;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;
+  overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+}
+.mob-tabs::-webkit-scrollbar{display:none}
+.mob-tab{
+  flex:0 0 auto;min-width:58px;padding:11px 10px;text-align:center;
+  font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--text2);
+  cursor:pointer;border:none;background:transparent;font-family:var(--font-ui);
+  border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;
+}
 .mob-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 @media(max-width:768px){
   .mob-tabs{display:flex}
-  .panel-tabs{display:none !important}  /* ← iPhone二重タブ修正 */
+  .panel-tabs{display:none !important}
+}
+/* iPhone safe area: home indicator padding at bottom only */
+@supports(padding:env(safe-area-inset-bottom)){
+  .input-area{padding-bottom:max(10px,env(safe-area-inset-bottom))}
 }
 
 /* ── LAYOUT ── */
@@ -229,8 +368,9 @@ header{
 }
 @media(max-width:768px){
   .app-body{
-    height:calc(100vh - 52px - 44px);
-    height:calc(100dvh - 52px - 44px);
+    flex:1;
+    min-height:0;
+    height:auto;
   }
   .chat-col{
     /* flex layout: messages flex-grow, input always visible at bottom */
@@ -624,12 +764,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
   </div>
   <div class="hdr-right">
-    <button class="hdr-icon-btn" id="search-toggle" onclick="toggleSearch()" title="Web Search: OFF — click to enable">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-    </button>
-    <button class="hdr-icon-btn" id="streaming-toggle" onclick="toggleStreaming()" title="LLM Streaming: ON — click to disable" style="font-size:14px;opacity:1">⚡</button>
-    <button class="hdr-icon-btn" id="llm-btn" onclick="openLLMManager()" title="LLM Settings">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+    <button class="hdr-icon-btn" id="settings-btn" onclick="openSettings()" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06-.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
     <div class="tok-display" id="tok-display" style="display:none;align-items:center;gap:5px;font-size:11px;font-family:var(--font-mono);color:var(--text2)">
       <span id="tok-total" style="color:var(--accent)"></span>
@@ -648,6 +784,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <button class="mob-tab" id="mob-preview" onclick="mobSwitch('preview')">Preview</button>
   <button class="mob-tab" id="mob-log" onclick="mobSwitch('log')">Log</button>
   <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skills</button>
+  <button class="mob-tab" id="mob-memory" onclick="mobSwitch('memory')">Memory</button>
 </div>
 
 <div class="app-body">
@@ -677,6 +814,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <button class="tab-btn" onclick="switchTab('preview')">Preview</button>
       <button class="tab-btn" onclick="switchTab('log')">Log</button>
       <button class="tab-btn" onclick="switchTab('skills')">Skills</button>
+      <button class="tab-btn" onclick="switchTab('memory')">Memory</button>
       <div class="tab-spacer"></div>
       <span class="tab-label" id="tab-label">—</span>
     </div>
@@ -739,97 +877,152 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       </div>
       <div id="skill-proposals" style="margin-top:12px"></div>
     </div>
+
+    <!-- MEMORY TAB -->
+    <div class="tab-content" id="tab-memory" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Permanent Memory</span>
+        <div style="display:flex;gap:4px">
+          <button onclick="refreshMemory()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺</button>
+          <button onclick="showAddMemoryForm()" style="font-size:10px;padding:3px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">+ Add</button>
+        </div>
+      </div>
+      <div style="margin-bottom:8px">
+        <input id="memory-search" type="text" placeholder="🔍 キーワード検索..." oninput="searchMemory(this.value)"
+          style="width:100%;padding:6px 10px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);outline:none;font-family:var(--font-mono)">
+      </div>
+      <div id="memory-add-form" style="display:none;border:1px solid var(--accent-border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--accent-bg)">
+        <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px">新規メモリ追加</div>
+        <select id="mem-category" style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+          <option value="error_solution">error_solution（エラーと解決策）</option>
+          <option value="env_knowledge">env_knowledge（環境・ツール知識）</option>
+          <option value="workflow">workflow（作業フロー）</option>
+          <option value="general">general（その他）</option>
+        </select>
+        <input id="mem-title" type="text" placeholder="タイトル（必須）"
+          style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+        <textarea id="mem-content" placeholder="内容・詳細（必須）" rows="3"
+          style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);resize:vertical"></textarea>
+        <input id="mem-keywords" type="text" placeholder="キーワード（カンマ区切り）"
+          style="width:100%;padding:4px 8px;margin-bottom:8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+        <div style="display:flex;gap:5px">
+          <button onclick="saveNewMemory()" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">保存</button>
+          <button onclick="hideAddMemoryForm()" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <div id="memory-stats" style="font-size:10px;color:var(--text3);margin-bottom:6px"></div>
+      <div id="memory-list" style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:12px;color:var(--text3)">Loading...</div>
+      </div>
+    </div>
     </div>
   </div>
 </div>
 
-<!-- LLM MANAGER MODAL -->
-<div class="modal-overlay" id="llm-modal" onclick="if(event.target===this)closeLLMManager()">
+<!-- SETTINGS MODAL -->
+<div class="modal-overlay" id="settings-modal" onclick="if(event.target===this)closeSettings()">
   <div class="modal">
     <div class="modal-hdr">
-      <span class="modal-title">LLM Endpoints</span>
-      <button class="modal-close" onclick="closeLLMManager()">✕</button>
+      <span class="modal-title">⚙ Settings</span>
+      <button class="modal-close" onclick="closeSettings()">✕</button>
     </div>
-    <div class="modal-body">
-      <div class="section-label">Add New Endpoint</div>
-      <div class="llm-add-form">
-        <div class="llm-form-row">
-          <input class="llm-input" id="llm-new-name" placeholder="Name  (e.g. Qwen35B-local)" style="flex:.4">
-          <input class="llm-input" id="llm-new-url" placeholder="URL  e.g. http://192.168.1.10:8080/v1/chat/completions">
+    <div class="modal-body" style="overflow-y:auto;max-height:72vh">
+
+      <!-- エージェント設定 -->
+      <div class="section-label">🤖 エージェント設定</div>
+      <div style="padding:4px 0 14px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="font-size:11px;color:var(--text2);flex:1;white-space:nowrap">Max Steps</span>
+          <input type="range" id="steps-slider" min="1" max="100" step="1" value="20"
+            style="flex:2;accent-color:var(--accent);cursor:pointer"
+            oninput="updateStepsLabel(this.value)">
+          <span id="steps-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:28px;text-align:right">20</span>
         </div>
-        <div class="llm-form-row">
-          <button class="llm-btn secondary" onclick="testNewLLM()">⚡ Test</button>
-          <button class="llm-btn primary" onclick="addLLM()" style="flex:1">+ Add</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">失敗時の対応選択</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px" id="auto-select-desc">🤖 プランナーLLMが自動選択</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="auto-select-toggle" checked
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="toggleAutoSelect(this.checked)">
+            <span style="font-size:11px;color:var(--text2)" id="auto-select-label">Auto</span>
+          </label>
         </div>
-        <div class="test-result" id="new-test-result"></div>
-      </div>
-      <div class="section-label">Saved Endpoints</div>
-      <div class="llm-list" id="llm-list"></div>
-    </div>
-    <div style="padding:14px 16px;border-top:1px solid var(--border)">
-      <div class="section-label" style="margin-bottom:10px">Search Results</div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <input type="range" id="search-num-slider"
-          min="1" max="20" step="1" value="5"
-          style="flex:1;accent-color:var(--accent);cursor:pointer"
-          oninput="updateSearchNumLabel(this.value)" onchange="applySearchNum(this.value)">
-        <span id="search-num-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:40px;text-align:right">5</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--text3);font-family:var(--font-mono)">
-        <span>1</span><span>10</span><span>20</span>
-      </div>
-      <div style="margin-top:6px;font-size:11px;color:var(--text3)">
-        More results = richer context but slower responses.
-      </div>
-    </div>
-    <div style="padding:14px 16px;border-top:1px solid var(--border)">
-      <div class="section-label" style="margin-bottom:10px">Context Length</div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <input type="range" id="ctx-slider"
-          min="512" max="32768" step="512" value="32768"
-          style="flex:1;accent-color:var(--accent);cursor:pointer"
-          oninput="updateCtxLabel(this.value)" onchange="applyCtxLen(this.value)">
-        <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:56px;text-align:right">32768</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--text3);font-family:var(--font-mono)">
-        <span>512</span>
-        <span id="ctx-max-label">max: 32768</span>
-        <span id="ctx-slider-max">32768</span>
-      </div>
-      <div style="margin-top:6px;font-size:11px;color:var(--text3)">
-        Shorter = faster responses. Longer = more context but uses more VRAM.
-      </div>
-    </div>
-    <div style="padding:14px 16px;border-top:1px solid var(--border)">
-      <div class="section-label" style="margin-bottom:10px">Max Tool Steps</div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <input type="range" id="steps-slider"
-          min="1" max="100" step="1" value="20"
-          style="flex:1;accent-color:var(--accent);cursor:pointer"
-          oninput="updateStepsLabel(this.value)">
-        <span id="steps-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:40px;text-align:right">20</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--text3);font-family:var(--font-mono)">
-        <span>1</span><span>50</span><span>100</span>
-      </div>
-      <div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between">
-        <div>
-          <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.04em">失敗時の対応選択</div>
-          <div style="font-size:10px;color:var(--text3);margin-top:2px" id="auto-select-desc">🤖 プランナーLLMが自動選択</div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">SKILL自動生成</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px" id="auto-skill-desc">⚙ 失敗時にSKILLを自動生成</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="auto-skill-toggle" checked
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="toggleAutoSkill(this.checked)">
+            <span style="font-size:11px;color:var(--text2)">Auto</span>
+          </label>
         </div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="auto-select-toggle" checked
-            style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer"
-            onchange="toggleAutoSelect(this.checked)">
-          <span style="font-size:11px;color:var(--text2)" id="auto-select-label">Auto</span>
-        </label>
+        <div style="margin-top:6px;font-size:10px;color:var(--text3)">⚠ 推奨 Steps: 10〜25。過剰だと繰り返しループのリスクあり。</div>
       </div>
-      <div style="margin-top:6px;font-size:11px;color:var(--text3);line-height:1.5">
-        ⚠ 無制限に近い設定はLLMが同じ操作を繰り返すループに陥るリスクがあります。推奨: 10〜25。
+
+      <!-- LLM設定 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">💬 LLM</div>
+      <div style="padding:4px 0 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">ストリーミング</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">トークン生成をリアルタイム表示</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="streaming-chk" checked
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="toggleStreaming()">
+            <span style="font-size:11px;color:var(--text2)" id="streaming-label">ON</span>
+          </label>
+        </div>
+        <div style="margin-bottom:6px;font-size:11px;color:var(--text2)">コンテキスト長</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="ctx-slider" min="512" max="32768" step="512" value="32768"
+            style="flex:1;accent-color:var(--accent);cursor:pointer"
+            oninput="updateCtxLabel(this.value)" onchange="applyCtxLen(this.value)">
+          <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">32768</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px">
+          <span>512</span><span id="ctx-max-label">max: 32768</span><span id="ctx-slider-max">32768</span>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">LLM URL（空=サーバーデフォルト）</div>
+        <input type="text" id="llm-url-input" placeholder="http://localhost:8080/v1/chat/completions"
+          style="width:100%;padding:6px 8px;font-size:10px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--font-mono);box-sizing:border-box"
+          oninput="activeLlmUrl=this.value.trim()">
       </div>
+
+      <!-- Web検索 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔍 Web検索</div>
+      <div style="padding:4px 0 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">DuckDuckGo検索</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">エージェントがWeb検索を使用</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="search-chk"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="toggleSearch()">
+            <span style="font-size:11px;color:var(--text2)" id="search-label">OFF</span>
+          </label>
+        </div>
+        <div style="margin-bottom:4px;font-size:11px;color:var(--text2)">検索件数</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="search-num-slider" min="1" max="20" step="1" value="5"
+            style="flex:1;accent-color:var(--accent);cursor:pointer"
+            oninput="updateSearchNumLabel(this.value)" onchange="applySearchNum(this.value)">
+          <span id="search-num-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:28px;text-align:right">5</span>
+        </div>
+      </div>
+
     </div>
-    <div class="modal-footer" style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">
-      Endpoints are saved in browser localStorage. No data sent to external services.
+    <div class="modal-footer" style="font-size:10px;color:var(--text3);font-family:var(--font-mono)">
+      設定はブラウザのlocalStorageに保存されます。
     </div>
   </div>
 </div>
@@ -861,13 +1054,13 @@ let mode = 'chat';
 let busy = false;
 let maxSteps = 20;
 let autoSelectOption = true; // プランナーLLMによる自動選択
+let autoSkillGeneration = true; // 失敗時にSKILLを自動生成
 let currentProject = 'default';
 let htmlFiles = [];
 let editorOpen = false;
 let searchEnabled = false;
 let streamingEnabled = true;  // サーバーデフォルトと同期
 let activeLlmUrl = '';    // 空文字 = サーバーデフォルト(LLM_URL)
-let llmEndpoints = [];    // {name, url, status:'ok'|'err'|'unk'}
 let pendingPlan = null;   // 承認待ちのプラン
 let progressEl = null;    // 現在のプログレスカード
 let timerInterval = null;
@@ -889,7 +1082,6 @@ if (window.visualViewport) {
 addEventListener('load', async () => {
   checkHealth();
   loadProjects();
-  loadLLMEndpoints();
   initSearch();
   initStreaming();
   initCtxSlider();
@@ -935,22 +1127,53 @@ function setMode(m) {
 
 // ── MOBILE ──
 function mobSwitch(name) {
-  ['chat','output','preview','log','skills'].forEach(t => document.getElementById('mob-'+t)?.classList.remove('active'));
+  ['chat','output','preview','log','skills','memory'].forEach(t => document.getElementById('mob-'+t)?.classList.remove('active'));
   document.getElementById('mob-'+name)?.classList.add('active');
   const cc = document.getElementById('chat-col');
   const pc = document.getElementById('panel-col');
   if (name === 'chat') { cc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden'); }
   else { cc.classList.add('mob-hidden'); pc.classList.remove('mob-hidden');
-    if (name !== 'chat') switchTab(name === 'output' ? 'output' : name === 'preview' ? 'preview' : name === 'skills' ? 'skills' : 'log'); }
+    switchTab(name === 'output' ? 'output' : name === 'preview' ? 'preview' : name === 'skills' ? 'skills' : name === 'memory' ? 'memory' : 'log'); }
+}
+
+// ── SKILL PROPOSALS ──
+function _renderSkillProposals(proposals, stats) {
+  if (!proposals.length) return;
+  addLog('info','skill', `⚙ スキル提案: ${proposals.length}件 (tool_calls:${stats.tool_calls||0} errors:${stats.errors||0})`);
+  const el = document.getElementById('skill-proposals');
+  if (!el) return;
+  el._proposals = proposals;
+  el.innerHTML = `<div style="font-size:11px;font-weight:700;color:var(--amber);margin-bottom:8px;padding:6px 8px;background:rgba(255,170,0,.08);border:1px solid rgba(255,170,0,.25);border-radius:6px">
+    ⚙ ${proposals.length}件のスキル提案があります（保存してSKILL一覧に追加できます）
+  </div>` +
+    proposals.map((p,i) => `
+      <div style="border:1px solid var(--accent-border);border-radius:6px;padding:10px 12px;background:var(--accent-bg);margin-bottom:8px">
+        <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px">${esc(p.name)}</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${esc(p.description)}</div>
+        ${p.rationale ? `<div style="font-size:10px;color:var(--text3);margin-bottom:6px;font-style:italic">${esc(p.rationale)}</div>` : ''}
+        <details style="margin-bottom:6px"><summary style="font-size:10px;color:var(--text3);cursor:pointer">▶ code</summary>
+          <pre style="font-size:10px;font-family:var(--font-mono);color:var(--text2);white-space:pre-wrap;word-break:break-all;margin:4px 0 0;padding:6px;background:var(--bg3);border-radius:4px;max-height:160px;overflow-y:auto">${esc(p.tool_code||'')}</pre>
+        </details>
+        <div style="display:flex;gap:6px">
+          <button onclick="saveSkillProposal(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">✓ Save</button>
+          <button onclick="planSkillImpl(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:600;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">⚙ Implement</button>
+        </div>
+      </div>`).join('');
+  // Skills タブに切り替えて提案をスクロール表示（モバイル対応）
+  const isMobile = window.innerWidth <= 768;
+  if (isMobile) mobSwitch('skills');
+  else switchTab('skills');
+  setTimeout(() => el.scrollIntoView({behavior:'smooth', block:'nearest'}), 150);
 }
 
 // ── PANEL TABS ──
 function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach((b,i) =>
-    b.classList.toggle('active', ['output','preview','log','skills'][i]===name));
+    b.classList.toggle('active', ['output','preview','log','skills','memory'][i]===name));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  document.getElementById('tab-'+name).classList.add('active');
+  document.getElementById('tab-'+name)?.classList.add('active');
   if (name === 'preview') refreshFileBrowser();
+  if (name === 'memory') refreshMemory();
 }
 
 // ── DRAWER ──
@@ -1099,6 +1322,18 @@ async function selectProject(name) {
   await loadJobs(name);
   refreshFileBrowser();
   addLog('info','project','Switched to: '+name);
+  // 最終ジョブ結果を復元（リロード後の再表示）
+  try {
+    const raw = localStorage.getItem('lastJob_' + name);
+    if (raw) {
+      const d = JSON.parse(raw);
+      const age = (Date.now() - (d.savedAt||0)) / 1000 / 3600; // hours
+      if (age < 72 && (d.taskResults||[]).length) { // 3日以内のみ
+        addMsg('system', `📋 前回のジョブ結果を復元しました (${new Date(d.savedAt).toLocaleString()})`);
+        addTaskBlock(d.taskResults, d.allPlannedTasks||[], d.planMeta||{});
+      }
+    }
+  } catch(e) {}
 }
 async function createProject() {
   const input = document.getElementById('new-proj-input');
@@ -1130,7 +1365,7 @@ function renderHistorySession(s) {
   // user message
   const um = document.createElement('div');
   um.className = 'msg user history';
-  um.innerHTML = `<div class="msg-role">You</div><div class="msg-bubble">${esc(s.message)}</div><div class="msg-ts">${ts}</div>`;
+  um.innerHTML = `<div class="msg-role">Boss</div><div class="msg-bubble">${esc(s.message)}</div><div class="msg-ts">${ts}</div>`;
   messages().appendChild(um);
   addToHistory('user', s.message); // chatHistory に追加して後続メッセージでコンテキスト維持
   addLog('ok','history', `[${ts}] ${s.message.slice(0,50)}`);
@@ -1664,7 +1899,7 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
         allSteps.push(ev);
         const _ptok = ev.prompt_tokens||0;
         const _ctok = ev.completion_tokens||0;
-        const _ctxStr = _ptok > 0 ? `${_ptok+_ctok}/${_current_n_ctx_ui||'?'}` : '--/--';
+        const _ctxStr = _ptok > 0 ? `${(_ptok+_ctok).toLocaleString()}/${(_current_n_ctx_ui||0).toLocaleString()}` : `--/${(_current_n_ctx_ui||'?').toLocaleString()}`;
         setCard(progCard, {
           action:  (ev.action||'') + ': ' + (ev.thought||''),
           tps:     ev.tps||0,
@@ -1703,35 +1938,17 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
       } else if (ev.type === 'task_options') {
         _taskOptionsMap[`${_currentJobId}_${ev.task_id}`] = ev.options || [];
         showTaskOptions(ev, _currentJobId);
-        addLog('warn','task', `⚠ 4回試行失敗: ${ev.title||''} — 対応案を選択してください`);
+        const autoMsg = ev.auto_chosen ? `🤖 案${ev.auto_chosen}を自動選択: ${ev.auto_reason||''}` : '⚠ 対応案を選択してください';
+        addLog(ev.auto_chosen ? 'ok' : 'warn','task', `4回試行失敗: ${ev.title||''} — ${autoMsg}`);
+      } else if (ev.type === 'skill_generated') {
+        addLog('ok','skill', `⚙ SKILL自動生成: ${ev.skill_name} — ${ev.description||''} (理由: ${ev.rationale||''})`);
+        refreshSkills();
+      } else if (ev.type === 'memory_analyzing') {
+        addLog('info','memory', `🧠 ${ev.message||'メモリ抽出中...'}`);
       } else if (ev.type === 'skill_hint') {
         addLog('warn','skill', `Missing tool: ${ev.missing_tool} — will be proposed`);
       } else if (ev.type === 'skill_proposals') {
-        const proposals = ev.proposals || [];
-        const stats = ev.stats || {};
-        if (proposals.length) {
-          addLog('info','skill', `Auto-analyzed: ${proposals.length} skill proposals (${stats.tool_calls||0} tool calls, ${stats.errors||0} errors)`);
-          switchTab('skills');
-          const el = document.getElementById('skill-proposals');
-          if (el) {
-            el._proposals = proposals;
-            el.innerHTML = '<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">🔍 Auto-Analyzed Proposals</div>' +
-              proposals.map((p,i) => `
-                <div style="border:1px solid var(--accent-border);border-radius:6px;padding:10px 12px;background:var(--accent-bg);margin-bottom:8px">
-                  <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px">${esc(p.name)}</div>
-                  <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${esc(p.description)}</div>
-                  ${p.rationale ? `<div style="font-size:10px;color:var(--text3);margin-bottom:6px;font-style:italic">${esc(p.rationale)}</div>` : ''}
-                  <details style="margin-bottom:6px"><summary style="font-size:10px;color:var(--text3);cursor:pointer">▶ code</summary>
-                    <pre style="font-size:10px;font-family:var(--font-mono);color:var(--text2);white-space:pre-wrap;word-break:break-all;margin:4px 0 0;padding:6px;background:var(--bg3);border-radius:4px;max-height:160px;overflow-y:auto">${esc(p.tool_code||'')}</pre>
-                  </details>
-                  <div style="display:flex;gap:6px">
-                    <button onclick="saveSkillProposal(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">✓ Save</button>
-                    <button onclick="planSkillImpl(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:600;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">⚙ Implement</button>
-                  </div>
-                </div>`).join('');
-          }
-          refreshSkills();
-        }
+        _renderSkillProposals(ev.proposals||[], ev.stats||{});
       } else if (ev.type === 'error') {
         addLog('err','job', ev.error || JSON.stringify(ev));
       } else if (ev.type === 'plan') {
@@ -1762,6 +1979,8 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
         }
       } else if (ev.type === 'tool_call' || ev.type === 'step') {
         allSteps.push(ev);
+      } else if (ev.type === 'skill_proposals') {
+        _renderSkillProposals(ev.proposals||[], ev.stats||{});
       }
     }
   } catch(e) {}
@@ -1774,12 +1993,23 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
     taskResults.forEach(t => {
       (t.steps || []).forEach(s => { if (s) allSteps.push(s); });
     });
-    addTaskBlock(taskResults, allPlannedTasks, {
+    const planMeta = {
       requirements: savedRequirements,
       approach:     savedApproach,
       verification: savedVerification,
       summary:      savedSummary,
-    });
+    };
+    addTaskBlock(taskResults, allPlannedTasks, planMeta);
+    // プロジェクトごとに最終ジョブ結果を保存（リロード後に復元）
+    try {
+      const saveData = {
+        taskResults: taskResults.map(t => ({task_id:t.task_id,title:t.title,status:t.status,output:(t.output||'').slice(0,500)})),
+        allPlannedTasks: allPlannedTasks.map(t => ({id:t.id,title:t.title,detail:(t.detail||'').slice(0,200)})),
+        planMeta,
+        savedAt: Date.now(),
+      };
+      localStorage.setItem('lastJob_' + currentProject, JSON.stringify(saveData));
+    } catch(e) {}
     if (allSteps.length) addStepsBlock(allSteps);
     renderStepsToOutput(allSteps);
   }
@@ -1836,6 +2066,7 @@ async function executePlan() {
         llm_url: taskLlmUrl,
         recommended_model: forcedModel,
         auto_select_option: autoSelectOption,
+        auto_skill_generation: autoSkillGeneration,
         mode: 'task', chat_history: chatHistory.slice(-10)
       })
     });
@@ -1861,27 +2092,31 @@ function addProgressCard(label, totalTasks) {
   const pct = 0;
   div.innerHTML = `<div class="msg-bubble progress-card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <div class="prog-label" style="margin-bottom:0">${esc(label)}</div>
-      <span class="prog-elapsed" style="font-size:11px;font-family:var(--font-mono);color:var(--text3);flex-shrink:0;margin-left:8px">0s</span>
+      <div class="prog-label" style="margin-bottom:0;font-size:12px;font-weight:700;color:var(--text2)">${esc(label)}</div>
+      <span class="prog-elapsed" style="font-size:11px;font-family:var(--font-mono);color:var(--accent);flex-shrink:0;margin-left:8px">0s</span>
     </div>
     <div class="prog-bar-wrap"><div class="prog-bar" style="width:0%"></div></div>
-    <div class="prog-meta" style="margin-top:6px">
-      <span class="prog-action"></span>
+    <div style="margin-top:7px;padding:6px 8px;background:rgba(255,255,255,.03);border-radius:6px;border:1px solid rgba(255,255,255,.06)">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+        <span class="prog-stat-step" style="font-size:10px;font-family:var(--font-mono);color:var(--accent);background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:4px;padding:1px 5px;flex-shrink:0">step -/-</span>
+        <span class="prog-action-tool" style="font-size:11px;font-family:var(--font-mono);color:var(--blue);font-weight:600;flex-shrink:0"></span>
+      </div>
+      <div class="prog-action" style="font-size:11px;color:var(--text2);line-height:1.4;word-break:break-word;min-height:14px"></div>
     </div>
-    <div class="prog-stats" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.06)">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:5px;align-items:center">
       <span class="prog-stat-tps"  style="font-size:10px;font-family:var(--font-mono);color:var(--text3)">-- tok/s</span>
       <span class="prog-stat-ctx"  style="font-size:10px;font-family:var(--font-mono);color:var(--text3)">ctx: --/--</span>
-      <span class="prog-stat-step" style="font-size:10px;font-family:var(--font-mono);color:var(--text3)">step: -/-</span>
     </div>
   </div>`;
   div._refs = {
-    label:   div.querySelector('.prog-label'),
-    bar:     div.querySelector('.prog-bar'),
-    elapsed: div.querySelector('.prog-elapsed'),
-    action:  div.querySelector('.prog-action'),
-    tps:     div.querySelector('.prog-stat-tps'),
-    ctx:     div.querySelector('.prog-stat-ctx'),
-    stepNum: div.querySelector('.prog-stat-step'),
+    label:      div.querySelector('.prog-label'),
+    bar:        div.querySelector('.prog-bar'),
+    elapsed:    div.querySelector('.prog-elapsed'),
+    action:     div.querySelector('.prog-action'),
+    actionTool: div.querySelector('.prog-action-tool'),
+    tps:        div.querySelector('.prog-stat-tps'),
+    ctx:        div.querySelector('.prog-stat-ctx'),
+    stepNum:    div.querySelector('.prog-stat-step'),
   };
   w.appendChild(div);
   w.scrollTop = w.scrollHeight;
@@ -1892,7 +2127,17 @@ function setCard(card, opts) {
   if (!card || !card._refs) return;
   const r = card._refs;
   if (opts.label   !== undefined) r.label.textContent  = opts.label;
-  if (opts.action  !== undefined) r.action.textContent = opts.action;
+  if (opts.action  !== undefined) {
+    // "toolName: thought text" を分割して別表示
+    const colonIdx = opts.action.indexOf(': ');
+    if (r.actionTool && colonIdx > 0) {
+      r.actionTool.textContent = opts.action.slice(0, colonIdx);
+      r.action.textContent = opts.action.slice(colonIdx + 2);
+    } else {
+      if (r.actionTool) r.actionTool.textContent = '';
+      r.action.textContent = opts.action;
+    }
+  }
   if (opts.elapsed !== undefined) r.elapsed.textContent = opts.elapsed;
   if (opts.pct     !== undefined) {
     const p = Math.max(0, Math.min(100, opts.pct));
@@ -1901,7 +2146,7 @@ function setCard(card, opts) {
   if (opts.taskName !== undefined) r.label.textContent = opts.taskName;
   if (opts.tps      !== undefined && r.tps)     r.tps.textContent     = opts.tps > 0 ? opts.tps.toFixed(1)+' tok/s' : '-- tok/s';
   if (opts.ctx      !== undefined && r.ctx)     r.ctx.textContent     = 'ctx: '+opts.ctx;
-  if (opts.stepNum  !== undefined && r.stepNum) r.stepNum.textContent = 'step: '+opts.stepNum;
+  if (opts.stepNum  !== undefined && r.stepNum) r.stepNum.textContent = 'step '+opts.stepNum;
   card.closest('.msg-list, #messages')?.scrollTo?.({top: 999999});
 }
 
@@ -1974,7 +2219,7 @@ function addMsg(role, text) {
   const d = document.createElement('div');
   d.className = 'msg '+role;
   d.dataset.msgText = text;
-  const labels = {user:'You', assistant:'Agent', system:'System', error:'Error'};
+  const labels = {user:'Boss', assistant:'Agent', system:'System', error:'Error'};
   const isMd = (role === 'assistant') && mdRenderer;
   const bubble = isMd
     ? `<div class="msg-bubble md">${renderMd(text)}</div>`
@@ -2325,6 +2570,22 @@ function addLog(level, tag, msg) {
   out.appendChild(d); out.scrollTop = out.scrollHeight;
 }
 
+// ── AUTO SELECT / SKILL TOGGLES ──
+function toggleAutoSelect(val) {
+  autoSelectOption = !!val;
+  const desc = document.getElementById('auto-select-desc');
+  const label = document.getElementById('auto-select-label');
+  if (desc) desc.textContent = autoSelectOption ? '🤖 プランナーLLMが自動選択' : '👤 ユーザーが手動選択';
+  if (label) label.textContent = autoSelectOption ? 'Auto' : 'Manual';
+  localStorage.setItem('auto_select_option', autoSelectOption ? '1' : '0');
+}
+function toggleAutoSkill(val) {
+  autoSkillGeneration = !!val;
+  const desc = document.getElementById('auto-skill-desc');
+  if (desc) desc.textContent = autoSkillGeneration ? '⚙ 失敗時にSKILLを自動生成' : '⚙ SKILL自動生成 無効';
+  localStorage.setItem('auto_skill_generation', autoSkillGeneration ? '1' : '0');
+}
+
 // ── MAX STEPS SLIDER ──
 function initStepsSlider() {
   const savedAutoSelect = localStorage.getItem('auto_select_option');
@@ -2332,6 +2593,12 @@ function initStepsSlider() {
     autoSelectOption = savedAutoSelect === '1';
     const chk = document.getElementById('auto-select-toggle');
     if (chk) { chk.checked = autoSelectOption; toggleAutoSelect(autoSelectOption); }
+  }
+  const savedAutoSkill = localStorage.getItem('auto_skill_generation');
+  if (savedAutoSkill !== null) {
+    autoSkillGeneration = savedAutoSkill === '1';
+    const chk2 = document.getElementById('auto-skill-toggle');
+    if (chk2) { chk2.checked = autoSkillGeneration; toggleAutoSkill(autoSkillGeneration); }
   }
   const saved = parseInt(localStorage.getItem('max_steps') || '20');
   maxSteps = saved;
@@ -2439,22 +2706,22 @@ async function initSearch() {
 }
 
 async function toggleSearch() {
-  const next = !searchEnabled;
+  const chk = document.getElementById('search-chk');
+  const next = chk ? chk.checked : !searchEnabled;
   try {
     const r = await fetch(API+(next?'/search/enable':'/search/disable'), {method:'POST'});
     const d = await r.json();
     applySearchUI(d.enabled);
-    addLog(d.enabled?'ok':'warn','search', d.enabled?'Web search ENABLED — queries are sanitized before sending':'Web search DISABLED');
+    addLog(d.enabled?'ok':'warn','search', d.enabled?'Web search ENABLED':'Web search DISABLED');
   } catch(e) { addLog('err','search',e.message); }
 }
 
 function applySearchUI(enabled) {
   searchEnabled = enabled;
-  const btn = document.getElementById('search-toggle');
-  if (!btn) return;
-  btn.classList.toggle('search-on', enabled);
-  btn.style.opacity = enabled ? '1' : '0.4';
-  btn.title = enabled ? 'Web Search: ON — click to disable' : 'Web Search: OFF — click to enable';
+  const chk = document.getElementById('search-chk');
+  const label = document.getElementById('search-label');
+  if (chk) chk.checked = enabled;
+  if (label) label.textContent = enabled ? 'ON' : 'OFF';
 }
 
 // ── STREAMING TOGGLE ──
@@ -2467,38 +2734,40 @@ async function initStreaming() {
 }
 
 async function toggleStreaming() {
-  const next = !streamingEnabled;
+  const chk = document.getElementById('streaming-chk');
+  const next = chk ? chk.checked : !streamingEnabled;
   try {
     const r = await fetch(API + (next ? '/streaming/enable' : '/streaming/disable'), {method: 'POST'});
     const d = await r.json();
     applyStreamingUI(d.enabled);
     addLog(d.enabled ? 'ok' : 'warn', 'streaming',
-      d.enabled ? 'LLMストリーミング有効 — TPS/tokenがリアルタイム表示' : 'LLMストリーミング無効 — 生成完了まで待機');
+      d.enabled ? 'LLMストリーミング有効' : 'LLMストリーミング無効 — 生成完了まで待機');
   } catch(e) { addLog('err', 'streaming', e.message); }
 }
 
 function applyStreamingUI(enabled) {
   streamingEnabled = enabled;
-  const btn = document.getElementById('streaming-toggle');
-  if (!btn) return;
-  btn.style.opacity = enabled ? '1' : '0.35';
-  btn.title = enabled ? 'LLM Streaming: ON — click to disable' : 'LLM Streaming: OFF — click to enable';
+  const chk = document.getElementById('streaming-chk');
+  const label = document.getElementById('streaming-label');
+  if (chk) chk.checked = enabled;
+  if (label) label.textContent = enabled ? 'ON' : 'OFF';
 }
 
-// ── LLM MANAGER ──
-function loadLLMEndpoints() {
-  try {
-    llmEndpoints = JSON.parse(localStorage.getItem('llm_endpoints') || '[]');
-    // デフォルトエンドポイントがなければ追加
-    if (!llmEndpoints.find(e => e.name === 'Default')) {
-      llmEndpoints.unshift({name:'Default', url:'', status:'unk', active:true});
-      saveLLMEndpoints();
-    }
-    const active = llmEndpoints.find(e => e.active);
-    if (active) activeLlmUrl = active.url || '';
-    updateLLMBtnLabel();
-  } catch(e) { llmEndpoints = [{name:'Default', url:'', status:'unk', active:true}]; }
+// ── SETTINGS MODAL ──
+function openSettings() {
+  document.getElementById('settings-modal').classList.add('open');
+  initStepsSlider();
+  initSearchNumSlider();
+  initCtxSlider();
+  // LLM URL 入力欄に現在値を反映
+  const urlInput = document.getElementById('llm-url-input');
+  if (urlInput) urlInput.value = activeLlmUrl;
 }
+function closeSettings() {
+  document.getElementById('settings-modal').classList.remove('open');
+}
+
+function _removedLLMManager() {
 function saveLLMEndpoints() {
   localStorage.setItem('llm_endpoints', JSON.stringify(llmEndpoints));
 }
@@ -2592,16 +2861,7 @@ function selectLLM(i) {
   renderLLMList();
   addLog('ok','llm','Active: '+llmEndpoints[i].name+(activeLlmUrl?' ('+activeLlmUrl+')':' (server default)'));
 }
-function deleteLLM(i) {
-  if (i === 0) return; // Default は削除不可
-  if (!confirm('Delete endpoint "'+llmEndpoints[i].name+'"?')) return;
-  const wasActive = llmEndpoints[i].active;
-  llmEndpoints.splice(i, 1);
-  if (wasActive) { llmEndpoints[0].active = true; activeLlmUrl = ''; }
-  saveLLMEndpoints();
-  updateLLMBtnLabel();
-  renderLLMList();
-}
+} // end _removedLLMManager
 
 // ── UTILS ──
 function setBusy(b) { busy=b; document.getElementById('send-btn').disabled=b; }

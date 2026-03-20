@@ -61,6 +61,28 @@ SANDBOX_CONTAINER = "claude_sandbox"
 
 os.makedirs(WORK_DIR, exist_ok=True)
 
+# =========================
+# Dockerタイムアウトガードレール
+# =========================
+# (デフォルト秒数, 最大許容秒数) — LLMが timeout= を指定したとき上限でクランプする
+_DOCKER_TIMEOUT_LIMITS: dict[str, tuple[int, int]] = {
+    "run_python":  (30,  300),   # 通常スクリプト: デフォ30s, 最大5分
+    "run_file":    (30,  300),   # 同上
+    "run_browser": (90,  300),   # Playwright: デフォ90s, 最大5分
+    "run_npm":     (120, 600),   # npm install等: デフォ120s, 最大10分
+    "run_node":    (30,  300),   # Node.js: デフォ30s, 最大5分
+}
+
+def _clamp_docker_timeout(tool: str, requested: int | None) -> int:
+    """LLM指定のタイムアウトを妥当な範囲にクランプして返す。"""
+    default, max_val = _DOCKER_TIMEOUT_LIMITS.get(tool, (30, 300))
+    if requested is None:
+        return default
+    clamped = max(5, min(int(requested), max_val))
+    if clamped != int(requested):
+        print(f"[timeout_guard] {tool}: {requested}s → {clamped}s (max={max_val}s)")
+    return clamped
+
 UI_DIR = "./ui"
 os.makedirs(UI_DIR, exist_ok=True)
 
@@ -74,6 +96,11 @@ _search_num_results: int = 5  # デフォルト5件
 # LLMストリーミング 有効/無効フラグ（デフォルトON）
 # =========================
 _llm_streaming: bool = True
+
+# =========================
+# パーマネントメモリ（全プロジェクト共有）
+# =========================
+MEMORY_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory.db")
 
 # =========================
 # ModelManager（動的モデル切り替え）
@@ -456,6 +483,209 @@ def get_db(project: str) -> sqlite3.Connection:
     conn = sqlite3.connect(_get_db_path(project), check_same_thread=False)
     _init_db(conn)
     return conn
+
+
+# ──────────────────────────────────────────────────
+# パーマネントメモリ（全プロジェクト共有 SQLite）
+# ──────────────────────────────────────────────────
+
+_memory_lock = _db_lock  # 既存のDBロックを共用
+
+def _get_memory_conn() -> sqlite3.Connection:
+    """メモリDBへのコネクションを返す（テーブル初期化込み）"""
+    conn = sqlite3.connect(MEMORY_DB, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("""CREATE TABLE IF NOT EXISTS memory (
+        id TEXT PRIMARY KEY,
+        category TEXT NOT NULL DEFAULT 'general',
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        keywords TEXT NOT NULL DEFAULT '[]',
+        source_project TEXT DEFAULT 'global',
+        source_job TEXT DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        usage_count INTEGER DEFAULT 0
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_cat ON memory(category)")
+    conn.commit()
+    return conn
+
+def memory_save(entry: dict) -> str:
+    """メモリエントリを保存（idなければ新規作成）"""
+    import uuid, json
+    now = __import__('datetime').datetime.utcnow().isoformat()
+    mid = entry.get("id") or str(uuid.uuid4())
+    kw = entry.get("keywords", [])
+    if isinstance(kw, list):
+        kw = json.dumps(kw, ensure_ascii=False)
+    with _memory_lock:
+        conn = _get_memory_conn()
+        try:
+            existing = conn.execute("SELECT id FROM memory WHERE id=?", (mid,)).fetchone()
+            if existing:
+                conn.execute("""UPDATE memory SET category=?,title=?,content=?,keywords=?,
+                    source_project=?,source_job=?,updated_at=? WHERE id=?""",
+                    (entry.get("category","general"), entry["title"], entry["content"],
+                     kw, entry.get("source_project","global"), entry.get("source_job",""),
+                     now, mid))
+            else:
+                conn.execute("""INSERT INTO memory
+                    (id,category,title,content,keywords,source_project,source_job,created_at,updated_at,usage_count)
+                    VALUES (?,?,?,?,?,?,?,?,?,0)""",
+                    (mid, entry.get("category","general"), entry["title"], entry["content"],
+                     kw, entry.get("source_project","global"), entry.get("source_job",""), now, now))
+            conn.commit()
+        finally:
+            conn.close()
+    return mid
+
+def memory_get_all() -> list:
+    """全メモリエントリを取得（更新日時降順）"""
+    import json
+    conn = _get_memory_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id,category,title,content,keywords,source_project,source_job,created_at,updated_at,usage_count"
+            " FROM memory ORDER BY updated_at DESC"
+        ).fetchall()
+        result = []
+        for r in rows:
+            kw = r[4]
+            try: kw = json.loads(kw) if kw else []
+            except: kw = []
+            result.append({"id":r[0],"category":r[1],"title":r[2],"content":r[3],
+                           "keywords":kw,"source_project":r[5],"source_job":r[6],
+                           "created_at":r[7],"updated_at":r[8],"usage_count":r[9]})
+        return result
+    finally:
+        conn.close()
+
+def memory_delete(mid: str) -> bool:
+    with _memory_lock:
+        conn = _get_memory_conn()
+        try:
+            conn.execute("DELETE FROM memory WHERE id=?", (mid,))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+def memory_search(query: str, limit: int = 4) -> list:
+    """キーワードベースでメモリを検索してスコア順に返す"""
+    import json, re
+    all_entries = memory_get_all()
+    if not query or not all_entries:
+        return []
+    # トークン化（日本語・英語混在対応）
+    tokens = set(re.sub(r'[^\w\s]', ' ', query.lower()).split())
+    tokens = {t for t in tokens if len(t) >= 2}
+    if not tokens:
+        return all_entries[:limit]
+    scored = []
+    import math as _math
+    for e in all_entries:
+        score = 0
+        title_l = e["title"].lower()
+        content_l = e["content"].lower()
+        kw_l = " ".join(e.get("keywords", [])).lower()
+        for t in tokens:
+            if t in title_l:   score += 3
+            if t in kw_l:      score += 2
+            if t in content_l: score += 1
+        if score > 0:
+            # usage_count を対数スケールでブースト（頻繁に参照された知識を優先）
+            score += _math.log(e.get("usage_count", 0) + 1) * 0.8
+            scored.append((score, e))
+    scored.sort(key=lambda x: -x[0])
+    hits = [e for _, e in scored[:limit]]
+    # usage_count をインクリメント（非同期で）
+    if hits:
+        try:
+            conn = _get_memory_conn()
+            conn.execute(
+                f"UPDATE memory SET usage_count=usage_count+1 WHERE id IN ({','.join('?'*len(hits))})",
+                [h["id"] for h in hits]
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+    return hits
+
+def _analyze_job_for_memory(job_id: str, project: str, llm_url: str = ""):
+    """ジョブログを解析して構造化メモリに知識を保存する"""
+    try:
+        logs = job_log_get(job_id)
+        if not logs:
+            return
+        # ログサマリーを構築
+        task_summaries = []
+        errors = []
+        solutions = []
+        for entry in logs:
+            t = entry.get("type","")
+            if t == "task_start":
+                task_summaries.append(f"タスク開始: {entry.get('title','')}")
+            elif t == "task_done":
+                task_summaries.append(f"タスク完了: {entry.get('output','')[:100]}")
+            elif t == "task_error":
+                errors.append(entry.get("error","")[:150])
+            elif t == "skill_generated":
+                solutions.append(f"SKILL自動生成: {entry.get('skill_name','')} — {entry.get('rationale','')[:100]}")
+            elif t == "tool_result":
+                r = entry.get("result_preview","")
+                if "ERROR" in r or "error" in r:
+                    errors.append(r[:100])
+
+        # タスク完了がなければスキップ（空ジョブ）
+        if not task_summaries:
+            return
+
+        log_summary = "\n".join(task_summaries[-20:])
+        error_summary = "\n".join(set(errors[:8]))
+        solution_summary = "\n".join(solutions[:5])
+
+        prompt = f"""コードエージェントの実行ログを分析し、将来の作業に役立つ知識をメモリとして抽出してください。
+
+【実行タスク概要】
+{log_summary}
+
+【発生したエラー】
+{error_summary or "(なし)"}
+
+【実施した解決策】
+{solution_summary or "(なし)"}
+
+以下のカテゴリで、実際に役立つ知識のみ抽出してください（自明・一般的すぎる内容は不要）:
+- error_solution: 再発しやすいエラーパターンとその解決策
+- env_knowledge: 環境・ツール・ライブラリに関する具体的な知識（バージョン依存・OS依存等）
+- workflow: 複数タスクで共通して有効だった効率的な手順・コツ
+
+スキルとして実装すべきものは含めず、知識・経験として記録すべきものだけを抽出してください。
+抽出価値がなければ {{"memories":[]}} を返してください。
+
+【JSONのみ出力】
+{{"memories":[{{"category":"error_solution","title":"タイトル（40字以内）","content":"詳細（200字以内）","keywords":["kw1","kw2"]}}]}}"""
+
+        reply, _ = call_llm_chat(
+            [{"role": "user", "content": prompt}],
+            llm_url=llm_url or LLM_URL
+        )
+        parsed = extract_json(reply, parser=_model_manager.current_parser)
+        memories = (parsed or {}).get("memories", [])
+        saved = 0
+        for m in memories[:5]:
+            if m.get("title") and m.get("content"):
+                m["source_project"] = project
+                m["source_job"] = job_id
+                memory_save(m)
+                saved += 1
+        if saved:
+            print(f"[MEMORY] {saved} entries saved from job {job_id}")
+    except Exception as e:
+        print(f"[MEMORY] analyze error: {e}")
 
 
 def save_session(session_id: str, project: str, message: str, mode: str, result: dict):
@@ -894,18 +1124,28 @@ BROWSER_CONTAINER = "codeagent_browser"
 BROWSER_IMAGE     = "mcr.microsoft.com/playwright/python:v1.49.0-jammy"
 
 def _ensure_browser_container(project: str) -> bool:
-    """Playwrightコンテナが起動中でなければ起動する"""
+    """Playwrightコンテナが起動中でなければ起動する（イメージも検証する）"""
+    extra_hosts = ["--add-host=host.docker.internal:host-gateway"] if os.name != "nt" else []
     check = _sp.run(
         ["docker", "inspect", "--format", "{{.State.Running}}", BROWSER_CONTAINER],
         capture_output=True, text=True
     )
     if check.returncode == 0 and check.stdout.strip() == "true":
-        return True
+        # イメージが正しいか確認（異なるイメージで起動している場合は再作成）
+        img_check = _sp.run(
+            ["docker", "inspect", "--format", "{{.Config.Image}}", BROWSER_CONTAINER],
+            capture_output=True, text=True
+        )
+        current_image = img_check.stdout.strip() if img_check.returncode == 0 else ""
+        if BROWSER_IMAGE in current_image or current_image in BROWSER_IMAGE:
+            return True  # 正しいイメージで起動中
+        print(f"[browser] wrong image detected ({current_image!r}), recreating with {BROWSER_IMAGE!r}")
     # 既存のコンテナを削除してから起動
     _sp.run(["docker", "rm", "-f", BROWSER_CONTAINER], capture_output=True)
     result = _sp.run([
         "docker", "run", "-d", "--name", BROWSER_CONTAINER,
         "--memory=1g", "--cpus=2",
+        *extra_hosts,
         "-v", f"{os.path.abspath(WORK_DIR)}:/app",
         BROWSER_IMAGE,
         "tail", "-f", "/dev/null"  # コンテナを起動したまま待機
@@ -916,7 +1156,7 @@ def _ensure_browser_container(project: str) -> bool:
     import time; time.sleep(2)  # 起動待ち
     return True
 
-def run_browser(script: str, project: str = "default") -> str:
+def run_browser(script: str, project: str = "default", timeout: int = None) -> str:
     """
     Playwright（Python）をDockerコンテナ内で実行してブラウザ自動化を行う。
     script: Playwrightを使ったPythonコード
@@ -925,6 +1165,7 @@ def run_browser(script: str, project: str = "default") -> str:
     - スクリーンショットは /app/{project}/screenshot.png に保存できる
     - ホスト上のrun_serverにアクセスする場合: http://host.docker.internal:8888/
       （Windows/Mac: host.docker.internalが使える。Linux: --add-host=host.docker.internal:host-gateway が必要）
+    timeout: 実行タイムアウト秒数（デフォルト90s、最大300s）。タイムアウトエラー時のみ増やすこと。
     例:
       from playwright.sync_api import sync_playwright
       with sync_playwright() as p:
@@ -935,6 +1176,7 @@ def run_browser(script: str, project: str = "default") -> str:
           print(page.title())
           browser.close()
     """
+    _timeout = _clamp_docker_timeout("run_browser", timeout)
     if not _ensure_browser_container(project):
         # コンテナなしで都度起動
         use_exec = False
@@ -963,16 +1205,28 @@ def run_browser(script: str, project: str = "default") -> str:
         ]
 
     try:
-        result = _sp.run(cmd, capture_output=True, text=True, timeout=60,
+        result = _sp.run(cmd, capture_output=True, text=True, timeout=_timeout,
                          encoding="utf-8", errors="replace")
         out = (result.stdout + result.stderr).strip()
+        # playwrightモジュールが見つからない場合はコンテナのイメージが不正→再作成して再試行
+        if use_exec and "No module named 'playwright'" in out:
+            print("[browser] playwright missing in container, force-recreating with correct image...")
+            _sp.run(["docker", "rm", "-f", BROWSER_CONTAINER], capture_output=True)
+            if _ensure_browser_container(project):
+                cmd2 = ["docker", "exec", "-w", f"/app/{project}",
+                        BROWSER_CONTAINER, "python", f"/app/{project}/_browser_run.py"]
+                result2 = _sp.run(cmd2, capture_output=True, text=True, timeout=_timeout,
+                                  encoding="utf-8", errors="replace")
+                out = (result2.stdout + result2.stderr).strip()
+            else:
+                return "ERROR: Playwrightコンテナの再作成に失敗しました。Dockerが利用可能か確認してください。"
         # スクリーンショットが保存されたか確認
         ss_path = os.path.join(project_dir, "screenshot.png")
         if os.path.exists(ss_path):
             out += f"\n[screenshot saved: screenshot.png ({os.path.getsize(ss_path)} bytes)]"
         return out[:4000] or "(no output)"
     except _sp.TimeoutExpired:
-        return "ERROR: timeout (60s)"
+        return f"ERROR: timeout ({_timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
     except Exception as e:
         return f"ERROR: {e}"
 
@@ -984,12 +1238,13 @@ def run_browser(script: str, project: str = "default") -> str:
 NODE_IMAGE   = "node:20-slim"
 NODE_MODULES_VOLUME = "codeagent_node_modules"  # プロジェクト間で共有
 
-def run_npm(command: str, project: str = "default") -> str:
+def run_npm(command: str, project: str = "default", timeout: int = None) -> str:
     """
     Node.js/npm コマンドをDockerコンテナ内で実行する。
     command: 実行するnpmコマンド（例: "test", "run build", "install"）
     プロジェクトフォルダをマウントして実行する。
     package.jsonが存在すること。
+    timeout: 実行タイムアウト秒数（デフォルト120s、最大600s）。npm installなど長い処理でタイムアウト時に増やすこと。
     例: run_npm("test") → npm test を実行
         run_npm("run build") → npm run build を実行
         run_npm("install") → npm install を実行
@@ -1010,22 +1265,23 @@ def run_npm(command: str, project: str = "default") -> str:
         NODE_IMAGE,
         "sh", "-c", f"npm {command} 2>&1"
     ]
+    _timeout = _clamp_docker_timeout("run_npm", timeout)
     # node_modulesボリュームが存在しない場合は作成（初回のみ）
     _sp.run(["docker", "volume", "create", NODE_MODULES_VOLUME],
             capture_output=True)
 
     try:
-        result = _sp.run(cmd, capture_output=True, text=True, timeout=120,
+        result = _sp.run(cmd, capture_output=True, text=True, timeout=_timeout,
                          encoding="utf-8", errors="replace")
         out = (result.stdout + result.stderr).strip()
         return out[:4000] or "(no output, exit code: " + str(result.returncode) + ")"
     except _sp.TimeoutExpired:
-        return "ERROR: timeout (120s)"
+        return f"ERROR: timeout ({_timeout}s). npm installなど時間のかかる処理は timeout パラメータを増やして再実行してください（最大600s）。"
     except Exception as e:
         return f"ERROR: {e}"
 
 
-def run_node(script: str, project: str = "default") -> str:
+def run_node(script: str, project: str = "default", timeout: int = None) -> str:
     """
     JavaScriptコードをDockerコンテナ内のNode.js環境で実行する。
     Webサイトの動作テスト・ロジック検証・ビルドスクリプト実行に使う。
@@ -1049,16 +1305,17 @@ def run_node(script: str, project: str = "default") -> str:
         NODE_IMAGE,
         "node", "/app/_node_run.js"
     ]
+    _timeout = _clamp_docker_timeout("run_node", timeout)
     _sp.run(["docker", "volume", "create", NODE_MODULES_VOLUME],
             capture_output=True)
 
     try:
-        result = _sp.run(cmd, capture_output=True, text=True, timeout=30,
+        result = _sp.run(cmd, capture_output=True, text=True, timeout=_timeout,
                          encoding="utf-8", errors="replace")
         out = (result.stdout + result.stderr).strip()
         return out[:4000] or "(no output)"
     except _sp.TimeoutExpired:
-        return "ERROR: timeout (30s)"
+        return f"ERROR: timeout ({_timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
     except Exception as e:
         return f"ERROR: {e}"
 
@@ -1128,12 +1385,14 @@ def patch_function(path: str, function_name: str, new_code: str, project: str = 
     except Exception as e:
         return f"ERROR: {e}"
 
-def run_python(code: str, project: str = "default") -> str:
+def run_python(code: str, project: str = "default", timeout: int = None) -> str:
     """
     Pythonコードをサンドボックス（Docker）で実行する。
     _run.py はプロジェクトフォルダ内に配置し、プロジェクトのファイルにアクセス可能。
     Dockerは WORK_DIR 全体をマウントし /app/{project}/ がプロジェクトフォルダ。
+    timeout: 実行タイムアウト秒数（デフォルト30s、最大300s）。タイムアウトエラー時のみ増やすこと。
     """
+    _timeout = _clamp_docker_timeout("run_python", timeout)
     try:
         project_dir = os.path.join(WORK_DIR, project)
         os.makedirs(project_dir, exist_ok=True)
@@ -1160,19 +1419,21 @@ def run_python(code: str, project: str = "default") -> str:
                 "python:3.11", "python", container_script
             ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, encoding="utf-8", errors="replace")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_timeout, encoding="utf-8", errors="replace")
         out = result.stdout + result.stderr
         return out[:4000] if len(out) > 4000 else out
     except subprocess.TimeoutExpired:
-        return "ERROR: timeout (30s)"
+        return f"ERROR: timeout ({_timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
     except Exception as e:
         return f"ERROR: {e}"
 
-def run_file(path: str, project: str = "default") -> str:
+def run_file(path: str, project: str = "default", timeout: int = None) -> str:
     """
     プロジェクト内のPythonファイルをサンドボックスで実行する。
     path は プロジェクトフォルダ内の相対パス（例: "app.py", "tests/test_main.py"）。
+    timeout: 実行タイムアウト秒数（デフォルト30s、最大300s）。タイムアウトエラー時のみ増やすこと。
     """
+    _timeout = _clamp_docker_timeout("run_file", timeout)
     try:
         check = subprocess.run(
             ["docker", "inspect", "--format", "{{.State.Running}}", SANDBOX_CONTAINER],
@@ -1199,11 +1460,11 @@ def run_file(path: str, project: str = "default") -> str:
                 "python:3.11", "python", container_path
             ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, encoding="utf-8", errors="replace")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_timeout, encoding="utf-8", errors="replace")
         out = result.stdout + result.stderr
         return out[:4000] if len(out) > 4000 else out
     except subprocess.TimeoutExpired:
-        return "ERROR: timeout (30s)"
+        return f"ERROR: timeout ({_timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
     except Exception as e:
         return f"ERROR: {e}"
 
@@ -1751,13 +2012,13 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 - write_file: {"path": "foo.py", "content": "..."}  ← 新規作成・全体上書き専用
 - edit_file: {"path": "foo.py", "old_str": "変更前の文字列（一意）", "new_str": "変更後"}  ← 差分修正（推奨）
 - patch_function: {"path": "foo.py", "function_name": "bar", "new_code": "def bar(): ..."}
-- run_python: {"code": "print('hello')"}  ← project引数不要（自動設定）
-- run_file: {"path": "foo.py"}  ← プロジェクト内の相対パス、project引数不要
+- run_python: {"code": "print('hello')"}  ← project引数不要（自動設定）/ タイムアウト時: {"code":"...","timeout":60} (max 300s)
+- run_file: {"path": "foo.py"}  ← プロジェクト内の相対パス、project引数不要 / タイムアウト時: {"path":"...","timeout":60} (max 300s)
 - run_server: {"port": 8888}  ← 【最終タスクのみ】DockerでHTTPサーバー起動
 - stop_server: {"port": 8888}  ← 起動したサーバーを停止
-- run_browser: {"script": "from playwright.sync_api import sync_playwright\nwith sync_playwright() as p:\n  b=p.chromium.launch(headless=True)\n  pg=b.new_page()\n  pg.goto('http://host.docker.internal:8888/')\n  pg.screenshot(path='/app/{project}/screenshot.png')\n  print(pg.title())\n  b.close()"}  ← Playwright（Python）でブラウザ自動化・スクリーンショット・動作確認
-- run_npm: {"command": "test"}  ← npm コマンドをDockerで実行（test/install/run build等）
-- run_node: {"script": "console.log(require('./script.js'))"}  ← JSコードをNode.jsで実行・テスト
+- run_browser: {"script": "from playwright.sync_api import sync_playwright\nwith sync_playwright() as p:\n  b=p.chromium.launch(headless=True)\n  pg=b.new_page()\n  pg.goto('http://host.docker.internal:8888/')\n  pg.screenshot(path='/app/{project}/screenshot.png')\n  print(pg.title())\n  b.close()"}  ← Playwright（Python）でブラウザ自動化・スクリーンショット・動作確認 / タイムアウト時: {"script":"...","timeout":120} (max 300s)
+- run_npm: {"command": "test"}  ← npm コマンドをDockerで実行（test/install/run build等）/ タイムアウト時: {"command":"install","timeout":300} (max 600s)
+- run_node: {"script": "console.log(require('./script.js'))"}  ← JSコードをNode.jsで実行・テスト / タイムアウト時: {"script":"...","timeout":60} (max 300s)
 - setup_venv: {"requirements": ["flask","numpy"]}  ← Pythonプロジェクトで.venv構築＋requirements.txt生成（実行はユーザーが行う）
 - web_search: {"query": "検索クエリ", "num_results": 5}
 - clarify: {"question": "質問", "options": ["選択肢1", "選択肢2"]}
@@ -1770,6 +2031,11 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 5. 実行後エラーがあれば必ず自分で修正して再実行
 6. HTTPサーバー起動は run_python ではなく run_server を使う（run_pythonはサーバー系タイムアウトする）
 7. 要件が曖昧な場合は clarify でユーザーに確認
+8. 【タイムアウト対策】"ERROR: timeout (Xs)" が返ってきた場合:
+   a. まず処理を分割・軽量化して再試行（最優先）
+   b. 分割が困難な場合のみ timeout パラメータを推定実行時間で指定して再実行（その実行限りの一時設定）
+   c. 上限: run_python/run_file/run_browser/run_node=300s、run_npm=600s
+   d. 常軌を逸する値（上限超）は自動的にクランプされる
 8. 【プロジェクト種別フロー】
 
    【HTML/JSプロジェクト】
@@ -1795,14 +2061,15 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 def _build_system_prompt(project: str = "") -> str:
     """
     SYSTEM_PROMPTにスキル一覧を注入して返す（OpenClaw互換）。
-    スキルは C:\\AI\\skills\\ の SKILL.md から自動ロード。
+    スキルは ./skills/ の SKILL.md から自動ロード。
+    {project} プレースホルダーを実際のプロジェクト名に置換する。
     """
-    # _skills_to_prompt_injectionは後方定義のためglobals()経由で取得
+    base = SYSTEM_PROMPT.replace("{project}", project) if project else SYSTEM_PROMPT
     inject_fn = globals().get("_skills_to_prompt_injection")
     injection = inject_fn() if inject_fn else ""
     if not injection:
-        return SYSTEM_PROMPT
-    return SYSTEM_PROMPT + injection
+        return base
+    return base + injection
 
 
 # =========================
@@ -1855,6 +2122,7 @@ class JobRequest(BaseModel):
     chat_history: list = []
     recommended_model: str = ""   # planが推奨したモデルキー（空なら自動判断）
     auto_select_option: bool = True  # True: プランナーLLMが対応案を自動選択 / False: ユーザー手動選択
+    auto_skill_generation: bool = True  # True: 失敗時に不足スキルを自動生成して再試行
 
 def run_job_background(job_id: str, req: "JobRequest"):
     """
@@ -2060,18 +2328,34 @@ def run_job_background(job_id: str, req: "JobRequest"):
                 if task_status in ("error", "pending"):
                     err0 = task_output or "不明なエラー"
                     print(f"[JOB {job_id}] task {i+1}/{total} stage1 same-approach retry")
+                    # メモリ参照: 類似エラーの過去の解決策を注入
+                    _mem_hits1 = memory_search(f"{todo['title']} {err0}", limit=2)
+                    _mem_note1 = ""
+                    if _mem_hits1:
+                        _mem_note1 = "\n\n【過去の類似エラーと解決策（メモリ）】\n" + "\n".join(
+                            f"- {h['title']}: {h['content'][:200]}" for h in _mem_hits1
+                        )
                     ctx1 = (f"{context}\n\n【前回エラー】{err0[:200]}\n\n"
                             f"【指示】前回と同じタスクをもう一度実行してください。"
-                            f"エラーの原因を確認して修正してから再実行してください。")
+                            f"エラーの原因を確認して修正してから再実行してください。"
+                            f"{_mem_note1}")
                     task_steps, task_status, task_output = _run_stage("[再試行] ", ctx1, req.max_steps)
 
                 # Stage 2: 別アプローチで再試行
                 if task_status in ("error", "pending"):
                     err1 = task_output or err0
                     print(f"[JOB {job_id}] task {i+1}/{total} stage2 different-approach")
+                    # メモリ参照: 複合エラーの解決策を追加注入
+                    _mem_hits2 = memory_search(f"{err0} {err1}", limit=2)
+                    _mem_note2 = ""
+                    if _mem_hits2:
+                        _mem_note2 = "\n\n【過去の知識（メモリ）】\n" + "\n".join(
+                            f"- {h['title']}: {h['content'][:200]}" for h in _mem_hits2
+                        )
                     ctx2 = (f"{context}\n\n【前回エラー×2】\n1回目: {err0[:100]}\n2回目: {err1[:100]}\n\n"
                             f"【指示】これまでと異なるアプローチで実行してください。\n"
-                            f"例: write_file→edit_file / run_python→コード分割 / 大きなファイル→get_outline+部分編集")
+                            f"例: write_file→edit_file / run_python→コード分割 / 大きなファイル→get_outline+部分編集"
+                            f"{_mem_note2}")
                     task_steps, task_status, task_output = _run_stage("[別アプローチ] ", ctx2, req.max_steps)
 
                 # Stage 3: 全失敗 → 複数対応案を生成 → LLM自動選択 or ユーザー手動選択
@@ -2092,7 +2376,13 @@ def run_job_background(job_id: str, req: "JobRequest"):
 3回目: {err2[:100]}
 
 このタスクを完了させるための対応案を3件提示してください。
-各案は異なるアプローチで具体的に記述してください。
+各案は異なる技術的アプローチで具体的に記述してください。
+
+【重要な制約】
+- 「スキップ」「タスクの省略」「次へ進む」のような案は絶対に提案しないこと
+- 「ユーザーに委ねる」「手動実装依頼」「ユーザーが実装」のような案は絶対に提案しないこと
+- 必ずコードエージェント自身が実行できる技術的な解決策を3件提案すること
+- 例: ライブラリ変更、アルゴリズム変更、ファイル分割、別APIの使用、エラー原因の根本対処 など
 
 JSON形式で出力:
 {{"options": [
@@ -2113,9 +2403,9 @@ JSON形式で出力:
 
                     if not options:
                         options = [
-                            {"id": 1, "title": "スキップ", "description": "このタスクをスキップして次に進む", "difficulty": "easy", "detail": "このタスクはスキップします。finalでスキップした旨を返してください。"},
-                            {"id": 2, "title": "タスク分割", "description": "タスクをより小さく分割して再実行", "difficulty": "medium", "detail": f"次のタスクを小さなステップに分割して実行してください: {todo['detail'][:200]}"},
-                            {"id": 3, "title": "手動実装依頼", "description": "ユーザーへの実装手順を提示して終了", "difficulty": "hard", "detail": "実装できなかった理由と手動実装のための手順をoutputに記載してfinalを返してください。"},
+                            {"id": 1, "title": "タスク分割", "description": "タスクをより小さなステップに分割して段階的に実行", "difficulty": "medium", "detail": f"次のタスクを小さなステップに分割して、一つずつ確実に実行してください: {todo['detail'][:200]}"},
+                            {"id": 2, "title": "最小実装", "description": "エラー箇所を特定して最小限の変更で問題を修正", "difficulty": "easy", "detail": f"エラーの根本原因を特定し、最小限の変更で問題を解決してください。別ライブラリや別APIの使用も検討してください。タスク: {todo['detail'][:150]}"},
+                            {"id": 3, "title": "代替手段", "description": "別のツールやライブラリを使って同等の機能を実現", "difficulty": "hard", "detail": f"これまでのアプローチを完全に変え、別のライブラリ・ツール・手法で同じ目標を達成してください。タスク: {todo['detail'][:150]}"},
                         ]
 
                     # ──── 自動選択モード（プランナーLLM） ────
@@ -2157,6 +2447,11 @@ JSON形式で出力:
 
 【対応案】
 """ + "\n".join(f"案{o['id']}: [{o['difficulty']}] {o['title']} — {o['description']}" for o in options) + f"""
+
+【選択ルール】
+- 「スキップ」「省略」「ユーザーに委ねる」内容の案は絶対に選ばないこと
+- コードエージェントが自律的に実行できる技術的な解決策を選ぶこと
+- エラー履歴を踏まえて最も根本解決できる案を選ぶこと
 
 最も成功確率が高い案を1つ選んでJSON出力してください:
 {{"choice": 1, "reason": "選択理由（1文）"}}"""
@@ -2221,12 +2516,56 @@ JSON形式で出力:
                         job_update_status(project, job_id, "running")
                         chosen = _job_option_choices.pop(f"{job_id}_{todo['id']}", None)
 
+                    # ── SKILL自動生成（auto_skill_generation が有効な場合） ──
+                    auto_skill_gen = getattr(req, 'auto_skill_generation', True)
+                    skill_context_note = ""
+                    if auto_skill_gen:
+                        try:
+                            # エラー内容からSKILL生成の必要性を判断
+                            all_errors = f"{err0}\n{err1}\n{err2}"
+                            skill_gen_prompt = f"""コードエージェントのタスク失敗を分析し、不足しているツール・機能をSKILLとして実装してください。
+
+【失敗したタスク】{todo['title']}
+【エラー履歴】{all_errors[:400]}
+
+不足している機能があれば、それを実現するPythonツール関数を1件実装してください。
+不足がなければ {{"skill": null}} を返してください。
+
+【出力JSONのみ】
+{{"skill": {{"name": "snake_case名", "description": "説明", "version": "1.0", "os": ["win32", "linux"], "keywords": ["kw"], "tool_code": "def name(project:str, arg:str)->str:\\n    return result", "usage_example": "", "rationale": "不足していた理由", "source": "codeagent"}}}}"""
+                            skill_reply, _ = call_llm_chat(
+                                [{"role": "user", "content": skill_gen_prompt}],
+                                llm_url=task_url
+                            )
+                            skill_parsed = extract_json(skill_reply, parser=_model_manager.current_parser)
+                            new_skill = (skill_parsed or {}).get("skill")
+                            if new_skill and new_skill.get("name") and new_skill.get("tool_code"):
+                                # スキルを保存
+                                skill_path = os.path.join(SKILLS_DIR, new_skill["name"])
+                                os.makedirs(skill_path, exist_ok=True)
+                                _write_skill_md(new_skill, os.path.join(skill_path, "SKILL.md"))
+                                # スキルキャッシュをリセット
+                                global _skills_cache, _skills_cache_time
+                                _skills_cache = {}
+                                _skills_cache_time = 0
+                                skill_context_note = f"\n\n【自動生成スキル】新たに '{new_skill['name']}' スキルが生成されました。このスキルを活用してタスクを実行してください。"
+                                write("skill_generated", {
+                                    "skill_name": new_skill["name"],
+                                    "description": new_skill.get("description", ""),
+                                    "rationale": new_skill.get("rationale", ""),
+                                    "task_id": todo["id"],
+                                })
+                                print(f"[JOB {job_id}] auto-generated skill: {new_skill['name']}")
+                        except Exception as _sge:
+                            print(f"[JOB {job_id}] skill auto-generation failed: {_sge}")
+
                     # 選択案で再実行
                     if chosen:
                         chosen_title = chosen.get("title", "選択案")
                         ctx3 = (f"{context}\n\n【選択された対応案】{chosen_title}\n"
                                 f"{chosen.get('description','')}\n\n"
-                                f"【実行指示】{chosen.get('detail', todo['detail'])}")
+                                f"【実行指示】{chosen.get('detail', todo['detail'])}"
+                                f"{skill_context_note}")
                         task_steps, task_status, task_output = _run_stage(f"[{chosen_title}] ", ctx3, req.max_steps)
                     else:
                         task_status = "done"
@@ -2331,6 +2670,16 @@ JSON形式で出力:
                 except Exception as e:
                     print(f"[SKILLS] auto-analyze error: {e}")
 
+            # ジョブログからパーマネントメモリに知識を抽出（常時バックグラウンドで実行）
+            _mem_llm_url = req.llm_url.strip() or LLM_URL
+            import threading as _mem_thread
+            _mem_thread.Thread(
+                target=_analyze_job_for_memory,
+                args=(job_id, project, _mem_llm_url),
+                daemon=True
+            ).start()
+            write("memory_analyzing", {"job_id": job_id, "message": "実行ログからメモリを抽出中..."})
+
         job_update_status(project, job_id, "done")
 
         # ジョブ完了後にbasicモデルに戻す（次のジョブのため）
@@ -2389,7 +2738,20 @@ PLANNER_PROMPT = """あなたはソフトウェアアーキテクト兼タスク
 - verificationは実行可能なテスト・確認方法を書く
 - tasksの最後は必ず「動作確認・検証」タスクを含める
 - tasksは最大10件まで
-- 単純な指示でも要件・方針・検証は省略しない"""
+- 単純な指示でも要件・方針・検証は省略しない
+
+【単体テスト要否の判断基準】
+単体テストタスク（"テストコード作成"等）は以下の場合のみ追加すること：
+✅ 追加すべき場合:
+  - Pythonプロジェクトで純粋な関数・クラス（ユーティリティ・ライブラリ・ロジック層）を実装する場合
+  - 計算・変換・バリデーション等の入出力が明確な関数が複数含まれる場合
+  - バグ修正・リファクタリングで既存ロジックの動作保証が必要な場合
+❌ 追加不要な場合:
+  - HTML/CSS/JavaScriptのみのフロントエンドプロジェクト（UIは目視確認・Playwrightで代替）
+  - シンプルなスクリプト・1回限りの自動化タスク（テストより動作確認が適切）
+  - Flask/FastAPI等のWebアプリ（結合テスト・ブラウザ確認が主体、単体は任意）
+  - 設定ファイル変更・ドキュメント作成のみのタスク
+  - データサイエンス・ML（学習スクリプト等は単体テストより出力検証が適切）"""
 
 # GPT-OSS-20B用: チャンネル形式でも確実にパースできるシンプル版
 PLANNER_PROMPT_SIMPLE = """あなたはタスク分解AIです。
@@ -2925,8 +3287,9 @@ def verify_and_fix(
           "summary": f"{len(req_results)-len(missing)}/{len(req_results)} met"})
 
     # ── 総合判定 ──
-    unit_pass_rate = (len(unit_results) - len(unit_failed)) / max(len(unit_results), 1)
-    integ_pass_rate = (len(integ_results) - len(failed_integ)) / max(len(integ_results), 1)
+    # テスト対象がない場合はそのフェーズを満点扱い（HTML/JSプロジェクト等でPyファイルなし）
+    unit_pass_rate = (len(unit_results) - len(unit_failed)) / len(unit_results) if unit_results else 1.0
+    integ_pass_rate = (len(integ_results) - len(failed_integ)) / len(integ_results) if integ_results else 1.0
     total_score = int(unit_pass_rate * 40 + integ_pass_rate * 30 + req_score * 0.3)
     total_score = min(100, max(0, total_score))
     critical_count = len([i for i in all_issues if i.get("severity") == "critical"])
@@ -3361,7 +3724,7 @@ def list_projects():
     projects = []
     for name in sorted(os.listdir(WORK_DIR)):
         path = os.path.join(WORK_DIR, name)
-        if os.path.isdir(path) and not name.startswith("_"):
+        if os.path.isdir(path) and not name.startswith("_") and '{' not in name:
             files = []
             for root, _, fs in os.walk(path):
                 for f in fs:
@@ -3422,6 +3785,19 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
     user_content = task_detail
     if context:
         user_content = f"【前のタスクの結果】\n{context}\n\n【今のタスク】\n{task_detail}"
+
+    # パーマネントメモリ参照: タスクに関連する過去の知識を注入
+    try:
+        mem_query = f"{task_title} {task_detail}"
+        mem_hits = memory_search(mem_query, limit=3)
+        if mem_hits:
+            mem_note = "\n\n【過去の経験・知識（メモリ）】\n" + "\n".join(
+                f"- [{h['category']}] {h['title']}: {h['content'][:200]}"
+                for h in mem_hits
+            )
+            user_content = user_content + mem_note
+    except Exception:
+        pass
 
     messages = [
         {"role": "system", "content": project_prompt},
@@ -4219,7 +4595,8 @@ def _skills_to_prompt_injection() -> str:
     アクティブなスキルをSYSTEM_PROMPTへ注入するテキスト（OpenClaw互換XML形式）。
     スキルのtool_codeはrun_pythonで実行可能。
     """
-    skills = _active_skills()
+    # usage_count 降順でソート（よく使われるスキルを優先的にプロンプトに含める）
+    skills = sorted(_active_skills(), key=lambda s: s.get("usage_count", 0), reverse=True)
     if not skills: return ""
     lines = ["\n\n【カスタムスキル（SKILL.md）】"]
     lines.append("<skills>")
@@ -4326,6 +4703,44 @@ def delete_skill_api(name: str):
 def reload_skills():
     skills = _load_all_skills(force=True)
     return {"ok": True, "count": len(skills)}
+
+# =========================
+# パーマネントメモリ API
+# =========================
+
+@app.get("/memory")
+def list_memory(q: str = ""):
+    """メモリ一覧 or キーワード検索"""
+    if q.strip():
+        entries = memory_search(q.strip(), limit=50)
+    else:
+        entries = memory_get_all()
+    return {"entries": entries, "count": len(entries)}
+
+@app.post("/memory")
+def create_memory(req: dict):
+    if not req.get("title") or not req.get("content"):
+        raise HTTPException(400, "title and content required")
+    mid = memory_save(req)
+    return {"ok": True, "id": mid}
+
+@app.put("/memory/{mid}")
+def update_memory(mid: str, req: dict):
+    req["id"] = mid
+    memory_save(req)
+    return {"ok": True}
+
+@app.delete("/memory/{mid}")
+def delete_memory_api(mid: str):
+    memory_delete(mid)
+    return {"ok": True}
+
+@app.post("/memory/analyze/{job_id}")
+def trigger_memory_analysis(job_id: str, project: str = "default"):
+    """指定ジョブのログからメモリを抽出（手動トリガー）"""
+    import threading as _t
+    _t.Thread(target=_analyze_job_for_memory, args=(job_id, project, LLM_URL), daemon=True).start()
+    return {"ok": True, "message": f"memory analysis triggered for job {job_id}"}
 
 @app.get("/health")
 def health():
