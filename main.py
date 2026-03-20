@@ -56,7 +56,20 @@ print(f"[LLM] mode={LLM_MODE}")
 print(f"  Planner/Verifier: {LLM_URL_PLANNER}")
 print(f"  Executor:         {LLM_URL_EXECUTOR}")
 print(f"  Chat/Clarify:     {LLM_URL_CHAT}")
-WORK_DIR = "./workspace"
+
+# =========================
+# ディレクトリ構造
+#   ca_data/        - Gitで管理するデータフォルダ（DB・スキル・ワークスペース）
+#   .codeagent/     - 機密情報専用（Gitに絶対コミットしない）
+# =========================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CA_DATA_DIR          = os.path.join(BASE_DIR, "ca_data")
+CODEAGENT_HIDDEN_DIR = os.path.join(BASE_DIR, ".codeagent")
+
+os.makedirs(CA_DATA_DIR, exist_ok=True)
+os.makedirs(CODEAGENT_HIDDEN_DIR, exist_ok=True)
+
+WORK_DIR = os.path.join(CA_DATA_DIR, "workspace")
 SANDBOX_CONTAINER = "claude_sandbox"
 
 os.makedirs(WORK_DIR, exist_ok=True)
@@ -100,7 +113,55 @@ _llm_streaming: bool = True
 # =========================
 # パーマネントメモリ（全プロジェクト共有）
 # =========================
-MEMORY_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory.db")
+MEMORY_DB = os.path.join(CA_DATA_DIR, "memory.db")
+
+# =========================
+# 起動時データ移行（既存ファイルを ca_data/ へ移動）
+# =========================
+import shutil as _shutil
+
+def _migrate_existing_data():
+    """既存のDBファイル・フォルダを ca_data/ へ移行する（初回のみ）"""
+    migrations = [
+        (os.path.join(BASE_DIR, "memory.db"),   MEMORY_DB),
+        (os.path.join(BASE_DIR, "model_db.db"), MODEL_DB_PATH),
+        (os.path.join(BASE_DIR, "workspace"),   WORK_DIR),
+        (os.path.join(BASE_DIR, "skills"),      SKILLS_DIR),
+    ]
+    for src, dst in migrations:
+        if os.path.exists(src) and not os.path.exists(dst):
+            try:
+                _shutil.move(src, dst)
+                print(f"[migrate] {os.path.basename(src)} → ca_data/")
+            except Exception as e:
+                print(f"[migrate] WARN: {src} → {dst}: {e}")
+
+_migrate_existing_data()
+
+# =========================
+# 機密情報管理（.codeagent/ — Gitに絶対コミットしない）
+# =========================
+CREDS_FILE = os.path.join(CODEAGENT_HIDDEN_DIR, ".credentials")
+
+def creds_load() -> dict:
+    """GitHubトークン等の機密情報をロード"""
+    if not os.path.exists(CREDS_FILE):
+        return {"github_token": "", "github_username": ""}
+    try:
+        with open(CREDS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"github_token": "", "github_username": ""}
+
+def creds_save(data: dict):
+    """機密情報を .codeagent/.credentials に保存（owner読み取り専用）"""
+    os.makedirs(CODEAGENT_HIDDEN_DIR, exist_ok=True)
+    with open(CREDS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    try:
+        os.chmod(CREDS_FILE, 0o600)
+    except Exception:
+        pass
 
 # =========================
 # ModelManager（動的モデル切り替え）
@@ -1782,7 +1843,7 @@ def mcp_list_tools(server_url: str) -> str:
 # モデルデータベース
 # =========================
 
-MODEL_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_db.db")
+MODEL_DB_PATH = os.path.join(CA_DATA_DIR, "model_db.db")
 _model_db_lock = __import__("threading").Lock()
 
 
@@ -1969,6 +2030,36 @@ def settings_set_bulk(data: dict):
             conn.commit()
         finally:
             conn.close()
+
+
+# =========================
+# リポジトリ設定（非機密 → settings テーブルに格納）
+# =========================
+_REPO_CONFIG_KEYS = [
+    "github_username", "github_repo_name", "github_repo_visibility",
+    "github_default_branch", "github_remote_url",
+]
+_REPO_CONFIG_DEFAULTS = {
+    "github_username": "",
+    "github_repo_name": "codeagent-data",
+    "github_repo_visibility": "private",
+    "github_default_branch": "main",
+    "github_remote_url": "",
+}
+
+def repo_config_load() -> dict:
+    """リポジトリ設定を settings テーブルからロード"""
+    result = dict(_REPO_CONFIG_DEFAULTS)
+    for key in _REPO_CONFIG_KEYS:
+        val = settings_get(key)
+        if val:
+            result[key] = val
+    return result
+
+def repo_config_save(data: dict):
+    """リポジトリ設定を settings テーブルに保存（機密キーはスキップ）"""
+    filtered = {k: v for k, v in data.items() if k in _REPO_CONFIG_KEYS}
+    settings_set_bulk(filtered)
 
 
 _VLM_PATTERNS = re.compile(
@@ -5008,7 +5099,7 @@ def analyze_job_for_skills(job_id: str, project: str = "default"):
 
 # スキルフォルダ: C:\AI\skills\ に一本化
 # ユーザー追加・CodeAgent提案スキルを共有資産として格納
-SKILLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills")
+SKILLS_DIR = os.path.join(CA_DATA_DIR, "skills")
 os.makedirs(SKILLS_DIR, exist_ok=True)
 # 後方互換のエイリアス
 SKILLS_GLOBAL_DIR  = SKILLS_DIR
@@ -5513,6 +5604,193 @@ def set_setting_api(key: str, req: dict):
 @app.get("/settings/defaults")
 def get_settings_defaults():
     return SETTINGS_DEFAULTS
+
+
+# =========================
+# リポジトリ管理 API
+# =========================
+
+@app.get("/repo/config")
+def get_repo_config():
+    """リポジトリ設定取得（機密トークンは除く）"""
+    cfg = repo_config_load()
+    creds = creds_load()
+    return {
+        **cfg,
+        "has_token": bool(creds.get("github_token")),
+        "github_username_saved": creds.get("github_username", ""),
+    }
+
+@app.post("/repo/config")
+async def save_repo_config(request: Request):
+    """リポジトリ設定保存（トークンは機密ファイルへ、それ以外はDB）"""
+    data = await request.json()
+    # 機密情報を .codeagent/.credentials へ
+    token = data.pop("github_token", None)
+    cred_username = data.pop("github_username_cred", None)
+    if token is not None or cred_username is not None:
+        creds = creds_load()
+        if token is not None:
+            creds["github_token"] = token
+        if cred_username is not None:
+            creds["github_username"] = cred_username
+        creds_save(creds)
+    # 非機密設定を DB へ
+    repo_config_save(data)
+    return {"ok": True}
+
+@app.post("/repo/init")
+async def init_repo(request: Request):
+    """GitHubリポジトリを作成してリモートを設定"""
+    import threading as _t
+    data = await request.json()
+    cfg = repo_config_load()
+    creds = creds_load()
+
+    token = creds.get("github_token", "")
+    username = creds.get("github_username", "") or cfg.get("github_username", "")
+    repo_name = data.get("repo_name") or cfg.get("github_repo_name", "codeagent-data")
+    visibility = data.get("visibility") or cfg.get("github_repo_visibility", "private")
+    branch = data.get("branch") or cfg.get("github_default_branch", "main")
+
+    if not token:
+        raise HTTPException(400, "GitHub Personal Access Token が設定されていません")
+    if not username:
+        raise HTTPException(400, "GitHub ユーザー名が設定されていません")
+
+    # GitHub API でリポジトリ作成
+    try:
+        resp = requests.post(
+            "https://api.github.com/user/repos",
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+            json={
+                "name": repo_name,
+                "private": (visibility == "private"),
+                "description": "CodeAgent data repository (managed by CodeAgent)",
+                "auto_init": False,
+            },
+            timeout=15,
+        )
+        if resp.status_code == 422:
+            # Already exists
+            pass
+        elif not resp.ok:
+            raise HTTPException(500, f"GitHub API エラー: {resp.status_code} {resp.text[:200]}")
+    except requests.RequestException as e:
+        raise HTTPException(500, f"GitHub API 接続エラー: {e}")
+
+    remote_url = f"https://github.com/{username}/{repo_name}.git"
+    clean_url = remote_url  # トークンなし版
+
+    # ca_data/ でリポジトリを初期化
+    os.makedirs(CA_DATA_DIR, exist_ok=True)
+    rc, out, err = _git_run(["init", "-b", branch], CA_DATA_DIR)
+    if rc != 0:
+        # older git: init then rename branch
+        _git_run(["init"], CA_DATA_DIR)
+        _git_run(["checkout", "-b", branch], CA_DATA_DIR)
+
+    _git_run(["config", "user.email", "codeagent@local"], CA_DATA_DIR)
+    _git_run(["config", "user.name", "CodeAgent"], CA_DATA_DIR)
+
+    # リモート設定（既存なら更新）
+    rc2, _, _ = _git_run(["remote", "get-url", "origin"], CA_DATA_DIR)
+    if rc2 == 0:
+        _git_run(["remote", "set-url", "origin", clean_url], CA_DATA_DIR)
+    else:
+        _git_run(["remote", "add", "origin", clean_url], CA_DATA_DIR)
+
+    # .gitignore 作成（ca_data/ 用）
+    _ensure_ca_data_gitignore()
+
+    # 設定保存
+    repo_config_save({
+        "github_repo_name": repo_name,
+        "github_repo_visibility": visibility,
+        "github_default_branch": branch,
+        "github_remote_url": clean_url,
+        "github_username": username,
+    })
+
+    return {"ok": True, "remote_url": clean_url, "repo": repo_name}
+
+@app.post("/repo/sync")
+async def sync_repo(request: Request):
+    """ca_data/ の変更をコミットして GitHub へプッシュ"""
+    data = await request.json()
+    message = data.get("message") or f"chore: sync {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+
+    cfg = repo_config_load()
+    creds = creds_load()
+    token = creds.get("github_token", "")
+    username = creds.get("github_username", "") or cfg.get("github_username", "")
+    repo_name = cfg.get("github_repo_name", "")
+    branch = cfg.get("github_default_branch", "main")
+
+    if not token:
+        raise HTTPException(400, "GitHub Personal Access Token が設定されていません")
+    if not username or not repo_name:
+        raise HTTPException(400, "リポジトリ設定が不完全です。先に Init を実行してください")
+
+    auth_url = f"https://{token}@github.com/{username}/{repo_name}.git"
+    clean_url = f"https://github.com/{username}/{repo_name}.git"
+
+    _ensure_ca_data_gitignore()
+    _git_run(["add", "-A"], CA_DATA_DIR)
+
+    rc, out, err = _git_run(["commit", "-m", message], CA_DATA_DIR)
+    if rc != 0 and "nothing to commit" not in out + err:
+        return {"ok": False, "error": err or out}
+
+    # 認証URLを一時設定してプッシュ
+    _git_run(["remote", "set-url", "origin", auth_url], CA_DATA_DIR)
+    try:
+        rc, out, err = _git_run(["push", "-u", "origin", branch], CA_DATA_DIR)
+    finally:
+        _git_run(["remote", "set-url", "origin", clean_url], CA_DATA_DIR)
+
+    if rc != 0:
+        return {"ok": False, "error": err or out}
+
+    return {"ok": True, "message": message, "branch": branch}
+
+@app.get("/repo/status")
+def get_repo_status():
+    """ca_data/ の Git ステータス取得"""
+    if not os.path.exists(os.path.join(CA_DATA_DIR, ".git")):
+        return {"initialized": False, "status": "リポジトリ未初期化"}
+    rc, out, err = _git_run(["status", "--short"], CA_DATA_DIR)
+    rc2, log, _ = _git_run(["log", "--oneline", "-5"], CA_DATA_DIR)
+    cfg = repo_config_load()
+    return {
+        "initialized": True,
+        "status": out or "clean",
+        "recent_commits": log,
+        "remote_url": cfg.get("github_remote_url", ""),
+        "branch": cfg.get("github_default_branch", "main"),
+    }
+
+
+def _ensure_ca_data_gitignore():
+    """ca_data/.gitignore を必要なら作成"""
+    gi_path = os.path.join(CA_DATA_DIR, ".gitignore")
+    if not os.path.exists(gi_path):
+        with open(gi_path, "w", encoding="utf-8") as f:
+            f.write(
+                "# ワークスペース内の一時ファイル\n"
+                "workspace/**/__pycache__/\n"
+                "workspace/**/*.pyc\n"
+                "workspace/**/*.pyo\n"
+                "workspace/**/node_modules/\n"
+                "workspace/**/.DS_Store\n"
+                "# DB ジャーナル\n"
+                "*.db-journal\n"
+                "*.db-shm\n"
+                "*.db-wal\n"
+            )
 
 
 # =========================

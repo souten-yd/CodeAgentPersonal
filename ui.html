@@ -1175,9 +1175,74 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <pre id="mcp-test-result" style="display:none;font-size:10px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:8px;white-space:pre-wrap;max-height:120px;overflow-y:auto"></pre>
       </div>
 
+      <!-- GitHub リポジトリ管理 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🐙 GitHub リポジトリ管理</div>
+      <div style="padding:4px 0 6px">
+        <div style="font-size:10px;color:var(--text3);line-height:1.6;margin-bottom:10px;padding:6px 8px;background:var(--bg2);border-radius:5px;border:1px solid var(--border)">
+          <b style="color:var(--text2)">ca_data/</b> フォルダ（DB・スキル・メモリ）をGitHubで管理します。<br>
+          認証トークンは <code style="background:var(--bg3);padding:1px 4px;border-radius:2px">.codeagent/</code> に保存され、Gitには絶対アップロードされません。
+        </div>
+
+        <!-- PAT（機密） -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Personal Access Token <span style="font-weight:400;color:var(--text3)">(機密 — ローカル保存のみ)</span></div>
+          <div style="display:flex;gap:5px">
+            <input id="gh-token" type="password" placeholder="ghp_xxxxxxxxxxxx"
+              style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+            <button onclick="saveGhCredentials()" style="padding:5px 10px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">保存</button>
+          </div>
+          <div id="gh-token-status" style="font-size:10px;color:var(--text3);margin-top:3px"></div>
+        </div>
+
+        <!-- ユーザー名 -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">GitHub ユーザー名</div>
+          <input id="gh-username" type="text" placeholder="your-github-username"
+            style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+        </div>
+
+        <!-- リポジトリ名 -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">リポジトリ名</div>
+          <input id="gh-repo-name" type="text" placeholder="codeagent-data" value="codeagent-data"
+            style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+        </div>
+
+        <!-- 可視性 & ブランチ -->
+        <div style="display:flex;gap:10px;margin-bottom:8px">
+          <div style="flex:1">
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">可視性</div>
+            <select id="gh-visibility" style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+              <option value="private">Private</option>
+              <option value="public">Public</option>
+            </select>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">デフォルトブランチ</div>
+            <input id="gh-branch" type="text" placeholder="main" value="main"
+              style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+          </div>
+        </div>
+
+        <!-- リモートURL表示 -->
+        <div style="margin-bottom:10px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">リモートURL</div>
+          <code id="gh-remote-url" style="font-size:10px;color:var(--text3);font-family:var(--font-mono)">未設定</code>
+        </div>
+
+        <!-- アクションボタン -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+          <button onclick="saveGhRepoConfig()" style="padding:5px 12px;font-size:11px;font-weight:700;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">設定保存</button>
+          <button onclick="initGhRepo()" style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Init (リポジトリ作成)</button>
+          <button onclick="syncGhRepo()" style="padding:5px 12px;font-size:11px;font-weight:700;background:#28a745;border:none;border-radius:4px;color:#fff;cursor:pointer">Sync (Push)</button>
+          <button onclick="loadGhRepoStatus()" style="padding:5px 12px;font-size:11px;border:1px solid var(--border);background:transparent;color:var(--text2);border-radius:4px;cursor:pointer">状態確認</button>
+        </div>
+        <pre id="gh-repo-status" style="display:none;font-size:10px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:8px;white-space:pre-wrap;max-height:150px;overflow-y:auto"></pre>
+      </div>
+
     </div>
     <div class="modal-footer" style="font-size:10px;color:var(--text3);font-family:var(--font-mono)">
-      設定はブラウザのlocalStorageに保存されます。
+      設定はサーバー側DBに保存されます。認証情報はローカルの .codeagent/ に保存されGitには含まれません。
     </div>
   </div>
 </div>
@@ -3314,7 +3379,8 @@ function applyStreamingUI(enabled) {
 // ── SETTINGS MODAL ──
 function openSettings() {
   document.getElementById('settings-modal').classList.add('open');
-  loadSettingsFromDb();  // 開くたびにDBから最新値を反映
+  loadSettingsFromDb();       // 開くたびにDBから最新値を反映
+  loadGhRepoConfig();         // GitHub設定も読み込む
 }
 function closeSettings() {
   document.getElementById('settings-modal').classList.remove('open');
@@ -3451,6 +3517,115 @@ async function testMcpServer() {
   } catch(e) {
     if (el) { el.textContent = '✗ Error: '+e.message; el.style.color='var(--red)'; }
   }
+}
+
+// ── GitHub リポジトリ管理 ──
+async function loadGhRepoConfig() {
+  try {
+    const r = await fetch(API+'/repo/config');
+    const d = await r.json();
+    const username = document.getElementById('gh-username');
+    const repoName = document.getElementById('gh-repo-name');
+    const visibility = document.getElementById('gh-visibility');
+    const branch = document.getElementById('gh-branch');
+    const remoteUrl = document.getElementById('gh-remote-url');
+    const tokenStatus = document.getElementById('gh-token-status');
+    if (username) username.value = d.github_username || d.github_username_saved || '';
+    if (repoName) repoName.value = d.github_repo_name || 'codeagent-data';
+    if (visibility) visibility.value = d.github_repo_visibility || 'private';
+    if (branch) branch.value = d.github_default_branch || 'main';
+    if (remoteUrl) remoteUrl.textContent = d.github_remote_url || '未設定';
+    if (tokenStatus) tokenStatus.textContent = d.has_token ? '✓ トークン保存済み' : '未設定';
+    if (tokenStatus) tokenStatus.style.color = d.has_token ? 'var(--accent)' : 'var(--text3)';
+  } catch(e) { addLog('err','gh', e.message); }
+}
+
+async function saveGhCredentials() {
+  const token = document.getElementById('gh-token')?.value.trim();
+  const username = document.getElementById('gh-username')?.value.trim();
+  if (!token && !username) { alert('トークンまたはユーザー名を入力してください'); return; }
+  try {
+    await fetch(API+'/repo/config', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ github_token: token || undefined, github_username_cred: username || undefined })
+    });
+    const tokenInput = document.getElementById('gh-token');
+    if (tokenInput) tokenInput.value = '';
+    const st = document.getElementById('gh-token-status');
+    if (st) { st.textContent = '✓ 保存しました（.codeagent/）'; st.style.color='var(--accent)'; }
+    addLog('info','gh','認証情報を .codeagent/ に保存しました');
+  } catch(e) { addLog('err','gh', e.message); }
+}
+
+async function saveGhRepoConfig() {
+  const data = {
+    github_username: document.getElementById('gh-username')?.value.trim() || '',
+    github_repo_name: document.getElementById('gh-repo-name')?.value.trim() || 'codeagent-data',
+    github_repo_visibility: document.getElementById('gh-visibility')?.value || 'private',
+    github_default_branch: document.getElementById('gh-branch')?.value.trim() || 'main',
+  };
+  try {
+    await fetch(API+'/repo/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+    addLog('info','gh','リポジトリ設定を保存しました');
+  } catch(e) { addLog('err','gh', e.message); }
+}
+
+async function initGhRepo() {
+  const el = document.getElementById('gh-repo-status');
+  if (el) { el.textContent = '初期化中...'; el.style.display='block'; }
+  try {
+    const r = await fetch(API+'/repo/init', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    const d = await r.json();
+    if (d.ok) {
+      const remoteUrl = document.getElementById('gh-remote-url');
+      if (remoteUrl) remoteUrl.textContent = d.remote_url;
+      if (el) el.textContent = `✓ リポジトリ初期化完了\nリモート: ${d.remote_url}\nリポジトリ: ${d.repo}`;
+      addLog('info','gh',`リポジトリ初期化完了: ${d.repo}`);
+    } else {
+      if (el) el.textContent = '✗ エラー: ' + (d.detail || JSON.stringify(d));
+      addLog('err','gh', d.detail || 'init failed');
+    }
+  } catch(e) { if (el) el.textContent='✗ Error: '+e.message; addLog('err','gh',e.message); }
+}
+
+async function syncGhRepo() {
+  const msg = prompt('コミットメッセージ（空でデフォルト）:', '') ?? '';
+  const el = document.getElementById('gh-repo-status');
+  if (el) { el.textContent = 'Sync中...'; el.style.display='block'; }
+  try {
+    const r = await fetch(API+'/repo/sync', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ message: msg || undefined })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      if (el) el.textContent = `✓ Sync完了\nブランチ: ${d.branch}\nメッセージ: ${d.message}`;
+      addLog('info','gh',`Sync完了: ${d.message}`);
+    } else {
+      if (el) el.textContent = '✗ エラー: ' + (d.error || JSON.stringify(d));
+      addLog('err','gh', d.error || 'sync failed');
+    }
+  } catch(e) { if (el) el.textContent='✗ Error: '+e.message; addLog('err','gh',e.message); }
+}
+
+async function loadGhRepoStatus() {
+  const el = document.getElementById('gh-repo-status');
+  if (el) { el.textContent = '確認中...'; el.style.display='block'; }
+  try {
+    const r = await fetch(API+'/repo/status');
+    const d = await r.json();
+    if (!d.initialized) {
+      if (el) el.textContent = '⚠ リポジトリ未初期化\n「Init (リポジトリ作成)」を実行してください';
+    } else {
+      if (el) el.textContent = [
+        `✓ 初期化済み`,
+        `リモート: ${d.remote_url || '未設定'}`,
+        `ブランチ: ${d.branch}`,
+        `変更: ${d.status || 'clean'}`,
+        d.recent_commits ? `\n最近のコミット:\n${d.recent_commits}` : '',
+      ].join('\n');
+    }
+  } catch(e) { if (el) el.textContent='✗ Error: '+e.message; }
 }
 
 function openSkillFolder() { addLog("info","skill","Skill folder: C:\\AI\\skills\\"); }

@@ -1,0 +1,29 @@
+# ==============================================
+# ca_data/.gitignore
+# Git管理データフォルダ内の除外設定
+# ==============================================
+
+# ========== ワークスペース（プロジェクトファイルは管理対象外） ==========
+# 全ワークスペースをコミット対象外にする場合はコメントアウトを解除:
+# workspace/
+
+# ワークスペース内の一時・生成ファイルのみ除外
+workspace/**/__pycache__/
+workspace/**/*.pyc
+workspace/**/*.pyo
+workspace/**/node_modules/
+workspace/**/.DS_Store
+workspace/**/dist/
+workspace/**/build/
+workspace/**/*.log
+
+# ========== DB ジャーナルファイル ==========
+*.db-journal
+*.db-shm
+*.db-wal
+
+# ========== 機密ファイル（念のため） ==========
+*.credentials
+*.token
+*.secret
+.env

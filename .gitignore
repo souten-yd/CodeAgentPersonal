@@ -1,0 +1,66 @@
+# ==============================================
+# CodeAgent - ルート .gitignore
+# ==============================================
+
+# ========== 機密情報（絶対にコミットしない） ==========
+.codeagent/
+*.credentials
+*_credentials*
+*.token
+*.secret
+
+# ========== Python ==========
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ========== 仮想環境 ==========
+venv/
+.venv/
+env/
+.env
+
+# ========== LLM バイナリ ==========
+llama/
+*.gguf
+
+# ========== UIビルド（自動生成） ==========
+ui/
+
+# ========== OS ==========
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ========== エディタ ==========
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ========== ログ ==========
+*.log
+logs/
+
+# ========== DB（ca_data/ 外のもの） ==========
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# ========== ca_data/ は管理対象 ==========
+# （ca_data/.gitignore で内部の除外を制御）
+# ca_data/ 自体は除外しない
+
+# ========== ワークスペース（ルート直下の古い場所） ==========
+workspace/
+skills/
+memory.db
+model_db.db
