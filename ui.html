@@ -1173,6 +1173,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   document.getElementById('tab-'+name)?.classList.add('active');
   if (name === 'preview') refreshFileBrowser();
+  if (name === 'skills') refreshSkills();
   if (name === 'memory') refreshMemory();
 }
 
@@ -2379,9 +2380,10 @@ function detectHtml(data) {
   if (found.length) {
     htmlFiles = found;
     loadPreview(htmlFiles[htmlFiles.length-1]);
-    switchTab('preview');
+    switchTab('preview');  // switchTab('preview') 内で refreshFileBrowser() を呼ぶため重複呼び出し不要
+  } else {
+    refreshFileBrowser();
   }
-  refreshFileBrowser();
 }
 async function loadPreview(path) {
   try {

@@ -2856,7 +2856,7 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
     # project引数を持つツールに現在のprojectを自動バインド
     _project_tools = ("read_file", "write_file", "edit_file", "get_outline",
                        "patch_function", "list_files",
-                       "run_python", "run_file", "run_server", "stop_server", "setup_venv",
+                       "run_python", "run_file", "run_server", "setup_venv",
                        "run_browser", "run_npm", "run_node")
     for _pt in _project_tools:
         if _pt in active_tools:
@@ -3042,20 +3042,30 @@ def verify_and_fix(
     all_issues = []
     phase_results = {}
 
-    # プロジェクト内のPythonファイルを収集
+    # プロジェクト内ファイルを収集
     project_path = os.path.join(WORK_DIR, project)
-    py_files = []
+    py_files, html_files, other_files = [], [], []
     for root, _, files in os.walk(project_path):
         for f in files:
-            if f.endswith('.py') and not f.startswith('_') and not f.endswith('_test.py'):
-                rel = os.path.relpath(os.path.join(root, f), project_path)
+            if f.startswith('_'): continue
+            rel = os.path.relpath(os.path.join(root, f), project_path)
+            if f.endswith('.py') and not f.endswith('_test.py'):
                 py_files.append(rel)
+            elif f.endswith(('.html', '.htm')):
+                html_files.append(rel)
+            elif f.endswith(('.js', '.ts', '.css', '.json')):
+                other_files.append(rel)
+    is_html_project = bool(html_files) and not py_files
 
     emit({"type": "verify_start", "phase": "Phase 1: 単体テスト", "round": 0})
 
     # ── Phase 1: 単体テスト ──
     unit_results = []
-    for py_file in py_files[:6]:  # 最大6ファイル
+    if is_html_project:
+        emit({"type": "verify_phase", "phase": "単体テスト",
+              "attempt": 0, "total": 0, "failed": 0,
+              "summary": "HTMLプロジェクトのため単体テストをスキップ"})
+    for py_file in ([] if is_html_project else py_files[:6]):
         full_path = os.path.join(project_path, py_file)
         try:
             with open(full_path, 'r', encoding='utf-8') as f:
@@ -3154,7 +3164,31 @@ def verify_and_fix(
     integ_results = []
 
     # 各要件に対応する結合テストコードをLLMに生成させて実行
-    integ_gen_prompt = f"""以下の要件に対する結合テストコードを生成してください。
+    if is_html_project:
+        integ_gen_prompt = f"""以下のHTML/CSSプロジェクトの検証スクリプトをPythonで生成してください。
+
+【ユーザーの要求】
+{user_message}
+
+【検証項目】
+{verify_text}
+
+【HTMLファイル】
+{', '.join(html_files[:5])}
+【その他ファイル】
+{', '.join(other_files[:5])}
+
+【要件】
+- import os, sys; project_dir = '/app/{project}' でファイルパスを構築する
+- os.path.exists でファイル存在確認
+- open(path).read() でHTMLを読んで文字列検索（from html.parser import HTMLParser も利用可）
+- 各シナリオで print("SCENARIO: シナリオ名 - PASS") または print("SCENARIO: シナリオ名 - FAIL")
+- サーバー起動・ブラウザ接続は行わない（ファイルベースの検証のみ）
+- テストコード以外を含めないこと
+
+テストコードのみ出力してください（```不要）:"""
+    else:
+        integ_gen_prompt = f"""以下の要件に対する結合テストコードを生成してください。
 
 【ユーザーの要求】
 {user_message}
@@ -3252,7 +3286,22 @@ def verify_and_fix(
 
     for req_item in requirements[:8]:
         # 各要件についてコードで確認するスクリプトを生成・実行
-        chk_prompt = f"""以下の要件を確認するPythonスクリプトを生成してください。
+        if is_html_project:
+            chk_prompt = f"""以下の要件をHTMLファイルを読み込んで確認するPythonスクリプトを生成してください。
+
+【要件】{req_item}
+【HTMLファイル】{', '.join(html_files[:4])}
+【その他ファイル】{', '.join(other_files[:4])}
+
+【ルール】
+- import os; project_dir = '/app/{project}' でファイルパス構築
+- os.path.exists / open().read() / html.parser でファイルを検証する
+- サーバー起動・外部接続は行わない（ファイルベースの検証のみ）
+- 要件が満たされていれば print("REQUIREMENT_MET") を出力する
+- 満たされていなければ print("REQUIREMENT_MISSING: 理由") を出力する
+- テストコードのみ出力（```不要）"""
+        else:
+            chk_prompt = f"""以下の要件を確認するPythonスクリプトを生成してください。
 
 【要件】{req_item}
 【対象ファイル】{', '.join(py_files[:4])}
@@ -3593,6 +3642,9 @@ async def stream(req: ChatRequest):
                 )
 
                 reply, _step_usage = call_llm_chat(messages)
+                # APIがprompt_tokensを返さない場合はメッセージ長から推定
+                if not _step_usage.get("prompt_tokens"):
+                    _step_usage = {**_step_usage, "prompt_tokens": _estimate_tokens(messages)}
                 action_obj = extract_json(reply, parser=_model_manager.current_parser)
 
                 if action_obj is None:
@@ -3813,7 +3865,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
     # ファイル操作ツールにprojectを自動バインド
     _pt_list = ("read_file", "write_file", "edit_file", "get_outline",
                 "patch_function", "list_files",
-                "run_python", "run_file", "run_server", "stop_server", "setup_venv")
+                "run_python", "run_file", "run_server", "setup_venv")
     import functools as _ft2
     for _pt in _pt_list:
         if _pt in active_tools:
@@ -3833,6 +3885,8 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
                         yield _sev  # フロントエンドへTPS進捗を転送
                     elif _sev["type"] == "llm_done":
                         reply, usage = _sev["content"], _sev["usage"]
+                        if not usage.get("prompt_tokens"):
+                            usage = {**usage, "prompt_tokens": _estimate_tokens(messages)}
                     elif _sev["type"] == "llm_error":
                         raise HTTPException(
                             status_code=_sev.get("status_code", 502),
@@ -3859,6 +3913,8 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             yield {"type": "llm_thinking", "step_num": step + 1, "max_steps": max_steps}
             try:
                 reply, usage = call_llm_chat(messages, llm_url=llm_url)
+                if not usage.get("prompt_tokens"):
+                    usage = {**usage, "prompt_tokens": _estimate_tokens(messages)}
             except HTTPException as _ctx_ex:
                 if _ctx_ex.status_code == 413:
                     print(f"[execute_task_stream] context exceeded, force trimming...")
@@ -3922,14 +3978,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             }
             return
 
-        if action not in active_tools:
-            # 未知のツール → スキル候補として記録
-            yield {"type": "skill_hint", "missing_tool": action, "thought": thought}
-            messages.append({"role": "assistant", "content": reply})
-            messages.append({"role": "user", "content": f"ERROR: unknown tool '{action}' — 使えるのは {list(active_tools.keys())} のみ。これらのツールで代替する。"})
-            continue
-
-        # clarify: ユーザー選択待ち
+        # clarify: ユーザー選択待ち（unknown tool チェックより先に処理する）
         if action == "clarify":
             question = tool_input.get("question", "確認が必要です")
             options = tool_input.get("options", [])
@@ -3941,8 +3990,13 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
                 "max_steps": max_steps,
             }
             # 呼び出し元 (run_job_background) がwait/resumeを担当
-            # ここではanswerをmessagesに注入する責務がないためスキップ
-            # → run_job_backgroundがclarify eventを受け取り、waitして回答をDI
+            continue
+
+        if action not in active_tools:
+            # 未知のツール → スキル候補として記録
+            yield {"type": "skill_hint", "missing_tool": action, "thought": thought}
+            messages.append({"role": "assistant", "content": reply})
+            messages.append({"role": "user", "content": f"ERROR: unknown tool '{action}' — 使えるのは {list(active_tools.keys())} のみ。これらのツールで代替する。"})
             continue
 
         yield {
