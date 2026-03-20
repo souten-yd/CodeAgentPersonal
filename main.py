@@ -5830,6 +5830,45 @@ async def sync_repo(request: Request):
 
     return {"ok": True, "message": message, "branch": branch}
 
+@app.get("/repo/test-connection")
+def test_repo_connection():
+    """GitHub API 接続確認（トークンの有効性・ユーザー情報・レートリミット）"""
+    creds = creds_load()
+    token = creds.get("github_token", "")
+    if not token:
+        return {"ok": False, "error": "GitHub Personal Access Token が設定されていません (.codeagent/ に保存してください)"}
+    try:
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+        }
+        # ユーザー情報取得
+        user_resp = requests.get("https://api.github.com/user", headers=headers, timeout=10)
+        if not user_resp.ok:
+            return {"ok": False, "error": f"認証失敗 (HTTP {user_resp.status_code}): トークンが無効か期限切れです"}
+        user = user_resp.json()
+        # レートリミット取得
+        rate_resp = requests.get("https://api.github.com/rate_limit", headers=headers, timeout=10)
+        rate = {}
+        if rate_resp.ok:
+            core = rate_resp.json().get("rate", {})
+            import datetime as _dt
+            reset_ts = core.get("reset", 0)
+            reset_str = _dt.datetime.fromtimestamp(reset_ts).strftime("%H:%M:%S") if reset_ts else "?"
+            rate = {"remaining": core.get("remaining"), "limit": core.get("limit"), "reset": reset_str}
+        return {
+            "ok": True,
+            "login": user.get("login", ""),
+            "name": user.get("name", ""),
+            "plan": user.get("plan", {}).get("name", "") if user.get("plan") else "",
+            "public_repos": user.get("public_repos", 0),
+            "private_repos": user.get("total_private_repos", 0),
+            "rate_limit": rate,
+        }
+    except requests.RequestException as e:
+        return {"ok": False, "error": f"通信エラー: {e}"}
+
+
 @app.get("/repo/status")
 def get_repo_status():
     """ca_data/ の Git ステータス取得"""

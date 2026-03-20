@@ -1243,6 +1243,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <!-- アクションボタン -->
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
           <button onclick="saveGhRepoConfig()" style="padding:5px 12px;font-size:11px;font-weight:700;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">設定保存</button>
+          <button onclick="testGhConnection()" style="padding:5px 12px;font-size:11px;font-weight:700;border:1px solid #6f42c1;background:rgba(111,66,193,.12);color:#a78bfa;border-radius:4px;cursor:pointer">接続確認</button>
           <button onclick="initGhRepo()" style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Init (リポジトリ作成)</button>
           <button onclick="syncGhRepo()" style="padding:5px 12px;font-size:11px;font-weight:700;background:#28a745;border:none;border-radius:4px;color:#fff;cursor:pointer">Sync (Push)</button>
           <button onclick="loadGhRepoStatus()" style="padding:5px 12px;font-size:11px;border:1px solid var(--border);background:transparent;color:var(--text2);border-radius:4px;cursor:pointer">状態確認</button>
@@ -3654,6 +3655,31 @@ async function loadGhRepoStatus() {
       ].join('\n');
     }
   } catch(e) { if (el) el.textContent='✗ Error: '+e.message; }
+}
+
+async function testGhConnection() {
+  const el = document.getElementById('gh-repo-status');
+  if (el) { el.textContent = 'GitHub接続確認中...'; el.style.display='block'; el.style.color=''; }
+  try {
+    const r = await fetch(API+'/repo/test-connection');
+    const d = await r.json();
+    if (d.ok) {
+      if (el) el.textContent = [
+        `✓ GitHub接続成功`,
+        `ユーザー: ${d.login} (${d.name || ''})`,
+        `プラン: ${d.plan || 'unknown'}`,
+        `公開リポジトリ: ${d.public_repos}件  非公開: ${d.private_repos}件`,
+        d.rate_limit ? `APIレート: 残${d.rate_limit.remaining}/${d.rate_limit.limit} (リセット: ${d.rate_limit.reset})` : '',
+      ].filter(Boolean).join('\n');
+      el.style.color = 'var(--accent)';
+      const st = document.getElementById('gh-token-status');
+      if (st) { st.textContent = '✓ トークン有効'; st.style.color = 'var(--accent)'; }
+    } else {
+      if (el) { el.textContent = `✗ 接続失敗: ${d.error || '不明なエラー'}`; el.style.color = 'var(--red)'; }
+    }
+  } catch(e) {
+    if (el) { el.textContent = '✗ Error: ' + e.message; el.style.color = 'var(--red)'; }
+  }
 }
 
 function openSkillFolder() { addLog("info","skill","Skill folder: C:\\AI\\skills\\"); }
