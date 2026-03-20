@@ -1795,6 +1795,7 @@ def _get_model_db():
             name TEXT NOT NULL,
             path TEXT NOT NULL,
             is_vlm INTEGER DEFAULT 0,
+            enabled INTEGER DEFAULT 1,
             vram_mb INTEGER DEFAULT -1,
             ram_mb INTEGER DEFAULT -1,
             load_sec REAL DEFAULT -1,
@@ -1807,6 +1808,21 @@ def _get_model_db():
             notes TEXT DEFAULT '',
             benchmarked_at TEXT DEFAULT '',
             created_at TEXT NOT NULL
+        )
+    """)
+    # 既存DBへのマイグレーション: enabled列が無ければ追加
+    try:
+        conn.execute("ALTER TABLE models ADD COLUMN enabled INTEGER DEFAULT 1")
+        conn.commit()
+    except Exception:
+        pass  # 既に存在する場合は無視
+
+    # ユーザー設定テーブル（キーバリューストア）
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         )
     """)
     conn.commit()
@@ -1869,7 +1885,7 @@ def model_db_delete(mid: str):
 
 
 def model_db_update(mid: str, updates: dict):
-    allowed = {"name", "path", "is_vlm", "vram_mb", "ram_mb", "load_sec",
+    allowed = {"name", "path", "is_vlm", "enabled", "vram_mb", "ram_mb", "load_sec",
                "tok_per_sec", "llm_url", "ctx_size", "gpu_layers",
                "quantization", "file_size_mb", "notes", "benchmarked_at"}
     sets = {k: v for k, v in updates.items() if k in allowed}
@@ -1880,6 +1896,76 @@ def model_db_update(mid: str, updates: dict):
         try:
             clause = ", ".join(f"{k}=?" for k in sets)
             conn.execute(f"UPDATE models SET {clause} WHERE id=?", [*sets.values(), mid])
+            conn.commit()
+        finally:
+            conn.close()
+
+
+# =========================
+# ユーザー設定（DB保存）
+# =========================
+
+# デフォルト設定定義
+SETTINGS_DEFAULTS = {
+    "llm_root_folder":    "",           # モデルのルートフォルダ
+    "max_steps":          "20",
+    "auto_select_option": "true",
+    "auto_skill_gen":     "true",
+    "search_enabled":     "false",
+    "search_num":         "5",
+    "streaming_enabled":  "true",
+    "ctx_size":           "32768",
+    "llm_url":            "",
+    "llm_port":           "8080",
+}
+
+def settings_get(key: str) -> str:
+    """1件取得。存在しなければデフォルト値を返す"""
+    with _model_db_lock:
+        conn = _get_model_db()
+        try:
+            row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+            return row["value"] if row else SETTINGS_DEFAULTS.get(key, "")
+        finally:
+            conn.close()
+
+def settings_set(key: str, value: str):
+    """1件保存（upsert）"""
+    now = datetime.now().isoformat()
+    with _model_db_lock:
+        conn = _get_model_db()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?,?,?)",
+                (key, str(value), now)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+def settings_get_all() -> dict:
+    """全設定をdictで返す（未設定キーはデフォルト値で補完）"""
+    with _model_db_lock:
+        conn = _get_model_db()
+        try:
+            rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        finally:
+            conn.close()
+    result = dict(SETTINGS_DEFAULTS)
+    result.update({r["key"]: r["value"] for r in rows})
+    return result
+
+def settings_set_bulk(data: dict):
+    """複数キーを一括保存"""
+    now = datetime.now().isoformat()
+    with _model_db_lock:
+        conn = _get_model_db()
+        try:
+            for key, value in data.items():
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?,?,?)",
+                    (key, str(value), now)
+                )
             conn.commit()
         finally:
             conn.close()
@@ -5379,6 +5465,54 @@ def benchmark_model_api(mid: str):
 
     _bt.Thread(target=_run_bench, daemon=True).start()
     return {"ok": True, "message": f"Benchmarking {model['name']} in background..."}
+
+@app.post("/models/db/toggle/{mid}")
+def toggle_model_enabled(mid: str, req: dict):
+    """モデルの有効/無効を切り替える"""
+    enabled = req.get("enabled", True)
+    model_db_update(mid, {"enabled": 1 if enabled else 0})
+    return {"ok": True, "enabled": enabled}
+
+
+# =========================
+# ユーザー設定 API
+# =========================
+
+@app.get("/settings")
+def get_settings_api():
+    """全設定を返す（未設定はデフォルト値）"""
+    return settings_get_all()
+
+@app.post("/settings")
+def save_settings_api(req: dict):
+    """複数設定を一括保存"""
+    settings_set_bulk(req)
+    # search/streaming などサーバー側フラグも同期
+    global _search_enabled, _llm_streaming, _current_n_ctx
+    if "search_enabled" in req:
+        _search_enabled = str(req["search_enabled"]).lower() in ("true", "1", "yes")
+    if "streaming_enabled" in req:
+        _llm_streaming = str(req["streaming_enabled"]).lower() in ("true", "1", "yes")
+    if "ctx_size" in req:
+        try:
+            _current_n_ctx = int(req["ctx_size"])
+        except Exception:
+            pass
+    return {"ok": True, "saved": list(req.keys())}
+
+@app.get("/settings/{key}")
+def get_setting_api(key: str):
+    return {"key": key, "value": settings_get(key)}
+
+@app.put("/settings/{key}")
+def set_setting_api(key: str, req: dict):
+    value = req.get("value", "")
+    settings_set(key, value)
+    return {"ok": True, "key": key, "value": value}
+
+@app.get("/settings/defaults")
+def get_settings_defaults():
+    return SETTINGS_DEFAULTS
 
 
 # =========================

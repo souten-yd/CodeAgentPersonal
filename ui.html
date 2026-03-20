@@ -968,44 +968,76 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
     <!-- MODELS DB TAB -->
     <div class="tab-content" id="tab-models" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Model Database</span>
         <button onclick="refreshModelDb()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺</button>
       </div>
-      <!-- Scan folder -->
-      <div style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
-        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px">Scan folder for GGUF models</div>
-        <div style="display:flex;gap:5px;margin-bottom:5px">
-          <input id="model-scan-folder" type="text" placeholder="E:\LLMs" style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)">
-          <button onclick="doModelScan()" style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Scan</button>
+
+      <!-- ルートフォルダ（設定DB連動） -->
+      <div style="border:1px solid var(--accent-border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--accent-bg)">
+        <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:5px">LLMルートフォルダ</div>
+        <div style="display:flex;gap:5px;margin-bottom:4px">
+          <input id="model-root-folder" type="text" placeholder="E:\LLMs"
+            style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)"
+            oninput="saveRootFolder(this.value)">
+          <button onclick="doModelScan(true)" style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer;white-space:nowrap">↺ スキャン</button>
         </div>
-        <div style="font-size:10px;color:var(--text3)">サブフォルダを含む全.ggufファイルを検出。VLM(マルチモーダル)は自動判定</div>
+        <div style="font-size:10px;color:var(--text3)">入力値はDBに自動保存。サブフォルダ含む全.ggufを検出・VLM自動判定</div>
       </div>
-      <!-- Add manually -->
-      <div id="model-add-form" style="display:none;border:1px solid var(--accent-border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--accent-bg)">
-        <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:5px">モデルを手動で追加</div>
-        <input id="model-add-name" type="text" placeholder="Model name" style="width:100%;padding:4px 8px;margin-bottom:4px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
-        <input id="model-add-path" type="text" placeholder="C:\path\to\model.gguf" style="width:100%;padding:4px 8px;margin-bottom:4px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
-        <input id="model-add-url" type="text" placeholder="LLM URL (e.g. http://127.0.0.1:8080/v1/chat/completions)" style="width:100%;padding:4px 8px;margin-bottom:6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
-        <div style="display:flex;gap:4px;margin-bottom:5px">
-          <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px">
-            <input type="checkbox" id="model-add-vlm" style="accent-color:var(--accent)"> VLM (マルチモーダル)
+
+      <!-- フィルタ -->
+      <div style="display:flex;gap:5px;margin-bottom:8px;align-items:center">
+        <input id="model-filter" type="text" placeholder="🔍 モデルを絞り込み..."
+          oninput="filterModelList(this.value)"
+          style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+        <label style="font-size:10px;color:var(--text2);white-space:nowrap;display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="checkbox" id="filter-enabled-only" onchange="filterModelList(document.getElementById('model-filter').value)"
+            style="accent-color:var(--accent)"> 有効のみ
+        </label>
+        <label style="font-size:10px;color:var(--text2);white-space:nowrap;display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="checkbox" id="filter-vlm-only" onchange="filterModelList(document.getElementById('model-filter').value)"
+            style="accent-color:var(--amber)"> VLMのみ
+        </label>
+      </div>
+
+      <!-- ステータス + Add -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span id="model-db-stats" style="font-size:10px;color:var(--text3)">Loading...</span>
+        <button onclick="document.getElementById('model-add-form').style.display='block'"
+          style="font-size:10px;padding:3px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">+ 手動追加</button>
+      </div>
+
+      <!-- 手動追加フォーム -->
+      <div id="model-add-form" style="display:none;border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px">モデルを手動で追加</div>
+        <input id="model-add-name" type="text" placeholder="Model name"
+          style="width:100%;padding:4px 8px;margin-bottom:4px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+        <input id="model-add-path" type="text" placeholder="C:\path\to\model.gguf"
+          style="width:100%;padding:4px 8px;margin-bottom:4px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)">
+        <input id="model-add-url" type="text" placeholder="LLM URL (空でOK)"
+          style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)">
+        <div style="display:flex;gap:10px;margin-bottom:6px">
+          <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="checkbox" id="model-add-vlm" style="accent-color:var(--accent)"> VLM
+          </label>
+          <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="checkbox" id="model-add-enabled" checked style="accent-color:var(--accent)"> 有効
           </label>
         </div>
         <div style="display:flex;gap:5px">
           <button onclick="doModelAdd()" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">追加</button>
-          <button onclick="document.getElementById('model-add-form').style.display='none'" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
+          <button onclick="document.getElementById('model-add-form').style.display='none'"
+            style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
         </div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-        <span id="model-db-stats" style="font-size:10px;color:var(--text3)">Loading...</span>
-        <button onclick="document.getElementById('model-add-form').style.display='block'" style="font-size:10px;padding:3px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">+ Add</button>
-      </div>
-      <!-- Model list -->
+
+      <!-- スキャン結果 -->
+      <div id="model-scan-result" style="font-size:11px;margin-bottom:6px;padding:6px 8px;border-radius:5px;display:none"></div>
+
+      <!-- モデルリスト -->
       <div id="model-db-list" style="display:flex;flex-direction:column;gap:6px">
         <div style="font-size:12px;color:var(--text3)">Loading...</div>
       </div>
-      <div id="model-scan-result" style="font-size:11px;color:var(--accent);margin-top:8px;padding:6px 8px;border-radius:5px;display:none"></div>
     </div>
 
     </div>
@@ -1021,8 +1053,21 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
     <div class="modal-body" style="overflow-y:auto;max-height:72vh">
 
+      <!-- LLMルートフォルダ -->
+      <div class="section-label">📁 LLMルートフォルダ</div>
+      <div style="padding:4px 0 14px">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:5px">GGUFモデルが格納されているルートフォルダ。Models タブのスキャンに使用されます。</div>
+        <div style="display:flex;gap:5px">
+          <input type="text" id="settings-root-folder" placeholder="E:\LLMs"
+            style="flex:1;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)"
+            oninput="saveRootFolder(this.value)">
+          <button onclick="doModelScanFromSettings()" style="padding:6px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:5px;color:var(--bg);cursor:pointer;white-space:nowrap">今すぐスキャン</button>
+        </div>
+        <div id="settings-scan-result" style="display:none;font-size:10px;color:var(--accent);margin-top:4px"></div>
+      </div>
+
       <!-- エージェント設定 -->
-      <div class="section-label">🤖 エージェント設定</div>
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🤖 エージェント設定</div>
       <div style="padding:4px 0 14px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
           <span style="font-size:11px;color:var(--text2);flex:1;white-space:nowrap">Max Steps</span>
@@ -1086,7 +1131,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">LLM URL（空=サーバーデフォルト）</div>
         <input type="text" id="llm-url-input" placeholder="http://localhost:8080/v1/chat/completions"
           style="width:100%;padding:6px 8px;font-size:10px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--font-mono);box-sizing:border-box"
-          oninput="activeLlmUrl=this.value.trim()">
+          oninput="activeLlmUrl=this.value.trim(); _saveSettingDb('llm_url', this.value.trim())">
       </div>
 
       <!-- Web検索 -->
@@ -1188,17 +1233,98 @@ if (window.visualViewport) {
   });
 }
 
+// ── SETTINGS DB 連動 ──
+
+async function loadSettingsFromDb() {
+  try {
+    const r = await fetch(API+'/settings');
+    const d = await r.json();
+
+    // ルートフォルダ
+    const folder = d.llm_root_folder || '';
+    const rf1 = document.getElementById('model-root-folder');
+    const rf2 = document.getElementById('settings-root-folder');
+    if (rf1) rf1.value = folder;
+    if (rf2) rf2.value = folder;
+
+    // Max Steps
+    const steps = parseInt(d.max_steps) || 20;
+    maxSteps = steps;
+    const sl = document.getElementById('steps-slider');
+    const ll = document.getElementById('steps-label');
+    if (sl) sl.value = steps;
+    if (ll) ll.textContent = steps;
+
+    // Auto select
+    const autoSel = d.auto_select_option !== 'false';
+    autoSelectOption = autoSel;
+    const ast = document.getElementById('auto-select-toggle');
+    if (ast) ast.checked = autoSel;
+
+    // Auto skill gen
+    const autoSkill = d.auto_skill_gen !== 'false';
+    autoSkillGeneration = autoSkill;
+    const askg = document.getElementById('auto-skill-toggle');
+    if (askg) askg.checked = autoSkill;
+
+    // Streaming
+    const streaming = d.streaming_enabled !== 'false';
+    streamingEnabled = streaming;
+    const schk = document.getElementById('streaming-chk');
+    const slbl = document.getElementById('streaming-label');
+    if (schk) schk.checked = streaming;
+    if (slbl) slbl.textContent = streaming ? 'ON' : 'OFF';
+
+    // Search
+    const search = d.search_enabled === 'true';
+    searchEnabled = search;
+    const sc = document.getElementById('search-chk');
+    const sl2 = document.getElementById('search-label');
+    if (sc) sc.checked = search;
+    if (sl2) sl2.textContent = search ? 'ON' : 'OFF';
+
+    // Search num
+    const snum = parseInt(d.search_num) || 5;
+    const sns = document.getElementById('search-num-slider');
+    const snl = document.getElementById('search-num-label');
+    if (sns) sns.value = snum;
+    if (snl) snl.textContent = snum;
+
+    // Ctx size
+    const ctx = parseInt(d.ctx_size) || 32768;
+    const cs = document.getElementById('ctx-slider');
+    const cl = document.getElementById('ctx-label');
+    if (cs) cs.value = ctx;
+    if (cl) cl.textContent = ctx;
+
+    // LLM URL
+    const url = d.llm_url || '';
+    activeLlmUrl = url;
+    const ui = document.getElementById('llm-url-input');
+    if (ui) ui.value = url;
+
+  } catch(e) { console.warn('loadSettingsFromDb error', e); }
+}
+
+// 設定変更をDBに保存するラッパー（既存の各toggle関数から呼ぶ）
+async function _saveSettingDb(key, value) {
+  try {
+    await fetch(API+'/settings', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({[key]: String(value)})
+    });
+  } catch(e) {}
+}
+
 // ── INIT ──
 addEventListener('load', async () => {
+  await loadSettingsFromDb();   // DBから設定を復元（localStorage優先ではなくDB優先）
   checkHealth();
   loadProjects();
-  initSearch();
-  initStreaming();
   initCtxSlider();
   refreshSkills();
-  initStepsSlider();
-  await loadHistory(currentProject); // 先に履歴を復元してから
-  await loadJobs(currentProject);    // 実行中ジョブを検出・自動再接続
+  await loadHistory(currentProject);
+  await loadJobs(currentProject);
   setInterval(checkHealth, 10000);
 });
 
@@ -1401,6 +1527,8 @@ function showGitResult(text) {
 }
 
 // ── MODEL DATABASE ──
+let _allModels = [];  // 全モデルをキャッシュしてフィルタに使う
+
 async function refreshModelDb() {
   try {
     const [rstat, rlist] = await Promise.all([
@@ -1410,72 +1538,170 @@ async function refreshModelDb() {
     const stat = await rstat.json();
     const data = await rlist.json();
     const statEl = document.getElementById('model-db-stats');
-    if (statEl) statEl.textContent = `${stat.total} models · ${stat.benchmarked} benchmarked · VLM: ${stat.has_vlm?'yes':'no'}`;
-    renderModelDb(data.models || []);
+    const enabled = (data.models||[]).filter(m => m.enabled !== 0).length;
+    const total = (data.models||[]).length;
+    if (statEl) statEl.textContent = `${total} models (有効: ${enabled}) · benchmarked: ${stat.benchmarked} · VLM: ${stat.has_vlm?'yes':'no'}`;
+    _allModels = data.models || [];
+    filterModelList(document.getElementById('model-filter')?.value || '');
   } catch(e) { console.warn('model db error', e); }
+}
+
+function filterModelList(query) {
+  const q = (query||'').toLowerCase();
+  const enabledOnly = document.getElementById('filter-enabled-only')?.checked;
+  const vlmOnly = document.getElementById('filter-vlm-only')?.checked;
+  let models = _allModels;
+  if (q) models = models.filter(m => m.name.toLowerCase().includes(q) || (m.notes||'').toLowerCase().includes(q) || (m.quantization||'').toLowerCase().includes(q));
+  if (enabledOnly) models = models.filter(m => m.enabled !== 0);
+  if (vlmOnly) models = models.filter(m => m.is_vlm);
+  renderModelDb(models);
 }
 
 function renderModelDb(models) {
   const el = document.getElementById('model-db-list');
   if (!el) return;
   if (!models.length) {
-    el.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:8px">No models. Use Scan to detect GGUF files.</div>';
+    el.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:8px">モデルなし。ルートフォルダを指定してスキャンしてください。</div>';
     return;
   }
   el.innerHTML = models.map(m => {
+    const enabled = m.enabled !== 0;
     const vram = m.vram_mb > 0 ? `${(m.vram_mb/1024).toFixed(1)}GB` : '—';
-    const ram = m.ram_mb > 0 ? `${(m.ram_mb/1024).toFixed(1)}GB` : '—';
-    const tps = m.tok_per_sec > 0 ? `${m.tok_per_sec} tok/s` : '—';
+    const ram  = m.ram_mb  > 0 ? `${(m.ram_mb /1024).toFixed(1)}GB` : '—';
+    const tps  = m.tok_per_sec > 0 ? `${m.tok_per_sec} tok/s` : '—';
     const load = m.load_sec > 0 ? `${m.load_sec}s` : '—';
     const size = m.file_size_mb > 0 ? `${(m.file_size_mb/1024).toFixed(1)}GB` : '';
-    const vlmBadge = m.is_vlm ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--amber);color:var(--amber);border-radius:3px">VLM</span>` : '';
+    const enabledBorder = enabled ? 'var(--border)' : 'rgba(255,68,102,.25)';
+    const enabledBg = enabled ? 'var(--bg2)' : 'rgba(255,68,102,.04)';
+    const vlmBadge = m.is_vlm
+      ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--amber);color:var(--amber);border-radius:3px">VLM</span>` : '';
     const benchBtn = m.tok_per_sec <= 0
-      ? `<button onclick="doBenchmark('${esc(m.id)}')" style="font-size:10px;padding:2px 7px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">⚡ Bench</button>`
-      : '';
+      ? `<button onclick="doBenchmark('${esc(m.id)}')" title="ベンチマーク実行"
+           style="font-size:10px;padding:2px 7px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">⚡</button>` : '';
+    const toggleLabel = enabled ? '有効' : '無効';
+    const toggleColor = enabled ? 'var(--accent)' : 'var(--text3)';
     return `
-    <div style="border:1px solid var(--border);border-radius:6px;padding:9px 10px;background:var(--bg2)">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+    <div style="border:1px solid ${enabledBorder};border-radius:6px;padding:9px 10px;background:${enabledBg};transition:all .15s">
+      <!-- ヘッダー行 -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;flex:1;min-width:0">
-          <span style="font-size:11px;font-weight:700;color:var(--accent);font-family:var(--font-mono);word-break:break-all">${esc(m.name)}</span>
+          <span style="font-size:11px;font-weight:700;color:${enabled?'var(--accent)':'var(--text3)'};font-family:var(--font-mono);word-break:break-all">${esc(m.name)}</span>
           ${vlmBadge}
           ${m.quantization ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--border);color:var(--text3);border-radius:3px">${esc(m.quantization)}</span>` : ''}
           ${size ? `<span style="font-size:9px;color:var(--text3)">${size}</span>` : ''}
         </div>
-        <div style="display:flex;gap:4px;flex-shrink:0">
+        <!-- 有効/無効トグル + ベンチ + 削除 -->
+        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+          <button onclick="toggleModelEnabled('${esc(m.id)}', ${!enabled})"
+            style="font-size:10px;padding:2px 8px;border:1px solid ${toggleColor};background:${enabled?'rgba(0,255,136,.1)':'rgba(255,68,102,.08)'};color:${toggleColor};border-radius:10px;cursor:pointer;font-weight:700">
+            ${toggleLabel}
+          </button>
           ${benchBtn}
-          <button onclick="deleteModelDb('${esc(m.id)}')" style="font-size:10px;padding:2px 6px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:3px;cursor:pointer">✕</button>
+          <button onclick="deleteModelDb('${esc(m.id)}')"
+            style="font-size:10px;padding:2px 6px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:3px;cursor:pointer">✕</button>
         </div>
       </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--text3);margin-bottom:3px">
+      <!-- 性能データ -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--text3);margin-bottom:2px">
         <span>VRAM: <b style="color:var(--text2)">${vram}</b></span>
         <span>RAM: <b style="color:var(--text2)">${ram}</b></span>
-        <span>Speed: <b style="color:var(--accent)">${tps}</b></span>
+        <span>Speed: <b style="color:${m.tok_per_sec>0?'var(--accent)':'var(--text3)'}">${tps}</b></span>
         <span>Load: <b style="color:var(--text2)">${load}</b></span>
       </div>
-      ${m.notes ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">${esc(m.notes)}</div>` : ''}
-      ${m.llm_url ? `<div style="font-size:10px;font-family:var(--font-mono);color:var(--blue);margin-top:2px">${esc(m.llm_url)}</div>` : ''}
+      ${m.notes ? `<div style="font-size:10px;color:var(--text3)">${esc(m.notes)}</div>` : ''}
+      ${m.llm_url ? `<div style="font-size:9px;font-family:var(--font-mono);color:var(--blue);margin-top:1px;word-break:break-all">${esc(m.llm_url)}</div>` : ''}
     </div>`;
   }).join('');
 }
 
-async function doModelScan() {
-  const folder = document.getElementById('model-scan-folder').value.trim();
-  if (!folder) { alert('フォルダパスを入力してください'); return; }
+async function toggleModelEnabled(mid, enable) {
+  try {
+    await fetch(API+'/models/db/toggle/'+mid, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({enabled: enable})
+    });
+    // ローカルキャッシュも即時更新（再フェッチより速い）
+    const m = _allModels.find(x => x.id === mid);
+    if (m) m.enabled = enable ? 1 : 0;
+    filterModelList(document.getElementById('model-filter')?.value || '');
+    // stats更新
+    const enabled = _allModels.filter(x => x.enabled !== 0).length;
+    const statEl = document.getElementById('model-db-stats');
+    if (statEl) {
+      const total = _allModels.length;
+      const benchmarked = _allModels.filter(x => x.tok_per_sec > 0).length;
+      const hasVlm = _allModels.some(x => x.is_vlm);
+      statEl.textContent = `${total} models (有効: ${enabled}) · benchmarked: ${benchmarked} · VLM: ${hasVlm?'yes':'no'}`;
+    }
+    addLog('ok','models', (enable?'有効':'無効')+': '+(_allModels.find(x=>x.id===mid)||{}).name);
+  } catch(e) { addLog('err','models', e.message); }
+}
+
+// ルートフォルダの保存（デバウンス付き）
+let _rootFolderTimer = null;
+function saveRootFolder(val) {
+  // 両方のUI入力欄を同期
+  const a = document.getElementById('model-root-folder');
+  const b = document.getElementById('settings-root-folder');
+  if (a && a.value !== val) a.value = val;
+  if (b && b.value !== val) b.value = val;
+  clearTimeout(_rootFolderTimer);
+  _rootFolderTimer = setTimeout(async () => {
+    try {
+      await fetch(API+'/settings', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({llm_root_folder: val})
+      });
+    } catch(e) {}
+  }, 600);
+}
+
+async function doModelScan(useRootFolder) {
+  const folder = useRootFolder
+    ? (document.getElementById('model-root-folder')?.value || '').trim()
+    : (document.getElementById('model-scan-folder')?.value || '').trim();
+  if (!folder) { alert('ルートフォルダを入力してください'); return; }
   const resultEl = document.getElementById('model-scan-result');
-  if (resultEl) { resultEl.textContent = 'Scanning...'; resultEl.style.display='block'; }
+  if (resultEl) {
+    resultEl.textContent = '🔍 スキャン中...';
+    resultEl.style.display = 'block';
+    resultEl.style.background = 'var(--bg2)';
+    resultEl.style.color = 'var(--text2)';
+    resultEl.style.border = '1px solid var(--border)';
+  }
   try {
     const r = await fetch(API+'/models/db/scan', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({folder})
     });
     const d = await r.json();
-    if (resultEl) resultEl.textContent = `✓ Found ${d.found} models, added ${d.added} new`;
-    refreshModelDb();
+    if (resultEl) {
+      resultEl.textContent = `✓ ${folder}  →  ${d.found}件検出 / ${d.added}件追加`;
+      resultEl.style.color = 'var(--accent)';
+      resultEl.style.border = '1px solid var(--accent-border)';
+      resultEl.style.background = 'var(--accent-bg)';
+    }
+    // Settings側の結果も更新
+    const sResultEl = document.getElementById('settings-scan-result');
+    if (sResultEl) {
+      sResultEl.textContent = `✓ ${d.found}件検出 / ${d.added}件追加`;
+      sResultEl.style.display = 'block';
+    }
+    await refreshModelDb();
     addLog('ok','models', `Scan: ${d.found} found, ${d.added} added from ${folder}`);
   } catch(e) {
-    if (resultEl) resultEl.textContent = 'Error: '+e.message;
+    if (resultEl) { resultEl.textContent = '✗ Error: '+e.message; resultEl.style.color='var(--red)'; }
     addLog('err','models', e.message);
   }
+}
+
+async function doModelScanFromSettings() {
+  // settings-root-folder の値を model-root-folder にコピーしてからスキャン
+  const folder = document.getElementById('settings-root-folder')?.value.trim();
+  if (!folder) { alert('ルートフォルダを入力してください'); return; }
+  const rf = document.getElementById('model-root-folder');
+  if (rf) rf.value = folder;
+  await doModelScan(true);
 }
 
 async function doModelAdd() {
@@ -1483,16 +1709,17 @@ async function doModelAdd() {
   const path = document.getElementById('model-add-path').value.trim();
   const llm_url = document.getElementById('model-add-url').value.trim();
   const is_vlm = document.getElementById('model-add-vlm').checked;
-  if (!name || !path) { alert('Name and path required'); return; }
+  const enabled = document.getElementById('model-add-enabled')?.checked !== false;
+  if (!name || !path) { alert('Name and path are required'); return; }
   try {
     const r = await fetch(API+'/models/db', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({name, path, llm_url, is_vlm})
+      body: JSON.stringify({name, path, llm_url, is_vlm, enabled: enabled ? 1 : 0})
     });
     const d = await r.json();
     document.getElementById('model-add-form').style.display='none';
     ['model-add-name','model-add-path','model-add-url'].forEach(id => document.getElementById(id).value='');
-    refreshModelDb();
+    await refreshModelDb();
     addLog('ok','models', 'Added: '+name);
   } catch(e) { addLog('err','models', e.message); }
 }
@@ -2921,41 +3148,24 @@ function toggleAutoSelect(val) {
   const label = document.getElementById('auto-select-label');
   if (desc) desc.textContent = autoSelectOption ? '🤖 プランナーLLMが自動選択' : '👤 ユーザーが手動選択';
   if (label) label.textContent = autoSelectOption ? 'Auto' : 'Manual';
-  localStorage.setItem('auto_select_option', autoSelectOption ? '1' : '0');
+  _saveSettingDb('auto_select_option', autoSelectOption ? 'true' : 'false');
 }
 function toggleAutoSkill(val) {
   autoSkillGeneration = !!val;
   const desc = document.getElementById('auto-skill-desc');
   if (desc) desc.textContent = autoSkillGeneration ? '⚙ 失敗時にSKILLを自動生成' : '⚙ SKILL自動生成 無効';
-  localStorage.setItem('auto_skill_generation', autoSkillGeneration ? '1' : '0');
+  _saveSettingDb('auto_skill_gen', autoSkillGeneration ? 'true' : 'false');
 }
 
 // ── MAX STEPS SLIDER ──
 function initStepsSlider() {
-  const savedAutoSelect = localStorage.getItem('auto_select_option');
-  if (savedAutoSelect !== null) {
-    autoSelectOption = savedAutoSelect === '1';
-    const chk = document.getElementById('auto-select-toggle');
-    if (chk) { chk.checked = autoSelectOption; toggleAutoSelect(autoSelectOption); }
-  }
-  const savedAutoSkill = localStorage.getItem('auto_skill_generation');
-  if (savedAutoSkill !== null) {
-    autoSkillGeneration = savedAutoSkill === '1';
-    const chk2 = document.getElementById('auto-skill-toggle');
-    if (chk2) { chk2.checked = autoSkillGeneration; toggleAutoSkill(autoSkillGeneration); }
-  }
-  const saved = parseInt(localStorage.getItem('max_steps') || '20');
-  maxSteps = saved;
-  const slider = document.getElementById('steps-slider');
-  const label = document.getElementById('steps-label');
-  if (slider) slider.value = saved;
-  if (label) label.textContent = saved;
+  // DB連動の loadSettingsFromDb が担うため空関数として残す（互換性）
 }
 function updateStepsLabel(val) {
   maxSteps = parseInt(val);
   const el = document.getElementById('steps-label');
   if (el) el.textContent = val;
-  localStorage.setItem('max_steps', val);
+  _saveSettingDb('max_steps', val);
 }
 
 // ── SEARCH NUM RESULTS SLIDER ──
@@ -2980,6 +3190,7 @@ async function applySearchNum(val) {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({num_results: parseInt(val)})
     });
+    _saveSettingDb('search_num', val);
     addLog('ok','search', `num_results set to ${val}`);
   } catch(e) { addLog('err','search', e.message); }
 }
@@ -3034,6 +3245,7 @@ async function applyCtxLen(val) {
       body: JSON.stringify({n_ctx: n})
     });
     _current_n_ctx_ui = n;
+    _saveSettingDb('ctx_size', n);
     addLog('ok', 'ctx', 'Context length set to ' + n.toLocaleString());
   } catch(e) {
     addLog('err', 'ctx', e.message);
@@ -3056,6 +3268,7 @@ async function toggleSearch() {
     const r = await fetch(API+(next?'/search/enable':'/search/disable'), {method:'POST'});
     const d = await r.json();
     applySearchUI(d.enabled);
+    _saveSettingDb('search_enabled', d.enabled ? 'true' : 'false');
     addLog(d.enabled?'ok':'warn','search', d.enabled?'Web search ENABLED':'Web search DISABLED');
   } catch(e) { addLog('err','search',e.message); }
 }
@@ -3084,6 +3297,7 @@ async function toggleStreaming() {
     const r = await fetch(API + (next ? '/streaming/enable' : '/streaming/disable'), {method: 'POST'});
     const d = await r.json();
     applyStreamingUI(d.enabled);
+    _saveSettingDb('streaming_enabled', d.enabled ? 'true' : 'false');
     addLog(d.enabled ? 'ok' : 'warn', 'streaming',
       d.enabled ? 'LLMストリーミング有効' : 'LLMストリーミング無効 — 生成完了まで待機');
   } catch(e) { addLog('err', 'streaming', e.message); }
@@ -3100,12 +3314,7 @@ function applyStreamingUI(enabled) {
 // ── SETTINGS MODAL ──
 function openSettings() {
   document.getElementById('settings-modal').classList.add('open');
-  initStepsSlider();
-  initSearchNumSlider();
-  initCtxSlider();
-  // LLM URL 入力欄に現在値を反映
-  const urlInput = document.getElementById('llm-url-input');
-  if (urlInput) urlInput.value = activeLlmUrl;
+  loadSettingsFromDb();  // 開くたびにDBから最新値を反映
 }
 function closeSettings() {
   document.getElementById('settings-modal').classList.remove('open');
