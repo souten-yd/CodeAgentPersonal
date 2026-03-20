@@ -3593,6 +3593,9 @@ async def stream(req: ChatRequest):
                 )
 
                 reply, _step_usage = call_llm_chat(messages)
+                # APIがprompt_tokensを返さない場合はメッセージ長から推定
+                if not _step_usage.get("prompt_tokens"):
+                    _step_usage = {**_step_usage, "prompt_tokens": _estimate_tokens(messages)}
                 action_obj = extract_json(reply, parser=_model_manager.current_parser)
 
                 if action_obj is None:
@@ -3833,6 +3836,8 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
                         yield _sev  # フロントエンドへTPS進捗を転送
                     elif _sev["type"] == "llm_done":
                         reply, usage = _sev["content"], _sev["usage"]
+                        if not usage.get("prompt_tokens"):
+                            usage = {**usage, "prompt_tokens": _estimate_tokens(messages)}
                     elif _sev["type"] == "llm_error":
                         raise HTTPException(
                             status_code=_sev.get("status_code", 502),
@@ -3859,6 +3864,8 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             yield {"type": "llm_thinking", "step_num": step + 1, "max_steps": max_steps}
             try:
                 reply, usage = call_llm_chat(messages, llm_url=llm_url)
+                if not usage.get("prompt_tokens"):
+                    usage = {**usage, "prompt_tokens": _estimate_tokens(messages)}
             except HTTPException as _ctx_ex:
                 if _ctx_ex.status_code == 413:
                     print(f"[execute_task_stream] context exceeded, force trimming...")
