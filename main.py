@@ -61,6 +61,28 @@ SANDBOX_CONTAINER = "claude_sandbox"
 
 os.makedirs(WORK_DIR, exist_ok=True)
 
+# =========================
+# Dockerタイムアウトガードレール
+# =========================
+# (デフォルト秒数, 最大許容秒数) — LLMが timeout= を指定したとき上限でクランプする
+_DOCKER_TIMEOUT_LIMITS: dict[str, tuple[int, int]] = {
+    "run_python":  (30,  300),   # 通常スクリプト: デフォ30s, 最大5分
+    "run_file":    (30,  300),   # 同上
+    "run_browser": (90,  300),   # Playwright: デフォ90s, 最大5分
+    "run_npm":     (120, 600),   # npm install等: デフォ120s, 最大10分
+    "run_node":    (30,  300),   # Node.js: デフォ30s, 最大5分
+}
+
+def _clamp_docker_timeout(tool: str, requested: int | None) -> int:
+    """LLM指定のタイムアウトを妥当な範囲にクランプして返す。"""
+    default, max_val = _DOCKER_TIMEOUT_LIMITS.get(tool, (30, 300))
+    if requested is None:
+        return default
+    clamped = max(5, min(int(requested), max_val))
+    if clamped != int(requested):
+        print(f"[timeout_guard] {tool}: {requested}s → {clamped}s (max={max_val}s)")
+    return clamped
+
 UI_DIR = "./ui"
 os.makedirs(UI_DIR, exist_ok=True)
 
@@ -1133,7 +1155,7 @@ def _ensure_browser_container(project: str) -> bool:
     import time; time.sleep(2)  # 起動待ち
     return True
 
-def run_browser(script: str, project: str = "default") -> str:
+def run_browser(script: str, project: str = "default", timeout: int = None) -> str:
     """
     Playwright（Python）をDockerコンテナ内で実行してブラウザ自動化を行う。
     script: Playwrightを使ったPythonコード
@@ -1142,6 +1164,7 @@ def run_browser(script: str, project: str = "default") -> str:
     - スクリーンショットは /app/{project}/screenshot.png に保存できる
     - ホスト上のrun_serverにアクセスする場合: http://host.docker.internal:8888/
       （Windows/Mac: host.docker.internalが使える。Linux: --add-host=host.docker.internal:host-gateway が必要）
+    timeout: 実行タイムアウト秒数（デフォルト90s、最大300s）。タイムアウトエラー時のみ増やすこと。
     例:
       from playwright.sync_api import sync_playwright
       with sync_playwright() as p:
@@ -1152,6 +1175,7 @@ def run_browser(script: str, project: str = "default") -> str:
           print(page.title())
           browser.close()
     """
+    _timeout = _clamp_docker_timeout("run_browser", timeout)
     if not _ensure_browser_container(project):
         # コンテナなしで都度起動
         use_exec = False
@@ -1180,7 +1204,7 @@ def run_browser(script: str, project: str = "default") -> str:
         ]
 
     try:
-        result = _sp.run(cmd, capture_output=True, text=True, timeout=90,
+        result = _sp.run(cmd, capture_output=True, text=True, timeout=_timeout,
                          encoding="utf-8", errors="replace")
         out = (result.stdout + result.stderr).strip()
         # playwrightモジュールが見つからない場合はコンテナのイメージが不正→再作成して再試行
@@ -1190,7 +1214,7 @@ def run_browser(script: str, project: str = "default") -> str:
             if _ensure_browser_container(project):
                 cmd2 = ["docker", "exec", "-w", f"/app/{project}",
                         BROWSER_CONTAINER, "python", f"/app/{project}/_browser_run.py"]
-                result2 = _sp.run(cmd2, capture_output=True, text=True, timeout=90,
+                result2 = _sp.run(cmd2, capture_output=True, text=True, timeout=_timeout,
                                   encoding="utf-8", errors="replace")
                 out = (result2.stdout + result2.stderr).strip()
             else:
@@ -1201,7 +1225,7 @@ def run_browser(script: str, project: str = "default") -> str:
             out += f"\n[screenshot saved: screenshot.png ({os.path.getsize(ss_path)} bytes)]"
         return out[:4000] or "(no output)"
     except _sp.TimeoutExpired:
-        return "ERROR: timeout (90s)"
+        return f"ERROR: timeout ({_timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
     except Exception as e:
         return f"ERROR: {e}"
 
@@ -1213,12 +1237,13 @@ def run_browser(script: str, project: str = "default") -> str:
 NODE_IMAGE   = "node:20-slim"
 NODE_MODULES_VOLUME = "codeagent_node_modules"  # プロジェクト間で共有
 
-def run_npm(command: str, project: str = "default") -> str:
+def run_npm(command: str, project: str = "default", timeout: int = None) -> str:
     """
     Node.js/npm コマンドをDockerコンテナ内で実行する。
     command: 実行するnpmコマンド（例: "test", "run build", "install"）
     プロジェクトフォルダをマウントして実行する。
     package.jsonが存在すること。
+    timeout: 実行タイムアウト秒数（デフォルト120s、最大600s）。npm installなど長い処理でタイムアウト時に増やすこと。
     例: run_npm("test") → npm test を実行
         run_npm("run build") → npm run build を実行
         run_npm("install") → npm install を実行
@@ -1239,22 +1264,23 @@ def run_npm(command: str, project: str = "default") -> str:
         NODE_IMAGE,
         "sh", "-c", f"npm {command} 2>&1"
     ]
+    _timeout = _clamp_docker_timeout("run_npm", timeout)
     # node_modulesボリュームが存在しない場合は作成（初回のみ）
     _sp.run(["docker", "volume", "create", NODE_MODULES_VOLUME],
             capture_output=True)
 
     try:
-        result = _sp.run(cmd, capture_output=True, text=True, timeout=120,
+        result = _sp.run(cmd, capture_output=True, text=True, timeout=_timeout,
                          encoding="utf-8", errors="replace")
         out = (result.stdout + result.stderr).strip()
         return out[:4000] or "(no output, exit code: " + str(result.returncode) + ")"
     except _sp.TimeoutExpired:
-        return "ERROR: timeout (120s)"
+        return f"ERROR: timeout ({_timeout}s). npm installなど時間のかかる処理は timeout パラメータを増やして再実行してください（最大600s）。"
     except Exception as e:
         return f"ERROR: {e}"
 
 
-def run_node(script: str, project: str = "default") -> str:
+def run_node(script: str, project: str = "default", timeout: int = None) -> str:
     """
     JavaScriptコードをDockerコンテナ内のNode.js環境で実行する。
     Webサイトの動作テスト・ロジック検証・ビルドスクリプト実行に使う。
@@ -1278,16 +1304,17 @@ def run_node(script: str, project: str = "default") -> str:
         NODE_IMAGE,
         "node", "/app/_node_run.js"
     ]
+    _timeout = _clamp_docker_timeout("run_node", timeout)
     _sp.run(["docker", "volume", "create", NODE_MODULES_VOLUME],
             capture_output=True)
 
     try:
-        result = _sp.run(cmd, capture_output=True, text=True, timeout=30,
+        result = _sp.run(cmd, capture_output=True, text=True, timeout=_timeout,
                          encoding="utf-8", errors="replace")
         out = (result.stdout + result.stderr).strip()
         return out[:4000] or "(no output)"
     except _sp.TimeoutExpired:
-        return "ERROR: timeout (30s)"
+        return f"ERROR: timeout ({_timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
     except Exception as e:
         return f"ERROR: {e}"
 
@@ -1357,12 +1384,14 @@ def patch_function(path: str, function_name: str, new_code: str, project: str = 
     except Exception as e:
         return f"ERROR: {e}"
 
-def run_python(code: str, project: str = "default") -> str:
+def run_python(code: str, project: str = "default", timeout: int = None) -> str:
     """
     Pythonコードをサンドボックス（Docker）で実行する。
     _run.py はプロジェクトフォルダ内に配置し、プロジェクトのファイルにアクセス可能。
     Dockerは WORK_DIR 全体をマウントし /app/{project}/ がプロジェクトフォルダ。
+    timeout: 実行タイムアウト秒数（デフォルト30s、最大300s）。タイムアウトエラー時のみ増やすこと。
     """
+    _timeout = _clamp_docker_timeout("run_python", timeout)
     try:
         project_dir = os.path.join(WORK_DIR, project)
         os.makedirs(project_dir, exist_ok=True)
@@ -1389,19 +1418,21 @@ def run_python(code: str, project: str = "default") -> str:
                 "python:3.11", "python", container_script
             ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, encoding="utf-8", errors="replace")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_timeout, encoding="utf-8", errors="replace")
         out = result.stdout + result.stderr
         return out[:4000] if len(out) > 4000 else out
     except subprocess.TimeoutExpired:
-        return "ERROR: timeout (30s)"
+        return f"ERROR: timeout ({_timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
     except Exception as e:
         return f"ERROR: {e}"
 
-def run_file(path: str, project: str = "default") -> str:
+def run_file(path: str, project: str = "default", timeout: int = None) -> str:
     """
     プロジェクト内のPythonファイルをサンドボックスで実行する。
     path は プロジェクトフォルダ内の相対パス（例: "app.py", "tests/test_main.py"）。
+    timeout: 実行タイムアウト秒数（デフォルト30s、最大300s）。タイムアウトエラー時のみ増やすこと。
     """
+    _timeout = _clamp_docker_timeout("run_file", timeout)
     try:
         check = subprocess.run(
             ["docker", "inspect", "--format", "{{.State.Running}}", SANDBOX_CONTAINER],
@@ -1428,11 +1459,11 @@ def run_file(path: str, project: str = "default") -> str:
                 "python:3.11", "python", container_path
             ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, encoding="utf-8", errors="replace")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_timeout, encoding="utf-8", errors="replace")
         out = result.stdout + result.stderr
         return out[:4000] if len(out) > 4000 else out
     except subprocess.TimeoutExpired:
-        return "ERROR: timeout (30s)"
+        return f"ERROR: timeout ({_timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
     except Exception as e:
         return f"ERROR: {e}"
 
@@ -1980,13 +2011,13 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 - write_file: {"path": "foo.py", "content": "..."}  ← 新規作成・全体上書き専用
 - edit_file: {"path": "foo.py", "old_str": "変更前の文字列（一意）", "new_str": "変更後"}  ← 差分修正（推奨）
 - patch_function: {"path": "foo.py", "function_name": "bar", "new_code": "def bar(): ..."}
-- run_python: {"code": "print('hello')"}  ← project引数不要（自動設定）
-- run_file: {"path": "foo.py"}  ← プロジェクト内の相対パス、project引数不要
+- run_python: {"code": "print('hello')"}  ← project引数不要（自動設定）/ タイムアウト時: {"code":"...","timeout":60} (max 300s)
+- run_file: {"path": "foo.py"}  ← プロジェクト内の相対パス、project引数不要 / タイムアウト時: {"path":"...","timeout":60} (max 300s)
 - run_server: {"port": 8888}  ← 【最終タスクのみ】DockerでHTTPサーバー起動
 - stop_server: {"port": 8888}  ← 起動したサーバーを停止
-- run_browser: {"script": "from playwright.sync_api import sync_playwright\nwith sync_playwright() as p:\n  b=p.chromium.launch(headless=True)\n  pg=b.new_page()\n  pg.goto('http://host.docker.internal:8888/')\n  pg.screenshot(path='/app/{project}/screenshot.png')\n  print(pg.title())\n  b.close()"}  ← Playwright（Python）でブラウザ自動化・スクリーンショット・動作確認
-- run_npm: {"command": "test"}  ← npm コマンドをDockerで実行（test/install/run build等）
-- run_node: {"script": "console.log(require('./script.js'))"}  ← JSコードをNode.jsで実行・テスト
+- run_browser: {"script": "from playwright.sync_api import sync_playwright\nwith sync_playwright() as p:\n  b=p.chromium.launch(headless=True)\n  pg=b.new_page()\n  pg.goto('http://host.docker.internal:8888/')\n  pg.screenshot(path='/app/{project}/screenshot.png')\n  print(pg.title())\n  b.close()"}  ← Playwright（Python）でブラウザ自動化・スクリーンショット・動作確認 / タイムアウト時: {"script":"...","timeout":120} (max 300s)
+- run_npm: {"command": "test"}  ← npm コマンドをDockerで実行（test/install/run build等）/ タイムアウト時: {"command":"install","timeout":300} (max 600s)
+- run_node: {"script": "console.log(require('./script.js'))"}  ← JSコードをNode.jsで実行・テスト / タイムアウト時: {"script":"...","timeout":60} (max 300s)
 - setup_venv: {"requirements": ["flask","numpy"]}  ← Pythonプロジェクトで.venv構築＋requirements.txt生成（実行はユーザーが行う）
 - web_search: {"query": "検索クエリ", "num_results": 5}
 - clarify: {"question": "質問", "options": ["選択肢1", "選択肢2"]}
@@ -1999,6 +2030,11 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 5. 実行後エラーがあれば必ず自分で修正して再実行
 6. HTTPサーバー起動は run_python ではなく run_server を使う（run_pythonはサーバー系タイムアウトする）
 7. 要件が曖昧な場合は clarify でユーザーに確認
+8. 【タイムアウト対策】"ERROR: timeout (Xs)" が返ってきた場合:
+   a. まず処理を分割・軽量化して再試行（最優先）
+   b. 分割が困難な場合のみ timeout パラメータを推定実行時間で指定して再実行（その実行限りの一時設定）
+   c. 上限: run_python/run_file/run_browser/run_node=300s、run_npm=600s
+   d. 常軌を逸する値（上限超）は自動的にクランプされる
 8. 【プロジェクト種別フロー】
 
    【HTML/JSプロジェクト】
