@@ -3611,10 +3611,11 @@ async function initGhRepo() {
       if (el) el.textContent = `✓ リポジトリ初期化完了\nリモート: ${d.remote_url}\nリポジトリ: ${d.repo}`;
       addLog('info','gh',`リポジトリ初期化完了: ${d.repo}`);
     } else {
-      if (el) el.textContent = '✗ エラー: ' + (d.detail || JSON.stringify(d));
-      addLog('err','gh', d.detail || 'init failed');
+      const msg = d.error || d.detail || JSON.stringify(d);
+      if (el) { el.textContent = '✗ エラー: ' + msg; el.style.display='block'; el.style.color='var(--red)'; }
+      addLog('err','gh', '[Init] ' + msg);
     }
-  } catch(e) { if (el) el.textContent='✗ Error: '+e.message; addLog('err','gh',e.message); }
+  } catch(e) { if (el) { el.textContent='✗ Error: '+e.message; el.style.display='block'; } addLog('err','gh','[Init] '+e.message); }
 }
 
 async function syncGhRepo() {
@@ -3631,10 +3632,11 @@ async function syncGhRepo() {
       if (el) el.textContent = `✓ Sync完了\nブランチ: ${d.branch}\nメッセージ: ${d.message}`;
       addLog('info','gh',`Sync完了: ${d.message}`);
     } else {
-      if (el) el.textContent = '✗ エラー: ' + (d.error || JSON.stringify(d));
-      addLog('err','gh', d.error || 'sync failed');
+      const msg = d.error || d.detail || JSON.stringify(d);
+      if (el) { el.textContent = '✗ エラー: ' + msg; el.style.display='block'; el.style.color='var(--red)'; }
+      addLog('err','gh', '[Sync] ' + msg);
     }
-  } catch(e) { if (el) el.textContent='✗ Error: '+e.message; addLog('err','gh',e.message); }
+  } catch(e) { if (el) { el.textContent='✗ Error: '+e.message; el.style.display='block'; } addLog('err','gh','[Sync] '+e.message); }
 }
 
 async function loadGhRepoStatus() {

@@ -5727,9 +5727,13 @@ async def init_repo(request: Request):
     branch = data.get("branch") or cfg.get("github_default_branch", "main")
 
     if not token:
-        raise HTTPException(400, "GitHub Personal Access Token が設定されていません")
+        err_msg = "GitHub Personal Access Token が設定されていません (設定モーダル → GitHub 連携でトークンを保存してください)"
+        logger.warning("[GH] init skipped: %s", err_msg)
+        return {"ok": False, "error": err_msg}
     if not username:
-        raise HTTPException(400, "GitHub ユーザー名が設定されていません")
+        err_msg = "GitHub ユーザー名が設定されていません"
+        logger.warning("[GH] init skipped: %s", err_msg)
+        return {"ok": False, "error": err_msg}
 
     # GitHub API でリポジトリ作成
     try:
@@ -5751,9 +5755,13 @@ async def init_repo(request: Request):
             # Already exists
             pass
         elif not resp.ok:
-            raise HTTPException(500, f"GitHub API エラー: {resp.status_code} {resp.text[:200]}")
+            err_msg = f"GitHub API エラー: {resp.status_code} {resp.text[:200]}"
+            logger.error("[GH] init error: %s", err_msg)
+            return {"ok": False, "error": err_msg}
     except requests.RequestException as e:
-        raise HTTPException(500, f"GitHub API 接続エラー: {e}")
+        err_msg = f"GitHub API 接続エラー: {e}"
+        logger.error("[GH] init error: %s", err_msg)
+        return {"ok": False, "error": err_msg}
 
     remote_url = f"https://github.com/{username}/{repo_name}.git"
     clean_url = remote_url  # トークンなし版
@@ -5804,9 +5812,13 @@ async def sync_repo(request: Request):
     branch = cfg.get("github_default_branch", "main")
 
     if not token:
-        raise HTTPException(400, "GitHub Personal Access Token が設定されていません")
+        err_msg = "GitHub Personal Access Token が設定されていません (設定モーダル → GitHub 連携でトークンを保存してください)"
+        logger.warning("[GH] sync skipped: %s", err_msg)
+        return {"ok": False, "error": err_msg}
     if not username or not repo_name:
-        raise HTTPException(400, "リポジトリ設定が不完全です。先に Init を実行してください")
+        err_msg = "リポジトリ設定が不完全です。先に Init を実行してください"
+        logger.warning("[GH] sync skipped: %s", err_msg)
+        return {"ok": False, "error": err_msg}
 
     auth_url = f"https://{token}@github.com/{username}/{repo_name}.git"
     clean_url = f"https://github.com/{username}/{repo_name}.git"
