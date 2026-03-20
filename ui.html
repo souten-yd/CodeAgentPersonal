@@ -815,6 +815,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <button class="tab-btn" onclick="switchTab('log')">Log</button>
       <button class="tab-btn" onclick="switchTab('skills')">Skills</button>
       <button class="tab-btn" onclick="switchTab('memory')">Memory</button>
+      <button class="tab-btn" onclick="switchTab('git')">Git</button>
+      <button class="tab-btn" onclick="switchTab('models')">Models</button>
       <div class="tab-spacer"></div>
       <span class="tab-label" id="tab-label">—</span>
     </div>
@@ -915,6 +917,129 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="font-size:12px;color:var(--text3)">Loading...</div>
       </div>
     </div>
+
+    <!-- GIT TAB -->
+    <div class="tab-content" id="tab-git" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Git</span>
+        <button onclick="refreshGitStatus()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ Refresh</button>
+      </div>
+      <!-- Status -->
+      <pre id="git-status-out" style="font-size:11px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:8px;white-space:pre-wrap;word-break:break-all;max-height:100px;overflow-y:auto">Loading...</pre>
+      <!-- Actions row -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <button onclick="gitCommitUI()" style="font-size:11px;padding:4px 10px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">+ Commit</button>
+        <button onclick="gitBranchUI()" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">⎇ Branch</button>
+        <button onclick="gitResetUI()" style="font-size:11px;padding:4px 10px;border:1px solid rgba(255,68,102,.4);background:rgba(255,68,102,.08);color:var(--red);border-radius:4px;cursor:pointer">↩ Reset</button>
+        <button onclick="gitDiffUI()" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">~ Diff</button>
+      </div>
+      <!-- Inline commit form -->
+      <div id="git-commit-form" style="display:none;border:1px solid var(--accent-border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--accent-bg)">
+        <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:5px">Commit message</div>
+        <input id="git-commit-msg" type="text" placeholder="feat: ..." style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono);margin-bottom:6px">
+        <div style="display:flex;gap:5px">
+          <button onclick="doGitCommit()" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Commit</button>
+          <button onclick="document.getElementById('git-commit-form').style.display='none'" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <!-- Inline branch form -->
+      <div id="git-branch-form" style="display:none;border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px">Branch name</div>
+        <input id="git-branch-name" type="text" placeholder="feature/my-feature" style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono);margin-bottom:6px">
+        <div style="display:flex;gap:5px">
+          <button onclick="doGitBranch(true)" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Create & Switch</button>
+          <button onclick="doGitBranch(false)" style="flex:1;padding:5px;font-size:11px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:4px;cursor:pointer">Switch only</button>
+          <button onclick="document.getElementById('git-branch-form').style.display='none'" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <!-- Diff output -->
+      <div id="git-diff-out" style="display:none;margin-bottom:8px">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Diff</div>
+        <pre style="font-size:10px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto" id="git-diff-content"></pre>
+      </div>
+      <!-- Git log -->
+      <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em">Commit Log</div>
+      <div id="git-log-list" style="display:flex;flex-direction:column;gap:4px">
+        <div style="font-size:11px;color:var(--text3)">—</div>
+      </div>
+      <!-- Result display -->
+      <div id="git-result" style="font-size:11px;font-family:var(--font-mono);color:var(--accent);padding:6px 8px;background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:5px;margin-top:8px;display:none;white-space:pre-wrap"></div>
+    </div>
+
+    <!-- MODELS DB TAB -->
+    <div class="tab-content" id="tab-models" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Model Database</span>
+        <button onclick="refreshModelDb()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺</button>
+      </div>
+
+      <!-- ルートフォルダ（設定DB連動） -->
+      <div style="border:1px solid var(--accent-border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--accent-bg)">
+        <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:5px">LLMルートフォルダ</div>
+        <div style="display:flex;gap:5px;margin-bottom:4px">
+          <input id="model-root-folder" type="text" placeholder="E:\LLMs"
+            style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)"
+            oninput="saveRootFolder(this.value)">
+          <button onclick="doModelScan(true)" style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer;white-space:nowrap">↺ スキャン</button>
+        </div>
+        <div style="font-size:10px;color:var(--text3)">入力値はDBに自動保存。サブフォルダ含む全.ggufを検出・VLM自動判定</div>
+      </div>
+
+      <!-- フィルタ -->
+      <div style="display:flex;gap:5px;margin-bottom:8px;align-items:center">
+        <input id="model-filter" type="text" placeholder="🔍 モデルを絞り込み..."
+          oninput="filterModelList(this.value)"
+          style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+        <label style="font-size:10px;color:var(--text2);white-space:nowrap;display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="checkbox" id="filter-enabled-only" onchange="filterModelList(document.getElementById('model-filter').value)"
+            style="accent-color:var(--accent)"> 有効のみ
+        </label>
+        <label style="font-size:10px;color:var(--text2);white-space:nowrap;display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="checkbox" id="filter-vlm-only" onchange="filterModelList(document.getElementById('model-filter').value)"
+            style="accent-color:var(--amber)"> VLMのみ
+        </label>
+      </div>
+
+      <!-- ステータス + Add -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span id="model-db-stats" style="font-size:10px;color:var(--text3)">Loading...</span>
+        <button onclick="document.getElementById('model-add-form').style.display='block'"
+          style="font-size:10px;padding:3px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">+ 手動追加</button>
+      </div>
+
+      <!-- 手動追加フォーム -->
+      <div id="model-add-form" style="display:none;border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px">モデルを手動で追加</div>
+        <input id="model-add-name" type="text" placeholder="Model name"
+          style="width:100%;padding:4px 8px;margin-bottom:4px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+        <input id="model-add-path" type="text" placeholder="C:\path\to\model.gguf"
+          style="width:100%;padding:4px 8px;margin-bottom:4px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)">
+        <input id="model-add-url" type="text" placeholder="LLM URL (空でOK)"
+          style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)">
+        <div style="display:flex;gap:10px;margin-bottom:6px">
+          <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="checkbox" id="model-add-vlm" style="accent-color:var(--accent)"> VLM
+          </label>
+          <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="checkbox" id="model-add-enabled" checked style="accent-color:var(--accent)"> 有効
+          </label>
+        </div>
+        <div style="display:flex;gap:5px">
+          <button onclick="doModelAdd()" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">追加</button>
+          <button onclick="document.getElementById('model-add-form').style.display='none'"
+            style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
+        </div>
+      </div>
+
+      <!-- スキャン結果 -->
+      <div id="model-scan-result" style="font-size:11px;margin-bottom:6px;padding:6px 8px;border-radius:5px;display:none"></div>
+
+      <!-- モデルリスト -->
+      <div id="model-db-list" style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:12px;color:var(--text3)">Loading...</div>
+      </div>
+    </div>
+
     </div>
   </div>
 </div>
@@ -928,8 +1053,21 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
     <div class="modal-body" style="overflow-y:auto;max-height:72vh">
 
+      <!-- LLMルートフォルダ -->
+      <div class="section-label">📁 LLMルートフォルダ</div>
+      <div style="padding:4px 0 14px">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:5px">GGUFモデルが格納されているルートフォルダ。Models タブのスキャンに使用されます。</div>
+        <div style="display:flex;gap:5px">
+          <input type="text" id="settings-root-folder" placeholder="E:\LLMs"
+            style="flex:1;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)"
+            oninput="saveRootFolder(this.value)">
+          <button onclick="doModelScanFromSettings()" style="padding:6px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:5px;color:var(--bg);cursor:pointer;white-space:nowrap">今すぐスキャン</button>
+        </div>
+        <div id="settings-scan-result" style="display:none;font-size:10px;color:var(--accent);margin-top:4px"></div>
+      </div>
+
       <!-- エージェント設定 -->
-      <div class="section-label">🤖 エージェント設定</div>
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🤖 エージェント設定</div>
       <div style="padding:4px 0 14px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
           <span style="font-size:11px;color:var(--text2);flex:1;white-space:nowrap">Max Steps</span>
@@ -990,10 +1128,20 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px">
           <span>512</span><span id="ctx-max-label">max: 32768</span><span id="ctx-slider-max">32768</span>
         </div>
+        <div style="margin-top:10px;margin-bottom:6px;font-size:11px;color:var(--text2)">最大出力トークン数</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="max-output-slider" min="256" max="32768" step="256" value="8192"
+            style="flex:1;accent-color:var(--accent);cursor:pointer"
+            oninput="updateMaxOutputLabel(this.value)" onchange="applyMaxOutputTokens(this.value)">
+          <span id="max-output-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">8192</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px">
+          <span>256</span><span>最大出力 (max: 32768)</span><span>32768</span>
+        </div>
         <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">LLM URL（空=サーバーデフォルト）</div>
         <input type="text" id="llm-url-input" placeholder="http://localhost:8080/v1/chat/completions"
           style="width:100%;padding:6px 8px;font-size:10px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--font-mono);box-sizing:border-box"
-          oninput="activeLlmUrl=this.value.trim()">
+          oninput="activeLlmUrl=this.value.trim(); _saveSettingDb('llm_url', this.value.trim())">
       </div>
 
       <!-- Web検索 -->
@@ -1020,9 +1168,92 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
       </div>
 
+      <!-- MCP設定 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔗 MCP (Model Context Protocol)</div>
+      <div style="padding:4px 0 14px">
+        <div style="font-size:10px;color:var(--text3);line-height:1.7;margin-bottom:8px;padding:6px 8px;background:var(--bg2);border-radius:5px;border:1px solid var(--border)">
+          <b style="color:var(--text2)">MCPサーバー（このCodeAgent）:</b><br>
+          <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">/mcp</code> エンドポイントで他エージェントからツールを呼び出せます<br>
+          <button onclick="showMcpInfo()" style="font-size:10px;padding:2px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:3px;cursor:pointer;margin-top:4px">サーバー情報表示</button>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:5px;font-weight:700">外部MCPサーバーをテスト</div>
+        <div style="display:flex;gap:5px;margin-bottom:5px">
+          <input id="mcp-test-url" type="text" placeholder="http://localhost:3000/mcp"
+            style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+          <button onclick="testMcpServer()" style="padding:5px 10px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Test</button>
+        </div>
+        <pre id="mcp-test-result" style="display:none;font-size:10px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:8px;white-space:pre-wrap;max-height:120px;overflow-y:auto"></pre>
+      </div>
+
+      <!-- GitHub リポジトリ管理 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🐙 GitHub リポジトリ管理</div>
+      <div style="padding:4px 0 6px">
+        <div style="font-size:10px;color:var(--text3);line-height:1.6;margin-bottom:10px;padding:6px 8px;background:var(--bg2);border-radius:5px;border:1px solid var(--border)">
+          <b style="color:var(--text2)">ca_data/</b> フォルダ（DB・スキル・メモリ）をGitHubで管理します。<br>
+          認証トークンは <code style="background:var(--bg3);padding:1px 4px;border-radius:2px">.codeagent/</code> に保存され、Gitには絶対アップロードされません。
+        </div>
+
+        <!-- PAT（機密） -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Personal Access Token <span style="font-weight:400;color:var(--text3)">(機密 — ローカル保存のみ)</span></div>
+          <div style="display:flex;gap:5px">
+            <input id="gh-token" type="password" placeholder="ghp_xxxxxxxxxxxx"
+              style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+            <button onclick="saveGhCredentials()" style="padding:5px 10px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">保存</button>
+          </div>
+          <div id="gh-token-status" style="font-size:10px;color:var(--text3);margin-top:3px"></div>
+        </div>
+
+        <!-- ユーザー名 -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">GitHub ユーザー名</div>
+          <input id="gh-username" type="text" placeholder="your-github-username"
+            style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+        </div>
+
+        <!-- リポジトリ名 -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">リポジトリ名</div>
+          <input id="gh-repo-name" type="text" placeholder="codeagent-data" value="codeagent-data"
+            style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+        </div>
+
+        <!-- 可視性 & ブランチ -->
+        <div style="display:flex;gap:10px;margin-bottom:8px">
+          <div style="flex:1">
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">可視性</div>
+            <select id="gh-visibility" style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+              <option value="private">Private</option>
+              <option value="public">Public</option>
+            </select>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">デフォルトブランチ</div>
+            <input id="gh-branch" type="text" placeholder="main" value="main"
+              style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+          </div>
+        </div>
+
+        <!-- リモートURL表示 -->
+        <div style="margin-bottom:10px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">リモートURL</div>
+          <code id="gh-remote-url" style="font-size:10px;color:var(--text3);font-family:var(--font-mono)">未設定</code>
+        </div>
+
+        <!-- アクションボタン -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+          <button onclick="saveGhRepoConfig()" style="padding:5px 12px;font-size:11px;font-weight:700;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">設定保存</button>
+          <button onclick="testGhConnection()" style="padding:5px 12px;font-size:11px;font-weight:700;border:1px solid #6f42c1;background:rgba(111,66,193,.12);color:#a78bfa;border-radius:4px;cursor:pointer">接続確認</button>
+          <button onclick="initGhRepo()" style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Init (リポジトリ作成)</button>
+          <button onclick="syncGhRepo()" style="padding:5px 12px;font-size:11px;font-weight:700;background:#28a745;border:none;border-radius:4px;color:#fff;cursor:pointer">Sync (Push)</button>
+          <button onclick="loadGhRepoStatus()" style="padding:5px 12px;font-size:11px;border:1px solid var(--border);background:transparent;color:var(--text2);border-radius:4px;cursor:pointer">状態確認</button>
+        </div>
+        <pre id="gh-repo-status" style="display:none;font-size:10px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:8px;white-space:pre-wrap;max-height:150px;overflow-y:auto"></pre>
+      </div>
+
     </div>
     <div class="modal-footer" style="font-size:10px;color:var(--text3);font-family:var(--font-mono)">
-      設定はブラウザのlocalStorageに保存されます。
+      設定はサーバー側DBに保存されます。認証情報はローカルの .codeagent/ に保存されGitには含まれません。
     </div>
   </div>
 </div>
@@ -1078,17 +1309,105 @@ if (window.visualViewport) {
   });
 }
 
+// ── SETTINGS DB 連動 ──
+
+async function loadSettingsFromDb() {
+  try {
+    const r = await fetch(API+'/settings');
+    const d = await r.json();
+
+    // ルートフォルダ
+    const folder = d.llm_root_folder || '';
+    const rf1 = document.getElementById('model-root-folder');
+    const rf2 = document.getElementById('settings-root-folder');
+    if (rf1) rf1.value = folder;
+    if (rf2) rf2.value = folder;
+
+    // Max Steps
+    const steps = parseInt(d.max_steps) || 20;
+    maxSteps = steps;
+    const sl = document.getElementById('steps-slider');
+    const ll = document.getElementById('steps-label');
+    if (sl) sl.value = steps;
+    if (ll) ll.textContent = steps;
+
+    // Auto select
+    const autoSel = d.auto_select_option !== 'false';
+    autoSelectOption = autoSel;
+    const ast = document.getElementById('auto-select-toggle');
+    if (ast) ast.checked = autoSel;
+
+    // Auto skill gen
+    const autoSkill = d.auto_skill_gen !== 'false';
+    autoSkillGeneration = autoSkill;
+    const askg = document.getElementById('auto-skill-toggle');
+    if (askg) askg.checked = autoSkill;
+
+    // Streaming
+    const streaming = d.streaming_enabled !== 'false';
+    streamingEnabled = streaming;
+    const schk = document.getElementById('streaming-chk');
+    const slbl = document.getElementById('streaming-label');
+    if (schk) schk.checked = streaming;
+    if (slbl) slbl.textContent = streaming ? 'ON' : 'OFF';
+
+    // Search
+    const search = d.search_enabled === 'true';
+    searchEnabled = search;
+    const sc = document.getElementById('search-chk');
+    const sl2 = document.getElementById('search-label');
+    if (sc) sc.checked = search;
+    if (sl2) sl2.textContent = search ? 'ON' : 'OFF';
+
+    // Search num
+    const snum = parseInt(d.search_num) || 5;
+    const sns = document.getElementById('search-num-slider');
+    const snl = document.getElementById('search-num-label');
+    if (sns) sns.value = snum;
+    if (snl) snl.textContent = snum;
+
+    // Ctx size
+    const ctx = parseInt(d.ctx_size) || 32768;
+    const cs = document.getElementById('ctx-slider');
+    const cl = document.getElementById('ctx-label');
+    if (cs) cs.value = ctx;
+    if (cl) cl.textContent = ctx;
+
+    // Max output tokens
+    const maxOut = parseInt(d.max_output_tokens) || 8192;
+    const mos = document.getElementById('max-output-slider');
+    const mol = document.getElementById('max-output-label');
+    if (mos) mos.value = maxOut;
+    if (mol) mol.textContent = maxOut;
+
+    // LLM URL
+    const url = d.llm_url || '';
+    activeLlmUrl = url;
+    const ui = document.getElementById('llm-url-input');
+    if (ui) ui.value = url;
+
+  } catch(e) { console.warn('loadSettingsFromDb error', e); }
+}
+
+// 設定変更をDBに保存するラッパー（既存の各toggle関数から呼ぶ）
+async function _saveSettingDb(key, value) {
+  try {
+    await fetch(API+'/settings', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({[key]: String(value)})
+    });
+  } catch(e) {}
+}
+
 // ── INIT ──
 addEventListener('load', async () => {
+  await loadSettingsFromDb();   // DBから設定を復元（localStorage優先ではなくDB優先）
   checkHealth();
   loadProjects();
-  initSearch();
-  initStreaming();
   initCtxSlider();
   refreshSkills();
-  initStepsSlider();
-  await loadHistory(currentProject); // 先に履歴を復元してから
-  await loadJobs(currentProject);    // 実行中ジョブを検出・自動再接続
+  await loadHistory(currentProject);
+  await loadJobs(currentProject);
   setInterval(checkHealth, 10000);
 });
 
@@ -1168,13 +1487,346 @@ function _renderSkillProposals(proposals, stats) {
 
 // ── PANEL TABS ──
 function switchTab(name) {
+  const tabNames = ['output','preview','log','skills','memory','git','models'];
   document.querySelectorAll('.tab-btn').forEach((b,i) =>
-    b.classList.toggle('active', ['output','preview','log','skills','memory'][i]===name));
+    b.classList.toggle('active', tabNames[i]===name));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   document.getElementById('tab-'+name)?.classList.add('active');
   if (name === 'preview') refreshFileBrowser();
   if (name === 'skills') refreshSkills();
   if (name === 'memory') refreshMemory();
+  if (name === 'git') refreshGitStatus();
+  if (name === 'models') refreshModelDb();
+}
+
+// ── GIT ──
+async function refreshGitStatus() {
+  const el = document.getElementById('git-status-out');
+  if (el) el.textContent = 'Loading...';
+  try {
+    const r = await fetch(API+'/git/status?project='+encodeURIComponent(currentProject));
+    const d = await r.json();
+    if (el) el.textContent = d.status || '(clean)';
+    await refreshGitLog();
+  } catch(e) { if (el) el.textContent = 'Error: '+e.message; }
+}
+
+async function refreshGitLog() {
+  try {
+    const r = await fetch(API+'/git/log?project='+encodeURIComponent(currentProject)+'&limit=10');
+    const d = await r.json();
+    const el = document.getElementById('git-log-list');
+    if (!el) return;
+    if (!d.commits || !d.commits.length) {
+      el.innerHTML = '<div style="font-size:11px;color:var(--text3)">No commits yet</div>';
+      return;
+    }
+    el.innerHTML = d.commits.map(c =>
+      `<div style="border:1px solid var(--border);border-radius:5px;padding:6px 8px;background:var(--bg2)">
+        <div style="display:flex;gap:6px;align-items:baseline">
+          <code style="font-size:10px;color:var(--amber)">${esc(c.hash)}</code>
+          <span style="font-size:11px;color:var(--text);flex:1">${esc(c.message)}</span>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">${esc(c.author)} · ${esc(c.when)}</div>
+      </div>`).join('');
+  } catch(e) {}
+}
+
+function gitCommitUI() {
+  document.getElementById('git-commit-form').style.display='block';
+  document.getElementById('git-branch-form').style.display='none';
+  document.getElementById('git-diff-out').style.display='none';
+  document.getElementById('git-commit-msg').focus();
+}
+
+function gitBranchUI() {
+  document.getElementById('git-branch-form').style.display='block';
+  document.getElementById('git-commit-form').style.display='none';
+  document.getElementById('git-branch-name').focus();
+}
+
+async function gitResetUI() {
+  if (!confirm('git reset --hard で全変更を破棄しますか？この操作は取り消せません。')) return;
+  try {
+    const r = await fetch(API+'/git/reset', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({project: currentProject, mode:'hard'})
+    });
+    const d = await r.json();
+    showGitResult(d.result);
+    refreshGitStatus();
+  } catch(e) { showGitResult('Error: '+e.message); }
+}
+
+async function gitDiffUI() {
+  const diffEl = document.getElementById('git-diff-out');
+  if (diffEl.style.display !== 'none') { diffEl.style.display='none'; return; }
+  try {
+    const r = await fetch(API+'/git/diff?project='+encodeURIComponent(currentProject));
+    const d = await r.json();
+    document.getElementById('git-diff-content').textContent = d.diff || '(no diff)';
+    diffEl.style.display = 'block';
+  } catch(e) { showGitResult('Error: '+e.message); }
+}
+
+async function doGitCommit() {
+  const msg = document.getElementById('git-commit-msg').value.trim();
+  if (!msg) { alert('Commit message required'); return; }
+  try {
+    const r = await fetch(API+'/git/commit', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({project: currentProject, message: msg})
+    });
+    const d = await r.json();
+    document.getElementById('git-commit-form').style.display='none';
+    document.getElementById('git-commit-msg').value='';
+    showGitResult(d.result);
+    refreshGitStatus();
+  } catch(e) { showGitResult('Error: '+e.message); }
+}
+
+async function doGitBranch(create) {
+  const name = document.getElementById('git-branch-name').value.trim();
+  if (!name) { alert('Branch name required'); return; }
+  try {
+    const r = await fetch(API+'/git/checkout', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({project: currentProject, name, create})
+    });
+    const d = await r.json();
+    document.getElementById('git-branch-form').style.display='none';
+    document.getElementById('git-branch-name').value='';
+    showGitResult(d.result);
+    refreshGitStatus();
+  } catch(e) { showGitResult('Error: '+e.message); }
+}
+
+function showGitResult(text) {
+  const el = document.getElementById('git-result');
+  if (!el) return;
+  el.textContent = text;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display='none', 5000);
+}
+
+// ── MODEL DATABASE ──
+let _allModels = [];  // 全モデルをキャッシュしてフィルタに使う
+
+async function refreshModelDb() {
+  try {
+    const [rstat, rlist] = await Promise.all([
+      fetch(API+'/models/db/status'),
+      fetch(API+'/models/db')
+    ]);
+    const stat = await rstat.json();
+    const data = await rlist.json();
+    const statEl = document.getElementById('model-db-stats');
+    const enabled = (data.models||[]).filter(m => m.enabled !== 0).length;
+    const total = (data.models||[]).length;
+    if (statEl) statEl.textContent = `${total} models (有効: ${enabled}) · benchmarked: ${stat.benchmarked} · VLM: ${stat.has_vlm?'yes':'no'}`;
+    _allModels = data.models || [];
+    filterModelList(document.getElementById('model-filter')?.value || '');
+  } catch(e) { console.warn('model db error', e); }
+}
+
+function filterModelList(query) {
+  const q = (query||'').toLowerCase();
+  const enabledOnly = document.getElementById('filter-enabled-only')?.checked;
+  const vlmOnly = document.getElementById('filter-vlm-only')?.checked;
+  let models = _allModels;
+  if (q) models = models.filter(m => m.name.toLowerCase().includes(q) || (m.notes||'').toLowerCase().includes(q) || (m.quantization||'').toLowerCase().includes(q));
+  if (enabledOnly) models = models.filter(m => m.enabled !== 0);
+  if (vlmOnly) models = models.filter(m => m.is_vlm);
+  renderModelDb(models);
+}
+
+function renderModelDb(models) {
+  const el = document.getElementById('model-db-list');
+  if (!el) return;
+  if (!models.length) {
+    el.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:8px">モデルなし。ルートフォルダを指定してスキャンしてください。</div>';
+    return;
+  }
+  el.innerHTML = models.map(m => {
+    const enabled = m.enabled !== 0;
+    const vram = m.vram_mb > 0 ? `${(m.vram_mb/1024).toFixed(1)}GB` : '—';
+    const ram  = m.ram_mb  > 0 ? `${(m.ram_mb /1024).toFixed(1)}GB` : '—';
+    const tps  = m.tok_per_sec > 0 ? `${m.tok_per_sec} tok/s` : '—';
+    const load = m.load_sec > 0 ? `${m.load_sec}s` : '—';
+    const size = m.file_size_mb > 0 ? `${(m.file_size_mb/1024).toFixed(1)}GB` : '';
+    const enabledBorder = enabled ? 'var(--border)' : 'rgba(255,68,102,.25)';
+    const enabledBg = enabled ? 'var(--bg2)' : 'rgba(255,68,102,.04)';
+    const vlmBadge = m.is_vlm
+      ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--amber);color:var(--amber);border-radius:3px">VLM</span>` : '';
+    const benchBtn = m.tok_per_sec <= 0
+      ? `<button onclick="doBenchmark('${esc(m.id)}')" title="ベンチマーク実行"
+           style="font-size:10px;padding:2px 7px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">⚡</button>` : '';
+    const toggleLabel = enabled ? '有効' : '無効';
+    const toggleColor = enabled ? 'var(--accent)' : 'var(--text3)';
+    return `
+    <div style="border:1px solid ${enabledBorder};border-radius:6px;padding:9px 10px;background:${enabledBg};transition:all .15s">
+      <!-- ヘッダー行 -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;flex:1;min-width:0">
+          <span style="font-size:11px;font-weight:700;color:${enabled?'var(--accent)':'var(--text3)'};font-family:var(--font-mono);word-break:break-all">${esc(m.name)}</span>
+          ${vlmBadge}
+          ${m.quantization ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--border);color:var(--text3);border-radius:3px">${esc(m.quantization)}</span>` : ''}
+          ${size ? `<span style="font-size:9px;color:var(--text3)">${size}</span>` : ''}
+        </div>
+        <!-- 有効/無効トグル + ベンチ + 削除 -->
+        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+          <button onclick="toggleModelEnabled('${esc(m.id)}', ${!enabled})"
+            style="font-size:10px;padding:2px 8px;border:1px solid ${toggleColor};background:${enabled?'rgba(0,255,136,.1)':'rgba(255,68,102,.08)'};color:${toggleColor};border-radius:10px;cursor:pointer;font-weight:700">
+            ${toggleLabel}
+          </button>
+          ${benchBtn}
+          <button onclick="deleteModelDb('${esc(m.id)}')"
+            style="font-size:10px;padding:2px 6px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:3px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <!-- 性能データ -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--text3);margin-bottom:2px">
+        <span>VRAM: <b style="color:var(--text2)">${vram}</b></span>
+        <span>RAM: <b style="color:var(--text2)">${ram}</b></span>
+        <span>Speed: <b style="color:${m.tok_per_sec>0?'var(--accent)':'var(--text3)'}">${tps}</b></span>
+        <span>Load: <b style="color:var(--text2)">${load}</b></span>
+      </div>
+      ${m.notes ? `<div style="font-size:10px;color:var(--text3)">${esc(m.notes)}</div>` : ''}
+      ${m.llm_url ? `<div style="font-size:9px;font-family:var(--font-mono);color:var(--blue);margin-top:1px;word-break:break-all">${esc(m.llm_url)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function toggleModelEnabled(mid, enable) {
+  try {
+    await fetch(API+'/models/db/toggle/'+mid, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({enabled: enable})
+    });
+    // ローカルキャッシュも即時更新（再フェッチより速い）
+    const m = _allModels.find(x => x.id === mid);
+    if (m) m.enabled = enable ? 1 : 0;
+    filterModelList(document.getElementById('model-filter')?.value || '');
+    // stats更新
+    const enabled = _allModels.filter(x => x.enabled !== 0).length;
+    const statEl = document.getElementById('model-db-stats');
+    if (statEl) {
+      const total = _allModels.length;
+      const benchmarked = _allModels.filter(x => x.tok_per_sec > 0).length;
+      const hasVlm = _allModels.some(x => x.is_vlm);
+      statEl.textContent = `${total} models (有効: ${enabled}) · benchmarked: ${benchmarked} · VLM: ${hasVlm?'yes':'no'}`;
+    }
+    addLog('ok','models', (enable?'有効':'無効')+': '+(_allModels.find(x=>x.id===mid)||{}).name);
+  } catch(e) { addLog('err','models', e.message); }
+}
+
+// ルートフォルダの保存（デバウンス付き）
+let _rootFolderTimer = null;
+function saveRootFolder(val) {
+  // 両方のUI入力欄を同期
+  const a = document.getElementById('model-root-folder');
+  const b = document.getElementById('settings-root-folder');
+  if (a && a.value !== val) a.value = val;
+  if (b && b.value !== val) b.value = val;
+  clearTimeout(_rootFolderTimer);
+  _rootFolderTimer = setTimeout(async () => {
+    try {
+      await fetch(API+'/settings', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({llm_root_folder: val})
+      });
+    } catch(e) {}
+  }, 600);
+}
+
+async function doModelScan(useRootFolder) {
+  const folder = useRootFolder
+    ? (document.getElementById('model-root-folder')?.value || '').trim()
+    : (document.getElementById('model-scan-folder')?.value || '').trim();
+  if (!folder) { alert('ルートフォルダを入力してください'); return; }
+  const resultEl = document.getElementById('model-scan-result');
+  if (resultEl) {
+    resultEl.textContent = '🔍 スキャン中...';
+    resultEl.style.display = 'block';
+    resultEl.style.background = 'var(--bg2)';
+    resultEl.style.color = 'var(--text2)';
+    resultEl.style.border = '1px solid var(--border)';
+  }
+  try {
+    const r = await fetch(API+'/models/db/scan', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({folder})
+    });
+    const d = await r.json();
+    if (resultEl) {
+      resultEl.textContent = `✓ ${folder}  →  ${d.found}件検出 / ${d.added}件追加`;
+      resultEl.style.color = 'var(--accent)';
+      resultEl.style.border = '1px solid var(--accent-border)';
+      resultEl.style.background = 'var(--accent-bg)';
+    }
+    // Settings側の結果も更新
+    const sResultEl = document.getElementById('settings-scan-result');
+    if (sResultEl) {
+      sResultEl.textContent = `✓ ${d.found}件検出 / ${d.added}件追加`;
+      sResultEl.style.display = 'block';
+    }
+    await refreshModelDb();
+    addLog('ok','models', `Scan: ${d.found} found, ${d.added} added from ${folder}`);
+  } catch(e) {
+    if (resultEl) { resultEl.textContent = '✗ Error: '+e.message; resultEl.style.color='var(--red)'; }
+    addLog('err','models', e.message);
+  }
+}
+
+async function doModelScanFromSettings() {
+  // settings-root-folder の値を model-root-folder にコピーしてからスキャン
+  const folder = document.getElementById('settings-root-folder')?.value.trim();
+  if (!folder) { alert('ルートフォルダを入力してください'); return; }
+  const rf = document.getElementById('model-root-folder');
+  if (rf) rf.value = folder;
+  await doModelScan(true);
+}
+
+async function doModelAdd() {
+  const name = document.getElementById('model-add-name').value.trim();
+  const path = document.getElementById('model-add-path').value.trim();
+  const llm_url = document.getElementById('model-add-url').value.trim();
+  const is_vlm = document.getElementById('model-add-vlm').checked;
+  const enabled = document.getElementById('model-add-enabled')?.checked !== false;
+  if (!name || !path) { alert('Name and path are required'); return; }
+  try {
+    const r = await fetch(API+'/models/db', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, path, llm_url, is_vlm, enabled: enabled ? 1 : 0})
+    });
+    const d = await r.json();
+    document.getElementById('model-add-form').style.display='none';
+    ['model-add-name','model-add-path','model-add-url'].forEach(id => document.getElementById(id).value='');
+    await refreshModelDb();
+    addLog('ok','models', 'Added: '+name);
+  } catch(e) { addLog('err','models', e.message); }
+}
+
+async function deleteModelDb(mid) {
+  if (!confirm('このモデルをDBから削除しますか？')) return;
+  try {
+    await fetch(API+'/models/db/'+mid, {method:'DELETE'});
+    refreshModelDb();
+    addLog('ok','models','Deleted model '+mid);
+  } catch(e) { addLog('err','models',e.message); }
+}
+
+async function doBenchmark(mid) {
+  addLog('info','models', 'Benchmarking model '+mid+'...');
+  try {
+    const r = await fetch(API+'/models/db/benchmark/'+mid, {method:'POST'});
+    const d = await r.json();
+    addLog('ok','models', d.message || 'Benchmark started');
+    // Poll for result
+    setTimeout(refreshModelDb, 5000);
+    setTimeout(refreshModelDb, 15000);
+    setTimeout(refreshModelDb, 30000);
+  } catch(e) { addLog('err','models', e.message); }
 }
 
 // ── DRAWER ──
@@ -2579,41 +3231,24 @@ function toggleAutoSelect(val) {
   const label = document.getElementById('auto-select-label');
   if (desc) desc.textContent = autoSelectOption ? '🤖 プランナーLLMが自動選択' : '👤 ユーザーが手動選択';
   if (label) label.textContent = autoSelectOption ? 'Auto' : 'Manual';
-  localStorage.setItem('auto_select_option', autoSelectOption ? '1' : '0');
+  _saveSettingDb('auto_select_option', autoSelectOption ? 'true' : 'false');
 }
 function toggleAutoSkill(val) {
   autoSkillGeneration = !!val;
   const desc = document.getElementById('auto-skill-desc');
   if (desc) desc.textContent = autoSkillGeneration ? '⚙ 失敗時にSKILLを自動生成' : '⚙ SKILL自動生成 無効';
-  localStorage.setItem('auto_skill_generation', autoSkillGeneration ? '1' : '0');
+  _saveSettingDb('auto_skill_gen', autoSkillGeneration ? 'true' : 'false');
 }
 
 // ── MAX STEPS SLIDER ──
 function initStepsSlider() {
-  const savedAutoSelect = localStorage.getItem('auto_select_option');
-  if (savedAutoSelect !== null) {
-    autoSelectOption = savedAutoSelect === '1';
-    const chk = document.getElementById('auto-select-toggle');
-    if (chk) { chk.checked = autoSelectOption; toggleAutoSelect(autoSelectOption); }
-  }
-  const savedAutoSkill = localStorage.getItem('auto_skill_generation');
-  if (savedAutoSkill !== null) {
-    autoSkillGeneration = savedAutoSkill === '1';
-    const chk2 = document.getElementById('auto-skill-toggle');
-    if (chk2) { chk2.checked = autoSkillGeneration; toggleAutoSkill(autoSkillGeneration); }
-  }
-  const saved = parseInt(localStorage.getItem('max_steps') || '20');
-  maxSteps = saved;
-  const slider = document.getElementById('steps-slider');
-  const label = document.getElementById('steps-label');
-  if (slider) slider.value = saved;
-  if (label) label.textContent = saved;
+  // DB連動の loadSettingsFromDb が担うため空関数として残す（互換性）
 }
 function updateStepsLabel(val) {
   maxSteps = parseInt(val);
   const el = document.getElementById('steps-label');
   if (el) el.textContent = val;
-  localStorage.setItem('max_steps', val);
+  _saveSettingDb('max_steps', val);
 }
 
 // ── SEARCH NUM RESULTS SLIDER ──
@@ -2638,6 +3273,7 @@ async function applySearchNum(val) {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({num_results: parseInt(val)})
     });
+    _saveSettingDb('search_num', val);
     addLog('ok','search', `num_results set to ${val}`);
   } catch(e) { addLog('err','search', e.message); }
 }
@@ -2692,10 +3328,22 @@ async function applyCtxLen(val) {
       body: JSON.stringify({n_ctx: n})
     });
     _current_n_ctx_ui = n;
+    _saveSettingDb('ctx_size', n);
     addLog('ok', 'ctx', 'Context length set to ' + n.toLocaleString());
   } catch(e) {
     addLog('err', 'ctx', e.message);
   }
+}
+
+function updateMaxOutputLabel(val) {
+  const el = document.getElementById('max-output-label');
+  if (el) el.textContent = parseInt(val).toLocaleString();
+}
+
+async function applyMaxOutputTokens(val) {
+  const n = Math.max(256, Math.min(32768, parseInt(val)));
+  await _saveSettingDb('max_output_tokens', n);
+  addLog('ok', 'ctx', `最大出力トークン数: ${n.toLocaleString()}`);
 }
 
 // ── SEARCH TOGGLE ──
@@ -2714,6 +3362,7 @@ async function toggleSearch() {
     const r = await fetch(API+(next?'/search/enable':'/search/disable'), {method:'POST'});
     const d = await r.json();
     applySearchUI(d.enabled);
+    _saveSettingDb('search_enabled', d.enabled ? 'true' : 'false');
     addLog(d.enabled?'ok':'warn','search', d.enabled?'Web search ENABLED':'Web search DISABLED');
   } catch(e) { addLog('err','search',e.message); }
 }
@@ -2742,6 +3391,7 @@ async function toggleStreaming() {
     const r = await fetch(API + (next ? '/streaming/enable' : '/streaming/disable'), {method: 'POST'});
     const d = await r.json();
     applyStreamingUI(d.enabled);
+    _saveSettingDb('streaming_enabled', d.enabled ? 'true' : 'false');
     addLog(d.enabled ? 'ok' : 'warn', 'streaming',
       d.enabled ? 'LLMストリーミング有効' : 'LLMストリーミング無効 — 生成完了まで待機');
   } catch(e) { addLog('err', 'streaming', e.message); }
@@ -2758,12 +3408,8 @@ function applyStreamingUI(enabled) {
 // ── SETTINGS MODAL ──
 function openSettings() {
   document.getElementById('settings-modal').classList.add('open');
-  initStepsSlider();
-  initSearchNumSlider();
-  initCtxSlider();
-  // LLM URL 入力欄に現在値を反映
-  const urlInput = document.getElementById('llm-url-input');
-  if (urlInput) urlInput.value = activeLlmUrl;
+  loadSettingsFromDb();       // 開くたびにDBから最新値を反映
+  loadGhRepoConfig();         // GitHub設定も読み込む
 }
 function closeSettings() {
   document.getElementById('settings-modal').classList.remove('open');
@@ -2869,6 +3515,174 @@ function selectLLM(i) {
 function setBusy(b) { busy=b; document.getElementById('send-btn').disabled=b; }
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function synHL(c){return esc(c).replace(/\b(def|class|import|from|return|if|else|elif|for|while|try|except|with|as|pass|True|False|None|async|await)\b/g,'<span class="kw">$1</span>').replace(/(#[^\n]*)/g,'<span class="cm">$1</span>').replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g,'<span class="str">$1</span>').replace(/\b(\d+\.?\d*)\b/g,'<span class="num">$1</span>')}
+
+// ── MCP ──
+async function showMcpInfo() {
+  try {
+    const r = await fetch(API+'/mcp/info');
+    const d = await r.json();
+    const el = document.getElementById('mcp-test-result');
+    if (el) {
+      el.textContent = `MCP Server: ${API}/mcp\nProtocol: ${d.protocol}\nTools (${d.tools_count}):\n${d.tool_names.map(t=>'  - '+t).join('\n')}`;
+      el.style.display = 'block';
+    }
+  } catch(e) { addLog('err','mcp', e.message); }
+}
+
+async function testMcpServer() {
+  const url = document.getElementById('mcp-test-url')?.value.trim();
+  if (!url) return;
+  const el = document.getElementById('mcp-test-result');
+  if (el) { el.textContent = 'Testing...'; el.style.display='block'; }
+  try {
+    const r = await fetch(url, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list',params:{}})
+    });
+    const d = await r.json();
+    const tools = d.result?.tools || [];
+    if (el) el.textContent = `✓ Connected\nTools (${tools.length}):\n`+tools.map(t=>`  - ${t.name}: ${(t.description||'').slice(0,60)}`).join('\n');
+  } catch(e) {
+    if (el) { el.textContent = '✗ Error: '+e.message; el.style.color='var(--red)'; }
+  }
+}
+
+// ── GitHub リポジトリ管理 ──
+async function loadGhRepoConfig() {
+  try {
+    const r = await fetch(API+'/repo/config');
+    const d = await r.json();
+    const username = document.getElementById('gh-username');
+    const repoName = document.getElementById('gh-repo-name');
+    const visibility = document.getElementById('gh-visibility');
+    const branch = document.getElementById('gh-branch');
+    const remoteUrl = document.getElementById('gh-remote-url');
+    const tokenStatus = document.getElementById('gh-token-status');
+    if (username) username.value = d.github_username || d.github_username_saved || '';
+    if (repoName) repoName.value = d.github_repo_name || 'codeagent-data';
+    if (visibility) visibility.value = d.github_repo_visibility || 'private';
+    if (branch) branch.value = d.github_default_branch || 'main';
+    if (remoteUrl) remoteUrl.textContent = d.github_remote_url || '未設定';
+    if (tokenStatus) tokenStatus.textContent = d.has_token ? '✓ トークン保存済み' : '未設定';
+    if (tokenStatus) tokenStatus.style.color = d.has_token ? 'var(--accent)' : 'var(--text3)';
+  } catch(e) { addLog('err','gh', e.message); }
+}
+
+async function saveGhCredentials() {
+  const token = document.getElementById('gh-token')?.value.trim();
+  const username = document.getElementById('gh-username')?.value.trim();
+  if (!token && !username) { alert('トークンまたはユーザー名を入力してください'); return; }
+  try {
+    await fetch(API+'/repo/config', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ github_token: token || undefined, github_username_cred: username || undefined })
+    });
+    const tokenInput = document.getElementById('gh-token');
+    if (tokenInput) tokenInput.value = '';
+    const st = document.getElementById('gh-token-status');
+    if (st) { st.textContent = '✓ 保存しました（.codeagent/）'; st.style.color='var(--accent)'; }
+    addLog('info','gh','認証情報を .codeagent/ に保存しました');
+  } catch(e) { addLog('err','gh', e.message); }
+}
+
+async function saveGhRepoConfig() {
+  const data = {
+    github_username: document.getElementById('gh-username')?.value.trim() || '',
+    github_repo_name: document.getElementById('gh-repo-name')?.value.trim() || 'codeagent-data',
+    github_repo_visibility: document.getElementById('gh-visibility')?.value || 'private',
+    github_default_branch: document.getElementById('gh-branch')?.value.trim() || 'main',
+  };
+  try {
+    await fetch(API+'/repo/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+    addLog('info','gh','リポジトリ設定を保存しました');
+  } catch(e) { addLog('err','gh', e.message); }
+}
+
+async function initGhRepo() {
+  const el = document.getElementById('gh-repo-status');
+  if (el) { el.textContent = '初期化中...'; el.style.display='block'; }
+  try {
+    const r = await fetch(API+'/repo/init', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    const d = await r.json();
+    if (d.ok) {
+      const remoteUrl = document.getElementById('gh-remote-url');
+      if (remoteUrl) remoteUrl.textContent = d.remote_url;
+      if (el) el.textContent = `✓ リポジトリ初期化完了\nリモート: ${d.remote_url}\nリポジトリ: ${d.repo}`;
+      addLog('info','gh',`リポジトリ初期化完了: ${d.repo}`);
+    } else {
+      const msg = d.error || d.detail || JSON.stringify(d);
+      if (el) { el.textContent = '✗ エラー: ' + msg; el.style.display='block'; el.style.color='var(--red)'; }
+      addLog('err','gh', '[Init] ' + msg);
+    }
+  } catch(e) { if (el) { el.textContent='✗ Error: '+e.message; el.style.display='block'; } addLog('err','gh','[Init] '+e.message); }
+}
+
+async function syncGhRepo() {
+  const msg = prompt('コミットメッセージ（空でデフォルト）:', '') ?? '';
+  const el = document.getElementById('gh-repo-status');
+  if (el) { el.textContent = 'Sync中...'; el.style.display='block'; }
+  try {
+    const r = await fetch(API+'/repo/sync', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ message: msg || undefined })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      if (el) el.textContent = `✓ Sync完了\nブランチ: ${d.branch}\nメッセージ: ${d.message}`;
+      addLog('info','gh',`Sync完了: ${d.message}`);
+    } else {
+      const msg = d.error || d.detail || JSON.stringify(d);
+      if (el) { el.textContent = '✗ エラー: ' + msg; el.style.display='block'; el.style.color='var(--red)'; }
+      addLog('err','gh', '[Sync] ' + msg);
+    }
+  } catch(e) { if (el) { el.textContent='✗ Error: '+e.message; el.style.display='block'; } addLog('err','gh','[Sync] '+e.message); }
+}
+
+async function loadGhRepoStatus() {
+  const el = document.getElementById('gh-repo-status');
+  if (el) { el.textContent = '確認中...'; el.style.display='block'; }
+  try {
+    const r = await fetch(API+'/repo/status');
+    const d = await r.json();
+    if (!d.initialized) {
+      if (el) el.textContent = '⚠ リポジトリ未初期化\n「Init (リポジトリ作成)」を実行してください';
+    } else {
+      if (el) el.textContent = [
+        `✓ 初期化済み`,
+        `リモート: ${d.remote_url || '未設定'}`,
+        `ブランチ: ${d.branch}`,
+        `変更: ${d.status || 'clean'}`,
+        d.recent_commits ? `\n最近のコミット:\n${d.recent_commits}` : '',
+      ].join('\n');
+    }
+  } catch(e) { if (el) el.textContent='✗ Error: '+e.message; }
+}
+
+async function testGhConnection() {
+  const el = document.getElementById('gh-repo-status');
+  if (el) { el.textContent = 'GitHub接続確認中...'; el.style.display='block'; el.style.color=''; }
+  try {
+    const r = await fetch(API+'/repo/test-connection');
+    const d = await r.json();
+    if (d.ok) {
+      if (el) el.textContent = [
+        `✓ GitHub接続成功`,
+        `ユーザー: ${d.login} (${d.name || ''})`,
+        `プラン: ${d.plan || 'unknown'}`,
+        `公開リポジトリ: ${d.public_repos}件  非公開: ${d.private_repos}件`,
+        d.rate_limit ? `APIレート: 残${d.rate_limit.remaining}/${d.rate_limit.limit} (リセット: ${d.rate_limit.reset})` : '',
+      ].filter(Boolean).join('\n');
+      el.style.color = 'var(--accent)';
+      const st = document.getElementById('gh-token-status');
+      if (st) { st.textContent = '✓ トークン有効'; st.style.color = 'var(--accent)'; }
+    } else {
+      if (el) { el.textContent = `✗ 接続失敗: ${d.error || '不明なエラー'}`; el.style.color = 'var(--red)'; }
+    }
+  } catch(e) {
+    if (el) { el.textContent = '✗ Error: ' + e.message; el.style.color = 'var(--red)'; }
+  }
+}
 
 function openSkillFolder() { addLog("info","skill","Skill folder: C:\\AI\\skills\\"); }
 function proposeSkillImprovement(skillName) {
