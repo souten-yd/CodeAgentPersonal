@@ -27,7 +27,7 @@
 | **手動管理** | Memoryタブから追加・編集・削除・キーワード検索が可能 |
 | **カテゴリ分類** | `error_solution` / `env_knowledge` / `workflow` / `general` |
 
-メモリDB: `./memory.db`（全プロジェクト共有 SQLite）
+メモリDB: `./ca_data/memory.db`（全プロジェクト共有 SQLite）
 
 ### SKILLシステム
 
@@ -36,7 +36,7 @@
 | **SKILL自動生成** | Stage 3失敗時にエラーを解析して不足ツールをPython関数としてSKILL化 |
 | **ポストジョブ提案** | ジョブ完了後に実行ログを解析して不足SKILLをUIに提案 |
 | **使用回数ソート** | プロンプトへのSKILL注入を使用回数降順でソート（実績のあるSKILLを優先） |
-| **SKILL.md形式** | OpenClaw互換。`./skills/スキル名/SKILL.md` に保存 |
+| **SKILL.md形式** | OpenClaw互換。`./ca_data/skills/スキル名/SKILL.md` に保存 |
 | **ホットリロード** | 10秒キャッシュでSKILLを自動更新。再起動不要 |
 | **自動生成ON/OFF** | 設定パネルのトグルで制御（デフォルト: ON） |
 
@@ -73,14 +73,14 @@
 - `web_search` — DuckDuckGo検索（設定でON/OFF）
 - `clarify` — ユーザーへの確認・選択肢提示
 
-**カスタムSKILL** — `./skills/` に追加したSKILL.mdが自動でツールとして利用可能
+**カスタムSKILL** — `./ca_data/skills/` に追加したSKILL.mdが自動でツールとして利用可能
 
 ### UI
 
 | 機能 | 説明 |
 |---|---|
 | **リアルタイムSSE** | Server-Sent Eventsによるストリーミング表示（TPS/token数表示） |
-| **5タブパネル** | Output / Preview / Log / Skills / Memory |
+| **7タブパネル** | Output / Preview / Log / Skills / Memory / Git / Models |
 | **ファイルブラウザ** | プロジェクトファイルをリアルタイム表示・iframe preview |
 | **設定パネル** | ⚙ボタンから: Steps・Auto Select・SKILL自動生成・ストリーミング・コンテキスト長・検索件数・LLM URL |
 | **モバイル対応** | iPhone対応。タブバーはスクロール可能。Safe area対応 |
@@ -97,7 +97,7 @@
 | 機能 | 状態 | 備考 |
 |---|---|---|
 | エージェントタスク実行 | ✅ 安定 | 4段階フォールバック実装済み |
-| パーマネントメモリ | ✅ 新機能 | `memory.db` 共有 |
+| パーマネントメモリ | ✅ 新機能 | `ca_data/memory.db` 共有 |
 | SKILLシステム | ✅ 安定 | 自動生成・提案・ポストジョブ分析 |
 | Playwright ブラウザ | ✅ 安定 | コンテナ自動修復実装済み |
 | マルチモデル切り替え | ✅ 安定 | Router LLMで自動ルーティング |
@@ -178,27 +178,32 @@ start.bat
 
 ```
 CodeAgentPersonal/
-├── main.py            # FastAPI バックエンド (4500行+)
-│   ├── ModelManager   — 動的モデル切り替え
-│   ├── ToolSet        — 16種のエージェントツール
-│   ├── JobRunner      — 4段階フォールバック + SKILL自動生成
-│   ├── MemoryDB       — パーマネントメモリ (memory.db)
-│   ├── SkillSystem    — SKILL.md管理・ホットリロード
+├── main.py            # FastAPI バックエンド
+│   ├── ModelManager   — 動的モデル切り替え / ロール別モデル選択
+│   ├── ToolSet        — ファイル・実行・ブラウザ・検索ツール
+│   ├── JobRunner      — Task実行 / フォールバック / 検証 / メモリ抽出
+│   ├── MemoryDB       — パーマネントメモリ管理
+│   ├── SkillSystem    — SKILL.md管理・ツールロード・類似マージ
 │   └── VerifyEngine   — V-model 3フェーズ検証
-├── ui.html            # フロントエンド SPA (2800行+)
-│   ├── SSE streaming  — リアルタイムジョブ監視
-│   ├── Memory tab     — メモリ検索・管理UI
-│   ├── Skills tab     — SKILL一覧・提案UI
+├── ui.html            # フロントエンド SPA
+│   ├── Chat / Task    — 会話・要件/計画・実行UI
+│   ├── Output / Preview / Log
+│   ├── Skills / Memory / Git / Models
 │   └── Settings modal — 全設定を一元管理
-├── memory.db          # パーマネントメモリ (自動生成)
-├── skills/            # カスタムSKILL格納フォルダ
-│   └── スキル名/SKILL.md
-├── workspace/         # プロジェクトファイル格納
-│   └── プロジェクト名/
+├── ca_data/           # 実データの保存先
+│   ├── memory.db      # パーマネントメモリ
+│   ├── model_db.db    # モデルDB
+│   ├── skills/        # カスタムSKILL格納フォルダ
+│   │   └── スキル名/SKILL.md
+│   └── workspace/     # プロジェクトファイル格納
+│       └── プロジェクト名/
+├── .codeagent/        # プロジェクト別補助データ
 ├── benchmark_mem.py   # VRAM/RAM計測ツール
 ├── start.bat          # Windows起動スクリプト
 └── DLllama.bat        # llama.cppバイナリ自動ダウンロード
 ```
+
+※ 旧バージョンの `./workspace` / `./skills` / `./memory.db` / `./model_db.db` が存在する場合は、起動時に `ca_data/` 配下へ自動移行されます。
 
 ---
 
@@ -221,3 +226,5 @@ CodeAgentPersonal/
 | `GET` | `/projects` | プロジェクト一覧 |
 | `POST` | `/search/enable` | Web検索有効化 |
 | `GET` | `/health` | ヘルスチェック |
+
+※ `/projects` で作成・参照される実体ディレクトリは `./ca_data/workspace/{project}/` です。
