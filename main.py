@@ -639,8 +639,9 @@ def _analyze_job_for_memory(job_id: str, project: str, llm_url: str = ""):
                 if "ERROR" in r or "error" in r:
                     errors.append(r[:100])
 
-        if not errors and not solutions:
-            return  # エラーも解決もなければスキップ
+        # タスク完了がなければスキップ（空ジョブ）
+        if not task_summaries:
+            return
 
         log_summary = "\n".join(task_summaries[-20:])
         error_summary = "\n".join(set(errors[:8]))
@@ -657,13 +658,13 @@ def _analyze_job_for_memory(job_id: str, project: str, llm_url: str = ""):
 【実施した解決策】
 {solution_summary or "(なし)"}
 
-以下のカテゴリで知識を抽出してください:
-- error_solution: エラーパターンとその解決策
-- env_knowledge: 環境・ツール・ライブラリに関する知識
-- workflow: 効率的な作業フローや手順の知識
+以下のカテゴリで、実際に役立つ知識のみ抽出してください（自明・一般的すぎる内容は不要）:
+- error_solution: 再発しやすいエラーパターンとその解決策
+- env_knowledge: 環境・ツール・ライブラリに関する具体的な知識（バージョン依存・OS依存等）
+- workflow: 複数タスクで共通して有効だった効率的な手順・コツ
 
 スキルとして実装すべきものは含めず、知識・経験として記録すべきものだけを抽出してください。
-重複や自明な内容は省略してください。
+抽出価値がなければ {{"memories":[]}} を返してください。
 
 【JSONのみ出力】
 {{"memories":[{{"category":"error_solution","title":"タイトル（40字以内）","content":"詳細（200字以内）","keywords":["kw1","kw2"]}}]}}"""
@@ -2737,7 +2738,20 @@ PLANNER_PROMPT = """あなたはソフトウェアアーキテクト兼タスク
 - verificationは実行可能なテスト・確認方法を書く
 - tasksの最後は必ず「動作確認・検証」タスクを含める
 - tasksは最大10件まで
-- 単純な指示でも要件・方針・検証は省略しない"""
+- 単純な指示でも要件・方針・検証は省略しない
+
+【単体テスト要否の判断基準】
+単体テストタスク（"テストコード作成"等）は以下の場合のみ追加すること：
+✅ 追加すべき場合:
+  - Pythonプロジェクトで純粋な関数・クラス（ユーティリティ・ライブラリ・ロジック層）を実装する場合
+  - 計算・変換・バリデーション等の入出力が明確な関数が複数含まれる場合
+  - バグ修正・リファクタリングで既存ロジックの動作保証が必要な場合
+❌ 追加不要な場合:
+  - HTML/CSS/JavaScriptのみのフロントエンドプロジェクト（UIは目視確認・Playwrightで代替）
+  - シンプルなスクリプト・1回限りの自動化タスク（テストより動作確認が適切）
+  - Flask/FastAPI等のWebアプリ（結合テスト・ブラウザ確認が主体、単体は任意）
+  - 設定ファイル変更・ドキュメント作成のみのタスク
+  - データサイエンス・ML（学習スクリプト等は単体テストより出力検証が適切）"""
 
 # GPT-OSS-20B用: チャンネル形式でも確実にパースできるシンプル版
 PLANNER_PROMPT_SIMPLE = """あなたはタスク分解AIです。
