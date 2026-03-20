@@ -339,12 +339,26 @@ header{
 .stext{font-size:11px;font-family:var(--font-mono);color:var(--text2)}
 
 /* ── MOBILE TABS (≤768px only) ── */
-.mob-tabs{display:none;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0}
-.mob-tab{flex:1;padding:10px 4px;text-align:center;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--text2);cursor:pointer;border:none;background:transparent;font-family:var(--font-ui);border-bottom:2px solid transparent;transition:all .15s}
+.mob-tabs{
+  display:none;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;
+  overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+}
+.mob-tabs::-webkit-scrollbar{display:none}
+.mob-tab{
+  flex:0 0 auto;min-width:58px;padding:11px 10px;text-align:center;
+  font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--text2);
+  cursor:pointer;border:none;background:transparent;font-family:var(--font-ui);
+  border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;
+}
 .mob-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 @media(max-width:768px){
   .mob-tabs{display:flex}
-  .panel-tabs{display:none !important}  /* ← iPhone二重タブ修正 */
+  .panel-tabs{display:none !important}
+}
+/* iPhone safe area */
+@supports(padding:env(safe-area-inset-bottom)){
+  .input-area{padding-bottom:max(10px,env(safe-area-inset-bottom))}
+  .mob-tabs{padding-bottom:env(safe-area-inset-bottom)}
 }
 
 /* ── LAYOUT ── */
@@ -750,12 +764,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
   </div>
   <div class="hdr-right">
-    <button class="hdr-icon-btn" id="search-toggle" onclick="toggleSearch()" title="Web Search: OFF — click to enable">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-    </button>
-    <button class="hdr-icon-btn" id="streaming-toggle" onclick="toggleStreaming()" title="LLM Streaming: ON — click to disable" style="font-size:14px;opacity:1">⚡</button>
-    <button class="hdr-icon-btn" id="llm-btn" onclick="openLLMManager()" title="LLM Settings">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+    <button class="hdr-icon-btn" id="settings-btn" onclick="openSettings()" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06-.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
     <div class="tok-display" id="tok-display" style="display:none;align-items:center;gap:5px;font-size:11px;font-family:var(--font-mono);color:var(--text2)">
       <span id="tok-total" style="color:var(--accent)"></span>
@@ -909,105 +919,110 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   </div>
 </div>
 
-<!-- LLM MANAGER MODAL -->
-<div class="modal-overlay" id="llm-modal" onclick="if(event.target===this)closeLLMManager()">
+<!-- SETTINGS MODAL -->
+<div class="modal-overlay" id="settings-modal" onclick="if(event.target===this)closeSettings()">
   <div class="modal">
     <div class="modal-hdr">
-      <span class="modal-title">LLM Endpoints</span>
-      <button class="modal-close" onclick="closeLLMManager()">✕</button>
+      <span class="modal-title">⚙ Settings</span>
+      <button class="modal-close" onclick="closeSettings()">✕</button>
     </div>
-    <div class="modal-body">
-      <div class="section-label">Add New Endpoint</div>
-      <div class="llm-add-form">
-        <div class="llm-form-row">
-          <input class="llm-input" id="llm-new-name" placeholder="Name  (e.g. Qwen35B-local)" style="flex:.4">
-          <input class="llm-input" id="llm-new-url" placeholder="URL  e.g. http://192.168.1.10:8080/v1/chat/completions">
+    <div class="modal-body" style="overflow-y:auto;max-height:72vh">
+
+      <!-- エージェント設定 -->
+      <div class="section-label">🤖 エージェント設定</div>
+      <div style="padding:4px 0 14px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="font-size:11px;color:var(--text2);flex:1;white-space:nowrap">Max Steps</span>
+          <input type="range" id="steps-slider" min="1" max="100" step="1" value="20"
+            style="flex:2;accent-color:var(--accent);cursor:pointer"
+            oninput="updateStepsLabel(this.value)">
+          <span id="steps-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:28px;text-align:right">20</span>
         </div>
-        <div class="llm-form-row">
-          <button class="llm-btn secondary" onclick="testNewLLM()">⚡ Test</button>
-          <button class="llm-btn primary" onclick="addLLM()" style="flex:1">+ Add</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">失敗時の対応選択</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px" id="auto-select-desc">🤖 プランナーLLMが自動選択</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="auto-select-toggle" checked
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="toggleAutoSelect(this.checked)">
+            <span style="font-size:11px;color:var(--text2)" id="auto-select-label">Auto</span>
+          </label>
         </div>
-        <div class="test-result" id="new-test-result"></div>
-      </div>
-      <div class="section-label">Saved Endpoints</div>
-      <div class="llm-list" id="llm-list"></div>
-    </div>
-    <div style="padding:14px 16px;border-top:1px solid var(--border)">
-      <div class="section-label" style="margin-bottom:10px">Search Results</div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <input type="range" id="search-num-slider"
-          min="1" max="20" step="1" value="5"
-          style="flex:1;accent-color:var(--accent);cursor:pointer"
-          oninput="updateSearchNumLabel(this.value)" onchange="applySearchNum(this.value)">
-        <span id="search-num-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:40px;text-align:right">5</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--text3);font-family:var(--font-mono)">
-        <span>1</span><span>10</span><span>20</span>
-      </div>
-      <div style="margin-top:6px;font-size:11px;color:var(--text3)">
-        More results = richer context but slower responses.
-      </div>
-    </div>
-    <div style="padding:14px 16px;border-top:1px solid var(--border)">
-      <div class="section-label" style="margin-bottom:10px">Context Length</div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <input type="range" id="ctx-slider"
-          min="512" max="32768" step="512" value="32768"
-          style="flex:1;accent-color:var(--accent);cursor:pointer"
-          oninput="updateCtxLabel(this.value)" onchange="applyCtxLen(this.value)">
-        <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:56px;text-align:right">32768</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--text3);font-family:var(--font-mono)">
-        <span>512</span>
-        <span id="ctx-max-label">max: 32768</span>
-        <span id="ctx-slider-max">32768</span>
-      </div>
-      <div style="margin-top:6px;font-size:11px;color:var(--text3)">
-        Shorter = faster responses. Longer = more context but uses more VRAM.
-      </div>
-    </div>
-    <div style="padding:14px 16px;border-top:1px solid var(--border)">
-      <div class="section-label" style="margin-bottom:10px">Max Tool Steps</div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <input type="range" id="steps-slider"
-          min="1" max="100" step="1" value="20"
-          style="flex:1;accent-color:var(--accent);cursor:pointer"
-          oninput="updateStepsLabel(this.value)">
-        <span id="steps-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:40px;text-align:right">20</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--text3);font-family:var(--font-mono)">
-        <span>1</span><span>50</span><span>100</span>
-      </div>
-      <div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between">
-        <div>
-          <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.04em">失敗時の対応選択</div>
-          <div style="font-size:10px;color:var(--text3);margin-top:2px" id="auto-select-desc">🤖 プランナーLLMが自動選択</div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">SKILL自動生成</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px" id="auto-skill-desc">⚙ 失敗時にSKILLを自動生成</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="auto-skill-toggle" checked
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="toggleAutoSkill(this.checked)">
+            <span style="font-size:11px;color:var(--text2)">Auto</span>
+          </label>
         </div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="auto-select-toggle" checked
-            style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer"
-            onchange="toggleAutoSelect(this.checked)">
-          <span style="font-size:11px;color:var(--text2)" id="auto-select-label">Auto</span>
-        </label>
+        <div style="margin-top:6px;font-size:10px;color:var(--text3)">⚠ 推奨 Steps: 10〜25。過剰だと繰り返しループのリスクあり。</div>
       </div>
-      <div style="margin-top:10px;display:flex;align-items:center;justify-content:space-between">
-        <div>
-          <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.04em">SKILL自動生成</div>
-          <div style="font-size:10px;color:var(--text3);margin-top:2px" id="auto-skill-desc">⚙ 失敗時にSKILLを自動生成</div>
+
+      <!-- LLM設定 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">💬 LLM</div>
+      <div style="padding:4px 0 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">ストリーミング</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">トークン生成をリアルタイム表示</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="streaming-chk" checked
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="toggleStreaming()">
+            <span style="font-size:11px;color:var(--text2)" id="streaming-label">ON</span>
+          </label>
         </div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="auto-skill-toggle" checked
-            style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer"
-            onchange="toggleAutoSkill(this.checked)">
-          <span style="font-size:11px;color:var(--text2)">Auto</span>
-        </label>
+        <div style="margin-bottom:6px;font-size:11px;color:var(--text2)">コンテキスト長</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="ctx-slider" min="512" max="32768" step="512" value="32768"
+            style="flex:1;accent-color:var(--accent);cursor:pointer"
+            oninput="updateCtxLabel(this.value)" onchange="applyCtxLen(this.value)">
+          <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">32768</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px">
+          <span>512</span><span id="ctx-max-label">max: 32768</span><span id="ctx-slider-max">32768</span>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">LLM URL（空=サーバーデフォルト）</div>
+        <input type="text" id="llm-url-input" placeholder="http://localhost:8080/v1/chat/completions"
+          style="width:100%;padding:6px 8px;font-size:10px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--font-mono);box-sizing:border-box"
+          oninput="activeLlmUrl=this.value.trim()">
       </div>
-      <div style="margin-top:6px;font-size:11px;color:var(--text3);line-height:1.5">
-        ⚠ 無制限に近い設定はLLMが同じ操作を繰り返すループに陥るリスクがあります。推奨: 10〜25。
+
+      <!-- Web検索 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔍 Web検索</div>
+      <div style="padding:4px 0 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">DuckDuckGo検索</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">エージェントがWeb検索を使用</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="search-chk"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="toggleSearch()">
+            <span style="font-size:11px;color:var(--text2)" id="search-label">OFF</span>
+          </label>
+        </div>
+        <div style="margin-bottom:4px;font-size:11px;color:var(--text2)">検索件数</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="search-num-slider" min="1" max="20" step="1" value="5"
+            style="flex:1;accent-color:var(--accent);cursor:pointer"
+            oninput="updateSearchNumLabel(this.value)" onchange="applySearchNum(this.value)">
+          <span id="search-num-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:28px;text-align:right">5</span>
+        </div>
       </div>
+
     </div>
-    <div class="modal-footer" style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">
-      Endpoints are saved in browser localStorage. No data sent to external services.
+    <div class="modal-footer" style="font-size:10px;color:var(--text3);font-family:var(--font-mono)">
+      設定はブラウザのlocalStorageに保存されます。
     </div>
   </div>
 </div>
@@ -1046,7 +1061,6 @@ let editorOpen = false;
 let searchEnabled = false;
 let streamingEnabled = true;  // サーバーデフォルトと同期
 let activeLlmUrl = '';    // 空文字 = サーバーデフォルト(LLM_URL)
-let llmEndpoints = [];    // {name, url, status:'ok'|'err'|'unk'}
 let pendingPlan = null;   // 承認待ちのプラン
 let progressEl = null;    // 現在のプログレスカード
 let timerInterval = null;
@@ -1068,7 +1082,6 @@ if (window.visualViewport) {
 addEventListener('load', async () => {
   checkHealth();
   loadProjects();
-  loadLLMEndpoints();
   initSearch();
   initStreaming();
   initCtxSlider();
@@ -2648,22 +2661,22 @@ async function initSearch() {
 }
 
 async function toggleSearch() {
-  const next = !searchEnabled;
+  const chk = document.getElementById('search-chk');
+  const next = chk ? chk.checked : !searchEnabled;
   try {
     const r = await fetch(API+(next?'/search/enable':'/search/disable'), {method:'POST'});
     const d = await r.json();
     applySearchUI(d.enabled);
-    addLog(d.enabled?'ok':'warn','search', d.enabled?'Web search ENABLED — queries are sanitized before sending':'Web search DISABLED');
+    addLog(d.enabled?'ok':'warn','search', d.enabled?'Web search ENABLED':'Web search DISABLED');
   } catch(e) { addLog('err','search',e.message); }
 }
 
 function applySearchUI(enabled) {
   searchEnabled = enabled;
-  const btn = document.getElementById('search-toggle');
-  if (!btn) return;
-  btn.classList.toggle('search-on', enabled);
-  btn.style.opacity = enabled ? '1' : '0.4';
-  btn.title = enabled ? 'Web Search: ON — click to disable' : 'Web Search: OFF — click to enable';
+  const chk = document.getElementById('search-chk');
+  const label = document.getElementById('search-label');
+  if (chk) chk.checked = enabled;
+  if (label) label.textContent = enabled ? 'ON' : 'OFF';
 }
 
 // ── STREAMING TOGGLE ──
@@ -2676,38 +2689,40 @@ async function initStreaming() {
 }
 
 async function toggleStreaming() {
-  const next = !streamingEnabled;
+  const chk = document.getElementById('streaming-chk');
+  const next = chk ? chk.checked : !streamingEnabled;
   try {
     const r = await fetch(API + (next ? '/streaming/enable' : '/streaming/disable'), {method: 'POST'});
     const d = await r.json();
     applyStreamingUI(d.enabled);
     addLog(d.enabled ? 'ok' : 'warn', 'streaming',
-      d.enabled ? 'LLMストリーミング有効 — TPS/tokenがリアルタイム表示' : 'LLMストリーミング無効 — 生成完了まで待機');
+      d.enabled ? 'LLMストリーミング有効' : 'LLMストリーミング無効 — 生成完了まで待機');
   } catch(e) { addLog('err', 'streaming', e.message); }
 }
 
 function applyStreamingUI(enabled) {
   streamingEnabled = enabled;
-  const btn = document.getElementById('streaming-toggle');
-  if (!btn) return;
-  btn.style.opacity = enabled ? '1' : '0.35';
-  btn.title = enabled ? 'LLM Streaming: ON — click to disable' : 'LLM Streaming: OFF — click to enable';
+  const chk = document.getElementById('streaming-chk');
+  const label = document.getElementById('streaming-label');
+  if (chk) chk.checked = enabled;
+  if (label) label.textContent = enabled ? 'ON' : 'OFF';
 }
 
-// ── LLM MANAGER ──
-function loadLLMEndpoints() {
-  try {
-    llmEndpoints = JSON.parse(localStorage.getItem('llm_endpoints') || '[]');
-    // デフォルトエンドポイントがなければ追加
-    if (!llmEndpoints.find(e => e.name === 'Default')) {
-      llmEndpoints.unshift({name:'Default', url:'', status:'unk', active:true});
-      saveLLMEndpoints();
-    }
-    const active = llmEndpoints.find(e => e.active);
-    if (active) activeLlmUrl = active.url || '';
-    updateLLMBtnLabel();
-  } catch(e) { llmEndpoints = [{name:'Default', url:'', status:'unk', active:true}]; }
+// ── SETTINGS MODAL ──
+function openSettings() {
+  document.getElementById('settings-modal').classList.add('open');
+  initStepsSlider();
+  initSearchNumSlider();
+  initCtxSlider();
+  // LLM URL 入力欄に現在値を反映
+  const urlInput = document.getElementById('llm-url-input');
+  if (urlInput) urlInput.value = activeLlmUrl;
 }
+function closeSettings() {
+  document.getElementById('settings-modal').classList.remove('open');
+}
+
+function _removedLLMManager() {
 function saveLLMEndpoints() {
   localStorage.setItem('llm_endpoints', JSON.stringify(llmEndpoints));
 }
@@ -2801,16 +2816,7 @@ function selectLLM(i) {
   renderLLMList();
   addLog('ok','llm','Active: '+llmEndpoints[i].name+(activeLlmUrl?' ('+activeLlmUrl+')':' (server default)'));
 }
-function deleteLLM(i) {
-  if (i === 0) return; // Default は削除不可
-  if (!confirm('Delete endpoint "'+llmEndpoints[i].name+'"?')) return;
-  const wasActive = llmEndpoints[i].active;
-  llmEndpoints.splice(i, 1);
-  if (wasActive) { llmEndpoints[0].active = true; activeLlmUrl = ''; }
-  saveLLMEndpoints();
-  updateLLMBtnLabel();
-  renderLLMList();
-}
+} // end _removedLLMManager
 
 // ── UTILS ──
 function setBusy(b) { busy=b; document.getElementById('send-btn').disabled=b; }

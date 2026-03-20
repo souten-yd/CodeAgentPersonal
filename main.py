@@ -562,6 +562,7 @@ def memory_search(query: str, limit: int = 4) -> list:
     if not tokens:
         return all_entries[:limit]
     scored = []
+    import math as _math
     for e in all_entries:
         score = 0
         title_l = e["title"].lower()
@@ -572,6 +573,8 @@ def memory_search(query: str, limit: int = 4) -> list:
             if t in kw_l:      score += 2
             if t in content_l: score += 1
         if score > 0:
+            # usage_count を対数スケールでブースト（頻繁に参照された知識を優先）
+            score += _math.log(e.get("usage_count", 0) + 1) * 0.8
             scored.append((score, e))
     scored.sort(key=lambda x: -x[0])
     hits = [e for _, e in scored[:limit]]
@@ -4540,7 +4543,8 @@ def _skills_to_prompt_injection() -> str:
     アクティブなスキルをSYSTEM_PROMPTへ注入するテキスト（OpenClaw互換XML形式）。
     スキルのtool_codeはrun_pythonで実行可能。
     """
-    skills = _active_skills()
+    # usage_count 降順でソート（よく使われるスキルを優先的にプロンプトに含める）
+    skills = sorted(_active_skills(), key=lambda s: s.get("usage_count", 0), reverse=True)
     if not skills: return ""
     lines = ["\n\n【カスタムスキル（SKILL.md）】"]
     lines.append("<skills>")
