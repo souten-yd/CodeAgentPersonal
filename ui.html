@@ -627,6 +627,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     <button class="hdr-icon-btn" id="search-toggle" onclick="toggleSearch()" title="Web Search: OFF — click to enable">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     </button>
+    <button class="hdr-icon-btn" id="streaming-toggle" onclick="toggleStreaming()" title="LLM Streaming: ON — click to disable" style="font-size:14px;opacity:1">⚡</button>
     <button class="hdr-icon-btn" id="llm-btn" onclick="openLLMManager()" title="LLM Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
     </button>
@@ -864,6 +865,7 @@ let currentProject = 'default';
 let htmlFiles = [];
 let editorOpen = false;
 let searchEnabled = false;
+let streamingEnabled = true;  // サーバーデフォルトと同期
 let activeLlmUrl = '';    // 空文字 = サーバーデフォルト(LLM_URL)
 let llmEndpoints = [];    // {name, url, status:'ok'|'err'|'unk'}
 let pendingPlan = null;   // 承認待ちのプラン
@@ -884,16 +886,17 @@ if (window.visualViewport) {
 }
 
 // ── INIT ──
-addEventListener('load', () => {
+addEventListener('load', async () => {
   checkHealth();
   loadProjects();
   loadLLMEndpoints();
   initSearch();
+  initStreaming();
   initCtxSlider();
   refreshSkills();
   initStepsSlider();
-  loadHistory(currentProject);
-  loadJobs(currentProject);  // ← 起動時にジョブ一覧も読む
+  await loadHistory(currentProject); // 先に履歴を復元してから
+  await loadJobs(currentProject);    // 実行中ジョブを検出・自動再接続
   setInterval(checkHealth, 10000);
 });
 
@@ -970,7 +973,14 @@ async function loadJobs(project) {
   try {
     const r = await fetch(API+`/projects/${encodeURIComponent(project)}/jobs?limit=10`);
     const d = await r.json();
-    renderJobs(d.jobs || []);
+    const jobs = d.jobs || [];
+    renderJobs(jobs);
+    // ページロード時に実行中ジョブがあれば自動再接続
+    const runningJob = jobs.find(j => j.status === 'running');
+    if (runningJob && !busy) {
+      addLog('info','job', `実行中のジョブを検出 — 自動再接続: ${runningJob.message.slice(0,40)}`);
+      resumeJob(runningJob.id);
+    }
   } catch(e) {}
 }
 function renderJobs(jobs) {
@@ -978,15 +988,45 @@ function renderJobs(jobs) {
   if (!el) return;
   if (!jobs.length) { el.innerHTML='<div style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">No jobs yet</div>'; return; }
   el.innerHTML = jobs.map(j => {
-    const icon = j.status==='done'?'✓':j.status==='error'?'✗':j.status==='running'?'▶':'○';
-    const col = j.status==='done'?'var(--accent)':j.status==='error'?'var(--red)':j.status==='running'?'var(--amber)':'var(--text3)';
+    const isRunning = j.status === 'running';
+    const icon = j.status==='done'?'✓':j.status==='error'?'✗':isRunning?'▶':'○';
+    const col = j.status==='done'?'var(--accent)':j.status==='error'?'var(--red)':isRunning?'var(--amber)':'var(--text3)';
     const ts = j.created_at ? j.created_at.slice(11,16) : '';
-    return `<div style="display:flex;align-items:center;gap:7px;padding:5px 7px;background:var(--bg2);border:1px solid var(--border);border-radius:5px;cursor:pointer;font-size:11px" onclick="replayJob('${esc(j.id)}')">
+    const liveBadge = isRunning ? `<span style="font-size:9px;background:var(--amber);color:#000;border-radius:3px;padding:1px 4px;flex-shrink:0">LIVE</span>` : '';
+    const clickFn = isRunning ? `resumeJob('${esc(j.id)}')` : `replayJob('${esc(j.id)}')`;
+    return `<div style="display:flex;align-items:center;gap:7px;padding:5px 7px;background:var(--bg2);border:1px solid ${isRunning?'var(--amber)':'var(--border)'};border-radius:5px;cursor:pointer;font-size:11px" onclick="${clickFn}">
       <span style="color:${col};flex-shrink:0">${icon}</span>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono)">${esc(j.message.slice(0,40))}</span>
+      ${liveBadge}
       <span style="color:var(--text3);flex-shrink:0;font-family:var(--font-mono)">${ts}</span>
     </div>`;
   }).join('');
+}
+async function resumeJob(jobId) {
+  closeDrawer();
+  if (busy) { addLog('warn','job','別のジョブが実行中です'); return; }
+  setBusy(true);
+  startTimer();
+  try {
+    const r = await fetch(API+`/jobs/${jobId}?project=${encodeURIComponent(currentProject)}`);
+    const d = await r.json();
+    addMsg('user', d.message);
+    addToHistory('user', d.message);
+    const planStep = (d.steps||[]).find(s => s.type === 'plan');
+    const allPlannedTasks = planStep ? (planStep.data.tasks || []) : [];
+    const label = d.status === 'running'
+      ? `Resuming job (${allPlannedTasks.length} tasks)...`
+      : `Replaying job (${allPlannedTasks.length} tasks)...`;
+    const progCard = addProgressCard(label, allPlannedTasks.length);
+    await _watchJobPolling(jobId, allPlannedTasks, {}, progCard, true);
+  } catch(e) {
+    stopTimer();
+    addMsg('error', 'Resume error: '+e.message);
+    addLog('err','job', e.message);
+  }
+  setBusy(false);
+  loadProjects();
+  refreshFileBrowser();
 }
 async function replayJob(jobId) {
   closeDrawer();
@@ -1055,8 +1095,8 @@ async function selectProject(name) {
   closeDrawer();
   document.getElementById('messages').innerHTML = `<div class="msg system"><div class="msg-role">system</div><div class="msg-bubble">Project: ${esc(name)}</div></div>`;
   chatHistory = [];
-  loadHistory(name);
-  loadJobs(name);
+  await loadHistory(name);
+  await loadJobs(name);
   refreshFileBrowser();
   addLog('info','project','Switched to: '+name);
 }
@@ -1092,6 +1132,8 @@ function renderHistorySession(s) {
   um.className = 'msg user history';
   um.innerHTML = `<div class="msg-role">You</div><div class="msg-bubble">${esc(s.message)}</div><div class="msg-ts">${ts}</div>`;
   messages().appendChild(um);
+  addToHistory('user', s.message); // chatHistory に追加して後続メッセージでコンテキスト維持
+  addLog('ok','history', `[${ts}] ${s.message.slice(0,50)}`);
 
   if (!s.result) return;
 
@@ -1108,16 +1150,19 @@ function renderHistorySession(s) {
     tb.innerHTML = `<div class="msg-role">Plan</div><div class="task-block">${items}</div>`;
     messages().appendChild(tb);
     // final result
+    const summary = s.result.summary || '';
     const am = document.createElement('div');
     am.className = 'msg assistant history';
-    am.innerHTML = `<div class="msg-role">Agent</div><div class="msg-bubble">${esc(s.result.summary||'')}</div><div class="msg-ts">${ts}</div>`;
+    am.innerHTML = `<div class="msg-role">Agent</div><div class="msg-bubble">${esc(summary)}</div><div class="msg-ts">${ts}</div>`;
     messages().appendChild(am);
+    addToHistory('assistant', summary);
   } else if (s.mode === 'chat' && s.result.output) {
     const am = document.createElement('div');
     am.className = 'msg assistant history';
     const mdHtml = mdRenderer ? renderMd(s.result.output) : `<span style="white-space:pre-wrap">${esc(s.result.output)}</span>`;
     am.innerHTML = `<div class="msg-role">Agent</div><div class="msg-bubble md" data-raw="${esc(s.result.output).replace(/"/g,'&quot;')}">${mdHtml}</div><button class="md-toggle active" onclick="toggleMdBubble(this)" title="Toggle Markdown/Raw">MD</button><div class="msg-ts">${ts}</div>`;
     messages().appendChild(am);
+    addToHistory('assistant', s.result.output);
   }
   scrollMsgs();
 }
@@ -1547,6 +1592,208 @@ async function revisePlan(originalMsg) {
   setBusy(false);
 }
 
+// ── ジョブポーリング共通ロジック（executePlan / resumeJobで共用）──
+// jobId: 監視するジョブID
+// allPlannedTasks: 計画タスク配列（可変 - plan イベントで補完される）
+// planMeta: {savedRequirements, savedApproach, savedVerification, savedSummary}
+// progCard: プログレスカードDOM要素
+// firstPollImmediate: true=最初のポーリングを即時実行（再接続時に過去イベントを素早く取得）
+async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firstPollImmediate) {
+  _currentJobId = jobId;
+  const { savedRequirements=[], savedApproach='', savedVerification=[], savedSummary='' } = planMeta || {};
+  addLog('info','plan', `Watching ${allPlannedTasks.length} tasks (job: ${jobId})`);
+  let allSteps = [];
+  let _taskResultsMap = new Map();
+  let _lastSeq = -1;
+  let _pollCount = 0;
+  const _MAX_POLL = 4800; // 最大24分 (300ms×4800)
+
+  while (_pollCount < _MAX_POLL) {
+    if (!firstPollImmediate || _pollCount > 0) {
+      await new Promise(r => setTimeout(r, 300));
+    }
+    _pollCount++;
+    let pollData;
+    try {
+      const pr = await fetch(
+        API+`/jobs/${jobId}/poll?project=${encodeURIComponent(currentProject)}&after=${_lastSeq}`
+      );
+      pollData = await pr.json();
+    } catch(e) { console.warn('task poll error', e); continue; }
+
+    for (const _step of (pollData.steps || [])) {
+      _lastSeq = _step.seq;
+      const ev = {..._step.data, type: _step.type, seq: _step.seq};
+      if (ev.type === 'model_switching' || ev.type === 'model_ready' || ev.type === 'model_error') {
+        handleModelSwitchEvent(ev, progCard);
+        const badge = document.getElementById('model-badge');
+        if (badge && ev.type === 'model_ready') {
+          badge.textContent = (ev.message || '').replace('is ready','').trim();
+          badge.style.color = 'var(--text3)';
+        } else if (badge && ev.type === 'model_switching') {
+          badge.style.color = 'var(--amber)';
+        }
+        addLog('info','model', ev.message || ev.type);
+        continue;
+      }
+      if (ev.type === 'task_start') {
+        const taskNum = (ev.task_index||0)+1;
+        const taskTotal = ev.total||'?';
+        setCard(progCard, {
+          label: 'Task ' + taskNum + '/' + taskTotal + ': ' + (ev.title||''),
+          pct: ev.total ? Math.round((ev.task_index||0)/ev.total*100) : 0,
+          action: ''
+        });
+        addLog('info','task', `[${taskNum}/${taskTotal}] ${ev.title||''}`);
+      } else if (ev.type === 'llm_streaming') {
+        // ストリーミングモード: TPS・token数をリアルタイム更新
+        setCard(progCard, {
+          action: `⚡ 生成中... ${ev.tokens||0} tok`,
+          tps: ev.tps || 0,
+        });
+      } else if (ev.type === 'llm_thinking') {
+        // 非ストリーミングモード: 生成中インジケータ
+        setCard(progCard, {
+          action: '🤔 考え中...',
+          stepNum: ev.step_num ? `${ev.step_num}/${ev.max_steps||'?'}` : '-/-',
+        });
+      } else if (ev.type === 'tool_result') {
+        // ツール実行完了 → LLMが次のアクションを生成中
+        setCard(progCard, {action: `✓ ${ev.action||'tool'} 完了 → 次のアクションを生成中...`});
+      } else if (ev.type === 'tool_call' || ev.type === 'step') {
+        allSteps.push(ev);
+        const _ptok = ev.prompt_tokens||0;
+        const _ctok = ev.completion_tokens||0;
+        const _ctxStr = _ptok > 0 ? `${_ptok+_ctok}/${_current_n_ctx_ui||'?'}` : '--/--';
+        setCard(progCard, {
+          action:  (ev.action||'') + ': ' + (ev.thought||''),
+          tps:     ev.tps||0,
+          ctx:     _ctxStr,
+          stepNum: ev.step_num ? `${ev.step_num}/${ev.max_steps||'?'}` : '-/-',
+        });
+        addLog('info','tool', `${ev.action||''}: ${(ev.thought||'')}`);
+      } else if (ev.type === 'task_done') {
+        _taskResultsMap.set(ev.task_id, {
+          task_id: ev.task_id, title: ev.title||'',
+          status: 'done', output: ev.output||'', steps: ev.steps||[]
+        });
+        if (allPlannedTasks.length) setCard(progCard, {pct: Math.round(_taskResultsMap.size/allPlannedTasks.length*100)});
+        addLog('ok','task', `done: ${ev.title||ev.task_id}`);
+      } else if (ev.type === 'task_error') {
+        if (!_taskResultsMap.has(ev.task_id) || _taskResultsMap.get(ev.task_id).status !== 'done') {
+          _taskResultsMap.set(ev.task_id, {
+            task_id: ev.task_id, title: ev.title||'',
+            status: 'error', output: ev.error||'', steps: []
+          });
+        }
+        addLog('err','task', `error: ${ev.title||ev.task_id} - ${(ev.error||'')}`);
+      } else if (ev.type === 'progress') {
+        setCard(progCard, {pct: ev.pct||0, label: ev.label||''});
+        addLog('info','progress', ev.label||`${ev.pct}%`);
+      } else if (ev.type === 'verify_start' || ev.type === 'verify_result' || ev.type === 'verify_phase') {
+        const vMsg = ev.phase || ev.message || ev.summary || 'Verifying...';
+        const vDetail = ev.summary ? ` (${ev.summary})` : ev.score !== undefined ? ` score:${ev.score}` : '';
+        setCard(progCard, {action: '🔍 ' + vMsg + vDetail});
+        addLog('info','verify', vMsg + vDetail);
+      } else if (ev.type === 'verify_done') {
+        const passed = ev.passed ? '✅ PASS' : '⚠️ WARN';
+        const score = ev.score !== undefined ? ` score:${ev.score}` : '';
+        setCard(progCard, {action: `${passed}${score} — ${ev.summary||''}`});
+        addLog(ev.passed ? 'ok' : 'warn', 'verify', `${passed}${score} ${ev.summary||''}`);
+      } else if (ev.type === 'task_options') {
+        _taskOptionsMap[`${_currentJobId}_${ev.task_id}`] = ev.options || [];
+        showTaskOptions(ev, _currentJobId);
+        addLog('warn','task', `⚠ 4回試行失敗: ${ev.title||''} — 対応案を選択してください`);
+      } else if (ev.type === 'skill_hint') {
+        addLog('warn','skill', `Missing tool: ${ev.missing_tool} — will be proposed`);
+      } else if (ev.type === 'skill_proposals') {
+        const proposals = ev.proposals || [];
+        const stats = ev.stats || {};
+        if (proposals.length) {
+          addLog('info','skill', `Auto-analyzed: ${proposals.length} skill proposals (${stats.tool_calls||0} tool calls, ${stats.errors||0} errors)`);
+          switchTab('skills');
+          const el = document.getElementById('skill-proposals');
+          if (el) {
+            el._proposals = proposals;
+            el.innerHTML = '<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">🔍 Auto-Analyzed Proposals</div>' +
+              proposals.map((p,i) => `
+                <div style="border:1px solid var(--accent-border);border-radius:6px;padding:10px 12px;background:var(--accent-bg);margin-bottom:8px">
+                  <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px">${esc(p.name)}</div>
+                  <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${esc(p.description)}</div>
+                  ${p.rationale ? `<div style="font-size:10px;color:var(--text3);margin-bottom:6px;font-style:italic">${esc(p.rationale)}</div>` : ''}
+                  <details style="margin-bottom:6px"><summary style="font-size:10px;color:var(--text3);cursor:pointer">▶ code</summary>
+                    <pre style="font-size:10px;font-family:var(--font-mono);color:var(--text2);white-space:pre-wrap;word-break:break-all;margin:4px 0 0;padding:6px;background:var(--bg3);border-radius:4px;max-height:160px;overflow-y:auto">${esc(p.tool_code||'')}</pre>
+                  </details>
+                  <div style="display:flex;gap:6px">
+                    <button onclick="saveSkillProposal(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">✓ Save</button>
+                    <button onclick="planSkillImpl(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:600;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">⚙ Implement</button>
+                  </div>
+                </div>`).join('');
+          }
+          refreshSkills();
+        }
+      } else if (ev.type === 'error') {
+        addLog('err','job', ev.error || JSON.stringify(ev));
+      } else if (ev.type === 'plan') {
+        // planイベントでタスクリストを補完（再接続時に有用）
+        if ((ev.tasks||[]).length > allPlannedTasks.length) {
+          allPlannedTasks.splice(0, allPlannedTasks.length, ...ev.tasks);
+          setCard(progCard, {label: `Watching ${allPlannedTasks.length} tasks...`});
+        }
+        addLog('info','plan', `${(ev.tasks||[]).length} tasks received`);
+      }
+    }
+    if (pollData.status === 'done' || pollData.status === 'error') break;
+  }
+
+  // ポーリング終了後、念のりもう一度全ステップを取得（取りこぼし防止）
+  try {
+    const finalPoll = await fetch(
+      API+`/jobs/${jobId}/poll?project=${encodeURIComponent(currentProject)}&after=${_lastSeq}`
+    );
+    const finalData = await finalPoll.json();
+    for (const _step of (finalData.steps || [])) {
+      const ev = {..._step.data, type: _step.type, seq: _step.seq};
+      if (ev.type === 'task_done') {
+        _taskResultsMap.set(ev.task_id, {task_id: ev.task_id, title: ev.title||'', status: 'done', output: ev.output||'', steps: ev.steps||[]});
+      } else if (ev.type === 'task_error') {
+        if (!_taskResultsMap.has(ev.task_id) || _taskResultsMap.get(ev.task_id).status !== 'done') {
+          _taskResultsMap.set(ev.task_id, {task_id: ev.task_id, title: ev.title||'', status: 'error', output: ev.error||'', steps: []});
+        }
+      } else if (ev.type === 'tool_call' || ev.type === 'step') {
+        allSteps.push(ev);
+      }
+    }
+  } catch(e) {}
+  const taskResults = [..._taskResultsMap.values()];
+
+  progCard.remove();
+  stopTimer();
+
+  if (taskResults.length || allPlannedTasks.length) {
+    taskResults.forEach(t => {
+      (t.steps || []).forEach(s => { if (s) allSteps.push(s); });
+    });
+    addTaskBlock(taskResults, allPlannedTasks, {
+      requirements: savedRequirements,
+      approach:     savedApproach,
+      verification: savedVerification,
+      summary:      savedSummary,
+    });
+    if (allSteps.length) addStepsBlock(allSteps);
+    renderStepsToOutput(allSteps);
+  }
+  const doneCount = taskResults.filter(t=>t.status==='done').length;
+  const errCount = taskResults.filter(t=>t.status==='error').length;
+  const totalTasks = allPlannedTasks.length || taskResults.length;
+  const summaryText = errCount > 0
+    ? `${totalTasks}タスク中${doneCount}件完了、${errCount}件エラー`
+    : `${totalTasks}タスク中${doneCount}件完了`;
+  addMsg(doneCount===totalTasks?'assistant':'error', summaryText);
+  addToHistory('assistant', summaryText);
+  detectHtml({tasks: taskResults.map(t=>({steps: t.steps||[]}))});
+}
+
 async function executePlan() {
   if (!pendingPlan) return;
   const card = document.getElementById('plan-approval-card');
@@ -1593,178 +1840,8 @@ async function executePlan() {
       })
     });
     const {job_id: jobId} = await submitRes.json();
-    _currentJobId = jobId;
     addLog('ok','job', `Job submitted: ${jobId}`);
-
-    // ポーリングで進捗取得（SSEよりシンプルで確実）
-    const allPlannedTasks = [...tasks]; // 全計画タスクを保持
-    addLog('info','plan', `Executing ${allPlannedTasks.length} tasks`);
-    let allSteps = [];
-    let taskResults = [];
-    let _lastSeq = -1;
-    let _pollCount = 0;
-    const _MAX_POLL = 2880; // 最大24分
-
-    while (_pollCount < _MAX_POLL) {
-      await new Promise(r => setTimeout(r, 500));
-      _pollCount++;
-      let pollData;
-      try {
-        const pr = await fetch(
-          API+`/jobs/${jobId}/poll?project=${encodeURIComponent(currentProject)}&after=${_lastSeq}`
-        );
-        pollData = await pr.json();
-      } catch(e) { console.warn('task poll error', e); continue; }
-
-      for (const _step of (pollData.steps || [])) {
-        _lastSeq = _step.seq;
-        const ev = {..._step.data, type: _step.type, seq: _step.seq};
-        if (ev.type === 'model_switching' || ev.type === 'model_ready' || ev.type === 'model_error') {
-          handleModelSwitchEvent(ev, progCard);
-          const badge = document.getElementById('model-badge');
-          if (badge && ev.type === 'model_ready') {
-            badge.textContent = (ev.message || '').replace('is ready','').trim();
-            badge.style.color = 'var(--text3)';
-          } else if (badge && ev.type === 'model_switching') {
-            badge.style.color = 'var(--amber)';
-          }
-          addLog('info','model', ev.message || ev.type);
-          continue;
-        }
-        // イベントタイプ別処理（インライン）
-        if (ev.type === 'task_start') {
-          const taskNum = (ev.task_index||0)+1;
-          const taskTotal = ev.total||'?';
-          setCard(progCard, {
-            label: 'Task ' + taskNum + '/' + taskTotal + ': ' + (ev.title||''),
-            pct: ev.total ? Math.round((ev.task_index||0)/ev.total*100) : 0,
-            action: ''
-          });
-          addLog('info','task', `[${taskNum}/${taskTotal}] ${ev.title||''}`);
-        } else if (ev.type === 'tool_call' || ev.type === 'step') {
-          allSteps.push(ev);
-          const _ptok = ev.prompt_tokens||0;
-          const _ctok = ev.completion_tokens||0;
-          const _ctxStr = _ptok > 0 ? `${_ptok+_ctok}/${_current_n_ctx_ui||'?'}` : '--/--';
-          setCard(progCard, {
-            action:  (ev.action||'') + ': ' + (ev.thought||''),
-            tps:     ev.tps||0,
-            ctx:     _ctxStr,
-            stepNum: ev.step_num ? `${ev.step_num}/${ev.max_steps||'?'}` : '-/-',
-          });
-          addLog('info','tool', `${ev.action||''}: ${(ev.thought||'')}`);
-        } else if (ev.type === 'task_done') {
-          taskResults.push({
-            task_id: ev.task_id, title: ev.title||'',
-            status: 'done', output: ev.output||'', steps: ev.steps||[]
-          });
-          if (ev.total) setCard(progCard, {pct: Math.round(taskResults.length/ev.total*100)});
-          addLog('ok','task', `done: ${ev.title||ev.task_id}`);
-        } else if (ev.type === 'task_error') {
-          taskResults.push({
-            task_id: ev.task_id, title: ev.title||'',
-            status: 'error', output: ev.error||'', steps: []
-          });
-          addLog('err','task', `error: ${ev.title||ev.task_id} - ${(ev.error||'')}`);
-        } else if (ev.type === 'progress') {
-          setCard(progCard, {pct: ev.pct||0, label: ev.label||''});
-          addLog('info','progress', ev.label||`${ev.pct}%`);
-        } else if (ev.type === 'verify_start' || ev.type === 'verify_result' || ev.type === 'verify_phase') {
-          const vMsg = ev.phase || ev.message || ev.summary || 'Verifying...';
-          const vDetail = ev.summary ? ` (${ev.summary})` : ev.score !== undefined ? ` score:${ev.score}` : '';
-          setCard(progCard, {action: '🔍 ' + vMsg + vDetail});
-          addLog('info','verify', vMsg + vDetail);
-        } else if (ev.type === 'verify_done') {
-          const passed = ev.passed ? '✅ PASS' : '⚠️ WARN';
-          const score = ev.score !== undefined ? ` score:${ev.score}` : '';
-          setCard(progCard, {action: `${passed}${score} — ${ev.summary||''}`});
-          addLog(ev.passed ? 'ok' : 'warn', 'verify', `${passed}${score} ${ev.summary||''}`);
-        } else if (ev.type === 'task_options') {
-          // 全フォールバック失敗 → ユーザーに対応案を選択させる
-          _taskOptionsMap[`${_currentJobId}_${ev.task_id}`] = ev.options || [];
-          showTaskOptions(ev, _currentJobId);
-          addLog('warn','task', `⚠ 4回試行失敗: ${ev.title||''} — 対応案を選択してください`);
-        } else if (ev.type === 'skill_hint') {
-          addLog('warn','skill', `Missing tool: ${ev.missing_tool} — will be proposed`);
-        } else if (ev.type === 'skill_proposals') {
-          // サーバー側分析による自動スキル提案
-          const proposals = ev.proposals || [];
-          const stats = ev.stats || {};
-          if (proposals.length) {
-            addLog('info','skill', `Auto-analyzed: ${proposals.length} skill proposals (${stats.tool_calls||0} tool calls, ${stats.errors||0} errors)`);
-            switchTab('skills');
-            const el = document.getElementById('skill-proposals');
-            if (el) {
-              el._proposals = proposals;
-              el.innerHTML = '<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">🔍 Auto-Analyzed Proposals</div>' +
-                proposals.map((p,i) => `
-                  <div style="border:1px solid var(--accent-border);border-radius:6px;padding:10px 12px;background:var(--accent-bg);margin-bottom:8px">
-                    <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px">${esc(p.name)}</div>
-                    <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${esc(p.description)}</div>
-                    ${p.rationale ? `<div style="font-size:10px;color:var(--text3);margin-bottom:6px;font-style:italic">${esc(p.rationale)}</div>` : ''}
-                    <details style="margin-bottom:6px"><summary style="font-size:10px;color:var(--text3);cursor:pointer">▶ code</summary>
-                      <pre style="font-size:10px;font-family:var(--font-mono);color:var(--text2);white-space:pre-wrap;word-break:break-all;margin:4px 0 0;padding:6px;background:var(--bg3);border-radius:4px;max-height:160px;overflow-y:auto">${esc(p.tool_code||'')}</pre>
-                    </details>
-                    <div style="display:flex;gap:6px">
-                      <button onclick="saveSkillProposal(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">✓ Save</button>
-                      <button onclick="planSkillImpl(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:600;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">⚙ Implement</button>
-                    </div>
-                  </div>`).join('');
-            }
-            refreshSkills();
-          }
-        } else if (ev.type === 'error') {
-          addLog('err','job', ev.error || JSON.stringify(ev));
-        } else if (ev.type === 'plan') {
-          addLog('info','plan', `${(ev.tasks||[]).length} tasks received`);
-        }
-      }
-      if (pollData.status === 'done' || pollData.status === 'error') break;
-    }
-
-    // ポーリング終了後、念のりもう一度全ステップを取得（取りこぼし防止）
-    try {
-      const finalPoll = await fetch(
-        API+`/jobs/${jobId}/poll?project=${encodeURIComponent(currentProject)}&after=${_lastSeq}`
-      );
-      const finalData = await finalPoll.json();
-      for (const _step of (finalData.steps || [])) {
-        const ev = {..._step.data, type: _step.type, seq: _step.seq};
-        if (ev.type === 'task_done') {
-          taskResults.push({task_id: ev.task_id, title: ev.title||'', status: 'done', output: ev.output||'', steps: ev.steps||[]});
-        } else if (ev.type === 'task_error') {
-          taskResults.push({task_id: ev.task_id, title: ev.title||'', status: 'error', output: ev.error||'', steps: []});
-        } else if (ev.type === 'tool_call' || ev.type === 'step') {
-          allSteps.push(ev);
-        }
-      }
-    } catch(e) {}
-
-    progCard.remove();
-    stopTimer();
-
-    if (taskResults.length || allPlannedTasks.length) {
-      // task_done内のstepsもallStepsに追加（Outputタブに表示するため）
-      taskResults.forEach(t => {
-        (t.steps || []).forEach(s => { if (s) allSteps.push(s); });
-      });
-      addTaskBlock(taskResults, allPlannedTasks, {
-        requirements: savedRequirements,
-        approach:     savedApproach,
-        verification: savedVerification,
-        summary:      savedSummary,
-      });
-      if (allSteps.length) addStepsBlock(allSteps);
-      renderStepsToOutput(allSteps);
-    }
-    const doneCount = taskResults.filter(t=>t.status==='done').length;
-    const errCount = taskResults.filter(t=>t.status==='error').length;
-    const summaryText = errCount > 0
-      ? `${taskResults.length}タスク中${doneCount}件完了、${errCount}件エラー`
-      : `${taskResults.length}タスク中${doneCount}件完了`;
-    addMsg(doneCount===taskResults.length?'assistant':'error', summaryText);
-    addToHistory('assistant', summaryText);
-    detectHtml({tasks: taskResults.map(t=>({steps: t.steps||[]}))});
+    await _watchJobPolling(jobId, [...tasks], {savedRequirements, savedApproach, savedVerification, savedSummary}, progCard, false);
 
   } catch(e) {
     progCard.remove(); stopTimer();
@@ -2378,6 +2455,34 @@ function applySearchUI(enabled) {
   btn.classList.toggle('search-on', enabled);
   btn.style.opacity = enabled ? '1' : '0.4';
   btn.title = enabled ? 'Web Search: ON — click to disable' : 'Web Search: OFF — click to enable';
+}
+
+// ── STREAMING TOGGLE ──
+async function initStreaming() {
+  try {
+    const r = await fetch(API + '/streaming/status');
+    const d = await r.json();
+    applyStreamingUI(d.enabled);
+  } catch(e) {}
+}
+
+async function toggleStreaming() {
+  const next = !streamingEnabled;
+  try {
+    const r = await fetch(API + (next ? '/streaming/enable' : '/streaming/disable'), {method: 'POST'});
+    const d = await r.json();
+    applyStreamingUI(d.enabled);
+    addLog(d.enabled ? 'ok' : 'warn', 'streaming',
+      d.enabled ? 'LLMストリーミング有効 — TPS/tokenがリアルタイム表示' : 'LLMストリーミング無効 — 生成完了まで待機');
+  } catch(e) { addLog('err', 'streaming', e.message); }
+}
+
+function applyStreamingUI(enabled) {
+  streamingEnabled = enabled;
+  const btn = document.getElementById('streaming-toggle');
+  if (!btn) return;
+  btn.style.opacity = enabled ? '1' : '0.35';
+  btn.title = enabled ? 'LLM Streaming: ON — click to disable' : 'LLM Streaming: OFF — click to enable';
 }
 
 // ── LLM MANAGER ──
