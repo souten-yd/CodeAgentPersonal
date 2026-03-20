@@ -156,6 +156,132 @@ async function deleteSkill(name) {
   refreshSkills();
 }
 
+// ── PERMANENT MEMORY ──
+let _memSearchTimer = null;
+
+async function refreshMemory() {
+  try {
+    const r = await fetch(API+'/memory');
+    const d = await r.json();
+    renderMemory(d.entries || []);
+  } catch(e) { console.warn('memory fetch error', e); }
+}
+
+async function searchMemory(q) {
+  clearTimeout(_memSearchTimer);
+  _memSearchTimer = setTimeout(async () => {
+    try {
+      const url = q.trim() ? API+'/memory?q='+encodeURIComponent(q) : API+'/memory';
+      const r = await fetch(url);
+      const d = await r.json();
+      renderMemory(d.entries || []);
+    } catch(e) {}
+  }, 300);
+}
+
+const _catColor = {
+  error_solution: 'var(--red)',
+  env_knowledge: 'var(--blue)',
+  workflow: 'var(--amber)',
+  general: 'var(--text3)'
+};
+const _catLabel = {
+  error_solution: '🔧 error_solution',
+  env_knowledge: '🌐 env_knowledge',
+  workflow: '⚙ workflow',
+  general: '📝 general'
+};
+
+function renderMemory(entries) {
+  const el = document.getElementById('memory-list');
+  const stats = document.getElementById('memory-stats');
+  if (!el) return;
+  if (stats) stats.textContent = `${entries.length} entries`;
+  if (!entries.length) {
+    el.innerHTML = `<div style="font-size:11px;color:var(--text3);padding:8px">
+      メモリなし。タスク実行後に自動的に知識が蓄積されます。</div>`;
+    return;
+  }
+  el.innerHTML = entries.map(e => {
+    const catColor = _catColor[e.category] || 'var(--text3)';
+    const catLabel = _catLabel[e.category] || e.category;
+    const kws = (e.keywords||[]).map(k =>
+      `<span style="background:var(--bg3);padding:1px 4px;border-radius:3px;font-size:9px">${esc(k)}</span>`
+    ).join(' ');
+    const proj = e.source_project && e.source_project !== 'global' ? ` · ${esc(e.source_project)}` : '';
+    const date = (e.updated_at||'').slice(0,10);
+    return `
+    <div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;background:var(--bg2)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+        <div style="flex:1">
+          <span style="font-size:11px;font-weight:700;color:var(--text)">${esc(e.title)}</span>
+          <span style="font-size:9px;color:${catColor};margin-left:6px;padding:1px 5px;border:1px solid ${catColor};border-radius:3px;opacity:.7">${catLabel}</span>
+        </div>
+        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;margin-left:6px">
+          <span style="font-size:9px;color:var(--text3)">×${e.usage_count||0}${proj}</span>
+          <button onclick="editMemoryInline('${esc(e.id)}')" style="font-size:9px;padding:1px 5px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">✏</button>
+          <button onclick="deleteMemory('${esc(e.id)}')" style="font-size:9px;padding:1px 5px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:3px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:5px;line-height:1.5">${esc(e.content)}</div>
+      ${kws ? `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px">${kws}</div>` : ''}
+      <div style="font-size:9px;color:var(--text3)">${date}</div>
+    </div>`;
+  }).join('');
+}
+
+async function deleteMemory(id) {
+  if (!confirm('このメモリを削除しますか？')) return;
+  await fetch(API+'/memory/'+encodeURIComponent(id), {method:'DELETE'});
+  refreshMemory();
+}
+
+function showAddMemoryForm() {
+  const f = document.getElementById('memory-add-form');
+  if (f) { f.style.display = 'block'; document.getElementById('mem-title')?.focus(); }
+}
+function hideAddMemoryForm() {
+  const f = document.getElementById('memory-add-form');
+  if (f) f.style.display = 'none';
+}
+
+async function saveNewMemory() {
+  const category = document.getElementById('mem-category')?.value || 'general';
+  const title = document.getElementById('mem-title')?.value?.trim();
+  const content = document.getElementById('mem-content')?.value?.trim();
+  const kwRaw = document.getElementById('mem-keywords')?.value || '';
+  const keywords = kwRaw.split(',').map(k=>k.trim()).filter(Boolean);
+  if (!title || !content) { alert('タイトルと内容は必須です'); return; }
+  await fetch(API+'/memory', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({category, title, content, keywords, source_project:'manual'})
+  });
+  hideAddMemoryForm();
+  document.getElementById('mem-title').value = '';
+  document.getElementById('mem-content').value = '';
+  document.getElementById('mem-keywords').value = '';
+  refreshMemory();
+  addLog('ok','memory', `メモリ追加: ${title}`);
+}
+
+async function editMemoryInline(id) {
+  // メモリ一覧から該当エントリを取得して編集フォームに流し込む
+  try {
+    const r = await fetch(API+'/memory');
+    const d = await r.json();
+    const e = (d.entries||[]).find(x => x.id === id);
+    if (!e) return;
+    const newContent = prompt('内容を編集:', e.content);
+    if (newContent === null) return;
+    await fetch(API+'/memory/'+encodeURIComponent(id), {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({...e, content: newContent.trim()})
+    });
+    refreshMemory();
+    addLog('ok','memory', `メモリ更新: ${e.title}`);
+  } catch(ex) { console.error(ex); }
+}
+
 </script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -648,6 +774,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <button class="mob-tab" id="mob-preview" onclick="mobSwitch('preview')">Preview</button>
   <button class="mob-tab" id="mob-log" onclick="mobSwitch('log')">Log</button>
   <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skills</button>
+  <button class="mob-tab" id="mob-memory" onclick="mobSwitch('memory')">Memory</button>
 </div>
 
 <div class="app-body">
@@ -677,6 +804,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <button class="tab-btn" onclick="switchTab('preview')">Preview</button>
       <button class="tab-btn" onclick="switchTab('log')">Log</button>
       <button class="tab-btn" onclick="switchTab('skills')">Skills</button>
+      <button class="tab-btn" onclick="switchTab('memory')">Memory</button>
       <div class="tab-spacer"></div>
       <span class="tab-label" id="tab-label">—</span>
     </div>
@@ -738,6 +866,44 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="font-size:12px;color:var(--text3)">Loading...</div>
       </div>
       <div id="skill-proposals" style="margin-top:12px"></div>
+    </div>
+
+    <!-- MEMORY TAB -->
+    <div class="tab-content" id="tab-memory" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Permanent Memory</span>
+        <div style="display:flex;gap:4px">
+          <button onclick="refreshMemory()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺</button>
+          <button onclick="showAddMemoryForm()" style="font-size:10px;padding:3px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">+ Add</button>
+        </div>
+      </div>
+      <div style="margin-bottom:8px">
+        <input id="memory-search" type="text" placeholder="🔍 キーワード検索..." oninput="searchMemory(this.value)"
+          style="width:100%;padding:6px 10px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);outline:none;font-family:var(--font-mono)">
+      </div>
+      <div id="memory-add-form" style="display:none;border:1px solid var(--accent-border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--accent-bg)">
+        <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px">新規メモリ追加</div>
+        <select id="mem-category" style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+          <option value="error_solution">error_solution（エラーと解決策）</option>
+          <option value="env_knowledge">env_knowledge（環境・ツール知識）</option>
+          <option value="workflow">workflow（作業フロー）</option>
+          <option value="general">general（その他）</option>
+        </select>
+        <input id="mem-title" type="text" placeholder="タイトル（必須）"
+          style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+        <textarea id="mem-content" placeholder="内容・詳細（必須）" rows="3"
+          style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);resize:vertical"></textarea>
+        <input id="mem-keywords" type="text" placeholder="キーワード（カンマ区切り）"
+          style="width:100%;padding:4px 8px;margin-bottom:8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+        <div style="display:flex;gap:5px">
+          <button onclick="saveNewMemory()" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">保存</button>
+          <button onclick="hideAddMemoryForm()" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <div id="memory-stats" style="font-size:10px;color:var(--text3);margin-bottom:6px"></div>
+      <div id="memory-list" style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:12px;color:var(--text3)">Loading...</div>
+      </div>
     </div>
     </div>
   </div>
@@ -948,22 +1114,23 @@ function setMode(m) {
 
 // ── MOBILE ──
 function mobSwitch(name) {
-  ['chat','output','preview','log','skills'].forEach(t => document.getElementById('mob-'+t)?.classList.remove('active'));
+  ['chat','output','preview','log','skills','memory'].forEach(t => document.getElementById('mob-'+t)?.classList.remove('active'));
   document.getElementById('mob-'+name)?.classList.add('active');
   const cc = document.getElementById('chat-col');
   const pc = document.getElementById('panel-col');
   if (name === 'chat') { cc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden'); }
   else { cc.classList.add('mob-hidden'); pc.classList.remove('mob-hidden');
-    if (name !== 'chat') switchTab(name === 'output' ? 'output' : name === 'preview' ? 'preview' : name === 'skills' ? 'skills' : 'log'); }
+    switchTab(name === 'output' ? 'output' : name === 'preview' ? 'preview' : name === 'skills' ? 'skills' : name === 'memory' ? 'memory' : 'log'); }
 }
 
 // ── PANEL TABS ──
 function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach((b,i) =>
-    b.classList.toggle('active', ['output','preview','log','skills'][i]===name));
+    b.classList.toggle('active', ['output','preview','log','skills','memory'][i]===name));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  document.getElementById('tab-'+name).classList.add('active');
+  document.getElementById('tab-'+name)?.classList.add('active');
   if (name === 'preview') refreshFileBrowser();
+  if (name === 'memory') refreshMemory();
 }
 
 // ── DRAWER ──
@@ -1721,6 +1888,8 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
       } else if (ev.type === 'skill_generated') {
         addLog('ok','skill', `⚙ SKILL自動生成: ${ev.skill_name} — ${ev.description||''} (理由: ${ev.rationale||''})`);
         refreshSkills();
+      } else if (ev.type === 'memory_analyzing') {
+        addLog('info','memory', `🧠 ${ev.message||'メモリ抽出中...'}`);
       } else if (ev.type === 'skill_hint') {
         addLog('warn','skill', `Missing tool: ${ev.missing_tool} — will be proposed`);
       } else if (ev.type === 'skill_proposals') {

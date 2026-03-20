@@ -76,6 +76,11 @@ _search_num_results: int = 5  # デフォルト5件
 _llm_streaming: bool = True
 
 # =========================
+# パーマネントメモリ（全プロジェクト共有）
+# =========================
+MEMORY_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory.db")
+
+# =========================
 # ModelManager（動的モデル切り替え）
 # =========================
 
@@ -456,6 +461,205 @@ def get_db(project: str) -> sqlite3.Connection:
     conn = sqlite3.connect(_get_db_path(project), check_same_thread=False)
     _init_db(conn)
     return conn
+
+
+# ──────────────────────────────────────────────────
+# パーマネントメモリ（全プロジェクト共有 SQLite）
+# ──────────────────────────────────────────────────
+
+_memory_lock = _db_lock  # 既存のDBロックを共用
+
+def _get_memory_conn() -> sqlite3.Connection:
+    """メモリDBへのコネクションを返す（テーブル初期化込み）"""
+    conn = sqlite3.connect(MEMORY_DB, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("""CREATE TABLE IF NOT EXISTS memory (
+        id TEXT PRIMARY KEY,
+        category TEXT NOT NULL DEFAULT 'general',
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        keywords TEXT NOT NULL DEFAULT '[]',
+        source_project TEXT DEFAULT 'global',
+        source_job TEXT DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        usage_count INTEGER DEFAULT 0
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_cat ON memory(category)")
+    conn.commit()
+    return conn
+
+def memory_save(entry: dict) -> str:
+    """メモリエントリを保存（idなければ新規作成）"""
+    import uuid, json
+    now = __import__('datetime').datetime.utcnow().isoformat()
+    mid = entry.get("id") or str(uuid.uuid4())
+    kw = entry.get("keywords", [])
+    if isinstance(kw, list):
+        kw = json.dumps(kw, ensure_ascii=False)
+    with _memory_lock:
+        conn = _get_memory_conn()
+        try:
+            existing = conn.execute("SELECT id FROM memory WHERE id=?", (mid,)).fetchone()
+            if existing:
+                conn.execute("""UPDATE memory SET category=?,title=?,content=?,keywords=?,
+                    source_project=?,source_job=?,updated_at=? WHERE id=?""",
+                    (entry.get("category","general"), entry["title"], entry["content"],
+                     kw, entry.get("source_project","global"), entry.get("source_job",""),
+                     now, mid))
+            else:
+                conn.execute("""INSERT INTO memory
+                    (id,category,title,content,keywords,source_project,source_job,created_at,updated_at,usage_count)
+                    VALUES (?,?,?,?,?,?,?,?,?,0)""",
+                    (mid, entry.get("category","general"), entry["title"], entry["content"],
+                     kw, entry.get("source_project","global"), entry.get("source_job",""), now, now))
+            conn.commit()
+        finally:
+            conn.close()
+    return mid
+
+def memory_get_all() -> list:
+    """全メモリエントリを取得（更新日時降順）"""
+    import json
+    conn = _get_memory_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id,category,title,content,keywords,source_project,source_job,created_at,updated_at,usage_count"
+            " FROM memory ORDER BY updated_at DESC"
+        ).fetchall()
+        result = []
+        for r in rows:
+            kw = r[4]
+            try: kw = json.loads(kw) if kw else []
+            except: kw = []
+            result.append({"id":r[0],"category":r[1],"title":r[2],"content":r[3],
+                           "keywords":kw,"source_project":r[5],"source_job":r[6],
+                           "created_at":r[7],"updated_at":r[8],"usage_count":r[9]})
+        return result
+    finally:
+        conn.close()
+
+def memory_delete(mid: str) -> bool:
+    with _memory_lock:
+        conn = _get_memory_conn()
+        try:
+            conn.execute("DELETE FROM memory WHERE id=?", (mid,))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+def memory_search(query: str, limit: int = 4) -> list:
+    """キーワードベースでメモリを検索してスコア順に返す"""
+    import json, re
+    all_entries = memory_get_all()
+    if not query or not all_entries:
+        return []
+    # トークン化（日本語・英語混在対応）
+    tokens = set(re.sub(r'[^\w\s]', ' ', query.lower()).split())
+    tokens = {t for t in tokens if len(t) >= 2}
+    if not tokens:
+        return all_entries[:limit]
+    scored = []
+    for e in all_entries:
+        score = 0
+        title_l = e["title"].lower()
+        content_l = e["content"].lower()
+        kw_l = " ".join(e.get("keywords", [])).lower()
+        for t in tokens:
+            if t in title_l:   score += 3
+            if t in kw_l:      score += 2
+            if t in content_l: score += 1
+        if score > 0:
+            scored.append((score, e))
+    scored.sort(key=lambda x: -x[0])
+    hits = [e for _, e in scored[:limit]]
+    # usage_count をインクリメント（非同期で）
+    if hits:
+        try:
+            conn = _get_memory_conn()
+            conn.execute(
+                f"UPDATE memory SET usage_count=usage_count+1 WHERE id IN ({','.join('?'*len(hits))})",
+                [h["id"] for h in hits]
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+    return hits
+
+def _analyze_job_for_memory(job_id: str, project: str, llm_url: str = ""):
+    """ジョブログを解析して構造化メモリに知識を保存する"""
+    try:
+        logs = job_log_get(job_id)
+        if not logs:
+            return
+        # ログサマリーを構築
+        task_summaries = []
+        errors = []
+        solutions = []
+        for entry in logs:
+            t = entry.get("type","")
+            if t == "task_start":
+                task_summaries.append(f"タスク開始: {entry.get('title','')}")
+            elif t == "task_done":
+                task_summaries.append(f"タスク完了: {entry.get('output','')[:100]}")
+            elif t == "task_error":
+                errors.append(entry.get("error","")[:150])
+            elif t == "skill_generated":
+                solutions.append(f"SKILL自動生成: {entry.get('skill_name','')} — {entry.get('rationale','')[:100]}")
+            elif t == "tool_result":
+                r = entry.get("result_preview","")
+                if "ERROR" in r or "error" in r:
+                    errors.append(r[:100])
+
+        if not errors and not solutions:
+            return  # エラーも解決もなければスキップ
+
+        log_summary = "\n".join(task_summaries[-20:])
+        error_summary = "\n".join(set(errors[:8]))
+        solution_summary = "\n".join(solutions[:5])
+
+        prompt = f"""コードエージェントの実行ログを分析し、将来の作業に役立つ知識をメモリとして抽出してください。
+
+【実行タスク概要】
+{log_summary}
+
+【発生したエラー】
+{error_summary or "(なし)"}
+
+【実施した解決策】
+{solution_summary or "(なし)"}
+
+以下のカテゴリで知識を抽出してください:
+- error_solution: エラーパターンとその解決策
+- env_knowledge: 環境・ツール・ライブラリに関する知識
+- workflow: 効率的な作業フローや手順の知識
+
+スキルとして実装すべきものは含めず、知識・経験として記録すべきものだけを抽出してください。
+重複や自明な内容は省略してください。
+
+【JSONのみ出力】
+{{"memories":[{{"category":"error_solution","title":"タイトル（40字以内）","content":"詳細（200字以内）","keywords":["kw1","kw2"]}}]}}"""
+
+        reply, _ = call_llm_chat(
+            [{"role": "user", "content": prompt}],
+            llm_url=llm_url or LLM_URL
+        )
+        parsed = extract_json(reply, parser=_model_manager.current_parser)
+        memories = (parsed or {}).get("memories", [])
+        saved = 0
+        for m in memories[:5]:
+            if m.get("title") and m.get("content"):
+                m["source_project"] = project
+                m["source_job"] = job_id
+                memory_save(m)
+                saved += 1
+        if saved:
+            print(f"[MEMORY] {saved} entries saved from job {job_id}")
+    except Exception as e:
+        print(f"[MEMORY] analyze error: {e}")
 
 
 def save_session(session_id: str, project: str, message: str, mode: str, result: dict):
@@ -2083,18 +2287,34 @@ def run_job_background(job_id: str, req: "JobRequest"):
                 if task_status in ("error", "pending"):
                     err0 = task_output or "不明なエラー"
                     print(f"[JOB {job_id}] task {i+1}/{total} stage1 same-approach retry")
+                    # メモリ参照: 類似エラーの過去の解決策を注入
+                    _mem_hits1 = memory_search(f"{todo['title']} {err0}", limit=2)
+                    _mem_note1 = ""
+                    if _mem_hits1:
+                        _mem_note1 = "\n\n【過去の類似エラーと解決策（メモリ）】\n" + "\n".join(
+                            f"- {h['title']}: {h['content'][:200]}" for h in _mem_hits1
+                        )
                     ctx1 = (f"{context}\n\n【前回エラー】{err0[:200]}\n\n"
                             f"【指示】前回と同じタスクをもう一度実行してください。"
-                            f"エラーの原因を確認して修正してから再実行してください。")
+                            f"エラーの原因を確認して修正してから再実行してください。"
+                            f"{_mem_note1}")
                     task_steps, task_status, task_output = _run_stage("[再試行] ", ctx1, req.max_steps)
 
                 # Stage 2: 別アプローチで再試行
                 if task_status in ("error", "pending"):
                     err1 = task_output or err0
                     print(f"[JOB {job_id}] task {i+1}/{total} stage2 different-approach")
+                    # メモリ参照: 複合エラーの解決策を追加注入
+                    _mem_hits2 = memory_search(f"{err0} {err1}", limit=2)
+                    _mem_note2 = ""
+                    if _mem_hits2:
+                        _mem_note2 = "\n\n【過去の知識（メモリ）】\n" + "\n".join(
+                            f"- {h['title']}: {h['content'][:200]}" for h in _mem_hits2
+                        )
                     ctx2 = (f"{context}\n\n【前回エラー×2】\n1回目: {err0[:100]}\n2回目: {err1[:100]}\n\n"
                             f"【指示】これまでと異なるアプローチで実行してください。\n"
-                            f"例: write_file→edit_file / run_python→コード分割 / 大きなファイル→get_outline+部分編集")
+                            f"例: write_file→edit_file / run_python→コード分割 / 大きなファイル→get_outline+部分編集"
+                            f"{_mem_note2}")
                     task_steps, task_status, task_output = _run_stage("[別アプローチ] ", ctx2, req.max_steps)
 
                 # Stage 3: 全失敗 → 複数対応案を生成 → LLM自動選択 or ユーザー手動選択
@@ -2408,6 +2628,16 @@ JSON形式で出力:
                         print(f"[SKILLS] {len(analysis['proposals'])} proposals for job {job_id}")
                 except Exception as e:
                     print(f"[SKILLS] auto-analyze error: {e}")
+
+            # ジョブログからパーマネントメモリに知識を抽出（常時バックグラウンドで実行）
+            _mem_llm_url = req.llm_url.strip() or LLM_URL
+            import threading as _mem_thread
+            _mem_thread.Thread(
+                target=_analyze_job_for_memory,
+                args=(job_id, project, _mem_llm_url),
+                daemon=True
+            ).start()
+            write("memory_analyzing", {"job_id": job_id, "message": "実行ログからメモリを抽出中..."})
 
         job_update_status(project, job_id, "done")
 
@@ -3501,6 +3731,19 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
     if context:
         user_content = f"【前のタスクの結果】\n{context}\n\n【今のタスク】\n{task_detail}"
 
+    # パーマネントメモリ参照: タスクに関連する過去の知識を注入
+    try:
+        mem_query = f"{task_title} {task_detail}"
+        mem_hits = memory_search(mem_query, limit=3)
+        if mem_hits:
+            mem_note = "\n\n【過去の経験・知識（メモリ）】\n" + "\n".join(
+                f"- [{h['category']}] {h['title']}: {h['content'][:200]}"
+                for h in mem_hits
+            )
+            user_content = user_content + mem_note
+    except Exception:
+        pass
+
     messages = [
         {"role": "system", "content": project_prompt},
         {"role": "user", "content": user_content}
@@ -4404,6 +4647,44 @@ def delete_skill_api(name: str):
 def reload_skills():
     skills = _load_all_skills(force=True)
     return {"ok": True, "count": len(skills)}
+
+# =========================
+# パーマネントメモリ API
+# =========================
+
+@app.get("/memory")
+def list_memory(q: str = ""):
+    """メモリ一覧 or キーワード検索"""
+    if q.strip():
+        entries = memory_search(q.strip(), limit=50)
+    else:
+        entries = memory_get_all()
+    return {"entries": entries, "count": len(entries)}
+
+@app.post("/memory")
+def create_memory(req: dict):
+    if not req.get("title") or not req.get("content"):
+        raise HTTPException(400, "title and content required")
+    mid = memory_save(req)
+    return {"ok": True, "id": mid}
+
+@app.put("/memory/{mid}")
+def update_memory(mid: str, req: dict):
+    req["id"] = mid
+    memory_save(req)
+    return {"ok": True}
+
+@app.delete("/memory/{mid}")
+def delete_memory_api(mid: str):
+    memory_delete(mid)
+    return {"ok": True}
+
+@app.post("/memory/analyze/{job_id}")
+def trigger_memory_analysis(job_id: str, project: str = "default"):
+    """指定ジョブのログからメモリを抽出（手動トリガー）"""
+    import threading as _t
+    _t.Thread(target=_analyze_job_for_memory, args=(job_id, project, LLM_URL), daemon=True).start()
+    return {"ok": True, "message": f"memory analysis triggered for job {job_id}"}
 
 @app.get("/health")
 def health():
