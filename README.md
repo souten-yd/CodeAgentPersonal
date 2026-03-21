@@ -245,14 +245,13 @@ CodeAgentPersonal/
 
 ## GitHub Actions + Runpod テスト運用
 
-`python:3.11-slim` 想定に合わせ、CI の Python も **3.11** をデフォルトにしています。
+`python:3.11-slim` 想定に合わせ、CI の Python は **3.11固定** です。
 
 ### GitHub Actionsで使う環境変数（Repository Variables）
 
 `Settings > Secrets and variables > Actions > Variables` で以下を設定できます。
 
-- `CI_PYTHON_VERSION` (任意): CIで使うPythonバージョン。未設定時は `3.11`。
-- `CI_PIP_PACKAGES` (任意): 追加インストールするPython依存。未設定時は `fastapi uvicorn requests`。
+- `CI_PIP_PACKAGES` (任意): 追加インストールするPython依存（**空白区切り**）。未設定時は `fastapi uvicorn requests`。
 
 > このworkflowでは必須のSecretはありません（外部APIキー未使用）。
 
