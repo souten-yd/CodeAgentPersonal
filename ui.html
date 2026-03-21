@@ -583,8 +583,12 @@ header{
 }
 .input-wrap{position:relative;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);transition:border-color .15s}
 .input-wrap:focus-within{border-color:var(--accent-border)}
-textarea#input{width:100%;padding:9px 42px 9px 13px;background:transparent;border:none;outline:none;resize:none;font-family:var(--font-ui);font-size:13px;color:var(--text);line-height:1.5;max-height:110px;min-height:40px}
+textarea#input{width:100%;padding:9px 74px 9px 13px;background:transparent;border:none;outline:none;resize:none;font-family:var(--font-ui);font-size:13px;color:var(--text);line-height:1.5;max-height:110px;min-height:40px}
 textarea#input::placeholder{color:var(--text3)}
+.mic-btn{position:absolute;right:39px;bottom:7px;width:28px;height:28px;border-radius:6px;background:var(--bg3);border:1px solid var(--border2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;opacity:.95;color:var(--text2);font-size:13px}
+.mic-btn:hover{opacity:1;color:var(--text)}
+.mic-btn.recording{background:rgba(255,59,92,.14);border-color:rgba(255,59,92,.5);color:#ff728c;box-shadow:0 0 10px rgba(255,59,92,.25)}
+.mic-btn:disabled{opacity:.45;cursor:not-allowed}
 .send-btn{position:absolute;right:7px;bottom:7px;width:28px;height:28px;border-radius:6px;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;opacity:.9}
 .send-btn:hover{opacity:1;box-shadow:0 0 10px rgba(0,255,136,.3)}
 .send-btn:disabled{background:var(--bg3);opacity:.5;cursor:not-allowed;box-shadow:none}
@@ -797,6 +801,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <span id="tok-tps" style="color:var(--amber)"></span>
     </div>
     <span id="model-badge" title="Current model" style="font-size:10px;font-family:var(--font-mono);color:var(--text3);padding:2px 8px;border:1px solid var(--border);border-radius:10px;display:none;cursor:default;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+    <span id="sys-usage" title="CPU/GPU/RAM/VRAM usage" style="font-size:10px;font-family:var(--font-mono);color:var(--text3);padding:2px 8px;border:1px solid var(--border);border-radius:10px;display:none;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
     <div class="sdot" id="sdot"></div>
     <span class="stext" id="stext">—</span>
   </div>
@@ -826,6 +831,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="input-wrap">
         <textarea id="input" placeholder="指示を入力..." rows="1"
           onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+        <button class="mic-btn" id="mic-btn" onclick="toggleVoiceInput()" title="音声入力 (日本語/英語)">🎙</button>
         <button class="send-btn" id="send-btn" onclick="send()">
           <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
         </button>
@@ -1400,6 +1406,10 @@ let progressEl = null;    // 現在のプログレスカード
 let timerInterval = null;
 let startTime = null;
 let ensembleVramTimer = null;
+let systemUsageTimer = null;
+let voiceRecorder = null;
+let voiceChunks = [];
+let voiceRecording = false;
 
 // ── iOS Safari キーボード対応 ──
 if (window.visualViewport) {
@@ -1513,7 +1523,10 @@ addEventListener('load', async () => {
   refreshSkills();
   await loadHistory(currentProject);
   await loadJobs(currentProject);
+  refreshSystemUsage();
   setInterval(checkHealth, 10000);
+  if (systemUsageTimer) clearInterval(systemUsageTimer);
+  systemUsageTimer = setInterval(refreshSystemUsage, 5000);
 });
 
 // ── HEALTH ──
@@ -1541,6 +1554,31 @@ async function checkHealth() {
 function setStatus(cls, text) {
   document.getElementById('sdot').className = 'sdot '+cls;
   document.getElementById('stext').textContent = text;
+}
+
+function _fmtPct(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? `${n.toFixed(0)}%` : '--';
+}
+
+async function refreshSystemUsage() {
+  const el = document.getElementById('sys-usage');
+  if (!el) return;
+  try {
+    const r = await fetch(API + '/system/usage', {signal: AbortSignal.timeout(2500)});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'failed');
+    const cpu = _fmtPct(d.cpu_percent);
+    const ram = _fmtPct(d.ram_percent);
+    const gpu = Array.isArray(d.gpus) && d.gpus.length ? _fmtPct(d.gpus[0].util_percent) : '--';
+    const vram = Array.isArray(d.gpus) && d.gpus.length ? _fmtPct(d.gpus[0].vram_percent) : '--';
+    el.textContent = `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram}`;
+    el.title = `CPU ${cpu}, RAM ${ram}, GPU ${gpu}, VRAM ${vram} (updated: ${d.updated_at || '-'})`;
+    el.style.display = 'inline';
+  } catch (e) {
+    el.textContent = 'CPU -- | RAM -- | GPU -- | VRAM --';
+    el.style.display = 'inline';
+  }
 }
 
 function formatModelShortName(name) {
@@ -2857,6 +2895,100 @@ function cancelEdit(msgEl) {
   msgEl.querySelector('.msg-edit-actions')?.remove();
 }
 
+function _micBtn(){
+  return document.getElementById('mic-btn');
+}
+function _setMicState(recording=false, disabled=false){
+  const btn = _micBtn();
+  if (!btn) return;
+  btn.disabled = !!disabled;
+  btn.classList.toggle('recording', !!recording);
+  btn.textContent = recording ? '■' : '🎙';
+  btn.title = recording ? '録音停止' : '音声入力 (日本語/英語)';
+}
+function _arrayBufferToBase64(buffer){
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function toggleVoiceInput(){
+  if (busy) return;
+  if (voiceRecording && voiceRecorder) {
+    voiceRecording = false;
+    _setMicState(false, true);
+    voiceRecorder.stop();
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    addMsg('error', 'このブラウザは音声録音に対応していません。');
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+    voiceRecorder = new MediaRecorder(stream, {mimeType});
+    voiceChunks = [];
+    voiceRecorder.ondataavailable = (e) => { if (e.data?.size > 0) voiceChunks.push(e.data); };
+    voiceRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(voiceChunks, {type: mimeType});
+      await transcribeVoiceBlob(blob);
+      voiceRecorder = null;
+      voiceChunks = [];
+    };
+    voiceRecorder.start();
+    voiceRecording = true;
+    _setMicState(true, false);
+    addLog('info','voice','recording started');
+  } catch (e) {
+    addMsg('error', 'マイク起動に失敗: ' + (e.message || String(e)));
+    _setMicState(false, false);
+  }
+}
+
+async function transcribeVoiceBlob(blob){
+  try {
+    voiceRecording = false;
+    _setMicState(false, true);
+    const arr = await blob.arrayBuffer();
+    const b64 = _arrayBufferToBase64(arr);
+    const input = document.getElementById('input');
+    const lang = (navigator.language || '').toLowerCase().startsWith('ja') ? 'ja' : 'en';
+    const resp = await fetch(API + '/voice/transcribe', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        audio_base64: b64,
+        audio_format: 'webm',
+        language: lang,
+        model: 'small',
+        auto_unload: true
+      })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || 'transcribe failed');
+    const t = (data.text || '').trim();
+    if (!t) {
+      addMsg('error', '音声認識結果が空でした。');
+      return;
+    }
+    input.value = (input.value ? input.value + '\n' : '') + t;
+    autoResize(input);
+    input.focus();
+    addLog('ok','voice',`transcribed (${data.language || lang})`);
+  } catch (e) {
+    addMsg('error', '音声認識に失敗: ' + (e.message || String(e)));
+    addLog('err','voice', e.message || String(e));
+  } finally {
+    _setMicState(false, false);
+  }
+}
+
 async function submitEdit(msgEl) {
   const ta = msgEl.querySelector('.msg-edit-area');
   const newText = ta?.value?.trim();
@@ -4169,7 +4301,13 @@ function selectLLM(i) {
 } // end _removedLLMManager
 
 // ── UTILS ──
-function setBusy(b) { busy=b; document.getElementById('send-btn').disabled=b; }
+function setBusy(b) {
+  busy = b;
+  const sendBtn = document.getElementById('send-btn');
+  if (sendBtn) sendBtn.disabled = b;
+  const micBtn = document.getElementById('mic-btn');
+  if (micBtn) micBtn.disabled = b || voiceRecording;
+}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function synHL(c){return esc(c).replace(/\b(def|class|import|from|return|if|else|elif|for|while|try|except|with|as|pass|True|False|None|async|await)\b/g,'<span class="kw">$1</span>').replace(/(#[^\n]*)/g,'<span class="cm">$1</span>').replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g,'<span class="str">$1</span>').replace(/\b(\d+\.?\d*)\b/g,'<span class="num">$1</span>')}
 
