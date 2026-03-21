@@ -25,6 +25,22 @@ env:
   PIP_PACKAGES: ${{ vars.CI_PIP_PACKAGES || 'fastapi uvicorn requests' }}
 
 jobs:
+
+  docker-smoke:
+    name: Docker smoke (python:3.11-slim parity)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build smoke image
+        run: |
+          docker build             -f .github/docker/smoke.Dockerfile             --build-arg PIP_PACKAGES="${PIP_PACKAGES}"             -t codeagent-smoke:latest             .
+
+      - name: Run smoke container
+        run: |
+          docker run --rm codeagent-smoke:latest
+
   windows-smoke:
     name: Windows smoke (NVIDIA / Vulkan)
     runs-on: windows-latest

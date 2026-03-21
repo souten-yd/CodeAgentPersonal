@@ -247,10 +247,23 @@ CodeAgentPersonal/
 ### 追加したもの
 
 - Workflow: `.github/workflows/runpod-test.yml`
+  - `docker-smoke`: `python:3.11-slim` ベースのDockerイメージをビルドし、コンテナ内で環境スモークテスト
   - `windows-smoke`: GitHub Hosted Runner (`windows-latest`) で Python 3.11 の起動確認と依存 import
   - `runpod-smoke`: Runpod 上の self-hosted runner (`self-hosted, linux, x64, nvidia, runpod`) で NVIDIA/Vulkan/依存チェック
+- Dockerfile: `.github/docker/smoke.Dockerfile`
 - Runpod セットアップスクリプト: `scripts/setup_runpod_ubuntu.sh`
 - 環境確認スクリプト: `scripts/check_environment.py`
+
+
+### DockerコンテナでのGitHub Actions実行
+
+`docker-smoke` ジョブは、`.github/docker/smoke.Dockerfile` を使ってコンテナを作成し、以下を行います。
+
+1. `python:3.11-slim` からイメージをビルド
+2. `CI_PIP_PACKAGES` で指定した依存をインストール
+3. `scripts/check_environment.py --expect-python 3.11` をコンテナ内で実行
+
+これにより、ローカルDocker想定 (`python:3.11-slim`) と同じ前提でCI検証できます。
 
 ### Runpod 側の前提
 
