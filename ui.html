@@ -1038,7 +1038,17 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
       <div style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
         <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px">Coder Orchestration</div>
-        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">失敗時/品質基準未達時に、軽量→高品質の順でコーダーモデルを昇格再実行します。</div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">機能モードを切替できます（初期値: Model Orchestration）。</div>
+        <div style="margin-bottom:8px">
+          <select id="orch-feature-mode" onchange="applyOrchFeatureModeUi()"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+            <option value="model_orchestration">Model Orchestration (default)</option>
+            <option value="ensemble">Ensemble (beta)</option>
+          </select>
+          <div id="orch-feature-note" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
+        </div>
+        <div id="orch-settings-body">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:8px">失敗時/品質基準未達時に、軽量→高品質の順でコーダーモデルを昇格再実行します。</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin-bottom:6px">
           <select id="orch-policy" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
             <option value="off">off</option>
@@ -1052,6 +1062,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer;margin-bottom:6px">
           <input type="checkbox" id="orch-quality-enabled" style="accent-color:var(--accent)"> 品質チェックを有効化
         </label>
+        </div>
         <button onclick="saveOrchestrationSettings()" style="padding:4px 10px;font-size:10px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">保存</button>
       </div>
 
@@ -1176,6 +1187,31 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </label>
         </div>
         <div style="margin-top:6px;font-size:10px;color:var(--text3)">⚠ 推奨 Steps: 10〜25。過剰だと繰り返しループのリスクあり。</div>
+      </div>
+
+      <!-- Ensemble実行設定 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🧠 Ensemble 実行設定</div>
+      <div style="padding:4px 0 14px">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <span style="font-size:11px;color:var(--text2);min-width:110px">実行モード</span>
+          <select id="ensemble-execution-mode"
+            style="flex:1;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text)"
+            onchange="saveEnsembleSettings()">
+            <option value="parallel">parallel (高速 / VRAM多)</option>
+            <option value="serial">serial (低VRAM / 低速)</option>
+          </select>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);cursor:pointer;margin-bottom:8px">
+          <input type="checkbox" id="ensemble-auto-switch" style="width:14px;height:14px;accent-color:var(--accent)" onchange="saveEnsembleSettings()">
+          VRAM不足時に自動で serial へ切替
+        </label>
+        <div id="ensemble-vram-status" style="font-size:10px;color:var(--text3);line-height:1.6;padding:6px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:5px">
+          VRAM: loading...
+        </div>
+        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+          <button onclick="saveEnsembleSettings(true)" style="padding:4px 10px;font-size:10px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">推奨モードを適用</button>
+          <button onclick="refreshEnsembleVramStatus()" style="padding:4px 10px;font-size:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">再チェック</button>
+        </div>
       </div>
 
       <!-- LLM設定 -->
@@ -1363,6 +1399,7 @@ let pendingPlan = null;   // 承認待ちのプラン
 let progressEl = null;    // 現在のプログレスカード
 let timerInterval = null;
 let startTime = null;
+let ensembleVramTimer = null;
 
 // ── iOS Safari キーボード対応 ──
 if (window.visualViewport) {
@@ -1445,6 +1482,11 @@ async function loadSettingsFromDb() {
     activeLlmUrl = url;
     const ui = document.getElementById('llm-url-input');
     if (ui) ui.value = url;
+
+    const em = document.getElementById('ensemble-execution-mode');
+    const eas = document.getElementById('ensemble-auto-switch');
+    if (em) em.value = (d.ensemble_execution_mode === 'serial') ? 'serial' : 'parallel';
+    if (eas) eas.checked = d.ensemble_auto_switch_on_low_vram !== 'false';
 
   } catch(e) { console.warn('loadSettingsFromDb error', e); }
 }
@@ -2225,6 +2267,19 @@ function _buildOrchModelOptions(models, selected) {
   return opts.join('');
 }
 
+function applyOrchFeatureModeUi() {
+  const mode = document.getElementById('orch-feature-mode')?.value || 'model_orchestration';
+  const note = document.getElementById('orch-feature-note');
+  const body = document.getElementById('orch-settings-body');
+  if (mode === 'ensemble') {
+    if (note) note.textContent = 'Ensembleモード選択中。現時点ではModel Orchestrationが推奨です。';
+    if (body) body.style.opacity = '0.55';
+  } else {
+    if (note) note.textContent = 'Model Orchestrationモード: 既存の昇格再実行ロジックを使用します。';
+    if (body) body.style.opacity = '1';
+  }
+}
+
 async function loadOrchestrationSettings() {
   try {
     const r = await fetch(API+'/models/orchestration');
@@ -2236,11 +2291,14 @@ async function loadOrchestrationSettings() {
     const p1 = document.getElementById('orch-coder-primary');
     const p2 = document.getElementById('orch-coder-secondary');
     const p3 = document.getElementById('orch-coder-tertiary');
+    const fm = document.getElementById('orch-feature-mode');
+    if (fm) fm.value = d.feature_mode === 'ensemble' ? 'ensemble' : 'model_orchestration';
     if (policyEl) policyEl.value = d.policy || 'ladder_fail_and_quality';
     if (qEl) qEl.checked = d.quality_check_enabled !== false;
     if (p1) p1.innerHTML = _buildOrchModelOptions(models, d.coder_primary || '');
     if (p2) p2.innerHTML = _buildOrchModelOptions(models, d.coder_secondary || '');
     if (p3) p3.innerHTML = _buildOrchModelOptions(models, d.coder_tertiary || '');
+    applyOrchFeatureModeUi();
   } catch (e) {
     addLog('err','models', e.message);
   }
@@ -2248,6 +2306,7 @@ async function loadOrchestrationSettings() {
 
 async function saveOrchestrationSettings() {
   const payload = {
+    feature_mode: document.getElementById('orch-feature-mode')?.value || 'model_orchestration',
     policy: document.getElementById('orch-policy')?.value || 'ladder_fail_and_quality',
     quality_check_enabled: document.getElementById('orch-quality-enabled')?.checked !== false,
     coder_primary: document.getElementById('orch-coder-primary')?.value || '',
@@ -2265,6 +2324,61 @@ async function saveOrchestrationSettings() {
     addLog('ok','models','Orchestration saved');
   } catch (e) {
     addLog('err','models', e.message);
+  }
+}
+
+async function refreshEnsembleVramStatus() {
+  const box = document.getElementById('ensemble-vram-status');
+  if (!box) return;
+  try {
+    const r = await fetch(API+'/ensemble/vram');
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'failed to read ensemble vram');
+    const free = fmtGbFromMb(d.free_vram_mb);
+    const needP = fmtGbFromMb(d.required_vram_parallel_mb);
+    const needS = fmtGbFromMb(d.required_vram_serial_mb);
+    const warn = d.warning ? '⚠️' : '✅';
+    box.innerHTML = `${warn} Free VRAM: <b>${free}</b> / parallel要件 <b>${needP}</b> / serial要件 <b>${needS}</b><br>` +
+      `推奨: <b>${esc(d.recommended_mode || 'parallel')}</b> (${esc(d.reason || '-')})`;
+    box.style.borderColor = d.warning ? 'rgba(255,153,0,.35)' : 'var(--border)';
+    box.style.color = d.warning ? 'var(--amber)' : 'var(--text3)';
+  } catch (e) {
+    box.textContent = `VRAM情報取得失敗: ${e.message}`;
+    box.style.color = 'var(--danger)';
+  }
+}
+
+async function saveEnsembleSettings(applyRecommended = false) {
+  const modeEl = document.getElementById('ensemble-execution-mode');
+  const autoEl = document.getElementById('ensemble-auto-switch');
+  if (!modeEl || !autoEl) return;
+  let executionMode = modeEl.value || 'parallel';
+  const autoSwitch = autoEl.checked !== false;
+  try {
+    if (applyRecommended) {
+      const rr = await fetch(API+'/ensemble/vram');
+      const rd = await rr.json();
+      if (rr.ok && rd?.recommended_mode) {
+        executionMode = rd.recommended_mode;
+        modeEl.value = executionMode;
+      }
+    }
+    const r = await fetch(API+'/ensemble/settings', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        execution_mode: executionMode,
+        auto_switch_on_low_vram: autoSwitch
+      })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'failed to save ensemble settings');
+    addLog('ok', 'ensemble', `execution_mode=${d.execution_mode}`);
+    await _saveSettingDb('ensemble_execution_mode', executionMode);
+    await _saveSettingDb('ensemble_auto_switch_on_low_vram', autoSwitch ? 'true' : 'false');
+    refreshEnsembleVramStatus();
+  } catch (e) {
+    addLog('err', 'ensemble', e.message);
   }
 }
 
@@ -3946,9 +4060,16 @@ function openSettings() {
   document.getElementById('settings-modal').classList.add('open');
   loadSettingsFromDb();       // 開くたびにDBから最新値を反映
   loadGhRepoConfig();         // GitHub設定も読み込む
+  refreshEnsembleVramStatus();
+  if (ensembleVramTimer) clearInterval(ensembleVramTimer);
+  ensembleVramTimer = setInterval(refreshEnsembleVramStatus, 5000);
 }
 function closeSettings() {
   document.getElementById('settings-modal').classList.remove('open');
+  if (ensembleVramTimer) {
+    clearInterval(ensembleVramTimer);
+    ensembleVramTimer = null;
+  }
 }
 
 function _removedLLMManager() {
