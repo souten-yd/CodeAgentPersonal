@@ -32,6 +32,8 @@ async def lifespan(app):
     cleanup = globals().get("_cleanup_server_containers")
     if cleanup: cleanup()
     # 起動時: DBから設定を復元
+    _load_opencode_settings = globals().get("_load_ensemble_settings_from_opencode_json")
+    if _load_opencode_settings: _load_opencode_settings()
     _load_settings_on_startup = globals().get("_restore_settings_from_db")
     if _load_settings_on_startup: _load_settings_on_startup()
     _cleanup_legacy_settings = globals().get("_cleanup_legacy_llm_settings")
@@ -78,9 +80,12 @@ print(f"  Chat/Clarify:     {LLM_URL_CHAT}")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CA_DATA_DIR          = os.path.join(BASE_DIR, "ca_data")
 CODEAGENT_HIDDEN_DIR = os.path.join(BASE_DIR, ".codeagent")
+OPENCODE_CONFIG_PATH = os.path.join(BASE_DIR, "opencode.json")
+OPENCODE_ENSEMBLE_LOG_DIR = os.path.join(BASE_DIR, ".opencode", "ensemble_logs")
 
 os.makedirs(CA_DATA_DIR, exist_ok=True)
 os.makedirs(CODEAGENT_HIDDEN_DIR, exist_ok=True)
+os.makedirs(OPENCODE_ENSEMBLE_LOG_DIR, exist_ok=True)
 
 WORK_DIR = os.path.join(CA_DATA_DIR, "workspace")
 SANDBOX_CONTAINER = "claude_sandbox"
@@ -2558,6 +2563,9 @@ SETTINGS_DEFAULTS = {
     "coder_secondary": "",
     "coder_tertiary": "",
     "quality_check_enabled": "true",
+    "feature_mode": "model_orchestration",
+    "ensemble_execution_mode": "parallel",
+    "ensemble_auto_switch_on_low_vram": "true",
 }
 for _role in MODEL_ROLE_OPTIONS:
     SETTINGS_DEFAULTS.setdefault(_role_setting_key(_role), "")
@@ -2618,6 +2626,51 @@ def settings_set_bulk(data: dict):
             conn.close()
 
 
+def _load_opencode_json() -> dict:
+    if not os.path.exists(OPENCODE_CONFIG_PATH):
+        return {}
+    try:
+        with open(OPENCODE_CONFIG_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_opencode_json(data: dict):
+    try:
+        with open(OPENCODE_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[settings] opencode.json save warning: {e}")
+
+
+def _sync_ensemble_settings_to_opencode_json():
+    data = _load_opencode_json()
+    ensemble = data.get("ensemble", {})
+    if not isinstance(ensemble, dict):
+        ensemble = {}
+    ensemble["execution_mode"] = settings_get("ensemble_execution_mode") or "parallel"
+    ensemble["auto_switch_on_low_vram"] = settings_get("ensemble_auto_switch_on_low_vram") != "false"
+    data["ensemble"] = ensemble
+    _save_opencode_json(data)
+
+
+def _load_ensemble_settings_from_opencode_json():
+    data = _load_opencode_json()
+    ensemble = data.get("ensemble", {})
+    if not isinstance(ensemble, dict):
+        return
+    updates = {}
+    execution_mode = str(ensemble.get("execution_mode", "")).strip().lower()
+    if execution_mode in ("parallel", "serial"):
+        updates["ensemble_execution_mode"] = execution_mode
+    if "auto_switch_on_low_vram" in ensemble:
+        updates["ensemble_auto_switch_on_low_vram"] = "true" if bool(ensemble.get("auto_switch_on_low_vram")) else "false"
+    if updates:
+        settings_set_bulk(updates)
+
+
 def _restore_settings_from_db():
     """起動時にDBから設定を読み込んでサーバーグローバルに反映"""
     global _search_enabled, _llm_streaming, _current_n_ctx
@@ -2635,6 +2688,8 @@ def _restore_settings_from_db():
                 _current_n_ctx = max(512, min(int(all_s["ctx_size"]), 32768))
             except Exception:
                 pass
+        _sync_ensemble_settings_to_opencode_json()
+        _apply_ensemble_execution_mode_guard()
         print(f"[settings] restored from DB: ctx={_current_n_ctx} stream={_llm_streaming} search={_search_enabled}")
     except Exception as e:
         print(f"[settings] restore warning: {e}")
@@ -2844,6 +2899,75 @@ def _estimate_fit(file_size_mb: int, hw: dict) -> dict:
         "downloadable": downloadable,
         "full_offload_possible": full_offload,
     }
+
+
+def _ensemble_selected_coder_specs() -> list[dict]:
+    catalog = get_runtime_model_catalog(include_disabled=True)
+    specs = []
+    for mk in get_coder_ladder_keys(catalog):
+        spec = catalog.get(mk, {})
+        if not spec:
+            continue
+        vram_gb = float(spec.get("vram_gb", -1) or -1)
+        vram_mb = int(vram_gb * 1024) if vram_gb > 0 else -1
+        specs.append({
+            "model_key": mk,
+            "name": spec.get("name", mk),
+            "estimated_vram_mb": vram_mb,
+        })
+    return specs
+
+
+def get_ensemble_resource_status() -> dict:
+    hw = get_system_hardware_info()
+    free_vram_mb = int(hw.get("vram_free_mb", -1) or -1)
+    models = _ensemble_selected_coder_specs()
+    vram_reqs = [m["estimated_vram_mb"] for m in models if int(m.get("estimated_vram_mb", -1)) > 0]
+    parallel_required = sum(vram_reqs) if vram_reqs else -1
+    serial_required = max(vram_reqs) if vram_reqs else -1
+    configured_mode = settings_get("ensemble_execution_mode") or "parallel"
+    recommended_mode = configured_mode
+    reason = "GPU情報不足のため推奨モード判定不可"
+    if free_vram_mb > 0 and parallel_required > 0:
+        if free_vram_mb >= parallel_required:
+            recommended_mode = "parallel"
+            reason = "空きVRAMで並列実行可能"
+        elif serial_required > 0 and free_vram_mb >= serial_required:
+            recommended_mode = "serial"
+            reason = "並列は不足、シリアルなら実行可能"
+        else:
+            recommended_mode = "serial"
+            reason = "空きVRAM不足のためシリアル推奨"
+    warning = bool(recommended_mode == "serial" and configured_mode == "parallel")
+    return {
+        "configured_mode": configured_mode if configured_mode in ("parallel", "serial") else "parallel",
+        "recommended_mode": recommended_mode,
+        "auto_switch_on_low_vram": settings_get("ensemble_auto_switch_on_low_vram") != "false",
+        "warning": warning,
+        "reason": reason,
+        "free_vram_mb": free_vram_mb,
+        "required_vram_parallel_mb": parallel_required,
+        "required_vram_serial_mb": serial_required,
+        "models": models,
+        "hardware": hw,
+    }
+
+
+def _apply_ensemble_execution_mode_guard() -> dict:
+    status = get_ensemble_resource_status()
+    configured = status.get("configured_mode", "parallel")
+    if configured != "parallel":
+        return status
+    if not status.get("warning"):
+        return status
+    if not status.get("auto_switch_on_low_vram", True):
+        return status
+    settings_set("ensemble_execution_mode", "serial")
+    _sync_ensemble_settings_to_opencode_json()
+    status["configured_mode"] = "serial"
+    status["switched_by_guard"] = True
+    status["switch_reason"] = "low_vram_auto_switch"
+    return status
 
 
 def _guess_quantization(path: str) -> str:
@@ -3665,6 +3789,20 @@ def run_job_background(job_id: str, req: "JobRequest"):
             orchestration_policy = settings_get("orchestration_policy") or "ladder_fail_and_quality"
             quality_check_enabled = settings_get("quality_check_enabled") != "false"
             coder_ladder = get_coder_ladder_keys(runtime_catalog)
+            feature_mode = settings_get("feature_mode") or "model_orchestration"
+            if feature_mode == "ensemble":
+                ensemble_status = _apply_ensemble_execution_mode_guard()
+                write("ensemble_mode", {
+                    "mode": ensemble_status.get("configured_mode", "parallel"),
+                    "recommended_mode": ensemble_status.get("recommended_mode", "parallel"),
+                    "warning": bool(ensemble_status.get("warning")),
+                    "reason": ensemble_status.get("reason", ""),
+                    "auto_switched": bool(ensemble_status.get("switched_by_guard")),
+                    "free_vram_mb": ensemble_status.get("free_vram_mb", -1),
+                    "required_vram_parallel_mb": ensemble_status.get("required_vram_parallel_mb", -1),
+                    "required_vram_serial_mb": ensemble_status.get("required_vram_serial_mb", -1),
+                })
+            write("feature_mode", {"mode": feature_mode})
 
             for i, todo in enumerate(todos):
               try:  # ← per-task guard: 1タスクの例外がジョブ全体を止めないよう保護
@@ -3719,9 +3857,10 @@ def run_job_background(job_id: str, req: "JobRequest"):
                 # Stage 4: 複数対応案をLLMが生成 → ユーザーが選択 → 再実行
                 # ────────────────────────────────────────────────────────
 
-                def _run_stage(title_prefix, ctx, steps_limit):
+                def _run_stage(title_prefix, ctx, steps_limit, run_url=None):
                     """execute_task_streamを安全に実行してtask_status/outputを返す"""
                     _steps, _status, _output = [], "pending", ""
+                    _url = run_url or task_url
                     try:
                         write("task_start", {
                             "task_id": todo["id"], "title": f"{title_prefix}{todo['title']}",
@@ -3730,7 +3869,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                         for ev in execute_task_stream(
                             task_detail=todo["detail"], context=ctx,
                             max_steps=steps_limit, project=project,
-                            search_enabled=req.search_enabled, llm_url=task_url,
+                            search_enabled=req.search_enabled, llm_url=_url,
                             job_id=job_id,
                             task_id=todo.get("id", i+1),
                             task_title=f"{title_prefix}{todo.get('title','')}",
@@ -4012,7 +4151,7 @@ JSON形式で出力:
                         task_output = f"[skipped by timeout] {todo['title']}"
 
                 # Stage 5: コーダー段階的昇格（失敗時 / 品質基準未達）
-                if orchestration_policy != "off" and not req.llm_url.strip():
+                if feature_mode == "model_orchestration" and orchestration_policy != "off" and not req.llm_url.strip():
                     needs_quality_retry = (
                         orchestration_policy == "ladder_fail_and_quality"
                         and quality_check_enabled
@@ -6988,6 +7127,7 @@ def get_model_orchestration_api():
     catalog = get_runtime_model_catalog(include_disabled=True)
     ladder = get_coder_ladder_keys(catalog)
     return {
+        "feature_mode": settings_get("feature_mode") or "model_orchestration",
         "policy": settings_get("orchestration_policy") or "ladder_fail_and_quality",
         "quality_check_enabled": settings_get("quality_check_enabled") != "false",
         "coder_primary": settings_get("coder_primary"),
@@ -7007,11 +7147,15 @@ def get_model_orchestration_api():
 
 @app.post("/models/orchestration")
 def save_model_orchestration_api(req: dict):
+    feature_mode = str(req.get("feature_mode", "model_orchestration")).strip().lower() or "model_orchestration"
+    if feature_mode not in ("model_orchestration", "ensemble"):
+        raise HTTPException(400, "invalid feature_mode")
     policy = str(req.get("policy", "ladder_fail_and_quality")).strip() or "ladder_fail_and_quality"
     if policy not in ("off", "ladder_fail_only", "ladder_fail_and_quality"):
         raise HTTPException(400, "invalid policy")
     catalog = get_runtime_model_catalog(include_disabled=True)
     updates = {
+        "feature_mode": feature_mode,
         "orchestration_policy": policy,
         "quality_check_enabled": "true" if req.get("quality_check_enabled", True) else "false",
     }
@@ -7022,6 +7166,36 @@ def save_model_orchestration_api(req: dict):
         updates[key] = mk
     settings_set_bulk(updates)
     return {"ok": True, "saved": updates}
+
+
+@app.get("/ensemble/settings")
+def get_ensemble_settings_api():
+    status = get_ensemble_resource_status()
+    return {
+        "execution_mode": status.get("configured_mode", "parallel"),
+        "auto_switch_on_low_vram": status.get("auto_switch_on_low_vram", True),
+        "status": status,
+    }
+
+
+@app.post("/ensemble/settings")
+def save_ensemble_settings_api(req: dict):
+    mode = str(req.get("execution_mode", "parallel")).strip().lower() or "parallel"
+    if mode not in ("parallel", "serial"):
+        raise HTTPException(400, "execution_mode must be parallel or serial")
+    auto_switch = bool(req.get("auto_switch_on_low_vram", True))
+    settings_set_bulk({
+        "ensemble_execution_mode": mode,
+        "ensemble_auto_switch_on_low_vram": "true" if auto_switch else "false",
+    })
+    _sync_ensemble_settings_to_opencode_json()
+    status = _apply_ensemble_execution_mode_guard()
+    return {"ok": True, "execution_mode": settings_get("ensemble_execution_mode"), "status": status}
+
+
+@app.get("/ensemble/vram")
+def get_ensemble_vram_api():
+    return get_ensemble_resource_status()
 
 
 # =========================
@@ -7042,7 +7216,17 @@ def save_settings_api(req: dict):
             req["ctx_size"] = str(max(512, min(32768, int(req["ctx_size"]))))
         except Exception:
             req.pop("ctx_size", None)
+    if "ensemble_execution_mode" in req:
+        req["ensemble_execution_mode"] = str(req.get("ensemble_execution_mode", "parallel")).strip().lower()
+        if req["ensemble_execution_mode"] not in ("parallel", "serial"):
+            req["ensemble_execution_mode"] = "parallel"
+    if "ensemble_auto_switch_on_low_vram" in req:
+        raw = str(req.get("ensemble_auto_switch_on_low_vram", "true")).strip().lower()
+        req["ensemble_auto_switch_on_low_vram"] = "true" if raw in ("true", "1", "yes", "on") else "false"
     settings_set_bulk(req)
+    if "ensemble_execution_mode" in req or "ensemble_auto_switch_on_low_vram" in req:
+        _sync_ensemble_settings_to_opencode_json()
+        _apply_ensemble_execution_mode_guard()
     # search/streaming などサーバー側フラグも同期
     global _search_enabled, _llm_streaming, _current_n_ctx
     if "search_enabled" in req:

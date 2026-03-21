@@ -82,10 +82,12 @@
 | **リアルタイムSSE** | Server-Sent Eventsによるストリーミング表示（TPS/token数表示） |
 | **7タブパネル** | Output / Preview / Log / Skills / Memory / Git / Models |
 | **ファイルブラウザ** | プロジェクトファイルをリアルタイム表示・iframe preview |
-| **設定パネル** | ⚙ボタンから: Steps・Auto Select・SKILL自動生成・ストリーミング・コンテキスト長・検索件数・LLM URL |
+| **設定パネル** | ⚙ボタンから: Steps・Auto Select・SKILL自動生成・Ensemble実行モード(parallel/serial)・VRAM監視・ストリーミング・コンテキスト長・検索件数・LLM URL |
 | **GGUF検索/ダウンロード** | Modelsタブから Hugging Face のGGUFを検索し、RAM/VRAM適合目安（DL可否・完全オフロード可否）を確認して直接DL |
 | **VLM Visionトグル** | VLMモデルごとに画像認識(vision)をON/OFF可能。OFF時はmulti用途の自動割り当て対象から除外 |
+| **機能モード切替** | Modelsモーダルで `Model Orchestration` / `Ensemble(beta)` を切替可能（初期値: Model Orchestration） |
 | **Coderオーケストレーション** | 軽量→高品質の3段コーダーを設定し、失敗時/品質未達時に段階昇格して再実行 |
+| **VRAMガード** | `nvidia-smi/rocm-smi` で空きVRAMを監視し、必要時は `parallel → serial` へ自動切替（設定でON/OFF） |
 | **モバイル対応** | iPhone対応。タブバーはスクロール可能。Safe area対応 |
 | **プロジェクト管理** | 複数プロジェクトを切り替え・作成 |
 | **ジョブ履歴** | 実行中ジョブへの自動再接続。SQLite永続化 |
@@ -243,14 +245,13 @@ CodeAgentPersonal/
 
 ## GitHub Actions + Runpod テスト運用
 
-`python:3.11-slim` 想定に合わせ、CI の Python も **3.11** をデフォルトにしています。
+`python:3.11-slim` 想定に合わせ、CI の Python は **3.11固定** です。
 
 ### GitHub Actionsで使う環境変数（Repository Variables）
 
 `Settings > Secrets and variables > Actions > Variables` で以下を設定できます。
 
-- `CI_PYTHON_VERSION` (任意): CIで使うPythonバージョン。未設定時は `3.11`。
-- `CI_PIP_PACKAGES` (任意): 追加インストールするPython依存。未設定時は `fastapi uvicorn requests`。
+- `CI_PIP_PACKAGES` (任意): 追加インストールするPython依存（**空白区切り**）。未設定時は `fastapi uvicorn requests`。
 
 > このworkflowでは必須のSecretはありません（外部APIキー未使用）。
 
