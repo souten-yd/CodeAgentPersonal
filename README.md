@@ -228,3 +228,43 @@ CodeAgentPersonal/
 | `GET` | `/health` | ヘルスチェック |
 
 ※ `/projects` で作成・参照される実体ディレクトリは `./ca_data/workspace/{project}/` です。
+
+---
+
+## GitHub Actions + Runpod テスト運用
+
+`python:3.11-slim` 想定に合わせ、CI の Python も **3.11** に固定しています。
+
+### 追加したもの
+
+- Workflow: `.github/workflows/runpod-test.yml`
+  - `windows-smoke`: GitHub Hosted Runner (`windows-latest`) で Python 3.11 の起動確認と依存 import
+  - `runpod-smoke`: Runpod 上の self-hosted runner (`self-hosted, linux, x64, nvidia, runpod`) で NVIDIA/Vulkan/依存チェック
+- Runpod セットアップスクリプト: `scripts/setup_runpod_ubuntu.sh`
+- 環境確認スクリプト: `scripts/check_environment.py`
+
+### Runpod 側の前提
+
+1. Ubuntu 系イメージで Pod を作成（NVIDIA GPU）
+2. GitHub Actions self-hosted runner を導入し、以下ラベルを付与
+   - `self-hosted`
+   - `linux`
+   - `x64`
+   - `nvidia`
+   - `runpod`
+3. 依存導入
+
+```bash
+bash scripts/setup_runpod_ubuntu.sh
+```
+
+4. ローカル確認
+
+```bash
+python3.11 scripts/check_environment.py --expect-python 3.11
+```
+
+### 補足
+
+- Windows/NVIDIA は GitHub Hosted Runner だと GPU が保証されないため、`windows-smoke` は「Python/依存/最小動作」の確認を主目的にしています。
+- Vulkan は最適化不要との前提に合わせ、`vulkaninfo --summary` が実行可能かどうかを確認するだけにしています。
