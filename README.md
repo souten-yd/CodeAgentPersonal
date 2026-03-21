@@ -57,12 +57,15 @@
 - `patch_function` — 関数単位の差し替え（AST解析）
 - `get_outline` — コード構造のAST解析
 - `list_files` — プロジェクトファイル一覧
+- `search_in_files` — プロジェクト内全文検索
+- `make_dir` / `move_path` / `delete_path` — ディレクトリ作成・移動/改名・削除
 
 **コード実行（Docker）**
 - `run_python` — Python in `claude_sandbox`
 - `run_node` / `run_npm` — Node.js/npm
 - `run_file` — Pythonファイル直接実行
 - `setup_venv` — Python仮想環境構築
+- `run_shell` — プロジェクトディレクトリで任意コマンド実行（pytest/ruff/mypy等）
 
 **サーバー・ブラウザ**
 - `run_server` — HTTPサーバー起動（port 8888）
@@ -81,6 +84,8 @@
 |---|---|
 | **リアルタイムSSE** | Server-Sent Eventsによるストリーミング表示（TPS/token数表示） |
 | **7タブパネル** | Output / Preview / Log / Skills / Memory / Git / Models |
+| **音声入力（β）** | チャット入力欄の🎙ボタンで録音→サーバー側Whisperで文字起こし（日本語/英語） |
+| **リソースメーター** | ヘッダーで CPU / RAM / GPU / VRAM 使用率を定期更新表示 |
 | **ファイルブラウザ** | プロジェクトファイルをリアルタイム表示・iframe preview |
 | **設定パネル** | ⚙ボタンから: Steps・Auto Select・SKILL自動生成・Ensemble実行モード(parallel/serial)・VRAM監視・ストリーミング・コンテキスト長・検索件数・LLM URL |
 | **GGUF検索/ダウンロード** | Modelsタブから Hugging Face のGGUFを検索し、RAM/VRAM適合目安（DL可否・完全オフロード可否）を確認して直接DL |
@@ -170,6 +175,25 @@ start.bat
 
 `http://localhost:8000` を開いてください。
 
+### 依存が不足する場合（`fastapi` 未導入など）
+
+```bash
+python -m pip install -r requirements.txt
+python scripts/check_environment.py
+```
+
+企業/クラウド環境でPyPIへの直接アクセスが制限される場合は、ミラーを指定してください。
+
+```bash
+PIP_INDEX_URL=https://<your-mirror>/simple python -m pip install -r requirements.txt
+```
+
+厳密に要件を検証したい場合は `--strict` を付けます。
+
+```bash
+python scripts/check_environment.py --expect-python 3.11 --strict
+```
+
 ---
 
 ## 対応モデル
@@ -237,9 +261,25 @@ CodeAgentPersonal/
 | `DELETE` | `/skills/{name}` | SKILL削除 |
 | `GET` | `/projects` | プロジェクト一覧 |
 | `POST` | `/search/enable` | Web検索有効化 |
+| `POST` | `/mcp` | MCP JSON-RPC エンドポイント（OpenClaw等からツール呼び出し） |
+| `GET` | `/mcp/info` | MCPサーバー情報と公開ツール一覧 |
+| `GET` | `/voice/status` | 音声認識モデルのロード状態 |
+| `POST` | `/voice/load` | 音声認識モデルをオンデマンドでRAMへロード（CPU） |
+| `POST` | `/voice/unload` | 音声認識モデルをアンロード（RAM解放） |
+| `POST` | `/voice/transcribe` | 音声→テキスト（日本語/英語） |
+| `GET` | `/system/usage` | CPU/GPU利用率、RAM/VRAM使用率の現在値 |
 | `GET` | `/health` | ヘルスチェック |
 
 ※ `/projects` で作成・参照される実体ディレクトリは `./ca_data/workspace/{project}/` です。
+
+### 音声入力（Whisper CPU/RAM）
+
+- 依存: `faster-whisper`（例: `pip install faster-whisper`）
+- モデル選定方針（優先順）: **日本語精度 > 速度 > 軽量**
+  - 推奨デフォルト: `small`（多言語、日本語精度と速度のバランス）
+  - 軽量高速優先: `base` / `tiny`
+- `device="cpu"` / `compute_type="int8"` でGPU非依存、RAM運用。
+- 常時ロードせず、`/voice/load` と `/voice/unload` および `auto_unload=true` でオンデマンド運用。
 
 ---
 

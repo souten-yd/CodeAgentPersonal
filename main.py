@@ -8,6 +8,9 @@ import subprocess
 import json
 import os
 import re
+import base64
+import tempfile
+import threading
 import platform
 import ast
 import textwrap
@@ -106,6 +109,7 @@ _DOCKER_TIMEOUT_LIMITS: dict[str, tuple[int, int]] = {
     "run_browser": (90,  300),   # Playwright: デフォ90s, 最大5分
     "run_npm":     (120, 600),   # npm install等: デフォ120s, 最大10分
     "run_node":    (30,  300),   # Node.js: デフォ30s, 最大5分
+    "run_shell":   (45,  300),   # 開発用シェル実行: デフォ45s, 最大5分
 }
 
 def _clamp_docker_timeout(tool: str, requested: int | None) -> int:
@@ -1447,6 +1451,124 @@ def list_files(subdir: str = "", project: str = "default") -> str:
                     continue
                 result.append(path)
         return "\n".join(result) if result else "(empty)"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def search_in_files(query: str, subdir: str = "", project: str = "default", max_results: int = 100) -> str:
+    """
+    プロジェクト内テキストを横断検索する（簡易grep相当）。
+    query: 検索文字列（正規表現ではなく部分一致）
+    subdir: 検索対象サブディレクトリ（空ならプロジェクト全体）
+    max_results: 最大ヒット件数（1〜300）
+    """
+    try:
+        q = str(query or "").strip()
+        if not q:
+            return "ERROR: query is empty"
+        max_results = max(1, min(int(max_results), 300))
+        project_root = _project_root(project)
+        target = os.path.join(project_root, _normalize_project_relpath(subdir, project)) if subdir else project_root
+        hits = []
+        for root, dirs, files in os.walk(target):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for fname in files:
+                rel = os.path.relpath(os.path.join(root, fname), project_root).replace("\\", "/")
+                if _should_hide_preview_path(rel):
+                    continue
+                full = os.path.join(root, fname)
+                try:
+                    with open(full, "r", encoding="utf-8", errors="ignore") as f:
+                        for i, line in enumerate(f, start=1):
+                            if q in line:
+                                hits.append(f"{rel}:{i}: {line.rstrip()[:200]}")
+                                if len(hits) >= max_results:
+                                    return "\n".join(hits)
+                except Exception:
+                    continue
+        return "\n".join(hits) if hits else f"(no matches for '{q}')"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def make_dir(path: str, project: str = "default") -> str:
+    """ディレクトリを作成する（なければ再帰作成）。"""
+    try:
+        full, rel = _project_path(project, path)
+        os.makedirs(full, exist_ok=True)
+        return f"ok: directory ensured at {rel}"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def move_path(src: str, dst: str, project: str = "default", overwrite: bool = False) -> str:
+    """ファイル/ディレクトリを移動またはリネームする。"""
+    try:
+        src_full, src_rel = _project_path(project, src)
+        dst_full, dst_rel = _project_path(project, dst)
+        if not os.path.exists(src_full):
+            return f"ERROR: source not found: {src_rel}"
+        if os.path.exists(dst_full) and not overwrite:
+            return f"ERROR: destination exists: {dst_rel} (set overwrite=true to replace)"
+        os.makedirs(os.path.dirname(dst_full), exist_ok=True)
+        if os.path.exists(dst_full) and overwrite:
+            if os.path.isdir(dst_full) and not os.path.islink(dst_full):
+                _shutil.rmtree(dst_full)
+            else:
+                os.remove(dst_full)
+        _shutil.move(src_full, dst_full)
+        return f"ok: moved {src_rel} -> {dst_rel}"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def delete_path(path: str, project: str = "default", recursive: bool = False) -> str:
+    """
+    ファイル/ディレクトリを削除する。
+    ディレクトリ削除は recursive=true のときのみ許可。
+    """
+    try:
+        full, rel = _project_path(project, path)
+        if not os.path.exists(full):
+            return f"ERROR: not found: {rel}"
+        if os.path.isdir(full) and not os.path.islink(full):
+            if not recursive:
+                return f"ERROR: {rel} is directory. set recursive=true to delete"
+            _shutil.rmtree(full)
+        else:
+            os.remove(full)
+        return f"ok: deleted {rel}"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def run_shell(command: str, project: str = "default", timeout: int = None) -> str:
+    """
+    プロジェクトディレクトリでシェルコマンドを実行する。
+    例: run_shell(\"pytest -q\"), run_shell(\"npm run lint\")
+    timeout: デフォルト45秒、最大300秒
+    """
+    try:
+        cmd = str(command or "").strip()
+        if not cmd:
+            return "ERROR: command is empty"
+        cwd = _project_root(project)
+        _timeout = _clamp_docker_timeout("run_shell", timeout)
+        result = _sp.run(
+            cmd,
+            shell=True,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=_timeout,
+            encoding="utf-8",
+            errors="replace"
+        )
+        out = (result.stdout + result.stderr).strip()
+        status = "ok" if result.returncode == 0 else f"exit {result.returncode}"
+        return f"[{status}] {cmd}\n{out[:4000] if out else '(no output)'}"
+    except _sp.TimeoutExpired:
+        return f"ERROR: timeout ({_clamp_docker_timeout('run_shell', timeout)}s)."
     except Exception as e:
         return f"ERROR: {e}"
 
@@ -2886,6 +3008,98 @@ def get_system_hardware_info() -> dict:
     }
 
 
+def get_system_usage_info() -> dict:
+    """
+    現在のCPU/GPU使用率とRAM/VRAM使用量を返す。
+    可能な限り依存なしで取得し、取得不可項目は -1 を返す。
+    """
+    cpu_percent = -1.0
+    ram_total_mb = -1
+    ram_used_mb = -1
+    ram_percent = -1.0
+    try:
+        import psutil  # type: ignore
+        cpu_percent = float(psutil.cpu_percent(interval=0.15))
+        vm = psutil.virtual_memory()
+        ram_total_mb = int(vm.total / (1024 * 1024))
+        ram_used_mb = int((vm.total - vm.available) / (1024 * 1024))
+        ram_percent = float(vm.percent)
+    except Exception:
+        try:
+            if hasattr(os, "getloadavg"):
+                load1, _, _ = os.getloadavg()
+                c = os.cpu_count() or 1
+                cpu_percent = max(0.0, min(100.0, (load1 / c) * 100.0))
+            t_kb, a_kb = _read_meminfo_kb()
+            if t_kb > 0:
+                ram_total_mb = int(t_kb / 1024)
+            if a_kb > 0 and ram_total_mb > 0:
+                ram_used_mb = max(0, ram_total_mb - int(a_kb / 1024))
+                ram_percent = (ram_used_mb / ram_total_mb) * 100.0
+        except Exception:
+            pass
+
+    gpus = []
+    gpu_backend = "none"
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5
+        )
+        for line in (r.stdout or "").splitlines():
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 4:
+                util = float(parts[1]) if parts[1].replace(".", "", 1).isdigit() else -1.0
+                used = int(parts[2]) if parts[2].isdigit() else -1
+                total = int(parts[3]) if parts[3].isdigit() else -1
+                pct = (used / total * 100.0) if used >= 0 and total > 0 else -1.0
+                gpus.append({
+                    "name": parts[0],
+                    "util_percent": util,
+                    "vram_used_mb": used,
+                    "vram_total_mb": total,
+                    "vram_percent": pct,
+                })
+        if gpus:
+            gpu_backend = "nvidia-smi"
+    except Exception:
+        pass
+    if not gpus:
+        try:
+            r = subprocess.run(["rocm-smi", "--showuse", "--showmemuse", "--json"], capture_output=True, text=True, timeout=6)
+            if r.returncode == 0 and (r.stdout or "").strip().startswith("{"):
+                data = json.loads(r.stdout)
+                for _, info in data.items():
+                    if not isinstance(info, dict):
+                        continue
+                    name = info.get("Card series") or info.get("Card SKU") or "AMD GPU"
+                    util_raw = str(info.get("GPU use (%)", "")).replace("%", "").strip()
+                    vram_raw = str(info.get("GPU memory use (%)", "")).replace("%", "").strip()
+                    util = float(util_raw) if util_raw.replace(".", "", 1).isdigit() else -1.0
+                    vram_pct = float(vram_raw) if vram_raw.replace(".", "", 1).isdigit() else -1.0
+                    gpus.append({
+                        "name": str(name),
+                        "util_percent": util,
+                        "vram_used_mb": -1,
+                        "vram_total_mb": -1,
+                        "vram_percent": vram_pct,
+                    })
+                if gpus:
+                    gpu_backend = "rocm-smi"
+        except Exception:
+            pass
+
+    return {
+        "cpu_percent": round(cpu_percent, 1) if cpu_percent >= 0 else -1,
+        "ram_total_mb": ram_total_mb,
+        "ram_used_mb": ram_used_mb,
+        "ram_percent": round(ram_percent, 1) if ram_percent >= 0 else -1,
+        "gpu_backend": gpu_backend,
+        "gpus": gpus,
+        "updated_at": datetime.now().isoformat(),
+    }
+
+
 def _estimate_fit(file_size_mb: int, hw: dict) -> dict:
     est_vram_mb = int(file_size_mb * 1.15) if file_size_mb > 0 else -1
     est_ram_mb = int(file_size_mb * 0.35) if file_size_mb > 0 else -1
@@ -3536,9 +3750,14 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 - read_file: {"path": "foo.py"}  または {"path": "foo.py", "start_line": 10, "end_line": 50}
 - write_file: {"path": "foo.py", "content": "..."}  ← 新規作成・全体上書き専用
 - edit_file: {"path": "foo.py", "old_str": "変更前の文字列（一意）", "new_str": "変更後"}  ← 差分修正（推奨）
+- search_in_files: {"query": "TODO", "subdir": "src"}  ← プロジェクト内全文検索
+- make_dir: {"path": "src/utils"}  ← ディレクトリ作成
+- move_path: {"src": "old.py", "dst": "src/new.py"}  ← ファイル/ディレクトリ移動・改名
+- delete_path: {"path": "tmp.txt"}  or {"path":"build","recursive":true}  ← ファイル/ディレクトリ削除
 - patch_function: {"path": "foo.py", "function_name": "bar", "new_code": "def bar(): ..."}
 - run_python: {"code": "print('hello')"}  ← project引数不要（自動設定）/ タイムアウト時: {"code":"...","timeout":60} (max 300s)
 - run_file: {"path": "foo.py"}  ← プロジェクト内の相対パス、project引数不要 / タイムアウト時: {"path":"...","timeout":60} (max 300s)
+- run_shell: {"command": "pytest -q"}  ← プロジェクトディレクトリでシェルコマンド実行 / タイムアウト時: {"command":"...","timeout":120} (max 300s)
 - run_server: {"port": 8888}  ← 【最終タスクのみ】DockerでHTTPサーバー起動
 - stop_server: {"port": 8888}  ← 起動したサーバーを停止
 - run_browser: {"script": "from playwright.sync_api import sync_playwright\nwith sync_playwright() as p:\n  b=p.chromium.launch(headless=True)\n  pg=b.new_page()\n  pg.goto('http://host.docker.internal:8888/')\n  pg.screenshot(path='/app/{project}/screenshot.png')\n  print(pg.title())\n  b.close()"}  ← Playwright（Python）でブラウザ自動化・スクリーンショット・動作確認 / タイムアウト時: {"script":"...","timeout":120} (max 300s)
@@ -3613,10 +3832,15 @@ def _build_system_prompt(project: str = "") -> str:
 TOOLS = {
     "read_file": read_file,
     "list_files": list_files,
+    "search_in_files": search_in_files,
     "write_file": write_file,
     "edit_file": edit_file,
+    "make_dir": make_dir,
+    "move_path": move_path,
+    "delete_path": delete_path,
     "get_outline": get_outline,
     "patch_function": patch_function,
+    "run_shell": run_shell,
     "run_python": run_python,
     "run_file": run_file,
     "run_server": run_server,
@@ -3647,6 +3871,9 @@ class ChatRequest(BaseModel):
     project: str = "default"
     search_enabled: bool = True
     llm_url: str = ""
+    audio_base64: str = ""
+    audio_format: str = "webm"
+    voice_language: str = "ja"
 
 class ProjectRequest(BaseModel):
     name: str
@@ -4548,8 +4775,9 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
         active_tools.pop("web_search", None)
     # project引数を持つツールに現在のprojectを自動バインド
     _project_tools = ("read_file", "write_file", "edit_file", "get_outline",
-                       "patch_function", "list_files",
-                       "run_python", "run_file", "run_server", "setup_venv",
+                       "patch_function", "list_files", "search_in_files",
+                       "make_dir", "move_path", "delete_path",
+                       "run_shell", "run_python", "run_file", "run_server", "setup_venv",
                        "run_browser", "run_npm", "run_node")
     for _pt in _project_tools:
         if _pt in active_tools:
@@ -5055,6 +5283,111 @@ def verify_and_fix(
 
 
 # =========================
+# 音声入力（Whisper / CPUオンデマンド）
+# =========================
+
+try:
+    from faster_whisper import WhisperModel  # type: ignore
+except Exception:
+    WhisperModel = None
+
+_voice_lock = threading.Lock()
+_voice_model = None
+_voice_model_name = "small"
+_voice_device = "cpu"
+_voice_compute_type = "int8"
+
+_VOICE_MODEL_CANDIDATES = [
+    {"name": "small", "priority": "accuracy_ja_then_speed_then_lightweight", "note": "多言語・日本語精度と速度のバランス"},
+    {"name": "base", "priority": "speed", "note": "smallより軽量・高速"},
+    {"name": "tiny", "priority": "lightweight", "note": "最軽量（精度は低下）"},
+]
+
+def _voice_model_dir() -> str:
+    root = os.path.join(CODEAGENT_HIDDEN_DIR, "stt_models")
+    os.makedirs(root, exist_ok=True)
+    return root
+
+def voice_load(model_name: str = "small") -> dict:
+    """WhisperモデルをCPU(RAM)へオンデマンドロードする。"""
+    global _voice_model, _voice_model_name
+    if WhisperModel is None:
+        raise RuntimeError("faster-whisper is not installed. install: pip install faster-whisper")
+    with _voice_lock:
+        if _voice_model is not None and _voice_model_name == model_name:
+            return {"loaded": True, "model": _voice_model_name, "device": _voice_device, "compute_type": _voice_compute_type}
+        _voice_model = WhisperModel(
+            model_name,
+            device=_voice_device,          # GPUではなくCPU固定
+            compute_type=_voice_compute_type,
+            download_root=_voice_model_dir(),
+        )
+        _voice_model_name = model_name
+        return {"loaded": True, "model": _voice_model_name, "device": _voice_device, "compute_type": _voice_compute_type}
+
+def voice_unload() -> dict:
+    """WhisperモデルをアンロードしてRAMを解放する。"""
+    global _voice_model
+    with _voice_lock:
+        _voice_model = None
+    return {"loaded": False}
+
+def voice_status() -> dict:
+    with _voice_lock:
+        return {
+            "loaded": _voice_model is not None,
+            "model": _voice_model_name if _voice_model is not None else "",
+            "device": _voice_device,
+            "compute_type": _voice_compute_type,
+            "candidates": _VOICE_MODEL_CANDIDATES,
+        }
+
+def voice_transcribe(audio_bytes: bytes, language: str = "ja", model_name: str = "small", auto_unload: bool = True, audio_format: str = "webm") -> dict:
+    """
+    音声を文字起こしする。英語/日本語対応（Whisper多言語）。
+    language: "ja" / "en" / "auto"
+    """
+    st = voice_load(model_name=model_name)
+    lang = None if language == "auto" else language
+    suffix = "." + re.sub(r"[^a-zA-Z0-9]", "", (audio_format or "webm")).lower()
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
+        tf.write(audio_bytes)
+        temp_path = tf.name
+    try:
+        with _voice_lock:
+            segments, info = _voice_model.transcribe(temp_path, language=lang, beam_size=1)
+            text = "".join(seg.text for seg in segments).strip()
+        if auto_unload:
+            voice_unload()
+        return {
+            "text": text,
+            "language": getattr(info, "language", language),
+            "duration": getattr(info, "duration", 0.0),
+            "model": st.get("model", model_name),
+            "auto_unloaded": auto_unload,
+        }
+    finally:
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
+
+def _resolve_message_with_voice(req: ChatRequest) -> str:
+    msg = (req.message or "").strip()
+    if msg:
+        return msg
+    if not (req.audio_base64 or "").strip():
+        return ""
+    try:
+        audio = base64.b64decode(req.audio_base64)
+        if not audio:
+            return ""
+        tr = voice_transcribe(audio, language=req.voice_language or "ja", audio_format=req.audio_format or "webm")
+        return tr.get("text", "").strip()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"voice transcription failed: {e}")
+
+# =========================
 # エンドポイント: /chat（後方互換）
 # =========================
 
@@ -5062,9 +5395,12 @@ def verify_and_fix(
 def chat(req: ChatRequest):
     sid = str(uuid.uuid4())[:8]
     chat_url = req.llm_url.strip() or LLM_URL_CHAT
-    result = execute_task(req.message, max_steps=req.max_steps, project=req.project,
+    message = _resolve_message_with_voice(req)
+    if not message:
+        raise HTTPException(status_code=400, detail="message is empty")
+    result = execute_task(message, max_steps=req.max_steps, project=req.project,
                           search_enabled=req.search_enabled, llm_url=chat_url)
-    save_session(sid, req.project, req.message, "chat", result)
+    save_session(sid, req.project, message, "chat", result)
     if result["status"] == "done":
         return {
             "result": result["output"],
@@ -5133,21 +5469,24 @@ def llm_test(req: LLMTestRequest):
 @app.post("/plan")
 def plan_only(req: ChatRequest):
     """要件定義・タスクリストを返す。モデル推奨情報も含む。"""
+    message = _resolve_message_with_voice(req)
+    if not message:
+        raise HTTPException(status_code=400, detail="message is empty")
     try:
-        result = plan(req.message, req.project)
+        result = plan(message, req.project)
         if not result.get("tasks"):
-            result["tasks"] = [{"id": 1, "title": "実行", "detail": req.message}]
+            result["tasks"] = [{"id": 1, "title": "実行", "detail": message}]
     except Exception as e:
         result = {
-            "summary": req.message[:80],
+            "summary": message[:80],
             "requirements": [],
             "approach": "",
             "verification": [],
-            "tasks": [{"id": 1, "title": "実行", "detail": req.message}]
+            "tasks": [{"id": 1, "title": "実行", "detail": message}]
         }
         print(f"[PLAN] error: {e}")
 
-    recommended_key = _model_manager.classify(req.message, plan_result=result)
+    recommended_key = _model_manager.classify(message, plan_result=result)
     # ※ basicのまま推奨（UIでAutoを選べば現在のモデルを使う）
     runtime_catalog = get_runtime_model_catalog()
     recommended_spec = runtime_catalog.get(recommended_key, {})
@@ -5155,7 +5494,7 @@ def plan_only(req: ChatRequest):
 
     return {
         **result,
-        "message": req.message,
+        "message": message,
         "project": req.project,
         "recommended_model": recommended_key,
         "recommended_model_name": recommended_spec.get("name", ""),
@@ -5168,6 +5507,37 @@ def plan_only(req: ChatRequest):
                     for k, v in runtime_catalog.items()
                     if bool(v.get("path"))},
     }
+
+@app.get("/voice/status")
+def voice_status_api():
+    return voice_status()
+
+@app.post("/voice/load")
+def voice_load_api(req: dict):
+    model_name = str(req.get("model", "small")).strip() or "small"
+    return voice_load(model_name)
+
+@app.post("/voice/unload")
+def voice_unload_api():
+    return voice_unload()
+
+@app.post("/voice/transcribe")
+def voice_transcribe_api(req: dict):
+    audio_b64 = str(req.get("audio_base64", "")).strip()
+    if not audio_b64:
+        raise HTTPException(status_code=400, detail="audio_base64 required")
+    language = str(req.get("language", "ja")).strip() or "ja"
+    model_name = str(req.get("model", "small")).strip() or "small"
+    auto_unload = bool(req.get("auto_unload", True))
+    audio_format = str(req.get("audio_format", "webm")).strip() or "webm"
+    try:
+        audio = base64.b64decode(audio_b64)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"invalid audio_base64: {e}")
+    try:
+        return voice_transcribe(audio, language=language, model_name=model_name, auto_unload=auto_unload, audio_format=audio_format)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"voice transcribe failed: {e}")
 
 # =========================
 # エンドポイント: /task（SSEストリーミング）
@@ -5560,8 +5930,9 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
     active_tools.update(skill_fns)
     # ファイル操作ツールにprojectを自動バインド
     _pt_list = ("read_file", "write_file", "edit_file", "get_outline",
-                "patch_function", "list_files",
-                "run_python", "run_file", "run_server", "setup_venv")
+                "patch_function", "list_files", "search_in_files",
+                "make_dir", "move_path", "delete_path",
+                "run_shell", "run_python", "run_file", "run_server", "setup_venv")
     import functools as _ft2
     for _pt in _pt_list:
         if _pt in active_tools:
@@ -6627,12 +6998,19 @@ async def mcp_server_endpoint(request: Request):
     if method == "initialize":
         return ok({
             "protocolVersion": "2024-11-05",
-            "capabilities": {"tools": {"listChanged": False}},
+            "capabilities": {
+                "tools": {"listChanged": False},
+                "resources": {"subscribe": False, "listChanged": False},
+                "prompts": {"listChanged": False}
+            },
             "serverInfo": {"name": "codeagent", "version": "1.0"}
         })
 
     elif method == "notifications/initialized":
         return {}
+
+    elif method == "ping":
+        return ok({})
 
     elif method == "tools/list":
         import inspect
@@ -6668,6 +7046,37 @@ async def mcp_server_endpoint(request: Request):
             return err(-32602, f"Invalid params: {e}")
         except Exception as e:
             return err(-32603, f"Internal error: {e}")
+
+    elif method == "resources/list":
+        return ok({
+            "resources": [
+                {
+                    "uri": "codeagent://tools",
+                    "name": "CodeAgent Tools",
+                    "description": "Registered tool names",
+                    "mimeType": "application/json"
+                },
+                {
+                    "uri": "codeagent://health",
+                    "name": "CodeAgent Health",
+                    "description": "Basic health report",
+                    "mimeType": "application/json"
+                }
+            ]
+        })
+
+    elif method == "resources/read":
+        uri = params.get("uri", "")
+        if uri == "codeagent://tools":
+            text = json.dumps({"tool_names": list(TOOLS.keys()), "count": len(TOOLS)}, ensure_ascii=False)
+            return ok({"contents": [{"uri": uri, "mimeType": "application/json", "text": text}]})
+        if uri == "codeagent://health":
+            text = json.dumps({"status": "ok", "service": "codeagent"}, ensure_ascii=False)
+            return ok({"contents": [{"uri": uri, "mimeType": "application/json", "text": text}]})
+        return err(-32602, f"Unknown resource: {uri}")
+
+    elif method == "prompts/list":
+        return ok({"prompts": []})
 
     else:
         return err(-32601, f"Method not found: {method}")
@@ -7530,6 +7939,10 @@ def trigger_memory_analysis(job_id: str, project: str = "default"):
     import threading as _t
     _t.Thread(target=_analyze_job_for_memory, args=(job_id, project, LLM_URL), daemon=True).start()
     return {"ok": True, "message": f"memory analysis triggered for job {job_id}"}
+
+@app.get("/system/usage")
+def system_usage_api():
+    return get_system_usage_info()
 
 @app.get("/health")
 def health():
