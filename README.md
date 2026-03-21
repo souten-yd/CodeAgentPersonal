@@ -244,6 +244,25 @@ CodeAgentPersonal/
 
 > このworkflowでは必須のSecretはありません（外部APIキー未使用）。
 
+### DockerイメージをレジストリへPushする場合の変数一覧
+
+現状のworkflowは **build + runまで** で、Pushは行いません。
+Pushを追加する場合は、`Settings > Secrets and variables > Actions` で以下を設定してください。
+
+**Repository Variables (推奨)**
+- `DOCKER_IMAGE_NAME`: 例 `codeagent-smoke`
+- `DOCKER_IMAGE_TAG`: 例 `latest` / `${{ github.sha }}`
+- `DOCKER_REGISTRY`: 例 `ghcr.io` / `docker.io`
+- `DOCKER_NAMESPACE`: 例 `<github-user-or-org>`
+
+**Repository Secrets (必須)**
+- `DOCKER_USERNAME`: レジストリログインユーザー名
+- `DOCKER_PASSWORD`: レジストリアクセストークン（Docker Hub token / GHCR PAT）
+
+**GHCR利用時の補足**
+- `GITHUB_TOKEN` でPushする構成も可能ですが、workflowに `packages: write` 権限が必要です。
+- PAT利用時は `write:packages` 権限を付与してください。
+
 ### 追加したもの
 
 - Workflow: `.github/workflows/runpod-test.yml`
