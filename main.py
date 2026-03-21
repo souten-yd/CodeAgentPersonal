@@ -8,6 +8,7 @@ import subprocess
 import json
 import os
 import re
+import platform
 import ast
 import textwrap
 import sqlite3
@@ -252,6 +253,8 @@ def _runtime_spec_from_row(row: dict) -> dict:
     except Exception:
         vram_gb = -1
     auto_roles = [x.strip() for x in str(row.get("auto_roles", "")).split(",") if x.strip()]
+    if int(row.get("vlm_enabled", 1) or 1) == 0 and "multi" in auto_roles:
+        auto_roles = [r for r in auto_roles if r != "multi"]
     ctx = int(row.get("ctx_size", 4096) or 4096)
     if ctx < 16384 and any(role in auto_roles for role in ("plan", "search")):
         ctx = 16384
@@ -339,6 +342,47 @@ def _safe_settings_get(key: str, default: str = "") -> str:
         except Exception:
             return default
     return default
+
+
+def _is_quality_output_ok(output: str) -> bool:
+    text = (output or "").strip()
+    if len(text) < 24:
+        return False
+    lowered = text.lower()
+    bad_markers = (
+        "todo", "notimplemented", "未実装", "placeholder", "dummy",
+        "can't", "cannot", "できません", "対応できません", "省略",
+    )
+    return not any(marker in lowered for marker in bad_markers)
+
+
+def get_coder_ladder_keys(catalog: dict | None = None) -> list[str]:
+    catalog = catalog or get_runtime_model_catalog()
+    if not catalog:
+        return []
+    picked: list[str] = []
+    for setting_key in ("coder_primary", "coder_secondary", "coder_tertiary"):
+        key = _safe_settings_get(setting_key, "").strip()
+        if key and key in catalog and key not in picked:
+            picked.append(key)
+    if len(picked) >= 3:
+        return picked[:3]
+
+    candidates = [m for m in model_db_list() if int(m.get("enabled", 1) or 1) != 0 and (m.get("model_key") in catalog)]
+    ranked = sorted(
+        candidates,
+        key=lambda m: (
+            1 if any(tag in ((m.get("name", "") + " " + m.get("model_key", "")).lower()) for tag in ("coder", "code", "qwen")) else 0,
+            _model_text_tps(m),
+        )
+    )
+    for m in ranked:
+        mk = m.get("model_key", "")
+        if mk and mk not in picked:
+            picked.append(mk)
+        if len(picked) >= 3:
+            break
+    return picked[:3]
 
 
 def _get_auto_role_model_map(catalog: dict | None = None) -> dict:
@@ -466,7 +510,7 @@ def _fallback_role_recommendations(models: list[dict]) -> dict[str, list[str]]:
             roles.extend(["code", "complex"])
         if model["id"] == chat["id"]:
             roles.extend(["chat", "reason"])
-        if model.get("is_vlm"):
+        if model.get("is_vlm") and int(model.get("vlm_enabled", 1) or 1) != 0:
             roles.append("multi")
         recommendations[model["id"]] = list(dict.fromkeys(roles))
     return recommendations
@@ -2225,6 +2269,7 @@ def _get_model_db(create_if_missing: bool = True):
             name TEXT NOT NULL,
             path TEXT NOT NULL,
             is_vlm INTEGER DEFAULT 0,
+            vlm_enabled INTEGER DEFAULT 1,
             enabled INTEGER DEFAULT 1,
             vram_mb INTEGER DEFAULT -1,
             ram_mb INTEGER DEFAULT -1,
@@ -2256,6 +2301,7 @@ def _get_model_db(create_if_missing: bool = True):
     # 既存DBへのマイグレーション: 列が無ければ追加
     for ddl in [
         "ALTER TABLE models ADD COLUMN model_key TEXT DEFAULT ''",
+        "ALTER TABLE models ADD COLUMN vlm_enabled INTEGER DEFAULT 1",
         "ALTER TABLE models ADD COLUMN enabled INTEGER DEFAULT 1",
         "ALTER TABLE models ADD COLUMN threads INTEGER DEFAULT 8",
         "ALTER TABLE models ADD COLUMN parser TEXT DEFAULT 'json'",
@@ -2302,12 +2348,13 @@ def model_db_list() -> list:
 
 
 def model_db_find_by_path(path: str) -> dict | None:
+    norm = os.path.normpath(path or "")
     with _model_db_lock:
         conn = _get_model_db(create_if_missing=False)
         if conn is None:
             return None
         try:
-            row = conn.execute("SELECT * FROM models WHERE path=?", (path,)).fetchone()
+            row = conn.execute("SELECT * FROM models WHERE path=?", (norm,)).fetchone()
             return dict(row) if row else None
         finally:
             conn.close()
@@ -2319,25 +2366,36 @@ def seed_default_model_catalog():
 
 def model_db_add(info: dict) -> str:
     info = _infer_model_db_metadata(dict(info))
-    mid = info.get("id") or str(uuid.uuid4())[:12]
+    normalized_path = os.path.normpath(info.get("path", "") or "")
+    existing = None
+    if normalized_path:
+        existing = model_db_find_by_path(normalized_path)
+    if not existing and info.get("model_key"):
+        key = str(info.get("model_key")).strip()
+        for row in model_db_list():
+            if str(row.get("model_key", "")).strip() == key:
+                existing = row
+                break
+    mid = (existing or {}).get("id") or info.get("id") or str(uuid.uuid4())[:12]
     now = datetime.now().isoformat()
     with _model_db_lock:
         conn = _get_model_db()
         try:
             conn.execute("""
                 INSERT OR REPLACE INTO models
-                (id, model_key, name, path, is_vlm, enabled, vram_mb, ram_mb, load_sec, tok_per_sec,
+                (id, model_key, name, path, is_vlm, vlm_enabled, enabled, vram_mb, ram_mb, load_sec, tok_per_sec,
                  llm_url, ctx_size, gpu_layers, threads, parser, description,
                  parallel, batch_size, ubatch_size, cache_type_k, cache_type_v, extra_args,
                  benchmark_profiles,
                  auto_roles, has_mmproj, mmproj_path, quantization, file_size_mb, notes, benchmarked_at, created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 mid,
                 info.get("model_key", ""),
                 info.get("name", ""),
-                info.get("path", ""),
+                normalized_path or info.get("path", ""),
                 1 if info.get("is_vlm") else 0,
+                1 if info.get("vlm_enabled", 1) else 0,
                 1 if info.get("enabled", 1) else 0,
                 info.get("vram_mb", -1),
                 info.get("ram_mb", -1),
@@ -2363,7 +2421,7 @@ def model_db_add(info: dict) -> str:
                 info.get("file_size_mb", -1),
                 info.get("notes", ""),
                 info.get("benchmarked_at", ""),
-                info.get("created_at", now),
+                (existing or {}).get("created_at", info.get("created_at", now)),
             ))
             conn.commit()
             return mid
@@ -2384,7 +2442,7 @@ def model_db_delete(mid: str):
 
 
 def model_db_update(mid: str, updates: dict):
-    allowed = {"model_key", "name", "path", "is_vlm", "enabled", "vram_mb", "ram_mb", "load_sec",
+    allowed = {"model_key", "name", "path", "is_vlm", "vlm_enabled", "enabled", "vram_mb", "ram_mb", "load_sec",
                "tok_per_sec", "llm_url", "ctx_size", "gpu_layers", "threads", "parser",
                "description", "parallel", "batch_size", "ubatch_size", "cache_type_k",
                "cache_type_v", "extra_args", "auto_roles", "benchmark_profiles", "has_mmproj", "mmproj_path", "quantization", "file_size_mb",
@@ -2486,7 +2544,7 @@ def benchmark_model_profiles(model: dict) -> dict:
 
 # デフォルト設定定義
 SETTINGS_DEFAULTS = {
-    "llm_root_folder":    "",           # モデルのルートフォルダ
+    "llm_root_folder":    _default_llm_root_folder(),  # モデルのルートフォルダ
     "max_steps":          "20",
     "auto_select_option": "true",
     "auto_skill_gen":     "true",
@@ -2495,6 +2553,11 @@ SETTINGS_DEFAULTS = {
     "streaming_enabled":  "true",
     "ctx_size":           "16384",
     "llm_url":            "",
+    "orchestration_policy": "ladder_fail_and_quality",
+    "coder_primary": "",
+    "coder_secondary": "",
+    "coder_tertiary": "",
+    "quality_check_enabled": "true",
 }
 for _role in MODEL_ROLE_OPTIONS:
     SETTINGS_DEFAULTS.setdefault(_role_setting_key(_role), "")
@@ -2651,6 +2714,138 @@ def _get_file_size_mb(path: str) -> int:
         return -1
 
 
+def _is_runpod_env() -> bool:
+    if os.environ.get("RUNPOD_POD_ID") or os.environ.get("RUNPOD_API_KEY"):
+        return True
+    return (sys.platform.startswith("linux") and os.path.isdir("/workspace"))
+
+
+def _default_llm_root_folder() -> str:
+    if _is_runpod_env():
+        return "/workspace/LLMs"
+    if os.name == "nt":
+        return r"C:\LLMs"
+    return os.path.join(os.path.expanduser("~"), "LLMs")
+
+
+def _read_meminfo_kb() -> tuple[int, int]:
+    total_kb = 0
+    avail_kb = 0
+    try:
+        if os.path.exists("/proc/meminfo"):
+            with open("/proc/meminfo", "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("MemTotal:"):
+                        total_kb = int(line.split()[1])
+                    elif line.startswith("MemAvailable:"):
+                        avail_kb = int(line.split()[1])
+            return total_kb, avail_kb
+    except Exception:
+        pass
+    return 0, 0
+
+
+def get_system_hardware_info() -> dict:
+    ram_total_mb = -1
+    ram_available_mb = -1
+    try:
+        if os.name == "nt":
+            ps = (
+                "$os = Get-CimInstance Win32_OperatingSystem; "
+                "$total = [math]::Round($os.TotalVisibleMemorySize / 1024); "
+                "$avail = [math]::Round($os.FreePhysicalMemory / 1024); "
+                "Write-Output \"$total,$avail\""
+            )
+            r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=8)
+            out = r.stdout.strip()
+            if "," in out:
+                t, a = out.split(",", 1)
+                ram_total_mb = int(t)
+                ram_available_mb = int(a)
+        else:
+            t_kb, a_kb = _read_meminfo_kb()
+            if t_kb > 0:
+                ram_total_mb = int(t_kb / 1024)
+            if a_kb > 0:
+                ram_available_mb = int(a_kb / 1024)
+    except Exception:
+        pass
+
+    gpus = []
+    gpu_backend = "none"
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total,memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=8
+        )
+        for line in (r.stdout or "").splitlines():
+            parts = [x.strip() for x in line.split(",")]
+            if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
+                gpus.append({
+                    "name": parts[0],
+                    "memory_total_mb": int(parts[1]),
+                    "memory_free_mb": int(parts[2]),
+                })
+        if gpus:
+            gpu_backend = "nvidia-smi"
+    except Exception:
+        pass
+    if not gpus:
+        try:
+            # rocm-smi --showmeminfo vram --json
+            r = subprocess.run(["rocm-smi", "--showproductname", "--showmeminfo", "vram", "--json"], capture_output=True, text=True, timeout=8)
+            if r.returncode == 0 and r.stdout.strip().startswith("{"):
+                data = json.loads(r.stdout)
+                for _, info in data.items():
+                    if not isinstance(info, dict):
+                        continue
+                    total_b = info.get("VRAM Total Memory (B)") or info.get("VRAM Total Used Memory (B)")
+                    used_b = info.get("VRAM Total Used Memory (B)")
+                    name = info.get("Card series") or info.get("Card SKU") or "AMD GPU"
+                    if isinstance(total_b, (int, float)) and total_b > 0:
+                        total_mb = int(total_b / (1024 * 1024))
+                        used_mb = int((used_b or 0) / (1024 * 1024))
+                        gpus.append({
+                            "name": str(name),
+                            "memory_total_mb": total_mb,
+                            "memory_free_mb": max(0, total_mb - used_mb),
+                        })
+                if gpus:
+                    gpu_backend = "rocm-smi"
+        except Exception:
+            pass
+
+    vram_total_mb = sum(g["memory_total_mb"] for g in gpus) if gpus else -1
+    vram_free_mb = sum(g["memory_free_mb"] for g in gpus) if gpus else -1
+    return {
+        "os": platform.platform(),
+        "is_runpod": _is_runpod_env(),
+        "ram_total_mb": ram_total_mb,
+        "ram_available_mb": ram_available_mb,
+        "vram_total_mb": vram_total_mb,
+        "vram_free_mb": vram_free_mb,
+        "gpus": gpus,
+        "gpu_backend": gpu_backend,
+    }
+
+
+def _estimate_fit(file_size_mb: int, hw: dict) -> dict:
+    est_vram_mb = int(file_size_mb * 1.15) if file_size_mb > 0 else -1
+    est_ram_mb = int(file_size_mb * 0.35) if file_size_mb > 0 else -1
+    vram_free = int(hw.get("vram_free_mb", -1) or -1)
+    ram_free = int(hw.get("ram_available_mb", -1) or -1)
+    full_offload = bool(est_vram_mb > 0 and vram_free > 0 and vram_free >= est_vram_mb)
+    downloadable = bool(file_size_mb > 0 and ram_free > 0 and ram_free >= min(est_ram_mb, file_size_mb))
+    return {
+        "estimated_vram_mb": est_vram_mb,
+        "estimated_ram_mb": est_ram_mb,
+        "downloadable": downloadable,
+        "full_offload_possible": full_offload,
+    }
+
+
 def _guess_quantization(path: str) -> str:
     fname = os.path.basename(path).upper()
     for q in ["Q2_K", "IQ2_M", "IQ3_M", "Q3_K_S", "Q3_K_M", "Q3_K_L",
@@ -2741,7 +2936,7 @@ def model_db_scan_folder(folder: str) -> list:
         is_vlm = _detect_vlm(full_path, model_name) or has_mmproj
         results.append(_infer_model_db_metadata({
             "name": model_name,
-            "path": full_path,
+            "path": os.path.normpath(full_path),
             "is_vlm": is_vlm,
             "has_mmproj": has_mmproj,
             "mmproj_path": mmproj_path,
@@ -3467,6 +3662,10 @@ def run_job_background(job_id: str, req: "JobRequest"):
             else:
                 print(f"[ModelManager] no switch needed for {best_key}")
 
+            orchestration_policy = settings_get("orchestration_policy") or "ladder_fail_and_quality"
+            quality_check_enabled = settings_get("quality_check_enabled") != "false"
+            coder_ladder = get_coder_ladder_keys(runtime_catalog)
+
             for i, todo in enumerate(todos):
               try:  # ← per-task guard: 1タスクの例外がジョブ全体を止めないよう保護
                 write("task_start", {
@@ -3812,6 +4011,60 @@ JSON形式で出力:
                         task_status = "done"
                         task_output = f"[skipped by timeout] {todo['title']}"
 
+                # Stage 5: コーダー段階的昇格（失敗時 / 品質基準未達）
+                if orchestration_policy != "off" and not req.llm_url.strip():
+                    needs_quality_retry = (
+                        orchestration_policy == "ladder_fail_and_quality"
+                        and quality_check_enabled
+                        and task_status == "done"
+                        and (not _is_quality_output_ok(task_output))
+                    )
+                    needs_fail_retry = (task_status in ("error", "pending"))
+                    if needs_fail_retry or needs_quality_retry:
+                        current_key = _model_manager.current_key
+                        tried_keys = {current_key}
+                        for lvl, next_key in enumerate(coder_ladder, start=1):
+                            if not next_key or next_key in tried_keys:
+                                continue
+                            tried_keys.add(next_key)
+                            spec = get_model_spec(next_key)
+                            if not spec.get("path"):
+                                continue
+                            write("model_switching", {
+                                "from": _model_manager.current_key,
+                                "to": next_key,
+                                "model_name": spec.get("name", next_key),
+                                "eta_sec": spec.get("load_sec", 30),
+                                "message": f"Coder昇格 L{lvl}: {spec.get('name', next_key)}",
+                            })
+                            switched = _model_manager.ensure_model(
+                                next_key,
+                                on_event=lambda ev: write(ev.get("type", "model_event"), ev)
+                            )
+                            if not switched:
+                                continue
+                            task_url = _model_manager.llm_url
+                            reason = "失敗リカバリ" if needs_fail_retry else "品質改善"
+                            qctx = (
+                                f"{context}\n\n【昇格実行】{reason}\n"
+                                f"タスク出力を完成形に改善してください。\n"
+                                f"- 省略/TODO/placeholderは禁止\n"
+                                f"- 実行可能な具体コード・修正内容にすること\n"
+                                f"- 既存ファイルとの整合性を保つこと\n"
+                            )
+                            task_steps, task_status, task_output = _run_stage(f"[Coder昇格L{lvl}] ", qctx, req.max_steps)
+                            if task_status == "done" and (not quality_check_enabled or _is_quality_output_ok(task_output)):
+                                break
+                            needs_fail_retry = (task_status in ("error", "pending"))
+                            needs_quality_retry = (
+                                orchestration_policy == "ladder_fail_and_quality"
+                                and quality_check_enabled
+                                and task_status == "done"
+                                and (not _is_quality_output_ok(task_output))
+                            )
+                            if not (needs_fail_retry or needs_quality_retry):
+                                break
+
                 print(f"[JOB {job_id}] task {i+1}/{total} '{todo['title'][:30]}' -> {task_status}")
                 final_status = task_status if task_status == "done" else "error"
                 results.append({"task_id": todo["id"], "title": todo["title"],
@@ -3878,6 +4131,35 @@ JSON形式で出力:
                     llm_url=verify_url, search_enabled=req.search_enabled,
                     on_event=lambda ev: write(ev.get("type","verify"), ev)
                 )
+                if (orchestration_policy == "ladder_fail_and_quality"
+                        and not req.llm_url.strip()
+                        and verify_result
+                        and not verify_result.get("passed", True)):
+                    for next_key in coder_ladder:
+                        if not next_key or next_key == _model_manager.current_key:
+                            continue
+                        spec = get_model_spec(next_key)
+                        if not spec.get("path"):
+                            continue
+                        write("model_switching", {
+                            "from": _model_manager.current_key,
+                            "to": next_key,
+                            "model_name": spec.get("name", next_key),
+                            "eta_sec": spec.get("load_sec", 30),
+                            "message": f"検証不合格のため高品質モデルへ昇格: {spec.get('name', next_key)}",
+                        })
+                        if not _model_manager.ensure_model(next_key, on_event=lambda ev: write(ev.get("type","model_event"), ev)):
+                            continue
+                        verify_result = verify_and_fix(
+                            user_message=req.message,
+                            requirements=requirements,
+                            verification_items=verification,
+                            project=project, max_fix_rounds=2,
+                            llm_url=_model_manager.llm_url, search_enabled=req.search_enabled,
+                            on_event=lambda ev: write(ev.get("type","verify"), ev)
+                        )
+                        if verify_result.get("passed", False):
+                            break
             else:
                 verify_result = None
 
@@ -6306,6 +6588,143 @@ def model_db_status_api():
     }
 
 
+@app.get("/models/hardware")
+def model_hardware_api():
+    return get_system_hardware_info()
+
+
+@app.get("/models/gguf/search")
+def search_gguf_models_api(
+    q: str = "",
+    sort: str = "downloads",
+    limit: int = 20,
+):
+    query = (q or "").strip()
+    if not query:
+        raise HTTPException(400, "q required")
+    limit = max(1, min(limit, 50))
+    sort_key = "downloads" if sort not in ("downloads", "updated") else sort
+    hf_sort = "downloads" if sort_key == "downloads" else "lastModified"
+    try:
+        resp = requests.get(
+            "https://huggingface.co/api/models",
+            params={
+                "search": query,
+                "sort": hf_sort,
+                "direction": "-1",
+                "limit": str(limit),
+                "full": "true",
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        rows = resp.json() if isinstance(resp.json(), list) else []
+    except Exception as e:
+        raise HTTPException(502, f"Hugging Face search failed: {e}")
+
+    hw = get_system_hardware_info()
+    results = []
+    for row in rows:
+        model_id = row.get("id", "")
+        siblings = row.get("siblings", []) or []
+        ggufs = []
+        for s in siblings:
+            name = s.get("rfilename", "")
+            if not name.lower().endswith(".gguf"):
+                continue
+            size_bytes = int(s.get("size") or 0)
+            size_mb = int(size_bytes / (1024 * 1024)) if size_bytes > 0 else -1
+            fit = _estimate_fit(size_mb, hw)
+            ggufs.append({
+                "filename": name,
+                "size_bytes": size_bytes,
+                "size_mb": size_mb,
+                **fit,
+            })
+        if not ggufs:
+            continue
+        ggufs.sort(key=lambda x: x.get("size_bytes", 0), reverse=True)
+        results.append({
+            "model_id": model_id,
+            "downloads": int(row.get("downloads") or 0),
+            "likes": int(row.get("likes") or 0),
+            "last_modified": row.get("lastModified", ""),
+            "ggufs": ggufs,
+        })
+    return {
+        "query": query,
+        "sort": sort_key,
+        "hardware": hw,
+        "results": results,
+        "count": len(results),
+    }
+
+
+@app.post("/models/gguf/download")
+def download_gguf_api(req: dict):
+    model_id = (req.get("model_id") or "").strip()
+    filename = (req.get("filename") or "").strip()
+    if not model_id or not filename:
+        raise HTTPException(400, "model_id and filename required")
+    safe_rel = os.path.normpath(filename).replace("\\", "/")
+    if safe_rel.startswith("../") or safe_rel == ".." or os.path.isabs(safe_rel):
+        raise HTTPException(400, "invalid filename")
+
+    folder = (req.get("folder") or settings_get("llm_root_folder") or _default_llm_root_folder()).strip()
+    if not folder:
+        folder = _default_llm_root_folder()
+    os.makedirs(folder, exist_ok=True)
+
+    url = f"https://huggingface.co/{model_id}/resolve/main/{safe_rel}?download=true"
+    target = os.path.join(folder, safe_rel)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    tmp_target = target + ".part"
+    try:
+        with requests.get(url, stream=True, timeout=45) as r:
+            if r.status_code >= 400:
+                raise HTTPException(r.status_code, f"download failed: {r.text[:160]}")
+            total = int(r.headers.get("Content-Length") or 0)
+            with open(tmp_target, "wb") as f:
+                for chunk in r.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+        os.replace(tmp_target, target)
+        file_size = os.path.getsize(target)
+    except HTTPException:
+        if os.path.exists(tmp_target):
+            os.remove(tmp_target)
+        raise
+    except Exception as e:
+        if os.path.exists(tmp_target):
+            os.remove(tmp_target)
+        raise HTTPException(500, f"download error: {e}")
+
+    existing = model_db_find_by_path(target)
+    model_name = f"{model_id}/{os.path.splitext(filename)[0]}"
+    record = _infer_model_db_metadata({
+        "name": model_name,
+        "path": target,
+        "is_vlm": _detect_vlm(target, model_name),
+        "has_mmproj": False,
+        "mmproj_path": "",
+        "quantization": _guess_quantization(target),
+        "file_size_mb": int(file_size / (1024 * 1024)),
+        "vram_mb": -1, "ram_mb": -1, "load_sec": -1, "tok_per_sec": -1,
+        "llm_url": "", "ctx_size": 16384, "gpu_layers": 999, "notes": "downloaded",
+    })
+    if existing:
+        model_db_update(existing["id"], record)
+        model_id_db = existing["id"]
+    else:
+        model_id_db = model_db_add(record)
+    return {
+        "ok": True,
+        "path": target,
+        "bytes": file_size,
+        "model_db_id": model_id_db,
+    }
+
+
 
 _model_scan_lock = __import__("threading").Lock()
 _model_scan_state: dict[str, object] = {
@@ -6496,6 +6915,13 @@ def toggle_model_enabled(mid: str, req: dict):
     return {"ok": True, "enabled": enabled}
 
 
+@app.post("/models/db/toggle_vlm/{mid}")
+def toggle_model_vlm_enabled(mid: str, req: dict):
+    vlm_enabled = req.get("vlm_enabled", True)
+    model_db_update(mid, {"vlm_enabled": 1 if vlm_enabled else 0})
+    return {"ok": True, "vlm_enabled": bool(vlm_enabled)}
+
+
 @app.get("/models/roles")
 def get_model_role_assignments_api():
     catalog = get_runtime_model_catalog(include_disabled=True)
@@ -6529,6 +6955,8 @@ def get_model_role_assignments_api():
                 "model_key": m.get("model_key", ""),
                 "name": m.get("name", ""),
                 "enabled": int(m.get("enabled", 1) or 1),
+                "vlm_enabled": int(m.get("vlm_enabled", 1) or 1),
+                "is_vlm": int(m.get("is_vlm", 0) or 0),
                 "auto_roles": [x.strip() for x in str(m.get("auto_roles", "")).split(",") if x.strip()],
             }
             for m in models
@@ -6553,6 +6981,47 @@ def save_model_role_assignments_api(req: dict):
     if updates:
         settings_set_bulk(updates)
     return {"ok": True, "saved_roles": [k.removeprefix("role_model_") for k in updates.keys()]}
+
+
+@app.get("/models/orchestration")
+def get_model_orchestration_api():
+    catalog = get_runtime_model_catalog(include_disabled=True)
+    ladder = get_coder_ladder_keys(catalog)
+    return {
+        "policy": settings_get("orchestration_policy") or "ladder_fail_and_quality",
+        "quality_check_enabled": settings_get("quality_check_enabled") != "false",
+        "coder_primary": settings_get("coder_primary"),
+        "coder_secondary": settings_get("coder_secondary"),
+        "coder_tertiary": settings_get("coder_tertiary"),
+        "resolved_ladder": ladder,
+        "models": [
+            {
+                "model_key": m.get("model_key", ""),
+                "name": m.get("name", ""),
+                "enabled": int(m.get("enabled", 1) or 1),
+                "tok_per_sec": _model_text_tps(m),
+            } for m in model_db_list()
+        ],
+    }
+
+
+@app.post("/models/orchestration")
+def save_model_orchestration_api(req: dict):
+    policy = str(req.get("policy", "ladder_fail_and_quality")).strip() or "ladder_fail_and_quality"
+    if policy not in ("off", "ladder_fail_only", "ladder_fail_and_quality"):
+        raise HTTPException(400, "invalid policy")
+    catalog = get_runtime_model_catalog(include_disabled=True)
+    updates = {
+        "orchestration_policy": policy,
+        "quality_check_enabled": "true" if req.get("quality_check_enabled", True) else "false",
+    }
+    for key in ("coder_primary", "coder_secondary", "coder_tertiary"):
+        mk = str(req.get(key, "") or "").strip()
+        if mk and mk not in catalog:
+            raise HTTPException(400, f"unknown model key: {mk}")
+        updates[key] = mk
+    settings_set_bulk(updates)
+    return {"ok": True, "saved": updates}
 
 
 # =========================

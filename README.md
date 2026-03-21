@@ -83,6 +83,9 @@
 | **7タブパネル** | Output / Preview / Log / Skills / Memory / Git / Models |
 | **ファイルブラウザ** | プロジェクトファイルをリアルタイム表示・iframe preview |
 | **設定パネル** | ⚙ボタンから: Steps・Auto Select・SKILL自動生成・ストリーミング・コンテキスト長・検索件数・LLM URL |
+| **GGUF検索/ダウンロード** | Modelsタブから Hugging Face のGGUFを検索し、RAM/VRAM適合目安（DL可否・完全オフロード可否）を確認して直接DL |
+| **VLM Visionトグル** | VLMモデルごとに画像認識(vision)をON/OFF可能。OFF時はmulti用途の自動割り当て対象から除外 |
+| **Coderオーケストレーション** | 軽量→高品質の3段コーダーを設定し、失敗時/品質未達時に段階昇格して再実行 |
 | **モバイル対応** | iPhone対応。タブバーはスクロール可能。Safe area対応 |
 | **プロジェクト管理** | 複数プロジェクトを切り替え・作成 |
 | **ジョブ履歴** | 実行中ジョブへの自動再接続。SQLite永続化 |
@@ -149,6 +152,13 @@ DLllama.bat
 ### 2. モデルのダウンロード
 
 GGUF形式モデルを用意し、`start.bat` 内のモデルパスを編集。
+
+UIからのDLにも対応:
+- Modelsタブでキーワード検索（downloads順 / 最新更新順）
+- NVIDIAだけでなく **AMD Radeon (ROCm環境)** でも検索自体は可能（検索はHF API呼び出し）。VRAM取得は `rocm-smi` を優先対応
+- LLMルートフォルダへ直接ダウンロード
+- **Runpod(Ubuntu)** では既定保存先 `/workspace/LLMs`
+- それ以外では既定保存先 `C:\LLMs`（必要に応じて任意フォルダへ変更可）
 
 ### 3. 起動
 
