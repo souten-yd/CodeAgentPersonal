@@ -228,3 +228,84 @@ CodeAgentPersonal/
 | `GET` | `/health` | ヘルスチェック |
 
 ※ `/projects` で作成・参照される実体ディレクトリは `./ca_data/workspace/{project}/` です。
+
+---
+
+## GitHub Actions + Runpod テスト運用
+
+`python:3.11-slim` 想定に合わせ、CI の Python も **3.11** をデフォルトにしています。
+
+### GitHub Actionsで使う環境変数（Repository Variables）
+
+`Settings > Secrets and variables > Actions > Variables` で以下を設定できます。
+
+- `CI_PYTHON_VERSION` (任意): CIで使うPythonバージョン。未設定時は `3.11`。
+- `CI_PIP_PACKAGES` (任意): 追加インストールするPython依存。未設定時は `fastapi uvicorn requests`。
+
+> このworkflowでは必須のSecretはありません（外部APIキー未使用）。
+
+### DockerイメージをレジストリへPushする場合の変数一覧
+
+現状のworkflowは **build + runまで** で、Pushは行いません。
+Pushを追加する場合は、`Settings > Secrets and variables > Actions` で以下を設定してください。
+
+**Repository Variables (推奨)**
+- `DOCKER_IMAGE_NAME`: 例 `codeagent-smoke`
+- `DOCKER_IMAGE_TAG`: 例 `latest` / `${{ github.sha }}`
+- `DOCKER_REGISTRY`: 例 `ghcr.io` / `docker.io`
+- `DOCKER_NAMESPACE`: 例 `<github-user-or-org>`
+
+**Repository Secrets (必須)**
+- `DOCKER_USERNAME`: レジストリログインユーザー名
+- `DOCKER_PASSWORD`: レジストリアクセストークン（Docker Hub token / GHCR PAT）
+
+**GHCR利用時の補足**
+- `GITHUB_TOKEN` でPushする構成も可能ですが、workflowに `packages: write` 権限が必要です。
+- PAT利用時は `write:packages` 権限を付与してください。
+
+### 追加したもの
+
+- Workflow: `.github/workflows/runpod-test.yml`
+  - `docker-smoke`: `python:3.11-slim` ベースのDockerイメージをビルドし、コンテナ内で環境スモークテスト
+  - `windows-smoke`: GitHub Hosted Runner (`windows-latest`) で Python 3.11 の起動確認と依存 import
+  - `runpod-smoke`: Runpod 上の self-hosted runner (`self-hosted, linux, x64, nvidia, runpod`) で NVIDIA/Vulkan/依存チェック
+- Dockerfile: `.github/docker/smoke.Dockerfile`
+- Runpod セットアップスクリプト: `scripts/setup_runpod_ubuntu.sh`
+- 環境確認スクリプト: `scripts/check_environment.py`
+
+
+### DockerコンテナでのGitHub Actions実行
+
+`docker-smoke` ジョブは、`.github/docker/smoke.Dockerfile` を使ってコンテナを作成し、以下を行います。
+
+1. `python:3.11-slim` からイメージをビルド
+2. `CI_PIP_PACKAGES` で指定した依存をインストール
+3. `scripts/check_environment.py --expect-python 3.11` をコンテナ内で実行
+
+これにより、ローカルDocker想定 (`python:3.11-slim`) と同じ前提でCI検証できます。
+
+### Runpod 側の前提
+
+1. Ubuntu 系イメージで Pod を作成（NVIDIA GPU）
+2. GitHub Actions self-hosted runner を導入し、以下ラベルを付与
+   - `self-hosted`
+   - `linux`
+   - `x64`
+   - `nvidia`
+   - `runpod`
+3. 依存導入
+
+```bash
+bash scripts/setup_runpod_ubuntu.sh
+```
+
+4. ローカル確認
+
+```bash
+python3.11 scripts/check_environment.py --expect-python 3.11
+```
+
+### 補足
+
+- Windows/NVIDIA は GitHub Hosted Runner だと GPU が保証されないため、`windows-smoke` は「Python/依存/最小動作」の確認を主目的にしています。
+- Vulkan は最適化不要との前提に合わせ、`vulkaninfo --summary` が実行可能かどうかを確認するだけにしています。

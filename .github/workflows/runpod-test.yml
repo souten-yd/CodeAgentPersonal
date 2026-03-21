@@ -1,0 +1,114 @@
+name: Runpod / Windows smoke test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'main.py'
+      - 'benchmark_mem.py'
+      - 'README.md'
+      - '.github/workflows/runpod-test.yml'
+      - 'scripts/setup_runpod_ubuntu.sh'
+      - 'scripts/check_environment.py'
+  pull_request:
+    paths:
+      - 'main.py'
+      - 'benchmark_mem.py'
+      - 'README.md'
+      - '.github/workflows/runpod-test.yml'
+      - 'scripts/setup_runpod_ubuntu.sh'
+      - 'scripts/check_environment.py'
+
+env:
+  PYTHON_VERSION: ${{ vars.CI_PYTHON_VERSION || '3.11' }}
+  PIP_PACKAGES: ${{ vars.CI_PIP_PACKAGES || 'fastapi uvicorn requests' }}
+
+jobs:
+
+  docker-smoke:
+    name: Docker smoke (python:3.11-slim parity)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build smoke image
+        run: |
+          docker build             -f .github/docker/smoke.Dockerfile             --build-arg PIP_PACKAGES="${PIP_PACKAGES}"             -t codeagent-smoke:latest             .
+
+      - name: Run smoke container
+        run: |
+          docker run --rm codeagent-smoke:latest
+
+  windows-smoke:
+    name: Windows smoke (NVIDIA / Vulkan)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Verify Python version
+        shell: pwsh
+        run: |
+          python -c "import sys; print(sys.version)"
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install $env:PIP_PACKAGES
+
+      - name: Smoke check
+        shell: pwsh
+        run: |
+          python scripts/check_environment.py --expect-python $env:PYTHON_VERSION
+
+      - name: Vulkan runtime check (best effort)
+        shell: pwsh
+        run: |
+          $vulkanInfo = Get-Command vulkaninfo -ErrorAction SilentlyContinue
+          if ($null -eq $vulkanInfo) {
+            Write-Host 'vulkaninfo was not found on windows-latest (this is acceptable for hosted runner).'
+          } else {
+            vulkaninfo --summary
+          }
+
+  runpod-smoke:
+    name: Runpod smoke (self-hosted NVIDIA)
+    runs-on: [self-hosted, linux, x64, nvidia, runpod]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure required host packages
+        run: |
+          bash scripts/setup_runpod_ubuntu.sh --ci
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Verify NVIDIA and Vulkan
+        run: |
+          nvidia-smi
+          if command -v vulkaninfo >/dev/null 2>&1; then
+            vulkaninfo --summary || true
+          else
+            echo 'vulkaninfo not found. Install vulkan-tools on the runner host.'
+          fi
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ${PIP_PACKAGES}
+
+      - name: Smoke check
+        run: |
+          python scripts/check_environment.py --expect-python ${PYTHON_VERSION}
