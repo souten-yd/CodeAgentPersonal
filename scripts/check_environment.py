@@ -8,9 +8,12 @@ import sys
 
 
 def run(cmd: list[str]) -> tuple[int, str]:
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    out = (p.stdout or "") + (p.stderr or "")
-    return p.returncode, out.strip()
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        out = (p.stdout or "") + (p.stderr or "")
+        return p.returncode, out.strip()
+    except FileNotFoundError as e:
+        return 127, str(e)
 
 
 def main() -> int:
