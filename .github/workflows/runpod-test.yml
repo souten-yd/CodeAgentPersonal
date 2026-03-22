@@ -23,6 +23,7 @@ on:
 env:
   PYTHON_VERSION: '3.11'
   PIP_PACKAGES: ${{ vars.CI_PIP_PACKAGES || 'fastapi uvicorn requests' }}
+  RUNPOD_SMOKE_ENABLED: ${{ vars.RUNPOD_SMOKE_ENABLED || 'false' }}
 
 jobs:
 
@@ -86,6 +87,8 @@ jobs:
 
   runpod-smoke:
     name: Runpod smoke (self-hosted NVIDIA)
+    if: ${{ env.RUNPOD_SMOKE_ENABLED == 'true' }}
+    timeout-minutes: 30
     runs-on: [self-hosted, linux, x64, nvidia, runpod]
     steps:
       - name: Checkout
