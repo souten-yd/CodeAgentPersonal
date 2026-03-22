@@ -89,11 +89,6 @@ def choose_mode() -> tuple[str, str]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CodeAgent launcher (cross-platform)")
-    # NOTE:
-    # Keep legacy options for start.bat compatibility.
-    # They are intentionally ignored because launcher mode is auto-only.
-    parser.add_argument("--mode", default=AUTO_MODE_KEY, help=argparse.SUPPRESS)
-    parser.add_argument("--interactive", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--primary-port", type=int, default=8080)
