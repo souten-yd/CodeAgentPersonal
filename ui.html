@@ -1238,7 +1238,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
         <div style="margin-bottom:6px;font-size:11px;color:var(--text2)">コンテキスト長</div>
         <div style="display:flex;align-items:center;gap:8px">
-          <input type="range" id="ctx-slider" min="512" max="65535" step="1" value="8192"
+          <input type="range" id="ctx-slider" min="512" max="65535" step="1" value="16384"
             style="flex:1;accent-color:var(--accent);cursor:pointer"
             oninput="updateCtxLabel(this.value)" onchange="applyCtxLen(this.value)">
           <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">8192</span>
@@ -4102,7 +4102,7 @@ async function initCtxSlider() {
     // llama-serverの最大コンテキスト長を取得
     const r = await fetch(API+'/llm/props');
     const d = await r.json();
-    const maxCtx = 65535;
+    const maxCtx = Math.min(65535, (d.n_ctx || 65535));
 
     // サーバー側の現在値も取得
     const cr = await fetch(API+'/llm/ctx');
