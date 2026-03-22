@@ -164,14 +164,27 @@ UIからのDLにも対応:
 - Modelsタブでキーワード検索（downloads順 / 最新更新順）
 - NVIDIAだけでなく **AMD Radeon (ROCm環境)** でも検索自体は可能（検索はHF API呼び出し）。VRAM取得は `rocm-smi` を優先対応
 - LLMルートフォルダへ直接ダウンロード
+- カタログからのダウンロード成功後はバックグラウンドでベンチマークを自動実行し、結果をモデルDBへ反映
 - **Runpod(Ubuntu)** では既定保存先 `/workspace/LLMs`
 - それ以外では既定保存先 `C:\LLMs`（必要に応じて任意フォルダへ変更可）
 
 ### 3. 起動
 
+Windows:
+
 ```bat
 start.bat
 ```
+
+Runpod / Linux (自動起動コマンドにもそのまま利用可):
+
+```bash
+bash scripts/runpod_start.sh
+```
+
+> `start.bat` は Python ランチャー (`scripts/start_codeagent.py`) を呼ぶ薄いラッパーです。  
+> 起動ロジックを Python に共通化したため、Runpod の起動コマンドへ同じランチャーを指定できます（起動モード選択なし）。
+> Runpod の Pod テンプレートでは **Start Command** に `bash /workspace/CodeAgentPersonal/scripts/runpod_start.sh` を設定すると、Pod起動時にAPIサーバーが自動起動します。
 
 `http://localhost:8000` を開いてください。
 

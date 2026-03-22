@@ -10,6 +10,7 @@ on:
       - 'README.md'
       - '.github/workflows/runpod-test.yml'
       - 'scripts/setup_runpod_ubuntu.sh'
+      - 'scripts/runpod_start.sh'
       - 'scripts/check_environment.py'
   pull_request:
     paths:
@@ -18,6 +19,7 @@ on:
       - 'README.md'
       - '.github/workflows/runpod-test.yml'
       - 'scripts/setup_runpod_ubuntu.sh'
+      - 'scripts/runpod_start.sh'
       - 'scripts/check_environment.py'
 
 env:
@@ -108,6 +110,11 @@ jobs:
           else
             echo 'vulkaninfo not found. Install vulkan-tools on the runner host.'
           fi
+
+      - name: Verify Docker
+        run: |
+          docker --version
+          docker info >/dev/null
 
       - name: Install Python dependencies
         run: |
