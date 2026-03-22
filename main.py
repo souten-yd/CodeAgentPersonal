@@ -4923,9 +4923,14 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
         else:
             consecutive_errors = 0
 
-        action = action_obj.get("action", "")
+        action = str(action_obj.get("action", "") or "").strip().lower()
         thought = action_obj.get("thought", "")
         tool_input = action_obj.get("input", {})
+        if action in {"stop", "done", "finish", "complete", "end"}:
+            action = "final"
+            action_obj["action"] = "final"
+            if not action_obj.get("output"):
+                action_obj["output"] = thought or "Agent requested stop."
 
         # ── clarify: ユーザーに選択肢を提示して確認 ──
         if action == "clarify":
@@ -6141,9 +6146,14 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
         else:
             consecutive_errors = 0
 
-        action = action_obj.get("action", "")
+        action = str(action_obj.get("action", "") or "").strip().lower()
         thought = action_obj.get("thought", "")
         tool_input = action_obj.get("input", {})
+        if action in {"stop", "done", "finish", "complete", "end"}:
+            action = "final"
+            action_obj["action"] = "final"
+            if not action_obj.get("output"):
+                action_obj["output"] = thought or "Agent requested stop."
 
         if action == "final":
             steps.append({"step": step, "type": "final", "thought": thought})
