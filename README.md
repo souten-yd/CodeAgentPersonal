@@ -208,6 +208,50 @@ python scripts/check_environment.py --expect-python 3.11 --strict
 
 ---
 
+## Docker自動プッシュ（GitHub Actions）
+
+Runpodで `docker pull` してすぐ使えるように、GitHub ActionsでDocker Hubへ自動プッシュできます。
+
+### 1) 事前準備（GitHub Secrets）
+
+リポジトリの **Settings → Secrets and variables → Actions** で以下を登録:
+
+- `DOCKERHUB_USERNAME` : Docker Hubユーザー名
+- `DOCKERHUB_TOKEN` : Docker Hub Access Token（PasswordではなくToken推奨）
+
+### 2) 自動プッシュ条件
+
+`.github/workflows/docker-publish.yml` により次のタイミングでビルド & push されます。
+
+- `main` ブランチへの push
+- `v*` 形式タグ（例: `v1.0.0`）の push
+- 手動実行（`workflow_dispatch`）
+
+イメージ名: `docker.io/<DOCKERHUB_USERNAME>/codeagent-personal`
+
+### 3) Runpodでの使い方（ダウンロード〜起動）
+
+RunpodのPod作成時、Container Imageに以下を指定:
+
+```
+docker.io/<DOCKERHUB_USERNAME>/codeagent-personal:latest
+```
+
+起動コマンド例:
+
+```bash
+python scripts/start_codeagent.py --mode auto --host 0.0.0.0 --port 8000
+```
+
+必要なら `PORT` / `PRIMARY_PORT` を環境変数で上書きしてください。
+
+### 4) ローカル確認コマンド
+
+```bash
+docker build -t codeagent-personal:local .
+docker run --rm -p 8000:8000 codeagent-personal:local
+```
+
 ## 対応モデル
 
 | モデルキー | モデル名 | VRAM | 速度 | 用途 |
