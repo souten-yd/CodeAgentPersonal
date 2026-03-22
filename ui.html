@@ -378,6 +378,11 @@ header{
   .scan-row{flex-direction:column}
   .model-toolbar{flex-wrap:wrap;align-items:flex-start}
   .model-toolbar input[type="text"]{min-width:100%}
+  #sys-usage{max-width:230px;font-size:9px;padding:2px 6px}
+  #settings-modal .modal{max-width:100vw;border-radius:0}
+  #settings-modal select,
+  #settings-modal input[type="text"],
+  #settings-modal input[type="number"]{font-size:12px}
 }
 /* iPhone safe area: home indicator padding at bottom only */
 @supports(padding:env(safe-area-inset-bottom)){
@@ -801,7 +806,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <span id="tok-tps" style="color:var(--amber)"></span>
     </div>
     <span id="model-badge" title="Current model" style="font-size:10px;font-family:var(--font-mono);color:var(--text3);padding:2px 8px;border:1px solid var(--border);border-radius:10px;display:none;cursor:default;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
-    <span id="sys-usage" title="CPU/GPU/RAM/VRAM usage" style="font-size:10px;font-family:var(--font-mono);color:var(--text3);padding:2px 8px;border:1px solid var(--border);border-radius:10px;display:none;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+    <span id="sys-usage" title="CPU/GPU/RAM/VRAM usage" style="font-size:10px;font-family:var(--font-mono);color:var(--text3);padding:3px 8px;border:1px solid var(--border);border-radius:10px;display:none;max-width:420px;overflow:hidden;line-height:1.25;white-space:normal"></span>
     <div class="sdot" id="sdot"></div>
     <span class="stext" id="stext">—</span>
   </div>
@@ -2307,7 +2312,10 @@ async function toggleModelVlmEnabled(mid, vlmEnabled) {
 
 function _buildOrchModelOptions(models, selected) {
   const opts = [`<option value="">(auto)</option>`];
-  (models || []).filter(m => Number(m?.enabled ?? 1) !== 0).forEach(m => {
+  (models || [])
+    .filter(m => Number(m?.enabled ?? 1) !== 0)
+    .filter(m => !!asText(m?.model_key))
+    .forEach(m => {
     const k = asText(m.model_key);
     const name = asText(m.name || k);
     opts.push(`<option value="${esc(k)}" ${k===selected?'selected':''}>${esc(formatModelShortName(name))}</option>`);
@@ -2367,7 +2375,14 @@ async function loadOrchestrationSettings() {
     const r = await fetch(API+'/models/orchestration');
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'failed to load orchestration');
-    const models = d.models || [];
+    let models = (d.models || []).filter(m => !!asText(m?.model_key));
+    if (!models.length) {
+      try {
+        const rr = await fetch(API+'/models/roles');
+        const rd = await rr.json();
+        models = (rd.models || []).filter(m => !!asText(m?.model_key));
+      } catch(_) {}
+    }
     const policyEl = document.getElementById('orch-policy');
     const qEl = document.getElementById('orch-quality-enabled');
     const t1 = document.getElementById('orch-tier1');
@@ -2719,6 +2734,8 @@ async function selectProject(name) {
   await loadHistory(name);
   await loadJobs(name);
   refreshFileBrowser();
+  refreshSkills();
+  refreshMemory();
   addLog('info','project','Switched to: '+name);
   // 最終ジョブ結果を復元（リロード後の再表示）
   try {
