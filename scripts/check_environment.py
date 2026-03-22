@@ -35,7 +35,7 @@ def main() -> int:
             return 1
         print(f"WARN: {msg}")
 
-    required = ["fastapi", "uvicorn", "requests", "pydantic"]
+    required = ["fastapi", "uvicorn", "requests", "pydantic", "psutil"]
     missing = [m for m in required if importlib.util.find_spec(m) is None]
     if missing:
         print("WARN: dependency import failed")
@@ -48,6 +48,15 @@ def main() -> int:
         if args.strict:
             return 1
     print("imports-ok")
+
+
+    optional = ["pynvml"]
+    missing_optional = [m for m in optional if importlib.util.find_spec(m) is None]
+    if missing_optional:
+        print(f"WARN: optional modules missing for richer benchmark metrics: {', '.join(missing_optional)}")
+        print("  python -m pip install nvidia-ml-py")
+    else:
+        print("optional-imports-ok")
 
     for tool in ("nvidia-smi", "vulkaninfo"):
         code, _ = run([tool, "--help"])

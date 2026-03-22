@@ -23,6 +23,9 @@ ${SUDO} DEBIAN_FRONTEND=noninteractive apt-get install -y \
   curl \
   git \
   build-essential \
+  cmake \
+  ninja-build \
+  pkg-config \
   python3.11 \
   python3.11-venv \
   python3-pip \
