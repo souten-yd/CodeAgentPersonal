@@ -2622,6 +2622,21 @@ def _normalize_benchmark_profile(profile: dict, ctx: int, use_vlm: bool) -> dict
     }
 
 
+def _unload_active_llm_for_benchmark() -> None:
+    """
+    ベンチマーク実行前に、既存のLLM(プランナー/ルーター)を停止して
+    VRAM/RAM競合による計測失敗を回避する。
+    """
+    try:
+        if _model_manager._process is not None or _model_health_ok(_model_manager.llm_port):
+            print("[Benchmark] unloading active LLM before benchmark")
+        _model_manager._kill()
+        _model_manager.current_key = ""
+        _model_manager._status = "ready"
+    except Exception as e:
+        print(f"[Benchmark] unload warning: {e}")
+
+
 def benchmark_model_record(model: dict, use_vlm: bool = False) -> dict:
     import sys as _sys
     bench_dir = os.path.dirname(os.path.abspath(__file__))
@@ -2640,6 +2655,7 @@ def benchmark_model_record(model: dict, use_vlm: bool = False) -> dict:
     if use_vlm and (not mmproj_path or not os.path.exists(mmproj_path)):
         return {"notes": "BENCHMARK SKIP: mmproj file not found"}
 
+    _unload_active_llm_for_benchmark()
     result = run_single_benchmark(path, ctx=ctx, ngl=ngl, mmproj_path=mmproj_path)
     if not result.get("ok"):
         return {"notes": f"BENCHMARK FAIL: {result.get('error', 'unknown error')}"}
