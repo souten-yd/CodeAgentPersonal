@@ -1177,23 +1177,17 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </select>
           <div id="orch-feature-note" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
         </div>
-        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">Tier3→Tier2→Tier1 の順で自動推奨されます（後で手動変更可）。</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin-bottom:10px">
-          <select id="orch-tier3" title="Tier3 (高品質)"
-            style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
-          <select id="orch-tier2" title="Tier2 (標準)"
-            style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
-          <select id="orch-tier1" title="Tier1 (軽量)"
-            style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
-        </div>
         <div id="orch-settings-body">
-          <div style="font-size:10px;color:var(--text3);margin-bottom:8px">Coder Orchestration: 失敗時/品質基準未達時に Tier1→Tier2→Tier3 で昇格再実行します。</div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:8px">失敗時/品質基準未達時に、軽量→高品質の順でコーダーモデルを昇格再実行します。</div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin-bottom:6px">
             <select id="orch-policy" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
               <option value="off">off</option>
               <option value="ladder_fail_only">失敗時のみ昇格</option>
               <option value="ladder_fail_and_quality">失敗+品質基準未達で昇格</option>
             </select>
+            <select id="orch-coder-primary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+            <select id="orch-coder-secondary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+            <select id="orch-coder-tertiary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
           </div>
           <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer;margin-bottom:6px">
             <input type="checkbox" id="orch-quality-enabled" style="accent-color:var(--accent)"> 品質チェックを有効化
@@ -1244,7 +1238,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
         <div style="margin-bottom:6px;font-size:11px;color:var(--text2)">コンテキスト長</div>
         <div style="display:flex;align-items:center;gap:8px">
-          <input type="range" id="ctx-slider" min="512" max="65535" step="1" value="8192"
+          <input type="range" id="ctx-slider" min="512" max="65535" step="1" value="16384"
             style="flex:1;accent-color:var(--accent);cursor:pointer"
             oninput="updateCtxLabel(this.value)" onchange="applyCtxLen(this.value)">
           <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">8192</span>
@@ -4119,7 +4113,7 @@ async function initCtxSlider() {
     // llama-serverの最大コンテキスト長を取得
     const r = await fetch(API+'/llm/props');
     const d = await r.json();
-    const maxCtx = 65535;
+    const maxCtx = Math.min(65535, (d.n_ctx || 65535));
 
     // サーバー側の現在値も取得
     const cr = await fetch(API+'/llm/ctx');
