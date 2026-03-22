@@ -2669,6 +2669,20 @@ def benchmark_model_profiles(model: dict) -> dict:
 # ユーザー設定（DB保存）
 # =========================
 
+def _is_runpod_env() -> bool:
+    if os.environ.get("RUNPOD_POD_ID") or os.environ.get("RUNPOD_API_KEY"):
+        return True
+    return (sys.platform.startswith("linux") and os.path.isdir("/workspace"))
+
+
+def _default_llm_root_folder() -> str:
+    if _is_runpod_env():
+        return "/workspace/LLMs"
+    if os.name == "nt":
+        return r"C:\LLMs"
+    return os.path.join(os.path.expanduser("~"), "LLMs")
+
+
 # デフォルト設定定義
 SETTINGS_DEFAULTS = {
     "llm_root_folder":    _default_llm_root_folder(),  # モデルのルートフォルダ
@@ -2889,20 +2903,6 @@ def _get_file_size_mb(path: str) -> int:
         return int(os.path.getsize(path) / (1024 * 1024))
     except:
         return -1
-
-
-def _is_runpod_env() -> bool:
-    if os.environ.get("RUNPOD_POD_ID") or os.environ.get("RUNPOD_API_KEY"):
-        return True
-    return (sys.platform.startswith("linux") and os.path.isdir("/workspace"))
-
-
-def _default_llm_root_folder() -> str:
-    if _is_runpod_env():
-        return "/workspace/LLMs"
-    if os.name == "nt":
-        return r"C:\LLMs"
-    return os.path.join(os.path.expanduser("~"), "LLMs")
 
 
 def _read_meminfo_kb() -> tuple[int, int]:
