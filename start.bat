@@ -18,7 +18,7 @@ echo  CodeAgent Launcher (Windows wrapper)
 echo ==============================================
 
 echo Starting Python launcher...
-python "%PY_LAUNCHER%"
+python "%PY_LAUNCHER%" --interactive
 set EXIT_CODE=%ERRORLEVEL%
 
 if not "%EXIT_CODE%"=="0" (

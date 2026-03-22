@@ -13,6 +13,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+MODE_TO_NUM = {
+    "auto": "1",
+    "qwen35": "2",
+    "coder": "3",
+    "mistral": "4",
+}
+
 
 def detect_runpod() -> bool:
     return bool(os.environ.get("RUNPOD_POD_ID") or os.environ.get("RUNPOD_API_KEY"))
@@ -80,8 +87,31 @@ def wait_http_200(url: str, timeout_sec: int, label: str) -> bool:
     return False
 
 
+def choose_mode(interactive: bool, requested: str) -> tuple[str, str]:
+    if not interactive:
+        return requested, MODE_TO_NUM[requested]
+
+    print("\n==============================================")
+    print(" Startup Mode:")
+    print("  1. AUTO    - GPT-OSS-20B (recommended)")
+    print("  2. QWEN35  - Qwen3.5-35B")
+    print("  3. CODER   - Qwen3-Coder-Next")
+    print("  4. MISTRAL - Mistral-Small-3.2-24B")
+    print("==============================================")
+    selected = input("Mode [1-4] (default=1): ").strip() or "1"
+    mode = {
+        "1": "auto",
+        "2": "qwen35",
+        "3": "coder",
+        "4": "mistral",
+    }.get(selected, "auto")
+    return mode, MODE_TO_NUM[mode]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CodeAgent launcher (cross-platform)")
+    parser.add_argument("--mode", choices=list(MODE_TO_NUM.keys()), default="auto")
+    parser.add_argument("--interactive", action="store_true", help="Prompt for startup mode")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--primary-port", type=int, default=8080)
@@ -95,16 +125,19 @@ def main() -> int:
     base_dir = Path(__file__).resolve().parent.parent
     runpod = detect_runpod()
 
+    mode_key, mode_num = choose_mode(interactive=args.interactive and not runpod, requested=args.mode)
+
     env = os.environ.copy()
     env.setdefault("PYTHONUTF8", "1")
     env["CODEAGENT_LLM_PLANNER"] = f"http://127.0.0.1:{args.primary_port}/v1/chat/completions"
     env["CODEAGENT_LLM_EXECUTOR"] = f"http://127.0.0.1:{args.primary_port}/v1/chat/completions"
     env["CODEAGENT_LLM_CHAT"] = f"http://127.0.0.1:{args.primary_port}/v1/chat/completions"
     env["CODEAGENT_LLM_LIGHT"] = f"http://127.0.0.1:{args.primary_port}/v1/chat/completions"
-    env.setdefault("CODEAGENT_LLM_MODE", "single")
+    env["CODEAGENT_LLM_MODE"] = mode_num
 
     print("==============================================")
     print(" CodeAgent Launcher")
+    print(f" Mode    : {mode_key}")
     print(f" Runpod  : {'yes' if runpod else 'no'}")
     print("==============================================")
 
@@ -152,6 +185,7 @@ def main() -> int:
         print(" CodeAgent ready!")
         print(f"  Local : http://localhost:{args.port}/")
         print(f"  LAN   : http://{lan_ip}:{args.port}/")
+        print(f"  Mode  : {mode_num}  Profile: {mode_key}")
         print("==============================================")
 
         return proc.wait()
