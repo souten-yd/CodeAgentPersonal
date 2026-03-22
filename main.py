@@ -3032,7 +3032,7 @@ def get_system_hardware_info() -> dict:
                 "$obj = @{ name=$name; total_mb=[math]::Round($totalB/1MB); used_mb=[math]::Round($usedB/1MB) }; "
                 "$obj | ConvertTo-Json -Compress"
             )
-            r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=3)
+            r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=8)
             data = json.loads((r.stdout or "{}").strip() or "{}")
             total_mb = int(data.get("total_mb") or 0)
             used_mb = int(data.get("used_mb") or 0)
@@ -3175,7 +3175,7 @@ def get_system_usage_info() -> dict:
                 "$obj = @{ name=$name; util=[math]::Round([math]::Min(100, $util),1); used_mb=[math]::Round($usedB/1MB); total_mb=[math]::Round($totalB/1MB) }; "
                 "$obj | ConvertTo-Json -Compress"
             )
-            r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=3)
+            r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=8)
             data = json.loads((r.stdout or "{}").strip() or "{}")
             total = int(data.get("total_mb") or 0)
             used = int(data.get("used_mb") or 0)
