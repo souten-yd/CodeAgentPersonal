@@ -89,7 +89,7 @@ jobs:
 
   runpod-smoke:
     name: Runpod smoke (self-hosted NVIDIA)
-    if: ${{ env.RUNPOD_SMOKE_ENABLED == 'true' }}
+    if: ${{ vars.RUNPOD_SMOKE_ENABLED == 'true' }}
     timeout-minutes: 30
     runs-on: [self-hosted, linux, x64, nvidia, runpod]
     steps:
