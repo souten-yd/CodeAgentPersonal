@@ -13,12 +13,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-MODE_TO_NUM = {
-    "auto": "1",
-    "qwen35": "2",
-    "coder": "3",
-    "mistral": "4",
-}
+AUTO_MODE_KEY = "auto"
+AUTO_MODE_NUM = "1"
 
 
 def detect_runpod() -> bool:
@@ -87,31 +83,12 @@ def wait_http_200(url: str, timeout_sec: int, label: str) -> bool:
     return False
 
 
-def choose_mode(interactive: bool, requested: str) -> tuple[str, str]:
-    if not interactive:
-        return requested, MODE_TO_NUM[requested]
-
-    print("\n==============================================")
-    print(" Startup Mode:")
-    print("  1. AUTO    - GPT-OSS-20B (recommended)")
-    print("  2. QWEN35  - Qwen3.5-35B")
-    print("  3. CODER   - Qwen3-Coder-Next")
-    print("  4. MISTRAL - Mistral-Small-3.2-24B")
-    print("==============================================")
-    selected = input("Mode [1-4] (default=1): ").strip() or "1"
-    mode = {
-        "1": "auto",
-        "2": "qwen35",
-        "3": "coder",
-        "4": "mistral",
-    }.get(selected, "auto")
-    return mode, MODE_TO_NUM[mode]
+def choose_mode() -> tuple[str, str]:
+    return AUTO_MODE_KEY, AUTO_MODE_NUM
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CodeAgent launcher (cross-platform)")
-    parser.add_argument("--mode", choices=list(MODE_TO_NUM.keys()), default="auto")
-    parser.add_argument("--interactive", action="store_true", help="Prompt for startup mode")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--primary-port", type=int, default=8080)
@@ -125,7 +102,7 @@ def main() -> int:
     base_dir = Path(__file__).resolve().parent.parent
     runpod = detect_runpod()
 
-    mode_key, mode_num = choose_mode(interactive=args.interactive and not runpod, requested=args.mode)
+    mode_key, mode_num = choose_mode()
 
     env = os.environ.copy()
     env.setdefault("PYTHONUTF8", "1")
@@ -170,13 +147,22 @@ def main() -> int:
         status = request_json(f"http://127.0.0.1:{args.port}/models/db/status") or {}
         db_exists = bool(status.get("db_exists"))
         db_total = int(status.get("total", 0) or 0)
+        benchmarked_total = int(status.get("benchmarked", 0) or 0)
 
-        if db_exists and db_total > 0:
-            print(f"[ModelDB] Found {db_total} model(s). Requesting default LLM load...")
+        if db_exists and db_total > 0 and benchmarked_total > 0:
+            print(
+                f"[ModelDB] Found {db_total} model(s), benchmarked={benchmarked_total}. "
+                "Requesting default LLM load..."
+            )
             post_json(f"http://127.0.0.1:{args.port}/model/auto-load", {"reason": "launcher_py"})
             llm_ok = wait_http_200(f"http://127.0.0.1:{args.primary_port}/health", args.llm_timeout, "LLM")
             if not llm_ok:
                 print(f"[WARN] LLM is still not ready after {args.llm_timeout}s.")
+        elif db_exists and db_total > 0:
+            print(
+                f"[WAIT] model_db has {db_total} model(s) but benchmarked={benchmarked_total}. "
+                "Skipping auto planner load until benchmark completes via UI workflow."
+            )
         else:
             print("[WAIT] model_db is missing or empty. Skipping LLM startup wait.")
 
