@@ -1165,10 +1165,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="margin-top:6px;font-size:10px;color:var(--text3)">⚠ 推奨 Steps: 10〜25。過剰だと繰り返しループのリスクあり。</div>
       </div>
 
-      <!-- Coding Mode -->
-      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🛠 コーディングモード</div>
+      <!-- Coder Orchestration -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🧩 Coder Orchestration</div>
       <div style="padding:4px 0 14px">
-        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">上位選択: 機能モードを切替できます（初期値: Model Orchestration）。</div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">機能モードを切替できます（初期値: Model Orchestration）。</div>
         <div style="margin-bottom:8px">
           <select id="orch-feature-mode" onchange="applyOrchFeatureModeUi()"
             style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
@@ -1177,33 +1177,17 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </select>
           <div id="orch-feature-note" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
         </div>
-      </div>
-
-      <!-- Tier Model Settings -->
-      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🤖 コーダーモデル設定 (Tier3→Tier1)</div>
-      <div style="padding:4px 0 14px">
-        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">Tier3→Tier2→Tier1 の順で自動推奨されます（後で手動変更可）。</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin-bottom:10px">
-          <select id="orch-tier3" title="Tier3 (高品質)"
-            style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
-          <select id="orch-tier2" title="Tier2 (標準)"
-            style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
-          <select id="orch-tier1" title="Tier1 (軽量)"
-            style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
-        </div>
-      </div>
-
-      <!-- Coder Orchestration -->
-      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🧩 Coder Orchestration</div>
-      <div style="padding:4px 0 14px">
         <div id="orch-settings-body">
-          <div style="font-size:10px;color:var(--text3);margin-bottom:8px">Coder Orchestration: 失敗時/品質基準未達時に Tier1→Tier2→Tier3 で昇格再実行します。</div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:8px">失敗時/品質基準未達時に、軽量→高品質の順でコーダーモデルを昇格再実行します。</div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin-bottom:6px">
             <select id="orch-policy" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
               <option value="off">off</option>
               <option value="ladder_fail_only">失敗時のみ昇格</option>
               <option value="ladder_fail_and_quality">失敗+品質基準未達で昇格</option>
             </select>
+            <select id="orch-coder-primary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+            <select id="orch-coder-secondary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+            <select id="orch-coder-tertiary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
           </div>
           <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer;margin-bottom:6px">
             <input type="checkbox" id="orch-quality-enabled" style="accent-color:var(--accent)"> 品質チェックを有効化
@@ -1254,7 +1238,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
         <div style="margin-bottom:6px;font-size:11px;color:var(--text2)">コンテキスト長</div>
         <div style="display:flex;align-items:center;gap:8px">
-          <input type="range" id="ctx-slider" min="512" max="65535" step="1" value="8192"
+          <input type="range" id="ctx-slider" min="512" max="65535" step="1" value="16384"
             style="flex:1;accent-color:var(--accent);cursor:pointer"
             oninput="updateCtxLabel(this.value)" onchange="applyCtxLen(this.value)">
           <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">8192</span>
@@ -1597,12 +1581,11 @@ async function refreshSystemUsage() {
     const gpu = gpuInfo ? _fmtPct(gpuInfo.util_percent) : '--';
     const vramPct = gpuInfo ? _fmtPct(gpuInfo.vram_percent) : '--';
     const vram = gpuInfo ? `${vramPct} (${_fmtGb(gpuInfo.vram_used_mb)}/${_fmtGb(gpuInfo.vram_total_mb)})` : '--';
-    _lastSystemUsageText = `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram}`;
-    el.textContent = _lastSystemUsageText;
+    el.textContent = `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram}`;
     el.title = `CPU ${cpu}, RAM ${ram}, GPU ${gpu}, VRAM ${vram} (updated: ${d.updated_at || '-'})`;
     el.style.display = 'inline';
   } catch (e) {
-    el.textContent = _lastSystemUsageText || 'CPU -- | RAM -- (--/--) | GPU -- | VRAM -- (--/--)';
+    el.textContent = 'CPU -- | RAM -- (--/--) | GPU -- | VRAM -- (--/--)';
     el.style.display = 'inline';
   }
 }
@@ -4131,7 +4114,7 @@ async function initCtxSlider() {
     // llama-serverの最大コンテキスト長を取得
     const r = await fetch(API+'/llm/props');
     const d = await r.json();
-    const maxCtx = 65535;
+    const maxCtx = Math.min(65535, (d.n_ctx || 65535));
 
     // サーバー側の現在値も取得
     const cr = await fetch(API+'/llm/ctx');
