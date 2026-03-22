@@ -2694,7 +2694,7 @@ SETTINGS_DEFAULTS = {
     "search_enabled":     "false",
     "search_num":         "5",
     "streaming_enabled":  "true",
-    "ctx_size":           "16384",
+    "ctx_size":           "8192",
     "llm_url":            "",
     "orchestration_policy": "ladder_fail_and_quality",
     "coder_primary": "",
@@ -3278,7 +3278,7 @@ def model_db_scan_folder(folder: str) -> list:
             "quantization": _guess_quantization(full_path),
             "file_size_mb": _get_file_size_mb(full_path),
             "vram_mb": -1, "ram_mb": -1, "load_sec": -1, "tok_per_sec": -1,
-            "llm_url": "", "ctx_size": 16384, "gpu_layers": 999, "notes": "scanned",
+            "llm_url": "", "ctx_size": 8192, "gpu_layers": 999, "notes": "scanned",
         }))
     return results
 
@@ -7255,7 +7255,7 @@ def download_gguf_api(req: dict):
         "quantization": _guess_quantization(target),
         "file_size_mb": int(file_size / (1024 * 1024)),
         "vram_mb": -1, "ram_mb": -1, "load_sec": -1, "tok_per_sec": -1,
-        "llm_url": "", "ctx_size": 16384, "gpu_layers": 999, "notes": "downloaded",
+        "llm_url": "", "ctx_size": 8192, "gpu_layers": 999, "notes": "downloaded",
     })
     if existing:
         model_db_update(existing["id"], record)

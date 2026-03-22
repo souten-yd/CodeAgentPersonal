@@ -1241,7 +1241,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <input type="range" id="ctx-slider" min="512" max="65535" step="1" value="16384"
             style="flex:1;accent-color:var(--accent);cursor:pointer"
             oninput="updateCtxLabel(this.value)" onchange="applyCtxLen(this.value)">
-          <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">16384</span>
+          <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">8192</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px">
           <span>512</span><span id="ctx-max-label">max: 65535</span><span id="ctx-slider-max">65535</span>
@@ -1482,7 +1482,7 @@ async function loadSettingsFromDb() {
     if (snl) snl.textContent = snum;
 
     // Ctx size
-    const ctx = parseInt(d.ctx_size) || 16384;
+    const ctx = parseInt(d.ctx_size) || 8192;
     const cs = document.getElementById('ctx-slider');
     const cl = document.getElementById('ctx-label');
     if (cs) cs.value = ctx;
@@ -4095,7 +4095,7 @@ async function applySearchNum(val) {
 }
 
 // ── CONTEXT LENGTH SLIDER ──
-let _current_n_ctx_ui = 16384; // UIが知っているn_ctx（統計表示用）
+let _current_n_ctx_ui = 8192; // UIが知っているn_ctx（統計表示用）
 
 async function initCtxSlider() {
   try {
@@ -4107,7 +4107,7 @@ async function initCtxSlider() {
     // サーバー側の現在値も取得
     const cr = await fetch(API+'/llm/ctx');
     const cd = await cr.json();
-    const curCtx = Math.max(512, Math.min(maxCtx, (cd.n_ctx || 16384)));
+    const curCtx = Math.max(512, Math.min(maxCtx, (cd.n_ctx || 8192)));
 
     const slider = document.getElementById('ctx-slider');
     const label = document.getElementById('ctx-label');

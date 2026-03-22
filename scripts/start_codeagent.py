@@ -70,9 +70,12 @@ def post_json(url: str, payload: dict, timeout: float = 5.0) -> int | None:
         return None
 
 
-def wait_http_200(url: str, timeout_sec: int, label: str) -> bool:
+def wait_http_200(url: str, timeout_sec: int, label: str, proc: subprocess.Popen | None = None) -> bool:
     waited = 0
     while waited < timeout_sec:
+        if proc is not None and proc.poll() is not None:
+            print(f"[ERROR] {label} process exited early with code {proc.returncode}")
+            return False
         status = request_status(url)
         if status == 200:
             print(f"[OK] {label} ready")
@@ -92,7 +95,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--primary-port", type=int, default=8080)
-    parser.add_argument("--api-timeout", type=int, default=30)
+    parser.add_argument("--api-timeout", type=int, default=120)
     parser.add_argument("--llm-timeout", type=int, default=180)
     return parser.parse_args()
 
@@ -138,7 +141,7 @@ def main() -> int:
     proc = subprocess.Popen(uvicorn_cmd, cwd=base_dir, env=env)
 
     try:
-        api_ok = wait_http_200(f"http://127.0.0.1:{args.port}/health", args.api_timeout, "FastAPI")
+        api_ok = wait_http_200(f"http://127.0.0.1:{args.port}/health", args.api_timeout, "FastAPI", proc=proc)
         if not api_ok:
             print("[ERROR] FastAPI did not become ready.")
             proc.terminate()
