@@ -219,9 +219,6 @@ Runpodで `docker pull` してすぐ使えるように、GitHub ActionsでDocker
 - `DOCKERHUB_USERNAME` : Docker Hubユーザー名
 - `DOCKERHUB_TOKEN` : Docker Hub Access Token（PasswordではなくToken推奨）
 
-> ワークフローは **Secrets / Variables のどちらでも** 読み取れるようにしてあります（優先: Secrets）。  
-> `DOCKERHUB_TOKEN` は Docker Hub の **Access Token** を使ってください（アカウントのログインパスワードは非推奨）。
-
 ### 2) 自動プッシュ条件
 
 `.github/workflows/docker-publish.yml` により次のタイミングでビルド & push されます。
@@ -231,26 +228,6 @@ Runpodで `docker pull` してすぐ使えるように、GitHub ActionsでDocker
 - 手動実行（`workflow_dispatch`）
 
 イメージ名: `docker.io/<DOCKERHUB_USERNAME>/codeagent-personal`
-
-### 2.1) ログインエラー時のチェック（`unauthorized: incorrect username or password`）
-
-次を順番に確認してください。
-
-1. **Token種別**
-   - Docker Hub の `Account Settings → Personal access tokens` で発行したトークンか
-   - Passwordを誤って入れていないか
-2. **ユーザー名の一致**
-   - Docker Hub の実ユーザー名（表示名ではない）と完全一致しているか
-3. **余計な空白/改行**
-   - Secrets/Variables貼り付け時に前後スペースや改行が入っていないか
-4. **権限**
-   - Push先が自分の namespace (`<username>/codeagent-personal`) になっているか
-   - 組織 namespace に push する場合はその権限があるか
-
-`Error: Username required` が出る場合は、`DOCKERHUB_USERNAME` が空として解釈されています。  
-`Settings → Secrets and variables → Actions` の **Repository secrets / Repository variables** に同名キーを作成し、Environment secrets だけに入れていないかも確認してください。
-
-このリポジトリのワークフローでは、実行時に値を trim（前後空白除去）し、空値なら明示エラーで停止します。
 
 ### 3) Runpodでの使い方（ダウンロード〜起動）
 
