@@ -26,7 +26,7 @@ on:
 
 env:
   PYTHON_VERSION: '3.11'
-  PIP_PACKAGES: ${{ vars.CI_PIP_PACKAGES || 'fastapi uvicorn requests' }}
+  PIP_PACKAGES: ${{ vars.CI_PIP_PACKAGES || 'fastapi uvicorn requests pydantic psutil nvidia-ml-py' }}
   RUNPOD_SMOKE_ENABLED: ${{ vars.RUNPOD_SMOKE_ENABLED || 'false' }}
   DOCKER_IMAGE_NAME: ${{ vars.DOCKER_IMAGE_NAME || 'codeagent-smoke' }}
 
@@ -107,14 +107,14 @@ jobs:
         run: |
           bash scripts/setup_runpod_ubuntu.sh --ci
 
-      - name: Install llama.cpp Linux CUDA package
-        run: |
-          bash scripts/setup_llama_runpod.sh
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install llama.cpp Linux CUDA package
+        run: |
+          bash scripts/setup_llama_runpod.sh --build-if-needed
 
       - name: Verify NVIDIA and Vulkan
         run: |

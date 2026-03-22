@@ -12,6 +12,16 @@ from typing import Optional, TextIO
 
 import requests
 
+try:
+    import psutil
+except Exception:  # optional dependency
+    psutil = None
+
+try:
+    import pynvml
+except Exception:  # optional dependency
+    pynvml = None
+
 BASE_DIR = Path(__file__).resolve().parent
 LLAMA_SERVER = os.environ.get("LLAMA_SERVER_PATH", str(BASE_DIR / "llama" / "llama-server.exe"))
 PORT = 18099
@@ -22,6 +32,21 @@ CTX_SIZES = [4096, 8192, 16384, 32768]
 
 
 def get_vram_mib() -> int:
+    if pynvml is not None:
+        try:
+            pynvml.nvmlInit()
+            count = pynvml.nvmlDeviceGetCount()
+            total = 0
+            for i in range(count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                total += int(mem.used / (1024 * 1024))
+            pynvml.nvmlShutdown()
+            if total > 0:
+                return total
+        except Exception:
+            pass
+
     try:
         ps = (
             r"$samples = (Get-Counter '\GPU Adapter Memory(*)\Dedicated Usage' "
@@ -38,6 +63,7 @@ def get_vram_mib() -> int:
             return int(v)
     except Exception:
         pass
+
     try:
         r = subprocess.run(
             ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
@@ -56,6 +82,13 @@ def get_vram_mib() -> int:
 
 
 def get_ram_mib() -> int:
+    if psutil is not None:
+        try:
+            vm = psutil.virtual_memory()
+            return round((vm.total - vm.available) / (1024 * 1024))
+        except Exception:
+            pass
+
     try:
         ps = (
             "$os = Get-CimInstance Win32_OperatingSystem; "
