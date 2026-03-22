@@ -2960,7 +2960,7 @@ def get_system_hardware_info() -> dict:
                 "$avail = [math]::Round($os.FreePhysicalMemory / 1024); "
                 "Write-Output \"$total,$avail\""
             )
-            r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=8)
+            r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=3)
             out = r.stdout.strip()
             if "," in out:
                 t, a = out.split(",", 1)

@@ -1408,6 +1408,7 @@ let timerInterval = null;
 let startTime = null;
 let ensembleVramTimer = null;
 let systemUsageTimer = null;
+let _lastSystemUsageText = '';
 let voiceRecorder = null;
 let voiceChunks = [];
 let voiceRecording = false;
@@ -1570,7 +1571,7 @@ async function refreshSystemUsage() {
   const el = document.getElementById('sys-usage');
   if (!el) return;
   try {
-    const r = await fetch(API + '/system/usage', {signal: AbortSignal.timeout(2500)});
+    const r = await fetch(API + '/system/usage', {signal: AbortSignal.timeout(7000)});
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'failed');
     const cpu = _fmtPct(d.cpu_percent);
