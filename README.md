@@ -182,14 +182,14 @@ Runpod / Linux (自動起動コマンドにもそのまま利用可):
 python scripts/start_codeagent.py --mode auto
 ```
 
-Runpodで Docker バイナリが無くても起動は可能です。Dockerツールが必要な場合のみ、以下の起動スクリプトで `docker.io` 自動導入を有効化できます。
+Runpodで「起動後に `docker.io` を自動導入」したい場合は、以下の起動スクリプトを使ってください（既定で有効）。
 
 ```bash
 bash scripts/runpod_start.sh
 ```
 
-- `RUNPOD_AUTO_INSTALL_DOCKER=false` (既定): Docker未導入でも起動を継続（Dockerツールは利用不可）
-- `RUNPOD_AUTO_INSTALL_DOCKER=true`: `docker` が見つからない場合に `apt-get install docker.io` を実行
+- `RUNPOD_AUTO_INSTALL_DOCKER=true` (既定): `docker` が見つからない場合に `apt-get install docker.io` を実行
+- `RUNPOD_AUTO_INSTALL_DOCKER=false`: Docker自動導入を無効化
 - `RUNPOD_AUTO_SETUP_LLAMA=true` (既定): llama.cpp セットアップを実行
 - `RUNPOD_AUTO_SETUP_LLAMA=false`: llama.cpp セットアップをスキップ
 
