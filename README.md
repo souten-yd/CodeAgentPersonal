@@ -182,6 +182,17 @@ Runpod / Linux (自動起動コマンドにもそのまま利用可):
 python scripts/start_codeagent.py --mode auto
 ```
 
+Runpodで「起動後に `docker.io` を自動導入」したい場合は、以下の起動スクリプトを使ってください（既定で有効）。
+
+```bash
+bash scripts/runpod_start.sh
+```
+
+- `RUNPOD_AUTO_INSTALL_DOCKER=true` (既定): `docker` が見つからない場合に `apt-get install docker.io` を実行
+- `RUNPOD_AUTO_INSTALL_DOCKER=false`: Docker自動導入を無効化
+- `RUNPOD_AUTO_SETUP_LLAMA=true` (既定): llama.cpp セットアップを実行
+- `RUNPOD_AUTO_SETUP_LLAMA=false`: llama.cpp セットアップをスキップ
+
 > `start.bat` は Python ランチャー (`scripts/start_codeagent.py`) を呼ぶ薄いラッパーです。  
 > 起動ロジックを Python に共通化したため、Runpod の起動コマンドへ同じランチャーを指定できます。
 

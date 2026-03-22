@@ -11,6 +11,25 @@ PRIMARY_PORT="${PRIMARY_PORT:-8080}"
 echo "[Runpod] Booting CodeAgent from ${ROOT_DIR}"
 echo "[Runpod] host=${HOST} port=${PORT} primary_port=${PRIMARY_PORT}"
 
+AUTO_INSTALL_DOCKER="${RUNPOD_AUTO_INSTALL_DOCKER:-true}"
+if [[ "${AUTO_INSTALL_DOCKER}" == "true" ]]; then
+  if command -v docker >/dev/null 2>&1; then
+    echo "[Runpod] docker command already exists. Skipping docker.io install."
+  elif command -v apt-get >/dev/null 2>&1; then
+    echo "[Runpod] docker not found. Installing docker.io from Ubuntu/Debian repository..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y --no-install-recommends docker.io || {
+      echo "[Runpod][WARN] docker.io install failed. Continue without Docker."
+    }
+    docker --version || true
+  else
+    echo "[Runpod][WARN] apt-get is unavailable. Cannot install docker.io automatically."
+  fi
+else
+  echo "[Runpod] Skipping docker.io auto-install (RUNPOD_AUTO_INSTALL_DOCKER=${AUTO_INSTALL_DOCKER})."
+fi
+
 AUTO_SETUP_LLAMA="${RUNPOD_AUTO_SETUP_LLAMA:-true}"
 if [[ "${AUTO_SETUP_LLAMA}" == "true" ]]; then
   bash scripts/setup_llama_runpod.sh
