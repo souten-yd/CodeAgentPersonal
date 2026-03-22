@@ -8110,15 +8110,19 @@ def health():
     except Exception:
         llm_ok = False
 
-    sandbox_check = subprocess.run(
-        ["docker", "inspect", "--format", "{{.State.Running}}", SANDBOX_CONTAINER],
-        capture_output=True, text=True, encoding="utf-8", errors="replace"
-    )
-    sandbox_ok = sandbox_check.returncode == 0 and sandbox_check.stdout.strip() == "true"
+    sandbox_ok = False
+    sandbox_status = "docker unavailable"
+    if _is_docker_available():
+        sandbox_check = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Running}}", SANDBOX_CONTAINER],
+            capture_output=True, text=True, encoding="utf-8", errors="replace"
+        )
+        sandbox_ok = sandbox_check.returncode == 0 and sandbox_check.stdout.strip() == "true"
+        sandbox_status = "running" if sandbox_ok else "not running (fallback: docker run)"
 
     return {
         "llm": "ok" if llm_ok else "unreachable",
-        "sandbox": "running" if sandbox_ok else "not running (fallback: docker run)",
+        "sandbox": sandbox_status,
         "workspace_files": list_files()
     }
 
