@@ -459,6 +459,8 @@ def _choose_default_startup_model() -> str:
 
 
 def schedule_default_model_load(reason: str = "", force: bool = False) -> tuple[bool, str]:
+    if not _model_manager.has_llama_server():
+        return False, "llama_server_not_found"
     if not model_db_exists():
         return False, "no_model_db"
     models = [m for m in model_db_list() if int(m.get("enabled", 1) or 1) != 0 and m.get("path")]
@@ -534,6 +536,8 @@ def recommend_roles_with_planner(models: list[dict]) -> tuple[str, dict[str, lis
     planner_model = max(candidates, key=lambda m: _model_text_tps(m))
     planner_key = (planner_model.get("model_key") or "").strip()
     fallback = _fallback_role_recommendations(candidates)
+    if not _model_manager.has_llama_server():
+        return planner_key, fallback
     if not planner_key:
         return "", fallback
 
@@ -618,8 +622,13 @@ class ModelManager:
         self._status         = "ready"
         self._switch_eta     = 0.0
         self._switch_callbacks = []
+        if not self.has_llama_server():
+            print(f"[ModelManager] WARNING: llama-server not found: {self.llama_path}")
         # 起動時に実際に動いているモデルを検出してcurrent_keyを同期
         self._sync_current_model()
+
+    def has_llama_server(self) -> bool:
+        return bool(self.llama_path and os.path.exists(self.llama_path))
 
     def _sync_current_model(self):
         """llama-serverの/propsからモデルパスを取得してcurrent_keyを同期"""
@@ -786,6 +795,9 @@ class ModelManager:
         except: pass
 
     def _start(self, spec: dict, on_event, emit) -> bool:
+        if not self.has_llama_server():
+            print(f"[ModelManager] llama-server not found: {self.llama_path}")
+            return False
         cmd = [
             self.llama_path,
             "--model",    spec["path"],
@@ -6292,6 +6304,7 @@ def project_history(name: str, limit: int = 50):
 @app.get("/llm/props")
 def llm_props():
     """llama-serverのプロパティ(最大コンテキスト長等)を返す"""
+    ui_max_ctx = 65535
     try:
         res = requests.get(f"http://127.0.0.1:{_model_manager.llm_port}/props", timeout=5)
         if res.status_code == 200:
@@ -6302,14 +6315,15 @@ def llm_props():
                      or data.get("n_ctx")
                      or _current_n_ctx)
             return {
-                "n_ctx": n_ctx,
+                "n_ctx": max(int(n_ctx or 0), ui_max_ctx),
+                "n_ctx_runtime": int(n_ctx or _current_n_ctx),
                 "n_ctx_train": data.get("n_ctx_train", n_ctx),
                 "raw": {k: v for k, v in data.items() if k in ("n_ctx","n_ctx_train","model_path","total_slots")}
             }
     except Exception:
         pass
     # フォールバック: サーバー側の_current_n_ctxを返す（スライダーがずれない）
-    return {"n_ctx": _current_n_ctx, "note": "using server default"}
+    return {"n_ctx": ui_max_ctx, "n_ctx_runtime": _current_n_ctx, "note": "using server default"}
 
 # =========================
 # コンテキスト長設定

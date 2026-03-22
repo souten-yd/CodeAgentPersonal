@@ -271,6 +271,8 @@ def infer() -> dict:
 
 def run_single_benchmark(path: str, ctx: int = 4096, ngl: int = 999, mmproj_path: str = "") -> dict:
     baseline = measure_baseline()
+    if not os.path.exists(LLAMA_SERVER):
+        return {"ok": False, "error": f"llama-server not found: {LLAMA_SERVER}", "baseline": baseline}
     if not os.path.exists(path):
         return {"ok": False, "error": f"file not found: {path}", "baseline": baseline}
     if mmproj_path and not os.path.exists(mmproj_path):
