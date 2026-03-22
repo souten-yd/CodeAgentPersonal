@@ -20,4 +20,4 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["python", "scripts/start_codeagent.py", "--mode", "auto"]
+CMD ["python", "scripts/start_codeagent.py"]
