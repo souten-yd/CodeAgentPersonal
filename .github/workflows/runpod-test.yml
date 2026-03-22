@@ -10,6 +10,7 @@ on:
       - 'README.md'
       - '.github/workflows/runpod-test.yml'
       - 'scripts/setup_runpod_ubuntu.sh'
+      - 'scripts/setup_llama_runpod.sh'
       - 'scripts/runpod_start.sh'
       - 'scripts/check_environment.py'
   pull_request:
@@ -19,6 +20,7 @@ on:
       - 'README.md'
       - '.github/workflows/runpod-test.yml'
       - 'scripts/setup_runpod_ubuntu.sh'
+      - 'scripts/setup_llama_runpod.sh'
       - 'scripts/runpod_start.sh'
       - 'scripts/check_environment.py'
 
@@ -26,6 +28,7 @@ env:
   PYTHON_VERSION: '3.11'
   PIP_PACKAGES: ${{ vars.CI_PIP_PACKAGES || 'fastapi uvicorn requests' }}
   RUNPOD_SMOKE_ENABLED: ${{ vars.RUNPOD_SMOKE_ENABLED || 'false' }}
+  DOCKER_IMAGE_NAME: ${{ vars.DOCKER_IMAGE_NAME || 'codeagent-smoke' }}
 
 jobs:
 
@@ -38,7 +41,11 @@ jobs:
 
       - name: Build smoke image
         run: |
-          docker build             -f .github/docker/smoke.Dockerfile             --build-arg PIP_PACKAGES="${PIP_PACKAGES}"             -t codeagent-smoke:latest             .
+          docker build \
+            -f .github/docker/smoke.Dockerfile \
+            --build-arg PIP_PACKAGES="${PIP_PACKAGES}" \
+            -t codeagent-smoke:latest \
+            .
 
       - name: Run smoke container
         run: |
@@ -100,6 +107,10 @@ jobs:
         run: |
           bash scripts/setup_runpod_ubuntu.sh --ci
 
+      - name: Install llama.cpp Linux CUDA package
+        run: |
+          bash scripts/setup_llama_runpod.sh
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -132,3 +143,41 @@ jobs:
       - name: Smoke check
         run: |
           python scripts/check_environment.py --expect-python ${PYTHON_VERSION}
+
+      - name: Resolve Docker image repository (Docker Hub only)
+        run: |
+          if [ -z "${{ vars.DOCKERHUB_USERNAME }}" ]; then
+            echo 'vars.DOCKERHUB_USERNAME is required for Runpod Docker tagging.'
+            exit 1
+          fi
+          IMAGE_REPO="${{ vars.DOCKERHUB_USERNAME }}/${DOCKER_IMAGE_NAME}"
+          case "${IMAGE_REPO}" in
+            ghcr.io/*)
+              echo 'ghcr.io is not allowed for this workflow.'
+              exit 1
+              ;;
+          esac
+          echo "IMAGE_REPO=${IMAGE_REPO}" >> "${GITHUB_ENV}"
+
+      - name: Build Runpod Docker image
+        run: |
+          docker build \
+            -f .github/docker/smoke.Dockerfile \
+            --build-arg PIP_PACKAGES="${PIP_PACKAGES}" \
+            -t "${IMAGE_REPO}:runpod-${GITHUB_SHA}" \
+            -t "${IMAGE_REPO}:runpod-latest" \
+            .
+
+      - name: Login to Docker Hub
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push Runpod Docker image
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          docker push "${IMAGE_REPO}:runpod-${GITHUB_SHA}"
+          docker push "${IMAGE_REPO}:runpod-latest"

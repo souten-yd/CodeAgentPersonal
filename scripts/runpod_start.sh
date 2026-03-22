@@ -11,6 +11,13 @@ PRIMARY_PORT="${PRIMARY_PORT:-8080}"
 echo "[Runpod] Booting CodeAgent from ${ROOT_DIR}"
 echo "[Runpod] host=${HOST} port=${PORT} primary_port=${PRIMARY_PORT}"
 
+AUTO_SETUP_LLAMA="${RUNPOD_AUTO_SETUP_LLAMA:-true}"
+if [[ "${AUTO_SETUP_LLAMA}" == "true" ]]; then
+  bash scripts/setup_llama_runpod.sh
+else
+  echo "[Runpod] Skipping llama.cpp CUDA setup (RUNPOD_AUTO_SETUP_LLAMA=${AUTO_SETUP_LLAMA})."
+fi
+
 python scripts/check_environment.py || {
   echo "[Runpod] Installing Python dependencies from requirements.txt..."
   python -m pip install --upgrade pip
