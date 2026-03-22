@@ -84,10 +84,12 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CA_DATA_DIR          = os.path.join(BASE_DIR, "ca_data")
 CODEAGENT_HIDDEN_DIR = os.path.join(BASE_DIR, ".codeagent")
 OPENCODE_CONFIG_PATH = os.path.join(BASE_DIR, "opencode.json")
-OPENCODE_ENSEMBLE_LOG_DIR = os.path.join(BASE_DIR, ".opencode", "ensemble_logs")
+LOG_DIR = os.path.join(CA_DATA_DIR, "Logs")
+OPENCODE_ENSEMBLE_LOG_DIR = os.path.join(LOG_DIR, "ensemble")
 
 os.makedirs(CA_DATA_DIR, exist_ok=True)
 os.makedirs(CODEAGENT_HIDDEN_DIR, exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(OPENCODE_ENSEMBLE_LOG_DIR, exist_ok=True)
 
 WORK_DIR = os.path.join(CA_DATA_DIR, "workspace")
@@ -457,6 +459,8 @@ def _choose_default_startup_model() -> str:
 
 
 def schedule_default_model_load(reason: str = "", force: bool = False) -> tuple[bool, str]:
+    if not _model_manager.has_llama_server():
+        return False, "llama_server_not_found"
     if not model_db_exists():
         return False, "no_model_db"
     models = [m for m in model_db_list() if int(m.get("enabled", 1) or 1) != 0 and m.get("path")]
@@ -532,6 +536,8 @@ def recommend_roles_with_planner(models: list[dict]) -> tuple[str, dict[str, lis
     planner_model = max(candidates, key=lambda m: _model_text_tps(m))
     planner_key = (planner_model.get("model_key") or "").strip()
     fallback = _fallback_role_recommendations(candidates)
+    if not _model_manager.has_llama_server():
+        return planner_key, fallback
     if not planner_key:
         return "", fallback
 
@@ -616,8 +622,13 @@ class ModelManager:
         self._status         = "ready"
         self._switch_eta     = 0.0
         self._switch_callbacks = []
+        if not self.has_llama_server():
+            print(f"[ModelManager] WARNING: llama-server not found: {self.llama_path}")
         # 起動時に実際に動いているモデルを検出してcurrent_keyを同期
         self._sync_current_model()
+
+    def has_llama_server(self) -> bool:
+        return bool(self.llama_path and os.path.exists(self.llama_path))
 
     def _sync_current_model(self):
         """llama-serverの/propsからモデルパスを取得してcurrent_keyを同期"""
@@ -784,6 +795,9 @@ class ModelManager:
         except: pass
 
     def _start(self, spec: dict, on_event, emit) -> bool:
+        if not self.has_llama_server():
+            print(f"[ModelManager] llama-server not found: {self.llama_path}")
+            return False
         cmd = [
             self.llama_path,
             "--model",    spec["path"],
@@ -2608,6 +2622,21 @@ def _normalize_benchmark_profile(profile: dict, ctx: int, use_vlm: bool) -> dict
     }
 
 
+def _unload_active_llm_for_benchmark() -> None:
+    """
+    ベンチマーク実行前に、既存のLLM(プランナー/ルーター)を停止して
+    VRAM/RAM競合による計測失敗を回避する。
+    """
+    try:
+        if _model_manager._process is not None or _model_health_ok(_model_manager.llm_port):
+            print("[Benchmark] unloading active LLM before benchmark")
+        _model_manager._kill()
+        _model_manager.current_key = ""
+        _model_manager._status = "ready"
+    except Exception as e:
+        print(f"[Benchmark] unload warning: {e}")
+
+
 def benchmark_model_record(model: dict, use_vlm: bool = False) -> dict:
     import sys as _sys
     bench_dir = os.path.dirname(os.path.abspath(__file__))
@@ -2626,6 +2655,7 @@ def benchmark_model_record(model: dict, use_vlm: bool = False) -> dict:
     if use_vlm and (not mmproj_path or not os.path.exists(mmproj_path)):
         return {"notes": "BENCHMARK SKIP: mmproj file not found"}
 
+    _unload_active_llm_for_benchmark()
     result = run_single_benchmark(path, ctx=ctx, ngl=ngl, mmproj_path=mmproj_path)
     if not result.get("ok"):
         return {"notes": f"BENCHMARK FAIL: {result.get('error', 'unknown error')}"}
@@ -2692,7 +2722,7 @@ SETTINGS_DEFAULTS = {
     "search_enabled":     "false",
     "search_num":         "5",
     "streaming_enabled":  "true",
-    "ctx_size":           "16384",
+    "ctx_size":           "8192",
     "llm_url":            "",
     "orchestration_policy": "ladder_fail_and_quality",
     "coder_primary": "",
@@ -2782,14 +2812,9 @@ def _save_opencode_json(data: dict):
 
 
 def _sync_ensemble_settings_to_opencode_json():
-    data = _load_opencode_json()
-    ensemble = data.get("ensemble", {})
-    if not isinstance(ensemble, dict):
-        ensemble = {}
-    ensemble["execution_mode"] = settings_get("ensemble_execution_mode") or "parallel"
-    ensemble["auto_switch_on_low_vram"] = settings_get("ensemble_auto_switch_on_low_vram") != "false"
-    data["ensemble"] = ensemble
-    _save_opencode_json(data)
+    # ensemble設定はsettings(SQLite)を正とする。
+    # 互換性のため関数は残すが、opencode.jsonへの書き戻しは行わない。
+    return
 
 
 def _load_ensemble_settings_from_opencode_json():
@@ -2821,7 +2846,7 @@ def _restore_settings_from_db():
             _llm_streaming = str(all_s["streaming_enabled"]).lower() in ("true", "1", "yes")
         if "ctx_size" in all_s:
             try:
-                _current_n_ctx = max(512, min(int(all_s["ctx_size"]), 32768))
+                _current_n_ctx = max(512, min(int(all_s["ctx_size"]), 65535))
             except Exception:
                 pass
         _sync_ensemble_settings_to_opencode_json()
@@ -3281,7 +3306,7 @@ def model_db_scan_folder(folder: str) -> list:
             "quantization": _guess_quantization(full_path),
             "file_size_mb": _get_file_size_mb(full_path),
             "vram_mb": -1, "ram_mb": -1, "load_sec": -1, "tok_per_sec": -1,
-            "llm_url": "", "ctx_size": 16384, "gpu_layers": 999, "notes": "scanned",
+            "llm_url": "", "ctx_size": 8192, "gpu_layers": 999, "notes": "scanned",
         }))
     return results
 
@@ -6295,6 +6320,7 @@ def project_history(name: str, limit: int = 50):
 @app.get("/llm/props")
 def llm_props():
     """llama-serverのプロパティ(最大コンテキスト長等)を返す"""
+    ui_max_ctx = 65535
     try:
         res = requests.get(f"http://127.0.0.1:{_model_manager.llm_port}/props", timeout=5)
         if res.status_code == 200:
@@ -6305,14 +6331,15 @@ def llm_props():
                      or data.get("n_ctx")
                      or _current_n_ctx)
             return {
-                "n_ctx": n_ctx,
+                "n_ctx": max(int(n_ctx or 0), ui_max_ctx),
+                "n_ctx_runtime": int(n_ctx or _current_n_ctx),
                 "n_ctx_train": data.get("n_ctx_train", n_ctx),
                 "raw": {k: v for k, v in data.items() if k in ("n_ctx","n_ctx_train","model_path","total_slots")}
             }
     except Exception:
         pass
     # フォールバック: サーバー側の_current_n_ctxを返す（スライダーがずれない）
-    return {"n_ctx": _current_n_ctx, "note": "using server default"}
+    return {"n_ctx": ui_max_ctx, "n_ctx_runtime": _current_n_ctx, "note": "using server default"}
 
 # =========================
 # コンテキスト長設定
@@ -6334,7 +6361,7 @@ def set_ctx(req: dict):
     """UIからコンテキスト長を変更する（llm_urlのmax_tokensに反映）"""
     global _current_n_ctx
     n = int(req.get("n_ctx", _current_n_ctx))
-    _current_n_ctx = max(512, min(32768, n))
+    _current_n_ctx = max(512, min(65535, n))
     return {"n_ctx": _current_n_ctx}
 
 # =========================
@@ -7258,7 +7285,7 @@ def download_gguf_api(req: dict):
         "quantization": _guess_quantization(target),
         "file_size_mb": int(file_size / (1024 * 1024)),
         "vram_mb": -1, "ram_mb": -1, "load_sec": -1, "tok_per_sec": -1,
-        "llm_url": "", "ctx_size": 16384, "gpu_layers": 999, "notes": "downloaded",
+        "llm_url": "", "ctx_size": 8192, "gpu_layers": 999, "notes": "downloaded",
     })
     if existing:
         model_db_update(existing["id"], record)
@@ -7347,6 +7374,7 @@ def _run_model_scan_job(job_id: str, folder: str):
         added = 0
         updated = 0
         benchmarked = 0
+        benchmark_failed = 0
         saved_models = []
         if total == 0:
             _set_model_scan_state(
@@ -7374,13 +7402,25 @@ def _run_model_scan_job(job_id: str, folder: str):
                 model_id = model_db_add(m)
                 added += 1
             saved = model_db_find_by_path(m["path"]) or {"id": model_id, **m}
-            updates = benchmark_model_profiles(saved)
-            model_db_update(model_id, updates)
-            merged = dict(saved)
-            merged.update(updates)
+            try:
+                updates = benchmark_model_profiles(saved)
+                model_db_update(model_id, updates)
+                merged = dict(saved)
+                merged.update(updates)
+                benchmarked += 1
+            except Exception as e:
+                benchmark_failed += 1
+                model_db_update(model_id, {"notes": f"BENCHMARK ERROR: {e}"})
+                merged = dict(saved)
+                merged["notes"] = f"BENCHMARK ERROR: {e}"
+                print(f"[ModelDB] benchmark error during scan: {model_name}: {e}")
             saved_models.append(merged)
-            benchmarked += 1
-            _set_model_scan_state(added=added, updated=updated, benchmarked=benchmarked)
+            _set_model_scan_state(
+                added=added,
+                updated=updated,
+                benchmarked=benchmarked,
+                error="" if benchmark_failed == 0 else f"benchmark_failed={benchmark_failed}",
+            )
 
         _set_model_scan_state(
             phase="planner",
@@ -7410,7 +7450,7 @@ def _run_model_scan_job(job_id: str, folder: str):
             phase="done",
             current=total,
             total=total,
-            summary="Benchmark complete.",
+            summary="Benchmark complete." if benchmark_failed == 0 else f"Benchmark complete with {benchmark_failed} error(s).",
             planner_model=planner_key,
             initialized_roles=initialized_roles,
             found=total,
@@ -7640,7 +7680,7 @@ def save_settings_api(req: dict):
     req = {k: v for k, v in req.items() if k not in ("max_output_tokens", "llm_port")}
     if "ctx_size" in req:
         try:
-            req["ctx_size"] = str(max(512, min(32768, int(req["ctx_size"]))))
+            req["ctx_size"] = str(max(512, min(65535, int(req["ctx_size"]))))
         except Exception:
             req.pop("ctx_size", None)
     if "ensemble_execution_mode" in req:
@@ -7662,7 +7702,7 @@ def save_settings_api(req: dict):
         _llm_streaming = str(req["streaming_enabled"]).lower() in ("true", "1", "yes")
     if "ctx_size" in req:
         try:
-            _current_n_ctx = max(512, min(32768, int(req["ctx_size"])))
+            _current_n_ctx = max(512, min(65535, int(req["ctx_size"])))
         except Exception:
             pass
     return {"ok": True, "saved": list(req.keys())}

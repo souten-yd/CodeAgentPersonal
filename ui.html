@@ -1042,36 +1042,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
       </div>
 
-      <div style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
-        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px">Coder Orchestration</div>
-        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">機能モードを切替できます（初期値: Model Orchestration）。</div>
-        <div style="margin-bottom:8px">
-          <select id="orch-feature-mode" onchange="applyOrchFeatureModeUi()"
-            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
-            <option value="model_orchestration">Model Orchestration (default)</option>
-            <option value="ensemble">Ensemble (beta)</option>
-          </select>
-          <div id="orch-feature-note" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
-        </div>
-        <div id="orch-settings-body">
-          <div style="font-size:10px;color:var(--text3);margin-bottom:8px">失敗時/品質基準未達時に、軽量→高品質の順でコーダーモデルを昇格再実行します。</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin-bottom:6px">
-          <select id="orch-policy" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
-            <option value="off">off</option>
-            <option value="ladder_fail_only">失敗時のみ昇格</option>
-            <option value="ladder_fail_and_quality">失敗+品質基準未達で昇格</option>
-          </select>
-          <select id="orch-coder-primary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"></select>
-          <select id="orch-coder-secondary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"></select>
-          <select id="orch-coder-tertiary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"></select>
-        </div>
-        <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer;margin-bottom:6px">
-          <input type="checkbox" id="orch-quality-enabled" style="accent-color:var(--accent)"> 品質チェックを有効化
-        </label>
-        </div>
-        <button onclick="saveOrchestrationSettings()" style="padding:4px 10px;font-size:10px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">保存</button>
-      </div>
-
       <!-- フィルタ -->
       <div class="model-toolbar">
         <input id="model-filter" type="text" placeholder="🔍 モデルを絞り込み..."
@@ -1195,9 +1165,40 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="margin-top:6px;font-size:10px;color:var(--text3)">⚠ 推奨 Steps: 10〜25。過剰だと繰り返しループのリスクあり。</div>
       </div>
 
+      <!-- Coder Orchestration -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🧩 Coder Orchestration</div>
+      <div style="padding:4px 0 14px">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">機能モードを切替できます（初期値: Model Orchestration）。</div>
+        <div style="margin-bottom:8px">
+          <select id="orch-feature-mode" onchange="applyOrchFeatureModeUi()"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+            <option value="model_orchestration">Model Orchestration (default)</option>
+            <option value="ensemble">Ensemble (beta)</option>
+          </select>
+          <div id="orch-feature-note" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
+        </div>
+        <div id="orch-settings-body">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:8px">失敗時/品質基準未達時に、軽量→高品質の順でコーダーモデルを昇格再実行します。</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin-bottom:6px">
+            <select id="orch-policy" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+              <option value="off">off</option>
+              <option value="ladder_fail_only">失敗時のみ昇格</option>
+              <option value="ladder_fail_and_quality">失敗+品質基準未達で昇格</option>
+            </select>
+            <select id="orch-coder-primary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+            <select id="orch-coder-secondary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+            <select id="orch-coder-tertiary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer;margin-bottom:6px">
+            <input type="checkbox" id="orch-quality-enabled" style="accent-color:var(--accent)"> 品質チェックを有効化
+          </label>
+        </div>
+        <button onclick="saveOrchestrationSettings()" style="padding:4px 10px;font-size:10px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">保存</button>
+      </div>
+
       <!-- Ensemble実行設定 -->
       <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🧠 Ensemble 実行設定</div>
-      <div style="padding:4px 0 14px">
+      <div id="ensemble-settings-wrap" style="padding:4px 0 14px">
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
           <span style="font-size:11px;color:var(--text2);min-width:110px">実行モード</span>
           <select id="ensemble-execution-mode"
@@ -1237,13 +1238,13 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
         <div style="margin-bottom:6px;font-size:11px;color:var(--text2)">コンテキスト長</div>
         <div style="display:flex;align-items:center;gap:8px">
-          <input type="range" id="ctx-slider" min="512" max="32768" step="512" value="16384"
+          <input type="range" id="ctx-slider" min="512" max="65535" step="1" value="8192"
             style="flex:1;accent-color:var(--accent);cursor:pointer"
             oninput="updateCtxLabel(this.value)" onchange="applyCtxLen(this.value)">
-          <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">16384</span>
+          <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">8192</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px">
-          <span>512</span><span id="ctx-max-label">max: 32768</span><span id="ctx-slider-max">32768</span>
+          <span>512</span><span id="ctx-max-label">max: 65535</span><span id="ctx-slider-max">65535</span>
         </div>
         <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">LLM URL（空=サーバーデフォルト）</div>
         <input type="text" id="llm-url-input" placeholder="http://localhost:8080/v1/chat/completions"
@@ -1481,7 +1482,7 @@ async function loadSettingsFromDb() {
     if (snl) snl.textContent = snum;
 
     // Ctx size
-    const ctx = parseInt(d.ctx_size) || 16384;
+    const ctx = parseInt(d.ctx_size) || 8192;
     const cs = document.getElementById('ctx-slider');
     const cl = document.getElementById('ctx-label');
     if (cs) cs.value = ctx;
@@ -1560,6 +1561,10 @@ function _fmtPct(v) {
   const n = Number(v);
   return Number.isFinite(n) && n >= 0 ? `${n.toFixed(0)}%` : '--';
 }
+function _fmtGb(mb) {
+  const n = Number(mb);
+  return Number.isFinite(n) && n >= 0 ? `${(n / 1024).toFixed(1)}GB` : '--';
+}
 
 async function refreshSystemUsage() {
   const el = document.getElementById('sys-usage');
@@ -1569,14 +1574,17 @@ async function refreshSystemUsage() {
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'failed');
     const cpu = _fmtPct(d.cpu_percent);
-    const ram = _fmtPct(d.ram_percent);
-    const gpu = Array.isArray(d.gpus) && d.gpus.length ? _fmtPct(d.gpus[0].util_percent) : '--';
-    const vram = Array.isArray(d.gpus) && d.gpus.length ? _fmtPct(d.gpus[0].vram_percent) : '--';
+    const ramPct = _fmtPct(d.ram_percent);
+    const ram = `${ramPct} (${_fmtGb(d.ram_used_mb)}/${_fmtGb(d.ram_total_mb)})`;
+    const gpuInfo = Array.isArray(d.gpus) && d.gpus.length ? d.gpus[0] : null;
+    const gpu = gpuInfo ? _fmtPct(gpuInfo.util_percent) : '--';
+    const vramPct = gpuInfo ? _fmtPct(gpuInfo.vram_percent) : '--';
+    const vram = gpuInfo ? `${vramPct} (${_fmtGb(gpuInfo.vram_used_mb)}/${_fmtGb(gpuInfo.vram_total_mb)})` : '--';
     el.textContent = `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram}`;
     el.title = `CPU ${cpu}, RAM ${ram}, GPU ${gpu}, VRAM ${vram} (updated: ${d.updated_at || '-'})`;
     el.style.display = 'inline';
   } catch (e) {
-    el.textContent = 'CPU -- | RAM -- | GPU -- | VRAM --';
+    el.textContent = 'CPU -- | RAM -- (--/--) | GPU -- | VRAM -- (--/--)';
     el.style.display = 'inline';
   }
 }
@@ -1728,7 +1736,7 @@ function switchTab(name) {
   if (name === 'skills') refreshSkills();
   if (name === 'memory') refreshMemory();
   if (name === 'git') refreshGitStatus();
-  if (name === 'models') { refreshModelDb(); refreshModelRoles(); loadOrchestrationSettings(); }
+  if (name === 'models') { refreshModelDb(); refreshModelRoles(); }
 }
 
 // ── GIT ──
@@ -2309,12 +2317,23 @@ function applyOrchFeatureModeUi() {
   const mode = document.getElementById('orch-feature-mode')?.value || 'model_orchestration';
   const note = document.getElementById('orch-feature-note');
   const body = document.getElementById('orch-settings-body');
+  const ensWrap = document.getElementById('ensemble-settings-wrap');
+  const ensControls = [
+    document.getElementById('ensemble-execution-mode'),
+    document.getElementById('ensemble-auto-switch'),
+    document.querySelector('button[onclick="saveEnsembleSettings(true)"]'),
+    document.querySelector('button[onclick="refreshEnsembleVramStatus()"]')
+  ].filter(Boolean);
   if (mode === 'ensemble') {
     if (note) note.textContent = 'Ensembleモード選択中。現時点ではModel Orchestrationが推奨です。';
     if (body) body.style.opacity = '0.55';
+    if (ensWrap) ensWrap.style.opacity = '1';
+    ensControls.forEach(el => el.disabled = false);
   } else {
     if (note) note.textContent = 'Model Orchestrationモード: 既存の昇格再実行ロジックを使用します。';
     if (body) body.style.opacity = '1';
+    if (ensWrap) ensWrap.style.opacity = '0.55';
+    ensControls.forEach(el => el.disabled = true);
   }
 }
 
@@ -2387,6 +2406,11 @@ async function refreshEnsembleVramStatus() {
 }
 
 async function saveEnsembleSettings(applyRecommended = false) {
+  const mode = document.getElementById('orch-feature-mode')?.value || 'model_orchestration';
+  if (mode !== 'ensemble') {
+    addLog('warn', 'ensemble', 'Ensembleモード有効時のみ変更できます');
+    return;
+  }
   const modeEl = document.getElementById('ensemble-execution-mode');
   const autoEl = document.getElementById('ensemble-auto-switch');
   if (!modeEl || !autoEl) return;
@@ -4071,19 +4095,19 @@ async function applySearchNum(val) {
 }
 
 // ── CONTEXT LENGTH SLIDER ──
-let _current_n_ctx_ui = 16384; // UIが知っているn_ctx（統計表示用）
+let _current_n_ctx_ui = 8192; // UIが知っているn_ctx（統計表示用）
 
 async function initCtxSlider() {
   try {
     // llama-serverの最大コンテキスト長を取得
     const r = await fetch(API+'/llm/props');
     const d = await r.json();
-    const maxCtx = Math.min(32768, (d.n_ctx || 32768));
+    const maxCtx = 65535;
 
     // サーバー側の現在値も取得
     const cr = await fetch(API+'/llm/ctx');
     const cd = await cr.json();
-    const curCtx = Math.max(512, Math.min(maxCtx, (cd.n_ctx || 16384)));
+    const curCtx = Math.max(512, Math.min(maxCtx, (cd.n_ctx || 8192)));
 
     const slider = document.getElementById('ctx-slider');
     const label = document.getElementById('ctx-label');
@@ -4191,6 +4215,7 @@ function applyStreamingUI(enabled) {
 function openSettings() {
   document.getElementById('settings-modal').classList.add('open');
   loadSettingsFromDb();       // 開くたびにDBから最新値を反映
+  loadOrchestrationSettings();
   loadGhRepoConfig();         // GitHub設定も読み込む
   refreshEnsembleVramStatus();
   if (ensembleVramTimer) clearInterval(ensembleVramTimer);
