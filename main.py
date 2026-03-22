@@ -1592,8 +1592,19 @@ def _should_hide_preview_path(rel_path: str) -> bool:
 def _server_container_name(port: int) -> str:
     return f"codeagent_server_{port}"
 
+def _is_docker_available() -> bool:
+    """dockerコマンドの存在確認（Runpod等の非Docker環境対策）"""
+    try:
+        result = _sp.run(["docker", "--version"], capture_output=True, text=True)
+    except FileNotFoundError:
+        return False
+    return result.returncode == 0
+
 def _cleanup_server_containers():
     """CodeAgentサーバーコンテナを全て停止・削除（起動時・異常時に呼ぶ）"""
+    if not _is_docker_available():
+        print("[run_server] skip cleanup: docker command is not available")
+        return
     result = _sp.run(
         ["docker", "ps", "-a", "--filter", "name=codeagent_server_",
          "--format", "{{.Names}}"],

@@ -179,7 +179,7 @@ start.bat
 Runpod / Linux (自動起動コマンドにもそのまま利用可):
 
 ```bash
-python scripts/start_codeagent.py --mode auto
+python scripts/start_codeagent.py
 ```
 
 Runpodで「起動後に `docker.io` を自動導入」したい場合は、以下の起動スクリプトを使ってください（既定で有効）。
@@ -251,7 +251,7 @@ docker.io/<DOCKERHUB_USERNAME>/codeagent-personal:latest
 起動コマンド例:
 
 ```bash
-python scripts/start_codeagent.py --mode auto --host 0.0.0.0 --port 8000
+python scripts/start_codeagent.py --host 0.0.0.0 --port 8000
 ```
 
 必要なら `PORT` / `PRIMARY_PORT` を環境変数で上書きしてください。
