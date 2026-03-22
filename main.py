@@ -7265,11 +7265,29 @@ def download_gguf_api(req: dict):
         model_id_db = existing["id"]
     else:
         model_id_db = model_db_add(record)
+
+    import threading as _dl_bench_thread
+    def _run_bench_after_download(mid: str):
+        try:
+            models_now = model_db_list()
+            model_now = next((m for m in models_now if m.get("id") == mid), None)
+            if not model_now:
+                return
+            updates = benchmark_model_profiles(model_now)
+            model_db_update(mid, updates)
+            schedule_default_model_load(reason="download_benchmark_complete")
+            print(f"[ModelDB] benchmark done after download: {model_now.get('name')} {updates}")
+        except Exception as e:
+            model_db_update(mid, {"notes": f"BENCHMARK ERROR: {e}"})
+            print(f"[ModelDB] benchmark error after download: {e}")
+
+    _dl_bench_thread.Thread(target=_run_bench_after_download, args=(model_id_db,), daemon=True).start()
     return {
         "ok": True,
         "path": target,
         "bytes": file_size,
         "model_db_id": model_id_db,
+        "benchmark_started": True,
     }
 
 
