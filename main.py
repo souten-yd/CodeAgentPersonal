@@ -3020,6 +3020,31 @@ def get_system_hardware_info() -> dict:
                     gpu_backend = "rocm-smi"
         except Exception:
             pass
+    if not gpus and os.name == "nt":
+        try:
+            ps = (
+                "$gpu = Get-WmiObject Win32_VideoController | "
+                "Where-Object { $_.AdapterRAM -gt 0 -and $_.Name -notmatch 'Virtual' } | Select-Object -First 1; "
+                "$name = if ($gpu) { [string]$gpu.Name } else { 'Windows GPU' }; "
+                "$totalB = if ($gpu) { [double]$gpu.AdapterRAM } else { 0 }; "
+                "$samples = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -ErrorAction SilentlyContinue).CounterSamples; "
+                "$usedB = if ($samples) { ($samples | Measure-Object CookedValue -Sum).Sum } else { 0 }; "
+                "$obj = @{ name=$name; total_mb=[math]::Round($totalB/1MB); used_mb=[math]::Round($usedB/1MB) }; "
+                "$obj | ConvertTo-Json -Compress"
+            )
+            r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=8)
+            data = json.loads((r.stdout or "{}").strip() or "{}")
+            total_mb = int(data.get("total_mb") or 0)
+            used_mb = int(data.get("used_mb") or 0)
+            if total_mb > 0:
+                gpus.append({
+                    "name": str(data.get("name") or "Windows GPU"),
+                    "memory_total_mb": total_mb,
+                    "memory_free_mb": max(0, total_mb - used_mb),
+                })
+                gpu_backend = "windows-counter"
+        except Exception:
+            pass
 
     vram_total_mb = sum(g["memory_total_mb"] for g in gpus) if gpus else -1
     vram_free_mb = sum(g["memory_free_mb"] for g in gpus) if gpus else -1
@@ -3099,13 +3124,14 @@ def get_system_usage_info() -> dict:
                 used = int(parts[2]) if parts[2].isdigit() else -1
                 total = int(parts[3]) if parts[3].isdigit() else -1
                 pct = (used / total * 100.0) if used >= 0 and total > 0 else -1.0
-                gpus.append({
-                    "name": parts[0],
-                    "util_percent": util,
-                    "vram_used_mb": used,
-                    "vram_total_mb": total,
-                    "vram_percent": pct,
-                })
+                if total > 0 or util >= 0:
+                    gpus.append({
+                        "name": parts[0],
+                        "util_percent": util,
+                        "vram_used_mb": used,
+                        "vram_total_mb": total,
+                        "vram_percent": pct,
+                    })
         if gpus:
             gpu_backend = "nvidia-smi"
     except Exception:
@@ -3132,6 +3158,38 @@ def get_system_usage_info() -> dict:
                     })
                 if gpus:
                     gpu_backend = "rocm-smi"
+        except Exception:
+            pass
+    if not gpus and os.name == "nt":
+        try:
+            ps = (
+                "$gpu = Get-WmiObject Win32_VideoController | "
+                "Where-Object { $_.AdapterRAM -gt 0 -and $_.Name -notmatch 'Virtual' } | Select-Object -First 1; "
+                "$name = if ($gpu) { [string]$gpu.Name } else { 'Windows GPU' }; "
+                "$totalB = if ($gpu) { [double]$gpu.AdapterRAM } else { 0 }; "
+                "$engine = (Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction SilentlyContinue).CounterSamples | "
+                "Where-Object { $_.InstanceName -match 'engtype_3d' }; "
+                "$util = if ($engine) { ($engine | Measure-Object CookedValue -Sum).Sum } else { 0 }; "
+                "$mem = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -ErrorAction SilentlyContinue).CounterSamples; "
+                "$usedB = if ($mem) { ($mem | Measure-Object CookedValue -Sum).Sum } else { 0 }; "
+                "$obj = @{ name=$name; util=[math]::Round([math]::Min(100, $util),1); used_mb=[math]::Round($usedB/1MB); total_mb=[math]::Round($totalB/1MB) }; "
+                "$obj | ConvertTo-Json -Compress"
+            )
+            r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=8)
+            data = json.loads((r.stdout or "{}").strip() or "{}")
+            total = int(data.get("total_mb") or 0)
+            used = int(data.get("used_mb") or 0)
+            util = float(data.get("util") or 0.0)
+            pct = (used / total * 100.0) if total > 0 else -1.0
+            if total > 0:
+                gpus.append({
+                    "name": str(data.get("name") or "Windows GPU"),
+                    "util_percent": util,
+                    "vram_used_mb": max(0, used),
+                    "vram_total_mb": total,
+                    "vram_percent": pct,
+                })
+                gpu_backend = "windows-counter"
         except Exception:
             pass
 

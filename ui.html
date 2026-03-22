@@ -1036,7 +1036,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
       <div id="model-role-panel" style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
         <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px">Role Routing</div>
-        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">ロールごとに使用モデルを選択できます。未設定時は planner 推奨モデルを初期値として使います。</div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">運用方針: Coder系(Tier1-3)はSettingsで管理します。ここでは plan/chat/search/verify/multi のみ設定します。Routerは内部判定でこの割当を参照し、Task実行時に自動で使用されます。</div>
         <div id="model-role-list" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
           <div style="font-size:11px;color:var(--text3)">Loading roles...</div>
         </div>
@@ -1924,7 +1924,8 @@ async function refreshModelRoles() {
     _modelRoleState = d;
     const plannerKey = d.planner_key || '';
     const modelMap = Object.fromEntries((d.models || []).map(m => [m.model_key, m]));
-    el.innerHTML = (d.roles || []).map(role => {
+    const visibleRoles = (d.roles || []).filter(role => ['plan','chat','search','verify','multi'].includes(role));
+    el.innerHTML = visibleRoles.map(role => {
       const a = d.assignments?.[role] || {};
       const selectedKey = a.model_key || plannerKey || '';
       const source = a.source || 'unassigned';
@@ -2313,6 +2314,29 @@ function _buildOrchModelOptions(models, selected) {
   return opts.join('');
 }
 
+function _recommendTierModels(models = []) {
+  const candidates = (models || [])
+    .filter(m => Number(m?.enabled ?? 1) !== 0)
+    .map(m => {
+      const name = asText(m?.name || m?.model_key).toLowerCase();
+      const tps = Number(m?.tok_per_sec ?? -1);
+      const coderHint = /(coder|code|qwen)/.test(name) ? 1 : 0;
+      return { key: asText(m?.model_key), score: (tps > 0 ? tps : 0) + coderHint * 1000 };
+    })
+    .filter(x => !!x.key)
+    .sort((a, b) => b.score - a.score);
+  const uniq = [];
+  for (const c of candidates) {
+    if (!uniq.includes(c.key)) uniq.push(c.key);
+    if (uniq.length >= 3) break;
+  }
+  return {
+    tier3: uniq[0] || '',
+    tier2: uniq[1] || uniq[0] || '',
+    tier1: uniq[2] || uniq[1] || uniq[0] || '',
+  };
+}
+
 function applyOrchFeatureModeUi() {
   const mode = document.getElementById('orch-feature-mode')?.value || 'model_orchestration';
   const note = document.getElementById('orch-feature-note');
@@ -2345,16 +2369,35 @@ async function loadOrchestrationSettings() {
     const models = d.models || [];
     const policyEl = document.getElementById('orch-policy');
     const qEl = document.getElementById('orch-quality-enabled');
-    const p1 = document.getElementById('orch-coder-primary');
-    const p2 = document.getElementById('orch-coder-secondary');
-    const p3 = document.getElementById('orch-coder-tertiary');
+    const t1 = document.getElementById('orch-tier1');
+    const t2 = document.getElementById('orch-tier2');
+    const t3 = document.getElementById('orch-tier3');
     const fm = document.getElementById('orch-feature-mode');
     if (fm) fm.value = d.feature_mode === 'ensemble' ? 'ensemble' : 'model_orchestration';
     if (policyEl) policyEl.value = d.policy || 'ladder_fail_and_quality';
     if (qEl) qEl.checked = d.quality_check_enabled !== false;
-    if (p1) p1.innerHTML = _buildOrchModelOptions(models, d.coder_primary || '');
-    if (p2) p2.innerHTML = _buildOrchModelOptions(models, d.coder_secondary || '');
-    if (p3) p3.innerHTML = _buildOrchModelOptions(models, d.coder_tertiary || '');
+    const rec = _recommendTierModels(models);
+    const tier3 = d.coder_tertiary || rec.tier3;
+    const tier2 = d.coder_secondary || rec.tier2;
+    const tier1 = d.coder_primary || rec.tier1;
+    if (t3) t3.innerHTML = _buildOrchModelOptions(models, tier3);
+    if (t2) t2.innerHTML = _buildOrchModelOptions(models, tier2);
+    if (t1) t1.innerHTML = _buildOrchModelOptions(models, tier1);
+    const autoAssigned = (!d.coder_tertiary && !!tier3) || (!d.coder_secondary && !!tier2) || (!d.coder_primary && !!tier1);
+    if (autoAssigned) {
+      await fetch(API+'/models/orchestration', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          feature_mode: d.feature_mode || 'model_orchestration',
+          policy: d.policy || 'ladder_fail_and_quality',
+          quality_check_enabled: d.quality_check_enabled !== false,
+          coder_primary: tier1,
+          coder_secondary: tier2,
+          coder_tertiary: tier3
+        })
+      });
+    }
     applyOrchFeatureModeUi();
   } catch (e) {
     addLog('err','models', e.message);
@@ -2366,9 +2409,10 @@ async function saveOrchestrationSettings() {
     feature_mode: document.getElementById('orch-feature-mode')?.value || 'model_orchestration',
     policy: document.getElementById('orch-policy')?.value || 'ladder_fail_and_quality',
     quality_check_enabled: document.getElementById('orch-quality-enabled')?.checked !== false,
-    coder_primary: document.getElementById('orch-coder-primary')?.value || '',
-    coder_secondary: document.getElementById('orch-coder-secondary')?.value || '',
-    coder_tertiary: document.getElementById('orch-coder-tertiary')?.value || ''
+    // Tier1->primary, Tier2->secondary, Tier3->tertiary
+    coder_primary: document.getElementById('orch-tier1')?.value || '',
+    coder_secondary: document.getElementById('orch-tier2')?.value || '',
+    coder_tertiary: document.getElementById('orch-tier3')?.value || ''
   };
   try {
     const r = await fetch(API+'/models/orchestration', {
@@ -2718,6 +2762,7 @@ async function createProject() {
 async function deleteProject(name) {
   if (!confirm(`Delete project "${name}"?`)) return;
   await fetch(API+'/projects/'+encodeURIComponent(name), {method:'DELETE'});
+  try { localStorage.removeItem('lastJob_' + name); } catch(e) {}
   if (currentProject===name) selectProject('default');
   loadProjects();
 }
@@ -3136,45 +3181,11 @@ async function sendMessage(msg) {
 
 // ── MODEL SELECTOR (in plan card) ──
 function buildModelBar(recKey, recName, switchNeeded, etaSec, catalog) {
-  const options = Object.entries(catalog)
-    .filter(([k, v]) => v.available)
-    .map(([k, v]) =>
-      `<option value="${esc(k)}" ${k===recKey?'selected':''}>${esc(formatModelShortName(v.name))} (${v.vram_gb}GB)</option>`
-    ).join('');
-  const etaLabel = switchNeeded && etaSec > 0 && recKey !== 'auto'
-    ? `<span class="plan-model-eta">~${etaSec}s load</span>`
-    : '';
-  const autoSelected = !recKey || recKey === 'auto';
-  return `<div class="plan-model-bar">
-    <span class="plan-model-label">Model:</span>
-    <select class="plan-model-sel" id="plan-model-sel" onchange="updatePlanModel(this.value)">
-      <option value="auto" ${autoSelected?'selected':''}>⚡ Auto (task-based)</option>
-      ${options}
-    </select>
-    ${etaLabel}
-    <div id="plan-model-status" style="font-size:10px;color:var(--text3)"></div>
-  </div>`;
+  return '';
 }
 
 function updatePlanModel(key) {
-  if (pendingPlan) pendingPlan.recommended_model = key;
-  const statusEl = document.getElementById('plan-model-status');
-  if (!statusEl) return;
-  if (key === 'auto') {
-    statusEl.textContent = 'Auto: best model selected per task';
-    statusEl.style.color = 'var(--text3)';
-    return;
-  }
-  fetch(API + '/model/status').then(r => r.json()).then(d => {
-    if (d.current_key === key) {
-      statusEl.textContent = '✓ already loaded';
-      statusEl.style.color = 'var(--text3)';
-    } else {
-      const eta = d.catalog[key]?.load_sec || 60;
-      statusEl.textContent = `⚡ ~${eta}s to switch`;
-      statusEl.style.color = 'var(--amber)';
-    }
-  }).catch(() => {});
+  if (pendingPlan) pendingPlan.recommended_model = 'auto';
 }
 
 // モデル切り替えイベントをSSEで受け取ってプログレスに反映
