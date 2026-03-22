@@ -84,10 +84,12 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CA_DATA_DIR          = os.path.join(BASE_DIR, "ca_data")
 CODEAGENT_HIDDEN_DIR = os.path.join(BASE_DIR, ".codeagent")
 OPENCODE_CONFIG_PATH = os.path.join(BASE_DIR, "opencode.json")
-OPENCODE_ENSEMBLE_LOG_DIR = os.path.join(BASE_DIR, ".opencode", "ensemble_logs")
+LOG_DIR = os.path.join(CA_DATA_DIR, "Logs")
+OPENCODE_ENSEMBLE_LOG_DIR = os.path.join(LOG_DIR, "ensemble")
 
 os.makedirs(CA_DATA_DIR, exist_ok=True)
 os.makedirs(CODEAGENT_HIDDEN_DIR, exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(OPENCODE_ENSEMBLE_LOG_DIR, exist_ok=True)
 
 WORK_DIR = os.path.join(CA_DATA_DIR, "workspace")
@@ -2782,14 +2784,9 @@ def _save_opencode_json(data: dict):
 
 
 def _sync_ensemble_settings_to_opencode_json():
-    data = _load_opencode_json()
-    ensemble = data.get("ensemble", {})
-    if not isinstance(ensemble, dict):
-        ensemble = {}
-    ensemble["execution_mode"] = settings_get("ensemble_execution_mode") or "parallel"
-    ensemble["auto_switch_on_low_vram"] = settings_get("ensemble_auto_switch_on_low_vram") != "false"
-    data["ensemble"] = ensemble
-    _save_opencode_json(data)
+    # ensemble設定はsettings(SQLite)を正とする。
+    # 互換性のため関数は残すが、opencode.jsonへの書き戻しは行わない。
+    return
 
 
 def _load_ensemble_settings_from_opencode_json():
@@ -2821,7 +2818,7 @@ def _restore_settings_from_db():
             _llm_streaming = str(all_s["streaming_enabled"]).lower() in ("true", "1", "yes")
         if "ctx_size" in all_s:
             try:
-                _current_n_ctx = max(512, min(int(all_s["ctx_size"]), 32768))
+                _current_n_ctx = max(512, min(int(all_s["ctx_size"]), 65535))
             except Exception:
                 pass
         _sync_ensemble_settings_to_opencode_json()
@@ -6334,7 +6331,7 @@ def set_ctx(req: dict):
     """UIからコンテキスト長を変更する（llm_urlのmax_tokensに反映）"""
     global _current_n_ctx
     n = int(req.get("n_ctx", _current_n_ctx))
-    _current_n_ctx = max(512, min(32768, n))
+    _current_n_ctx = max(512, min(65535, n))
     return {"n_ctx": _current_n_ctx}
 
 # =========================
@@ -7347,6 +7344,7 @@ def _run_model_scan_job(job_id: str, folder: str):
         added = 0
         updated = 0
         benchmarked = 0
+        benchmark_failed = 0
         saved_models = []
         if total == 0:
             _set_model_scan_state(
@@ -7374,13 +7372,25 @@ def _run_model_scan_job(job_id: str, folder: str):
                 model_id = model_db_add(m)
                 added += 1
             saved = model_db_find_by_path(m["path"]) or {"id": model_id, **m}
-            updates = benchmark_model_profiles(saved)
-            model_db_update(model_id, updates)
-            merged = dict(saved)
-            merged.update(updates)
+            try:
+                updates = benchmark_model_profiles(saved)
+                model_db_update(model_id, updates)
+                merged = dict(saved)
+                merged.update(updates)
+                benchmarked += 1
+            except Exception as e:
+                benchmark_failed += 1
+                model_db_update(model_id, {"notes": f"BENCHMARK ERROR: {e}"})
+                merged = dict(saved)
+                merged["notes"] = f"BENCHMARK ERROR: {e}"
+                print(f"[ModelDB] benchmark error during scan: {model_name}: {e}")
             saved_models.append(merged)
-            benchmarked += 1
-            _set_model_scan_state(added=added, updated=updated, benchmarked=benchmarked)
+            _set_model_scan_state(
+                added=added,
+                updated=updated,
+                benchmarked=benchmarked,
+                error="" if benchmark_failed == 0 else f"benchmark_failed={benchmark_failed}",
+            )
 
         _set_model_scan_state(
             phase="planner",
@@ -7410,7 +7420,7 @@ def _run_model_scan_job(job_id: str, folder: str):
             phase="done",
             current=total,
             total=total,
-            summary="Benchmark complete.",
+            summary="Benchmark complete." if benchmark_failed == 0 else f"Benchmark complete with {benchmark_failed} error(s).",
             planner_model=planner_key,
             initialized_roles=initialized_roles,
             found=total,
@@ -7640,7 +7650,7 @@ def save_settings_api(req: dict):
     req = {k: v for k, v in req.items() if k not in ("max_output_tokens", "llm_port")}
     if "ctx_size" in req:
         try:
-            req["ctx_size"] = str(max(512, min(32768, int(req["ctx_size"]))))
+            req["ctx_size"] = str(max(512, min(65535, int(req["ctx_size"]))))
         except Exception:
             req.pop("ctx_size", None)
     if "ensemble_execution_mode" in req:
@@ -7662,7 +7672,7 @@ def save_settings_api(req: dict):
         _llm_streaming = str(req["streaming_enabled"]).lower() in ("true", "1", "yes")
     if "ctx_size" in req:
         try:
-            _current_n_ctx = max(512, min(32768, int(req["ctx_size"])))
+            _current_n_ctx = max(512, min(65535, int(req["ctx_size"])))
         except Exception:
             pass
     return {"ok": True, "saved": list(req.keys())}
