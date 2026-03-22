@@ -2609,8 +2609,10 @@ def _normalize_benchmark_profile(profile: dict, ctx: int, use_vlm: bool) -> dict
     log_ram = profile.get("log_cpu_mib", -1)
     counter_vram = profile.get("counter_vram_delta", -1)
     counter_ram = profile.get("counter_ram_delta", -1)
-    chosen_vram = log_vram if isinstance(log_vram, (int, float)) and log_vram > 0 else counter_vram
-    chosen_ram = log_ram if isinstance(log_ram, (int, float)) and log_ram > 0 else counter_ram
+    vram_candidates = [float(v) for v in (log_vram, counter_vram) if isinstance(v, (int, float)) and float(v) > 0]
+    ram_candidates = [float(v) for v in (log_ram, counter_ram) if isinstance(v, (int, float)) and float(v) > 0]
+    chosen_vram = max(vram_candidates) if vram_candidates else -1
+    chosen_ram = max(ram_candidates) if ram_candidates else -1
     return {
         "mode": "vlm" if use_vlm else "text",
         "ctx_size": ctx,
@@ -3051,16 +3053,35 @@ def get_system_usage_info() -> dict:
         ram_percent = float(vm.percent)
     except Exception:
         try:
-            if hasattr(os, "getloadavg"):
-                load1, _, _ = os.getloadavg()
-                c = os.cpu_count() or 1
-                cpu_percent = max(0.0, min(100.0, (load1 / c) * 100.0))
-            t_kb, a_kb = _read_meminfo_kb()
-            if t_kb > 0:
-                ram_total_mb = int(t_kb / 1024)
-            if a_kb > 0 and ram_total_mb > 0:
-                ram_used_mb = max(0, ram_total_mb - int(a_kb / 1024))
-                ram_percent = (ram_used_mb / ram_total_mb) * 100.0
+            if os.name == "nt":
+                ps = (
+                    "$os = Get-CimInstance Win32_OperatingSystem; "
+                    "$cpu = (Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples[0].CookedValue; "
+                    "$total = [math]::Round($os.TotalVisibleMemorySize / 1024); "
+                    "$avail = [math]::Round($os.FreePhysicalMemory / 1024); "
+                    "$used = $total - $avail; "
+                    "$ramPct = if ($total -gt 0) { ($used / $total) * 100 } else { 0 }; "
+                    "Write-Output (\"{0},{1},{2},{3}\" -f [math]::Round($cpu,1),$total,$used,[math]::Round($ramPct,1))"
+                )
+                r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=8)
+                out = (r.stdout or "").strip()
+                if "," in out:
+                    cpu_s, total_s, used_s, pct_s = out.split(",", 3)
+                    cpu_percent = float(cpu_s)
+                    ram_total_mb = int(total_s)
+                    ram_used_mb = int(used_s)
+                    ram_percent = float(pct_s)
+            else:
+                if hasattr(os, "getloadavg"):
+                    load1, _, _ = os.getloadavg()
+                    c = os.cpu_count() or 1
+                    cpu_percent = max(0.0, min(100.0, (load1 / c) * 100.0))
+                t_kb, a_kb = _read_meminfo_kb()
+                if t_kb > 0:
+                    ram_total_mb = int(t_kb / 1024)
+                if a_kb > 0 and ram_total_mb > 0:
+                    ram_used_mb = max(0, ram_total_mb - int(a_kb / 1024))
+                    ram_percent = (ram_used_mb / ram_total_mb) * 100.0
         except Exception:
             pass
 

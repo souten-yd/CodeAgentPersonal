@@ -130,9 +130,12 @@ def parse_llama_log(log_text: str) -> dict:
     patterns = [
         (r"(?:ROCm|CUDA|Vulkan|Metal)\d*\s+model buffer size\s*=\s*([\d.]+)\s*MiB", "gpu", "model_gpu"),
         (r"CPU(?:_Mapped)?\s+model buffer size\s*=\s*([\d.]+)\s*MiB", "cpu", "model_cpu"),
+        (r"CPU(?:_Mapped)?\s+buffer size\s*=\s*([\d.]+)\s*MiB", "cpu", "buffer_cpu"),
         (r"(?:ROCm|CUDA|Vulkan|Metal)\d*\s+KV buffer size\s*=\s*([\d.]+)\s*MiB", "gpu", "kv_cache_gpu"),
+        (r"CPU(?:_Mapped)?\s+KV buffer size\s*=\s*([\d.]+)\s*MiB", "cpu", "kv_cache_cpu"),
         (r"(?:ROCm|CUDA|Vulkan|Metal)\d*\s+RS buffer size\s*=\s*([\d.]+)\s*MiB", "gpu", "rs_buffer"),
         (r"(?:ROCm|CUDA|Vulkan|Metal)\d*\s+compute buffer size\s*=\s*([\d.]+)\s*MiB", "gpu", "compute_gpu"),
+        (r"CPU(?:_Mapped)?\s+compute buffer size\s*=\s*([\d.]+)\s*MiB", "cpu", "compute_cpu"),
         (r"(?:ROCm|CUDA|Vulkan|Metal)_Host\s+output buffer size\s*=\s*([\d.]+)\s*MiB", "cpu", "output_host"),
         (r"(?:ROCm|CUDA|Vulkan|Metal)_Host\s+compute buffer size\s*=\s*([\d.]+)\s*MiB", "cpu", "compute_host"),
     ]
