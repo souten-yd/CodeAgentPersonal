@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${ROOT_DIR}/llama"
 WORK_DIR="$(mktemp -d)"
-ZIP_PATH="${WORK_DIR}/llama-linux-cuda.zip"
+ARCHIVE_PATH="${WORK_DIR}/llama-linux-cuda-archive"
 EXTRACT_DIR="${WORK_DIR}/extract"
 BUILD_IF_NEEDED=0
 FORCE_BUILD=0
@@ -64,7 +64,7 @@ with urllib.request.urlopen(req) as response:
     payload = json.load(response)
 
 assets = payload.get("assets", [])
-pattern = re.compile(r"(linux|ubuntu).*(cuda).*x64.*\\.zip$", re.IGNORECASE)
+pattern = re.compile(r"(linux|ubuntu).*(cuda).*x64.*\\.(zip|tar\\.gz|tgz)$", re.IGNORECASE)
 matches = [a for a in assets if pattern.search(a.get("name", ""))]
 if not matches:
     raise SystemExit("No Linux CUDA x64 llama.cpp zip asset found in latest release.")
@@ -74,6 +74,32 @@ selected = matches[0]
 print(selected["browser_download_url"])
 print(selected["name"])
 PY
+}
+
+extract_prebuilt_archive() {
+  local archive_path="$1"
+  local asset_name="$2"
+  local lower_name
+  lower_name="$(echo "${asset_name}" | tr '[:upper:]' '[:lower:]')"
+
+  mkdir -p "${EXTRACT_DIR}"
+  if [[ "${lower_name}" == *.zip ]]; then
+    python - "${archive_path}" "${EXTRACT_DIR}" <<'PY'
+import pathlib
+import sys
+import zipfile
+
+zip_path = pathlib.Path(sys.argv[1])
+extract_dir = pathlib.Path(sys.argv[2])
+with zipfile.ZipFile(zip_path) as zf:
+    zf.extractall(extract_dir)
+PY
+  elif [[ "${lower_name}" == *.tar.gz || "${lower_name}" == *.tgz ]]; then
+    tar -xzf "${archive_path}" -C "${EXTRACT_DIR}"
+  else
+    echo "[Runpod] Unsupported prebuilt archive format: ${asset_name}" >&2
+    return 1
+  fi
 }
 
 install_prebuilt() {
@@ -90,19 +116,9 @@ install_prebuilt() {
   fi
 
   echo "[Runpod] Downloading ${asset_name}..."
-  curl -fL --retry 3 --retry-delay 2 "${download_url}" -o "${ZIP_PATH}"
-
-  mkdir -p "${EXTRACT_DIR}"
-  python - "${ZIP_PATH}" "${EXTRACT_DIR}" <<'PY'
-import pathlib
-import sys
-import zipfile
-
-zip_path = pathlib.Path(sys.argv[1])
-extract_dir = pathlib.Path(sys.argv[2])
-with zipfile.ZipFile(zip_path) as zf:
-    zf.extractall(extract_dir)
-PY
+  local archive_path="${ARCHIVE_PATH}.${asset_name##*.}"
+  curl -fL --retry 3 --retry-delay 2 "${download_url}" -o "${archive_path}"
+  extract_prebuilt_archive "${archive_path}" "${asset_name}"
 
   rm -rf "${OUT_DIR}"
 
