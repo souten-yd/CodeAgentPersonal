@@ -348,6 +348,13 @@ header{
 .model-edit-grid2{display:grid;grid-template-columns:110px 110px auto;gap:6px;margin-top:6px;align-items:center}
 .scan-row{display:flex;gap:5px}
 .model-toolbar{display:flex;gap:5px;margin-bottom:8px;align-items:center}
+.gguf-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
+.gguf-results-toggle{font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:4px;cursor:pointer;white-space:nowrap}
+.gguf-results-toggle:hover{border-color:var(--border2);color:var(--text)}
+.gguf-search-controls{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.gguf-search-controls input[type="text"]{flex:1;min-width:0}
+.gguf-search-controls select,.gguf-search-controls button{flex-shrink:0}
+.gguf-results-hidden #gguf-search-result{display:none !important}
 .sdot{width:6px;height:6px;border-radius:50%;background:var(--text3);transition:all .3s;flex-shrink:0}
 .tok-display{display:none}
 @media(max-width:480px){.tok-display span.tok-label{display:none}}
@@ -378,6 +385,8 @@ header{
   .scan-row{flex-direction:column}
   .model-toolbar{flex-wrap:wrap;align-items:flex-start}
   .model-toolbar input[type="text"]{min-width:100%}
+  .gguf-search-controls input[type="text"]{min-width:100%;flex-basis:100%}
+  .gguf-search-controls select,.gguf-search-controls button{flex:1 1 calc(50% - 3px)}
   #sys-usage{max-width:230px;font-size:9px;padding:2px 6px}
   #settings-modal .modal{max-width:100vw;border-radius:0}
   #settings-modal select,
@@ -1023,11 +1032,14 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="font-size:10px;color:var(--text3)">入力値はDBに自動保存。サブフォルダ含む全.ggufを検出・VLM自動判定</div>
       </div>
 
-      <div style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
-        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px">GGUF検索 & ダウンロード (Hugging Face)</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+      <div id="gguf-search-panel" style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
+        <div class="gguf-header">
+          <div style="font-size:11px;font-weight:700;color:var(--text2)">GGUF検索 & ダウンロード (Hugging Face)</div>
+          <button id="gguf-results-toggle-btn" class="gguf-results-toggle" onclick="toggleGgufResultsVisibility()">結果を非表示</button>
+        </div>
+        <div class="gguf-search-controls">
           <input id="gguf-search-q" type="text" placeholder="例: qwen coder"
-            style="flex:1;min-width:160px;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+            style="padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
           <select id="gguf-sort"
             style="padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
             <option value="downloads">downloads順</option>
@@ -2516,6 +2528,19 @@ function fmtGbFromBytes(bytes) {
 
 let ggufDownloadPollTimer = null;
 let ggufActiveProgressElId = '';
+let ggufResultsCollapsed = false;
+
+function setGgufResultsVisibility(collapsed) {
+  ggufResultsCollapsed = !!collapsed;
+  const panel = document.getElementById('gguf-search-panel');
+  if (panel) panel.classList.toggle('gguf-results-hidden', ggufResultsCollapsed);
+  const btn = document.getElementById('gguf-results-toggle-btn');
+  if (btn) btn.textContent = ggufResultsCollapsed ? '結果を再表示' : '結果を非表示';
+}
+
+function toggleGgufResultsVisibility() {
+  setGgufResultsVisibility(!ggufResultsCollapsed);
+}
 
 function setInlineGgufProgress(progressElId, text, color='var(--text3)') {
   if (!progressElId) return;
@@ -2608,6 +2633,7 @@ async function searchGgufModels() {
   const q = (document.getElementById('gguf-search-q')?.value || '').trim();
   const sort = (document.getElementById('gguf-sort')?.value || 'downloads');
   if (!q) { alert('検索キーワードを入力してください'); return; }
+  setGgufResultsVisibility(false);
   const el = document.getElementById('gguf-search-result');
   if (el) el.innerHTML = '<div style="font-size:11px;color:var(--text3)">Searching...</div>';
   try {
