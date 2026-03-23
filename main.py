@@ -104,27 +104,15 @@ def get_default_llama_server_path() -> str:
     if env_path:
         return env_path
 
-    llama_root_override = os.environ.get("LLAMA_ROOT_DIR", "").strip()
-    is_runpod = bool(os.environ.get("RUNPOD_POD_ID") or os.environ.get("RUNPOD_API_KEY"))
-    runpod_default_root = "/workspace/llama" if is_runpod else ""
-
     candidates = [
-        os.path.join(llama_root_override, "llama-server") if llama_root_override else "",
-        os.path.join(llama_root_override, "bin", "llama-server") if llama_root_override else "",
-        os.path.join(runpod_default_root, "llama-server") if runpod_default_root else "",
-        os.path.join(runpod_default_root, "bin", "llama-server") if runpod_default_root else "",
         os.path.join(BASE_DIR, "llama", "llama-server.exe"),   # Windows
         os.path.join(BASE_DIR, "llama", "llama-server"),       # Linux prebuilt
         os.path.join(BASE_DIR, "llama", "bin", "llama-server") # Linux source build/prebuilt
     ]
     for path in candidates:
-        if path and os.path.exists(path):
+        if os.path.exists(path):
             return path
-    if llama_root_override:
-        return os.path.join(llama_root_override, "llama-server")
-    if runpod_default_root:
-        return os.path.join(runpod_default_root, "llama-server")
-    return candidates[4] if os.name == "nt" else candidates[5]
+    return candidates[0] if os.name == "nt" else candidates[1]
 
 # =========================
 # Dockerタイムアウトガードレール

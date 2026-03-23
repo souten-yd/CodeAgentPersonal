@@ -5,7 +5,6 @@ import argparse
 import json
 import os
 import platform
-import stat
 import shutil
 import socket
 import subprocess
@@ -58,15 +57,24 @@ def copy_ui(base_dir: Path) -> None:
     print("[UI] ui.html copied")
 
 
-def resolve_llama_server_path(base_dir: Path, runpod: bool = False) -> Path:
+def detect_gpu_backend() -> str:
+    if shutil.which("nvidia-smi"):
+        return "cuda"
+    if shutil.which("rocminfo") or shutil.which("rocm-smi"):
+        return "hip"
+    if shutil.which("vulkaninfo"):
+        return "vulkan"
+    return "unknown"
+
+
+def resolve_llama_server_path(base_dir: Path) -> Path:
     env_path = os.environ.get("LLAMA_SERVER_PATH", "").strip()
     if env_path:
         return Path(env_path)
-    llama_root = get_llama_root_dir(base_dir, runpod)
     candidates = [
-        llama_root / "llama-server",
-        llama_root / "bin" / "llama-server",
-        llama_root / "llama-server.exe",
+        base_dir / "llama" / "llama-server",
+        base_dir / "llama" / "bin" / "llama-server",
+        base_dir / "llama" / "llama-server.exe",
     ]
     for path in candidates:
         if path.exists():
@@ -74,44 +82,13 @@ def resolve_llama_server_path(base_dir: Path, runpod: bool = False) -> Path:
     return candidates[0] if platform.system().lower() != "windows" else candidates[2]
 
 
-def _debug_llama_layout(base_dir: Path, runpod: bool) -> None:
-    llama_root = get_llama_root_dir(base_dir, runpod)
-    print(f"[Runpod][Debug] llama root: {llama_root} (exists={llama_root.exists()})")
-    if not llama_root.exists():
-        return
-    try:
-        entries = sorted(llama_root.iterdir(), key=lambda p: p.name.lower())
-    except Exception as e:
-        print(f"[Runpod][Debug][WARN] failed to inspect llama root: {e}")
-        return
-    if not entries:
-        print("[Runpod][Debug] llama root is empty.")
-        return
-
-    preview = entries[:20]
-    for entry in preview:
-        kind = "dir" if entry.is_dir() else "file"
-        size = entry.stat().st_size if entry.is_file() else 0
-        print(f"[Runpod][Debug] - {entry.name} ({kind}, size={size})")
-    if len(entries) > len(preview):
-        print(f"[Runpod][Debug] ... and {len(entries) - len(preview)} more entries")
-
-    resolved = resolve_llama_server_path(base_dir, runpod=runpod)
-    mode = ""
-    if resolved.exists():
-        try:
-            mode = stat.filemode(resolved.stat().st_mode)
-        except Exception:
-            mode = "unknown"
-    print(f"[Runpod][Debug] resolved llama-server path: {resolved} (exists={resolved.exists()}, mode={mode})")
-
-
 def ensure_llama_server(base_dir: Path, runpod: bool) -> None:
-    llama_path = resolve_llama_server_path(base_dir, runpod=runpod)
+    llama_path = resolve_llama_server_path(base_dir)
+    if llama_path.exists():
+        print(f"[LLM] llama-server found: {llama_path}")
+        return
+
     if not runpod:
-        if llama_path.exists():
-            print(f"[LLM] llama-server found: {llama_path}")
-            return
         print(f"[LLM][WARN] llama-server not found: {llama_path}")
         return
 
@@ -119,133 +96,33 @@ def ensure_llama_server(base_dir: Path, runpod: bool) -> None:
         print("[Runpod] RUNPOD_AUTO_SETUP_LLAMA=false -> skip llama setup.")
         return
 
-    if llama_path.exists():
-        print(f"[Runpod] Existing llama-server detected: {llama_path}")
-        print("[Runpod] Skip download (binary already exists).")
-        _debug_llama_layout(base_dir, runpod=runpod)
+    backend = detect_gpu_backend()
+    print(f"[Runpod] llama-server not found. GPU backend detected: {backend}")
+    if backend != "cuda":
+        print("[Runpod][WARN] Auto setup currently supports NVIDIA CUDA path via scripts/setup_llama_runpod.sh.")
         return
 
-    print(f"[Runpod] llama-server not found: {llama_path}")
+    setup_script = base_dir / "scripts" / "setup_llama_runpod.sh"
+    if not setup_script.exists():
+        print(f"[Runpod][WARN] setup script not found: {setup_script}")
+        return
 
-    requested_backend = os.environ.get("RUNPOD_LLAMA_BACKEND", "vulkan").strip().lower()
-    backend = "vulkan"
-    if requested_backend not in ("", "vulkan"):
-        print(f"[Runpod][WARN] RUNPOD_LLAMA_BACKEND={requested_backend} is unsupported. Force using Vulkan.")
-    print(f"[Runpod] GPU backend selected: {backend}")
-
+    print(f"[Runpod] Running llama setup: {setup_script}")
     try:
-        install_llama_release_binary(base_dir, backend)
+        subprocess.run(
+            ["bash", str(setup_script), "--build-if-needed"],
+            cwd=base_dir,
+            check=True,
+        )
     except Exception as e:
-        print(f"[Runpod][WARN] direct llama release install failed: {e}")
-        print("[Runpod] Fallback to pinned Vulkan release asset (b8477).")
-        try:
-            install_llama_release_binary(
-                base_dir,
-                backend,
-                fallback_url=RUNPOD_VULKAN_FALLBACK_URL,
-            )
-        except Exception as e2:
-            print(f"[Runpod][WARN] pinned Vulkan fallback install failed: {e2}")
-            return
+        print(f"[Runpod][WARN] llama setup failed: {e}")
+        return
 
-    llama_path = resolve_llama_server_path(base_dir, runpod=runpod)
+    llama_path = resolve_llama_server_path(base_dir)
     if llama_path.exists():
         print(f"[Runpod] llama-server ready: {llama_path}")
-        _debug_llama_layout(base_dir, runpod=runpod)
     else:
         print(f"[Runpod][WARN] llama setup finished but binary still not found: {llama_path}")
-        _debug_llama_layout(base_dir, runpod=runpod)
-
-
-def _resolve_latest_llama_asset(backend: str) -> tuple[str, str]:
-    api_url = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
-    req = urllib.request.Request(api_url, headers={"User-Agent": "codeagent-runpod-setup"})
-    with urllib.request.urlopen(req, timeout=20) as res:
-        payload = json.loads(res.read().decode("utf-8"))
-    assets = payload.get("assets", []) if isinstance(payload, dict) else []
-    if not assets:
-        raise RuntimeError("no release assets found")
-
-    backend = backend.lower().strip()
-    def _is_match(name: str) -> bool:
-        n = (name or "").lower()
-        if backend not in n:
-            return False
-        if "linux" not in n and "ubuntu" not in n:
-            return False
-        if "x64" not in n:
-            return False
-        return n.endswith(".tar.gz") or n.endswith(".zip")
-
-    matches = [a for a in assets if _is_match(str(a.get("name", "")))]
-    if not matches:
-        raise RuntimeError(f"no latest Linux x64 {backend} asset found")
-    matches.sort(key=lambda a: str(a.get("name", "")), reverse=True)
-    picked = matches[0]
-    url = str(picked.get("browser_download_url", ""))
-    name = str(picked.get("name", ""))
-    if not url:
-        raise RuntimeError("matched asset has no download url")
-    return url, name
-
-
-def _validate_fallback_asset(backend: str, url: str) -> str:
-    if backend != "vulkan":
-        raise RuntimeError("fallback asset is only supported for vulkan backend")
-    name = url.rstrip("/").split("/")[-1]
-    lname = name.lower()
-    if not lname.endswith(".tar.gz") and not lname.endswith(".zip"):
-        raise RuntimeError(f"unsupported fallback archive type: {name}")
-    if "vulkan" not in lname:
-        raise RuntimeError(f"fallback asset is not a Vulkan build: {name}")
-    return name
-
-
-def _extract_archive(archive_path: Path, extract_dir: Path) -> None:
-    name = archive_path.name.lower()
-    if name.endswith(".tar.gz"):
-        with tarfile.open(archive_path, "r:gz") as tf:
-            tf.extractall(extract_dir)
-        return
-    if name.endswith(".zip"):
-        with zipfile.ZipFile(archive_path) as zf:
-            zf.extractall(extract_dir)
-        return
-    raise RuntimeError(f"unsupported archive type: {archive_path.name}")
-
-
-def install_llama_release_binary(base_dir: Path, backend: str, fallback_url: str | None = None) -> None:
-    try:
-        url, asset_name = _resolve_latest_llama_asset(backend)
-        print(f"[Runpod] Downloading latest llama.cpp {backend}: {asset_name}")
-    except Exception:
-        if not fallback_url:
-            raise
-        asset_name = _validate_fallback_asset(backend, fallback_url)
-        url = fallback_url
-        print(f"[Runpod] Downloading fallback llama.cpp {backend}: {asset_name}")
-    out_dir = get_llama_root_dir(base_dir, runpod=True)
-
-    with tempfile.TemporaryDirectory(prefix="llama-release-") as td:
-        tmpdir = Path(td)
-        archive_path = tmpdir / asset_name
-        extract_dir = tmpdir / "extract"
-        extract_dir.mkdir(parents=True, exist_ok=True)
-
-        print(f"[Runpod] Downloading archive from: {url}")
-        urllib.request.urlretrieve(url, archive_path)
-        downloaded_size = archive_path.stat().st_size if archive_path.exists() else 0
-        print(f"[Runpod] Download complete: {archive_path} ({downloaded_size} bytes)")
-        _extract_archive(archive_path, extract_dir)
-        print(f"[Runpod] Extract complete: {extract_dir}")
-
-        entries = [p for p in extract_dir.iterdir()]
-        print(f"[Runpod][Debug] extracted top-level entries: {[p.name for p in entries]}")
-        src = entries[0] if len(entries) == 1 and entries[0].is_dir() else extract_dir
-        if out_dir.exists():
-            shutil.rmtree(out_dir, ignore_errors=True)
-        shutil.move(str(src), str(out_dir))
-    print(f"[Runpod] Installed llama.cpp into: {out_dir}")
 
 
 def request_json(url: str, timeout: float = 2.0) -> dict | None:
@@ -331,7 +208,6 @@ def main() -> int:
 
     copy_ui(base_dir)
     ensure_llama_server(base_dir, runpod)
-    env["LLAMA_SERVER_PATH"] = str(resolve_llama_server_path(base_dir, runpod=runpod))
 
     uvicorn_cmd = [
         sys.executable,
