@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import shutil
 import socket
 import subprocess
@@ -38,6 +39,74 @@ def copy_ui(base_dir: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
     print("[UI] ui.html copied")
+
+
+def detect_gpu_backend() -> str:
+    if shutil.which("nvidia-smi"):
+        return "cuda"
+    if shutil.which("rocminfo") or shutil.which("rocm-smi"):
+        return "hip"
+    if shutil.which("vulkaninfo"):
+        return "vulkan"
+    return "unknown"
+
+
+def resolve_llama_server_path(base_dir: Path) -> Path:
+    env_path = os.environ.get("LLAMA_SERVER_PATH", "").strip()
+    if env_path:
+        return Path(env_path)
+    candidates = [
+        base_dir / "llama" / "llama-server",
+        base_dir / "llama" / "bin" / "llama-server",
+        base_dir / "llama" / "llama-server.exe",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return candidates[0] if platform.system().lower() != "windows" else candidates[2]
+
+
+def ensure_llama_server(base_dir: Path, runpod: bool) -> None:
+    llama_path = resolve_llama_server_path(base_dir)
+    if llama_path.exists():
+        print(f"[LLM] llama-server found: {llama_path}")
+        return
+
+    if not runpod:
+        print(f"[LLM][WARN] llama-server not found: {llama_path}")
+        return
+
+    if os.environ.get("RUNPOD_AUTO_SETUP_LLAMA", "true").lower() == "false":
+        print("[Runpod] RUNPOD_AUTO_SETUP_LLAMA=false -> skip llama setup.")
+        return
+
+    backend = detect_gpu_backend()
+    print(f"[Runpod] llama-server not found. GPU backend detected: {backend}")
+    if backend != "cuda":
+        print("[Runpod][WARN] Auto setup currently supports NVIDIA CUDA path via scripts/setup_llama_runpod.sh.")
+        return
+
+    setup_script = base_dir / "scripts" / "setup_llama_runpod.sh"
+    if not setup_script.exists():
+        print(f"[Runpod][WARN] setup script not found: {setup_script}")
+        return
+
+    print(f"[Runpod] Running llama setup: {setup_script}")
+    try:
+        subprocess.run(
+            ["bash", str(setup_script), "--build-if-needed"],
+            cwd=base_dir,
+            check=True,
+        )
+    except Exception as e:
+        print(f"[Runpod][WARN] llama setup failed: {e}")
+        return
+
+    llama_path = resolve_llama_server_path(base_dir)
+    if llama_path.exists():
+        print(f"[Runpod] llama-server ready: {llama_path}")
+    else:
+        print(f"[Runpod][WARN] llama setup finished but binary still not found: {llama_path}")
 
 
 def request_json(url: str, timeout: float = 2.0) -> dict | None:
@@ -122,6 +191,7 @@ def main() -> int:
     print("==============================================")
 
     copy_ui(base_dir)
+    ensure_llama_server(base_dir, runpod)
 
     uvicorn_cmd = [
         sys.executable,
