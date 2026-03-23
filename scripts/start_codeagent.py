@@ -54,10 +54,11 @@ def resolve_llama_server_path(base_dir: Path) -> Path:
     env_path = os.environ.get("LLAMA_SERVER_PATH", "").strip()
     if env_path:
         return Path(env_path)
+    llama_root = get_llama_root_dir(base_dir, runpod=runpod)
     candidates = [
-        base_dir / "llama" / "llama-server",
-        base_dir / "llama" / "bin" / "llama-server",
-        base_dir / "llama" / "llama-server.exe",
+        llama_root / "llama-server",
+        llama_root / "bin" / "llama-server",
+        llama_root / "llama-server.exe",
     ]
     for path in candidates:
         if path.exists():
@@ -131,7 +132,7 @@ def install_runpod_vulkan_llama(base_dir: Path) -> bool:
 
 
 def ensure_llama_server(base_dir: Path, runpod: bool) -> None:
-    llama_path = resolve_llama_server_path(base_dir)
+    llama_path = resolve_llama_server_path(base_dir, runpod=runpod)
     if llama_path.exists():
         print(f"[LLM] llama-server found: {llama_path}")
         if runpod:
@@ -232,6 +233,8 @@ def main() -> int:
 
     copy_ui(base_dir)
     ensure_llama_server(base_dir, runpod)
+    env["LLAMA_SERVER_PATH"] = str(resolve_llama_server_path(base_dir, runpod=runpod))
+    print(f"[LLM] LLAMA_SERVER_PATH={env['LLAMA_SERVER_PATH']}")
 
     uvicorn_cmd = [
         sys.executable,
