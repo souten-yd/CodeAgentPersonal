@@ -30,7 +30,7 @@ else
   echo "[Runpod] Skipping docker.io auto-install (RUNPOD_AUTO_INSTALL_DOCKER=${AUTO_INSTALL_DOCKER})."
 fi
 
-echo "[Runpod] llama.cpp setup: download/extract Vulkan build into /workspace/llama when missing."
+echo "[Runpod] llama.cpp auto-setup is disabled. Provide llama-server in /app/llama (or LLAMA_SERVER_PATH)."
 
 python scripts/check_environment.py || {
   echo "[Runpod] Installing Python dependencies from requirements.txt..."
