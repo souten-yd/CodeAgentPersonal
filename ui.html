@@ -325,6 +325,8 @@ header{
 .sys-usage-row{
   display:none;
   align-items:center;
+  justify-content:space-between;
+  gap:8px;
   padding:4px 14px;
   padding-left:max(14px, env(safe-area-inset-left));
   padding-right:max(14px, env(safe-area-inset-right));
@@ -333,7 +335,8 @@ header{
 }
 #sys-usage{
   display:block;
-  width:100%;
+  flex:1 1 auto;
+  min-width:0;
   font-size:10px;
   font-family:var(--font-mono);
   color:var(--text3);
@@ -343,6 +346,21 @@ header{
   white-space:nowrap;
   overflow-x:auto;
   line-height:1.2;
+}
+#sys-llm-name{
+  display:none;
+  flex:0 0 auto;
+  max-width:42%;
+  font-size:10px;
+  font-family:var(--font-mono);
+  color:var(--text2);
+  padding:3px 8px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  text-align:right;
 }
 .search-toggle{
   display:flex;align-items:center;gap:5px;
@@ -409,7 +427,10 @@ header{
   .model-toolbar input[type="text"]{min-width:100%}
   .gguf-search-controls input[type="text"]{min-width:100%;flex-basis:100%}
   .gguf-search-controls select,.gguf-search-controls button{flex:1 1 calc(50% - 3px)}
-  #sys-usage{max-width:230px;font-size:9px;padding:2px 6px}
+  #sys-usage{font-size:9px;padding:2px 6px}
+  #sys-llm-name{display:block;font-size:9px;padding:2px 6px;max-width:46%}
+  #model-badge{display:none !important}
+  .hdr-right .sdot,.hdr-right .stext{display:none !important}
   #settings-modal .modal{max-width:100vw;border-radius:0}
   #settings-modal select,
   #settings-modal input[type="text"],
@@ -843,6 +864,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 </header>
 <div class="sys-usage-row" id="sys-usage-row">
   <span id="sys-usage" title="CPU/GPU/RAM/VRAM usage"></span>
+  <span id="sys-llm-name" title="Current LLM"></span>
 </div>
 
 <div class="mob-tabs">
@@ -1449,6 +1471,17 @@ let timerInterval = null;
 let startTime = null;
 let ensembleVramTimer = null;
 let systemUsageTimer = null;
+let currentLlmLabel = 'LLM';
+let currentLlmState = '—';
+
+function updateSystemLlmName() {
+  const llmEl = document.getElementById('sys-llm-name');
+  if (!llmEl) return;
+  const name = (currentLlmLabel || 'LLM').trim();
+  const state = (currentLlmState || '—').trim();
+  llmEl.textContent = `${state} · ${name}`;
+  llmEl.title = `${state} | ${name}`;
+}
 let _lastSystemUsageText = '';
 let voiceRecorder = null;
 let voiceChunks = [];
@@ -1581,18 +1614,27 @@ async function checkHealth() {
     const badge = document.getElementById('model-badge');
     if (badge && md.current_name) {
       badge.style.display = 'inline';
-      badge.textContent = formatModelShortName(md.current_name);
+      currentLlmLabel = formatModelShortName(md.current_name);
+      badge.textContent = currentLlmLabel;
       badge.style.color = md.status === 'switching' ? 'var(--amber)' : 'var(--text3)';
       badge.style.borderColor = md.status === 'switching' ? 'var(--amber)' : 'var(--border)';
       badge.title = md.current_name + ' | VRAM: ' + md.vram_gb + 'GB | ' + md.status;
+      updateSystemLlmName();
     }
   } catch(e) {}
   try {
     const r = await fetch(API+'/health', {signal:AbortSignal.timeout(3000)});
     const d = await r.json();
     const ok = d.llm === 'ok';
-    setStatus(ok?'ok':'warn', ok?'LLM ready':'LLM loading...');
-  } catch(e) { setStatus('err','offline'); }
+    const state = ok ? 'LLM ready' : 'LLM loading...';
+    currentLlmState = state;
+    setStatus(ok?'ok':'warn', state);
+    updateSystemLlmName();
+  } catch(e) {
+    currentLlmState = 'offline';
+    setStatus('err','offline');
+    updateSystemLlmName();
+  }
 }
 function setStatus(cls, text) {
   document.getElementById('sdot').className = 'sdot '+cls;
@@ -1606,6 +1648,20 @@ function _fmtPct(v) {
 function _fmtGb(mb) {
   const n = Number(mb);
   return Number.isFinite(n) && n >= 0 ? `${(n / 1024).toFixed(1)}GB` : '--';
+}
+function _isValidMb(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0;
+}
+async function _fetchHardwareUsageFallback() {
+  try {
+    const r = await fetch(API + '/system/hardware', {signal: AbortSignal.timeout(5000)});
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d && typeof d === 'object' ? d : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 async function refreshSystemUsage() {
@@ -1621,14 +1677,33 @@ async function refreshSystemUsage() {
     const ram = `${ramPct} (${_fmtGb(d.ram_used_mb)}/${_fmtGb(d.ram_total_mb)})`;
     const gpuInfo = Array.isArray(d.gpus) && d.gpus.length ? d.gpus[0] : null;
     const gpu = gpuInfo ? _fmtPct(gpuInfo.util_percent) : '--';
-    const vramPct = gpuInfo ? _fmtPct(gpuInfo.vram_percent) : '--';
-    const vram = gpuInfo ? `${vramPct} (${_fmtGb(gpuInfo.vram_used_mb)}/${_fmtGb(gpuInfo.vram_total_mb)})` : '--';
+    let vramUsedMb = gpuInfo?.vram_used_mb;
+    let vramTotalMb = gpuInfo?.vram_total_mb;
+    let vramPercent = gpuInfo?.vram_percent;
+    if (!_isValidMb(vramTotalMb) || !_isValidMb(vramUsedMb)) {
+      const hw = await _fetchHardwareUsageFallback();
+      if (hw) {
+        if (!_isValidMb(vramTotalMb) && _isValidMb(hw.vram_total_mb)) vramTotalMb = hw.vram_total_mb;
+        if (!_isValidMb(vramUsedMb) && _isValidMb(hw.vram_total_mb) && _isValidMb(hw.vram_free_mb)) {
+          vramUsedMb = Math.max(0, Number(hw.vram_total_mb) - Number(hw.vram_free_mb));
+        }
+      }
+    }
+    if ((!Number.isFinite(Number(vramPercent)) || Number(vramPercent) < 0) && _isValidMb(vramUsedMb) && _isValidMb(vramTotalMb) && Number(vramTotalMb) > 0) {
+      vramPercent = (Number(vramUsedMb) / Number(vramTotalMb)) * 100;
+    }
+    const vramPct = _fmtPct(vramPercent);
+    const vram = _isValidMb(vramUsedMb) || _isValidMb(vramTotalMb)
+      ? `${vramPct} (${_fmtGb(vramUsedMb)}/${_fmtGb(vramTotalMb)})`
+      : '--';
     el.textContent = `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram}`;
     el.title = `CPU ${cpu}, RAM ${ram}, GPU ${gpu}, VRAM ${vram} (updated: ${d.updated_at || '-'})`;
+    updateSystemLlmName();
     el.style.display = 'block';
     if (row) row.style.display = 'flex';
   } catch (e) {
     el.textContent = 'CPU -- | RAM -- (--/--) | GPU -- | VRAM -- (--/--)';
+    updateSystemLlmName();
     el.style.display = 'block';
     if (row) row.style.display = 'flex';
   }
