@@ -30,7 +30,8 @@ else
   echo "[Runpod] Skipping docker.io auto-install (RUNPOD_AUTO_INSTALL_DOCKER=${AUTO_INSTALL_DOCKER})."
 fi
 
-echo "[Runpod] llama.cpp auto-setup is disabled. Provide llama-server in /app/llama (or LLAMA_SERVER_PATH)."
+echo "[Runpod] llama-server can be auto-setup at launch (RUNPOD_AUTO_SETUP_LLAMA=true)."
+echo "[Runpod] You can also provide an explicit binary path with LLAMA_SERVER_PATH."
 
 python scripts/check_environment.py || {
   echo "[Runpod] Installing Python dependencies from requirements.txt..."

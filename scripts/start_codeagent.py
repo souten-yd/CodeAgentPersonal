@@ -9,6 +9,8 @@ import shutil
 import socket
 import subprocess
 import sys
+import tarfile
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -50,20 +52,59 @@ def copy_ui(base_dir: Path) -> None:
     print("[UI] ui.html copied")
 
 
-def resolve_llama_server_path(base_dir: Path) -> Path:
+def resolve_llama_server_path(base_dir: Path, runpod: bool = False) -> Path:
     env_path = os.environ.get("LLAMA_SERVER_PATH", "").strip()
     if env_path:
         return Path(env_path)
+
     llama_root = get_llama_root_dir(base_dir, runpod=runpod)
     candidates = [
         llama_root / "llama-server",
         llama_root / "bin" / "llama-server",
+        llama_root / "build" / "bin" / "llama-server",
         llama_root / "llama-server.exe",
     ]
+    if runpod:
+        candidates.extend(
+            [
+                Path("/workspace/llama-server"),
+                Path("/workspace/llama/bin/llama-server"),
+                Path("/workspace/llama/build/bin/llama-server"),
+                Path("/workspace/llama.cpp/llama-server"),
+                Path("/workspace/llama.cpp/bin/llama-server"),
+                Path("/workspace/llama.cpp/build/bin/llama-server"),
+                Path("/app/llama/llama-server"),
+                Path("/app/llama/bin/llama-server"),
+                Path("/app/llama/build/bin/llama-server"),
+            ]
+        )
+
+    which_path = shutil.which("llama-server")
+    if which_path:
+        candidates.insert(0, Path(which_path))
+
     for path in candidates:
         if path.exists():
             return path
-    return candidates[0] if platform.system().lower() != "windows" else candidates[2]
+    return candidates[0] if platform.system().lower() != "windows" else candidates[-1]
+
+
+def try_auto_setup_llama(base_dir: Path) -> bool:
+    setup_script = base_dir / "scripts" / "setup_llama_runpod.sh"
+    if not setup_script.exists():
+        print(f"[Runpod][WARN] setup script not found: {setup_script}")
+        return False
+    cmd = ["bash", str(setup_script), "--build-if-needed"]
+    print(f"[Runpod] Running llama auto-setup: {' '.join(cmd)}")
+    try:
+        completed = subprocess.run(cmd, cwd=base_dir, check=False)
+    except Exception as e:
+        print(f"[Runpod][WARN] llama auto-setup failed to start: {e}")
+        return False
+    if completed.returncode != 0:
+        print(f"[Runpod][WARN] llama auto-setup failed with exit code {completed.returncode}")
+        return False
+    return True
 
 
 def log_directory_tree(root: Path, max_depth: int = 3, max_entries: int = 200) -> None:
@@ -147,7 +188,16 @@ def ensure_llama_server(base_dir: Path, runpod: bool) -> None:
         print("[Runpod] RUNPOD_AUTO_SETUP_LLAMA=false -> skip llama setup.")
         return
 
-    print("[Runpod][WARN] llama-server not found. Auto setup is disabled; please provide a preinstalled llama-server binary.")
+    print("[Runpod] llama-server not found. Trying auto setup...")
+    if try_auto_setup_llama(base_dir):
+        llama_path = resolve_llama_server_path(base_dir, runpod=runpod)
+        if llama_path.exists():
+            print(f"[Runpod] llama-server setup completed: {llama_path}")
+            return
+    print(
+        "[Runpod][WARN] llama-server was not found after auto setup. "
+        "Set LLAMA_SERVER_PATH directly or install llama.cpp (e.g. scripts/setup_llama_runpod.sh)."
+    )
 
 
 def request_json(url: str, timeout: float = 2.0) -> dict | None:
