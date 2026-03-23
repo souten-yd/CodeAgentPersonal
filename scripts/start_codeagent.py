@@ -50,7 +50,7 @@ def copy_ui(base_dir: Path) -> None:
     print("[UI] ui.html copied")
 
 
-def resolve_llama_server_path(base_dir: Path) -> Path:
+def resolve_llama_server_path(base_dir: Path, runpod: bool = False) -> Path:
     env_path = os.environ.get("LLAMA_SERVER_PATH", "").strip()
     if env_path:
         return Path(env_path)
