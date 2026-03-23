@@ -322,6 +322,28 @@ header{
 .mode-btn{padding:5px 12px;font-size:12px;font-weight:600;font-family:var(--font-ui);letter-spacing:.04em;cursor:pointer;border:none;background:transparent;color:var(--text2);transition:all .15s}
 .mode-btn.active{background:var(--bg3);color:var(--text)}
 .hdr-right{display:flex;align-items:center;gap:8px}
+.sys-usage-row{
+  display:none;
+  align-items:center;
+  padding:4px 14px;
+  padding-left:max(14px, env(safe-area-inset-left));
+  padding-right:max(14px, env(safe-area-inset-right));
+  border-bottom:1px solid var(--border);
+  background:var(--bg1);
+}
+#sys-usage{
+  display:block;
+  width:100%;
+  font-size:10px;
+  font-family:var(--font-mono);
+  color:var(--text3);
+  padding:3px 8px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  white-space:nowrap;
+  overflow-x:auto;
+  line-height:1.2;
+}
 .search-toggle{
   display:flex;align-items:center;gap:5px;
   padding:5px 10px;border-radius:6px;
@@ -815,11 +837,13 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <span id="tok-tps" style="color:var(--amber)"></span>
     </div>
     <span id="model-badge" title="Current model" style="font-size:10px;font-family:var(--font-mono);color:var(--text3);padding:2px 8px;border:1px solid var(--border);border-radius:10px;display:none;cursor:default;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
-    <span id="sys-usage" title="CPU/GPU/RAM/VRAM usage" style="font-size:10px;font-family:var(--font-mono);color:var(--text3);padding:3px 8px;border:1px solid var(--border);border-radius:10px;display:none;max-width:420px;overflow:hidden;line-height:1.25;white-space:normal"></span>
     <div class="sdot" id="sdot"></div>
     <span class="stext" id="stext">—</span>
   </div>
 </header>
+<div class="sys-usage-row" id="sys-usage-row">
+  <span id="sys-usage" title="CPU/GPU/RAM/VRAM usage"></span>
+</div>
 
 <div class="mob-tabs">
   <button class="mob-tab active" id="mob-chat" onclick="mobSwitch('chat')">Chat</button>
@@ -1586,6 +1610,7 @@ function _fmtGb(mb) {
 
 async function refreshSystemUsage() {
   const el = document.getElementById('sys-usage');
+  const row = document.getElementById('sys-usage-row');
   if (!el) return;
   try {
     const r = await fetch(API + '/system/usage', {signal: AbortSignal.timeout(7000)});
@@ -1600,10 +1625,12 @@ async function refreshSystemUsage() {
     const vram = gpuInfo ? `${vramPct} (${_fmtGb(gpuInfo.vram_used_mb)}/${_fmtGb(gpuInfo.vram_total_mb)})` : '--';
     el.textContent = `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram}`;
     el.title = `CPU ${cpu}, RAM ${ram}, GPU ${gpu}, VRAM ${vram} (updated: ${d.updated_at || '-'})`;
-    el.style.display = 'inline';
+    el.style.display = 'block';
+    if (row) row.style.display = 'flex';
   } catch (e) {
     el.textContent = 'CPU -- | RAM -- (--/--) | GPU -- | VRAM -- (--/--)';
-    el.style.display = 'inline';
+    el.style.display = 'block';
+    if (row) row.style.display = 'flex';
   }
 }
 
