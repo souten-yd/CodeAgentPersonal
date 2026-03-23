@@ -9,9 +9,12 @@ import shutil
 import socket
 import subprocess
 import sys
+import tarfile
+import tempfile
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from pathlib import Path
 
 AUTO_MODE_KEY = "auto"
