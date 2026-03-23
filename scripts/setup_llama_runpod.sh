@@ -49,29 +49,36 @@ cleanup() {
 trap cleanup EXIT
 
 ensure_git() {
-  if command -v git >/dev/null 2>&1; then
+  ensure_tool git
+}
+
+ensure_tool() {
+  local tool="$1"
+  if command -v "${tool}" >/dev/null 2>&1; then
     return 0
   fi
 
-  echo "[Runpod] git is missing. Installing git..."
+  echo "[Runpod] ${tool} is missing. Installing ${tool}..."
   if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
-    apt-get install -y --no-install-recommends git || {
-      echo "[Runpod] Failed to install git via apt-get." >&2
+    apt-get install -y --no-install-recommends "${tool}" || {
+      echo "[Runpod] Failed to install ${tool} via apt-get." >&2
       return 1
     }
-    git --version
+    "${tool}" --version >/dev/null 2>&1 || true
     return 0
   fi
 
-  echo "[Runpod] apt-get is unavailable; cannot auto-install git." >&2
+  echo "[Runpod] apt-get is unavailable; cannot auto-install ${tool}." >&2
   return 1
 }
 
 install_prebuilt() {
   local asset_name
   asset_name="$(basename "${LLAMA_VULKAN_URL}")"
+
+  ensure_tool curl
 
   echo "[Runpod] Downloading fixed Vulkan build: ${LLAMA_VULKAN_URL}"
   mkdir -p "${EXTRACT_DIR}"
@@ -129,10 +136,8 @@ verify_runtime() {
 build_from_source() {
   echo "[Runpod] Building llama.cpp with Vulkan support from source..."
 
-  if ! command -v cmake >/dev/null 2>&1; then
-    echo "[Runpod] cmake is required for source build." >&2
-    return 1
-  fi
+  ensure_tool cmake
+  ensure_tool g++
   ensure_git
 
   local src_dir build_dir
