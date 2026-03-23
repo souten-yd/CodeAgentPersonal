@@ -100,7 +100,19 @@ os.makedirs(WORK_DIR, exist_ok=True)
 
 
 def get_default_llama_server_path() -> str:
-    return os.environ.get("LLAMA_SERVER_PATH", os.path.join(BASE_DIR, "llama", "llama-server.exe"))
+    env_path = os.environ.get("LLAMA_SERVER_PATH", "").strip()
+    if env_path:
+        return env_path
+
+    candidates = [
+        os.path.join(BASE_DIR, "llama", "llama-server.exe"),   # Windows
+        os.path.join(BASE_DIR, "llama", "llama-server"),       # Linux prebuilt
+        os.path.join(BASE_DIR, "llama", "bin", "llama-server") # Linux source build/prebuilt
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return candidates[0] if os.name == "nt" else candidates[1]
 
 # =========================
 # Dockerタイムアウトガードレール
