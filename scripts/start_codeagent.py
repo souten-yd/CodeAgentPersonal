@@ -9,8 +9,6 @@ import shutil
 import socket
 import subprocess
 import sys
-import tarfile
-import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -18,10 +16,6 @@ from pathlib import Path
 
 AUTO_MODE_KEY = "auto"
 AUTO_MODE_NUM = "1"
-RUNPOD_VULKAN_FALLBACK_URL = os.environ.get(
-    "RUNPOD_LLAMA_VULKAN_URL",
-    "https://github.com/ggml-org/llama.cpp/releases/download/b8479/llama-b8479-bin-ubuntu-vulkan-x64.tar.gz",
-).strip()
 
 
 def get_llama_root_dir(base_dir: Path, runpod: bool) -> Path:
@@ -56,7 +50,7 @@ def copy_ui(base_dir: Path) -> None:
     print("[UI] ui.html copied")
 
 
-def resolve_llama_server_path(base_dir: Path, runpod: bool = False) -> Path:
+def resolve_llama_server_path(base_dir: Path) -> Path:
     env_path = os.environ.get("LLAMA_SERVER_PATH", "").strip()
     if env_path:
         return Path(env_path)
@@ -153,15 +147,7 @@ def ensure_llama_server(base_dir: Path, runpod: bool) -> None:
         print("[Runpod] RUNPOD_AUTO_SETUP_LLAMA=false -> skip llama setup.")
         return
 
-    print("[Runpod] llama-server not found. Installing Vulkan prebuilt package...")
-    if not install_runpod_vulkan_llama(base_dir):
-        return
-
-    llama_path = resolve_llama_server_path(base_dir, runpod=runpod)
-    if llama_path.exists():
-        print(f"[Runpod] llama-server ready: {llama_path}")
-    else:
-        print(f"[Runpod][WARN] install completed but llama-server not found: {llama_path}")
+    print("[Runpod][WARN] llama-server not found. Auto setup is disabled; please provide a preinstalled llama-server binary.")
 
 
 def request_json(url: str, timeout: float = 2.0) -> dict | None:
