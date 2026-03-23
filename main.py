@@ -4176,7 +4176,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
 
         if req.mode == "chat":
             # chatモード: 直接LLM呼び出し（エージェントループなし・JSON強制なし）
-            exec_url = req.llm_url.strip() or _model_manager.llm_url
+            exec_url = _resolve_runtime_llm_url(req.llm_url)
 
             CHAT_SYSTEM = "あなたはCodeAgentです。ユーザーの質問に丁寧に答えてください。コードが必要な場合はmarkdownで記述してください。"
             history_msgs = []
@@ -4278,7 +4278,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                 task_output = ""
 
                 # req.llm_urlが明示されていればそちら、なければModelManagerのURL
-                task_url = req.llm_url.strip() or _model_manager.llm_url
+                task_url = _resolve_runtime_llm_url(req.llm_url)
                 try:
                     for ev in execute_task_stream(
                         task_detail=todo["detail"], context=context,
@@ -4722,7 +4722,7 @@ JSON形式で出力:
                 requirements = plan_result.get("requirements", ["指示された内容が正しく動作すること"]) if plan_result else ["指示された内容が正しく動作すること"]
                 verification = plan_result.get("verification", ["動作確認"]) if plan_result else ["動作確認"]
                 # verify_startはverify_and_fix内部で発火するため、ここでは不要
-                verify_url = req.llm_url.strip() or _model_manager.llm_url
+                verify_url = _resolve_runtime_llm_url(req.llm_url)
                 verify_result = verify_and_fix(
                     user_message=req.message,
                     requirements=requirements,
@@ -5626,6 +5626,35 @@ def _resolve_message_with_voice(req: ChatRequest) -> str:
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"voice transcription failed: {e}")
 
+
+def _llm_endpoint_reachable(url: str, timeout_sec: float = 1.8) -> bool:
+    target = (url or "").strip()
+    if not target:
+        return False
+    base = re.sub(r"/v1/chat/completions/?$", "", target).rstrip("/")
+    if not base:
+        return False
+    for path in ("/health", "/v1/models"):
+        try:
+            r = requests.get(base + path, timeout=timeout_sec)
+            if r.status_code < 500:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _resolve_runtime_llm_url(requested_url: str = "") -> str:
+    req_url = (requested_url or "").strip()
+    if req_url and _llm_endpoint_reachable(req_url):
+        return req_url
+    manager_url = (_model_manager.llm_url or "").strip()
+    if manager_url and _llm_endpoint_reachable(manager_url):
+        return manager_url
+    if req_url:
+        return req_url
+    return manager_url or LLM_URL_CHAT
+
 # =========================
 # エンドポイント: /chat（後方互換）
 # =========================
@@ -5633,7 +5662,7 @@ def _resolve_message_with_voice(req: ChatRequest) -> str:
 @app.post("/chat")
 def chat(req: ChatRequest):
     sid = str(uuid.uuid4())[:8]
-    chat_url = req.llm_url.strip() or LLM_URL_CHAT
+    chat_url = _resolve_runtime_llm_url(req.llm_url)
     message = _resolve_message_with_voice(req)
     if not message:
         raise HTTPException(status_code=400, detail="message is empty")

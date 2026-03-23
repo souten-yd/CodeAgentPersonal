@@ -3196,7 +3196,7 @@ async function sendMessage(msg) {
       const submitRes = await fetch(API+'/jobs/submit', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body:JSON.stringify({message:msg, max_steps:maxSteps, project:currentProject,
-          search_enabled:searchEnabled, llm_url:activeLlmUrl,
+          search_enabled:searchEnabled, llm_url:'',
           mode:'chat', chat_history:chatHistory.slice(-10)})});
       const submitData = await submitRes.json();
       const jobId = submitData.job_id;
