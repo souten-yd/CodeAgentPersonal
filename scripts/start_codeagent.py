@@ -9,20 +9,13 @@ import shutil
 import socket
 import subprocess
 import sys
-import tarfile
-import tempfile
 import time
 import urllib.error
 import urllib.request
-import zipfile
 from pathlib import Path
 
 AUTO_MODE_KEY = "auto"
 AUTO_MODE_NUM = "1"
-RUNPOD_VULKAN_FALLBACK_URL = (
-    "https://github.com/ggml-org/llama.cpp/releases/download/b8477/"
-    "llama-b8477-bin-ubuntu-vulkan-x64.tar.gz"
-)
 
 
 def get_llama_root_dir(base_dir: Path, runpod: bool) -> Path:
@@ -57,16 +50,6 @@ def copy_ui(base_dir: Path) -> None:
     print("[UI] ui.html copied")
 
 
-def detect_gpu_backend() -> str:
-    if shutil.which("nvidia-smi"):
-        return "cuda"
-    if shutil.which("rocminfo") or shutil.which("rocm-smi"):
-        return "hip"
-    if shutil.which("vulkaninfo"):
-        return "vulkan"
-    return "unknown"
-
-
 def resolve_llama_server_path(base_dir: Path) -> Path:
     env_path = os.environ.get("LLAMA_SERVER_PATH", "").strip()
     if env_path:
@@ -96,33 +79,7 @@ def ensure_llama_server(base_dir: Path, runpod: bool) -> None:
         print("[Runpod] RUNPOD_AUTO_SETUP_LLAMA=false -> skip llama setup.")
         return
 
-    backend = detect_gpu_backend()
-    print(f"[Runpod] llama-server not found. GPU backend detected: {backend}")
-    if backend != "cuda":
-        print("[Runpod][WARN] Auto setup currently supports NVIDIA CUDA path via scripts/setup_llama_runpod.sh.")
-        return
-
-    setup_script = base_dir / "scripts" / "setup_llama_runpod.sh"
-    if not setup_script.exists():
-        print(f"[Runpod][WARN] setup script not found: {setup_script}")
-        return
-
-    print(f"[Runpod] Running llama setup: {setup_script}")
-    try:
-        subprocess.run(
-            ["bash", str(setup_script), "--build-if-needed"],
-            cwd=base_dir,
-            check=True,
-        )
-    except Exception as e:
-        print(f"[Runpod][WARN] llama setup failed: {e}")
-        return
-
-    llama_path = resolve_llama_server_path(base_dir)
-    if llama_path.exists():
-        print(f"[Runpod] llama-server ready: {llama_path}")
-    else:
-        print(f"[Runpod][WARN] llama setup finished but binary still not found: {llama_path}")
+    print("[Runpod][WARN] llama-server not found. Auto setup is disabled; please provide a preinstalled llama-server binary.")
 
 
 def request_json(url: str, timeout: float = 2.0) -> dict | None:
