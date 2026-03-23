@@ -20,6 +20,7 @@ import logging
 import asyncio
 import sys
 import difflib
+import time
 from datetime import datetime
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
@@ -2745,6 +2746,8 @@ SETTINGS_DEFAULTS = {
     "feature_mode": "model_orchestration",
     "ensemble_execution_mode": "parallel",
     "ensemble_auto_switch_on_low_vram": "true",
+    "gpu_static_backend": "auto",
+    "gpu_usage_backend": "auto",
 }
 for _role in MODEL_ROLE_OPTIONS:
     SETTINGS_DEFAULTS.setdefault(_role_setting_key(_role), "")
@@ -2960,6 +2963,181 @@ def _read_meminfo_kb() -> tuple[int, int]:
     return 0, 0
 
 
+def _parse_int_maybe(v) -> int:
+    s = str(v or "").strip().replace(",", "")
+    return int(s) if s.isdigit() else -1
+
+
+def _probe_gpu_static(backend: str) -> list[dict]:
+    gpus: list[dict] = []
+    if backend == "nvidia-smi":
+        for cmd in [
+            ["nvidia-smi", "--query-gpu=name,memory.total,memory.free", "--format=csv,noheader,nounits"],  # 1
+            ["nvidia-smi", "--query-gpu=name,memory.total,memory.used", "--format=csv,noheader,nounits"],  # 2
+            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],              # 3
+            ["nvidia-smi", "-L"],                                                                           # 4
+            ["nvidia-smi", "dmon", "-s", "m", "-c", "1"],                                                  # 5
+        ]:
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+                for line in (r.stdout or "").splitlines():
+                    parts = [x.strip() for x in line.split(",")]
+                    if len(parts) >= 3:
+                        total = _parse_int_maybe(parts[1]); x3 = _parse_int_maybe(parts[2])
+                        if total > 0:
+                            free = x3 if "free" in " ".join(cmd) else (max(0, total - max(0, x3)) if x3 >= 0 else -1)
+                            gpus.append({"name": parts[0], "memory_total_mb": total, "memory_free_mb": free})
+                    elif cmd[-1] == "-L" and "GPU " in line:
+                        gpus.append({"name": line.strip(), "memory_total_mb": -1, "memory_free_mb": -1})
+                if gpus:
+                    break
+            except Exception:
+                continue
+    elif backend == "rocm-smi":
+        # 5 strategies: rocm-smi json/text/alt json + rocminfo + rocm_agent_enumerator
+        try:
+            r = subprocess.run(["rocm-smi", "--showproductname", "--showmeminfo", "vram", "--json"], capture_output=True, text=True, timeout=8)
+            if r.returncode == 0 and (r.stdout or "").strip().startswith("{"):
+                data = json.loads(r.stdout)
+                for _, info in data.items():
+                    if not isinstance(info, dict):
+                        continue
+                    total_b = info.get("VRAM Total Memory (B)") or info.get("VRAM Total Used Memory (B)")
+                    used_b = info.get("VRAM Total Used Memory (B)")
+                    if isinstance(total_b, (int, float)) and total_b > 0:
+                        total_mb = int(total_b / (1024 * 1024))
+                        used_mb = int((used_b or 0) / (1024 * 1024))
+                        gpus.append({"name": str(info.get("Card series") or info.get("Card SKU") or "AMD GPU"), "memory_total_mb": total_mb, "memory_free_mb": max(0, total_mb - used_mb)})
+        except Exception:
+            pass
+        if not gpus:
+            for cmd in [
+                ["rocm-smi", "--showproductname", "--showmeminfo", "vram"],                 # 2
+                ["rocm-smi", "--showproductname", "--showmeminfo", "all", "--json"],        # 3
+                ["rocminfo"],                                                                # 4
+                ["rocm_agent_enumerator"],                                                   # 5
+            ]:
+                try:
+                    r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                    out = r.stdout or ""
+                    if cmd[0] == "rocminfo":
+                        for ln in out.splitlines():
+                            if "Marketing Name" in ln:
+                                gpus.append({"name": ln.split(":", 1)[-1].strip(), "memory_total_mb": -1, "memory_free_mb": -1})
+                    elif cmd[0] == "rocm_agent_enumerator":
+                        for ln in out.splitlines():
+                            if ln.strip() and ln.strip() != "gfx000":
+                                gpus.append({"name": f"AMD GPU {ln.strip()}", "memory_total_mb": -1, "memory_free_mb": -1})
+                    else:
+                        for ln in out.splitlines():
+                            if "Card series" in ln or "Card SKU" in ln:
+                                gpus.append({"name": ln.split(":", 1)[-1].strip(), "memory_total_mb": -1, "memory_free_mb": -1})
+                    if gpus:
+                        break
+                except Exception:
+                    continue
+    elif backend == "nvidia-proc":
+        # 5 strategies all from proc/sys sources
+        try:
+            base = "/proc/driver/nvidia/gpus"  # 1
+            if os.path.isdir(base):
+                for name in os.listdir(base):
+                    info_path = os.path.join(base, name, "information")
+                    if os.path.exists(info_path):
+                        gpu_name = "NVIDIA GPU"
+                        with open(info_path, "r", encoding="utf-8", errors="ignore") as f:
+                            for line in f:
+                                if line.lower().startswith("model:"):
+                                    gpu_name = line.split(":", 1)[1].strip()
+                        gpus.append({"name": gpu_name, "memory_total_mb": -1, "memory_free_mb": -1})
+        except Exception:
+            pass
+        if not gpus and os.path.exists("/proc/driver/nvidia/version"):  # 2
+            gpus.append({"name": "NVIDIA GPU (/proc version)", "memory_total_mb": -1, "memory_free_mb": -1})
+        if not gpus:
+            for path in ["/proc/modules", "/sys/module/nvidia/version", "/sys/class/drm"]:  # 3/4/5
+                try:
+                    if os.path.exists(path):
+                        gpus.append({"name": "NVIDIA GPU (kernel module)", "memory_total_mb": -1, "memory_free_mb": -1})
+                        break
+                except Exception:
+                    pass
+    elif backend == "lspci":
+        for cmd in [
+            ["lspci"],                  # 1
+            ["lspci", "-nn"],           # 2
+            ["lspci", "-vnn"],          # 3
+            ["lshw", "-C", "display"],  # 4
+            ["hwinfo", "--gfxcard"],    # 5
+        ]:
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+                for line in (r.stdout or "").splitlines():
+                    low = line.lower()
+                    if any(k in low for k in ["vga", "3d controller", "display", "model:"]) and any(v in low for v in ["nvidia", "amd", "advanced micro devices", "radeon", "geforce"]):
+                        gpus.append({"name": line.split(":", 1)[-1].strip(), "memory_total_mb": -1, "memory_free_mb": -1})
+                if gpus:
+                    break
+            except Exception:
+                continue
+    elif backend == "windows-counter" and os.name == "nt":
+        for ps in [
+            # 1 WMI + counter
+            "$gpu = Get-WmiObject Win32_VideoController | Where-Object { $_.AdapterRAM -gt 0 -and $_.Name -notmatch 'Virtual' } | Select-Object -First 1; "
+            "$name = if ($gpu) { [string]$gpu.Name } else { 'Windows GPU' }; $totalB = if ($gpu) { [double]$gpu.AdapterRAM } else { 0 }; "
+            "$obj = @{ name=$name; total_mb=[math]::Round($totalB/1MB) }; $obj | ConvertTo-Json -Compress",
+            # 2 CIM
+            "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name,AdapterRAM | ConvertTo-Json -Compress",
+            # 3 PNP
+            "Get-PnpDevice -Class Display | Select-Object -ExpandProperty FriendlyName | ConvertTo-Json -Compress",
+            # 4 wmic
+            "wmic path win32_VideoController get name,AdapterRAM",
+            # 5 dxdiag
+            "dxdiag /whql:off /dontskip /t $env:TEMP\\dxdiag_gpu.txt; Get-Content $env:TEMP\\dxdiag_gpu.txt",
+        ]:
+            try:
+                r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=12)
+                out = (r.stdout or "").strip()
+                if not out:
+                    continue
+                data = None
+                try:
+                    data = json.loads(out)
+                except Exception:
+                    data = None
+                if isinstance(data, dict):
+                    name = str(data.get("Name") or data.get("name") or "Windows GPU")
+                    total_mb = int((data.get("AdapterRAM") or data.get("total_mb") or 0) / (1024 * 1024)) if isinstance(data.get("AdapterRAM"), (int, float)) else int(data.get("total_mb") or -1)
+                    gpus.append({"name": name, "memory_total_mb": total_mb, "memory_free_mb": -1})
+                elif isinstance(data, list):
+                    for row in data:
+                        gpus.append({"name": str(row if isinstance(row, str) else row.get("name") or row.get("Name") or "Windows GPU"), "memory_total_mb": -1, "memory_free_mb": -1})
+                else:
+                    for line in out.splitlines():
+                        if line.strip() and "name" not in line.lower():
+                            gpus.append({"name": line.strip(), "memory_total_mb": -1, "memory_free_mb": -1})
+                if gpus:
+                    break
+            except Exception:
+                continue
+    return gpus
+
+
+def _select_working_gpu_backend(setting_key: str, candidates: list[str]) -> tuple[str, list[dict]]:
+    preferred = (settings_get(setting_key) or "auto").strip()
+    if preferred and preferred not in ("auto", "none"):
+        g = _probe_gpu_static(preferred)
+        if g:
+            return preferred, g
+    for b in candidates:
+        g = _probe_gpu_static(b)
+        if g:
+            settings_set(setting_key, b)
+            return b, g
+    settings_set(setting_key, "none")
+    return "none", []
+
+
 def get_system_hardware_info() -> dict:
     ram_total_mb = -1
     ram_available_mb = -1
@@ -2986,76 +3164,8 @@ def get_system_hardware_info() -> dict:
     except Exception:
         pass
 
-    gpus = []
-    gpu_backend = "none"
-    try:
-        r = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,memory.total,memory.free", "--format=csv,noheader,nounits"],
-            capture_output=True,
-            text=True,
-            timeout=8
-        )
-        for line in (r.stdout or "").splitlines():
-            parts = [x.strip() for x in line.split(",")]
-            if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
-                gpus.append({
-                    "name": parts[0],
-                    "memory_total_mb": int(parts[1]),
-                    "memory_free_mb": int(parts[2]),
-                })
-        if gpus:
-            gpu_backend = "nvidia-smi"
-    except Exception:
-        pass
-    if not gpus:
-        try:
-            # rocm-smi --showmeminfo vram --json
-            r = subprocess.run(["rocm-smi", "--showproductname", "--showmeminfo", "vram", "--json"], capture_output=True, text=True, timeout=8)
-            if r.returncode == 0 and r.stdout.strip().startswith("{"):
-                data = json.loads(r.stdout)
-                for _, info in data.items():
-                    if not isinstance(info, dict):
-                        continue
-                    total_b = info.get("VRAM Total Memory (B)") or info.get("VRAM Total Used Memory (B)")
-                    used_b = info.get("VRAM Total Used Memory (B)")
-                    name = info.get("Card series") or info.get("Card SKU") or "AMD GPU"
-                    if isinstance(total_b, (int, float)) and total_b > 0:
-                        total_mb = int(total_b / (1024 * 1024))
-                        used_mb = int((used_b or 0) / (1024 * 1024))
-                        gpus.append({
-                            "name": str(name),
-                            "memory_total_mb": total_mb,
-                            "memory_free_mb": max(0, total_mb - used_mb),
-                        })
-                if gpus:
-                    gpu_backend = "rocm-smi"
-        except Exception:
-            pass
-    if not gpus and os.name == "nt":
-        try:
-            ps = (
-                "$gpu = Get-WmiObject Win32_VideoController | "
-                "Where-Object { $_.AdapterRAM -gt 0 -and $_.Name -notmatch 'Virtual' } | Select-Object -First 1; "
-                "$name = if ($gpu) { [string]$gpu.Name } else { 'Windows GPU' }; "
-                "$totalB = if ($gpu) { [double]$gpu.AdapterRAM } else { 0 }; "
-                "$samples = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -ErrorAction SilentlyContinue).CounterSamples; "
-                "$usedB = if ($samples) { ($samples | Measure-Object CookedValue -Sum).Sum } else { 0 }; "
-                "$obj = @{ name=$name; total_mb=[math]::Round($totalB/1MB); used_mb=[math]::Round($usedB/1MB) }; "
-                "$obj | ConvertTo-Json -Compress"
-            )
-            r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=8)
-            data = json.loads((r.stdout or "{}").strip() or "{}")
-            total_mb = int(data.get("total_mb") or 0)
-            used_mb = int(data.get("used_mb") or 0)
-            if total_mb > 0:
-                gpus.append({
-                    "name": str(data.get("name") or "Windows GPU"),
-                    "memory_total_mb": total_mb,
-                    "memory_free_mb": max(0, total_mb - used_mb),
-                })
-                gpu_backend = "windows-counter"
-        except Exception:
-            pass
+    candidates = ["nvidia-smi", "rocm-smi", "nvidia-proc", "lspci"] if os.name != "nt" else ["windows-counter", "nvidia-smi"]
+    gpu_backend, gpus = _select_working_gpu_backend("gpu_static_backend", candidates)
 
     vram_total_mb = sum(g["memory_total_mb"] for g in gpus) if gpus else -1
     vram_free_mb = sum(g["memory_free_mb"] for g in gpus) if gpus else -1
@@ -3068,6 +3178,7 @@ def get_system_hardware_info() -> dict:
         "vram_free_mb": vram_free_mb,
         "gpus": gpus,
         "gpu_backend": gpu_backend,
+        "gpu_backend_selected": settings_get("gpu_static_backend") or "auto",
     }
 
 
@@ -3121,88 +3232,95 @@ def get_system_usage_info() -> dict:
         except Exception:
             pass
 
+    candidates = ["nvidia-smi", "rocm-smi", "nvidia-proc", "lspci"] if os.name != "nt" else ["windows-counter", "nvidia-smi"]
+    selected = (settings_get("gpu_usage_backend") or "auto").strip()
+    if selected in ("", "auto", "none"):
+        selected, _ = _select_working_gpu_backend("gpu_usage_backend", candidates)
     gpus = []
-    gpu_backend = "none"
-    try:
-        r = subprocess.run(
+    gpu_backend = selected if selected else "none"
+    if selected == "nvidia-smi":
+        for cmd in [
             ["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5
-        )
-        for line in (r.stdout or "").splitlines():
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 4:
-                util = float(parts[1]) if parts[1].replace(".", "", 1).isdigit() else -1.0
-                used = int(parts[2]) if parts[2].isdigit() else -1
-                total = int(parts[3]) if parts[3].isdigit() else -1
-                pct = (used / total * 100.0) if used >= 0 and total > 0 else -1.0
-                if total > 0 or util >= 0:
-                    gpus.append({
-                        "name": parts[0],
-                        "util_percent": util,
-                        "vram_used_mb": used,
-                        "vram_total_mb": total,
-                        "vram_percent": pct,
-                    })
-        if gpus:
-            gpu_backend = "nvidia-smi"
-    except Exception:
-        pass
-    if not gpus:
-        try:
-            r = subprocess.run(["rocm-smi", "--showuse", "--showmemuse", "--json"], capture_output=True, text=True, timeout=6)
-            if r.returncode == 0 and (r.stdout or "").strip().startswith("{"):
-                data = json.loads(r.stdout)
-                for _, info in data.items():
-                    if not isinstance(info, dict):
-                        continue
-                    name = info.get("Card series") or info.get("Card SKU") or "AMD GPU"
-                    util_raw = str(info.get("GPU use (%)", "")).replace("%", "").strip()
-                    vram_raw = str(info.get("GPU memory use (%)", "")).replace("%", "").strip()
-                    util = float(util_raw) if util_raw.replace(".", "", 1).isdigit() else -1.0
-                    vram_pct = float(vram_raw) if vram_raw.replace(".", "", 1).isdigit() else -1.0
-                    gpus.append({
-                        "name": str(name),
-                        "util_percent": util,
-                        "vram_used_mb": -1,
-                        "vram_total_mb": -1,
-                        "vram_percent": vram_pct,
-                    })
+            ["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total", "--format=csv,noheader"],
+            ["nvidia-smi", "-q", "-d", "UTILIZATION,MEMORY"],
+            ["nvidia-smi", "dmon", "-s", "u", "-c", "1"],
+            ["nvidia-smi", "-L"],
+        ]:
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+                for line in (r.stdout or "").splitlines():
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) >= 4:
+                        util = float(re.sub(r'[^0-9.]', '', parts[1]) or -1)
+                        used = _parse_int_maybe(re.sub(r'[^0-9]', '', parts[2]))
+                        total = _parse_int_maybe(re.sub(r'[^0-9]', '', parts[3]))
+                        pct = (used / total * 100.0) if used >= 0 and total > 0 else -1.0
+                        gpus.append({"name": parts[0], "util_percent": util, "vram_used_mb": used, "vram_total_mb": total, "vram_percent": pct})
                 if gpus:
-                    gpu_backend = "rocm-smi"
-        except Exception:
-            pass
-    if not gpus and os.name == "nt":
-        try:
-            ps = (
-                "$gpu = Get-WmiObject Win32_VideoController | "
-                "Where-Object { $_.AdapterRAM -gt 0 -and $_.Name -notmatch 'Virtual' } | Select-Object -First 1; "
-                "$name = if ($gpu) { [string]$gpu.Name } else { 'Windows GPU' }; "
-                "$totalB = if ($gpu) { [double]$gpu.AdapterRAM } else { 0 }; "
-                "$engine = (Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction SilentlyContinue).CounterSamples | "
-                "Where-Object { $_.InstanceName -match 'engtype_3d' }; "
-                "$util = if ($engine) { ($engine | Measure-Object CookedValue -Sum).Sum } else { 0 }; "
-                "$mem = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -ErrorAction SilentlyContinue).CounterSamples; "
-                "$usedB = if ($mem) { ($mem | Measure-Object CookedValue -Sum).Sum } else { 0 }; "
-                "$obj = @{ name=$name; util=[math]::Round([math]::Min(100, $util),1); used_mb=[math]::Round($usedB/1MB); total_mb=[math]::Round($totalB/1MB) }; "
-                "$obj | ConvertTo-Json -Compress"
-            )
-            r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=8)
-            data = json.loads((r.stdout or "{}").strip() or "{}")
-            total = int(data.get("total_mb") or 0)
-            used = int(data.get("used_mb") or 0)
-            util = float(data.get("util") or 0.0)
-            pct = (used / total * 100.0) if total > 0 else -1.0
-            if total > 0:
-                gpus.append({
-                    "name": str(data.get("name") or "Windows GPU"),
-                    "util_percent": util,
-                    "vram_used_mb": max(0, used),
-                    "vram_total_mb": total,
-                    "vram_percent": pct,
-                })
-                gpu_backend = "windows-counter"
-        except Exception:
-            pass
+                    break
+            except Exception:
+                continue
+    elif selected == "rocm-smi":
+        for cmd in [
+            ["rocm-smi", "--showuse", "--showmemuse", "--json"],
+            ["rocm-smi", "--showuse", "--showmeminfo", "vram", "--json"],
+            ["rocm-smi", "--showuse", "--showmemuse"],
+            ["rocminfo"],
+            ["rocm_agent_enumerator"],
+        ]:
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+                out = r.stdout or ""
+                if "--json" in cmd:
+                    data = json.loads(out or "{}")
+                    for _, info in data.items() if isinstance(data, dict) else []:
+                        if not isinstance(info, dict):
+                            continue
+                        util = float(str(info.get("GPU use (%)", "0")).replace("%", "") or -1)
+                        vram_pct = float(str(info.get("GPU memory use (%)", "0")).replace("%", "") or -1)
+                        gpus.append({"name": str(info.get("Card series") or info.get("Card SKU") or "AMD GPU"), "util_percent": util, "vram_used_mb": -1, "vram_total_mb": -1, "vram_percent": vram_pct})
+                else:
+                    for line in out.splitlines():
+                        if "Card series" in line or "Card SKU" in line:
+                            gpus.append({"name": line.split(":",1)[-1].strip(), "util_percent": -1, "vram_used_mb": -1, "vram_total_mb": -1, "vram_percent": -1})
+                if gpus:
+                    break
+            except Exception:
+                continue
+    elif selected == "windows-counter" and os.name == "nt":
+        for ps in [
+            "$gpu = Get-WmiObject Win32_VideoController | Where-Object { $_.AdapterRAM -gt 0 -and $_.Name -notmatch 'Virtual' } | Select-Object -First 1; "
+            "$name = if ($gpu) { [string]$gpu.Name } else { 'Windows GPU' }; $totalB = if ($gpu) { [double]$gpu.AdapterRAM } else { 0 }; "
+            "$engine=(Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction SilentlyContinue).CounterSamples | Where-Object { $_.InstanceName -match 'engtype_3d' }; "
+            "$util=if($engine){($engine|Measure-Object CookedValue -Sum).Sum}else{0}; "
+            "$obj=@{ name=$name; util=[math]::Round([math]::Min(100,$util),1); total_mb=[math]::Round($totalB/1MB); used_mb=-1 }; $obj|ConvertTo-Json -Compress",
+            "Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction SilentlyContinue | ConvertTo-Json -Compress",
+            "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name,AdapterRAM | ConvertTo-Json -Compress",
+            "wmic path win32_VideoController get name,AdapterRAM",
+            "Get-PnpDevice -Class Display | ConvertTo-Json -Compress",
+        ]:
+            try:
+                r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=10)
+                out = (r.stdout or "").strip()
+                if not out:
+                    continue
+                try:
+                    data = json.loads(out)
+                    if isinstance(data, dict):
+                        total = int((data.get("AdapterRAM") or 0) / (1024*1024)) if isinstance(data.get("AdapterRAM"), (int,float)) else int(data.get("total_mb") or -1)
+                        gpus.append({"name": str(data.get("name") or data.get("Name") or "Windows GPU"), "util_percent": float(data.get("util") or -1), "vram_used_mb": -1, "vram_total_mb": total, "vram_percent": -1})
+                except Exception:
+                    for ln in out.splitlines():
+                        if ln.strip() and "name" not in ln.lower():
+                            gpus.append({"name": ln.strip(), "util_percent": -1, "vram_used_mb": -1, "vram_total_mb": -1, "vram_percent": -1})
+                if gpus:
+                    break
+            except Exception:
+                continue
+    if not gpus:
+        static_list = _probe_gpu_static(selected if selected != "none" else candidates[0])
+        gpus = [{"name": g.get("name","GPU"), "util_percent": -1, "vram_used_mb": -1, "vram_total_mb": g.get("memory_total_mb",-1), "vram_percent": -1} for g in static_list]
+        gpu_backend = selected
 
     return {
         "cpu_percent": round(cpu_percent, 1) if cpu_percent >= 0 else -1,
@@ -3210,6 +3328,7 @@ def get_system_usage_info() -> dict:
         "ram_used_mb": ram_used_mb,
         "ram_percent": round(ram_percent, 1) if ram_percent >= 0 else -1,
         "gpu_backend": gpu_backend,
+        "gpu_backend_selected": selected,
         "gpus": gpus,
         "updated_at": datetime.now().isoformat(),
     }
@@ -4057,7 +4176,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
 
         if req.mode == "chat":
             # chatモード: 直接LLM呼び出し（エージェントループなし・JSON強制なし）
-            exec_url = req.llm_url.strip() or _model_manager.llm_url
+            exec_url = _resolve_runtime_llm_url(req.llm_url)
 
             CHAT_SYSTEM = "あなたはCodeAgentです。ユーザーの質問に丁寧に答えてください。コードが必要な場合はmarkdownで記述してください。"
             history_msgs = []
@@ -4159,7 +4278,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                 task_output = ""
 
                 # req.llm_urlが明示されていればそちら、なければModelManagerのURL
-                task_url = req.llm_url.strip() or _model_manager.llm_url
+                task_url = _resolve_runtime_llm_url(req.llm_url)
                 try:
                     for ev in execute_task_stream(
                         task_detail=todo["detail"], context=context,
@@ -4603,7 +4722,7 @@ JSON形式で出力:
                 requirements = plan_result.get("requirements", ["指示された内容が正しく動作すること"]) if plan_result else ["指示された内容が正しく動作すること"]
                 verification = plan_result.get("verification", ["動作確認"]) if plan_result else ["動作確認"]
                 # verify_startはverify_and_fix内部で発火するため、ここでは不要
-                verify_url = req.llm_url.strip() or _model_manager.llm_url
+                verify_url = _resolve_runtime_llm_url(req.llm_url)
                 verify_result = verify_and_fix(
                     user_message=req.message,
                     requirements=requirements,
@@ -5507,6 +5626,35 @@ def _resolve_message_with_voice(req: ChatRequest) -> str:
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"voice transcription failed: {e}")
 
+
+def _llm_endpoint_reachable(url: str, timeout_sec: float = 1.8) -> bool:
+    target = (url or "").strip()
+    if not target:
+        return False
+    base = re.sub(r"/v1/chat/completions/?$", "", target).rstrip("/")
+    if not base:
+        return False
+    for path in ("/health", "/v1/models"):
+        try:
+            r = requests.get(base + path, timeout=timeout_sec)
+            if r.status_code < 500:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _resolve_runtime_llm_url(requested_url: str = "") -> str:
+    req_url = (requested_url or "").strip()
+    if req_url and _llm_endpoint_reachable(req_url):
+        return req_url
+    manager_url = (_model_manager.llm_url or "").strip()
+    if manager_url and _llm_endpoint_reachable(manager_url):
+        return manager_url
+    if req_url:
+        return req_url
+    return manager_url or LLM_URL_CHAT
+
 # =========================
 # エンドポイント: /chat（後方互換）
 # =========================
@@ -5514,7 +5662,7 @@ def _resolve_message_with_voice(req: ChatRequest) -> str:
 @app.post("/chat")
 def chat(req: ChatRequest):
     sid = str(uuid.uuid4())[:8]
-    chat_url = req.llm_url.strip() or LLM_URL_CHAT
+    chat_url = _resolve_runtime_llm_url(req.llm_url)
     message = _resolve_message_with_voice(req)
     if not message:
         raise HTTPException(status_code=400, detail="message is empty")
@@ -7335,6 +7483,69 @@ def search_gguf_models_api(
     }
 
 
+_gguf_dl_lock = threading.Lock()
+_gguf_dl_jobs: dict[str, dict] = {}
+
+
+def _set_gguf_dl_job(job_id: str, **updates):
+    with _gguf_dl_lock:
+        row = _gguf_dl_jobs.get(job_id, {"job_id": job_id})
+        row.update(updates)
+        _gguf_dl_jobs[job_id] = row
+
+
+def _get_gguf_dl_job(job_id: str) -> dict | None:
+    with _gguf_dl_lock:
+        row = _gguf_dl_jobs.get(job_id)
+        return dict(row) if row else None
+
+
+def _run_gguf_download_job(job_id: str, model_id: str, safe_rel: str, folder: str):
+    target = os.path.join(folder, safe_rel)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    tmp_target = target + ".part"
+    url = f"https://huggingface.co/{model_id}/resolve/main/{safe_rel}?download=true"
+    started = time.time()
+    _set_gguf_dl_job(job_id, running=True, done=False, error="", downloaded_bytes=0, total_bytes=0, speed_mbps=0.0)
+    try:
+        with requests.get(url, stream=True, timeout=45) as r:
+            if r.status_code >= 400:
+                raise RuntimeError(f"download failed: {(r.text or '')[:160]}")
+            total = int(r.headers.get("Content-Length") or 0)
+            _set_gguf_dl_job(job_id, total_bytes=total)
+            downloaded = 0
+            with open(tmp_target, "wb") as f:
+                for chunk in r.iter_content(chunk_size=1024 * 1024):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    elapsed = max(0.1, time.time() - started)
+                    _set_gguf_dl_job(job_id, downloaded_bytes=downloaded, speed_mbps=round((downloaded / (1024 * 1024)) / elapsed, 2), progress=(downloaded / total) if total > 0 else -1)
+        os.replace(tmp_target, target)
+        file_size = os.path.getsize(target)
+    except Exception as e:
+        if os.path.exists(tmp_target):
+            os.remove(tmp_target)
+        _set_gguf_dl_job(job_id, running=False, done=True, error=str(e))
+        return
+
+    existing = model_db_find_by_path(target)
+    model_name = f"{model_id}/{os.path.splitext(safe_rel)[0]}"
+    record = _infer_model_db_metadata({
+        "name": model_name, "path": target, "is_vlm": _detect_vlm(target, model_name),
+        "has_mmproj": False, "mmproj_path": "", "quantization": _guess_quantization(target),
+        "file_size_mb": int(file_size / (1024 * 1024)), "vram_mb": -1, "ram_mb": -1, "load_sec": -1, "tok_per_sec": -1,
+        "llm_url": "", "ctx_size": 8192, "gpu_layers": 999, "notes": "downloaded",
+    })
+    if existing:
+        model_db_update(existing["id"], record)
+        model_id_db = existing["id"]
+    else:
+        model_id_db = model_db_add(record)
+    _set_gguf_dl_job(job_id, running=False, done=True, progress=1.0, path=target, model_db_id=model_id_db)
+
+
 @app.post("/models/gguf/download")
 def download_gguf_api(req: dict):
     model_id = (req.get("model_id") or "").strip()
@@ -7349,73 +7560,22 @@ def download_gguf_api(req: dict):
     if not folder:
         folder = _default_llm_root_folder()
     os.makedirs(folder, exist_ok=True)
-
-    url = f"https://huggingface.co/{model_id}/resolve/main/{safe_rel}?download=true"
-    target = os.path.join(folder, safe_rel)
-    os.makedirs(os.path.dirname(target), exist_ok=True)
-    tmp_target = target + ".part"
-    try:
-        with requests.get(url, stream=True, timeout=45) as r:
-            if r.status_code >= 400:
-                raise HTTPException(r.status_code, f"download failed: {r.text[:160]}")
-            total = int(r.headers.get("Content-Length") or 0)
-            with open(tmp_target, "wb") as f:
-                for chunk in r.iter_content(chunk_size=1024 * 1024):
-                    if chunk:
-                        f.write(chunk)
-        os.replace(tmp_target, target)
-        file_size = os.path.getsize(target)
-    except HTTPException:
-        if os.path.exists(tmp_target):
-            os.remove(tmp_target)
-        raise
-    except Exception as e:
-        if os.path.exists(tmp_target):
-            os.remove(tmp_target)
-        raise HTTPException(500, f"download error: {e}")
-
-    existing = model_db_find_by_path(target)
-    model_name = f"{model_id}/{os.path.splitext(filename)[0]}"
-    record = _infer_model_db_metadata({
-        "name": model_name,
-        "path": target,
-        "is_vlm": _detect_vlm(target, model_name),
-        "has_mmproj": False,
-        "mmproj_path": "",
-        "quantization": _guess_quantization(target),
-        "file_size_mb": int(file_size / (1024 * 1024)),
-        "vram_mb": -1, "ram_mb": -1, "load_sec": -1, "tok_per_sec": -1,
-        "llm_url": "", "ctx_size": 8192, "gpu_layers": 999, "notes": "downloaded",
-    })
-    if existing:
-        model_db_update(existing["id"], record)
-        model_id_db = existing["id"]
-    else:
-        model_id_db = model_db_add(record)
-
-    import threading as _dl_bench_thread
-    def _run_bench_after_download(mid: str):
-        try:
-            models_now = model_db_list()
-            model_now = next((m for m in models_now if m.get("id") == mid), None)
-            if not model_now:
-                return
-            updates = benchmark_model_profiles(model_now)
-            model_db_update(mid, updates)
-            schedule_default_model_load(reason="download_benchmark_complete")
-            print(f"[ModelDB] benchmark done after download: {model_now.get('name')} {updates}")
-        except Exception as e:
-            model_db_update(mid, {"notes": f"BENCHMARK ERROR: {e}"})
-            print(f"[ModelDB] benchmark error after download: {e}")
-
-    _dl_bench_thread.Thread(target=_run_bench_after_download, args=(model_id_db,), daemon=True).start()
+    job_id = str(uuid.uuid4())[:8]
+    _set_gguf_dl_job(job_id, model_id=model_id, filename=safe_rel, folder=folder, started_at=datetime.now().isoformat(), running=True, done=False)
+    threading.Thread(target=_run_gguf_download_job, args=(job_id, model_id, safe_rel, folder), daemon=True).start()
     return {
         "ok": True,
-        "path": target,
-        "bytes": file_size,
-        "model_db_id": model_id_db,
-        "benchmark_started": True,
+        "job_id": job_id,
+        "benchmark_started": False,
     }
+
+
+@app.get("/models/gguf/download/status")
+def gguf_download_status_api(job_id: str):
+    row = _get_gguf_dl_job(job_id)
+    if not row:
+        raise HTTPException(404, "download job not found")
+    return row
 
 
 
@@ -8110,15 +8270,19 @@ def health():
     except Exception:
         llm_ok = False
 
-    sandbox_check = subprocess.run(
-        ["docker", "inspect", "--format", "{{.State.Running}}", SANDBOX_CONTAINER],
-        capture_output=True, text=True, encoding="utf-8", errors="replace"
-    )
-    sandbox_ok = sandbox_check.returncode == 0 and sandbox_check.stdout.strip() == "true"
+    sandbox_ok = False
+    sandbox_status = "docker unavailable"
+    if _is_docker_available():
+        sandbox_check = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Running}}", SANDBOX_CONTAINER],
+            capture_output=True, text=True, encoding="utf-8", errors="replace"
+        )
+        sandbox_ok = sandbox_check.returncode == 0 and sandbox_check.stdout.strip() == "true"
+        sandbox_status = "running" if sandbox_ok else "not running (fallback: docker run)"
 
     return {
         "llm": "ok" if llm_ok else "unreachable",
-        "sandbox": "running" if sandbox_ok else "not running (fallback: docker run)",
+        "sandbox": sandbox_status,
         "workspace_files": list_files()
     }
 
