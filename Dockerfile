@@ -10,7 +10,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends docker.io \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        build-essential \
+        cmake \
+        ninja-build \
+        pkg-config \
+        tar \
+        docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
