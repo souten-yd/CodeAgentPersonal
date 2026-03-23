@@ -7544,6 +7544,51 @@ def _run_gguf_download_job(job_id: str, model_id: str, safe_rel: str, folder: st
     else:
         model_id_db = model_db_add(record)
     _set_gguf_dl_job(job_id, running=False, done=True, progress=1.0, path=target, model_db_id=model_id_db)
+    threading.Thread(
+        target=_postprocess_downloaded_model,
+        args=(model_id_db,),
+        daemon=True
+    ).start()
+
+
+def _postprocess_downloaded_model(model_id_db: str):
+    """
+    GGUFダウンロード完了後に以下を実施:
+      1) 追加モデルをベンチマーク
+      2) auto_roles未設定モデルに推奨ロールを初期化
+      3) 決定済みロールに基づくデフォルトモデルの自動ロードを要求
+    """
+    try:
+        models = model_db_list()
+        model = next((m for m in models if m.get("id") == model_id_db), None)
+        if not model:
+            return
+
+        updates = benchmark_model_profiles(model)
+        if updates:
+            model_db_update(model_id_db, updates)
+            model = next((m for m in model_db_list() if m.get("id") == model_id_db), model)
+
+        all_models = model_db_list()
+        if all_models:
+            _, recommendations = recommend_roles_with_planner(all_models)
+            initialized_roles = 0
+            for row in all_models:
+                existing_roles = [x.strip() for x in str(row.get("auto_roles", "")).split(",") if x.strip()]
+                if existing_roles:
+                    continue
+                roles = recommendations.get(row["id"], [])
+                if not roles:
+                    continue
+                model_db_update(row["id"], {"auto_roles": ",".join(roles)})
+                initialized_roles += 1
+            if initialized_roles > 0:
+                print(f"[ModelDB] initialized auto_roles after GGUF download: {initialized_roles}")
+
+        started, detail = schedule_default_model_load(reason="gguf_download_complete")
+        print(f"[ModelManager] auto-load after GGUF download: started={started} detail={detail}")
+    except Exception as e:
+        print(f"[ModelDB] postprocess after GGUF download failed: {e}")
 
 
 @app.post("/models/gguf/download")
