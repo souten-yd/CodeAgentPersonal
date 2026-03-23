@@ -14,15 +14,14 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-import zipfile
 from pathlib import Path
 
 AUTO_MODE_KEY = "auto"
 AUTO_MODE_NUM = "1"
-RUNPOD_VULKAN_FALLBACK_URL = (
-    "https://github.com/ggml-org/llama.cpp/releases/download/b8477/"
-    "llama-b8477-bin-ubuntu-vulkan-x64.tar.gz"
-)
+RUNPOD_VULKAN_FALLBACK_URL = os.environ.get(
+    "RUNPOD_LLAMA_VULKAN_URL",
+    "https://github.com/ggml-org/llama.cpp/releases/download/b8479/llama-b8479-bin-ubuntu-vulkan-x64.tar.gz",
+).strip()
 
 
 def get_llama_root_dir(base_dir: Path, runpod: bool) -> Path:
@@ -57,24 +56,15 @@ def copy_ui(base_dir: Path) -> None:
     print("[UI] ui.html copied")
 
 
-def detect_gpu_backend() -> str:
-    if shutil.which("nvidia-smi"):
-        return "cuda"
-    if shutil.which("rocminfo") or shutil.which("rocm-smi"):
-        return "hip"
-    if shutil.which("vulkaninfo"):
-        return "vulkan"
-    return "unknown"
-
-
-def resolve_llama_server_path(base_dir: Path) -> Path:
+def resolve_llama_server_path(base_dir: Path, runpod: bool = False) -> Path:
     env_path = os.environ.get("LLAMA_SERVER_PATH", "").strip()
     if env_path:
         return Path(env_path)
+    llama_root = get_llama_root_dir(base_dir, runpod=runpod)
     candidates = [
-        base_dir / "llama" / "llama-server",
-        base_dir / "llama" / "bin" / "llama-server",
-        base_dir / "llama" / "llama-server.exe",
+        llama_root / "llama-server",
+        llama_root / "bin" / "llama-server",
+        llama_root / "llama-server.exe",
     ]
     for path in candidates:
         if path.exists():
@@ -82,10 +72,77 @@ def resolve_llama_server_path(base_dir: Path) -> Path:
     return candidates[0] if platform.system().lower() != "windows" else candidates[2]
 
 
+def log_directory_tree(root: Path, max_depth: int = 3, max_entries: int = 200) -> None:
+    if not root.exists():
+        print(f"[Runpod] directory tree skipped (not found): {root}")
+        return
+    print(f"[Runpod] directory tree: {root}")
+    shown = 0
+    root = root.resolve()
+    for path in sorted(root.rglob("*")):
+        rel = path.relative_to(root)
+        depth = len(rel.parts)
+        if depth > max_depth:
+            continue
+        indent = "  " * (depth - 1)
+        suffix = "/" if path.is_dir() else ""
+        print(f"[Runpod] {indent}- {rel}{suffix}")
+        shown += 1
+        if shown >= max_entries:
+            print(f"[Runpod] ... truncated (>{max_entries} entries)")
+            break
+
+
+def _safe_extract_tar(archive_path: Path, extract_dir: Path) -> None:
+    with tarfile.open(archive_path, "r:gz") as tf:
+        for member in tf.getmembers():
+            member_path = (extract_dir / member.name).resolve()
+            if not str(member_path).startswith(str(extract_dir.resolve())):
+                raise RuntimeError(f"Unsafe tar member path: {member.name}")
+        tf.extractall(extract_dir)
+
+
+def install_runpod_vulkan_llama(base_dir: Path) -> bool:
+    out_dir = get_llama_root_dir(base_dir, runpod=True)
+    if not RUNPOD_VULKAN_FALLBACK_URL:
+        print("[Runpod][WARN] RUNPOD_LLAMA_VULKAN_URL is empty.")
+        return False
+
+    print(f"[Runpod] Downloading llama.cpp Vulkan build: {RUNPOD_VULKAN_FALLBACK_URL}")
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            archive = tmp / "llama-vulkan.tar.gz"
+            extract_dir = tmp / "extract"
+            extract_dir.mkdir(parents=True, exist_ok=True)
+
+            urllib.request.urlretrieve(RUNPOD_VULKAN_FALLBACK_URL, archive)
+            _safe_extract_tar(archive, extract_dir)
+
+            roots = [p for p in extract_dir.iterdir()]
+            src_root = roots[0] if len(roots) == 1 and roots[0].is_dir() else extract_dir
+
+            if out_dir.exists():
+                shutil.rmtree(out_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            for child in src_root.iterdir():
+                shutil.move(str(child), str(out_dir / child.name))
+    except Exception as e:
+        print(f"[Runpod][WARN] failed to install Vulkan llama build: {e}")
+        return False
+
+    print(f"[Runpod] Vulkan llama build installed to: {out_dir}")
+    log_directory_tree(out_dir, max_depth=3, max_entries=200)
+    return True
+
+
 def ensure_llama_server(base_dir: Path, runpod: bool) -> None:
-    llama_path = resolve_llama_server_path(base_dir)
+    llama_path = resolve_llama_server_path(base_dir, runpod=runpod)
     if llama_path.exists():
         print(f"[LLM] llama-server found: {llama_path}")
+        if runpod:
+            log_directory_tree(get_llama_root_dir(base_dir, runpod=True), max_depth=3, max_entries=200)
         return
 
     if not runpod:
@@ -96,33 +153,15 @@ def ensure_llama_server(base_dir: Path, runpod: bool) -> None:
         print("[Runpod] RUNPOD_AUTO_SETUP_LLAMA=false -> skip llama setup.")
         return
 
-    backend = detect_gpu_backend()
-    print(f"[Runpod] llama-server not found. GPU backend detected: {backend}")
-    if backend != "cuda":
-        print("[Runpod][WARN] Auto setup currently supports NVIDIA CUDA path via scripts/setup_llama_runpod.sh.")
+    print("[Runpod] llama-server not found. Installing Vulkan prebuilt package...")
+    if not install_runpod_vulkan_llama(base_dir):
         return
 
-    setup_script = base_dir / "scripts" / "setup_llama_runpod.sh"
-    if not setup_script.exists():
-        print(f"[Runpod][WARN] setup script not found: {setup_script}")
-        return
-
-    print(f"[Runpod] Running llama setup: {setup_script}")
-    try:
-        subprocess.run(
-            ["bash", str(setup_script), "--build-if-needed"],
-            cwd=base_dir,
-            check=True,
-        )
-    except Exception as e:
-        print(f"[Runpod][WARN] llama setup failed: {e}")
-        return
-
-    llama_path = resolve_llama_server_path(base_dir)
+    llama_path = resolve_llama_server_path(base_dir, runpod=runpod)
     if llama_path.exists():
         print(f"[Runpod] llama-server ready: {llama_path}")
     else:
-        print(f"[Runpod][WARN] llama setup finished but binary still not found: {llama_path}")
+        print(f"[Runpod][WARN] install completed but llama-server not found: {llama_path}")
 
 
 def request_json(url: str, timeout: float = 2.0) -> dict | None:
@@ -208,6 +247,8 @@ def main() -> int:
 
     copy_ui(base_dir)
     ensure_llama_server(base_dir, runpod)
+    env["LLAMA_SERVER_PATH"] = str(resolve_llama_server_path(base_dir, runpod=runpod))
+    print(f"[LLM] LLAMA_SERVER_PATH={env['LLAMA_SERVER_PATH']}")
 
     uvicorn_cmd = [
         sys.executable,
