@@ -172,21 +172,21 @@ def install_runpod_vulkan_llama(base_dir: Path) -> bool:
     return True
 
 
-def ensure_llama_server(base_dir: Path, runpod: bool) -> None:
+def ensure_llama_server(base_dir: Path, runpod: bool) -> Path | None:
     llama_path = resolve_llama_server_path(base_dir, runpod=runpod)
     if llama_path.exists():
         print(f"[LLM] llama-server found: {llama_path}")
         if runpod:
             log_directory_tree(get_llama_root_dir(base_dir, runpod=True), max_depth=3, max_entries=200)
-        return
+        return llama_path
 
     if not runpod:
         print(f"[LLM][WARN] llama-server not found: {llama_path}")
-        return
+        return None
 
     if os.environ.get("RUNPOD_AUTO_SETUP_LLAMA", "true").lower() == "false":
         print("[Runpod] RUNPOD_AUTO_SETUP_LLAMA=false -> skip llama setup.")
-        return
+        return None
 
     print("[Runpod] llama-server not found. Trying auto setup...")
     if try_auto_setup_llama(base_dir):
@@ -282,9 +282,13 @@ def main() -> int:
     print("==============================================")
 
     copy_ui(base_dir)
-    ensure_llama_server(base_dir, runpod)
-    env["LLAMA_SERVER_PATH"] = str(resolve_llama_server_path(base_dir, runpod=runpod))
-    print(f"[LLM] LLAMA_SERVER_PATH={env['LLAMA_SERVER_PATH']}")
+    llama_path = ensure_llama_server(base_dir, runpod)
+    if llama_path is not None:
+        env["LLAMA_SERVER_PATH"] = str(llama_path)
+        print(f"[LLM] LLAMA_SERVER_PATH={env['LLAMA_SERVER_PATH']}")
+    else:
+        env.pop("LLAMA_SERVER_PATH", None)
+        print("[LLM][WARN] LLAMA_SERVER_PATH is unset because llama-server was not found.")
 
     uvicorn_cmd = [
         sys.executable,
