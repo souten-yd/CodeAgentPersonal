@@ -30,12 +30,7 @@ else
   echo "[Runpod] Skipping docker.io auto-install (RUNPOD_AUTO_INSTALL_DOCKER=${AUTO_INSTALL_DOCKER})."
 fi
 
-AUTO_SETUP_LLAMA="${RUNPOD_AUTO_SETUP_LLAMA:-true}"
-if [[ "${AUTO_SETUP_LLAMA}" == "true" ]]; then
-  bash scripts/setup_llama_runpod.sh
-else
-  echo "[Runpod] Skipping llama.cpp CUDA setup (RUNPOD_AUTO_SETUP_LLAMA=${AUTO_SETUP_LLAMA})."
-fi
+echo "[Runpod] llama.cpp setup is handled by scripts/start_codeagent.py (Vulkan-only auto-install)."
 
 python scripts/check_environment.py || {
   echo "[Runpod] Installing Python dependencies from requirements.txt..."
