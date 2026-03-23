@@ -68,10 +68,11 @@ def resolve_llama_server_path(base_dir: Path) -> Path:
 
 def ensure_llama_server(base_dir: Path, runpod: bool) -> None:
     llama_path = resolve_llama_server_path(base_dir)
+    if llama_path.exists():
+        print(f"[LLM] llama-server found: {llama_path}")
+        return
+
     if not runpod:
-        if llama_path.exists():
-            print(f"[LLM] llama-server found: {llama_path}")
-            return
         print(f"[LLM][WARN] llama-server not found: {llama_path}")
         return
 
@@ -79,15 +80,8 @@ def ensure_llama_server(base_dir: Path, runpod: bool) -> None:
         print("[Runpod] RUNPOD_AUTO_SETUP_LLAMA=false -> skip llama setup.")
         return
 
-    if llama_path.exists():
-        print(f"[Runpod] Existing llama-server detected: {llama_path}")
-        print("[Runpod] Skip download (binary already exists).")
-        return
-
-    print(f"[Runpod] llama-server not found: {llama_path}")
-
     backend = detect_gpu_backend()
-    print(f"[Runpod] GPU backend detected: {backend}")
+    print(f"[Runpod] llama-server not found. GPU backend detected: {backend}")
     if backend != "cuda":
         print("[Runpod][WARN] Auto setup currently supports NVIDIA CUDA path via scripts/setup_llama_runpod.sh.")
         return
