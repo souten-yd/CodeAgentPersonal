@@ -19,6 +19,19 @@ from pathlib import Path
 
 AUTO_MODE_KEY = "auto"
 AUTO_MODE_NUM = "1"
+RUNPOD_VULKAN_FALLBACK_URL = (
+    "https://github.com/ggml-org/llama.cpp/releases/download/b8477/"
+    "llama-b8477-bin-ubuntu-vulkan-x64.tar.gz"
+)
+
+
+def get_llama_root_dir(base_dir: Path, runpod: bool) -> Path:
+    override = os.environ.get("LLAMA_ROOT_DIR", "").strip()
+    if override:
+        return Path(override)
+    if runpod:
+        return Path("/workspace/llama")
+    return base_dir / "llama"
 
 
 def detect_runpod() -> bool:
