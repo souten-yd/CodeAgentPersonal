@@ -1006,7 +1006,25 @@ def _init_db(conn: sqlite3.Connection):
         seq INTEGER NOT NULL, event_type TEXT NOT NULL,
         data TEXT NOT NULL, created_at TEXT NOT NULL
     )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS snapshot_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id TEXT NOT NULL,
+        task_id TEXT,
+        commit_hash TEXT NOT NULL,
+        stage TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS snapshot_archive_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id TEXT NOT NULL,
+        task_id TEXT,
+        commit_hash TEXT NOT NULL,
+        stage TEXT NOT NULL,
+        archived_tag TEXT NOT NULL,
+        archived_at TEXT NOT NULL
+    )""")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_job_steps_job_id ON job_steps(job_id, seq)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_snapshot_job ON snapshot_history(job_id, id DESC)")
     conn.commit()
 
 def get_db(project: str) -> sqlite3.Connection:
@@ -1322,6 +1340,20 @@ def job_list(project: str, limit: int = 30) -> list:
         conn.close()
     return [{"id": r[0], "message": r[1], "mode": r[2], "status": r[3],
              "created_at": r[4], "updated_at": r[5]} for r in rows]
+
+
+def snapshot_history_add(project: str, job_id: str, task_id, commit_hash: str, stage: str):
+    now = datetime.now().isoformat()
+    with _db_lock:
+        conn = get_db(project)
+        try:
+            conn.execute(
+                "INSERT INTO snapshot_history (job_id, task_id, commit_hash, stage, created_at) VALUES (?,?,?,?,?)",
+                (job_id, str(task_id) if task_id is not None else "", commit_hash, stage, now)
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
 
 # =========================
@@ -2547,6 +2579,95 @@ def _git_ensure_repo(cwd: str) -> str | None:
     return None
 
 
+AUTO_SNAPSHOT_KEEP_N = max(5, int(os.environ.get("CODEAGENT_SNAPSHOT_KEEP_N", "50")))
+
+def _archive_old_snapshot_rows(project: str, keep_n: int = AUTO_SNAPSHOT_KEEP_N):
+    """snapshot_historyは最新N件のみ保持し、古い履歴はタグ＋メモへ退避する。"""
+    with _db_lock:
+        conn = get_db(project)
+        try:
+            rows = conn.execute(
+                "SELECT id, job_id, task_id, commit_hash, stage FROM snapshot_history ORDER BY id DESC"
+            ).fetchall()
+            if len(rows) <= keep_n:
+                return
+            old_rows = rows[keep_n:]
+            for row in old_rows:
+                sid, job_id, task_id, commit_hash, stage = row
+                safe_hash = re.sub(r"[^0-9a-fA-F]", "", commit_hash or "")[:12] or f"id{sid}"
+                tag_name = f"snapshot-archive/{safe_hash}"
+                _git_run(["tag", "-f", tag_name, commit_hash], CA_DATA_DIR)
+                conn.execute(
+                    """INSERT INTO snapshot_archive_notes
+                       (job_id, task_id, commit_hash, stage, archived_tag, archived_at)
+                       VALUES (?,?,?,?,?,?)""",
+                    (job_id, task_id or "", commit_hash, stage, tag_name, datetime.now().isoformat())
+                )
+                conn.execute("DELETE FROM snapshot_history WHERE id=?", (sid,))
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def auto_snapshot_ca_data(stage: str, job_id: str, task_id=None) -> dict:
+    """
+    CA_DATA_DIR の自動スナップショット。
+    差分が無ければ commit は作らず skip する。
+    """
+    rc_git, _, git_err = _git_run(["--version"], CA_DATA_DIR)
+    if rc_git != 0:
+        print(f"[snapshot] skip: git unavailable ({git_err}) stage={stage} job={job_id} task={task_id}")
+        return {
+            "ok": True,
+            "stage": stage,
+            "skipped": True,
+            "reason": "git unavailable",
+            "commit_hash": "",
+        }
+
+    err = _git_ensure_repo(CA_DATA_DIR)
+    if err:
+        print(f"[snapshot] skip: git init/config not ready ({err}) stage={stage} job={job_id} task={task_id}")
+        return {
+            "ok": True,
+            "stage": stage,
+            "skipped": True,
+            "reason": "git not initialized",
+            "commit_hash": "",
+        }
+    _ensure_ca_data_gitignore()
+    rc_add, _, err_add = _git_run(["add", "-A"], CA_DATA_DIR)
+    if rc_add != 0:
+        return {"ok": False, "stage": stage, "error": f"git add failed: {err_add}"}
+
+    rc_diff, _, err_diff = _git_run(["diff", "--cached", "--quiet"], CA_DATA_DIR)
+    if rc_diff == 0:
+        rc_head, head_out, _ = _git_run(["rev-parse", "--short", "HEAD"], CA_DATA_DIR)
+        return {
+            "ok": True, "stage": stage, "skipped": True,
+            "reason": "no diff", "commit_hash": head_out if rc_head == 0 else ""
+        }
+    if rc_diff not in (0, 1):
+        return {"ok": False, "stage": stage, "error": f"git diff --cached failed: {err_diff}"}
+
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    task_text = "-" if task_id is None else str(task_id)
+    msg = f"snapshot: {stage} | job={job_id} task={task_text} | {ts}"
+    rc_commit, out_commit, err_commit = _git_run(["commit", "-m", msg], CA_DATA_DIR)
+    if rc_commit != 0:
+        if "nothing to commit" in (out_commit + err_commit):
+            return {"ok": True, "stage": stage, "skipped": True, "reason": "nothing to commit", "commit_hash": ""}
+        return {"ok": False, "stage": stage, "error": f"git commit failed: {err_commit or out_commit}"}
+
+    rc_hash, commit_hash, err_hash = _git_run(["rev-parse", "HEAD"], CA_DATA_DIR)
+    if rc_hash != 0:
+        return {"ok": False, "stage": stage, "error": f"commit hash取得失敗: {err_hash}"}
+
+    snapshot_history_add("default", job_id, task_id, commit_hash, stage)
+    _archive_old_snapshot_rows("default")
+    return {"ok": True, "stage": stage, "skipped": False, "commit_hash": commit_hash, "message": out_commit}
+
+
 def git_status(project: str = "default") -> str:
     """プロジェクトのgit変更一覧を返す（M=変更, A=追加, ?=未追跡）"""
     cwd = os.path.join(WORK_DIR, project)
@@ -3544,7 +3665,7 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
         ]
         for cmd in (nvidia_cmds if debug_mode else nvidia_cmds[:2]):
             try:
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=cmd_timeout_sec)
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
                 if r.returncode != 0 and not (r.stdout or "").strip():
                     parse_summary.append({
                         "cmd": " ".join(cmd),
@@ -3579,8 +3700,6 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
             except subprocess.TimeoutExpired:
                 nvidia_fail_reason = "timeout"
                 parse_summary.append({"cmd": " ".join(cmd), "ok": False, "reason": "timeout"})
-                if not debug_mode:
-                    break
                 continue
             except Exception as e:
                 nvidia_fail_reason = f"parse fail ({type(e).__name__})"
@@ -4700,26 +4819,72 @@ def run_job_background(job_id: str, req: "JobRequest"):
         job_update_status(project, job_id, "running")
 
         if req.mode == "chat":
-            # chatモード: 直接LLM呼び出し（エージェントループなし・JSON強制なし）
+            # chatモードもエージェントループ経由で実行（taskモード同様にweb_searchを利用可能）
             exec_url = _resolve_runtime_llm_url(req.llm_url)
 
-            CHAT_SYSTEM = "あなたはCodeAgentです。ユーザーの質問に丁寧に答えてください。コードが必要な場合はmarkdownで記述してください。"
-            history_msgs = []
-            for h in (req.chat_history or [])[-8:]:
-                role = h.get("role", "user")
-                text = str(h.get("text", ""))[:800]
-                if role in ("user", "assistant") and text:
-                    history_msgs.append({"role": role, "content": text})
+            def _on_chat_step(step_info: dict):
+                stype = step_info.get("type", "step")
+                if stype == "llm_thinking":
+                    write("llm_thinking", step_info)
+                elif stype == "tool_call":
+                    write("tool_call", step_info)
+                    write("tool_result", {
+                        "action": step_info.get("action", ""),
+                        "result_preview": step_info.get("result_preview", "")
+                    })
+                elif stype == "clarify":
+                    write("clarify", {
+                        "question": step_info.get("question", "確認が必要です"),
+                        "options": step_info.get("options", []),
+                        "thought": step_info.get("thought", "")
+                    })
 
-            messages = [
-                {"role": "system", "content": CHAT_SYSTEM},
-                *history_msgs,
-                {"role": "user", "content": req.message},
-            ]
-            messages = _trim_messages(messages, _current_n_ctx, reserve_output=2048)
-            reply, usage = call_llm_chat(messages, llm_url=exec_url)
-            write("done", {"result": reply, "status": "done", "usage": usage})
-            save_session(job_id, project, req.message, "chat", {"output": reply, "status": "done"})
+            result = execute_task(
+                req.message,
+                max_steps=req.max_steps,
+                project=project,
+                on_step=_on_chat_step,
+                search_enabled=req.search_enabled,
+                llm_url=exec_url,
+                chat_history=req.chat_history,
+                job_id=job_id
+            )
+
+            reply = (result.get("output") or "").strip() if isinstance(result, dict) else ""
+            agent_ok = isinstance(result, dict) and result.get("status") == "done" and bool(reply)
+
+            if agent_ok:
+                write("done", {"result": reply, "status": "done", "total_steps": result.get("total_steps", 0)})
+                save_session(job_id, project, req.message, "chat", {"output": reply, "status": "done", "steps": result.get("steps", [])})
+            else:
+                # 回帰対策: エージェントループが空応答/JSON失敗した場合は従来チャットへフォールバック
+                fallback_reason = ""
+                if isinstance(result, dict):
+                    fallback_reason = result.get("error", "") or "agent returned empty output"
+                write("progress", {"label": f"chat fallback: {fallback_reason or 'direct chat'}"})
+
+                CHAT_SYSTEM = "あなたはCodeAgentです。ユーザーの質問に丁寧に答えてください。コードが必要な場合はmarkdownで記述してください。"
+                history_msgs = []
+                for h in (req.chat_history or [])[-8:]:
+                    role = h.get("role", "user")
+                    text = str(h.get("text", ""))[:800]
+                    if role in ("user", "assistant") and text:
+                        history_msgs.append({"role": role, "content": text})
+                messages = [
+                    {"role": "system", "content": CHAT_SYSTEM},
+                    *history_msgs,
+                    {"role": "user", "content": req.message},
+                ]
+                messages = _trim_messages(messages, _current_n_ctx, reserve_output=2048)
+                fb_reply, usage = call_llm_chat(messages, llm_url=exec_url)
+                write("done", {"result": fb_reply, "status": "done", "usage": usage, "fallback": True})
+                save_session(job_id, project, req.message, "chat", {
+                    "output": fb_reply,
+                    "status": "done",
+                    "fallback": True,
+                    "fallback_reason": fallback_reason,
+                    "steps": (result.get("steps", []) if isinstance(result, dict) else [])
+                })
 
 
         else:
@@ -4792,6 +4957,18 @@ def run_job_background(job_id: str, req: "JobRequest"):
 
             for i, todo in enumerate(todos):
               try:  # ← per-task guard: 1タスクの例外がジョブ全体を止めないよう保護
+                pre_snapshot = auto_snapshot_ca_data("pre-task snapshot", job_id, todo.get("id", i + 1))
+                pre_snapshot_hash = pre_snapshot.get("commit_hash", "") if pre_snapshot.get("ok") else ""
+                write("snapshot", {
+                    "stage": "pre-task snapshot",
+                    "task_id": todo.get("id", i + 1),
+                    "ok": bool(pre_snapshot.get("ok")),
+                    "skipped": bool(pre_snapshot.get("skipped")),
+                    "reason": pre_snapshot.get("reason", ""),
+                    "commit_hash": pre_snapshot_hash,
+                    "error": pre_snapshot.get("error", ""),
+                })
+
                 write("task_start", {
                     "task_id": todo["id"], "title": todo["title"],
                     "task_index": i, "total": total
@@ -5195,6 +5372,16 @@ JSON形式で出力:
                 results.append({"task_id": todo["id"], "title": todo["title"],
                                  "status": final_status, "output": task_output, "steps": task_steps})
                 if final_status == "done":
+                    post_snapshot = auto_snapshot_ca_data("post-task snapshot", job_id, todo.get("id", i + 1))
+                    write("snapshot", {
+                        "stage": "post-task snapshot",
+                        "task_id": todo.get("id", i + 1),
+                        "ok": bool(post_snapshot.get("ok")),
+                        "skipped": bool(post_snapshot.get("skipped")),
+                        "reason": post_snapshot.get("reason", ""),
+                        "commit_hash": post_snapshot.get("commit_hash", ""),
+                        "error": post_snapshot.get("error", ""),
+                    })
                     try:
                         files_raw = list_files(subdir=project)
                         files_str = files_raw if files_raw != "(empty)" else "  (なし)"
@@ -5211,6 +5398,26 @@ JSON形式で出力:
                     )
                     write("progress", {"pct": int((i+1)/total*100), "label": f"{i+1}/{total} done"})
                 else:
+                    rollback_result = {"ok": False, "note": "pre snapshot missing"}
+                    if pre_snapshot_hash:
+                        rc_reset, _, err_reset = _git_run(["reset", "--hard", pre_snapshot_hash], CA_DATA_DIR)
+                        if rc_reset == 0:
+                            rc_clean, _, err_clean = _git_run(["clean", "-fd"], CA_DATA_DIR)
+                            rollback_result = {
+                                "ok": rc_clean == 0,
+                                "note": "rolled back to pre-task snapshot",
+                                "error": err_clean if rc_clean != 0 else ""
+                            }
+                        else:
+                            rollback_result = {"ok": False, "note": "git reset failed", "error": err_reset}
+                    write("snapshot_rollback", {
+                        "stage": "pre-task snapshot",
+                        "task_id": todo.get("id", i + 1),
+                        "target_commit": pre_snapshot_hash,
+                        "ok": bool(rollback_result.get("ok")),
+                        "note": rollback_result.get("note", ""),
+                        "error": rollback_result.get("error", ""),
+                    })
                     context = (
                         f"前のタスク「{todo['title']}」が全試行後もエラーになりました。\n"
                         f"エラー内容: {task_output or '不明'}\n"
@@ -5295,6 +5502,16 @@ JSON形式で出力:
                 "tasks": results,
                 "verify": verify_result,
             }
+            final_snapshot = auto_snapshot_ca_data("job-final snapshot", job_id, None)
+            write("snapshot", {
+                "stage": "job-final snapshot",
+                "task_id": None,
+                "ok": bool(final_snapshot.get("ok")),
+                "skipped": bool(final_snapshot.get("skipped")),
+                "reason": final_snapshot.get("reason", ""),
+                "commit_hash": final_snapshot.get("commit_hash", ""),
+                "error": final_snapshot.get("error", ""),
+            })
             write("done", final)
             save_session(job_id, project, req.message, "task", final)
 
@@ -5550,6 +5767,9 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
     for step in range(max_steps):
         # コンテキスト長チェック: 上限の80%を超えたら古いmessagesをtrim
         messages = _trim_messages(messages, _current_n_ctx, reserve_output=4096)
+        # LLM生成前に「考え中」イベントを通知（UIのWorking表示を更新するため）
+        if on_step:
+            on_step({"type": "llm_thinking", "step_num": step + 1, "max_steps": max_steps})
         reply, _step_usage = call_llm_chat(messages, llm_url=llm_url)
         action_obj = extract_json(reply, parser=_model_manager.current_parser)
 
@@ -8907,7 +9127,7 @@ def system_usage_api():
 
 @app.get("/system/usage/debug")
 def system_usage_debug_api():
-    usage = get_system_usage_info(debug_mode=True)
+    usage = get_system_usage_info()
     diag = _get_last_usage_diag()
     return {
         "gpu_backend_selected": diag.get("gpu_backend_selected", usage.get("gpu_backend_selected", "auto")),
