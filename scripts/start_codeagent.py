@@ -193,7 +193,7 @@ def ensure_llama_server(base_dir: Path, runpod: bool) -> Path | None:
         llama_path = resolve_llama_server_path(base_dir, runpod=runpod)
         if llama_path.exists():
             print(f"[Runpod] llama-server setup completed: {llama_path}")
-            return
+            return llama_path
     print(
         "[Runpod][WARN] llama-server was not found after auto setup. "
         "Set LLAMA_SERVER_PATH directly or install llama.cpp (e.g. scripts/setup_llama_runpod.sh)."
