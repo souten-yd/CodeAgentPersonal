@@ -8570,8 +8570,7 @@ def trigger_memory_analysis(job_id: str, project: str = "default"):
 def system_usage_api():
     return get_system_usage_info()
 
-@app.get("/health")
-def health():
+def _get_lightweight_health_status() -> dict:
     try:
         res = requests.get(f"http://127.0.0.1:{_model_manager.llm_port}/health", timeout=3)
         llm_ok = res.status_code == 200
@@ -8591,8 +8590,34 @@ def health():
     return {
         "llm": "ok" if llm_ok else "unreachable",
         "sandbox": sandbox_status,
-        "workspace_files": list_files()
     }
+
+@app.get("/system/summary")
+def system_summary():
+    model = _model_manager.status_dict()
+    usage = get_system_usage_info()
+    health = _get_lightweight_health_status()
+    return {
+        "health": health,
+        "model": {
+            "status": model.get("status"),
+            "current_key": model.get("current_key"),
+            "current_name": model.get("current_name"),
+            "vram_gb": model.get("vram_gb"),
+            "eta_sec": model.get("eta_sec"),
+        },
+        "usage": {
+            "cpu_percent": usage.get("cpu_percent"),
+            "ram_used_mb": usage.get("ram_used_mb"),
+            "ram_total_mb": usage.get("ram_total_mb"),
+            "gpus": usage.get("gpus", []),
+            "updated_at": usage.get("updated_at"),
+        }
+    }
+
+@app.get("/health")
+def health():
+    return _get_lightweight_health_status()
 
 # =========================
 # 静的ファイル配信
