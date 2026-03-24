@@ -1474,16 +1474,15 @@ let timerInterval = null;
 let startTime = null;
 let ensembleVramTimer = null;
 let systemUsageTimer = null;
-let currentLlmLabel = 'LLM';
+let currentLlmLabel = 'NoLoad';
 let currentLlmState = '—';
 
 function updateSystemLlmName() {
   const llmEl = document.getElementById('sys-llm-name');
   if (!llmEl) return;
-  const name = (currentLlmLabel || 'LLM').trim();
-  const state = (currentLlmState || '—').trim();
-  llmEl.textContent = `${state} · ${name}`;
-  llmEl.title = `${state} | ${name}`;
+  const name = (currentLlmLabel || 'NoLoad').trim();
+  llmEl.textContent = name;
+  llmEl.title = name;
 }
 let _lastSystemUsageText = '';
 let voiceRecorder = null;
@@ -1623,6 +1622,9 @@ async function checkHealth() {
       badge.style.borderColor = md.status === 'switching' ? 'var(--amber)' : 'var(--border)';
       badge.title = md.current_name + ' | VRAM: ' + md.vram_gb + 'GB | ' + md.status;
       updateSystemLlmName();
+    } else if (badge) {
+      currentLlmLabel = 'NoLoad';
+      updateSystemLlmName();
     }
   } catch(e) {}
   try {
@@ -1632,10 +1634,12 @@ async function checkHealth() {
     const state = ok ? 'LLM ready' : 'LLM loading...';
     currentLlmState = state;
     setStatus(ok?'ok':'warn', state);
+    if (!ok && !currentLlmLabel) currentLlmLabel = 'NoLoad';
     updateSystemLlmName();
   } catch(e) {
     currentLlmState = 'offline';
     setStatus('err','offline');
+    if (!currentLlmLabel || currentLlmLabel === 'LLM') currentLlmLabel = 'NoLoad';
     updateSystemLlmName();
   }
 }
@@ -1648,9 +1652,9 @@ function _fmtPct(v) {
   const n = Number(v);
   return Number.isFinite(n) && n >= 0 ? `${n.toFixed(0)}%` : '--';
 }
-function _fmtGb(mb) {
+function _fmtGbInt(mb) {
   const n = Number(mb);
-  return Number.isFinite(n) && n >= 0 ? `${(n / 1024).toFixed(1)}GB` : '--';
+  return Number.isFinite(n) && n >= 0 ? `${Math.round(n / 1024)}GB` : '--';
 }
 function _isValidMb(v) {
   const n = Number(v);
@@ -1676,13 +1680,11 @@ async function refreshSystemUsage() {
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'failed');
     const cpu = _fmtPct(d.cpu_percent);
-    const ramPct = _fmtPct(d.ram_percent);
-    const ram = `${ramPct} (${_fmtGb(d.ram_used_mb)}/${_fmtGb(d.ram_total_mb)})`;
+    const ram = `${_fmtGbInt(d.ram_used_mb)}/${_fmtGbInt(d.ram_total_mb)}`;
     const gpuInfo = Array.isArray(d.gpus) && d.gpus.length ? d.gpus[0] : null;
     const gpu = gpuInfo ? _fmtPct(gpuInfo.util_percent) : '--';
     let vramUsedMb = gpuInfo?.vram_used_mb;
     let vramTotalMb = gpuInfo?.vram_total_mb;
-    let vramPercent = gpuInfo?.vram_percent;
     if (!_isValidMb(vramTotalMb) || !_isValidMb(vramUsedMb)) {
       const hw = await _fetchHardwareUsageFallback();
       if (hw) {
@@ -1692,12 +1694,8 @@ async function refreshSystemUsage() {
         }
       }
     }
-    if ((!Number.isFinite(Number(vramPercent)) || Number(vramPercent) < 0) && _isValidMb(vramUsedMb) && _isValidMb(vramTotalMb) && Number(vramTotalMb) > 0) {
-      vramPercent = (Number(vramUsedMb) / Number(vramTotalMb)) * 100;
-    }
-    const vramPct = _fmtPct(vramPercent);
     const vram = _isValidMb(vramUsedMb) || _isValidMb(vramTotalMb)
-      ? `${vramPct} (${_fmtGb(vramUsedMb)}/${_fmtGb(vramTotalMb)})`
+      ? `${_fmtGbInt(vramUsedMb)}/${_fmtGbInt(vramTotalMb)}`
       : '--';
     el.textContent = `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram}`;
     el.title = `CPU ${cpu}, RAM ${ram}, GPU ${gpu}, VRAM ${vram} (updated: ${d.updated_at || '-'})`;
@@ -1705,7 +1703,7 @@ async function refreshSystemUsage() {
     el.style.display = 'block';
     if (row) row.style.display = 'flex';
   } catch (e) {
-    el.textContent = 'CPU -- | RAM -- (--/--) | GPU -- | VRAM -- (--/--)';
+    el.textContent = 'CPU -- | RAM --/-- | GPU -- | VRAM --/--';
     updateSystemLlmName();
     el.style.display = 'block';
     if (row) row.style.display = 'flex';

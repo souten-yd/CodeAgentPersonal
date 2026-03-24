@@ -1667,16 +1667,63 @@ def _project_venv_python(project: str) -> str:
         return os.path.join(project_dir, ".venv", "Scripts", "python.exe")
     return os.path.join(project_dir, ".venv", "bin", "python")
 
+def _project_venv_pip(project: str) -> str:
+    project_dir = _project_root(project)
+    if os.name == "nt":
+        return os.path.join(project_dir, ".venv", "Scripts", "pip.exe")
+    return os.path.join(project_dir, ".venv", "bin", "pip")
+
+def _create_project_venv(project: str) -> tuple[bool, str]:
+    """
+    Runpod/Linux環境でも失敗しにくいよう、複数候補で .venv 作成を試行する。
+    """
+    import shutil
+    import sys
+
+    project_dir = _project_root(project)
+    os.makedirs(project_dir, exist_ok=True)
+    venv_dir = os.path.join(project_dir, ".venv")
+    if os.path.isdir(venv_dir):
+        return True, "already exists"
+
+    candidates: list[list[str]] = []
+    py = sys.executable
+    if py:
+        candidates.append([py, "-m", "venv", venv_dir])
+    py3 = shutil.which("python3")
+    if py3 and (not py or os.path.realpath(py3) != os.path.realpath(py)):
+        candidates.append([py3, "-m", "venv", venv_dir])
+    py_default = shutil.which("python")
+    if py_default and all(c[0] != py_default for c in candidates):
+        candidates.append([py_default, "-m", "venv", venv_dir])
+    if py:
+        candidates.append([py, "-m", "virtualenv", venv_dir])
+
+    errors = []
+    for cmd in candidates:
+        try:
+            r = _sp.run(cmd, capture_output=True, text=True, timeout=120)
+            if r.returncode == 0 and os.path.exists(_project_venv_python(project)):
+                return True, f"created with: {' '.join(cmd[:3])}"
+            err = (r.stderr or r.stdout or "").strip()
+            errors.append(f"{' '.join(cmd[:3])}: {err[:140]}")
+        except Exception as e:
+            errors.append(f"{' '.join(cmd[:3])}: {e}")
+    return False, " | ".join(errors[-3:])
+
 
 def _run_python_in_project_venv(project: str, argv: list[str], timeout: int) -> str:
     project_dir = _project_root(project)
     venv_python = _project_venv_python(project)
     if not os.path.exists(venv_python):
-        return (
-            "ERROR: Runpod mode requires project venv for Python execution.\n"
-            f"missing: {venv_python}\n"
-            "実行前に setup_venv(requirements=[...]) を実行してください。"
-        )
+        created, detail = _create_project_venv(project)
+        if not created or not os.path.exists(venv_python):
+            return (
+                "ERROR: Runpod mode requires project venv for Python execution.\n"
+                f"missing: {venv_python}\n"
+                f"auto-create failed: {detail}\n"
+                "実行前に setup_venv(requirements=[...]) を実行してください。"
+            )
     try:
         result = _sp.run(
             [venv_python, *argv],
@@ -1836,11 +1883,10 @@ def setup_venv(requirements: list = None, project: str = "default") -> str:
     Dockerで動作確認済みのパッケージを .venv/ にインストールしておく。
     ユーザーは activate → python app.py で即実行できる状態にする（ローカル自動実行はしない）。
     """
-    import sys
     project_dir = os.path.abspath(os.path.join(WORK_DIR, project))
     venv_dir = os.path.join(project_dir, ".venv")
     req_file = os.path.join(project_dir, "requirements.txt")
-    python_bin = sys.executable
+    os.makedirs(project_dir, exist_ok=True)
 
     # requirements.txt 生成
     reqs = requirements or []
@@ -1851,14 +1897,15 @@ def setup_venv(requirements: list = None, project: str = "default") -> str:
     # .venv 作成
     venv_existed = os.path.isdir(venv_dir)
     if not venv_existed:
-        r = _sp.run([python_bin, "-m", "venv", venv_dir], capture_output=True, text=True, timeout=60)
-        if r.returncode != 0:
+        created, detail = _create_project_venv(project)
+        if not created:
+            manual_activate = "source .venv/bin/activate" if os.name != "nt" else ".venv\\Scripts\\activate"
             return (f"ok: requirements.txt generated ({', '.join(reqs)})\n"
-                    f"WARNING: .venv creation failed: {r.stderr.strip()[:100]}\n"
-                    f"手動: python -m venv .venv && .venv\\Scripts\\activate && pip install -r requirements.txt")
+                    f"WARNING: .venv creation failed: {detail}\n"
+                    f"手動: python -m venv .venv && {manual_activate} && pip install -r requirements.txt")
 
     # pip install（Dockerで確認済みパッケージを.venvに導入）
-    pip = os.path.join(venv_dir, "Scripts", "pip.exe") if os.name == "nt" else os.path.join(venv_dir, "bin", "pip")
+    pip = _project_venv_pip(project)
     installed_msg = ""
     if reqs and os.path.exists(pip):
         r2 = _sp.run([pip, "install", "-r", req_file],
