@@ -1634,8 +1634,14 @@ async function refreshSystemSummary() {
       const vram = (_isValidMb(gpuInfo?.vram_used_mb) || _isValidMb(gpuInfo?.vram_total_mb))
         ? `${_fmtGbInt(gpuInfo?.vram_used_mb)}/${_fmtGbInt(gpuInfo?.vram_total_mb)}`
         : '--';
-      usageEl.textContent = `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram}`;
-      usageEl.title = `CPU ${cpu}, RAM ${ram}, GPU ${gpu}, VRAM ${vram} (updated: ${usage.updated_at || '-'})`;
+      const backend = usage.vram_source_backend || usage.gpu_backend || 'none';
+      const confidence = usage.vram_confidence || 'unknown';
+      const peak = usage.model_load_peak || {};
+      const peakVram = (_isValidMb(peak.max_vram_used_mb) || _isValidMb(peak.max_vram_total_mb))
+        ? `${_fmtGbInt(peak.max_vram_used_mb)}/${_fmtGbInt(peak.max_vram_total_mb)}`
+        : '--';
+      usageEl.textContent = `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram} [${backend}/${confidence}] | Peak ${peakVram}`;
+      usageEl.title = `CPU ${cpu}, RAM ${ram}, GPU ${gpu}, VRAM ${vram}, backend ${backend}, confidence ${confidence}, peak ${peakVram} (updated: ${usage.updated_at || '-'})`;
       usageEl.style.display = 'block';
       if (usageRow) usageRow.style.display = 'flex';
     }
