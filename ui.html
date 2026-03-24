@@ -2703,13 +2703,24 @@ function startGgufDownloadPolling(jobId, progressElId) {
 }
 
 function renderGgufSearchResults(payload) {
+  const fmtMaybeGbFromMb = (mb) => {
+    const n = Number(mb);
+    if (Number.isNaN(n) || n < 0) return '不明';
+    if (n === 0) return '0.0GB';
+    return fmtGbFromMb(n);
+  };
+  const yesNoUnknown = (v, yes='可', no='不可') => {
+    if (v === true) return yes;
+    if (v === false) return no;
+    return '不明';
+  };
   const hw = payload?.hardware || {};
   const hwEl = document.getElementById('gguf-hw-info');
   if (hwEl) {
     const gpu = Number(hw?.vram_total_mb || 0) > 0
-      ? `${fmtGbFromMb(hw.vram_free_mb)} free / ${fmtGbFromMb(hw.vram_total_mb)} total`
+      ? `${fmtMaybeGbFromMb(hw.vram_free_mb)} free / ${fmtMaybeGbFromMb(hw.vram_total_mb)} total`
       : 'N/A';
-    hwEl.textContent = `Hardware: RAM ${fmtGbFromMb(hw.ram_available_mb)} free / ${fmtGbFromMb(hw.ram_total_mb)} total, VRAM ${gpu}, GPU API=${esc(hw.gpu_backend || 'none')}, Runpod=${hw.is_runpod ? 'yes' : 'no'}`;
+    hwEl.textContent = `Hardware: RAM ${fmtMaybeGbFromMb(hw.ram_available_mb)} free / ${fmtMaybeGbFromMb(hw.ram_total_mb)} total, VRAM ${gpu}, GPU API=${esc(hw.gpu_backend || 'none')}, Runpod=${hw.is_runpod ? 'yes' : 'no'}`;
   }
   const el = document.getElementById('gguf-search-result');
   if (!el) return;
@@ -2721,16 +2732,24 @@ function renderGgufSearchResults(payload) {
   el.innerHTML = rows.slice(0, 20).map((r, ridx) => {
     const ggufs = (r.ggufs || []).slice(0, 6).map((g, gidx) => {
       const ok = g.downloadable;
+      const runtimeOk = g.runtime_feasible;
       const off = g.full_offload_possible;
       const progressElId = `gguf-dl-progress-${ridx}-${gidx}`;
       return `<div style="border:1px solid var(--border);border-radius:5px;padding:6px;background:var(--bg);margin-top:4px">
         <div style="font-size:10px;color:var(--text2);word-break:break-all">${esc(g.filename)}</div>
         <div style="font-size:9px;color:var(--text3);display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
-          <span>size ${fmtGbFromMb(g.size_mb)}</span>
-          <span>est VRAM ${fmtGbFromMb(g.estimated_vram_mb)}</span>
-          <span>est RAM ${fmtGbFromMb(g.estimated_ram_mb)}</span>
-          <span style="color:${ok?'var(--accent)':'var(--red)'}">${ok?'DL可能':'DL注意'}</span>
-          <span style="color:${off?'var(--accent)':'var(--amber)'}">${off?'完全オフロード可':'完全オフロード不可'}</span>
+          <span>size ${fmtMaybeGbFromMb(g.size_mb)}</span>
+          <span>quant ${esc(g.quantization || 'unknown')}</span>
+          <span>ctx ${Number(g.ctx_size) > 0 ? Number(g.ctx_size).toLocaleString() : '不明'}</span>
+          <span>gpu_layers(想定) ${Number(g.gpu_layers_assumed) > 0 ? Number(g.gpu_layers_assumed) : '不明'}</span>
+          <span>est VRAM ${fmtMaybeGbFromMb(g.estimated_vram_mb)}</span>
+          <span>est RAM ${fmtMaybeGbFromMb(g.estimated_ram_mb)}</span>
+          <span>KV ${fmtMaybeGbFromMb(g.estimated_kv_cache_mb)}</span>
+          <span style="color:${ok===true?'var(--accent)':'var(--red)'}">保存 ${yesNoUnknown(ok, '可能', '不可')}</span>
+          <span style="color:${runtimeOk===true?'var(--accent)':'var(--amber)'}">実行 ${yesNoUnknown(runtimeOk, '可能', '不可')}</span>
+          <span style="color:${off===true?'var(--accent)':'var(--amber)'}">全層GPU ${yesNoUnknown(off, '可能', '不可')}</span>
+          <span>confidence ${esc(g.estimate_confidence || 'low')}</span>
+          <span style="max-width:100%;word-break:break-word">理由: ${esc(g.reason || '情報不足')}</span>
         </div>
         <div style="margin-top:5px">
           <button onclick="downloadGgufFile('${esc(r.model_id)}', '${esc(g.filename)}', '${esc(progressElId)}')" style="font-size:10px;padding:3px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">LLMsへDL</button>

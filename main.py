@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
 import subprocess
+import shutil
 import json
 import os
 import re
@@ -3547,19 +3548,184 @@ def get_system_usage_info() -> dict:
     }
 
 
-def _estimate_fit(file_size_mb: int, hw: dict) -> dict:
-    est_vram_mb = int(file_size_mb * 1.15) if file_size_mb > 0 else -1
-    est_ram_mb = int(file_size_mb * 0.35) if file_size_mb > 0 else -1
+def _infer_quantization_from_name(name: str) -> str:
+    up = (name or "").upper()
+    for q in [
+        "IQ1_S", "Q2_K", "IQ2_M", "IQ2_XS", "IQ3_M", "Q3_K_S", "Q3_K_M", "Q3_K_L",
+        "Q4_0", "Q4_1", "Q4_K_S", "Q4_K_M", "Q5_0", "Q5_1", "Q5_K_S", "Q5_K_M",
+        "Q6_K", "Q8_0", "F16", "BF16",
+    ]:
+        if q in up:
+            return q
+    return ""
+
+
+def _infer_ctx_size_from_name(name: str, default_ctx: int = 8192) -> int:
+    text = (name or "").lower()
+    # 例: 32k / 128k / ctx4096
+    mk = re.search(r"(\d{1,4})k(?:[^a-z0-9]|$)", text)
+    if mk:
+        k = int(mk.group(1))
+        if 1 <= k <= 1024:
+            return k * 1024
+    mctx = re.search(r"ctx[_\-]?(\d{3,7})", text)
+    if mctx:
+        v = int(mctx.group(1))
+        if 512 <= v <= 2_000_000:
+            return v
+    return default_ctx
+
+
+def _infer_gpu_layers_for_estimate(file_size_mb: int, quantization: str) -> int:
+    # ファイルサイズからざっくり層数を推定（未知時の保守的な目安）
+    q = (quantization or "").upper()
+    if file_size_mb <= 0:
+        return 40
+    if file_size_mb <= 2500:
+        return 28
+    if file_size_mb <= 5500:
+        return 32
+    if file_size_mb <= 11000:
+        return 40
+    if file_size_mb <= 22000:
+        return 60
+    if "Q2" in q or "IQ2" in q:
+        return 70
+    return 80
+
+
+def _disk_free_mb(path: str) -> int:
+    target = (path or "").strip() or _default_llm_root_folder()
+    try:
+        os.makedirs(target, exist_ok=True)
+        usage = shutil.disk_usage(target)
+        return int(usage.free / (1024 * 1024))
+    except Exception:
+        return -1
+
+
+def _estimate_fit(file_size_mb: int, hw: dict, quantization: str = "", ctx_size: int = 8192, gpu_layers: int = -1, disk_free_mb: int = -1) -> dict:
+    q = (quantization or "").upper()
+    ctx = int(ctx_size or 8192)
+    gl = int(gpu_layers or -1)
+    if gl <= 0:
+        gl = _infer_gpu_layers_for_estimate(file_size_mb, q)
+
+    if file_size_mb > 0:
+        # 定量子化ごとのKV係数（厳密値ではなく判定用の近似）
+        kv_coef = 0.10
+        if "Q2" in q or "IQ2" in q:
+            kv_coef = 0.05
+        elif "Q3" in q or "IQ3" in q:
+            kv_coef = 0.06
+        elif "Q4" in q:
+            kv_coef = 0.08
+        elif "Q5" in q:
+            kv_coef = 0.10
+        elif "Q6" in q:
+            kv_coef = 0.12
+        elif "Q8" in q:
+            kv_coef = 0.16
+        elif "F16" in q or "BF16" in q:
+            kv_coef = 0.24
+
+        ctx_scale = max(0.25, min(8.0, ctx / 8192.0))
+        kv_cache_mb = max(96, int(file_size_mb * kv_coef * ctx_scale))
+        assumed_total_layers = max(gl, 40)
+        gpu_ratio = max(0.0, min(1.0, gl / float(assumed_total_layers)))
+        base_vram_overhead = 320
+        base_ram_overhead = 768
+        est_vram_mb = int((file_size_mb * gpu_ratio) + (kv_cache_mb * gpu_ratio) + base_vram_overhead)
+        est_ram_mb = int((file_size_mb * (1.0 - gpu_ratio) * 1.1) + (kv_cache_mb * (1.0 - gpu_ratio)) + base_ram_overhead)
+    else:
+        kv_cache_mb = -1
+        est_vram_mb = -1
+        est_ram_mb = -1
+        gpu_ratio = 0.0
+
     vram_free = int(hw.get("vram_free_mb", -1) or -1)
     ram_free = int(hw.get("ram_available_mb", -1) or -1)
     full_offload = bool(est_vram_mb > 0 and vram_free > 0 and vram_free >= est_vram_mb)
-    downloadable = bool(file_size_mb > 0 and ram_free > 0 and ram_free >= min(est_ram_mb, file_size_mb))
+    runtime_feasible = bool(est_ram_mb > 0 and ram_free > 0 and ram_free >= est_ram_mb)
+    downloadable = bool(file_size_mb > 0 and disk_free_mb > 0 and disk_free_mb >= file_size_mb)
+
+    reasons = []
+    unknown_count = 0
+    if file_size_mb <= 0:
+        reasons.append("size不明")
+        unknown_count += 1
+    if vram_free <= 0:
+        reasons.append("空きVRAM不明")
+        unknown_count += 1
+    elif est_vram_mb > 0 and vram_free < est_vram_mb:
+        reasons.append(f"VRAM不足({vram_free}MB < {est_vram_mb}MB)")
+    if ram_free <= 0:
+        reasons.append("空きRAM不明")
+        unknown_count += 1
+    elif est_ram_mb > 0 and ram_free < est_ram_mb:
+        reasons.append(f"RAM不足({ram_free}MB < {est_ram_mb}MB)")
+    if disk_free_mb <= 0:
+        reasons.append("保存先空き容量不明")
+        unknown_count += 1
+    elif file_size_mb > 0 and disk_free_mb < file_size_mb:
+        reasons.append(f"保存容量不足({disk_free_mb}MB < {file_size_mb}MB)")
+    if not q:
+        unknown_count += 1
+    if ctx_size <= 0:
+        unknown_count += 1
+
+    if unknown_count == 0:
+        confidence = "high"
+    elif unknown_count <= 2:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
     return {
         "estimated_vram_mb": est_vram_mb,
         "estimated_ram_mb": est_ram_mb,
+        "estimated_kv_cache_mb": kv_cache_mb,
+        "assumed_gpu_layers": gl,
+        "assumed_ctx_size": ctx,
+        "assumed_quantization": q or "unknown",
         "downloadable": downloadable,
+        "runtime_feasible": runtime_feasible,
         "full_offload_possible": full_offload,
+        "estimate_confidence": confidence,
+        "reason": " / ".join(reasons) if reasons else "実行・保存ともに条件を満たす見込み",
     }
+
+
+def _fetch_hf_repo_file_sizes(model_id: str) -> dict[str, int]:
+    """
+    HFのsiblingsにsizeが無いケース向けに tree/files API からサイズを補完。
+    """
+    headers = {"accept": "application/json"}
+    size_map: dict[str, int] = {}
+    endpoints = [
+        f"https://huggingface.co/api/models/{model_id}/tree/main",
+        f"https://huggingface.co/api/models/{model_id}/files",
+    ]
+    for ep in endpoints:
+        try:
+            r = requests.get(ep, params={"recursive": "1", "expand": "1"}, headers=headers, timeout=30)
+            if not r.ok:
+                continue
+            data = r.json()
+            if not isinstance(data, list):
+                continue
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                path = str(item.get("path") or item.get("rfilename") or item.get("name") or "").strip()
+                size = int(item.get("size") or item.get("lfs", {}).get("size") or 0)
+                if path and size > 0:
+                    size_map[path] = size
+        except Exception:
+            continue
+        if size_map:
+            break
+    return size_map
 
 
 def _ensemble_selected_coder_specs() -> list[dict]:
@@ -7695,22 +7861,45 @@ def search_gguf_models_api(
         raise HTTPException(502, f"Hugging Face search failed: {e}")
 
     hw = get_system_hardware_info()
+    root_folder = settings_get("llm_root_folder") or _default_llm_root_folder()
+    free_disk_mb = _disk_free_mb(root_folder)
     results = []
     for row in rows:
         model_id = row.get("id", "")
         siblings = row.get("siblings", []) or []
+        missing_size_files = []
+        for s in siblings:
+            nm = str(s.get("rfilename") or "")
+            if nm.lower().endswith(".gguf") and int(s.get("size") or 0) <= 0:
+                missing_size_files.append(nm)
+        fallback_sizes = _fetch_hf_repo_file_sizes(model_id) if missing_size_files else {}
         ggufs = []
         for s in siblings:
             name = s.get("rfilename", "")
             if not name.lower().endswith(".gguf"):
                 continue
             size_bytes = int(s.get("size") or 0)
+            if size_bytes <= 0:
+                size_bytes = int(fallback_sizes.get(name) or 0)
+            quant = _infer_quantization_from_name(name)
+            ctx_size = _infer_ctx_size_from_name(name, default_ctx=8192)
+            gpu_layers = _infer_gpu_layers_for_estimate(int(size_bytes / (1024 * 1024)) if size_bytes > 0 else -1, quant)
             size_mb = int(size_bytes / (1024 * 1024)) if size_bytes > 0 else -1
-            fit = _estimate_fit(size_mb, hw)
+            fit = _estimate_fit(
+                size_mb,
+                hw,
+                quantization=quant,
+                ctx_size=ctx_size,
+                gpu_layers=gpu_layers,
+                disk_free_mb=free_disk_mb,
+            )
             ggufs.append({
                 "filename": name,
                 "size_bytes": size_bytes,
                 "size_mb": size_mb,
+                "quantization": quant or "unknown",
+                "ctx_size": ctx_size,
+                "gpu_layers_assumed": gpu_layers,
                 **fit,
             })
         if not ggufs:
@@ -7727,6 +7916,7 @@ def search_gguf_models_api(
         "query": query,
         "sort": sort_key,
         "hardware": hw,
+        "storage": {"folder": root_folder, "disk_free_mb": free_disk_mb},
         "results": results,
         "count": len(results),
     }
