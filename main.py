@@ -2036,6 +2036,25 @@ def run_python(code: str, project: str = "default", timeout: int = None) -> str:
         with open(run_file_path, "w", encoding="utf-8") as f:
             f.write(code)
 
+        if _is_runpod_env():
+            venv_py = os.path.join(project_dir, ".venv", "Scripts", "python.exe") if os.name == "nt" else os.path.join(project_dir, ".venv", "bin", "python")
+            pybin = venv_py if os.path.exists(venv_py) else sys.executable
+            result = subprocess.run(
+                [pybin, run_file_path],
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
+                timeout=_timeout,
+                encoding="utf-8",
+                errors="replace",
+            )
+            out = result.stdout + result.stderr
+            return out[:4000] if len(out) > 4000 else out
+
+        if not _is_docker_available():
+            return ("ERROR: docker command is not available in this environment. "
+                    "Non-Runpod mode uses Docker for run_python.")
+
         check = subprocess.run(
             ["docker", "inspect", "--format", "{{.State.Running}}", SANDBOX_CONTAINER],
             capture_output=True, text=True, encoding="utf-8", errors="replace"
@@ -2072,6 +2091,30 @@ def run_file(path: str, project: str = "default", timeout: int = None) -> str:
     _timeout = _clamp_docker_timeout("run_file", timeout)
     try:
         _, rel_path = _project_path(project, path)
+
+        if _is_runpod_env():
+            project_dir = os.path.join(WORK_DIR, project)
+            target_path = os.path.join(project_dir, rel_path)
+            if not os.path.exists(target_path):
+                return f"ERROR: file not found: {path}"
+            venv_py = os.path.join(project_dir, ".venv", "Scripts", "python.exe") if os.name == "nt" else os.path.join(project_dir, ".venv", "bin", "python")
+            pybin = venv_py if os.path.exists(venv_py) else sys.executable
+            result = subprocess.run(
+                [pybin, target_path],
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
+                timeout=_timeout,
+                encoding="utf-8",
+                errors="replace",
+            )
+            out = result.stdout + result.stderr
+            return out[:4000] if len(out) > 4000 else out
+
+        if not _is_docker_available():
+            return ("ERROR: docker command is not available in this environment. "
+                    "Non-Runpod mode uses Docker for run_file.")
+
         check = subprocess.run(
             ["docker", "inspect", "--format", "{{.State.Running}}", SANDBOX_CONTAINER],
             capture_output=True, text=True, encoding="utf-8", errors="replace"
@@ -4001,8 +4044,8 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 - move_path: {"src": "old.py", "dst": "src/new.py"}  ← ファイル/ディレクトリ移動・改名
 - delete_path: {"path": "tmp.txt"}  or {"path":"build","recursive":true}  ← ファイル/ディレクトリ削除
 - patch_function: {"path": "foo.py", "function_name": "bar", "new_code": "def bar(): ..."}
-- run_python: {"code": "print('hello')"}  ← project引数不要（自動設定）/ タイムアウト時: {"code":"...","timeout":60} (max 300s)
-- run_file: {"path": "foo.py"}  ← プロジェクト内の相対パス、project引数不要 / タイムアウト時: {"path":"...","timeout":60} (max 300s)
+- run_python: {"code": "print('hello')"}  ← project引数不要（自動設定）/ Runpodでは.venv優先・それ以外はDocker / タイムアウト時: {"code":"...","timeout":60} (max 300s)
+- run_file: {"path": "foo.py"}  ← プロジェクト内の相対パス、project引数不要 / Runpodでは.venv優先・それ以外はDocker / タイムアウト時: {"path":"...","timeout":60} (max 300s)
 - run_shell: {"command": "pytest -q"}  ← プロジェクトディレクトリでシェルコマンド実行 / タイムアウト時: {"command":"...","timeout":120} (max 300s)
 - run_server: {"port": 8888}  ← 【最終タスクのみ】DockerでHTTPサーバー起動
 - stop_server: {"port": 8888}  ← 起動したサーバーを停止
@@ -4028,6 +4071,7 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 5. 実行後エラーがあれば必ず自分で修正して再実行
 6. HTTPサーバー起動は run_python ではなく run_server を使う（run_pythonはサーバー系タイムアウトする）
 7. 要件が曖昧な場合は clarify でユーザーに確認
+7.5. ツール結果の解釈は出力テキストに厳密に従うこと。出力に書かれていない .venv / Docker Compose / Runpod 設定不備を推測で断定しない。
 9. 【Gitワークフロー】タスク開始時に git_checkout_branch でfeatureブランチを作成し、
    完了後に git_commit でコミットすること。失敗時は git_reset で即座に復元できる。
 8. 【タイムアウト対策】"ERROR: timeout (Xs)" が返ってきた場合:
@@ -4048,7 +4092,7 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
    【Pythonプロジェクト】
    通常タスク: write_file でPythonコード作成
    動作確認タスク（最終）:
-     1. run_python でDockerサンドボックスにて動作確認・ユニットテスト
+     1. run_python で動作確認・ユニットテスト（Runpodでは.venv優先、その他環境ではDockerサンドボックス）
      2. WebアプリはFlask等: run_server → run_browser でブラウザ確認+スクショ
      3. setup_venv(requirements=["flask","numpy",...]) でローカルvenv構築
         → .venv/ と requirements.txt を生成・pip installまで完了
