@@ -14,16 +14,17 @@ RUN apt-get update -o Acquire::Retries=3 \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        python3 \
+        jq \
         tar \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
     ASSET_REGEX='^llama\.cpp-b[0-9]+-cuda-12\.8\.tar\.gz$'; \
-    RELEASE_JSON="$(curl -fsSL https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases/latest)"; \
-    SELECTED="$(python3 -c 'import json,re,sys; release=json.loads(sys.argv[1]); pattern=re.compile(sys.argv[2]); asset=next((a for a in release.get(\"assets\",[]) if pattern.match(a.get(\"name\",\"\"))),None); sys.exit(1) if asset is None else None; print(asset.get(\"browser_download_url\",\"\")); print(asset.get(\"name\",\"\"))' "${RELEASE_JSON}" "${ASSET_REGEX}")"; \
-    ASSET_URL="$(echo "${SELECTED}" | sed -n '1p')"; \
-    ASSET_NAME="$(echo "${SELECTED}" | sed -n '2p')"; \
+    curl -fsSL https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases/latest -o /tmp/release.json; \
+    ASSET_URL="$(jq -r --arg re "${ASSET_REGEX}" '.assets[] | select(.name | test($re)) | .browser_download_url' /tmp/release.json | head -n1)"; \
+    ASSET_NAME="$(jq -r --arg re "${ASSET_REGEX}" '.assets[] | select(.name | test($re)) | .name' /tmp/release.json | head -n1)"; \
+    test "${ASSET_URL}" != "null"; \
+    test "${ASSET_NAME}" != "null"; \
     test -n "${ASSET_URL}"; \
     test -n "${ASSET_NAME}"; \
     curl -fL "${ASSET_URL}" -o "/tmp/${ASSET_NAME}"; \
