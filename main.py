@@ -258,6 +258,75 @@ import subprocess as _sp
 import threading as _mm_thread
 import time as _mm_time
 
+_usage_diag_lock = _mm_thread.Lock()
+_last_usage_diag: dict = {}
+_model_load_vram_peak: dict = {
+    "active": False,
+    "started_at": None,
+    "ended_at": None,
+    "samples": 0,
+    "max_vram_used_mb": -1,
+    "max_vram_total_mb": -1,
+    "backend": "none",
+    "confidence": "unknown",
+}
+
+
+def _set_last_usage_diag(diag: dict):
+    with _usage_diag_lock:
+        global _last_usage_diag
+        _last_usage_diag = diag
+
+
+def _get_last_usage_diag() -> dict:
+    with _usage_diag_lock:
+        return dict(_last_usage_diag)
+
+
+def _set_model_load_vram_peak(data: dict):
+    with _usage_diag_lock:
+        global _model_load_vram_peak
+        _model_load_vram_peak = data
+
+
+def _get_model_load_vram_peak() -> dict:
+    with _usage_diag_lock:
+        return dict(_model_load_vram_peak)
+
+
+def _start_model_load_vram_sampling():
+    def _worker():
+        state = {
+            "active": True,
+            "started_at": datetime.now().isoformat(),
+            "ended_at": None,
+            "samples": 0,
+            "max_vram_used_mb": -1,
+            "max_vram_total_mb": -1,
+            "backend": "none",
+            "confidence": "unknown",
+        }
+        _set_model_load_vram_peak(state)
+        for _ in range(15):
+            usage = get_system_usage_info()
+            gpus = usage.get("gpus", []) or []
+            total_used = sum(int(g.get("vram_used_mb", -1)) for g in gpus if int(g.get("vram_used_mb", -1)) >= 0)
+            total_total = sum(int(g.get("vram_total_mb", -1)) for g in gpus if int(g.get("vram_total_mb", -1)) >= 0)
+            if total_used > state["max_vram_used_mb"]:
+                state["max_vram_used_mb"] = total_used
+            if total_total > state["max_vram_total_mb"]:
+                state["max_vram_total_mb"] = total_total
+            state["samples"] += 1
+            state["backend"] = usage.get("gpu_backend", "none")
+            state["confidence"] = usage.get("vram_confidence", "unknown")
+            _set_model_load_vram_peak(dict(state))
+            _mm_time.sleep(1.0)
+        state["active"] = False
+        state["ended_at"] = datetime.now().isoformat()
+        _set_model_load_vram_peak(state)
+
+    _mm_thread.Thread(target=_worker, daemon=True).start()
+
 DEFAULT_MODEL_CATALOG = {}
 DEFAULT_TASK_MODEL_MAP = {}
 MODEL_ROLE_OPTIONS = ("plan", "chat", "search", "verify", "code", "complex", "reason", "multi")
@@ -799,6 +868,7 @@ class ModelManager:
                 global _current_n_ctx
                 _current_n_ctx = spec.get("ctx", _current_n_ctx)
                 print(f"[ModelManager] _current_n_ctx updated to {_current_n_ctx}")
+                _start_model_load_vram_sampling()
                 emit("model_ready", f"{spec['name']} is ready", 100, 0)
                 return True
             else:
@@ -850,7 +920,15 @@ class ModelManager:
             cmd += ["--cache-type-v", spec["cache_type_v"]]
         for arg in spec.get("extra_args", []):
             cmd.append(arg)
-        print(f"[ModelManager] starting: {' '.join(cmd[1:3])} parallel={spec.get('parallel','auto')} ubatch={spec.get('ubatch_size','512')}")
+        print(
+            "[ModelManager] starting:"
+            f" model={spec.get('path','')}"
+            f" -ngl={spec.get('gpu_layers')}"
+            f" --ctx-size={spec.get('ctx')}"
+            f" --threads={spec.get('threads')}"
+            f" extra_args={spec.get('extra_args', [])}"
+            f" full_cmd={' '.join(cmd)}"
+        )
         try:
             flags = _sp.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
             self._process = _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, creationflags=flags)
@@ -3451,6 +3529,9 @@ def get_system_usage_info() -> dict:
     if selected in ("", "auto", "none"):
         selected, _ = _select_working_gpu_backend("gpu_usage_backend", candidates)
     gpus = []
+    parse_summary: list[dict] = []
+    nvidia_fail_reason = ""
+    parse_source = "unknown"
     gpu_backend = selected if selected else "none"
     if selected == "nvidia-smi":
         for cmd in [
@@ -3462,6 +3543,15 @@ def get_system_usage_info() -> dict:
         ]:
             try:
                 r = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+                if r.returncode != 0 and not (r.stdout or "").strip():
+                    parse_summary.append({
+                        "cmd": " ".join(cmd),
+                        "ok": False,
+                        "reason": f"returncode={r.returncode}",
+                        "stderr_head": (r.stderr or "").strip()[:120],
+                    })
+                    continue
+                parsed_this_cmd = 0
                 for line in (r.stdout or "").splitlines():
                     parts = [p.strip() for p in line.split(",")]
                     if len(parts) >= 4:
@@ -3470,9 +3560,27 @@ def get_system_usage_info() -> dict:
                         total = _parse_int_maybe(re.sub(r'[^0-9]', '', parts[3]))
                         pct = (used / total * 100.0) if used >= 0 and total > 0 else -1.0
                         gpus.append({"name": parts[0], "util_percent": util, "vram_used_mb": used, "vram_total_mb": total, "vram_percent": pct})
+                        parsed_this_cmd += 1
+                parse_summary.append({
+                    "cmd": " ".join(cmd),
+                    "ok": parsed_this_cmd > 0,
+                    "rows": parsed_this_cmd,
+                })
                 if gpus:
+                    parse_source = "direct"
                     break
-            except Exception:
+                nvidia_fail_reason = "parse fail"
+            except FileNotFoundError:
+                nvidia_fail_reason = "command not found"
+                parse_summary.append({"cmd": " ".join(cmd), "ok": False, "reason": "command not found"})
+                break
+            except subprocess.TimeoutExpired:
+                nvidia_fail_reason = "timeout"
+                parse_summary.append({"cmd": " ".join(cmd), "ok": False, "reason": "timeout"})
+                continue
+            except Exception as e:
+                nvidia_fail_reason = f"parse fail ({type(e).__name__})"
+                parse_summary.append({"cmd": " ".join(cmd), "ok": False, "reason": f"parse fail: {type(e).__name__}"})
                 continue
     elif selected == "rocm-smi":
         for cmd in [
@@ -3498,6 +3606,7 @@ def get_system_usage_info() -> dict:
                         if "Card series" in line or "Card SKU" in line:
                             gpus.append({"name": line.split(":",1)[-1].strip(), "util_percent": -1, "vram_used_mb": -1, "vram_total_mb": -1, "vram_percent": -1})
                 if gpus:
+                    parse_source = "direct"
                     break
             except Exception:
                 continue
@@ -3528,6 +3637,7 @@ def get_system_usage_info() -> dict:
                         if ln.strip() and "name" not in ln.lower():
                             gpus.append({"name": ln.strip(), "util_percent": -1, "vram_used_mb": -1, "vram_total_mb": -1, "vram_percent": -1})
                 if gpus:
+                    parse_source = "direct"
                     break
             except Exception:
                 continue
@@ -3535,6 +3645,32 @@ def get_system_usage_info() -> dict:
         static_list = _probe_gpu_static(selected if selected != "none" else candidates[0])
         gpus = [{"name": g.get("name","GPU"), "util_percent": -1, "vram_used_mb": -1, "vram_total_mb": g.get("memory_total_mb",-1), "vram_percent": -1} for g in static_list]
         gpu_backend = selected
+        if gpus:
+            parse_source = "fallback"
+
+    vram_confidence = "unknown"
+    if parse_source == "direct":
+        vram_confidence = "direct"
+    elif parse_source == "fallback":
+        vram_confidence = "fallback"
+
+    adopted_values = {
+        "gpu_count": len(gpus),
+        "gpu0_name": gpus[0].get("name", "") if gpus else "",
+        "gpu0_vram_used_mb": gpus[0].get("vram_used_mb", -1) if gpus else -1,
+        "gpu0_vram_total_mb": gpus[0].get("vram_total_mb", -1) if gpus else -1,
+        "gpu0_util_percent": gpus[0].get("util_percent", -1) if gpus else -1,
+    }
+    diag = {
+        "gpu_backend_selected": selected,
+        "gpu_backend": gpu_backend,
+        "parse_source": parse_source,
+        "nvidia_smi_failure_reason": nvidia_fail_reason if selected == "nvidia-smi" else "",
+        "raw_parse_summary": parse_summary,
+        "adopted_values": adopted_values,
+        "updated_at": datetime.now().isoformat(),
+    }
+    _set_last_usage_diag(diag)
 
     return {
         "cpu_percent": round(cpu_percent, 1) if cpu_percent >= 0 else -1,
@@ -3543,7 +3679,10 @@ def get_system_usage_info() -> dict:
         "ram_percent": round(ram_percent, 1) if ram_percent >= 0 else -1,
         "gpu_backend": gpu_backend,
         "gpu_backend_selected": selected,
+        "vram_source_backend": gpu_backend,
+        "vram_confidence": vram_confidence,
         "gpus": gpus,
+        "model_load_peak": _get_model_load_vram_peak(),
         "updated_at": datetime.now().isoformat(),
     }
 
@@ -8760,6 +8899,26 @@ def trigger_memory_analysis(job_id: str, project: str = "default"):
 def system_usage_api():
     return get_system_usage_info()
 
+@app.get("/system/usage/debug")
+def system_usage_debug_api():
+    usage = get_system_usage_info()
+    diag = _get_last_usage_diag()
+    return {
+        "gpu_backend_selected": diag.get("gpu_backend_selected", usage.get("gpu_backend_selected", "auto")),
+        "gpu_backend": diag.get("gpu_backend", usage.get("gpu_backend", "none")),
+        "raw_parse_summary": diag.get("raw_parse_summary", []),
+        "parse_source": diag.get("parse_source", "unknown"),
+        "nvidia_smi_failure_reason": diag.get("nvidia_smi_failure_reason", ""),
+        "adopted_values": diag.get("adopted_values", {}),
+        "final_usage": {
+            "gpus": usage.get("gpus", []),
+            "vram_confidence": usage.get("vram_confidence", "unknown"),
+            "vram_source_backend": usage.get("vram_source_backend", usage.get("gpu_backend", "none")),
+            "model_load_peak": usage.get("model_load_peak", {}),
+            "updated_at": usage.get("updated_at"),
+        },
+    }
+
 def _get_lightweight_health_status() -> dict:
     try:
         res = requests.get(f"http://127.0.0.1:{_model_manager.llm_port}/health", timeout=3)
@@ -8800,6 +8959,10 @@ def system_summary():
             "cpu_percent": usage.get("cpu_percent"),
             "ram_used_mb": usage.get("ram_used_mb"),
             "ram_total_mb": usage.get("ram_total_mb"),
+            "gpu_backend": usage.get("gpu_backend"),
+            "vram_confidence": usage.get("vram_confidence"),
+            "vram_source_backend": usage.get("vram_source_backend"),
+            "model_load_peak": usage.get("model_load_peak", {}),
             "gpus": usage.get("gpus", []),
             "updated_at": usage.get("updated_at"),
         }
