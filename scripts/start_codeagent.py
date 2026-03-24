@@ -92,7 +92,7 @@ def try_auto_setup_llama(base_dir: Path) -> bool:
     if not setup_script.exists():
         print(f"[Runpod][WARN] setup script not found: {setup_script}")
         return False
-    cmd = ["bash", str(setup_script), "--build-if-needed"]
+    cmd = ["bash", str(setup_script), "--install-if-needed"]
     print(f"[Runpod] Running llama auto-setup: {' '.join(cmd)}")
     try:
         completed = subprocess.run(cmd, cwd=base_dir, check=False)
