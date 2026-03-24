@@ -9,6 +9,7 @@ ARG LLAMA_CPP_REF=b8480
 
 FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu${UBUNTU_VERSION} AS builder
 
+ARG LLAMA_CPP_REF=b8480
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.list \
@@ -26,7 +27,8 @@ RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.lis
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
-RUN git clone --depth 1 --branch ${LLAMA_CPP_REF} https://github.com/ggml-org/llama.cpp.git
+RUN test -n "${LLAMA_CPP_REF}" \
+    && git clone --depth 1 --branch "${LLAMA_CPP_REF}" https://github.com/ggml-org/llama.cpp.git
 WORKDIR /src/llama.cpp
 
 # Avoid host-specific tuning in cloud containers.
