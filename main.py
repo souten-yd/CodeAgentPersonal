@@ -4815,26 +4815,43 @@ def run_job_background(job_id: str, req: "JobRequest"):
         job_update_status(project, job_id, "running")
 
         if req.mode == "chat":
-            # chatモード: 直接LLM呼び出し（エージェントループなし・JSON強制なし）
+            # chatモードもエージェントループ経由で実行（taskモード同様にweb_searchを利用可能）
             exec_url = _resolve_runtime_llm_url(req.llm_url)
 
-            CHAT_SYSTEM = "あなたはCodeAgentです。ユーザーの質問に丁寧に答えてください。コードが必要な場合はmarkdownで記述してください。"
-            history_msgs = []
-            for h in (req.chat_history or [])[-8:]:
-                role = h.get("role", "user")
-                text = str(h.get("text", ""))[:800]
-                if role in ("user", "assistant") and text:
-                    history_msgs.append({"role": role, "content": text})
+            def _on_chat_step(step_info: dict):
+                stype = step_info.get("type", "step")
+                if stype == "tool_call":
+                    write("tool_call", step_info)
+                    write("tool_result", {
+                        "action": step_info.get("action", ""),
+                        "result_preview": step_info.get("result_preview", "")
+                    })
+                elif stype == "clarify":
+                    write("clarify", {
+                        "question": step_info.get("question", "確認が必要です"),
+                        "options": step_info.get("options", []),
+                        "thought": step_info.get("thought", "")
+                    })
 
-            messages = [
-                {"role": "system", "content": CHAT_SYSTEM},
-                *history_msgs,
-                {"role": "user", "content": req.message},
-            ]
-            messages = _trim_messages(messages, _current_n_ctx, reserve_output=2048)
-            reply, usage = call_llm_chat(messages, llm_url=exec_url)
-            write("done", {"result": reply, "status": "done", "usage": usage})
-            save_session(job_id, project, req.message, "chat", {"output": reply, "status": "done"})
+            result = execute_task(
+                req.message,
+                max_steps=req.max_steps,
+                project=project,
+                on_step=_on_chat_step,
+                search_enabled=req.search_enabled,
+                llm_url=exec_url,
+                chat_history=req.chat_history,
+                job_id=job_id
+            )
+
+            if result.get("status") == "done":
+                reply = result.get("output", "")
+                write("done", {"result": reply, "status": "done", "total_steps": result.get("total_steps", 0)})
+                save_session(job_id, project, req.message, "chat", {"output": reply, "status": "done", "steps": result.get("steps", [])})
+            else:
+                err_msg = result.get("error", "unknown")
+                write("error", {"error": err_msg})
+                save_session(job_id, project, req.message, "chat", {"output": "", "status": "error", "error": err_msg, "steps": result.get("steps", [])})
 
 
         else:
