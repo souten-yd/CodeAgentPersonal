@@ -552,14 +552,14 @@ header{
 /* ── PLAN APPROVAL CARD ── */
 .plan-card{border:1px solid var(--accent-border);border-radius:var(--r2);background:var(--accent-bg);margin-top:3px;overflow:hidden;width:100%}
 .plan-card-header{padding:10px 13px;font-size:13px;font-weight:700;color:var(--accent);letter-spacing:.05em;border-bottom:1px solid var(--accent-border);display:flex;align-items:center;gap:8px;word-break:break-word;white-space:normal;flex-wrap:wrap}
-.plan-tasks{padding:8px 0}
-.plan-task-row{display:flex;align-items:flex-start;gap:8px;padding:6px 13px;border-bottom:1px solid rgba(0,255,136,.08)}
+.plan-tasks{padding:4px 0}
+.plan-task-row{display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:start;column-gap:8px;padding:6px 10px;border-bottom:1px solid rgba(0,255,136,.08)}
 .plan-task-row:last-child{border-bottom:none}
-.plan-task-num{flex-shrink:0;width:20px;height:20px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);font-size:10px;font-weight:700;color:var(--text2);display:flex;align-items:center;justify-content:center;margin-top:1px}
-.plan-task-content{flex:1;min-width:0}
-.plan-task-title{font-size:12px;font-weight:600;color:var(--text);margin-bottom:2px}
-.plan-task-detail{font-size:12px;color:var(--text2);line-height:1.5;word-break:break-word;white-space:pre-wrap}
-.plan-task-edit{flex-shrink:0;padding:3px 8px;font-size:10px;font-weight:600;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text2);cursor:pointer;font-family:var(--font-ui);transition:all .15s}
+.plan-task-num{width:20px;height:20px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);font-size:10px;font-weight:700;color:var(--text2);display:flex;align-items:center;justify-content:center;margin-top:1px}
+.plan-task-content{min-width:0;padding-right:2px}
+.plan-task-title{font-size:12px;font-weight:600;color:var(--text);margin-bottom:1px;line-height:1.4}
+.plan-task-detail{font-size:12px;color:var(--text2);line-height:1.45;word-break:break-word;white-space:pre-wrap}
+.plan-task-edit{padding:2px 6px;font-size:10px;font-weight:600;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text2);cursor:pointer;font-family:var(--font-ui);transition:all .15s;align-self:center}
 .plan-task-edit:hover{border-color:var(--border2);color:var(--text)}
 /* ── CLARIFY CARD ── */
 .clarify-card{border:1px solid var(--amber);border-radius:var(--r2);background:rgba(255,170,0,.06);margin-top:3px;overflow:hidden;width:100%}
@@ -587,42 +587,30 @@ header{
   transition:opacity .15s;flex-shrink:0;
 }
 .clarify-send:hover{opacity:.85}
-.plan-section{padding:8px 13px;border-top:1px solid rgba(0,255,136,.08)}
+.plan-section{padding:8px 10px;border-top:1px solid rgba(0,255,136,.08)}
 .plan-section-title{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--accent);opacity:.7;margin-bottom:5px}
 .plan-req-item{font-size:12px;color:var(--text2);padding:2px 0 2px 10px;border-left:2px solid var(--accent-border);margin-bottom:4px;line-height:1.5}
 .plan-approach-text{font-size:12px;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-word}
 .plan-verify-item{font-size:11px;color:var(--text2);padding:2px 0 2px 10px;border-left:2px solid rgba(68,136,255,.4);margin-bottom:3px}
 /* Model selector in plan card */
-.plan-model-bar{padding:10px 13px;border-top:1px solid rgba(0,255,136,.12);background:rgba(0,255,136,.03);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.plan-model-bar{padding:9px 10px;border-top:1px solid rgba(0,255,136,.12);background:rgba(0,255,136,.03);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .plan-model-label{font-size:11px;color:var(--text3);flex-shrink:0}
 .plan-model-badge{font-size:11px;font-weight:700;color:var(--accent);font-family:var(--font-mono);flex:1}
 .plan-model-eta{font-size:11px;color:var(--amber);font-family:var(--font-mono)}
 .plan-model-sel{font-size:11px;font-family:var(--font-ui);background:var(--bg2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:3px 7px;cursor:pointer}
 .plan-model-sel:focus{outline:none;border-color:var(--accent)}
 .plan-model-switching{font-size:11px;color:var(--amber);font-family:var(--font-mono);display:flex;align-items:center;gap:6px}
-.plan-actions{display:flex;gap:8px;padding:10px 13px;border-top:1px solid var(--accent-border);background:rgba(0,255,136,.04)}
+.plan-actions{display:flex;gap:8px;padding:9px 10px;border-top:1px solid var(--accent-border);background:rgba(0,255,136,.04)}
 .plan-execute-btn{flex:1;padding:9px;font-size:13px;font-weight:700;background:var(--accent);border:none;border-radius:var(--r);color:var(--bg);cursor:pointer;font-family:var(--font-ui);letter-spacing:.04em;transition:opacity .15s}
 .plan-execute-btn:hover{opacity:.85}
 .plan-revise-btn{padding:9px 14px;font-size:12px;font-weight:600;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);color:var(--text2);cursor:pointer;font-family:var(--font-ui);transition:all .15s}
 .plan-revise-btn:hover{border-color:var(--border2);color:var(--text)}
 
 /* ── PROGRESS CARD ── */
-.progress-card{border:1px solid var(--border);border-radius:var(--r2);background:var(--bg2);margin-top:3px;overflow:hidden;padding:12px 14px}
-.prog-label{font-size:12px;color:var(--text2);margin-bottom:6px}
-.prog-title{font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px;display:flex;align-items:center;gap:6px}
-.prog-bar-wrap{background:var(--bg3);border-radius:4px;height:4px;overflow:hidden;margin-bottom:8px}
-.prog-bar{height:100%;background:var(--accent);border-radius:4px;transition:width .4s ease;box-shadow:0 0 8px rgba(0,255,136,.4)}
-.prog-meta{display:flex;flex-direction:column;gap:3px;font-size:11px;font-family:var(--font-mono);color:var(--text2)}
-.prog-task-name{
-  font-size:12px;font-weight:600;color:var(--text);
-  margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  min-height:16px;
-}
-.prog-step-row{
-  font-size:11px;color:var(--accent);font-family:var(--font-mono);
-  margin-top:2px;min-height:14px;
-}
-.prog-action{font-size:11px;color:var(--text3);font-family:var(--font-mono);margin-top:0;word-break:break-all;white-space:pre-wrap;min-height:14px;line-height:1.5}
+.progress-card{border:1px solid var(--border);border-radius:var(--r2);background:var(--bg2);margin-top:3px;overflow:hidden;padding:8px 10px}
+.prog-line{display:flex;align-items:center;gap:8px;min-height:20px}
+.prog-label{font-size:12px;color:var(--text2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.prog-elapsed{font-size:10px;font-family:var(--font-mono);color:var(--accent);flex-shrink:0}
 .thinking-dots span{display:inline-block;width:4px;height:4px;border-radius:50%;background:var(--accent);margin:0 1px;animation:dot .8s ease-in-out infinite}
 .thinking-dots span:nth-child(2){animation-delay:.15s}
 .thinking-dots span:nth-child(3){animation-delay:.3s}
@@ -3823,34 +3811,15 @@ function addProgressCard(label, totalTasks) {
   const w = messages();
   const div = document.createElement('div');
   div.className = 'msg assistant';
-  const pct = 0;
   div.innerHTML = `<div class="msg-bubble progress-card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <div class="prog-label" style="margin-bottom:0;font-size:12px;font-weight:700;color:var(--text2)">${esc(label)}</div>
-      <span class="prog-elapsed" style="font-size:11px;font-family:var(--font-mono);color:var(--accent);flex-shrink:0;margin-left:8px">0s</span>
-    </div>
-    <div class="prog-bar-wrap"><div class="prog-bar" style="width:0%"></div></div>
-    <div style="margin-top:7px;padding:6px 8px;background:rgba(255,255,255,.03);border-radius:6px;border:1px solid rgba(255,255,255,.06)">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
-        <span class="prog-stat-step" style="font-size:10px;font-family:var(--font-mono);color:var(--accent);background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:4px;padding:1px 5px;flex-shrink:0">step -/-</span>
-        <span class="prog-action-tool" style="font-size:11px;font-family:var(--font-mono);color:var(--blue);font-weight:600;flex-shrink:0"></span>
-      </div>
-      <div class="prog-action" style="font-size:11px;color:var(--text2);line-height:1.4;word-break:break-word;min-height:14px"></div>
-    </div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:5px;align-items:center">
-      <span class="prog-stat-tps"  style="font-size:10px;font-family:var(--font-mono);color:var(--text3)">-- tok/s</span>
-      <span class="prog-stat-ctx"  style="font-size:10px;font-family:var(--font-mono);color:var(--text3)">ctx: --/--</span>
+    <div class="prog-line">
+      <div class="prog-label">${esc(label)}</div>
+      <span class="prog-elapsed">0s</span>
     </div>
   </div>`;
   div._refs = {
-    label:      div.querySelector('.prog-label'),
-    bar:        div.querySelector('.prog-bar'),
-    elapsed:    div.querySelector('.prog-elapsed'),
-    action:     div.querySelector('.prog-action'),
-    actionTool: div.querySelector('.prog-action-tool'),
-    tps:        div.querySelector('.prog-stat-tps'),
-    ctx:        div.querySelector('.prog-stat-ctx'),
-    stepNum:    div.querySelector('.prog-stat-step'),
+    label:   div.querySelector('.prog-label'),
+    elapsed: div.querySelector('.prog-elapsed'),
   };
   w.appendChild(div);
   w.scrollTop = w.scrollHeight;
@@ -3860,27 +3829,9 @@ function addProgressCard(label, totalTasks) {
 function setCard(card, opts) {
   if (!card || !card._refs) return;
   const r = card._refs;
-  if (opts.label   !== undefined) r.label.textContent  = opts.label;
-  if (opts.action  !== undefined) {
-    // "toolName: thought text" を分割して別表示
-    const colonIdx = opts.action.indexOf(': ');
-    if (r.actionTool && colonIdx > 0) {
-      r.actionTool.textContent = opts.action.slice(0, colonIdx);
-      r.action.textContent = opts.action.slice(colonIdx + 2);
-    } else {
-      if (r.actionTool) r.actionTool.textContent = '';
-      r.action.textContent = opts.action;
-    }
-  }
-  if (opts.elapsed !== undefined) r.elapsed.textContent = opts.elapsed;
-  if (opts.pct     !== undefined) {
-    const p = Math.max(0, Math.min(100, opts.pct));
-    r.bar.style.width = p + '%';
-  }
-  if (opts.taskName !== undefined) r.label.textContent = opts.taskName;
-  if (opts.tps      !== undefined && r.tps)     r.tps.textContent     = opts.tps > 0 ? opts.tps.toFixed(1)+' tok/s' : '-- tok/s';
-  if (opts.ctx      !== undefined && r.ctx)     r.ctx.textContent     = 'ctx: '+opts.ctx;
-  if (opts.stepNum  !== undefined && r.stepNum) r.stepNum.textContent = 'step '+opts.stepNum;
+  const nextLabel = opts.taskName ?? opts.label ?? opts.action;
+  if (nextLabel !== undefined) r.label.textContent = nextLabel;
+  if (opts.elapsed !== undefined && r.elapsed) r.elapsed.textContent = opts.elapsed;
   card.closest('.msg-list, #messages')?.scrollTo?.({top: 999999});
 }
 
