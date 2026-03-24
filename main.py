@@ -2614,9 +2614,27 @@ def auto_snapshot_ca_data(stage: str, job_id: str, task_id=None) -> dict:
     CA_DATA_DIR の自動スナップショット。
     差分が無ければ commit は作らず skip する。
     """
+    rc_git, _, git_err = _git_run(["--version"], CA_DATA_DIR)
+    if rc_git != 0:
+        print(f"[snapshot] skip: git unavailable ({git_err}) stage={stage} job={job_id} task={task_id}")
+        return {
+            "ok": True,
+            "stage": stage,
+            "skipped": True,
+            "reason": "git unavailable",
+            "commit_hash": "",
+        }
+
     err = _git_ensure_repo(CA_DATA_DIR)
     if err:
-        return {"ok": False, "stage": stage, "error": err}
+        print(f"[snapshot] skip: git init/config not ready ({err}) stage={stage} job={job_id} task={task_id}")
+        return {
+            "ok": True,
+            "stage": stage,
+            "skipped": True,
+            "reason": "git not initialized",
+            "commit_hash": "",
+        }
     _ensure_ca_data_gitignore()
     rc_add, _, err_add = _git_run(["add", "-A"], CA_DATA_DIR)
     if rc_add != 0:
@@ -4896,6 +4914,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                     "task_id": todo.get("id", i + 1),
                     "ok": bool(pre_snapshot.get("ok")),
                     "skipped": bool(pre_snapshot.get("skipped")),
+                    "reason": pre_snapshot.get("reason", ""),
                     "commit_hash": pre_snapshot_hash,
                     "error": pre_snapshot.get("error", ""),
                 })
@@ -5309,6 +5328,7 @@ JSON形式で出力:
                         "task_id": todo.get("id", i + 1),
                         "ok": bool(post_snapshot.get("ok")),
                         "skipped": bool(post_snapshot.get("skipped")),
+                        "reason": post_snapshot.get("reason", ""),
                         "commit_hash": post_snapshot.get("commit_hash", ""),
                         "error": post_snapshot.get("error", ""),
                     })
@@ -5438,6 +5458,7 @@ JSON形式で出力:
                 "task_id": None,
                 "ok": bool(final_snapshot.get("ok")),
                 "skipped": bool(final_snapshot.get("skipped")),
+                "reason": final_snapshot.get("reason", ""),
                 "commit_hash": final_snapshot.get("commit_hash", ""),
                 "error": final_snapshot.get("error", ""),
             })
