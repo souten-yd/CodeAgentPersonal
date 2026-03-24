@@ -1,56 +1,41 @@
 # syntax=docker/dockerfile:1.7
 
 ########################################
-# Builder stage: compile llama.cpp with CUDA
+# Prebuilt stage: download llama.cpp CUDA binaries
 ########################################
 ARG CUDA_VERSION=12.8.0
 ARG UBUNTU_VERSION=22.04
-ARG LLAMA_CPP_REF=b8480
 
-FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu${UBUNTU_VERSION} AS builder
+FROM ubuntu:${UBUNTU_VERSION} AS llama_prebuilt
 
-ARG LLAMA_CPP_REF=b8480
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.list \
-    && apt-get update -o Acquire::Retries=3 \
+RUN apt-get update -o Acquire::Retries=3 \
     && apt-get install -y --no-install-recommends \
-        build-essential \
-        cmake \
-        ninja-build \
-        git \
         ca-certificates \
         curl \
-        libcurl4-openssl-dev \
-        libssl-dev \
-        pkg-config \
+        jq \
+        tar \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /src
-RUN test -n "${LLAMA_CPP_REF}" \
-    && git clone --depth 1 --branch "${LLAMA_CPP_REF}" https://github.com/ggml-org/llama.cpp.git
-WORKDIR /src/llama.cpp
-
-# Avoid host-specific tuning in cloud containers.
-# Build dynamic backend libraries so runtime linkage is more robust.
-ARG CUDA_DOCKER_ARCH=default
-RUN if [ "${CUDA_DOCKER_ARCH}" != "default" ]; then \
-        export CMAKE_CUDA_ARCH="-DCMAKE_CUDA_ARCHITECTURES=${CUDA_DOCKER_ARCH}"; \
-    fi \
-    && cmake -S . -B build -G Ninja \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DGGML_CUDA=ON \
-        -DGGML_NATIVE=OFF \
-        -DGGML_BACKEND_DL=ON \
-        -DLLAMA_CURL=ON \
-        -DLLAMA_BUILD_TESTS=OFF \
-        ${CMAKE_CUDA_ARCH:-} \
-    && cmake --build build --config Release -j"$(nproc)"
-
-RUN mkdir -p /out/bin /out/lib \
-    && cp -v build/bin/llama-server /out/bin/ \
-    && cp -v build/bin/llama-cli /out/bin/ \
-    && find build -maxdepth 3 -type f \( -name '*.so' -o -name '*.so.*' \) -exec cp -Pv {} /out/lib/ \;
+RUN set -eux; \
+    ASSET_REGEX='^llama\.cpp-b[0-9]+-cuda-12\.8\.tar\.gz$'; \
+    curl -fsSL https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases/latest -o /tmp/release.json; \
+    ASSET_URL="$(jq -r --arg re "${ASSET_REGEX}" '.assets[] | select(.name | test($re)) | .browser_download_url' /tmp/release.json | head -n1)"; \
+    ASSET_NAME="$(jq -r --arg re "${ASSET_REGEX}" '.assets[] | select(.name | test($re)) | .name' /tmp/release.json | head -n1)"; \
+    test "${ASSET_URL}" != "null"; \
+    test "${ASSET_NAME}" != "null"; \
+    test -n "${ASSET_URL}"; \
+    test -n "${ASSET_NAME}"; \
+    curl -fL "${ASSET_URL}" -o "/tmp/${ASSET_NAME}"; \
+    mkdir -p /tmp/extract; \
+    tar -xzf "/tmp/${ASSET_NAME}" -C /tmp/extract; \
+    SOURCE_ROOT="$(dirname "$(find /tmp/extract -type f -name llama-server -perm -u+x | head -n1)")"; \
+    test -n "${SOURCE_ROOT}"; \
+    mkdir -p /out/bin /out/lib; \
+    cp -a "${SOURCE_ROOT}/llama-server" /out/bin/llama-server; \
+    cp -a "${SOURCE_ROOT}/llama-cli" /out/bin/llama-cli; \
+    find "${SOURCE_ROOT}" \( -type f -o -type l \) -name '*.so*' -exec cp -a {} /out/lib/ \;
 
 ########################################
 # Runtime stage: Python + codeAgent + llama.cpp
@@ -107,9 +92,9 @@ RUN if [ -f /app/requirements.txt ]; then \
 
 # Copy compiled llama artifacts into the paths the app expects.
 RUN mkdir -p /app/llama/bin /app/llama/lib /models
-COPY --from=builder /out/bin/llama-server /app/llama/bin/llama-server
-COPY --from=builder /out/bin/llama-cli /app/llama/bin/llama-cli
-COPY --from=builder /out/lib/ /app/llama/lib/
+COPY --from=llama_prebuilt /out/bin/llama-server /app/llama/bin/llama-server
+COPY --from=llama_prebuilt /out/bin/llama-cli /app/llama/bin/llama-cli
+COPY --from=llama_prebuilt /out/lib/ /app/llama/lib/
 
 # Compatibility symlinks for apps that look in different places.
 RUN ln -sf /app/llama/bin/llama-server /usr/local/bin/llama-server \
