@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +10,7 @@ import os
 import re
 import base64
 import tempfile
+import zipfile
 import threading
 import platform
 import ast
@@ -82,7 +83,20 @@ print(f"  Chat/Clarify:     {LLM_URL_CHAT}")
 #   .codeagent/     - 機密情報専用（Gitに絶対コミットしない）
 # =========================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CA_DATA_DIR          = os.path.join(BASE_DIR, "ca_data")
+
+def _is_runpod_runtime() -> bool:
+    has_workspace = os.path.isdir("/workspace")
+    has_runpod_env = bool(os.environ.get("RUNPOD_POD_ID") or os.environ.get("RUNPOD_API_KEY"))
+    forced = os.environ.get("CODEAGENT_RUNTIME", "").strip().lower()
+    if forced in {"runpod", "rp"}:
+        return has_workspace
+    if forced in {"local", "default", "docker"}:
+        return False
+    return has_runpod_env and has_workspace
+
+IS_RUNPOD_RUNTIME = _is_runpod_runtime()
+DEFAULT_CA_DATA_DIR = "/workspace/ca_data" if IS_RUNPOD_RUNTIME else os.path.join(BASE_DIR, "ca_data")
+CA_DATA_DIR          = os.path.abspath(os.environ.get("CODEAGENT_CA_DATA_DIR", DEFAULT_CA_DATA_DIR))
 CODEAGENT_HIDDEN_DIR = os.path.join(BASE_DIR, ".codeagent")
 OPENCODE_CONFIG_PATH = os.path.join(BASE_DIR, "opencode.json")
 LOG_DIR = os.path.join(CA_DATA_DIR, "Logs")
@@ -93,7 +107,8 @@ os.makedirs(CODEAGENT_HIDDEN_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(OPENCODE_ENSEMBLE_LOG_DIR, exist_ok=True)
 
-WORK_DIR = os.path.join(CA_DATA_DIR, "workspace")
+DEFAULT_WORK_DIR = os.path.join(CA_DATA_DIR, "workspace")
+WORK_DIR = os.path.abspath(os.environ.get("CODEAGENT_WORK_DIR", DEFAULT_WORK_DIR))
 SANDBOX_CONTAINER = "claude_sandbox"
 
 os.makedirs(WORK_DIR, exist_ok=True)
@@ -1619,6 +1634,9 @@ def _should_hide_preview_path(rel_path: str) -> bool:
 def _server_container_name(port: int) -> str:
     return f"codeagent_server_{port}"
 
+
+_LOCAL_SERVER_PROCS: dict[int, _sp.Popen] = {}
+
 def _is_docker_available() -> bool:
     """dockerコマンドの存在確認（Runpod等の非Docker環境対策）"""
     try:
@@ -1626,6 +1644,101 @@ def _is_docker_available() -> bool:
     except FileNotFoundError:
         return False
     return result.returncode == 0
+
+
+def _tool_runtime_policy(tool_name: str) -> str:
+    """
+    ツール実行バックエンドを返す。
+    - default環境: Docker優先（従来互換）
+    - Runpod環境:
+        * Python系(run_python/run_file) は project venv を強制
+        * それ以外は docker がなければ local を許容
+    """
+    if IS_RUNPOD_RUNTIME:
+        if tool_name in {"run_python", "run_file"}:
+            return "venv"
+        return "docker_or_local"
+    return "docker"
+
+
+def _project_venv_python(project: str) -> str:
+    project_dir = _project_root(project)
+    if os.name == "nt":
+        return os.path.join(project_dir, ".venv", "Scripts", "python.exe")
+    return os.path.join(project_dir, ".venv", "bin", "python")
+
+
+def _run_python_in_project_venv(project: str, argv: list[str], timeout: int) -> str:
+    project_dir = _project_root(project)
+    venv_python = _project_venv_python(project)
+    if not os.path.exists(venv_python):
+        return (
+            "ERROR: Runpod mode requires project venv for Python execution.\n"
+            f"missing: {venv_python}\n"
+            "実行前に setup_venv(requirements=[...]) を実行してください。"
+        )
+    try:
+        result = _sp.run(
+            [venv_python, *argv],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            encoding="utf-8",
+            errors="replace"
+        )
+        out = (result.stdout + result.stderr).strip()
+        status = "ok" if result.returncode == 0 else f"exit {result.returncode}"
+        return f"[{status}] {' '.join(argv)}\n{out[:4000] if out else '(no output)'}"
+    except _sp.TimeoutExpired:
+        return f"ERROR: timeout ({timeout}s)."
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def _resolve_tool_backend(tool_name: str) -> str:
+    """共通ポリシーに基づき、実際の実行バックエンドを解決する。"""
+    policy = _tool_runtime_policy(tool_name)
+    if policy == "docker_or_local":
+        return "docker" if _is_docker_available() else "local"
+    return policy
+
+
+def _docker_unavailable_error(tool_name: str, local_hint: str = "") -> str:
+    hint = f"\n{local_hint}" if local_hint else ""
+    return f"ERROR: docker is not available for {tool_name}.{hint}"
+
+
+def _run_python_in_docker(project: str, rel_path: str, timeout: int) -> str:
+    if not _is_docker_available():
+        return _docker_unavailable_error("run_python/run_file", "Runpodでは project .venv を用意して実行してください。")
+    check = subprocess.run(
+        ["docker", "inspect", "--format", "{{.State.Running}}", SANDBOX_CONTAINER],
+        capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
+    use_exec = check.returncode == 0 and check.stdout.strip() == "true"
+    container_path = f"/app/{project}/{rel_path}"
+    work_dir = f"/app/{project}"
+    if use_exec:
+        cmd = ["docker", "exec", "-w", work_dir, SANDBOX_CONTAINER, "python", container_path]
+    else:
+        cmd = [
+            "docker", "run", "--rm",
+            "--memory=512m", "--memory-swap=512m", "--cpus=2",
+            "-w", work_dir,
+            "-v", f"{os.path.abspath(WORK_DIR)}:/app",
+            "python:3.11", "python", container_path
+        ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace")
+    out = result.stdout + result.stderr
+    return out[:4000] if len(out) > 4000 else out
+
+
+def _execute_python_entry(project: str, rel_path: str, timeout: int, tool_name: str = "run_python") -> str:
+    backend = _resolve_tool_backend(tool_name)
+    if backend == "venv":
+        return _run_python_in_project_venv(project, [rel_path], timeout)
+    return _run_python_in_docker(project, rel_path, timeout)
 
 def _cleanup_server_containers():
     """CodeAgentサーバーコンテナを全て停止・削除（起動時・異常時に呼ぶ）"""
@@ -1642,23 +1755,22 @@ def _cleanup_server_containers():
             _sp.run(["docker", "rm", "-f", name], capture_output=True)
             print(f"[run_server] cleaned up: {name}")
 
-def run_server(port: int = 8888, project: str = "default") -> str:
-    """
-    プロジェクトフォルダをDockerコンテナ内のHTTPサーバーで公開。
-    同名コンテナは常に1つだけ。異常時も増殖しない。
-    """
+def _run_server_local(port: int, abs_project_dir: str) -> str:
+    old = _LOCAL_SERVER_PROCS.get(port)
+    if old and old.poll() is None:
+        old.terminate()
+    cmd = [sys.executable, "-m", "http.server", str(port), "--bind", "0.0.0.0"]
+    proc = _sp.Popen(cmd, cwd=abs_project_dir, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+    _LOCAL_SERVER_PROCS[port] = proc
+    return f"ok: HTTP server running locally at http://localhost:{port}/ (Runpod local fallback)"
+
+
+def _run_server_docker(port: int, abs_project_dir: str) -> str:
+    if not _is_docker_available():
+        return _docker_unavailable_error("run_server", "Runpodでは docker 未使用時に local fallback が利用されます。")
     import time, urllib.request
-    project_dir = os.path.join(WORK_DIR, project)
-    abs_project_dir = os.path.abspath(project_dir)
-    if not os.path.exists(abs_project_dir):
-        return f"ERROR: project dir not found: {abs_project_dir}"
-
     container_name = _server_container_name(port)
-
-    # 同名コンテナを問答無用で削除（停止中・起動中・エラー状態問わず）
     _sp.run(["docker", "rm", "-f", container_name], capture_output=True)
-
-    # 新規起動（--rmなし、名前固定で1つだけ保証）
     cmd = [
         "docker", "run", "-d",
         "--name", container_name,
@@ -1701,6 +1813,20 @@ def run_server(port: int = 8888, project: str = "default") -> str:
     return (f"ok: HTTP server running in Docker at http://localhost:{port}/\n"
             f"container: {container_name} (stop with stop_server)\n"
             f"HTML files:\n{links if links else '  (none yet)'}")
+
+
+def run_server(port: int = 8888, project: str = "default") -> str:
+    """
+    共通準備を行い、環境ごとの実装（docker/local）へ委譲する。
+    """
+    project_dir = os.path.join(WORK_DIR, project)
+    abs_project_dir = os.path.abspath(project_dir)
+    if not os.path.exists(abs_project_dir):
+        return f"ERROR: project dir not found: {abs_project_dir}"
+    backend = _resolve_tool_backend("run_server")
+    if backend == "local":
+        return _run_server_local(port, abs_project_dir)
+    return _run_server_docker(port, abs_project_dir)
 
 
 
@@ -1813,18 +1939,64 @@ def run_browser(script: str, project: str = "default", timeout: int = None) -> s
           browser.close()
     """
     _timeout = _clamp_docker_timeout("run_browser", timeout)
-    if not _ensure_browser_container(project):
-        # コンテナなしで都度起動
-        use_exec = False
-    else:
-        use_exec = True
-
     project_dir = os.path.join(WORK_DIR, project)
     os.makedirs(project_dir, exist_ok=True)
     script_path = os.path.join(project_dir, "_browser_run.py")
     with open(script_path, "w", encoding="utf-8") as f:
         f.write(script)
 
+    backend = _resolve_tool_backend("run_browser")
+    if backend == "local":
+        return _run_browser_local(project, _timeout)
+    return _run_browser_docker(project, _timeout)
+
+
+def _run_browser_local(project: str, timeout: int) -> str:
+    """
+    RunpodのDocker非利用時向け: project .venv でPlaywrightスクリプトを直接実行。
+    """
+    project_dir = os.path.join(WORK_DIR, project)
+    venv_python = _project_venv_python(project)
+    if not os.path.exists(venv_python):
+        return (
+            "ERROR: run_browser local fallback requires project .venv.\n"
+            f"missing: {venv_python}\n"
+            "setup_venv(requirements=[\"playwright\"]) 実行後に再試行してください。"
+        )
+    try:
+        result = _sp.run(
+            [venv_python, "_browser_run.py"],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            encoding="utf-8",
+            errors="replace"
+        )
+        out = (result.stdout + result.stderr).strip()
+        if "No module named 'playwright'" in out:
+            return (
+                "ERROR: playwright module is missing in project .venv.\n"
+                "Install with: .venv/bin/pip install playwright && .venv/bin/playwright install chromium"
+            )
+        ss_path = os.path.join(project_dir, "screenshot.png")
+        if os.path.exists(ss_path):
+            out += f"\n[screenshot saved: screenshot.png ({os.path.getsize(ss_path)} bytes)]"
+        return out[:4000] or "(no output)"
+    except _sp.TimeoutExpired:
+        return f"ERROR: timeout ({timeout}s). 処理に時間がかかる場合は timeout を増やしてください（最大300s）。"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def _run_browser_docker(project: str, timeout: int) -> str:
+    if not _is_docker_available():
+        return _docker_unavailable_error("run_browser", "Runpodでは project .venv + playwright で local fallback 実行できます。")
+    if not _ensure_browser_container(project):
+        use_exec = False
+    else:
+        use_exec = True
+    project_dir = os.path.join(WORK_DIR, project)
     # Linux環境でのhost.docker.internal対応
     extra_hosts = ["--add-host=host.docker.internal:host-gateway"] if os.name != "nt" else []
     if use_exec:
@@ -1841,7 +2013,7 @@ def run_browser(script: str, project: str = "default", timeout: int = None) -> s
         ]
 
     try:
-        result = _sp.run(cmd, capture_output=True, text=True, timeout=_timeout,
+        result = _sp.run(cmd, capture_output=True, text=True, timeout=timeout,
                          encoding="utf-8", errors="replace")
         out = (result.stdout + result.stderr).strip()
         # playwrightモジュールが見つからない場合はコンテナのイメージが不正→再作成して再試行
@@ -1851,7 +2023,7 @@ def run_browser(script: str, project: str = "default", timeout: int = None) -> s
             if _ensure_browser_container(project):
                 cmd2 = ["docker", "exec", "-w", f"/app/{project}",
                         BROWSER_CONTAINER, "python", f"/app/{project}/_browser_run.py"]
-                result2 = _sp.run(cmd2, capture_output=True, text=True, timeout=_timeout,
+                result2 = _sp.run(cmd2, capture_output=True, text=True, timeout=timeout,
                                   encoding="utf-8", errors="replace")
                 out = (result2.stdout + result2.stderr).strip()
             else:
@@ -1862,7 +2034,7 @@ def run_browser(script: str, project: str = "default", timeout: int = None) -> s
             out += f"\n[screenshot saved: screenshot.png ({os.path.getsize(ss_path)} bytes)]"
         return out[:4000] or "(no output)"
     except _sp.TimeoutExpired:
-        return f"ERROR: timeout ({_timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
+        return f"ERROR: timeout ({timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
     except Exception as e:
         return f"ERROR: {e}"
 
@@ -1873,6 +2045,35 @@ def run_browser(script: str, project: str = "default", timeout: int = None) -> s
 
 NODE_IMAGE   = "node:20-slim"
 NODE_MODULES_VOLUME = "codeagent_node_modules"  # プロジェクト間で共有
+
+def _run_npm_local(command: str, project: str, timeout: int) -> str:
+    if _sp.run(["npm", "--version"], capture_output=True, text=True).returncode != 0:
+        return "ERROR: npm is not available (docker/local both unavailable)."
+    return run_shell(f"npm {command}", project=project, timeout=timeout)
+
+
+def _run_npm_docker(command: str, project_dir: str, timeout: int) -> str:
+    if not _is_docker_available():
+        return _docker_unavailable_error("run_npm", "Runpodでは npm ローカル実行にフォールバックします。")
+    cmd = [
+        "docker", "run", "--rm",
+        "--memory=1g", "--cpus=2",
+        "-w", "/app",
+        "-v", f"{project_dir}:/app",
+        "-v", f"{BROWSER_CONTAINER}_node_modules:/app/node_modules",
+        NODE_IMAGE,
+        "sh", "-c", f"npm {command} 2>&1"
+    ]
+    _sp.run(["docker", "volume", "create", NODE_MODULES_VOLUME], capture_output=True)
+    try:
+        result = _sp.run(cmd, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace")
+        out = (result.stdout + result.stderr).strip()
+        return out[:4000] or "(no output, exit code: " + str(result.returncode) + ")"
+    except _sp.TimeoutExpired:
+        return f"ERROR: timeout ({timeout}s). npm installなど時間のかかる処理は timeout パラメータを増やして再実行してください（最大600s）。"
+    except Exception as e:
+        return f"ERROR: {e}"
+
 
 def run_npm(command: str, project: str = "default", timeout: int = None) -> str:
     """
@@ -1891,28 +2092,38 @@ def run_npm(command: str, project: str = "default", timeout: int = None) -> str:
     if not os.path.exists(pkg_json) and not command.startswith("init"):
         return "ERROR: package.json not found. Run npm init or create package.json first."
 
+    _timeout = _clamp_docker_timeout("run_npm", timeout)
+    backend = _resolve_tool_backend("run_npm")
+    if backend == "local":
+        return _run_npm_local(command, project, _timeout)
+    return _run_npm_docker(command, project_dir, _timeout)
+
+
+def _run_node_local(project: str, timeout: int) -> str:
+    if _sp.run(["node", "--version"], capture_output=True, text=True).returncode != 0:
+        return "ERROR: node is not available (docker/local both unavailable)."
+    return run_shell("node _node_run.js", project=project, timeout=timeout)
+
+
+def _run_node_docker(project_dir: str, timeout: int) -> str:
+    if not _is_docker_available():
+        return _docker_unavailable_error("run_node", "Runpodでは node ローカル実行にフォールバックします。")
     cmd = [
         "docker", "run", "--rm",
-        "--memory=1g", "--cpus=2",
+        "--memory=512m", "--cpus=2",
         "-w", "/app",
         "-v", f"{project_dir}:/app",
-        # node_modulesをコンテナ内に閉じ込める（ホストを汚さない）
         "-v", f"{BROWSER_CONTAINER}_node_modules:/app/node_modules",
         NODE_IMAGE,
-        "sh", "-c", f"npm {command} 2>&1"
+        "node", "/app/_node_run.js"
     ]
-    _timeout = _clamp_docker_timeout("run_npm", timeout)
-    # node_modulesボリュームが存在しない場合は作成（初回のみ）
-    _sp.run(["docker", "volume", "create", NODE_MODULES_VOLUME],
-            capture_output=True)
-
+    _sp.run(["docker", "volume", "create", NODE_MODULES_VOLUME], capture_output=True)
     try:
-        result = _sp.run(cmd, capture_output=True, text=True, timeout=_timeout,
-                         encoding="utf-8", errors="replace")
+        result = _sp.run(cmd, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace")
         out = (result.stdout + result.stderr).strip()
-        return out[:4000] or "(no output, exit code: " + str(result.returncode) + ")"
+        return out[:4000] or "(no output)"
     except _sp.TimeoutExpired:
-        return f"ERROR: timeout ({_timeout}s). npm installなど時間のかかる処理は timeout パラメータを増やして再実行してください（最大600s）。"
+        return f"ERROR: timeout ({timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
     except Exception as e:
         return f"ERROR: {e}"
 
@@ -1932,32 +2143,22 @@ def run_node(script: str, project: str = "default", timeout: int = None) -> str:
     with open(script_path, "w", encoding="utf-8") as f:
         f.write(script)
 
-    cmd = [
-        "docker", "run", "--rm",
-        "--memory=512m", "--cpus=2",
-        "-w", "/app",
-        "-v", f"{project_dir}:/app",
-        "-v", f"{BROWSER_CONTAINER}_node_modules:/app/node_modules",
-        NODE_IMAGE,
-        "node", "/app/_node_run.js"
-    ]
     _timeout = _clamp_docker_timeout("run_node", timeout)
-    _sp.run(["docker", "volume", "create", NODE_MODULES_VOLUME],
-            capture_output=True)
-
-    try:
-        result = _sp.run(cmd, capture_output=True, text=True, timeout=_timeout,
-                         encoding="utf-8", errors="replace")
-        out = (result.stdout + result.stderr).strip()
-        return out[:4000] or "(no output)"
-    except _sp.TimeoutExpired:
-        return f"ERROR: timeout ({_timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
-    except Exception as e:
-        return f"ERROR: {e}"
+    backend = _resolve_tool_backend("run_node")
+    if backend == "local":
+        return _run_node_local(project, _timeout)
+    return _run_node_docker(project_dir, _timeout)
 
 
 def stop_server(port: int = 8888) -> str:
     """run_serverで起動したDockerサーバーを停止・削除する"""
+    proc = _LOCAL_SERVER_PROCS.get(port)
+    if proc and proc.poll() is None:
+        proc.terminate()
+        _LOCAL_SERVER_PROCS.pop(port, None)
+        return f"ok: stopped local server on port {port}"
+    if not _is_docker_available():
+        return "already stopped (docker unavailable)"
     container_name = _server_container_name(port)
     result = _sp.run(["docker", "rm", "-f", container_name], capture_output=True, text=True)
     if result.returncode == 0:
@@ -2035,48 +2236,7 @@ def run_python(code: str, project: str = "default", timeout: int = None) -> str:
         run_file_path = os.path.join(project_dir, "_run.py")
         with open(run_file_path, "w", encoding="utf-8") as f:
             f.write(code)
-
-        if _is_runpod_env():
-            venv_py = os.path.join(project_dir, ".venv", "Scripts", "python.exe") if os.name == "nt" else os.path.join(project_dir, ".venv", "bin", "python")
-            pybin = venv_py if os.path.exists(venv_py) else sys.executable
-            result = subprocess.run(
-                [pybin, run_file_path],
-                cwd=project_dir,
-                capture_output=True,
-                text=True,
-                timeout=_timeout,
-                encoding="utf-8",
-                errors="replace",
-            )
-            out = result.stdout + result.stderr
-            return out[:4000] if len(out) > 4000 else out
-
-        if not _is_docker_available():
-            return ("ERROR: docker command is not available in this environment. "
-                    "Non-Runpod mode uses Docker for run_python.")
-
-        check = subprocess.run(
-            ["docker", "inspect", "--format", "{{.State.Running}}", SANDBOX_CONTAINER],
-            capture_output=True, text=True, encoding="utf-8", errors="replace"
-        )
-        use_exec = check.returncode == 0 and check.stdout.strip() == "true"
-
-        # Docker内でのパス: /app/{project}/_run.py
-        container_script = f"/app/{project}/_run.py"
-        if use_exec:
-            cmd = ["docker", "exec", "-w", f"/app/{project}", SANDBOX_CONTAINER, "python", container_script]
-        else:
-            cmd = [
-                "docker", "run", "--rm",
-                "--memory=512m", "--memory-swap=512m", "--cpus=2",
-                "-w", f"/app/{project}",
-                "-v", f"{os.path.abspath(WORK_DIR)}:/app",
-                "python:3.11", "python", container_script
-            ]
-
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_timeout, encoding="utf-8", errors="replace")
-        out = result.stdout + result.stderr
-        return out[:4000] if len(out) > 4000 else out
+        return _execute_python_entry(project, "_run.py", _timeout, tool_name="run_python")
     except subprocess.TimeoutExpired:
         return f"ERROR: timeout ({_timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
     except Exception as e:
@@ -2091,54 +2251,7 @@ def run_file(path: str, project: str = "default", timeout: int = None) -> str:
     _timeout = _clamp_docker_timeout("run_file", timeout)
     try:
         _, rel_path = _project_path(project, path)
-
-        if _is_runpod_env():
-            project_dir = os.path.join(WORK_DIR, project)
-            target_path = os.path.join(project_dir, rel_path)
-            if not os.path.exists(target_path):
-                return f"ERROR: file not found: {path}"
-            venv_py = os.path.join(project_dir, ".venv", "Scripts", "python.exe") if os.name == "nt" else os.path.join(project_dir, ".venv", "bin", "python")
-            pybin = venv_py if os.path.exists(venv_py) else sys.executable
-            result = subprocess.run(
-                [pybin, target_path],
-                cwd=project_dir,
-                capture_output=True,
-                text=True,
-                timeout=_timeout,
-                encoding="utf-8",
-                errors="replace",
-            )
-            out = result.stdout + result.stderr
-            return out[:4000] if len(out) > 4000 else out
-
-        if not _is_docker_available():
-            return ("ERROR: docker command is not available in this environment. "
-                    "Non-Runpod mode uses Docker for run_file.")
-
-        check = subprocess.run(
-            ["docker", "inspect", "--format", "{{.State.Running}}", SANDBOX_CONTAINER],
-            capture_output=True, text=True, encoding="utf-8", errors="replace"
-        )
-        use_exec = check.returncode == 0 and check.stdout.strip() == "true"
-
-        # pathにプロジェクト名が含まれていない場合は付加
-        container_path = f"/app/{project}/{rel_path}"
-        work_dir = f"/app/{project}"
-
-        if use_exec:
-            cmd = ["docker", "exec", "-w", work_dir, SANDBOX_CONTAINER, "python", container_path]
-        else:
-            cmd = [
-                "docker", "run", "--rm",
-                "--memory=512m", "--memory-swap=512m", "--cpus=2",
-                "-w", work_dir,
-                "-v", f"{os.path.abspath(WORK_DIR)}:/app",
-                "python:3.11", "python", container_path
-            ]
-
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_timeout, encoding="utf-8", errors="replace")
-        out = result.stdout + result.stderr
-        return out[:4000] if len(out) > 4000 else out
+        return _execute_python_entry(project, rel_path, _timeout, tool_name="run_file")
     except subprocess.TimeoutExpired:
         return f"ERROR: timeout ({_timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
     except Exception as e:
@@ -2769,9 +2882,7 @@ def benchmark_model_profiles(model: dict) -> dict:
 # =========================
 
 def _is_runpod_env() -> bool:
-    if os.environ.get("RUNPOD_POD_ID") or os.environ.get("RUNPOD_API_KEY"):
-        return True
-    return (sys.platform.startswith("linux") and os.path.isdir("/workspace"))
+    return IS_RUNPOD_RUNTIME
 
 
 def _default_llm_root_folder() -> str:
@@ -4044,8 +4155,8 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 - move_path: {"src": "old.py", "dst": "src/new.py"}  ← ファイル/ディレクトリ移動・改名
 - delete_path: {"path": "tmp.txt"}  or {"path":"build","recursive":true}  ← ファイル/ディレクトリ削除
 - patch_function: {"path": "foo.py", "function_name": "bar", "new_code": "def bar(): ..."}
-- run_python: {"code": "print('hello')"}  ← project引数不要（自動設定）/ Runpodでは.venv優先・それ以外はDocker / タイムアウト時: {"code":"...","timeout":60} (max 300s)
-- run_file: {"path": "foo.py"}  ← プロジェクト内の相対パス、project引数不要 / Runpodでは.venv優先・それ以外はDocker / タイムアウト時: {"path":"...","timeout":60} (max 300s)
+- run_python: {"code": "print('hello')"}  ← project引数不要（自動設定）/ タイムアウト時: {"code":"...","timeout":60} (max 300s) ※Runpodではproject .venvを使用
+- run_file: {"path": "foo.py"}  ← プロジェクト内の相対パス、project引数不要 / タイムアウト時: {"path":"...","timeout":60} (max 300s) ※Runpodではproject .venvを使用
 - run_shell: {"command": "pytest -q"}  ← プロジェクトディレクトリでシェルコマンド実行 / タイムアウト時: {"command":"...","timeout":120} (max 300s)
 - run_server: {"port": 8888}  ← 【最終タスクのみ】DockerでHTTPサーバー起動
 - stop_server: {"port": 8888}  ← 起動したサーバーを停止
@@ -4092,7 +4203,7 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
    【Pythonプロジェクト】
    通常タスク: write_file でPythonコード作成
    動作確認タスク（最終）:
-     1. run_python で動作確認・ユニットテスト（Runpodでは.venv優先、その他環境ではDockerサンドボックス）
+     1. run_python で動作確認・ユニットテスト（標準環境はDocker / Runpodはproject .venv）
      2. WebアプリはFlask等: run_server → run_browser でブラウザ確認+スクショ
      3. setup_venv(requirements=["flask","numpy",...]) でローカルvenv構築
         → .venv/ と requirements.txt を生成・pip installまで完了
@@ -6215,6 +6326,41 @@ def project_files(name: str):
                 continue
             files.append(rel)
     return {"project": name, "files": sorted(files)}
+
+
+@app.get("/projects/{name}/download")
+def download_project(name: str, background_tasks: BackgroundTasks):
+    """プロジェクトフォルダをzip化してダウンロードする。"""
+    project = _normalize_project_name(name)
+    root = _project_root(project)
+    if not os.path.isdir(root):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    tmp.close()
+    zip_path = tmp.name
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for base, dirs, files in os.walk(root):
+                dirs[:] = [d for d in dirs if not d.startswith(".")]
+                for fname in files:
+                    abs_path = os.path.join(base, fname)
+                    rel_path = os.path.relpath(abs_path, root).replace("\\", "/")
+                    zf.write(abs_path, arcname=f"{project}/{rel_path}")
+    except Exception as e:
+        try:
+            os.remove(zip_path)
+        except OSError:
+            pass
+        raise HTTPException(status_code=500, detail=f"zip creation failed: {e}")
+
+    background_tasks.add_task(lambda p=zip_path: os.path.exists(p) and os.remove(p))
+    return FileResponse(
+        path=zip_path,
+        media_type="application/zip",
+        filename=f"{project}.zip",
+    )
+
 def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15, project: str = "default", search_enabled: bool = True, llm_url: str = "", job_id: str = "", task_id: int = 0, task_title: str = ""):
     """
     execute_task のジェネレータ版。
@@ -7613,18 +7759,25 @@ def _postprocess_downloaded_model(model_id_db: str):
       1) 追加モデルをベンチマーク
       2) auto_roles未設定モデルに推奨ロールを初期化
       3) 決定済みロールに基づくデフォルトモデルの自動ロードを要求
-    """
-    try:
-        models = model_db_list()
-        model = next((m for m in models if m.get("id") == model_id_db), None)
-        if not model:
-            return
 
+    各段階は独立して実行し、どこかが失敗しても後続処理は継続する。
+    """
+    models = model_db_list()
+    model = next((m for m in models if m.get("id") == model_id_db), None)
+    if not model:
+        return
+
+    step_ok = {"benchmark": False, "auto_roles": False, "auto_load": False}
+
+    try:
         updates = benchmark_model_profiles(model)
         if updates:
             model_db_update(model_id_db, updates)
-            model = next((m for m in model_db_list() if m.get("id") == model_id_db), model)
+        step_ok["benchmark"] = True
+    except Exception as e:
+        print(f"[ModelDB] benchmark step failed after GGUF download: {e}")
 
+    try:
         all_models = model_db_list()
         if all_models:
             _, recommendations = recommend_roles_with_planner(all_models)
@@ -7640,11 +7793,18 @@ def _postprocess_downloaded_model(model_id_db: str):
                 initialized_roles += 1
             if initialized_roles > 0:
                 print(f"[ModelDB] initialized auto_roles after GGUF download: {initialized_roles}")
+        step_ok["auto_roles"] = True
+    except Exception as e:
+        print(f"[ModelDB] auto_roles step failed after GGUF download: {e}")
 
+    try:
         started, detail = schedule_default_model_load(reason="gguf_download_complete")
         print(f"[ModelManager] auto-load after GGUF download: started={started} detail={detail}")
+        step_ok["auto_load"] = bool(started)
     except Exception as e:
-        print(f"[ModelDB] postprocess after GGUF download failed: {e}")
+        print(f"[ModelManager] auto-load step failed after GGUF download: {e}")
+
+    print(f"[ModelDB] postprocess after GGUF download finished: {step_ok}")
 
 
 @app.post("/models/gguf/download")

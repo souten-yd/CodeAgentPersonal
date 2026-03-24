@@ -30,15 +30,23 @@ else
   echo "[Runpod] Skipping docker.io auto-install (RUNPOD_AUTO_INSTALL_DOCKER=${AUTO_INSTALL_DOCKER})."
 fi
 
-echo "[Runpod] llama.cpp setup: download/extract Vulkan build into /workspace/llama when missing."
+echo "[Runpod] llama-server can be auto-setup at launch (RUNPOD_AUTO_SETUP_LLAMA=true)."
+echo "[Runpod] You can also provide an explicit binary path with LLAMA_SERVER_PATH."
 
-python scripts/check_environment.py || {
-  echo "[Runpod] Installing Python dependencies from requirements.txt..."
-  python -m pip install --upgrade pip
-  python -m pip install -r requirements.txt
+BOOTSTRAP_VENV="${RUNPOD_BOOTSTRAP_VENV:-/workspace/.venvs/codeagent-bootstrap}"
+PYTHON_BIN="${BOOTSTRAP_VENV}/bin/python"
+if [[ ! -x "${PYTHON_BIN}" ]]; then
+  echo "[Runpod] Creating bootstrap venv at ${BOOTSTRAP_VENV}"
+  python3 -m venv "${BOOTSTRAP_VENV}"
+fi
+
+"${PYTHON_BIN}" scripts/check_environment.py || {
+  echo "[Runpod] Installing Python dependencies into bootstrap venv..."
+  "${PYTHON_BIN}" -m pip install --upgrade pip
+  "${PYTHON_BIN}" -m pip install -r requirements.txt
 }
 
-exec python scripts/start_codeagent.py \
+exec "${PYTHON_BIN}" scripts/start_codeagent.py \
   --host "${HOST}" \
   --port "${PORT}" \
   --primary-port "${PRIMARY_PORT}"

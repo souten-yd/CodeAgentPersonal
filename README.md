@@ -95,6 +95,7 @@
 | **VRAMガード** | `nvidia-smi/rocm-smi` で空きVRAMを監視し、必要時は `parallel → serial` へ自動切替（設定でON/OFF） |
 | **モバイル対応** | iPhone対応。タブバーはスクロール可能。Safe area対応 |
 | **プロジェクト管理** | 複数プロジェクトを切り替え・作成 |
+| **プロジェクトDL** | プロジェクト一覧の`DL`ボタンからPLフォルダをzipでダウンロード |
 | **ジョブ履歴** | 実行中ジョブへの自動再接続。SQLite永続化 |
 | **Markdownレンダリング** | marked.jsによる出力のMarkdown表示 |
 
@@ -192,7 +193,12 @@ bash scripts/runpod_start.sh
 - `RUNPOD_AUTO_INSTALL_DOCKER=false`: Docker自動導入を無効化
 - `RUNPOD_AUTO_SETUP_LLAMA=true` (既定): `llama-server` 不在時に VulkanプリビルドをDL/展開（`/workspace/llama`）
 - `RUNPOD_AUTO_SETUP_LLAMA=false`: llama.cpp セットアップをスキップ
-- `RUNPOD_LLAMA_VULKAN_URL`: VulkanプリビルドURL上書き（既定: `b8479` の `llama-b8479-bin-ubuntu-vulkan-x64.tar.gz`）
+- `RUNPOD_BOOTSTRAP_VENV=/workspace/.venvs/codeagent-bootstrap` (既定): Runpod起動時に利用する専用venv
+- `CODEAGENT_RUNTIME=runpod` : Runpod判定を明示したい場合の強制フラグ（`/workspace` が存在する場合のみ有効）
+- 既定のRunpod判定は `RUNPOD_POD_ID` / `RUNPOD_API_KEY` **かつ** `/workspace` 存在で判定
+- Runpodでは `CODEAGENT_CA_DATA_DIR=/workspace/ca_data` が既定（`ca_data` をworkspaceへ永続保持）
+- プロジェクトフォルダは既定で `CODEAGENT_WORK_DIR=/workspace/ca_data/workspace` を使用（`/workspace`配下で保持）
+- Runpod環境の `run_python` / `run_file` はプロジェクト配下 `.venv` を利用（`setup_venv` で作成）
 
 > `start.bat` は Python ランチャー (`scripts/start_codeagent.py`) を呼ぶ薄いラッパーです。  
 > 起動ロジックを Python に共通化したため、Runpod の起動コマンドへ同じランチャーを指定できます。
