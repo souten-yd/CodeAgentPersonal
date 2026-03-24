@@ -30,14 +30,28 @@ else
   echo "[Runpod] Skipping docker.io auto-install (RUNPOD_AUTO_INSTALL_DOCKER=${AUTO_INSTALL_DOCKER})."
 fi
 
-echo "[Runpod] llama-server can be auto-setup at launch (RUNPOD_AUTO_SETUP_LLAMA=true)."
+echo "[Runpod] llama-server can be auto-setup at launch with a CUDA source build (RUNPOD_AUTO_SETUP_LLAMA=true)."
 echo "[Runpod] You can also provide an explicit binary path with LLAMA_SERVER_PATH."
 
 BOOTSTRAP_VENV="${RUNPOD_BOOTSTRAP_VENV:-/workspace/.venvs/codeagent-bootstrap}"
+BOOTSTRAP_PYTHON="${RUNPOD_BOOTSTRAP_PYTHON:-}"
+if [[ -z "${BOOTSTRAP_PYTHON}" ]]; then
+  if command -v python3.11 >/dev/null 2>&1; then
+    BOOTSTRAP_PYTHON="python3.11"
+  elif command -v python3 >/dev/null 2>&1; then
+    BOOTSTRAP_PYTHON="python3"
+  else
+    echo "[Runpod][ERROR] python3.11/python3 was not found." >&2
+    exit 1
+  fi
+fi
+
+echo "[Runpod] Bootstrap Python: ${BOOTSTRAP_PYTHON}"
+
 PYTHON_BIN="${BOOTSTRAP_VENV}/bin/python"
 if [[ ! -x "${PYTHON_BIN}" ]]; then
   echo "[Runpod] Creating bootstrap venv at ${BOOTSTRAP_VENV}"
-  python3 -m venv "${BOOTSTRAP_VENV}"
+  "${BOOTSTRAP_PYTHON}" -m venv "${BOOTSTRAP_VENV}"
 fi
 
 "${PYTHON_BIN}" scripts/check_environment.py || {
