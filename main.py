@@ -4844,14 +4844,41 @@ def run_job_background(job_id: str, req: "JobRequest"):
                 job_id=job_id
             )
 
-            if result.get("status") == "done":
-                reply = result.get("output", "")
+            reply = (result.get("output") or "").strip() if isinstance(result, dict) else ""
+            agent_ok = isinstance(result, dict) and result.get("status") == "done" and bool(reply)
+
+            if agent_ok:
                 write("done", {"result": reply, "status": "done", "total_steps": result.get("total_steps", 0)})
                 save_session(job_id, project, req.message, "chat", {"output": reply, "status": "done", "steps": result.get("steps", [])})
             else:
-                err_msg = result.get("error", "unknown")
-                write("error", {"error": err_msg})
-                save_session(job_id, project, req.message, "chat", {"output": "", "status": "error", "error": err_msg, "steps": result.get("steps", [])})
+                # 回帰対策: エージェントループが空応答/JSON失敗した場合は従来チャットへフォールバック
+                fallback_reason = ""
+                if isinstance(result, dict):
+                    fallback_reason = result.get("error", "") or "agent returned empty output"
+                write("progress", {"label": f"chat fallback: {fallback_reason or 'direct chat'}"})
+
+                CHAT_SYSTEM = "あなたはCodeAgentです。ユーザーの質問に丁寧に答えてください。コードが必要な場合はmarkdownで記述してください。"
+                history_msgs = []
+                for h in (req.chat_history or [])[-8:]:
+                    role = h.get("role", "user")
+                    text = str(h.get("text", ""))[:800]
+                    if role in ("user", "assistant") and text:
+                        history_msgs.append({"role": role, "content": text})
+                messages = [
+                    {"role": "system", "content": CHAT_SYSTEM},
+                    *history_msgs,
+                    {"role": "user", "content": req.message},
+                ]
+                messages = _trim_messages(messages, _current_n_ctx, reserve_output=2048)
+                fb_reply, usage = call_llm_chat(messages, llm_url=exec_url)
+                write("done", {"result": fb_reply, "status": "done", "usage": usage, "fallback": True})
+                save_session(job_id, project, req.message, "chat", {
+                    "output": fb_reply,
+                    "status": "done",
+                    "fallback": True,
+                    "fallback_reason": fallback_reason,
+                    "steps": (result.get("steps", []) if isinstance(result, dict) else [])
+                })
 
 
         else:
