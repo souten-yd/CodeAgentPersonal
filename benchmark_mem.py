@@ -183,15 +183,18 @@ def start_server_with_log(path: str, ctx: int, ngl: int = 999, mmproj_path: str 
     ]
     if mmproj_path:
         cmd.extend(["--mmproj", mmproj_path])
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-    )
+    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+    popen_kwargs = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+    }
+    if creationflags:
+        popen_kwargs["creationflags"] = creationflags
+
+    proc = subprocess.Popen(cmd, **popen_kwargs)
     log_lines = []
 
     import threading
@@ -280,7 +283,10 @@ def run_single_benchmark(path: str, ctx: int = 4096, ngl: int = 999, mmproj_path
         return {"ok": False, "error": f"file not found: {path}", "baseline": baseline}
     if mmproj_path and not os.path.exists(mmproj_path):
         return {"ok": False, "error": f"mmproj file not found: {mmproj_path}", "baseline": baseline}
-    proc, load_sec, log_text = start_server_with_log(path, ctx, ngl, mmproj_path=mmproj_path)
+    try:
+        proc, load_sec, log_text = start_server_with_log(path, ctx, ngl, mmproj_path=mmproj_path)
+    except Exception as e:
+        return {"ok": False, "error": f"failed to start benchmark server: {e}", "baseline": baseline}
     if not load_sec:
         stop_server(proc)
         return {"ok": False, "error": "server did not start", "baseline": baseline}
