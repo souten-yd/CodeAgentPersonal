@@ -3393,9 +3393,22 @@ async function sendMessage(msg) {
           for (const s of (pollData.steps || [])) {
             lastSeq = s.seq;
             const ev = {...s.data, type: s.type, seq: s.seq};
-            if (ev.type === 'tool_call') {
+            if (ev.type === 'llm_thinking') {
+              setCard(progEl, {action: `🤔 考え中... ${ev.step_num||''}/${ev.max_steps||''}`});
+            } else if (ev.type === 'tool_call') {
               chatSteps.push(ev);
-              setCard(progEl, {action: `${ev.action}: ${(ev.thought||'')}`});
+              const isWebSearch = (ev.action||'') === 'web_search';
+              const actionText = isWebSearch
+                ? `🔎 Web検索中... ${(ev.input?.query || ev.thought || '').slice(0, 80)}`
+                : `${ev.action}: ${(ev.thought||'')}`;
+              setCard(progEl, {action: actionText});
+            } else if (ev.type === 'tool_result') {
+              const resultAction = (ev.action||'') === 'web_search'
+                ? '✓ Web検索 完了 → 次のアクションを生成中...'
+                : `✓ ${ev.action||'tool'} 完了 → 次のアクションを生成中...`;
+              setCard(progEl, {action: resultAction});
+            } else if (ev.type === 'progress') {
+              setCard(progEl, {action: ev.label || ''});
             } else if (ev.type === 'model_switching') {
               setCard(progEl, {label: ev.message || 'Switching model...', action: `eta ${ev.eta_sec||'?'}s`});
             } else if (ev.type === 'model_ready') {

@@ -4820,7 +4820,9 @@ def run_job_background(job_id: str, req: "JobRequest"):
 
             def _on_chat_step(step_info: dict):
                 stype = step_info.get("type", "step")
-                if stype == "tool_call":
+                if stype == "llm_thinking":
+                    write("llm_thinking", step_info)
+                elif stype == "tool_call":
                     write("tool_call", step_info)
                     write("tool_result", {
                         "action": step_info.get("action", ""),
@@ -5761,6 +5763,9 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
     for step in range(max_steps):
         # コンテキスト長チェック: 上限の80%を超えたら古いmessagesをtrim
         messages = _trim_messages(messages, _current_n_ctx, reserve_output=4096)
+        # LLM生成前に「考え中」イベントを通知（UIのWorking表示を更新するため）
+        if on_step:
+            on_step({"type": "llm_thinking", "step_num": step + 1, "max_steps": max_steps})
         reply, _step_usage = call_llm_chat(messages, llm_url=llm_url)
         action_obj = extract_json(reply, parser=_model_manager.current_parser)
 
