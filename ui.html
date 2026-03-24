@@ -865,7 +865,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <button class="mob-tab" id="mob-log" onclick="mobSwitch('log')">Log</button>
   <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skills</button>
   <button class="mob-tab" id="mob-memory" onclick="mobSwitch('memory')">Memory</button>
-  <button class="mob-tab" id="mob-git" onclick="mobSwitch('git')">Git</button>
   <button class="mob-tab" id="mob-models" onclick="mobSwitch('models')">Models</button>
 </div>
 
@@ -898,7 +897,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <button class="tab-btn" onclick="switchTab('log')">Log</button>
       <button class="tab-btn" onclick="switchTab('skills')">Skills</button>
       <button class="tab-btn" onclick="switchTab('memory')">Memory</button>
-      <button class="tab-btn" onclick="switchTab('git')">Git</button>
       <button class="tab-btn" onclick="switchTab('models')">Models</button>
       <div class="tab-spacer"></div>
       <span class="tab-label" id="tab-label">—</span>
@@ -1003,7 +1001,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
 
     <!-- GIT TAB -->
-    <div class="tab-content" id="tab-git" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+    <div class="tab-content" id="tab-git" style="display:none;overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Git</span>
         <button onclick="refreshGitStatus()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ Refresh</button>
@@ -1744,7 +1742,7 @@ function setMode(m) {
 
 // ── MOBILE ──
 function mobSwitch(name) {
-  ['chat','output','preview','log','skills','memory','git','models'].forEach(t => document.getElementById('mob-'+t)?.classList.remove('active'));
+  ['chat','output','preview','log','skills','memory','models'].forEach(t => document.getElementById('mob-'+t)?.classList.remove('active'));
   document.getElementById('mob-'+name)?.classList.add('active');
   const cc = document.getElementById('chat-col');
   const pc = document.getElementById('panel-col');
@@ -1754,7 +1752,6 @@ function mobSwitch(name) {
       : name === 'preview' ? 'preview'
       : name === 'skills' ? 'skills'
       : name === 'memory' ? 'memory'
-      : name === 'git' ? 'git'
       : name === 'models' ? 'models'
       : 'log'); }
 }
@@ -1856,7 +1853,7 @@ function discardSkillProposal(i, logIt = true) {
 
 // ── PANEL TABS ──
 function switchTab(name) {
-  const tabNames = ['output','preview','log','skills','memory','git','models'];
+  const tabNames = ['output','preview','log','skills','memory','models'];
   document.querySelectorAll('.tab-btn').forEach((b,i) =>
     b.classList.toggle('active', tabNames[i]===name));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -1864,7 +1861,6 @@ function switchTab(name) {
   if (name === 'preview') refreshFileBrowser();
   if (name === 'skills') refreshSkills();
   if (name === 'memory') refreshMemory();
-  if (name === 'git') refreshGitStatus();
   if (name === 'models') { refreshModelDb(); refreshModelRoles(); }
 }
 
