@@ -1311,7 +1311,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
           <div>
             <div style="font-size:11px;font-weight:700;color:var(--text2)">DuckDuckGo検索</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:2px">エージェントがWeb検索を使用</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">必要と判断したときだけエージェントがWeb検索を使用</div>
           </div>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="checkbox" id="search-chk"
@@ -1326,6 +1326,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             style="flex:1;accent-color:var(--accent);cursor:pointer"
             oninput="updateSearchNumLabel(this.value)" onchange="applySearchNum(this.value)">
           <span id="search-num-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:28px;text-align:right">5</span>
+        </div>
+        <div style="margin-top:6px;font-size:10px;color:var(--text3);line-height:1.6">
+          ※ ON は「検索ツールの使用を許可」する設定です。<br>
+          実際に検索した場合は Working タブに「🔎 Web検索中… / ✓ Web検索 完了」と表示されます。
         </div>
       </div>
 
@@ -3615,19 +3619,34 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
         });
       } else if (ev.type === 'tool_result') {
         // ツール実行完了 → LLMが次のアクションを生成中
-        setCard(progCard, {action: `✓ ${ev.action||'tool'} 完了 → 次のアクションを生成中...`});
+        if ((ev.action||'') === 'web_search') {
+          const preview = (ev.result_preview||'').slice(0, 120);
+          const status = preview.startsWith('Search error') || preview.startsWith('SEARCH_') ? '⚠' : '✓';
+          setCard(progCard, {action: `${status} Web検索 完了 → 次のアクションを生成中...`});
+          if (preview) addLog(status === '✓' ? 'ok' : 'warn', 'search', `result: ${preview}`);
+        } else {
+          setCard(progCard, {action: `✓ ${ev.action||'tool'} 完了 → 次のアクションを生成中...`});
+        }
       } else if (ev.type === 'tool_call' || ev.type === 'step') {
         allSteps.push(ev);
         const _ptok = ev.prompt_tokens||0;
         const _ctok = ev.completion_tokens||0;
         const _ctxStr = _ptok > 0 ? `${(_ptok+_ctok).toLocaleString()}/${(_current_n_ctx_ui||0).toLocaleString()}` : `--/${(_current_n_ctx_ui||'?').toLocaleString()}`;
+        const isWebSearch = (ev.action||'') === 'web_search';
+        const actionText = isWebSearch
+          ? `🔎 Web検索中... query: ${(ev.input?.query || ev.thought || '').slice(0, 120)}`
+          : (ev.action||'') + ': ' + (ev.thought||'');
         setCard(progCard, {
-          action:  (ev.action||'') + ': ' + (ev.thought||''),
+          action:  actionText,
           tps:     ev.tps||0,
           ctx:     _ctxStr,
           stepNum: ev.step_num ? `${ev.step_num}/${ev.max_steps||'?'}` : '-/-',
         });
-        addLog('info','tool', `${ev.action||''}: ${(ev.thought||'')}`);
+        if (isWebSearch) {
+          addLog('info','search', `web_search query: ${(ev.input?.query || ev.thought || '').slice(0, 200)}`);
+        } else {
+          addLog('info','tool', `${ev.action||''}: ${(ev.thought||'')}`);
+        }
       } else if (ev.type === 'task_done') {
         _taskResultsMap.set(ev.task_id, {
           task_id: ev.task_id, title: ev.title||'',
@@ -3950,12 +3969,13 @@ function addStepsBlock(steps) {
   const toolSteps = steps.filter(s=>s.type==='tool_call');
   if (!toolSteps.length) return;
   const d = document.createElement('div'); d.className = 'msg assistant';
-  const icons = {read_file:'📄',write_file:'✏️',patch_function:'🔧',run_python:'▶',run_file:'▶',list_files:'📁'};
+  const icons = {read_file:'📄',write_file:'✏️',patch_function:'🔧',run_python:'▶',run_file:'▶',list_files:'📁',web_search:'🔎'};
   const items = toolSteps.map(s=>`<div class="step-item">
     <span>${icons[s.action]||'◆'}</span>
     <div style="flex:1;min-width:0">
       <span class="step-action">${s.action}</span>
       ${s.thought?`<div class="step-thought">${esc(s.thought)}</div>`:''}
+      ${s.action==='web_search' && s.input?.query ? `<div class="step-thought">query: ${esc(s.input.query)}</div>` : ''}
       ${s.result_preview?`<div class="step-result">${esc(s.result_preview)}</div>`:''}
     </div></div>`).join('');
   d.innerHTML = `<div class="msg-role">Steps</div>
