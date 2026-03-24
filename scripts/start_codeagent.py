@@ -193,7 +193,7 @@ def ensure_llama_server(base_dir: Path, runpod: bool) -> Path | None:
         llama_path = resolve_llama_server_path(base_dir, runpod=runpod)
         if llama_path.exists():
             print(f"[Runpod] llama-server setup completed: {llama_path}")
-            return
+            return llama_path
     print(
         "[Runpod][WARN] llama-server was not found after auto setup. "
         "Set LLAMA_SERVER_PATH directly or install llama.cpp (e.g. scripts/setup_llama_runpod.sh)."
@@ -274,11 +274,17 @@ def main() -> int:
     env["CODEAGENT_LLM_CHAT"] = f"http://127.0.0.1:{args.primary_port}/v1/chat/completions"
     env["CODEAGENT_LLM_LIGHT"] = f"http://127.0.0.1:{args.primary_port}/v1/chat/completions"
     env["CODEAGENT_LLM_MODE"] = mode_num
+    if runpod:
+        env.setdefault("CODEAGENT_CA_DATA_DIR", "/workspace/ca_data")
+        env.setdefault("CODEAGENT_WORK_DIR", "/workspace/ca_data/workspace")
 
     print("==============================================")
     print(" CodeAgent Launcher")
     print(f" Mode    : {mode_key}")
     print(f" Runpod  : {'yes' if runpod else 'no'}")
+    if runpod:
+        print(f" CA_DATA : {env.get('CODEAGENT_CA_DATA_DIR', '/workspace/ca_data')}")
+        print(f" WORKDIR : {env.get('CODEAGENT_WORK_DIR', '/workspace/ca_data/workspace')}")
     print("==============================================")
 
     copy_ui(base_dir)

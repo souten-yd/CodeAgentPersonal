@@ -774,6 +774,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .proj-del{width:20px;height:20px;border-radius:4px;border:none;background:transparent;color:var(--text3);cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;flex-shrink:0}
 .proj-item:hover .proj-del{opacity:1}
 .proj-del:hover{color:var(--red);background:rgba(255,68,102,.1)}
+.proj-dl{width:24px;height:20px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;font-size:9px;font-family:var(--font-mono);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;flex-shrink:0}
+.proj-item:hover .proj-dl{opacity:1}
+.proj-dl:hover{color:var(--accent);border-color:var(--accent-border);background:var(--accent-bg)}
 .dwr-footer{padding:10px;border-top:1px solid var(--border);flex-shrink:0}
 .new-proj-row{display:flex;gap:6px}
 .new-proj-input{flex:1;padding:7px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);font-family:var(--font-ui);font-size:12px;color:var(--text);outline:none;transition:border-color .15s}
@@ -2908,8 +2911,24 @@ function renderProjects(list) {
         <div class="proj-iname">${esc(p.name)}</div>
         <div class="proj-icount">${p.file_count} file${p.file_count!==1?'s':''}</div>
       </div>
+      <button class="proj-dl" onclick="event.stopPropagation();downloadProjectZip('${esc(p.name)}')">DL</button>
       <button class="proj-del" onclick="event.stopPropagation();deleteProject('${esc(p.name)}')">✕</button>
     </div>`).join('');
+}
+async function downloadProjectZip(name) {
+  try {
+    const url = API+'/projects/'+encodeURIComponent(name)+'/download';
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    addLog('ok','project',`Download started: ${name}.zip`);
+  } catch(e) {
+    addLog('err','project',`Download failed: ${e.message}`);
+    alert(`Download failed: ${e.message}`);
+  }
 }
 async function selectProject(name) {
   currentProject = name;
