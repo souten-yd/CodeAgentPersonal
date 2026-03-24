@@ -1648,15 +1648,55 @@ async function refreshSystemSummary() {
       if (usageRow) usageRow.style.display = 'flex';
     }
   } catch (e) {
-    currentModelStatus = 'offline';
-    currentLlmState = 'offline';
-    setStatus('err', 'offline');
-    if (!currentLlmLabel || currentLlmLabel === 'LLM') currentLlmLabel = 'NoLoad';
-    updateSystemLlmName();
-    if (usageEl) {
-      usageEl.textContent = 'CPU -- | RAM --/-- | GPU -- | VRAM --/--';
-      usageEl.style.display = 'block';
-      if (usageRow) usageRow.style.display = 'flex';
+    // /system/summary が一時失敗しても usage/health 個別APIで表示を維持する
+    try {
+      const [usageRes, healthRes] = await Promise.allSettled([
+        fetch(API + '/system/usage', {signal: AbortSignal.timeout(7000)}),
+        fetch(API + '/health', {signal: AbortSignal.timeout(5000)}),
+      ]);
+      const usageData = usageRes.status === 'fulfilled' && usageRes.value.ok ? await usageRes.value.json() : null;
+      const healthData = healthRes.status === 'fulfilled' && healthRes.value.ok ? await healthRes.value.json() : null;
+
+      const llmOk = healthData?.llm === 'ok';
+      currentLlmState = llmOk ? 'LLM ready' : 'LLM unstable';
+      setStatus(llmOk ? 'ok' : 'warn', currentLlmState);
+      if (!currentLlmLabel || currentLlmLabel === 'LLM') currentLlmLabel = 'NoLoad';
+      updateSystemLlmName();
+
+      if (usageEl && usageData) {
+        const cpu = _fmtPct(usageData.cpu_percent);
+        const ram = `${_fmtGbInt(usageData.ram_used_mb)}/${_fmtGbInt(usageData.ram_total_mb)}`;
+        const gpuInfo = Array.isArray(usageData.gpus) && usageData.gpus.length ? usageData.gpus[0] : null;
+        const gpu = gpuInfo ? _fmtPct(gpuInfo.util_percent) : '--';
+        const vram = (_isValidMb(gpuInfo?.vram_used_mb) || _isValidMb(gpuInfo?.vram_total_mb))
+          ? `${_fmtGbInt(gpuInfo?.vram_used_mb)}/${_fmtGbInt(gpuInfo?.vram_total_mb)}`
+          : '--';
+        const backend = usageData.vram_source_backend || usageData.gpu_backend || 'none';
+        const confidence = usageData.vram_confidence || 'unknown';
+        const peak = usageData.model_load_peak || {};
+        const peakVram = (_isValidMb(peak.max_vram_used_mb) || _isValidMb(peak.max_vram_total_mb))
+          ? `${_fmtGbInt(peak.max_vram_used_mb)}/${_fmtGbInt(peak.max_vram_total_mb)}`
+          : '--';
+        usageEl.textContent = `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram} [${backend}/${confidence}] | Peak ${peakVram}`;
+        usageEl.title = `fallback APIs used (summary failed): ${String(e?.message || e || '-')}`;
+        usageEl.style.display = 'block';
+        if (usageRow) usageRow.style.display = 'flex';
+      } else if (usageEl) {
+        usageEl.textContent = 'CPU -- | RAM --/-- | GPU -- | VRAM --/--';
+        usageEl.style.display = 'block';
+        if (usageRow) usageRow.style.display = 'flex';
+      }
+    } catch (_) {
+      currentModelStatus = 'offline';
+      currentLlmState = 'offline';
+      setStatus('err', 'offline');
+      if (!currentLlmLabel || currentLlmLabel === 'LLM') currentLlmLabel = 'NoLoad';
+      updateSystemLlmName();
+      if (usageEl) {
+        usageEl.textContent = 'CPU -- | RAM --/-- | GPU -- | VRAM --/--';
+        usageEl.style.display = 'block';
+        if (usageRow) usageRow.style.display = 'flex';
+      }
     }
   }
 }

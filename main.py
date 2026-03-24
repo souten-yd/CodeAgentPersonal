@@ -3595,7 +3595,7 @@ def get_system_hardware_info() -> dict:
     }
 
 
-def get_system_usage_info() -> dict:
+def get_system_usage_info(debug_mode: bool = False) -> dict:
     """
     現在のCPU/GPU使用率とRAM/VRAM使用量を返す。
     可能な限り依存なしで取得し、取得不可項目は -1 を返す。
@@ -3654,14 +3654,16 @@ def get_system_usage_info() -> dict:
     nvidia_fail_reason = ""
     parse_source = "unknown"
     gpu_backend = selected if selected else "none"
+    cmd_timeout_sec = 8 if debug_mode else 2
     if selected == "nvidia-smi":
-        for cmd in [
+        nvidia_cmds = [
             ["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
             ["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total", "--format=csv,noheader"],
             ["nvidia-smi", "-q", "-d", "UTILIZATION,MEMORY"],
             ["nvidia-smi", "dmon", "-s", "u", "-c", "1"],
             ["nvidia-smi", "-L"],
-        ]:
+        ]
+        for cmd in (nvidia_cmds if debug_mode else nvidia_cmds[:2]):
             try:
                 r = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
                 if r.returncode != 0 and not (r.stdout or "").strip():
@@ -3704,15 +3706,16 @@ def get_system_usage_info() -> dict:
                 parse_summary.append({"cmd": " ".join(cmd), "ok": False, "reason": f"parse fail: {type(e).__name__}"})
                 continue
     elif selected == "rocm-smi":
-        for cmd in [
+        rocm_cmds = [
             ["rocm-smi", "--showuse", "--showmemuse", "--json"],
             ["rocm-smi", "--showuse", "--showmeminfo", "vram", "--json"],
             ["rocm-smi", "--showuse", "--showmemuse"],
             ["rocminfo"],
             ["rocm_agent_enumerator"],
-        ]:
+        ]
+        for cmd in (rocm_cmds if debug_mode else rocm_cmds[:2]):
             try:
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=cmd_timeout_sec)
                 out = r.stdout or ""
                 if "--json" in cmd:
                     data = json.loads(out or "{}")
@@ -3732,7 +3735,7 @@ def get_system_usage_info() -> dict:
             except Exception:
                 continue
     elif selected == "windows-counter" and os.name == "nt":
-        for ps in [
+        windows_cmds = [
             "$gpu = Get-WmiObject Win32_VideoController | Where-Object { $_.AdapterRAM -gt 0 -and $_.Name -notmatch 'Virtual' } | Select-Object -First 1; "
             "$name = if ($gpu) { [string]$gpu.Name } else { 'Windows GPU' }; $totalB = if ($gpu) { [double]$gpu.AdapterRAM } else { 0 }; "
             "$engine=(Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction SilentlyContinue).CounterSamples | Where-Object { $_.InstanceName -match 'engtype_3d' }; "
@@ -3742,9 +3745,10 @@ def get_system_usage_info() -> dict:
             "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name,AdapterRAM | ConvertTo-Json -Compress",
             "wmic path win32_VideoController get name,AdapterRAM",
             "Get-PnpDevice -Class Display | ConvertTo-Json -Compress",
-        ]:
+        ]
+        for ps in (windows_cmds if debug_mode else windows_cmds[:2]):
             try:
-                r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=10)
+                r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=(10 if debug_mode else 3))
                 out = (r.stdout or "").strip()
                 if not out:
                     continue
