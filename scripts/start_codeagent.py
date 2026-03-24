@@ -9,8 +9,6 @@ import shutil
 import socket
 import subprocess
 import sys
-import tarfile
-import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -126,50 +124,6 @@ def log_directory_tree(root: Path, max_depth: int = 3, max_entries: int = 200) -
         if shown >= max_entries:
             print(f"[Runpod] ... truncated (>{max_entries} entries)")
             break
-
-
-def _safe_extract_tar(archive_path: Path, extract_dir: Path) -> None:
-    with tarfile.open(archive_path, "r:gz") as tf:
-        for member in tf.getmembers():
-            member_path = (extract_dir / member.name).resolve()
-            if not str(member_path).startswith(str(extract_dir.resolve())):
-                raise RuntimeError(f"Unsafe tar member path: {member.name}")
-        tf.extractall(extract_dir)
-
-
-def install_runpod_vulkan_llama(base_dir: Path) -> bool:
-    out_dir = get_llama_root_dir(base_dir, runpod=True)
-    if not RUNPOD_VULKAN_FALLBACK_URL:
-        print("[Runpod][WARN] RUNPOD_LLAMA_VULKAN_URL is empty.")
-        return False
-
-    print(f"[Runpod] Downloading llama.cpp Vulkan build: {RUNPOD_VULKAN_FALLBACK_URL}")
-    try:
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            archive = tmp / "llama-vulkan.tar.gz"
-            extract_dir = tmp / "extract"
-            extract_dir.mkdir(parents=True, exist_ok=True)
-
-            urllib.request.urlretrieve(RUNPOD_VULKAN_FALLBACK_URL, archive)
-            _safe_extract_tar(archive, extract_dir)
-
-            roots = [p for p in extract_dir.iterdir()]
-            src_root = roots[0] if len(roots) == 1 and roots[0].is_dir() else extract_dir
-
-            if out_dir.exists():
-                shutil.rmtree(out_dir)
-            out_dir.mkdir(parents=True, exist_ok=True)
-
-            for child in src_root.iterdir():
-                shutil.move(str(child), str(out_dir / child.name))
-    except Exception as e:
-        print(f"[Runpod][WARN] failed to install Vulkan llama build: {e}")
-        return False
-
-    print(f"[Runpod] Vulkan llama build installed to: {out_dir}")
-    log_directory_tree(out_dir, max_depth=3, max_entries=200)
-    return True
 
 
 def ensure_llama_server(base_dir: Path, runpod: bool) -> Path | None:

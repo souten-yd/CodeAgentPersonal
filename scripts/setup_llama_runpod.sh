@@ -4,31 +4,25 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${ROOT_DIR}/llama"
 WORK_DIR="$(mktemp -d)"
-EXTRACT_DIR="${WORK_DIR}/extract"
-ARCHIVE_PATH="${WORK_DIR}/llama-vulkan.tar.gz"
-BUILD_IF_NEEDED=0
+BUILD_DIR="${WORK_DIR}/llama.cpp/build"
 FORCE_BUILD=0
-
-# User-requested fixed asset URL (can be overridden by env if needed)
-LLAMA_VULKAN_URL="${LLAMA_VULKAN_URL:-https://github.com/ggml-org/llama.cpp/releases/download/b8480/llama-b8480-bin-ubuntu-vulkan-x64.tar.gz}"
 
 usage() {
   cat <<'USAGE'
-Usage: setup_llama_runpod.sh [--build-if-needed] [--force-build]
+Usage: setup_llama_runpod.sh [--force-build] [--build-if-needed]
 
-  --build-if-needed  Build llama.cpp with Vulkan if prebuilt package verification fails.
-  --force-build      Skip prebuilt package download and build from source immediately.
+  --force-build      Rebuild llama.cpp CUDA binaries even when existing output is valid.
+  --build-if-needed  Backward-compatible alias; CUDA source build is now the default.
 USAGE
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --build-if-needed)
-      BUILD_IF_NEEDED=1
-      ;;
     --force-build)
       FORCE_BUILD=1
-      BUILD_IF_NEEDED=1
+      ;;
+    --build-if-needed)
+      # Backward compatibility: this script now always builds from source.
       ;;
     -h|--help)
       usage
@@ -48,10 +42,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-ensure_git() {
-  ensure_tool git
-}
-
 ensure_tool() {
   local tool="$1"
   if command -v "${tool}" >/dev/null 2>&1; then
@@ -59,43 +49,17 @@ ensure_tool() {
   fi
 
   echo "[Runpod] ${tool} is missing. Installing ${tool}..."
-  if command -v apt-get >/dev/null 2>&1; then
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update
-    apt-get install -y --no-install-recommends "${tool}" || {
-      echo "[Runpod] Failed to install ${tool} via apt-get." >&2
-      return 1
-    }
-    "${tool}" --version >/dev/null 2>&1 || true
-    return 0
+  if ! command -v apt-get >/dev/null 2>&1; then
+    echo "[Runpod] apt-get is unavailable; cannot auto-install ${tool}." >&2
+    return 1
   fi
 
-  echo "[Runpod] apt-get is unavailable; cannot auto-install ${tool}." >&2
-  return 1
-}
-
-install_prebuilt() {
-  local asset_name
-  asset_name="$(basename "${LLAMA_VULKAN_URL}")"
-
-  ensure_tool curl
-
-  echo "[Runpod] Downloading fixed Vulkan build: ${LLAMA_VULKAN_URL}"
-  mkdir -p "${EXTRACT_DIR}"
-  curl -fL --retry 3 --retry-delay 2 "${LLAMA_VULKAN_URL}" -o "${ARCHIVE_PATH}"
-
-  tar -xzf "${ARCHIVE_PATH}" -C "${EXTRACT_DIR}"
-
-  rm -rf "${OUT_DIR}"
-
-  mapfile -t top_entries < <(find "${EXTRACT_DIR}" -mindepth 1 -maxdepth 1)
-  if [[ "${#top_entries[@]}" -eq 1 && -d "${top_entries[0]}" ]]; then
-    mv "${top_entries[0]}" "${OUT_DIR}"
-  else
-    mv "${EXTRACT_DIR}" "${OUT_DIR}"
-  fi
-
-  echo "[Runpod] Installed prebuilt llama.cpp Vulkan package into: ${OUT_DIR} (${asset_name})"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y --no-install-recommends "${tool}" || {
+    echo "[Runpod] Failed to install ${tool} via apt-get." >&2
+    return 1
+  }
 }
 
 resolve_llama_server() {
@@ -125,60 +89,51 @@ verify_runtime() {
   "${llama_server}" --version >/dev/null
 
   if command -v ldd >/dev/null 2>&1; then
-    if ! ldd "${llama_server}" | grep -qiE 'vulkan|libvulkan'; then
-      echo "[Runpod] WARNING: Vulkan linkage was not detected via ldd." >&2
+    if ! ldd "${llama_server}" | grep -qiE 'cuda|cudart|cublas|nvidia'; then
+      echo "[Runpod] WARNING: CUDA linkage was not detected via ldd." >&2
     fi
   fi
 
-  echo "[Runpod] Runtime verification passed."
+  echo "[Runpod] CUDA runtime verification passed."
 }
 
 build_from_source() {
-  echo "[Runpod] Building llama.cpp with Vulkan support from source..."
+  echo "[Runpod] Building latest llama.cpp with CUDA support from source..."
 
+  ensure_tool git
   ensure_tool cmake
   ensure_tool g++
-  ensure_git
 
-  local src_dir build_dir
-  src_dir="${WORK_DIR}/llama.cpp"
-  build_dir="${src_dir}/build"
+  if ! command -v nvcc >/dev/null 2>&1; then
+    echo "[Runpod][WARN] nvcc not found. Use a CUDA devel image (e.g. nvidia/cuda:* -devel) for build." >&2
+  fi
 
-  git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "${src_dir}"
+  git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "${WORK_DIR}/llama.cpp"
 
-  cmake -S "${src_dir}" -B "${build_dir}" \
-    -DGGML_VULKAN=ON \
-    -DGGML_NATIVE=OFF \
-    -DCMAKE_BUILD_TYPE=Release
+  cmake -S "${WORK_DIR}/llama.cpp" -B "${BUILD_DIR}" \
+    -DGGML_CUDA=ON \
+    -DCMAKE_CUDA_ARCHITECTURES=native \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DLLAMA_CURL=ON \
+    -DLLAMA_SERVER=ON
 
-  cmake --build "${build_dir}" --config Release -j"$(nproc)"
+  cmake --build "${BUILD_DIR}" --config Release -j"$(nproc)"
 
   rm -rf "${OUT_DIR}"
   mkdir -p "${OUT_DIR}/bin"
-  cp -a "${build_dir}/bin/." "${OUT_DIR}/bin/"
+  cp -a "${BUILD_DIR}/bin/." "${OUT_DIR}/bin/"
 
-  if compgen -G "${build_dir}"'/*.so*' >/dev/null; then
-    cp -a "${build_dir}"/*.so* "${OUT_DIR}/"
+  if compgen -G "${BUILD_DIR}"'/*.so*' >/dev/null; then
+    cp -a "${BUILD_DIR}"/*.so* "${OUT_DIR}/"
   fi
 
-  echo "[Runpod] Source build installed into: ${OUT_DIR}"
+  echo "[Runpod] CUDA build installed into: ${OUT_DIR}"
 }
 
-if [[ "${FORCE_BUILD}" -eq 1 ]]; then
-  build_from_source
-  verify_runtime
+if [[ "${FORCE_BUILD}" -eq 0 ]] && verify_runtime; then
+  echo "[Runpod] Existing CUDA llama build is valid. Use --force-build to rebuild."
   exit 0
 fi
 
-if install_prebuilt && verify_runtime; then
-  exit 0
-fi
-
-echo "[Runpod] Prebuilt Vulkan package is not sufficient for this environment."
-if [[ "${BUILD_IF_NEEDED}" -eq 1 ]]; then
-  build_from_source
-  verify_runtime
-else
-  echo "[Runpod] Re-run with --build-if-needed to compile llama.cpp." >&2
-  exit 1
-fi
+build_from_source
+verify_runtime
