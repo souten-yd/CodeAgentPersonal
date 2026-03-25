@@ -423,6 +423,7 @@ header{
   cursor:pointer;border:none;background:transparent;font-family:var(--font-ui);
   border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;
 }
+.mob-tab.wide{flex:1 1 33.333%;min-width:0}
 .mob-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 @media(max-width:768px){
   .mob-tabs{display:flex}
@@ -461,13 +462,19 @@ header{
     flex:1;
     min-height:0;
     height:auto;
+    width:100%;
   }
   .chat-col{
     /* flex layout: messages flex-grow, input always visible at bottom */
     display:flex!important;flex-direction:column!important;
     height:100%;max-height:100%;
+    width:100%;max-width:100%;flex:1 1 100%;
   }
-  .panel-col{height:100%;max-height:100%;display:flex;flex-direction:column}
+  .panel-col{
+    height:100%;max-height:100%;display:flex;flex-direction:column;
+    width:100%;max-width:100%;flex:1 1 100%;
+  }
+  #tab-memory{padding-left:0 !important;padding-right:0 !important}
   .mob-hidden{display:none!important}
 }
 @media(min-width:769px){
@@ -876,12 +883,12 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 </div>
 
 <div class="mob-tabs">
-  <button class="mob-tab active" id="mob-chat" onclick="mobSwitch('chat')">Chat</button>
+  <button class="mob-tab wide active" id="mob-chat" onclick="mobSwitch('chat')">Chat</button>
   <button class="mob-tab" id="mob-output" onclick="mobSwitch('output')">Output</button>
-  <button class="mob-tab" id="mob-preview" onclick="mobSwitch('preview')">Preview</button>
+  <button class="mob-tab wide" id="mob-preview" onclick="mobSwitch('preview')">Preview</button>
   <button class="mob-tab" id="mob-log" onclick="mobSwitch('log')">Log</button>
   <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skills</button>
-  <button class="mob-tab" id="mob-memory" onclick="mobSwitch('memory')">Memory</button>
+  <button class="mob-tab wide" id="mob-memory" onclick="mobSwitch('memory')">Memory</button>
   <button class="mob-tab" id="mob-models" onclick="mobSwitch('models')">Models</button>
 </div>
 
@@ -1491,6 +1498,15 @@ function updateSystemLlmName() {
   llmEl.textContent = name;
   llmEl.title = name;
 }
+
+function _isMobileViewport() {
+  return window.innerWidth <= 768;
+}
+
+function _formatUsageLine({cpu='--', ram='--/--', gpu='--', vram='--/--', backend='none', confidence='unknown', peak='--'}) {
+  if (_isMobileViewport()) return `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram}`;
+  return `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram} [${backend}/${confidence}] | Peak ${peak}`;
+}
 let _lastSystemUsageText = '';
 let voiceRecorder = null;
 let voiceChunks = [];
@@ -1658,7 +1674,7 @@ async function refreshSystemSummary() {
       const peakVram = (_isValidMb(peak.max_vram_used_mb) || _isValidMb(peak.max_vram_total_mb))
         ? `${_fmtGbInt(peak.max_vram_used_mb)}/${_fmtGbInt(peak.max_vram_total_mb)}`
         : '--';
-      usageEl.textContent = `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram} [${backend}/${confidence}] | Peak ${peakVram}`;
+      usageEl.textContent = _formatUsageLine({cpu, ram, gpu, vram, backend, confidence, peak: peakVram});
       usageEl.title = `CPU ${cpu}, RAM ${ram}, GPU ${gpu}, VRAM ${vram}, backend ${backend}, confidence ${confidence}, peak ${peakVram} (updated: ${usage.updated_at || '-'})`;
       usageEl.style.display = 'block';
       if (usageRow) usageRow.style.display = 'flex';
@@ -1693,7 +1709,7 @@ async function refreshSystemSummary() {
         const peakVram = (_isValidMb(peak.max_vram_used_mb) || _isValidMb(peak.max_vram_total_mb))
           ? `${_fmtGbInt(peak.max_vram_used_mb)}/${_fmtGbInt(peak.max_vram_total_mb)}`
           : '--';
-        usageEl.textContent = `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram} [${backend}/${confidence}] | Peak ${peakVram}`;
+        usageEl.textContent = _formatUsageLine({cpu, ram, gpu, vram, backend, confidence, peak: peakVram});
         usageEl.title = `fallback APIs used (summary failed): ${String(e?.message || e || '-')}`;
         usageEl.style.display = 'block';
         if (usageRow) usageRow.style.display = 'flex';
@@ -1806,6 +1822,14 @@ function mobSwitch(name) {
   document.getElementById('mob-'+name)?.classList.add('active');
   const cc = document.getElementById('chat-col');
   const pc = document.getElementById('panel-col');
+  if (window.innerWidth <= 768 && cc && pc) {
+    cc.style.width = '100%';
+    cc.style.maxWidth = '100%';
+    cc.style.flex = '1 1 100%';
+    pc.style.width = '100%';
+    pc.style.maxWidth = '100%';
+    pc.style.flex = '1 1 100%';
+  }
   if (name === 'chat') { cc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden'); }
   else { cc.classList.add('mob-hidden'); pc.classList.remove('mob-hidden');
     switchTab(name === 'output' ? 'output'
@@ -2044,6 +2068,14 @@ function asText(value) {
   return value == null ? '' : String(value);
 }
 
+function getFirstPositive(...values) {
+  for (const v of values) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return -1;
+}
+
 function getModelProfiles(model) {
   try {
     return typeof model?.benchmark_profiles === 'string' && model.benchmark_profiles
@@ -2173,12 +2205,33 @@ function renderModelCard(m) {
     const profiles = getModelProfiles(m);
     const mode = getModelBenchmarkMode(m);
     const activeProfile = profiles[mode] || profiles.text || profiles.vlm || {};
-    const activeTps = Number(activeProfile.tok_per_sec);
-    const modelTps = Number(m?.tok_per_sec);
-    const vram = Number(activeProfile.vram_mb) > 0 ? `${(Number(activeProfile.vram_mb)/1024).toFixed(1)}GB` : (Number(m?.vram_mb) > 0 ? `${(Number(m.vram_mb)/1024).toFixed(1)}GB` : '-');
-    const ram = Number(activeProfile.ram_mb) > 0 ? `${(Number(activeProfile.ram_mb)/1024).toFixed(1)}GB` : (Number(m?.ram_mb) > 0 ? `${(Number(m.ram_mb)/1024).toFixed(1)}GB` : '-');
+    const activeTps = getFirstPositive(
+      activeProfile?.tok_per_sec,
+      activeProfile?.inference?.gen,
+      m?.tok_per_sec
+    );
+    const modelTps = getFirstPositive(m?.tok_per_sec);
+    const vramMb = getFirstPositive(
+      activeProfile?.vram_mb,
+      activeProfile?.vramMiB,
+      m?.vram_mb,
+      Number(m?.vram_gb) > 0 ? Number(m.vram_gb) * 1024 : -1
+    );
+    const ramMb = getFirstPositive(
+      activeProfile?.ram_mb,
+      activeProfile?.ramMiB,
+      m?.ram_mb,
+      Number(m?.ram_gb) > 0 ? Number(m.ram_gb) * 1024 : -1
+    );
+    const loadSec = getFirstPositive(
+      activeProfile?.load_sec,
+      activeProfile?.load_time_sec,
+      m?.load_sec
+    );
+    const vram = vramMb > 0 ? `${(vramMb/1024).toFixed(1)}GB` : '-';
+    const ram = ramMb > 0 ? `${(ramMb/1024).toFixed(1)}GB` : '-';
     const tps = activeTps > 0 ? `${activeTps} tok/s` : (modelTps > 0 ? `${modelTps} tok/s` : '-');
-    const load = Number(activeProfile.load_sec) > 0 ? `${activeProfile.load_sec}s` : (Number(m?.load_sec) > 0 ? `${m.load_sec}s` : '-');
+    const load = loadSec > 0 ? `${Number(loadSec).toFixed(1).replace(/\.0$/, '')}s` : '-';
     const benchCtx = Number(activeProfile.ctx_size || m?.ctx_size || 4096);
     const size = Number(m?.file_size_mb) > 0 ? `${(Number(m.file_size_mb)/1024).toFixed(1)}GB` : '';
     const enabledBorder = enabled ? 'var(--border)' : 'rgba(255,68,102,.25)';
@@ -2492,7 +2545,6 @@ async function toggleModelVlmEnabled(mid, vlmEnabled) {
 function _buildOrchModelOptions(models, selected) {
   const opts = [`<option value="">(auto)</option>`];
   (models || [])
-    .filter(m => Number(m?.enabled ?? 1) !== 0)
     .filter(m => !!asText(m?.model_key))
     .forEach(m => {
     const k = asText(m.model_key);
