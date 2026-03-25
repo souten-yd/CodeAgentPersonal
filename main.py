@@ -943,6 +943,14 @@ class ModelManager:
                 cmd += ["--mmproj", mmproj]
             else:
                 print(f"[ModelManager] is_vlm=True but mmproj_path not set, starting without --mmproj")
+        # CUDA(NVIDIA)のみ flash attention を有効化
+        # AMD consumer GPU(RDNA2/3)では逆に遅くなるため除外
+        gpu_vendor = _detect_gpu_vendor()
+        if gpu_vendor == "nvidia":
+            cmd += ["--flash-attn"]
+            print(f"[ModelManager] flash-attn enabled (NVIDIA GPU detected)")
+        elif gpu_vendor == "amd":
+            print(f"[ModelManager] flash-attn skipped (AMD GPU - may degrade performance on consumer GPUs)")
         # モデル別オプション
         if spec.get("parallel", -1) and spec.get("parallel", -1) > 0:
             cmd += ["--parallel", str(spec["parallel"])]
@@ -3957,6 +3965,32 @@ def _infer_gpu_layers_for_estimate(file_size_mb: int, quantization: str) -> int:
     if "Q2" in q or "IQ2" in q:
         return 70
     return 80
+
+
+def _detect_gpu_vendor() -> str:
+    """
+    実行環境のGPUベンダーを検出して返す。
+    戻り値: 'nvidia' | 'amd' | 'unknown'
+    設定キャッシュ(gpu_static_backend)を優先参照し、未設定時のみ直接確認する。
+    """
+    cached = (settings_get("gpu_static_backend") or "").strip()
+    if cached == "nvidia-smi":
+        return "nvidia"
+    if cached == "rocm-smi":
+        return "amd"
+    try:
+        r = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=3)
+        if r.returncode == 0 and r.stdout.strip():
+            return "nvidia"
+    except Exception:
+        pass
+    try:
+        r = subprocess.run(["rocm-smi", "--showproductname"], capture_output=True, text=True, timeout=3)
+        if r.returncode == 0 and r.stdout.strip():
+            return "amd"
+    except Exception:
+        pass
+    return "unknown"
 
 
 def _get_total_free_vram_mb() -> int:
