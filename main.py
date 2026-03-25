@@ -6079,7 +6079,31 @@ def verify_and_fix(
         if on_event:
             on_event(data)
 
-    req_text = "\n".join(f"- {r}" for r in requirements) if requirements else "（要件なし）"
+    working_requirements = list(requirements or [])
+
+    def _req_text() -> str:
+        return "\n".join(f"- {r}" for r in working_requirements) if working_requirements else "（要件なし）"
+
+    def _extract_failure_reason(raw: str, limit: int = 280) -> str:
+        text = str(raw or "").strip()
+        if not text:
+            return "テスト出力が空のため原因不明"
+        for line in text.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if any(k in s for k in ("AssertionError", "Traceback", "Error", "FAIL", "Exception")):
+                return s[:limit]
+        return text[:limit]
+
+    def _append_failure_requirements(phase: str, reasons: list[str], related_tasks: list[str]):
+        for idx, reason in enumerate(reasons, start=1):
+            task_label = related_tasks[idx - 1] if idx - 1 < len(related_tasks) else "関連タスク"
+            req = f"[{phase}失敗是正] {task_label}: {reason}"
+            if req not in working_requirements:
+                working_requirements.append(req)
+
+    req_text = _req_text()
     verify_text = "\n".join(f"- {v}" for v in verification_items) if verification_items else "（検証項目なし）"
     all_issues = []
     phase_results = {}
@@ -6150,17 +6174,28 @@ def verify_and_fix(
 
         # 失敗した場合は修正ループ
         if not ok:
-            for fix_round in range(max_fix_rounds):
+            max_reconsider_rounds = max(max_fix_rounds, 6)
+            for fix_round in range(max_reconsider_rounds):
+                failure_reason = _extract_failure_reason(output)
+                _append_failure_requirements("単体テスト", [failure_reason], [py_file])
+                req_text = _req_text()
                 # LLMに失敗原因を分析させてpatch
                 fix_prompt = f"""以下のファイルがテストで失敗しました。コードを修正してください。
 
 【ファイル】{py_file}
+【現時点の要求（失敗理由を反映済み）】
+{req_text}
+
 【現在のコード】
 {source[:2000]}
 
 【テスト出力（失敗）】
 {output[:1000]}
 
+【失敗理由（要求へ追加済み）】
+{failure_reason}
+
+失敗理由に関連するタスク全体を見直し、要求を満たすまで再実施してください。
 修正が必要な箇所をpatch_functionで修正してください。修正後finalで「fixed」と返してください。"""
                 fix_result = execute_task(
                     task_detail=fix_prompt, project=project,
@@ -6283,8 +6318,16 @@ def verify_and_fix(
         # 失敗シナリオがあれば修正
         failed_integ = [r for r in integ_results if r["status"] == "fail"]
         if failed_integ:
-            for fix_round in range(max_fix_rounds):
+            max_reconsider_rounds = max(max_fix_rounds, 6)
+            for fix_round in range(max_reconsider_rounds):
+                failure_reasons = [f"{r.get('name','scenario')}: {_extract_failure_reason(r.get('output',''))}" for r in failed_integ]
+                related_tasks = [str(r.get("name", "integration_scenario")) for r in failed_integ]
+                _append_failure_requirements("結合テスト", failure_reasons, related_tasks)
+                req_text = _req_text()
                 fix_prompt = f"""結合テストで以下が失敗しました。実装コードを修正してください。
+
+【現時点の要求（失敗理由を反映済み）】
+{req_text}
 
 【失敗シナリオ】
 {json.dumps(failed_integ, ensure_ascii=False)}
@@ -6292,6 +6335,10 @@ def verify_and_fix(
 【テスト出力】
 {output[:800]}
 
+【失敗理由（要求へ追加済み）】
+{json.dumps(failure_reasons, ensure_ascii=False)}
+
+失敗理由に関連するタスク全体を見直し、要求を満たすまで再実施してください。
 原因を特定してpatch_functionで修正し、修正後にrun_pythonで再テストしてください。finalで「fixed」と返してください。"""
                 fix_result = execute_task(
                     task_detail=fix_prompt, project=project,
@@ -6308,6 +6355,8 @@ def verify_and_fix(
                     pat = r["name"] + r" - PASS"
                     if pat in output:
                         r["status"] = "pass"
+                        r["output"] = output[:300]
+                failed_integ = [r for r in integ_results if r["status"] == "fail"]
                 if all(r["status"] == "pass" for r in integ_results):
                     break
 
@@ -6326,7 +6375,7 @@ def verify_and_fix(
     req_results = []
     req_score = 100
 
-    for req_item in requirements[:8]:
+    for req_item in working_requirements[:8]:
         # 各要件についてコードで確認するスクリプトを生成・実行
         if is_html_project:
             chk_prompt = f"""以下の要件をHTMLファイルを読み込んで確認するPythonスクリプトを生成してください。
