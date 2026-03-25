@@ -173,7 +173,10 @@ _llm_streaming: bool = True
 # =========================
 MEMORY_DB = os.path.join(CA_DATA_DIR, "memory.db")
 MODEL_DB_PATH = os.environ.get("CODEAGENT_MODEL_DB_PATH", os.path.join(CA_DATA_DIR, "model_db.db"))
-SKILLS_DIR = os.path.join(CA_DATA_DIR, "skills")
+DEFAULT_SKILLS_DIR_LOCAL = os.path.join(CA_DATA_DIR, "skills")
+DEFAULT_SKILLS_DIR_RUNPOD = "/workspace/ca_data/skills"
+DEFAULT_SKILLS_DIR = DEFAULT_SKILLS_DIR_RUNPOD if IS_RUNPOD_RUNTIME else DEFAULT_SKILLS_DIR_LOCAL
+SKILLS_DIR = os.path.abspath(os.environ.get("CODEAGENT_SKILLS_DIR", DEFAULT_SKILLS_DIR))
 
 # =========================
 # 起動時データ移行（既存ファイルを ca_data/ へ移動）
@@ -7835,10 +7838,13 @@ def analyze_job_for_skills(job_id: str, project: str = "default"):
 
 # スキル管理 v2 (OpenClaw互換 SKILL.md形式)
 # =========================
-# スコープ: workspace > global(C:\AI\skills) > bundled(C:\AI\bundled_skills)
+# スコープ: workspace > global > bundled
 # 形式: skills/スキル名/SKILL.md (YAMLフロントマター + Markdownコード)
 
-# スキルフォルダ: C:\AI\skills\ に一本化
+# スキルフォルダ:
+#   - ローカル既定: <CODEAGENT_CA_DATA_DIR>/skills
+#   - Runpod既定: /workspace/ca_data/skills
+#   - CODEAGENT_SKILLS_DIR で明示オーバーライド可
 # ユーザー追加・CodeAgent提案スキルを共有資産として格納
 os.makedirs(SKILLS_DIR, exist_ok=True)
 # 後方互換のエイリアス
@@ -7912,7 +7918,7 @@ def _parse_skill_md(path: str) -> dict | None:
 
 def _load_all_skills(force: bool = False) -> dict:
     """
-    C:\AI\skills\ からスキルをロード（共有資産）。
+    SKILLS_DIR からスキルをロード（共有資産）。
     スキルは skills/スキル名/SKILL.md または skills/SKILL.md 形式。
     """
     global _skills_cache, _skills_cache_time
@@ -7960,7 +7966,7 @@ def _skills_to_prompt_injection() -> str:
         lines.append(f'  <skill name="{name}" keywords="{kw}" action="{name}">{desc}</skill>')
     lines.append("</skills>")
     lines.append("スキルを使う場合: action=スキル名 でツールと同様に呼び出す。")
-    lines.append("スキルのコードはC:\\AI\\skills\\ または /skills APIで確認可能。")
+    lines.append(f"スキルのコードは {SKILLS_DIR} または /skills APIで確認可能。")
     return "\n".join(lines)
 
 def _load_skill_functions() -> dict:
@@ -8072,7 +8078,7 @@ def _upsert_skill(req: dict, merge_reason: str = "", prefer_merge: bool = True) 
     return {"ok": True, "action": "created", "path": path, "skill_name": incoming["name"], "version": incoming.get("version", "1.0"), "similar": [{"name": s["skill"]["name"], "score": s["score"]} for s in similar]}
 
 def _skill_save_path(name: str, scope: str = "shared") -> str:
-    """スキルの保存先: C:\AI\skills\スキル名\SKILL.md"""
+    """スキルの保存先: SKILLS_DIR/スキル名/SKILL.md"""
     safe = "".join(c for c in name if c.isalnum() or c in "_-")
     d = os.path.join(SKILLS_DIR, safe)
     os.makedirs(d, exist_ok=True)
@@ -8117,7 +8123,16 @@ def _write_skill_md(skill: dict, path: str):
 def list_skills_api():
     _load_all_skills(force=True)
     skills = _active_skills()
-    return {"skills": skills, "count": len(skills)}
+    return {
+        "skills": skills,
+        "count": len(skills),
+        "paths": {
+            "active": SKILLS_DIR,
+            "default_local": DEFAULT_SKILLS_DIR_LOCAL,
+            "default_runpod": DEFAULT_SKILLS_DIR_RUNPOD,
+            "runtime": "runpod" if IS_RUNPOD_RUNTIME else "local",
+        },
+    }
 
 @app.post("/skills")
 def create_skill_api(req: dict):

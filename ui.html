@@ -100,18 +100,27 @@ async function refreshSkills() {
   try {
     const r = await fetch(API+'/skills');
     const d = await r.json();
-    renderSkills(d.skills || []);
+    renderSkills(d.skills || [], d);
   } catch(e) { console.warn('skills fetch error', e); }
 }
 
-function renderSkills(skills) {
+function renderSkills(skills, meta = {}) {
   const el = document.getElementById('skills-list');
   if (!el) return;
+  const pathInfo = document.getElementById('skills-path-info');
+  const paths = meta.paths || {};
+  const activePath = paths.active || './ca_data/skills';
+  const runtime = paths.runtime || 'local';
+  const skillMdPath = (base) => /[A-Za-z]:\\/.test(base) ? `${base}\\スキル名\\SKILL.md` : `${base}/スキル名/SKILL.md`;
+  if (pathInfo) {
+    pathInfo.innerHTML = `📁 <code style="background:var(--bg3);padding:1px 4px;border-radius:3px">${esc(skillMdPath(activePath))}</code><br>
+      現在の構成: <b>${esc(runtime)}</b> / 共有資産: ユーザー追加・CodeAgent提案スキルを同じフォルダで管理`;
+  }
   if (!skills.length) {
     el.innerHTML = `<div style="font-size:11px;color:var(--text3);padding:8px;line-height:1.8">
       スキルなし。<br>
-      <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">C:\\AI\\skills\\スキル名\\SKILL.md</code> に配置するか、<br>
-      タスク完了後の提案から保存できます。
+      追加方法: 環境変数 <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">CODEAGENT_SKILLS_DIR</code> を設定し、<br>
+      <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">スキル名/SKILL.md</code> を配置してください。
     </div>`;
     return;
   }
@@ -960,9 +969,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Skills / SKILL.md</span>
         <button onclick="refreshSkills()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ Reload</button>
       </div>
-      <div style="font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.6;padding:6px 8px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)">
-        📁 <code style="background:var(--bg3);padding:1px 4px;border-radius:3px">C:\AI\skills\スキル名\SKILL.md</code><br>
-        共有資産: ユーザー追加 / CodeAgent提案スキルを同じフォルダで管理
+      <div id="skills-path-info" style="font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.6;padding:6px 8px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)">
+        📁 <code style="background:var(--bg3);padding:1px 4px;border-radius:3px">読み込み中...</code>
       </div>
       <div id="skills-list" style="display:flex;flex-direction:column;gap:6px">
         <div style="font-size:12px;color:var(--text3)">Loading...</div>
