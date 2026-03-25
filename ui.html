@@ -149,8 +149,8 @@ function renderSkills(skills, meta = {}) {
       <div style="font-size:11px;color:var(--text2);margin-bottom:5px">${esc(s.description)}</div>
       ${kws ? `<div style="margin-bottom:5px;display:flex;flex-wrap:wrap;gap:3px">${kws}</div>` : ''}
       <div style="display:flex;gap:5px;margin-top:5px">
-        <button onclick="proposeSkillImprovement('${esc(s.name)}')" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">↑ Improve</button>
-        <button onclick="testSkill('${esc(s.name)}')" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">▶ Test</button>
+        <button onclick="proposeSkillImprovement(decodeURIComponent('${encodeURIComponent(s.name)}'))" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">↑ Improve</button>
+        <button onclick="testSkill(decodeURIComponent('${encodeURIComponent(s.name)}'))" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">▶ Test</button>
       </div>
       ${s.tool_code ? `<details style="margin-top:6px">
         <summary style="font-size:10px;color:var(--text3);cursor:pointer">▶ SKILL.md code</summary>
@@ -4896,15 +4896,27 @@ async function testGhConnection() {
 }
 
 function openSkillFolder() { addLog("info","skill","Skill folder: C:\\AI\\skills\\"); }
+
+function populateInputMessage(msg, logLabel) {
+  const input = document.getElementById('input');
+  if (!input) {
+    addLog('err', 'skill', '入力欄が見つかりません');
+    return;
+  }
+
+  input.value = msg;
+  input.dispatchEvent(new Event('input'));
+  input.focus();
+  addLog('info', 'skill', logLabel);
+}
+
 function proposeSkillImprovement(skillName) {
   const msg = 'スキル「'+skillName+'」を見直してください。汎用性・エラー処理・出力品質に問題があれば修正し、C:\\AI\\skills\\ に上書き保存してください。';
-  document.getElementById('chat-input').value = msg;
-  addLog('info','skill', 'Improve: ' + skillName);
+  populateInputMessage(msg, 'Improve: ' + skillName);
 }
 function testSkill(skillName) {
   const msg = 'スキル「'+skillName+'」の動作テストをしてください。テストケースを作成・実行し、問題があれば修正も提案してください。';
-  document.getElementById('chat-input').value = msg;
-  addLog('info','skill', 'Test: ' + skillName);
+  populateInputMessage(msg, 'Test: ' + skillName);
 }
 
 </script>
