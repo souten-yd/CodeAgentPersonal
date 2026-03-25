@@ -4278,6 +4278,25 @@ def _normalize_tool_input(action: str, tool_input) -> tuple[dict, list[str]]:
     return normalized, notes
 
 
+def _normalize_action_name(action: str) -> tuple[str, str | None]:
+    """
+    未知ツールになりやすい別名を既存ツールへ寄せる。
+    戻り値: (normalized_action, note)
+    """
+    raw = str(action or "").strip().lower()
+    alias = {
+        "create_dir": "make_dir",
+        "mkdir": "make_dir",
+        "create_directory": "make_dir",
+        "ls": "list_files",
+        "cat_file": "read_file",
+    }
+    mapped = alias.get(raw, raw)
+    if mapped != raw:
+        return mapped, f"actionを補正: {raw} -> {mapped}"
+    return mapped, None
+
+
 def _prepare_tool_call(active_tools: dict, action: str, tool_input) -> tuple[dict | None, str | None, list[str]]:
     """
     ツール呼び出し前に引数を検証・補正する。
@@ -4311,6 +4330,16 @@ def _prepare_tool_call(active_tools: dict, action: str, tool_input) -> tuple[dic
             f"ERROR: 引数エラー - '{action}' に必須引数 {missing} が不足。"
             f" 使用可能引数: {sorted(accepted)}"
         ), notes
+
+    # パス系引数の明らかな誤用（長文説明）を早期検出して自己修正を促す
+    path_like_fields = [k for k in ("path", "subdir", "src", "dst") if k in safe_input]
+    for key in path_like_fields:
+        val = str(safe_input.get(key, "")).strip()
+        if len(val) > 160 or ("\n" in val) or (len(val.split()) > 6 and "/" not in val and "." not in val):
+            return None, (
+                f"ERROR: 引数エラー - '{action}.{key}' はファイルパス/サブディレクトリを指定してください。"
+                f" 長文説明は不可です。"
+            ), notes
     return safe_input, None, notes
 
 
@@ -5726,6 +5755,23 @@ def plan(user_message: str, project: str = "default") -> dict:
     プランナーは role=plan に割り当てられたモデルを使用。
     戻り値: {summary, requirements, approach, verification, tasks}
     """
+    msg = str(user_message or "").strip()
+    simple_patterns = [
+        r"hello\s*world",
+        r"\bindex\.html\b",
+        r"html.*作(成|って)",
+        r"1\s*ファイル",
+        r"単一ファイル",
+    ]
+    if msg and any(re.search(p, msg, re.I) for p in simple_patterns) and len(msg) <= 220:
+        return {
+            "summary": msg[:80],
+            "requirements": ["ユーザー指示を最小手順で実装する"],
+            "approach": "不要な分割を避け、直接ファイルを作成/編集して完了する。",
+            "verification": ["対象ファイルが作成され、要件文字列が含まれること"],
+            "tasks": [{"id": 1, "title": "実装", "detail": msg}],
+        }
+
     planner_key = choose_model_for_role("plan", include_disabled=True) or _model_manager.current_key
     if planner_key and _model_manager.current_key != planner_key:
         _model_manager.ensure_model(planner_key)
@@ -5855,8 +5901,11 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
             consecutive_errors = 0
 
         action = str(action_obj.get("action", "") or "").strip().lower()
+        action, action_note = _normalize_action_name(action)
         thought = action_obj.get("thought", "")
         tool_input = action_obj.get("input", {})
+        if action_note:
+            thought = f"{thought} ({action_note})".strip()
         if action in {"stop", "done", "finish", "complete", "end"}:
             action = "final"
             action_obj["action"] = "final"
@@ -7161,8 +7210,11 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             consecutive_errors = 0
 
         action = str(action_obj.get("action", "") or "").strip().lower()
+        action, action_note = _normalize_action_name(action)
         thought = action_obj.get("thought", "")
         tool_input = action_obj.get("input", {})
+        if action_note:
+            thought = f"{thought} ({action_note})".strip()
         if action in {"stop", "done", "finish", "complete", "end"}:
             action = "final"
             action_obj["action"] = "final"
@@ -7820,7 +7872,8 @@ def _parse_skill_md(path: str) -> dict | None:
         tool_code = code_m.group(1).strip() if code_m else ""
         ex_m = re.search(r"```(?:json)?\n(\{.*?\})\n```", body, re.DOTALL)
         usage_example = ex_m.group(1).strip() if ex_m else ""
-        os_list = meta.get("os", ["win32"])
+        default_os = [sys.platform]
+        os_list = meta.get("os", default_os)
         if isinstance(os_list, str): os_list = [os_list]
         kw = meta.get("keywords", [])
         if isinstance(kw, str): kw = [kw]
@@ -7840,7 +7893,17 @@ def _parse_skill_md(path: str) -> dict | None:
             "created_at":    str(meta.get("created_at", "")),
             "usage_count":   int(meta.get("usage_count", 0)) if str(meta.get("usage_count","0")).isdigit() else 0,
         }
-        if os_list and "win32" not in os_list and "windows" not in [x.lower() for x in os_list]:
+        norm_os = [str(x).lower() for x in os_list]
+        current = sys.platform.lower()
+        compatible = (
+            not norm_os
+            or "all" in norm_os
+            or current in norm_os
+            or (current.startswith("linux") and "linux" in norm_os)
+            or (current.startswith("win") and ("win32" in norm_os or "windows" in norm_os))
+            or (current == "darwin" and ("darwin" in norm_os or "macos" in norm_os or "mac" in norm_os))
+        )
+        if not compatible:
             skill["_incompatible_os"] = True
         return skill
     except Exception as e:
@@ -7980,6 +8043,10 @@ def _upsert_skill(req: dict, merge_reason: str = "", prefer_merge: bool = True) 
     name = str(incoming.get("name", "")).strip()
     if not name:
         raise HTTPException(400, "name required")
+    if name.lower() in {"name", "snake_case名", "skill", "new_skill"}:
+        raise HTTPException(400, f"invalid skill name: {name}")
+    if not re.fullmatch(r"[a-zA-Z0-9_-]{3,64}", name):
+        raise HTTPException(400, f"invalid skill name format: {name}")
     incoming["name"] = name
     incoming.setdefault("version", "1.0")
     incoming.setdefault("source", "user")
@@ -8012,7 +8079,8 @@ def _skill_save_path(name: str, scope: str = "shared") -> str:
     return os.path.join(d, "SKILL.md")
 
 def _write_skill_md(skill: dict, path: str):
-    os_list = skill.get("os", ["win32"])
+    default_os = ["linux", "win32"] if sys.platform.startswith("linux") else [sys.platform]
+    os_list = skill.get("os", default_os)
     if isinstance(os_list, str): os_list = [os_list]
     kw = skill.get("keywords", [])
     if isinstance(kw, str): kw = [kw]
