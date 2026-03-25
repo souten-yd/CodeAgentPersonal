@@ -173,7 +173,10 @@ _llm_streaming: bool = True
 # =========================
 MEMORY_DB = os.path.join(CA_DATA_DIR, "memory.db")
 MODEL_DB_PATH = os.environ.get("CODEAGENT_MODEL_DB_PATH", os.path.join(CA_DATA_DIR, "model_db.db"))
-SKILLS_DIR = os.path.join(CA_DATA_DIR, "skills")
+DEFAULT_SKILLS_DIR_LOCAL = os.path.join(CA_DATA_DIR, "skills")
+DEFAULT_SKILLS_DIR_RUNPOD = "/workspace/ca_data/skills"
+DEFAULT_SKILLS_DIR = DEFAULT_SKILLS_DIR_RUNPOD if IS_RUNPOD_RUNTIME else DEFAULT_SKILLS_DIR_LOCAL
+SKILLS_DIR = os.path.abspath(os.environ.get("CODEAGENT_SKILLS_DIR", DEFAULT_SKILLS_DIR))
 
 # =========================
 # 起動時データ移行（既存ファイルを ca_data/ へ移動）
@@ -6076,7 +6079,31 @@ def verify_and_fix(
         if on_event:
             on_event(data)
 
-    req_text = "\n".join(f"- {r}" for r in requirements) if requirements else "（要件なし）"
+    working_requirements = list(requirements or [])
+
+    def _req_text() -> str:
+        return "\n".join(f"- {r}" for r in working_requirements) if working_requirements else "（要件なし）"
+
+    def _extract_failure_reason(raw: str, limit: int = 280) -> str:
+        text = str(raw or "").strip()
+        if not text:
+            return "テスト出力が空のため原因不明"
+        for line in text.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if any(k in s for k in ("AssertionError", "Traceback", "Error", "FAIL", "Exception")):
+                return s[:limit]
+        return text[:limit]
+
+    def _append_failure_requirements(phase: str, reasons: list[str], related_tasks: list[str]):
+        for idx, reason in enumerate(reasons, start=1):
+            task_label = related_tasks[idx - 1] if idx - 1 < len(related_tasks) else "関連タスク"
+            req = f"[{phase}失敗是正] {task_label}: {reason}"
+            if req not in working_requirements:
+                working_requirements.append(req)
+
+    req_text = _req_text()
     verify_text = "\n".join(f"- {v}" for v in verification_items) if verification_items else "（検証項目なし）"
     all_issues = []
     phase_results = {}
@@ -6147,17 +6174,28 @@ def verify_and_fix(
 
         # 失敗した場合は修正ループ
         if not ok:
-            for fix_round in range(max_fix_rounds):
+            max_reconsider_rounds = max(max_fix_rounds, 6)
+            for fix_round in range(max_reconsider_rounds):
+                failure_reason = _extract_failure_reason(output)
+                _append_failure_requirements("単体テスト", [failure_reason], [py_file])
+                req_text = _req_text()
                 # LLMに失敗原因を分析させてpatch
                 fix_prompt = f"""以下のファイルがテストで失敗しました。コードを修正してください。
 
 【ファイル】{py_file}
+【現時点の要求（失敗理由を反映済み）】
+{req_text}
+
 【現在のコード】
 {source[:2000]}
 
 【テスト出力（失敗）】
 {output[:1000]}
 
+【失敗理由（要求へ追加済み）】
+{failure_reason}
+
+失敗理由に関連するタスク全体を見直し、要求を満たすまで再実施してください。
 修正が必要な箇所をpatch_functionで修正してください。修正後finalで「fixed」と返してください。"""
                 fix_result = execute_task(
                     task_detail=fix_prompt, project=project,
@@ -6280,8 +6318,16 @@ def verify_and_fix(
         # 失敗シナリオがあれば修正
         failed_integ = [r for r in integ_results if r["status"] == "fail"]
         if failed_integ:
-            for fix_round in range(max_fix_rounds):
+            max_reconsider_rounds = max(max_fix_rounds, 6)
+            for fix_round in range(max_reconsider_rounds):
+                failure_reasons = [f"{r.get('name','scenario')}: {_extract_failure_reason(r.get('output',''))}" for r in failed_integ]
+                related_tasks = [str(r.get("name", "integration_scenario")) for r in failed_integ]
+                _append_failure_requirements("結合テスト", failure_reasons, related_tasks)
+                req_text = _req_text()
                 fix_prompt = f"""結合テストで以下が失敗しました。実装コードを修正してください。
+
+【現時点の要求（失敗理由を反映済み）】
+{req_text}
 
 【失敗シナリオ】
 {json.dumps(failed_integ, ensure_ascii=False)}
@@ -6289,6 +6335,10 @@ def verify_and_fix(
 【テスト出力】
 {output[:800]}
 
+【失敗理由（要求へ追加済み）】
+{json.dumps(failure_reasons, ensure_ascii=False)}
+
+失敗理由に関連するタスク全体を見直し、要求を満たすまで再実施してください。
 原因を特定してpatch_functionで修正し、修正後にrun_pythonで再テストしてください。finalで「fixed」と返してください。"""
                 fix_result = execute_task(
                     task_detail=fix_prompt, project=project,
@@ -6305,6 +6355,8 @@ def verify_and_fix(
                     pat = r["name"] + r" - PASS"
                     if pat in output:
                         r["status"] = "pass"
+                        r["output"] = output[:300]
+                failed_integ = [r for r in integ_results if r["status"] == "fail"]
                 if all(r["status"] == "pass" for r in integ_results):
                     break
 
@@ -6323,7 +6375,7 @@ def verify_and_fix(
     req_results = []
     req_score = 100
 
-    for req_item in requirements[:8]:
+    for req_item in working_requirements[:8]:
         # 各要件についてコードで確認するスクリプトを生成・実行
         if is_html_project:
             chk_prompt = f"""以下の要件をHTMLファイルを読み込んで確認するPythonスクリプトを生成してください。
@@ -7835,10 +7887,13 @@ def analyze_job_for_skills(job_id: str, project: str = "default"):
 
 # スキル管理 v2 (OpenClaw互換 SKILL.md形式)
 # =========================
-# スコープ: workspace > global(C:\AI\skills) > bundled(C:\AI\bundled_skills)
+# スコープ: workspace > global > bundled
 # 形式: skills/スキル名/SKILL.md (YAMLフロントマター + Markdownコード)
 
-# スキルフォルダ: C:\AI\skills\ に一本化
+# スキルフォルダ:
+#   - ローカル既定: <CODEAGENT_CA_DATA_DIR>/skills
+#   - Runpod既定: /workspace/ca_data/skills
+#   - CODEAGENT_SKILLS_DIR で明示オーバーライド可
 # ユーザー追加・CodeAgent提案スキルを共有資産として格納
 os.makedirs(SKILLS_DIR, exist_ok=True)
 # 後方互換のエイリアス
@@ -7912,7 +7967,7 @@ def _parse_skill_md(path: str) -> dict | None:
 
 def _load_all_skills(force: bool = False) -> dict:
     """
-    C:\AI\skills\ からスキルをロード（共有資産）。
+    SKILLS_DIR からスキルをロード（共有資産）。
     スキルは skills/スキル名/SKILL.md または skills/SKILL.md 形式。
     """
     global _skills_cache, _skills_cache_time
@@ -7960,7 +8015,7 @@ def _skills_to_prompt_injection() -> str:
         lines.append(f'  <skill name="{name}" keywords="{kw}" action="{name}">{desc}</skill>')
     lines.append("</skills>")
     lines.append("スキルを使う場合: action=スキル名 でツールと同様に呼び出す。")
-    lines.append("スキルのコードはC:\\AI\\skills\\ または /skills APIで確認可能。")
+    lines.append(f"スキルのコードは {SKILLS_DIR} または /skills APIで確認可能。")
     return "\n".join(lines)
 
 def _load_skill_functions() -> dict:
@@ -8072,7 +8127,7 @@ def _upsert_skill(req: dict, merge_reason: str = "", prefer_merge: bool = True) 
     return {"ok": True, "action": "created", "path": path, "skill_name": incoming["name"], "version": incoming.get("version", "1.0"), "similar": [{"name": s["skill"]["name"], "score": s["score"]} for s in similar]}
 
 def _skill_save_path(name: str, scope: str = "shared") -> str:
-    """スキルの保存先: C:\AI\skills\スキル名\SKILL.md"""
+    """スキルの保存先: SKILLS_DIR/スキル名/SKILL.md"""
     safe = "".join(c for c in name if c.isalnum() or c in "_-")
     d = os.path.join(SKILLS_DIR, safe)
     os.makedirs(d, exist_ok=True)
@@ -8117,7 +8172,16 @@ def _write_skill_md(skill: dict, path: str):
 def list_skills_api():
     _load_all_skills(force=True)
     skills = _active_skills()
-    return {"skills": skills, "count": len(skills)}
+    return {
+        "skills": skills,
+        "count": len(skills),
+        "paths": {
+            "active": SKILLS_DIR,
+            "default_local": DEFAULT_SKILLS_DIR_LOCAL,
+            "default_runpod": DEFAULT_SKILLS_DIR_RUNPOD,
+            "runtime": "runpod" if IS_RUNPOD_RUNTIME else "local",
+        },
+    }
 
 @app.post("/skills")
 def create_skill_api(req: dict):
