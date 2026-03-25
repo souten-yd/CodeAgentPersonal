@@ -961,11 +961,7 @@ class ModelManager:
                     f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n"
                     f"{cmd_text}\n"
                 )
-            log_handle = open(LLAMA_STARTUP_LOG_PATH, "a", encoding="utf-8")
-            self._process = _sp.Popen(
-                cmd, stdout=log_handle, stderr=log_handle, creationflags=flags
-            )
-            log_handle.close()
+            self._process = _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, creationflags=flags)
         except Exception as e:
             print(f"[ModelManager] Popen error: {e}")
             return False
