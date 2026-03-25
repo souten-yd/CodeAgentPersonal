@@ -23,6 +23,7 @@ import asyncio
 import sys
 import difflib
 import time
+import inspect
 from datetime import datetime
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
@@ -4249,6 +4250,70 @@ def _compact_reply(action_obj: dict, max_chars: int = 500) -> str:
         return str(action_obj)[:max_chars]
 
 
+def _normalize_tool_input(action: str, tool_input) -> tuple[dict, list[str]]:
+    """
+    LLMが誤った引数名を返しても、主要ツールは自動で矯正する。
+    戻り値: (normalized_input, notes)
+    """
+    notes: list[str] = []
+    raw = tool_input if isinstance(tool_input, dict) else {}
+    if not isinstance(tool_input, dict):
+        notes.append("inputがdictではないため空dictとして扱いました。")
+
+    alias_map = {
+        "list_files": {"path": "subdir", "dir": "subdir", "directory": "subdir"},
+        "read_file": {"file_path": "path", "filename": "path", "file": "path"},
+        "write_file": {"file_path": "path", "filename": "path", "text": "content", "body": "content"},
+        "edit_file": {"file_path": "path", "filename": "path", "before": "old_str", "after": "new_str"},
+        "run_python": {"cmd": "code", "script": "code"},
+        "run_file": {"file_path": "path", "file": "path"},
+    }
+    mapping = alias_map.get(action, {})
+    normalized = {}
+    for k, v in raw.items():
+        nk = mapping.get(k, k)
+        normalized[nk] = v
+        if nk != k:
+            notes.append(f"引数名を補正: {k} -> {nk}")
+    return normalized, notes
+
+
+def _prepare_tool_call(active_tools: dict, action: str, tool_input) -> tuple[dict | None, str | None, list[str]]:
+    """
+    ツール呼び出し前に引数を検証・補正する。
+    戻り値: (safe_input, error_message, notes)
+    """
+    safe_input, notes = _normalize_tool_input(action, tool_input)
+    fn = active_tools.get(action)
+    if fn is None:
+        return None, f"ERROR: unknown tool '{action}'", notes
+    try:
+        sig = inspect.signature(fn)
+    except Exception:
+        return safe_input, None, notes
+
+    params = sig.parameters
+    accepted = set(params.keys())
+    dropped = [k for k in list(safe_input.keys()) if k not in accepted]
+    for k in dropped:
+        safe_input.pop(k, None)
+    if dropped:
+        notes.append(f"未対応引数を除外: {', '.join(dropped)}")
+
+    required = [
+        name for name, p in params.items()
+        if p.default is inspect._empty
+        and p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    ]
+    missing = [name for name in required if name not in safe_input]
+    if missing:
+        return None, (
+            f"ERROR: 引数エラー - '{action}' に必須引数 {missing} が不足。"
+            f" 使用可能引数: {sorted(accepted)}"
+        ), notes
+    return safe_input, None, notes
+
+
 def _repair_truncated_json(text: str):
     """
     トークン上限で途中切れになったJSONを補完してパースを試みる。
@@ -4614,6 +4679,7 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 - <|channel|>や<|start|>などの特殊トークンは使わない。
 - マークダウン、説明文、コードブロック(```)も禁止。
 - 最初の文字は必ず { であること。
+- ツール実行結果がERRORの場合、同じaction+同じ引数を繰り返さない。必ずエラー内容を読んで引数や手順を変更する。
 
 【出力形式】（このフォーマット厳守）
 {"thought":"考えていること","action":"ツール名","input":{ツールの引数}}
@@ -5763,6 +5829,7 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
 
     steps = []
     consecutive_errors = 0
+    repeated_failures: dict[str, int] = {}
 
     for step in range(max_steps):
         # コンテキスト長チェック: 上限の80%を超えたら古いmessagesをtrim
@@ -5836,17 +5903,28 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
             steps.append({"step": step, "type": "unknown_tool", "action": action})
             continue
 
-        try:
-            result = active_tools[action](**tool_input)
-        except TypeError as e:
-            result = f"ERROR: 引数が間違っています - {e}"
+        safe_input, prep_error, prep_notes = _prepare_tool_call(active_tools, action, tool_input)
+        if prep_error:
+            result = prep_error
+            if prep_notes:
+                result += "\n" + " / ".join(prep_notes)
+        else:
+            call_key = f"{action}:{json.dumps(safe_input, ensure_ascii=False, sort_keys=True)}"
+            if repeated_failures.get(call_key, 0) >= 2:
+                result = ("ERROR: 同一の失敗ツール呼び出しを繰り返しています。"
+                          " 直前のエラー内容を確認し、引数または手順を変更してください。")
+            else:
+                try:
+                    result = active_tools[action](**safe_input)
+                except TypeError as e:
+                    result = f"ERROR: 引数が間違っています - {e}"
 
         step_info = {
             "step": step,
             "type": "tool_call",
             "action": action,
             "thought": thought,
-            "input": tool_input,
+            "input": safe_input if safe_input is not None else tool_input,
             "result_preview": str(result)[:200]
         }
         steps.append(step_info)
@@ -5870,6 +5948,13 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
             max_result_chars = min(8000, max(2000, _current_n_ctx // 8))
             if len(result_str) > max_result_chars:
                 result_str = result_str[:max_result_chars] + f"\n[... {len(result_str)-max_result_chars} chars truncated]"
+        if str(result).strip().startswith("ERROR:") and safe_input is not None:
+            call_key = f"{action}:{json.dumps(safe_input, ensure_ascii=False, sort_keys=True)}"
+            repeated_failures[call_key] = repeated_failures.get(call_key, 0) + 1
+            result_str += "\n\n注意: 同一引数での再実行は避け、エラー文を反映して次のアクションを変更すること。"
+        elif safe_input is not None:
+            call_key = f"{action}:{json.dumps(safe_input, ensure_ascii=False, sort_keys=True)}"
+            repeated_failures.pop(call_key, None)
         messages.append({"role": "user", "content": f"実行結果:\n{result_str}"})
 
     return {"status": "error", "error": f"ステップ上限 ({max_steps}) に達しました", "steps": steps}
@@ -6987,6 +7072,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             active_tools[_pt] = _ft2.partial(active_tools[_pt], project=project)
     steps = []
     consecutive_errors = 0
+    repeated_failures: dict[str, int] = {}
 
     for step in range(max_steps):
         messages = _trim_messages(messages, _current_n_ctx, reserve_output=4096)
@@ -7130,15 +7216,26 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             "tps": usage.get("tps", 0),
         }
 
-        try:
-            result = active_tools[action](**tool_input)
-        except TypeError as e:
-            result = f"ERROR: 引数エラー - {e}"
+        safe_input, prep_error, prep_notes = _prepare_tool_call(active_tools, action, tool_input)
+        if prep_error:
+            result = prep_error
+            if prep_notes:
+                result += "\n" + " / ".join(prep_notes)
+        else:
+            call_key = f"{action}:{json.dumps(safe_input, ensure_ascii=False, sort_keys=True)}"
+            if repeated_failures.get(call_key, 0) >= 2:
+                result = ("ERROR: 同一の失敗ツール呼び出しを繰り返しています。"
+                          " 直前のエラー内容を確認し、引数または手順を変更してください。")
+            else:
+                try:
+                    result = active_tools[action](**safe_input)
+                except TypeError as e:
+                    result = f"ERROR: 引数エラー - {e}"
 
         step_record = {
             "step": step, "type": "tool_call",
             "action": action, "thought": thought,
-            "input": tool_input, "result_preview": str(result)[:200]
+            "input": safe_input if safe_input is not None else tool_input, "result_preview": str(result)[:200]
         }
         steps.append(step_record)
         yield {"type": "tool_result", "action": action, "result_preview": str(result)[:200]}
@@ -7166,6 +7263,13 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             max_result_chars = min(8000, max(2000, _current_n_ctx // 8))
             if len(result_str) > max_result_chars:
                 result_str = result_str[:max_result_chars] + f"\n[... {len(result_str)-max_result_chars} chars truncated]"
+        if str(result).strip().startswith("ERROR:") and safe_input is not None:
+            call_key = f"{action}:{json.dumps(safe_input, ensure_ascii=False, sort_keys=True)}"
+            repeated_failures[call_key] = repeated_failures.get(call_key, 0) + 1
+            result_str += "\n\n注意: 同一引数での再実行は避け、エラー文を反映して次のアクションを変更すること。"
+        elif safe_input is not None:
+            call_key = f"{action}:{json.dumps(safe_input, ensure_ascii=False, sort_keys=True)}"
+            repeated_failures.pop(call_key, None)
         messages.append({"role": "user", "content": f"実行結果:\n{result_str}"})
 
     yield {"type": "task_error", "task_id": task_id, "title": task_title, "error": f"ステップ上限 ({max_steps})", "steps": steps}
