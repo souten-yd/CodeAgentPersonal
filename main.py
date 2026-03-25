@@ -875,6 +875,7 @@ class ModelManager:
             if ok:
                 self.current_key = key
                 self._status = "ready"
+                self._last_startup_hints = []  # 起動成功時はヒントをクリア
                 # _current_n_ctxをモデルのctxに合わせて更新
                 global _current_n_ctx
                 _current_n_ctx = spec.get("ctx", _current_n_ctx)
@@ -6708,23 +6709,36 @@ def _llm_endpoint_reachable(url: str, timeout_sec: float = 1.8) -> bool:
 def _infer_startup_failure_hints(log_path: str, tail_lines: int = 200) -> list[str]:
     """
     llama-server起動ログから「VRAMへ載らない」原因候補を抽出する。
+    最後の起動セクション（=== model-start ===以降）のみを対象とし、
+    蓄積された過去ログから誤検知しないようにする。
     """
     if not os.path.exists(log_path):
         return []
     try:
         with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()[-tail_lines:]
+            all_lines = f.readlines()
     except Exception:
+        return []
+    # 最後の起動セクションのみを対象にする（古い起動ログの誤検知防止）
+    last_section_start = 0
+    for i, line in enumerate(all_lines):
+        if "model-start ===" in line:
+            last_section_start = i + 1
+    lines = all_lines[last_section_start:][-tail_lines:]
+    if not lines:
         return []
     blob = "\n".join(lines).lower()
     hints: list[str] = []
-    if ("cuda" in blob and ("not found" in blob or "failed" in blob)) or "ggml_cuda_init" in blob:
+    # ggml_cuda_init: found X devices は成功メッセージのため除外し、
+    # 明確な失敗キーワードとの組み合わせのみ検知する
+    if "cuda" in blob and ("not found" in blob or "failed" in blob or "error" in blob):
         hints.append("CUDA初期化失敗の可能性（CPUフォールバック）。GPUドライバ/ビルドを確認してください。")
     if "metal" in blob and "failed" in blob:
         hints.append("Metal初期化失敗の可能性（CPUフォールバック）。")
     if "hip" in blob and ("failed" in blob or "not found" in blob):
         hints.append("ROCm/HIP初期化失敗の可能性（CPUフォールバック）。")
-    if "-ngl 0" in blob or "n_gpu_layers = 0" in blob:
+    # llama-serverの内部ログでのn_gpu_layers=0のみ検知（起動コマンドのログ行は除外）
+    if "n_gpu_layers = 0" in blob:
         hints.append("GPUレイヤーが0で起動している可能性。gpu_layers設定を確認してください。")
     if "insufficient vram" in blob or "out of memory" in blob:
         hints.append("VRAM不足の可能性。ctx_size/gpu_layers/modelサイズを下げてください。")
