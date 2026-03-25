@@ -908,18 +908,6 @@ class ModelManager:
         if not self.has_llama_server():
             print(f"[ModelManager] llama-server not found: {self.llama_path}")
             return False
-        if spec.get("is_vlm") and spec.get("vlm_enabled", True):
-            mmproj = str(spec.get("mmproj_path", "") or "").strip()
-            if not mmproj:
-                msg = "VLMモデルですが mmproj_path が未設定です。モデルDBのmmprojを設定してください。"
-                print(f"[ModelManager] {msg}")
-                self._last_startup_hints = [msg]
-                return False
-            if not os.path.exists(mmproj):
-                msg = f"VLM mmprojファイルが見つかりません: {mmproj}"
-                print(f"[ModelManager] {msg}")
-                self._last_startup_hints = [msg]
-                return False
         cmd = [
             self.llama_path,
             "--model",    spec["path"],
@@ -931,7 +919,16 @@ class ModelManager:
             "--no-mmap",
         ]
         if spec.get("is_vlm") and spec.get("vlm_enabled", True):
-            cmd += ["--mmproj", str(spec.get("mmproj_path", "")).strip()]
+            mmproj = str(spec.get("mmproj_path", "") or "").strip()
+            if mmproj:
+                if not os.path.exists(mmproj):
+                    msg = f"VLM mmprojファイルが見つかりません: {mmproj}"
+                    print(f"[ModelManager] {msg}")
+                    self._last_startup_hints = [msg]
+                    return False
+                cmd += ["--mmproj", mmproj]
+            else:
+                print(f"[ModelManager] is_vlm=True but mmproj_path not set, starting without --mmproj")
         # モデル別オプション
         if spec.get("parallel", -1) and spec.get("parallel", -1) > 0:
             cmd += ["--parallel", str(spec["parallel"])]
