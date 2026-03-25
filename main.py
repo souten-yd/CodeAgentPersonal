@@ -401,6 +401,8 @@ def _runtime_spec_from_row(row: dict) -> dict:
         "cache_type_v": row.get("cache_type_v", "") or "",
         "extra_args": _parse_extra_args(row.get("extra_args", "")),
         "auto_roles": auto_roles,
+        "file_size_mb": int(row.get("file_size_mb", 0) or 0),
+        "quantization": row.get("quantization", "") or "",
     }
 
 
@@ -916,13 +918,17 @@ class ModelManager:
         if not self.has_llama_server():
             print(f"[ModelManager] llama-server not found: {self.llama_path}")
             return False
+        # gpu_layers=999（デフォルト全層）の場合、VRAMに収まる層数に自動調整する
+        gpu_layers = spec["gpu_layers"]
+        if gpu_layers >= 999:
+            gpu_layers = _calc_safe_gpu_layers(spec)
         cmd = [
             self.llama_path,
             "--model",    spec["path"],
             "--port",     str(self.llm_port),
             "--host",     "0.0.0.0",
             "--ctx-size", str(spec["ctx"]),
-            "-ngl",       str(spec["gpu_layers"]),
+            "-ngl",       str(gpu_layers),
             "--threads",  str(spec["threads"]),
             "--no-mmap",
         ]
@@ -937,6 +943,14 @@ class ModelManager:
                 cmd += ["--mmproj", mmproj]
             else:
                 print(f"[ModelManager] is_vlm=True but mmproj_path not set, starting without --mmproj")
+        # CUDA(NVIDIA)のみ flash attention を有効化
+        # AMD consumer GPU(RDNA2/3)では逆に遅くなるため除外
+        gpu_vendor = _detect_gpu_vendor()
+        if gpu_vendor == "nvidia":
+            cmd += ["--flash-attn"]
+            print(f"[ModelManager] flash-attn enabled (NVIDIA GPU detected)")
+        elif gpu_vendor == "amd":
+            print(f"[ModelManager] flash-attn skipped (AMD GPU - may degrade performance on consumer GPUs)")
         # モデル別オプション
         if spec.get("parallel", -1) and spec.get("parallel", -1) > 0:
             cmd += ["--parallel", str(spec["parallel"])]
@@ -953,7 +967,7 @@ class ModelManager:
         cmd_text = (
             "[ModelManager] starting:"
             f" model={spec.get('path','')}"
-            f" -ngl={spec.get('gpu_layers')}"
+            f" -ngl={gpu_layers}"
             f" --ctx-size={spec.get('ctx')}"
             f" --threads={spec.get('threads')}"
             f" extra_args={spec.get('extra_args', [])}"
@@ -3951,6 +3965,107 @@ def _infer_gpu_layers_for_estimate(file_size_mb: int, quantization: str) -> int:
     if "Q2" in q or "IQ2" in q:
         return 70
     return 80
+
+
+def _detect_gpu_vendor() -> str:
+    """
+    実行環境のGPUベンダーを検出して返す。
+    戻り値: 'nvidia' | 'amd' | 'unknown'
+    設定キャッシュ(gpu_static_backend)を優先参照し、未設定時のみ直接確認する。
+    """
+    cached = (settings_get("gpu_static_backend") or "").strip()
+    if cached == "nvidia-smi":
+        return "nvidia"
+    if cached == "rocm-smi":
+        return "amd"
+    try:
+        r = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=3)
+        if r.returncode == 0 and r.stdout.strip():
+            return "nvidia"
+    except Exception:
+        pass
+    try:
+        r = subprocess.run(["rocm-smi", "--showproductname"], capture_output=True, text=True, timeout=3)
+        if r.returncode == 0 and r.stdout.strip():
+            return "amd"
+    except Exception:
+        pass
+    return "unknown"
+
+
+def _get_total_free_vram_mb() -> int:
+    """nvidia-smiで全GPUの空きVRAM合計をMBで取得する。取得できない場合は-1を返す。"""
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5
+        )
+        if r.returncode == 0:
+            total = 0
+            for line in r.stdout.splitlines():
+                v = _parse_int_maybe(line.strip())
+                if v > 0:
+                    total += v
+            if total > 0:
+                return total
+    except Exception:
+        pass
+    return -1
+
+
+def _calc_safe_gpu_layers(spec: dict) -> int:
+    """
+    モデルのVRAM要件と利用可能な空きVRAMを比較し、OOMを避けるための
+    安全なgpu_layers値を返す。
+    モデルがVRAMに収まれば999（全層GPU）、収まらなければ収まる層数を返す。
+    VRAMや容量が不明な場合は999を返してllama-serverに判断を委ねる。
+    """
+    file_size_mb = int(spec.get("file_size_mb", 0) or 0)
+    ctx = int(spec.get("ctx", 4096) or 4096)
+    q = (spec.get("quantization", "") or "").upper()
+
+    free_vram_mb = _get_total_free_vram_mb()
+    if free_vram_mb <= 0 or file_size_mb <= 0:
+        return 999  # VRAM情報またはファイルサイズ不明 - デフォルトを使用
+
+    # KVキャッシュの係数を量子化に応じて設定
+    kv_coef = 0.10
+    if "Q2" in q or "IQ2" in q:
+        kv_coef = 0.05
+    elif "Q3" in q or "IQ3" in q:
+        kv_coef = 0.06
+    elif "Q4" in q:
+        kv_coef = 0.08
+    elif "Q5" in q:
+        kv_coef = 0.10
+    elif "Q6" in q:
+        kv_coef = 0.12
+    elif "Q8" in q:
+        kv_coef = 0.16
+    elif "F16" in q or "BF16" in q:
+        kv_coef = 0.24
+
+    ctx_scale = max(0.25, min(8.0, ctx / 8192.0))
+    kv_cache_mb = max(96, int(file_size_mb * kv_coef * ctx_scale))
+    overhead_mb = 320
+    total_needed_mb = file_size_mb + kv_cache_mb + overhead_mb
+
+    if total_needed_mb <= free_vram_mb:
+        return 999  # VRAMに完全に収まる - 全層GPUへ
+
+    # 部分オフロード: 空きVRAMに収まる層数を計算
+    available_for_model_mb = max(0, free_vram_mb - overhead_mb - kv_cache_mb)
+    estimated_total_layers = _infer_gpu_layers_for_estimate(file_size_mb, q)
+    fitting_layers = int(available_for_model_mb * estimated_total_layers / file_size_mb)
+    fitting_layers = max(0, min(estimated_total_layers, fitting_layers))
+
+    print(
+        f"[ModelManager] VRAM不足のため部分オフロード: "
+        f"free={free_vram_mb}MB, needed={total_needed_mb}MB "
+        f"(model={file_size_mb}MB + kv={kv_cache_mb}MB + overhead={overhead_mb}MB), "
+        f"gpu_layers={fitting_layers}/{estimated_total_layers}"
+    )
+    return fitting_layers
 
 
 def _disk_free_mb(path: str) -> int:
