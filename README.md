@@ -15,6 +15,8 @@
 | **プランナーLLM** | 複数失敗時に小型モデル(GPT-OSS-20B)が最適案を自動選択して再実行 |
 | **V-model検証** | 全タスク完了後に Unit → Integration → 要件確認の3フェーズ自動テスト |
 | **スキップ禁止フォールバック** | スキップ・ユーザー委任は提案・選択されない（常にエージェントが解決） |
+| **ハルシネーション防止** | ツール呼び出し実行を強化。LLMが既実行ツールを再呼び出しする幻覚リトライを検出・遮断 |
+| **Gitスナップショット自動化** | タスク開始前・完了後にバックエンドが自動コミット。job_id/task_id/stageをタグ付け。古いスナップショットは自動アーカイブ（最新100件保持） |
 
 ### パーマネントメモリ（cross-project共有）
 
@@ -73,10 +75,28 @@
 - `stop_server` — サーバー停止
 
 **ユーティリティ**
-- `web_search` — DuckDuckGo検索（設定でON/OFF）
+- `web_search` — DuckDuckGo検索（設定でON/OFF）。チャットモードでも利用可能
 - `clarify` — ユーザーへの確認・選択肢提示
 
 **カスタムSKILL** — 既定のスキル保存先（ローカル:`<CODEAGENT_CA_DATA_DIR>/skills` / Runpod:`/workspace/ca_data/skills`）に追加したSKILL.mdが自動でツールとして利用可能（`CODEAGENT_SKILLS_DIR`で上書き可）
+
+### チャットモード
+
+| 機能 | 説明 |
+|---|---|
+| **エージェントループ統合** | チャットがタスクモードと同様のエージェントループで処理。`web_search`ツールも利用可能 |
+| **思考イベント表示** | `llm_thinking` イベントをリアルタイム表示。推論モデルの思考過程を可視化 |
+| **フォールバック** | エージェントループが失敗/空応答の場合は直接LLM呼び出しへ自動フォールバック |
+| **チャット履歴** | 会話履歴を保持しながらエージェントループを経由 |
+
+### GitHubリポジトリ連携
+
+| 機能 | 説明 |
+|---|---|
+| **リポジトリ設定** | GitHubトークン・リポジトリ情報をUI/APIから設定（資格情報は `.codeagent/.credentials` に安全保存） |
+| **リポジトリ初期化** | GitHub上にリポジトリを作成しリモートを設定 |
+| **ca_dataシンク** | `ca_data/` フォルダをGitHubへプッシュしてバックアップ |
+| **接続テスト** | GitHubトークンの有効性とレート制限を確認 |
 
 ### UI
 
@@ -85,7 +105,7 @@
 | **リアルタイムSSE** | Server-Sent Eventsによるストリーミング表示（TPS/token数表示） |
 | **7タブパネル** | Output / Preview / Log / Skills / Memory / Git / Models |
 | **音声入力（β）** | チャット入力欄の🎙ボタンで録音→サーバー側Whisperで文字起こし（日本語/英語） |
-| **リソースメーター** | ヘッダーで CPU / RAM / GPU / VRAM 使用率を定期更新表示 |
+| **リソースメーター** | ヘッダーで CPU / RAM / GPU / VRAM 使用率を定期更新表示（`/system/summary` で軽量集約ポーリング） |
 | **ファイルブラウザ** | プロジェクトファイルをリアルタイム表示・iframe preview |
 | **設定パネル** | ⚙ボタンから: Steps・Auto Select・SKILL自動生成・Ensemble実行モード(parallel/serial)・VRAM監視・ストリーミング・コンテキスト長・検索件数・LLM URL |
 | **GGUF検索/ダウンロード** | Modelsタブから Hugging Face のGGUFを検索し、RAM/VRAM適合目安（DL可否・完全オフロード可否）を確認して直接DL |
@@ -93,6 +113,8 @@
 | **機能モード切替** | Modelsモーダルで `Model Orchestration` / `Ensemble(beta)` を切替可能（初期値: Model Orchestration） |
 | **Coderオーケストレーション** | 軽量→高品質の3段コーダーを設定し、失敗時/品質未達時に段階昇格して再実行 |
 | **VRAMガード** | `nvidia-smi/rocm-smi` で空きVRAMを監視し、必要時は `parallel → serial` へ自動切替（設定でON/OFF） |
+| **Web検索状態表示** | 設定パネルとタスク進捗カードで検索クエリ・状態をリアルタイム表示 |
+| **待機UIの統一** | チャット/タスク両モードで統一されたウェイティングカードUI |
 | **モバイル対応** | iPhone対応。タブバーはスクロール可能。Safe area対応 |
 | **プロジェクト管理** | 複数プロジェクトを切り替え・作成 |
 | **プロジェクトDL** | プロジェクト一覧の`DL`ボタンからPLフォルダをzipでダウンロード |
@@ -107,13 +129,17 @@
 
 | 機能 | 状態 | 備考 |
 |---|---|---|
-| エージェントタスク実行 | ✅ 安定 | 4段階フォールバック実装済み |
-| パーマネントメモリ | ✅ 新機能 | `ca_data/memory.db` 共有 |
+| エージェントタスク実行 | ✅ 安定 | 4段階フォールバック + ハルシネーション防止実装済み |
+| パーマネントメモリ | ✅ 安定 | `ca_data/memory.db` 共有 |
 | SKILLシステム | ✅ 安定 | 自動生成・提案・ポストジョブ分析 |
 | Playwright ブラウザ | ✅ 安定 | コンテナ自動修復実装済み |
 | マルチモデル切り替え | ✅ 安定 | Router LLMで自動ルーティング |
 | V-model検証 | ✅ 動作 | 全タスク完了時のみ実行 |
-| Web検索 (DuckDuckGo) | ✅ 動作 | 設定パネルでON/OFF |
+| Web検索 (DuckDuckGo) | ✅ 動作 | 設定パネルでON/OFF。チャット/タスク両モードで利用可 |
+| Gitスナップショット自動化 | ✅ 安定 | タスク前後にバックエンドが自動コミット |
+| チャットモードWeb検索 | ✅ 動作 | エージェントループ経由で`web_search`ツールを利用 |
+| GitHubリポジトリ連携 | ✅ 動作 | `ca_data/`をGitHubへバックアップ |
+| システムサマリーAPI | ✅ 安定 | `/system/summary` で軽量集約ポーリング |
 
 ### ⚠️ 限定的・条件付き機能
 
@@ -131,6 +157,7 @@
 |---|---|---|
 | LLM登録UI（複数エンドポイント管理） | ❌ 廃止 | 設定パネルの「LLM URL」テキスト入力に統合 |
 | スキップ・手動実装フォールバック | ❌ 廃止 | 常にエージェントが解決する方針に変更 |
+| UIからのGit操作（commit/checkout/reset） | ❌ 廃止 | バックエンドの自動スナップショットフローに移行 |
 
 ---
 
@@ -293,23 +320,26 @@ CodeAgentPersonal/
 ├── main.py            # FastAPI バックエンド
 │   ├── ModelManager   — 動的モデル切り替え / ロール別モデル選択
 │   ├── ToolSet        — ファイル・実行・ブラウザ・検索ツール
-│   ├── JobRunner      — Task実行 / フォールバック / 検証 / メモリ抽出
+│   ├── JobRunner      — Task実行 / フォールバック / 検証 / メモリ抽出 / ハルシネーション防止
 │   ├── MemoryDB       — パーマネントメモリ管理
 │   ├── SkillSystem    — SKILL.md管理・ツールロード・類似マージ
-│   └── VerifyEngine   — V-model 3フェーズ検証
+│   ├── VerifyEngine   — V-model 3フェーズ検証
+│   ├── SnapshotManager — タスク前後のGit自動スナップショット管理
+│   └── RepoManager    — GitHubリポジトリ連携・ca_dataシンク
 ├── ui.html            # フロントエンド SPA
-│   ├── Chat / Task    — 会話・要件/計画・実行UI
+│   ├── Chat / Task    — 会話（エージェントループ統合）・要件/計画・実行UI
 │   ├── Output / Preview / Log
 │   ├── Skills / Memory / Git / Models
 │   └── Settings modal — 全設定を一元管理
 ├── ca_data/           # 実データの保存先
-│   ├── memory.db      # パーマネントメモリ
-│   ├── model_db.db    # モデルDB
+│   ├── memory.db      # パーマネントメモリ（スナップショット履歴テーブル含む）
+│   ├── model_db.db    # モデルDB（設定永続化含む）
 │   ├── skills/        # カスタムSKILL格納フォルダ
 │   │   └── スキル名/SKILL.md
 │   └── workspace/     # プロジェクトファイル格納
 │       └── プロジェクト名/
-├── .codeagent/        # プロジェクト別補助データ
+├── .codeagent/        # センシティブデータ保存先（gitignore済み）
+│   └── .credentials   # GitHubトークン等の資格情報（APIで非公開）
 ├── benchmark_mem.py   # VRAM/RAM計測ツール
 ├── start.bat          # Windows起動スクリプト
 └── DLllama.bat        # llama.cppバイナリ自動ダウンロード
@@ -321,12 +351,19 @@ CodeAgentPersonal/
 
 ## 主要 API エンドポイント
 
+### ジョブ・チャット
+
 | メソッド | パス | 説明 |
 |---|---|---|
 | `POST` | `/jobs/submit` | ジョブ投入（バックグラウンド実行） |
 | `GET` | `/jobs/{id}/poll` | ジョブイベントポーリング |
-| `POST` | `/chat` | 直接LLMチャット |
+| `POST` | `/chat` | チャット（エージェントループ経由、web_search対応） |
 | `POST` | `/plan` | タスクプランのみ生成 |
+
+### メモリ・スキル・プロジェクト
+
+| メソッド | パス | 説明 |
+|---|---|---|
 | `GET` | `/memory` | メモリ一覧・検索 (`?q=キーワード`) |
 | `POST` | `/memory` | メモリ手動追加 |
 | `PUT` | `/memory/{id}` | メモリ更新 |
@@ -336,15 +373,76 @@ CodeAgentPersonal/
 | `POST` | `/skills` | SKILL保存 |
 | `DELETE` | `/skills/{name}` | SKILL削除 |
 | `GET` | `/projects` | プロジェクト一覧 |
+
+### システム・ヘルス
+
+| メソッド | パス | 説明 |
+|---|---|---|
+| `GET` | `/system/summary` | ヘルス・モデル・CPU/RAM/GPU/VRAMを一括取得（軽量集約ポーリング用） |
+| `GET` | `/system/usage` | CPU/GPU利用率、RAM/VRAM使用率の現在値 |
+| `GET` | `/system/usage/debug` | VRAM/GPU診断情報（詳細デバッグ用） |
+| `GET` | `/health` | ヘルスチェック（LLM・サンドボックス状態） |
+
+### Web検索・ストリーミング
+
+| メソッド | パス | 説明 |
+|---|---|---|
 | `POST` | `/search/enable` | Web検索有効化 |
+| `POST` | `/search/disable` | Web検索無効化 |
+| `GET` | `/search/status` | Web検索の有効/無効状態取得 |
+| `POST` | `/search/num` | 検索件数設定 |
+| `POST` | `/streaming/enable` | LLMストリーミング有効化 |
+| `POST` | `/streaming/disable` | LLMストリーミング無効化 |
+| `GET` | `/streaming/status` | ストリーミング状態取得 |
+
+### モデル管理
+
+| メソッド | パス | 説明 |
+|---|---|---|
+| `GET` | `/models/roles` | モデルロール割り当て取得 |
+| `POST` | `/models/roles` | モデルロール割り当て更新（plan/chat/search/verify/code/complex等） |
+| `GET` | `/models/orchestration` | オーケストレーションポリシー取得 |
+| `POST` | `/models/orchestration` | オーケストレーションポリシー更新 |
+| `GET` | `/models/hardware` | GPU/ハードウェア情報取得 |
+| `POST` | `/models/db/benchmark/{mid}` | モデルのパフォーマンスベンチマーク実行 |
+| `POST` | `/models/db/toggle/{mid}` | モデルの有効/無効切り替え |
+| `POST` | `/models/db/toggle_vlm/{mid}` | VLMビジョンモードのON/OFF切り替え |
+| `POST` | `/models/db/scan` | GGUFモデルスキャン |
+| `GET` | `/models/db/scan/status` | スキャン進捗取得 |
+| `POST` | `/model/auto-load` | 最適パラメータでモデルを自動ロード |
+| `GET` | `/llm/props` | 現在のLLMプロパティ取得 |
+| `GET` | `/llm/ctx` | コンテキストウィンドウ取得 |
+| `POST` | `/llm/ctx` | コンテキストウィンドウ設定 |
+
+### Ensemble設定
+
+| メソッド | パス | 説明 |
+|---|---|---|
+| `GET` | `/ensemble/settings` | Ensemble実行モード設定取得 |
+| `POST` | `/ensemble/settings` | Ensemble設定更新（parallel/serial） |
+| `GET` | `/ensemble/vram` | Ensembleモード用リソース状態取得 |
+
+### GitHubリポジトリ連携
+
+| メソッド | パス | 説明 |
+|---|---|---|
+| `GET` | `/repo/config` | リポジトリ設定取得（トークンは非公開） |
+| `POST` | `/repo/config` | GitHubトークン・リポジトリ設定保存 |
+| `POST` | `/repo/init` | GitHubリポジトリを初期化してリモートを設定 |
+| `POST` | `/repo/sync` | `ca_data/` をGitHubへコミット＆プッシュ |
+| `GET` | `/repo/test-connection` | GitHubトークンの有効性とレート制限確認 |
+| `GET` | `/repo/status` | 現在のリポジトリ状態取得 |
+
+### MCP・音声
+
+| メソッド | パス | 説明 |
+|---|---|---|
 | `POST` | `/mcp` | MCP JSON-RPC エンドポイント（OpenClaw等からツール呼び出し） |
 | `GET` | `/mcp/info` | MCPサーバー情報と公開ツール一覧 |
 | `GET` | `/voice/status` | 音声認識モデルのロード状態 |
 | `POST` | `/voice/load` | 音声認識モデルをオンデマンドでRAMへロード（CPU） |
 | `POST` | `/voice/unload` | 音声認識モデルをアンロード（RAM解放） |
 | `POST` | `/voice/transcribe` | 音声→テキスト（日本語/英語） |
-| `GET` | `/system/usage` | CPU/GPU利用率、RAM/VRAM使用率の現在値 |
-| `GET` | `/health` | ヘルスチェック |
 
 ※ `/projects` で作成・参照される実体ディレクトリは `./ca_data/workspace/{project}/` です。
 
