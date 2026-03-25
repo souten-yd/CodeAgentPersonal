@@ -5892,23 +5892,6 @@ def plan(user_message: str, project: str = "default") -> dict:
     プランナーは role=plan に割り当てられたモデルを使用。
     戻り値: {summary, requirements, approach, verification, tasks}
     """
-    msg = str(user_message or "").strip()
-    simple_patterns = [
-        r"hello\s*world",
-        r"\bindex\.html\b",
-        r"html.*作(成|って)",
-        r"1\s*ファイル",
-        r"単一ファイル",
-    ]
-    if msg and any(re.search(p, msg, re.I) for p in simple_patterns) and len(msg) <= 220:
-        return {
-            "summary": msg[:80],
-            "requirements": ["ユーザー指示を最小手順で実装する"],
-            "approach": "不要な分割を避け、直接ファイルを作成/編集して完了する。",
-            "verification": ["対象ファイルが作成され、要件文字列が含まれること"],
-            "tasks": [{"id": 1, "title": "実装", "detail": msg}],
-        }
-
     planner_key = choose_model_for_role("plan", include_disabled=True) or _model_manager.current_key
     if planner_key and _model_manager.current_key != planner_key:
         _model_manager.ensure_model(planner_key)
@@ -6245,7 +6228,8 @@ def verify_and_fix(
     # プロジェクト内ファイルを収集
     project_path = os.path.join(WORK_DIR, project)
     py_files, html_files, other_files = [], [], []
-    for root, _, files in os.walk(project_path):
+    for root, dirs, files in os.walk(project_path):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
         for f in files:
             if f.startswith('_'): continue
             rel = os.path.relpath(os.path.join(root, f), project_path)
