@@ -332,7 +332,7 @@ header{
 .mode-btn.active{background:var(--bg3);color:var(--text)}
 .hdr-right{display:flex;align-items:center;gap:8px}
 .sys-usage-row{
-  display:none;
+  display:flex;
   align-items:center;
   justify-content:space-between;
   gap:8px;
@@ -341,6 +341,7 @@ header{
   padding-right:max(14px, env(safe-area-inset-right));
   border-bottom:1px solid var(--border);
   background:var(--bg1);
+  min-height:28px;
 }
 #sys-usage{
   display:block;
@@ -878,7 +879,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   </div>
 </header>
 <div class="sys-usage-row" id="sys-usage-row">
-  <span id="sys-usage" title="CPU/GPU/RAM/VRAM usage"></span>
+  <span id="sys-usage" title="CPU/GPU/RAM/VRAM usage">CPU -- | RAM --/-- | GPU -- | VRAM --/--</span>
   <span id="sys-llm-name" title="Current LLM"></span>
 </div>
 
