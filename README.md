@@ -36,7 +36,7 @@
 | **SKILL自動生成** | Stage 3失敗時にエラーを解析して不足ツールをPython関数としてSKILL化 |
 | **ポストジョブ提案** | ジョブ完了後に実行ログを解析して不足SKILLをUIに提案 |
 | **使用回数ソート** | プロンプトへのSKILL注入を使用回数降順でソート（実績のあるSKILLを優先） |
-| **SKILL.md形式** | OpenClaw互換。`./ca_data/skills/スキル名/SKILL.md` に保存 |
+| **SKILL.md形式** | OpenClaw互換。ローカル既定:`<CODEAGENT_CA_DATA_DIR>/skills/スキル名/SKILL.md`（通常 `./ca_data/skills/...`） / Runpod既定:`/workspace/ca_data/skills/スキル名/SKILL.md` |
 | **ホットリロード** | 10秒キャッシュでSKILLを自動更新。再起動不要 |
 | **自動生成ON/OFF** | 設定パネルのトグルで制御（デフォルト: ON） |
 
@@ -76,7 +76,7 @@
 - `web_search` — DuckDuckGo検索（設定でON/OFF）
 - `clarify` — ユーザーへの確認・選択肢提示
 
-**カスタムSKILL** — `./ca_data/skills/` に追加したSKILL.mdが自動でツールとして利用可能
+**カスタムSKILL** — 既定のスキル保存先（ローカル:`<CODEAGENT_CA_DATA_DIR>/skills` / Runpod:`/workspace/ca_data/skills`）に追加したSKILL.mdが自動でツールとして利用可能（`CODEAGENT_SKILLS_DIR`で上書き可）
 
 ### UI
 
@@ -199,6 +199,7 @@ bash scripts/runpod_start.sh
 - 既定のRunpod判定は `RUNPOD_POD_ID` / `RUNPOD_API_KEY` **かつ** `/workspace` 存在で判定
 - Runpodでは `CODEAGENT_CA_DATA_DIR=/workspace/ca_data` が既定（`ca_data` をworkspaceへ永続保持）
 - プロジェクトフォルダは既定で `CODEAGENT_WORK_DIR=/workspace/ca_data/workspace` を使用（`/workspace`配下で保持）
+- スキル保存先は既定で `CODEAGENT_SKILLS_DIR=<CODEAGENT_CA_DATA_DIR>/skills`（Runpod既定は `/workspace/ca_data/skills`）
 - Runpod環境の `run_python` / `run_file` はプロジェクト配下 `.venv` を利用（`setup_venv` で作成）
 
 > `start.bat` は Python ランチャー (`scripts/start_codeagent.py`) を呼ぶ薄いラッパーです。  

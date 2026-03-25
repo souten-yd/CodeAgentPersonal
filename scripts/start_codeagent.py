@@ -231,6 +231,7 @@ def main() -> int:
     if runpod:
         env.setdefault("CODEAGENT_CA_DATA_DIR", "/workspace/ca_data")
         env.setdefault("CODEAGENT_WORK_DIR", "/workspace/ca_data/workspace")
+        env.setdefault("CODEAGENT_SKILLS_DIR", "/workspace/ca_data/skills")
 
     print("==============================================")
     print(" CodeAgent Launcher")
@@ -239,6 +240,7 @@ def main() -> int:
     if runpod:
         print(f" CA_DATA : {env.get('CODEAGENT_CA_DATA_DIR', '/workspace/ca_data')}")
         print(f" WORKDIR : {env.get('CODEAGENT_WORK_DIR', '/workspace/ca_data/workspace')}")
+        print(f" SKILLS  : {env.get('CODEAGENT_SKILLS_DIR', '/workspace/ca_data/skills')}")
     print("==============================================")
 
     copy_ui(base_dir)
