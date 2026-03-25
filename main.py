@@ -731,6 +731,7 @@ class ModelManager:
         self._switch_callbacks = []
         self._last_start_cmd = ""
         self._last_startup_hints: list[str] = []
+        self._startup_log_fd = None
         if not self.has_llama_server():
             print(f"[ModelManager] WARNING: llama-server not found: {self.llama_path}")
         # 起動時に実際に動いているモデルを検出してcurrent_keyを同期
@@ -894,6 +895,12 @@ class ModelManager:
             try: self._process.wait(timeout=8)
             except: self._process.kill()
         self._process = None
+        if self._startup_log_fd:
+            try:
+                self._startup_log_fd.close()
+            except Exception:
+                pass
+            self._startup_log_fd = None
         # Windowsでポートを解放
         try:
             _sp.run(
@@ -956,14 +963,32 @@ class ModelManager:
         self._last_start_cmd = " ".join(cmd)
         try:
             flags = _sp.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-            # 起動メタ情報はログへ残しつつ、llama-serverのstdout/stderrはDEVNULLへ捨てる。
-            # 過去にファイルリダイレクトでGPU初期化が不安定化し、VRAMロード不全が発生したため。
-            with open(LLAMA_STARTUP_LOG_PATH, "a", encoding="utf-8", errors="replace") as logf:
-                logf.write(f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n{cmd_text}\n")
+            if self._startup_log_fd:
+                try:
+                    self._startup_log_fd.close()
+                except Exception:
+                    pass
+                self._startup_log_fd = None
+            # バイナリモードで開いてstderr/stdoutをログへリダイレクト
+            # 379008c相当の挙動を保つため、親側でもfdを保持し続ける
+            log_fd = open(LLAMA_STARTUP_LOG_PATH, "ab")
+            header = (
+                f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n"
+                f"{cmd_text}\n"
+            ).encode("utf-8", errors="replace")
+            log_fd.write(header)
+            log_fd.flush()
             self._process = _sp.Popen(
-                cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, creationflags=flags
+                cmd, stdout=log_fd, stderr=log_fd, creationflags=flags
             )
+            self._startup_log_fd = log_fd
         except Exception as e:
+            if 'log_fd' in locals():
+                try:
+                    log_fd.close()
+                except Exception:
+                    pass
+            self._startup_log_fd = None
             print(f"[ModelManager] Popen error: {e}")
             return False
 
