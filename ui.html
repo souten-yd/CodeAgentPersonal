@@ -1241,11 +1241,13 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="margin-top:6px;font-size:10px;color:var(--text3)">⚠ 推奨 Steps: 10〜25。過剰だと繰り返しループのリスクあり。</div>
       </div>
 
-      <!-- Coder Orchestration -->
+      <!-- Coder Orchestration & Ensemble -->
       <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🧩 Coder Orchestration</div>
       <div style="padding:4px 0 14px">
+
+        <!-- 1. 機能選択 -->
         <div style="font-size:10px;color:var(--text3);margin-bottom:8px">機能モードを切替できます（初期値: Model Orchestration）。</div>
-        <div style="margin-bottom:8px">
+        <div style="margin-bottom:12px">
           <select id="orch-feature-mode" onchange="applyOrchFeatureModeUi()"
             style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
             <option value="model_orchestration">Model Orchestration (default)</option>
@@ -1253,48 +1255,66 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </select>
           <div id="orch-feature-note" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
         </div>
-        <div id="orch-settings-body">
-          <div style="font-size:10px;color:var(--text3);margin-bottom:8px">失敗時/品質基準未達時に、軽量→高品質の順でコーダーモデルを昇格再実行します。</div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin-bottom:6px">
-            <select id="orch-policy" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
-              <option value="off">off</option>
-              <option value="ladder_fail_only">失敗時のみ昇格</option>
-              <option value="ladder_fail_and_quality">失敗+品質基準未達で昇格</option>
-            </select>
-            <select id="orch-coder-primary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
-            <select id="orch-coder-secondary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
-            <select id="orch-coder-tertiary" style="padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+
+        <!-- 2. モデルティア設定（共通） -->
+        <div id="orch-tier-settings" style="margin-bottom:12px">
+          <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:6px">モデルティア設定（共通）</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+            <div>
+              <div style="font-size:9px;color:var(--text3);margin-bottom:2px">Tier 1（軽量）</div>
+              <select id="orch-tier1" style="width:100%;padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+            </div>
+            <div>
+              <div style="font-size:9px;color:var(--text3);margin-bottom:2px">Tier 2（中間）</div>
+              <select id="orch-tier2" style="width:100%;padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+            </div>
+            <div>
+              <div style="font-size:9px;color:var(--text3);margin-bottom:2px">Tier 3（高品質）</div>
+              <select id="orch-tier3" style="width:100%;padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+            </div>
           </div>
-          <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer;margin-bottom:6px">
+        </div>
+
+        <!-- 3. Orchestration 詳細設定 -->
+        <div id="orch-settings-body" style="margin-bottom:10px">
+          <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:4px">Orchestration 詳細設定</div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:6px">失敗時/品質基準未達時に、軽量→高品質の順でコーダーモデルを昇格再実行します。</div>
+          <select id="orch-policy" style="width:100%;padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);margin-bottom:6px">
+            <option value="off">off</option>
+            <option value="ladder_fail_only">失敗時のみ昇格</option>
+            <option value="ladder_fail_and_quality">失敗+品質基準未達で昇格</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer">
             <input type="checkbox" id="orch-quality-enabled" style="accent-color:var(--accent)"> 品質チェックを有効化
           </label>
         </div>
-        <button onclick="saveOrchestrationSettings()" style="padding:4px 10px;font-size:10px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">保存</button>
-      </div>
 
-      <!-- Ensemble実行設定 -->
-      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🧠 Ensemble 実行設定</div>
-      <div id="ensemble-settings-wrap" style="padding:4px 0 14px">
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-          <span style="font-size:11px;color:var(--text2);min-width:110px">実行モード</span>
-          <select id="ensemble-execution-mode"
-            style="flex:1;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text)"
-            onchange="saveEnsembleSettings()">
-            <option value="parallel">parallel (高速 / VRAM多)</option>
-            <option value="serial">serial (低VRAM / 低速)</option>
-          </select>
+        <!-- 4. Ensemble 詳細設定 -->
+        <div id="ensemble-settings-wrap" style="margin-bottom:10px">
+          <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:4px">🧠 Ensemble 詳細設定</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+            <span style="font-size:11px;color:var(--text2);min-width:80px">実行モード</span>
+            <select id="ensemble-execution-mode"
+              style="flex:1;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text)"
+              onchange="saveEnsembleSettings()">
+              <option value="parallel">parallel (高速 / VRAM多)</option>
+              <option value="serial">serial (低VRAM / 低速)</option>
+            </select>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);cursor:pointer;margin-bottom:8px">
+            <input type="checkbox" id="ensemble-auto-switch" style="width:14px;height:14px;accent-color:var(--accent)" onchange="saveEnsembleSettings()">
+            VRAM不足時に自動で serial へ切替
+          </label>
+          <div id="ensemble-vram-status" style="font-size:10px;color:var(--text3);line-height:1.6;padding:6px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:5px">
+            VRAM: loading...
+          </div>
+          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+            <button onclick="saveEnsembleSettings(true)" style="padding:4px 10px;font-size:10px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">推奨モードを適用</button>
+            <button onclick="refreshEnsembleVramStatus()" style="padding:4px 10px;font-size:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">再チェック</button>
+          </div>
         </div>
-        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);cursor:pointer;margin-bottom:8px">
-          <input type="checkbox" id="ensemble-auto-switch" style="width:14px;height:14px;accent-color:var(--accent)" onchange="saveEnsembleSettings()">
-          VRAM不足時に自動で serial へ切替
-        </label>
-        <div id="ensemble-vram-status" style="font-size:10px;color:var(--text3);line-height:1.6;padding:6px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:5px">
-          VRAM: loading...
-        </div>
-        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-          <button onclick="saveEnsembleSettings(true)" style="padding:4px 10px;font-size:10px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">推奨モードを適用</button>
-          <button onclick="refreshEnsembleVramStatus()" style="padding:4px 10px;font-size:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">再チェック</button>
-        </div>
+
+        <button onclick="saveOrchestrationSettings()" style="padding:4px 10px;font-size:10px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">保存</button>
       </div>
 
       <!-- LLM設定 -->
@@ -2584,7 +2604,7 @@ function _recommendTierModels(models = []) {
 function applyOrchFeatureModeUi() {
   const mode = document.getElementById('orch-feature-mode')?.value || 'model_orchestration';
   const note = document.getElementById('orch-feature-note');
-  const body = document.getElementById('orch-settings-body');
+  const orchBody = document.getElementById('orch-settings-body');
   const ensWrap = document.getElementById('ensemble-settings-wrap');
   const ensControls = [
     document.getElementById('ensemble-execution-mode'),
@@ -2592,15 +2612,21 @@ function applyOrchFeatureModeUi() {
     document.querySelector('button[onclick="saveEnsembleSettings(true)"]'),
     document.querySelector('button[onclick="refreshEnsembleVramStatus()"]')
   ].filter(Boolean);
+  const orchControls = [
+    document.getElementById('orch-policy'),
+    document.getElementById('orch-quality-enabled')
+  ].filter(Boolean);
   if (mode === 'ensemble') {
     if (note) note.textContent = 'Ensembleモード選択中。現時点ではModel Orchestrationが推奨です。';
-    if (body) body.style.opacity = '0.55';
+    if (orchBody) orchBody.style.opacity = '0.45';
+    orchControls.forEach(el => el.disabled = true);
     if (ensWrap) ensWrap.style.opacity = '1';
     ensControls.forEach(el => el.disabled = false);
   } else {
     if (note) note.textContent = 'Model Orchestrationモード: 既存の昇格再実行ロジックを使用します。';
-    if (body) body.style.opacity = '1';
-    if (ensWrap) ensWrap.style.opacity = '0.55';
+    if (orchBody) orchBody.style.opacity = '1';
+    orchControls.forEach(el => el.disabled = false);
+    if (ensWrap) ensWrap.style.opacity = '0.45';
     ensControls.forEach(el => el.disabled = true);
   }
 }
