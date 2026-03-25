@@ -4834,11 +4834,66 @@ def _build_system_prompt(project: str = "") -> str:
     {project} プレースホルダーを実際のプロジェクト名に置換する。
     """
     base = SYSTEM_PROMPT.replace("{project}", project) if project else SYSTEM_PROMPT
+    usage_fn = globals().get("_build_tool_success_playbook")
+    usage_guide = usage_fn(project) if usage_fn else ""
     inject_fn = globals().get("_skills_to_prompt_injection")
     injection = inject_fn() if inject_fn else ""
-    if not injection:
-        return base
-    return base + injection
+    return base + usage_guide + injection
+
+
+def _build_tool_success_playbook(project: str = "") -> str:
+    """
+    Claude/Codex/OpenCode系の失敗抑止パターンをツール実行前ガイドとして注入する。
+    - schema first（必須引数確認）
+    - runtime aware（local / Runpod 差分）
+    - fail fast（同一失敗の反復禁止）
+    """
+    runtime = "runpod" if IS_RUNPOD_RUNTIME else "local"
+    runtime_note = (
+        "- Runpod: run_python/run_file/run_browser は project配下 .venv を優先。"
+        " playwright不足時は setup_venv(requirements=[\"playwright\"]) → playwright install chromium。\n"
+        if runtime == "runpod" else
+        "- Local: Docker優先。Docker不可時のみローカルフォールバックを使う。"
+        " エラー文に従って依存を最小追加する。\n"
+    )
+
+    # 主要失敗を誘発しやすいツールは具体例を明示
+    targeted = """
+【Tool Success Playbook / 実行前チェック】
+1) actionは1回に1つ。必ず JSON のみで返す。
+2) 実行前に required引数を自己検証（不足があれば実行せず修正）。
+3) ERROR時は「同じaction+同じ引数」を繰り返さず、引数か手順を変更。
+4) 破壊的操作（delete_path/git_reset）は read_file/git_status などで事前確認してから実行。
+5) 長文説明を path/subdir/src/dst に入れない。ファイルパスのみ指定。
+""" + runtime_note + f"""
+【高頻度で失敗しやすいツールの具体ルール】
+- write_file: 必須は path, content。例: {{"path":"index.html","content":"..."}}。
+  既存修正は edit_file 優先。write_fileは新規作成か全体置換のみ。
+- run_browser: script未指定なら url を渡す。例: {{"url":"http://localhost:8888/","timeout":120}}。
+  script指定時はPlaywrightのPythonコードを渡す。
+- run_shell: command には1つの目的だけを書く（例: "pytest -q"）。
+  失敗時は install と test を分割して再実行。
+- git系: 開始時 git_status、完了時 git_diff → git_commit の順。
+  projectは通常 "{project or 'default'}" を使う。
+"""
+    # 全ツールの最低限スキーマ（required/optional）を短く列挙
+    sig_lines = []
+    for name, fn in sorted((globals().get("TOOLS") or {}).items()):
+        try:
+            sig = inspect.signature(fn)
+            req, opt = [], []
+            for p in sig.parameters.values():
+                if p.kind not in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY):
+                    continue
+                if p.default is inspect._empty:
+                    req.append(p.name)
+                else:
+                    opt.append(p.name)
+            sig_lines.append(f"- {name}: required={req or ['(none)']}, optional={opt or ['(none)']}")
+        except Exception:
+            continue
+    schema = "\n".join(sig_lines[:40])  # プロンプト肥大化を防ぐ安全上限
+    return targeted + "\n【Tool Schema Quick Reference】\n" + schema + "\n"
 
 
 # =========================
