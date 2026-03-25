@@ -103,6 +103,7 @@ CODEAGENT_HIDDEN_DIR = os.path.join(BASE_DIR, ".codeagent")
 OPENCODE_CONFIG_PATH = os.path.join(BASE_DIR, "opencode.json")
 LOG_DIR = os.path.join(CA_DATA_DIR, "Logs")
 OPENCODE_ENSEMBLE_LOG_DIR = os.path.join(LOG_DIR, "ensemble")
+LLAMA_STARTUP_LOG_PATH = os.path.join(LOG_DIR, "llama_startup.log")
 
 os.makedirs(CA_DATA_DIR, exist_ok=True)
 os.makedirs(CODEAGENT_HIDDEN_DIR, exist_ok=True)
@@ -382,6 +383,10 @@ def _runtime_spec_from_row(row: dict) -> dict:
     return {
         "name": row.get("name", "") or row.get("model_key", ""),
         "path": row.get("path", ""),
+        "is_vlm": bool(int(row.get("is_vlm", 0) or 0)),
+        "vlm_enabled": bool(int(row.get("vlm_enabled", 1) or 1)),
+        "has_mmproj": bool(int(row.get("has_mmproj", 0) or 0)),
+        "mmproj_path": row.get("mmproj_path", "") or "",
         "ctx": ctx,
         "gpu_layers": int(row.get("gpu_layers", 999) or 999),
         "threads": int(row.get("threads", 8) or 8),
@@ -724,6 +729,8 @@ class ModelManager:
         self._status         = "ready"
         self._switch_eta     = 0.0
         self._switch_callbacks = []
+        self._last_start_cmd = ""
+        self._last_startup_hints: list[str] = []
         if not self.has_llama_server():
             print(f"[ModelManager] WARNING: llama-server not found: {self.llama_path}")
         # 起動時に実際に動いているモデルを検出してcurrent_keyを同期
@@ -901,6 +908,18 @@ class ModelManager:
         if not self.has_llama_server():
             print(f"[ModelManager] llama-server not found: {self.llama_path}")
             return False
+        if spec.get("is_vlm") and spec.get("vlm_enabled", True):
+            mmproj = str(spec.get("mmproj_path", "") or "").strip()
+            if not mmproj:
+                msg = "VLMモデルですが mmproj_path が未設定です。モデルDBのmmprojを設定してください。"
+                print(f"[ModelManager] {msg}")
+                self._last_startup_hints = [msg]
+                return False
+            if not os.path.exists(mmproj):
+                msg = f"VLM mmprojファイルが見つかりません: {mmproj}"
+                print(f"[ModelManager] {msg}")
+                self._last_startup_hints = [msg]
+                return False
         cmd = [
             self.llama_path,
             "--model",    spec["path"],
@@ -911,6 +930,8 @@ class ModelManager:
             "--threads",  str(spec["threads"]),
             "--no-mmap",
         ]
+        if spec.get("is_vlm") and spec.get("vlm_enabled", True):
+            cmd += ["--mmproj", str(spec.get("mmproj_path", "")).strip()]
         # モデル別オプション
         if spec.get("parallel", -1) and spec.get("parallel", -1) > 0:
             cmd += ["--parallel", str(spec["parallel"])]
@@ -924,7 +945,7 @@ class ModelManager:
             cmd += ["--cache-type-v", spec["cache_type_v"]]
         for arg in spec.get("extra_args", []):
             cmd.append(arg)
-        print(
+        cmd_text = (
             "[ModelManager] starting:"
             f" model={spec.get('path','')}"
             f" -ngl={spec.get('gpu_layers')}"
@@ -933,9 +954,20 @@ class ModelManager:
             f" extra_args={spec.get('extra_args', [])}"
             f" full_cmd={' '.join(cmd)}"
         )
+        print(cmd_text)
+        self._last_start_cmd = " ".join(cmd)
         try:
             flags = _sp.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-            self._process = _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, creationflags=flags)
+            with open(LLAMA_STARTUP_LOG_PATH, "a", encoding="utf-8") as logf:
+                logf.write(
+                    f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n"
+                    f"{cmd_text}\n"
+                )
+            log_handle = open(LLAMA_STARTUP_LOG_PATH, "a", encoding="utf-8")
+            self._process = _sp.Popen(
+                cmd, stdout=log_handle, stderr=log_handle, creationflags=flags
+            )
+            log_handle.close()
         except Exception as e:
             print(f"[ModelManager] Popen error: {e}")
             return False
@@ -954,7 +986,13 @@ class ModelManager:
             except: pass
             if self._process.poll() is not None:
                 print("[ModelManager] process exited during load")
+                self._last_startup_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
+                if self._last_startup_hints:
+                    print(f"[ModelManager] startup hints: {self._last_startup_hints}")
                 return False
+        self._last_startup_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
+        if self._last_startup_hints:
+            print(f"[ModelManager] startup hints: {self._last_startup_hints}")
         return False
 
     def status_dict(self) -> dict:
@@ -6670,6 +6708,36 @@ def _llm_endpoint_reachable(url: str, timeout_sec: float = 1.8) -> bool:
     return False
 
 
+def _infer_startup_failure_hints(log_path: str, tail_lines: int = 200) -> list[str]:
+    """
+    llama-server起動ログから「VRAMへ載らない」原因候補を抽出する。
+    """
+    if not os.path.exists(log_path):
+        return []
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()[-tail_lines:]
+    except Exception:
+        return []
+    blob = "\n".join(lines).lower()
+    hints: list[str] = []
+    if ("cuda" in blob and ("not found" in blob or "failed" in blob)) or "ggml_cuda_init" in blob:
+        hints.append("CUDA初期化失敗の可能性（CPUフォールバック）。GPUドライバ/ビルドを確認してください。")
+    if "metal" in blob and "failed" in blob:
+        hints.append("Metal初期化失敗の可能性（CPUフォールバック）。")
+    if "hip" in blob and ("failed" in blob or "not found" in blob):
+        hints.append("ROCm/HIP初期化失敗の可能性（CPUフォールバック）。")
+    if "-ngl 0" in blob or "n_gpu_layers = 0" in blob:
+        hints.append("GPUレイヤーが0で起動している可能性。gpu_layers設定を確認してください。")
+    if "insufficient vram" in blob or "out of memory" in blob:
+        hints.append("VRAM不足の可能性。ctx_size/gpu_layers/modelサイズを下げてください。")
+    if "warning" in blob and "mmap" in blob:
+        hints.append("mmap関連警告あり。ストレージや権限で読み込み性能が低下している可能性。")
+    if "mmproj" in blob and ("not found" in blob or "missing" in blob or "failed" in blob):
+        hints.append("VLM用mmprojの不足/不一致の可能性。modelと対応するmmprojを指定してください。")
+    return list(dict.fromkeys(hints))
+
+
 def _resolve_runtime_llm_url(requested_url: str = "") -> str:
     req_url = (requested_url or "").strip()
     if req_url and _llm_endpoint_reachable(req_url):
@@ -9523,6 +9591,30 @@ def system_summary():
             "gpus": usage.get("gpus", []),
             "updated_at": usage.get("updated_at"),
         }
+    }
+
+@app.get("/debug/model-startup")
+def debug_model_startup():
+    """
+    VRAM未使用・CPUフォールバック時の切り分け用。
+    直近の起動コマンドとログ推定ヒントを返す。
+    """
+    hints = list(_model_manager._last_startup_hints or [])
+    if not hints:
+        hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
+    log_tail = ""
+    if os.path.exists(LLAMA_STARTUP_LOG_PATH):
+        try:
+            with open(LLAMA_STARTUP_LOG_PATH, "r", encoding="utf-8", errors="ignore") as f:
+                log_tail = "".join(f.readlines()[-120:])[-8000:]
+        except Exception:
+            log_tail = ""
+    return {
+        "llama_path": _model_manager.llama_path,
+        "last_start_cmd": _model_manager._last_start_cmd,
+        "hints": hints,
+        "log_path": LLAMA_STARTUP_LOG_PATH,
+        "log_tail": log_tail,
     }
 
 @app.get("/health")
