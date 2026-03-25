@@ -462,13 +462,19 @@ header{
     flex:1;
     min-height:0;
     height:auto;
+    width:100%;
   }
   .chat-col{
     /* flex layout: messages flex-grow, input always visible at bottom */
     display:flex!important;flex-direction:column!important;
     height:100%;max-height:100%;
+    width:100%;max-width:100%;flex:1 1 100%;
   }
-  .panel-col{height:100%;max-height:100%;display:flex;flex-direction:column}
+  .panel-col{
+    height:100%;max-height:100%;display:flex;flex-direction:column;
+    width:100%;max-width:100%;flex:1 1 100%;
+  }
+  #tab-memory{padding-left:0 !important;padding-right:0 !important}
   .mob-hidden{display:none!important}
 }
 @media(min-width:769px){
@@ -1816,6 +1822,14 @@ function mobSwitch(name) {
   document.getElementById('mob-'+name)?.classList.add('active');
   const cc = document.getElementById('chat-col');
   const pc = document.getElementById('panel-col');
+  if (window.innerWidth <= 768 && cc && pc) {
+    cc.style.width = '100%';
+    cc.style.maxWidth = '100%';
+    cc.style.flex = '1 1 100%';
+    pc.style.width = '100%';
+    pc.style.maxWidth = '100%';
+    pc.style.flex = '1 1 100%';
+  }
   if (name === 'chat') { cc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden'); }
   else { cc.classList.add('mob-hidden'); pc.classList.remove('mob-hidden');
     switchTab(name === 'output' ? 'output'
