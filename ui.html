@@ -100,18 +100,25 @@ async function refreshSkills() {
   try {
     const r = await fetch(API+'/skills');
     const d = await r.json();
-    renderSkills(d.skills || []);
+    renderSkills(d.skills || [], d);
   } catch(e) { console.warn('skills fetch error', e); }
 }
 
-function renderSkills(skills) {
+function renderSkills(skills, meta = {}) {
   const el = document.getElementById('skills-list');
   if (!el) return;
+  const paths = meta.paths || {};
+  const activePath = paths.active || './ca_data/skills';
+  const localPath = paths.default_local || './ca_data/skills';
+  const runpodPath = paths.default_runpod || '/workspace/ca_data/skills';
+  const skillMdPath = (base) => /[A-Za-z]:\\/.test(base) ? `${base}\\スキル名\\SKILL.md` : `${base}/スキル名/SKILL.md`;
   if (!skills.length) {
     el.innerHTML = `<div style="font-size:11px;color:var(--text3);padding:8px;line-height:1.8">
       スキルなし。<br>
-      <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">C:\\AI\\skills\\スキル名\\SKILL.md</code> に配置するか、<br>
-      タスク完了後の提案から保存できます。
+      現在の保存先: <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">${esc(skillMdPath(activePath))}</code><br>
+      ローカル既定: <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">${esc(skillMdPath(localPath))}</code><br>
+      Runpod既定: <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">${esc(skillMdPath(runpodPath))}</code><br>
+      必要に応じて環境変数 <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">CODEAGENT_SKILLS_DIR</code> で変更できます。
     </div>`;
     return;
   }
