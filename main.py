@@ -6245,7 +6245,8 @@ def verify_and_fix(
     # プロジェクト内ファイルを収集
     project_path = os.path.join(WORK_DIR, project)
     py_files, html_files, other_files = [], [], []
-    for root, _, files in os.walk(project_path):
+    for root, dirs, files in os.walk(project_path):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
         for f in files:
             if f.startswith('_'): continue
             rel = os.path.relpath(os.path.join(root, f), project_path)
