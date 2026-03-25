@@ -103,6 +103,7 @@ CODEAGENT_HIDDEN_DIR = os.path.join(BASE_DIR, ".codeagent")
 OPENCODE_CONFIG_PATH = os.path.join(BASE_DIR, "opencode.json")
 LOG_DIR = os.path.join(CA_DATA_DIR, "Logs")
 OPENCODE_ENSEMBLE_LOG_DIR = os.path.join(LOG_DIR, "ensemble")
+LLAMA_STARTUP_LOG_PATH = os.path.join(LOG_DIR, "llama_startup.log")
 
 os.makedirs(CA_DATA_DIR, exist_ok=True)
 os.makedirs(CODEAGENT_HIDDEN_DIR, exist_ok=True)
@@ -382,6 +383,10 @@ def _runtime_spec_from_row(row: dict) -> dict:
     return {
         "name": row.get("name", "") or row.get("model_key", ""),
         "path": row.get("path", ""),
+        "is_vlm": bool(int(row.get("is_vlm", 0) or 0)),
+        "vlm_enabled": bool(int(row.get("vlm_enabled", 1) or 1)),
+        "has_mmproj": bool(int(row.get("has_mmproj", 0) or 0)),
+        "mmproj_path": row.get("mmproj_path", "") or "",
         "ctx": ctx,
         "gpu_layers": int(row.get("gpu_layers", 999) or 999),
         "threads": int(row.get("threads", 8) or 8),
@@ -724,6 +729,8 @@ class ModelManager:
         self._status         = "ready"
         self._switch_eta     = 0.0
         self._switch_callbacks = []
+        self._last_start_cmd = ""
+        self._last_startup_hints: list[str] = []
         if not self.has_llama_server():
             print(f"[ModelManager] WARNING: llama-server not found: {self.llama_path}")
         # 起動時に実際に動いているモデルを検出してcurrent_keyを同期
@@ -901,6 +908,18 @@ class ModelManager:
         if not self.has_llama_server():
             print(f"[ModelManager] llama-server not found: {self.llama_path}")
             return False
+        if spec.get("is_vlm") and spec.get("vlm_enabled", True):
+            mmproj = str(spec.get("mmproj_path", "") or "").strip()
+            if not mmproj:
+                msg = "VLMモデルですが mmproj_path が未設定です。モデルDBのmmprojを設定してください。"
+                print(f"[ModelManager] {msg}")
+                self._last_startup_hints = [msg]
+                return False
+            if not os.path.exists(mmproj):
+                msg = f"VLM mmprojファイルが見つかりません: {mmproj}"
+                print(f"[ModelManager] {msg}")
+                self._last_startup_hints = [msg]
+                return False
         cmd = [
             self.llama_path,
             "--model",    spec["path"],
@@ -911,6 +930,8 @@ class ModelManager:
             "--threads",  str(spec["threads"]),
             "--no-mmap",
         ]
+        if spec.get("is_vlm") and spec.get("vlm_enabled", True):
+            cmd += ["--mmproj", str(spec.get("mmproj_path", "")).strip()]
         # モデル別オプション
         if spec.get("parallel", -1) and spec.get("parallel", -1) > 0:
             cmd += ["--parallel", str(spec["parallel"])]
@@ -924,7 +945,7 @@ class ModelManager:
             cmd += ["--cache-type-v", spec["cache_type_v"]]
         for arg in spec.get("extra_args", []):
             cmd.append(arg)
-        print(
+        cmd_text = (
             "[ModelManager] starting:"
             f" model={spec.get('path','')}"
             f" -ngl={spec.get('gpu_layers')}"
@@ -933,9 +954,20 @@ class ModelManager:
             f" extra_args={spec.get('extra_args', [])}"
             f" full_cmd={' '.join(cmd)}"
         )
+        print(cmd_text)
+        self._last_start_cmd = " ".join(cmd)
         try:
             flags = _sp.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-            self._process = _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, creationflags=flags)
+            with open(LLAMA_STARTUP_LOG_PATH, "a", encoding="utf-8") as logf:
+                logf.write(
+                    f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n"
+                    f"{cmd_text}\n"
+                )
+            log_handle = open(LLAMA_STARTUP_LOG_PATH, "a", encoding="utf-8")
+            self._process = _sp.Popen(
+                cmd, stdout=log_handle, stderr=log_handle, creationflags=flags
+            )
+            log_handle.close()
         except Exception as e:
             print(f"[ModelManager] Popen error: {e}")
             return False
@@ -954,7 +986,13 @@ class ModelManager:
             except: pass
             if self._process.poll() is not None:
                 print("[ModelManager] process exited during load")
+                self._last_startup_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
+                if self._last_startup_hints:
+                    print(f"[ModelManager] startup hints: {self._last_startup_hints}")
                 return False
+        self._last_startup_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
+        if self._last_startup_hints:
+            print(f"[ModelManager] startup hints: {self._last_startup_hints}")
         return False
 
     def status_dict(self) -> dict:
@@ -2080,7 +2118,22 @@ def _ensure_browser_container(project: str) -> bool:
     import time; time.sleep(2)  # 起動待ち
     return True
 
-def run_browser(script: str, project: str = "default", timeout: int = None) -> str:
+def _build_default_browser_script(url: str, project: str) -> str:
+    """URLだけ指定された場合に使う最小のPlaywrightスクリプトを生成する。"""
+    target = str(url or "").strip() or "http://localhost:8888/"
+    return (
+        "from playwright.sync_api import sync_playwright\n"
+        "with sync_playwright() as p:\n"
+        "    browser = p.chromium.launch(headless=True)\n"
+        "    page = browser.new_page()\n"
+        f"    page.goto({target!r}, wait_until='networkidle')\n"
+        "    page.screenshot(path='screenshot.png', full_page=True)\n"
+        "    print(page.title())\n"
+        "    browser.close()\n"
+    )
+
+
+def run_browser(script: str = "", project: str = "default", timeout: int = None, url: str = "") -> str:
     """
     Playwright（Python）をDockerコンテナ内で実行してブラウザ自動化を行う。
     script: Playwrightを使ったPythonコード
@@ -2100,12 +2153,15 @@ def run_browser(script: str, project: str = "default", timeout: int = None) -> s
           print(page.title())
           browser.close()
     """
+    browser_script = str(script or "").strip()
+    if not browser_script:
+        browser_script = _build_default_browser_script(url=url, project=project)
     _timeout = _clamp_docker_timeout("run_browser", timeout)
     project_dir = os.path.join(WORK_DIR, project)
     os.makedirs(project_dir, exist_ok=True)
     script_path = os.path.join(project_dir, "_browser_run.py")
     with open(script_path, "w", encoding="utf-8") as f:
-        f.write(script)
+        f.write(browser_script)
 
     backend = _resolve_tool_backend("run_browser")
     if backend == "local":
@@ -2140,6 +2196,11 @@ def _run_browser_local(project: str, timeout: int) -> str:
             return (
                 "ERROR: playwright module is missing in project .venv.\n"
                 "Install with: .venv/bin/pip install playwright && .venv/bin/playwright install chromium"
+            )
+        if "Executable doesn't exist" in out and "playwright" in out.lower():
+            return (
+                "ERROR: Playwright browser binary is missing.\n"
+                "Run: .venv/bin/playwright install chromium"
             )
         ss_path = os.path.join(project_dir, "screenshot.png")
         if os.path.exists(ss_path):
@@ -2328,8 +2389,18 @@ def stop_server(port: int = 8888) -> str:
     return f"already stopped (container not found)"
 
 
-def write_file(path: str, content: str, project: str = "default") -> str:
+def write_file(path: str = "", content: str = "", project: str = "default") -> str:
     try:
+        path = str(path or "").strip()
+        if not path:
+            return (
+                "ERROR: write_file requires 'path' and 'content'.\n"
+                "Example: write_file({\"path\":\"index.html\",\"content\":\"...\"})"
+            )
+        if content is None:
+            content = ""
+        if not isinstance(content, str):
+            content = str(content)
         full, path = _project_path(project, path)
         os.makedirs(os.path.dirname(full), exist_ok=True)
         with open(full, "w", encoding="utf-8") as f:
@@ -4262,11 +4333,18 @@ def _normalize_tool_input(action: str, tool_input) -> tuple[dict, list[str]]:
     raw = tool_input if isinstance(tool_input, dict) else {}
     if not isinstance(tool_input, dict):
         notes.append("inputがdictではないため空dictとして扱いました。")
+    elif isinstance(raw.get("input"), dict) and len(raw) == 1:
+        # 一部モデルが {"input": {...}} を二重に返すため救済
+        raw = raw["input"]
+        notes.append("二重inputを展開: input -> (root)")
 
     alias_map = {
         "list_files": {"path": "subdir", "dir": "subdir", "directory": "subdir"},
         "read_file": {"file_path": "path", "filename": "path", "file": "path"},
-        "write_file": {"file_path": "path", "filename": "path", "text": "content", "body": "content"},
+        "write_file": {
+            "file_path": "path", "filename": "path", "filepath": "path",
+            "text": "content", "body": "content", "contents": "content"
+        },
         "edit_file": {"file_path": "path", "filename": "path", "before": "old_str", "after": "new_str"},
         "run_python": {"cmd": "code", "script": "code"},
         "run_file": {"file_path": "path", "file": "path"},
@@ -4794,11 +4872,66 @@ def _build_system_prompt(project: str = "") -> str:
     {project} プレースホルダーを実際のプロジェクト名に置換する。
     """
     base = SYSTEM_PROMPT.replace("{project}", project) if project else SYSTEM_PROMPT
+    usage_fn = globals().get("_build_tool_success_playbook")
+    usage_guide = usage_fn(project) if usage_fn else ""
     inject_fn = globals().get("_skills_to_prompt_injection")
     injection = inject_fn() if inject_fn else ""
-    if not injection:
-        return base
-    return base + injection
+    return base + usage_guide + injection
+
+
+def _build_tool_success_playbook(project: str = "") -> str:
+    """
+    Claude/Codex/OpenCode系の失敗抑止パターンをツール実行前ガイドとして注入する。
+    - schema first（必須引数確認）
+    - runtime aware（local / Runpod 差分）
+    - fail fast（同一失敗の反復禁止）
+    """
+    runtime = "runpod" if IS_RUNPOD_RUNTIME else "local"
+    runtime_note = (
+        "- Runpod: run_python/run_file/run_browser は project配下 .venv を優先。"
+        " playwright不足時は setup_venv(requirements=[\"playwright\"]) → playwright install chromium。\n"
+        if runtime == "runpod" else
+        "- Local: Docker優先。Docker不可時のみローカルフォールバックを使う。"
+        " エラー文に従って依存を最小追加する。\n"
+    )
+
+    # 主要失敗を誘発しやすいツールは具体例を明示
+    targeted = """
+【Tool Success Playbook / 実行前チェック】
+1) actionは1回に1つ。必ず JSON のみで返す。
+2) 実行前に required引数を自己検証（不足があれば実行せず修正）。
+3) ERROR時は「同じaction+同じ引数」を繰り返さず、引数か手順を変更。
+4) 破壊的操作（delete_path/git_reset）は read_file/git_status などで事前確認してから実行。
+5) 長文説明を path/subdir/src/dst に入れない。ファイルパスのみ指定。
+""" + runtime_note + f"""
+【高頻度で失敗しやすいツールの具体ルール】
+- write_file: 必須は path, content。例: {{"path":"index.html","content":"..."}}。
+  既存修正は edit_file 優先。write_fileは新規作成か全体置換のみ。
+- run_browser: script未指定なら url を渡す。例: {{"url":"http://localhost:8888/","timeout":120}}。
+  script指定時はPlaywrightのPythonコードを渡す。
+- run_shell: command には1つの目的だけを書く（例: "pytest -q"）。
+  失敗時は install と test を分割して再実行。
+- git系: 開始時 git_status、完了時 git_diff → git_commit の順。
+  projectは通常 "{project or 'default'}" を使う。
+"""
+    # 全ツールの最低限スキーマ（required/optional）を短く列挙
+    sig_lines = []
+    for name, fn in sorted((globals().get("TOOLS") or {}).items()):
+        try:
+            sig = inspect.signature(fn)
+            req, opt = [], []
+            for p in sig.parameters.values():
+                if p.kind not in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY):
+                    continue
+                if p.default is inspect._empty:
+                    req.append(p.name)
+                else:
+                    opt.append(p.name)
+            sig_lines.append(f"- {name}: required={req or ['(none)']}, optional={opt or ['(none)']}")
+        except Exception:
+            continue
+    schema = "\n".join(sig_lines[:40])  # プロンプト肥大化を防ぐ安全上限
+    return targeted + "\n【Tool Schema Quick Reference】\n" + schema + "\n"
 
 
 # =========================
@@ -6573,6 +6706,36 @@ def _llm_endpoint_reachable(url: str, timeout_sec: float = 1.8) -> bool:
         except Exception:
             pass
     return False
+
+
+def _infer_startup_failure_hints(log_path: str, tail_lines: int = 200) -> list[str]:
+    """
+    llama-server起動ログから「VRAMへ載らない」原因候補を抽出する。
+    """
+    if not os.path.exists(log_path):
+        return []
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()[-tail_lines:]
+    except Exception:
+        return []
+    blob = "\n".join(lines).lower()
+    hints: list[str] = []
+    if ("cuda" in blob and ("not found" in blob or "failed" in blob)) or "ggml_cuda_init" in blob:
+        hints.append("CUDA初期化失敗の可能性（CPUフォールバック）。GPUドライバ/ビルドを確認してください。")
+    if "metal" in blob and "failed" in blob:
+        hints.append("Metal初期化失敗の可能性（CPUフォールバック）。")
+    if "hip" in blob and ("failed" in blob or "not found" in blob):
+        hints.append("ROCm/HIP初期化失敗の可能性（CPUフォールバック）。")
+    if "-ngl 0" in blob or "n_gpu_layers = 0" in blob:
+        hints.append("GPUレイヤーが0で起動している可能性。gpu_layers設定を確認してください。")
+    if "insufficient vram" in blob or "out of memory" in blob:
+        hints.append("VRAM不足の可能性。ctx_size/gpu_layers/modelサイズを下げてください。")
+    if "warning" in blob and "mmap" in blob:
+        hints.append("mmap関連警告あり。ストレージや権限で読み込み性能が低下している可能性。")
+    if "mmproj" in blob and ("not found" in blob or "missing" in blob or "failed" in blob):
+        hints.append("VLM用mmprojの不足/不一致の可能性。modelと対応するmmprojを指定してください。")
+    return list(dict.fromkeys(hints))
 
 
 def _resolve_runtime_llm_url(requested_url: str = "") -> str:
@@ -9428,6 +9591,30 @@ def system_summary():
             "gpus": usage.get("gpus", []),
             "updated_at": usage.get("updated_at"),
         }
+    }
+
+@app.get("/debug/model-startup")
+def debug_model_startup():
+    """
+    VRAM未使用・CPUフォールバック時の切り分け用。
+    直近の起動コマンドとログ推定ヒントを返す。
+    """
+    hints = list(_model_manager._last_startup_hints or [])
+    if not hints:
+        hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
+    log_tail = ""
+    if os.path.exists(LLAMA_STARTUP_LOG_PATH):
+        try:
+            with open(LLAMA_STARTUP_LOG_PATH, "r", encoding="utf-8", errors="ignore") as f:
+                log_tail = "".join(f.readlines()[-120:])[-8000:]
+        except Exception:
+            log_tail = ""
+    return {
+        "llama_path": _model_manager.llama_path,
+        "last_start_cmd": _model_manager._last_start_cmd,
+        "hints": hints,
+        "log_path": LLAMA_STARTUP_LOG_PATH,
+        "log_tail": log_tail,
     }
 
 @app.get("/health")
