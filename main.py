@@ -2080,7 +2080,22 @@ def _ensure_browser_container(project: str) -> bool:
     import time; time.sleep(2)  # 起動待ち
     return True
 
-def run_browser(script: str, project: str = "default", timeout: int = None) -> str:
+def _build_default_browser_script(url: str, project: str) -> str:
+    """URLだけ指定された場合に使う最小のPlaywrightスクリプトを生成する。"""
+    target = str(url or "").strip() or "http://localhost:8888/"
+    return (
+        "from playwright.sync_api import sync_playwright\n"
+        "with sync_playwright() as p:\n"
+        "    browser = p.chromium.launch(headless=True)\n"
+        "    page = browser.new_page()\n"
+        f"    page.goto({target!r}, wait_until='networkidle')\n"
+        "    page.screenshot(path='screenshot.png', full_page=True)\n"
+        "    print(page.title())\n"
+        "    browser.close()\n"
+    )
+
+
+def run_browser(script: str = "", project: str = "default", timeout: int = None, url: str = "") -> str:
     """
     Playwright（Python）をDockerコンテナ内で実行してブラウザ自動化を行う。
     script: Playwrightを使ったPythonコード
@@ -2100,12 +2115,15 @@ def run_browser(script: str, project: str = "default", timeout: int = None) -> s
           print(page.title())
           browser.close()
     """
+    browser_script = str(script or "").strip()
+    if not browser_script:
+        browser_script = _build_default_browser_script(url=url, project=project)
     _timeout = _clamp_docker_timeout("run_browser", timeout)
     project_dir = os.path.join(WORK_DIR, project)
     os.makedirs(project_dir, exist_ok=True)
     script_path = os.path.join(project_dir, "_browser_run.py")
     with open(script_path, "w", encoding="utf-8") as f:
-        f.write(script)
+        f.write(browser_script)
 
     backend = _resolve_tool_backend("run_browser")
     if backend == "local":
@@ -2140,6 +2158,11 @@ def _run_browser_local(project: str, timeout: int) -> str:
             return (
                 "ERROR: playwright module is missing in project .venv.\n"
                 "Install with: .venv/bin/pip install playwright && .venv/bin/playwright install chromium"
+            )
+        if "Executable doesn't exist" in out and "playwright" in out.lower():
+            return (
+                "ERROR: Playwright browser binary is missing.\n"
+                "Run: .venv/bin/playwright install chromium"
             )
         ss_path = os.path.join(project_dir, "screenshot.png")
         if os.path.exists(ss_path):
@@ -2328,8 +2351,18 @@ def stop_server(port: int = 8888) -> str:
     return f"already stopped (container not found)"
 
 
-def write_file(path: str, content: str, project: str = "default") -> str:
+def write_file(path: str = "", content: str = "", project: str = "default") -> str:
     try:
+        path = str(path or "").strip()
+        if not path:
+            return (
+                "ERROR: write_file requires 'path' and 'content'.\n"
+                "Example: write_file({\"path\":\"index.html\",\"content\":\"...\"})"
+            )
+        if content is None:
+            content = ""
+        if not isinstance(content, str):
+            content = str(content)
         full, path = _project_path(project, path)
         os.makedirs(os.path.dirname(full), exist_ok=True)
         with open(full, "w", encoding="utf-8") as f:
@@ -4262,11 +4295,18 @@ def _normalize_tool_input(action: str, tool_input) -> tuple[dict, list[str]]:
     raw = tool_input if isinstance(tool_input, dict) else {}
     if not isinstance(tool_input, dict):
         notes.append("inputがdictではないため空dictとして扱いました。")
+    elif isinstance(raw.get("input"), dict) and len(raw) == 1:
+        # 一部モデルが {"input": {...}} を二重に返すため救済
+        raw = raw["input"]
+        notes.append("二重inputを展開: input -> (root)")
 
     alias_map = {
         "list_files": {"path": "subdir", "dir": "subdir", "directory": "subdir"},
         "read_file": {"file_path": "path", "filename": "path", "file": "path"},
-        "write_file": {"file_path": "path", "filename": "path", "text": "content", "body": "content"},
+        "write_file": {
+            "file_path": "path", "filename": "path", "filepath": "path",
+            "text": "content", "body": "content", "contents": "content"
+        },
         "edit_file": {"file_path": "path", "filename": "path", "before": "old_str", "after": "new_str"},
         "run_python": {"cmd": "code", "script": "code"},
         "run_file": {"file_path": "path", "file": "path"},
