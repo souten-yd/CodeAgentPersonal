@@ -1614,6 +1614,9 @@ async function _saveSettingDb(key, value) {
 
 // ── INIT ──
 addEventListener('load', async () => {
+  if (window.innerWidth <= 768) {
+    mobSwitch('chat');
+  }
   localStorage.removeItem('llm_endpoints'); // 旧LLMエンドポイント設定をクリーンアップ
   await loadSettingsFromDb();   // DBから設定を復元（localStorage優先ではなくDB優先）
   await refreshSystemSummary();
