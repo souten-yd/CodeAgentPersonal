@@ -956,12 +956,19 @@ class ModelManager:
         self._last_start_cmd = " ".join(cmd)
         try:
             flags = _sp.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-            with open(LLAMA_STARTUP_LOG_PATH, "a", encoding="utf-8") as logf:
-                logf.write(
-                    f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n"
-                    f"{cmd_text}\n"
-                )
-            self._process = _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, creationflags=flags)
+            # バイナリモードで開いてstderr/stdoutをログへリダイレクト
+            # ファイルハンドルはPopen後に閉じてもLinuxではchildのfdは残る
+            log_fd = open(LLAMA_STARTUP_LOG_PATH, "ab")
+            header = (
+                f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n"
+                f"{cmd_text}\n"
+            ).encode("utf-8", errors="replace")
+            log_fd.write(header)
+            log_fd.flush()
+            self._process = _sp.Popen(
+                cmd, stdout=log_fd, stderr=log_fd, creationflags=flags
+            )
+            log_fd.close()
         except Exception as e:
             print(f"[ModelManager] Popen error: {e}")
             return False
@@ -6742,6 +6749,16 @@ def _infer_startup_failure_hints(log_path: str, tail_lines: int = 200) -> list[s
         hints.append("mmap関連警告あり。ストレージや権限で読み込み性能が低下している可能性。")
     if "mmproj" in blob and ("not found" in blob or "missing" in blob or "failed" in blob):
         hints.append("VLM用mmprojの不足/不一致の可能性。modelと対応するmmprojを指定してください。")
+    # GPUデバイスが見つからない場合（llama.cpp直接出力）
+    import re as _re
+    if _re.search(r"ggml_cuda_init.*found 0 devices", blob):
+        hints.append("GPUデバイスが0件（CUDAデバイス未検出）。LLAMA_SERVER_PATHのバイナリにCUDAが組み込まれているか確認してください。")
+    # GPUオフロードが0レイヤーの場合（CUDAあるがVRAMに載っていない）
+    if _re.search(r"offloaded 0/\d+ layers to gpu", blob):
+        hints.append("GPUオフロード0レイヤー（CPU動作）。ggml_cuda_initの結果と-ngl設定を確認してください。")
+    elif _re.search(r"offloaded \d+/\d+ layers to gpu", blob):
+        # 正常にGPUオフロードされていることを示す（ヒントなし）
+        pass
     return list(dict.fromkeys(hints))
 
 
