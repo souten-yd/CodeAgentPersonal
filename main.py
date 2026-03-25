@@ -956,19 +956,13 @@ class ModelManager:
         self._last_start_cmd = " ".join(cmd)
         try:
             flags = _sp.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-            # バイナリモードで開いてstderr/stdoutをログへリダイレクト
-            # ファイルハンドルはPopen後に閉じてもLinuxではchildのfdは残る
-            log_fd = open(LLAMA_STARTUP_LOG_PATH, "ab")
-            header = (
-                f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n"
-                f"{cmd_text}\n"
-            ).encode("utf-8", errors="replace")
-            log_fd.write(header)
-            log_fd.flush()
+            # 起動メタ情報はログへ残しつつ、llama-serverのstdout/stderrはDEVNULLへ捨てる。
+            # 過去にファイルリダイレクトでGPU初期化が不安定化し、VRAMロード不全が発生したため。
+            with open(LLAMA_STARTUP_LOG_PATH, "a", encoding="utf-8", errors="replace") as logf:
+                logf.write(f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n{cmd_text}\n")
             self._process = _sp.Popen(
-                cmd, stdout=log_fd, stderr=log_fd, creationflags=flags
+                cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, creationflags=flags
             )
-            log_fd.close()
         except Exception as e:
             print(f"[ModelManager] Popen error: {e}")
             return False
