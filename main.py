@@ -6224,9 +6224,10 @@ JSON形式で出力:
                 verify_result = None
 
             print(f"[JOB {job_id}] completed: {done_count}/{total} tasks done")
+            verify_passed = True if not verify_result else bool(verify_result.get("passed", True))
             final = {
-                "summary": f"{total}タスク中{done_count}件完了",
-                "success": done_count == total,
+                "summary": f"{total}タスク中{done_count}件完了" + ("" if verify_passed else "（検証で失敗あり）"),
+                "success": (done_count == total) and verify_passed,
                 "tasks": results,
                 "verify": verify_result,
             }
@@ -6694,6 +6695,10 @@ def verify_and_fix(
         if on_event:
             on_event(data)
 
+    # 修正リトライ回数は呼び出し側の意図（max_fix_rounds）を優先。
+    # 以前は最低6回に強制され、失敗時に長時間ループしやすかったため上限クランプのみ行う。
+    fix_round_limit = max(1, min(int(max_fix_rounds or 1), 6))
+
     working_requirements = list(requirements or [])
 
     def _req_text() -> str:
@@ -6790,8 +6795,7 @@ def verify_and_fix(
 
         # 失敗した場合は修正ループ
         if not ok:
-            max_reconsider_rounds = max(max_fix_rounds, 6)
-            for fix_round in range(max_reconsider_rounds):
+            for fix_round in range(fix_round_limit):
                 failure_reason = _extract_failure_reason(output)
                 _append_failure_requirements("単体テスト", [failure_reason], [py_file])
                 req_text = _req_text()
@@ -6934,8 +6938,7 @@ def verify_and_fix(
         # 失敗シナリオがあれば修正
         failed_integ = [r for r in integ_results if r["status"] == "fail"]
         if failed_integ:
-            max_reconsider_rounds = max(max_fix_rounds, 6)
-            for fix_round in range(max_reconsider_rounds):
+            for fix_round in range(fix_round_limit):
                 failure_reasons = [f"{r.get('name','scenario')}: {_extract_failure_reason(r.get('output',''))}" for r in failed_integ]
                 related_tasks = [str(r.get("name", "integration_scenario")) for r in failed_integ]
                 _append_failure_requirements("結合テスト", failure_reasons, related_tasks)
