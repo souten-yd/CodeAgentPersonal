@@ -3889,7 +3889,7 @@ def get_system_hardware_info() -> dict:
     except Exception:
         pass
 
-    candidates = ["nvidia-smi", "rocm-smi", "nvidia-proc", "lspci"] if os.name != "nt" else ["windows-counter", "nvidia-smi"]
+    candidates = ["nvidia-smi", "rocm-smi", "nvidia-proc", "lspci"] if os.name != "nt" else ["windows-counter", "nvidia-smi", "rocm-smi"]
     gpu_backend, gpus = _select_working_gpu_backend("gpu_static_backend", candidates)
 
     vram_total_mb = sum(g["memory_total_mb"] for g in gpus) if gpus else -1
@@ -4084,7 +4084,7 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
         except Exception:
             return -1.0
 
-    candidates = ["nvidia-smi", "rocm-smi", "nvidia-proc", "lspci"] if os.name != "nt" else ["windows-counter", "nvidia-smi"]
+    candidates = ["nvidia-smi", "rocm-smi", "nvidia-proc", "lspci"] if os.name != "nt" else ["windows-counter", "nvidia-smi", "rocm-smi"]
     selected = (settings_get("gpu_usage_backend") or "auto").strip()
     if selected in ("", "auto", "none"):
         selected, _ = _select_working_gpu_backend("gpu_usage_backend", candidates)
@@ -4146,8 +4146,8 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
                 continue
     elif selected == "rocm-smi":
         rocm_cmds = [
-            ["rocm-smi", "--showuse", "--showmemuse", "--json"],
             ["rocm-smi", "--showuse", "--showmeminfo", "vram", "--json"],
+            ["rocm-smi", "--showuse", "--showmemuse", "--json"],
             ["rocm-smi", "--showuse", "--showmemuse"],
             ["rocminfo"],
             ["rocm_agent_enumerator"],
@@ -4163,7 +4163,32 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
                             continue
                         util = float(str(info.get("GPU use (%)", "0")).replace("%", "") or -1)
                         vram_pct = float(str(info.get("GPU memory use (%)", "0")).replace("%", "") or -1)
-                        gpus.append({"name": str(info.get("Card series") or info.get("Card SKU") or "AMD GPU"), "util_percent": util, "vram_used_mb": -1, "vram_total_mb": -1, "vram_percent": vram_pct})
+                        vram_used_mb = -1
+                        vram_total_mb = -1
+                        # --showmeminfo vram provides VRAM Total/Used in bytes
+                        total_b = info.get("VRAM Total Memory (B)")
+                        used_b = info.get("VRAM Total Used Memory (B)")
+                        if isinstance(total_b, (int, float)) and total_b > 0:
+                            vram_total_mb = int(total_b / (1024 * 1024))
+                            if isinstance(used_b, (int, float)) and used_b >= 0:
+                                vram_used_mb = int(used_b / (1024 * 1024))
+                                vram_pct = (vram_used_mb / vram_total_mb * 100.0) if vram_total_mb > 0 else -1.0
+                        # --showmemuse provides GPU memory use (%) only; try GTT as fallback for total
+                        if vram_total_mb < 0:
+                            for key_total in ("VRAM Total Memory (B)", "GTT Total Memory (B)"):
+                                tb = info.get(key_total)
+                                if isinstance(tb, (int, float)) and tb > 0:
+                                    vram_total_mb = int(tb / (1024 * 1024))
+                                    break
+                        if vram_used_mb < 0:
+                            for key_used in ("VRAM Total Used Memory (B)", "GTT Total Used Memory (B)"):
+                                ub = info.get(key_used)
+                                if isinstance(ub, (int, float)) and ub >= 0:
+                                    vram_used_mb = int(ub / (1024 * 1024))
+                                    break
+                        if vram_pct < 0 and vram_used_mb >= 0 and vram_total_mb > 0:
+                            vram_pct = (vram_used_mb / vram_total_mb) * 100.0
+                        gpus.append({"name": str(info.get("Card series") or info.get("Card SKU") or "AMD GPU"), "util_percent": util, "vram_used_mb": vram_used_mb, "vram_total_mb": vram_total_mb, "vram_percent": vram_pct})
                 else:
                     for line in out.splitlines():
                         if "Card series" in line or "Card SKU" in line:
