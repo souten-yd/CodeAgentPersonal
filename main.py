@@ -922,25 +922,17 @@ class ModelManager:
         # ─── GPU設定を決定 ────────────────────────────────────────
         # gpu_layers=999（デフォルト全層）の場合、VRAMに収まる設定を自動計算する。
         # _calc_safe_gpu_layers は KVキャッシュ量子化もセットで返す。
-        base_gpu_layers = spec["gpu_layers"]
         user_ck = (spec.get("cache_type_k") or "").strip()
         user_cv = (spec.get("cache_type_v") or "").strip()
 
-        if base_gpu_layers >= 999:
-            gpu_cfg = _calc_safe_gpu_layers(spec)
-            gpu_layers = gpu_cfg["gpu_layers"]
-            # ユーザーが明示指定していなければ自動選択のKV量子化を適用
-            eff_ck = user_ck or gpu_cfg["cache_type_k"]
-            eff_cv = user_cv or gpu_cfg["cache_type_v"]
-        else:
-            gpu_layers = base_gpu_layers
-            eff_ck = user_ck
-            eff_cv = user_cv
+        gpu_cfg = _calc_safe_gpu_layers(spec)
+        # ユーザーが明示指定していなければ自動選択のKV量子化を適用
+        eff_ck = user_ck or gpu_cfg["cache_type_k"]
+        eff_cv = user_cv or gpu_cfg["cache_type_v"]
 
         gpu_vendor = _detect_gpu_vendor()
 
-        _OOM_MAX_RETRIES = 3   # OOM時の自動リトライ上限
-        _OOM_REDUCE_RATE = 0.7  # リトライ毎に層数を70%に削減
+        _OOM_MAX_RETRIES = 0
 
         for _oom_attempt in range(_OOM_MAX_RETRIES + 1):
             # ─── コマンド構築 ─────────────────────────────────────
@@ -950,10 +942,10 @@ class ModelManager:
                 "--port",     str(self.llm_port),
                 "--host",     "0.0.0.0",
                 "--ctx-size", str(spec["ctx"]),
-                "-ngl",       str(gpu_layers),
                 "--threads",  str(spec["threads"]),
                 "--no-mmap",
             ]
+            cmd += ["--n-gpu-layers", "auto", "--fit", "on"]
             if spec.get("is_vlm") and spec.get("vlm_enabled", True):
                 mmproj = str(spec.get("mmproj_path", "") or "").strip()
                 if mmproj:
@@ -989,7 +981,7 @@ class ModelManager:
             cmd_text = (
                 f"[ModelManager] starting{retry_note}:"
                 f" model={spec.get('path','')}"
-                f" -ngl={gpu_layers}"
+                f" n_gpu_layers=auto"
                 f" --ctx-size={spec.get('ctx')}"
                 f" --threads={spec.get('threads')}"
                 f" cache_k={eff_ck or 'f16(default)'}"
@@ -1057,26 +1049,13 @@ class ModelManager:
             if self._last_startup_hints:
                 print(f"[ModelManager] startup hints: {self._last_startup_hints}")
 
-            # OOMかつリトライ余地あり → 層数を削減して再試行
+            # OOM時でもgpu_layersはllama.cppの自動判定へ委譲する
             _is_oom = any(
                 kw in " ".join(self._last_startup_hints).lower()
                 for kw in ("vram", "out of memory", "cudamalloc", "oom", "メモリ")
             )
-            if _is_oom and _oom_attempt < _OOM_MAX_RETRIES and gpu_layers > 4:
-                new_layers = max(4, int(gpu_layers * _OOM_REDUCE_RATE))
-                print(
-                    f"[ModelManager] OOM検出 → gpu_layers {gpu_layers}→{new_layers} に削減して再試行 "
-                    f"({_oom_attempt + 1}/{_OOM_MAX_RETRIES})"
-                )
-                gpu_layers = new_layers
-                # KVキャッシュも q4_0 に落としてVRAM節約（未設定の場合）
-                if not user_ck:
-                    eff_ck = "q4_0"
-                if not user_cv:
-                    eff_cv = "q4_0"
-                self._kill()
-                _mm_time.sleep(2)
-                continue
+            if _is_oom:
+                break
 
             return False
 
