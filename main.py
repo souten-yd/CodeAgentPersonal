@@ -4056,6 +4056,9 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
             "$util = if ($engine) { [double](($engine | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
             "$dedicated = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -ErrorAction SilentlyContinue).CounterSamples; "
             "$usedB = if ($dedicated) { [double](($dedicated | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
+            "$dedicatedLimit = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Limit' -ErrorAction SilentlyContinue).CounterSamples; "
+            "$limitB = if ($dedicatedLimit) { [double](($dedicatedLimit | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
+            "if ($totalB -le 0 -and $limitB -gt 0) { $totalB = $limitB }; "
             "$totalMb = if ($totalB -gt 0) { [math]::Round($totalB / 1MB) } else { -1 }; "
             "$usedMb = if ($usedB -ge 0) { [math]::Round($usedB / 1MB) } else { -1 }; "
             "$vramPct = if ($totalMb -gt 0 -and $usedMb -ge 0) { [math]::Round(($usedMb / $totalMb) * 100, 1) } else { -1 }; "
@@ -4063,7 +4066,9 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
             "$obj|ConvertTo-Json -Compress",
             "$dedicated = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -ErrorAction SilentlyContinue).CounterSamples; "
             "$usedB = if ($dedicated) { [double](($dedicated | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
-            "$obj=@{ name='Windows GPU'; util=-1; total_mb=-1; used_mb=if($usedB -ge 0){[math]::Round($usedB / 1MB)}else{-1}; vram_pct=-1 }; "
+            "$dedicatedLimit = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Limit' -ErrorAction SilentlyContinue).CounterSamples; "
+            "$limitB = if ($dedicatedLimit) { [double](($dedicatedLimit | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
+            "$obj=@{ name='Windows GPU'; util=-1; total_mb=if($limitB -gt 0){[math]::Round($limitB / 1MB)}else{-1}; used_mb=if($usedB -ge 0){[math]::Round($usedB / 1MB)}else{-1}; vram_pct=-1 }; "
             "$obj|ConvertTo-Json -Compress",
             "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name,AdapterRAM | ConvertTo-Json -Compress",
             "wmic path win32_VideoController get name,AdapterRAM",
@@ -4079,6 +4084,8 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
                     data = json.loads(out)
                     if isinstance(data, dict):
                         total = int((data.get("AdapterRAM") or 0) / (1024*1024)) if isinstance(data.get("AdapterRAM"), (int,float)) else int(data.get("total_mb") or -1)
+                        if total <= 0:
+                            total = -1
                         used = int(data.get("used_mb") or -1)
                         pct = float(data.get("vram_pct") or -1)
                         if pct < 0 and used >= 0 and total > 0:
