@@ -4060,7 +4060,13 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
                 if open_query(None, 0, ctypes.byref(hq)) != 0 or not hq.value:
                     continue
                 try:
-                    add_rc = add_english(hq, ctr_path, 0, ctypes.byref(hc)) if add_english else add_counter(hq, ctr_path, 0, ctypes.byref(hc))
+                    if add_english:
+                        add_rc = add_english(hq, ctr_path, 0, ctypes.byref(hc))
+                        # 環境によってはEnglishカウンタ登録に失敗するため通常APIへフォールバック
+                        if add_rc != 0:
+                            add_rc = add_counter(hq, ctr_path, 0, ctypes.byref(hc))
+                    else:
+                        add_rc = add_counter(hq, ctr_path, 0, ctypes.byref(hc))
                     if add_rc != 0 or not hc.value:
                         continue
                     collect(hq)
