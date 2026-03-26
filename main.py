@@ -984,12 +984,20 @@ class ModelManager:
         if proven_ngl >= 0:
             gpu_layers = min(gpu_layers, proven_ngl)
             print(f"[ModelManager] proven_ngl={proven_ngl} を初期値に使用 (計算値={calc_gpu_layers})")
+        elif gpu_layers > 1:
+            # Phase 1(auto-fit) 失敗後に同じ/近い全層値から再開すると
+            # 無意味なOOMを1回踏みやすいため、Phase 2は半分から開始する。
+            prev = gpu_layers
+            gpu_layers = max(1, gpu_layers // 2)
+            print(f"[ModelManager] Phase 2初期値を半減: gpu_layers {prev} → {gpu_layers}")
 
         fail_ngl = gpu_layers  # 最も低い失敗値を追跡
         ok_ngl = -1            # 最初の成功値
 
         _OOM_MAX_RETRIES = 4
         for _oom_attempt in range(_OOM_MAX_RETRIES + 1):
+            # 前回試行の残プロセスがあるとポート競合で固まることがあるため、毎回掃除する。
+            self._kill_process()
             print(f"[ModelManager] Linux Phase 2: -ngl={gpu_layers} ({_oom_attempt + 1}/{_OOM_MAX_RETRIES + 1})")
             emit("model_switching", f"Loading {spec['name']}... -ngl={gpu_layers}", 15, 0)
             result = self._try_start_once(
@@ -1000,6 +1008,7 @@ class ModelManager:
                 ok_ngl = gpu_layers
                 break
             if result != "oom":
+                self._kill_process()
                 return False
             fail_ngl = min(fail_ngl, gpu_layers)
             if gpu_layers <= 0:
@@ -1013,6 +1022,7 @@ class ModelManager:
 
         if ok_ngl < 0:
             print("[ModelManager] Phase 2: OOMリトライ回数を超過")
+            self._kill_process()
             return False
 
         # ─── Phase 3: 二分探索で最適値を確定 ─────────────────
