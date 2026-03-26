@@ -926,7 +926,8 @@ class ModelManager:
         user_ck = (spec.get("cache_type_k") or "").strip()
         user_cv = (spec.get("cache_type_v") or "").strip()
 
-        if base_gpu_layers >= 999:
+        use_auto_gpu_layers = base_gpu_layers >= 999
+        if use_auto_gpu_layers:
             gpu_cfg = _calc_safe_gpu_layers(spec)
             gpu_layers = gpu_cfg["gpu_layers"]
             # ユーザーが明示指定していなければ自動選択のKV量子化を適用
@@ -950,10 +951,13 @@ class ModelManager:
                 "--port",     str(self.llm_port),
                 "--host",     "0.0.0.0",
                 "--ctx-size", str(spec["ctx"]),
-                "-ngl",       str(gpu_layers),
                 "--threads",  str(spec["threads"]),
                 "--no-mmap",
             ]
+            if use_auto_gpu_layers:
+                cmd += ["--n-gpu-layers", "auto", "--fit", "on"]
+            else:
+                cmd += ["-ngl", str(gpu_layers)]
             if spec.get("is_vlm") and spec.get("vlm_enabled", True):
                 mmproj = str(spec.get("mmproj_path", "") or "").strip()
                 if mmproj:
@@ -989,7 +993,7 @@ class ModelManager:
             cmd_text = (
                 f"[ModelManager] starting{retry_note}:"
                 f" model={spec.get('path','')}"
-                f" -ngl={gpu_layers}"
+                f" n_gpu_layers={'auto' if use_auto_gpu_layers else gpu_layers}"
                 f" --ctx-size={spec.get('ctx')}"
                 f" --threads={spec.get('threads')}"
                 f" cache_k={eff_ck or 'f16(default)'}"
@@ -1062,7 +1066,7 @@ class ModelManager:
                 kw in " ".join(self._last_startup_hints).lower()
                 for kw in ("vram", "out of memory", "cudamalloc", "oom", "メモリ")
             )
-            if _is_oom and _oom_attempt < _OOM_MAX_RETRIES and gpu_layers > 4:
+            if (not use_auto_gpu_layers) and _is_oom and _oom_attempt < _OOM_MAX_RETRIES and gpu_layers > 4:
                 new_layers = max(4, int(gpu_layers * _OOM_REDUCE_RATE))
                 print(
                     f"[ModelManager] OOM検出 → gpu_layers {gpu_layers}→{new_layers} に削減して再試行 "
