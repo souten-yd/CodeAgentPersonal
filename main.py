@@ -920,8 +920,8 @@ class ModelManager:
             return False
 
         # ─── GPU設定を決定 ────────────────────────────────────────
-        # GPUレイヤー配分は llama.cpp の --n-gpu-layers auto / --fit on に委譲する。
-        # _calc_safe_gpu_layers は KVキャッシュ量子化の自動選択に利用する。
+        # gpu_layers=999（デフォルト全層）の場合、VRAMに収まる設定を自動計算する。
+        # _calc_safe_gpu_layers は KVキャッシュ量子化もセットで返す。
         user_ck = (spec.get("cache_type_k") or "").strip()
         user_cv = (spec.get("cache_type_v") or "").strip()
 
@@ -932,61 +932,64 @@ class ModelManager:
 
         gpu_vendor = _detect_gpu_vendor()
 
-        # ─── コマンド構築 ─────────────────────────────────────
-        cmd = [
-            self.llama_path,
-            "--model",    spec["path"],
-            "--port",     str(self.llm_port),
-            "--host",     "0.0.0.0",
-            "--ctx-size", str(spec["ctx"]),
-            "--threads",  str(spec["threads"]),
-            "--no-mmap",
-            "--n-gpu-layers", "auto",
-            "--fit", "on",
-        ]
-        if spec.get("is_vlm") and spec.get("vlm_enabled", True):
-            mmproj = str(spec.get("mmproj_path", "") or "").strip()
-            if mmproj:
-                if not os.path.exists(mmproj):
-                    msg = f"VLM mmprojファイルが見つかりません: {mmproj}"
-                    print(f"[ModelManager] {msg}")
-                    self._last_startup_hints = [msg]
-                    return False
-                cmd += ["--mmproj", mmproj]
-            else:
-                print(f"[ModelManager] is_vlm=True but mmproj_path not set, starting without --mmproj")
-        # CUDA(NVIDIA)のみ flash attention を有効化
-        if gpu_vendor == "nvidia":
-            cmd += ["--flash-attn", "on"]
-            print(f"[ModelManager] flash-attn enabled (NVIDIA GPU detected)")
-        elif gpu_vendor == "amd":
-            print(f"[ModelManager] flash-attn skipped (AMD GPU - may degrade performance on consumer GPUs)")
-        # モデル別オプション
-        if spec.get("parallel", -1) and spec.get("parallel", -1) > 0:
-            cmd += ["--parallel", str(spec["parallel"])]
-        if spec.get("batch_size", -1) and spec.get("batch_size", -1) > 0:
-            cmd += ["--batch-size", str(spec["batch_size"])]
-        if spec.get("ubatch_size", -1) and spec.get("ubatch_size", -1) > 0:
-            cmd += ["--ubatch-size", str(spec["ubatch_size"])]
-        if eff_ck:
-            cmd += ["--cache-type-k", eff_ck]
-        if eff_cv:
-            cmd += ["--cache-type-v", eff_cv]
-        for arg in spec.get("extra_args", []):
-            cmd.append(arg)
+        _OOM_MAX_RETRIES = 0
 
-        cmd_text = (
-            f"[ModelManager] starting:"
-            f" model={spec.get('path','')}"
-            f" n_gpu_layers=auto"
-            f" --ctx-size={spec.get('ctx')}"
-            f" --threads={spec.get('threads')}"
-            f" cache_k={eff_ck or 'f16(default)'}"
-            f" cache_v={eff_cv or 'f16(default)'}"
-            f" full_cmd={' '.join(cmd)}"
-        )
-        print(cmd_text)
-        self._last_start_cmd = " ".join(cmd)
+        for _oom_attempt in range(_OOM_MAX_RETRIES + 1):
+            # ─── コマンド構築 ─────────────────────────────────────
+            cmd = [
+                self.llama_path,
+                "--model",    spec["path"],
+                "--port",     str(self.llm_port),
+                "--host",     "0.0.0.0",
+                "--ctx-size", str(spec["ctx"]),
+                "--threads",  str(spec["threads"]),
+                "--no-mmap",
+            ]
+            cmd += ["--n-gpu-layers", "auto", "--fit", "on"]
+            if spec.get("is_vlm") and spec.get("vlm_enabled", True):
+                mmproj = str(spec.get("mmproj_path", "") or "").strip()
+                if mmproj:
+                    if not os.path.exists(mmproj):
+                        msg = f"VLM mmprojファイルが見つかりません: {mmproj}"
+                        print(f"[ModelManager] {msg}")
+                        self._last_startup_hints = [msg]
+                        return False
+                    cmd += ["--mmproj", mmproj]
+                else:
+                    print(f"[ModelManager] is_vlm=True but mmproj_path not set, starting without --mmproj")
+            # CUDA(NVIDIA)のみ flash attention を有効化
+            if gpu_vendor == "nvidia":
+                cmd += ["--flash-attn", "on"]
+                print(f"[ModelManager] flash-attn enabled (NVIDIA GPU detected)")
+            elif gpu_vendor == "amd":
+                print(f"[ModelManager] flash-attn skipped (AMD GPU - may degrade performance on consumer GPUs)")
+            # モデル別オプション
+            if spec.get("parallel", -1) and spec.get("parallel", -1) > 0:
+                cmd += ["--parallel", str(spec["parallel"])]
+            if spec.get("batch_size", -1) and spec.get("batch_size", -1) > 0:
+                cmd += ["--batch-size", str(spec["batch_size"])]
+            if spec.get("ubatch_size", -1) and spec.get("ubatch_size", -1) > 0:
+                cmd += ["--ubatch-size", str(spec["ubatch_size"])]
+            if eff_ck:
+                cmd += ["--cache-type-k", eff_ck]
+            if eff_cv:
+                cmd += ["--cache-type-v", eff_cv]
+            for arg in spec.get("extra_args", []):
+                cmd.append(arg)
+
+            retry_note = f" [OOM-retry {_oom_attempt}/{_OOM_MAX_RETRIES}]" if _oom_attempt else ""
+            cmd_text = (
+                f"[ModelManager] starting{retry_note}:"
+                f" model={spec.get('path','')}"
+                f" n_gpu_layers=auto"
+                f" --ctx-size={spec.get('ctx')}"
+                f" --threads={spec.get('threads')}"
+                f" cache_k={eff_ck or 'f16(default)'}"
+                f" cache_v={eff_cv or 'f16(default)'}"
+                f" full_cmd={' '.join(cmd)}"
+            )
+            print(cmd_text)
+            self._last_start_cmd = " ".join(cmd)
 
         # ─── プロセス起動 ─────────────────────────────────────
         try:
@@ -1038,8 +1041,13 @@ class ModelManager:
                 print("[ModelManager] process exited during load")
                 break
 
-        if _started_ok:
-            return True
+            # OOM時でもgpu_layersはllama.cppの自動判定へ委譲する
+            _is_oom = any(
+                kw in " ".join(self._last_startup_hints).lower()
+                for kw in ("vram", "out of memory", "cudamalloc", "oom", "メモリ")
+            )
+            if _is_oom:
+                break
 
         # ─── 起動失敗 → OOM判定 ──────────────────────────────
         self._last_startup_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
