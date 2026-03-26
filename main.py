@@ -265,6 +265,7 @@ import time as _mm_time
 
 _usage_diag_lock = _mm_thread.Lock()
 _last_usage_diag: dict = {}
+_windows_dxdiag_cache: dict = {"mb": -1, "checked_at": 0.0}
 _model_load_vram_peak: dict = {
     "active": False,
     "started_at": None,
@@ -3956,6 +3957,127 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
         except Exception:
             pass
 
+    def _windows_dxdiag_dedicated_vram_mb() -> int:
+        if os.name != "nt":
+            return -1
+        now = _mm_time.time()
+        with _usage_diag_lock:
+            cached_mb = int(_windows_dxdiag_cache.get("mb", -1))
+            checked_at = float(_windows_dxdiag_cache.get("checked_at", 0.0))
+        # 成功値は10分、失敗値は30秒キャッシュしてポーリング遅延を防ぐ
+        if cached_mb > 0 and (now - checked_at) < 600:
+            return cached_mb
+        if cached_mb <= 0 and (now - checked_at) < 30:
+            return -1
+        tf_path = ""
+        try:
+            import tempfile
+            with tempfile.NamedTemporaryFile(prefix="dxdiag_", suffix=".txt", delete=False) as tf:
+                tf_path = tf.name
+            subprocess.run(["dxdiag", "/64bit", "/whql:off", "/t", tf_path], capture_output=True, text=True, timeout=15)
+            raw = b""
+            with open(tf_path, "rb") as f:
+                raw = f.read()
+            txt = ""
+            for enc in ("utf-16", "utf-8", "cp932"):
+                try:
+                    txt = raw.decode(enc)
+                    if txt:
+                        break
+                except Exception:
+                    continue
+            if not txt:
+                return -1
+            m = re.search(r"Dedicated Memory:\s*([\d,]+)\s*(MB|GB)", txt, re.IGNORECASE)
+            if not m:
+                m = re.search(r"専用メモリ:\s*([\d,]+)\s*(MB|GB)", txt, re.IGNORECASE)
+            if not m:
+                return -1
+            val = int(m.group(1).replace(",", ""))
+            unit = (m.group(2) or "MB").upper()
+            mb = int(val * 1024) if unit == "GB" else int(val)
+            with _usage_diag_lock:
+                _windows_dxdiag_cache["mb"] = mb
+                _windows_dxdiag_cache["checked_at"] = now
+            return mb
+        except Exception:
+            return -1
+        finally:
+            with _usage_diag_lock:
+                # 失敗時もchecked_atだけ更新して連続実行を抑制
+                if int(_windows_dxdiag_cache.get("mb", -1)) <= 0:
+                    _windows_dxdiag_cache["checked_at"] = now
+            try:
+                if tf_path and os.path.exists(tf_path):
+                    os.remove(tf_path)
+            except Exception:
+                pass
+
+    def _windows_pdh_counter_max(path: str) -> float:
+        """Windows PDHをctypesで直接読み、ワイルドカード展開したカウンタの最大値を返す。失敗時-1。"""
+        if os.name != "nt":
+            return -1.0
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            PDH_MORE_DATA = 0x800007D2
+            PDH_FMT_DOUBLE = 0x00000200
+
+            class _PDH_FMT_COUNTERVALUE_UNION(ctypes.Union):
+                _fields_ = [("longValue", ctypes.c_long), ("doubleValue", ctypes.c_double), ("largeValue", ctypes.c_longlong)]
+
+            class _PDH_FMT_COUNTERVALUE(ctypes.Structure):
+                _fields_ = [("CStatus", wintypes.DWORD), ("u", _PDH_FMT_COUNTERVALUE_UNION)]
+
+            pdh = ctypes.WinDLL("pdh")
+            expand = pdh.PdhExpandWildCardPathW
+            open_query = pdh.PdhOpenQueryW
+            add_english = getattr(pdh, "PdhAddEnglishCounterW", None)
+            add_counter = pdh.PdhAddCounterW
+            collect = pdh.PdhCollectQueryData
+            get_value = pdh.PdhGetFormattedCounterValue
+            close_query = pdh.PdhCloseQuery
+
+            # 1) wildcard展開
+            size = wintypes.DWORD(0)
+            rc = expand(None, path, None, ctypes.byref(size), 0)
+            if rc not in (0, PDH_MORE_DATA) or size.value <= 0:
+                return -1.0
+            buf = ctypes.create_unicode_buffer(size.value)
+            rc = expand(None, path, buf, ctypes.byref(size), 0)
+            if rc != 0:
+                return -1.0
+            expanded = [p for p in buf[:size.value].split("\x00") if p]
+            if not expanded:
+                return -1.0
+
+            # 2) 各カウンタを収集して最大値を採用
+            best = -1.0
+            for ctr_path in expanded:
+                hq = ctypes.c_void_p()
+                hc = ctypes.c_void_p()
+                if open_query(None, 0, ctypes.byref(hq)) != 0 or not hq.value:
+                    continue
+                try:
+                    add_rc = add_english(hq, ctr_path, 0, ctypes.byref(hc)) if add_english else add_counter(hq, ctr_path, 0, ctypes.byref(hc))
+                    if add_rc != 0 or not hc.value:
+                        continue
+                    collect(hq)
+                    _mm_time.sleep(0.05)
+                    collect(hq)
+                    ctype = wintypes.DWORD(0)
+                    val = _PDH_FMT_COUNTERVALUE()
+                    if get_value(hc, PDH_FMT_DOUBLE, ctypes.byref(ctype), ctypes.byref(val)) == 0:
+                        v = float(val.u.doubleValue)
+                        if v > best:
+                            best = v
+                finally:
+                    close_query(hq)
+            return best
+        except Exception:
+            return -1.0
+
     candidates = ["nvidia-smi", "rocm-smi", "nvidia-proc", "lspci"] if os.name != "nt" else ["windows-counter", "nvidia-smi"]
     selected = (settings_get("gpu_usage_backend") or "auto").strip()
     if selected in ("", "auto", "none"):
@@ -4046,7 +4168,32 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
             except Exception:
                 continue
     elif selected == "windows-counter" and os.name == "nt":
-        windows_cmds = [
+        # まずはPython(ctypes + PDH)で直接カウンタを読む
+        py_util = _windows_pdh_counter_max(r"\GPU Engine(*)\Utilization Percentage")
+        py_used_b = _windows_pdh_counter_max(r"\GPU Adapter Memory(*)\Dedicated Usage")
+        py_ded_limit_b = _windows_pdh_counter_max(r"\GPU Adapter Memory(*)\Dedicated Limit")
+        py_shr_limit_b = _windows_pdh_counter_max(r"\GPU Adapter Memory(*)\Shared Limit")
+        py_total_b = max(py_ded_limit_b, py_shr_limit_b)
+        if py_total_b <= 0:
+            dx_mb = _windows_dxdiag_dedicated_vram_mb()
+            py_total_b = float(dx_mb * 1024 * 1024) if dx_mb > 0 else -1
+        py_used_mb = int(round(py_used_b / (1024 * 1024))) if py_used_b >= 0 else -1
+        py_total_mb = int(round(py_total_b / (1024 * 1024))) if py_total_b > 0 else -1
+        py_pct = (py_used_mb / py_total_mb * 100.0) if py_used_mb >= 0 and py_total_mb > 0 else -1.0
+        if py_util >= 0 or py_used_mb >= 0 or py_total_mb > 0:
+            gpus.append({
+                "name": "Windows GPU",
+                "util_percent": float(py_util),
+                "vram_used_mb": py_used_mb,
+                "vram_total_mb": py_total_mb,
+                "vram_percent": py_pct,
+            })
+            parse_source = "direct"
+
+        if gpus:
+            pass
+        else:
+            windows_cmds = [
             "$adapters = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | "
             "  Where-Object { $_.AdapterRAM -gt 0 -and $_.Name -notmatch 'Virtual|Remote|Basic Display' }; "
             "$gpu = $adapters | Sort-Object AdapterRAM -Descending | Select-Object -First 1; "
@@ -4067,51 +4214,58 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
             "$vramPct = if ($totalMb -gt 0 -and $usedMb -ge 0) { [math]::Round(($usedMb / $totalMb) * 100, 1) } else { -1 }; "
             "$obj=@{ name=$name; util=[math]::Round($util,1); total_mb=$totalMb; used_mb=$usedMb; vram_pct=$vramPct }; "
             "$obj|ConvertTo-Json -Compress",
+            "$gpu = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | "
+            "  Where-Object { $_.AdapterRAM -gt 0 -and $_.Name -notmatch 'Virtual|Remote|Basic Display' } | "
+            "  Sort-Object AdapterRAM -Descending | Select-Object -First 1; "
+            "$name = if ($gpu) { [string]$gpu.Name } else { 'Windows GPU' }; "
+            "$totalB = if ($gpu) { [double]$gpu.AdapterRAM } else { -1 }; "
+            "$engine = (Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction SilentlyContinue).CounterSamples; "
+            "$util = if ($engine) { [double](($engine | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
             "$dedicated = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -ErrorAction SilentlyContinue).CounterSamples; "
             "$usedB = if ($dedicated) { [double](($dedicated | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
-            "$dedicatedLimit = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Limit' -ErrorAction SilentlyContinue).CounterSamples; "
-            "$dedicatedLimitB = if ($dedicatedLimit) { [double](($dedicatedLimit | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
-            "$sharedLimit = (Get-Counter '\\GPU Adapter Memory(*)\\Shared Limit' -ErrorAction SilentlyContinue).CounterSamples; "
-            "$sharedLimitB = if ($sharedLimit) { [double](($sharedLimit | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
-            "$counterTotalB = [Math]::Max($dedicatedLimitB, $sharedLimitB); "
-            "$obj=@{ name='Windows GPU'; util=-1; total_mb=if($counterTotalB -gt 0){[math]::Round($counterTotalB / 1MB)}else{-1}; used_mb=if($usedB -ge 0){[math]::Round($usedB / 1MB)}else{-1}; vram_pct=-1 }; "
+            "$totalMb = if ($totalB -gt 0) { [math]::Round($totalB / 1MB) } else { -1 }; "
+            "$usedMb = if ($usedB -ge 0) { [math]::Round($usedB / 1MB) } else { -1 }; "
+            "$vramPct = if ($totalMb -gt 0 -and $usedMb -ge 0) { [math]::Round(($usedMb / $totalMb) * 100, 1) } else { -1 }; "
+            "$obj=@{ name=$name; util=[math]::Round($util,1); total_mb=$totalMb; used_mb=$usedMb; vram_pct=$vramPct }; "
             "$obj|ConvertTo-Json -Compress",
             "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name,AdapterRAM | ConvertTo-Json -Compress",
             "wmic path win32_VideoController get name,AdapterRAM",
             "Get-PnpDevice -Class Display | ConvertTo-Json -Compress",
         ]
-        for ps in (windows_cmds if debug_mode else windows_cmds[:2]):
-            try:
-                r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=(10 if debug_mode else 3))
-                out = (r.stdout or "").strip()
-                if not out:
-                    continue
+            for ps in (windows_cmds if debug_mode else windows_cmds[:2]):
                 try:
-                    data = json.loads(out)
-                    if isinstance(data, dict):
-                        total = int((data.get("AdapterRAM") or 0) / (1024*1024)) if isinstance(data.get("AdapterRAM"), (int,float)) else int(data.get("total_mb") or -1)
-                        if total <= 0:
-                            total = -1
-                        used = int(data.get("used_mb") or -1)
-                        pct = float(data.get("vram_pct") or -1)
-                        if pct < 0 and used >= 0 and total > 0:
-                            pct = (used / total) * 100.0
-                        gpus.append({
-                            "name": str(data.get("name") or data.get("Name") or "Windows GPU"),
-                            "util_percent": float(data.get("util") or -1),
-                            "vram_used_mb": used,
-                            "vram_total_mb": total,
-                            "vram_percent": pct,
-                        })
+                    r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=(10 if debug_mode else 6))
+                    out = (r.stdout or "").strip()
+                    if not out:
+                        continue
+                    try:
+                        data = json.loads(out)
+                        if isinstance(data, dict):
+                            total = int((data.get("AdapterRAM") or 0) / (1024*1024)) if isinstance(data.get("AdapterRAM"), (int,float)) else int(data.get("total_mb") or -1)
+                            if total <= 0:
+                                total = _windows_dxdiag_dedicated_vram_mb()
+                            if total <= 0:
+                                total = -1
+                            used = int(data.get("used_mb") or -1)
+                            pct = float(data.get("vram_pct") or -1)
+                            if pct < 0 and used >= 0 and total > 0:
+                                pct = (used / total) * 100.0
+                            gpus.append({
+                                "name": str(data.get("name") or data.get("Name") or "Windows GPU"),
+                                "util_percent": float(data.get("util") or -1),
+                                "vram_used_mb": used,
+                                "vram_total_mb": total,
+                                "vram_percent": pct,
+                            })
+                    except Exception:
+                        for ln in out.splitlines():
+                            if ln.strip() and "name" not in ln.lower():
+                                gpus.append({"name": ln.strip(), "util_percent": -1, "vram_used_mb": -1, "vram_total_mb": -1, "vram_percent": -1})
+                    if gpus:
+                        parse_source = "direct"
+                        break
                 except Exception:
-                    for ln in out.splitlines():
-                        if ln.strip() and "name" not in ln.lower():
-                            gpus.append({"name": ln.strip(), "util_percent": -1, "vram_used_mb": -1, "vram_total_mb": -1, "vram_percent": -1})
-                if gpus:
-                    parse_source = "direct"
-                    break
-            except Exception:
-                continue
+                    continue
     if not gpus:
         static_list = _probe_gpu_static(selected if selected != "none" else candidates[0])
         gpus = [{"name": g.get("name","GPU"), "util_percent": -1, "vram_used_mb": -1, "vram_total_mb": g.get("memory_total_mb",-1), "vram_percent": -1} for g in static_list]
