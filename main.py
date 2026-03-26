@@ -992,14 +992,8 @@ class ModelManager:
             ).encode("utf-8", errors="replace")
             log_fd.write(header)
             log_fd.flush()
-            proc_env = os.environ.copy()
-            if 'CUDA_VISIBLE_DEVICES' not in proc_env:
-                nvidia_indices = _get_nvidia_device_indices()
-                if nvidia_indices:
-                    proc_env['CUDA_VISIBLE_DEVICES'] = ','.join(str(i) for i in nvidia_indices)
-                    print(f"[ModelManager] CUDA_VISIBLE_DEVICES auto-set to {proc_env['CUDA_VISIBLE_DEVICES']}")
             self._process = _sp.Popen(
-                cmd, stdout=log_fd, stderr=log_fd, creationflags=flags, env=proc_env
+                cmd, stdout=log_fd, stderr=log_fd, creationflags=flags
             )
             self._startup_log_fd = log_fd
         except Exception as e:
@@ -3971,22 +3965,6 @@ def _infer_gpu_layers_for_estimate(file_size_mb: int, quantization: str) -> int:
     if "Q2" in q or "IQ2" in q:
         return 70
     return 80
-
-
-def _get_nvidia_device_indices() -> list[int]:
-    """
-    /dev/nvidiaN のデバイスファイルから利用可能なGPUインデックスを返す。
-    マルチGPUホスト上でコンテナに特定GPUが割り当てられている場合、
-    /dev/nvidia0 ではなく /dev/nvidia5 のように番号がずれるケースに対応。
-    """
-    import glob as _glob
-    import re as _re
-    indices = []
-    for path in sorted(_glob.glob('/dev/nvidia[0-9]*')):
-        m = _re.match(r'/dev/nvidia(\d+)$', path)
-        if m:
-            indices.append(int(m.group(1)))
-    return indices
 
 
 def _detect_gpu_vendor() -> str:
