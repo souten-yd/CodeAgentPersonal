@@ -6177,6 +6177,8 @@ JSON形式で出力:
 
             done_count = sum(1 for r in results if r["status"] == "done")
 
+            verify_rework_results = []
+
             # 検証フェーズ（approved_tasksの場合でも実行）
             if done_count == total:
                 requirements = plan_result.get("requirements", ["指示された内容が正しく動作すること"]) if plan_result else ["指示された内容が正しく動作すること"]
@@ -6191,6 +6193,62 @@ JSON形式で出力:
                     llm_url=verify_url, search_enabled=req.search_enabled,
                     on_event=lambda ev: write(ev.get("type","verify"), ev)
                 )
+                # 検証失敗時は、失敗内容をタスク化して再修正 → 再検証を1回実施
+                if verify_result and not verify_result.get("passed", True):
+                    failed_issues = [i for i in (verify_result.get("issues") or []) if i.get("severity") == "critical"][:3]
+                    if failed_issues:
+                        write("verify_rework_start", {
+                            "count": len(failed_issues),
+                            "message": "検証失敗を受けて、関連タスクへ戻って再修正を実施します。"
+                        })
+                    for idx, issue in enumerate(failed_issues, start=1):
+                        phase = str(issue.get("phase") or "検証")
+                        desc = str(issue.get("description") or "詳細不明")
+                        task_title = f"[verify-rework {idx}] {phase}: {desc[:80]}"
+                        write("task_start", {
+                            "task_id": f"verify_rework_{idx}",
+                            "title": task_title,
+                            "task_index": total + idx,
+                            "total": total + len(failed_issues),
+                        })
+                        rework_prompt = f"""検証フェーズで失敗したため、該当実装を修正してください。
+
+【ユーザー要求】
+{req.message}
+
+【失敗フェーズ】
+{phase}
+
+【失敗内容】
+{desc}
+
+【修正方針】
+- 失敗原因に対応する実装を修正する
+- 必要なら関連ファイルも含めて修正する
+- 修正後に run_file / run_python / run_shell で自己検証してから完了する
+"""
+                        rw_steps, rw_status, rw_output = execute_task(
+                            task_detail=rework_prompt,
+                            project=project,
+                            max_steps=max(6, min(int(req.max_steps or 10), 12)),
+                            llm_url=verify_url
+                        )
+                        verify_rework_results.append({
+                            "task_id": f"verify_rework_{idx}",
+                            "title": task_title,
+                            "status": "done" if rw_status == "done" else "error",
+                            "output": rw_output,
+                            "steps": rw_steps,
+                        })
+                    if failed_issues:
+                        verify_result = verify_and_fix(
+                            user_message=req.message,
+                            requirements=requirements,
+                            verification_items=verification,
+                            project=project, max_fix_rounds=2,
+                            llm_url=verify_url, search_enabled=req.search_enabled,
+                            on_event=lambda ev: write(ev.get("type", "verify"), ev)
+                        )
                 if (orchestration_policy == "ladder_fail_and_quality"
                         and not req.llm_url.strip()
                         and verify_result
@@ -6224,11 +6282,13 @@ JSON形式で出力:
                 verify_result = None
 
             print(f"[JOB {job_id}] completed: {done_count}/{total} tasks done")
+            verify_passed = True if not verify_result else bool(verify_result.get("passed", True))
             final = {
-                "summary": f"{total}タスク中{done_count}件完了",
-                "success": done_count == total,
+                "summary": f"{total}タスク中{done_count}件完了" + ("" if verify_passed else "（検証で失敗あり）"),
+                "success": (done_count == total) and verify_passed,
                 "tasks": results,
                 "verify": verify_result,
+                "verify_rework": verify_rework_results,
             }
             final_snapshot = auto_snapshot_ca_data("job-final snapshot", job_id, None)
             write("snapshot", {
@@ -6694,6 +6754,10 @@ def verify_and_fix(
         if on_event:
             on_event(data)
 
+    # 修正リトライ回数は呼び出し側の意図（max_fix_rounds）を優先。
+    # 以前は最低6回に強制され、失敗時に長時間ループしやすかったため上限クランプのみ行う。
+    fix_round_limit = max(1, min(int(max_fix_rounds or 1), 6))
+
     working_requirements = list(requirements or [])
 
     def _req_text() -> str:
@@ -6790,8 +6854,7 @@ def verify_and_fix(
 
         # 失敗した場合は修正ループ
         if not ok:
-            max_reconsider_rounds = max(max_fix_rounds, 6)
-            for fix_round in range(max_reconsider_rounds):
+            for fix_round in range(fix_round_limit):
                 failure_reason = _extract_failure_reason(output)
                 _append_failure_requirements("単体テスト", [failure_reason], [py_file])
                 req_text = _req_text()
@@ -6934,8 +6997,7 @@ def verify_and_fix(
         # 失敗シナリオがあれば修正
         failed_integ = [r for r in integ_results if r["status"] == "fail"]
         if failed_integ:
-            max_reconsider_rounds = max(max_fix_rounds, 6)
-            for fix_round in range(max_reconsider_rounds):
+            for fix_round in range(fix_round_limit):
                 failure_reasons = [f"{r.get('name','scenario')}: {_extract_failure_reason(r.get('output',''))}" for r in failed_integ]
                 related_tasks = [str(r.get("name", "integration_scenario")) for r in failed_integ]
                 _append_failure_requirements("結合テスト", failure_reasons, related_tasks)
