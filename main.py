@@ -316,10 +316,10 @@ def _start_model_load_vram_sampling():
             usage = get_system_usage_info()
             gpus = usage.get("gpus", []) or []
             total_used = sum(int(g.get("vram_used_mb", -1)) for g in gpus if int(g.get("vram_used_mb", -1)) >= 0)
-            total_total = sum(int(g.get("vram_total_mb", -1)) for g in gpus if int(g.get("vram_total_mb", -1)) >= 0)
+            total_total = sum(int(g.get("vram_total_mb", -1)) for g in gpus if int(g.get("vram_total_mb", -1)) > 0)
             if total_used > state["max_vram_used_mb"]:
                 state["max_vram_used_mb"] = total_used
-            if total_total > state["max_vram_total_mb"]:
+            if total_total > 0 and total_total > state["max_vram_total_mb"]:
                 state["max_vram_total_mb"] = total_total
             state["samples"] += 1
             state["backend"] = usage.get("gpu_backend", "none")
@@ -4057,8 +4057,11 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
             "$dedicated = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -ErrorAction SilentlyContinue).CounterSamples; "
             "$usedB = if ($dedicated) { [double](($dedicated | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
             "$dedicatedLimit = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Limit' -ErrorAction SilentlyContinue).CounterSamples; "
-            "$limitB = if ($dedicatedLimit) { [double](($dedicatedLimit | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
-            "if ($totalB -le 0 -and $limitB -gt 0) { $totalB = $limitB }; "
+            "$dedicatedLimitB = if ($dedicatedLimit) { [double](($dedicatedLimit | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
+            "$sharedLimit = (Get-Counter '\\GPU Adapter Memory(*)\\Shared Limit' -ErrorAction SilentlyContinue).CounterSamples; "
+            "$sharedLimitB = if ($sharedLimit) { [double](($sharedLimit | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
+            "$counterTotalB = [Math]::Max($dedicatedLimitB, $sharedLimitB); "
+            "if ($totalB -le 0 -and $counterTotalB -gt 0) { $totalB = $counterTotalB }; "
             "$totalMb = if ($totalB -gt 0) { [math]::Round($totalB / 1MB) } else { -1 }; "
             "$usedMb = if ($usedB -ge 0) { [math]::Round($usedB / 1MB) } else { -1 }; "
             "$vramPct = if ($totalMb -gt 0 -and $usedMb -ge 0) { [math]::Round(($usedMb / $totalMb) * 100, 1) } else { -1 }; "
@@ -4067,8 +4070,11 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
             "$dedicated = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -ErrorAction SilentlyContinue).CounterSamples; "
             "$usedB = if ($dedicated) { [double](($dedicated | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
             "$dedicatedLimit = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Limit' -ErrorAction SilentlyContinue).CounterSamples; "
-            "$limitB = if ($dedicatedLimit) { [double](($dedicatedLimit | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
-            "$obj=@{ name='Windows GPU'; util=-1; total_mb=if($limitB -gt 0){[math]::Round($limitB / 1MB)}else{-1}; used_mb=if($usedB -ge 0){[math]::Round($usedB / 1MB)}else{-1}; vram_pct=-1 }; "
+            "$dedicatedLimitB = if ($dedicatedLimit) { [double](($dedicatedLimit | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
+            "$sharedLimit = (Get-Counter '\\GPU Adapter Memory(*)\\Shared Limit' -ErrorAction SilentlyContinue).CounterSamples; "
+            "$sharedLimitB = if ($sharedLimit) { [double](($sharedLimit | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
+            "$counterTotalB = [Math]::Max($dedicatedLimitB, $sharedLimitB); "
+            "$obj=@{ name='Windows GPU'; util=-1; total_mb=if($counterTotalB -gt 0){[math]::Round($counterTotalB / 1MB)}else{-1}; used_mb=if($usedB -ge 0){[math]::Round($usedB / 1MB)}else{-1}; vram_pct=-1 }; "
             "$obj|ConvertTo-Json -Compress",
             "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name,AdapterRAM | ConvertTo-Json -Compress",
             "wmic path win32_VideoController get name,AdapterRAM",
