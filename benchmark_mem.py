@@ -358,7 +358,10 @@ def _start_windows_autofit(path: str, ctx: int, mmproj_path: str) -> tuple:
 def _start_linux_explicit_ngl(path: str, ctx: int, ngl: int,
                               mmproj_path: str) -> tuple:
     """
-    Linux (Runpod/CUDA): auto-fit first → 失敗時は明示的-nglでOOMリトライ。
+    Linux (Runpod/CUDA):
+      Phase 1: auto-fit（-ngl省略）
+      Phase 2: 半減リトライで最初の成功値を発見
+      Phase 3: 成功値と失敗値の間で二分探索して最適値を確定
     """
     # ─── Phase 1: auto-fit を試行 ───────────────────────────
     print("[Benchmark] Linux Phase 1: auto-fit で起動を試行")
@@ -373,8 +376,11 @@ def _start_linux_explicit_ngl(path: str, ctx: int, ngl: int,
     if not is_oom:
         print("[Benchmark] auto-fit失敗(非OOM) → Phase 2へ")
 
-    # ─── Phase 2: 明示的 -ngl + OOMリトライ ─────────────────
+    # ─── Phase 2: 半減リトライで最初の成功値を発見 ───────────
     gpu_layers = ngl
+    fail_ngl = gpu_layers
+    ok_ngl = -1
+
     _OOM_MAX_RETRIES = 4
     for attempt in range(_OOM_MAX_RETRIES + 1):
         print(f"[Benchmark] Linux Phase 2: -ngl={gpu_layers} ({attempt + 1}/{_OOM_MAX_RETRIES + 1})")
@@ -382,12 +388,13 @@ def _start_linux_explicit_ngl(path: str, ctx: int, ngl: int,
             path, ctx, ngl=gpu_layers, mmproj_path=mmproj_path,
         )
         if load_sec is not None:
-            print(f"[Benchmark] 成功: -ngl={gpu_layers}")
-            return proc, load_sec, log_text
+            ok_ngl = gpu_layers
+            break
         stop_server(proc)
         if not is_oom:
             print(f"[Benchmark] 非OOMエラーで失敗")
             return proc, None, log_text
+        fail_ngl = min(fail_ngl, gpu_layers)
         if gpu_layers <= 0:
             print(f"[Benchmark] gpu_layers=0でもOOM")
             return proc, None, log_text
@@ -395,8 +402,44 @@ def _start_linux_explicit_ngl(path: str, ctx: int, ngl: int,
         gpu_layers = max(0, gpu_layers // 2)
         print(f"[Benchmark] OOM検出 → gpu_layers {prev} → {gpu_layers}")
 
-    print("[Benchmark] OOMリトライ回数超過")
-    return proc, None, log_text
+    if ok_ngl < 0:
+        print("[Benchmark] Phase 2: OOMリトライ回数超過")
+        return proc, None, log_text
+
+    # ─── Phase 3: 二分探索で最適値を確定 ─────────────────────
+    stop_server(proc)
+    lo = ok_ngl
+    hi = fail_ngl
+    best = ok_ngl
+    _BISECT_MAX = 3
+
+    if hi - lo > 1:
+        print(f"[Benchmark] Linux Phase 3: 二分探索 [{lo}..{hi}] で最適値を探索")
+
+    for _bisect_attempt in range(_BISECT_MAX):
+        if hi - lo <= 1:
+            break
+        mid = (lo + hi) // 2
+        print(f"[Benchmark] Phase 3: 二分探索 -ngl={mid} (範囲 [{lo}..{hi}])")
+        proc, load_sec, log_text, is_oom = _start_server_once(
+            path, ctx, ngl=mid, mmproj_path=mmproj_path,
+        )
+        if load_sec is not None:
+            best = mid
+            lo = mid
+            stop_server(proc)
+        else:
+            hi = mid
+            stop_server(proc)
+
+    # best で最終起動
+    print(f"[Benchmark] Phase 3: 最適値 -ngl={best} で最終起動")
+    proc, load_sec, log_text, _ = _start_server_once(
+        path, ctx, ngl=best, mmproj_path=mmproj_path,
+    )
+    if load_sec is not None:
+        print(f"[Benchmark] 最適値 -ngl={best} で起動成功")
+    return proc, load_sec, log_text
 
 
 def infer() -> dict:

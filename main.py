@@ -957,7 +957,10 @@ class ModelManager:
     def _start_linux(self, spec, eff_ck, eff_cv, gpu_vendor, emit,
                      calc_gpu_layers, proven_ngl) -> bool:
         """
-        Linux (Runpod/CUDA): auto-fit first → 失敗時は明示的-nglでOOMリトライ。
+        Linux (Runpod/CUDA):
+          Phase 1: auto-fit（-ngl省略）
+          Phase 2: 半減リトライで最初の成功値を発見
+          Phase 3: 成功値と失敗値の間で二分探索して最適値を確定
         """
         # ─── Phase 1: auto-fit を試行 ────────────────────────
         print(f"[ModelManager] Linux Phase 1: auto-fit で起動を試行")
@@ -975,11 +978,14 @@ class ModelManager:
             print("[ModelManager] auto-fit失敗(非OOM) → Phase 2へ")
         self._kill_process()
 
-        # ─── Phase 2: 明示的 -ngl + OOMリトライ ──────────────
+        # ─── Phase 2: 半減リトライで最初の成功値を発見 ────────
         gpu_layers = calc_gpu_layers
         if proven_ngl >= 0:
             gpu_layers = min(gpu_layers, proven_ngl)
             print(f"[ModelManager] proven_ngl={proven_ngl} を初期値に使用 (計算値={calc_gpu_layers})")
+
+        fail_ngl = gpu_layers  # 最も低い失敗値を追跡
+        ok_ngl = -1            # 最初の成功値
 
         _OOM_MAX_RETRIES = 4
         for _oom_attempt in range(_OOM_MAX_RETRIES + 1):
@@ -990,10 +996,11 @@ class ModelManager:
                 gpu_vendor=gpu_vendor, emit=emit,
             )
             if result == "ok":
-                self._save_proven_ngl(spec, gpu_layers)
-                return True
+                ok_ngl = gpu_layers
+                break
             if result != "oom":
                 return False
+            fail_ngl = min(fail_ngl, gpu_layers)
             if gpu_layers <= 0:
                 print("[ModelManager] gpu_layers=0でもOOM → リトライ不可")
                 return False
@@ -1003,8 +1010,54 @@ class ModelManager:
             emit("model_switching", f"VRAM不足: GPU層 {prev}→{gpu_layers} でリトライ中...", 20, 0)
             self._kill_process()
 
-        print("[ModelManager] OOMリトライ回数を超過")
-        return False
+        if ok_ngl < 0:
+            print("[ModelManager] Phase 2: OOMリトライ回数を超過")
+            return False
+
+        # ─── Phase 3: 二分探索で最適値を確定 ─────────────────
+        # ok_ngl = 成功した値、fail_ngl = 最も低い失敗値
+        # ok_ngl と fail_ngl の間で最大の成功値を探す
+        self._kill_process()
+        lo = ok_ngl
+        hi = fail_ngl
+        best = ok_ngl
+        _BISECT_MAX = 3
+
+        if hi - lo > 1:
+            print(f"[ModelManager] Linux Phase 3: 二分探索 [{lo}..{hi}] で最適値を探索")
+
+        for _bisect_attempt in range(_BISECT_MAX):
+            if hi - lo <= 1:
+                break
+            mid = (lo + hi) // 2
+            print(f"[ModelManager] Phase 3: 二分探索 -ngl={mid} (範囲 [{lo}..{hi}])")
+            emit("model_switching", f"GPU最適化中... -ngl={mid} ({lo}-{hi})", 25, 0)
+            result = self._try_start_once(
+                spec, gpu_layers=mid, eff_ck=eff_ck, eff_cv=eff_cv,
+                gpu_vendor=gpu_vendor, emit=emit,
+            )
+            if result == "ok":
+                best = mid
+                lo = mid
+                self._kill_process()
+            else:
+                hi = mid
+                self._kill_process()
+
+        # best で最終起動
+        if best != ok_ngl or self._process is None or self._process.poll() is not None:
+            self._kill_process()
+            print(f"[ModelManager] Phase 3: 最適値 -ngl={best} で最終起動")
+            emit("model_switching", f"Loading {spec['name']}... -ngl={best} (最適値)", 30, 0)
+            result = self._try_start_once(
+                spec, gpu_layers=best, eff_ck=eff_ck, eff_cv=eff_cv,
+                gpu_vendor=gpu_vendor, emit=emit,
+            )
+            if result != "ok":
+                return False
+
+        self._save_proven_ngl(spec, best)
+        return True
 
     def _try_start_once(self, spec, gpu_layers, eff_ck, eff_cv, gpu_vendor, emit) -> str:
         """
