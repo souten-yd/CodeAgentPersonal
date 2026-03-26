@@ -991,63 +991,55 @@ class ModelManager:
             print(cmd_text)
             self._last_start_cmd = " ".join(cmd)
 
-            # ─── プロセス起動 ─────────────────────────────────────
-            try:
-                flags = _sp.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-                if self._startup_log_fd:
-                    try:
-                        self._startup_log_fd.close()
-                    except Exception:
-                        pass
-                    self._startup_log_fd = None
-                log_fd = open(LLAMA_STARTUP_LOG_PATH, "ab")
-                header = (
-                    f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n"
-                    f"{cmd_text}\n"
-                ).encode("utf-8", errors="replace")
-                log_fd.write(header)
-                log_fd.flush()
-                self._process = _sp.Popen(
-                    cmd, stdout=log_fd, stderr=log_fd, creationflags=flags
-                )
-                self._startup_log_fd = log_fd
-            except Exception as e:
-                if 'log_fd' in locals():
-                    try:
-                        log_fd.close()
-                    except Exception:
-                        pass
-                self._startup_log_fd = None
-                print(f"[ModelManager] Popen error: {e}")
-                return False
-
-            # ─── ヘルスチェックループ ─────────────────────────────
-            import requests as _req
-            health = f"http://127.0.0.1:{self.llm_port}/health"
-            _started_ok = False
-            for i in range(180):
-                _mm_time.sleep(1)
-                elapsed = i
-                remaining = max(0, int(self._switch_eta - _mm_time.time()))
-                pct = min(90, 30 + elapsed * 60 // spec["load_sec"])
-                emit("model_switching", f"Loading {spec['name']}... {elapsed}s", pct, remaining)
+        # ─── プロセス起動 ─────────────────────────────────────
+        try:
+            flags = _sp.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+            if self._startup_log_fd:
                 try:
-                    if _req.get(health, timeout=2).status_code == 200:
-                        _started_ok = True
-                        break
+                    self._startup_log_fd.close()
                 except Exception:
                     pass
-                if self._process.poll() is not None:
-                    print("[ModelManager] process exited during load")
+                self._startup_log_fd = None
+            log_fd = open(LLAMA_STARTUP_LOG_PATH, "ab")
+            header = (
+                f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n"
+                f"{cmd_text}\n"
+            ).encode("utf-8", errors="replace")
+            log_fd.write(header)
+            log_fd.flush()
+            self._process = _sp.Popen(
+                cmd, stdout=log_fd, stderr=log_fd, creationflags=flags
+            )
+            self._startup_log_fd = log_fd
+        except Exception as e:
+            if 'log_fd' in locals():
+                try:
+                    log_fd.close()
+                except Exception:
+                    pass
+            self._startup_log_fd = None
+            print(f"[ModelManager] Popen error: {e}")
+            return False
+
+        # ─── ヘルスチェックループ ─────────────────────────────
+        import requests as _req
+        health = f"http://127.0.0.1:{self.llm_port}/health"
+        _started_ok = False
+        for i in range(180):
+            _mm_time.sleep(1)
+            elapsed = i
+            remaining = max(0, int(self._switch_eta - _mm_time.time()))
+            pct = min(90, 30 + elapsed * 60 // spec["load_sec"])
+            emit("model_switching", f"Loading {spec['name']}... {elapsed}s", pct, remaining)
+            try:
+                if _req.get(health, timeout=2).status_code == 200:
+                    _started_ok = True
                     break
-
-            if _started_ok:
-                return True
-
-            # ─── 起動失敗 → OOM判定 ──────────────────────────────
-            self._last_startup_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
-            if self._last_startup_hints:
-                print(f"[ModelManager] startup hints: {self._last_startup_hints}")
+            except Exception:
+                pass
+            if self._process.poll() is not None:
+                print("[ModelManager] process exited during load")
+                break
 
             # OOM時でもgpu_layersはllama.cppの自動判定へ委譲する
             _is_oom = any(
@@ -1057,7 +1049,10 @@ class ModelManager:
             if _is_oom:
                 break
 
-            return False
+        # ─── 起動失敗 → OOM判定 ──────────────────────────────
+        self._last_startup_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
+        if self._last_startup_hints:
+            print(f"[ModelManager] startup hints: {self._last_startup_hints}")
 
         return False
 
