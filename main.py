@@ -4053,10 +4053,13 @@ def _calc_safe_gpu_layers(spec: dict) -> int:
     if total_needed_mb <= free_vram_mb:
         return 999  # VRAMに完全に収まる - 全層GPUへ
 
-    # 部分オフロード: 空きVRAMに収まる層数を計算
-    available_for_model_mb = max(0, free_vram_mb - overhead_mb - kv_cache_mb)
+    # 部分オフロード: KVキャッシュも層数に比例して配分する
+    # （KVキャッシュを固定オーバーヘッドとして先引きするとMoE等で過小評価になるため）
     estimated_total_layers = _infer_gpu_layers_for_estimate(file_size_mb, q)
-    fitting_layers = int(available_for_model_mb * estimated_total_layers / file_size_mb)
+    model_mb_per_layer = file_size_mb / max(1, estimated_total_layers)
+    kv_mb_per_layer = kv_cache_mb / max(1, estimated_total_layers)
+    vram_for_layers = max(0, free_vram_mb - overhead_mb)
+    fitting_layers = int(vram_for_layers / (model_mb_per_layer + kv_mb_per_layer))
     fitting_layers = max(0, min(estimated_total_layers, fitting_layers))
 
     print(
