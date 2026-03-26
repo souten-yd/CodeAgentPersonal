@@ -927,11 +927,22 @@ class ModelManager:
         user_cv = (spec.get("cache_type_v") or "").strip()
 
         if base_gpu_layers >= 999:
-            gpu_cfg = _calc_safe_gpu_layers(spec)
-            gpu_layers = gpu_cfg["gpu_layers"]
-            # ユーザーが明示指定していなければ自動選択のKV量子化を適用
-            eff_ck = user_ck or gpu_cfg["cache_type_k"]
-            eff_cv = user_cv or gpu_cfg["cache_type_v"]
+            try:
+                gpu_cfg = _calc_safe_gpu_layers(spec)
+                gpu_layers = gpu_cfg["gpu_layers"]
+                # ユーザーが明示指定していなければ自動選択のKV量子化を適用
+                eff_ck = user_ck or gpu_cfg["cache_type_k"]
+                eff_cv = user_cv or gpu_cfg["cache_type_v"]
+                if gpu_layers == 0:
+                    print("[ModelManager] gpu_layers=0 computed (possible VRAM detection error), using 999")
+                    gpu_layers = 999
+                    eff_ck = user_ck
+                    eff_cv = user_cv
+            except Exception as _e:
+                print(f"[ModelManager] _calc_safe_gpu_layers error: {_e} → fallback to gpu_layers=999")
+                gpu_layers = 999
+                eff_ck = user_ck
+                eff_cv = user_cv
         else:
             gpu_layers = base_gpu_layers
             eff_ck = user_ck
@@ -1058,10 +1069,10 @@ class ModelManager:
                 print(f"[ModelManager] startup hints: {self._last_startup_hints}")
 
             # OOMかつリトライ余地あり → 層数を削減して再試行
-            _is_oom = any(
-                kw in " ".join(self._last_startup_hints).lower()
-                for kw in ("vram", "out of memory", "cudamalloc", "oom", "メモリ")
-            )
+            # 注: 誤検知を避けるため "vram不足" に限定（正常CUDA動作ログの "vram" と混同しない）
+            _hint_text = " ".join(self._last_startup_hints).lower()
+            _is_oom = ("vram不足" in _hint_text or "out of memory" in _hint_text
+                       or "cudamalloc failed" in _hint_text or "oom" in _hint_text)
             if _is_oom and _oom_attempt < _OOM_MAX_RETRIES and gpu_layers > 4:
                 new_layers = max(4, int(gpu_layers * _OOM_REDUCE_RATE))
                 print(
@@ -4202,9 +4213,36 @@ def _calc_safe_gpu_layers(spec: dict, force_gpu_layers: int = -1) -> dict:
     if free_vram_mb <= 0 or file_size_mb <= 0:
         return {"gpu_layers": 999, "cache_type_k": user_ck, "cache_type_v": user_cv}
 
+    # GGUFメタデータを一度だけ読み込んでキャッシュ（3フェーズ共有）
+    _gguf_meta_cache: dict = {}
+    _gguf_meta_loaded = False
+
     def _kv_mb(ck: str, cv: str) -> int:
-        # GGUFメタデータから正確計算を優先
-        exact = _calc_kv_cache_mb_from_gguf(model_path, ctx, ck, cv) if model_path else 0
+        nonlocal _gguf_meta_cache, _gguf_meta_loaded
+        # GGUFメタデータから正確計算を優先（一度だけ読み込む）
+        if not _gguf_meta_loaded and model_path:
+            _gguf_meta_cache = _read_gguf_metadata(model_path)
+            _gguf_meta_loaded = True
+        exact = 0
+        # GGUFメタデータからの直接計算
+        if exact <= 0 and _gguf_meta_cache:
+            n_layers = n_heads = n_kv_heads = embed_len = None
+            for prefix in ("llama", "mistral", "phi3", "qwen2", "gemma", "gemma2"):
+                n_layers   = n_layers   or _gguf_meta_cache.get(f"{prefix}.block_count")
+                n_heads    = n_heads    or _gguf_meta_cache.get(f"{prefix}.attention.head_count")
+                n_kv_heads = n_kv_heads or _gguf_meta_cache.get(f"{prefix}.attention.head_count_kv")
+                embed_len  = embed_len  or _gguf_meta_cache.get(f"{prefix}.embedding_length")
+            if n_layers and n_heads and embed_len:
+                if not n_kv_heads:
+                    n_kv_heads = n_heads
+                head_dim = int(embed_len) // int(n_heads)
+                _tb = {"f32": 4.0, "f16": 2.0, "bf16": 2.0, "q8_0": 1.0, "q4_0": 0.5}
+                k_b = _tb.get((ck or "f16").lower(), 2.0)
+                v_b = _tb.get((cv or "f16").lower(), 2.0)
+                raw = int(n_layers) * int(n_kv_heads) * head_dim * ctx * (k_b + v_b) / (1024 * 1024)
+                exact = max(64, int(raw))
+                print(f"[GGUF] KV: layers={n_layers}, kv_heads={n_kv_heads}, "
+                      f"head_dim={head_dim}, ctx={ctx} → {exact}MB ({ck}/{cv})")
         if exact > 0:
             return exact
         # フォールバック: 量子化係数ベースのヒューリスティック
@@ -4223,18 +4261,23 @@ def _calc_safe_gpu_layers(spec: dict, force_gpu_layers: int = -1) -> dict:
         return max(96, int(file_size_mb * kv_coef * ctx_scale))
 
     def _fitting_layers(kv_mb: int) -> int:
+        # 部分オフロード時: CUDAベースオーバーヘッドを差し引いた上で層数計算
         available = max(0, free_vram_mb - overhead_mb - cuda_base_mb - kv_mb)
         est = _infer_gpu_layers_for_estimate(file_size_mb, q)
         layers = int(available * est / file_size_mb) if file_size_mb > 0 else 0
         if force_gpu_layers >= 0:
             layers = force_gpu_layers
-        return max(0, min(est, layers))
+        result = max(0, min(est, layers))
+        # VRAM余裕があるのにlayers=0になった場合の保護
+        if result == 0 and available > 500:
+            result = max(1, int(available * est / file_size_mb))
+        return result
 
     # ユーザーがKV型を明示指定している場合はそれを優先
     if user_ck and user_cv:
         kv = _kv_mb(user_ck, user_cv)
-        total = file_size_mb + kv + overhead_mb + cuda_base_mb
-        if total <= free_vram_mb:
+        # Phase 1チェック: cuda_base_mb を含めずに判定（PR#110互換の保守的チェック）
+        if file_size_mb + kv + overhead_mb <= free_vram_mb:
             print(f"[ModelManager] 全層GPU+KV {user_ck}/{user_cv}: free={free_vram_mb}MB, kv={kv}MB")
             return {"gpu_layers": 999, "cache_type_k": user_ck, "cache_type_v": user_cv}
         fl = _fitting_layers(kv)
@@ -4242,21 +4285,22 @@ def _calc_safe_gpu_layers(spec: dict, force_gpu_layers: int = -1) -> dict:
         return {"gpu_layers": fl, "cache_type_k": user_ck, "cache_type_v": user_cv}
 
     # ─── 自動KVキャッシュ量子化フェーズ ─────────────────────────
-    # フェーズ1: 全層 + KV f16（デフォルト、最速）
+    # Phase 1チェックは cuda_base_mb を含めない（PR#110と同じ保守的な判定）
+    # 部分オフロード計算のみ cuda_base_mb を差し引く
     kv_f16 = _kv_mb("f16", "f16")
-    if file_size_mb + kv_f16 + overhead_mb + cuda_base_mb <= free_vram_mb:
+    if file_size_mb + kv_f16 + overhead_mb <= free_vram_mb:
         print(f"[ModelManager] 全層GPU+KV f16: free={free_vram_mb}MB, model={file_size_mb}MB, kv={kv_f16}MB")
         return {"gpu_layers": 999, "cache_type_k": "", "cache_type_v": ""}
 
     # フェーズ2: 全層 + KV q8_0（50%削減、品質ほぼ同等）
     kv_q8 = _kv_mb("q8_0", "q8_0")
-    if file_size_mb + kv_q8 + overhead_mb + cuda_base_mb <= free_vram_mb:
+    if file_size_mb + kv_q8 + overhead_mb <= free_vram_mb:
         print(f"[ModelManager] 全層GPU+KV q8_0: free={free_vram_mb}MB, kv {kv_f16}MB→{kv_q8}MB")
         return {"gpu_layers": 999, "cache_type_k": "q8_0", "cache_type_v": "q8_0"}
 
     # フェーズ3: 全層 + KV q4_0（75%削減）
     kv_q4 = _kv_mb("q4_0", "q4_0")
-    if file_size_mb + kv_q4 + overhead_mb + cuda_base_mb <= free_vram_mb:
+    if file_size_mb + kv_q4 + overhead_mb <= free_vram_mb:
         print(f"[ModelManager] 全層GPU+KV q4_0: free={free_vram_mb}MB, kv {kv_f16}MB→{kv_q4}MB")
         return {"gpu_layers": 999, "cache_type_k": "q4_0", "cache_type_v": "q4_0"}
 
@@ -4265,7 +4309,7 @@ def _calc_safe_gpu_layers(spec: dict, force_gpu_layers: int = -1) -> dict:
     print(
         f"[ModelManager] 部分オフロード+KV q4_0: "
         f"free={free_vram_mb}MB, model={file_size_mb}MB, kv_q4={kv_q4}MB, "
-        f"overhead+cuda={overhead_mb+cuda_base_mb}MB, layers={fl}"
+        f"overhead={overhead_mb}MB, cuda_base={cuda_base_mb}MB, layers={fl}"
     )
     return {"gpu_layers": fl, "cache_type_k": "q4_0", "cache_type_v": "q4_0"}
 
