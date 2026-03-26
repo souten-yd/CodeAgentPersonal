@@ -53,7 +53,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CODEAGENT_APP=main:app \
     SANDBOX_MODE=process \
     LLAMA_SERVER_PATH=/app/llama/bin/llama-server \
-    LD_LIBRARY_PATH=/app/llama/lib:/usr/local/lib:${LD_LIBRARY_PATH}
+    LD_LIBRARY_PATH=/app/llama/lib:/usr/local/lib:${LD_LIBRARY_PATH} \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 WORKDIR /app
 
