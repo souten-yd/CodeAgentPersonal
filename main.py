@@ -316,9 +316,9 @@ def _start_model_load_vram_sampling():
         for _ in range(15):
             usage = get_system_usage_info()
             gpus = usage.get("gpus", []) or []
-            total_used = sum(int(g.get("vram_used_mb", -1)) for g in gpus if int(g.get("vram_used_mb", -1)) >= 0)
+            total_used = sum(int(g.get("vram_used_mb", -1)) for g in gpus if int(g.get("vram_used_mb", -1)) > 0)
             total_total = sum(int(g.get("vram_total_mb", -1)) for g in gpus if int(g.get("vram_total_mb", -1)) > 0)
-            if total_used > state["max_vram_used_mb"]:
+            if total_used > 0 and total_used > state["max_vram_used_mb"]:
                 state["max_vram_used_mb"] = total_used
             if total_total > 0 and total_total > state["max_vram_total_mb"]:
                 state["max_vram_total_mb"] = total_total
