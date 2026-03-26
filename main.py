@@ -4723,12 +4723,22 @@ def model_db_scan_folder(folder: str) -> list:
 # JSON抽出（LLM出力が汚くても壊れない）
 # =========================
 
+def _sanitize_special_tokens(text: str) -> str:
+    """
+    <|token|> 形式の特殊トークンをメッセージ履歴に追加する前に除去する。
+    llama.cppのチャットテンプレート適用時に特殊トークンが混入するとパースエラーが起きるため。
+    """
+    return re.sub(r'<\|[^|]+\|>', '', text)
+
+
 def _parse_gpt_oss_channel(text: str):
     """
     GPT-OSS-20B の <|channel|>X to=Y <|message|>{...} 形式をエージェント形式に変換。
+    <|constrain|>JSON 等の追加トークンも許容する。
     通常JSONが取れない場合のフォールバック。
     """
-    m = re.search(r'<\|channel\|>(\w+)(?:\s+to=([\w.]+))?(?:\s+\w+)?<\|message\|>(.*)', text, re.DOTALL)
+    # <|constrain|>JSON 等、channel名とメッセージの間に挟まる <|...|>WORD トークンを許容
+    m = re.search(r'<\|channel\|>([\w.]+)(?:\s+to=([\w.]+))?(?:\s*<\|[^|]+\|>\w*)*\s*<\|message\|>(.*)', text, re.DOTALL)
     if not m:
         return None
     channel, tool, body = m.group(1), m.group(2), m.group(3).strip()
@@ -4922,6 +4932,12 @@ def _repair_truncated_json(text: str):
         thought_m = re.search(r'"thought"\s*:\s*"((?:[^"\\]|\\.)*)"', fragment)
         action_m  = re.search(r'"action"\s*:\s*"(\w+)"', fragment)
         if not action_m:
+            # チャンネル形式の前置コンテキストから action を推定
+            # 例: <|channel|>final<|constrain|>JSON<|message|>{"thought":"完了","acti...
+            channel_m = re.search(r'<\|channel\|>(final|analysis)\b', text)
+            if channel_m:
+                thought = thought_m.group(1) if thought_m else "完了"
+                return {"thought": thought, "action": "final", "input": {}, "output": thought}
             return None
 
         action  = action_m.group(1)
@@ -6490,7 +6506,9 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
             consecutive_errors += 1
             if consecutive_errors >= 3:
                 return {"status": "error", "error": "JSON出力失敗", "steps": steps}
-            messages.append({"role": "assistant", "content": reply})
+            # 特殊トークン (<|channel|> 等) を除去してからメッセージ履歴に追加
+            # 除去しないと次回のLLM呼び出し時にllama.cppがチャットテンプレート適用に失敗する
+            messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
             messages.append({
                 "role": "user",
                 "content": "エラー: JSON形式で出力してください。説明不要。{\"action\": ..., \"input\": {...}} の形式のみ。"
@@ -6533,7 +6551,7 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
             else:
                 answer = "（回答待機タイムアウト）"
 
-            messages.append({"role": "assistant", "content": reply})
+            messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
             messages.append({"role": "user", "content": f"ユーザーの選択: {answer}"})
             continue
 
@@ -6547,7 +6565,7 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
             }
 
         if action not in active_tools:
-            messages.append({"role": "assistant", "content": reply})
+            messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
             messages.append({"role": "user", "content": f"ERROR: 不明なツール '{action}' — 使えるのは {list(active_tools.keys())} のみ"})
             steps.append({"step": step, "type": "unknown_tool", "action": action})
             continue
@@ -6580,7 +6598,7 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
         if on_step:
             on_step(step_info)
 
-        messages.append({"role": "assistant", "content": reply})
+        messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
         result_str = str(result)
         if action in ("write_file", "patch_function"):
             result_str = result_str[:400]
@@ -7571,7 +7589,7 @@ async def stream(req: ChatRequest):
                             "progress": step_progress, "tps": 0,
                         })
                         break
-                    messages.append({"role": "assistant", "content": reply})
+                    messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
                     messages.append({"role": "user", "content": "JSON形式で出力してください。"})
                     continue
                 else:
@@ -7600,7 +7618,7 @@ async def stream(req: ChatRequest):
                     break
 
                 if action not in TOOLS:
-                    messages.append({"role": "assistant", "content": reply})
+                    messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
                     messages.append({"role": "user", "content": f"ERROR: 不明なツール '{action}'"})
                     continue
 
@@ -7632,7 +7650,7 @@ async def stream(req: ChatRequest):
                     "tps": _step_usage.get("tps", 0),
                 })
 
-                messages.append({"role": "assistant", "content": reply})
+                messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
                 messages.append({"role": "user", "content": f"実行結果:\n{result}"})
 
             yield event("task_done", {
@@ -7908,7 +7926,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
                 fb = "チャンネルトークンは使わず、JSONのみを出力してください。最初の文字は{であること。"
             else:
                 fb = 'JSON形式のみで出力してください。最初の文字は{であること。例: {"thought":"考え","action":"list_files","input":{"subdir":""}}'
-            messages.append({"role": "assistant", "content": reply[:500]})
+            messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)[:500]})
             messages.append({"role": "user", "content": fb})
             continue
         else:
@@ -7958,7 +7976,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
         if action not in active_tools:
             # 未知のツール → スキル候補として記録
             yield {"type": "skill_hint", "missing_tool": action, "thought": thought}
-            messages.append({"role": "assistant", "content": reply})
+            messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
             messages.append({"role": "user", "content": f"ERROR: unknown tool '{action}' — 使えるのは {list(active_tools.keys())} のみ。これらのツールで代替する。"})
             continue
 
@@ -7999,7 +8017,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
 
         # replyをmessagesに追加する際、write_fileのcontentなど巨大フィールドを省略
         compact = _compact_reply(action_obj, max_chars=300)
-        messages.append({"role": "assistant", "content": compact or reply[:500]})
+        messages.append({"role": "assistant", "content": _sanitize_special_tokens(compact or reply[:500])})
         result_str = str(result)
         # write_file/patch_functionは成功メッセージ＋プレビューのみ
         if action in ("write_file", "patch_function"):
