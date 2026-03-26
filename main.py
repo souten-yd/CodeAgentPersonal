@@ -3806,45 +3806,73 @@ def _probe_gpu_static(backend: str) -> list[dict]:
             except Exception:
                 continue
     elif backend == "windows-counter" and os.name == "nt":
-        for ps in [
-            # 1 WMI + counter
-            "$gpu = Get-WmiObject Win32_VideoController | Where-Object { $_.AdapterRAM -gt 0 -and $_.Name -notmatch 'Virtual' } | Select-Object -First 1; "
-            "$name = if ($gpu) { [string]$gpu.Name } else { 'Windows GPU' }; $totalB = if ($gpu) { [double]$gpu.AdapterRAM } else { 0 }; "
-            "$obj = @{ name=$name; total_mb=[math]::Round($totalB/1MB) }; $obj | ConvertTo-Json -Compress",
-            # 2 CIM
-            "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name,AdapterRAM | ConvertTo-Json -Compress",
-            # 3 PNP
-            "Get-PnpDevice -Class Display | Select-Object -ExpandProperty FriendlyName | ConvertTo-Json -Compress",
-            # 4 wmic
-            "wmic path win32_VideoController get name,AdapterRAM",
-            # 5 dxdiag
-            "dxdiag /whql:off /dontskip /t $env:TEMP\\dxdiag_gpu.txt; Get-Content $env:TEMP\\dxdiag_gpu.txt",
-        ]:
-            try:
-                r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=12)
-                out = (r.stdout or "").strip()
-                if not out:
-                    continue
-                data = None
+        # 最優先: レジストリから64bit正確なVRAM値を取得 (AdapterRAM uint32オーバーフロー回避)
+        try:
+            import winreg
+            reg_base = r"SYSTEM\ControlSet001\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+            for ri in range(16):
+                reg_sub = f"{reg_base}\\{ri:04d}"
                 try:
-                    data = json.loads(out)
-                except Exception:
+                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_sub) as rk:
+                        try:
+                            rname = str(winreg.QueryValueEx(rk, "DriverDesc")[0])
+                        except OSError:
+                            try:
+                                rname = str(winreg.QueryValueEx(rk, "HardwareInformation.AdapterString")[0]).rstrip('\x00')
+                            except OSError:
+                                rname = ""
+                        if not rname:
+                            continue
+                        vb = 0
+                        for vkey in ("HardwareInformation.qwMemorySize", "HardwareInformation.MemorySize"):
+                            try:
+                                vb = int(winreg.QueryValueEx(rk, vkey)[0])
+                                if vb > 0:
+                                    break
+                            except OSError:
+                                continue
+                        vmb = int(vb / (1024 * 1024)) if vb > 0 else -1
+                        gpus.append({"name": rname, "memory_total_mb": vmb, "memory_free_mb": -1})
+                except OSError:
+                    continue
+        except Exception:
+            pass
+        # フォールバック: WMI / CIM / PNP / wmic / dxdiag
+        if not gpus:
+            for ps in [
+                "$gpu = Get-WmiObject Win32_VideoController | Where-Object { $_.AdapterRAM -gt 0 -and $_.Name -notmatch 'Virtual' } | Select-Object -First 1; "
+                "$name = if ($gpu) { [string]$gpu.Name } else { 'Windows GPU' }; $totalB = if ($gpu) { [double]$gpu.AdapterRAM } else { 0 }; "
+                "$obj = @{ name=$name; total_mb=[math]::Round($totalB/1MB) }; $obj | ConvertTo-Json -Compress",
+                "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name,AdapterRAM | ConvertTo-Json -Compress",
+                "Get-PnpDevice -Class Display | Select-Object -ExpandProperty FriendlyName | ConvertTo-Json -Compress",
+                "wmic path win32_VideoController get name,AdapterRAM",
+                "dxdiag /whql:off /dontskip /t $env:TEMP\\dxdiag_gpu.txt; Get-Content $env:TEMP\\dxdiag_gpu.txt",
+            ]:
+                try:
+                    r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=12)
+                    out = (r.stdout or "").strip()
+                    if not out:
+                        continue
                     data = None
-                if isinstance(data, dict):
-                    name = str(data.get("Name") or data.get("name") or "Windows GPU")
-                    total_mb = int((data.get("AdapterRAM") or data.get("total_mb") or 0) / (1024 * 1024)) if isinstance(data.get("AdapterRAM"), (int, float)) else int(data.get("total_mb") or -1)
-                    gpus.append({"name": name, "memory_total_mb": total_mb, "memory_free_mb": -1})
-                elif isinstance(data, list):
-                    for row in data:
-                        gpus.append({"name": str(row if isinstance(row, str) else row.get("name") or row.get("Name") or "Windows GPU"), "memory_total_mb": -1, "memory_free_mb": -1})
-                else:
-                    for line in out.splitlines():
-                        if line.strip() and "name" not in line.lower():
-                            gpus.append({"name": line.strip(), "memory_total_mb": -1, "memory_free_mb": -1})
-                if gpus:
-                    break
-            except Exception:
-                continue
+                    try:
+                        data = json.loads(out)
+                    except Exception:
+                        data = None
+                    if isinstance(data, dict):
+                        name = str(data.get("Name") or data.get("name") or "Windows GPU")
+                        total_mb = int((data.get("AdapterRAM") or data.get("total_mb") or 0) / (1024 * 1024)) if isinstance(data.get("AdapterRAM"), (int, float)) else int(data.get("total_mb") or -1)
+                        gpus.append({"name": name, "memory_total_mb": total_mb, "memory_free_mb": -1})
+                    elif isinstance(data, list):
+                        for row in data:
+                            gpus.append({"name": str(row if isinstance(row, str) else row.get("name") or row.get("Name") or "Windows GPU"), "memory_total_mb": -1, "memory_free_mb": -1})
+                    else:
+                        for line in out.splitlines():
+                            if line.strip() and "name" not in line.lower():
+                                gpus.append({"name": line.strip(), "memory_total_mb": -1, "memory_free_mb": -1})
+                    if gpus:
+                        break
+                except Exception:
+                    continue
     return gpus
 
 
@@ -3889,7 +3917,7 @@ def get_system_hardware_info() -> dict:
     except Exception:
         pass
 
-    candidates = ["nvidia-smi", "rocm-smi", "nvidia-proc", "lspci"] if os.name != "nt" else ["windows-counter", "nvidia-smi", "rocm-smi"]
+    candidates = ["nvidia-smi", "rocm-smi", "nvidia-proc", "lspci"] if os.name != "nt" else ["windows-counter", "nvidia-smi"]
     gpu_backend, gpus = _select_working_gpu_backend("gpu_static_backend", candidates)
 
     vram_total_mb = sum(g["memory_total_mb"] for g in gpus) if gpus else -1
@@ -3956,6 +3984,53 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
                     ram_percent = (ram_used_mb / ram_total_mb) * 100.0
         except Exception:
             pass
+
+    def _windows_registry_gpu_vram() -> tuple[str, int]:
+        """Windowsレジストリから GPU 名と VRAM(MB) を取得。64bit値対応で4GB超も正確。"""
+        if os.name != "nt":
+            return ("", -1)
+        try:
+            import winreg
+            base_path = r"SYSTEM\ControlSet001\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+            best_name = ""
+            best_vram_mb = -1
+            for i in range(16):
+                subkey = f"{base_path}\\{i:04d}"
+                try:
+                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, subkey) as key:
+                        try:
+                            name = str(winreg.QueryValueEx(key, "DriverDesc")[0])
+                        except OSError:
+                            name = ""
+                        # まず qwMemorySize (64bit QWORD) を試す
+                        vram_bytes = 0
+                        try:
+                            vram_bytes = int(winreg.QueryValueEx(key, "HardwareInformation.qwMemorySize")[0])
+                        except OSError:
+                            pass
+                        # フォールバック: MemorySize (DWORD, 4GB超でオーバーフローの可能性)
+                        if vram_bytes <= 0:
+                            try:
+                                vram_bytes = int(winreg.QueryValueEx(key, "HardwareInformation.MemorySize")[0])
+                            except OSError:
+                                pass
+                        if vram_bytes <= 0:
+                            try:
+                                val = winreg.QueryValueEx(key, "HardwareInformation.AdapterString")[0]
+                                if val and not name:
+                                    name = str(val).rstrip('\x00')
+                            except OSError:
+                                pass
+                            continue
+                        vram_mb = int(vram_bytes / (1024 * 1024))
+                        if vram_mb > best_vram_mb:
+                            best_name = name
+                            best_vram_mb = vram_mb
+                except OSError:
+                    continue
+            return (best_name, best_vram_mb)
+        except Exception:
+            return ("", -1)
 
     def _windows_dxdiag_dedicated_vram_mb() -> int:
         if os.name != "nt":
@@ -4084,7 +4159,7 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
         except Exception:
             return -1.0
 
-    candidates = ["nvidia-smi", "rocm-smi", "nvidia-proc", "lspci"] if os.name != "nt" else ["windows-counter", "nvidia-smi", "rocm-smi"]
+    candidates = ["nvidia-smi", "rocm-smi", "nvidia-proc", "lspci"] if os.name != "nt" else ["windows-counter", "nvidia-smi"]
     selected = (settings_get("gpu_usage_backend") or "auto").strip()
     if selected in ("", "auto", "none"):
         selected, _ = _select_working_gpu_backend("gpu_usage_backend", candidates)
@@ -4205,15 +4280,22 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
         py_ded_limit_b = _windows_pdh_counter_max(r"\GPU Adapter Memory(*)\Dedicated Limit")
         py_shr_limit_b = _windows_pdh_counter_max(r"\GPU Adapter Memory(*)\Shared Limit")
         py_total_b = max(py_ded_limit_b, py_shr_limit_b)
+        # レジストリから GPU名 と VRAM総量(64bit正確値) を取得
+        reg_name, reg_mb = _windows_registry_gpu_vram()
+        # PDH Dedicated Limit が取れない場合のフォールバック順:
+        # 1) レジストリ(64bit正確値) → 2) dxdiag
         if py_total_b <= 0:
-            dx_mb = _windows_dxdiag_dedicated_vram_mb()
-            py_total_b = float(dx_mb * 1024 * 1024) if dx_mb > 0 else -1
+            if reg_mb > 0:
+                py_total_b = float(reg_mb * 1024 * 1024)
+            else:
+                dx_mb = _windows_dxdiag_dedicated_vram_mb()
+                py_total_b = float(dx_mb * 1024 * 1024) if dx_mb > 0 else -1
         py_used_mb = int(round(py_used_b / (1024 * 1024))) if py_used_b >= 0 else -1
         py_total_mb = int(round(py_total_b / (1024 * 1024))) if py_total_b > 0 else -1
         py_pct = (py_used_mb / py_total_mb * 100.0) if py_used_mb >= 0 and py_total_mb > 0 else -1.0
         if py_util >= 0 or py_used_mb >= 0 or py_total_mb > 0:
             gpus.append({
-                "name": "Windows GPU",
+                "name": reg_name or "Windows GPU",
                 "util_percent": float(py_util),
                 "vram_used_mb": py_used_mb,
                 "vram_total_mb": py_total_mb,
