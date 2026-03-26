@@ -1,10 +1,11 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 CodeAgent Memory Benchmark helpers.
 Safe to import from the server process.
 """
 import os
 import re
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -23,12 +24,50 @@ except Exception:  # optional dependency
     pynvml = None
 
 BASE_DIR = Path(__file__).resolve().parent
-LLAMA_SERVER = os.environ.get("LLAMA_SERVER_PATH", str(BASE_DIR / "llama" / "llama-server.exe"))
 PORT = 18099
 BASE_URL = f"http://127.0.0.1:{PORT}"
 RESULT_DIR = Path(os.environ.get("CODEAGENT_BENCH_DIR", str(BASE_DIR / "ca_data" / "benchmark")))
 RESULT_DIR.mkdir(parents=True, exist_ok=True)
 CTX_SIZES = [4096, 8192, 16384, 32768]
+
+
+def _get_llama_server_path() -> str:
+    """main.py と同じロジックで llama-server のパスを解決する。"""
+    env_path = os.environ.get("LLAMA_SERVER_PATH", "").strip()
+    if env_path:
+        return env_path
+    candidates = [
+        str(BASE_DIR / "llama" / "llama-server.exe"),   # Windows
+        str(BASE_DIR / "llama" / "llama-server"),        # Linux prebuilt
+        str(BASE_DIR / "llama" / "bin" / "llama-server") # Linux source build
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return candidates[0] if os.name == "nt" else candidates[1]
+
+
+LLAMA_SERVER = _get_llama_server_path()
+
+
+def _detect_gpu_vendor() -> str:
+    """nvidia / amd / unknown を返す。"""
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return "nvidia"
+    except Exception:
+        pass
+    try:
+        r = subprocess.run(["rocm-smi"], capture_output=True, text=True, timeout=5)
+        if r.returncode == 0:
+            return "amd"
+    except Exception:
+        pass
+    return "unknown"
 
 
 def get_vram_mib() -> int:
@@ -47,22 +86,23 @@ def get_vram_mib() -> int:
         except Exception:
             pass
 
-    try:
-        ps = (
-            r"$samples = (Get-Counter '\GPU Adapter Memory(*)\Dedicated Usage' "
-            r"-ErrorAction SilentlyContinue).CounterSamples; "
-            r"$total = ($samples | Measure-Object CookedValue -Sum).Sum; "
-            r"[math]::Round($total / 1MB)"
-        )
-        r = subprocess.run(
-            ["powershell", "-Command", ps],
-            capture_output=True, text=True, timeout=10
-        )
-        v = r.stdout.strip()
-        if v and v.lstrip("-").isdigit():
-            return int(v)
-    except Exception:
-        pass
+    if os.name == "nt":
+        try:
+            ps = (
+                r"$samples = (Get-Counter '\GPU Adapter Memory(*)\Dedicated Usage' "
+                r"-ErrorAction SilentlyContinue).CounterSamples; "
+                r"$total = ($samples | Measure-Object CookedValue -Sum).Sum; "
+                r"[math]::Round($total / 1MB)"
+            )
+            r = subprocess.run(
+                ["powershell", "-Command", ps],
+                capture_output=True, text=True, timeout=10
+            )
+            v = r.stdout.strip()
+            if v and v.lstrip("-").isdigit():
+                return int(v)
+        except Exception:
+            pass
 
     try:
         r = subprocess.run(
@@ -89,20 +129,21 @@ def get_ram_mib() -> int:
         except Exception:
             pass
 
-    try:
-        ps = (
-            "$os = Get-CimInstance Win32_OperatingSystem; "
-            "[math]::Round(($os.TotalVisibleMemorySize - $os.FreePhysicalMemory) / 1024)"
-        )
-        r = subprocess.run(
-            ["powershell", "-Command", ps],
-            capture_output=True, text=True, timeout=10
-        )
-        v = r.stdout.strip()
-        if v and v.lstrip("-").isdigit():
-            return int(v)
-    except Exception:
-        pass
+    if os.name == "nt":
+        try:
+            ps = (
+                "$os = Get-CimInstance Win32_OperatingSystem; "
+                "[math]::Round(($os.TotalVisibleMemorySize - $os.FreePhysicalMemory) / 1024)"
+            )
+            r = subprocess.run(
+                ["powershell", "-Command", ps],
+                capture_output=True, text=True, timeout=10
+            )
+            v = r.stdout.strip()
+            if v and v.lstrip("-").isdigit():
+                return int(v)
+        except Exception:
+            pass
     return -1
 
 
@@ -156,33 +197,98 @@ def parse_llama_log(log_text: str) -> dict:
     }
 
 
+def _parse_ngl_from_log(log_text: str) -> int:
+    """ログから実際に使われた n_gpu_layers の値をパースする。"""
+    m = re.search(r"n_gpu_layers\s*=\s*(\d+)", log_text)
+    return int(m.group(1)) if m else -1
+
+
+def _is_oom_log(log_text: str) -> bool:
+    """ログからOOMを検出する。"""
+    blob = log_text.lower()
+    keywords = ("out of memory", "cudamalloc failed", "failed to allocate",
+                "ggml_cuda_device_malloc", "insufficient vram")
+    return any(kw in blob for kw in keywords)
+
+
 def kill_port(port: int):
-    try:
-        subprocess.run(
-            [
-                "powershell", "-Command",
-                f"Get-NetTCPConnection -LocalPort {port} -EA SilentlyContinue | "
-                f"Select -ExpandProperty OwningProcess | "
-                f"% {{ Stop-Process -Id $_ -Force -EA SilentlyContinue }}",
-            ],
-            capture_output=True,
-            timeout=10,
-        )
-    except Exception:
-        pass
+    """指定ポートを使用しているプロセスを停止する（Linux/Windows両対応）。"""
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                [
+                    "powershell", "-Command",
+                    f"Get-NetTCPConnection -LocalPort {port} -EA SilentlyContinue | "
+                    f"Select -ExpandProperty OwningProcess | "
+                    f"% {{ Stop-Process -Id $_ -Force -EA SilentlyContinue }}",
+                ],
+                capture_output=True,
+                timeout=10,
+            )
+        except Exception:
+            pass
+    else:
+        # Linux: lsof or fuser でポートを使うPIDを特定してkill
+        try:
+            r = subprocess.run(
+                ["lsof", "-ti", f":{port}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            for pid_str in r.stdout.strip().split():
+                if pid_str.isdigit():
+                    try:
+                        os.kill(int(pid_str), signal.SIGTERM)
+                    except OSError:
+                        pass
+        except Exception:
+            pass
+        try:
+            subprocess.run(
+                ["fuser", "-k", f"{port}/tcp"],
+                capture_output=True, timeout=5,
+            )
+        except Exception:
+            pass
     time.sleep(2)
 
 
-def start_server_with_log(path: str, ctx: int, ngl: int = 999, mmproj_path: str = ""):
+def stop_server(proc):
+    if proc and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=8)
+        except Exception:
+            proc.kill()
+    kill_port(PORT)
+    time.sleep(3)
+
+
+def _start_server_once(path: str, ctx: int, ngl: int | None = None,
+                       mmproj_path: str = "") -> tuple:
+    """
+    llama-server を1回起動してヘルスチェックまで行う。
+    ngl=None の場合は -ngl を省略し、auto-fit に委ねる。
+    Returns: (proc, load_sec_or_None, log_text, is_oom)
+    """
     kill_port(PORT)
     t0 = time.perf_counter()
     cmd = [
         LLAMA_SERVER, "--model", path, "--port", str(PORT),
         "--host", "127.0.0.1", "--ctx-size", str(ctx),
-        "-ngl", str(ngl), "--threads", "8", "--no-mmap", "--no-warmup", "-np", "1",
+        "--threads", "8", "--no-mmap", "--no-warmup", "-np", "1",
     ]
+    if ngl is not None:
+        cmd += ["-ngl", str(ngl)]
     if mmproj_path:
-        cmd.extend(["--mmproj", mmproj_path])
+        cmd += ["--mmproj", mmproj_path]
+    # NVIDIA GPU なら flash-attn を有効化
+    gpu_vendor = _detect_gpu_vendor()
+    if gpu_vendor == "nvidia":
+        cmd += ["--flash-attn", "on"]
+
+    ngl_display = str(ngl) if ngl is not None else "auto(fit)"
+    print(f"[Benchmark] starting: -ngl={ngl_display} cmd={' '.join(cmd)}")
+
     creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
     popen_kwargs = {
         "stdout": subprocess.PIPE,
@@ -195,10 +301,9 @@ def start_server_with_log(path: str, ctx: int, ngl: int = 999, mmproj_path: str 
         popen_kwargs["creationflags"] = creationflags
 
     proc = subprocess.Popen(cmd, **popen_kwargs)
-    log_lines = []
+    log_lines: list[str] = []
 
     import threading
-
     def reader():
         stdout_pipe: Optional[TextIO] = proc.stdout
         if stdout_pipe is None:
@@ -219,18 +324,79 @@ def start_server_with_log(path: str, ctx: int, ngl: int = 999, mmproj_path: str 
         except Exception:
             pass
     time.sleep(1)
-    return proc, load_sec, "".join(log_lines)
+    log_text = "".join(log_lines)
+    is_oom = _is_oom_log(log_text) if load_sec is None else False
+    return proc, load_sec, log_text, is_oom
 
 
-def stop_server(proc):
-    if proc and proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=8)
-        except Exception:
-            proc.kill()
-    kill_port(PORT)
-    time.sleep(3)
+def start_server_with_log(path: str, ctx: int, ngl: int = 999,
+                          mmproj_path: str = "") -> tuple:
+    """
+    プラットフォーム別の起動フロー:
+      Windows  : auto-fit のみ（-ngl 省略、llama.cppに任せる）
+      Linux    : 明示的 -ngl + OOMリトライ（proven_ngl / 計算値ベース）
+    Returns: (proc, load_sec, log_text)
+    """
+    if os.name == "nt":
+        return _start_windows_autofit(path, ctx, mmproj_path)
+    else:
+        return _start_linux_explicit_ngl(path, ctx, ngl, mmproj_path)
+
+
+def _start_windows_autofit(path: str, ctx: int, mmproj_path: str) -> tuple:
+    """Windows: auto-fit に完全に委ねる（-ngl 省略）。"""
+    print("[Benchmark] Windows: auto-fit で起動")
+    proc, load_sec, log_text, _ = _start_server_once(
+        path, ctx, ngl=None, mmproj_path=mmproj_path,
+    )
+    if load_sec is not None:
+        actual_ngl = _parse_ngl_from_log(log_text)
+        print(f"[Benchmark] auto-fit 成功 (n_gpu_layers={actual_ngl})")
+    return proc, load_sec, log_text
+
+
+def _start_linux_explicit_ngl(path: str, ctx: int, ngl: int,
+                              mmproj_path: str) -> tuple:
+    """
+    Linux (Runpod/CUDA): auto-fit first → 失敗時は明示的-nglでOOMリトライ。
+    """
+    # ─── Phase 1: auto-fit を試行 ───────────────────────────
+    print("[Benchmark] Linux Phase 1: auto-fit で起動を試行")
+    proc, load_sec, log_text, is_oom = _start_server_once(
+        path, ctx, ngl=None, mmproj_path=mmproj_path,
+    )
+    if load_sec is not None:
+        actual_ngl = _parse_ngl_from_log(log_text)
+        print(f"[Benchmark] auto-fit 成功 (n_gpu_layers={actual_ngl})")
+        return proc, load_sec, log_text
+    stop_server(proc)
+    if not is_oom:
+        print("[Benchmark] auto-fit失敗(非OOM) → Phase 2へ")
+
+    # ─── Phase 2: 明示的 -ngl + OOMリトライ ─────────────────
+    gpu_layers = ngl
+    _OOM_MAX_RETRIES = 4
+    for attempt in range(_OOM_MAX_RETRIES + 1):
+        print(f"[Benchmark] Linux Phase 2: -ngl={gpu_layers} ({attempt + 1}/{_OOM_MAX_RETRIES + 1})")
+        proc, load_sec, log_text, is_oom = _start_server_once(
+            path, ctx, ngl=gpu_layers, mmproj_path=mmproj_path,
+        )
+        if load_sec is not None:
+            print(f"[Benchmark] 成功: -ngl={gpu_layers}")
+            return proc, load_sec, log_text
+        stop_server(proc)
+        if not is_oom:
+            print(f"[Benchmark] 非OOMエラーで失敗")
+            return proc, None, log_text
+        if gpu_layers <= 0:
+            print(f"[Benchmark] gpu_layers=0でもOOM")
+            return proc, None, log_text
+        prev = gpu_layers
+        gpu_layers = max(0, gpu_layers // 2)
+        print(f"[Benchmark] OOM検出 → gpu_layers {prev} → {gpu_layers}")
+
+    print("[Benchmark] OOMリトライ回数超過")
+    return proc, None, log_text
 
 
 def infer() -> dict:
@@ -289,7 +455,8 @@ def run_single_benchmark(path: str, ctx: int = 4096, ngl: int = 999, mmproj_path
         return {"ok": False, "error": f"failed to start benchmark server: {e}", "baseline": baseline}
     if not load_sec:
         stop_server(proc)
-        return {"ok": False, "error": "server did not start", "baseline": baseline}
+        return {"ok": False, "error": "server did not start", "baseline": baseline,
+                "log_text": log_text[-4000:] if log_text else ""}
     time.sleep(1)
     log_mem = parse_llama_log(log_text)
     mem_now = get_memory()

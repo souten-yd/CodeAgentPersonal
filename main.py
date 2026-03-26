@@ -932,8 +932,35 @@ class ModelManager:
         proven_ngl = int(spec.get("proven_ngl", -1) or -1)
         gpu_vendor = _detect_gpu_vendor()
 
-        # ─── Phase 1: auto-fit（-ngl 省略、llama.cppに任せる）────
-        print(f"[ModelManager] Phase 1: auto-fit で起動を試行")
+        # ─── プラットフォーム別の起動フロー ────────────────────
+        if os.name == "nt":
+            return self._start_windows(spec, eff_ck, eff_cv, gpu_vendor, emit)
+        else:
+            return self._start_linux(spec, eff_ck, eff_cv, gpu_vendor, emit,
+                                     calc_gpu_layers, proven_ngl)
+
+    def _start_windows(self, spec, eff_ck, eff_cv, gpu_vendor, emit) -> bool:
+        """Windows: auto-fit のみ（-ngl 省略、llama.cppに任せる）。"""
+        print(f"[ModelManager] Windows: auto-fit で起動")
+        emit("model_switching", f"Loading {spec['name']}... (auto-fit)", 10, 0)
+        result = self._try_start_once(
+            spec, gpu_layers=None, eff_ck=eff_ck, eff_cv=eff_cv,
+            gpu_vendor=gpu_vendor, emit=emit,
+        )
+        if result == "ok":
+            actual_ngl = self._parse_ngl_from_log()
+            if actual_ngl is not None:
+                self._save_proven_ngl(spec, actual_ngl)
+            return True
+        return False
+
+    def _start_linux(self, spec, eff_ck, eff_cv, gpu_vendor, emit,
+                     calc_gpu_layers, proven_ngl) -> bool:
+        """
+        Linux (Runpod/CUDA): auto-fit first → 失敗時は明示的-nglでOOMリトライ。
+        """
+        # ─── Phase 1: auto-fit を試行 ────────────────────────
+        print(f"[ModelManager] Linux Phase 1: auto-fit で起動を試行")
         emit("model_switching", f"Loading {spec['name']}... (auto-fit)", 10, 0)
         result = self._try_start_once(
             spec, gpu_layers=None, eff_ck=eff_ck, eff_cv=eff_cv,
@@ -945,11 +972,10 @@ class ModelManager:
                 self._save_proven_ngl(spec, actual_ngl)
             return True
         if result != "oom":
-            # auto-fit が未対応/非OOMエラーの場合 → Phase 2 へ
-            print("[ModelManager] auto-fit失敗(非OOM) → 明示的-nglで再試行")
+            print("[ModelManager] auto-fit失敗(非OOM) → Phase 2へ")
         self._kill_process()
 
-        # ─── Phase 2: 明示的 -ngl + OOMリトライ ──────────────────
+        # ─── Phase 2: 明示的 -ngl + OOMリトライ ──────────────
         gpu_layers = calc_gpu_layers
         if proven_ngl >= 0:
             gpu_layers = min(gpu_layers, proven_ngl)
@@ -957,7 +983,7 @@ class ModelManager:
 
         _OOM_MAX_RETRIES = 4
         for _oom_attempt in range(_OOM_MAX_RETRIES + 1):
-            print(f"[ModelManager] Phase 2: -ngl={gpu_layers} で起動試行 ({_oom_attempt + 1}/{_OOM_MAX_RETRIES + 1})")
+            print(f"[ModelManager] Linux Phase 2: -ngl={gpu_layers} ({_oom_attempt + 1}/{_OOM_MAX_RETRIES + 1})")
             emit("model_switching", f"Loading {spec['name']}... -ngl={gpu_layers}", 15, 0)
             result = self._try_start_once(
                 spec, gpu_layers=gpu_layers, eff_ck=eff_ck, eff_cv=eff_cv,
@@ -968,7 +994,6 @@ class ModelManager:
                 return True
             if result != "oom":
                 return False
-            # ─── OOM → gpu_layers を削減してリトライ ──────────
             if gpu_layers <= 0:
                 print("[ModelManager] gpu_layers=0でもOOM → リトライ不可")
                 return False
