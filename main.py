@@ -918,115 +918,168 @@ class ModelManager:
         if not self.has_llama_server():
             print(f"[ModelManager] llama-server not found: {self.llama_path}")
             return False
-        # gpu_layers=999（デフォルト全層）の場合、VRAMに収まる層数に自動調整する
-        gpu_layers = spec["gpu_layers"]
-        if gpu_layers >= 999:
-            gpu_layers = _calc_safe_gpu_layers(spec)
-        cmd = [
-            self.llama_path,
-            "--model",    spec["path"],
-            "--port",     str(self.llm_port),
-            "--host",     "0.0.0.0",
-            "--ctx-size", str(spec["ctx"]),
-            "-ngl",       str(gpu_layers),
-            "--threads",  str(spec["threads"]),
-            "--no-mmap",
-        ]
-        if spec.get("is_vlm") and spec.get("vlm_enabled", True):
-            mmproj = str(spec.get("mmproj_path", "") or "").strip()
-            if mmproj:
-                if not os.path.exists(mmproj):
-                    msg = f"VLM mmprojファイルが見つかりません: {mmproj}"
-                    print(f"[ModelManager] {msg}")
-                    self._last_startup_hints = [msg]
-                    return False
-                cmd += ["--mmproj", mmproj]
-            else:
-                print(f"[ModelManager] is_vlm=True but mmproj_path not set, starting without --mmproj")
-        # CUDA(NVIDIA)のみ flash attention を有効化
-        # AMD consumer GPU(RDNA2/3)では逆に遅くなるため除外
+
+        # ─── GPU設定を決定 ────────────────────────────────────────
+        # gpu_layers=999（デフォルト全層）の場合、VRAMに収まる設定を自動計算する。
+        # _calc_safe_gpu_layers は KVキャッシュ量子化もセットで返す。
+        base_gpu_layers = spec["gpu_layers"]
+        user_ck = (spec.get("cache_type_k") or "").strip()
+        user_cv = (spec.get("cache_type_v") or "").strip()
+
+        if base_gpu_layers >= 999:
+            gpu_cfg = _calc_safe_gpu_layers(spec)
+            gpu_layers = gpu_cfg["gpu_layers"]
+            # ユーザーが明示指定していなければ自動選択のKV量子化を適用
+            eff_ck = user_ck or gpu_cfg["cache_type_k"]
+            eff_cv = user_cv or gpu_cfg["cache_type_v"]
+        else:
+            gpu_layers = base_gpu_layers
+            eff_ck = user_ck
+            eff_cv = user_cv
+
         gpu_vendor = _detect_gpu_vendor()
-        if gpu_vendor == "nvidia":
-            cmd += ["--flash-attn", "on"]
-            print(f"[ModelManager] flash-attn enabled (NVIDIA GPU detected)")
-        elif gpu_vendor == "amd":
-            print(f"[ModelManager] flash-attn skipped (AMD GPU - may degrade performance on consumer GPUs)")
-        # モデル別オプション
-        if spec.get("parallel", -1) and spec.get("parallel", -1) > 0:
-            cmd += ["--parallel", str(spec["parallel"])]
-        if spec.get("batch_size", -1) and spec.get("batch_size", -1) > 0:
-            cmd += ["--batch-size", str(spec["batch_size"])]
-        if spec.get("ubatch_size", -1) and spec.get("ubatch_size", -1) > 0:
-            cmd += ["--ubatch-size", str(spec["ubatch_size"])]
-        if spec.get("cache_type_k"):
-            cmd += ["--cache-type-k", spec["cache_type_k"]]
-        if spec.get("cache_type_v"):
-            cmd += ["--cache-type-v", spec["cache_type_v"]]
-        for arg in spec.get("extra_args", []):
-            cmd.append(arg)
-        cmd_text = (
-            "[ModelManager] starting:"
-            f" model={spec.get('path','')}"
-            f" -ngl={gpu_layers}"
-            f" --ctx-size={spec.get('ctx')}"
-            f" --threads={spec.get('threads')}"
-            f" extra_args={spec.get('extra_args', [])}"
-            f" full_cmd={' '.join(cmd)}"
-        )
-        print(cmd_text)
-        self._last_start_cmd = " ".join(cmd)
-        try:
-            flags = _sp.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-            if self._startup_log_fd:
-                try:
-                    self._startup_log_fd.close()
-                except Exception:
-                    pass
-                self._startup_log_fd = None
-            # バイナリモードで開いてstderr/stdoutをログへリダイレクト
-            # 379008c相当の挙動を保つため、親側でもfdを保持し続ける
-            log_fd = open(LLAMA_STARTUP_LOG_PATH, "ab")
-            header = (
-                f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n"
-                f"{cmd_text}\n"
-            ).encode("utf-8", errors="replace")
-            log_fd.write(header)
-            log_fd.flush()
-            self._process = _sp.Popen(
-                cmd, stdout=log_fd, stderr=log_fd, creationflags=flags
+
+        _OOM_MAX_RETRIES = 3   # OOM時の自動リトライ上限
+        _OOM_REDUCE_RATE = 0.7  # リトライ毎に層数を70%に削減
+
+        for _oom_attempt in range(_OOM_MAX_RETRIES + 1):
+            # ─── コマンド構築 ─────────────────────────────────────
+            cmd = [
+                self.llama_path,
+                "--model",    spec["path"],
+                "--port",     str(self.llm_port),
+                "--host",     "0.0.0.0",
+                "--ctx-size", str(spec["ctx"]),
+                "-ngl",       str(gpu_layers),
+                "--threads",  str(spec["threads"]),
+                "--no-mmap",
+            ]
+            if spec.get("is_vlm") and spec.get("vlm_enabled", True):
+                mmproj = str(spec.get("mmproj_path", "") or "").strip()
+                if mmproj:
+                    if not os.path.exists(mmproj):
+                        msg = f"VLM mmprojファイルが見つかりません: {mmproj}"
+                        print(f"[ModelManager] {msg}")
+                        self._last_startup_hints = [msg]
+                        return False
+                    cmd += ["--mmproj", mmproj]
+                else:
+                    print(f"[ModelManager] is_vlm=True but mmproj_path not set, starting without --mmproj")
+            # CUDA(NVIDIA)のみ flash attention を有効化
+            if gpu_vendor == "nvidia":
+                cmd += ["--flash-attn", "on"]
+                print(f"[ModelManager] flash-attn enabled (NVIDIA GPU detected)")
+            elif gpu_vendor == "amd":
+                print(f"[ModelManager] flash-attn skipped (AMD GPU - may degrade performance on consumer GPUs)")
+            # モデル別オプション
+            if spec.get("parallel", -1) and spec.get("parallel", -1) > 0:
+                cmd += ["--parallel", str(spec["parallel"])]
+            if spec.get("batch_size", -1) and spec.get("batch_size", -1) > 0:
+                cmd += ["--batch-size", str(spec["batch_size"])]
+            if spec.get("ubatch_size", -1) and spec.get("ubatch_size", -1) > 0:
+                cmd += ["--ubatch-size", str(spec["ubatch_size"])]
+            if eff_ck:
+                cmd += ["--cache-type-k", eff_ck]
+            if eff_cv:
+                cmd += ["--cache-type-v", eff_cv]
+            for arg in spec.get("extra_args", []):
+                cmd.append(arg)
+
+            retry_note = f" [OOM-retry {_oom_attempt}/{_OOM_MAX_RETRIES}]" if _oom_attempt else ""
+            cmd_text = (
+                f"[ModelManager] starting{retry_note}:"
+                f" model={spec.get('path','')}"
+                f" -ngl={gpu_layers}"
+                f" --ctx-size={spec.get('ctx')}"
+                f" --threads={spec.get('threads')}"
+                f" cache_k={eff_ck or 'f16(default)'}"
+                f" cache_v={eff_cv or 'f16(default)'}"
+                f" full_cmd={' '.join(cmd)}"
             )
-            self._startup_log_fd = log_fd
-        except Exception as e:
-            if 'log_fd' in locals():
+            print(cmd_text)
+            self._last_start_cmd = " ".join(cmd)
+
+            # ─── プロセス起動 ─────────────────────────────────────
+            try:
+                flags = _sp.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+                if self._startup_log_fd:
+                    try:
+                        self._startup_log_fd.close()
+                    except Exception:
+                        pass
+                    self._startup_log_fd = None
+                log_fd = open(LLAMA_STARTUP_LOG_PATH, "ab")
+                header = (
+                    f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n"
+                    f"{cmd_text}\n"
+                ).encode("utf-8", errors="replace")
+                log_fd.write(header)
+                log_fd.flush()
+                self._process = _sp.Popen(
+                    cmd, stdout=log_fd, stderr=log_fd, creationflags=flags
+                )
+                self._startup_log_fd = log_fd
+            except Exception as e:
+                if 'log_fd' in locals():
+                    try:
+                        log_fd.close()
+                    except Exception:
+                        pass
+                self._startup_log_fd = None
+                print(f"[ModelManager] Popen error: {e}")
+                return False
+
+            # ─── ヘルスチェックループ ─────────────────────────────
+            import requests as _req
+            health = f"http://127.0.0.1:{self.llm_port}/health"
+            _started_ok = False
+            for i in range(180):
+                _mm_time.sleep(1)
+                elapsed = i
+                remaining = max(0, int(self._switch_eta - _mm_time.time()))
+                pct = min(90, 30 + elapsed * 60 // spec["load_sec"])
+                emit("model_switching", f"Loading {spec['name']}... {elapsed}s", pct, remaining)
                 try:
-                    log_fd.close()
+                    if _req.get(health, timeout=2).status_code == 200:
+                        _started_ok = True
+                        break
                 except Exception:
                     pass
-            self._startup_log_fd = None
-            print(f"[ModelManager] Popen error: {e}")
+                if self._process.poll() is not None:
+                    print("[ModelManager] process exited during load")
+                    break
+
+            if _started_ok:
+                return True
+
+            # ─── 起動失敗 → OOM判定 ──────────────────────────────
+            self._last_startup_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
+            if self._last_startup_hints:
+                print(f"[ModelManager] startup hints: {self._last_startup_hints}")
+
+            # OOMかつリトライ余地あり → 層数を削減して再試行
+            _is_oom = any(
+                kw in " ".join(self._last_startup_hints).lower()
+                for kw in ("vram", "out of memory", "cudamalloc", "oom", "メモリ")
+            )
+            if _is_oom and _oom_attempt < _OOM_MAX_RETRIES and gpu_layers > 4:
+                new_layers = max(4, int(gpu_layers * _OOM_REDUCE_RATE))
+                print(
+                    f"[ModelManager] OOM検出 → gpu_layers {gpu_layers}→{new_layers} に削減して再試行 "
+                    f"({_oom_attempt + 1}/{_OOM_MAX_RETRIES})"
+                )
+                gpu_layers = new_layers
+                # KVキャッシュも q4_0 に落としてVRAM節約（未設定の場合）
+                if not user_ck:
+                    eff_ck = "q4_0"
+                if not user_cv:
+                    eff_cv = "q4_0"
+                self._kill()
+                _mm_time.sleep(2)
+                continue
+
             return False
 
-        import requests as _req
-        health = f"http://127.0.0.1:{self.llm_port}/health"
-        for i in range(180):
-            _mm_time.sleep(1)
-            elapsed = i
-            remaining = max(0, int(self._switch_eta - _mm_time.time()))
-            pct = min(90, 30 + elapsed * 60 // spec["load_sec"])
-            emit("model_switching", f"Loading {spec['name']}... {elapsed}s", pct, remaining)
-            try:
-                if _req.get(health, timeout=2).status_code == 200:
-                    return True
-            except: pass
-            if self._process.poll() is not None:
-                print("[ModelManager] process exited during load")
-                self._last_startup_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
-                if self._last_startup_hints:
-                    print(f"[ModelManager] startup hints: {self._last_startup_hints}")
-                return False
-        self._last_startup_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
-        if self._last_startup_hints:
-            print(f"[ModelManager] startup hints: {self._last_startup_hints}")
         return False
 
     def status_dict(self) -> dict:
@@ -4013,59 +4066,208 @@ def _get_total_free_vram_mb() -> int:
     return -1
 
 
-def _calc_safe_gpu_layers(spec: dict) -> int:
+def _read_gguf_metadata(path: str) -> dict:
     """
-    モデルのVRAM要件と利用可能な空きVRAMを比較し、OOMを避けるための
-    安全なgpu_layers値を返す。
-    モデルがVRAMに収まれば999（全層GPU）、収まらなければ収まる層数を返す。
-    VRAMや容量が不明な場合は999を返してllama-serverに判断を委ねる。
+    GGUFファイルのバイナリヘッダを解析してモデルアーキテクチャメタデータを返す。
+    パース失敗時は空dictを返す（ベストエフォート）。
+    """
+    import struct as _struct
+    result: dict = {}
+    _TYPE_FMT = {
+        0: ("<B", 1), 1: ("<b", 1), 2: ("<H", 2), 3: ("<h", 2),
+        4: ("<I", 4), 5: ("<i", 4), 6: ("<f", 4), 7: ("<b", 1),
+        10: ("<Q", 8), 11: ("<q", 8), 12: ("<d", 8),
+    }
+    _KEYS_NEEDED = {
+        "llama.block_count", "llama.embedding_length",
+        "llama.attention.head_count", "llama.attention.head_count_kv",
+        "mistral.block_count", "mistral.embedding_length",
+        "mistral.attention.head_count", "mistral.attention.head_count_kv",
+        "phi3.block_count", "phi3.embedding_length",
+        "phi3.attention.head_count", "phi3.attention.head_count_kv",
+        "qwen2.block_count", "qwen2.embedding_length",
+        "qwen2.attention.head_count", "qwen2.attention.head_count_kv",
+        "gemma.block_count", "gemma.embedding_length",
+        "gemma.attention.head_count", "gemma.attention.head_count_kv",
+        "gemma2.block_count", "gemma2.embedding_length",
+        "gemma2.attention.head_count", "gemma2.attention.head_count_kv",
+    }
+    try:
+        with open(path, "rb") as f:
+            if f.read(4) != b"GGUF":
+                return result
+            f.read(4)  # version
+            f.read(8)  # n_tensors
+            n_kv = _struct.unpack("<Q", f.read(8))[0]
+
+            def _read_str():
+                length = _struct.unpack("<Q", f.read(8))[0]
+                return f.read(length).decode("utf-8", errors="replace")
+
+            def _read_val(vtype):
+                if vtype == 8:   # STRING
+                    return _read_str()
+                if vtype == 9:   # ARRAY – skip elements, don't store
+                    atype = _struct.unpack("<I", f.read(4))[0]
+                    alen = _struct.unpack("<Q", f.read(8))[0]
+                    for _ in range(alen):
+                        _read_val(atype)
+                    return None
+                if vtype in _TYPE_FMT:
+                    fmt, size = _TYPE_FMT[vtype]
+                    return _struct.unpack(fmt, f.read(size))[0]
+                raise ValueError(f"unknown GGUF type {vtype}")
+
+            for _ in range(n_kv):
+                key = _read_str()
+                vtype = _struct.unpack("<I", f.read(4))[0]
+                val = _read_val(vtype)
+                if key in _KEYS_NEEDED and val is not None:
+                    result[key] = val
+                if len(result) >= len(_KEYS_NEEDED):
+                    break  # 必要な情報は全て取得済み
+    except Exception:
+        pass
+    return result
+
+
+def _calc_kv_cache_mb_from_gguf(path: str, ctx: int,
+                                  cache_type_k: str = "f16",
+                                  cache_type_v: str = "f16") -> int:
+    """
+    GGUFメタデータから正確なKVキャッシュサイズ(MB)を計算する。
+    計算できない場合は0を返す（ヒューリスティックにフォールバックすること）。
+
+    formula: n_layers × n_kv_heads × head_dim × ctx × (k_bytes + v_bytes)
+    """
+    meta = _read_gguf_metadata(path)
+    if not meta:
+        return 0
+
+    n_layers = n_heads = n_kv_heads = embed_len = None
+    for prefix in ("llama", "mistral", "phi3", "qwen2", "gemma", "gemma2"):
+        n_layers   = n_layers   or meta.get(f"{prefix}.block_count")
+        n_heads    = n_heads    or meta.get(f"{prefix}.attention.head_count")
+        n_kv_heads = n_kv_heads or meta.get(f"{prefix}.attention.head_count_kv")
+        embed_len  = embed_len  or meta.get(f"{prefix}.embedding_length")
+
+    if not (n_layers and n_heads and embed_len):
+        return 0
+    if not n_kv_heads:
+        n_kv_heads = n_heads  # GQA非対応モデル
+
+    head_dim = int(embed_len) // int(n_heads)
+    _type_bytes = {
+        "f32": 4.0, "f16": 2.0, "bf16": 2.0,
+        "q8_0": 1.0, "q4_0": 0.5, "q4_1": 0.5625,
+        "q5_0": 0.625, "q5_1": 0.6875,
+    }
+    k_b = _type_bytes.get((cache_type_k or "f16").lower(), 2.0)
+    v_b = _type_bytes.get((cache_type_v or "f16").lower(), 2.0)
+
+    kv_mb = int(n_layers) * int(n_kv_heads) * head_dim * int(ctx) * (k_b + v_b) / (1024 * 1024)
+    result_mb = max(64, int(kv_mb))
+    print(
+        f"[GGUF] KV cache from metadata: layers={n_layers}, kv_heads={n_kv_heads}, "
+        f"head_dim={head_dim}, ctx={ctx}, k={cache_type_k}/{k_b}B, v={cache_type_v}/{v_b}B "
+        f"→ {result_mb}MB"
+    )
+    return result_mb
+
+
+def _calc_safe_gpu_layers(spec: dict, force_gpu_layers: int = -1) -> dict:
+    """
+    VRAMに収まる安全なgpu_layersとKVキャッシュ量子化を決定する。
+    Returns: {'gpu_layers': int, 'cache_type_k': str, 'cache_type_v': str}
+
+    優先順位（高速→VRAM節約）:
+      1. 全層 + KV f16 in VRAM         ← 最速・最高品質
+      2. 全層 + KV q8_0 in VRAM        ← KV 50%削減、品質ほぼ同等
+      3. 全層 + KV q4_0 in VRAM        ← KV 75%削減
+      4. 部分層 + KV q4_0 in VRAM      ← 最終手段（--no-kv-offloadは使わない）
+
+    NOTE: --no-kv-offload はPCIe帯域幅ボトルネックにより5~20x低速になるため使用しない。
+    代わりにKVキャッシュ量子化でVRAMを節約しGPU上に保持する。
     """
     file_size_mb = int(spec.get("file_size_mb", 0) or 0)
     ctx = int(spec.get("ctx", 4096) or 4096)
+    model_path = spec.get("path", "")
+    user_ck = (spec.get("cache_type_k") or "").strip()
+    user_cv = (spec.get("cache_type_v") or "").strip()
     q = (spec.get("quantization", "") or "").upper()
+    overhead_mb = 320   # llama-server固定オーバーヘッド
+    cuda_base_mb = 750  # CUDAコンテキスト+cuBLAS固定（実測ベース）
 
     free_vram_mb = _get_total_free_vram_mb()
     if free_vram_mb <= 0 or file_size_mb <= 0:
-        return 999  # VRAM情報またはファイルサイズ不明 - デフォルトを使用
+        return {"gpu_layers": 999, "cache_type_k": user_ck, "cache_type_v": user_cv}
 
-    # KVキャッシュの係数を量子化に応じて設定
-    kv_coef = 0.10
-    if "Q2" in q or "IQ2" in q:
-        kv_coef = 0.05
-    elif "Q3" in q or "IQ3" in q:
-        kv_coef = 0.06
-    elif "Q4" in q:
-        kv_coef = 0.08
-    elif "Q5" in q:
+    def _kv_mb(ck: str, cv: str) -> int:
+        # GGUFメタデータから正確計算を優先
+        exact = _calc_kv_cache_mb_from_gguf(model_path, ctx, ck, cv) if model_path else 0
+        if exact > 0:
+            return exact
+        # フォールバック: 量子化係数ベースのヒューリスティック
         kv_coef = 0.10
-    elif "Q6" in q:
-        kv_coef = 0.12
-    elif "Q8" in q:
-        kv_coef = 0.16
-    elif "F16" in q or "BF16" in q:
-        kv_coef = 0.24
+        if "Q2" in q or "IQ2" in q:    kv_coef = 0.05
+        elif "Q3" in q or "IQ3" in q:  kv_coef = 0.06
+        elif "Q4" in q:                 kv_coef = 0.08
+        elif "Q5" in q:                 kv_coef = 0.10
+        elif "Q6" in q:                 kv_coef = 0.12
+        elif "Q8" in q:                 kv_coef = 0.16
+        elif "F16" in q or "BF16" in q: kv_coef = 0.24
+        # cache quantization補正
+        if ck == "q8_0" or cv == "q8_0": kv_coef *= 0.5
+        elif ck == "q4_0" or cv == "q4_0": kv_coef *= 0.25
+        ctx_scale = max(0.25, min(8.0, ctx / 8192.0))
+        return max(96, int(file_size_mb * kv_coef * ctx_scale))
 
-    ctx_scale = max(0.25, min(8.0, ctx / 8192.0))
-    kv_cache_mb = max(96, int(file_size_mb * kv_coef * ctx_scale))
-    overhead_mb = 320
-    total_needed_mb = file_size_mb + kv_cache_mb + overhead_mb
+    def _fitting_layers(kv_mb: int) -> int:
+        available = max(0, free_vram_mb - overhead_mb - cuda_base_mb - kv_mb)
+        est = _infer_gpu_layers_for_estimate(file_size_mb, q)
+        layers = int(available * est / file_size_mb) if file_size_mb > 0 else 0
+        if force_gpu_layers >= 0:
+            layers = force_gpu_layers
+        return max(0, min(est, layers))
 
-    if total_needed_mb <= free_vram_mb:
-        return 999  # VRAMに完全に収まる - 全層GPUへ
+    # ユーザーがKV型を明示指定している場合はそれを優先
+    if user_ck and user_cv:
+        kv = _kv_mb(user_ck, user_cv)
+        total = file_size_mb + kv + overhead_mb + cuda_base_mb
+        if total <= free_vram_mb:
+            print(f"[ModelManager] 全層GPU+KV {user_ck}/{user_cv}: free={free_vram_mb}MB, kv={kv}MB")
+            return {"gpu_layers": 999, "cache_type_k": user_ck, "cache_type_v": user_cv}
+        fl = _fitting_layers(kv)
+        print(f"[ModelManager] 部分オフロード(ユーザー指定KV {user_ck}): free={free_vram_mb}MB, kv={kv}MB, layers={fl}")
+        return {"gpu_layers": fl, "cache_type_k": user_ck, "cache_type_v": user_cv}
 
-    # 部分オフロード: 空きVRAMに収まる層数を計算
-    available_for_model_mb = max(0, free_vram_mb - overhead_mb - kv_cache_mb)
-    estimated_total_layers = _infer_gpu_layers_for_estimate(file_size_mb, q)
-    fitting_layers = int(available_for_model_mb * estimated_total_layers / file_size_mb)
-    fitting_layers = max(0, min(estimated_total_layers, fitting_layers))
+    # ─── 自動KVキャッシュ量子化フェーズ ─────────────────────────
+    # フェーズ1: 全層 + KV f16（デフォルト、最速）
+    kv_f16 = _kv_mb("f16", "f16")
+    if file_size_mb + kv_f16 + overhead_mb + cuda_base_mb <= free_vram_mb:
+        print(f"[ModelManager] 全層GPU+KV f16: free={free_vram_mb}MB, model={file_size_mb}MB, kv={kv_f16}MB")
+        return {"gpu_layers": 999, "cache_type_k": "", "cache_type_v": ""}
 
+    # フェーズ2: 全層 + KV q8_0（50%削減、品質ほぼ同等）
+    kv_q8 = _kv_mb("q8_0", "q8_0")
+    if file_size_mb + kv_q8 + overhead_mb + cuda_base_mb <= free_vram_mb:
+        print(f"[ModelManager] 全層GPU+KV q8_0: free={free_vram_mb}MB, kv {kv_f16}MB→{kv_q8}MB")
+        return {"gpu_layers": 999, "cache_type_k": "q8_0", "cache_type_v": "q8_0"}
+
+    # フェーズ3: 全層 + KV q4_0（75%削減）
+    kv_q4 = _kv_mb("q4_0", "q4_0")
+    if file_size_mb + kv_q4 + overhead_mb + cuda_base_mb <= free_vram_mb:
+        print(f"[ModelManager] 全層GPU+KV q4_0: free={free_vram_mb}MB, kv {kv_f16}MB→{kv_q4}MB")
+        return {"gpu_layers": 999, "cache_type_k": "q4_0", "cache_type_v": "q4_0"}
+
+    # フェーズ4: 部分層 + KV q4_0（最終手段）
+    fl = _fitting_layers(kv_q4)
     print(
-        f"[ModelManager] VRAM不足のため部分オフロード: "
-        f"free={free_vram_mb}MB, needed={total_needed_mb}MB "
-        f"(model={file_size_mb}MB + kv={kv_cache_mb}MB + overhead={overhead_mb}MB), "
-        f"gpu_layers={fitting_layers}/{estimated_total_layers}"
+        f"[ModelManager] 部分オフロード+KV q4_0: "
+        f"free={free_vram_mb}MB, model={file_size_mb}MB, kv_q4={kv_q4}MB, "
+        f"overhead+cuda={overhead_mb+cuda_base_mb}MB, layers={fl}"
     )
-    return fitting_layers
+    return {"gpu_layers": fl, "cache_type_k": "q4_0", "cache_type_v": "q4_0"}
 
 
 def _disk_free_mb(path: str) -> int:
@@ -6861,8 +7063,10 @@ def _infer_startup_failure_hints(log_path: str, tail_lines: int = 200) -> list[s
     # llama-serverの内部ログでのn_gpu_layers=0のみ検知（起動コマンドのログ行は除外）
     if "n_gpu_layers = 0" in blob:
         hints.append("GPUレイヤーが0で起動している可能性。gpu_layers設定を確認してください。")
-    if "insufficient vram" in blob or "out of memory" in blob:
-        hints.append("VRAM不足の可能性。ctx_size/gpu_layers/modelサイズを下げてください。")
+    if ("insufficient vram" in blob or "out of memory" in blob
+            or "cudamalloc failed" in blob or "failed to allocate" in blob
+            or "ggml_cuda_device_malloc" in blob):
+        hints.append("VRAM不足（OOM）の可能性。ctx_size/gpu_layers/modelサイズを下げてください。")
     if "warning" in blob and "mmap" in blob:
         hints.append("mmap関連警告あり。ストレージや権限で読み込み性能が低下している可能性。")
     if "mmproj" in blob and ("not found" in blob or "missing" in blob or "failed" in blob):
