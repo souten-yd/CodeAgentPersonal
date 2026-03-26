@@ -920,8 +920,8 @@ class ModelManager:
             return False
 
         # ─── GPU設定を決定 ────────────────────────────────────────
-        # gpu_layers=999（デフォルト全層）の場合、VRAMに収まる設定を自動計算する。
-        # _calc_safe_gpu_layers は KVキャッシュ量子化もセットで返す。
+        # GPUレイヤー配分は llama.cpp の --n-gpu-layers auto / --fit on に委譲する。
+        # _calc_safe_gpu_layers は KVキャッシュ量子化の自動選択に利用する。
         user_ck = (spec.get("cache_type_k") or "").strip()
         user_cv = (spec.get("cache_type_v") or "").strip()
 
@@ -932,132 +932,119 @@ class ModelManager:
 
         gpu_vendor = _detect_gpu_vendor()
 
-        _OOM_MAX_RETRIES = 0
+        # ─── コマンド構築 ─────────────────────────────────────
+        cmd = [
+            self.llama_path,
+            "--model",    spec["path"],
+            "--port",     str(self.llm_port),
+            "--host",     "0.0.0.0",
+            "--ctx-size", str(spec["ctx"]),
+            "--threads",  str(spec["threads"]),
+            "--no-mmap",
+            "--n-gpu-layers", "auto",
+            "--fit", "on",
+        ]
+        if spec.get("is_vlm") and spec.get("vlm_enabled", True):
+            mmproj = str(spec.get("mmproj_path", "") or "").strip()
+            if mmproj:
+                if not os.path.exists(mmproj):
+                    msg = f"VLM mmprojファイルが見つかりません: {mmproj}"
+                    print(f"[ModelManager] {msg}")
+                    self._last_startup_hints = [msg]
+                    return False
+                cmd += ["--mmproj", mmproj]
+            else:
+                print(f"[ModelManager] is_vlm=True but mmproj_path not set, starting without --mmproj")
+        # CUDA(NVIDIA)のみ flash attention を有効化
+        if gpu_vendor == "nvidia":
+            cmd += ["--flash-attn", "on"]
+            print(f"[ModelManager] flash-attn enabled (NVIDIA GPU detected)")
+        elif gpu_vendor == "amd":
+            print(f"[ModelManager] flash-attn skipped (AMD GPU - may degrade performance on consumer GPUs)")
+        # モデル別オプション
+        if spec.get("parallel", -1) and spec.get("parallel", -1) > 0:
+            cmd += ["--parallel", str(spec["parallel"])]
+        if spec.get("batch_size", -1) and spec.get("batch_size", -1) > 0:
+            cmd += ["--batch-size", str(spec["batch_size"])]
+        if spec.get("ubatch_size", -1) and spec.get("ubatch_size", -1) > 0:
+            cmd += ["--ubatch-size", str(spec["ubatch_size"])]
+        if eff_ck:
+            cmd += ["--cache-type-k", eff_ck]
+        if eff_cv:
+            cmd += ["--cache-type-v", eff_cv]
+        for arg in spec.get("extra_args", []):
+            cmd.append(arg)
 
-        for _oom_attempt in range(_OOM_MAX_RETRIES + 1):
-            # ─── コマンド構築 ─────────────────────────────────────
-            cmd = [
-                self.llama_path,
-                "--model",    spec["path"],
-                "--port",     str(self.llm_port),
-                "--host",     "0.0.0.0",
-                "--ctx-size", str(spec["ctx"]),
-                "--threads",  str(spec["threads"]),
-                "--no-mmap",
-            ]
-            cmd += ["--n-gpu-layers", "auto", "--fit", "on"]
-            if spec.get("is_vlm") and spec.get("vlm_enabled", True):
-                mmproj = str(spec.get("mmproj_path", "") or "").strip()
-                if mmproj:
-                    if not os.path.exists(mmproj):
-                        msg = f"VLM mmprojファイルが見つかりません: {mmproj}"
-                        print(f"[ModelManager] {msg}")
-                        self._last_startup_hints = [msg]
-                        return False
-                    cmd += ["--mmproj", mmproj]
-                else:
-                    print(f"[ModelManager] is_vlm=True but mmproj_path not set, starting without --mmproj")
-            # CUDA(NVIDIA)のみ flash attention を有効化
-            if gpu_vendor == "nvidia":
-                cmd += ["--flash-attn", "on"]
-                print(f"[ModelManager] flash-attn enabled (NVIDIA GPU detected)")
-            elif gpu_vendor == "amd":
-                print(f"[ModelManager] flash-attn skipped (AMD GPU - may degrade performance on consumer GPUs)")
-            # モデル別オプション
-            if spec.get("parallel", -1) and spec.get("parallel", -1) > 0:
-                cmd += ["--parallel", str(spec["parallel"])]
-            if spec.get("batch_size", -1) and spec.get("batch_size", -1) > 0:
-                cmd += ["--batch-size", str(spec["batch_size"])]
-            if spec.get("ubatch_size", -1) and spec.get("ubatch_size", -1) > 0:
-                cmd += ["--ubatch-size", str(spec["ubatch_size"])]
-            if eff_ck:
-                cmd += ["--cache-type-k", eff_ck]
-            if eff_cv:
-                cmd += ["--cache-type-v", eff_cv]
-            for arg in spec.get("extra_args", []):
-                cmd.append(arg)
+        cmd_text = (
+            f"[ModelManager] starting:"
+            f" model={spec.get('path','')}"
+            f" n_gpu_layers=auto"
+            f" --ctx-size={spec.get('ctx')}"
+            f" --threads={spec.get('threads')}"
+            f" cache_k={eff_ck or 'f16(default)'}"
+            f" cache_v={eff_cv or 'f16(default)'}"
+            f" full_cmd={' '.join(cmd)}"
+        )
+        print(cmd_text)
+        self._last_start_cmd = " ".join(cmd)
 
-            retry_note = f" [OOM-retry {_oom_attempt}/{_OOM_MAX_RETRIES}]" if _oom_attempt else ""
-            cmd_text = (
-                f"[ModelManager] starting{retry_note}:"
-                f" model={spec.get('path','')}"
-                f" n_gpu_layers=auto"
-                f" --ctx-size={spec.get('ctx')}"
-                f" --threads={spec.get('threads')}"
-                f" cache_k={eff_ck or 'f16(default)'}"
-                f" cache_v={eff_cv or 'f16(default)'}"
-                f" full_cmd={' '.join(cmd)}"
-            )
-            print(cmd_text)
-            self._last_start_cmd = " ".join(cmd)
-
-            # ─── プロセス起動 ─────────────────────────────────────
-            try:
-                flags = _sp.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-                if self._startup_log_fd:
-                    try:
-                        self._startup_log_fd.close()
-                    except Exception:
-                        pass
-                    self._startup_log_fd = None
-                log_fd = open(LLAMA_STARTUP_LOG_PATH, "ab")
-                header = (
-                    f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n"
-                    f"{cmd_text}\n"
-                ).encode("utf-8", errors="replace")
-                log_fd.write(header)
-                log_fd.flush()
-                self._process = _sp.Popen(
-                    cmd, stdout=log_fd, stderr=log_fd, creationflags=flags
-                )
-                self._startup_log_fd = log_fd
-            except Exception as e:
-                if 'log_fd' in locals():
-                    try:
-                        log_fd.close()
-                    except Exception:
-                        pass
-                self._startup_log_fd = None
-                print(f"[ModelManager] Popen error: {e}")
-                return False
-
-            # ─── ヘルスチェックループ ─────────────────────────────
-            import requests as _req
-            health = f"http://127.0.0.1:{self.llm_port}/health"
-            _started_ok = False
-            for i in range(180):
-                _mm_time.sleep(1)
-                elapsed = i
-                remaining = max(0, int(self._switch_eta - _mm_time.time()))
-                pct = min(90, 30 + elapsed * 60 // spec["load_sec"])
-                emit("model_switching", f"Loading {spec['name']}... {elapsed}s", pct, remaining)
+        # ─── プロセス起動 ─────────────────────────────────────
+        try:
+            flags = _sp.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+            if self._startup_log_fd:
                 try:
-                    if _req.get(health, timeout=2).status_code == 200:
-                        _started_ok = True
-                        break
+                    self._startup_log_fd.close()
                 except Exception:
                     pass
-                if self._process.poll() is not None:
-                    print("[ModelManager] process exited during load")
-                    break
-
-            if _started_ok:
-                return True
-
-            # ─── 起動失敗 → OOM判定 ──────────────────────────────
-            self._last_startup_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
-            if self._last_startup_hints:
-                print(f"[ModelManager] startup hints: {self._last_startup_hints}")
-
-            # OOM時でもgpu_layersはllama.cppの自動判定へ委譲する
-            _is_oom = any(
-                kw in " ".join(self._last_startup_hints).lower()
-                for kw in ("vram", "out of memory", "cudamalloc", "oom", "メモリ")
+                self._startup_log_fd = None
+            log_fd = open(LLAMA_STARTUP_LOG_PATH, "ab")
+            header = (
+                f"\n\n=== {datetime.utcnow().isoformat()}Z model-start ===\n"
+                f"{cmd_text}\n"
+            ).encode("utf-8", errors="replace")
+            log_fd.write(header)
+            log_fd.flush()
+            self._process = _sp.Popen(
+                cmd, stdout=log_fd, stderr=log_fd, creationflags=flags
             )
-            if _is_oom:
+            self._startup_log_fd = log_fd
+        except Exception as e:
+            if 'log_fd' in locals():
+                try:
+                    log_fd.close()
+                except Exception:
+                    pass
+            self._startup_log_fd = None
+            print(f"[ModelManager] Popen error: {e}")
+            return False
+
+        # ─── ヘルスチェックループ ─────────────────────────────
+        import requests as _req
+        health = f"http://127.0.0.1:{self.llm_port}/health"
+        _started_ok = False
+        for i in range(180):
+            _mm_time.sleep(1)
+            elapsed = i
+            remaining = max(0, int(self._switch_eta - _mm_time.time()))
+            pct = min(90, 30 + elapsed * 60 // spec["load_sec"])
+            emit("model_switching", f"Loading {spec['name']}... {elapsed}s", pct, remaining)
+            try:
+                if _req.get(health, timeout=2).status_code == 200:
+                    _started_ok = True
+                    break
+            except Exception:
+                pass
+            if self._process.poll() is not None:
+                print("[ModelManager] process exited during load")
                 break
 
-            return False
+        if _started_ok:
+            return True
+
+        # ─── 起動失敗 → OOM判定 ──────────────────────────────
+        self._last_startup_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
+        if self._last_startup_hints:
+            print(f"[ModelManager] startup hints: {self._last_startup_hints}")
 
         return False
 
