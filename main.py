@@ -4279,8 +4279,30 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
         if gpus:
             parse_source = "fallback"
 
+    # 現在VRAMが欠損する環境向け: 直近のピーク測定値を現在値のフォールバックに使う
+    peak = _get_model_load_vram_peak() or {}
+    peak_used = int(peak.get("max_vram_used_mb", -1) or -1)
+    peak_total = int(peak.get("max_vram_total_mb", -1) or -1)
+    peak_applied = False
+    if gpus and peak_used > 0:
+        for g in gpus:
+            cur_used = int(g.get("vram_used_mb", -1) or -1)
+            cur_total = int(g.get("vram_total_mb", -1) or -1)
+            if cur_used < 0:
+                g["vram_used_mb"] = peak_used
+                cur_used = peak_used
+                peak_applied = True
+            if cur_total < 0 and peak_total > 0:
+                g["vram_total_mb"] = peak_total
+                cur_total = peak_total
+                peak_applied = True
+            if (float(g.get("vram_percent", -1) or -1) < 0) and cur_used >= 0 and cur_total > 0:
+                g["vram_percent"] = (cur_used / cur_total) * 100.0
+    if peak_applied and parse_source == "direct":
+        parse_source = "direct+peak"
+
     vram_confidence = "unknown"
-    if parse_source == "direct":
+    if str(parse_source).startswith("direct"):
         vram_confidence = "direct"
     elif parse_source == "fallback":
         vram_confidence = "fallback"
@@ -4313,7 +4335,7 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
         "vram_source_backend": gpu_backend,
         "vram_confidence": vram_confidence,
         "gpus": gpus,
-        "model_load_peak": _get_model_load_vram_peak(),
+        "model_load_peak": peak,
         "updated_at": datetime.now().isoformat(),
     }
 
