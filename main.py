@@ -4047,12 +4047,29 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
                 continue
     elif selected == "windows-counter" and os.name == "nt":
         windows_cmds = [
-            "$gpu = Get-WmiObject Win32_VideoController | Where-Object { $_.AdapterRAM -gt 0 -and $_.Name -notmatch 'Virtual' } | Select-Object -First 1; "
-            "$name = if ($gpu) { [string]$gpu.Name } else { 'Windows GPU' }; $totalB = if ($gpu) { [double]$gpu.AdapterRAM } else { 0 }; "
-            "$engine=(Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction SilentlyContinue).CounterSamples | Where-Object { $_.InstanceName -match 'engtype_3d' }; "
-            "$util=if($engine){($engine|Measure-Object CookedValue -Sum).Sum}else{0}; "
-            "$obj=@{ name=$name; util=[math]::Round([math]::Min(100,$util),1); total_mb=[math]::Round($totalB/1MB); used_mb=-1 }; $obj|ConvertTo-Json -Compress",
-            "Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction SilentlyContinue | ConvertTo-Json -Compress",
+            "$adapters = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | "
+            "  Where-Object { $_.AdapterRAM -gt 0 -and $_.Name -notmatch 'Virtual|Remote|Basic Display' }; "
+            "$gpu = $adapters | Sort-Object AdapterRAM -Descending | Select-Object -First 1; "
+            "$name = if ($gpu) { [string]$gpu.Name } else { 'Windows GPU' }; "
+            "$totalB = if ($gpu) { [double]$gpu.AdapterRAM } else { -1 }; "
+            "$engine = (Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction SilentlyContinue).CounterSamples; "
+            "$util = if ($engine) { [double](($engine | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
+            "$dedicated = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -ErrorAction SilentlyContinue).CounterSamples; "
+            "$usedB = if ($dedicated) { [double](($dedicated | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
+            "$dedicatedLimit = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Limit' -ErrorAction SilentlyContinue).CounterSamples; "
+            "$limitB = if ($dedicatedLimit) { [double](($dedicatedLimit | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
+            "if ($totalB -le 0 -and $limitB -gt 0) { $totalB = $limitB }; "
+            "$totalMb = if ($totalB -gt 0) { [math]::Round($totalB / 1MB) } else { -1 }; "
+            "$usedMb = if ($usedB -ge 0) { [math]::Round($usedB / 1MB) } else { -1 }; "
+            "$vramPct = if ($totalMb -gt 0 -and $usedMb -ge 0) { [math]::Round(($usedMb / $totalMb) * 100, 1) } else { -1 }; "
+            "$obj=@{ name=$name; util=[math]::Round($util,1); total_mb=$totalMb; used_mb=$usedMb; vram_pct=$vramPct }; "
+            "$obj|ConvertTo-Json -Compress",
+            "$dedicated = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -ErrorAction SilentlyContinue).CounterSamples; "
+            "$usedB = if ($dedicated) { [double](($dedicated | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
+            "$dedicatedLimit = (Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Limit' -ErrorAction SilentlyContinue).CounterSamples; "
+            "$limitB = if ($dedicatedLimit) { [double](($dedicatedLimit | Measure-Object CookedValue -Maximum).Maximum) } else { -1 }; "
+            "$obj=@{ name='Windows GPU'; util=-1; total_mb=if($limitB -gt 0){[math]::Round($limitB / 1MB)}else{-1}; used_mb=if($usedB -ge 0){[math]::Round($usedB / 1MB)}else{-1}; vram_pct=-1 }; "
+            "$obj|ConvertTo-Json -Compress",
             "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name,AdapterRAM | ConvertTo-Json -Compress",
             "wmic path win32_VideoController get name,AdapterRAM",
             "Get-PnpDevice -Class Display | ConvertTo-Json -Compress",
@@ -4067,7 +4084,19 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
                     data = json.loads(out)
                     if isinstance(data, dict):
                         total = int((data.get("AdapterRAM") or 0) / (1024*1024)) if isinstance(data.get("AdapterRAM"), (int,float)) else int(data.get("total_mb") or -1)
-                        gpus.append({"name": str(data.get("name") or data.get("Name") or "Windows GPU"), "util_percent": float(data.get("util") or -1), "vram_used_mb": -1, "vram_total_mb": total, "vram_percent": -1})
+                        if total <= 0:
+                            total = -1
+                        used = int(data.get("used_mb") or -1)
+                        pct = float(data.get("vram_pct") or -1)
+                        if pct < 0 and used >= 0 and total > 0:
+                            pct = (used / total) * 100.0
+                        gpus.append({
+                            "name": str(data.get("name") or data.get("Name") or "Windows GPU"),
+                            "util_percent": float(data.get("util") or -1),
+                            "vram_used_mb": used,
+                            "vram_total_mb": total,
+                            "vram_percent": pct,
+                        })
                 except Exception:
                     for ln in out.splitlines():
                         if ln.strip() and "name" not in ln.lower():
