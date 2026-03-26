@@ -947,7 +947,7 @@ class ModelManager:
         # AMD consumer GPU(RDNA2/3)では逆に遅くなるため除外
         gpu_vendor = _detect_gpu_vendor()
         if gpu_vendor == "nvidia":
-            cmd += ["--flash-attn"]
+            cmd += ["--flash-attn", "on"]
             print(f"[ModelManager] flash-attn enabled (NVIDIA GPU detected)")
         elif gpu_vendor == "amd":
             print(f"[ModelManager] flash-attn skipped (AMD GPU - may degrade performance on consumer GPUs)")
