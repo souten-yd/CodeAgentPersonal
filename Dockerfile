@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 ########################################
 # Prebuilt stage: download llama.cpp CUDA binaries
 ########################################
