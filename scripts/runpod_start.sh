@@ -60,6 +60,14 @@ fi
   "${PYTHON_BIN}" -m pip install -r requirements.txt
 }
 
+# Install voicevox_core if not present (optional: VOICEVOX TTS)
+"${PYTHON_BIN}" -c "import voicevox_core" 2>/dev/null || {
+  echo "[Runpod] Installing voicevox_core for VOICEVOX TTS..."
+  "${PYTHON_BIN}" -m pip install voicevox_core \
+    --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/" \
+    || echo "[Runpod][WARN] voicevox_core installation failed. VOICEVOX TTS will be disabled."
+}
+
 exec "${PYTHON_BIN}" scripts/start_codeagent.py \
   --host "${HOST}" \
   --port "${PORT}" \

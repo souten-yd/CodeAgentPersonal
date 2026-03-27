@@ -7942,6 +7942,7 @@ def voice_transcribe_api(req: dict):
                 ),
             })
         try:
+            yield _sse({"type": "transcribing", "message": "音声を文字変換中です。しばらくお待ちください..."})
             result = voice_transcribe(
                 audio,
                 language=language,
@@ -7958,6 +7959,232 @@ def voice_transcribe_api(req: dict):
         media_type="text/event-stream",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
+
+# =========================
+# TTS (Text-to-Speech) / CPUオンデマンド
+# =========================
+
+try:
+    import voicevox_core as _vc_mod  # type: ignore
+    _VOICEVOX_AVAILABLE = True
+except ImportError:
+    _vc_mod = None
+    _VOICEVOX_AVAILABLE = False
+
+try:
+    import edge_tts as _edge_tts_mod  # type: ignore
+    _EDGE_TTS_AVAILABLE = True
+except ImportError:
+    _edge_tts_mod = None
+    _EDGE_TTS_AVAILABLE = False
+
+_tts_core = None        # voicevox_core.VoicevoxCore instance
+_tts_lock = threading.Lock()
+
+
+def _tts_data_dir() -> str:
+    d = os.path.join(DEFAULT_CA_DATA_DIR, "tts")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _tts_jtalk_dir() -> str:
+    return os.path.join(_tts_data_dir(), "open_jtalk_dic_utf_8-1.11")
+
+
+def _tts_voicevox_models_dir() -> str:
+    d = os.path.join(_tts_data_dir(), "voicevox_models")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _tts_jtalk_exists() -> bool:
+    d = _tts_jtalk_dir()
+    return os.path.isdir(d) and bool(os.listdir(d))
+
+
+def tts_voicevox_load() -> dict:
+    """VOICEVOX Core を CPU(ONNX) でロードする。"""
+    global _tts_core
+    if not _VOICEVOX_AVAILABLE:
+        raise RuntimeError(
+            "voicevox_core がインストールされていません。"
+            "https://github.com/VOICEVOX/voicevox_core/releases からプラットフォーム別wheelを pip install してください。"
+        )
+    if not _tts_jtalk_exists():
+        raise RuntimeError(
+            f"Open JTalk 辞書が見つかりません: {_tts_jtalk_dir()}\n"
+            "VOICEVOX Core の初期化には open_jtalk_dic_utf_8-1.11 が必要です。"
+        )
+    with _tts_lock:
+        if _tts_core is not None:
+            return {"loaded": True, "speakers": len(_tts_core.metas())}
+        AccMode = getattr(_vc_mod, "AccelerationMode", None)
+        kwargs = {}
+        if AccMode is not None:
+            kwargs["acceleration_mode"] = AccMode.CPU
+        kwargs["open_jtalk_dict_dir"] = _tts_jtalk_dir()
+        core = _vc_mod.VoicevoxCore(**kwargs)
+        _tts_core = core
+        return {"loaded": True, "speakers": len(core.metas())}
+
+
+def tts_voicevox_speakers() -> list:
+    """VOICEVOX 話者一覧を返す。"""
+    with _tts_lock:
+        if _tts_core is None:
+            return []
+        result = []
+        for m in _tts_core.metas():
+            for s in m.styles:
+                result.append({"id": s.id, "name": f"{m.name}（{s.name}）"})
+        return result
+
+
+def tts_voicevox_synthesize(text: str, speaker_id: int = 0, speed_scale: float = 1.0) -> bytes:
+    """VOICEVOX でテキストを WAV バイト列に変換する。"""
+    with _tts_lock:
+        if _tts_core is None:
+            raise RuntimeError("VOICEVOX Core がロードされていません。/tts/load を先に呼び出してください。")
+        aq = _tts_core.audio_query(text, speaker_id)
+        aq.speed_scale = max(0.5, min(2.0, speed_scale))
+        wav = _tts_core.synthesis(aq, speaker_id)
+    return bytes(wav)
+
+
+def tts_edgetts_synthesize(text: str, voice: str = "ja-JP-NanamiNeural", rate: str = "+0%") -> bytes:
+    """Edge TTS でテキストを MP3 バイト列に変換する（同期ラッパー）。"""
+    if not _EDGE_TTS_AVAILABLE:
+        raise RuntimeError("edge_tts がインストールされていません。pip install edge-tts を実行してください。")
+    import io
+    import asyncio
+
+    async def _run():
+        buf = io.BytesIO()
+        communicate = _edge_tts_mod.Communicate(text, voice, rate=rate)
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                buf.write(chunk["data"])
+        return buf.getvalue()
+
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, _run())
+                return future.result(timeout=30)
+        else:
+            return loop.run_until_complete(_run())
+    except Exception:
+        return asyncio.run(_run())
+
+
+async def tts_edgetts_list_voices_async() -> list:
+    """Edge TTS の日英音声一覧を返す（async）。"""
+    if not _EDGE_TTS_AVAILABLE:
+        return []
+    voices = await _edge_tts_mod.list_voices()
+    result = []
+    for v in voices:
+        locale = v.get("Locale", "")
+        if locale.startswith("ja") or locale.startswith("en"):
+            result.append({"id": v["ShortName"], "name": v.get("FriendlyName", v["ShortName"])})
+    return result
+
+
+@app.get("/tts/status")
+def tts_status_api():
+    with _tts_lock:
+        loaded = _tts_core is not None
+        speakers = len(_tts_core.metas()) if loaded else 0
+    return {
+        "voicevox_available": _VOICEVOX_AVAILABLE,
+        "voicevox_loaded": loaded,
+        "voicevox_speakers": speakers,
+        "edgetts_available": _EDGE_TTS_AVAILABLE,
+        "jtalk_exists": _tts_jtalk_exists(),
+    }
+
+
+@app.get("/tts/voices")
+async def tts_voices_api(engine: str = "voicevox"):
+    if engine == "voicevox":
+        return {"voices": tts_voicevox_speakers()}
+    elif engine == "edgetts":
+        voices = await tts_edgetts_list_voices_async()
+        return {"voices": voices}
+    return {"voices": []}
+
+
+@app.post("/tts/load")
+def tts_load_api(req: dict = {}):
+    engine = str(req.get("engine", "voicevox"))
+
+    def _sse(payload: dict) -> str:
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    def stream():
+        if engine == "voicevox":
+            if not _VOICEVOX_AVAILABLE:
+                yield _sse({"type": "error", "detail": "voicevox_core がインストールされていません。"})
+                return
+            if not _tts_jtalk_exists():
+                yield _sse({
+                    "type": "error",
+                    "detail": (
+                        f"Open JTalk 辞書が見つかりません: {_tts_jtalk_dir()}\n"
+                        "VOICEVOX Core の README に従って辞書を配置してください。"
+                    )
+                })
+                return
+            yield _sse({"type": "loading", "message": "VOICEVOX Core をロード中です。しばらくお待ちください..."})
+            try:
+                result = tts_voicevox_load()
+                yield _sse({"type": "done", **result})
+            except Exception as e:
+                yield _sse({"type": "error", "detail": str(e)})
+        else:
+            yield _sse({"type": "error", "detail": f"不明なエンジン: {engine}"})
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
+
+@app.post("/tts/synthesize")
+def tts_synthesize_api(req: dict):
+    from fastapi.responses import Response as FastAPIResponse
+    engine = str(req.get("engine", "voicevox"))
+    text = str(req.get("text", "")).strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text required")
+
+    if engine == "voicevox":
+        speaker_id = int(req.get("speaker_id", 0))
+        speed = float(req.get("speed", 1.0))
+        try:
+            wav = tts_voicevox_synthesize(text, speaker_id, speed)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        return FastAPIResponse(content=wav, media_type="audio/wav")
+
+    elif engine == "edgetts":
+        voice = str(req.get("voice", "ja-JP-NanamiNeural"))
+        rate_val = float(req.get("speed", 1.0))
+        # edge-tts rate は "+10%" 形式
+        rate_pct = int((rate_val - 1.0) * 100)
+        rate_str = f"{rate_pct:+d}%"
+        try:
+            mp3 = tts_edgetts_synthesize(text, voice, rate_str)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        return FastAPIResponse(content=mp3, media_type="audio/mpeg")
+
+    raise HTTPException(status_code=400, detail=f"不明なエンジン: {engine}")
+
 
 # =========================
 # エンドポイント: /task（SSEストリーミング）
