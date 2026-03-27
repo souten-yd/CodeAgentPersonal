@@ -1601,9 +1601,12 @@ def snapshot_history_add(project: str, job_id: str, task_id, commit_hash: str, s
 # =========================
 
 def _estimate_tokens(messages: list) -> int:
-    """メッセージリストのトークン数を概算（1token≒4文字）"""
-    total = sum(len(str(m.get("content", ""))) for m in messages)
-    return total // 4
+    """メッセージリストのトークン数を概算。
+    日本語等のマルチバイト文字を考慮してUTF-8バイト数÷3を使用する。
+    （ASCII: 1byte/char → 約4文字/token、日本語: 3byte/char → 約1-2文字/token）
+    """
+    total = sum(len(str(m.get("content", "")).encode("utf-8")) for m in messages)
+    return total // 3
 
 def _trim_messages(messages: list, max_ctx: int, reserve_output: int = 4096) -> list:
     """
@@ -1621,7 +1624,7 @@ def _trim_messages(messages: list, max_ctx: int, reserve_output: int = 4096) -> 
     kept = []
     tokens_used = _estimate_tokens(system)
     for msg in reversed(rest):
-        t = len(str(msg.get("content", ""))) // 4
+        t = len(str(msg.get("content", "")).encode("utf-8")) // 3
         if tokens_used + t <= budget:
             kept.insert(0, msg)
             tokens_used += t
