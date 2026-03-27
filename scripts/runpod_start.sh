@@ -68,6 +68,40 @@ fi
     --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/" \
     || echo "[Runpod][WARN] voicevox_core installation failed. VOICEVOX TTS will be disabled."
 }
+# Prepare Open JTalk dictionary automatically (for VOICEVOX).
+JTALK_DIR="/workspace/ca_data/tts/open_jtalk_dic_utf_8-1.11"
+if [[ ! -d "${JTALK_DIR}" || -z "$(ls -A "${JTALK_DIR}" 2>/dev/null || true)" ]]; then
+  echo "[Runpod] Open JTalk dictionary not found. Trying automatic setup..."
+  mkdir -p /workspace/ca_data/tts
+  TMP_TGZ="/tmp/open_jtalk_dic_utf_8-1.11.tar.gz"
+  JTALK_URLS=(
+    "https://github.com/VOICEVOX/voicevox_core/releases/download/0.15.0/open_jtalk_dic_utf_8-1.11.tar.gz"
+    "https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic_utf_8-1.11/open_jtalk_dic_utf_8-1.11.tar.gz"
+  )
+  DL_OK=0
+  for url in "${JTALK_URLS[@]}"; do
+    if curl -fL --retry 3 --retry-delay 2 "${url}" -o "${TMP_TGZ}"; then
+      DL_OK=1
+      break
+    fi
+  done
+  if [[ "${DL_OK}" -eq 1 ]]; then
+    EXTRACT_DIR="/tmp/openjtalk_extract"
+    rm -rf "${EXTRACT_DIR}"
+    mkdir -p "${EXTRACT_DIR}"
+    if tar -xzf "${TMP_TGZ}" -C "${EXTRACT_DIR}"; then
+      FOUND_DIR="$(find "${EXTRACT_DIR}" -type d -name open_jtalk_dic_utf_8-1.11 | head -n1 || true)"
+      if [[ -n "${FOUND_DIR}" ]]; then
+        rm -rf "${JTALK_DIR}"
+        mv "${FOUND_DIR}" "${JTALK_DIR}"
+        echo "[Runpod] Open JTalk dictionary prepared at ${JTALK_DIR}"
+      fi
+    fi
+  fi
+fi
+if [[ ! -d "${JTALK_DIR}" || -z "$(ls -A "${JTALK_DIR}" 2>/dev/null || true)" ]]; then
+  echo "[Runpod][WARN] Open JTalk dictionary setup failed. Please place open_jtalk_dic_utf_8-1.11 under /workspace/ca_data/tts."
+fi
 # Re-pin core framework versions in case optional deps caused downgrades
 "${PYTHON_BIN}" -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110" 2>/dev/null || true
 
