@@ -3443,7 +3443,7 @@ async function transcribeVoiceBlob(blob){
         audio_format: 'webm',
         language: lang,
         model: 'large-v3-turbo',
-        auto_unload: true
+        auto_unload: false
       })
     });
     if (!resp.ok) {
