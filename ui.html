@@ -506,6 +506,9 @@ header{
 .msg.user:hover .msg-edit-btn{opacity:1}
 .msg-edit-btn{opacity:0;transition:opacity .15s;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text3);font-size:10px;font-weight:600;font-family:var(--font-ui);padding:2px 7px;cursor:pointer;margin-top:4px;align-self:flex-end}
 .msg-edit-btn:hover{border-color:var(--blue);color:var(--blue)}
+.msg.assistant .msg-speak-btn{opacity:0;transition:opacity .15s;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text3);font-size:11px;padding:2px 6px;cursor:pointer;margin-top:4px;align-self:flex-end}
+.msg.assistant:hover .msg-speak-btn{opacity:1}
+.msg-speak-btn:hover{border-color:var(--accent);color:var(--accent)}
 .msg-edit-area{width:92%;background:var(--blue-bg);border:1px solid rgba(68,136,255,.4);border-radius:var(--r2);padding:8px 10px;font-family:var(--font-ui);font-size:13px;color:var(--text);resize:none;outline:none;line-height:1.5;margin-top:4px}
 .msg-edit-actions{display:flex;gap:6px;margin-top:4px;justify-content:flex-end;width:92%}
 .msg-edit-send{padding:5px 14px;background:var(--blue);border:none;border-radius:6px;color:#fff;font-family:var(--font-ui);font-size:12px;font-weight:600;cursor:pointer}
@@ -1468,6 +1471,82 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <pre id="gh-repo-status" style="display:none;font-size:10px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:8px;white-space:pre-wrap;max-height:150px;overflow-y:auto"></pre>
       </div>
 
+      <!-- TTS 読み上げ設定 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔊 TTS (読み上げ)</div>
+      <div style="padding:4px 0 14px">
+        <!-- ON/OFF トグル -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">TTS 読み上げ</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">アシスタントの返答を音声で読み上げ</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="tts-enable-chk"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="saveTtsSettings()">
+            <span style="font-size:11px;color:var(--text2)" id="tts-enable-label">OFF</span>
+          </label>
+        </div>
+        <!-- 自動読み上げ トグル -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">自動読み上げ</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">返答完了時に自動で読み上げ開始</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="tts-auto-chk"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="saveTtsSettings()">
+            <span style="font-size:11px;color:var(--text2)" id="tts-auto-label">OFF</span>
+          </label>
+        </div>
+        <!-- エンジン選択 -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">エンジン</div>
+          <select id="tts-engine-sel"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="onTtsEngineChange()">
+            <option value="webspeech">Web Speech API（ブラウザ内蔵・設定不要）</option>
+            <option value="voicevox">VOICEVOX（高品質日本語・組み込み）</option>
+            <option value="edgetts">Edge TTS（高品質・クラウド・要ネット）</option>
+          </select>
+          <div id="tts-engine-note" style="font-size:10px;color:var(--text3);margin-top:3px"></div>
+        </div>
+        <!-- 話者/音声 選択 -->
+        <div style="margin-bottom:8px" id="tts-voice-row">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">話者 / 音声</div>
+          <select id="tts-voice-sel"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveTtsSettings()">
+            <option value="">（デフォルト）</option>
+          </select>
+        </div>
+        <!-- 速度スライダー -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">読み上げ速度</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" id="tts-speed-slider" min="0.5" max="2.0" step="0.1" value="1.0"
+              style="flex:1;accent-color:var(--accent);cursor:pointer"
+              oninput="document.getElementById('tts-speed-lbl').textContent=parseFloat(this.value).toFixed(1)+'x'"
+              onchange="saveTtsSettings()">
+            <span id="tts-speed-lbl" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:36px;text-align:right">1.0x</span>
+          </div>
+        </div>
+        <!-- VOICEVOX ロードボタン -->
+        <div id="tts-voicevox-load-row" style="display:none;margin-bottom:8px">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:5px;line-height:1.6">
+            初回は VOICEVOX Core のロードが必要です。<code style="background:var(--bg3);padding:1px 4px;border-radius:2px">ca_data/tts/open_jtalk_dic_utf_8-1.11/</code> に Open JTalk 辞書を配置してから実行してください。
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button onclick="loadTtsVoicevox()" id="tts-voicevox-load-btn"
+              style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">
+              VOICEVOX をロード
+            </button>
+            <span id="tts-voicevox-status" style="font-size:10px;color:var(--text3)">未ロード</span>
+          </div>
+        </div>
+      </div>
+
     </div>
     <div class="modal-footer" style="font-size:10px;color:var(--text3);font-family:var(--font-mono)">
       設定はサーバー側DBに保存されます。認証情報はローカルの .codeagent/ に保存されGitには含まれません。
@@ -1539,6 +1618,282 @@ let _lastSystemUsageText = '';
 let voiceRecorder = null;
 let voiceChunks = [];
 let voiceRecording = false;
+
+// ── TTS (Text-to-Speech) ──
+const tts = {
+  enabled:    localStorage.getItem('tts_enabled')    === 'true',
+  autoSpeak:  localStorage.getItem('tts_auto_speak') === 'true',
+  engine:     localStorage.getItem('tts_engine')     || 'webspeech',
+  voice:      localStorage.getItem('tts_voice')      || '',
+  speed:      parseFloat(localStorage.getItem('tts_speed') || '1.0'),
+  _queue:     [],
+  _playing:   false,
+  _audio:     null,
+  _utt:       null,
+};
+
+function _ttsStripMarkdown(text) {
+  return text
+    .replace(/```[\s\S]*?```/g, '')   // コードブロック除去
+    .replace(/`[^`]*`/g, '')           // インラインコード除去
+    .replace(/!\[.*?\]\(.*?\)/g, '')   // 画像除去
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // リンクはテキストのみ
+    .replace(/^#{1,6}\s+/gm, '')       // 見出し記号除去
+    .replace(/[*_~]{1,3}([^*_~]*)[*_~]{1,3}/g, '$1') // 強調除去
+    .replace(/^\s*[-*+]\s+/gm, '')     // リスト記号除去
+    .replace(/^\s*\d+\.\s+/gm, '')     // 番号付きリスト除去
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function _ttsSplitSentences(text) {
+  const clean = _ttsStripMarkdown(text);
+  // 日英両方の文末区切り
+  const parts = clean.split(/(?<=[。！？\n])|(?<=[.!?])\s+/);
+  const result = [];
+  let buf = '';
+  for (const p of parts) {
+    buf += p;
+    if (buf.trim().length >= 5) {
+      result.push(buf.trim());
+      buf = '';
+    }
+  }
+  if (buf.trim().length > 0) result.push(buf.trim());
+  return result.filter(s => s.length > 0);
+}
+
+function ttsSpeak(text) {
+  if (!tts.enabled) return;
+  const sentences = _ttsSplitSentences(text);
+  for (const s of sentences) tts._queue.push(s);
+  if (!tts._playing) _ttsPlayNext();
+}
+
+function ttsStop() {
+  tts._queue = [];
+  tts._playing = false;
+  if (tts._audio) { tts._audio.pause(); tts._audio = null; }
+  if (tts._utt && window.speechSynthesis) window.speechSynthesis.cancel();
+}
+
+function ttsSpeakMsg(btn) {
+  const bubble = btn.closest('.msg').querySelector('.msg-bubble');
+  if (!bubble) return;
+  const text = bubble.dataset.raw || bubble.textContent || '';
+  if (!text.trim()) return;
+  ttsStop();
+  tts.enabled = true;  // ボタンクリック時は enabled に関わらず再生
+  ttsSpeak(text);
+  tts.enabled = localStorage.getItem('tts_enabled') === 'true'; // 元に戻す
+}
+
+async function _ttsPlayNext() {
+  if (tts._queue.length === 0) { tts._playing = false; return; }
+  tts._playing = true;
+  const sentence = tts._queue.shift();
+  try {
+    if (tts.engine === 'webspeech') {
+      await _ttsPlayWebSpeech(sentence);
+    } else {
+      const blob = await _ttsFetchAudio(sentence);
+      await _ttsPlayBlob(blob);
+    }
+  } catch(e) {
+    console.warn('[TTS] playback error:', e);
+  }
+  _ttsPlayNext();
+}
+
+function _ttsPlayWebSpeech(text) {
+  return new Promise((resolve) => {
+    if (!window.speechSynthesis) { resolve(); return; }
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = tts.speed;
+    if (tts.voice) {
+      const v = window.speechSynthesis.getVoices().find(v => v.name === tts.voice);
+      if (v) u.voice = v;
+    }
+    u.onend = resolve;
+    u.onerror = resolve;
+    tts._utt = u;
+    window.speechSynthesis.speak(u);
+  });
+}
+
+async function _ttsFetchAudio(text) {
+  const body = { text, engine: tts.engine, speed: tts.speed };
+  if (tts.engine === 'voicevox') body.speaker_id = parseInt(tts.voice || '0');
+  if (tts.engine === 'edgetts')  body.voice = tts.voice || 'ja-JP-NanamiNeural';
+  const resp = await fetch(API + '/tts/synthesize', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.detail || 'TTS synthesis failed');
+  }
+  return await resp.blob();
+}
+
+function _ttsPlayBlob(blob) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    tts._audio = audio;
+    audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+    audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+    audio.play().catch(resolve);
+  });
+}
+
+function saveTtsSettings() {
+  tts.enabled   = document.getElementById('tts-enable-chk').checked;
+  tts.autoSpeak = document.getElementById('tts-auto-chk').checked;
+  tts.engine    = document.getElementById('tts-engine-sel').value;
+  tts.voice     = document.getElementById('tts-voice-sel').value;
+  tts.speed     = parseFloat(document.getElementById('tts-speed-slider').value);
+  localStorage.setItem('tts_enabled',    tts.enabled);
+  localStorage.setItem('tts_auto_speak', tts.autoSpeak);
+  localStorage.setItem('tts_engine',     tts.engine);
+  localStorage.setItem('tts_voice',      tts.voice);
+  localStorage.setItem('tts_speed',      tts.speed);
+  document.getElementById('tts-enable-label').textContent = tts.enabled   ? 'ON' : 'OFF';
+  document.getElementById('tts-auto-label').textContent   = tts.autoSpeak ? 'ON' : 'OFF';
+}
+
+async function onTtsEngineChange() {
+  saveTtsSettings();
+  const engine = tts.engine;
+  const note = document.getElementById('tts-engine-note');
+  const vvRow = document.getElementById('tts-voicevox-load-row');
+  const voiceRow = document.getElementById('tts-voice-row');
+  if (engine === 'webspeech') {
+    note.textContent = 'ブラウザ内蔵の音声合成を使用します。追加インストール不要。';
+    vvRow.style.display = 'none';
+    _ttsPopulateWebSpeechVoices();
+    voiceRow.style.display = '';
+  } else if (engine === 'voicevox') {
+    note.textContent = 'voicevox_core が必要です。初回ロード時に Open JTalk 辞書を読み込みます。';
+    vvRow.style.display = '';
+    await _ttsLoadVoicesFromServer('voicevox');
+  } else if (engine === 'edgetts') {
+    note.textContent = 'pip install edge-tts が必要です。インターネット接続が必要。';
+    vvRow.style.display = 'none';
+    await _ttsLoadVoicesFromServer('edgetts');
+    voiceRow.style.display = '';
+  }
+}
+
+function _ttsPopulateWebSpeechVoices() {
+  const sel = document.getElementById('tts-voice-sel');
+  const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+  sel.innerHTML = '<option value="">（デフォルト）</option>';
+  voices.forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v.name;
+    opt.textContent = `${v.name} (${v.lang})`;
+    if (v.name === tts.voice) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+async function _ttsLoadVoicesFromServer(engine) {
+  const sel = document.getElementById('tts-voice-sel');
+  const row = document.getElementById('tts-voice-row');
+  sel.innerHTML = '<option value="">読み込み中...</option>';
+  try {
+    const resp = await fetch(API + '/tts/voices?engine=' + engine);
+    const data = await resp.json();
+    const voices = data.voices || [];
+    sel.innerHTML = '<option value="">（デフォルト）</option>';
+    voices.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = String(v.id);
+      opt.textContent = v.name;
+      if (String(v.id) === tts.voice) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    row.style.display = voices.length > 0 ? '' : 'none';
+  } catch(e) {
+    sel.innerHTML = '<option value="">（取得失敗）</option>';
+  }
+}
+
+async function loadTtsVoicevox() {
+  const btn = document.getElementById('tts-voicevox-load-btn');
+  const status = document.getElementById('tts-voicevox-status');
+  btn.disabled = true;
+  status.textContent = 'ロード中...';
+  let loadMsgEl = addMsg('system', 'VOICEVOX Core をロード中です。しばらくお待ちください...');
+  try {
+    const resp = await fetch(API + '/tts/load', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{"engine":"voicevox"}'
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        let ev; try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+        if (ev.type === 'loading') {
+          if (loadMsgEl) loadMsgEl.remove();
+          loadMsgEl = addMsg('system', ev.message);
+        } else if (ev.type === 'done') {
+          if (loadMsgEl) { loadMsgEl.remove(); loadMsgEl = null; }
+          status.textContent = `ロード済み（${ev.speakers || '?'}話者）`;
+          addMsg('system', `VOICEVOX Core のロードが完了しました。${ev.speakers || '?'}話者が利用可能です。`);
+          await _ttsLoadVoicesFromServer('voicevox');
+        } else if (ev.type === 'error') {
+          if (loadMsgEl) { loadMsgEl.remove(); loadMsgEl = null; }
+          addMsg('error', 'VOICEVOX ロードに失敗: ' + (ev.detail || '不明なエラー'));
+          status.textContent = 'エラー';
+        }
+      }
+    }
+  } catch(e) {
+    if (loadMsgEl) loadMsgEl.remove();
+    addMsg('error', 'VOICEVOX ロードに失敗: ' + e.message);
+    status.textContent = 'エラー';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function _ttsInitSettingsUI() {
+  document.getElementById('tts-enable-chk').checked    = tts.enabled;
+  document.getElementById('tts-auto-chk').checked      = tts.autoSpeak;
+  document.getElementById('tts-enable-label').textContent = tts.enabled   ? 'ON' : 'OFF';
+  document.getElementById('tts-auto-label').textContent   = tts.autoSpeak ? 'ON' : 'OFF';
+  const sel = document.getElementById('tts-engine-sel');
+  sel.value = tts.engine;
+  const spd = document.getElementById('tts-speed-slider');
+  spd.value = tts.speed;
+  document.getElementById('tts-speed-lbl').textContent = tts.speed.toFixed(1) + 'x';
+  // エンジン別初期化（非同期だが画面がある間に実行）
+  onTtsEngineChange();
+  // VOICEVOX 状態チェック
+  fetch(API + '/tts/status').then(r => r.json()).then(s => {
+    const status = document.getElementById('tts-voicevox-status');
+    if (s.voicevox_loaded) {
+      status.textContent = `ロード済み（${s.voicevox_speakers || '?'}話者）`;
+    } else if (!s.voicevox_available) {
+      status.textContent = 'voicevox_core 未インストール';
+    } else if (!s.jtalk_exists) {
+      status.textContent = 'Open JTalk 辞書なし';
+    } else {
+      status.textContent = '未ロード';
+    }
+  }).catch(() => {});
+}
 
 // ── iOS Safari キーボード対応 ──
 if (window.visualViewport) {
@@ -3470,8 +3825,14 @@ async function transcribeVoiceBlob(blob){
         try { ev = JSON.parse(jsonStr); } catch { continue; }
         if (ev.type === 'downloading') {
           // ダウンロード中メッセージをチャットに表示
+          if (downloadMsgEl) { downloadMsgEl.remove(); }
           downloadMsgEl = addMsg('system', ev.message);
           addLog('info','voice','model downloading...');
+        } else if (ev.type === 'transcribing') {
+          // 文字変換中メッセージに差し替え
+          if (downloadMsgEl) { downloadMsgEl.remove(); }
+          downloadMsgEl = addMsg('system', ev.message);
+          addLog('info','voice','transcribing...');
         } else if (ev.type === 'result') {
           if (downloadMsgEl) { downloadMsgEl.remove(); downloadMsgEl = null; }
           const t = (ev.text || '').trim();
@@ -4168,8 +4529,13 @@ function addMsg(role, text) {
   const editBtn = (role === 'user')
     ? `<button class="msg-edit-btn" onclick="startEditMsg(this)">✎ Edit</button>`
     : '';
-  d.innerHTML = `<div class="msg-role">${labels[role]||role}</div>${bubble}${toggle}${editBtn}`;
+  const speakBtn = (role === 'assistant')
+    ? `<button class="msg-speak-btn" onclick="ttsSpeakMsg(this)" title="読み上げ">🔊</button>`
+    : '';
+  d.innerHTML = `<div class="msg-role">${labels[role]||role}</div>${bubble}${toggle}${editBtn}${speakBtn}`;
   if (isMd) d.querySelector('.msg-bubble').dataset.raw = text;
+  // 自動読み上げ
+  if (role === 'assistant' && tts.enabled && tts.autoSpeak) ttsSpeak(text);
   w.appendChild(d); scrollMsgs(); return d;
 }
 
@@ -4690,6 +5056,7 @@ function openSettings() {
   refreshEnsembleVramStatus();
   if (ensembleVramTimer) clearInterval(ensembleVramTimer);
   ensembleVramTimer = setInterval(refreshEnsembleVramStatus, 5000);
+  _ttsInitSettingsUI();       // TTS設定をフォームに反映
 }
 function closeSettings() {
   document.getElementById('settings-modal').classList.remove('open');
