@@ -1111,8 +1111,13 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       </div>
 
       <div id="model-role-panel" style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
-        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px">Role Routing</div>
-        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">運用方針: Coder系(Tier1-3)はSettingsで管理します。ここでは plan/chat/search/verify/multi のみ設定します。Routerは内部判定でこの割当を参照し、Task実行時に自動で使用されます。</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-size:11px;font-weight:700;color:var(--text2)">Role Routing</div>
+          <button id="role-lock-btn" onclick="toggleRoleLock()"
+            title="ロック時: ベンチマークによる自動ロール更新を禁止（手動変更は可能）"
+            style="font-size:13px;padding:2px 7px;border:1px solid var(--border);background:var(--bg3);border-radius:4px;cursor:pointer;line-height:1">🔓</button>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">運用方針: Coder系(Tier1-3)はSettingsで管理します。Routerは内部判定でこの割当を参照し、Task実行時に自動で使用されます。</div>
         <div id="model-role-list" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
           <div style="font-size:11px;color:var(--text3)">Loading roles...</div>
         </div>
@@ -1241,8 +1246,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="margin-top:6px;font-size:10px;color:var(--text3)">⚠ 推奨 Steps: 10〜25。過剰だと繰り返しループのリスクあり。</div>
       </div>
 
-      <!-- Coder Orchestration & Ensemble -->
-      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🧩 Coder Orchestration</div>
+      <!-- Code Implementation Mode -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🧩 コード実装モード</div>
       <div style="padding:4px 0 14px">
 
         <!-- 1. 機能選択 -->
@@ -1277,7 +1282,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
         <!-- 3. Orchestration 詳細設定 -->
         <div id="orch-settings-body" style="margin-bottom:10px">
-          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;padding-top:8px;border-top:1px solid var(--border)">🧩 コーダーオーケストレーション</div>
+          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;padding-top:8px;border-top:1px solid var(--border)">🧩 Coder Orchestration</div>
           <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:4px">詳細設定</div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:6px">失敗時/品質基準未達時に、軽量→高品質の順でコーダーモデルを昇格再実行します。</div>
           <select id="orch-policy" style="width:100%;padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);margin-bottom:6px">
@@ -1292,7 +1297,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
         <!-- 4. Ensemble 詳細設定 -->
         <div id="ensemble-settings-wrap" style="margin-bottom:10px">
-          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;padding-top:8px;border-top:1px solid var(--border)">🧠 アンサンブル</div>
+          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;padding-top:8px;border-top:1px solid var(--border)">🧠 Ensemble</div>
           <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:4px">詳細設定</div>
           <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
             <span style="font-size:11px;color:var(--text2);min-width:80px">実行モード</span>
@@ -1526,9 +1531,9 @@ function _isMobileViewport() {
   return window.innerWidth <= 768;
 }
 
-function _formatUsageLine({cpu='--', ram='--/--', gpu='--', vram='--/--', backend='none', confidence='unknown'}) {
+function _formatUsageLine({cpu='--', ram='--/--', gpu='--', vram='--/--', backend='none'}) {
   if (_isMobileViewport()) return `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram}`;
-  return `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram} [${backend}/${confidence}]`;
+  return `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram} [${backend}]`;
 }
 let _lastSystemUsageText = '';
 let voiceRecorder = null;
@@ -1622,6 +1627,10 @@ async function loadSettingsFromDb() {
     if (em) em.value = (d.ensemble_execution_mode === 'serial') ? 'serial' : 'parallel';
     if (eas) eas.checked = d.ensemble_auto_switch_on_low_vram !== 'false';
 
+    // Role lock (default: unlocked)
+    _roleLocked = d.role_lock === 'true';
+    _updateRoleLockBtn();
+
   } catch(e) { console.warn('loadSettingsFromDb error', e); }
 }
 
@@ -1695,9 +1704,8 @@ async function refreshSystemSummary() {
         ? `${_fmtGbInt(gpuInfo?.vram_used_mb)}/${_fmtGbInt(gpuInfo?.vram_total_mb)}`
         : '--';
       const backend = usage.vram_source_backend || usage.gpu_backend || 'none';
-      const confidence = usage.vram_confidence || 'unknown';
-      usageEl.textContent = _formatUsageLine({cpu, ram, gpu, vram, backend, confidence});
-      usageEl.title = `CPU ${cpu}, RAM ${ram}, GPU ${gpu}, VRAM ${vram}, backend ${backend}, confidence ${confidence} (updated: ${usage.updated_at || '-'})`;
+      usageEl.textContent = _formatUsageLine({cpu, ram, gpu, vram, backend});
+      usageEl.title = `CPU ${cpu}, RAM ${ram}, GPU ${gpu}, VRAM ${vram}, backend ${backend} (updated: ${usage.updated_at || '-'})`;
       usageEl.style.display = 'block';
       if (usageRow) usageRow.style.display = 'flex';
     }
@@ -1726,8 +1734,7 @@ async function refreshSystemSummary() {
           ? `${_fmtGbInt(gpuInfo?.vram_used_mb)}/${_fmtGbInt(gpuInfo?.vram_total_mb)}`
           : '--';
         const backend = usageData.vram_source_backend || usageData.gpu_backend || 'none';
-        const confidence = usageData.vram_confidence || 'unknown';
-        usageEl.textContent = _formatUsageLine({cpu, ram, gpu, vram, backend, confidence});
+        usageEl.textContent = _formatUsageLine({cpu, ram, gpu, vram, backend});
         usageEl.title = `fallback APIs used (summary failed): ${String(e?.message || e || '-')}`;
         usageEl.style.display = 'block';
         if (usageRow) usageRow.style.display = 'flex';
@@ -2149,6 +2156,24 @@ async function refreshModelDb(prefetchedModels = null, prefetchedStat = null) {
   }
 }
 
+let _roleLocked = false;
+
+function _updateRoleLockBtn() {
+  const btn = document.getElementById('role-lock-btn');
+  if (!btn) return;
+  btn.textContent = _roleLocked ? '🔒' : '🔓';
+  btn.title = _roleLocked
+    ? 'ロック中: ベンチマークによる自動ロール更新を禁止（クリックで解錠）'
+    : '解錠中: ベンチマーク後にロールが自動更新されます（クリックで施錠）';
+  btn.style.borderColor = _roleLocked ? 'var(--amber)' : 'var(--border)';
+}
+
+async function toggleRoleLock() {
+  _roleLocked = !_roleLocked;
+  _updateRoleLockBtn();
+  await _saveSettingDb('role_lock', _roleLocked ? 'true' : 'false');
+}
+
 async function refreshModelRoles() {
   const el = document.getElementById('model-role-list');
   if (!el) return;
@@ -2500,10 +2525,10 @@ async function doBenchmark(mid) {
     const r = await fetch(API+'/models/db/benchmark/'+mid, {method:'POST'});
     const d = await r.json();
     addLog('ok','models', d.message || 'Benchmark started');
-    // Poll for result
-    setTimeout(refreshModelDb, 5000);
-    setTimeout(refreshModelDb, 15000);
-    setTimeout(refreshModelDb, 30000);
+    const refreshAll = async () => { await refreshModelDb(); await refreshModelRoles(); };
+    setTimeout(refreshAll, 5000);
+    setTimeout(refreshAll, 15000);
+    setTimeout(refreshAll, 30000);
   } catch(e) { addLog('err','models', e.message); }
 }
 
@@ -2820,6 +2845,7 @@ function startGgufDownloadPolling(jobId, progressElId) {
         setInlineGgufProgress(progressElId, `DL完了 | ${fmtGbFromBytes(d.downloaded_bytes)} / ${fmtGbFromBytes(d.total_bytes)}`, 'var(--accent)');
         stopGgufDownloadPolling();
         await refreshModelDb();
+        await refreshModelRoles();
       }
     } catch (e) {
       setInlineGgufProgress(progressElId, `DL error: ${e.message}`, 'var(--red)');
