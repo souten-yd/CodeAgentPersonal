@@ -1874,6 +1874,9 @@ async function loadTtsVoicevox() {
 function _ttsSummarizeVoicevoxIssue(detail, missingList = []) {
   const misses = Array.isArray(missingList) ? missingList : [];
   const codes = misses.map(m => m.code || '');
+  if (/importに失敗|import error|cannot open shared object|No module named/i.test(detail || '')) {
+    return 'voicevox_core import失敗';
+  }
   if (codes.includes('voicevox_core_missing') || /voicevox_core/i.test(detail || '')) {
     return 'voicevox_core 未インストール';
   }

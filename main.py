@@ -8120,12 +8120,15 @@ def voice_transcribe_api(req: dict):
 # TTS (Text-to-Speech) / CPUオンデマンド
 # =========================
 
+_VOICEVOX_IMPORT_ERROR = ""
 try:
     import voicevox_core as _vc_mod  # type: ignore
     _VOICEVOX_AVAILABLE = True
-except ImportError:
+except Exception as _vv_e:
     _vc_mod = None
     _VOICEVOX_AVAILABLE = False
+    _VOICEVOX_IMPORT_ERROR = str(_vv_e)
+    print(f"[TTS] voicevox_core import failed: {_VOICEVOX_IMPORT_ERROR}")
 
 try:
     import edge_tts as _edge_tts_mod  # type: ignore
@@ -8161,9 +8164,12 @@ def _tts_jtalk_exists() -> bool:
 def _tts_voicevox_missing_requirements() -> list[dict]:
     missing: list[dict] = []
     if not _VOICEVOX_AVAILABLE:
+        base_msg = "voicevox_core がインストールされていません。"
+        if _VOICEVOX_IMPORT_ERROR:
+            base_msg = f"voicevox_core のimportに失敗しました: {_VOICEVOX_IMPORT_ERROR}"
         missing.append({
             "code": "voicevox_core_missing",
-            "message": "voicevox_core がインストールされていません。",
+            "message": base_msg,
             "hint": "pip install 'voicevox_core>=0.15,<0.16'（またはVOICEVOX公式wheel）を実行してください。",
         })
     if not _tts_jtalk_exists():
@@ -8179,8 +8185,9 @@ def tts_voicevox_load() -> dict:
     """VOICEVOX Core を CPU(ONNX) でロードする。"""
     global _tts_core
     if not _VOICEVOX_AVAILABLE:
+        import_note = f" (import error: {_VOICEVOX_IMPORT_ERROR})" if _VOICEVOX_IMPORT_ERROR else ""
         raise RuntimeError(
-            "voicevox_core がインストールされていません。"
+            f"voicevox_core が利用できません{import_note}。"
             "pip install 'voicevox_core>=0.15,<0.16' または "
             "https://github.com/VOICEVOX/voicevox_core/releases のwheelをインストールしてください。"
         )
@@ -8274,6 +8281,7 @@ def tts_status_api():
     missing = _tts_voicevox_missing_requirements()
     return {
         "voicevox_available": _VOICEVOX_AVAILABLE,
+        "voicevox_import_error": _VOICEVOX_IMPORT_ERROR,
         "voicevox_loaded": loaded,
         "voicevox_speakers": speakers,
         "edgetts_available": _EDGE_TTS_AVAILABLE,

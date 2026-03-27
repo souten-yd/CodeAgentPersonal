@@ -69,6 +69,13 @@ fi
     || "${PYTHON_BIN}" -m pip install "voicevox_core>=0.15,<0.16" \
     || echo "[Runpod][WARN] voicevox_core installation failed. VOICEVOX TTS will be disabled."
 }
+if "${PYTHON_BIN}" -c "import voicevox_core,sys; print(f'voicevox_core OK (python={sys.executable})')" >/tmp/voicevox_import_check.log 2>&1; then
+  cat /tmp/voicevox_import_check.log
+else
+  echo "[Runpod][WARN] voicevox_core import check failed:"
+  cat /tmp/voicevox_import_check.log || true
+  "${PYTHON_BIN}" -m pip show voicevox_core || true
+fi
 # Prepare Open JTalk dictionary automatically (for VOICEVOX).
 JTALK_DIR="/workspace/ca_data/tts/open_jtalk_dic_utf_8-1.11"
 if [[ ! -d "${JTALK_DIR}" || -z "$(ls -A "${JTALK_DIR}" 2>/dev/null || true)" ]]; then
