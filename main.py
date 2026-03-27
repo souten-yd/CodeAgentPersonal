@@ -911,23 +911,49 @@ class ModelManager:
     def _start_linux(self, spec, eff_ck, eff_cv, gpu_vendor, emit,
                      calc_gpu_layers, proven_ngl) -> bool:
         """
-        Linux (Runpod/CUDA):
+        Linux (Runpod/CUDA) 3フェーズ起動:
+          Phase 0: ngl_ctx_profiles キャッシュヒット → 直接起動（Phase 1-3 スキップ）
           Phase 1: auto-fit（-ngl省略）
-          Phase 2: KVキャッシュ込みVRAM予測値から開始し指数的半減で最初の成功値を発見
-          Phase 3: [成功値, 最初の失敗値] で二分探索して最適値を確定
+          Phase 2: KVキャッシュ込みVRAM予測値 or プロファイル補間値から開始し指数的半減
+          Phase 3: [ok_ngl, first_fail_ngl] で二分探索して最適値を確定
+                   Phase 2 が一発成功の場合は [ok_ngl, total_layers_gguf] で探索
 
-        バグ修正:
-          旧実装は fail_ngl = min(fail_ngl, gpu_layers) で「最低失敗値」を追跡していたため
-          Phase 2 が 40→20→10→5→2→1(ok) と進んだ場合 Phase 3 の探索範囲が [1,2] となり
-          最適値（例: 8）を見つけられなかった。
-          新実装は first_fail_ngl (= Phase 2 で最初に失敗した値 = 上限) を保存して
-          Phase 3 では [ok_ngl, first_fail_ngl] を探索する。
+        first_fail_ngl は「Phase 2 での最初の失敗値」を保存する。
+        旧コードの min(fail_ngl, ...) は「最低失敗値」を追跡するため
+        Phase 3 探索範囲が崩壊する（例: [1,2]）バグがあった。
         """
-        # ─── KVキャッシュ込みの初期NGL予測 ──────────────────
+        ctx = int(spec.get("ctx", 4096) or 4096)
         predicted_ngl = self._predict_ngl_with_kv(spec, eff_ck, eff_cv)
 
+        # GGUF から総レイヤー数を取得（Phase 3 上限として使用）
+        _meta = _read_gguf_metadata(spec.get("path", ""))
+        total_layers_gguf = next(
+            (int(v) for k, v in _meta.items() if k.endswith(".block_count")), None
+        )
+
+        # ─── Phase 0: ngl_ctx_profiles キャッシュヒット ─────────
+        profiles = self._load_ngl_ctx_profiles(spec)
+        cached_ngl = self._ngl_from_profiles(profiles, spec, ctx, eff_ck, eff_cv)
+        if cached_ngl > 0 and str(ctx) in profiles:
+            # 完全一致キャッシュ → 直接試行（探索フェーズをすべてスキップ）
+            self._kill_process()
+            print(f"[ModelManager] Phase 0: ctx={ctx} キャッシュヒット ngl={cached_ngl} で直接起動")
+            emit("model_switching", f"Loading {spec['name']}... (cache ngl={cached_ngl})", 10, 0)
+            result = self._try_start_once(
+                spec, gpu_layers=cached_ngl, eff_ck=eff_ck, eff_cv=eff_cv,
+                gpu_vendor=gpu_vendor, emit=emit,
+            )
+            if result == "ok":
+                self._save_proven_ngl(spec, cached_ngl)
+                return True
+            # キャッシュ値が失敗（VRAM 減少等）→ エントリ削除して通常探索へ
+            print(f"[ModelManager] Phase 0: キャッシュ値 ngl={cached_ngl} 失敗 → 通常探索へ")
+            self._clear_ngl_ctx_profile(spec, ctx)
+            self._kill_process()
+
         # ─── Phase 1: auto-fit を試行 ────────────────────────
-        print(f"[ModelManager] Linux Phase 1: auto-fit で起動を試行")
+        autofit_oom = False
+        print("[ModelManager] Linux Phase 1: auto-fit で起動を試行")
         emit("model_switching", f"Loading {spec['name']}... (auto-fit)", 10, 0)
         result = self._try_start_once(
             spec, gpu_layers=None, eff_ck=eff_ck, eff_cv=eff_cv,
@@ -937,32 +963,37 @@ class ModelManager:
             actual_ngl = self._parse_ngl_from_log()
             if actual_ngl is not None:
                 self._save_proven_ngl(spec, actual_ngl)
+                self._save_ngl_ctx_profile(spec, ctx, actual_ngl)
             return True
-        if result != "oom":
+        autofit_oom = (result == "oom")
+        if not autofit_oom:
             print("[ModelManager] auto-fit失敗(非OOM) → Phase 2へ")
         self._kill_process()
 
         # ─── Phase 2: 指数的半減で最初の成功値を発見 ──────────
         # 初期値の優先順位:
-        #   1. proven_ngl (DB キャッシュ)
-        #   2. predicted_ngl (KV込みVRAM予測)
-        #   3. calc_gpu_layers // 2 (従来方式、フォールバック)
-        if proven_ngl >= 0:
+        #   1. ngl_ctx_profiles 補間値 (近傍 ctx からKV式で補間)
+        #   2. proven_ngl (DB キャッシュ)
+        #   3. predicted_ngl (KV込みVRAM予測)
+        #   4. calc_gpu_layers // 2 (フォールバック)
+        if cached_ngl > 0 and str(ctx) not in profiles:
+            # 近傍 ctx からの補間値（完全一致でない場合）
+            gpu_layers = cached_ngl
+            print(f"[ModelManager] Phase 2: 近傍ctx補間値 ngl={gpu_layers} を初期値に使用")
+        elif proven_ngl >= 0:
             gpu_layers = min(calc_gpu_layers, proven_ngl)
-            print(f"[ModelManager] proven_ngl={proven_ngl} を初期値に使用 (計算値={calc_gpu_layers})")
+            print(f"[ModelManager] Phase 2: proven_ngl={proven_ngl} を初期値に使用 (計算値={calc_gpu_layers})")
         elif predicted_ngl > 0:
             gpu_layers = predicted_ngl
-            print(f"[ModelManager] KV込み予測値 predicted_ngl={predicted_ngl} を初期値に使用")
+            print(f"[ModelManager] Phase 2: KV込み予測値 predicted_ngl={predicted_ngl} を初期値に使用")
         else:
             gpu_layers = max(1, calc_gpu_layers // 2)
-            print(f"[ModelManager] Phase 2初期値を半減: {calc_gpu_layers} → {gpu_layers}")
+            print(f"[ModelManager] Phase 2: 初期値を半減 {calc_gpu_layers} → {gpu_layers}")
 
-        # first_fail_ngl: Phase 2 での「最初の失敗値」= Phase 3 の上限
-        # (旧: min で追跡していた「最低失敗値」は探索範囲を狭めてしまうバグがあった)
-        first_fail_ngl = -1
+        first_fail_ngl = -1  # Phase 2 での最初の失敗値（Phase 3 の upper bound）
         ok_ngl = -1
 
-        _OOM_MAX_RETRIES = 6  # 余裕を持たせる（旧: 4）
+        _OOM_MAX_RETRIES = 6
         for _oom_attempt in range(_OOM_MAX_RETRIES + 1):
             self._kill_process()
             print(f"[ModelManager] Linux Phase 2: -ngl={gpu_layers} ({_oom_attempt + 1}/{_OOM_MAX_RETRIES + 1})")
@@ -977,9 +1008,8 @@ class ModelManager:
             if result != "oom":
                 self._kill_process()
                 return False
-            # 最初のOOM時に first_fail_ngl を記録（Phase 3 の upper bound）
             if first_fail_ngl < 0:
-                first_fail_ngl = gpu_layers
+                first_fail_ngl = gpu_layers  # 最初のOOM値を記録（Phase 3 上限）
             if gpu_layers <= 0:
                 print("[ModelManager] gpu_layers=0でもOOM → リトライ不可")
                 return False
@@ -995,14 +1025,24 @@ class ModelManager:
             return False
 
         # ─── Phase 3: 二分探索で最適値を確定 ─────────────────
-        # lo = ok_ngl (成功した値)
-        # hi = first_fail_ngl (最初の失敗値 = Phase 2 の開始値)
-        #      first_fail_ngl が -1 の場合は Phase 2 が一発成功 → 探索不要
+        # hi の決定ロジック:
+        #   first_fail_ngl > ok_ngl → Phase 2 での最初失敗値をそのまま上限に使う
+        #   first_fail_ngl == -1   → Phase 2 が一発成功（OOM なし）
+        #                            auto-fit が OOM していた場合は total_layers_gguf を上限に
+        #                            → predicted_ngl より高い層が収まる可能性を探索する
         self._kill_process()
         lo = ok_ngl
-        hi = first_fail_ngl if first_fail_ngl > ok_ngl else ok_ngl
+        if first_fail_ngl > ok_ngl:
+            hi = first_fail_ngl
+        elif autofit_oom and total_layers_gguf and total_layers_gguf > ok_ngl:
+            # Phase 2 一発成功、auto-fit OOM → total_layers で上限を設定
+            hi = total_layers_gguf
+            print(f"[ModelManager] Phase 3: Phase 2 一発成功のため上限を total_layers={hi} に拡張")
+        else:
+            hi = ok_ngl  # 探索範囲なし → Phase 3 スキップ
+
         best = ok_ngl
-        _BISECT_MAX = 5  # 探索精度向上（旧: 3）
+        _BISECT_MAX = 5
 
         if hi - lo > 1:
             print(f"[ModelManager] Linux Phase 3: 二分探索 [{lo}..{hi}] で最適値を探索")
@@ -1038,6 +1078,7 @@ class ModelManager:
                 return False
 
         self._save_proven_ngl(spec, best)
+        self._save_ngl_ctx_profile(spec, ctx, best)  # ctx→ngl をプロファイルに記録
         return True
 
     def _try_start_once(self, spec, gpu_layers, eff_ck, eff_cv, gpu_vendor, emit) -> str:
@@ -1205,9 +1246,11 @@ class ModelManager:
         if not total_layers:
             return -1
 
-        # KVキャッシュサイズ（全レイヤー分）
-        ck = eff_ck or "q4_0"
-        cv = eff_cv or "q4_0"
+        # KVキャッシュサイズ（全レイヤー分）。
+        # q8_0 は f16 比で品質劣化がほぼなく（コード生成含め1%未満）、
+        # q4_0 よりも正確な予測が必要なため q8_0 をデフォルトとする。
+        ck = eff_ck or "q8_0"
+        cv = eff_cv or "q8_0"
         kv_total_mb = _calc_kv_cache_mb_from_gguf(model_path, ctx, ck, cv)
         if kv_total_mb <= 0:
             return -1
@@ -1242,6 +1285,101 @@ class ModelManager:
                     print(f"[ModelManager] proven_ngl={gpu_layers} をDBに保存 (旧値={old_val})")
         except Exception as e:
             print(f"[ModelManager] proven_ngl保存エラー: {e}")
+
+    # ── ngl_ctx_profiles: (ctx → ngl) キャッシュ ─────────────────────────
+
+    def _load_ngl_ctx_profiles(self, spec: dict) -> dict:
+        """DBから {ctx_str: ngl_int} のプロファイル辞書を返す。"""
+        try:
+            row = model_db_find_by_path(spec.get("path", ""))
+            if row:
+                raw = row.get("ngl_ctx_profiles", "") or ""
+                if raw:
+                    return json.loads(raw)
+        except Exception:
+            pass
+        return {}
+
+    def _save_ngl_ctx_profile(self, spec: dict, ctx: int, ngl: int) -> None:
+        """(ctx, ngl) を ngl_ctx_profiles に追記してDBに保存する。"""
+        try:
+            row = model_db_find_by_path(spec.get("path", ""))
+            if row and row.get("id"):
+                profiles: dict = {}
+                raw = row.get("ngl_ctx_profiles", "") or ""
+                if raw:
+                    profiles = json.loads(raw)
+                profiles[str(ctx)] = ngl
+                model_db_update(row["id"], {"ngl_ctx_profiles": json.dumps(profiles)})
+                print(f"[ModelManager] ngl_ctx_profiles 更新: ctx={ctx} ngl={ngl} (計{len(profiles)}件)")
+        except Exception as e:
+            print(f"[ModelManager] ngl_ctx_profiles保存エラー: {e}")
+
+    def _clear_ngl_ctx_profile(self, spec: dict, ctx: int) -> None:
+        """特定 ctx のキャッシュエントリを削除する（キャッシュ値がOOMした場合に呼ぶ）。"""
+        try:
+            row = model_db_find_by_path(spec.get("path", ""))
+            if row and row.get("id"):
+                profiles: dict = {}
+                raw = row.get("ngl_ctx_profiles", "") or ""
+                if raw:
+                    profiles = json.loads(raw)
+                if str(ctx) in profiles:
+                    del profiles[str(ctx)]
+                    model_db_update(row["id"], {"ngl_ctx_profiles": json.dumps(profiles)})
+                    print(f"[ModelManager] ngl_ctx_profiles からctx={ctx}を削除（キャッシュ値失敗）")
+        except Exception:
+            pass
+
+    def _ngl_from_profiles(self, profiles: dict, spec: dict,
+                            target_ctx: int, eff_ck: str, eff_cv: str) -> int:
+        """
+        ngl_ctx_profiles から target_ctx に適した ngl を返す。
+        - 完全一致: そのまま返す
+        - 近傍一致: KVキャッシュ込みのVRAM式で補間する
+          ngl_new = ngl_ref × (w/layer + kv/layer@ctx_ref)
+                                / (w/layer + kv/layer@ctx_new)
+        失敗時は -1 を返す。
+        """
+        if not profiles:
+            return -1
+        # 完全一致
+        if str(target_ctx) in profiles:
+            return int(profiles[str(target_ctx)])
+        # 近傍一致 → KV込み補間
+        try:
+            available_ctxs = {int(k): int(v) for k, v in profiles.items() if str(k).isdigit()}
+            if not available_ctxs:
+                return -1
+            nearest_ctx = min(available_ctxs, key=lambda c: abs(c - target_ctx))
+            ngl_ref = available_ctxs[nearest_ctx]
+            model_path = spec.get("path", "")
+            file_size_mb = int(spec.get("file_size_mb", 0) or 0)
+            if not model_path or file_size_mb <= 0:
+                return -1
+            meta = _read_gguf_metadata(model_path)
+            total_layers = next(
+                (int(v) for k, v in meta.items() if k.endswith(".block_count")), None
+            )
+            if not total_layers:
+                return -1
+            ck = eff_ck or "q8_0"
+            cv = eff_cv or "q8_0"
+            kv_ref = _calc_kv_cache_mb_from_gguf(model_path, nearest_ctx, ck, cv)
+            kv_new = _calc_kv_cache_mb_from_gguf(model_path, target_ctx, ck, cv)
+            if kv_ref > 0 and kv_new > 0:
+                w_per = file_size_mb / total_layers
+                numer = ngl_ref * (w_per + kv_ref / total_layers)
+                denom = w_per + kv_new / total_layers
+                ngl_new = int(numer / denom * 0.95)  # 5% 安全マージン
+            else:
+                # KV計算不可 → コンテキスト比で比例縮小
+                ngl_new = int(ngl_ref * nearest_ctx / target_ctx)
+            ngl_new = max(1, min(total_layers, ngl_new))
+            print(f"[ModelManager] ngl補間: ctx {nearest_ctx}→{target_ctx}, ngl {ngl_ref}→{ngl_new}")
+            return ngl_new
+        except Exception:
+            return -1
 
     def _kill_process(self):
         """llama-serverプロセスを停止する。"""
@@ -3208,6 +3346,7 @@ def _get_model_db(create_if_missing: bool = True):
             notes TEXT DEFAULT '',
             benchmarked_at TEXT DEFAULT '',
             proven_ngl INTEGER DEFAULT -1,
+            ngl_ctx_profiles TEXT DEFAULT '{}',
             created_at TEXT NOT NULL
         )
     """)
@@ -3230,6 +3369,7 @@ def _get_model_db(create_if_missing: bool = True):
         "ALTER TABLE models ADD COLUMN has_mmproj INTEGER DEFAULT 0",
         "ALTER TABLE models ADD COLUMN mmproj_path TEXT DEFAULT ''",
         "ALTER TABLE models ADD COLUMN proven_ngl INTEGER DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN ngl_ctx_profiles TEXT DEFAULT '{}'",
     ]:
         try:
             conn.execute(ddl)
@@ -3360,7 +3500,7 @@ def model_db_update(mid: str, updates: dict):
                "tok_per_sec", "llm_url", "ctx_size", "gpu_layers", "threads", "parser",
                "description", "parallel", "batch_size", "ubatch_size", "cache_type_k",
                "cache_type_v", "extra_args", "auto_roles", "benchmark_profiles", "has_mmproj", "mmproj_path", "quantization", "file_size_mb",
-               "notes", "benchmarked_at", "proven_ngl"}
+               "notes", "benchmarked_at", "proven_ngl", "ngl_ctx_profiles"}
     sets = {k: v for k, v in updates.items() if k in allowed}
     if not sets:
         return
