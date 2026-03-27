@@ -852,6 +852,31 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .section-label{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+/* ── TALK MODE (EchoVault) ── */
+.talk-col{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg1);border-right:1px solid var(--border);min-height:0}
+.talk-toolbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg1)}
+.talk-record-btn{padding:8px 18px;font-size:12px;font-weight:700;border-radius:6px;border:2px solid var(--accent);background:var(--accent-bg);color:var(--accent);cursor:pointer;transition:all .15s;font-family:var(--font-ui);letter-spacing:.04em}
+.talk-record-btn:hover{background:var(--accent);color:var(--bg)}
+.talk-record-btn.recording{background:var(--red);border-color:var(--red);color:#fff;animation:talkPulse 1.2s infinite}
+@keyframes talkPulse{0%,100%{opacity:1}50%{opacity:.6}}
+.talk-duration{font-size:13px;font-family:var(--font-mono);color:var(--accent);min-width:52px;font-weight:700}
+.talk-status{font-size:11px;color:var(--text3);font-family:var(--font-mono);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.talk-transcript{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px;scroll-behavior:smooth;-webkit-overflow-scrolling:touch}
+.talk-transcript::-webkit-scrollbar{width:3px}
+.talk-transcript::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.talk-empty{font-size:12px;color:var(--text3);font-family:var(--font-mono);text-align:center;padding:48px 20px;opacity:.6}
+.talk-sentence{border:1px solid var(--border);border-radius:8px;padding:9px 12px;background:var(--bg2);display:flex;flex-direction:column;gap:4px;animation:msgIn .18s ease}
+.talk-sentence .ts-meta{font-size:10px;color:var(--text3);display:flex;gap:8px;align-items:center;margin-bottom:2px}
+.talk-sentence .ts-flag{font-size:14px;line-height:1}
+.talk-sentence .ts-time{color:var(--text3)}
+.talk-sentence .ts-play{font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer;transition:all .12s;font-family:var(--font-ui)}
+.talk-sentence .ts-play:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+.talk-sentence .ts-orig{font-size:13px;color:var(--text);line-height:1.55}
+.talk-sentence .ts-trans{font-size:12px;color:var(--text3);font-style:italic;line-height:1.45;min-height:18px}
+.talk-statusbar{display:flex;justify-content:space-between;padding:5px 14px;border-top:1px solid var(--border);font-size:10px;font-family:var(--font-mono);color:var(--text3);flex-shrink:0;background:var(--bg)}
+.talk-conn-ok{color:var(--green,#4caf50)}
+.talk-conn-off{color:var(--text3)}
+.talk-conn-err{color:var(--red)}
 </style>
 </head>
 <body>
@@ -865,6 +890,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     <div class="mode-wrap">
       <button class="mode-btn active" id="btn-chat" onclick="setMode('chat')">Chat</button>
       <button class="mode-btn" id="btn-task" onclick="setMode('task')">Task</button>
+      <button class="mode-btn" id="btn-talk" onclick="setMode('talk')">Talk</button>
     </div>
   </div>
   <div class="hdr-right">
@@ -888,6 +914,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
 <div class="mob-tabs">
   <button class="mob-tab wide active" id="mob-chat" onclick="mobSwitch('chat')">Chat</button>
+  <button class="mob-tab" id="mob-talk" onclick="mobSwitch('talk')">Talk</button>
   <button class="mob-tab" id="mob-output" onclick="mobSwitch('output')">Output</button>
   <button class="mob-tab wide" id="mob-preview" onclick="mobSwitch('preview')">Preview</button>
   <button class="mob-tab" id="mob-log" onclick="mobSwitch('log')">Log</button>
@@ -917,6 +944,22 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
   </div>
 
+  <!-- TALK MODE (EchoVault) -->
+  <div class="talk-col" id="talk-col" style="display:none">
+    <div class="talk-toolbar">
+      <button class="talk-record-btn" id="talk-record-btn" onclick="toggleTalkRecording()">● Start</button>
+      <span class="talk-duration" id="talk-duration">00:00</span>
+      <span class="talk-status" id="talk-status">Ready</span>
+    </div>
+    <div class="talk-transcript" id="talk-transcript">
+      <div class="talk-empty">「Start」を押して同時通訳・録音を開始...</div>
+    </div>
+    <div class="talk-statusbar">
+      <span id="talk-conn-status" class="talk-conn-off">● 未接続</span>
+      <span id="talk-sentence-count">0 文</span>
+    </div>
+  </div>
+
   <!-- PANEL -->
   <div class="panel-col" id="panel-col">
     <div class="panel-tabs">
@@ -926,6 +969,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <button class="tab-btn" onclick="switchTab('skills')">Skills</button>
       <button class="tab-btn" onclick="switchTab('memory')">Memory</button>
       <button class="tab-btn" onclick="switchTab('models')">Models</button>
+      <button class="tab-btn" id="tab-btn-echovault" onclick="switchTab('echovault')" style="display:none">EchoVault</button>
       <div class="tab-spacer"></div>
       <span class="tab-label" id="tab-label">—</span>
     </div>
@@ -1184,6 +1228,20 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <option value="qwen_think"></option>
         <option value="gpt_oss"></option>
       </datalist>
+    </div>
+
+    <!-- ECHOVAULT FILE BROWSER TAB -->
+    <div class="tab-content" id="tab-echovault" style="display:none;overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div>
+          <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">EchoVault</span>
+          <span style="font-size:10px;color:var(--text3);margin-left:6px;font-family:var(--font-mono)">録音・文字起こし・議事録</span>
+        </div>
+        <button onclick="refreshEchoVault()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ 更新</button>
+      </div>
+      <div id="echovault-list" style="display:flex;flex-direction:column;gap:5px">
+        <div style="font-size:12px;color:var(--text3);text-align:center;padding:24px 0;font-family:var(--font-mono)">セッションデータはまだありません</div>
+      </div>
     </div>
 
     </div>
@@ -1509,6 +1567,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <option value="webspeech">Web Speech API（ブラウザ内蔵・設定不要）</option>
             <option value="voicevox">VOICEVOX（高品質日本語・組み込み）</option>
             <option value="edgetts">Edge TTS（高品質・クラウド・要ネット）</option>
+            <option value="qwen3tts">Qwen3 TTS（高品質・ローカルLLM型）</option>
           </select>
           <div id="tts-engine-note" style="font-size:10px;color:var(--text3);margin-top:3px"></div>
         </div>
@@ -1544,6 +1603,82 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             </button>
             <span id="tts-voicevox-status" style="font-size:10px;color:var(--text3)">未ロード</span>
           </div>
+        </div>
+        <!-- Qwen3 TTS ロードボタン（メインTTS） -->
+        <div id="tts-qwen3-load-row" style="display:none;margin-bottom:8px">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:5px;line-height:1.6">
+            初回は Qwen3 TTS モデル（Qwen/Qwen3-TTS）のダウンロードが必要です（約2GB）。<br>
+            <code style="background:var(--bg3);padding:1px 4px;border-radius:2px">pip install transformers torch torchaudio soundfile</code> が必要です。
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button onclick="loadQwen3Tts('main')" id="tts-qwen3-load-btn"
+              style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">
+              Qwen3 TTS をロード
+            </button>
+            <span id="tts-qwen3-status" style="font-size:10px;color:var(--text3)">未ロード</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Talk Mode (EchoVault) 設定 ── -->
+      <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
+        <div class="section-label">🎙 Talk Mode — EchoVault</div>
+        <!-- ASR言語 -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASR言語</div>
+          <select id="talk-asr-lang"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveTalkSettings()">
+            <option value="auto">自動検出（日本語/英語）</option>
+            <option value="ja">日本語のみ</option>
+            <option value="en">English only</option>
+          </select>
+        </div>
+        <!-- ASRモデル -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASRモデル</div>
+          <select id="talk-asr-model"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveTalkSettings()">
+            <option value="large-v3-turbo">large-v3-turbo（高精度・推奨）</option>
+            <option value="small">small（高速・軽量）</option>
+            <option value="medium">medium（バランス）</option>
+          </select>
+        </div>
+        <!-- Talk TTS エンジン -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Talk TTS エンジン</div>
+          <select id="talk-tts-engine"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveTalkSettings()">
+            <option value="webspeech">Web Speech API（ブラウザ内蔵）</option>
+            <option value="voicevox">VOICEVOX（高品質日本語）</option>
+            <option value="edgetts">Edge TTS（クラウド）</option>
+            <option value="qwen3tts">Qwen3 TTS（高品質・ローカル）</option>
+          </select>
+        </div>
+        <!-- Qwen3 TTS ロード（Talkモード用） -->
+        <div id="talk-qwen3tts-load-row" style="display:none;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <button onclick="loadQwen3Tts('talk')" id="talk-qwen3tts-load-btn"
+              style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">
+              Qwen3 TTS をロード
+            </button>
+            <span id="talk-qwen3tts-status" style="font-size:10px;color:var(--text3)">未ロード</span>
+          </div>
+        </div>
+        <!-- 自動読み上げ -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">認識後に自動読み上げ</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">各文の認識完了後にTTSを自動再生</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="talk-autoplay-tts"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="saveTalkSettings()">
+            <span style="font-size:11px;color:var(--text2)" id="talk-autoplay-label">OFF</span>
+          </label>
         </div>
       </div>
 
@@ -1630,6 +1765,25 @@ const tts = {
   _playing:   false,
   _audio:     null,
   _utt:       null,
+};
+
+// ── TALK MODE (EchoVault) グローバル状態 ──
+const talk = {
+  recording:      false,
+  sessionId:      '',
+  ws:             null,
+  mediaRecorder:  null,
+  stream:         null,
+  startTime:      null,
+  durationTimer:  null,
+  sentences:      [],        // [{id, text, lang, translated}]
+  pendingChunks:  [],        // WS切断中に蓄積した音声チャンク
+  reconnectCount: 0,
+  _reconnectTimer: null,
+  autoPlayTts:    localStorage.getItem('talk_autoplay_tts') === 'true',
+  ttsEngine:      localStorage.getItem('talk_tts_engine')  || 'webspeech',
+  asrLang:        localStorage.getItem('talk_asr_lang')    || 'auto',
+  asrModel:       localStorage.getItem('talk_asr_model')   || 'large-v3-turbo',
 };
 
 function _ttsStripMarkdown(text) {
@@ -1784,6 +1938,23 @@ async function onTtsEngineChange() {
     vvRow.style.display = 'none';
     await _ttsLoadVoicesFromServer('edgetts');
     voiceRow.style.display = '';
+  } else if (engine === 'qwen3tts') {
+    note.textContent = 'Qwen/Qwen3-TTS をローカルで実行します。pip install transformers torch torchaudio soundfile が必要（初回ダウンロード約2GB）。';
+    vvRow.style.display = 'none';
+    voiceRow.style.display = 'none';
+    const q3row = document.getElementById('tts-qwen3-load-row');
+    if (q3row) q3row.style.display = '';
+    // ステータス確認
+    try {
+      const st = await fetch(API + '/tts/status').then(r => r.json());
+      const statusEl = document.getElementById('tts-qwen3-status');
+      if (statusEl) statusEl.textContent = st.qwen3tts_loaded ? '✓ ロード済み' : '未ロード';
+    } catch(e) {}
+  }
+  // qwen3 ロード行: edgetts/voicevox/webspeech 時は非表示
+  if (engine !== 'qwen3tts') {
+    const q3row = document.getElementById('tts-qwen3-load-row');
+    if (q3row) q3row.style.display = 'none';
   }
 }
 
@@ -1865,6 +2036,84 @@ async function loadTtsVoicevox() {
     status.textContent = 'エラー';
   } finally {
     btn.disabled = false;
+  }
+}
+
+async function loadQwen3Tts(context) {
+  // context: 'main'(TTSタブ) or 'talk'(Talkタブ)
+  const btnId    = context === 'talk' ? 'talk-qwen3tts-load-btn'    : 'tts-qwen3-load-btn';
+  const statusId = context === 'talk' ? 'talk-qwen3tts-status'      : 'tts-qwen3-status';
+  const btn    = document.getElementById(btnId);
+  const status = document.getElementById(statusId);
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'ロード中...';
+  try {
+    const resp = await fetch(API + '/tts/load', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{"engine":"qwen3tts"}'
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        let ev; try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+        if (ev.type === 'loading') {
+          if (status) status.textContent = '読込中...';
+        } else if (ev.type === 'done') {
+          if (status) status.textContent = '✓ ロード済み';
+        } else if (ev.type === 'error') {
+          if (status) status.textContent = 'エラー';
+          addMsg('error', 'Qwen3 TTS ロードエラー: ' + (ev.detail || ''));
+        }
+      }
+    }
+  } catch(e) {
+    if (status) status.textContent = 'エラー';
+    addMsg('error', 'Qwen3 TTS ロードに失敗: ' + e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function saveTalkSettings() {
+  talk.autoPlayTts = document.getElementById('talk-autoplay-tts')?.checked || false;
+  talk.ttsEngine   = document.getElementById('talk-tts-engine')?.value     || 'webspeech';
+  talk.asrLang     = document.getElementById('talk-asr-lang')?.value       || 'auto';
+  talk.asrModel    = document.getElementById('talk-asr-model')?.value      || 'large-v3-turbo';
+  localStorage.setItem('talk_autoplay_tts', talk.autoPlayTts);
+  localStorage.setItem('talk_tts_engine',   talk.ttsEngine);
+  localStorage.setItem('talk_asr_lang',     talk.asrLang);
+  localStorage.setItem('talk_asr_model',    talk.asrModel);
+  const autoLbl = document.getElementById('talk-autoplay-label');
+  if (autoLbl) autoLbl.textContent = talk.autoPlayTts ? 'ON' : 'OFF';
+  const q3row = document.getElementById('talk-qwen3tts-load-row');
+  if (q3row) q3row.style.display = talk.ttsEngine === 'qwen3tts' ? '' : 'none';
+}
+
+function _talkInitSettingsUI() {
+  const autoChk = document.getElementById('talk-autoplay-tts');
+  if (autoChk) autoChk.checked = talk.autoPlayTts;
+  const autoLbl = document.getElementById('talk-autoplay-label');
+  if (autoLbl) autoLbl.textContent = talk.autoPlayTts ? 'ON' : 'OFF';
+  const engSel = document.getElementById('talk-tts-engine');
+  if (engSel) engSel.value = talk.ttsEngine;
+  const langSel = document.getElementById('talk-asr-lang');
+  if (langSel) langSel.value = talk.asrLang;
+  const modelSel = document.getElementById('talk-asr-model');
+  if (modelSel) modelSel.value = talk.asrModel;
+  const q3row = document.getElementById('talk-qwen3tts-load-row');
+  if (q3row) q3row.style.display = talk.ttsEngine === 'qwen3tts' ? '' : 'none';
+  // Qwen3ステータス確認
+  if (talk.ttsEngine === 'qwen3tts') {
+    fetch(API + '/tts/status').then(r => r.json()).then(st => {
+      const el = document.getElementById('talk-qwen3tts-status');
+      if (el) el.textContent = st.qwen3tts_loaded ? '✓ ロード済み' : '未ロード';
+    }).catch(() => {});
   }
 }
 
@@ -2193,31 +2442,55 @@ function formatModelShortName(name) {
 // ── MODE ──
 function setMode(m) {
   mode = m;
-  ['chat','task'].forEach(x => document.getElementById('btn-'+x).classList.toggle('active', x===m));
+  ['chat','task','talk'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
+  const chatCol = document.getElementById('chat-col');
+  const talkCol = document.getElementById('talk-col');
+  const evTabBtn = document.getElementById('tab-btn-echovault');
+  if (m === 'talk') {
+    chatCol.style.display = 'none';
+    talkCol.style.display = '';
+    if (evTabBtn) evTabBtn.style.display = '';
+    switchTab('echovault');
+    refreshEchoVault();
+  } else {
+    chatCol.style.display = '';
+    talkCol.style.display = 'none';
+    if (evTabBtn) evTabBtn.style.display = 'none';
+    // Talkモードで echovault タブが選ばれていた場合は output に戻す
+    if (document.getElementById('tab-echovault')?.classList.contains('active') ||
+        document.getElementById('tab-echovault')?.style.display !== 'none') {
+      switchTab('output');
+    }
+  }
 }
 
 // ── MOBILE ──
 function mobSwitch(name) {
-  ['chat','output','preview','log','skills','memory','models'].forEach(t => document.getElementById('mob-'+t)?.classList.remove('active'));
+  ['chat','talk','output','preview','log','skills','memory','models'].forEach(t => document.getElementById('mob-'+t)?.classList.remove('active'));
   document.getElementById('mob-'+name)?.classList.add('active');
   const cc = document.getElementById('chat-col');
+  const tc = document.getElementById('talk-col');
   const pc = document.getElementById('panel-col');
   if (window.innerWidth <= 768 && cc && pc) {
-    cc.style.width = '100%';
-    cc.style.maxWidth = '100%';
-    cc.style.flex = '1 1 100%';
-    pc.style.width = '100%';
-    pc.style.maxWidth = '100%';
-    pc.style.flex = '1 1 100%';
+    [cc, tc, pc].forEach(el => { if (el) { el.style.width='100%'; el.style.maxWidth='100%'; el.style.flex='1 1 100%'; }});
   }
-  if (name === 'chat') { cc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden'); }
-  else { cc.classList.add('mob-hidden'); pc.classList.remove('mob-hidden');
+  if (name === 'chat') {
+    setMode('chat');
+    cc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden');
+  } else if (name === 'talk') {
+    setMode('talk');
+    tc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden');
+  } else {
+    cc.classList.add('mob-hidden');
+    if (tc) tc.classList.add('mob-hidden');
+    pc.classList.remove('mob-hidden');
     switchTab(name === 'output' ? 'output'
       : name === 'preview' ? 'preview'
       : name === 'skills' ? 'skills'
       : name === 'memory' ? 'memory'
       : name === 'models' ? 'models'
-      : 'log'); }
+      : 'log');
+  }
 }
 
 // ── SKILL PROPOSALS ──
@@ -2318,14 +2591,18 @@ function discardSkillProposal(i, logIt = true) {
 // ── PANEL TABS ──
 function switchTab(name) {
   const tabNames = ['output','preview','log','skills','memory','models'];
-  document.querySelectorAll('.tab-btn').forEach((b,i) =>
-    b.classList.toggle('active', tabNames[i]===name));
+  document.querySelectorAll('.tab-btn').forEach((b,i) => {
+    // EchoVaultボタンは id 付きなので位置ベースから除外
+    if (b.id === 'tab-btn-echovault') { b.classList.toggle('active', name==='echovault'); return; }
+    b.classList.toggle('active', tabNames[i]===name);
+  });
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   document.getElementById('tab-'+name)?.classList.add('active');
   if (name === 'preview') refreshFileBrowser();
   if (name === 'skills') refreshSkills();
   if (name === 'memory') refreshMemory();
   if (name === 'models') { refreshModelDb(); refreshModelRoles(); }
+  if (name === 'echovault') refreshEchoVault();
 }
 
 // ── GIT ──
@@ -2539,7 +2816,7 @@ async function refreshModelRoles() {
     _modelRoleState = d;
     const plannerKey = d.planner_key || '';
     const modelMap = Object.fromEntries((d.models || []).map(m => [m.model_key, m]));
-    const visibleRoles = (d.roles || []).filter(role => ['plan','chat','search','verify','multi'].includes(role));
+    const visibleRoles = (d.roles || []).filter(role => ['plan','chat','search','verify','multi','translate'].includes(role));
     el.innerHTML = visibleRoles.map(role => {
       const a = d.assignments?.[role] || {};
       const selectedKey = a.model_key || plannerKey || '';
@@ -3858,6 +4135,300 @@ async function transcribeVoiceBlob(blob){
   }
 }
 
+// ══════════════════════════════════════════════════════
+// TALK MODE (EchoVault) 録音・翻訳・ブラウザ関数
+// ══════════════════════════════════════════════════════
+
+function _talkWsUrl() {
+  const base = (typeof API !== 'undefined' ? API : window.location.origin);
+  return base.replace(/^http/, 'ws') + '/talk/stream';
+}
+
+function _talkSetStatus(text) {
+  const el = document.getElementById('talk-status');
+  if (el) el.textContent = text;
+}
+
+function _talkSetConn(state) {
+  // state: 'connected' | 'disconnected' | 'reconnecting' | 'error'
+  const el = document.getElementById('talk-conn-status');
+  if (!el) return;
+  const map = {
+    connected:    ['● 接続済み', 'talk-conn-ok'],
+    disconnected: ['● 未接続',   'talk-conn-off'],
+    reconnecting: ['● 再接続中…','talk-conn-off'],
+    error:        ['● 接続エラー','talk-conn-err'],
+  };
+  const [text, cls] = map[state] || map.disconnected;
+  el.textContent = text;
+  el.className = cls;
+}
+
+function _talkUpdateSentenceCount() {
+  const el = document.getElementById('talk-sentence-count');
+  if (el) el.textContent = `${talk.sentences.length} 文`;
+}
+
+function _talkUpdateDuration() {
+  if (!talk.startTime) return;
+  const sec = Math.floor((Date.now() - talk.startTime) / 1000);
+  const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+  const ss = String(sec % 60).padStart(2, '0');
+  const el = document.getElementById('talk-duration');
+  if (el) el.textContent = mm + ':' + ss;
+}
+
+function _talkAddSentence(ev) {
+  const flag  = ev.lang === 'ja' ? '🇯🇵' : '🇺🇸';
+  const time  = new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  const sid   = ev.id;
+  talk.sentences.push({id: sid, text: ev.text, lang: ev.lang, translated: ''});
+  _talkUpdateSentenceCount();
+  const container = document.getElementById('talk-transcript');
+  if (!container) return;
+  // 初回文: emptyメッセージ削除
+  const empty = container.querySelector('.talk-empty');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = 'talk-sentence';
+  div.dataset.sid = sid;
+  div.innerHTML = `
+    <div class="ts-meta">
+      <span class="ts-flag">${flag}</span>
+      <span class="ts-time">${time}</span>
+      <button class="ts-play" onclick="_talkPlaySentence(${sid})" title="読み上げ">▶</button>
+    </div>
+    <div class="ts-orig">${esc(ev.text)}</div>
+    <div class="ts-trans" id="ts-trans-${sid}"><em style="opacity:.5">翻訳中...</em></div>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  // 自動TTS再生
+  if (talk.autoPlayTts && ev.lang === 'ja') {
+    _talkPlaySentence(sid);
+  }
+}
+
+function _talkUpdateTranslation(id, translated) {
+  const el = document.getElementById('ts-trans-' + id);
+  if (el) el.innerHTML = esc(translated) || '<em style="opacity:.5">—</em>';
+  // sentences配列にも保存
+  const s = talk.sentences.find(x => x.id === id);
+  if (s) s.translated = translated;
+}
+
+function _talkPlaySentence(sid) {
+  const s = talk.sentences.find(x => x.id === sid);
+  if (!s) return;
+  // Talkモード用TTSエンジンで再生
+  const savedEngine = tts.engine;
+  tts.engine = talk.ttsEngine;
+  ttsSpeak(s.text);
+  tts.engine = savedEngine;
+}
+
+function _talkHandleEvent(ev) {
+  if (ev.type === 'sentence') {
+    _talkAddSentence(ev);
+  } else if (ev.type === 'translation') {
+    _talkUpdateTranslation(ev.id, ev.translated);
+  } else if (ev.type === 'status') {
+    const stateMap = {
+      recording: '● 録音中',
+      transcribing: '⟳ 文字起こし中...',
+      saving: '💾 保存中...',
+    };
+    _talkSetStatus(stateMap[ev.state] || ev.state);
+  } else if (ev.type === 'summary_done') {
+    _talkSetStatus('✓ 保存完了: ' + (ev.filename || ''));
+    refreshEchoVault();
+  } else if (ev.type === 'error') {
+    _talkSetStatus('⚠ ' + (ev.detail || 'エラー'));
+    addLog('err', 'talk', ev.detail || 'talk error');
+  }
+}
+
+function _talkFlushPendingChunks() {
+  if (!talk.ws || talk.ws.readyState !== WebSocket.OPEN) return;
+  while (talk.pendingChunks.length > 0) {
+    const chunk = talk.pendingChunks.shift();
+    talk.ws.send(chunk);
+  }
+}
+
+function _talkScheduleReconnect() {
+  if (!talk.recording) return;
+  if (talk._reconnectTimer) return;
+  const delay = Math.min(1000 * Math.pow(2, talk.reconnectCount), 8000);
+  talk.reconnectCount++;
+  _talkSetConn('reconnecting');
+  _talkSetStatus(`再接続中... (${talk.reconnectCount}回目, ${delay/1000}秒後)`);
+  talk._reconnectTimer = setTimeout(() => {
+    talk._reconnectTimer = null;
+    if (talk.recording) _talkConnectWs('resume');
+  }, delay);
+}
+
+function _talkConnectWs(mode) {
+  if (talk.ws) {
+    try { talk.ws.close(); } catch(e) {}
+    talk.ws = null;
+  }
+  const ws = new WebSocket(_talkWsUrl());
+  ws.binaryType = 'arraybuffer';
+  talk.ws = ws;
+
+  ws.onopen = () => {
+    talk.reconnectCount = 0;
+    _talkSetConn('connected');
+    const payload = mode === 'resume'
+      ? {type: 'resume', session_id: talk.sessionId}
+      : {type: 'start',  session_id: talk.sessionId, language: talk.asrLang, model: talk.asrModel};
+    ws.send(JSON.stringify(payload));
+    _talkFlushPendingChunks();
+    _talkSetStatus('● 録音中');
+  };
+  ws.onmessage = (e) => {
+    try { _talkHandleEvent(JSON.parse(e.data)); } catch(err) {}
+  };
+  ws.onclose = () => {
+    _talkSetConn('disconnected');
+    if (talk.recording) _talkScheduleReconnect();
+  };
+  ws.onerror = () => {
+    _talkSetConn('error');
+    if (talk.recording) _talkScheduleReconnect();
+  };
+}
+
+async function _talkStart() {
+  try {
+    talk.stream = await navigator.mediaDevices.getUserMedia({audio: true});
+  } catch(e) {
+    _talkSetStatus('マイクのアクセスが拒否されました: ' + e.message);
+    return;
+  }
+  talk.sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  talk.sentences  = [];
+  talk.pendingChunks = [];
+  talk.reconnectCount = 0;
+  talk.startTime  = Date.now();
+  talk.recording  = true;
+  // UI更新
+  const btn = document.getElementById('talk-record-btn');
+  if (btn) { btn.textContent = '■ Stop'; btn.classList.add('recording'); }
+  // トランスクリプト初期化
+  const tc = document.getElementById('talk-transcript');
+  if (tc) tc.innerHTML = '<div class="talk-empty" style="opacity:.5">録音中...</div>';
+  _talkUpdateSentenceCount();
+  // タイマー開始
+  talk.durationTimer = setInterval(_talkUpdateDuration, 1000);
+  // WS接続
+  _talkConnectWs('start');
+  // MediaRecorder (2s timeslice)
+  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus' : 'audio/webm';
+  const mr = new MediaRecorder(talk.stream, {mimeType});
+  talk.mediaRecorder = mr;
+  mr.ondataavailable = (e) => {
+    if (!e.data || e.data.size === 0) return;
+    // バイナリに変換してWSへ or ペンディングキューへ
+    e.data.arrayBuffer().then(buf => {
+      talk.pendingChunks.push(buf);
+      if (talk.ws && talk.ws.readyState === WebSocket.OPEN) {
+        _talkFlushPendingChunks();
+      }
+    });
+  };
+  mr.start(2000); // 2秒ごとにチャンク
+}
+
+async function _talkStop() {
+  talk.recording = false;
+  // タイマー停止
+  if (talk.durationTimer) { clearInterval(talk.durationTimer); talk.durationTimer = null; }
+  if (talk._reconnectTimer) { clearTimeout(talk._reconnectTimer); talk._reconnectTimer = null; }
+  // MediaRecorder停止
+  if (talk.mediaRecorder && talk.mediaRecorder.state !== 'inactive') {
+    talk.mediaRecorder.stop();
+  }
+  // ストリーム停止
+  if (talk.stream) {
+    talk.stream.getTracks().forEach(t => t.stop());
+    talk.stream = null;
+  }
+  // UI更新
+  const btn = document.getElementById('talk-record-btn');
+  if (btn) { btn.textContent = '● Start'; btn.classList.remove('recording'); }
+  _talkSetStatus('停止中... 議事録を生成しています');
+  // WS停止シグナル
+  if (talk.ws && talk.ws.readyState === WebSocket.OPEN) {
+    talk.ws.send(JSON.stringify({type: 'stop'}));
+  }
+  _talkSetConn('disconnected');
+}
+
+async function toggleTalkRecording() {
+  if (talk.recording) {
+    await _talkStop();
+  } else {
+    await _talkStart();
+  }
+}
+
+// EchoVault ファイルブラウザ
+async function refreshEchoVault() {
+  const el = document.getElementById('echovault-list');
+  if (!el) return;
+  el.innerHTML = '<div style="font-size:11px;color:var(--text3);text-align:center;padding:12px;font-family:var(--font-mono)">読み込み中...</div>';
+  try {
+    const r = await fetch(API + '/talk/sessions');
+    const d = await r.json();
+    const files = d.files || [];
+    if (!files.length) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--text3);text-align:center;padding:24px 0;font-family:var(--font-mono)">セッションデータはまだありません</div>';
+      return;
+    }
+    const ext2icon = {webm:'🎙', md:'📝', txt:'📄'};
+    el.innerHTML = files.map(f => {
+      const ext = f.name.includes('.') ? f.name.split('.').pop() : '';
+      const icon = ext2icon[ext] || '📄';
+      const sizeStr = _fmtBytes(f.size);
+      return `<div style="display:flex;align-items:center;gap:7px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);margin-bottom:3px">
+        <span style="font-size:15px;flex-shrink:0">${icon}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;font-family:var(--font-mono);color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.name)}">${esc(f.name)}</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:1px">${esc(f.mtime)} · ${sizeStr}</div>
+        </div>
+        <a href="${API}/talk/sessions/${encodeURIComponent(f.name)}" download="${esc(f.name)}"
+           style="font-size:10px;padding:3px 9px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;text-decoration:none;flex-shrink:0;font-family:var(--font-ui);font-weight:600">↓ DL</a>
+        <button onclick="deleteEchoVaultFile('${esc(f.name)}')" style="font-size:10px;padding:3px 7px;border:1px solid var(--border);background:transparent;color:var(--text3);border-radius:4px;cursor:pointer;flex-shrink:0" title="削除">✕</button>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<div style="font-size:11px;color:var(--red)">エラー: ${esc(e.message)}</div>`;
+  }
+}
+
+async function deleteEchoVaultFile(filename) {
+  if (!confirm(`「${filename}」を削除しますか？`)) return;
+  try {
+    await fetch(API + '/talk/sessions/' + encodeURIComponent(filename), {method: 'DELETE'});
+    refreshEchoVault();
+  } catch(e) {
+    addMsg('error', 'ファイル削除に失敗: ' + e.message);
+  }
+}
+
+function _fmtBytes(bytes) {
+  if (!bytes) return '0B';
+  if (bytes < 1024) return bytes + 'B';
+  if (bytes < 1048576) return (bytes/1024).toFixed(1) + 'KB';
+  return (bytes/1048576).toFixed(1) + 'MB';
+}
+
+// ══════════════════════════════════════════════════════
+
 async function submitEdit(msgEl) {
   const ta = msgEl.querySelector('.msg-edit-area');
   const newText = ta?.value?.trim();
@@ -5057,6 +5628,7 @@ function openSettings() {
   if (ensembleVramTimer) clearInterval(ensembleVramTimer);
   ensembleVramTimer = setInterval(refreshEnsembleVramStatus, 5000);
   _ttsInitSettingsUI();       // TTS設定をフォームに反映
+  _talkInitSettingsUI();      // Talkモード設定をフォームに反映
 }
 function closeSettings() {
   document.getElementById('settings-modal').classList.remove('open');
