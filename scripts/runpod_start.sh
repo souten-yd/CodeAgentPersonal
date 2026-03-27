@@ -61,12 +61,15 @@ fi
 }
 
 # Install voicevox_core if not present (optional: VOICEVOX TTS)
+# --no-index prevents PyPI fallback which could install an incompatible package and downgrade pydantic
 "${PYTHON_BIN}" -c "import voicevox_core" 2>/dev/null || {
   echo "[Runpod] Installing voicevox_core for VOICEVOX TTS..."
-  "${PYTHON_BIN}" -m pip install voicevox_core \
+  "${PYTHON_BIN}" -m pip install voicevox_core --no-index \
     --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/" \
     || echo "[Runpod][WARN] voicevox_core installation failed. VOICEVOX TTS will be disabled."
 }
+# Re-pin core framework versions in case optional deps caused downgrades
+"${PYTHON_BIN}" -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110" 2>/dev/null || true
 
 exec "${PYTHON_BIN}" scripts/start_codeagent.py \
   --host "${HOST}" \

@@ -93,9 +93,13 @@ RUN if [ -f /app/requirements.txt ]; then \
     fi
 
 # Install voicevox_core for Linux x86_64 (optional: VOICEVOX TTS support)
-RUN python -m pip install voicevox_core \
+# --no-index prevents PyPI fallback which could install an incompatible package
+RUN python -m pip install voicevox_core --no-index \
     --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/" \
     || echo "[WARN] voicevox_core not available. VOICEVOX TTS will be disabled."
+
+# Re-pin core framework versions in case optional deps caused downgrades
+RUN python -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110"
 
 # Copy compiled llama artifacts into the paths the app expects.
 RUN mkdir -p /app/llama/bin /app/llama/lib /models
