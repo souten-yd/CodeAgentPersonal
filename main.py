@@ -913,9 +913,19 @@ class ModelManager:
         """
         Linux (Runpod/CUDA):
           Phase 1: auto-fit（-ngl省略）
-          Phase 2: 半減リトライで最初の成功値を発見
-          Phase 3: 成功値と失敗値の間で二分探索して最適値を確定
+          Phase 2: KVキャッシュ込みVRAM予測値から開始し指数的半減で最初の成功値を発見
+          Phase 3: [成功値, 最初の失敗値] で二分探索して最適値を確定
+
+        バグ修正:
+          旧実装は fail_ngl = min(fail_ngl, gpu_layers) で「最低失敗値」を追跡していたため
+          Phase 2 が 40→20→10→5→2→1(ok) と進んだ場合 Phase 3 の探索範囲が [1,2] となり
+          最適値（例: 8）を見つけられなかった。
+          新実装は first_fail_ngl (= Phase 2 で最初に失敗した値 = 上限) を保存して
+          Phase 3 では [ok_ngl, first_fail_ngl] を探索する。
         """
+        # ─── KVキャッシュ込みの初期NGL予測 ──────────────────
+        predicted_ngl = self._predict_ngl_with_kv(spec, eff_ck, eff_cv)
+
         # ─── Phase 1: auto-fit を試行 ────────────────────────
         print(f"[ModelManager] Linux Phase 1: auto-fit で起動を試行")
         emit("model_switching", f"Loading {spec['name']}... (auto-fit)", 10, 0)
@@ -932,24 +942,28 @@ class ModelManager:
             print("[ModelManager] auto-fit失敗(非OOM) → Phase 2へ")
         self._kill_process()
 
-        # ─── Phase 2: 半減リトライで最初の成功値を発見 ────────
-        gpu_layers = calc_gpu_layers
+        # ─── Phase 2: 指数的半減で最初の成功値を発見 ──────────
+        # 初期値の優先順位:
+        #   1. proven_ngl (DB キャッシュ)
+        #   2. predicted_ngl (KV込みVRAM予測)
+        #   3. calc_gpu_layers // 2 (従来方式、フォールバック)
         if proven_ngl >= 0:
-            gpu_layers = min(gpu_layers, proven_ngl)
+            gpu_layers = min(calc_gpu_layers, proven_ngl)
             print(f"[ModelManager] proven_ngl={proven_ngl} を初期値に使用 (計算値={calc_gpu_layers})")
-        elif gpu_layers > 1:
-            # Phase 1(auto-fit) 失敗後に同じ/近い全層値から再開すると
-            # 無意味なOOMを1回踏みやすいため、Phase 2は半分から開始する。
-            prev = gpu_layers
-            gpu_layers = max(1, gpu_layers // 2)
-            print(f"[ModelManager] Phase 2初期値を半減: gpu_layers {prev} → {gpu_layers}")
+        elif predicted_ngl > 0:
+            gpu_layers = predicted_ngl
+            print(f"[ModelManager] KV込み予測値 predicted_ngl={predicted_ngl} を初期値に使用")
+        else:
+            gpu_layers = max(1, calc_gpu_layers // 2)
+            print(f"[ModelManager] Phase 2初期値を半減: {calc_gpu_layers} → {gpu_layers}")
 
-        fail_ngl = gpu_layers  # 最も低い失敗値を追跡
-        ok_ngl = -1            # 最初の成功値
+        # first_fail_ngl: Phase 2 での「最初の失敗値」= Phase 3 の上限
+        # (旧: min で追跡していた「最低失敗値」は探索範囲を狭めてしまうバグがあった)
+        first_fail_ngl = -1
+        ok_ngl = -1
 
-        _OOM_MAX_RETRIES = 4
+        _OOM_MAX_RETRIES = 6  # 余裕を持たせる（旧: 4）
         for _oom_attempt in range(_OOM_MAX_RETRIES + 1):
-            # 前回試行の残プロセスがあるとポート競合で固まることがあるため、毎回掃除する。
             self._kill_process()
             print(f"[ModelManager] Linux Phase 2: -ngl={gpu_layers} ({_oom_attempt + 1}/{_OOM_MAX_RETRIES + 1})")
             emit("model_switching", f"Loading {spec['name']}... -ngl={gpu_layers}", 15, 0)
@@ -963,7 +977,9 @@ class ModelManager:
             if result != "oom":
                 self._kill_process()
                 return False
-            fail_ngl = min(fail_ngl, gpu_layers)
+            # 最初のOOM時に first_fail_ngl を記録（Phase 3 の upper bound）
+            if first_fail_ngl < 0:
+                first_fail_ngl = gpu_layers
             if gpu_layers <= 0:
                 print("[ModelManager] gpu_layers=0でもOOM → リトライ不可")
                 return False
@@ -979,13 +995,14 @@ class ModelManager:
             return False
 
         # ─── Phase 3: 二分探索で最適値を確定 ─────────────────
-        # ok_ngl = 成功した値、fail_ngl = 最も低い失敗値
-        # ok_ngl と fail_ngl の間で最大の成功値を探す
+        # lo = ok_ngl (成功した値)
+        # hi = first_fail_ngl (最初の失敗値 = Phase 2 の開始値)
+        #      first_fail_ngl が -1 の場合は Phase 2 が一発成功 → 探索不要
         self._kill_process()
         lo = ok_ngl
-        hi = fail_ngl
+        hi = first_fail_ngl if first_fail_ngl > ok_ngl else ok_ngl
         best = ok_ngl
-        _BISECT_MAX = 3
+        _BISECT_MAX = 5  # 探索精度向上（旧: 3）
 
         if hi - lo > 1:
             print(f"[ModelManager] Linux Phase 3: 二分探索 [{lo}..{hi}] で最適値を探索")
@@ -1159,6 +1176,57 @@ class ModelManager:
         except Exception:
             pass
         return None
+
+    def _predict_ngl_with_kv(self, spec: dict, eff_ck: str, eff_cv: str) -> int:
+        """
+        KVキャッシュ込みのVRAM消費をレイヤー単位で計算し、
+        収まる最大 ngl を予測して返す。失敗時は -1 を返す。
+
+        formula:
+            vram_per_layer = (file_size_mb + kv_total_mb) / total_layers
+            predicted_ngl  = floor((free_vram - overhead) / vram_per_layer) × safety
+        """
+        file_size_mb = int(spec.get("file_size_mb", 0) or 0)
+        ctx = int(spec.get("ctx", 4096) or 4096)
+        model_path = spec.get("path", "")
+        if not model_path or file_size_mb <= 0:
+            return -1
+        free_vram_mb = _get_total_free_vram_mb()
+        if free_vram_mb <= 0:
+            return -1
+
+        # GGUFメタデータから総レイヤー数を取得
+        meta = _read_gguf_metadata(model_path)
+        total_layers = None
+        for key, val in meta.items():
+            if key.endswith(".block_count"):
+                total_layers = int(val)
+                break
+        if not total_layers:
+            return -1
+
+        # KVキャッシュサイズ（全レイヤー分）
+        ck = eff_ck or "q4_0"
+        cv = eff_cv or "q4_0"
+        kv_total_mb = _calc_kv_cache_mb_from_gguf(model_path, ctx, ck, cv)
+        if kv_total_mb <= 0:
+            return -1
+
+        overhead_mb = 320 + 750  # llama-server固定 + CUDAコンテキスト
+        available = max(0, free_vram_mb - overhead_mb)
+        vram_per_layer = (file_size_mb + kv_total_mb) / total_layers
+        if vram_per_layer <= 0:
+            return -1
+
+        # 10%の安全マージンを適用
+        predicted = int(available / vram_per_layer * 0.90)
+        predicted = max(0, min(total_layers, predicted))
+        print(
+            f"[ModelManager] KV込みNGL予測: free={free_vram_mb}MB, "
+            f"file={file_size_mb}MB, kv={kv_total_mb}MB, layers={total_layers}, "
+            f"vram/layer={vram_per_layer:.1f}MB → predicted_ngl={predicted}"
+        )
+        return predicted
 
     def _save_proven_ngl(self, spec: dict, gpu_layers: int):
         """成功した gpu_layers を proven_ngl としてDBに保存する。"""
@@ -5548,6 +5616,10 @@ def call_llm(messages: list, llm_url: str = "") -> tuple:
 # システムプロンプト
 # =========================
 
+CHAT_SYSTEM_PROMPT = """あなたは親切で知識豊富なAIアシスタントです。
+ユーザーの質問・会話に対して、自然で分かりやすい言葉で返答してください。
+コードの作成・修正・ファイル操作などの具体的な作業が必要な場合は、その旨を伝えてTaskモードへの切り替えを促してください。"""
+
 SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 
 【絶対ルール】
@@ -5749,6 +5821,8 @@ class ChatRequest(BaseModel):
     audio_base64: str = ""
     audio_format: str = "webm"
     voice_language: str = "ja"
+    mode: str = "task"          # "chat" → direct LLM call, "task" → agent loop
+    chat_history: list = []     # 会話履歴（chat モード時に使用）
 
 class ProjectRequest(BaseModel):
     name: str
@@ -7851,10 +7925,51 @@ async def stream(req: ChatRequest):
         return f"data: {json.dumps({'type': type_, **data}, ensure_ascii=False)}\n\n"
 
     def run_stream():
-        # ── planフェーズ ──
-        is_task = req.max_steps > 5  # max_steps=1 → chat扱い、デフォルト20 → task扱い
-        # modeはクライアントから渡してもらう（max_stepsで判断 or フィールド追加）
-        # ここではmessageの複雑さでplannerが1件か複数件かを決める
+        # ── チャットモード: プランナーとエージェントループを完全にバイパス ──
+        if req.mode == "chat":
+            chat_url = _resolve_runtime_llm_url(req.llm_url)
+            # 会話履歴を構築
+            history_msgs: list[dict] = []
+            for h in (req.chat_history or [])[-8:]:
+                role = h.get("role", "user")
+                text = str(h.get("text", h.get("content", "")))[:800]
+                if role in ("user", "assistant") and text:
+                    history_msgs.append({"role": role, "content": text})
+            msgs = [
+                {"role": "system", "content": CHAT_SYSTEM_PROMPT},
+                *history_msgs,
+                {"role": "user", "content": req.message},
+            ]
+            msgs = _trim_messages(msgs, _current_n_ctx, reserve_output=2048)
+            yield event("plan", {
+                "tasks": [{"id": 1, "title": req.message[:60], "detail": req.message}],
+                "total": 1,
+            })
+            yield event("task_start", {
+                "task_id": 1, "title": req.message[:60],
+                "task_num": 1, "total_tasks": 1, "progress": 0,
+            })
+            reply = ""
+            for _sev in call_llm_chat_streaming(msgs, llm_url=chat_url):
+                if _sev["type"] == "llm_streaming":
+                    yield _sev  # TPS進捗をそのまま転送
+                elif _sev["type"] == "llm_done":
+                    reply = _sev["content"]
+                elif _sev["type"] == "llm_error":
+                    yield event("task_error", {"error": _sev["error"], "steps": []})
+                    return
+            yield event("tool_call", {
+                "task_id": 1, "step": 0, "step_num": 1, "max_steps": 1,
+                "action": "final", "thought": "", "output": reply,
+                "progress": 100, "tps": 0,
+            })
+            yield event("done", {
+                "output": reply, "total_steps": 1,
+                "all_steps": [{"step": 0, "type": "final", "thought": "", "output": reply}],
+            })
+            return
+
+        # ── taskモード: plan + エージェントループ ──
         todos = plan(req.message, project=req.project)
         total_tasks = len(todos)
 
