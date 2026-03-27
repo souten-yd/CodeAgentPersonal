@@ -87,71 +87,14 @@ fi
     echo "[Runpod][WARN] voicevox_core installation failed. VOICEVOX TTS will be disabled."
   fi
 }
-if "${PYTHON_BIN}" -c "import voicevox_core,sys; print(f'voicevox_core OK (python={sys.executable})')" >/tmp/voicevox_import_check.log 2>&1; then
-  cat /tmp/voicevox_import_check.log
-else
-  echo "[Runpod][WARN] voicevox_core import check failed:"
-  cat /tmp/voicevox_import_check.log || true
-  "${PYTHON_BIN}" -m pip show voicevox_core || true
-fi
-
-# voicevox_core 0.15.x requires libonnxruntime.so.1.13.1.
-# If missing, fetch official ONNX Runtime binary and expose via LD_LIBRARY_PATH.
-if ! ldconfig -p 2>/dev/null | grep -q "libonnxruntime.so.1.13.1"; then
-  echo "[Runpod] libonnxruntime.so.1.13.1 not found. Installing ONNX Runtime 1.13.1..."
-  ORT_TGZ="/tmp/onnxruntime-linux-x64-1.13.1.tgz"
-  if curl -fL --retry 3 --retry-delay 2 \
-    "https://github.com/microsoft/onnxruntime/releases/download/v1.13.1/onnxruntime-linux-x64-1.13.1.tgz" \
-    -o "${ORT_TGZ}"; then
-    ORT_DIR="/workspace/.local/onnxruntime-1.13.1"
-    rm -rf "${ORT_DIR}"
-    mkdir -p "${ORT_DIR}" /tmp/ort_extract
-    if tar -xzf "${ORT_TGZ}" -C /tmp/ort_extract; then
-      ORT_LIB_DIR="$(find /tmp/ort_extract -type d -path '*/onnxruntime-linux-x64-1.13.1/lib' | head -n1 || true)"
-      if [[ -n "${ORT_LIB_DIR}" ]]; then
-        cp -a "${ORT_LIB_DIR}/." "${ORT_DIR}/"
-        export LD_LIBRARY_PATH="${ORT_DIR}:${LD_LIBRARY_PATH:-}"
-        echo "[Runpod] ONNX Runtime libraries installed at ${ORT_DIR}"
-      fi
-    fi
-  else
-    echo "[Runpod][WARN] Failed to download ONNX Runtime 1.13.1."
-  fi
-fi
-# Prepare Open JTalk dictionary automatically (for VOICEVOX).
-JTALK_DIR="/workspace/ca_data/tts/open_jtalk_dic_utf_8-1.11"
-if [[ ! -d "${JTALK_DIR}" || -z "$(ls -A "${JTALK_DIR}" 2>/dev/null || true)" ]]; then
-  echo "[Runpod] Open JTalk dictionary not found. Trying automatic setup..."
-  mkdir -p /workspace/ca_data/tts
-  TMP_TGZ="/tmp/open_jtalk_dic_utf_8-1.11.tar.gz"
-  JTALK_URLS=(
-    "https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic-1.11/open_jtalk_dic_utf_8-1.11.tar.gz"
-    "https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic_utf_8-1.11/open_jtalk_dic_utf_8-1.11.tar.gz"
-  )
-  DL_OK=0
-  for url in "${JTALK_URLS[@]}"; do
-    if curl -fL --retry 3 --retry-delay 2 "${url}" -o "${TMP_TGZ}"; then
-      DL_OK=1
-      break
-    fi
-  done
-  if [[ "${DL_OK}" -eq 1 ]]; then
-    EXTRACT_DIR="/tmp/openjtalk_extract"
-    rm -rf "${EXTRACT_DIR}"
-    mkdir -p "${EXTRACT_DIR}"
-    if tar -xzf "${TMP_TGZ}" -C "${EXTRACT_DIR}"; then
-      FOUND_DIR="$(find "${EXTRACT_DIR}" -type d -name open_jtalk_dic_utf_8-1.11 | head -n1 || true)"
-      if [[ -n "${FOUND_DIR}" ]]; then
-        rm -rf "${JTALK_DIR}"
-        mv "${FOUND_DIR}" "${JTALK_DIR}"
-        echo "[Runpod] Open JTalk dictionary prepared at ${JTALK_DIR}"
-      fi
-    fi
-  fi
-fi
-if [[ ! -d "${JTALK_DIR}" || -z "$(ls -A "${JTALK_DIR}" 2>/dev/null || true)" ]]; then
-  echo "[Runpod][WARN] Open JTalk dictionary setup failed. Please place open_jtalk_dic_utf_8-1.11 under /workspace/ca_data/tts."
-fi
+# Install torch (CUDA) + qwen-tts if not present (optional: Qwen3 TTS)
+"${PYTHON_BIN}" -c "import qwen_tts" 2>/dev/null || {
+  echo "[Runpod] Installing torch (CUDA 12.4) + qwen-tts for Qwen3 TTS..."
+  "${PYTHON_BIN}" -m pip install torch torchaudio \
+    --index-url https://download.pytorch.org/whl/cu124 \
+    && "${PYTHON_BIN}" -m pip install qwen-tts soundfile \
+    || echo "[Runpod][WARN] qwen-tts installation failed. Qwen3 TTS will be disabled."
+}
 # Re-pin core framework versions in case optional deps caused downgrades
 "${PYTHON_BIN}" -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110" 2>/dev/null || true
 
