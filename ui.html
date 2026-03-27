@@ -3427,6 +3427,7 @@ async function toggleVoiceInput(){
 }
 
 async function transcribeVoiceBlob(blob){
+  let downloadMsgEl = null;
   try {
     voiceRecording = false;
     _setMicState(false, true);
@@ -3441,22 +3442,54 @@ async function transcribeVoiceBlob(blob){
         audio_base64: b64,
         audio_format: 'webm',
         language: lang,
-        model: 'small',
+        model: 'large-v3-turbo',
         auto_unload: true
       })
     });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.detail || 'transcribe failed');
-    const t = (data.text || '').trim();
-    if (!t) {
-      addMsg('error', '音声認識結果が空でした。');
-      return;
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.detail || 'transcribe failed');
     }
-    input.value = (input.value ? input.value + '\n' : '') + t;
-    autoResize(input);
-    input.focus();
-    addLog('ok','voice',`transcribed (${data.language || lang})`);
+    // SSEストリームを読み込む
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let done = false;
+    while (!done) {
+      const {value, done: streamDone} = await reader.read();
+      done = streamDone;
+      if (value) buffer += decoder.decode(value, {stream: !done});
+      // バッファから完結した行を処理
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // 未完結行を次回へ持ち越す
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const jsonStr = line.slice(6).trim();
+        if (!jsonStr) continue;
+        let ev;
+        try { ev = JSON.parse(jsonStr); } catch { continue; }
+        if (ev.type === 'downloading') {
+          // ダウンロード中メッセージをチャットに表示
+          downloadMsgEl = addMsg('system', ev.message);
+          addLog('info','voice','model downloading...');
+        } else if (ev.type === 'result') {
+          if (downloadMsgEl) { downloadMsgEl.remove(); downloadMsgEl = null; }
+          const t = (ev.text || '').trim();
+          if (!t) {
+            addMsg('error', '音声認識結果が空でした。');
+            return;
+          }
+          input.value = (input.value ? input.value + '\n' : '') + t;
+          autoResize(input);
+          input.focus();
+          addLog('ok','voice',`transcribed (${ev.language || lang})`);
+        } else if (ev.type === 'error') {
+          throw new Error(ev.detail || 'transcribe failed');
+        }
+      }
+    }
   } catch (e) {
+    if (downloadMsgEl) { downloadMsgEl.remove(); downloadMsgEl = null; }
     addMsg('error', '音声認識に失敗: ' + (e.message || String(e)));
     addLog('err','voice', e.message || String(e));
   } finally {

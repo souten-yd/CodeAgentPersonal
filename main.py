@@ -7624,20 +7624,42 @@ except Exception:
 
 _voice_lock = threading.Lock()
 _voice_model = None
-_voice_model_name = "small"
+_voice_model_name = "large-v3-turbo"
 _voice_device = "cpu"
 _voice_compute_type = "int8"
 
 _VOICE_MODEL_CANDIDATES = [
+    {"name": "large-v3-turbo", "priority": "accuracy", "note": "高精度・多言語対応（ローカル推奨）"},
     {"name": "small", "priority": "accuracy_ja_then_speed_then_lightweight", "note": "多言語・日本語精度と速度のバランス"},
     {"name": "base", "priority": "speed", "note": "smallより軽量・高速"},
     {"name": "tiny", "priority": "lightweight", "note": "最軽量（精度は低下）"},
 ]
 
 def _voice_model_dir() -> str:
-    root = os.path.join(CODEAGENT_HIDDEN_DIR, "stt_models")
+    if IS_RUNPOD_RUNTIME:
+        # RunPod: 揮発性HDDに保存
+        root = "/tmp/ASRModels"
+    else:
+        # ローカル: プロジェクト直下の models/ASRModels に保存
+        root = os.path.join(BASE_DIR, "models", "ASRModels")
     os.makedirs(root, exist_ok=True)
     return root
+
+
+def _voice_model_exists(model_name: str) -> bool:
+    """モデルがローカルキャッシュに存在するか確認する。"""
+    model_dir = _voice_model_dir()
+    # faster-whisper は huggingface_hub 形式でキャッシュする
+    # 例: models--Systran--faster-whisper-large-v3-turbo
+    cache_name = f"models--Systran--faster-whisper-{model_name}"
+    snap_dir = os.path.join(model_dir, cache_name, "snapshots")
+    if os.path.isdir(snap_dir) and os.listdir(snap_dir):
+        return True
+    # 直接ディレクトリ形式（古いキャッシュ形式）も確認
+    direct_dir = os.path.join(model_dir, model_name)
+    if os.path.isdir(direct_dir) and os.listdir(direct_dir):
+        return True
+    return False
 
 def voice_load(model_name: str = "small") -> dict:
     """WhisperモデルをCPU(RAM)へオンデマンドロードする。"""
@@ -7713,7 +7735,7 @@ def _resolve_message_with_voice(req: ChatRequest) -> str:
         audio = base64.b64decode(req.audio_base64)
         if not audio:
             return ""
-        tr = voice_transcribe(audio, language=req.voice_language or "ja", audio_format=req.audio_format or "webm")
+        tr = voice_transcribe(audio, language=req.voice_language or "ja", model_name="large-v3-turbo", audio_format=req.audio_format or "webm")
         return tr.get("text", "").strip()
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"voice transcription failed: {e}")
@@ -7942,17 +7964,45 @@ def voice_transcribe_api(req: dict):
     if not audio_b64:
         raise HTTPException(status_code=400, detail="audio_base64 required")
     language = str(req.get("language", "ja")).strip() or "ja"
-    model_name = str(req.get("model", "small")).strip() or "small"
+    model_name = str(req.get("model", "large-v3-turbo")).strip() or "large-v3-turbo"
     auto_unload = bool(req.get("auto_unload", True))
     audio_format = str(req.get("audio_format", "webm")).strip() or "webm"
     try:
         audio = base64.b64decode(audio_b64)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"invalid audio_base64: {e}")
-    try:
-        return voice_transcribe(audio, language=language, model_name=model_name, auto_unload=auto_unload, audio_format=audio_format)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"voice transcribe failed: {e}")
+
+    def _sse(payload: dict) -> str:
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    def stream():
+        # モデル未キャッシュの場合はダウンロード通知を先に送信
+        if not _voice_model_exists(model_name):
+            storage_note = "（RunPod: 揮発ストレージ）" if IS_RUNPOD_RUNTIME else "（ローカル: models/ASRModels）"
+            yield _sse({
+                "type": "downloading",
+                "message": (
+                    f"Whisper {model_name} モデルをダウンロード中です {storage_note}。\n"
+                    "初回のみ数分かかる場合があります。しばらくお待ちください..."
+                ),
+            })
+        try:
+            result = voice_transcribe(
+                audio,
+                language=language,
+                model_name=model_name,
+                auto_unload=auto_unload,
+                audio_format=audio_format,
+            )
+            yield _sse({"type": "result", **result})
+        except Exception as e:
+            yield _sse({"type": "error", "detail": f"voice transcribe failed: {e}"})
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
 
 # =========================
 # エンドポイント: /task（SSEストリーミング）
