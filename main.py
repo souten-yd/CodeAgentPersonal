@@ -266,16 +266,6 @@ import time as _mm_time
 _usage_diag_lock = _mm_thread.Lock()
 _last_usage_diag: dict = {}
 _windows_dxdiag_cache: dict = {"mb": -1, "checked_at": 0.0}
-_model_load_vram_peak: dict = {
-    "active": False,
-    "started_at": None,
-    "ended_at": None,
-    "samples": 0,
-    "max_vram_used_mb": -1,
-    "max_vram_total_mb": -1,
-    "backend": "none",
-    "confidence": "unknown",
-}
 
 
 def _set_last_usage_diag(diag: dict):
@@ -287,51 +277,6 @@ def _set_last_usage_diag(diag: dict):
 def _get_last_usage_diag() -> dict:
     with _usage_diag_lock:
         return dict(_last_usage_diag)
-
-
-def _set_model_load_vram_peak(data: dict):
-    with _usage_diag_lock:
-        global _model_load_vram_peak
-        _model_load_vram_peak = data
-
-
-def _get_model_load_vram_peak() -> dict:
-    with _usage_diag_lock:
-        return dict(_model_load_vram_peak)
-
-
-def _start_model_load_vram_sampling():
-    def _worker():
-        state = {
-            "active": True,
-            "started_at": datetime.now().isoformat(),
-            "ended_at": None,
-            "samples": 0,
-            "max_vram_used_mb": -1,
-            "max_vram_total_mb": -1,
-            "backend": "none",
-            "confidence": "unknown",
-        }
-        _set_model_load_vram_peak(state)
-        for _ in range(15):
-            usage = get_system_usage_info()
-            gpus = usage.get("gpus", []) or []
-            total_used = sum(int(g.get("vram_used_mb", -1)) for g in gpus if int(g.get("vram_used_mb", -1)) > 0)
-            total_total = sum(int(g.get("vram_total_mb", -1)) for g in gpus if int(g.get("vram_total_mb", -1)) > 0)
-            if total_used > 0 and total_used > state["max_vram_used_mb"]:
-                state["max_vram_used_mb"] = total_used
-            if total_total > 0 and total_total > state["max_vram_total_mb"]:
-                state["max_vram_total_mb"] = total_total
-            state["samples"] += 1
-            state["backend"] = usage.get("gpu_backend", "none")
-            state["confidence"] = usage.get("vram_confidence", "unknown")
-            _set_model_load_vram_peak(dict(state))
-            _mm_time.sleep(1.0)
-        state["active"] = False
-        state["ended_at"] = datetime.now().isoformat()
-        _set_model_load_vram_peak(state)
-
-    _mm_thread.Thread(target=_worker, daemon=True).start()
 
 DEFAULT_MODEL_CATALOG = {}
 DEFAULT_TASK_MODEL_MAP = {}
@@ -855,6 +800,15 @@ class ModelManager:
             return False
         if key == self.current_key and self._status == "ready":
             return True
+        # 同一モデルパス＆URL のモデルへの切り替えはアンロード不要（keyのエイリアス更新のみ）
+        if self._status == "ready" and self.current_key and self.current_key in catalog:
+            target_path = catalog[key].get("path", "")
+            current_path = catalog[self.current_key].get("path", "")
+            target_url = catalog[key].get("llm_url", "") or ""
+            current_url = catalog[self.current_key].get("llm_url", "") or ""
+            if target_path and target_path == current_path and target_url == current_url:
+                self.current_key = key
+                return True
         return self._switch(key, on_event)
 
     def _switch(self, key: str, on_event=None) -> bool:
@@ -885,7 +839,6 @@ class ModelManager:
                 global _current_n_ctx
                 _current_n_ctx = spec.get("ctx", _current_n_ctx)
                 print(f"[ModelManager] _current_n_ctx updated to {_current_n_ctx}")
-                _start_model_load_vram_sampling()
                 emit("model_ready", f"{spec['name']} is ready", 100, 0)
                 return True
             else:
@@ -4396,28 +4349,6 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
         if gpus:
             parse_source = "fallback"
 
-    # 現在VRAMが欠損する環境向け: 直近のピーク測定値を現在値のフォールバックに使う
-    peak = _get_model_load_vram_peak() or {}
-    peak_used = int(peak.get("max_vram_used_mb", -1) or -1)
-    peak_total = int(peak.get("max_vram_total_mb", -1) or -1)
-    peak_applied = False
-    if gpus and peak_used > 0:
-        for g in gpus:
-            cur_used = int(g.get("vram_used_mb", -1) or -1)
-            cur_total = int(g.get("vram_total_mb", -1) or -1)
-            if cur_used < 0:
-                g["vram_used_mb"] = peak_used
-                cur_used = peak_used
-                peak_applied = True
-            if cur_total < 0 and peak_total > 0:
-                g["vram_total_mb"] = peak_total
-                cur_total = peak_total
-                peak_applied = True
-            if (float(g.get("vram_percent", -1) or -1) < 0) and cur_used >= 0 and cur_total > 0:
-                g["vram_percent"] = (cur_used / cur_total) * 100.0
-    if peak_applied and parse_source == "direct":
-        parse_source = "direct+peak"
-
     vram_confidence = "unknown"
     if str(parse_source).startswith("direct"):
         vram_confidence = "direct"
@@ -4452,7 +4383,6 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
         "vram_source_backend": gpu_backend,
         "vram_confidence": vram_confidence,
         "gpus": gpus,
-        "model_load_peak": peak,
         "updated_at": datetime.now().isoformat(),
     }
 
@@ -4797,9 +4727,11 @@ def _estimate_fit(file_size_mb: int, hw: dict, quantization: str = "", ctx_size:
         est_ram_mb = -1
         gpu_ratio = 0.0
 
+    vram_total = int(hw.get("vram_total_mb", -1) or -1)
     vram_free = int(hw.get("vram_free_mb", -1) or -1)
     ram_free = int(hw.get("ram_available_mb", -1) or -1)
-    full_offload = bool(est_vram_mb > 0 and vram_free > 0 and vram_free >= est_vram_mb)
+    # 全層GPU搭載可否はVRAM最大値（total）で判定。既存LLMがロード中でも正しく評価できる
+    full_offload = bool(est_vram_mb > 0 and vram_total > 0 and vram_total >= est_vram_mb)
     runtime_feasible = bool(est_ram_mb > 0 and ram_free > 0 and ram_free >= est_ram_mb)
     downloadable = bool(file_size_mb > 0 and disk_free_mb > 0 and disk_free_mb >= file_size_mb)
 
@@ -4808,11 +4740,11 @@ def _estimate_fit(file_size_mb: int, hw: dict, quantization: str = "", ctx_size:
     if file_size_mb <= 0:
         reasons.append("size不明")
         unknown_count += 1
-    if vram_free <= 0:
-        reasons.append("空きVRAM不明")
+    if vram_total <= 0:
+        reasons.append("VRAM容量不明")
         unknown_count += 1
-    elif est_vram_mb > 0 and vram_free < est_vram_mb:
-        reasons.append(f"VRAM不足({vram_free}MB < {est_vram_mb}MB)")
+    elif est_vram_mb > 0 and vram_total < est_vram_mb:
+        reasons.append(f"VRAM容量不足({vram_total}MB < {est_vram_mb}MB)")
     if ram_free <= 0:
         reasons.append("空きRAM不明")
         unknown_count += 1
@@ -10443,7 +10375,6 @@ def system_usage_debug_api():
             "gpus": usage.get("gpus", []),
             "vram_confidence": usage.get("vram_confidence", "unknown"),
             "vram_source_backend": usage.get("vram_source_backend", usage.get("gpu_backend", "none")),
-            "model_load_peak": usage.get("model_load_peak", {}),
             "updated_at": usage.get("updated_at"),
         },
     }
@@ -10491,7 +10422,6 @@ def system_summary():
             "gpu_backend": usage.get("gpu_backend"),
             "vram_confidence": usage.get("vram_confidence"),
             "vram_source_backend": usage.get("vram_source_backend"),
-            "model_load_peak": usage.get("model_load_peak", {}),
             "gpus": usage.get("gpus", []),
             "updated_at": usage.get("updated_at"),
         }
