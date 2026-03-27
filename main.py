@@ -103,12 +103,14 @@ CODEAGENT_HIDDEN_DIR = os.path.join(BASE_DIR, ".codeagent")
 OPENCODE_CONFIG_PATH = os.path.join(BASE_DIR, "opencode.json")
 LOG_DIR = os.path.join(CA_DATA_DIR, "Logs")
 OPENCODE_ENSEMBLE_LOG_DIR = os.path.join(LOG_DIR, "ensemble")
+ECHOVAULT_DIR = os.path.join(CA_DATA_DIR, "EchoVault")
 LLAMA_STARTUP_LOG_PATH = os.path.join(LOG_DIR, "llama_startup.log")
 
 os.makedirs(CA_DATA_DIR, exist_ok=True)
 os.makedirs(CODEAGENT_HIDDEN_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(OPENCODE_ENSEMBLE_LOG_DIR, exist_ok=True)
+os.makedirs(ECHOVAULT_DIR, exist_ok=True)
 
 DEFAULT_WORK_DIR = os.path.join(CA_DATA_DIR, "workspace")
 WORK_DIR = os.path.abspath(os.environ.get("CODEAGENT_WORK_DIR", DEFAULT_WORK_DIR))
@@ -280,7 +282,7 @@ def _get_last_usage_diag() -> dict:
 
 DEFAULT_MODEL_CATALOG = {}
 DEFAULT_TASK_MODEL_MAP = {}
-MODEL_ROLE_OPTIONS = ("plan", "chat", "search", "verify", "code", "complex", "reason", "multi")
+MODEL_ROLE_OPTIONS = ("plan", "chat", "search", "verify", "code", "complex", "reason", "multi", "translate")
 
 
 def _parse_extra_args(raw) -> list[str]:
@@ -8123,6 +8125,380 @@ def voice_transcribe_api(req: dict):
     )
 
 # =========================
+# TALK MODE / EchoVault
+# =========================
+
+from fastapi import WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse as _FileResponse
+
+# Talk セッション状態（session_id → dict）
+_talk_sessions: dict = {}
+_talk_voice_lock = threading.Lock()   # voice_transcribe 専用ロック（Talk用）
+_talk_voice_model = None              # Talk用 Whisper モデル（通常ASRと分離）
+_talk_voice_model_name = ""
+
+
+def _talk_voice_transcribe(audio_bytes: bytes, language: str = "auto", model_name: str = "large-v3-turbo", audio_format: str = "webm") -> dict:
+    """Talk専用 voice_transcribe。_talk_voice_lock を使用し通常ASRと競合しない。"""
+    global _talk_voice_model, _talk_voice_model_name
+    from faster_whisper import WhisperModel  # type: ignore
+    import tempfile, re as _re
+
+    suffix = "." + _re.sub(r"[^a-zA-Z0-9]", "", (audio_format or "webm")).lower()
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
+        tf.write(audio_bytes)
+        temp_path = tf.name
+    try:
+        with _talk_voice_lock:
+            if _talk_voice_model is None or _talk_voice_model_name != model_name:
+                _talk_voice_model = WhisperModel(
+                    model_name,
+                    device=_voice_device,
+                    compute_type=_voice_compute_type,
+                    download_root=_voice_model_dir(),
+                )
+                _talk_voice_model_name = model_name
+            lang_arg = None if language == "auto" else language
+            segments, info = _talk_voice_model.transcribe(temp_path, language=lang_arg, beam_size=1)
+            text = "".join(seg.text for seg in segments).strip()
+        return {
+            "text": text,
+            "language": getattr(info, "language", language),
+            "duration": getattr(info, "duration", 0.0),
+        }
+    finally:
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
+
+
+def _talk_do_translate(text: str, src_lang: str, llm_url: str = "") -> str:
+    """LLM を使い text を翻訳する。src_lang: 'ja'→英訳, 'en'→和訳。"""
+    target = "English" if src_lang == "ja" else "日本語"
+    prompt = (
+        f"Translate the following text to {target}. "
+        "Output only the translation, no explanation.\n\n"
+        f"{text}"
+    )
+    try:
+        translate_url = llm_url.strip() or LLM_URL
+        model_key = choose_model_for_role("translate")
+        if model_key:
+            # translate ロール専用URLを試みる
+            catalog = get_runtime_model_catalog()
+            if model_key in catalog:
+                candidate_url = catalog[model_key].get("url", "").strip()
+                if candidate_url:
+                    translate_url = candidate_url
+        content, _ = call_llm(
+            [{"role": "user", "content": prompt}],
+            llm_url=translate_url,
+        )
+        return (content or "").strip()
+    except Exception as e:
+        return f"[翻訳エラー: {e}]"
+
+
+def _talk_generate_minutes(session: dict) -> str:
+    """LLM で議事録を生成し Markdown 文字列を返す。"""
+    sentences = session.get("sentences", [])
+    if not sentences:
+        return ""
+    transcript_text = "\n".join(
+        f"[{s.get('lang','?')}] {s.get('text','')} / {s.get('translated','')}"
+        for s in sentences
+    )
+    prompt = (
+        "以下は会議の文字起こしと翻訳ペアのリストです。\n"
+        "次の要素を含む議事録を日本語の JSON 形式で出力してください:\n"
+        '{"title": "...", "summary": "...", "topics": ["..."], "action_items": ["..."], "conclusions": ["..."]}\n\n'
+        f"文字起こし:\n{transcript_text[:6000]}"
+    )
+    try:
+        content, _ = call_llm(
+            [{"role": "user", "content": prompt}],
+            llm_url=LLM_URL,
+        )
+        import json as _json
+        # JSONをパース
+        raw = (content or "").strip()
+        # コードブロック除去
+        for marker in ["```json", "```"]:
+            if marker in raw:
+                raw = raw.split(marker, 1)[-1].rsplit("```", 1)[0].strip()
+        data = _json.loads(raw)
+    except Exception:
+        data = {
+            "title": "会議録",
+            "summary": "自動生成に失敗しました。文字起こしを参照してください。",
+            "topics": [],
+            "action_items": [],
+            "conclusions": [],
+        }
+    return data
+
+
+def _echovault_save_session(session: dict) -> str:
+    """EchoVault にセッションファイルを保存。保存した minutes ファイル名を返す。"""
+    import datetime as _dt
+
+    sentences = session.get("sentences", [])
+    audio_buf: bytearray = session.get("buffer", bytearray())
+    started_at: _dt.datetime = session.get("started_at", _dt.datetime.now())
+    session_id: str = session.get("session_id", "unknown")
+
+    # 議事録データ生成
+    minutes_data = _talk_generate_minutes(session)
+    title = (minutes_data.get("title", "会議録") if isinstance(minutes_data, dict) else "会議録")
+    # ファイル名に使えない文字を除去
+    import re as _re2
+    safe_title = _re2.sub(r'[\\/:*?"<>|]', "_", title)[:40]
+    ts = started_at.strftime("%Y-%m-%d_%H-%M")
+    base = f"{ts}_{safe_title}"
+
+    # 録音ファイル保存
+    if audio_buf:
+        audio_path = os.path.join(ECHOVAULT_DIR, f"{base}.webm")
+        with open(audio_path, "wb") as f:
+            f.write(bytes(audio_buf))
+
+    # 文字起こしファイル保存
+    transcript_lines = ["| # | 言語 | 原文 | 翻訳 |", "|---|------|------|------|"]
+    for i, s in enumerate(sentences, 1):
+        flag = "🇯🇵" if s.get("lang") == "ja" else "🇺🇸"
+        orig = s.get("text", "").replace("|", "｜")
+        trans = s.get("translated", "").replace("|", "｜")
+        transcript_lines.append(f"| {i} | {flag} | {orig} | {trans} |")
+    transcript_path = os.path.join(ECHOVAULT_DIR, f"{base}_transcript.md")
+    with open(transcript_path, "w", encoding="utf-8") as f:
+        f.write(f"# 文字起こし — {title}\n\n")
+        f.write(f"**日付:** {started_at.strftime('%Y-%m-%d %H:%M')}  \n")
+        f.write(f"**セッション:** {session_id}\n\n")
+        f.write("\n".join(transcript_lines) + "\n")
+
+    # 議事録Markdown保存
+    minutes_path = os.path.join(ECHOVAULT_DIR, f"{base}_minutes.md")
+    duration_sec = session.get("duration_sec", 0)
+    dur_str = f"{int(duration_sec//3600):02d}:{int((duration_sec%3600)//60):02d}:{int(duration_sec%60):02d}"
+    with open(minutes_path, "w", encoding="utf-8") as f:
+        f.write(f"# 議事録 — {title}\n\n")
+        f.write(f"**日付:** {started_at.strftime('%Y-%m-%d %H:%M')}  \n")
+        f.write(f"**録音時間:** {dur_str}  \n")
+        f.write(f"**セッション:** {session_id}\n\n")
+        if isinstance(minutes_data, dict):
+            f.write(f"## サマリー\n{minutes_data.get('summary','')}\n\n")
+            topics = minutes_data.get("topics", [])
+            if topics:
+                f.write("## 議題\n" + "\n".join(f"- {t}" for t in topics) + "\n\n")
+            ais = minutes_data.get("action_items", [])
+            if ais:
+                f.write("## アクションアイテム\n" + "\n".join(f"- [ ] {a}" for a in ais) + "\n\n")
+            cons = minutes_data.get("conclusions", [])
+            if cons:
+                f.write("## 結論\n" + "\n".join(f"- {c}" for c in cons) + "\n\n")
+        f.write("---\n## 文字起こし\n\n")
+        f.write("\n".join(transcript_lines) + "\n")
+
+    return os.path.basename(minutes_path)
+
+
+@app.websocket("/talk/stream")
+async def talk_stream_ws(websocket: WebSocket):
+    import datetime as _dt, asyncio as _asyncio
+
+    await websocket.accept()
+    session_id = ""
+    session: dict = {}
+    language = "auto"
+    model_name = "large-v3-turbo"
+    chunk_buffer = bytearray()
+    CHUNK_THRESHOLD = 32768  # ~2-4 チャンク分でWhisper実行
+
+    async def send(payload: dict):
+        try:
+            await websocket.send_text(json.dumps(payload, ensure_ascii=False))
+        except Exception:
+            pass
+
+    try:
+        while True:
+            msg = await websocket.receive()
+
+            if "text" in msg:
+                try:
+                    ev = json.loads(msg["text"])
+                except Exception:
+                    continue
+                t = ev.get("type", "")
+
+                if t == "start":
+                    session_id = str(ev.get("session_id", ""))
+                    language   = str(ev.get("language", "auto"))
+                    model_name = str(ev.get("model", "large-v3-turbo"))
+                    session = {
+                        "session_id": session_id,
+                        "buffer": bytearray(),
+                        "sentences": [],
+                        "started_at": _dt.datetime.now(),
+                        "duration_sec": 0,
+                        "lang": language,
+                    }
+                    _talk_sessions[session_id] = session
+                    await send({"type": "status", "state": "recording"})
+
+                elif t == "resume":
+                    session_id = str(ev.get("session_id", ""))
+                    if session_id in _talk_sessions:
+                        session = _talk_sessions[session_id]
+                        language   = session.get("lang", "auto")
+                    else:
+                        # セッション不明の場合は新規として扱う
+                        session = {
+                            "session_id": session_id,
+                            "buffer": bytearray(),
+                            "sentences": [],
+                            "started_at": _dt.datetime.now(),
+                            "duration_sec": 0,
+                            "lang": language,
+                        }
+                        _talk_sessions[session_id] = session
+                    await send({"type": "status", "state": "recording"})
+
+                elif t == "stop":
+                    if session:
+                        # 残チャンクを処理
+                        if chunk_buffer:
+                            await send({"type": "status", "state": "transcribing"})
+                            try:
+                                res = await _asyncio.to_thread(
+                                    _talk_voice_transcribe,
+                                    bytes(chunk_buffer), language, model_name
+                                )
+                                if res.get("text"):
+                                    sid = len(session["sentences"])
+                                    lang_det = res.get("language", "ja")
+                                    session["sentences"].append({
+                                        "id": sid, "text": res["text"],
+                                        "lang": lang_det, "translated": ""
+                                    })
+                                    await send({"type": "sentence", "id": sid, "text": res["text"], "lang": lang_det})
+                                    transl = await _asyncio.to_thread(_talk_do_translate, res["text"], lang_det)
+                                    session["sentences"][sid]["translated"] = transl
+                                    tgt = "en" if lang_det == "ja" else "ja"
+                                    await send({"type": "translation", "id": sid, "translated": transl, "target_lang": tgt})
+                            except Exception as e:
+                                await send({"type": "error", "detail": f"ASR error: {e}"})
+                            chunk_buffer.clear()
+                        # 録音時間計算
+                        if session.get("started_at"):
+                            session["duration_sec"] = (_dt.datetime.now() - session["started_at"]).total_seconds()
+                        # 保存（別スレッド）
+                        await send({"type": "status", "state": "saving"})
+                        try:
+                            fname = await _asyncio.to_thread(_echovault_save_session, session)
+                            await send({"type": "summary_done", "filename": fname})
+                        except Exception as e:
+                            await send({"type": "error", "detail": f"保存エラー: {e}"})
+                        # セッションクリーンアップ
+                        _talk_sessions.pop(session_id, None)
+                    break
+
+            elif "bytes" in msg:
+                chunk = msg["bytes"]
+                if not chunk or not session:
+                    continue
+                session["buffer"].extend(chunk)
+                chunk_buffer.extend(chunk)
+
+                if len(chunk_buffer) >= CHUNK_THRESHOLD:
+                    audio_snap = bytes(chunk_buffer)
+                    chunk_buffer.clear()
+                    await send({"type": "status", "state": "transcribing"})
+                    try:
+                        res = await _asyncio.to_thread(
+                            _talk_voice_transcribe,
+                            audio_snap, language, model_name
+                        )
+                        text = res.get("text", "").strip()
+                        if text:
+                            sid = len(session["sentences"])
+                            lang_det = res.get("language", "ja")
+                            session["sentences"].append({
+                                "id": sid, "text": text,
+                                "lang": lang_det, "translated": ""
+                            })
+                            await send({"type": "sentence", "id": sid, "text": text, "lang": lang_det})
+                            # 翻訳（非同期）
+                            transl = await _asyncio.to_thread(_talk_do_translate, text, lang_det)
+                            session["sentences"][sid]["translated"] = transl
+                            tgt = "en" if lang_det == "ja" else "ja"
+                            await send({"type": "translation", "id": sid, "translated": transl, "target_lang": tgt})
+                    except Exception as e:
+                        await send({"type": "error", "detail": f"ASR error: {e}"})
+                    await send({"type": "status", "state": "recording"})
+
+    except WebSocketDisconnect:
+        # 切断時はセッションを保持（クライアントが resume で再接続可能）
+        pass
+    except Exception as e:
+        try:
+            await send({"type": "error", "detail": str(e)})
+        except Exception:
+            pass
+
+
+@app.get("/talk/sessions")
+def talk_list_sessions():
+    """EchoVault フォルダのファイル一覧を返す。"""
+    import datetime as _dt
+    files = []
+    try:
+        for fname in sorted(os.listdir(ECHOVAULT_DIR)):
+            fpath = os.path.join(ECHOVAULT_DIR, fname)
+            if not os.path.isfile(fpath):
+                continue
+            stat = os.stat(fpath)
+            ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+            files.append({
+                "name": fname,
+                "size": stat.st_size,
+                "mtime": _dt.datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+                "type": ext,
+            })
+    except Exception as e:
+        return {"files": [], "error": str(e)}
+    # 新しい順
+    files.sort(key=lambda x: x["mtime"], reverse=True)
+    return {"files": files}
+
+
+@app.get("/talk/sessions/{filename:path}")
+def talk_download_session(filename: str):
+    """EchoVault ファイルをダウンロード。"""
+    safe = os.path.normpath(filename).lstrip("/\\")
+    fpath = os.path.join(ECHOVAULT_DIR, safe)
+    if not os.path.abspath(fpath).startswith(os.path.abspath(ECHOVAULT_DIR)):
+        raise HTTPException(status_code=403, detail="不正なパス")
+    if not os.path.isfile(fpath):
+        raise HTTPException(status_code=404, detail="ファイルが見つかりません")
+    return _FileResponse(fpath, filename=safe)
+
+
+@app.delete("/talk/sessions/{filename:path}")
+def talk_delete_session(filename: str):
+    """EchoVault ファイルを削除。"""
+    safe = os.path.normpath(filename).lstrip("/\\")
+    fpath = os.path.join(ECHOVAULT_DIR, safe)
+    if not os.path.abspath(fpath).startswith(os.path.abspath(ECHOVAULT_DIR)):
+        raise HTTPException(status_code=403, detail="不正なパス")
+    if not os.path.isfile(fpath):
+        raise HTTPException(status_code=404, detail="ファイルが見つかりません")
+    os.remove(fpath)
+    return {"deleted": safe}
+
+
+# =========================
 # TTS (Text-to-Speech) / CPUオンデマンド
 # =========================
 
@@ -8143,19 +8519,78 @@ except ImportError:
     _edge_tts_mod = None
     _EDGE_TTS_AVAILABLE = False
 
+# Qwen3 TTS (transformers + torch)
 try:
-    from qwen_tts import Qwen3TTSModel  # type: ignore
+    import torch as _torch_mod
+    from transformers import AutoTokenizer as _Q3TTokenizer, AutoModelForCausalLM as _Q3TModel  # type: ignore
+    import soundfile as _sf_mod  # type: ignore
     _QWEN3TTS_AVAILABLE = True
 except ImportError:
-    Qwen3TTSModel = None  # type: ignore
+    _torch_mod = None
+    _Q3TTokenizer = None
+    _Q3TModel = None
+    _sf_mod = None
     _QWEN3TTS_AVAILABLE = False
 
-try:
-    import soundfile as _sf  # type: ignore
-    _SOUNDFILE_AVAILABLE = True
-except ImportError:
-    _sf = None  # type: ignore
-    _SOUNDFILE_AVAILABLE = False
+_qwen3tts_model     = None
+_qwen3tts_tokenizer = None
+_qwen3tts_lock      = threading.Lock()
+_QWEN3TTS_MODEL_ID  = "Qwen/Qwen3-TTS"
+
+
+def _qwen3tts_model_dir() -> str:
+    d = os.path.join(CA_DATA_DIR, "tts", "qwen3tts")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def qwen3tts_load() -> dict:
+    global _qwen3tts_model, _qwen3tts_tokenizer
+    if not _QWEN3TTS_AVAILABLE:
+        return {"error": "transformers/torch/soundfile がインストールされていません"}
+    with _qwen3tts_lock:
+        if _qwen3tts_model is not None:
+            return {"loaded": True, "model": _QWEN3TTS_MODEL_ID}
+        cache_dir = _qwen3tts_model_dir()
+        device = "cuda" if (_torch_mod and _torch_mod.cuda.is_available()) else "cpu"
+        try:
+            _qwen3tts_tokenizer = _Q3TTokenizer.from_pretrained(
+                _QWEN3TTS_MODEL_ID, cache_dir=cache_dir, trust_remote_code=True
+            )
+            _qwen3tts_model = _Q3TModel.from_pretrained(
+                _QWEN3TTS_MODEL_ID, cache_dir=cache_dir, trust_remote_code=True,
+                torch_dtype=_torch_mod.float16 if device == "cuda" else _torch_mod.float32
+            ).to(device).eval()
+            return {"loaded": True, "model": _QWEN3TTS_MODEL_ID, "device": device}
+        except Exception as e:
+            return {"error": str(e)}
+
+
+def qwen3tts_synthesize(text: str, speed: float = 1.0) -> bytes:
+    global _qwen3tts_model, _qwen3tts_tokenizer
+    if not _QWEN3TTS_AVAILABLE:
+        raise RuntimeError("Qwen3 TTS: transformers/torch がインストールされていません")
+    with _qwen3tts_lock:
+        if _qwen3tts_model is None:
+            result = qwen3tts_load()
+            if "error" in result:
+                raise RuntimeError(f"Qwen3 TTS ロード失敗: {result['error']}")
+    with _qwen3tts_lock:
+        device = next(_qwen3tts_model.parameters()).device
+        inputs = _qwen3tts_tokenizer(text, return_tensors="pt").to(device)
+        with _torch_mod.no_grad():
+            output = _qwen3tts_model.generate(
+                **inputs,
+                max_new_tokens=2048,
+                do_sample=True,
+                temperature=0.8,
+            )
+        # デコード: token列をfloat音声waveformに変換（モデル依存）
+        wav = output[0].float().cpu().numpy() if hasattr(output[0], "float") else output[0].cpu().numpy()
+    import io
+    buf = io.BytesIO()
+    _sf_mod.write(buf, wav, samplerate=24000, format="WAV")
+    return buf.getvalue()
 
 _tts_core = None        # voicevox_core.VoicevoxCore instance
 _tts_lock = threading.Lock()
@@ -8375,12 +8810,10 @@ def qwen3tts_synthesize(text: str, language: str = "ja",
 @app.get("/tts/status")
 def tts_status_api():
     with _tts_lock:
-        vv_loaded = _tts_core is not None
-        vv_speakers = len(_tts_core.metas()) if vv_loaded else 0
+        loaded = _tts_core is not None
+        speakers = len(_tts_core.metas()) if loaded else 0
     with _qwen3tts_lock:
-        q3_loaded = _qwen3tts_model is not None
-        q3_model_id = _qwen3tts_model_id
-        q3_device = _qwen3tts_device
+        q3t_loaded = _qwen3tts_model is not None
     return {
         "voicevox_available": _VOICEVOX_AVAILABLE,
         "voicevox_loaded": vv_loaded,
@@ -8388,9 +8821,7 @@ def tts_status_api():
         "edgetts_available": _EDGE_TTS_AVAILABLE,
         "jtalk_exists": _tts_jtalk_exists(),
         "qwen3tts_available": _QWEN3TTS_AVAILABLE,
-        "qwen3tts_loaded": q3_loaded,
-        "qwen3tts_model_id": q3_model_id,
-        "qwen3tts_device": q3_device,
+        "qwen3tts_loaded": q3t_loaded,
     }
 
 
@@ -8402,7 +8833,7 @@ async def tts_voices_api(engine: str = "voicevox"):
         voices = await tts_edgetts_list_voices_async()
         return {"voices": voices}
     elif engine == "qwen3tts":
-        return {"voices": [{"id": m, "name": m.split("/")[-1]} for m in QWEN3TTS_MODEL_CANDIDATES]}
+        return {"voices": []}
     return {"voices": []}
 
 
@@ -8434,12 +8865,15 @@ def tts_load_api(req: dict = {}):
                 yield _sse({"type": "error", "detail": str(e)})
         elif engine == "qwen3tts":
             if not _QWEN3TTS_AVAILABLE:
-                yield _sse({"type": "error", "detail": "qwen_tts がインストールされていません。pip install qwen-tts を実行してください。"})
+                yield _sse({"type": "error", "detail": "transformers/torch/soundfile がインストールされていません。pip install transformers torch torchaudio soundfile を実行してください。"})
                 return
-            yield _sse({"type": "loading", "message": f"Qwen3 TTS モデル ({model_id}) をロード中です。しばらくお待ちください..."})
+            yield _sse({"type": "loading", "message": f"Qwen3 TTS モデル ({_QWEN3TTS_MODEL_ID}) をロード中です。初回はダウンロードに数分かかる場合があります..."})
             try:
-                result = qwen3tts_load(model_id, device)
-                yield _sse({"type": "done", **result})
+                result = qwen3tts_load()
+                if "error" in result:
+                    yield _sse({"type": "error", "detail": result["error"]})
+                else:
+                    yield _sse({"type": "done", **result})
             except Exception as e:
                 yield _sse({"type": "error", "detail": str(e)})
         else:
@@ -8534,16 +8968,9 @@ def tts_synthesize_api(req: dict):
         return FastAPIResponse(content=mp3, media_type="audio/mpeg")
 
     elif engine == "qwen3tts":
-        language = str(req.get("language", "ja")) or "ja"
-        ref_audio_name = str(req.get("ref_audio", "")).strip()
-        ref_text = str(req.get("ref_text", "")).strip() or None
-        ref_audio_path: str | None = None
-        if ref_audio_name:
-            candidate = os.path.join(_ref_audio_dir(), os.path.basename(ref_audio_name))
-            if os.path.isfile(candidate):
-                ref_audio_path = candidate
+        speed = float(req.get("speed", 1.0))
         try:
-            wav = qwen3tts_synthesize(text, language, ref_audio_path, ref_text)
+            wav = qwen3tts_synthesize(text, speed)
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
         return FastAPIResponse(content=wav, media_type="audio/wav")
