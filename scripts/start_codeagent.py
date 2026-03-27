@@ -290,6 +290,23 @@ def main() -> int:
             llm_ok = wait_http_200(f"http://127.0.0.1:{args.primary_port}/health", args.llm_timeout, "LLM")
             if not llm_ok:
                 print(f"[WARN] LLM is still not ready after {args.llm_timeout}s.")
+            else:
+                # Warm-up: pre-fill KV cache so the first user request is fast
+                print("[LLM] Sending warm-up request to pre-load KV cache...")
+                warmup_payload = {
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                    "temperature": 0,
+                }
+                warmup_status = post_json(
+                    f"http://127.0.0.1:{args.primary_port}/v1/chat/completions",
+                    warmup_payload,
+                    timeout=60.0,
+                )
+                if warmup_status and warmup_status < 300:
+                    print("[LLM] Warm-up complete.")
+                else:
+                    print("[LLM][WARN] Warm-up request did not succeed (non-critical).")
         elif db_exists and db_total > 0:
             print(
                 f"[WAIT] model_db has {db_total} model(s) but benchmarked={benchmarked_total}. "
