@@ -7695,7 +7695,7 @@ def voice_status() -> dict:
             "candidates": _VOICE_MODEL_CANDIDATES,
         }
 
-def voice_transcribe(audio_bytes: bytes, language: str = "ja", model_name: str = "small", auto_unload: bool = True, audio_format: str = "webm") -> dict:
+def voice_transcribe(audio_bytes: bytes, language: str = "ja", model_name: str = "large-v3-turbo", auto_unload: bool = False, audio_format: str = "webm") -> dict:
     """
     音声を文字起こしする。英語/日本語対応（Whisper多言語）。
     language: "ja" / "en" / "auto"
@@ -7965,7 +7965,8 @@ def voice_transcribe_api(req: dict):
         raise HTTPException(status_code=400, detail="audio_base64 required")
     language = str(req.get("language", "ja")).strip() or "ja"
     model_name = str(req.get("model", "large-v3-turbo")).strip() or "large-v3-turbo"
-    auto_unload = bool(req.get("auto_unload", True))
+    # モデルはサーバー終了まで RAM に常駐させる（unload しない）
+    auto_unload = False
     audio_format = str(req.get("audio_format", "webm")).strip() or "webm"
     try:
         audio = base64.b64decode(audio_b64)
