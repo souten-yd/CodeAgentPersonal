@@ -8144,7 +8144,7 @@ def _tts_voicevox_missing_requirements() -> list[dict]:
         missing.append({
             "code": "voicevox_core_missing",
             "message": "voicevox_core がインストールされていません。",
-            "hint": "VOICEVOX公式リリースのwheelをインストールしてください。",
+            "hint": "pip install 'voicevox_core>=0.15,<0.16'（またはVOICEVOX公式wheel）を実行してください。",
         })
     if not _tts_jtalk_exists():
         missing.append({
@@ -8161,7 +8161,8 @@ def tts_voicevox_load() -> dict:
     if not _VOICEVOX_AVAILABLE:
         raise RuntimeError(
             "voicevox_core がインストールされていません。"
-            "https://github.com/VOICEVOX/voicevox_core/releases からプラットフォーム別wheelを pip install してください。"
+            "pip install 'voicevox_core>=0.15,<0.16' または "
+            "https://github.com/VOICEVOX/voicevox_core/releases のwheelをインストールしてください。"
         )
     if not _tts_jtalk_exists():
         raise RuntimeError(

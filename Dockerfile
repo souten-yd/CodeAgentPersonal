@@ -93,10 +93,14 @@ RUN if [ -f /app/requirements.txt ]; then \
     fi
 
 # Install voicevox_core for Linux x86_64 (optional: VOICEVOX TTS support)
-# --no-index prevents PyPI fallback which could install an incompatible package
-RUN python -m pip install voicevox_core --no-index \
-    --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/" \
-    || echo "[WARN] voicevox_core not available. VOICEVOX TTS will be disabled."
+# 1) Try official expanded_assets wheels, 2) fallback to PyPI.
+RUN set -eux; \
+    if ! python -c "import voicevox_core" 2>/dev/null; then \
+      python -m pip install voicevox_core --no-index \
+        --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/" \
+      || python -m pip install "voicevox_core>=0.15,<0.16" \
+      || echo "[WARN] voicevox_core not available. VOICEVOX TTS will be disabled."; \
+    fi
 
 # Prepare Open JTalk dictionary for VOICEVOX on Runpod-like path.
 # main.py expects: /workspace/ca_data/tts/open_jtalk_dic_utf_8-1.11

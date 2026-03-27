@@ -61,11 +61,12 @@ fi
 }
 
 # Install voicevox_core if not present (optional: VOICEVOX TTS)
-# --no-index prevents PyPI fallback which could install an incompatible package and downgrade pydantic
+# Prefer official expanded_assets wheels, then fallback to PyPI.
 "${PYTHON_BIN}" -c "import voicevox_core" 2>/dev/null || {
   echo "[Runpod] Installing voicevox_core for VOICEVOX TTS..."
   "${PYTHON_BIN}" -m pip install voicevox_core --no-index \
     --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/" \
+    || "${PYTHON_BIN}" -m pip install "voicevox_core>=0.15,<0.16" \
     || echo "[Runpod][WARN] voicevox_core installation failed. VOICEVOX TTS will be disabled."
 }
 # Prepare Open JTalk dictionary automatically (for VOICEVOX).
