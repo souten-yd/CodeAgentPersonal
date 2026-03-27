@@ -1854,18 +1854,37 @@ async function loadTtsVoicevox() {
           await _ttsLoadVoicesFromServer('voicevox');
         } else if (ev.type === 'error') {
           if (loadMsgEl) { loadMsgEl.remove(); loadMsgEl = null; }
-          addMsg('error', 'VOICEVOX ロードに失敗: ' + (ev.detail || '不明なエラー'));
-          status.textContent = 'エラー';
+          const detail = ev.detail || '不明なエラー';
+          addMsg('error', 'VOICEVOX ロードに失敗: ' + detail);
+          status.textContent = 'エラー: ' + _ttsSummarizeVoicevoxIssue(detail, ev.missing || []);
+          status.title = detail;
         }
       }
     }
   } catch(e) {
     if (loadMsgEl) loadMsgEl.remove();
     addMsg('error', 'VOICEVOX ロードに失敗: ' + e.message);
-    status.textContent = 'エラー';
+    status.textContent = 'エラー: ' + _ttsSummarizeVoicevoxIssue(e.message || '', []);
+    status.title = e.message || '';
   } finally {
     btn.disabled = false;
   }
+}
+
+function _ttsSummarizeVoicevoxIssue(detail, missingList = []) {
+  const misses = Array.isArray(missingList) ? missingList : [];
+  const codes = misses.map(m => m.code || '');
+  if (/importに失敗|import error|cannot open shared object|No module named/i.test(detail || '')) {
+    return 'voicevox_core import失敗';
+  }
+  if (codes.includes('voicevox_core_missing') || /voicevox_core/i.test(detail || '')) {
+    return 'voicevox_core 未インストール';
+  }
+  if (codes.includes('open_jtalk_dict_missing') || /Open JTalk|open_jtalk/i.test(detail || '')) {
+    return 'Open JTalk 辞書不足';
+  }
+  const firstLine = String(detail || '').split('\n')[0].trim();
+  return firstLine || '不明な原因';
 }
 
 function _ttsInitSettingsUI() {
@@ -1885,12 +1904,20 @@ function _ttsInitSettingsUI() {
     const status = document.getElementById('tts-voicevox-status');
     if (s.voicevox_loaded) {
       status.textContent = `ロード済み（${s.voicevox_speakers || '?'}話者）`;
+      status.title = '';
+    } else if (Array.isArray(s.voicevox_missing) && s.voicevox_missing.length > 0) {
+      const detail = s.voicevox_missing.map(m => m.message || '').filter(Boolean).join('\n');
+      status.textContent = _ttsSummarizeVoicevoxIssue(detail, s.voicevox_missing);
+      status.title = detail;
     } else if (!s.voicevox_available) {
       status.textContent = 'voicevox_core 未インストール';
+      status.title = '';
     } else if (!s.jtalk_exists) {
       status.textContent = 'Open JTalk 辞書なし';
+      status.title = '';
     } else {
       status.textContent = '未ロード';
+      status.title = '';
     }
   }).catch(() => {});
 }
