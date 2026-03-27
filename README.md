@@ -186,6 +186,11 @@ Windows:
 start.bat
 ```
 
+ローカル初回起動時は、ランチャーが自動でリポジトリ直下に `venv_sys/`（システム用Python仮想環境）を作成し、`requirements.txt` の依存導入を試行します（`requirements.txt` が無い場合は最小構成を自動生成）。  
+2回目以降は `venv_sys/` の存在を確認して再利用し、その `python` で `uvicorn main:app` を起動します（毎回再作成しません）。
+
+`CODEAGENT_SYS_VENV_DIR` を指定すると、`venv_sys` の配置先を変更できます。ローカルで Docker 実行する各ツール（`run_python`/`run_file`/`run_server`/`run_browser`/`run_npm`/`run_node`）はこの system venv を read-only マウントして起動します。
+
 Runpod / Linux (自動起動コマンドにもそのまま利用可):
 
 ```bash
