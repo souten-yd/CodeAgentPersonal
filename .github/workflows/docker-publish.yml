@@ -30,6 +30,10 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          # avoid pulling moby/buildkit container image from Docker Hub
+          # (some environments hit auth errors on registry-1.docker.io)
+          driver: docker
 
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
