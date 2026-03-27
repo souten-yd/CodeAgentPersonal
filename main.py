@@ -585,17 +585,13 @@ def _fallback_role_recommendations(models: list[dict]) -> dict[str, list[str]]:
     return recommendations
 
 
-def recommend_roles_with_planner(models: list[dict], planner_key_override: str = "") -> tuple[str, dict[str, list[str]]]:
+def recommend_roles_with_planner(models: list[dict]) -> tuple[str, dict[str, list[str]]]:
     candidates = [m for m in models if int(m.get("enabled", 1) or 1) != 0]
     if not candidates:
         return "", {}
+    planner_model = max(candidates, key=lambda m: _model_text_tps(m))
+    planner_key = (planner_model.get("model_key") or "").strip()
     fallback = _fallback_role_recommendations(candidates)
-    if planner_key_override:
-        # 指定されたモデルキーを優先使用（例: スキャン時の最小モデル）
-        planner_key = planner_key_override
-    else:
-        planner_model = max(candidates, key=lambda m: _model_text_tps(m))
-        planner_key = (planner_model.get("model_key") or "").strip()
     if not _model_manager.has_llama_server():
         return planner_key, fallback
     if not planner_key:
@@ -9773,23 +9769,13 @@ def _run_model_scan_job(job_id: str, folder: str):
                 error="" if benchmark_failed == 0 else f"benchmark_failed={benchmark_failed}",
             )
 
-        # Step 2: 最小サイズの非VLM/非mmprojモデルをロードしてロール決定に使う
-        non_vlm = [m for m in saved_models
-                   if not m.get("is_vlm")
-                   and "mmproj" not in (m.get("path") or "").lower()
-                   and int(m.get("enabled", 1) or 1) != 0]
-        if not non_vlm:
-            non_vlm = [m for m in saved_models if int(m.get("enabled", 1) or 1) != 0] or saved_models
-        smallest_model = min(non_vlm, key=lambda m: float(m.get("file_size_mb") or 9999999))
-        smallest_key = (smallest_model.get("model_key") or "").strip()
-
         _set_model_scan_state(
             phase="planner",
             current=total,
             total=total,
-            summary=f"Loading {smallest_model.get('name', smallest_key)} for role recommendations...",
+            summary="Choosing planner and recommended roles...",
         )
-        planner_key, recommendations = recommend_roles_with_planner(saved_models, planner_key_override=smallest_key)
+        planner_key, recommendations = recommend_roles_with_planner(saved_models)
         initialized_roles = 0
         for model in saved_models:
             existing_roles = [x.strip() for x in str(model.get("auto_roles", "")).split(",") if x.strip()]
@@ -9873,16 +9859,7 @@ def benchmark_model_api(mid: str):
         try:
             all_models = model_db_list()
             if all_models:
-                # 最小の非VLM/非mmprojモデルでロール決定
-                non_vlm = [m for m in all_models
-                           if not m.get("is_vlm")
-                           and "mmproj" not in (m.get("path") or "").lower()
-                           and int(m.get("enabled", 1) or 1) != 0]
-                if not non_vlm:
-                    non_vlm = [m for m in all_models if int(m.get("enabled", 1) or 1) != 0] or all_models
-                smallest = min(non_vlm, key=lambda m: float(m.get("file_size_mb") or 9999999))
-                smallest_key = (smallest.get("model_key") or "").strip()
-                _, recommendations = recommend_roles_with_planner(all_models, planner_key_override=smallest_key)
+                _, recommendations = recommend_roles_with_planner(all_models)
                 initialized_roles = 0
                 for row in all_models:
                     existing_roles = [x.strip() for x in str(row.get("auto_roles", "")).split(",") if x.strip()]
