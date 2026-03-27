@@ -1111,7 +1111,12 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       </div>
 
       <div id="model-role-panel" style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
-        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px">Role Routing</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-size:11px;font-weight:700;color:var(--text2)">Role Routing</div>
+          <button id="role-lock-btn" onclick="toggleRoleLock()"
+            title="ロック時: ベンチマークによる自動ロール更新を禁止（手動変更は可能）"
+            style="font-size:13px;padding:2px 7px;border:1px solid var(--border);background:var(--bg3);border-radius:4px;cursor:pointer;line-height:1">🔓</button>
+        </div>
         <div style="font-size:10px;color:var(--text3);margin-bottom:8px">運用方針: Coder系(Tier1-3)はSettingsで管理します。Routerは内部判定でこの割当を参照し、Task実行時に自動で使用されます。</div>
         <div id="model-role-list" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
           <div style="font-size:11px;color:var(--text3)">Loading roles...</div>
@@ -1621,6 +1626,10 @@ async function loadSettingsFromDb() {
     const eas = document.getElementById('ensemble-auto-switch');
     if (em) em.value = (d.ensemble_execution_mode === 'serial') ? 'serial' : 'parallel';
     if (eas) eas.checked = d.ensemble_auto_switch_on_low_vram !== 'false';
+
+    // Role lock (default: unlocked)
+    _roleLocked = d.role_lock === 'true';
+    _updateRoleLockBtn();
 
   } catch(e) { console.warn('loadSettingsFromDb error', e); }
 }
@@ -2145,6 +2154,24 @@ async function refreshModelDb(prefetchedModels = null, prefetchedStat = null) {
     const el = document.getElementById('model-db-list');
     if (el) el.innerHTML = '<div style="font-size:11px;color:var(--red);padding:8px">Failed to load models.</div>';
   }
+}
+
+let _roleLocked = false;
+
+function _updateRoleLockBtn() {
+  const btn = document.getElementById('role-lock-btn');
+  if (!btn) return;
+  btn.textContent = _roleLocked ? '🔒' : '🔓';
+  btn.title = _roleLocked
+    ? 'ロック中: ベンチマークによる自動ロール更新を禁止（クリックで解錠）'
+    : '解錠中: ベンチマーク後にロールが自動更新されます（クリックで施錠）';
+  btn.style.borderColor = _roleLocked ? 'var(--amber)' : 'var(--border)';
+}
+
+async function toggleRoleLock() {
+  _roleLocked = !_roleLocked;
+  _updateRoleLockBtn();
+  await _saveSettingDb('role_lock', _roleLocked ? 'true' : 'false');
 }
 
 async function refreshModelRoles() {

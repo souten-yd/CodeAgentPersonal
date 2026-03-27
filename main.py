@@ -9603,13 +9603,14 @@ def _postprocess_downloaded_model(model_id_db: str):
 
     try:
         all_models = model_db_list()
-        if all_models:
+        role_lock = settings_get("role_lock") == "true"
+        if all_models and not role_lock:
             _, recommendations = recommend_roles_with_planner(all_models)
             initialized_roles = 0
             for row in all_models:
                 existing_roles = [x.strip() for x in str(row.get("auto_roles", "")).split(",") if x.strip()]
                 if existing_roles:
-                    continue
+                    continue  # DL後は空の場合のみ適用
                 roles = recommendations.get(row["id"], [])
                 if not roles:
                     continue
@@ -9777,10 +9778,10 @@ def _run_model_scan_job(job_id: str, folder: str):
         )
         planner_key, recommendations = recommend_roles_with_planner(saved_models)
         initialized_roles = 0
+        role_lock = settings_get("role_lock") == "true"
         for model in saved_models:
-            existing_roles = [x.strip() for x in str(model.get("auto_roles", "")).split(",") if x.strip()]
-            if existing_roles:
-                continue
+            if role_lock:
+                break  # ロックされている場合はロール更新をスキップ
             roles = recommendations.get(model["id"], [])
             if not roles:
                 continue
@@ -9859,16 +9860,18 @@ def benchmark_model_api(mid: str):
         try:
             all_models = model_db_list()
             if all_models:
+                role_lock = settings_get("role_lock") == "true"
                 _, recommendations = recommend_roles_with_planner(all_models)
                 initialized_roles = 0
-                for row in all_models:
-                    existing_roles = [x.strip() for x in str(row.get("auto_roles", "")).split(",") if x.strip()]
-                    if existing_roles:
-                        continue
-                    roles = recommendations.get(row["id"], [])
-                    if roles:
-                        model_db_update(row["id"], {"auto_roles": ",".join(roles)})
-                        initialized_roles += 1
+                if not role_lock:
+                    for row in all_models:
+                        existing_roles = [x.strip() for x in str(row.get("auto_roles", "")).split(",") if x.strip()]
+                        if existing_roles:
+                            continue  # 個別ベンチは空の場合のみ適用
+                        roles = recommendations.get(row["id"], [])
+                        if roles:
+                            model_db_update(row["id"], {"auto_roles": ",".join(roles)})
+                            initialized_roles += 1
                 if initialized_roles > 0:
                     print(f"[ModelDB] initialized auto_roles after benchmark: {initialized_roles}")
         except Exception as e:
