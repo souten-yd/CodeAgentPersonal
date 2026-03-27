@@ -8165,12 +8165,19 @@ def _tts_voicevox_missing_requirements() -> list[dict]:
     missing: list[dict] = []
     if not _VOICEVOX_AVAILABLE:
         base_msg = "voicevox_core がインストールされていません。"
+        base_hint = "VOICEVOX公式Releasesのwheel URLを直接指定して `pip install --no-deps <wheel_url>` を実行してください。"
         if _VOICEVOX_IMPORT_ERROR:
             base_msg = f"voicevox_core のimportに失敗しました: {_VOICEVOX_IMPORT_ERROR}"
+            if "libonnxruntime.so.1.13.1" in _VOICEVOX_IMPORT_ERROR:
+                base_hint = (
+                    "libonnxruntime.so.1.13.1 が不足しています。"
+                    "ONNX Runtime 1.13.1 の共有ライブラリを導入し、LD_LIBRARY_PATH に含めてください。"
+                )
+        base_hint += " AMD/Intel環境ではCPU版wheel（+cpu）を優先してください。"
         missing.append({
             "code": "voicevox_core_missing",
             "message": base_msg,
-            "hint": "VOICEVOX公式Releasesのwheel URLを直接指定して `pip install --no-deps <wheel_url>` を実行してください。",
+            "hint": base_hint,
         })
     if not _tts_jtalk_exists():
         missing.append({
