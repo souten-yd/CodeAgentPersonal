@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, UploadFile
 from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -7615,17 +7615,20 @@ def _voice_model_exists(model_name: str) -> bool:
         return True
     return False
 
-def voice_load(model_name: str = "small") -> dict:
-    """WhisperモデルをCPU(RAM)へオンデマンドロードする。"""
-    global _voice_model, _voice_model_name
+def voice_load(model_name: str = "small", device: str | None = None) -> dict:
+    """WhisperモデルをCPU/GPU(RAM)へオンデマンドロードする。"""
+    global _voice_model, _voice_model_name, _voice_device, _voice_compute_type
     if WhisperModel is None:
         raise RuntimeError("faster-whisper is not installed. install: pip install faster-whisper")
+    if device is not None and device in ("cpu", "cuda"):
+        _voice_device = device
+        _voice_compute_type = "int8" if device == "cpu" else "float16"
     with _voice_lock:
-        if _voice_model is not None and _voice_model_name == model_name:
+        if _voice_model is not None and _voice_model_name == model_name and (device is None or _voice_device == device):
             return {"loaded": True, "model": _voice_model_name, "device": _voice_device, "compute_type": _voice_compute_type}
         _voice_model = WhisperModel(
             model_name,
-            device=_voice_device,          # GPUではなくCPU固定
+            device=_voice_device,
             compute_type=_voice_compute_type,
             download_root=_voice_model_dir(),
         )
@@ -7906,7 +7909,10 @@ def voice_status_api():
 @app.post("/voice/load")
 def voice_load_api(req: dict):
     model_name = str(req.get("model", "small")).strip() or "small"
-    return voice_load(model_name)
+    device = req.get("device")
+    if device not in ("cpu", "cuda"):
+        device = None
+    return voice_load(model_name, device=device)
 
 @app.post("/voice/unload")
 def voice_unload_api():
@@ -7978,8 +7984,33 @@ except ImportError:
     _edge_tts_mod = None
     _EDGE_TTS_AVAILABLE = False
 
+try:
+    from qwen_tts import Qwen3TTSModel  # type: ignore
+    _QWEN3TTS_AVAILABLE = True
+except ImportError:
+    Qwen3TTSModel = None  # type: ignore
+    _QWEN3TTS_AVAILABLE = False
+
+try:
+    import soundfile as _sf  # type: ignore
+    _SOUNDFILE_AVAILABLE = True
+except ImportError:
+    _sf = None  # type: ignore
+    _SOUNDFILE_AVAILABLE = False
+
 _tts_core = None        # voicevox_core.VoicevoxCore instance
 _tts_lock = threading.Lock()
+
+_qwen3tts_model = None          # Qwen3TTSModel instance
+_qwen3tts_model_id: str | None = None
+_qwen3tts_device = "cpu"        # "cpu" | "cuda"
+_qwen3tts_lock = threading.Lock()
+
+QWEN3TTS_MODEL_CANDIDATES = [
+    "Qwen/Qwen3-TTS-0.6B",
+    "Qwen/Qwen3-TTS-1.7B",
+    "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+]
 
 
 def _tts_data_dir() -> str:
@@ -8001,6 +8032,23 @@ def _tts_voicevox_models_dir() -> str:
 def _tts_jtalk_exists() -> bool:
     d = _tts_jtalk_dir()
     return os.path.isdir(d) and bool(os.listdir(d))
+
+
+def _tts_models_dir() -> str:
+    """TTSModels ディレクトリ (ASRModels と同階層)"""
+    if IS_RUNPOD_RUNTIME:
+        d = "/workspace/TTSModels"
+    else:
+        d = os.path.join(BASE_DIR, "models", "TTSModels")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _ref_audio_dir() -> str:
+    """参照音声 (voice clone) 保存ディレクトリ"""
+    d = os.path.join(DEFAULT_CA_DATA_DIR, "ref_audio")
+    os.makedirs(d, exist_ok=True)
+    return d
 
 
 def tts_voicevox_load() -> dict:
@@ -8093,17 +8141,69 @@ async def tts_edgetts_list_voices_async() -> list:
     return result
 
 
+def qwen3tts_load(model_id: str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base", device: str = "cpu") -> dict:
+    """Qwen3 TTSモデルをロードして {status, model_id, device} を返す。"""
+    global _qwen3tts_model, _qwen3tts_model_id, _qwen3tts_device
+    if not _QWEN3TTS_AVAILABLE:
+        raise RuntimeError("qwen_tts がインストールされていません。pip install qwen-tts を実行してください。")
+    cache_dir = _tts_models_dir()
+    model = Qwen3TTSModel.from_pretrained(model_id, cache_dir=cache_dir, device=device)
+    with _qwen3tts_lock:
+        _qwen3tts_model = model
+        _qwen3tts_model_id = model_id
+        _qwen3tts_device = device
+    return {"status": "loaded", "model_id": model_id, "device": device}
+
+
+def qwen3tts_unload() -> dict:
+    global _qwen3tts_model, _qwen3tts_model_id
+    with _qwen3tts_lock:
+        _qwen3tts_model = None
+        _qwen3tts_model_id = None
+    import gc; gc.collect()
+    return {"status": "unloaded"}
+
+
+def qwen3tts_synthesize(text: str, language: str = "ja",
+                         ref_audio_path: str | None = None,
+                         ref_text: str | None = None) -> bytes:
+    """Qwen3 TTS でテキストを WAV バイト列に変換する。"""
+    if not _SOUNDFILE_AVAILABLE:
+        raise RuntimeError("soundfile がインストールされていません。pip install soundfile を実行してください。")
+    import io
+    with _qwen3tts_lock:
+        if _qwen3tts_model is None:
+            raise RuntimeError("Qwen3 TTS モデルがロードされていません。/tts/load を先に呼び出してください。")
+        wavs, sr = _qwen3tts_model.generate_voice_clone(
+            text,
+            language=language,
+            ref_audio=ref_audio_path,
+            ref_text=ref_text or "",
+        )
+    buf = io.BytesIO()
+    _sf.write(buf, wavs, sr, format="WAV")
+    return buf.getvalue()
+
+
 @app.get("/tts/status")
 def tts_status_api():
     with _tts_lock:
-        loaded = _tts_core is not None
-        speakers = len(_tts_core.metas()) if loaded else 0
+        vv_loaded = _tts_core is not None
+        vv_speakers = len(_tts_core.metas()) if vv_loaded else 0
+    with _qwen3tts_lock:
+        q3_loaded = _qwen3tts_model is not None
+        q3_model_id = _qwen3tts_model_id
+        q3_device = _qwen3tts_device
     return {
         "voicevox_available": _VOICEVOX_AVAILABLE,
-        "voicevox_loaded": loaded,
-        "voicevox_speakers": speakers,
+        "voicevox_loaded": vv_loaded,
+        "voicevox_speakers": vv_speakers,
         "edgetts_available": _EDGE_TTS_AVAILABLE,
         "jtalk_exists": _tts_jtalk_exists(),
+        "qwen3tts_available": _QWEN3TTS_AVAILABLE,
+        "qwen3tts_loaded": q3_loaded,
+        "qwen3tts_model_id": q3_model_id,
+        "qwen3tts_device": q3_device,
     }
 
 
@@ -8114,12 +8214,16 @@ async def tts_voices_api(engine: str = "voicevox"):
     elif engine == "edgetts":
         voices = await tts_edgetts_list_voices_async()
         return {"voices": voices}
+    elif engine == "qwen3tts":
+        return {"voices": [{"id": m, "name": m.split("/")[-1]} for m in QWEN3TTS_MODEL_CANDIDATES]}
     return {"voices": []}
 
 
 @app.post("/tts/load")
 def tts_load_api(req: dict = {}):
     engine = str(req.get("engine", "voicevox"))
+    device = str(req.get("device", "cpu")) if req.get("device") in ("cpu", "cuda") else "cpu"
+    model_id = str(req.get("model_id", "Qwen/Qwen3-TTS-12Hz-1.7B-Base"))
 
     def _sse(payload: dict) -> str:
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -8144,6 +8248,16 @@ def tts_load_api(req: dict = {}):
                 yield _sse({"type": "done", **result})
             except Exception as e:
                 yield _sse({"type": "error", "detail": str(e)})
+        elif engine == "qwen3tts":
+            if not _QWEN3TTS_AVAILABLE:
+                yield _sse({"type": "error", "detail": "qwen_tts がインストールされていません。pip install qwen-tts を実行してください。"})
+                return
+            yield _sse({"type": "loading", "message": f"Qwen3 TTS モデル ({model_id}) をロード中です。しばらくお待ちください..."})
+            try:
+                result = qwen3tts_load(model_id, device)
+                yield _sse({"type": "done", **result})
+            except Exception as e:
+                yield _sse({"type": "error", "detail": str(e)})
         else:
             yield _sse({"type": "error", "detail": f"不明なエンジン: {engine}"})
 
@@ -8152,6 +8266,58 @@ def tts_load_api(req: dict = {}):
         media_type="text/event-stream",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
+
+
+@app.post("/tts/unload")
+def tts_unload_api(req: dict = {}):
+    engine = str(req.get("engine", "voicevox"))
+    if engine == "voicevox":
+        global _tts_core
+        with _tts_lock:
+            _tts_core = None
+        import gc; gc.collect()
+        return {"status": "unloaded", "engine": "voicevox"}
+    elif engine == "qwen3tts":
+        return {**qwen3tts_unload(), "engine": "qwen3tts"}
+    raise HTTPException(status_code=400, detail=f"不明なエンジン: {engine}")
+
+
+_REF_AUDIO_ALLOWED_EXT = {".wav", ".mp3", ".flac", ".ogg", ".webm"}
+
+
+@app.post("/tts/ref-audio/upload")
+async def tts_ref_audio_upload(file: UploadFile):
+    ext = os.path.splitext(file.filename or "")[-1].lower()
+    if ext not in _REF_AUDIO_ALLOWED_EXT:
+        raise HTTPException(status_code=400, detail=f"許可されていない拡張子: {ext}. 使用可能: {sorted(_REF_AUDIO_ALLOWED_EXT)}")
+    safe_name = os.path.basename(file.filename or "ref_audio" + ext)
+    dest = os.path.join(_ref_audio_dir(), safe_name)
+    data = await file.read()
+    with open(dest, "wb") as f:
+        f.write(data)
+    return {"filename": safe_name, "size": len(data)}
+
+
+@app.get("/tts/ref-audio/list")
+def tts_ref_audio_list():
+    d = _ref_audio_dir()
+    result = []
+    for fname in sorted(os.listdir(d)):
+        ext = os.path.splitext(fname)[-1].lower()
+        if ext in _REF_AUDIO_ALLOWED_EXT:
+            fpath = os.path.join(d, fname)
+            result.append({"filename": fname, "size": os.path.getsize(fpath)})
+    return {"files": result}
+
+
+@app.delete("/tts/ref-audio/{filename}")
+def tts_ref_audio_delete(filename: str):
+    safe_name = os.path.basename(filename)
+    fpath = os.path.join(_ref_audio_dir(), safe_name)
+    if not os.path.isfile(fpath):
+        raise HTTPException(status_code=404, detail=f"ファイルが見つかりません: {safe_name}")
+    os.remove(fpath)
+    return {"deleted": safe_name}
 
 
 @app.post("/tts/synthesize")
@@ -8182,6 +8348,21 @@ def tts_synthesize_api(req: dict):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
         return FastAPIResponse(content=mp3, media_type="audio/mpeg")
+
+    elif engine == "qwen3tts":
+        language = str(req.get("language", "ja")) or "ja"
+        ref_audio_name = str(req.get("ref_audio", "")).strip()
+        ref_text = str(req.get("ref_text", "")).strip() or None
+        ref_audio_path: str | None = None
+        if ref_audio_name:
+            candidate = os.path.join(_ref_audio_dir(), os.path.basename(ref_audio_name))
+            if os.path.isfile(candidate):
+                ref_audio_path = candidate
+        try:
+            wav = qwen3tts_synthesize(text, language, ref_audio_path, ref_text)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        return FastAPIResponse(content=wav, media_type="audio/wav")
 
     raise HTTPException(status_code=400, detail=f"不明なエンジン: {engine}")
 
