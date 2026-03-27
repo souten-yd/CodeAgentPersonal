@@ -75,7 +75,7 @@ if [[ ! -d "${JTALK_DIR}" || -z "$(ls -A "${JTALK_DIR}" 2>/dev/null || true)" ]]
   mkdir -p /workspace/ca_data/tts
   TMP_TGZ="/tmp/open_jtalk_dic_utf_8-1.11.tar.gz"
   JTALK_URLS=(
-    "https://github.com/VOICEVOX/voicevox_core/releases/download/0.15.0/open_jtalk_dic_utf_8-1.11.tar.gz"
+    "https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic-1.11/open_jtalk_dic_utf_8-1.11.tar.gz"
     "https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic_utf_8-1.11/open_jtalk_dic_utf_8-1.11.tar.gz"
   )
   DL_OK=0

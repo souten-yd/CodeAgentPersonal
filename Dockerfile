@@ -106,7 +106,7 @@ RUN set -eux; \
     if [ ! -d "${JTDIR}" ] || [ -z "$(ls -A "${JTDIR}" 2>/dev/null || true)" ]; then \
       TMP="/tmp/open_jtalk_dic_utf_8-1.11.tar.gz"; \
       URLS="\
-https://github.com/VOICEVOX/voicevox_core/releases/download/0.15.0/open_jtalk_dic_utf_8-1.11.tar.gz \
+https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic-1.11/open_jtalk_dic_utf_8-1.11.tar.gz \
 https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic_utf_8-1.11/open_jtalk_dic_utf_8-1.11.tar.gz"; \
       ok=""; \
       for u in ${URLS}; do \
