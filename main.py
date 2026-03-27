@@ -2206,6 +2206,20 @@ def _is_docker_available() -> bool:
     return result.returncode == 0
 
 
+def _docker_sys_venv_mount_args() -> list[str]:
+    """
+    ローカル起動時に作成した system venv を Docker に read-only マウントする。
+    （venv配下の補助ファイル参照用。Docker操作そのものは docker CLI 経由で実施）
+    """
+    venv_dir = (os.environ.get("CODEAGENT_SYS_VENV_DIR", "") or "").strip()
+    if not venv_dir:
+        return []
+    abs_venv = os.path.abspath(venv_dir)
+    if not os.path.isdir(abs_venv):
+        return []
+    return ["-v", f"{abs_venv}:/opt/codeagent/venv_sys:ro"]
+
+
 def _tool_runtime_policy(tool_name: str) -> str:
     """
     ツール実行バックエンドを返す。
@@ -2334,6 +2348,7 @@ def _run_python_in_docker(project: str, rel_path: str, timeout: int) -> str:
             "--memory=512m", "--memory-swap=512m", "--cpus=2",
             "-w", work_dir,
             "-v", f"{os.path.abspath(WORK_DIR)}:/app",
+            *_docker_sys_venv_mount_args(),
             "python:3.11", "python", container_path
         ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace")
@@ -2383,6 +2398,7 @@ def _run_server_docker(port: int, abs_project_dir: str) -> str:
         "--name", container_name,
         "-p", f"{port}:{port}",
         "-v", f"{abs_project_dir}:/srv:ro",  # :ro で読み取り専用マウント
+        *_docker_sys_venv_mount_args(),
         "--workdir", "/srv",
         "--memory", "128m",
         "--cpus", "0.5",
@@ -2516,6 +2532,7 @@ def _ensure_browser_container(project: str) -> bool:
         "--memory=1g", "--cpus=2",
         *extra_hosts,
         "-v", f"{os.path.abspath(WORK_DIR)}:/app",
+        *_docker_sys_venv_mount_args(),
         BROWSER_IMAGE,
         "tail", "-f", "/dev/null"  # コンテナを起動したまま待機
     ], capture_output=True, text=True)
@@ -2638,6 +2655,7 @@ def _run_browser_docker(project: str, timeout: int) -> str:
             "--memory=1g", "--cpus=2",
             *extra_hosts,
             "-v", f"{os.path.abspath(WORK_DIR)}:/app",
+            *_docker_sys_venv_mount_args(),
             BROWSER_IMAGE,
             "python", f"/app/{project}/_browser_run.py"
         ]
@@ -2690,6 +2708,7 @@ def _run_npm_docker(command: str, project_dir: str, timeout: int) -> str:
         "--memory=1g", "--cpus=2",
         "-w", "/app",
         "-v", f"{project_dir}:/app",
+        *_docker_sys_venv_mount_args(),
         "-v", f"{BROWSER_CONTAINER}_node_modules:/app/node_modules",
         NODE_IMAGE,
         "sh", "-c", f"npm {command} 2>&1"
@@ -2743,6 +2762,7 @@ def _run_node_docker(project_dir: str, timeout: int) -> str:
         "--memory=512m", "--cpus=2",
         "-w", "/app",
         "-v", f"{project_dir}:/app",
+        *_docker_sys_venv_mount_args(),
         "-v", f"{BROWSER_CONTAINER}_node_modules:/app/node_modules",
         NODE_IMAGE,
         "node", "/app/_node_run.js"
@@ -5984,6 +6004,141 @@ class JobRequest(BaseModel):
     auto_select_option: bool = True  # True: プランナーLLMが対応案を自動選択 / False: ユーザー手動選択
     auto_skill_generation: bool = True  # True: 失敗時に不足スキルを自動生成して再試行
 
+def execute_chat_with_optional_web_search(
+    message: str,
+    *,
+    max_steps: int = 6,
+    search_enabled: bool = False,
+    llm_url: str = "",
+    chat_history: list | None = None,
+    on_event=None,
+) -> dict:
+    """
+    chatモード専用の軽量実行。
+    - search_enabled=False: 1回の通常チャット応答
+    - search_enabled=True: web_searchのみを使える最小ループ（タスク実行ツールは使わない）
+    """
+    history_msgs = []
+    for h in (chat_history or [])[-8:]:
+        role = h.get("role", "user")
+        text = str(h.get("text", ""))[:800]
+        if role in ("user", "assistant") and text:
+            history_msgs.append({"role": role, "content": text})
+
+    if not search_enabled:
+        messages = [
+            {"role": "system", "content": "あなたはCodeAgentです。ユーザーの質問に丁寧に答えてください。コードが必要な場合はmarkdownで記述してください。"},
+            *history_msgs,
+            {"role": "user", "content": message},
+        ]
+        messages = _trim_messages(messages, _current_n_ctx, reserve_output=2048)
+        chat_reply, usage = call_llm_chat(messages, llm_url=llm_url)
+        return {"status": "done", "output": chat_reply, "usage": usage, "steps": []}
+
+    CHAT_SEARCH_PROMPT = """あなたはCodeAgentのチャットモードです。
+必要なときだけ web_search を使って情報を補強してください。
+
+出力は必ず次のJSON形式のみ:
+1) Web検索が必要: {"action":"web_search","input":{"query":"検索クエリ","num_results":5},"thought":"短い理由"}
+2) 最終回答: {"action":"final","output":"ユーザーへの回答"}
+
+ルール:
+- web_search以外のツール名は絶対に使わない
+- 既知の内容だけで十分なら即finalを返す
+- 最大でも2回までweb_searchし、最後は必ずfinalで終了する
+"""
+    messages = [
+        {"role": "system", "content": CHAT_SEARCH_PROMPT},
+        *history_msgs,
+        {"role": "user", "content": message},
+    ]
+    steps = []
+    searches_used = 0
+    safe_max_steps = max(2, min(int(max_steps or 6), 8))
+
+    for step in range(safe_max_steps):
+        messages = _trim_messages(messages, _current_n_ctx, reserve_output=2048)
+        if on_event:
+            on_event({"type": "llm_thinking", "step_num": step + 1, "max_steps": safe_max_steps})
+        reply, usage = call_llm_chat(messages, llm_url=llm_url)
+        action_obj = extract_json(reply, parser=_model_manager.current_parser)
+
+        if action_obj is None:
+            if step == 0:
+                # JSON出力に失敗しても、初回は自然文回答として扱って即終了
+                return {"status": "done", "output": reply, "usage": usage, "steps": steps}
+            messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
+            messages.append({
+                "role": "user",
+                "content": "JSON形式のみで返してください。{\"action\":\"final\",\"output\":\"...\"} または web_search。",
+            })
+            continue
+
+        action = str(action_obj.get("action", "") or "").strip().lower()
+        action, _ = _normalize_action_name(action)
+        tool_input = action_obj.get("input", {}) or {}
+        thought = str(action_obj.get("thought", "") or "")
+
+        if action == "final":
+            out = str(action_obj.get("output", "") or "").strip()
+            if out:
+                return {"status": "done", "output": out, "usage": usage, "steps": steps}
+            return {"status": "done", "output": thought or "完了しました。", "usage": usage, "steps": steps}
+
+        if action != "web_search":
+            messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
+            messages.append({
+                "role": "user",
+                "content": "web_search か final だけを使ってください。不要ならfinalで回答してください。",
+            })
+            continue
+
+        if searches_used >= 2:
+            messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
+            messages.append({
+                "role": "user",
+                "content": "web_searchの上限(2回)に達しました。検索結果をもとにfinalで回答してください。",
+            })
+            continue
+
+        query = str(tool_input.get("query", "") or "").strip()
+        num_results = int(tool_input.get("num_results", 0) or 0)
+        if not query:
+            messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
+            messages.append({
+                "role": "user",
+                "content": "query が空です。検索せずfinalで回答するか、queryを指定してweb_searchしてください。",
+            })
+            continue
+
+        if on_event:
+            on_event({
+                "type": "tool_call",
+                "step_num": step + 1,
+                "action": "web_search",
+                "thought": thought,
+                "input": {"query": query, "num_results": num_results},
+            })
+        result = web_search(query=query, num_results=num_results)
+        searches_used += 1
+        preview = str(result)[:400]
+        steps.append({"step": step + 1, "type": "tool", "action": "web_search", "input": {"query": query, "num_results": num_results}})
+        if on_event:
+            on_event({
+                "type": "tool_result",
+                "step_num": step + 1,
+                "action": "web_search",
+                "result_preview": preview,
+            })
+        messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
+        messages.append({
+            "role": "user",
+            "content": f"web_searchの結果:\n{result}\n\n上記を使って必要なら追加検索、十分ならfinalで回答してください。",
+        })
+
+    fallback = "検索を試みましたが最終回答を構築できませんでした。質問を少し具体化してください。"
+    return {"status": "error", "error": "chat_web_search_loop_exhausted", "output": fallback, "steps": steps}
+
 def run_job_background(job_id: str, req: "JobRequest"):
     """
     バックグラウンドスレッドで実行。
@@ -6030,26 +6185,27 @@ def run_job_background(job_id: str, req: "JobRequest"):
         job_update_status(project, job_id, "running")
 
         if req.mode == "chat":
-            # chatモード: エージェントループを経由せず直接LLMを呼び出す
-            # → 応答が速く、エージェント用の巨大なシステムプロンプトによるコンテキスト圧迫も回避
             exec_url = _resolve_runtime_llm_url(req.llm_url)
-
-            CHAT_SYSTEM = "あなたはCodeAgentです。ユーザーの質問に丁寧に答えてください。コードが必要な場合はmarkdownで記述してください。"
-            history_msgs = []
-            for h in (req.chat_history or [])[-8:]:
-                role = h.get("role", "user")
-                text = str(h.get("text", ""))[:800]
-                if role in ("user", "assistant") and text:
-                    history_msgs.append({"role": role, "content": text})
-            messages = [
-                {"role": "system", "content": CHAT_SYSTEM},
-                *history_msgs,
-                {"role": "user", "content": req.message},
-            ]
-            messages = _trim_messages(messages, _current_n_ctx, reserve_output=2048)
-            chat_reply, usage = call_llm_chat(messages, llm_url=exec_url)
-            write("done", {"result": chat_reply, "status": "done", "usage": usage})
-            save_session(job_id, project, req.message, "chat", {"output": chat_reply, "status": "done", "steps": []})
+            chat_result = execute_chat_with_optional_web_search(
+                req.message,
+                max_steps=req.max_steps,
+                search_enabled=req.search_enabled,
+                llm_url=exec_url,
+                chat_history=req.chat_history,
+                on_event=lambda ev: write(ev.get("type", "chat_step"), ev),
+            )
+            chat_output = chat_result.get("output") or chat_result.get("error") or ""
+            write("done", {
+                "result": chat_output,
+                "status": "done" if chat_result.get("status") == "done" else "error",
+                "usage": chat_result.get("usage", {}),
+                "steps": chat_result.get("steps", []),
+            })
+            save_session(job_id, project, req.message, "chat", {
+                "output": chat_output,
+                "status": chat_result.get("status", "done"),
+                "steps": chat_result.get("steps", []),
+            })
 
 
         else:
@@ -7970,12 +8126,15 @@ def voice_transcribe_api(req: dict):
 # TTS (Text-to-Speech) / CPUオンデマンド
 # =========================
 
+_VOICEVOX_IMPORT_ERROR = ""
 try:
     import voicevox_core as _vc_mod  # type: ignore
     _VOICEVOX_AVAILABLE = True
-except ImportError:
+except Exception as _vv_e:
     _vc_mod = None
     _VOICEVOX_AVAILABLE = False
+    _VOICEVOX_IMPORT_ERROR = str(_vv_e)
+    print(f"[TTS] voicevox_core import failed: {_VOICEVOX_IMPORT_ERROR}")
 
 try:
     import edge_tts as _edge_tts_mod  # type: ignore
@@ -8033,6 +8192,32 @@ def _tts_jtalk_exists() -> bool:
     d = _tts_jtalk_dir()
     return os.path.isdir(d) and bool(os.listdir(d))
 
+def _tts_voicevox_missing_requirements() -> list[dict]:
+    missing: list[dict] = []
+    if not _VOICEVOX_AVAILABLE:
+        base_msg = "voicevox_core がインストールされていません。"
+        base_hint = "VOICEVOX公式Releasesのwheel URLを直接指定して `pip install --no-deps <wheel_url>` を実行してください。"
+        if _VOICEVOX_IMPORT_ERROR:
+            base_msg = f"voicevox_core のimportに失敗しました: {_VOICEVOX_IMPORT_ERROR}"
+            if "libonnxruntime.so.1.13.1" in _VOICEVOX_IMPORT_ERROR:
+                base_hint = (
+                    "libonnxruntime.so.1.13.1 が不足しています。"
+                    "ONNX Runtime 1.13.1 の共有ライブラリを導入し、LD_LIBRARY_PATH に含めてください。"
+                )
+        base_hint += " AMD/Intel環境ではCPU版wheel（+cpu）を優先してください。"
+        missing.append({
+            "code": "voicevox_core_missing",
+            "message": base_msg,
+            "hint": base_hint,
+        })
+    if not _tts_jtalk_exists():
+        missing.append({
+            "code": "open_jtalk_dict_missing",
+            "message": f"Open JTalk 辞書が見つかりません: {_tts_jtalk_dir()}",
+            "hint": "open_jtalk_dic_utf_8-1.11 を上記パスに配置してください。",
+        })
+    return missing
+
 
 def _tts_models_dir() -> str:
     """TTSModels ディレクトリ (ASRModels と同階層)"""
@@ -8055,9 +8240,11 @@ def tts_voicevox_load() -> dict:
     """VOICEVOX Core を CPU(ONNX) でロードする。"""
     global _tts_core
     if not _VOICEVOX_AVAILABLE:
+        import_note = f" (import error: {_VOICEVOX_IMPORT_ERROR})" if _VOICEVOX_IMPORT_ERROR else ""
         raise RuntimeError(
-            "voicevox_core がインストールされていません。"
-            "https://github.com/VOICEVOX/voicevox_core/releases からプラットフォーム別wheelを pip install してください。"
+            f"voicevox_core が利用できません{import_note}。"
+            "https://github.com/VOICEVOX/voicevox_core/releases のwheel URLを直接指定し、"
+            "pip install --no-deps <wheel_url> でインストールしてください。"
         )
     if not _tts_jtalk_exists():
         raise RuntimeError(
@@ -8230,16 +8417,13 @@ def tts_load_api(req: dict = {}):
 
     def stream():
         if engine == "voicevox":
-            if not _VOICEVOX_AVAILABLE:
-                yield _sse({"type": "error", "detail": "voicevox_core がインストールされていません。"})
-                return
-            if not _tts_jtalk_exists():
+            missing = _tts_voicevox_missing_requirements()
+            if missing:
+                detail = "\n".join(f"- {m.get('message','')}" for m in missing)
                 yield _sse({
                     "type": "error",
-                    "detail": (
-                        f"Open JTalk 辞書が見つかりません: {_tts_jtalk_dir()}\n"
-                        "VOICEVOX Core の README に従って辞書を配置してください。"
-                    )
+                    "detail": detail,
+                    "missing": missing,
                 })
                 return
             yield _sse({"type": "loading", "message": "VOICEVOX Core をロード中です。しばらくお待ちください..."})
