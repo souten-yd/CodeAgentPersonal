@@ -7637,8 +7637,8 @@ _VOICE_MODEL_CANDIDATES = [
 
 def _voice_model_dir() -> str:
     if IS_RUNPOD_RUNTIME:
-        # RunPod: 揮発性HDDに保存
-        root = "/tmp/ASRModels"
+        # RunPod: LLMモデル(/workspace/LLMs)と同階層の /workspace/ASRModels に保存
+        root = "/workspace/ASRModels"
     else:
         # ローカル: プロジェクト直下の models/ASRModels に保存
         root = os.path.join(BASE_DIR, "models", "ASRModels")
