@@ -16,6 +16,7 @@ from pathlib import Path
 
 AUTO_MODE_KEY = "auto"
 AUTO_MODE_NUM = "1"
+DEFAULT_SYS_VENV_NAME = "venv_sys"
 
 
 def get_llama_root_dir(base_dir: Path, runpod: bool) -> Path:
@@ -214,6 +215,71 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _sys_venv_paths(base_dir: Path) -> tuple[Path, Path, Path]:
+    venv_root = Path(os.environ.get("CODEAGENT_SYS_VENV_DIR", "")).expanduser()
+    if not str(venv_root).strip():
+        venv_root = base_dir / DEFAULT_SYS_VENV_NAME
+    if os.name == "nt":
+        py = venv_root / "Scripts" / "python.exe"
+        pip = venv_root / "Scripts" / "pip.exe"
+    else:
+        py = venv_root / "bin" / "python"
+        pip = venv_root / "bin" / "pip"
+    return venv_root, py, pip
+
+
+def _write_text_if_missing(path: Path, content: str) -> None:
+    if path.exists():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    print(f"[Bootstrap] Created: {path}")
+
+
+def _ensure_local_bootstrap_venv(base_dir: Path, env: dict[str, str]) -> tuple[str, bool]:
+    """
+    Local起動時:
+      - 初回: venv_sys を作成して requirements を導入
+      - 2回目以降: venv_sys があれば再利用
+    """
+    venv_root, venv_python, venv_pip = _sys_venv_paths(base_dir)
+    created = False
+
+    if not venv_python.exists():
+        print(f"[Bootstrap] Creating system venv: {venv_root}")
+        venv_root.mkdir(parents=True, exist_ok=True)
+        mk = subprocess.run([sys.executable, "-m", "venv", str(venv_root)], cwd=base_dir, check=False)
+        if mk.returncode != 0 or not venv_python.exists():
+            print("[Bootstrap][WARN] Failed to create venv_sys. Fallback to current Python.")
+            return sys.executable, False
+        created = True
+    else:
+        print(f"[Bootstrap] Reusing system venv: {venv_root}")
+
+    default_requirements = (
+        "# Auto-generated on first local startup.\n"
+        "# Add local bootstrap-only dependencies here if needed.\n"
+        "fastapi\n"
+        "uvicorn[standard]\n"
+        "pydantic\n"
+        "requests\n"
+    )
+    _write_text_if_missing(base_dir / "requirements.txt", default_requirements)
+
+    # 初回のみ依存導入（2回目以降は既存環境を読み込む）
+    if created and venv_pip.exists():
+        req_txt = base_dir / "requirements.txt"
+        if req_txt.exists():
+            print("[Bootstrap] Installing Python dependencies into venv_sys...")
+            install = subprocess.run([str(venv_pip), "install", "-r", str(req_txt)], cwd=base_dir, check=False)
+            if install.returncode != 0:
+                print("[Bootstrap][WARN] pip install failed. Continue with existing environment.")
+
+    env["CODEAGENT_SYS_VENV_DIR"] = str(venv_root)
+    env["CODEAGENT_SYS_VENV_PYTHON"] = str(venv_python)
+    return str(venv_python), created
+
+
 def main() -> int:
     args = parse_args()
     base_dir = Path(__file__).resolve().parent.parent
@@ -232,6 +298,9 @@ def main() -> int:
         env.setdefault("CODEAGENT_CA_DATA_DIR", "/workspace/ca_data")
         env.setdefault("CODEAGENT_WORK_DIR", "/workspace/ca_data/workspace")
         env.setdefault("CODEAGENT_SKILLS_DIR", "/workspace/ca_data/skills")
+    python_exec = sys.executable
+    if not runpod:
+        python_exec, _ = _ensure_local_bootstrap_venv(base_dir, env)
 
     print("==============================================")
     print(" CodeAgent Launcher")
@@ -253,7 +322,7 @@ def main() -> int:
         print("[LLM][WARN] LLAMA_SERVER_PATH is unset because llama-server was not found.")
 
     uvicorn_cmd = [
-        sys.executable,
+        python_exec,
         "-m",
         "uvicorn",
         "main:app",
