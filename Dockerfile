@@ -92,6 +92,11 @@ RUN if [ -f /app/requirements.txt ]; then \
         python -m pip install fastapi 'uvicorn[standard]' pydantic requests; \
     fi
 
+# Install voicevox_core for Linux x86_64 (optional: VOICEVOX TTS support)
+RUN python -m pip install voicevox_core \
+    --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/" \
+    || echo "[WARN] voicevox_core not available. VOICEVOX TTS will be disabled."
+
 # Copy compiled llama artifacts into the paths the app expects.
 RUN mkdir -p /app/llama/bin /app/llama/lib /models
 COPY --from=llama_prebuilt /out/bin/llama-server /app/llama/bin/llama-server
