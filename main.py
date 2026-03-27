@@ -9593,26 +9593,13 @@ def _run_gguf_download_job(job_id: str, model_id: str, safe_rel: str, folder: st
 def _postprocess_downloaded_model(model_id_db: str):
     """
     GGUFダウンロード完了後に以下を実施:
-      1) 追加モデルをベンチマーク
-      2) auto_roles未設定モデルに推奨ロールを初期化
-      3) 決定済みロールに基づくデフォルトモデルの自動ロードを要求
+      1) auto_roles未設定モデルに推奨ロールを初期化（既存ロールは変更しない）
+      2) 決定済みロールに基づくデフォルトモデルの自動ロードを要求
 
     各段階は独立して実行し、どこかが失敗しても後続処理は継続する。
+    ベンチマークはダウンロード時は実施しない（ユーザーが手動で実行）。
     """
-    models = model_db_list()
-    model = next((m for m in models if m.get("id") == model_id_db), None)
-    if not model:
-        return
-
-    step_ok = {"benchmark": False, "auto_roles": False, "auto_load": False}
-
-    try:
-        updates = benchmark_model_profiles(model)
-        if updates:
-            model_db_update(model_id_db, updates)
-        step_ok["benchmark"] = True
-    except Exception as e:
-        print(f"[ModelDB] benchmark step failed after GGUF download: {e}")
+    step_ok = {"auto_roles": False, "auto_load": False}
 
     try:
         all_models = model_db_list()
@@ -9743,13 +9730,13 @@ def _run_model_scan_job(job_id: str, folder: str):
                 models=[],
             )
             return
+        # Step 1: 全モデルをDBに登録（ベンチマークなし）
         for idx, m in enumerate(results, start=1):
-            model_name = m.get("name") or os.path.basename(m.get("path", "")) or f"model {idx}"
             _set_model_scan_state(
-                phase="benchmark",
+                phase="scan",
                 current=idx,
                 total=total,
-                summary=f"Benchmarking {model_name}",
+                summary=f"Registering {m.get('name') or os.path.basename(m.get('path',''))}",
             )
             existing = model_db_find_by_path(m["path"])
             if existing:
@@ -9760,25 +9747,38 @@ def _run_model_scan_job(job_id: str, folder: str):
                 model_id = model_db_add(m)
                 added += 1
             saved = model_db_find_by_path(m["path"]) or {"id": model_id, **m}
-            try:
-                updates = benchmark_model_profiles(saved)
-                model_db_update(model_id, updates)
-                merged = dict(saved)
-                merged.update(updates)
-                benchmarked += 1
-            except Exception as e:
-                benchmark_failed += 1
-                model_db_update(model_id, {"notes": f"BENCHMARK ERROR: {e}"})
-                merged = dict(saved)
-                merged["notes"] = f"BENCHMARK ERROR: {e}"
-                print(f"[ModelDB] benchmark error during scan: {model_name}: {e}")
-            saved_models.append(merged)
-            _set_model_scan_state(
-                added=added,
-                updated=updated,
-                benchmarked=benchmarked,
-                error="" if benchmark_failed == 0 else f"benchmark_failed={benchmark_failed}",
-            )
+            saved_models.append(saved)
+        _set_model_scan_state(added=added, updated=updated)
+
+        # Step 2: 最小サイズの非VLM/非mmprojモデルを1つだけベンチマーク
+        non_vlm = [m for m in saved_models if not m.get("is_vlm") and "mmproj" not in (m.get("path") or "").lower()]
+        if not non_vlm:
+            non_vlm = saved_models  # フォールバック: 全モデル対象
+        benchmark_target = min(non_vlm, key=lambda m: float(m.get("file_size_mb") or 9999999))
+        benchmark_failed = 0
+        model_name = benchmark_target.get("name") or os.path.basename(benchmark_target.get("path", ""))
+        _set_model_scan_state(
+            phase="benchmark",
+            current=1,
+            total=1,
+            summary=f"Benchmarking {model_name} (smallest model)",
+        )
+        try:
+            bm_updates = benchmark_model_profiles(benchmark_target)
+            model_db_update(benchmark_target["id"], bm_updates)
+            for m in saved_models:
+                if m["id"] == benchmark_target["id"]:
+                    m.update(bm_updates)
+                    break
+            benchmarked += 1
+        except Exception as e:
+            benchmark_failed += 1
+            model_db_update(benchmark_target["id"], {"notes": f"BENCHMARK ERROR: {e}"})
+            print(f"[ModelDB] benchmark error during scan: {model_name}: {e}")
+        _set_model_scan_state(
+            benchmarked=benchmarked,
+            error="" if benchmark_failed == 0 else f"benchmark_failed={benchmark_failed}",
+        )
 
         _set_model_scan_state(
             phase="planner",
@@ -9862,11 +9862,29 @@ def benchmark_model_api(mid: str):
         try:
             updates = benchmark_model_profiles(model)
             model_db_update(mid, updates)
-            schedule_default_model_load(reason="benchmark_complete")
             print(f"[ModelDB] benchmark done: {model['name']} {updates}")
         except Exception as e:
             model_db_update(mid, {"notes": f"BENCHMARK ERROR: {e}"})
             print(f"[ModelDB] benchmark error: {e}")
+            return
+        try:
+            all_models = model_db_list()
+            if all_models:
+                _, recommendations = recommend_roles_with_planner(all_models)
+                initialized_roles = 0
+                for row in all_models:
+                    existing_roles = [x.strip() for x in str(row.get("auto_roles", "")).split(",") if x.strip()]
+                    if existing_roles:
+                        continue
+                    roles = recommendations.get(row["id"], [])
+                    if roles:
+                        model_db_update(row["id"], {"auto_roles": ",".join(roles)})
+                        initialized_roles += 1
+                if initialized_roles > 0:
+                    print(f"[ModelDB] initialized auto_roles after benchmark: {initialized_roles}")
+        except Exception as e:
+            print(f"[ModelDB] auto_roles step failed after benchmark: {e}")
+        schedule_default_model_load(reason="benchmark_complete")
 
     _bt.Thread(target=_run_bench, daemon=True).start()
     return {"ok": True, "message": f"Benchmarking {model['name']} in background..."}
