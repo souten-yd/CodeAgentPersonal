@@ -41,6 +41,7 @@ RUN set -eux; \
 # Runtime stage: Python + codeAgent + llama.cpp
 ########################################
 FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu${UBUNTU_VERSION} AS runtime
+ARG VOICEVOX_WHEEL_VARIANT=auto
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -93,10 +94,81 @@ RUN if [ -f /app/requirements.txt ]; then \
     fi
 
 # Install voicevox_core for Linux x86_64 (optional: VOICEVOX TTS support)
-# --no-index prevents PyPI fallback which could install an incompatible package
-RUN python -m pip install voicevox_core --no-index \
-    --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/" \
-    || echo "[WARN] voicevox_core not available. VOICEVOX TTS will be disabled."
+# IMPORTANT: install an explicit wheel URL (CUDA -> CPU fallback).
+# Do not use `--find-links ... voicevox_core` here, because pip may pick both
+# cpu/cuda candidates and fail resolution.
+RUN set -eux; \
+    if ! python -c "import voicevox_core" 2>/dev/null; then \
+      VV_CUDA="https://github.com/VOICEVOX/voicevox_core/releases/download/0.15.0/voicevox_core-0.15.0%2Bcuda-cp38-abi3-linux_x86_64.whl"; \
+      VV_CPU="https://github.com/VOICEVOX/voicevox_core/releases/download/0.15.0/voicevox_core-0.15.0%2Bcpu-cp38-abi3-linux_x86_64.whl"; \
+      ORDER=""; \
+      case "${VOICEVOX_WHEEL_VARIANT}" in \
+        cuda) ORDER="${VV_CUDA} ${VV_CPU}" ;; \
+        cpu)  ORDER="${VV_CPU} ${VV_CUDA}" ;; \
+        *) \
+          if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then \
+            ORDER="${VV_CUDA} ${VV_CPU}"; \
+          else \
+            ORDER="${VV_CPU} ${VV_CUDA}"; \
+          fi ;; \
+      esac; \
+      ok=""; \
+      for u in ${ORDER}; do \
+        python -m pip uninstall -y voicevox_core >/dev/null 2>&1 || true; \
+        if python -m pip install --no-deps "${u}" && python -c "import voicevox_core" >/dev/null 2>&1; then ok="1"; break; fi; \
+      done; \
+      if [ -z "${ok}" ]; then echo "[WARN] voicevox_core not available. VOICEVOX TTS will be disabled."; fi; \
+    fi
+
+# Install ONNX Runtime shared library required by voicevox_core 0.15.x
+RUN set -eux; \
+    if ! ldconfig -p | grep -q "libonnxruntime.so.1.13.1"; then \
+      ORT_TGZ="/tmp/onnxruntime-linux-x64-1.13.1.tgz"; \
+      curl -fL --retry 3 --retry-delay 2 \
+        "https://github.com/microsoft/onnxruntime/releases/download/v1.13.1/onnxruntime-linux-x64-1.13.1.tgz" \
+        -o "${ORT_TGZ}"; \
+      mkdir -p /tmp/ort_extract /usr/local/lib/onnxruntime; \
+      tar -xzf "${ORT_TGZ}" -C /tmp/ort_extract; \
+      ORT_LIB_DIR="$(find /tmp/ort_extract -type d -path '*/onnxruntime-linux-x64-1.13.1/lib' | head -n1)"; \
+      test -n "${ORT_LIB_DIR}"; \
+      cp -a "${ORT_LIB_DIR}/libonnxruntime.so.1.13.1" /usr/local/lib/onnxruntime/; \
+      ln -sf /usr/local/lib/onnxruntime/libonnxruntime.so.1.13.1 /usr/local/lib/libonnxruntime.so.1.13.1; \
+      ln -sf /usr/local/lib/onnxruntime/libonnxruntime.so.1.13.1 /usr/local/lib/libonnxruntime.so; \
+      ldconfig; \
+    fi
+
+# Prepare Open JTalk dictionary for VOICEVOX on Runpod-like path.
+# main.py expects: /workspace/ca_data/tts/open_jtalk_dic_utf_8-1.11
+RUN set -eux; \
+    JTDIR="/workspace/ca_data/tts/open_jtalk_dic_utf_8-1.11"; \
+    mkdir -p /workspace/ca_data/tts; \
+    if [ ! -d "${JTDIR}" ] || [ -z "$(ls -A "${JTDIR}" 2>/dev/null || true)" ]; then \
+      TMP="/tmp/open_jtalk_dic_utf_8-1.11.tar.gz"; \
+      URLS="\
+https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic-1.11/open_jtalk_dic_utf_8-1.11.tar.gz \
+https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic_utf_8-1.11/open_jtalk_dic_utf_8-1.11.tar.gz"; \
+      ok=""; \
+      for u in ${URLS}; do \
+        if curl -fL --retry 3 --retry-delay 2 "${u}" -o "${TMP}"; then ok="1"; break; fi; \
+      done; \
+      if [ -n "${ok}" ]; then \
+        mkdir -p /tmp/openjtalk_extract; \
+        tar -xzf "${TMP}" -C /tmp/openjtalk_extract; \
+        FOUND="$(find /tmp/openjtalk_extract -type d -name open_jtalk_dic_utf_8-1.11 | head -n1)"; \
+        if [ -n "${FOUND}" ]; then \
+          rm -rf "${JTDIR}"; \
+          mv "${FOUND}" "${JTDIR}"; \
+        fi; \
+      fi; \
+    fi; \
+    if [ ! -d "${JTDIR}" ] || [ -z "$(ls -A "${JTDIR}" 2>/dev/null || true)" ]; then \
+      echo "[WARN] Open JTalk dictionary was not prepared at ${JTDIR}. VOICEVOX may require manual setup."; \
+    fi
+
+# Install torch (CUDA 12.4) + qwen-tts + soundfile for Qwen3 TTS support (optional)
+RUN python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124 \
+    && python -m pip install qwen-tts soundfile \
+    || echo "[WARN] qwen-tts/torch installation failed. Qwen3 TTS will be disabled."
 
 # Re-pin core framework versions in case optional deps caused downgrades
 RUN python -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110"
