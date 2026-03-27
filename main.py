@@ -8138,6 +8138,22 @@ def _tts_jtalk_exists() -> bool:
     d = _tts_jtalk_dir()
     return os.path.isdir(d) and bool(os.listdir(d))
 
+def _tts_voicevox_missing_requirements() -> list[dict]:
+    missing: list[dict] = []
+    if not _VOICEVOX_AVAILABLE:
+        missing.append({
+            "code": "voicevox_core_missing",
+            "message": "voicevox_core がインストールされていません。",
+            "hint": "VOICEVOX公式リリースのwheelをインストールしてください。",
+        })
+    if not _tts_jtalk_exists():
+        missing.append({
+            "code": "open_jtalk_dict_missing",
+            "message": f"Open JTalk 辞書が見つかりません: {_tts_jtalk_dir()}",
+            "hint": "open_jtalk_dic_utf_8-1.11 を上記パスに配置してください。",
+        })
+    return missing
+
 
 def tts_voicevox_load() -> dict:
     """VOICEVOX Core を CPU(ONNX) でロードする。"""
@@ -8234,12 +8250,15 @@ def tts_status_api():
     with _tts_lock:
         loaded = _tts_core is not None
         speakers = len(_tts_core.metas()) if loaded else 0
+    missing = _tts_voicevox_missing_requirements()
     return {
         "voicevox_available": _VOICEVOX_AVAILABLE,
         "voicevox_loaded": loaded,
         "voicevox_speakers": speakers,
         "edgetts_available": _EDGE_TTS_AVAILABLE,
         "jtalk_exists": _tts_jtalk_exists(),
+        "voicevox_ready": len(missing) == 0,
+        "voicevox_missing": missing,
     }
 
 
@@ -8262,16 +8281,13 @@ def tts_load_api(req: dict = {}):
 
     def stream():
         if engine == "voicevox":
-            if not _VOICEVOX_AVAILABLE:
-                yield _sse({"type": "error", "detail": "voicevox_core がインストールされていません。"})
-                return
-            if not _tts_jtalk_exists():
+            missing = _tts_voicevox_missing_requirements()
+            if missing:
+                detail = "\n".join(f"- {m.get('message','')}" for m in missing)
                 yield _sse({
                     "type": "error",
-                    "detail": (
-                        f"Open JTalk 辞書が見つかりません: {_tts_jtalk_dir()}\n"
-                        "VOICEVOX Core の README に従って辞書を配置してください。"
-                    )
+                    "detail": detail,
+                    "missing": missing,
                 })
                 return
             yield _sse({"type": "loading", "message": "VOICEVOX Core をロード中です。しばらくお待ちください..."})
