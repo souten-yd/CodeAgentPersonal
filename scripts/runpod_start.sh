@@ -61,12 +61,14 @@ fi
 }
 
 # Install voicevox_core if not present (optional: VOICEVOX TTS)
-# Prefer official expanded_assets wheels, then fallback to PyPI.
+# Install explicit wheel URL (CUDA -> CPU fallback).
+# Avoid `--find-links ... voicevox_core` to prevent cpu/cuda dual-candidate conflicts.
 "${PYTHON_BIN}" -c "import voicevox_core" 2>/dev/null || {
   echo "[Runpod] Installing voicevox_core for VOICEVOX TTS..."
-  "${PYTHON_BIN}" -m pip install voicevox_core --no-index \
-    --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/" \
-    || "${PYTHON_BIN}" -m pip install "voicevox_core>=0.15,<0.16" \
+  "${PYTHON_BIN}" -m pip install --no-deps \
+    "https://github.com/VOICEVOX/voicevox_core/releases/download/0.15.0/voicevox_core-0.15.0%2Bcuda-cp38-abi3-linux_x86_64.whl" \
+    || "${PYTHON_BIN}" -m pip install --no-deps \
+    "https://github.com/VOICEVOX/voicevox_core/releases/download/0.15.0/voicevox_core-0.15.0%2Bcpu-cp38-abi3-linux_x86_64.whl" \
     || echo "[Runpod][WARN] voicevox_core installation failed. VOICEVOX TTS will be disabled."
 }
 if "${PYTHON_BIN}" -c "import voicevox_core,sys; print(f'voicevox_core OK (python={sys.executable})')" >/tmp/voicevox_import_check.log 2>&1; then

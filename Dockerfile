@@ -93,12 +93,15 @@ RUN if [ -f /app/requirements.txt ]; then \
     fi
 
 # Install voicevox_core for Linux x86_64 (optional: VOICEVOX TTS support)
-# 1) Try official expanded_assets wheels, 2) fallback to PyPI.
+# IMPORTANT: install an explicit wheel URL (CUDA -> CPU fallback).
+# Do not use `--find-links ... voicevox_core` here, because pip may pick both
+# cpu/cuda candidates and fail resolution.
 RUN set -eux; \
     if ! python -c "import voicevox_core" 2>/dev/null; then \
-      python -m pip install voicevox_core --no-index \
-        --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/" \
-      || python -m pip install "voicevox_core>=0.15,<0.16" \
+      python -m pip install --no-deps \
+        "https://github.com/VOICEVOX/voicevox_core/releases/download/0.15.0/voicevox_core-0.15.0%2Bcuda-cp38-abi3-linux_x86_64.whl" \
+      || python -m pip install --no-deps \
+        "https://github.com/VOICEVOX/voicevox_core/releases/download/0.15.0/voicevox_core-0.15.0%2Bcpu-cp38-abi3-linux_x86_64.whl" \
       || echo "[WARN] voicevox_core not available. VOICEVOX TTS will be disabled."; \
     fi
 
