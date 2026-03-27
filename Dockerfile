@@ -93,10 +93,42 @@ RUN if [ -f /app/requirements.txt ]; then \
     fi
 
 # Install voicevox_core for Linux x86_64 (optional: VOICEVOX TTS support)
-# --no-index prevents PyPI fallback which could install an incompatible package
-RUN python -m pip install voicevox_core --no-index \
-    --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/" \
-    || echo "[WARN] voicevox_core not available. VOICEVOX TTS will be disabled."
+# 1) Try official expanded_assets wheels, 2) fallback to PyPI.
+RUN set -eux; \
+    if ! python -c "import voicevox_core" 2>/dev/null; then \
+      python -m pip install voicevox_core --no-index \
+        --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/" \
+      || python -m pip install "voicevox_core>=0.15,<0.16" \
+      || echo "[WARN] voicevox_core not available. VOICEVOX TTS will be disabled."; \
+    fi
+
+# Prepare Open JTalk dictionary for VOICEVOX on Runpod-like path.
+# main.py expects: /workspace/ca_data/tts/open_jtalk_dic_utf_8-1.11
+RUN set -eux; \
+    JTDIR="/workspace/ca_data/tts/open_jtalk_dic_utf_8-1.11"; \
+    mkdir -p /workspace/ca_data/tts; \
+    if [ ! -d "${JTDIR}" ] || [ -z "$(ls -A "${JTDIR}" 2>/dev/null || true)" ]; then \
+      TMP="/tmp/open_jtalk_dic_utf_8-1.11.tar.gz"; \
+      URLS="\
+https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic-1.11/open_jtalk_dic_utf_8-1.11.tar.gz \
+https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic_utf_8-1.11/open_jtalk_dic_utf_8-1.11.tar.gz"; \
+      ok=""; \
+      for u in ${URLS}; do \
+        if curl -fL --retry 3 --retry-delay 2 "${u}" -o "${TMP}"; then ok="1"; break; fi; \
+      done; \
+      if [ -n "${ok}" ]; then \
+        mkdir -p /tmp/openjtalk_extract; \
+        tar -xzf "${TMP}" -C /tmp/openjtalk_extract; \
+        FOUND="$(find /tmp/openjtalk_extract -type d -name open_jtalk_dic_utf_8-1.11 | head -n1)"; \
+        if [ -n "${FOUND}" ]; then \
+          rm -rf "${JTDIR}"; \
+          mv "${FOUND}" "${JTDIR}"; \
+        fi; \
+      fi; \
+    fi; \
+    if [ ! -d "${JTDIR}" ] || [ -z "$(ls -A "${JTDIR}" 2>/dev/null || true)" ]; then \
+      echo "[WARN] Open JTalk dictionary was not prepared at ${JTDIR}. VOICEVOX may require manual setup."; \
+    fi
 
 # Re-pin core framework versions in case optional deps caused downgrades
 RUN python -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110"

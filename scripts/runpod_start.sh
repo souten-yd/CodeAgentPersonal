@@ -61,13 +61,55 @@ fi
 }
 
 # Install voicevox_core if not present (optional: VOICEVOX TTS)
-# --no-index prevents PyPI fallback which could install an incompatible package and downgrade pydantic
+# Prefer official expanded_assets wheels, then fallback to PyPI.
 "${PYTHON_BIN}" -c "import voicevox_core" 2>/dev/null || {
   echo "[Runpod] Installing voicevox_core for VOICEVOX TTS..."
   "${PYTHON_BIN}" -m pip install voicevox_core --no-index \
     --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/" \
+    || "${PYTHON_BIN}" -m pip install "voicevox_core>=0.15,<0.16" \
     || echo "[Runpod][WARN] voicevox_core installation failed. VOICEVOX TTS will be disabled."
 }
+if "${PYTHON_BIN}" -c "import voicevox_core,sys; print(f'voicevox_core OK (python={sys.executable})')" >/tmp/voicevox_import_check.log 2>&1; then
+  cat /tmp/voicevox_import_check.log
+else
+  echo "[Runpod][WARN] voicevox_core import check failed:"
+  cat /tmp/voicevox_import_check.log || true
+  "${PYTHON_BIN}" -m pip show voicevox_core || true
+fi
+# Prepare Open JTalk dictionary automatically (for VOICEVOX).
+JTALK_DIR="/workspace/ca_data/tts/open_jtalk_dic_utf_8-1.11"
+if [[ ! -d "${JTALK_DIR}" || -z "$(ls -A "${JTALK_DIR}" 2>/dev/null || true)" ]]; then
+  echo "[Runpod] Open JTalk dictionary not found. Trying automatic setup..."
+  mkdir -p /workspace/ca_data/tts
+  TMP_TGZ="/tmp/open_jtalk_dic_utf_8-1.11.tar.gz"
+  JTALK_URLS=(
+    "https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic-1.11/open_jtalk_dic_utf_8-1.11.tar.gz"
+    "https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic_utf_8-1.11/open_jtalk_dic_utf_8-1.11.tar.gz"
+  )
+  DL_OK=0
+  for url in "${JTALK_URLS[@]}"; do
+    if curl -fL --retry 3 --retry-delay 2 "${url}" -o "${TMP_TGZ}"; then
+      DL_OK=1
+      break
+    fi
+  done
+  if [[ "${DL_OK}" -eq 1 ]]; then
+    EXTRACT_DIR="/tmp/openjtalk_extract"
+    rm -rf "${EXTRACT_DIR}"
+    mkdir -p "${EXTRACT_DIR}"
+    if tar -xzf "${TMP_TGZ}" -C "${EXTRACT_DIR}"; then
+      FOUND_DIR="$(find "${EXTRACT_DIR}" -type d -name open_jtalk_dic_utf_8-1.11 | head -n1 || true)"
+      if [[ -n "${FOUND_DIR}" ]]; then
+        rm -rf "${JTALK_DIR}"
+        mv "${FOUND_DIR}" "${JTALK_DIR}"
+        echo "[Runpod] Open JTalk dictionary prepared at ${JTALK_DIR}"
+      fi
+    fi
+  fi
+fi
+if [[ ! -d "${JTALK_DIR}" || -z "$(ls -A "${JTALK_DIR}" 2>/dev/null || true)" ]]; then
+  echo "[Runpod][WARN] Open JTalk dictionary setup failed. Please place open_jtalk_dic_utf_8-1.11 under /workspace/ca_data/tts."
+fi
 # Re-pin core framework versions in case optional deps caused downgrades
 "${PYTHON_BIN}" -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110" 2>/dev/null || true
 
