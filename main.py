@@ -585,13 +585,17 @@ def _fallback_role_recommendations(models: list[dict]) -> dict[str, list[str]]:
     return recommendations
 
 
-def recommend_roles_with_planner(models: list[dict]) -> tuple[str, dict[str, list[str]]]:
+def recommend_roles_with_planner(models: list[dict], planner_key_override: str = "") -> tuple[str, dict[str, list[str]]]:
     candidates = [m for m in models if int(m.get("enabled", 1) or 1) != 0]
     if not candidates:
         return "", {}
-    planner_model = max(candidates, key=lambda m: _model_text_tps(m))
-    planner_key = (planner_model.get("model_key") or "").strip()
     fallback = _fallback_role_recommendations(candidates)
+    if planner_key_override:
+        # 指定されたモデルキーを優先使用（例: スキャン時の最小モデル）
+        planner_key = planner_key_override
+    else:
+        planner_model = max(candidates, key=lambda m: _model_text_tps(m))
+        planner_key = (planner_model.get("model_key") or "").strip()
     if not _model_manager.has_llama_server():
         return planner_key, fallback
     if not planner_key:
@@ -9730,13 +9734,15 @@ def _run_model_scan_job(job_id: str, folder: str):
                 models=[],
             )
             return
-        # Step 1: 全モデルをDBに登録（ベンチマークなし）
+        # Step 1: 全モデルをDBに登録しつつ、有効モデルをベンチマーク
+        benchmark_failed = 0
         for idx, m in enumerate(results, start=1):
+            model_name = m.get("name") or os.path.basename(m.get("path", "")) or f"model {idx}"
             _set_model_scan_state(
-                phase="scan",
+                phase="benchmark",
                 current=idx,
                 total=total,
-                summary=f"Registering {m.get('name') or os.path.basename(m.get('path',''))}",
+                summary=f"Benchmarking {model_name}",
             )
             existing = model_db_find_by_path(m["path"])
             if existing:
@@ -9747,46 +9753,43 @@ def _run_model_scan_job(job_id: str, folder: str):
                 model_id = model_db_add(m)
                 added += 1
             saved = model_db_find_by_path(m["path"]) or {"id": model_id, **m}
+            # 有効モデルのみベンチマーク（無効モデルはスキップ）
+            if int(saved.get("enabled", 1) or 1) != 0:
+                try:
+                    bm_updates = benchmark_model_profiles(saved)
+                    model_db_update(model_id, bm_updates)
+                    saved.update(bm_updates)
+                    benchmarked += 1
+                except Exception as e:
+                    benchmark_failed += 1
+                    model_db_update(model_id, {"notes": f"BENCHMARK ERROR: {e}"})
+                    saved["notes"] = f"BENCHMARK ERROR: {e}"
+                    print(f"[ModelDB] benchmark error during scan: {model_name}: {e}")
             saved_models.append(saved)
-        _set_model_scan_state(added=added, updated=updated)
+            _set_model_scan_state(
+                added=added,
+                updated=updated,
+                benchmarked=benchmarked,
+                error="" if benchmark_failed == 0 else f"benchmark_failed={benchmark_failed}",
+            )
 
-        # Step 2: 最小サイズの非VLM/非mmprojモデルを1つだけベンチマーク
-        non_vlm = [m for m in saved_models if not m.get("is_vlm") and "mmproj" not in (m.get("path") or "").lower()]
+        # Step 2: 最小サイズの非VLM/非mmprojモデルをロードしてロール決定に使う
+        non_vlm = [m for m in saved_models
+                   if not m.get("is_vlm")
+                   and "mmproj" not in (m.get("path") or "").lower()
+                   and int(m.get("enabled", 1) or 1) != 0]
         if not non_vlm:
-            non_vlm = saved_models  # フォールバック: 全モデル対象
-        benchmark_target = min(non_vlm, key=lambda m: float(m.get("file_size_mb") or 9999999))
-        benchmark_failed = 0
-        model_name = benchmark_target.get("name") or os.path.basename(benchmark_target.get("path", ""))
-        _set_model_scan_state(
-            phase="benchmark",
-            current=1,
-            total=1,
-            summary=f"Benchmarking {model_name} (smallest model)",
-        )
-        try:
-            bm_updates = benchmark_model_profiles(benchmark_target)
-            model_db_update(benchmark_target["id"], bm_updates)
-            for m in saved_models:
-                if m["id"] == benchmark_target["id"]:
-                    m.update(bm_updates)
-                    break
-            benchmarked += 1
-        except Exception as e:
-            benchmark_failed += 1
-            model_db_update(benchmark_target["id"], {"notes": f"BENCHMARK ERROR: {e}"})
-            print(f"[ModelDB] benchmark error during scan: {model_name}: {e}")
-        _set_model_scan_state(
-            benchmarked=benchmarked,
-            error="" if benchmark_failed == 0 else f"benchmark_failed={benchmark_failed}",
-        )
+            non_vlm = [m for m in saved_models if int(m.get("enabled", 1) or 1) != 0] or saved_models
+        smallest_model = min(non_vlm, key=lambda m: float(m.get("file_size_mb") or 9999999))
+        smallest_key = (smallest_model.get("model_key") or "").strip()
 
         _set_model_scan_state(
             phase="planner",
             current=total,
             total=total,
-            summary="Choosing planner and recommended roles...",
+            summary=f"Loading {smallest_model.get('name', smallest_key)} for role recommendations...",
         )
-        planner_key, recommendations = recommend_roles_with_planner(saved_models)
+        planner_key, recommendations = recommend_roles_with_planner(saved_models, planner_key_override=smallest_key)
         initialized_roles = 0
         for model in saved_models:
             existing_roles = [x.strip() for x in str(model.get("auto_roles", "")).split(",") if x.strip()]
@@ -9870,7 +9873,16 @@ def benchmark_model_api(mid: str):
         try:
             all_models = model_db_list()
             if all_models:
-                _, recommendations = recommend_roles_with_planner(all_models)
+                # 最小の非VLM/非mmprojモデルでロール決定
+                non_vlm = [m for m in all_models
+                           if not m.get("is_vlm")
+                           and "mmproj" not in (m.get("path") or "").lower()
+                           and int(m.get("enabled", 1) or 1) != 0]
+                if not non_vlm:
+                    non_vlm = [m for m in all_models if int(m.get("enabled", 1) or 1) != 0] or all_models
+                smallest = min(non_vlm, key=lambda m: float(m.get("file_size_mb") or 9999999))
+                smallest_key = (smallest.get("model_key") or "").strip()
+                _, recommendations = recommend_roles_with_planner(all_models, planner_key_override=smallest_key)
                 initialized_roles = 0
                 for row in all_models:
                     existing_roles = [x.strip() for x in str(row.get("auto_roles", "")).split(",") if x.strip()]
