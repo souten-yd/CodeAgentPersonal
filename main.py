@@ -2206,6 +2206,20 @@ def _is_docker_available() -> bool:
     return result.returncode == 0
 
 
+def _docker_sys_venv_mount_args() -> list[str]:
+    """
+    ローカル起動時に作成した system venv を Docker に read-only マウントする。
+    （venv配下の補助ファイル参照用。Docker操作そのものは docker CLI 経由で実施）
+    """
+    venv_dir = (os.environ.get("CODEAGENT_SYS_VENV_DIR", "") or "").strip()
+    if not venv_dir:
+        return []
+    abs_venv = os.path.abspath(venv_dir)
+    if not os.path.isdir(abs_venv):
+        return []
+    return ["-v", f"{abs_venv}:/opt/codeagent/venv_sys:ro"]
+
+
 def _tool_runtime_policy(tool_name: str) -> str:
     """
     ツール実行バックエンドを返す。
@@ -2334,6 +2348,7 @@ def _run_python_in_docker(project: str, rel_path: str, timeout: int) -> str:
             "--memory=512m", "--memory-swap=512m", "--cpus=2",
             "-w", work_dir,
             "-v", f"{os.path.abspath(WORK_DIR)}:/app",
+            *_docker_sys_venv_mount_args(),
             "python:3.11", "python", container_path
         ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace")
@@ -2383,6 +2398,7 @@ def _run_server_docker(port: int, abs_project_dir: str) -> str:
         "--name", container_name,
         "-p", f"{port}:{port}",
         "-v", f"{abs_project_dir}:/srv:ro",  # :ro で読み取り専用マウント
+        *_docker_sys_venv_mount_args(),
         "--workdir", "/srv",
         "--memory", "128m",
         "--cpus", "0.5",
@@ -2516,6 +2532,7 @@ def _ensure_browser_container(project: str) -> bool:
         "--memory=1g", "--cpus=2",
         *extra_hosts,
         "-v", f"{os.path.abspath(WORK_DIR)}:/app",
+        *_docker_sys_venv_mount_args(),
         BROWSER_IMAGE,
         "tail", "-f", "/dev/null"  # コンテナを起動したまま待機
     ], capture_output=True, text=True)
@@ -2638,6 +2655,7 @@ def _run_browser_docker(project: str, timeout: int) -> str:
             "--memory=1g", "--cpus=2",
             *extra_hosts,
             "-v", f"{os.path.abspath(WORK_DIR)}:/app",
+            *_docker_sys_venv_mount_args(),
             BROWSER_IMAGE,
             "python", f"/app/{project}/_browser_run.py"
         ]
@@ -2690,6 +2708,7 @@ def _run_npm_docker(command: str, project_dir: str, timeout: int) -> str:
         "--memory=1g", "--cpus=2",
         "-w", "/app",
         "-v", f"{project_dir}:/app",
+        *_docker_sys_venv_mount_args(),
         "-v", f"{BROWSER_CONTAINER}_node_modules:/app/node_modules",
         NODE_IMAGE,
         "sh", "-c", f"npm {command} 2>&1"
@@ -2743,6 +2762,7 @@ def _run_node_docker(project_dir: str, timeout: int) -> str:
         "--memory=512m", "--cpus=2",
         "-w", "/app",
         "-v", f"{project_dir}:/app",
+        *_docker_sys_venv_mount_args(),
         "-v", f"{BROWSER_CONTAINER}_node_modules:/app/node_modules",
         NODE_IMAGE,
         "node", "/app/_node_run.js"
