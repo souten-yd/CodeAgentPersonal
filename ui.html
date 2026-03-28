@@ -1257,7 +1257,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
 
     <!-- VAULT TAB (Echo モード用) -->
-    <div class="tab-content" id="tab-vault" style="display:none;overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+    <div class="tab-content" id="tab-vault" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div>
           <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Vault</span>
@@ -1277,7 +1277,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
 
     <!-- TTS/ASR TAB (Echo モード用) -->
-    <div class="tab-content" id="tab-tsasr" style="display:none;overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+    <div class="tab-content" id="tab-tsasr" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
       <div style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px">TTS / ASR</div>
 
       <!-- ボイスクローン -->
@@ -2041,6 +2041,9 @@ const echo = {
   asrLang:        localStorage.getItem('echo_asr_lang')    || 'auto',
   asrModel:       localStorage.getItem('echo_asr_model')   || 'large-v3-turbo',
   voiceRefAudio:  null,    // ボイスクローン参照音声 base64
+  nextChunkSeq:   1,
+  unackedChunks:  new Map(), // seq -> ArrayBuffer(先頭4byte=seq)
+  _stopResolver:  null,
 };
 
 // Echo 自動スクロール状態
@@ -4988,14 +4991,17 @@ function _echoHandleEvent(ev) {
   } else if (ev.type === 'error') {
     _echoSetStatus('⚠ ' + (ev.detail || 'エラー'));
     addLog('err', 'echo', ev.detail || 'echo error');
+  } else if (ev.type === 'ack' && Number.isFinite(ev.seq)) {
+    echo.unackedChunks.delete(ev.seq);
   }
 }
 
 function _echoFlushPendingChunks() {
   if (!echo.ws || echo.ws.readyState !== WebSocket.OPEN) return;
-  while (echo.pendingChunks.length > 0) {
-    const chunk = echo.pendingChunks.shift();
-    echo.ws.send(chunk);
+  for (const [seq, chunk] of echo.unackedChunks) {
+    try {
+      echo.ws.send(chunk);
+    } catch(e) {}
   }
 }
 
@@ -5054,6 +5060,8 @@ async function _echoStart() {
   echo.sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   echo.sentences  = [];
   echo.pendingChunks = [];
+  echo.nextChunkSeq = 1;
+  echo.unackedChunks = new Map();
   echo.reconnectCount = 0;
   echo.startTime  = Date.now();
   echo.recording  = true;
@@ -5075,11 +5083,22 @@ async function _echoStart() {
     ? 'audio/webm;codecs=opus' : 'audio/webm';
   const mr = new MediaRecorder(echo.stream, {mimeType});
   echo.mediaRecorder = mr;
+  mr.onstop = () => {
+    if (typeof echo._stopResolver === 'function') {
+      echo._stopResolver();
+      echo._stopResolver = null;
+    }
+  };
   mr.ondataavailable = (e) => {
     if (!e.data || e.data.size === 0) return;
     // バイナリに変換してWSへ or ペンディングキューへ
     e.data.arrayBuffer().then(buf => {
-      echo.pendingChunks.push(buf);
+      const seq = echo.nextChunkSeq++;
+      const header = new Uint8Array(4 + buf.byteLength);
+      const dv = new DataView(header.buffer);
+      dv.setUint32(0, seq, false); // big-endian
+      header.set(new Uint8Array(buf), 4);
+      echo.unackedChunks.set(seq, header.buffer);
       if (echo.ws && echo.ws.readyState === WebSocket.OPEN) {
         _echoFlushPendingChunks();
       }
@@ -5096,7 +5115,10 @@ async function _echoStop() {
   if (echo._reconnectTimer) { clearTimeout(echo._reconnectTimer); echo._reconnectTimer = null; }
   // MediaRecorder停止
   if (echo.mediaRecorder && echo.mediaRecorder.state !== 'inactive') {
+    const stopDone = new Promise((resolve) => { echo._stopResolver = resolve; });
     echo.mediaRecorder.stop();
+    // stop直前チャンクのondataavailable完了を待つ
+    await Promise.race([stopDone, new Promise(res => setTimeout(res, 1000))]);
   }
   // ストリーム停止
   if (echo.stream) {
@@ -5109,6 +5131,7 @@ async function _echoStop() {
   _echoSetStatus('停止中... 議事録を生成しています');
   // WS停止シグナル
   if (echo.ws && echo.ws.readyState === WebSocket.OPEN) {
+    _echoFlushPendingChunks();
     echo.ws.send(JSON.stringify({type: 'stop'}));
   }
   _echoSetConn('disconnected');
