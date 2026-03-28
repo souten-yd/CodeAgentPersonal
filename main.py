@@ -8557,6 +8557,7 @@ async def echo_stream_ws(websocket: WebSocket):
     chunk_sample_rate = 16000
     chunk_channels = 1
     chunk_mime = "audio/webm"
+    asr_device = ""
     processed_chunk_seqs: set[int] = set()
     async def send(payload: dict):
         try:
@@ -8586,11 +8587,31 @@ async def echo_stream_ws(websocket: WebSocket):
                     session_id = str(ev.get("session_id", ""))
                     language   = str(ev.get("language", "auto"))
                     model_name = str(ev.get("model", "large-v3-turbo"))
+                    asr_device = str(ev.get("asr_device", "")).strip().lower()
                     chunk_audio_format = str(ev.get("audio_format", "webm")).strip().lower() or "webm"
                     chunk_sample_rate = int(ev.get("sample_rate", 16000) or 16000)
                     chunk_channels = int(ev.get("channels", 1) or 1)
                     chunk_mime = str(ev.get("mime", "audio/webm"))
                     processed_chunk_seqs = set()
+                    if asr_device in {"cpu", "cuda"}:
+                        try:
+                            st = voice_load(model_name=model_name, device=asr_device)
+                            # Echo専用モデルは device 変更時に作り直す
+                            with _echo_voice_lock:
+                                global _echo_voice_model, _echo_voice_model_name
+                                _echo_voice_model = None
+                                _echo_voice_model_name = ""
+                            await send({
+                                "type": "ui_log",
+                                "level": "info",
+                                "summary": f"Echo ASR device set to {st.get('device', asr_device)}",
+                            })
+                        except Exception as e:
+                            await send({
+                                "type": "ui_log",
+                                "level": "warn",
+                                "summary": f"Echo ASR device apply failed: {e}",
+                            })
                     asr_filter = _echo_resolve_filter_config(ev.get("asr_post_filter", {}))
                     session = {
                         "session_id": session_id,
