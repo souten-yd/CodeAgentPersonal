@@ -8221,6 +8221,10 @@ def _echo_should_reject_asr_text(text: str, metrics: dict) -> tuple[bool, str]:
 def _echo_resolve_filter_config(raw: dict | None) -> dict:
     """Echo ASRポストフィルタ設定を安全に解決する。"""
     cfg = {
+        "enabled": True,
+        "reject_short_text": True,
+        "reject_high_no_speech_prob": True,
+        "reject_low_avg_logprob": True,
         "min_chars": ECHO_ASR_MIN_CHARS,
         "no_speech_reject": ECHO_ASR_NO_SPEECH_REJECT,
         "low_logprob_reject": ECHO_ASR_LOW_LOGPROB_REJECT,
@@ -8229,6 +8233,14 @@ def _echo_resolve_filter_config(raw: dict | None) -> dict:
     if not isinstance(raw, dict):
         return cfg
     try:
+        if "enabled" in raw:
+            cfg["enabled"] = bool(raw.get("enabled"))
+        if "reject_short_text" in raw:
+            cfg["reject_short_text"] = bool(raw.get("reject_short_text"))
+        if "reject_high_no_speech_prob" in raw:
+            cfg["reject_high_no_speech_prob"] = bool(raw.get("reject_high_no_speech_prob"))
+        if "reject_low_avg_logprob" in raw:
+            cfg["reject_low_avg_logprob"] = bool(raw.get("reject_low_avg_logprob"))
         if "min_chars" in raw:
             cfg["min_chars"] = max(1, int(raw.get("min_chars", cfg["min_chars"])))
         if "no_speech_reject" in raw:
@@ -8245,18 +8257,24 @@ def _echo_resolve_filter_config(raw: dict | None) -> dict:
 def _echo_should_reject_asr_text_with_config(text: str, metrics: dict, config: dict | None) -> tuple[bool, str]:
     """誤検出を抑える軽量棄却ルール（セッション設定対応）。"""
     cfg = _echo_resolve_filter_config(config)
+    if not bool(cfg.get("enabled", True)):
+        return False, ""
     text_len = len((text or "").strip())
-    if text_len < int(cfg["min_chars"]):
+    if bool(cfg.get("reject_short_text", True)) and text_len < int(cfg["min_chars"]):
         return True, "too_short_text"
     mean_nsp = metrics.get("mean_no_speech_prob")
     mean_logprob = metrics.get("mean_avg_logprob")
     if (
+        bool(cfg.get("reject_high_no_speech_prob", True))
+        and
         isinstance(mean_nsp, (int, float))
         and text_len <= int(cfg["short_text_max_chars"])
         and float(mean_nsp) >= float(cfg["no_speech_reject"])
     ):
         return True, "high_no_speech_prob"
     if (
+        bool(cfg.get("reject_low_avg_logprob", True))
+        and
         isinstance(mean_logprob, (int, float))
         and text_len <= int(cfg["short_text_max_chars"])
         and float(mean_logprob) <= float(cfg["low_logprob_reject"])
