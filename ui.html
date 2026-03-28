@@ -2042,6 +2042,36 @@ let voiceRecorder = null;
 let voiceChunks = [];
 let voiceRecording = false;
 
+function _migrateEchoTtsTranslateSettings() {
+  const migratedKey = 'echo_tts_translate_migrated';
+  if (localStorage.getItem(migratedKey) === 'true') return;
+  const keys = ['enabled', 'mode', 'en2ja_enabled', 'ja2en_enabled', 'autoplay'];
+  for (const key of keys) {
+    const echoKey = `echo_tts_translate_${key}`;
+    if (localStorage.getItem(echoKey) !== null) continue;
+    const legacyKey = `tts_translate_${key}`;
+    const legacyVal = localStorage.getItem(legacyKey);
+    if (legacyVal !== null) localStorage.setItem(echoKey, legacyVal);
+  }
+  localStorage.setItem(migratedKey, 'true');
+}
+
+function _ttsGetTranslateSettings(context = 'main') {
+  const prefix = context === 'echo' ? 'echo_tts_translate_' : 'tts_translate_';
+  const mode = localStorage.getItem(prefix + 'mode') || 'auto';
+  const en2jaRaw = localStorage.getItem(prefix + 'en2ja_enabled');
+  const ja2enRaw = localStorage.getItem(prefix + 'ja2en_enabled');
+  return {
+    enabled: localStorage.getItem(prefix + 'enabled') !== 'false',
+    mode,
+    en2jaEnabled: en2jaRaw !== null ? en2jaRaw === 'true' : (mode === 'auto' || mode === 'ja'),
+    ja2enEnabled: ja2enRaw !== null ? ja2enRaw === 'true' : (mode === 'auto' || mode === 'en'),
+    autoplay: localStorage.getItem(prefix + 'autoplay') === 'true',
+  };
+}
+
+_migrateEchoTtsTranslateSettings();
+
 // ── TTS (Text-to-Speech) ──
 const tts = {
   enabled:      localStorage.getItem('tts_enabled')    === 'true',
@@ -2051,21 +2081,11 @@ const tts = {
   speed:        parseFloat(localStorage.getItem('tts_speed') || '1.0'),
   qwen3model:   localStorage.getItem('tts_qwen3model') || 'Qwen/Qwen3-TTS-12Hz-1.7B-Base',
   ttsDevice:    localStorage.getItem('tts_device') || localStorage.getItem('tsasr_tts_device') || 'cpu',
-  translateEnabled: localStorage.getItem('tts_translate_enabled') !== 'false',
-  translateMode:    localStorage.getItem('tts_translate_mode')    || 'auto',
-  translateEnToJaEnabled: (() => {
-    const v = localStorage.getItem('tts_translate_en2ja_enabled');
-    if (v !== null) return v === 'true';
-    const mode = localStorage.getItem('tts_translate_mode') || 'auto';
-    return mode === 'auto' || mode === 'ja';
-  })(),
-  translateJaToEnEnabled: (() => {
-    const v = localStorage.getItem('tts_translate_ja2en_enabled');
-    if (v !== null) return v === 'true';
-    const mode = localStorage.getItem('tts_translate_mode') || 'auto';
-    return mode === 'auto' || mode === 'en';
-  })(),
-  translateAutoplay: localStorage.getItem('tts_translate_autoplay') === 'true',
+  translateEnabled: _ttsGetTranslateSettings('main').enabled,
+  translateMode:    _ttsGetTranslateSettings('main').mode,
+  translateEnToJaEnabled: _ttsGetTranslateSettings('main').en2jaEnabled,
+  translateJaToEnEnabled: _ttsGetTranslateSettings('main').ja2enEnabled,
+  translateAutoplay: _ttsGetTranslateSettings('main').autoplay,
   _queue:       [],
   _playing:     false,
   _audio:       null,
@@ -2096,6 +2116,11 @@ const echo = {
   asrLang:        localStorage.getItem('echo_asr_lang')    || 'auto',
   asrModel:       localStorage.getItem('echo_asr_model')   || 'large-v3-turbo',
   asrDevice:      localStorage.getItem('asr_device')       || 'cpu',
+  ttsTranslateEnabled: _ttsGetTranslateSettings('echo').enabled,
+  ttsTranslateMode: _ttsGetTranslateSettings('echo').mode,
+  ttsTranslateEnToJaEnabled: _ttsGetTranslateSettings('echo').en2jaEnabled,
+  ttsTranslateJaToEnEnabled: _ttsGetTranslateSettings('echo').ja2enEnabled,
+  ttsTranslateAutoplay: _ttsGetTranslateSettings('echo').autoplay,
   voiceRefAudio:  null,    // ボイスクローン参照音声 base64
   nextChunkSeq:   1,
   unackedChunks:  new Map(), // seq -> ArrayBuffer(先頭4byte=seq)
@@ -2138,10 +2163,11 @@ function _ttsSplitSentences(text) {
   return result.filter(s => s.length > 0);
 }
 
-function ttsSpeak(text) {
+function ttsSpeak(text, opts = {}) {
   if (!tts.enabled) return;
+  const context = opts.context || 'main';
   const sentences = _ttsSplitSentences(text);
-  for (const s of sentences) tts._queue.push(s);
+  for (const s of sentences) tts._queue.push({text: s, context});
   if (!tts._playing) _ttsPlayNext();
 }
 
@@ -2183,12 +2209,19 @@ function _ttsModeFromFlags(en2ja, ja2en) {
 }
 
 // TTS 翻訳が必要かどうかを判定し、必要なら翻訳テキストを返す
-async function _ttsMaybeTranslate(text) {
-  if (!tts.translateEnabled) return text;
+async function _ttsMaybeTranslate(text, context = 'main') {
+  const cfg = context === 'echo'
+    ? {
+        translateEnabled: echo.ttsTranslateEnabled,
+        translateJaToEnEnabled: echo.ttsTranslateJaToEnEnabled,
+        translateEnToJaEnabled: echo.ttsTranslateEnToJaEnabled,
+      }
+    : tts;
+  if (!cfg.translateEnabled) return text;
   const srcLang = _ttsDetectLang(text);
   const needTranslate = srcLang === 'ja'
-    ? !!tts.translateJaToEnEnabled
-    : !!tts.translateEnToJaEnabled;
+    ? !!cfg.translateJaToEnEnabled
+    : !!cfg.translateEnToJaEnabled;
   if (!needTranslate) return text;
   try {
     const r = await fetch(API + '/tts/translate-text', {
@@ -2206,10 +2239,16 @@ async function _ttsMaybeTranslate(text) {
 async function _ttsPlayNext() {
   if (tts._queue.length === 0) { tts._playing = false; return; }
   tts._playing = true;
-  let sentence = tts._queue.shift();
+  const queueItem = tts._queue.shift();
+  let sentence = typeof queueItem === 'string' ? queueItem : queueItem?.text;
+  const context = typeof queueItem === 'string' ? 'main' : (queueItem?.context || 'main');
+  if (!sentence) {
+    tts._playing = false;
+    return;
+  }
   try {
     // 翻訳TTS処理（有効な場合）
-    sentence = await _ttsMaybeTranslate(sentence);
+    sentence = await _ttsMaybeTranslate(sentence, context);
     if (tts.engine === 'webspeech') {
       await _ttsPlayWebSpeech(sentence);
     } else {
@@ -2634,45 +2673,51 @@ function saveTsAsrSettings() {
   if (devRadio) _syncTtsDeviceState(devRadio.value);
 }
 
-function saveTtsTranslateSettings() {
+function saveTtsTranslateSettings(context = 'echo') {
+  const isEcho = context === 'echo';
+  const prefix = isEcho ? 'echo_tts_translate_' : 'tts_translate_';
+  const target = isEcho ? echo : tts;
   const enableChk = document.getElementById('tts-translate-enable');
   const modeSel   = document.getElementById('tts-translate-mode');
   const en2jaChk  = document.getElementById('tts-translate-en2ja-enable');
   const ja2enChk  = document.getElementById('tts-translate-ja2en-enable');
   const autoChk   = document.getElementById('tts-translate-autoplay');
   if (enableChk) {
-    tts.translateEnabled = enableChk.checked;
-    localStorage.setItem('tts_translate_enabled', tts.translateEnabled);
+    target[isEcho ? 'ttsTranslateEnabled' : 'translateEnabled'] = enableChk.checked;
+    localStorage.setItem(prefix + 'enabled', enableChk.checked);
     const lbl = document.getElementById('tts-translate-enable-label');
-    if (lbl) lbl.textContent = tts.translateEnabled ? 'ON' : 'OFF';
+    if (lbl) lbl.textContent = enableChk.checked ? 'ON' : 'OFF';
   }
   // 旧 mode 選択は互換用途として残しつつ、新しい方向別トグルを優先
   if (modeSel && document.activeElement === modeSel) {
     const f = _ttsFlagsFromMode(modeSel.value);
-    tts.translateEnToJaEnabled = f.en2ja;
-    tts.translateJaToEnEnabled = f.ja2en;
+    target[isEcho ? 'ttsTranslateEnToJaEnabled' : 'translateEnToJaEnabled'] = f.en2ja;
+    target[isEcho ? 'ttsTranslateJaToEnEnabled' : 'translateJaToEnEnabled'] = f.ja2en;
     if (en2jaChk) en2jaChk.checked = f.en2ja;
     if (ja2enChk) ja2enChk.checked = f.ja2en;
   } else {
-    if (en2jaChk) tts.translateEnToJaEnabled = en2jaChk.checked;
-    if (ja2enChk) tts.translateJaToEnEnabled = ja2enChk.checked;
+    if (en2jaChk) target[isEcho ? 'ttsTranslateEnToJaEnabled' : 'translateEnToJaEnabled'] = en2jaChk.checked;
+    if (ja2enChk) target[isEcho ? 'ttsTranslateJaToEnEnabled' : 'translateJaToEnEnabled'] = ja2enChk.checked;
   }
-  tts.translateMode = _ttsModeFromFlags(!!tts.translateEnToJaEnabled, !!tts.translateJaToEnEnabled);
-  localStorage.setItem('tts_translate_mode', tts.translateMode);
-  localStorage.setItem('tts_translate_en2ja_enabled', tts.translateEnToJaEnabled);
-  localStorage.setItem('tts_translate_ja2en_enabled', tts.translateJaToEnEnabled);
+  const en2ja = !!target[isEcho ? 'ttsTranslateEnToJaEnabled' : 'translateEnToJaEnabled'];
+  const ja2en = !!target[isEcho ? 'ttsTranslateJaToEnEnabled' : 'translateJaToEnEnabled'];
+  const mode = _ttsModeFromFlags(en2ja, ja2en);
+  target[isEcho ? 'ttsTranslateMode' : 'translateMode'] = mode;
+  localStorage.setItem(prefix + 'mode', mode);
+  localStorage.setItem(prefix + 'en2ja_enabled', en2ja);
+  localStorage.setItem(prefix + 'ja2en_enabled', ja2en);
   const en2jaLbl = document.getElementById('tts-translate-en2ja-enable-label');
   const ja2enLbl = document.getElementById('tts-translate-ja2en-enable-label');
-  if (en2jaLbl) en2jaLbl.textContent = tts.translateEnToJaEnabled ? 'ON' : 'OFF';
-  if (ja2enLbl) ja2enLbl.textContent = tts.translateJaToEnEnabled ? 'ON' : 'OFF';
+  if (en2jaLbl) en2jaLbl.textContent = en2ja ? 'ON' : 'OFF';
+  if (ja2enLbl) ja2enLbl.textContent = ja2en ? 'ON' : 'OFF';
   if (modeSel) {
-    modeSel.value = tts.translateMode;
+    modeSel.value = mode;
   }
   if (autoChk) {
-    tts.translateAutoplay = autoChk.checked;
-    localStorage.setItem('tts_translate_autoplay', tts.translateAutoplay);
+    target[isEcho ? 'ttsTranslateAutoplay' : 'translateAutoplay'] = autoChk.checked;
+    localStorage.setItem(prefix + 'autoplay', autoChk.checked);
     const lbl = document.getElementById('tts-translate-autoplay-label');
-    if (lbl) lbl.textContent = tts.translateAutoplay ? 'ON' : 'OFF';
+    if (lbl) lbl.textContent = autoChk.checked ? 'ON' : 'OFF';
   }
 }
 
@@ -2716,11 +2761,17 @@ function refreshTsAsrTab() {
   const en2jaChk  = document.getElementById('tts-translate-en2ja-enable');
   const ja2enChk  = document.getElementById('tts-translate-ja2en-enable');
   const autoChk   = document.getElementById('tts-translate-autoplay');
-  if (enableChk) { enableChk.checked = tts.translateEnabled; const lbl = document.getElementById('tts-translate-enable-label'); if (lbl) lbl.textContent = tts.translateEnabled ? 'ON' : 'OFF'; }
-  if (modeSel)   modeSel.value = _ttsModeFromFlags(!!tts.translateEnToJaEnabled, !!tts.translateJaToEnEnabled);
-  if (en2jaChk)  { en2jaChk.checked = !!tts.translateEnToJaEnabled; const lbl = document.getElementById('tts-translate-en2ja-enable-label'); if (lbl) lbl.textContent = tts.translateEnToJaEnabled ? 'ON' : 'OFF'; }
-  if (ja2enChk)  { ja2enChk.checked = !!tts.translateJaToEnEnabled; const lbl = document.getElementById('tts-translate-ja2en-enable-label'); if (lbl) lbl.textContent = tts.translateJaToEnEnabled ? 'ON' : 'OFF'; }
-  if (autoChk)   { autoChk.checked = tts.translateAutoplay; const lbl = document.getElementById('tts-translate-autoplay-label'); if (lbl) lbl.textContent = tts.translateAutoplay ? 'ON' : 'OFF'; }
+  const echoTranslate = _ttsGetTranslateSettings('echo');
+  echo.ttsTranslateEnabled = echoTranslate.enabled;
+  echo.ttsTranslateMode = echoTranslate.mode;
+  echo.ttsTranslateEnToJaEnabled = echoTranslate.en2jaEnabled;
+  echo.ttsTranslateJaToEnEnabled = echoTranslate.ja2enEnabled;
+  echo.ttsTranslateAutoplay = echoTranslate.autoplay;
+  if (enableChk) { enableChk.checked = echo.ttsTranslateEnabled; const lbl = document.getElementById('tts-translate-enable-label'); if (lbl) lbl.textContent = echo.ttsTranslateEnabled ? 'ON' : 'OFF'; }
+  if (modeSel)   modeSel.value = _ttsModeFromFlags(!!echo.ttsTranslateEnToJaEnabled, !!echo.ttsTranslateJaToEnEnabled);
+  if (en2jaChk)  { en2jaChk.checked = !!echo.ttsTranslateEnToJaEnabled; const lbl = document.getElementById('tts-translate-en2ja-enable-label'); if (lbl) lbl.textContent = echo.ttsTranslateEnToJaEnabled ? 'ON' : 'OFF'; }
+  if (ja2enChk)  { ja2enChk.checked = !!echo.ttsTranslateJaToEnEnabled; const lbl = document.getElementById('tts-translate-ja2en-enable-label'); if (lbl) lbl.textContent = echo.ttsTranslateJaToEnEnabled ? 'ON' : 'OFF'; }
+  if (autoChk)   { autoChk.checked = echo.ttsTranslateAutoplay; const lbl = document.getElementById('tts-translate-autoplay-label'); if (lbl) lbl.textContent = echo.ttsTranslateAutoplay ? 'ON' : 'OFF'; }
 }
 
 async function loadAsrModelFromTab() {
@@ -5130,7 +5181,7 @@ function _echoPlaySentence(sid) {
   // Echoモード用TTSエンジンで再生
   const savedEngine = tts.engine;
   tts.engine = echo.ttsEngine;
-  ttsSpeak(s.text);
+  ttsSpeak(s.text, {context: 'echo'});
   tts.engine = savedEngine;
 }
 
