@@ -97,6 +97,7 @@
 | **VRAMガード** | `nvidia-smi/rocm-smi` で空きVRAMを監視し、必要時は `parallel → serial` へ自動切替（設定でON/OFF） |
 | **Web検索状態表示** | 設定パネルとタスク進捗カードで検索クエリ・状態をリアルタイム表示 |
 | **待機UIの統一** | チャット/タスク両モードで統一されたウェイティングカードUI |
+| **Echo モード（同時通訳）** | マイク音声をリアルタイムで ASR → LLM翻訳 → TTS 読み上げ。全画面表示。録音・文字起こし・議事録を `ca_data/EchoVault/` に自動保存。ボイスクローン（参照音声指定）対応 |
 | **モバイル対応** | iPhone対応。タブバーはスクロール可能。Safe area対応 |
 | **プロジェクト管理** | 複数プロジェクトを切り替え・作成 |
 | **プロジェクトDL** | プロジェクト一覧の`DL`ボタンからPLフォルダをzipでダウンロード |
@@ -122,6 +123,7 @@
 | チャットモードWeb検索 | ✅ 動作 | エージェントループ経由で`web_search`ツールを利用 |
 | GitHubリポジトリ連携 | ✅ 動作 | `ca_data/`をGitHubへバックアップ |
 | システムサマリーAPI | ✅ 安定 | `/system/summary` で軽量集約ポーリング |
+| Echo モード（同時通訳） | ✅ 動作 | faster-whisper(ASR) + LLM翻訳 + Edge-TTS/VOICEVOX/Qwen3-TTS。EchoVault自動保存 |
 
 ### ⚠️ 限定的・条件付き機能
 
@@ -220,6 +222,42 @@ bash scripts/runpod_start.sh
 > 起動ロジックを Python に共通化したため、Runpod の起動コマンドへ同じランチャーを指定できます。
 
 `http://localhost:8000` を開いてください。
+
+---
+
+## ポート要件
+
+**ユーザーが外部に公開する必要があるポートは 8000 番のみです。**
+
+| ポート | 用途 | 公開要否 |
+|---|---|---|
+| **8000** | CodeAgent Web UI + API | ✅ 外部公開（Runpod HTTP ポートに設定） |
+| 50021 | VOICEVOX Engine（任意） | ❌ サーバー内部のみ（公開不要） |
+| 8888 | `run_server` ツール（Docker内） | ❌ Docker内部のみ（公開不要） |
+
+Runpod では **HTTP Service のポートを 8000** に設定するだけで利用できます。
+
+### VOICEVOX を使う場合（任意）
+
+VOICEVOX は Docker で同一サーバー上に起動し、CodeAgent バックエンドがサーバー内部 (`localhost:50021`) から呼び出します。ユーザーは 50021 番ポートに直接アクセスしません。
+
+```bash
+# CPU版（推奨）
+docker run -d --name voicevox_engine \
+  -p 127.0.0.1:50021:50021 \
+  voicevox/voicevox_engine:cpu-ubuntu20.04-latest
+
+# GPU版（NVIDIA）
+docker run -d --name voicevox_engine \
+  --gpus all \
+  -p 127.0.0.1:50021:50021 \
+  voicevox/voicevox_engine:nvidia-ubuntu20.04-latest
+```
+
+- `-p 127.0.0.1:50021:50021` とすることで **ホスト外部からはアクセスできない**（ポート公開不要）
+- VOICEVOX が別ホストにある場合は環境変数で指定: `VOICEVOX_URL=http://<host>:50021`
+- Settings パネルの「VOICEVOX URL」フィールドからも変更可能（設定は自動保存）
+- 起動後、Settings → TTS → VOICEVOX の「接続テスト / ロード」ボタンで接続確認
 
 ### 依存が不足する場合（`fastapi` 未導入など）
 
@@ -323,6 +361,7 @@ CodeAgentPersonal/
 │   ├── model_db.db    # モデルDB（設定永続化含む）
 │   ├── skills/        # カスタムSKILL格納フォルダ
 │   │   └── スキル名/SKILL.md
+│   ├── EchoVault/     # Echo モードの録音・文字起こし・議事録
 │   └── workspace/     # プロジェクトファイル格納
 │       └── プロジェクト名/
 ├── .codeagent/        # センシティブデータ保存先（gitignore済み）
@@ -420,7 +459,29 @@ CodeAgentPersonal/
 | `GET` | `/repo/test-connection` | GitHubトークンの有効性とレート制限確認 |
 | `GET` | `/repo/status` | 現在のリポジトリ状態取得 |
 
-### MCP・音声
+### Echo モード（同時通訳）
+
+| メソッド | パス | 説明 |
+|---|---|---|
+| `WS` | `/echo/stream` | リアルタイム同時通訳 WebSocket ストリーム（ASR→翻訳→TTS） |
+| `GET` | `/echo/sessions` | EchoVault セッション一覧取得 |
+| `GET` | `/echo/sessions/{filename}` | EchoVault セッションファイルダウンロード |
+| `DELETE` | `/echo/sessions/{filename}` | EchoVault セッション削除 |
+| `POST` | `/echo/voice-ref` | ボイスクローン用参照音声の登録（base64） |
+| `GET` | `/echo/voice-ref` | 現在の参照音声情報取得 |
+| `DELETE` | `/echo/voice-ref` | 参照音声クリア |
+
+### TTS（音声合成）
+
+| メソッド | パス | 説明 |
+|---|---|---|
+| `GET` | `/tts/status` | TTS エンジン状態（Edge-TTS / VOICEVOX / Qwen3-TTS）および `voicevox_http_available` |
+| `GET` | `/tts/voices` | 利用可能な音声一覧（エンジン別） |
+| `POST` | `/tts/load` | TTS エンジンのロード（`engine`: `voicevox` / `qwen3tts`） |
+| `POST` | `/tts/unload` | TTS エンジンのアンロード |
+| `POST` | `/tts/synthesize` | テキスト→音声（WAV）。`ref_audio_base64` でボイスクローン対応 |
+
+### MCP・音声入力
 
 | メソッド | パス | 説明 |
 |---|---|---|
@@ -432,6 +493,27 @@ CodeAgentPersonal/
 | `POST` | `/voice/transcribe` | 音声→テキスト（日本語/英語） |
 
 ※ `/projects` で作成・参照される実体ディレクトリは `./ca_data/workspace/{project}/` です。
+
+### Echo モード — リアルタイム同時通訳
+
+UI 上部の **Echo** ボタンで Echo モード（全画面）に切り替えます。
+
+1. **● Start** ボタンを押してマイク録音開始
+2. 発話が自動で文字起こし（faster-whisper）→ LLM 翻訳 → TTS 読み上げ
+3. セッション終了後、録音(.webm)・文字起こし・議事録が `ca_data/EchoVault/` に保存
+4. **📁 Files** ボタンでセッション一覧を確認・ダウンロード可能
+
+**TTS エンジン設定**（Settings パネル）:
+
+| エンジン | 特徴 | 追加準備 |
+|---|---|---|
+| Edge-TTS | クラウド音声合成。追加インストール不要 | なし |
+| VOICEVOX | ローカル高品質日本語 TTS | Docker で起動（下記参照） |
+| Qwen3-TTS | ローカル高品質多言語 TTS + ボイスクローン対応 | `pip install torch transformers`（CUDA推奨） |
+
+**ボイスクローン**（Qwen3-TTS 使用時）: Echo ツールバーの「🎙 録音」「📁 ファイル」「🖥 PC音声」から参照音声を登録すると、登録した声で合成します。
+
+**WebSocket 依存**: Echo モードは WebSocket を使用します。`requirements.txt` に `websockets>=12.0` が含まれており、`pip install -r requirements.txt` で自動インストールされます。
 
 ### 音声入力（Whisper CPU/RAM）
 

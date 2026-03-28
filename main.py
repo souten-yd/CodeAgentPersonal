@@ -8131,16 +8131,16 @@ def voice_transcribe_api(req: dict):
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse as _FileResponse
 
-# Talk セッション状態（session_id → dict）
-_talk_sessions: dict = {}
-_talk_voice_lock = threading.Lock()   # voice_transcribe 専用ロック（Talk用）
-_talk_voice_model = None              # Talk用 Whisper モデル（通常ASRと分離）
-_talk_voice_model_name = ""
+# Echo セッション状態（session_id → dict）
+_echo_sessions: dict = {}
+_echo_voice_lock = threading.Lock()   # voice_transcribe 専用ロック（Echo用）
+_echo_voice_model = None              # Echo用 Whisper モデル（通常ASRと分離）
+_echo_voice_model_name = ""
 
 
-def _talk_voice_transcribe(audio_bytes: bytes, language: str = "auto", model_name: str = "large-v3-turbo", audio_format: str = "webm") -> dict:
-    """Talk専用 voice_transcribe。_talk_voice_lock を使用し通常ASRと競合しない。"""
-    global _talk_voice_model, _talk_voice_model_name
+def _echo_voice_transcribe(audio_bytes: bytes, language: str = "auto", model_name: str = "large-v3-turbo", audio_format: str = "webm") -> dict:
+    """Echo専用 voice_transcribe。_echo_voice_lock を使用し通常ASRと競合しない。"""
+    global _echo_voice_model, _echo_voice_model_name
     from faster_whisper import WhisperModel  # type: ignore
     import tempfile, re as _re
 
@@ -8149,17 +8149,17 @@ def _talk_voice_transcribe(audio_bytes: bytes, language: str = "auto", model_nam
         tf.write(audio_bytes)
         temp_path = tf.name
     try:
-        with _talk_voice_lock:
-            if _talk_voice_model is None or _talk_voice_model_name != model_name:
-                _talk_voice_model = WhisperModel(
+        with _echo_voice_lock:
+            if _echo_voice_model is None or _echo_voice_model_name != model_name:
+                _echo_voice_model = WhisperModel(
                     model_name,
                     device=_voice_device,
                     compute_type=_voice_compute_type,
                     download_root=_voice_model_dir(),
                 )
-                _talk_voice_model_name = model_name
+                _echo_voice_model_name = model_name
             lang_arg = None if language == "auto" else language
-            segments, info = _talk_voice_model.transcribe(temp_path, language=lang_arg, beam_size=1)
+            segments, info = _echo_voice_model.transcribe(temp_path, language=lang_arg, beam_size=1)
             text = "".join(seg.text for seg in segments).strip()
         return {
             "text": text,
@@ -8173,7 +8173,7 @@ def _talk_voice_transcribe(audio_bytes: bytes, language: str = "auto", model_nam
             pass
 
 
-def _talk_do_translate(text: str, src_lang: str, llm_url: str = "") -> str:
+def _echo_do_translate(text: str, src_lang: str, llm_url: str = "") -> str:
     """LLM を使い text を翻訳する。src_lang: 'ja'→英訳, 'en'→和訳。"""
     target = "English" if src_lang == "ja" else "日本語"
     prompt = (
@@ -8200,7 +8200,7 @@ def _talk_do_translate(text: str, src_lang: str, llm_url: str = "") -> str:
         return f"[翻訳エラー: {e}]"
 
 
-def _talk_generate_minutes(session: dict) -> str:
+def _echo_generate_minutes(session: dict) -> str:
     """LLM で議事録を生成し Markdown 文字列を返す。"""
     sentences = session.get("sentences", [])
     if not sentences:
@@ -8249,7 +8249,7 @@ def _echovault_save_session(session: dict) -> str:
     session_id: str = session.get("session_id", "unknown")
 
     # 議事録データ生成
-    minutes_data = _talk_generate_minutes(session)
+    minutes_data = _echo_generate_minutes(session)
     title = (minutes_data.get("title", "会議録") if isinstance(minutes_data, dict) else "会議録")
     # ファイル名に使えない文字を除去
     import re as _re2
@@ -8303,8 +8303,8 @@ def _echovault_save_session(session: dict) -> str:
     return os.path.basename(minutes_path)
 
 
-@app.websocket("/talk/stream")
-async def talk_stream_ws(websocket: WebSocket):
+@app.websocket("/echo/stream")
+async def echo_stream_ws(websocket: WebSocket):
     import datetime as _dt, asyncio as _asyncio
 
     await websocket.accept()
@@ -8344,13 +8344,13 @@ async def talk_stream_ws(websocket: WebSocket):
                         "duration_sec": 0,
                         "lang": language,
                     }
-                    _talk_sessions[session_id] = session
+                    _echo_sessions[session_id] = session
                     await send({"type": "status", "state": "recording"})
 
                 elif t == "resume":
                     session_id = str(ev.get("session_id", ""))
-                    if session_id in _talk_sessions:
-                        session = _talk_sessions[session_id]
+                    if session_id in _echo_sessions:
+                        session = _echo_sessions[session_id]
                         language   = session.get("lang", "auto")
                     else:
                         # セッション不明の場合は新規として扱う
@@ -8362,7 +8362,7 @@ async def talk_stream_ws(websocket: WebSocket):
                             "duration_sec": 0,
                             "lang": language,
                         }
-                        _talk_sessions[session_id] = session
+                        _echo_sessions[session_id] = session
                     await send({"type": "status", "state": "recording"})
 
                 elif t == "stop":
@@ -8372,7 +8372,7 @@ async def talk_stream_ws(websocket: WebSocket):
                             await send({"type": "status", "state": "transcribing"})
                             try:
                                 res = await _asyncio.to_thread(
-                                    _talk_voice_transcribe,
+                                    _echo_voice_transcribe,
                                     bytes(chunk_buffer), language, model_name
                                 )
                                 if res.get("text"):
@@ -8383,7 +8383,7 @@ async def talk_stream_ws(websocket: WebSocket):
                                         "lang": lang_det, "translated": ""
                                     })
                                     await send({"type": "sentence", "id": sid, "text": res["text"], "lang": lang_det})
-                                    transl = await _asyncio.to_thread(_talk_do_translate, res["text"], lang_det)
+                                    transl = await _asyncio.to_thread(_echo_do_translate, res["text"], lang_det)
                                     session["sentences"][sid]["translated"] = transl
                                     tgt = "en" if lang_det == "ja" else "ja"
                                     await send({"type": "translation", "id": sid, "translated": transl, "target_lang": tgt})
@@ -8401,7 +8401,7 @@ async def talk_stream_ws(websocket: WebSocket):
                         except Exception as e:
                             await send({"type": "error", "detail": f"保存エラー: {e}"})
                         # セッションクリーンアップ
-                        _talk_sessions.pop(session_id, None)
+                        _echo_sessions.pop(session_id, None)
                     break
 
             elif "bytes" in msg:
@@ -8417,7 +8417,7 @@ async def talk_stream_ws(websocket: WebSocket):
                     await send({"type": "status", "state": "transcribing"})
                     try:
                         res = await _asyncio.to_thread(
-                            _talk_voice_transcribe,
+                            _echo_voice_transcribe,
                             audio_snap, language, model_name
                         )
                         text = res.get("text", "").strip()
@@ -8430,7 +8430,7 @@ async def talk_stream_ws(websocket: WebSocket):
                             })
                             await send({"type": "sentence", "id": sid, "text": text, "lang": lang_det})
                             # 翻訳（非同期）
-                            transl = await _asyncio.to_thread(_talk_do_translate, text, lang_det)
+                            transl = await _asyncio.to_thread(_echo_do_translate, text, lang_det)
                             session["sentences"][sid]["translated"] = transl
                             tgt = "en" if lang_det == "ja" else "ja"
                             await send({"type": "translation", "id": sid, "translated": transl, "target_lang": tgt})
@@ -8448,8 +8448,8 @@ async def talk_stream_ws(websocket: WebSocket):
             pass
 
 
-@app.get("/talk/sessions")
-def talk_list_sessions():
+@app.get("/echo/sessions")
+def echo_list_sessions():
     """EchoVault フォルダのファイル一覧を返す。"""
     import datetime as _dt
     files = []
@@ -8473,8 +8473,8 @@ def talk_list_sessions():
     return {"files": files}
 
 
-@app.get("/talk/sessions/{filename:path}")
-def talk_download_session(filename: str):
+@app.get("/echo/sessions/{filename:path}")
+def echo_download_session(filename: str):
     """EchoVault ファイルをダウンロード。"""
     safe = os.path.normpath(filename).lstrip("/\\")
     fpath = os.path.join(ECHOVAULT_DIR, safe)
@@ -8485,8 +8485,8 @@ def talk_download_session(filename: str):
     return _FileResponse(fpath, filename=safe)
 
 
-@app.delete("/talk/sessions/{filename:path}")
-def talk_delete_session(filename: str):
+@app.delete("/echo/sessions/{filename:path}")
+def echo_delete_session(filename: str):
     """EchoVault ファイルを削除。"""
     safe = os.path.normpath(filename).lstrip("/\\")
     fpath = os.path.join(ECHOVAULT_DIR, safe)
@@ -8496,6 +8496,45 @@ def talk_delete_session(filename: str):
         raise HTTPException(status_code=404, detail="ファイルが見つかりません")
     os.remove(fpath)
     return {"deleted": safe}
+
+
+# Echo ボイスクローン 参照音声ストレージ (IP → {audio:bytes, sr:int, name:str})
+_echo_voice_ref: dict = {}
+
+
+@app.post("/echo/voice-ref")
+async def echo_voice_ref_post(req: dict, request: Request):
+    """ボイスクローン用参照音声を保存する。"""
+    import base64 as _b64
+    b64 = str(req.get("audio_base64", "")).strip()
+    if not b64:
+        raise HTTPException(status_code=400, detail="audio_base64 required")
+    try:
+        audio_bytes = _b64.b64decode(b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="audio_base64 decode error")
+    name = str(req.get("filename", "ref-audio"))[:80]
+    client_ip = request.client.host if request.client else "unknown"
+    _echo_voice_ref[client_ip] = {"audio": audio_bytes, "sr": 24000, "name": name}
+    return {"ok": True, "name": name, "size": len(audio_bytes)}
+
+
+@app.get("/echo/voice-ref")
+async def echo_voice_ref_get(request: Request):
+    """現在のボイスクローン参照音声情報を返す。"""
+    client_ip = request.client.host if request.client else "unknown"
+    ref = _echo_voice_ref.get(client_ip)
+    if not ref:
+        return {"set": False}
+    return {"set": True, "name": ref["name"], "size": len(ref["audio"])}
+
+
+@app.delete("/echo/voice-ref")
+async def echo_voice_ref_delete(request: Request):
+    """ボイスクローン参照音声をクリアする。"""
+    client_ip = request.client.host if request.client else "unknown"
+    _echo_voice_ref.pop(client_ip, None)
+    return {"ok": True}
 
 
 # =========================
@@ -8512,6 +8551,45 @@ except Exception as _vv_e:
     _VOICEVOX_IMPORT_ERROR = str(_vv_e)
     print(f"[TTS] voicevox_core import failed: {_VOICEVOX_IMPORT_ERROR}")
 
+# VOICEVOX HTTP API (Docker or standalone server)
+_VOICEVOX_HTTP_URL = os.environ.get("VOICEVOX_URL", "http://localhost:50021")
+
+
+def _voicevox_http_check() -> bool:
+    """VOICEVOX HTTP サーバーが動作しているか確認する。"""
+    try:
+        r = requests.get(f"{_VOICEVOX_HTTP_URL}/version", timeout=2)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def tts_voicevox_http_speakers() -> list:
+    """VOICEVOX HTTP API から話者一覧を取得する。"""
+    r = requests.get(f"{_VOICEVOX_HTTP_URL}/speakers", timeout=5)
+    result = []
+    for s in r.json():
+        for style in s.get("styles", []):
+            result.append({"id": style["id"], "name": f"{s['name']}（{style['name']}）"})
+    return result
+
+
+def tts_voicevox_http_synthesize(text: str, speaker_id: int = 0, speed: float = 1.0) -> bytes:
+    """VOICEVOX HTTP API でテキストを WAV バイト列に変換する。"""
+    q = requests.post(
+        f"{_VOICEVOX_HTTP_URL}/audio_query",
+        params={"text": text, "speaker": speaker_id},
+        timeout=30,
+    ).json()
+    q["speedScale"] = max(0.5, min(2.0, speed))
+    wav = requests.post(
+        f"{_VOICEVOX_HTTP_URL}/synthesis",
+        params={"speaker": speaker_id},
+        json=q,
+        timeout=60,
+    ).content
+    return wav
+
 try:
     import edge_tts as _edge_tts_mod  # type: ignore
     _EDGE_TTS_AVAILABLE = True
@@ -8519,21 +8597,22 @@ except ImportError:
     _edge_tts_mod = None
     _EDGE_TTS_AVAILABLE = False
 
-# Qwen3 TTS (transformers + torch)
+# Qwen3 TTS (transformers >= 4.52 + torch)
 try:
     import torch as _torch_mod
-    from transformers import AutoTokenizer as _Q3TTokenizer, AutoModelForCausalLM as _Q3TModel  # type: ignore
+    from transformers import Qwen3TTSForConditionalGeneration as _Q3TModel  # type: ignore
+    from transformers import AutoProcessor as _Q3TProc  # type: ignore
     import soundfile as _sf_mod  # type: ignore
     _QWEN3TTS_AVAILABLE = True
 except ImportError:
     _torch_mod = None
-    _Q3TTokenizer = None
     _Q3TModel = None
+    _Q3TProc = None
     _sf_mod = None
     _QWEN3TTS_AVAILABLE = False
 
 _qwen3tts_model     = None
-_qwen3tts_tokenizer = None
+_qwen3tts_processor = None   # AutoProcessor (旧 _qwen3tts_tokenizer を改名)
 _qwen3tts_lock      = threading.Lock()
 _QWEN3TTS_MODEL_ID  = "Qwen/Qwen3-TTS"
 
@@ -8545,16 +8624,16 @@ def _qwen3tts_model_dir() -> str:
 
 
 def qwen3tts_load() -> dict:
-    global _qwen3tts_model, _qwen3tts_tokenizer
+    global _qwen3tts_model, _qwen3tts_processor
     if not _QWEN3TTS_AVAILABLE:
-        return {"error": "transformers/torch/soundfile がインストールされていません"}
+        return {"error": "transformers>=4.52 / torch / soundfile がインストールされていません。pip install 'transformers>=4.52' torch torchaudio soundfile を実行してください。"}
     with _qwen3tts_lock:
         if _qwen3tts_model is not None:
             return {"loaded": True, "model": _QWEN3TTS_MODEL_ID}
         cache_dir = _qwen3tts_model_dir()
         device = "cuda" if (_torch_mod and _torch_mod.cuda.is_available()) else "cpu"
         try:
-            _qwen3tts_tokenizer = _Q3TTokenizer.from_pretrained(
+            _qwen3tts_processor = _Q3TProc.from_pretrained(
                 _QWEN3TTS_MODEL_ID, cache_dir=cache_dir, trust_remote_code=True
             )
             _qwen3tts_model = _Q3TModel.from_pretrained(
@@ -8566,8 +8645,10 @@ def qwen3tts_load() -> dict:
             return {"error": str(e)}
 
 
-def qwen3tts_synthesize(text: str, speed: float = 1.0) -> bytes:
-    global _qwen3tts_model, _qwen3tts_tokenizer
+def qwen3tts_synthesize(text: str, speed: float = 1.0,
+                         ref_audio_bytes: bytes = None, ref_sr: int = 24000) -> bytes:
+    """Qwen3 TTS でテキストを WAV バイト列に変換する。ref_audio_bytes があればボイスクローン。"""
+    global _qwen3tts_model, _qwen3tts_processor
     if not _QWEN3TTS_AVAILABLE:
         raise RuntimeError("Qwen3 TTS: transformers/torch がインストールされていません")
     with _qwen3tts_lock:
@@ -8577,17 +8658,28 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0) -> bytes:
                 raise RuntimeError(f"Qwen3 TTS ロード失敗: {result['error']}")
     with _qwen3tts_lock:
         device = next(_qwen3tts_model.parameters()).device
-        inputs = _qwen3tts_tokenizer(text, return_tensors="pt").to(device)
+        proc_kwargs: dict = {"text": text, "return_tensors": "pt"}
+        if ref_audio_bytes:
+            try:
+                import numpy as _np
+                ref_wav, _ = _sf_mod.read(io.BytesIO(ref_audio_bytes))
+                proc_kwargs["reference_audio"] = ref_wav
+                proc_kwargs["reference_audio_sampling_rate"] = ref_sr
+            except Exception:
+                pass
+        inputs = _qwen3tts_processor(**proc_kwargs)
+        inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, "to")}
         with _torch_mod.no_grad():
-            output = _qwen3tts_model.generate(
-                **inputs,
-                max_new_tokens=2048,
-                do_sample=True,
-                temperature=0.8,
-            )
-        # デコード: token列をfloat音声waveformに変換（モデル依存）
-        wav = output[0].float().cpu().numpy() if hasattr(output[0], "float") else output[0].cpu().numpy()
-    import io
+            output = _qwen3tts_model.generate(**inputs)
+        # 出力は ModelOutput or tensor
+        if hasattr(output, "waveforms"):
+            wav = output.waveforms[0].cpu().float().numpy()
+        elif hasattr(output, "audio"):
+            wav = output.audio[0].cpu().float().numpy()
+        else:
+            # fallback: tensor
+            out_t = output[0] if hasattr(output, "__getitem__") else output
+            wav = out_t.float().cpu().numpy() if hasattr(out_t, "float") else out_t.cpu().numpy()
     buf = io.BytesIO()
     _sf_mod.write(buf, wav, samplerate=24000, format="WAV")
     return buf.getvalue()
@@ -8672,14 +8764,22 @@ def _ref_audio_dir() -> str:
 
 
 def tts_voicevox_load() -> dict:
-    """VOICEVOX Core を CPU(ONNX) でロードする。"""
+    """VOICEVOX をロードする。HTTP API → voicevox_core の順で試みる。"""
     global _tts_core
+    # HTTP API が使えるなら接続確認だけ
+    if _voicevox_http_check():
+        try:
+            speakers = tts_voicevox_http_speakers()
+            return {"loaded": True, "speakers": len(speakers), "mode": "http"}
+        except Exception as e:
+            pass  # HTTP 失敗時は voicevox_core にフォールバック
+    # voicevox_core フォールバック
     if not _VOICEVOX_AVAILABLE:
         import_note = f" (import error: {_VOICEVOX_IMPORT_ERROR})" if _VOICEVOX_IMPORT_ERROR else ""
         raise RuntimeError(
-            f"voicevox_core が利用できません{import_note}。"
-            "https://github.com/VOICEVOX/voicevox_core/releases のwheel URLを直接指定し、"
-            "pip install --no-deps <wheel_url> でインストールしてください。"
+            "VOICEVOX HTTP サーバーが見つかりません。\n"
+            "Docker: docker run -d -p 50021:50021 voicevox/voicevox_engine:cpu-ubuntu20.04-latest\n"
+            f"または voicevox_core をインストールしてください{import_note}。"
         )
     if not _tts_jtalk_exists():
         raise RuntimeError(
@@ -8688,7 +8788,7 @@ def tts_voicevox_load() -> dict:
         )
     with _tts_lock:
         if _tts_core is not None:
-            return {"loaded": True, "speakers": len(_tts_core.metas())}
+            return {"loaded": True, "speakers": len(_tts_core.metas()), "mode": "core"}
         AccMode = getattr(_vc_mod, "AccelerationMode", None)
         kwargs = {}
         if AccMode is not None:
@@ -8696,11 +8796,16 @@ def tts_voicevox_load() -> dict:
         kwargs["open_jtalk_dict_dir"] = _tts_jtalk_dir()
         core = _vc_mod.VoicevoxCore(**kwargs)
         _tts_core = core
-        return {"loaded": True, "speakers": len(core.metas())}
+        return {"loaded": True, "speakers": len(core.metas()), "mode": "core"}
 
 
 def tts_voicevox_speakers() -> list:
-    """VOICEVOX 話者一覧を返す。"""
+    """VOICEVOX 話者一覧を返す。HTTP API → voicevox_core の順で試みる。"""
+    if _voicevox_http_check():
+        try:
+            return tts_voicevox_http_speakers()
+        except Exception:
+            pass
     with _tts_lock:
         if _tts_core is None:
             return []
@@ -8712,10 +8817,15 @@ def tts_voicevox_speakers() -> list:
 
 
 def tts_voicevox_synthesize(text: str, speaker_id: int = 0, speed_scale: float = 1.0) -> bytes:
-    """VOICEVOX でテキストを WAV バイト列に変換する。"""
+    """VOICEVOX でテキストを WAV バイト列に変換する。HTTP API → voicevox_core の順。"""
+    if _voicevox_http_check():
+        try:
+            return tts_voicevox_http_synthesize(text, speaker_id, speed_scale)
+        except Exception:
+            pass
     with _tts_lock:
         if _tts_core is None:
-            raise RuntimeError("VOICEVOX Core がロードされていません。/tts/load を先に呼び出してください。")
+            raise RuntimeError("VOICEVOX がロードされていません。/tts/load を先に呼び出してください。")
         aq = _tts_core.audio_query(text, speaker_id)
         aq.speed_scale = max(0.5, min(2.0, speed_scale))
         wav = _tts_core.synthesis(aq, speaker_id)
@@ -8814,10 +8924,13 @@ def tts_status_api():
         speakers = len(_tts_core.metas()) if loaded else 0
     with _qwen3tts_lock:
         q3t_loaded = _qwen3tts_model is not None
+    http_ok = _voicevox_http_check()
     return {
         "voicevox_available": _VOICEVOX_AVAILABLE,
-        "voicevox_loaded": vv_loaded,
-        "voicevox_speakers": vv_speakers,
+        "voicevox_loaded": loaded or http_ok,
+        "voicevox_speakers": speakers,
+        "voicevox_http_available": http_ok,
+        "voicevox_http_url": _VOICEVOX_HTTP_URL,
         "edgetts_available": _EDGE_TTS_AVAILABLE,
         "jtalk_exists": _tts_jtalk_exists(),
         "qwen3tts_available": _QWEN3TTS_AVAILABLE,
@@ -8848,16 +8961,7 @@ def tts_load_api(req: dict = {}):
 
     def stream():
         if engine == "voicevox":
-            missing = _tts_voicevox_missing_requirements()
-            if missing:
-                detail = "\n".join(f"- {m.get('message','')}" for m in missing)
-                yield _sse({
-                    "type": "error",
-                    "detail": detail,
-                    "missing": missing,
-                })
-                return
-            yield _sse({"type": "loading", "message": "VOICEVOX Core をロード中です。しばらくお待ちください..."})
+            yield _sse({"type": "loading", "message": "VOICEVOX に接続中です..."})
             try:
                 result = tts_voicevox_load()
                 yield _sse({"type": "done", **result})
@@ -8969,8 +9073,16 @@ def tts_synthesize_api(req: dict):
 
     elif engine == "qwen3tts":
         speed = float(req.get("speed", 1.0))
+        ref_b64 = str(req.get("ref_audio_base64", "") or "").strip()
+        ref_bytes = None
+        if ref_b64:
+            try:
+                import base64 as _b64
+                ref_bytes = _b64.b64decode(ref_b64)
+            except Exception:
+                ref_bytes = None
         try:
-            wav = qwen3tts_synthesize(text, speed)
+            wav = qwen3tts_synthesize(text, speed, ref_audio_bytes=ref_bytes)
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
         return FastAPIResponse(content=wav, media_type="audio/wav")
