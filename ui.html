@@ -2305,6 +2305,7 @@ async function onTtsEngineChange() {
   const note       = document.getElementById('tts-engine-note');
   const loadRow    = document.getElementById('tts-engine-load-row');
   const vvNote     = document.getElementById('tts-voicevox-note');
+  const vvUrlRow   = document.getElementById('tts-voicevox-url-row');
   const voiceRow   = document.getElementById('tts-voice-row');
   const qwen3Row   = document.getElementById('tts-qwen3-row');
   const deviceRow  = document.getElementById('tts-device-row');
@@ -2314,6 +2315,7 @@ async function onTtsEngineChange() {
   // デフォルトで全行非表示にしてから必要なものだけ表示
   loadRow.style.display   = 'none';
   vvNote.style.display    = 'none';
+  if (vvUrlRow) vvUrlRow.style.display = 'none';
   qwen3Row.style.display  = 'none';
   deviceRow.style.display = 'none';
   cloneSection.style.display = 'none';
@@ -2326,6 +2328,7 @@ async function onTtsEngineChange() {
     note.textContent = 'voicevox_core が必要です。初回ロード時に Open JTalk 辞書を読み込みます。';
     loadRow.style.display  = '';
     vvNote.style.display   = '';
+    if (vvUrlRow) vvUrlRow.style.display = '';
     deviceRow.style.display = '';
     await _ttsLoadVoicesFromServer('voicevox');
   } else if (engine === 'edgetts') {
@@ -2334,7 +2337,6 @@ async function onTtsEngineChange() {
     voiceRow.style.display = '';
   } else if (engine === 'qwen3tts') {
     note.textContent = 'Qwen/Qwen3-TTS をローカルで実行します。pip install transformers torch torchaudio soundfile が必要（初回ダウンロード約2GB）。';
-    vvRow.style.display = 'none';
     voiceRow.style.display = 'none';
     const q3row = document.getElementById('tts-qwen3-load-row');
     if (q3row) q3row.style.display = '';
