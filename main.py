@@ -8251,10 +8251,13 @@ def _echo_resolve_filter_config(raw: dict | None) -> dict:
         "reject_short_text": True,
         "reject_high_no_speech_prob": True,
         "reject_low_avg_logprob": True,
+        "reject_short_word_low_conf": True,
         "min_chars": ECHO_ASR_MIN_CHARS,
         "no_speech_reject": ECHO_ASR_NO_SPEECH_REJECT,
         "low_logprob_reject": ECHO_ASR_LOW_LOGPROB_REJECT,
         "short_text_max_chars": ECHO_ASR_SHORT_TEXT_MAX_CHARS,
+        "short_word_max_words": 2,
+        "short_word_low_logprob_reject": -0.85,
     }
     if not isinstance(raw, dict):
         return cfg
@@ -8267,6 +8270,8 @@ def _echo_resolve_filter_config(raw: dict | None) -> dict:
             cfg["reject_high_no_speech_prob"] = bool(raw.get("reject_high_no_speech_prob"))
         if "reject_low_avg_logprob" in raw:
             cfg["reject_low_avg_logprob"] = bool(raw.get("reject_low_avg_logprob"))
+        if "reject_short_word_low_conf" in raw:
+            cfg["reject_short_word_low_conf"] = bool(raw.get("reject_short_word_low_conf"))
         if "min_chars" in raw:
             cfg["min_chars"] = max(1, int(raw.get("min_chars", cfg["min_chars"])))
         if "no_speech_reject" in raw:
@@ -8275,6 +8280,10 @@ def _echo_resolve_filter_config(raw: dict | None) -> dict:
             cfg["low_logprob_reject"] = float(raw.get("low_logprob_reject", cfg["low_logprob_reject"]))
         if "short_text_max_chars" in raw:
             cfg["short_text_max_chars"] = max(1, int(raw.get("short_text_max_chars", cfg["short_text_max_chars"])))
+        if "short_word_max_words" in raw:
+            cfg["short_word_max_words"] = max(1, min(4, int(raw.get("short_word_max_words", cfg["short_word_max_words"]))))
+        if "short_word_low_logprob_reject" in raw:
+            cfg["short_word_low_logprob_reject"] = float(raw.get("short_word_low_logprob_reject", cfg["short_word_low_logprob_reject"]))
     except Exception:
         return cfg
     return cfg
@@ -8306,6 +8315,13 @@ def _echo_should_reject_asr_text_with_config(text: str, metrics: dict, config: d
         and float(mean_logprob) <= float(cfg["low_logprob_reject"])
     ):
         return True, "low_avg_logprob"
+    if bool(cfg.get("reject_short_word_low_conf", True)) and isinstance(mean_logprob, (int, float)):
+        word_count = len([w for w in (text or "").strip().split() if w])
+        if (
+            0 < word_count <= int(cfg.get("short_word_max_words", 2))
+            and float(mean_logprob) <= float(cfg.get("short_word_low_logprob_reject", -0.85))
+        ):
+            return True, "short_word_low_conf"
     return False, ""
 
 
