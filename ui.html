@@ -861,7 +861,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 @keyframes echoPulse{0%,100%{opacity:1}50%{opacity:.6}}
 .echo-duration{font-size:13px;font-family:var(--font-mono);color:var(--accent);min-width:52px;font-weight:700}
 .echo-status{font-size:11px;color:var(--text3);font-family:var(--font-mono);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.echo-transcript{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px;scroll-behavior:smooth;-webkit-overflow-scrolling:touch}
+.echo-transcript{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px;scroll-behavior:smooth;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y}
 .echo-transcript::-webkit-scrollbar{width:3px}
 .echo-transcript::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 .echo-empty{font-size:12px;color:var(--text3);font-family:var(--font-mono);text-align:center;padding:48px 20px;opacity:.6}
@@ -877,10 +877,14 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .echo-conn-ok{color:var(--green,#4caf50)}
 .echo-conn-off{color:var(--text3)}
 .echo-conn-err{color:var(--red)}
-/* Echo モードアクティブ時: echo-col が全幅を占有 */
-.app-body.echo-active .echo-col{flex:1 1 100%;max-width:100%}
-.app-body.echo-active .panel-col{display:none!important}
+/* Echo モードアクティブ時: echo-col（左）+ panel-col（右）の2カラムレイアウト */
+.app-body.echo-active .echo-col{flex:1 1 50%;min-width:0}
+.app-body.echo-active .panel-col{flex:0 0 340px;min-width:260px}
 .app-body.echo-active .chat-col{display:none!important}
+@media(max-width:768px){
+  .app-body.echo-active .echo-col{flex:1 1 100%}
+  .app-body.echo-active .panel-col{flex:1 1 100%}
+}
 /* EchoVault 折り畳みパネル */
 .echo-vault-panel{border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0}
 .echo-vault-header{display:flex;align-items:center;gap:8px;padding:6px 14px;cursor:pointer;font-size:11px;font-weight:700;color:var(--text2);user-select:none}
@@ -923,14 +927,20 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 </div>
 
 <div class="mob-tabs">
+  <!-- Chat/Task モード用タブ -->
   <button class="mob-tab wide active" id="mob-chat" onclick="mobSwitch('chat')">Chat</button>
-  <button class="mob-tab" id="mob-echo" onclick="mobSwitch('echo')">Echo</button>
   <button class="mob-tab" id="mob-output" onclick="mobSwitch('output')">Output</button>
   <button class="mob-tab wide" id="mob-preview" onclick="mobSwitch('preview')">Preview</button>
   <button class="mob-tab" id="mob-log" onclick="mobSwitch('log')">Log</button>
-  <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skills</button>
+  <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skill</button>
   <button class="mob-tab wide" id="mob-memory" onclick="mobSwitch('memory')">Memory</button>
   <button class="mob-tab" id="mob-models" onclick="mobSwitch('models')">Models</button>
+  <!-- Echo モード用タブ (デフォルト非表示) -->
+  <button class="mob-tab wide" id="mob-echo" onclick="mobSwitch('echo')" style="display:none">Echo</button>
+  <button class="mob-tab" id="mob-vault" onclick="mobSwitch('vault')" style="display:none">Vault</button>
+  <button class="mob-tab" id="mob-log-echo" onclick="mobSwitch('log')" style="display:none">Log</button>
+  <button class="mob-tab" id="mob-models-echo" onclick="mobSwitch('models')" style="display:none">Models</button>
+  <button class="mob-tab wide" id="mob-tsasr" onclick="mobSwitch('tsasr')" style="display:none">TTS/ASR</button>
 </div>
 
 <div class="app-body">
@@ -960,31 +970,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <button class="echo-record-btn" id="echo-record-btn" onclick="toggleEchoRecording()">● Start</button>
       <span class="echo-duration" id="echo-duration">00:00</span>
       <span class="echo-status" id="echo-status">Ready</span>
-      <button onclick="toggleEchoVaultPanel()" style="margin-left:auto;font-size:10px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="EchoVaultファイル">📁 Files</button>
-      <!-- ボイスクローンパネル -->
-      <div class="echo-voice-clone" id="echo-voice-clone">
-        <span style="font-weight:700;color:var(--text2)">🎤 Voice Clone:</span>
-        <button onclick="echoRecordRefAudio()" id="echo-ref-mic-btn" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="マイクで3秒以上録音">🎙 録音</button>
-        <label style="cursor:pointer;font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;color:var(--text2)" title="音声ファイルをアップロード">
-          📁 ファイル
-          <input type="file" id="echo-ref-audio-file" accept="audio/*,.wav,.mp3,.ogg,.m4a" style="display:none" onchange="echoUploadRefAudio(this)">
-        </label>
-        <button onclick="echoCaptureSystemAudio()" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="PCで再生中の音声をキャプチャ">🖥 PC音声</button>
-        <span id="echo-ref-status" style="font-size:10px;color:var(--text3)">未設定</span>
-        <button id="echo-clear-ref" onclick="echoClearRefAudio()" style="display:none;font-size:10px;padding:2px 6px;border:1px solid var(--red);border-radius:4px;background:transparent;color:var(--red);cursor:pointer">✕ クリア</button>
-      </div>
+      <button id="echo-clear-btn" onclick="echoClearTranscript()" style="display:none;margin-left:auto;font-size:10px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="会話をクリア">✕ Clear</button>
     </div>
     <div class="echo-transcript" id="echo-transcript">
       <div class="echo-empty">「Start」を押して同時通訳・録音を開始...</div>
-    </div>
-    <!-- EchoVault 折り畳みパネル -->
-    <div class="echo-vault-panel" id="echo-vault-panel" style="display:none">
-      <div class="echo-vault-header">
-        <span onclick="toggleEchoVaultPanel()" style="flex:1">📁 EchoVault</span>
-        <button onclick="refreshEchoVault()" style="font-size:10px;padding:1px 6px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--text2);cursor:pointer" title="更新">↺</button>
-        <button onclick="toggleEchoVaultPanel()" style="font-size:10px;padding:1px 6px;border:none;background:transparent;color:var(--text3);cursor:pointer" title="閉じる">✕</button>
-      </div>
-      <div id="echovault-list" style="overflow-y:auto;max-height:240px;padding:0 8px 8px"></div>
     </div>
     <div class="echo-statusbar">
       <span id="echo-conn-status" class="echo-conn-off">● 未接続</span>
@@ -995,13 +984,18 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <!-- PANEL -->
   <div class="panel-col" id="panel-col">
     <div class="panel-tabs">
-      <button class="tab-btn active" onclick="switchTab('output')">Output</button>
-      <button class="tab-btn" onclick="switchTab('preview')">Preview</button>
-      <button class="tab-btn" onclick="switchTab('log')">Log</button>
-      <button class="tab-btn" onclick="switchTab('skills')">Skills</button>
-      <button class="tab-btn" onclick="switchTab('memory')">Memory</button>
-      <button class="tab-btn" onclick="switchTab('models')">Models</button>
-      <button class="tab-btn" id="tab-btn-echovault" onclick="switchTab('echovault')" style="display:none">EchoVault</button>
+      <!-- Chat/Task モード用タブ -->
+      <button class="tab-btn active" id="tab-btn-output" onclick="switchTab('output')">Output</button>
+      <button class="tab-btn" id="tab-btn-preview" onclick="switchTab('preview')">Preview</button>
+      <button class="tab-btn" id="tab-btn-log" onclick="switchTab('log')">Log</button>
+      <button class="tab-btn" id="tab-btn-skills" onclick="switchTab('skills')">Skill</button>
+      <button class="tab-btn" id="tab-btn-memory" onclick="switchTab('memory')">Memory</button>
+      <button class="tab-btn" id="tab-btn-models" onclick="switchTab('models')">Models</button>
+      <!-- Echo モード用タブ (デフォルト非表示) -->
+      <button class="tab-btn" id="tab-btn-vault" onclick="switchTab('vault')" style="display:none">Vault</button>
+      <button class="tab-btn" id="tab-btn-log-echo" onclick="switchTab('log')" style="display:none">Log</button>
+      <button class="tab-btn" id="tab-btn-models-echo" onclick="switchTab('models')" style="display:none">Models</button>
+      <button class="tab-btn" id="tab-btn-tsasr" onclick="switchTab('tsasr')" style="display:none">TTS/ASR</button>
       <div class="tab-spacer"></div>
       <span class="tab-label" id="tab-label">—</span>
     </div>
@@ -1262,17 +1256,218 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       </datalist>
     </div>
 
-    <!-- ECHOVAULT FILE BROWSER TAB -->
-    <div class="tab-content" id="tab-echovault" style="display:none;overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+    <!-- VAULT TAB (Echo モード用) -->
+    <div class="tab-content" id="tab-vault" style="display:none;overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div>
-          <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">EchoVault</span>
+          <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Vault</span>
           <span style="font-size:10px;color:var(--text3);margin-left:6px;font-family:var(--font-mono)">録音・文字起こし・議事録</span>
         </div>
         <button onclick="refreshEchoVault()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ 更新</button>
       </div>
+      <!-- インライン音声プレイヤー -->
+      <div id="vault-audio-player" style="display:none;margin-bottom:10px;padding:10px;border:1px solid var(--accent-border);border-radius:6px;background:var(--accent-bg)">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:6px;font-weight:700" id="vault-audio-name"></div>
+        <audio id="vault-audio-el" controls style="width:100%;height:36px;"></audio>
+        <button onclick="vaultAudioClose()" style="margin-top:6px;font-size:10px;padding:2px 8px;border:1px solid var(--border);background:transparent;color:var(--text3);border-radius:4px;cursor:pointer">✕ 閉じる</button>
+      </div>
       <div id="echovault-list" style="display:flex;flex-direction:column;gap:5px">
         <div style="font-size:12px;color:var(--text3);text-align:center;padding:24px 0;font-family:var(--font-mono)">セッションデータはまだありません</div>
+      </div>
+    </div>
+
+    <!-- TTS/ASR TAB (Echo モード用) -->
+    <div class="tab-content" id="tab-tsasr" style="display:none;overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px">TTS / ASR</div>
+
+      <!-- ボイスクローン -->
+      <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🎤 Voice Clone</div>
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:10px">
+          <button onclick="echoRecordRefAudio()" id="echo-ref-mic-btn" style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="マイクで3秒以上録音">🎙 録音</button>
+          <label style="cursor:pointer;font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;color:var(--text2)" title="音声ファイルをアップロード">
+            📁 ファイル
+            <input type="file" id="echo-ref-audio-file" accept="audio/*,.wav,.mp3,.ogg,.m4a" style="display:none" onchange="echoUploadRefAudio(this)">
+          </label>
+          <button onclick="echoCaptureSystemAudio()" style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="PCで再生中の音声をキャプチャ">🖥 PC音声</button>
+          <span id="echo-ref-status" style="font-size:10px;color:var(--text3)">未設定</span>
+          <button id="echo-clear-ref" onclick="echoClearRefAudio()" style="display:none;font-size:10px;padding:2px 6px;border:1px solid var(--red);border-radius:4px;background:transparent;color:var(--red);cursor:pointer">✕ クリア</button>
+        </div>
+      </div>
+
+      <!-- ASR 設定 -->
+      <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🎙 ASR 設定</div>
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASR言語</div>
+          <select id="echo-asr-lang"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveEchoSettings()">
+            <option value="auto">自動検出（日本語/英語）</option>
+            <option value="ja">日本語のみ</option>
+            <option value="en">English only</option>
+          </select>
+        </div>
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASRモデル</div>
+          <select id="echo-asr-model"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveEchoSettings()">
+            <option value="large-v3-turbo">large-v3-turbo（高精度・推奨）</option>
+            <option value="small">small（高速・軽量）</option>
+            <option value="medium">medium（バランス）</option>
+          </select>
+        </div>
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASRモデルディレクトリ</div>
+          <input type="text" id="tsasr-asr-dir" placeholder="自動（デフォルト）"
+            style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);box-sizing:border-box;font-family:var(--font-mono)"
+            onchange="saveTsAsrSettings()">
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">空欄の場合はデフォルトパスを使用</div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700">起動時プリロード</div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="tsasr-asr-preload"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="saveTsAsrSettings()">
+            <span style="font-size:11px;color:var(--text2)" id="tsasr-asr-preload-label">OFF</span>
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="loadAsrModelFromTab()" id="tsasr-asr-load-btn"
+            style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">ロード</button>
+          <button onclick="unloadAsrModelFromTab()" id="tsasr-asr-unload-btn"
+            style="display:none;padding:5px 12px;font-size:11px;font-weight:700;background:var(--border);border:none;border-radius:4px;color:var(--text2);cursor:pointer">アンロード</button>
+          <span id="tsasr-asr-status" style="font-size:10px;color:var(--text3);align-self:center">未ロード</span>
+        </div>
+      </div>
+
+      <!-- TTS 設定 -->
+      <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🔊 Echo TTS 設定</div>
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS エンジン</div>
+          <select id="echo-tts-engine"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveEchoSettings()">
+            <option value="webspeech">Web Speech API（ブラウザ内蔵）</option>
+            <option value="voicevox">VOICEVOX（高品質日本語）</option>
+            <option value="edgetts">Edge TTS（クラウド）</option>
+            <option value="qwen3tts" selected>Qwen3 TTS（高品質・ローカル）</option>
+          </select>
+        </div>
+        <!-- Qwen3 モデル選択 -->
+        <div style="margin-bottom:8px" id="tsasr-qwen3-model-row">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Qwen3 モデル</div>
+          <select id="tsasr-qwen3-model-sel"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveTsAsrSettings()">
+            <option value="Qwen/Qwen3-TTS-12Hz-1.7B-Base" selected>Qwen3-TTS-12Hz-1.7B-Base（推奨）</option>
+            <option value="Qwen/Qwen3-TTS-0.6B">Qwen3-TTS-0.6B（軽量）</option>
+            <option value="Qwen/Qwen3-TTS-1.7B">Qwen3-TTS-1.7B</option>
+          </select>
+        </div>
+        <!-- デバイス選択 -->
+        <div style="margin-bottom:8px" id="tsasr-device-row">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">デバイス</div>
+          <div style="display:flex;gap:14px">
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
+              <input type="radio" name="tsasr-device" value="cpu" checked style="accent-color:var(--accent)"> CPU
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
+              <input type="radio" name="tsasr-device" value="cuda" style="accent-color:var(--accent)"> GPU (CUDA)
+            </label>
+          </div>
+        </div>
+        <!-- Qwen3 TTS ロード -->
+        <div id="tsasr-qwen3-load-row" style="margin-bottom:8px">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:5px;line-height:1.6">
+            <code style="background:var(--bg3);padding:1px 4px;border-radius:2px">pip install 'transformers>=4.52' torch torchaudio soundfile</code> が必要です。
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button onclick="loadQwen3Tts('tsasr')" id="tsasr-qwen3-load-btn"
+              style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">
+              Qwen3 TTS をロード
+            </button>
+            <button onclick="unloadTtsEngineFromTab()" id="tsasr-qwen3-unload-btn"
+              style="display:none;padding:5px 12px;font-size:11px;font-weight:700;background:var(--border);border:none;border-radius:4px;color:var(--text2);cursor:pointer">
+              アンロード
+            </button>
+            <span id="tsasr-qwen3-status" style="font-size:10px;color:var(--text3);align-self:center">未ロード</span>
+          </div>
+        </div>
+        <!-- TTS モデルディレクトリ -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTSモデルディレクトリ</div>
+          <input type="text" id="tsasr-tts-dir" placeholder="自動（デフォルト）"
+            style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);box-sizing:border-box;font-family:var(--font-mono)"
+            onchange="saveTsAsrSettings()">
+        </div>
+        <!-- TTS プリロード -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700">起動時プリロード</div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="tsasr-tts-preload"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="saveTsAsrSettings()">
+            <span style="font-size:11px;color:var(--text2)" id="tsasr-tts-preload-label">OFF</span>
+          </label>
+        </div>
+        <!-- 自動読み上げ -->
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">認識後に自動読み上げ</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">各文の認識完了後にTTSを自動再生</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="echo-autoplay-tts"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="saveEchoSettings()">
+            <span style="font-size:11px;color:var(--text2)" id="echo-autoplay-label">OFF</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- TTS 翻訳設定 -->
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🌐 TTS 翻訳設定</div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.6">
+          EN テキスト → 日本語に翻訳して読み上げ、日本語テキスト → 英語に翻訳して読み上げ（デフォルト）。<br>
+          翻訳 LLM: Modelsタブの <code style="background:var(--bg3);padding:1px 4px;border-radius:2px">translate</code> ロール設定を使用します。
+        </div>
+        <!-- 翻訳TTS有効 -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:11px;font-weight:700;color:var(--text2)">翻訳TTS 有効</div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="tts-translate-enable"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="saveTtsTranslateSettings()">
+            <span style="font-size:11px;color:var(--text2)" id="tts-translate-enable-label">OFF</span>
+          </label>
+        </div>
+        <!-- 言語モード -->
+        <div style="margin-bottom:8px" id="tts-translate-mode-row">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">再生言語モード</div>
+          <select id="tts-translate-mode"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveTtsTranslateSettings()">
+            <option value="auto" selected>自動（EN→JP / JP→EN）</option>
+            <option value="ja">日本語のみ（EN→JP、JP→そのまま）</option>
+            <option value="en">英語のみ（JP→EN、EN→そのまま）</option>
+            <option value="off">翻訳なし（原文そのまま）</option>
+          </select>
+        </div>
+        <!-- 自動再生 -->
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="font-size:11px;font-weight:700;color:var(--text2)">TTS 自動再生</div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="tts-translate-autoplay"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="saveTtsTranslateSettings()">
+            <span style="font-size:11px;color:var(--text2)" id="tts-translate-autoplay-label">OFF</span>
+          </label>
+        </div>
       </div>
     </div>
 
@@ -1640,7 +1835,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <option value="webspeech">Web Speech API（ブラウザ内蔵・設定不要）</option>
             <option value="voicevox">VOICEVOX（高品質日本語・組み込み）</option>
             <option value="edgetts">Edge TTS（高品質・クラウド・要ネット）</option>
-            <option value="qwen3tts">Qwen3 TTS（高品質・ローカルLLM型）</option>
+            <option value="qwen3tts" selected>Qwen3 TTS（高品質・ローカルLLM型）</option>
           </select>
           <div id="tts-engine-note" style="font-size:10px;color:var(--text3);margin-top:3px"></div>
         </div>
@@ -1729,65 +1924,12 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
       </div>
 
-      <!-- ── Echo Mode (EchoVault) 設定 ── -->
+      <!-- ── Echo Mode 設定 ── -->
       <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
-        <div class="section-label">🎙 Echo Mode — EchoVault</div>
-        <!-- ASR言語 -->
-        <div style="margin-bottom:8px">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASR言語</div>
-          <select id="echo-asr-lang"
-            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
-            onchange="saveEchoSettings()">
-            <option value="auto">自動検出（日本語/英語）</option>
-            <option value="ja">日本語のみ</option>
-            <option value="en">English only</option>
-          </select>
-        </div>
-        <!-- ASRモデル -->
-        <div style="margin-bottom:8px">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASRモデル</div>
-          <select id="echo-asr-model"
-            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
-            onchange="saveEchoSettings()">
-            <option value="large-v3-turbo">large-v3-turbo（高精度・推奨）</option>
-            <option value="small">small（高速・軽量）</option>
-            <option value="medium">medium（バランス）</option>
-          </select>
-        </div>
-        <!-- Echo TTS エンジン -->
-        <div style="margin-bottom:8px">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo TTS エンジン</div>
-          <select id="echo-tts-engine"
-            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
-            onchange="saveEchoSettings()">
-            <option value="webspeech">Web Speech API（ブラウザ内蔵）</option>
-            <option value="voicevox">VOICEVOX（高品質日本語）</option>
-            <option value="edgetts">Edge TTS（クラウド）</option>
-            <option value="qwen3tts">Qwen3 TTS（高品質・ローカル）</option>
-          </select>
-        </div>
-        <!-- Qwen3 TTS ロード（Echoモード用） -->
-        <div id="echo-qwen3tts-load-row" style="display:none;margin-bottom:8px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <button onclick="loadQwen3Tts('echo')" id="echo-qwen3tts-load-btn"
-              style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">
-              Qwen3 TTS をロード
-            </button>
-            <span id="echo-qwen3tts-status" style="font-size:10px;color:var(--text3)">未ロード</span>
-          </div>
-        </div>
-        <!-- 自動読み上げ -->
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div>
-            <div style="font-size:11px;font-weight:700;color:var(--text2)">認識後に自動読み上げ</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:2px">各文の認識完了後にTTSを自動再生</div>
-          </div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="echo-autoplay-tts"
-              style="width:14px;height:14px;accent-color:var(--accent)"
-              onchange="saveEchoSettings()">
-            <span style="font-size:11px;color:var(--text2)" id="echo-autoplay-label">OFF</span>
-          </label>
+        <div class="section-label">🎙 Echo Mode</div>
+        <div style="padding:4px 0 14px;font-size:11px;color:var(--text3);line-height:1.7">
+          ASR・TTS・ボイスクローン・翻訳などの詳細設定は、<br>
+          Echoモードの <strong style="color:var(--accent)">TTS/ASR タブ</strong> からご設定ください。
         </div>
       </div>
 
@@ -1867,11 +2009,14 @@ let voiceRecording = false;
 const tts = {
   enabled:      localStorage.getItem('tts_enabled')    === 'true',
   autoSpeak:    localStorage.getItem('tts_auto_speak') === 'true',
-  engine:       localStorage.getItem('tts_engine')     || 'webspeech',
+  engine:       localStorage.getItem('tts_engine')     || 'qwen3tts',
   voice:        localStorage.getItem('tts_voice')      || '',
   speed:        parseFloat(localStorage.getItem('tts_speed') || '1.0'),
   qwen3model:   localStorage.getItem('tts_qwen3model') || 'Qwen/Qwen3-TTS-12Hz-1.7B-Base',
   ttsDevice:    localStorage.getItem('tts_device')     || 'cpu',
+  translateEnabled: localStorage.getItem('tts_translate_enabled') !== 'false',
+  translateMode:    localStorage.getItem('tts_translate_mode')    || 'auto',
+  translateAutoplay: localStorage.getItem('tts_translate_autoplay') === 'true',
   _queue:       [],
   _playing:     false,
   _audio:       null,
@@ -1892,11 +2037,16 @@ const echo = {
   reconnectCount: 0,
   _reconnectTimer: null,
   autoPlayTts:    localStorage.getItem('echo_autoplay_tts') === 'true',
-  ttsEngine:      localStorage.getItem('echo_tts_engine')  || 'webspeech',
+  ttsEngine:      localStorage.getItem('echo_tts_engine')  || 'qwen3tts',
   asrLang:        localStorage.getItem('echo_asr_lang')    || 'auto',
   asrModel:       localStorage.getItem('echo_asr_model')   || 'large-v3-turbo',
   voiceRefAudio:  null,    // ボイスクローン参照音声 base64
 };
+
+// Echo 自動スクロール状態
+let _echoAutoScroll = true;
+// Echo MD プレビューモード
+let _echoPreviewMode = false;
 
 function _ttsStripMarkdown(text) {
   return text
@@ -1954,11 +2104,40 @@ function ttsSpeakMsg(btn) {
   tts.enabled = localStorage.getItem('tts_enabled') === 'true'; // 元に戻す
 }
 
+// テキストの言語を簡易判定（日本語文字があれば 'ja'、なければ 'en'）
+function _ttsDetectLang(text) {
+  return /[\u3040-\u9fff]/.test(text) ? 'ja' : 'en';
+}
+
+// TTS 翻訳が必要かどうかを判定し、必要なら翻訳テキストを返す
+async function _ttsMaybeTranslate(text) {
+  if (!tts.translateEnabled || tts.translateMode === 'off') return text;
+  const srcLang = _ttsDetectLang(text);
+  let needTranslate = false;
+  if (tts.translateMode === 'auto') needTranslate = true; // 常に対向言語に翻訳
+  else if (tts.translateMode === 'ja') needTranslate = (srcLang === 'en'); // EN→JP のみ
+  else if (tts.translateMode === 'en') needTranslate = (srcLang === 'ja'); // JP→EN のみ
+  if (!needTranslate) return text;
+  try {
+    const r = await fetch(API + '/tts/translate-text', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({text, src_lang: srcLang})
+    });
+    const d = await r.json();
+    return d.translated || text;
+  } catch(e) {
+    console.warn('[TTS] translation failed:', e);
+    return text;
+  }
+}
+
 async function _ttsPlayNext() {
   if (tts._queue.length === 0) { tts._playing = false; return; }
   tts._playing = true;
-  const sentence = tts._queue.shift();
+  let sentence = tts._queue.shift();
   try {
+    // 翻訳TTS処理（有効な場合）
+    sentence = await _ttsMaybeTranslate(sentence);
     if (tts.engine === 'webspeech') {
       await _ttsPlayWebSpeech(sentence);
     } else {
@@ -2240,9 +2419,11 @@ async function loadTtsEngine() {
 }
 
 async function loadQwen3Tts(context) {
-  // context: 'main'(TTSタブ) or 'echo'(Echoタブ)
-  const btnId    = context === 'echo' ? 'echo-qwen3tts-load-btn'    : 'tts-qwen3-load-btn';
-  const statusId = context === 'echo' ? 'echo-qwen3tts-status'      : 'tts-qwen3-status';
+  // context: 'main'(TTSタブ) or 'echo'(Echoタブ) or 'tsasr'(TTS/ASRタブ)
+  const btnId    = context === 'echo' ? 'echo-qwen3tts-load-btn'
+                 : context === 'tsasr' ? 'tsasr-qwen3-load-btn' : 'tts-qwen3-load-btn';
+  const statusId = context === 'echo' ? 'echo-qwen3tts-status'
+                 : context === 'tsasr' ? 'tsasr-qwen3-status' : 'tts-qwen3-status';
   const btn    = document.getElementById(btnId);
   const status = document.getElementById(statusId);
   if (btn) btn.disabled = true;
@@ -2265,7 +2446,11 @@ async function loadQwen3Tts(context) {
         if (ev.type === 'loading') {
           if (status) status.textContent = '読込中...';
         } else if (ev.type === 'done') {
-          if (status) status.textContent = '✓ ロード済み';
+          if (status) status.textContent = `✓ ロード済み (${(ev.model_id||'').split('/').pop()||''}, ${ev.device||'cpu'})`;
+          if (context === 'tsasr') {
+            document.getElementById('tsasr-qwen3-load-btn')?.setAttribute('style','display:none');
+            document.getElementById('tsasr-qwen3-unload-btn')?.removeAttribute('style');
+          }
         } else if (ev.type === 'error') {
           if (status) status.textContent = 'エラー';
           addMsg('error', 'Qwen3 TTS ロードエラー: ' + (ev.detail || ''));
@@ -2282,7 +2467,7 @@ async function loadQwen3Tts(context) {
 
 function saveEchoSettings() {
   echo.autoPlayTts = document.getElementById('echo-autoplay-tts')?.checked || false;
-  echo.ttsEngine   = document.getElementById('echo-tts-engine')?.value     || 'webspeech';
+  echo.ttsEngine   = document.getElementById('echo-tts-engine')?.value     || 'qwen3tts';
   echo.asrLang     = document.getElementById('echo-asr-lang')?.value       || 'auto';
   echo.asrModel    = document.getElementById('echo-asr-model')?.value      || 'large-v3-turbo';
   localStorage.setItem('echo_autoplay_tts', echo.autoPlayTts);
@@ -2291,8 +2476,6 @@ function saveEchoSettings() {
   localStorage.setItem('echo_asr_model',    echo.asrModel);
   const autoLbl = document.getElementById('echo-autoplay-label');
   if (autoLbl) autoLbl.textContent = echo.autoPlayTts ? 'ON' : 'OFF';
-  const q3row = document.getElementById('echo-qwen3tts-load-row');
-  if (q3row) q3row.style.display = echo.ttsEngine === 'qwen3tts' ? '' : 'none';
 }
 
 function _echoInitSettingsUI() {
@@ -2306,15 +2489,146 @@ function _echoInitSettingsUI() {
   if (langSel) langSel.value = echo.asrLang;
   const modelSel = document.getElementById('echo-asr-model');
   if (modelSel) modelSel.value = echo.asrModel;
-  const q3row = document.getElementById('echo-qwen3tts-load-row');
-  if (q3row) q3row.style.display = echo.ttsEngine === 'qwen3tts' ? '' : 'none';
-  // Qwen3ステータス確認
-  if (echo.ttsEngine === 'qwen3tts') {
-    fetch(API + '/tts/status').then(r => r.json()).then(st => {
-      const el = document.getElementById('echo-qwen3tts-status');
-      if (el) el.textContent = st.qwen3tts_loaded ? '✓ ロード済み' : '未ロード';
-    }).catch(() => {});
+}
+
+// ── TTS/ASR タブ設定 ──
+function saveTsAsrSettings() {
+  const asrPreload = document.getElementById('tsasr-asr-preload');
+  const ttsPreload = document.getElementById('tsasr-tts-preload');
+  const asrDir   = document.getElementById('tsasr-asr-dir');
+  const ttsDir   = document.getElementById('tsasr-tts-dir');
+  if (asrPreload) {
+    localStorage.setItem('tsasr_asr_preload', asrPreload.checked);
+    const lbl = document.getElementById('tsasr-asr-preload-label');
+    if (lbl) lbl.textContent = asrPreload.checked ? 'ON' : 'OFF';
   }
+  if (ttsPreload) {
+    localStorage.setItem('tsasr_tts_preload', ttsPreload.checked);
+    const lbl = document.getElementById('tsasr-tts-preload-label');
+    if (lbl) lbl.textContent = ttsPreload.checked ? 'ON' : 'OFF';
+  }
+  if (asrDir) localStorage.setItem('tsasr_asr_dir', asrDir.value);
+  if (ttsDir) localStorage.setItem('tsasr_tts_dir', ttsDir.value);
+  // Qwen3 モデル選択を echo.ttsEngine と同期
+  const q3ModelSel = document.getElementById('tsasr-qwen3-model-sel');
+  if (q3ModelSel) localStorage.setItem('tsasr_qwen3model', q3ModelSel.value);
+}
+
+function saveTtsTranslateSettings() {
+  const enableChk = document.getElementById('tts-translate-enable');
+  const modeSel   = document.getElementById('tts-translate-mode');
+  const autoChk   = document.getElementById('tts-translate-autoplay');
+  if (enableChk) {
+    tts.translateEnabled = enableChk.checked;
+    localStorage.setItem('tts_translate_enabled', tts.translateEnabled);
+    const lbl = document.getElementById('tts-translate-enable-label');
+    if (lbl) lbl.textContent = tts.translateEnabled ? 'ON' : 'OFF';
+  }
+  if (modeSel) {
+    tts.translateMode = modeSel.value;
+    localStorage.setItem('tts_translate_mode', tts.translateMode);
+  }
+  if (autoChk) {
+    tts.translateAutoplay = autoChk.checked;
+    localStorage.setItem('tts_translate_autoplay', tts.translateAutoplay);
+    const lbl = document.getElementById('tts-translate-autoplay-label');
+    if (lbl) lbl.textContent = tts.translateAutoplay ? 'ON' : 'OFF';
+  }
+}
+
+function refreshTsAsrTab() {
+  // TTS/ASR タブを開いた時の初期化
+  _echoInitSettingsUI();
+  // ASR ステータス表示
+  fetch(API + '/voice/status').then(r => r.json()).then(s => {
+    const statusEl = document.getElementById('tsasr-asr-status');
+    const loadBtn  = document.getElementById('tsasr-asr-load-btn');
+    const unloadBtn = document.getElementById('tsasr-asr-unload-btn');
+    if (statusEl) statusEl.textContent = s.loaded ? `✓ ロード済み (${s.model || ''})` : '未ロード';
+    if (loadBtn)  loadBtn.style.display  = s.loaded ? 'none' : '';
+    if (unloadBtn) unloadBtn.style.display = s.loaded ? '' : 'none';
+  }).catch(() => {});
+  // TTS ステータス表示
+  fetch(API + '/tts/status').then(r => r.json()).then(s => {
+    const statusEl  = document.getElementById('tsasr-qwen3-status');
+    const loadBtn   = document.getElementById('tsasr-qwen3-load-btn');
+    const unloadBtn = document.getElementById('tsasr-qwen3-unload-btn');
+    if (statusEl) statusEl.textContent = s.qwen3tts_loaded ? `✓ ロード済み (${(s.qwen3tts_model_id||'').split('/').pop()}, ${s.qwen3tts_device||'cpu'})` : '未ロード';
+    if (loadBtn)  loadBtn.style.display   = s.qwen3tts_loaded ? 'none' : '';
+    if (unloadBtn) unloadBtn.style.display = s.qwen3tts_loaded ? '' : 'none';
+  }).catch(() => {});
+  // 保存済み設定を復元
+  const asrPreload = document.getElementById('tsasr-asr-preload');
+  const ttsPreload = document.getElementById('tsasr-tts-preload');
+  const asrDir   = document.getElementById('tsasr-asr-dir');
+  const ttsDir   = document.getElementById('tsasr-tts-dir');
+  if (asrPreload) { asrPreload.checked = localStorage.getItem('tsasr_asr_preload') === 'true'; const lbl = document.getElementById('tsasr-asr-preload-label'); if (lbl) lbl.textContent = asrPreload.checked ? 'ON' : 'OFF'; }
+  if (ttsPreload) { ttsPreload.checked = localStorage.getItem('tsasr_tts_preload') === 'true'; const lbl = document.getElementById('tsasr-tts-preload-label'); if (lbl) lbl.textContent = ttsPreload.checked ? 'ON' : 'OFF'; }
+  if (asrDir)  asrDir.value  = localStorage.getItem('tsasr_asr_dir') || '';
+  if (ttsDir)  ttsDir.value  = localStorage.getItem('tsasr_tts_dir') || '';
+  // 翻訳設定
+  const enableChk = document.getElementById('tts-translate-enable');
+  const modeSel   = document.getElementById('tts-translate-mode');
+  const autoChk   = document.getElementById('tts-translate-autoplay');
+  if (enableChk) { enableChk.checked = tts.translateEnabled; const lbl = document.getElementById('tts-translate-enable-label'); if (lbl) lbl.textContent = tts.translateEnabled ? 'ON' : 'OFF'; }
+  if (modeSel)   modeSel.value = tts.translateMode;
+  if (autoChk)   { autoChk.checked = tts.translateAutoplay; const lbl = document.getElementById('tts-translate-autoplay-label'); if (lbl) lbl.textContent = tts.translateAutoplay ? 'ON' : 'OFF'; }
+}
+
+async function loadAsrModelFromTab() {
+  const loadBtn   = document.getElementById('tsasr-asr-load-btn');
+  const statusEl  = document.getElementById('tsasr-asr-status');
+  const modelSel  = document.getElementById('echo-asr-model');
+  const model     = modelSel?.value || 'large-v3-turbo';
+  if (loadBtn) loadBtn.disabled = true;
+  if (statusEl) statusEl.textContent = 'ロード中...';
+  try {
+    const r = await fetch(API + '/voice/load', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({model})
+    });
+    const d = await r.json();
+    if (d.status === 'loaded' || d.loaded) {
+      if (statusEl) statusEl.textContent = `✓ ロード済み (${d.model || model})`;
+      document.getElementById('tsasr-asr-load-btn')?.setAttribute('style','display:none');
+      document.getElementById('tsasr-asr-unload-btn')?.removeAttribute('style');
+    } else {
+      if (statusEl) statusEl.textContent = 'ロード失敗: ' + (d.error || JSON.stringify(d));
+    }
+  } catch(e) {
+    if (statusEl) statusEl.textContent = 'エラー: ' + e.message;
+  }
+  if (loadBtn) loadBtn.disabled = false;
+}
+
+async function unloadAsrModelFromTab() {
+  const statusEl = document.getElementById('tsasr-asr-status');
+  if (statusEl) statusEl.textContent = 'アンロード中...';
+  try {
+    await fetch(API + '/voice/unload', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({})});
+    if (statusEl) statusEl.textContent = '未ロード';
+    document.getElementById('tsasr-asr-unload-btn')?.setAttribute('style','display:none');
+    document.getElementById('tsasr-asr-load-btn')?.removeAttribute('style');
+  } catch(e) {
+    if (statusEl) statusEl.textContent = 'エラー: ' + e.message;
+  }
+}
+
+async function unloadTtsEngineFromTab() {
+  const statusEl  = document.getElementById('tsasr-qwen3-status');
+  const unloadBtn = document.getElementById('tsasr-qwen3-unload-btn');
+  if (statusEl) statusEl.textContent = 'アンロード中...';
+  if (unloadBtn) unloadBtn.disabled = true;
+  try {
+    await fetch(API + '/tts/unload', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({engine: 'qwen3tts'})});
+    if (statusEl) statusEl.textContent = '未ロード';
+    document.getElementById('tsasr-qwen3-unload-btn')?.setAttribute('style','display:none');
+    document.getElementById('tsasr-qwen3-load-btn')?.removeAttribute('style');
+  } catch(e) {
+    if (statusEl) statusEl.textContent = 'エラー: ' + e.message;
+  }
+  if (unloadBtn) unloadBtn.disabled = false;
 }
 
 function _ttsInitSettingsUI() {
@@ -2624,6 +2938,9 @@ async function _saveSettingDb(key, value) {
 addEventListener('load', async () => {
   if (window.innerWidth <= 768) {
     mobSwitch('chat');
+  } else {
+    // PC: Chat モードのデフォルトタブ表示を確保
+    _updateMobTabs('chat');
   }
   localStorage.removeItem('llm_endpoints'); // 旧LLMエンドポイント設定をクリーンアップ
   await loadSettingsFromDb();   // DBから設定を復元（localStorage優先ではなくDB優先）
@@ -2636,6 +2953,10 @@ addEventListener('load', async () => {
   await loadHistory(currentProject);
   await loadJobs(currentProject);
   startSystemSummaryPolling();
+  // Echo スクロールリスナーを初期化
+  _echoInitScrollListener();
+  // Clear ボタン初期状態
+  _echoUpdateClearBtn();
 });
 
 // ── SYSTEM SUMMARY / HEALTH ──
@@ -2812,11 +3133,24 @@ function formatModelShortName(name) {
 }
 
 // ── MODE ──
+// Chat/Task モード用パネルタブID
+const _CHAT_PANEL_TAB_IDS = ['tab-btn-output','tab-btn-preview','tab-btn-log','tab-btn-skills','tab-btn-memory','tab-btn-models'];
+// Echo モード用パネルタブID
+const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault','tab-btn-log-echo','tab-btn-models-echo','tab-btn-tsasr'];
+// Chat/Task モード用モバイルタブID
+const _CHAT_MOB_TAB_IDS = ['mob-chat','mob-output','mob-preview','mob-log','mob-skills','mob-memory','mob-models'];
+// Echo モード用モバイルタブID
+const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-echo','mob-tsasr'];
+
 function _setEchoTabVisibility(isEcho) {
-  document.querySelectorAll('.panel-tabs .tab-btn').forEach(btn => {
-    if (btn.id === 'tab-btn-echovault') return;
-    btn.style.display = isEcho ? 'none' : '';
-  });
+  _CHAT_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? 'none' : ''; });
+  _ECHO_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
+}
+
+function _updateMobTabs(m) {
+  const isEcho = (m === 'echo');
+  _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? 'none' : ''; });
+  _ECHO_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
 }
 
 function setMode(m) {
@@ -2826,20 +3160,25 @@ function setMode(m) {
   const echoCol  = document.getElementById('echo-col');
   const panelCol = document.getElementById('panel-col');
   const appBody  = document.querySelector('.app-body');
+  _updateMobTabs(m);
   if (m === 'echo') {
+    // Echo モード: echo-col（左）+ panel-col（右）の2カラムレイアウト
     appBody?.classList.add('echo-active');
     chatCol.style.display  = 'none';
     echoCol.style.display  = '';
-    panelCol.style.display = 'none';
+    panelCol.style.display = '';
     _setEchoTabVisibility(true);
+    // Vault タブをデフォルト表示
+    const vaultActive = document.getElementById('tab-vault')?.classList.contains('active');
+    if (!vaultActive) switchTab('vault');
   } else {
     appBody?.classList.remove('echo-active');
     chatCol.style.display  = '';
     echoCol.style.display  = 'none';
     panelCol.style.display = '';
     _setEchoTabVisibility(false);
-    // Echoモードで echovault タブが選ばれていた場合は output に戻す
-    if (document.getElementById('tab-echovault')?.classList.contains('active')) {
+    // Echo モード用タブが選ばれていた場合は output に戻す
+    if (['vault','tsasr'].some(n => document.getElementById('tab-'+n)?.classList.contains('active'))) {
       switchTab('output');
     }
   }
@@ -2847,8 +3186,14 @@ function setMode(m) {
 
 // ── MOBILE ──
 function mobSwitch(name) {
-  ['chat','echo','output','preview','log','skills','memory','models'].forEach(t => document.getElementById('mob-'+t)?.classList.remove('active'));
-  document.getElementById('mob-'+name)?.classList.add('active');
+  // 全モブタブの active を解除
+  [..._CHAT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS].forEach(id => document.getElementById(id)?.classList.remove('active'));
+  // 対応するタブをアクティブに
+  const activeId = (name === 'log' && mode === 'echo') ? 'mob-log-echo'
+    : (name === 'models' && mode === 'echo') ? 'mob-models-echo'
+    : 'mob-' + name;
+  document.getElementById(activeId)?.classList.add('active');
+
   const cc = document.getElementById('chat-col');
   const ec = document.getElementById('echo-col');
   const pc = document.getElementById('panel-col');
@@ -2861,6 +3206,16 @@ function mobSwitch(name) {
     if (ec) ec.classList.remove('mob-hidden');
     cc.classList.add('mob-hidden');
     pc.classList.add('mob-hidden');
+  } else if (name === 'vault') {
+    if (ec) ec.classList.add('mob-hidden');
+    cc.classList.add('mob-hidden');
+    pc.classList.remove('mob-hidden');
+    switchTab('vault');
+  } else if (name === 'tsasr') {
+    if (ec) ec.classList.add('mob-hidden');
+    cc.classList.add('mob-hidden');
+    pc.classList.remove('mob-hidden');
+    switchTab('tsasr');
   } else {
     cc.classList.add('mob-hidden');
     if (ec) ec.classList.add('mob-hidden');
@@ -2971,11 +3326,16 @@ function discardSkillProposal(i, logIt = true) {
 
 // ── PANEL TABS ──
 function switchTab(name) {
-  const tabNames = ['output','preview','log','skills','memory','models'];
-  document.querySelectorAll('.tab-btn').forEach((b,i) => {
-    // EchoVaultボタンは id 付きなので位置ベースから除外
-    if (b.id === 'tab-btn-echovault') { b.classList.toggle('active', name==='echovault'); return; }
-    b.classList.toggle('active', tabNames[i]===name);
+  // ID ベースで各タブボタンのアクティブ状態を更新
+  const allBtnIds = [..._CHAT_PANEL_TAB_IDS, ..._ECHO_PANEL_TAB_IDS];
+  // log/models は Echo モード用にも同じタブを指す
+  const resolvedName = name; // 'log', 'models' は共用
+  allBtnIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    // id から対応するタブ名を取得
+    const tabName = id.replace('tab-btn-','').replace('-echo','');
+    el.classList.toggle('active', tabName === resolvedName);
   });
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   document.getElementById('tab-'+name)?.classList.add('active');
@@ -2983,7 +3343,8 @@ function switchTab(name) {
   if (name === 'skills') refreshSkills();
   if (name === 'memory') refreshMemory();
   if (name === 'models') { refreshModelDb(); refreshModelRoles(); }
-  if (name === 'echovault') refreshEchoVault();
+  if (name === 'vault') refreshEchoVault();
+  if (name === 'tsasr') refreshTsAsrTab();
 }
 
 // ── GIT ──
@@ -4583,7 +4944,8 @@ function _echoAddSentence(ev) {
     <div class="ts-trans" id="ts-trans-${sid}"><em style="opacity:.5">翻訳中...</em></div>
   `;
   container.appendChild(div);
-  container.scrollTop = container.scrollHeight;
+  if (_echoAutoScroll) container.scrollTop = container.scrollHeight;
+  _echoUpdateClearBtn();
   // 自動TTS再生
   if (echo.autoPlayTts && ev.lang === 'ja') {
     _echoPlaySentence(sid);
@@ -4695,6 +5057,8 @@ async function _echoStart() {
   echo.reconnectCount = 0;
   echo.startTime  = Date.now();
   echo.recording  = true;
+  _echoAutoScroll = true;
+  _echoPreviewMode = false;
   // UI更新
   const btn = document.getElementById('echo-record-btn');
   if (btn) { btn.textContent = '■ Stop'; btn.classList.add('recording'); }
@@ -4726,6 +5090,7 @@ async function _echoStart() {
 
 async function _echoStop() {
   echo.recording = false;
+  _echoAutoScroll = false;
   // タイマー停止
   if (echo.durationTimer) { clearInterval(echo.durationTimer); echo.durationTimer = null; }
   if (echo._reconnectTimer) { clearTimeout(echo._reconnectTimer); echo._reconnectTimer = null; }
@@ -4747,6 +5112,7 @@ async function _echoStop() {
     echo.ws.send(JSON.stringify({type: 'stop'}));
   }
   _echoSetConn('disconnected');
+  _echoUpdateClearBtn();
 }
 
 async function toggleEchoRecording() {
@@ -4757,15 +5123,35 @@ async function toggleEchoRecording() {
   }
 }
 
-function toggleEchoVaultPanel() {
-  const panel = document.getElementById('echo-vault-panel');
-  if (!panel) return;
-  const isHidden = panel.style.display === 'none';
-  panel.style.display = isHidden ? '' : 'none';
-  if (isHidden) refreshEchoVault();
+// ── Echo Clear ボタン ──
+function _echoUpdateClearBtn() {
+  const btn = document.getElementById('echo-clear-btn');
+  if (!btn) return;
+  btn.style.display = (!echo.recording && (echo.sentences.length > 0 || _echoPreviewMode)) ? '' : 'none';
 }
 
-// EchoVault ファイルブラウザ
+function echoClearTranscript() {
+  if (echo.recording) return;
+  echo.sentences = [];
+  _echoPreviewMode = false;
+  const container = document.getElementById('echo-transcript');
+  if (container) container.innerHTML = '<div class="echo-empty">「Start」を押して同時通訳・録音を開始...</div>';
+  _echoUpdateClearBtn();
+  _echoUpdateSentenceCount();
+}
+
+// ── Echo スクロール制御（録音中にユーザーが手動スクロールした場合、自動スクロールを解除） ──
+function _echoInitScrollListener() {
+  const container = document.getElementById('echo-transcript');
+  if (!container) return;
+  container.addEventListener('scroll', () => {
+    if (!echo.recording) return;
+    const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 60;
+    _echoAutoScroll = atBottom;
+  }, {passive: true});
+}
+
+// EchoVault ファイルブラウザ（Vault タブ用）
 async function refreshEchoVault() {
   const el = document.getElementById('echovault-list');
   if (!el) return;
@@ -4779,16 +5165,24 @@ async function refreshEchoVault() {
       return;
     }
     const ext2icon = {webm:'🎙', md:'📝', txt:'📄'};
+    const audioExts = new Set(['webm','wav','mp3','ogg','flac','m4a']);
     el.innerHTML = files.map(f => {
-      const ext = f.name.includes('.') ? f.name.split('.').pop() : '';
+      const ext = f.name.includes('.') ? f.name.split('.').pop().toLowerCase() : '';
       const icon = ext2icon[ext] || '📄';
       const sizeStr = _fmtBytes(f.size);
-      return `<div style="display:flex;align-items:center;gap:7px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);margin-bottom:3px">
+      const isAudio = audioExts.has(ext);
+      const isMd = ext === 'md';
+      const previewBtn = (isAudio || isMd)
+        ? `<button onclick="${isAudio ? `_echoVaultPlayAudio('${esc(f.name)}')` : `_echoVaultPreviewMd('${esc(f.name)}')`}"
+             style="font-size:10px;padding:3px 7px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer;flex-shrink:0" title="${isAudio ? '再生' : 'プレビュー'}">${isAudio ? '▶' : '👁'}</button>`
+        : '';
+      return `<div style="display:flex;align-items:center;gap:6px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);margin-bottom:3px">
         <span style="font-size:15px;flex-shrink:0">${icon}</span>
         <div style="flex:1;min-width:0">
           <div style="font-size:11px;font-family:var(--font-mono);color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.name)}">${esc(f.name)}</div>
           <div style="font-size:10px;color:var(--text3);margin-top:1px">${esc(f.mtime)} · ${sizeStr}</div>
         </div>
+        ${previewBtn}
         <a href="${API}/echo/sessions/${encodeURIComponent(f.name)}" download="${esc(f.name)}"
            style="font-size:10px;padding:3px 9px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;text-decoration:none;flex-shrink:0;font-family:var(--font-ui);font-weight:600">↓ DL</a>
         <button onclick="deleteEchoVaultFile('${esc(f.name)}')" style="font-size:10px;padding:3px 7px;border:1px solid var(--border);background:transparent;color:var(--text3);border-radius:4px;cursor:pointer;flex-shrink:0" title="削除">✕</button>
@@ -4797,6 +5191,63 @@ async function refreshEchoVault() {
   } catch(e) {
     el.innerHTML = `<div style="font-size:11px;color:var(--red)">エラー: ${esc(e.message)}</div>`;
   }
+}
+
+// ── Vault 音声プレビュー ──
+function _echoVaultPlayAudio(filename) {
+  const player = document.getElementById('vault-audio-player');
+  const audio   = document.getElementById('vault-audio-el');
+  const nameEl  = document.getElementById('vault-audio-name');
+  if (!player || !audio) return;
+  audio.src = API + '/echo/sessions/' + encodeURIComponent(filename);
+  if (nameEl) nameEl.textContent = filename;
+  player.style.display = '';
+  audio.play().catch(() => {});
+}
+
+function vaultAudioClose() {
+  const player = document.getElementById('vault-audio-player');
+  const audio   = document.getElementById('vault-audio-el');
+  if (audio) { audio.pause(); audio.src = ''; }
+  if (player) player.style.display = 'none';
+}
+
+// ── Vault MD プレビュー（Echo タブに切り替えて表示） ──
+async function _echoVaultPreviewMd(filename) {
+  if (echo.recording) { alert('Echo録音中はプレビューできません。'); return; }
+  let md = '';
+  try {
+    const r = await fetch(API + '/echo/sessions/' + encodeURIComponent(filename));
+    md = await r.text();
+  } catch(e) {
+    alert('ファイル読み込み失敗: ' + e.message); return;
+  }
+  // Echo タブに切り替え
+  const isMobile = window.innerWidth <= 768;
+  if (isMobile) mobSwitch('echo');
+  else {
+    const ec = document.getElementById('echo-col');
+    if (ec) ec.style.display = '';
+  }
+  const container = document.getElementById('echo-transcript');
+  if (!container) return;
+  // Markdown レンダリング（簡易版）
+  const rendered = md
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/^### (.+)$/gm,'<h3 style="font-size:12px;color:var(--text);margin:8px 0 4px;font-weight:700">$1</h3>')
+    .replace(/^## (.+)$/gm,'<h2 style="font-size:13px;color:var(--text);margin:10px 0 4px;font-weight:700">$1</h2>')
+    .replace(/^# (.+)$/gm,'<h1 style="font-size:14px;color:var(--accent);margin:12px 0 6px;font-weight:700">$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,'<em>$1</em>')
+    .replace(/`([^`]+)`/g,'<code style="background:var(--bg3);padding:1px 4px;border-radius:2px;font-family:var(--font-mono);font-size:11px">$1</code>')
+    .replace(/^---$/gm,'<hr style="border:none;border-top:1px solid var(--border);margin:8px 0">')
+    .replace(/\n/g,'<br>');
+  container.innerHTML = `<div style="padding:8px;font-size:12px;color:var(--text);line-height:1.7;font-family:var(--font-ui)">
+    <div style="font-size:10px;color:var(--text3);margin-bottom:8px;font-family:var(--font-mono)">📝 ${esc(filename)}</div>
+    ${rendered}
+  </div>`;
+  _echoPreviewMode = true;
+  _echoUpdateClearBtn();
 }
 
 async function deleteEchoVaultFile(filename) {

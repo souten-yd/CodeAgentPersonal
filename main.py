@@ -8877,7 +8877,7 @@ def qwen3tts_load(model_id: str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base", device: str =
     """Qwen3 TTSモデルをロードして {status, model_id, device} を返す。"""
     global _qwen3tts_model, _qwen3tts_model_id, _qwen3tts_device
     if not _QWEN3TTS_AVAILABLE:
-        raise RuntimeError("qwen_tts がインストールされていません。pip install qwen-tts を実行してください。")
+        raise RuntimeError("transformers/torch/soundfile がインストールされていません。pip install 'transformers>=4.52' torch torchaudio soundfile を実行してください。")
     cache_dir = _tts_models_dir()
     model = Qwen3TTSModel.from_pretrained(model_id, cache_dir=cache_dir, device=device)
     with _qwen3tts_lock:
@@ -9002,6 +9002,27 @@ def tts_unload_api(req: dict = {}):
     elif engine == "qwen3tts":
         return {**qwen3tts_unload(), "engine": "qwen3tts"}
     raise HTTPException(status_code=400, detail=f"不明なエンジン: {engine}")
+
+
+@app.post("/tts/translate-text")
+async def tts_translate_text_api(req: dict = {}):
+    """テキストを翻訳する。TTS 読み上げ前の言語変換に使用。
+    EN テキスト → JP 翻訳、JP テキスト → EN 翻訳。
+    """
+    import asyncio as _asyncio_mod
+    text = str(req.get("text", "")).strip()
+    src_lang = str(req.get("src_lang", "auto"))
+    if not text:
+        return {"translated": text, "target_lang": src_lang}
+    # 言語自動判定（ひらがな・カタカナ・漢字があれば ja）
+    if src_lang == "auto":
+        src_lang = "ja" if any('\u3040' <= c <= '\u9fff' for c in text) else "en"
+    try:
+        translated = await _asyncio_mod.to_thread(_echo_do_translate, text, src_lang)
+    except Exception as e:
+        return {"error": str(e), "translated": text, "target_lang": "en" if src_lang == "ja" else "ja"}
+    target_lang = "en" if src_lang == "ja" else "ja"
+    return {"translated": translated, "target_lang": target_lang, "src_lang": src_lang}
 
 
 _REF_AUDIO_ALLOWED_EXT = {".wav", ".mp3", ".flac", ".ogg", ".webm"}
