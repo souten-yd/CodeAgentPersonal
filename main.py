@@ -8312,9 +8312,6 @@ async def echo_stream_ws(websocket: WebSocket):
     session: dict = {}
     language = "auto"
     model_name = "large-v3-turbo"
-    chunk_buffer = bytearray()
-    CHUNK_THRESHOLD = 32768  # ~2-4 チャンク分でWhisper実行
-
     async def send(payload: dict):
         try:
             await websocket.send_text(json.dumps(payload, ensure_ascii=False))
@@ -8367,29 +8364,6 @@ async def echo_stream_ws(websocket: WebSocket):
 
                 elif t == "stop":
                     if session:
-                        # 残チャンクを処理
-                        if chunk_buffer:
-                            await send({"type": "status", "state": "transcribing"})
-                            try:
-                                res = await _asyncio.to_thread(
-                                    _echo_voice_transcribe,
-                                    bytes(chunk_buffer), language, model_name
-                                )
-                                if res.get("text"):
-                                    sid = len(session["sentences"])
-                                    lang_det = res.get("language", "ja")
-                                    session["sentences"].append({
-                                        "id": sid, "text": res["text"],
-                                        "lang": lang_det, "translated": ""
-                                    })
-                                    await send({"type": "sentence", "id": sid, "text": res["text"], "lang": lang_det})
-                                    transl = await _asyncio.to_thread(_echo_do_translate, res["text"], lang_det)
-                                    session["sentences"][sid]["translated"] = transl
-                                    tgt = "en" if lang_det == "ja" else "ja"
-                                    await send({"type": "translation", "id": sid, "translated": transl, "target_lang": tgt})
-                            except Exception as e:
-                                await send({"type": "error", "detail": f"ASR error: {e}"})
-                            chunk_buffer.clear()
                         # 録音時間計算
                         if session.get("started_at"):
                             session["duration_sec"] = (_dt.datetime.now() - session["started_at"]).total_seconds()
@@ -8409,34 +8383,31 @@ async def echo_stream_ws(websocket: WebSocket):
                 if not chunk or not session:
                     continue
                 session["buffer"].extend(chunk)
-                chunk_buffer.extend(chunk)
-
-                if len(chunk_buffer) >= CHUNK_THRESHOLD:
-                    audio_snap = bytes(chunk_buffer)
-                    chunk_buffer.clear()
-                    await send({"type": "status", "state": "transcribing"})
-                    try:
-                        res = await _asyncio.to_thread(
-                            _echo_voice_transcribe,
-                            audio_snap, language, model_name
-                        )
-                        text = res.get("text", "").strip()
-                        if text:
-                            sid = len(session["sentences"])
-                            lang_det = res.get("language", "ja")
-                            session["sentences"].append({
-                                "id": sid, "text": text,
-                                "lang": lang_det, "translated": ""
-                            })
-                            await send({"type": "sentence", "id": sid, "text": text, "lang": lang_det})
-                            # 翻訳（非同期）
-                            transl = await _asyncio.to_thread(_echo_do_translate, text, lang_det)
-                            session["sentences"][sid]["translated"] = transl
-                            tgt = "en" if lang_det == "ja" else "ja"
-                            await send({"type": "translation", "id": sid, "translated": transl, "target_lang": tgt})
-                    except Exception as e:
-                        await send({"type": "error", "detail": f"ASR error: {e}"})
-                    await send({"type": "status", "state": "recording"})
+                # MediaRecorder timeslice 単位(各 WebM チャンク)でASRする。
+                # 生バイト数しきい値で切るとコンテナ境界を壊し、デコードエラーになりやすい。
+                await send({"type": "status", "state": "transcribing"})
+                try:
+                    res = await _asyncio.to_thread(
+                        _echo_voice_transcribe,
+                        bytes(chunk), language, model_name
+                    )
+                    text = res.get("text", "").strip()
+                    if text:
+                        sid = len(session["sentences"])
+                        lang_det = res.get("language", "ja")
+                        session["sentences"].append({
+                            "id": sid, "text": text,
+                            "lang": lang_det, "translated": ""
+                        })
+                        await send({"type": "sentence", "id": sid, "text": text, "lang": lang_det})
+                        # 翻訳（ASR後に順次実行）
+                        transl = await _asyncio.to_thread(_echo_do_translate, text, lang_det)
+                        session["sentences"][sid]["translated"] = transl
+                        tgt = "en" if lang_det == "ja" else "ja"
+                        await send({"type": "translation", "id": sid, "translated": transl, "target_lang": tgt})
+                except Exception as e:
+                    await send({"type": "error", "detail": f"ASR error: {e}"})
+                await send({"type": "status", "state": "recording"})
 
     except WebSocketDisconnect:
         # 切断時はセッションを保持（クライアントが resume で再接続可能）
