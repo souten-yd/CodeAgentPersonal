@@ -3587,9 +3587,7 @@ function setMode(m) {
     echoCol.style.display  = '';
     panelCol.style.display = '';
     _setEchoTabVisibility(true);
-    // ASR タブをデフォルト表示
-    const asrActive = document.getElementById('tab-asr')?.classList.contains('active');
-    if (!asrActive) switchTab('asr');
+    // Echoモード遷移時は既存の右ペイン選択を維持（初期強制はしない）
   } else {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
@@ -3612,6 +3610,8 @@ function setMode(m) {
       chatCol?.classList.add('mob-hidden');
       panelCol?.classList.add('mob-hidden');
       echoCol?.classList.remove('mob-hidden');
+      [..._CHAT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS].forEach(id => document.getElementById(id)?.classList.remove('active'));
+      document.getElementById('mob-echo')?.classList.add('active');
     } else {
       // Chat/Task は常に chat カラムを見せる（設定系タブはモバイルタブで遷移）
       chatCol?.classList.remove('mob-hidden');
