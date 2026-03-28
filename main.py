@@ -8144,6 +8144,8 @@ _echo_debug_lock = threading.Lock()
 _echo_debug_events: dict[str, list[dict]] = {}
 _echo_debug_last_updated: dict[str, str] = {}
 ECHO_DEBUG_LOG_PATH = os.path.join(LOG_DIR, "echo_debug.log")
+_echo_save_lock = threading.Lock()
+_echo_saving_sessions: set[str] = set()
 # Echo ASRの軽量ポストフィルタ（CPU負荷ほぼゼロ）
 ECHO_ASR_MIN_CHARS = max(1, int(os.environ.get("ECHO_ASR_MIN_CHARS", "2") or 2))
 ECHO_ASR_NO_SPEECH_REJECT = min(0.99, max(0.0, float(os.environ.get("ECHO_ASR_NO_SPEECH_REJECT", "0.72") or 0.72)))
@@ -8464,6 +8466,51 @@ def _echovault_save_session(session: dict) -> str:
     return os.path.basename(minutes_path)
 
 
+def _echo_schedule_session_save(session_id: str, session: dict):
+    """Echo stop後の保存をバックグラウンドで実行する。"""
+    sid = str(session_id or "unknown")
+
+    with _echo_save_lock:
+        _echo_saving_sessions.add(sid)
+
+    def _worker():
+        try:
+            fname = _echovault_save_session(session)
+            _echo_debug_append(
+                session_id=sid,
+                seq=None,
+                event_type="session_saved",
+                filename=fname,
+                sentence_count=len(session.get("sentences", [])),
+            )
+        except Exception as e:
+            _echo_debug_append(
+                session_id=sid,
+                seq=None,
+                event_type="session_save_error",
+                error=str(e),
+                traceback=traceback.format_exc(),
+            )
+        finally:
+            with _echo_save_lock:
+                _echo_saving_sessions.discard(sid)
+            _echo_sessions.pop(sid, None)
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+
+
+@app.get("/echo/save-status")
+def echo_save_status():
+    with _echo_save_lock:
+        sessions = sorted(_echo_saving_sessions)
+    return {
+        "saving": len(sessions) > 0,
+        "count": len(sessions),
+        "session_ids": sessions[:20],
+    }
+
+
 @app.websocket("/echo/stream")
 async def echo_stream_ws(websocket: WebSocket):
     import datetime as _dt, asyncio as _asyncio
@@ -8582,15 +8629,9 @@ async def echo_stream_ws(websocket: WebSocket):
                         # 録音時間計算
                         if session.get("started_at"):
                             session["duration_sec"] = (_dt.datetime.now() - session["started_at"]).total_seconds()
-                        # 保存（別スレッド）
+                        # stop時は即座にWebSocketを閉じ、保存はバックグラウンドで継続
                         await send({"type": "status", "state": "saving"})
-                        try:
-                            fname = await _asyncio.to_thread(_echovault_save_session, session)
-                            await send({"type": "summary_done", "filename": fname})
-                        except Exception as e:
-                            await send({"type": "error", "detail": f"保存エラー: {e}"})
-                        # セッションクリーンアップ
-                        _echo_sessions.pop(session_id, None)
+                        await send({"type": "session_stopping", "background_save": True})
                         _echo_debug_append(
                             session_id=session_id,
                             seq=None,
@@ -8598,6 +8639,7 @@ async def echo_stream_ws(websocket: WebSocket):
                             duration_sec=session.get("duration_sec", 0),
                             sentence_count=len(session.get("sentences", [])),
                         )
+                        _echo_schedule_session_save(session_id, dict(session))
                     break
 
             elif "bytes" in msg:
