@@ -9414,7 +9414,7 @@ def tts_synthesize_api(req: dict):
                 import base64 as _b64
                 ref_bytes = _b64.b64decode(ref_b64)
             except Exception:
-                ref_bytes = None
+                raise HTTPException(status_code=400, detail="ref_audio_base64 が不正です。参照音声を再登録してください。")
         try:
             wav = qwen3tts_synthesize(text, speed, ref_audio_bytes=ref_bytes)
         except Exception as e:

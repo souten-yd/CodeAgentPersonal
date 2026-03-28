@@ -1349,21 +1349,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     <div class="tab-content" id="tab-tts" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
       <div style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px">TTS</div>
 
-      <!-- ボイスクローン -->
-      <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px">
-        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🎤 Voice Clone</div>
-        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:10px">
-          <button onclick="echoRecordRefAudio()" id="echo-ref-mic-btn" style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="マイクで3秒以上録音">🎙 録音</button>
-          <label style="cursor:pointer;font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;color:var(--text2)" title="音声ファイルをアップロード">
-            📁 ファイル
-            <input type="file" id="echo-ref-audio-file" accept="audio/*,.wav,.mp3,.ogg,.m4a" style="display:none" onchange="echoUploadRefAudio(this)">
-          </label>
-          <button onclick="echoCaptureSystemAudio()" style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="PCで再生中の音声をキャプチャ">🖥 PC音声</button>
-          <span id="echo-ref-status" style="font-size:10px;color:var(--text3)">未設定</span>
-          <button id="echo-clear-ref" onclick="echoClearRefAudio()" style="display:none;font-size:10px;padding:2px 6px;border:1px solid var(--red);border-radius:4px;background:transparent;color:var(--red);cursor:pointer">✕ クリア</button>
-        </div>
-      </div>
-
       <!-- TTS 設定 -->
       <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px">
         <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🔊 Echo TTS 設定</div>
@@ -1388,6 +1373,26 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <option value="Qwen/Qwen3-TTS-0.6B">Qwen3-TTS-0.6B（軽量）</option>
             <option value="Qwen/Qwen3-TTS-1.7B">Qwen3-TTS-1.7B</option>
           </select>
+        </div>
+        <!-- Qwen3 参照音声（Qwen3選択時のみ） -->
+        <div id="tsasr-qwen3-ref-row" style="display:none;margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">🎤 Voice Clone（Qwen3専用）</div>
+          <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:10px;margin-bottom:6px">
+            <button onclick="echoRecordRefAudio()" id="qwen3-ref-mic-btn" style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="マイクで3秒以上録音">🎙 録音</button>
+            <label style="cursor:pointer;font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;color:var(--text2)" title="音声ファイルをアップロード">
+              📁 ファイル
+              <input type="file" id="qwen3-ref-audio-file" accept="audio/*,.wav,.mp3,.ogg,.m4a" style="display:none" onchange="echoUploadRefAudio(this)">
+            </label>
+            <button onclick="echoCaptureSystemAudio()" style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="PCで再生中の音声をキャプチャ">🖥 PC音声</button>
+            <span id="qwen3-ref-status" style="font-size:10px;color:var(--text3)">未設定（通常合成）</span>
+            <button id="qwen3-clear-ref" onclick="echoClearRefAudio()" style="display:none;font-size:10px;padding:2px 6px;border:1px solid var(--red);border-radius:4px;background:transparent;color:var(--red);cursor:pointer">✕ クリア</button>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">参照テキスト（任意）</div>
+            <textarea id="qwen3-ref-text-input" rows="2" placeholder="参照音声の内容が分かる場合に入力（例: こんにちは。よろしくお願いします。）"
+              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);box-sizing:border-box;resize:vertical"
+              onchange="saveTsAsrSettings()"></textarea>
+          </div>
         </div>
         <!-- デバイス選択 -->
         <div style="margin-bottom:8px" id="tsasr-device-row">
@@ -2290,10 +2295,7 @@ async function _ttsFetchAudio(text) {
   if (tts.engine === 'edgetts')  body.voice = tts.voice || 'ja-JP-NanamiNeural';
   if (tts.engine === 'qwen3tts') {
     body.language = 'ja';
-    const refSel = document.getElementById('ref-audio-sel');
-    if (refSel && refSel.value) body.ref_audio = refSel.value;
-    const refTxt = document.getElementById('ref-text-input');
-    if (refTxt && refTxt.value.trim()) body.ref_text = refTxt.value.trim();
+    Object.assign(body, _buildQwen3ReferenceParams('echo'));
   }
   const resp = await fetch(API + '/tts/synthesize', {
     method: 'POST',
@@ -2302,9 +2304,41 @@ async function _ttsFetchAudio(text) {
   });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail || 'TTS synthesis failed');
+    throw new Error(_formatQwen3SynthesisError(err.detail || 'TTS synthesis failed', body));
   }
   return await resp.blob();
+}
+
+function _buildQwen3ReferenceParams(context = 'echo') {
+  const params = {};
+  const refTextInput = context === 'echo' ? document.getElementById('qwen3-ref-text-input') : null;
+  const refText = refTextInput?.value?.trim() || '';
+  if (echo.voiceRefAudio) params.ref_audio_base64 = echo.voiceRefAudio;
+  if (refText) params.ref_text = refText;
+  return params;
+}
+
+function _buildQwen3LoadParams(context = 'main') {
+  const modelId = context === 'tts'
+    ? (document.getElementById('tsasr-qwen3-model-sel')?.value || tts.qwen3model)
+    : (document.getElementById('tts-qwen3-model-sel')?.value || tts.qwen3model);
+  const device = context === 'tts'
+    ? (document.querySelector('input[name="tsasr-device"]:checked')?.value || tts.ttsDevice || 'cpu')
+    : (document.querySelector('input[name="tts-device"]:checked')?.value || tts.ttsDevice || 'cpu');
+  return { model_id: modelId, device };
+}
+
+function _formatQwen3SynthesisError(detail, requestBody = {}) {
+  if (requestBody.engine !== 'qwen3tts') return detail;
+  const hasRef = !!requestBody.ref_audio_base64;
+  const d = String(detail || '');
+  if (!hasRef) {
+    return `Qwen3通常合成エラー: ${d}（参照音声なし）`;
+  }
+  if (/decode|read|audio|reference/i.test(d)) {
+    return `Qwen3ボイスクローンエラー: 参照音声の解析に失敗しました。録音し直すか、別ファイルを指定してください。詳細: ${d}`;
+  }
+  return `Qwen3ボイスクローンエラー: ${d}`;
 }
 
 function _ttsPlayBlob(blob) {
@@ -2377,7 +2411,6 @@ async function onTtsEngineChange() {
   const voiceRow   = document.getElementById('tts-voice-row');
   const qwen3Row   = document.getElementById('tts-qwen3-row');
   const deviceRow  = document.getElementById('tts-device-row');
-  const cloneSection = document.getElementById('tts-clone-section');
   const unloadBtn  = document.getElementById('tts-unload-btn');
 
   // デフォルトで全行非表示にしてから必要なものだけ表示
@@ -2386,7 +2419,6 @@ async function onTtsEngineChange() {
   if (vvUrlRow) vvUrlRow.style.display = 'none';
   qwen3Row.style.display  = 'none';
   deviceRow.style.display = 'none';
-  cloneSection.style.display = 'none';
   voiceRow.style.display  = '';
 
   if (engine === 'webspeech') {
@@ -2423,6 +2455,18 @@ async function onTtsEngineChange() {
 
   // アンロードボタンの表示制御（ロード状態に基づく）
   _ttsSyncUnloadBtn(engine);
+}
+
+function _updateEchoQwen3UiVisibility() {
+  const isQwen3 = (document.getElementById('echo-tts-engine')?.value || echo.ttsEngine) === 'qwen3tts';
+  const qwen3ModelRow = document.getElementById('tsasr-qwen3-model-row');
+  const qwen3RefRow = document.getElementById('tsasr-qwen3-ref-row');
+  const deviceRow = document.getElementById('tsasr-device-row');
+  const qwen3LoadRow = document.getElementById('tsasr-qwen3-load-row');
+  if (qwen3ModelRow) qwen3ModelRow.style.display = isQwen3 ? '' : 'none';
+  if (qwen3RefRow) qwen3RefRow.style.display = isQwen3 ? '' : 'none';
+  if (deviceRow) deviceRow.style.display = isQwen3 ? '' : 'none';
+  if (qwen3LoadRow) qwen3LoadRow.style.display = isQwen3 ? '' : 'none';
 }
 
 function _ttsPopulateWebSpeechVoices() {
@@ -2566,12 +2610,7 @@ async function loadQwen3Tts(context) {
                  : context === 'tts' ? 'tsasr-qwen3-status' : 'tts-qwen3-status';
   const btn    = document.getElementById(btnId);
   const status = document.getElementById(statusId);
-  const modelId = context === 'tts'
-    ? (document.getElementById('tsasr-qwen3-model-sel')?.value || tts.qwen3model)
-    : (document.getElementById('tts-qwen3-model-sel')?.value || tts.qwen3model);
-  const device = context === 'tts'
-    ? (document.querySelector('input[name="tsasr-device"]:checked')?.value || tts.ttsDevice || 'cpu')
-    : (document.querySelector('input[name="tts-device"]:checked')?.value || tts.ttsDevice || 'cpu');
+  const { model_id: modelId, device } = _buildQwen3LoadParams(context);
   _syncTtsDeviceState(device);
   if (btn) btn.disabled = true;
   if (status) status.textContent = 'ロード中...';
@@ -2636,6 +2675,7 @@ function saveEchoSettings() {
   localStorage.setItem('echo_tts_engine',   echo.ttsEngine);
   localStorage.setItem('echo_asr_lang',     echo.asrLang);
   localStorage.setItem('echo_asr_model',    echo.asrModel);
+  _updateEchoQwen3UiVisibility();
   const autoLbl = document.getElementById('echo-autoplay-label');
   if (autoLbl) autoLbl.textContent = echo.autoPlayTts ? 'ON' : 'OFF';
 }
@@ -2652,6 +2692,7 @@ function _echoInitSettingsUI() {
   const modelSel = document.getElementById('echo-asr-model');
   if (modelSel) modelSel.value = echo.asrModel;
   _syncAsrDeviceState(localStorage.getItem('asr_device') || echo.asrDevice || 'cpu');
+  _updateEchoQwen3UiVisibility();
 }
 
 // ── TTS/ASR タブ設定 ──
@@ -2672,6 +2713,8 @@ function saveTsAsrSettings() {
   }
   if (asrDir) localStorage.setItem('tsasr_asr_dir', asrDir.value);
   if (ttsDir) localStorage.setItem('tsasr_tts_dir', ttsDir.value);
+  const refTextInput = document.getElementById('qwen3-ref-text-input');
+  if (refTextInput) localStorage.setItem('qwen3_ref_text', refTextInput.value || '');
   // Qwen3 モデル選択を echo.ttsEngine と同期
   const q3ModelSel = document.getElementById('tsasr-qwen3-model-sel');
   if (q3ModelSel) localStorage.setItem('tsasr_qwen3model', q3ModelSel.value);
@@ -2747,6 +2790,7 @@ function refreshAsrTab() {
 
 function refreshTtsTab() {
   _echoInitSettingsUI();
+  _updateEchoQwen3UiVisibility();
   fetch(API + '/tts/status').then(r => r.json()).then(s => {
     const statusEl  = document.getElementById('tsasr-qwen3-status');
     const loadBtn   = document.getElementById('tsasr-qwen3-load-btn');
@@ -2758,8 +2802,11 @@ function refreshTtsTab() {
   }).catch(() => {});
   const ttsPreload = document.getElementById('tsasr-tts-preload');
   const ttsDir   = document.getElementById('tsasr-tts-dir');
+  const refTextInput = document.getElementById('qwen3-ref-text-input');
   if (ttsPreload) { ttsPreload.checked = localStorage.getItem('tsasr_tts_preload') === 'true'; const lbl = document.getElementById('tsasr-tts-preload-label'); if (lbl) lbl.textContent = ttsPreload.checked ? 'ON' : 'OFF'; }
   if (ttsDir)  ttsDir.value  = localStorage.getItem('tsasr_tts_dir') || '';
+  if (refTextInput) refTextInput.value = localStorage.getItem('qwen3_ref_text') || '';
+  _syncQwen3ReferenceState();
   _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
   const enableChk = document.getElementById('tts-translate-enable');
   const modeSel   = document.getElementById('tts-translate-mode');
@@ -5579,8 +5626,29 @@ async function deleteEchoVaultFile(filename) {
 }
 
 // ── ボイスクローン参照音声 ──
+function _setQwen3RefStatus(message, isError = false) {
+  const statusEl = document.getElementById('qwen3-ref-status');
+  if (!statusEl) return;
+  statusEl.textContent = message;
+  statusEl.style.color = isError ? 'var(--red)' : 'var(--text3)';
+}
+
+async function _syncQwen3ReferenceState() {
+  try {
+    const resp = await fetch(API + '/echo/voice-ref');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    echo.voiceRefAudio = data.audio_base64 || null;
+    _setQwen3RefStatus(echo.voiceRefAudio ? '✓ 参照音声あり' : '未設定（通常合成）');
+    const clearBtn = document.getElementById('qwen3-clear-ref');
+    if (clearBtn) clearBtn.style.display = echo.voiceRefAudio ? '' : 'none';
+  } catch(e) {
+    _setQwen3RefStatus('状態確認に失敗（通常合成）', true);
+  }
+}
+
 async function echoRecordRefAudio() {
-  const btn = document.getElementById('echo-ref-mic-btn');
+  const btn = document.getElementById('qwen3-ref-mic-btn');
   if (btn && btn.dataset.recording === 'true') return; // 重複防止
   let stream;
   try {
@@ -5588,8 +5656,7 @@ async function echoRecordRefAudio() {
   } catch(e) {
     alert('マイクへのアクセスが拒否されました: ' + e.message); return;
   }
-  const statusEl = document.getElementById('echo-ref-status');
-  if (statusEl) statusEl.textContent = '録音中... (3秒以上録音してください)';
+  _setQwen3RefStatus('録音中... (3秒以上録音してください)');
   if (btn) { btn.textContent = '⏹ 停止'; btn.dataset.recording = 'true'; }
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
   const mr = new MediaRecorder(stream, {mimeType});
@@ -5620,8 +5687,7 @@ async function echoCaptureSystemAudio() {
   } catch(e) {
     alert('PC音声キャプチャが拒否されました: ' + e.message); return;
   }
-  const statusEl = document.getElementById('echo-ref-status');
-  if (statusEl) statusEl.textContent = 'PC音声キャプチャ中... (3秒以上)';
+  _setQwen3RefStatus('PC音声キャプチャ中... (3秒以上)');
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
   const mr = new MediaRecorder(stream, {mimeType});
   const chunks = [];
@@ -5638,8 +5704,7 @@ async function echoCaptureSystemAudio() {
 }
 
 async function _echoUploadRefBlob(blob, name) {
-  const statusEl = document.getElementById('echo-ref-status');
-  if (statusEl) statusEl.textContent = 'アップロード中...';
+  _setQwen3RefStatus('アップロード中...');
   try {
     const reader = new FileReader();
     const b64 = await new Promise((res, rej) => {
@@ -5655,14 +5720,14 @@ async function _echoUploadRefBlob(blob, name) {
     const data = await resp.json();
     if (data.ok) {
       echo.voiceRefAudio = b64;
-      if (statusEl) statusEl.textContent = `✓ ${name}`;
-      const clearBtn = document.getElementById('echo-clear-ref');
+      _setQwen3RefStatus(`✓ ${name}`);
+      const clearBtn = document.getElementById('qwen3-clear-ref');
       if (clearBtn) clearBtn.style.display = '';
     } else {
-      if (statusEl) statusEl.textContent = 'エラー: ' + (data.detail || '?');
+      _setQwen3RefStatus('エラー: ' + (data.detail || '?'), true);
     }
   } catch(e) {
-    if (statusEl) statusEl.textContent = 'エラー: ' + e.message;
+    _setQwen3RefStatus('エラー: ' + e.message, true);
   }
 }
 
@@ -5671,9 +5736,8 @@ async function echoClearRefAudio() {
     await fetch(API + '/echo/voice-ref', {method: 'DELETE'});
   } catch(e) {}
   echo.voiceRefAudio = null;
-  const statusEl = document.getElementById('echo-ref-status');
-  if (statusEl) statusEl.textContent = '未設定';
-  const clearBtn = document.getElementById('echo-clear-ref');
+  _setQwen3RefStatus('未設定（通常合成）');
+  const clearBtn = document.getElementById('qwen3-clear-ref');
   if (clearBtn) clearBtn.style.display = 'none';
 }
 
