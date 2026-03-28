@@ -7744,6 +7744,21 @@ _voice_model_name = "large-v3-turbo"
 _voice_device = "cpu"
 _voice_compute_type = "int8"
 
+def _detect_voice_runtime_device() -> tuple[str, str]:
+    """
+    ASRの既定デバイスを自動判定する。
+    - CUDAが利用可能なら cuda/float16
+    - それ以外は cpu/int8
+    """
+    force = (os.environ.get("CODEAGENT_ASR_DEVICE", "") or "").strip().lower()
+    if force in {"cpu", "cuda"}:
+        return (force, "int8" if force == "cpu" else "float16")
+    if shutil.which("nvidia-smi"):
+        return ("cuda", "float16")
+    return ("cpu", "int8")
+
+_voice_device, _voice_compute_type = _detect_voice_runtime_device()
+
 _VOICE_MODEL_CANDIDATES = [
     {"name": "large-v3-turbo", "priority": "accuracy", "note": "高精度・多言語対応（ローカル推奨）"},
     {"name": "small", "priority": "accuracy_ja_then_speed_then_lightweight", "note": "多言語・日本語精度と速度のバランス"},
@@ -7827,7 +7842,16 @@ def voice_transcribe(audio_bytes: bytes, language: str = "ja", model_name: str =
         temp_path = tf.name
     try:
         with _voice_lock:
-            segments, info = _voice_model.transcribe(temp_path, language=lang, beam_size=1)
+            segments, info = _voice_model.transcribe(
+                temp_path,
+                language=lang,
+                beam_size=1,
+                best_of=1,
+                temperature=0.0,
+                condition_on_previous_text=False,
+                vad_filter=True,
+                word_timestamps=False,
+            )
             text = "".join(seg.text for seg in segments).strip()
         if auto_unload:
             voice_unload()
@@ -8317,7 +8341,16 @@ def _echo_voice_transcribe(
                 )
                 _echo_voice_model_name = model_name
             lang_arg = None if language == "auto" else language
-            segments, info = _echo_voice_model.transcribe(temp_path, language=lang_arg, beam_size=1)
+            segments, info = _echo_voice_model.transcribe(
+                temp_path,
+                language=lang_arg,
+                beam_size=1,
+                best_of=1,
+                temperature=0.0,
+                condition_on_previous_text=False,
+                vad_filter=True,
+                word_timestamps=False,
+            )
             segments = list(segments)
             text = "".join(seg.text for seg in segments).strip()
             metrics = _echo_asr_metrics(segments)
