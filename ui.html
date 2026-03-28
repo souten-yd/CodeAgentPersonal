@@ -1323,6 +1323,17 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </select>
         </div>
         <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASRデバイス</div>
+          <div style="display:flex;gap:14px">
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
+              <input type="radio" name="echo-asr-device" value="cpu" checked style="accent-color:var(--accent)" onchange="saveEchoSettings()"> CPU
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
+              <input type="radio" name="echo-asr-device" value="cuda" style="accent-color:var(--accent)" onchange="saveEchoSettings()"> GPU (CUDA)
+            </label>
+          </div>
+        </div>
+        <div style="margin-bottom:8px">
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASRモデルディレクトリ</div>
           <input type="text" id="tsasr-asr-dir" placeholder="自動（デフォルト）"
             style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);box-sizing:border-box;font-family:var(--font-mono)"
@@ -1801,10 +1812,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">デバイス</div>
           <div style="display:flex;gap:14px">
             <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
-              <input type="radio" name="asr-device" value="cpu" checked style="accent-color:var(--accent)"> CPU
+              <input type="radio" name="asr-device" value="cpu" checked style="accent-color:var(--accent)" onchange="saveAsrSettings()"> CPU
             </label>
             <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
-              <input type="radio" name="asr-device" value="cuda" style="accent-color:var(--accent)"> GPU (CUDA)
+              <input type="radio" name="asr-device" value="cuda" style="accent-color:var(--accent)" onchange="saveAsrSettings()"> GPU (CUDA)
             </label>
           </div>
           <div style="font-size:10px;color:var(--text3);margin-top:3px">デバイス変更は次のロード時に適用されます</div>
@@ -2084,6 +2095,7 @@ const echo = {
   ttsEngine:      localStorage.getItem('echo_tts_engine')  || 'qwen3tts',
   asrLang:        localStorage.getItem('echo_asr_lang')    || 'auto',
   asrModel:       localStorage.getItem('echo_asr_model')   || 'large-v3-turbo',
+  asrDevice:      localStorage.getItem('asr_device')       || 'cpu',
   voiceRefAudio:  null,    // ボイスクローン参照音声 base64
   nextChunkSeq:   1,
   unackedChunks:  new Map(), // seq -> ArrayBuffer(先頭4byte=seq)
@@ -2298,6 +2310,16 @@ function _syncTtsDeviceState(device) {
   if (mainRadio) mainRadio.checked = true;
   const tsasrRadio = document.querySelector(`input[name="tsasr-device"][value="${dev}"]`);
   if (tsasrRadio) tsasrRadio.checked = true;
+}
+
+function _syncAsrDeviceState(device) {
+  const dev = (device === 'cuda') ? 'cuda' : 'cpu';
+  echo.asrDevice = dev;
+  localStorage.setItem('asr_device', dev);
+  const settingsRadio = document.querySelector(`input[name="asr-device"][value="${dev}"]`);
+  if (settingsRadio) settingsRadio.checked = true;
+  const echoRadio = document.querySelector(`input[name="echo-asr-device"][value="${dev}"]`);
+  if (echoRadio) echoRadio.checked = true;
 }
 
 async function onTtsEngineChange() {
@@ -2563,6 +2585,8 @@ function saveEchoSettings() {
   echo.ttsEngine   = document.getElementById('echo-tts-engine')?.value     || 'qwen3tts';
   echo.asrLang     = document.getElementById('echo-asr-lang')?.value       || 'auto';
   echo.asrModel    = document.getElementById('echo-asr-model')?.value      || 'large-v3-turbo';
+  const asrDev = document.querySelector('input[name="echo-asr-device"]:checked')?.value || echo.asrDevice || localStorage.getItem('asr_device') || 'cpu';
+  _syncAsrDeviceState(asrDev);
   localStorage.setItem('echo_autoplay_tts', echo.autoPlayTts);
   localStorage.setItem('echo_tts_engine',   echo.ttsEngine);
   localStorage.setItem('echo_asr_lang',     echo.asrLang);
@@ -2582,6 +2606,7 @@ function _echoInitSettingsUI() {
   if (langSel) langSel.value = echo.asrLang;
   const modelSel = document.getElementById('echo-asr-model');
   if (modelSel) modelSel.value = echo.asrModel;
+  _syncAsrDeviceState(localStorage.getItem('asr_device') || echo.asrDevice || 'cpu');
 }
 
 // ── TTS/ASR タブ設定 ──
@@ -2659,7 +2684,9 @@ function refreshTsAsrTab() {
     const statusEl = document.getElementById('tsasr-asr-status');
     const loadBtn  = document.getElementById('tsasr-asr-load-btn');
     const unloadBtn = document.getElementById('tsasr-asr-unload-btn');
-    if (statusEl) statusEl.textContent = s.loaded ? `✓ ロード済み (${s.model || ''})` : '未ロード';
+    const asrDevice = s.device || localStorage.getItem('asr_device') || echo.asrDevice || 'cpu';
+    _syncAsrDeviceState(asrDevice);
+    if (statusEl) statusEl.textContent = s.loaded ? `✓ ロード済み (${s.model || ''}, ${asrDevice})` : '未ロード';
     if (loadBtn)  loadBtn.style.display  = s.loaded ? 'none' : '';
     if (unloadBtn) unloadBtn.style.display = s.loaded ? '' : 'none';
   }).catch(() => {});
@@ -2700,18 +2727,22 @@ async function loadAsrModelFromTab() {
   const loadBtn   = document.getElementById('tsasr-asr-load-btn');
   const statusEl  = document.getElementById('tsasr-asr-status');
   const modelSel  = document.getElementById('echo-asr-model');
+  const devRadio  = document.querySelector('input[name="echo-asr-device"]:checked');
   const model     = modelSel?.value || 'large-v3-turbo';
+  const device    = devRadio?.value || localStorage.getItem('asr_device') || echo.asrDevice || 'cpu';
+  _syncAsrDeviceState(device);
   if (loadBtn) loadBtn.disabled = true;
   if (statusEl) statusEl.textContent = 'ロード中...';
   try {
     const r = await fetch(API + '/voice/load', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({model})
+      body: JSON.stringify({model, device})
     });
     const d = await r.json();
     if (d.status === 'loaded' || d.loaded) {
-      if (statusEl) statusEl.textContent = `✓ ロード済み (${d.model || model})`;
+      _syncAsrDeviceState(d.device || device);
+      if (statusEl) statusEl.textContent = `✓ ロード済み (${d.model || model}, ${d.device || device})`;
       document.getElementById('tsasr-asr-load-btn')?.setAttribute('style','display:none');
       document.getElementById('tsasr-asr-unload-btn')?.removeAttribute('style');
     } else {
@@ -2805,10 +2836,13 @@ function _asrInitSettingsUI() {
       if (loadBtn)   loadBtn.style.display   = '';
     }
     if (modelSel && s.model) modelSel.value = s.model;
-    const devVal = s.device || 'cpu';
-    const devRadio = document.querySelector(`input[name="asr-device"][value="${devVal}"]`);
-    if (devRadio) devRadio.checked = true;
+    _syncAsrDeviceState(s.device || localStorage.getItem('asr_device') || echo.asrDevice || 'cpu');
   }).catch(() => {});
+}
+
+function saveAsrSettings() {
+  const dev = document.querySelector('input[name="asr-device"]:checked')?.value || localStorage.getItem('asr_device') || echo.asrDevice || 'cpu';
+  _syncAsrDeviceState(dev);
 }
 
 async function loadAsrModel() {
@@ -2818,6 +2852,7 @@ async function loadAsrModel() {
   const loadBtn   = document.getElementById('asr-load-btn');
   const model  = modelSel ? modelSel.value : 'large-v3-turbo';
   const device = devRadio ? devRadio.value : 'cpu';
+  _syncAsrDeviceState(device);
   if (loadBtn) loadBtn.disabled = true;
   if (statusTxt) statusTxt.textContent = 'ロード中...';
   try {
@@ -2826,6 +2861,7 @@ async function loadAsrModel() {
       body: JSON.stringify({ model, device })
     });
     const s = await r.json();
+    _syncAsrDeviceState(s.device || device);
     if (statusTxt) statusTxt.textContent = `ロード済み: ${s.model}（${s.device || device}）`;
     const unloadBtn = document.getElementById('asr-unload-btn');
     if (unloadBtn) unloadBtn.style.display = '';
