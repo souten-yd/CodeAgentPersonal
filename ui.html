@@ -1331,7 +1331,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <option value="paired">一文ずつ（原文＋訳文）</option>
               <option value="ja_only">日本語のみ（訳文があれば表示）</option>
               <option value="en_only">英語のみ（訳文があれば表示）</option>
-              <option value="parallel">言語別に全文並列</option>
+              <option value="parallel">言語別に全文直列</option>
             </select>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
@@ -2412,8 +2412,9 @@ function _ttsSplitSentences(text) {
 function ttsSpeak(text, opts = {}) {
   if (!tts.enabled) return;
   const context = opts.context || 'main';
+  const engine = opts.engine || null;
   const sentences = _ttsSplitSentences(text);
-  for (const s of sentences) tts._queue.push({text: s, context});
+  for (const s of sentences) tts._queue.push({text: s, context, engine});
   if (!tts._playing) _ttsPlayNext();
 }
 
@@ -2488,6 +2489,7 @@ async function _ttsPlayNext() {
   const queueItem = tts._queue.shift();
   let sentence = typeof queueItem === 'string' ? queueItem : queueItem?.text;
   const context = typeof queueItem === 'string' ? 'main' : (queueItem?.context || 'main');
+  const playEngine = typeof queueItem === 'string' ? tts.engine : (queueItem?.engine || tts.engine);
   if (!sentence) {
     tts._playing = false;
     return;
@@ -2495,10 +2497,10 @@ async function _ttsPlayNext() {
   try {
     // 翻訳TTS処理（有効な場合）
     sentence = await _ttsMaybeTranslate(sentence, context);
-    if (tts.engine === 'webspeech') {
+    if (playEngine === 'webspeech') {
       await _ttsPlayWebSpeech(sentence);
     } else {
-      const blob = await _ttsFetchAudio(sentence);
+      const blob = await _ttsFetchAudio(sentence, playEngine, context);
       await _ttsPlayBlob(blob);
     }
   } catch(e) {
@@ -2524,13 +2526,13 @@ function _ttsPlayWebSpeech(text) {
   });
 }
 
-async function _ttsFetchAudio(text) {
-  const body = { text, engine: tts.engine, speed: tts.speed };
-  if (tts.engine === 'voicevox') body.speaker_id = parseInt(tts.voice || '0');
-  if (tts.engine === 'edgetts')  body.voice = tts.voice || 'ja-JP-NanamiNeural';
-  if (tts.engine === 'qwen3tts') {
+async function _ttsFetchAudio(text, engine = tts.engine, context = 'main') {
+  const body = { text, engine, speed: tts.speed };
+  if (engine === 'voicevox') body.speaker_id = parseInt(tts.voice || '0');
+  if (engine === 'edgetts')  body.voice = tts.voice || 'ja-JP-NanamiNeural';
+  if (engine === 'qwen3tts') {
     body.language = 'ja';
-    Object.assign(body, _buildQwen3ReferenceParams('echo'));
+    Object.assign(body, _buildQwen3ReferenceParams(context));
   }
   const resp = await fetch(API + '/tts/synthesize', {
     method: 'POST',
@@ -3011,7 +3013,7 @@ function saveEchoSettings() {
   if (parallelMaxInput) parallelMaxInput.value = `${echo.parallelMaxSentences}`;
   if (revealSecondsInput) revealSecondsInput.value = `${echo.textRevealSeconds}`;
   if (parallelMaxInput) parallelMaxInput.disabled = echo.displayMode !== 'parallel';
-  _echoRenderTranscript();
+  _echoRenderTranscript(true);
   const minCharsInput = document.getElementById('echo-asr-min-chars');
   const shortCharsInput = document.getElementById('echo-asr-short-max-chars');
   const noSpeechInput = document.getElementById('echo-asr-no-speech-reject');
@@ -3166,7 +3168,7 @@ function _echoInitSettingsUI() {
   if (vadMinAvgRmsInput) vadMinAvgRmsInput.disabled = !echo.vadEnabled;
   _syncAsrDeviceState(localStorage.getItem('asr_device') || echo.asrDevice || 'cuda');
   _updateEchoQwen3UiVisibility();
-  _echoRenderTranscript();
+  _echoRenderTranscript(true);
 }
 
 function toggleEchoToolbarTranslate() {
@@ -3181,6 +3183,7 @@ function toggleEchoToolbarTranslate() {
   const panelLbl = document.getElementById('tts-translate-enable-label');
   if (panelLbl) panelLbl.textContent = echo.ttsTranslateEnabled ? 'ON' : 'OFF';
   _ttsSyncTranslateDirectionChecks('echo');
+  _echoRenderTranscript(true);
 }
 
 // ── TTS/ASR タブ設定 ──
@@ -5716,6 +5719,52 @@ function _echoScrollToBottom(force = false) {
   if (force || _echoAutoScroll || echo.recording) container.scrollTop = container.scrollHeight;
 }
 
+let _echoRenderRaf = null;
+function _echoRequestRenderTranscript() {
+  if (_echoRenderRaf) return;
+  _echoRenderRaf = requestAnimationFrame(() => {
+    _echoRenderRaf = null;
+    _echoRenderTranscript();
+  });
+}
+
+function _echoGetSentenceDom(sid) {
+  return document.querySelector(`.echo-sentence[data-sid="${sid}"]`);
+}
+
+function _echoCreateSentenceDom(sentence) {
+  const flag = sentence.lang === 'ja' ? '🇯🇵' : '🇺🇸';
+  const div = document.createElement('div');
+  div.className = 'echo-sentence';
+  div.dataset.sid = sentence.id;
+  div.innerHTML = `
+    <div class="ts-meta">
+      <span class="ts-flag">${flag}</span>
+      <span class="ts-time">${esc(sentence.time || '')}</span>
+      <button class="ts-play" onclick="_echoPlaySentence(${sentence.id})" title="読み上げ">▶</button>
+    </div>
+    <div class="ts-orig"></div>
+    <div class="ts-trans"></div>
+  `;
+  return div;
+}
+
+function _echoUpdateSentenceDom(sentence) {
+  if (echo.displayMode !== 'paired') {
+    _echoRequestRenderTranscript();
+    return;
+  }
+  const node = _echoGetSentenceDom(sentence.id);
+  if (!node) return;
+  const origEl = node.querySelector('.ts-orig');
+  const transEl = node.querySelector('.ts-trans');
+  if (origEl) origEl.innerHTML = esc(sentence.displayText || sentence.text || '').replace(/\n/g, '<br>');
+  if (transEl) {
+    const translated = echo.ttsTranslateEnabled ? (sentence.displayTranslated ?? sentence.translated ?? '') : '';
+    transEl.innerHTML = translated ? esc(translated).replace(/\n/g, '<br>') : '<em style="opacity:.5">—</em>';
+  }
+}
+
 function _echoAnimateSentenceField(sentence, field, rawText) {
   const key = `${sentence.id}:${field}`;
   const prevTimer = echo._animTimers.get(key);
@@ -5724,7 +5773,7 @@ function _echoAnimateSentenceField(sentence, field, rawText) {
   const revealSec = Math.max(0, Number(echo.textRevealSeconds) || 0);
   if (revealSec <= 0 || full.length <= 1) {
     sentence[field] = full;
-    _echoRenderTranscript();
+    _echoUpdateSentenceDom(sentence);
     return;
   }
   sentence[field] = '';
@@ -5733,7 +5782,7 @@ function _echoAnimateSentenceField(sentence, field, rawText) {
   const timer = setInterval(() => {
     idx = Math.min(full.length, idx + 1);
     sentence[field] = full.slice(0, idx);
-    _echoRenderTranscript();
+    _echoUpdateSentenceDom(sentence);
     if (idx >= full.length) {
       clearInterval(timer);
       echo._animTimers.delete(key);
@@ -5759,11 +5808,33 @@ function _echoDisplaySentenceText(sentence) {
   return {lang: wantLang, text, translated, targetLang};
 }
 
-function _echoRenderTranscript() {
+function _echoConcatByLanguage(lines, lang) {
+  const items = (lines || []).map(s => String(s || '').trim()).filter(Boolean);
+  if (!items.length) return '';
+  if (lang === 'ja') return items.join('');
+  return items.join(' ').replace(/\s+([,.!?;:])/g, '$1').trim();
+}
+
+function _echoRenderTranscript(forceRebuild = false) {
   const container = document.getElementById('echo-transcript');
   if (!container) return;
   if (!echo.sentences.length) {
     container.innerHTML = '<div class="echo-empty">「Start」を押して同時通訳・録音を開始...</div>';
+    return;
+  }
+  if (echo.displayMode === 'paired') {
+    if (forceRebuild) container.innerHTML = '';
+    const empty = container.querySelector('.echo-empty');
+    if (empty) empty.remove();
+    for (const s of echo.sentences) {
+      let node = _echoGetSentenceDom(s.id);
+      if (!node) {
+        node = _echoCreateSentenceDom(s);
+        container.appendChild(node);
+      }
+      _echoUpdateSentenceDom(s);
+    }
+    _echoScrollToBottom();
     return;
   }
   if (echo.displayMode === 'parallel') {
@@ -5782,16 +5853,16 @@ function _echoRenderTranscript() {
       }
     });
     const takeTail = (arr) => arr.slice(Math.max(0, arr.length - maxN));
-    const jaText = takeTail(ja).join('\n');
-    const enText = takeTail(en).join('\n');
+    const jaText = _echoConcatByLanguage(takeTail(ja), 'ja');
+    const enText = _echoConcatByLanguage(takeTail(en), 'en');
     container.innerHTML = `
       <div class="echo-sentence">
         <div class="ts-meta"><span class="ts-flag">🇯🇵</span><span class="ts-time">Japanese</span></div>
-        <div class="ts-orig">${esc(jaText || '—').replace(/\n/g, '<br>')}</div>
+        <div class="ts-orig">${esc(jaText || '—')}</div>
       </div>
       <div class="echo-sentence">
         <div class="ts-meta"><span class="ts-flag">🇺🇸</span><span class="ts-time">English</span></div>
-        <div class="ts-orig">${esc(enText || '—').replace(/\n/g, '<br>')}</div>
+        <div class="ts-orig">${esc(enText || '—')}</div>
       </div>
     `;
     _echoScrollToBottom();
@@ -5825,8 +5896,18 @@ function _echoAddSentence(ev) {
   const sentence = {id: sid, text: ev.text, displayText: '', lang: ev.lang, translated: '', displayTranslated: '', time};
   echo.sentences.push(sentence);
   _echoUpdateSentenceCount();
+  if (echo.displayMode === 'paired') {
+    const container = document.getElementById('echo-transcript');
+    if (container) {
+      const empty = container.querySelector('.echo-empty');
+      if (empty) empty.remove();
+      container.appendChild(_echoCreateSentenceDom(sentence));
+    }
+  } else {
+    _echoRenderTranscript();
+  }
   _echoAnimateSentenceField(sentence, 'displayText', ev.text);
-  _echoRenderTranscript();
+  _echoUpdateSentenceDom(sentence);
   _echoUpdateClearBtn();
   // 自動TTS再生
   if (echo.autoPlayTts && ev.lang === 'ja') {
@@ -5839,17 +5920,14 @@ function _echoUpdateTranslation(id, translated) {
   if (!s) return;
   s.translated = translated || '';
   _echoAnimateSentenceField(s, 'displayTranslated', translated || '');
-  _echoRenderTranscript();
+  _echoUpdateSentenceDom(s);
 }
 
 function _echoPlaySentence(sid) {
   const s = echo.sentences.find(x => x.id === sid);
   if (!s) return;
-  // Echoモード用TTSエンジンで再生
-  const savedEngine = tts.engine;
-  tts.engine = echo.ttsEngine;
-  ttsSpeak(s.text, {context: 'echo'});
-  tts.engine = savedEngine;
+  // Echoモード用TTSエンジンで再生（グローバルtts.engineを書き換えない）
+  ttsSpeak(s.text, {context: 'echo', engine: echo.ttsEngine});
 }
 
 function _echoHandleEvent(ev) {
