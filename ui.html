@@ -1340,6 +1340,60 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             style="display:none;padding:5px 12px;font-size:11px;font-weight:700;background:var(--border);border:none;border-radius:4px;color:var(--text2);cursor:pointer">アンロード</button>
           <span id="tsasr-asr-status" style="font-size:10px;color:var(--text3);align-self:center">未ロード</span>
         </div>
+        <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🛡 Echo 誤検出フィルタ（リアルタイム）</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:10px;color:var(--text2);font-weight:700">フィルタ全体</div>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input id="echo-asr-filter-enabled" type="checkbox" style="width:14px;height:14px;accent-color:var(--accent)" onchange="saveEchoSettings()">
+              <span id="echo-asr-filter-enabled-label" style="font-size:10px;color:var(--text2)">ON</span>
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer">
+              <input id="echo-asr-reject-short-text-enabled" type="checkbox" style="accent-color:var(--accent)" onchange="saveEchoSettings()">
+              短文棄却
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer">
+              <input id="echo-asr-reject-no-speech-enabled" type="checkbox" style="accent-color:var(--accent)" onchange="saveEchoSettings()">
+              無音判定棄却
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer">
+              <input id="echo-asr-reject-logprob-enabled" type="checkbox" style="accent-color:var(--accent)" onchange="saveEchoSettings()">
+              低logprob棄却
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">最小文字数</div>
+              <input id="echo-asr-min-chars" type="number" min="1" max="10" step="1"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">短文上限文字数</div>
+              <input id="echo-asr-short-max-chars" type="number" min="1" max="12" step="1"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">無音棄却しきい値</div>
+              <input id="echo-asr-no-speech-reject" type="number" min="0" max="0.99" step="0.01"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">低logprob棄却値</div>
+              <input id="echo-asr-low-logprob-reject" type="number" min="-5" max="0" step="0.05"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.5">
+            推奨初期値: 最小文字数2 / 短文上限4 / 無音棄却0.72 / 低logprob-1.05。<br>
+            値はブラウザに保存され、Echo開始時にサーバーへ送信されます。
+          </div>
+        </div>
       </div>
 
       </div>
@@ -2134,6 +2188,14 @@ const echo = {
   asrLang:        localStorage.getItem('echo_asr_lang')    || 'auto',
   asrModel:       localStorage.getItem('echo_asr_model')   || 'large-v3-turbo',
   asrDevice:      localStorage.getItem('asr_device')       || 'cpu',
+  asrFilterEnabled: localStorage.getItem('echo_asr_filter_enabled') !== 'false',
+  asrRejectShortTextEnabled: localStorage.getItem('echo_asr_reject_short_text_enabled') !== 'false',
+  asrRejectNoSpeechEnabled: localStorage.getItem('echo_asr_reject_no_speech_enabled') !== 'false',
+  asrRejectLogprobEnabled: localStorage.getItem('echo_asr_reject_logprob_enabled') !== 'false',
+  asrMinChars:    Math.max(1, parseInt(localStorage.getItem('echo_asr_min_chars') || '2', 10) || 2),
+  asrShortTextMaxChars: Math.max(1, parseInt(localStorage.getItem('echo_asr_short_max_chars') || '4', 10) || 4),
+  asrNoSpeechReject: Math.min(0.99, Math.max(0, _numOr(localStorage.getItem('echo_asr_no_speech_reject'), 0.72))),
+  asrLowLogprobReject: _numOr(localStorage.getItem('echo_asr_low_logprob_reject'), -1.05),
   ttsTranslateEnabled: _ttsGetTranslateSettings('echo').enabled,
   ttsTranslateMode: _ttsGetTranslateSettings('echo').mode,
   ttsTranslateEnToJaEnabled: _ttsGetTranslateSettings('echo').en2jaEnabled,
@@ -2408,6 +2470,11 @@ function _syncAsrDeviceState(device) {
   if (echoRadio) echoRadio.checked = true;
 }
 
+function _numOr(v, fallback) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 async function onTtsEngineChange() {
   saveTtsSettings();
   const engine = tts.engine;
@@ -2676,15 +2743,62 @@ function saveEchoSettings() {
   echo.ttsEngine   = document.getElementById('echo-tts-engine')?.value     || 'qwen3tts';
   echo.asrLang     = document.getElementById('echo-asr-lang')?.value       || 'auto';
   echo.asrModel    = document.getElementById('echo-asr-model')?.value      || 'large-v3-turbo';
+  echo.asrFilterEnabled = document.getElementById('echo-asr-filter-enabled')?.checked !== false;
+  echo.asrRejectShortTextEnabled = document.getElementById('echo-asr-reject-short-text-enabled')?.checked !== false;
+  echo.asrRejectNoSpeechEnabled = document.getElementById('echo-asr-reject-no-speech-enabled')?.checked !== false;
+  echo.asrRejectLogprobEnabled = document.getElementById('echo-asr-reject-logprob-enabled')?.checked !== false;
+  echo.asrMinChars = Math.max(1, parseInt(document.getElementById('echo-asr-min-chars')?.value || `${echo.asrMinChars || 2}`, 10) || 2);
+  echo.asrShortTextMaxChars = Math.max(
+    echo.asrMinChars,
+    parseInt(document.getElementById('echo-asr-short-max-chars')?.value || `${echo.asrShortTextMaxChars || 4}`, 10) || 4
+  );
+  echo.asrNoSpeechReject = Math.min(
+    0.99,
+    Math.max(0, _numOr(document.getElementById('echo-asr-no-speech-reject')?.value, echo.asrNoSpeechReject || 0.72))
+  );
+  echo.asrLowLogprobReject = _numOr(
+    document.getElementById('echo-asr-low-logprob-reject')?.value,
+    echo.asrLowLogprobReject || -1.05
+  );
   const asrDev = document.querySelector('input[name="echo-asr-device"]:checked')?.value || echo.asrDevice || localStorage.getItem('asr_device') || 'cpu';
   _syncAsrDeviceState(asrDev);
   localStorage.setItem('echo_autoplay_tts', echo.autoPlayTts);
   localStorage.setItem('echo_tts_engine',   echo.ttsEngine);
   localStorage.setItem('echo_asr_lang',     echo.asrLang);
   localStorage.setItem('echo_asr_model',    echo.asrModel);
+  localStorage.setItem('echo_asr_filter_enabled', `${echo.asrFilterEnabled}`);
+  localStorage.setItem('echo_asr_reject_short_text_enabled', `${echo.asrRejectShortTextEnabled}`);
+  localStorage.setItem('echo_asr_reject_no_speech_enabled', `${echo.asrRejectNoSpeechEnabled}`);
+  localStorage.setItem('echo_asr_reject_logprob_enabled', `${echo.asrRejectLogprobEnabled}`);
+  localStorage.setItem('echo_asr_min_chars', `${echo.asrMinChars}`);
+  localStorage.setItem('echo_asr_short_max_chars', `${echo.asrShortTextMaxChars}`);
+  localStorage.setItem('echo_asr_no_speech_reject', `${echo.asrNoSpeechReject}`);
+  localStorage.setItem('echo_asr_low_logprob_reject', `${echo.asrLowLogprobReject}`);
   _updateEchoQwen3UiVisibility();
   const autoLbl = document.getElementById('echo-autoplay-label');
   if (autoLbl) autoLbl.textContent = echo.autoPlayTts ? 'ON' : 'OFF';
+  const minCharsInput = document.getElementById('echo-asr-min-chars');
+  const shortCharsInput = document.getElementById('echo-asr-short-max-chars');
+  const noSpeechInput = document.getElementById('echo-asr-no-speech-reject');
+  const lowLogprobInput = document.getElementById('echo-asr-low-logprob-reject');
+  const filterEnabledInput = document.getElementById('echo-asr-filter-enabled');
+  const filterEnabledLabel = document.getElementById('echo-asr-filter-enabled-label');
+  const rejectShortInput = document.getElementById('echo-asr-reject-short-text-enabled');
+  const rejectNoSpeechInput = document.getElementById('echo-asr-reject-no-speech-enabled');
+  const rejectLogprobInput = document.getElementById('echo-asr-reject-logprob-enabled');
+  if (minCharsInput) minCharsInput.value = `${echo.asrMinChars}`;
+  if (shortCharsInput) shortCharsInput.value = `${echo.asrShortTextMaxChars}`;
+  if (noSpeechInput) noSpeechInput.value = `${echo.asrNoSpeechReject}`;
+  if (lowLogprobInput) lowLogprobInput.value = `${echo.asrLowLogprobReject}`;
+  if (filterEnabledInput) filterEnabledInput.checked = !!echo.asrFilterEnabled;
+  if (filterEnabledLabel) filterEnabledLabel.textContent = echo.asrFilterEnabled ? 'ON' : 'OFF';
+  if (rejectShortInput) rejectShortInput.checked = !!echo.asrRejectShortTextEnabled;
+  if (rejectNoSpeechInput) rejectNoSpeechInput.checked = !!echo.asrRejectNoSpeechEnabled;
+  if (rejectLogprobInput) rejectLogprobInput.checked = !!echo.asrRejectLogprobEnabled;
+  if (minCharsInput) minCharsInput.disabled = !echo.asrFilterEnabled;
+  if (shortCharsInput) shortCharsInput.disabled = !echo.asrFilterEnabled;
+  if (noSpeechInput) noSpeechInput.disabled = !echo.asrFilterEnabled;
+  if (lowLogprobInput) lowLogprobInput.disabled = !echo.asrFilterEnabled;
 }
 
 function _echoInitSettingsUI() {
@@ -2702,6 +2816,28 @@ function _echoInitSettingsUI() {
   if (langSel) langSel.value = echo.asrLang;
   const modelSel = document.getElementById('echo-asr-model');
   if (modelSel) modelSel.value = echo.asrModel;
+  const filterEnabledInput = document.getElementById('echo-asr-filter-enabled');
+  const filterEnabledLabel = document.getElementById('echo-asr-filter-enabled-label');
+  const rejectShortInput = document.getElementById('echo-asr-reject-short-text-enabled');
+  const rejectNoSpeechInput = document.getElementById('echo-asr-reject-no-speech-enabled');
+  const rejectLogprobInput = document.getElementById('echo-asr-reject-logprob-enabled');
+  const minCharsInput = document.getElementById('echo-asr-min-chars');
+  const shortCharsInput = document.getElementById('echo-asr-short-max-chars');
+  const noSpeechInput = document.getElementById('echo-asr-no-speech-reject');
+  const lowLogprobInput = document.getElementById('echo-asr-low-logprob-reject');
+  if (filterEnabledInput) filterEnabledInput.checked = !!echo.asrFilterEnabled;
+  if (filterEnabledLabel) filterEnabledLabel.textContent = echo.asrFilterEnabled ? 'ON' : 'OFF';
+  if (rejectShortInput) rejectShortInput.checked = !!echo.asrRejectShortTextEnabled;
+  if (rejectNoSpeechInput) rejectNoSpeechInput.checked = !!echo.asrRejectNoSpeechEnabled;
+  if (rejectLogprobInput) rejectLogprobInput.checked = !!echo.asrRejectLogprobEnabled;
+  if (minCharsInput) minCharsInput.disabled = !echo.asrFilterEnabled;
+  if (shortCharsInput) shortCharsInput.disabled = !echo.asrFilterEnabled;
+  if (noSpeechInput) noSpeechInput.disabled = !echo.asrFilterEnabled;
+  if (lowLogprobInput) lowLogprobInput.disabled = !echo.asrFilterEnabled;
+  if (minCharsInput) minCharsInput.value = `${echo.asrMinChars}`;
+  if (shortCharsInput) shortCharsInput.value = `${echo.asrShortTextMaxChars}`;
+  if (noSpeechInput) noSpeechInput.value = `${echo.asrNoSpeechReject}`;
+  if (lowLogprobInput) lowLogprobInput.value = `${echo.asrLowLogprobReject}`;
   _syncAsrDeviceState(localStorage.getItem('asr_device') || echo.asrDevice || 'cpu');
   _updateEchoQwen3UiVisibility();
 }
@@ -5320,6 +5456,16 @@ function _echoConnectWs(wsMode) {
           session_id: echo.sessionId,
           language: echo.asrLang,
           model: echo.asrModel,
+          asr_post_filter: {
+            enabled: echo.asrFilterEnabled,
+            reject_short_text: echo.asrRejectShortTextEnabled,
+            reject_high_no_speech_prob: echo.asrRejectNoSpeechEnabled,
+            reject_low_avg_logprob: echo.asrRejectLogprobEnabled,
+            min_chars: echo.asrMinChars,
+            short_text_max_chars: echo.asrShortTextMaxChars,
+            no_speech_reject: echo.asrNoSpeechReject,
+            low_logprob_reject: echo.asrLowLogprobReject,
+          },
           audio_format: 'pcm_s16le',
           sample_rate: echo.pcmTargetRate,
           channels: 1,
