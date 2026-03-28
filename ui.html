@@ -1461,6 +1461,28 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <option value="off">翻訳なし（原文そのまま）</option>
           </select>
         </div>
+        <!-- 翻訳方向（新設定） -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">翻訳方向</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div style="font-size:11px;color:var(--text2)">EN → JA を翻訳</div>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="tts-translate-en2ja-enable"
+                style="width:14px;height:14px;accent-color:var(--accent)"
+                onchange="saveTtsTranslateSettings()">
+              <span style="font-size:11px;color:var(--text2)" id="tts-translate-en2ja-enable-label">OFF</span>
+            </label>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div style="font-size:11px;color:var(--text2)">JA → EN を翻訳</div>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="tts-translate-ja2en-enable"
+                style="width:14px;height:14px;accent-color:var(--accent)"
+                onchange="saveTtsTranslateSettings()">
+              <span style="font-size:11px;color:var(--text2)" id="tts-translate-ja2en-enable-label">OFF</span>
+            </label>
+          </div>
+        </div>
         <!-- 自動再生 -->
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div style="font-size:11px;font-weight:700;color:var(--text2)">TTS 自動再生</div>
@@ -2019,6 +2041,18 @@ const tts = {
   ttsDevice:    localStorage.getItem('tts_device') || localStorage.getItem('tsasr_tts_device') || 'cpu',
   translateEnabled: localStorage.getItem('tts_translate_enabled') !== 'false',
   translateMode:    localStorage.getItem('tts_translate_mode')    || 'auto',
+  translateEnToJaEnabled: (() => {
+    const v = localStorage.getItem('tts_translate_en2ja_enabled');
+    if (v !== null) return v === 'true';
+    const mode = localStorage.getItem('tts_translate_mode') || 'auto';
+    return mode === 'auto' || mode === 'ja';
+  })(),
+  translateJaToEnEnabled: (() => {
+    const v = localStorage.getItem('tts_translate_ja2en_enabled');
+    if (v !== null) return v === 'true';
+    const mode = localStorage.getItem('tts_translate_mode') || 'auto';
+    return mode === 'auto' || mode === 'en';
+  })(),
   translateAutoplay: localStorage.getItem('tts_translate_autoplay') === 'true',
   _queue:       [],
   _playing:     false,
@@ -2121,14 +2155,27 @@ function _ttsDetectLang(text) {
   return /[\u3040-\u9fff]/.test(text) ? 'ja' : 'en';
 }
 
+function _ttsFlagsFromMode(mode) {
+  if (mode === 'ja') return {en2ja: true,  ja2en: false};
+  if (mode === 'en') return {en2ja: false, ja2en: true};
+  if (mode === 'off') return {en2ja: false, ja2en: false};
+  return {en2ja: true, ja2en: true}; // auto (default)
+}
+
+function _ttsModeFromFlags(en2ja, ja2en) {
+  if (en2ja && ja2en) return 'auto';
+  if (en2ja && !ja2en) return 'ja';
+  if (!en2ja && ja2en) return 'en';
+  return 'off';
+}
+
 // TTS 翻訳が必要かどうかを判定し、必要なら翻訳テキストを返す
 async function _ttsMaybeTranslate(text) {
-  if (!tts.translateEnabled || tts.translateMode === 'off') return text;
+  if (!tts.translateEnabled) return text;
   const srcLang = _ttsDetectLang(text);
-  let needTranslate = false;
-  if (tts.translateMode === 'auto') needTranslate = true; // 常に対向言語に翻訳
-  else if (tts.translateMode === 'ja') needTranslate = (srcLang === 'en'); // EN→JP のみ
-  else if (tts.translateMode === 'en') needTranslate = (srcLang === 'ja'); // JP→EN のみ
+  const needTranslate = srcLang === 'ja'
+    ? !!tts.translateJaToEnEnabled
+    : !!tts.translateEnToJaEnabled;
   if (!needTranslate) return text;
   try {
     const r = await fetch(API + '/tts/translate-text', {
@@ -2561,6 +2608,8 @@ function saveTsAsrSettings() {
 function saveTtsTranslateSettings() {
   const enableChk = document.getElementById('tts-translate-enable');
   const modeSel   = document.getElementById('tts-translate-mode');
+  const en2jaChk  = document.getElementById('tts-translate-en2ja-enable');
+  const ja2enChk  = document.getElementById('tts-translate-ja2en-enable');
   const autoChk   = document.getElementById('tts-translate-autoplay');
   if (enableChk) {
     tts.translateEnabled = enableChk.checked;
@@ -2568,9 +2617,27 @@ function saveTtsTranslateSettings() {
     const lbl = document.getElementById('tts-translate-enable-label');
     if (lbl) lbl.textContent = tts.translateEnabled ? 'ON' : 'OFF';
   }
+  // 旧 mode 選択は互換用途として残しつつ、新しい方向別トグルを優先
+  if (modeSel && document.activeElement === modeSel) {
+    const f = _ttsFlagsFromMode(modeSel.value);
+    tts.translateEnToJaEnabled = f.en2ja;
+    tts.translateJaToEnEnabled = f.ja2en;
+    if (en2jaChk) en2jaChk.checked = f.en2ja;
+    if (ja2enChk) ja2enChk.checked = f.ja2en;
+  } else {
+    if (en2jaChk) tts.translateEnToJaEnabled = en2jaChk.checked;
+    if (ja2enChk) tts.translateJaToEnEnabled = ja2enChk.checked;
+  }
+  tts.translateMode = _ttsModeFromFlags(!!tts.translateEnToJaEnabled, !!tts.translateJaToEnEnabled);
+  localStorage.setItem('tts_translate_mode', tts.translateMode);
+  localStorage.setItem('tts_translate_en2ja_enabled', tts.translateEnToJaEnabled);
+  localStorage.setItem('tts_translate_ja2en_enabled', tts.translateJaToEnEnabled);
+  const en2jaLbl = document.getElementById('tts-translate-en2ja-enable-label');
+  const ja2enLbl = document.getElementById('tts-translate-ja2en-enable-label');
+  if (en2jaLbl) en2jaLbl.textContent = tts.translateEnToJaEnabled ? 'ON' : 'OFF';
+  if (ja2enLbl) ja2enLbl.textContent = tts.translateJaToEnEnabled ? 'ON' : 'OFF';
   if (modeSel) {
-    tts.translateMode = modeSel.value;
-    localStorage.setItem('tts_translate_mode', tts.translateMode);
+    modeSel.value = tts.translateMode;
   }
   if (autoChk) {
     tts.translateAutoplay = autoChk.checked;
@@ -2615,9 +2682,13 @@ function refreshTsAsrTab() {
   // 翻訳設定
   const enableChk = document.getElementById('tts-translate-enable');
   const modeSel   = document.getElementById('tts-translate-mode');
+  const en2jaChk  = document.getElementById('tts-translate-en2ja-enable');
+  const ja2enChk  = document.getElementById('tts-translate-ja2en-enable');
   const autoChk   = document.getElementById('tts-translate-autoplay');
   if (enableChk) { enableChk.checked = tts.translateEnabled; const lbl = document.getElementById('tts-translate-enable-label'); if (lbl) lbl.textContent = tts.translateEnabled ? 'ON' : 'OFF'; }
-  if (modeSel)   modeSel.value = tts.translateMode;
+  if (modeSel)   modeSel.value = _ttsModeFromFlags(!!tts.translateEnToJaEnabled, !!tts.translateJaToEnEnabled);
+  if (en2jaChk)  { en2jaChk.checked = !!tts.translateEnToJaEnabled; const lbl = document.getElementById('tts-translate-en2ja-enable-label'); if (lbl) lbl.textContent = tts.translateEnToJaEnabled ? 'ON' : 'OFF'; }
+  if (ja2enChk)  { ja2enChk.checked = !!tts.translateJaToEnEnabled; const lbl = document.getElementById('tts-translate-ja2en-enable-label'); if (lbl) lbl.textContent = tts.translateJaToEnEnabled ? 'ON' : 'OFF'; }
   if (autoChk)   { autoChk.checked = tts.translateAutoplay; const lbl = document.getElementById('tts-translate-autoplay-label'); if (lbl) lbl.textContent = tts.translateAutoplay ? 'ON' : 'OFF'; }
 }
 
