@@ -8144,6 +8144,11 @@ _echo_debug_lock = threading.Lock()
 _echo_debug_events: dict[str, list[dict]] = {}
 _echo_debug_last_updated: dict[str, str] = {}
 ECHO_DEBUG_LOG_PATH = os.path.join(LOG_DIR, "echo_debug.log")
+# Echo ASRの軽量ポストフィルタ（CPU負荷ほぼゼロ）
+ECHO_ASR_MIN_CHARS = max(1, int(os.environ.get("ECHO_ASR_MIN_CHARS", "2") or 2))
+ECHO_ASR_NO_SPEECH_REJECT = min(0.99, max(0.0, float(os.environ.get("ECHO_ASR_NO_SPEECH_REJECT", "0.72") or 0.72)))
+ECHO_ASR_LOW_LOGPROB_REJECT = float(os.environ.get("ECHO_ASR_LOW_LOGPROB_REJECT", "-1.05") or -1.05)
+ECHO_ASR_SHORT_TEXT_MAX_CHARS = max(1, int(os.environ.get("ECHO_ASR_SHORT_TEXT_MAX_CHARS", "4") or 4))
 
 
 def _echo_debug_now_iso() -> str:
@@ -8186,6 +8191,80 @@ def _echo_pcm_s16le_to_wav_bytes(audio_bytes: bytes, sample_rate: int = 16000, c
         return bio.getvalue()
 
 
+def _echo_asr_metrics(segments) -> dict:
+    """faster-whisperセグメントから軽量指標を作る。"""
+    no_speech_probs = []
+    avg_logprobs = []
+    seg_count = 0
+    for seg in segments:
+        seg_count += 1
+        nsp = getattr(seg, "no_speech_prob", None)
+        alp = getattr(seg, "avg_logprob", None)
+        if isinstance(nsp, (int, float)):
+            no_speech_probs.append(float(nsp))
+        if isinstance(alp, (int, float)):
+            avg_logprobs.append(float(alp))
+    return {
+        "segment_count": seg_count,
+        "mean_no_speech_prob": (sum(no_speech_probs) / len(no_speech_probs)) if no_speech_probs else None,
+        "max_no_speech_prob": max(no_speech_probs) if no_speech_probs else None,
+        "mean_avg_logprob": (sum(avg_logprobs) / len(avg_logprobs)) if avg_logprobs else None,
+        "min_avg_logprob": min(avg_logprobs) if avg_logprobs else None,
+    }
+
+
+def _echo_should_reject_asr_text(text: str, metrics: dict) -> tuple[bool, str]:
+    """誤検出を抑える軽量棄却ルール。"""
+    return _echo_should_reject_asr_text_with_config(text, metrics, None)
+
+
+def _echo_resolve_filter_config(raw: dict | None) -> dict:
+    """Echo ASRポストフィルタ設定を安全に解決する。"""
+    cfg = {
+        "min_chars": ECHO_ASR_MIN_CHARS,
+        "no_speech_reject": ECHO_ASR_NO_SPEECH_REJECT,
+        "low_logprob_reject": ECHO_ASR_LOW_LOGPROB_REJECT,
+        "short_text_max_chars": ECHO_ASR_SHORT_TEXT_MAX_CHARS,
+    }
+    if not isinstance(raw, dict):
+        return cfg
+    try:
+        if "min_chars" in raw:
+            cfg["min_chars"] = max(1, int(raw.get("min_chars", cfg["min_chars"])))
+        if "no_speech_reject" in raw:
+            cfg["no_speech_reject"] = min(0.99, max(0.0, float(raw.get("no_speech_reject", cfg["no_speech_reject"]))))
+        if "low_logprob_reject" in raw:
+            cfg["low_logprob_reject"] = float(raw.get("low_logprob_reject", cfg["low_logprob_reject"]))
+        if "short_text_max_chars" in raw:
+            cfg["short_text_max_chars"] = max(1, int(raw.get("short_text_max_chars", cfg["short_text_max_chars"])))
+    except Exception:
+        return cfg
+    return cfg
+
+
+def _echo_should_reject_asr_text_with_config(text: str, metrics: dict, config: dict | None) -> tuple[bool, str]:
+    """誤検出を抑える軽量棄却ルール（セッション設定対応）。"""
+    cfg = _echo_resolve_filter_config(config)
+    text_len = len((text or "").strip())
+    if text_len < int(cfg["min_chars"]):
+        return True, "too_short_text"
+    mean_nsp = metrics.get("mean_no_speech_prob")
+    mean_logprob = metrics.get("mean_avg_logprob")
+    if (
+        isinstance(mean_nsp, (int, float))
+        and text_len <= int(cfg["short_text_max_chars"])
+        and float(mean_nsp) >= float(cfg["no_speech_reject"])
+    ):
+        return True, "high_no_speech_prob"
+    if (
+        isinstance(mean_logprob, (int, float))
+        and text_len <= int(cfg["short_text_max_chars"])
+        and float(mean_logprob) <= float(cfg["low_logprob_reject"])
+    ):
+        return True, "low_avg_logprob"
+    return False, ""
+
+
 def _echo_voice_transcribe(
     audio_bytes: bytes,
     language: str = "auto",
@@ -8219,11 +8298,14 @@ def _echo_voice_transcribe(
                 _echo_voice_model_name = model_name
             lang_arg = None if language == "auto" else language
             segments, info = _echo_voice_model.transcribe(temp_path, language=lang_arg, beam_size=1)
+            segments = list(segments)
             text = "".join(seg.text for seg in segments).strip()
+            metrics = _echo_asr_metrics(segments)
         return {
             "text": text,
             "language": getattr(info, "language", language),
             "duration": getattr(info, "duration", 0.0),
+            "metrics": metrics,
         }
     finally:
         try:
@@ -8411,6 +8493,7 @@ async def echo_stream_ws(websocket: WebSocket):
                     chunk_channels = int(ev.get("channels", 1) or 1)
                     chunk_mime = str(ev.get("mime", "audio/webm"))
                     processed_chunk_seqs = set()
+                    asr_filter = _echo_resolve_filter_config(ev.get("asr_post_filter", {}))
                     session = {
                         "session_id": session_id,
                         "buffer": bytearray() if chunk_audio_format not in {"pcm", "pcm_s16le", "s16le", "raw"} else b"",
@@ -8424,6 +8507,7 @@ async def echo_stream_ws(websocket: WebSocket):
                         "channels": chunk_channels,
                         "mime": chunk_mime,
                         "buffer_format": "webm",
+                        "asr_filter": asr_filter,
                     }
                     _echo_sessions[session_id] = session
                     _echo_debug_append(
@@ -8435,6 +8519,7 @@ async def echo_stream_ws(websocket: WebSocket):
                         audio_format=chunk_audio_format,
                         sample_rate=chunk_sample_rate,
                         channels=chunk_channels,
+                        asr_filter=asr_filter,
                     )
                     await send({"type": "status", "state": "recording"})
 
@@ -8447,6 +8532,8 @@ async def echo_stream_ws(websocket: WebSocket):
                         chunk_sample_rate = int(session.get("sample_rate", 16000))
                         chunk_channels = int(session.get("channels", 1))
                         chunk_mime = str(session.get("mime", "audio/webm"))
+                        if "asr_filter" not in session:
+                            session["asr_filter"] = _echo_resolve_filter_config({})
                     else:
                         # セッション不明の場合は新規として扱う
                         session = {
@@ -8571,6 +8658,7 @@ async def echo_stream_ws(websocket: WebSocket):
                     )
                     asr_end = time.perf_counter()
                     text = res.get("text", "").strip()
+                    metrics = res.get("metrics", {}) if isinstance(res.get("metrics", {}), dict) else {}
                     _echo_debug_append(
                         session_id=session_id,
                         seq=seq,
@@ -8578,8 +8666,28 @@ async def echo_stream_ws(websocket: WebSocket):
                         perf_ms=round(asr_end * 1000, 3),
                         elapsed_ms=round((asr_end - asr_start) * 1000, 3),
                         result_chars=len(text),
+                        mean_no_speech_prob=metrics.get("mean_no_speech_prob"),
+                        mean_avg_logprob=metrics.get("mean_avg_logprob"),
                     )
                     if text:
+                        rejected, reject_reason = _echo_should_reject_asr_text_with_config(
+                            text, metrics, session.get("asr_filter", {})
+                        )
+                        if rejected:
+                            _echo_debug_append(
+                                session_id=session_id,
+                                seq=seq,
+                                event_type="asr_reject",
+                                reason=reject_reason,
+                                result_chars=len(text),
+                                mean_no_speech_prob=metrics.get("mean_no_speech_prob"),
+                                mean_avg_logprob=metrics.get("mean_avg_logprob"),
+                            )
+                            if seq is not None:
+                                processed_chunk_seqs.add(seq)
+                                await send({"type": "ack", "seq": seq, "filtered": True, "reason": reject_reason})
+                            await send({"type": "status", "state": "recording"})
+                            continue
                         sid = len(session["sentences"])
                         lang_det = res.get("language", "ja")
                         session["sentences"].append({
