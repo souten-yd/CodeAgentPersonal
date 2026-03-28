@@ -90,7 +90,7 @@ COPY . /app
 RUN if [ -f /app/requirements.txt ]; then \
         python -m pip install -r /app/requirements.txt; \
     else \
-        python -m pip install fastapi 'uvicorn[standard]' pydantic requests; \
+        python -m pip install fastapi 'uvicorn[standard]' pydantic requests python-multipart; \
     fi
 
 # Install voicevox_core for Linux x86_64 (optional: VOICEVOX TTS support)
