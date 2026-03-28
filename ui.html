@@ -867,7 +867,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .echo-status{font-size:11px;color:var(--text3);font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:48vw}
 .echo-trans-toggle{display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);cursor:pointer}
 .echo-trans-toggle span{font-size:10px;color:var(--text2);font-family:var(--font-mono)}
-.echo-status-right{display:flex;align-items:center;gap:10px;min-width:0;flex:1;justify-content:flex-end}
+.echo-status-right{display:flex;align-items:center;gap:10px;min-width:0;justify-content:flex-start;flex-wrap:wrap}
 .echo-busy-status{font-size:10px;font-weight:700;border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--text3);flex-shrink:0}
 .echo-busy-status.busy{color:var(--amber);border-color:var(--amber)}
 .echo-transcript{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px;scroll-behavior:smooth;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y}
@@ -882,7 +882,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .echo-sentence .ts-play:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
 .echo-sentence .ts-orig{font-size:13px;color:var(--text);line-height:1.55}
 .echo-sentence .ts-trans{font-size:12px;color:var(--text3);font-style:italic;line-height:1.45;min-height:18px}
-.echo-statusbar{display:flex;justify-content:space-between;padding:5px 14px;border-top:1px solid var(--border);font-size:10px;font-family:var(--font-mono);color:var(--text3);flex-shrink:0;background:var(--bg)}
+.echo-statusbar{display:flex;justify-content:flex-start;align-items:center;gap:10px;padding:5px 14px;border-top:1px solid var(--border);font-size:10px;font-family:var(--font-mono);color:var(--text3);flex-shrink:0;background:var(--bg);flex-wrap:wrap}
+.echo-translate-btn{padding:8px 18px;font-size:12px;font-weight:700;border-radius:6px;border:2px solid var(--accent);background:var(--accent-bg);color:var(--accent);cursor:pointer;transition:all .15s;font-family:var(--font-ui);letter-spacing:.04em}
+.echo-translate-btn:hover{background:var(--accent);color:var(--bg)}
+.echo-translate-btn.enabled{background:var(--accent);color:var(--bg)}
 .echo-conn-ok{color:var(--green,#4caf50)}
 .echo-conn-off{color:var(--text3)}
 .echo-conn-err{color:var(--red)}
@@ -978,10 +981,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <div class="echo-col" id="echo-col" style="display:none">
     <div class="echo-toolbar">
       <button class="echo-record-btn" id="echo-record-btn" onclick="toggleEchoRecording()">● Start</button>
-      <label class="echo-trans-toggle" title="相互翻訳 ON/OFF">
-        <input id="echo-toolbar-translate-enable" type="checkbox" style="accent-color:var(--accent)" onchange="toggleEchoToolbarTranslate()">
-        <span>相互翻訳 <b id="echo-toolbar-translate-enable-label">OFF</b></span>
-      </label>
+      <button class="echo-translate-btn" id="echo-toolbar-translate-enable" onclick="toggleEchoToolbarTranslate()" title="Mutual translation ON/OFF">
+        ⇄ Smart Translate <b id="echo-toolbar-translate-enable-label">OFF</b>
+      </button>
       <span class="echo-duration" id="echo-duration">00:00</span>
       <button id="echo-clear-btn" onclick="echoClearTranscript()" style="display:none;margin-left:auto;font-size:10px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="会話をクリア">✕ Clear</button>
     </div>
@@ -1319,6 +1321,37 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <option value="medium">medium（バランス）</option>
           </select>
         </div>
+        <div style="margin-bottom:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
+          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🧩 表示スタイル</div>
+          <div style="margin-bottom:8px">
+            <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">表示モード</div>
+            <select id="echo-display-mode"
+              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text)"
+              onchange="saveEchoSettings()">
+              <option value="paired">一文ずつ（原文＋訳文）</option>
+              <option value="ja_only">日本語のみ（訳文があれば表示）</option>
+              <option value="en_only">英語のみ（訳文があれば表示）</option>
+              <option value="parallel">言語別に全文並列</option>
+            </select>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">言語別まとめ文数</div>
+              <input id="echo-parallel-max-sentences" type="number" min="1" max="20" step="1"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">文字表示アニメーション(秒)</div>
+              <input id="echo-text-reveal-seconds" type="number" min="0" max="5" step="0.1"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.5">
+            0秒で従来どおり即時表示。初期値は1.0秒です。
+          </div>
+        </div>
         <div style="margin-bottom:8px">
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASRデバイス</div>
           <div style="display:flex;gap:14px">
@@ -1478,7 +1511,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               📁 ファイル
               <input type="file" id="qwen3-ref-audio-file" accept="audio/*,.wav,.mp3,.ogg,.m4a" style="display:none" onchange="echoUploadRefAudio(this)">
             </label>
-            <button onclick="echoCaptureSystemAudio()" style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="PCで再生中の音声をキャプチャ">🖥 PC音声</button>
             <span id="qwen3-ref-status" style="font-size:10px;color:var(--text3)">未設定（通常合成）</span>
             <button id="qwen3-clear-ref" onclick="echoClearRefAudio()" style="display:none;font-size:10px;padding:2px 6px;border:1px solid var(--red);border-radius:4px;background:transparent;color:var(--red);cursor:pointer">✕ クリア</button>
           </div>
@@ -2248,6 +2280,10 @@ const echo = {
   ttsTranslateEnToJaEnabled: _ttsGetTranslateSettings('echo').en2jaEnabled,
   ttsTranslateJaToEnEnabled: _ttsGetTranslateSettings('echo').ja2enEnabled,
   ttsTranslateAutoplay: _ttsGetTranslateSettings('echo').autoplay,
+  displayMode:     localStorage.getItem('echo_display_mode') || 'paired',
+  parallelMaxSentences: Math.max(1, parseInt(localStorage.getItem('echo_parallel_max_sentences') || '4', 10) || 4),
+  textRevealSeconds: Math.max(0, _numOr(localStorage.getItem('echo_text_reveal_seconds'), 1.0)),
+  _animTimers:     new Map(),
   voiceRefAudio:  null,    // ボイスクローン参照音声 base64
   nextChunkSeq:   1,
   unackedChunks:  new Map(), // seq -> ArrayBuffer(先頭4byte=seq)
@@ -2767,6 +2803,7 @@ async function loadQwen3Tts(context) {
             if (tsasrSel) tsasrSel.value = ev.model_id;
           }
           if (status) status.textContent = `✓ ロード済み (${(ev.model_id||'').split('/').pop()||''}, ${ev.device||'cpu'})`;
+          if (ev.note) addMsg('system', ev.note);
           if (context === 'tts') {
             document.getElementById('tsasr-qwen3-load-btn')?.setAttribute('style','display:none');
             document.getElementById('tsasr-qwen3-unload-btn')?.removeAttribute('style');
@@ -2789,7 +2826,10 @@ async function loadQwen3Tts(context) {
 function saveEchoSettings() {
   echo.autoPlayTts = document.getElementById('echo-autoplay-tts')?.checked || false;
   echo.ttsEngine   = document.getElementById('echo-tts-engine')?.value     || 'qwen3tts';
-  echo.ttsTranslateEnabled = document.getElementById('echo-toolbar-translate-enable')?.checked ?? echo.ttsTranslateEnabled;
+  echo.ttsTranslateEnabled = document.getElementById('echo-toolbar-translate-enable')?.classList.contains('enabled') ?? echo.ttsTranslateEnabled;
+  echo.displayMode = document.getElementById('echo-display-mode')?.value || echo.displayMode || 'paired';
+  echo.parallelMaxSentences = Math.max(1, parseInt(document.getElementById('echo-parallel-max-sentences')?.value || `${echo.parallelMaxSentences || 4}`, 10) || 4);
+  echo.textRevealSeconds = Math.max(0, _numOr(document.getElementById('echo-text-reveal-seconds')?.value, echo.textRevealSeconds ?? 1));
   echo.asrLang     = document.getElementById('echo-asr-lang')?.value       || 'auto';
   echo.asrModel    = document.getElementById('echo-asr-model')?.value      || 'large-v3-turbo';
   echo.asrFilterEnabled = document.getElementById('echo-asr-filter-enabled')?.checked !== false;
@@ -2824,6 +2864,9 @@ function saveEchoSettings() {
   localStorage.setItem('echo_autoplay_tts', echo.autoPlayTts);
   localStorage.setItem('echo_tts_engine',   echo.ttsEngine);
   localStorage.setItem('echo_tts_translate_enabled', `${echo.ttsTranslateEnabled}`);
+  localStorage.setItem('echo_display_mode', echo.displayMode);
+  localStorage.setItem('echo_parallel_max_sentences', `${echo.parallelMaxSentences}`);
+  localStorage.setItem('echo_text_reveal_seconds', `${echo.textRevealSeconds}`);
   localStorage.setItem('echo_asr_lang',     echo.asrLang);
   localStorage.setItem('echo_asr_model',    echo.asrModel);
   localStorage.setItem('echo_asr_filter_enabled', `${echo.asrFilterEnabled}`);
@@ -2841,8 +2884,18 @@ function saveEchoSettings() {
   _updateEchoQwen3UiVisibility();
   const autoLbl = document.getElementById('echo-autoplay-label');
   if (autoLbl) autoLbl.textContent = echo.autoPlayTts ? 'ON' : 'OFF';
+  const toolbarTranslateBtn = document.getElementById('echo-toolbar-translate-enable');
   const toolbarTranslateLabel = document.getElementById('echo-toolbar-translate-enable-label');
+  if (toolbarTranslateBtn) toolbarTranslateBtn.classList.toggle('enabled', !!echo.ttsTranslateEnabled);
   if (toolbarTranslateLabel) toolbarTranslateLabel.textContent = echo.ttsTranslateEnabled ? 'ON' : 'OFF';
+  const displayModeInput = document.getElementById('echo-display-mode');
+  const parallelMaxInput = document.getElementById('echo-parallel-max-sentences');
+  const revealSecondsInput = document.getElementById('echo-text-reveal-seconds');
+  if (displayModeInput) displayModeInput.value = echo.displayMode;
+  if (parallelMaxInput) parallelMaxInput.value = `${echo.parallelMaxSentences}`;
+  if (revealSecondsInput) revealSecondsInput.value = `${echo.textRevealSeconds}`;
+  if (parallelMaxInput) parallelMaxInput.disabled = echo.displayMode !== 'parallel';
+  _echoRenderTranscript();
   const minCharsInput = document.getElementById('echo-asr-min-chars');
   const shortCharsInput = document.getElementById('echo-asr-short-max-chars');
   const noSpeechInput = document.getElementById('echo-asr-no-speech-reject');
@@ -2888,10 +2941,17 @@ function _echoInitSettingsUI() {
   if (autoLbl) autoLbl.textContent = echo.autoPlayTts ? 'ON' : 'OFF';
   const engSel = document.getElementById('echo-tts-engine');
   if (engSel) engSel.value = echo.ttsEngine;
-  const toolbarTranslateChk = document.getElementById('echo-toolbar-translate-enable');
+  const toolbarTranslateBtn = document.getElementById('echo-toolbar-translate-enable');
   const toolbarTranslateLabel = document.getElementById('echo-toolbar-translate-enable-label');
-  if (toolbarTranslateChk) toolbarTranslateChk.checked = !!echo.ttsTranslateEnabled;
+  if (toolbarTranslateBtn) toolbarTranslateBtn.classList.toggle('enabled', !!echo.ttsTranslateEnabled);
   if (toolbarTranslateLabel) toolbarTranslateLabel.textContent = echo.ttsTranslateEnabled ? 'ON' : 'OFF';
+  const displayModeInput = document.getElementById('echo-display-mode');
+  const parallelMaxInput = document.getElementById('echo-parallel-max-sentences');
+  const revealSecondsInput = document.getElementById('echo-text-reveal-seconds');
+  if (displayModeInput) displayModeInput.value = echo.displayMode || 'paired';
+  if (parallelMaxInput) parallelMaxInput.value = `${echo.parallelMaxSentences || 4}`;
+  if (revealSecondsInput) revealSecondsInput.value = `${echo.textRevealSeconds ?? 1}`;
+  if (parallelMaxInput) parallelMaxInput.disabled = (echo.displayMode || 'paired') !== 'parallel';
   const langSel = document.getElementById('echo-asr-lang');
   if (langSel) langSel.value = echo.asrLang;
   const modelSel = document.getElementById('echo-asr-model');
@@ -2930,12 +2990,14 @@ function _echoInitSettingsUI() {
   if (highpassHzInput) highpassHzInput.disabled = !echo.highpassEnabled;
   _syncAsrDeviceState(localStorage.getItem('asr_device') || echo.asrDevice || 'cuda');
   _updateEchoQwen3UiVisibility();
+  _echoRenderTranscript();
 }
 
 function toggleEchoToolbarTranslate() {
-  const chk = document.getElementById('echo-toolbar-translate-enable');
-  echo.ttsTranslateEnabled = !!chk?.checked;
+  echo.ttsTranslateEnabled = !echo.ttsTranslateEnabled;
   localStorage.setItem('echo_tts_translate_enabled', `${echo.ttsTranslateEnabled}`);
+  const btn = document.getElementById('echo-toolbar-translate-enable');
+  if (btn) btn.classList.toggle('enabled', !!echo.ttsTranslateEnabled);
   const lbl = document.getElementById('echo-toolbar-translate-enable-label');
   if (lbl) lbl.textContent = echo.ttsTranslateEnabled ? 'ON' : 'OFF';
   const panelChk = document.getElementById('tts-translate-enable');
@@ -3072,7 +3134,7 @@ function refreshTtsTab() {
   if (enableChk) { enableChk.checked = echo.ttsTranslateEnabled; const lbl = document.getElementById('tts-translate-enable-label'); if (lbl) lbl.textContent = echo.ttsTranslateEnabled ? 'ON' : 'OFF'; }
   const toolbarToggle = document.getElementById('echo-toolbar-translate-enable');
   const toolbarLabel = document.getElementById('echo-toolbar-translate-enable-label');
-  if (toolbarToggle) toolbarToggle.checked = !!echo.ttsTranslateEnabled;
+  if (toolbarToggle) toolbarToggle.classList.toggle('enabled', !!echo.ttsTranslateEnabled);
   if (toolbarLabel) toolbarLabel.textContent = echo.ttsTranslateEnabled ? 'ON' : 'OFF';
   if (modeSel)   modeSel.value = _ttsModeFromFlags(!!echo.ttsTranslateEnToJaEnabled, !!echo.ttsTranslateJaToEnEnabled);
   if (en2jaChk)  { en2jaChk.checked = !!echo.ttsTranslateEnToJaEnabled; const lbl = document.getElementById('tts-translate-en2ja-enable-label'); if (lbl) lbl.textContent = echo.ttsTranslateEnToJaEnabled ? 'ON' : 'OFF'; }
@@ -5472,31 +5534,123 @@ function _echoUpdateDuration() {
   if (el) el.textContent = mm + ':' + ss;
 }
 
-function _echoAddSentence(ev) {
-  const flag  = ev.lang === 'ja' ? '🇯🇵' : '🇺🇸';
-  const time  = new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
-  const sid   = ev.id;
-  echo.sentences.push({id: sid, text: ev.text, lang: ev.lang, translated: ''});
-  _echoUpdateSentenceCount();
+function _echoScrollToBottom(force = false) {
   const container = document.getElementById('echo-transcript');
   if (!container) return;
-  // 初回文: emptyメッセージ削除
-  const empty = container.querySelector('.echo-empty');
-  if (empty) empty.remove();
-  const div = document.createElement('div');
-  div.className = 'echo-sentence';
-  div.dataset.sid = sid;
-  div.innerHTML = `
-    <div class="ts-meta">
-      <span class="ts-flag">${flag}</span>
-      <span class="ts-time">${time}</span>
-      <button class="ts-play" onclick="_echoPlaySentence(${sid})" title="読み上げ">▶</button>
-    </div>
-    <div class="ts-orig">${esc(ev.text)}</div>
-    <div class="ts-trans" id="ts-trans-${sid}"><em style="opacity:.5">翻訳中...</em></div>
-  `;
-  container.appendChild(div);
-  if (_echoAutoScroll) container.scrollTop = container.scrollHeight;
+  if (force || _echoAutoScroll || echo.recording) container.scrollTop = container.scrollHeight;
+}
+
+function _echoAnimateSentenceField(sentence, field, rawText) {
+  const key = `${sentence.id}:${field}`;
+  const prevTimer = echo._animTimers.get(key);
+  if (prevTimer) clearInterval(prevTimer);
+  const full = String(rawText || '');
+  const revealSec = Math.max(0, Number(echo.textRevealSeconds) || 0);
+  if (revealSec <= 0 || full.length <= 1) {
+    sentence[field] = full;
+    _echoRenderTranscript();
+    return;
+  }
+  sentence[field] = '';
+  let idx = 0;
+  const intervalMs = Math.max(16, Math.floor((revealSec * 1000) / full.length));
+  const timer = setInterval(() => {
+    idx = Math.min(full.length, idx + 1);
+    sentence[field] = full.slice(0, idx);
+    _echoRenderTranscript();
+    if (idx >= full.length) {
+      clearInterval(timer);
+      echo._animTimers.delete(key);
+    }
+  }, intervalMs);
+  echo._animTimers.set(key, timer);
+}
+
+function _echoDisplaySentenceText(sentence) {
+  if (echo.displayMode === 'paired') {
+    const translated = echo.ttsTranslateEnabled ? (sentence.displayTranslated ?? sentence.translated ?? '') : '';
+    return {lang: sentence.lang, text: sentence.displayText || sentence.text || '', translated};
+  }
+  const orig = sentence.text || '';
+  const trans = sentence.translated || '';
+  const origLang = sentence.lang === 'ja' ? 'ja' : 'en';
+  const targetLang = origLang === 'ja' ? 'en' : 'ja';
+  const wantLang = echo.displayMode === 'ja_only' ? 'ja' : 'en';
+  let text = '';
+  if (origLang === wantLang) text = sentence.displayText || orig;
+  else if (trans) text = sentence.displayTranslated || trans;
+  const translated = '';
+  return {lang: wantLang, text, translated, targetLang};
+}
+
+function _echoRenderTranscript() {
+  const container = document.getElementById('echo-transcript');
+  if (!container) return;
+  if (!echo.sentences.length) {
+    container.innerHTML = '<div class="echo-empty">「Start」を押して同時通訳・録音を開始...</div>';
+    return;
+  }
+  if (echo.displayMode === 'parallel') {
+    const maxN = Math.max(1, Number(echo.parallelMaxSentences) || 4);
+    const ja = [];
+    const en = [];
+    echo.sentences.forEach((s) => {
+      const orig = s.text || '';
+      const trans = echo.ttsTranslateEnabled ? (s.translated || '') : '';
+      if ((s.lang || '') === 'ja') {
+        if (orig) ja.push(s.displayText || orig);
+        if (trans) en.push(s.displayTranslated || trans);
+      } else {
+        if (orig) en.push(s.displayText || orig);
+        if (trans) ja.push(s.displayTranslated || trans);
+      }
+    });
+    const takeTail = (arr) => arr.slice(Math.max(0, arr.length - maxN));
+    const jaText = takeTail(ja).join('\n');
+    const enText = takeTail(en).join('\n');
+    container.innerHTML = `
+      <div class="echo-sentence">
+        <div class="ts-meta"><span class="ts-flag">🇯🇵</span><span class="ts-time">Japanese</span></div>
+        <div class="ts-orig">${esc(jaText || '—').replace(/\n/g, '<br>')}</div>
+      </div>
+      <div class="echo-sentence">
+        <div class="ts-meta"><span class="ts-flag">🇺🇸</span><span class="ts-time">English</span></div>
+        <div class="ts-orig">${esc(enText || '—').replace(/\n/g, '<br>')}</div>
+      </div>
+    `;
+    _echoScrollToBottom();
+    return;
+  }
+  container.innerHTML = echo.sentences.map((s) => {
+    const view = _echoDisplaySentenceText(s);
+    if (!view.text && echo.displayMode !== 'paired') return '';
+    const flag = view.lang === 'ja' ? '🇯🇵' : '🇺🇸';
+    const translatedHtml = echo.displayMode === 'paired'
+      ? `<div class="ts-trans">${esc(view.translated || '').replace(/\n/g, '<br>') || '<em style="opacity:.5">—</em>'}</div>`
+      : '';
+    return `
+      <div class="echo-sentence" data-sid="${s.id}">
+        <div class="ts-meta">
+          <span class="ts-flag">${flag}</span>
+          <span class="ts-time">${esc(s.time || '')}</span>
+          <button class="ts-play" onclick="_echoPlaySentence(${s.id})" title="読み上げ">▶</button>
+        </div>
+        <div class="ts-orig">${esc(view.text).replace(/\n/g, '<br>')}</div>
+        ${translatedHtml}
+      </div>
+    `;
+  }).join('');
+  _echoScrollToBottom();
+}
+
+function _echoAddSentence(ev) {
+  const time  = new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  const sid   = ev.id;
+  const sentence = {id: sid, text: ev.text, displayText: '', lang: ev.lang, translated: '', displayTranslated: '', time};
+  echo.sentences.push(sentence);
+  _echoUpdateSentenceCount();
+  _echoAnimateSentenceField(sentence, 'displayText', ev.text);
+  _echoRenderTranscript();
   _echoUpdateClearBtn();
   // 自動TTS再生
   if (echo.autoPlayTts && ev.lang === 'ja') {
@@ -5505,11 +5659,11 @@ function _echoAddSentence(ev) {
 }
 
 function _echoUpdateTranslation(id, translated) {
-  const el = document.getElementById('ts-trans-' + id);
-  if (el) el.innerHTML = esc(translated) || '<em style="opacity:.5">—</em>';
-  // sentences配列にも保存
   const s = echo.sentences.find(x => x.id === id);
-  if (s) s.translated = translated;
+  if (!s) return;
+  s.translated = translated || '';
+  _echoAnimateSentenceField(s, 'displayTranslated', translated || '');
+  _echoRenderTranscript();
 }
 
 function _echoPlaySentence(sid) {
@@ -5526,7 +5680,11 @@ function _echoHandleEvent(ev) {
   if (ev.type === 'sentence') {
     _echoAddSentence(ev);
   } else if (ev.type === 'translation') {
-    _echoUpdateTranslation(ev.id, ev.translated);
+    if (echo.ttsTranslateEnabled) {
+      _echoUpdateTranslation(ev.id, ev.translated);
+    } else {
+      _echoUpdateTranslation(ev.id, '');
+    }
   } else if (ev.type === 'status') {
     const stateMap = {
       recording: '● 録音中',
@@ -5622,6 +5780,7 @@ function _echoConnectWs(wsMode) {
           sample_rate: echo.pcmTargetRate,
           channels: 1,
           mime: `audio/pcm;rate=${echo.pcmTargetRate};channels=1`,
+          translate_enabled: !!echo.ttsTranslateEnabled,
         };
     ws.send(JSON.stringify(payload));
     _echoFlushPendingChunks();
@@ -5671,6 +5830,8 @@ async function _echoStart() {
   }
   echo.sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   echo.sentences  = [];
+  echo._animTimers.forEach((timer) => clearInterval(timer));
+  echo._animTimers.clear();
   echo.pendingChunks = [];
   echo.nextChunkSeq = 1;
   echo.unackedChunks = new Map();
@@ -5861,6 +6022,8 @@ function _echoUpdateClearBtn() {
 
 function echoClearTranscript() {
   if (echo.recording) return;
+  echo._animTimers.forEach((timer) => clearInterval(timer));
+  echo._animTimers.clear();
   echo.sentences = [];
   _echoPreviewMode = false;
   const container = document.getElementById('echo-transcript');

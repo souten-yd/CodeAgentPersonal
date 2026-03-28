@@ -8592,6 +8592,7 @@ async def echo_stream_ws(websocket: WebSocket):
                     chunk_sample_rate = int(ev.get("sample_rate", 16000) or 16000)
                     chunk_channels = int(ev.get("channels", 1) or 1)
                     chunk_mime = str(ev.get("mime", "audio/webm"))
+                    translate_enabled = bool(ev.get("translate_enabled", True))
                     processed_chunk_seqs = set()
                     if asr_device in {"cpu", "cuda"}:
                         try:
@@ -8627,6 +8628,7 @@ async def echo_stream_ws(websocket: WebSocket):
                         "mime": chunk_mime,
                         "buffer_format": "webm",
                         "asr_filter": asr_filter,
+                        "translate_enabled": translate_enabled,
                     }
                     _echo_sessions[session_id] = session
                     _echo_debug_append(
@@ -8639,6 +8641,7 @@ async def echo_stream_ws(websocket: WebSocket):
                         sample_rate=chunk_sample_rate,
                         channels=chunk_channels,
                         asr_filter=asr_filter,
+                        translate_enabled=translate_enabled,
                     )
                     await send({"type": "status", "state": "recording"})
 
@@ -8653,6 +8656,8 @@ async def echo_stream_ws(websocket: WebSocket):
                         chunk_mime = str(session.get("mime", "audio/webm"))
                         if "asr_filter" not in session:
                             session["asr_filter"] = _echo_resolve_filter_config({})
+                        if "translate_enabled" not in session:
+                            session["translate_enabled"] = True
                     else:
                         # セッション不明の場合は新規として扱う
                         session = {
@@ -8668,6 +8673,8 @@ async def echo_stream_ws(websocket: WebSocket):
                             "channels": chunk_channels,
                             "mime": chunk_mime,
                             "buffer_format": "webm",
+                            "asr_filter": _echo_resolve_filter_config({}),
+                            "translate_enabled": True,
                         }
                         _echo_sessions[session_id] = session
                     # 再接続時は同一チャンク再送を許容するため、重複除外セットを保持
@@ -8810,28 +8817,29 @@ async def echo_stream_ws(websocket: WebSocket):
                         })
                         await send({"type": "sentence", "id": sid, "text": text, "lang": lang_det})
                         # 翻訳（ASR後に順次実行）
-                        tr_start = time.perf_counter()
-                        _echo_debug_append(
-                            session_id=session_id,
-                            seq=seq,
-                            event_type="translate_start",
-                            perf_ms=round(tr_start * 1000, 3),
-                            src_lang=lang_det,
-                            source_chars=len(text),
-                        )
-                        transl = await _asyncio.to_thread(_echo_do_translate, text, lang_det)
-                        tr_end = time.perf_counter()
-                        _echo_debug_append(
-                            session_id=session_id,
-                            seq=seq,
-                            event_type="translate_end",
-                            perf_ms=round(tr_end * 1000, 3),
-                            elapsed_ms=round((tr_end - tr_start) * 1000, 3),
-                            result_chars=len(transl or ""),
-                        )
-                        session["sentences"][sid]["translated"] = transl
-                        tgt = "en" if lang_det == "ja" else "ja"
-                        await send({"type": "translation", "id": sid, "translated": transl, "target_lang": tgt})
+                        if session.get("translate_enabled", True):
+                            tr_start = time.perf_counter()
+                            _echo_debug_append(
+                                session_id=session_id,
+                                seq=seq,
+                                event_type="translate_start",
+                                perf_ms=round(tr_start * 1000, 3),
+                                src_lang=lang_det,
+                                source_chars=len(text),
+                            )
+                            transl = await _asyncio.to_thread(_echo_do_translate, text, lang_det)
+                            tr_end = time.perf_counter()
+                            _echo_debug_append(
+                                session_id=session_id,
+                                seq=seq,
+                                event_type="translate_end",
+                                perf_ms=round(tr_end * 1000, 3),
+                                elapsed_ms=round((tr_end - tr_start) * 1000, 3),
+                                result_chars=len(transl or ""),
+                            )
+                            session["sentences"][sid]["translated"] = transl
+                            tgt = "en" if lang_det == "ja" else "ja"
+                            await send({"type": "translation", "id": sid, "translated": transl, "target_lang": tgt})
                     if seq is not None:
                         processed_chunk_seqs.add(seq)
                         await send({"type": "ack", "seq": seq})
@@ -9229,18 +9237,24 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> di
             _qwen3tts_model = None
             _qwen3tts_processor = None
         cache_dir = _qwen3tts_model_dir()
+        actual_device = device
+        fallback_reason = ""
         if device == "cuda" and not (_torch_mod and _torch_mod.cuda.is_available()):
-            raise RuntimeError("CUDAが利用できません。device='cpu' を指定してください。")
+            actual_device = "cpu"
+            fallback_reason = "CUDAが利用できないため CPU へ自動フォールバックしました。"
         _qwen3tts_processor = _Q3TProc.from_pretrained(
             model_id, cache_dir=cache_dir, trust_remote_code=True
         )
         _qwen3tts_model = _Q3TModel.from_pretrained(
             model_id, cache_dir=cache_dir, trust_remote_code=True,
-            torch_dtype=_torch_mod.float16 if device == "cuda" else _torch_mod.float32
-        ).to(device).eval()
+            torch_dtype=_torch_mod.float16 if actual_device == "cuda" else _torch_mod.float32
+        ).to(actual_device).eval()
         _qwen3tts_model_id = model_id
-        _qwen3tts_device = device
-        return {"status": "loaded", "model_id": model_id, "device": device}
+        _qwen3tts_device = actual_device
+        result = {"status": "loaded", "model_id": model_id, "device": actual_device}
+        if fallback_reason:
+            result["note"] = fallback_reason
+        return result
 
 
 def qwen3tts_synthesize(text: str, speed: float = 1.0,
