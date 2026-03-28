@@ -53,6 +53,8 @@ async def lifespan(app):
     if _seed_model_catalog: _seed_model_catalog()
     _schedule_model_load = globals().get("schedule_default_model_load")
     if _schedule_model_load: _schedule_model_load(reason="startup")
+    _log_tts_startup_health = globals().get("_log_tts_startup_health")
+    if _log_tts_startup_health: _log_tts_startup_health()
     yield
     # 終了時: サーバーコンテナを全て停止
     cleanup = globals().get("_cleanup_server_containers")
@@ -8950,6 +8952,22 @@ def _read_recent_tts_debug_entries(limit: int = 20) -> list[dict]:
     return entries[-max(1, min(limit, 200)):]
 
 
+def _log_tts_startup_health() -> None:
+    """起動時にTTS依存の初期状態をログ出力する（簡易ヘルスガード）。"""
+    try:
+        status = tts_status_api()
+    except Exception as e:
+        print(f"[TTS][startup] status check failed: {e}")
+        return
+    print(
+        "[TTS][startup] "
+        f"qwen3tts_available={status.get('qwen3tts_available')} "
+        f"qwen3tts_loaded={status.get('qwen3tts_loaded')} "
+        f"voicevox_available={status.get('voicevox_available')} "
+        f"edgetts_available={status.get('edgetts_available')}"
+    )
+
+
 def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> dict:
     global _qwen3tts_model, _qwen3tts_processor, _qwen3tts_model_id, _qwen3tts_device
     if not _QWEN3TTS_AVAILABLE:
@@ -8980,7 +8998,7 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
     """Qwen3 TTS でテキストを WAV バイト列に変換する。ref_audio_bytes があればボイスクローン。"""
     global _qwen3tts_model, _qwen3tts_processor
     if not _QWEN3TTS_AVAILABLE:
-        raise RuntimeError("Qwen3 TTS: transformers/torch がインストールされていません")
+        raise RuntimeError("Qwen3 TTS: transformers/torch/soundfile がインストールされていません。pip install transformers torch torchaudio soundfile を実行してください。")
     with _qwen3tts_lock:
         if _qwen3tts_model is None:
             qwen3tts_load(_qwen3tts_model_id or _QWEN3TTS_MODEL_ID, _qwen3tts_device)

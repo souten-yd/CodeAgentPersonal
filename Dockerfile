@@ -165,10 +165,12 @@ https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic_u
       echo "[WARN] Open JTalk dictionary was not prepared at ${JTDIR}. VOICEVOX may require manual setup."; \
     fi
 
-# Install torch (CUDA 12.4) + qwen-tts + soundfile for Qwen3 TTS support (optional)
-RUN python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124 \
-    && python -m pip install qwen-tts soundfile \
-    || echo "[WARN] qwen-tts/torch installation failed. Qwen3 TTS will be disabled."
+# Install torch/torchaudio (CUDA 12.4) and validate Qwen3 TTS runtime deps (optional)
+RUN python -c "import transformers, torch, soundfile" >/dev/null 2>&1 \
+    || (python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124 \
+    && python -m pip install --upgrade "transformers>=4.52" "soundfile>=0.12" \
+    && python -c "import transformers, torch, soundfile" >/dev/null 2>&1) \
+    || echo "[WARN] transformers/torch/soundfile installation failed. Qwen3 TTS will be disabled."
 
 # Re-pin core framework versions in case optional deps caused downgrades
 RUN python -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110"
