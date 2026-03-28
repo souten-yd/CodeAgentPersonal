@@ -2016,7 +2016,7 @@ const tts = {
   voice:        localStorage.getItem('tts_voice')      || '',
   speed:        parseFloat(localStorage.getItem('tts_speed') || '1.0'),
   qwen3model:   localStorage.getItem('tts_qwen3model') || 'Qwen/Qwen3-TTS-12Hz-1.7B-Base',
-  ttsDevice:    localStorage.getItem('tts_device')     || 'cpu',
+  ttsDevice:    localStorage.getItem('tts_device') || localStorage.getItem('tsasr_tts_device') || 'cpu',
   translateEnabled: localStorage.getItem('tts_translate_enabled') !== 'false',
   translateMode:    localStorage.getItem('tts_translate_mode')    || 'auto',
   translateAutoplay: localStorage.getItem('tts_translate_autoplay') === 'true',
@@ -2224,16 +2224,26 @@ function saveTtsSettings() {
   const q3sel    = document.getElementById('tts-qwen3-model-sel');
   if (q3sel) tts.qwen3model = q3sel.value;
   const devRadio = document.querySelector('input[name="tts-device"]:checked');
-  if (devRadio) tts.ttsDevice = devRadio.value;
+  if (devRadio) _syncTtsDeviceState(devRadio.value);
   localStorage.setItem('tts_enabled',    tts.enabled);
   localStorage.setItem('tts_auto_speak', tts.autoSpeak);
   localStorage.setItem('tts_engine',     tts.engine);
   localStorage.setItem('tts_voice',      tts.voice);
   localStorage.setItem('tts_speed',      tts.speed);
   localStorage.setItem('tts_qwen3model', tts.qwen3model);
-  localStorage.setItem('tts_device',     tts.ttsDevice);
   document.getElementById('tts-enable-label').textContent = tts.enabled   ? 'ON' : 'OFF';
   document.getElementById('tts-auto-label').textContent   = tts.autoSpeak ? 'ON' : 'OFF';
+}
+
+function _syncTtsDeviceState(device) {
+  const dev = (device === 'cuda') ? 'cuda' : 'cpu';
+  tts.ttsDevice = dev;
+  localStorage.setItem('tts_device', dev);
+  localStorage.setItem('tsasr_tts_device', dev);
+  const mainRadio = document.querySelector(`input[name="tts-device"][value="${dev}"]`);
+  if (mainRadio) mainRadio.checked = true;
+  const tsasrRadio = document.querySelector(`input[name="tsasr-device"][value="${dev}"]`);
+  if (tsasrRadio) tsasrRadio.checked = true;
 }
 
 async function onTtsEngineChange() {
@@ -2332,6 +2342,7 @@ function _ttsSyncUnloadBtn(engine) {
   const loadBtn   = document.getElementById('tts-engine-load-btn');
   if (!unloadBtn || !loadBtn) return;
   fetch(API + '/tts/status').then(r => r.json()).then(s => {
+    _syncTtsDeviceState(s.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
     const loaded = (engine === 'voicevox' && s.voicevox_loaded) ||
                    (engine === 'qwen3tts' && s.qwen3tts_loaded);
     unloadBtn.style.display = loaded ? '' : 'none';
@@ -2432,11 +2443,20 @@ async function loadQwen3Tts(context) {
                  : context === 'tsasr' ? 'tsasr-qwen3-status' : 'tts-qwen3-status';
   const btn    = document.getElementById(btnId);
   const status = document.getElementById(statusId);
+  const modelId = context === 'tsasr'
+    ? (document.getElementById('tsasr-qwen3-model-sel')?.value || tts.qwen3model)
+    : (document.getElementById('tts-qwen3-model-sel')?.value || tts.qwen3model);
+  const device = context === 'tsasr'
+    ? (document.querySelector('input[name="tsasr-device"]:checked')?.value || tts.ttsDevice || 'cpu')
+    : (document.querySelector('input[name="tts-device"]:checked')?.value || tts.ttsDevice || 'cpu');
+  _syncTtsDeviceState(device);
   if (btn) btn.disabled = true;
   if (status) status.textContent = 'ロード中...';
   try {
     const resp = await fetch(API + '/tts/load', {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{"engine":"qwen3tts"}'
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({engine:'qwen3tts', model_id: modelId, device})
     });
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -2452,6 +2472,16 @@ async function loadQwen3Tts(context) {
         if (ev.type === 'loading') {
           if (status) status.textContent = '読込中...';
         } else if (ev.type === 'done') {
+          if (ev.device) _syncTtsDeviceState(ev.device);
+          if (ev.model_id) {
+            tts.qwen3model = ev.model_id;
+            localStorage.setItem('tts_qwen3model', ev.model_id);
+            localStorage.setItem('tsasr_qwen3model', ev.model_id);
+            const mainSel = document.getElementById('tts-qwen3-model-sel');
+            const tsasrSel = document.getElementById('tsasr-qwen3-model-sel');
+            if (mainSel) mainSel.value = ev.model_id;
+            if (tsasrSel) tsasrSel.value = ev.model_id;
+          }
           if (status) status.textContent = `✓ ロード済み (${(ev.model_id||'').split('/').pop()||''}, ${ev.device||'cpu'})`;
           if (context === 'tsasr') {
             document.getElementById('tsasr-qwen3-load-btn')?.setAttribute('style','display:none');
@@ -2518,6 +2548,8 @@ function saveTsAsrSettings() {
   // Qwen3 モデル選択を echo.ttsEngine と同期
   const q3ModelSel = document.getElementById('tsasr-qwen3-model-sel');
   if (q3ModelSel) localStorage.setItem('tsasr_qwen3model', q3ModelSel.value);
+  const devRadio = document.querySelector('input[name="tsasr-device"]:checked');
+  if (devRadio) _syncTtsDeviceState(devRadio.value);
 }
 
 function saveTtsTranslateSettings() {
@@ -2559,6 +2591,7 @@ function refreshTsAsrTab() {
     const statusEl  = document.getElementById('tsasr-qwen3-status');
     const loadBtn   = document.getElementById('tsasr-qwen3-load-btn');
     const unloadBtn = document.getElementById('tsasr-qwen3-unload-btn');
+    _syncTtsDeviceState(s.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
     if (statusEl) statusEl.textContent = s.qwen3tts_loaded ? `✓ ロード済み (${(s.qwen3tts_model_id||'').split('/').pop()}, ${s.qwen3tts_device||'cpu'})` : '未ロード';
     if (loadBtn)  loadBtn.style.display   = s.qwen3tts_loaded ? 'none' : '';
     if (unloadBtn) unloadBtn.style.display = s.qwen3tts_loaded ? '' : 'none';
@@ -2572,6 +2605,7 @@ function refreshTsAsrTab() {
   if (ttsPreload) { ttsPreload.checked = localStorage.getItem('tsasr_tts_preload') === 'true'; const lbl = document.getElementById('tsasr-tts-preload-label'); if (lbl) lbl.textContent = ttsPreload.checked ? 'ON' : 'OFF'; }
   if (asrDir)  asrDir.value  = localStorage.getItem('tsasr_asr_dir') || '';
   if (ttsDir)  ttsDir.value  = localStorage.getItem('tsasr_tts_dir') || '';
+  _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
   // 翻訳設定
   const enableChk = document.getElementById('tts-translate-enable');
   const modeSel   = document.getElementById('tts-translate-mode');
@@ -2653,6 +2687,7 @@ function _ttsInitSettingsUI() {
   onTtsEngineChange();
   // VOICEVOX 状態チェック
   fetch(API + '/tts/status').then(r => r.json()).then(s => {
+    _syncTtsDeviceState(s.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
     const status = document.getElementById('tts-voicevox-status');
     const urlInput = document.getElementById('tts-voicevox-url');
     if (urlInput && s.voicevox_http_url) urlInput.value = s.voicevox_http_url;
