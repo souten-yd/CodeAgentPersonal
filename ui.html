@@ -1408,6 +1408,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <input id="echo-asr-reject-logprob-enabled" type="checkbox" style="accent-color:var(--accent)" onchange="saveEchoSettings()">
               低logprob棄却
             </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer">
+              <input id="echo-asr-reject-short-word-lowconf-enabled" type="checkbox" style="accent-color:var(--accent)" onchange="saveEchoSettings()">
+              1-2語+低信頼棄却
+            </label>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div>
@@ -1431,6 +1435,18 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div>
               <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">低logprob棄却値</div>
               <input id="echo-asr-low-logprob-reject" type="number" min="-5" max="0" step="0.05"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">短語上限語数</div>
+              <input id="echo-asr-short-word-max" type="number" min="1" max="4" step="1"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">短語低信頼logprob</div>
+              <input id="echo-asr-short-word-low-logprob-reject" type="number" min="-5" max="0" step="0.05"
                 style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
                 onchange="saveEchoSettings()">
             </div>
@@ -1468,6 +1484,60 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </div>
           <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.5">
             ノイズ抑制はブラウザ内でフレームごとに処理されます。推奨初期値: 閾値0.012 / 120Hz。
+          </div>
+        </div>
+        <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🗣 VAD発話区間抽出（20msフレーム）</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:10px;color:var(--text2);font-weight:700">VAD有効化</div>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input id="echo-vad-enabled" type="checkbox" style="width:14px;height:14px;accent-color:var(--accent)" onchange="saveEchoSettings()">
+              <span id="echo-vad-enabled-label" style="font-size:10px;color:var(--text2)">ON</span>
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">VAD mode</div>
+              <select id="echo-vad-mode" style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)" onchange="saveEchoSettings()">
+                <option value="0">0 (緩い)</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3 (厳しめ)</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">開始判定(直近N中K)</div>
+              <input id="echo-vad-start-ratio" type="text" placeholder="10/7"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">終了連続無音フレーム</div>
+              <input id="echo-vad-end-nonspeech-frames" type="number" min="15" max="20" step="1"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">最小発話長(ms)</div>
+              <input id="echo-vad-min-speech-ms" type="number" min="100" max="2000" step="20"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">speech RMS閾値</div>
+              <input id="echo-vad-rms-threshold" type="number" min="0.001" max="0.2" step="0.001"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">最小平均RMS</div>
+              <input id="echo-vad-min-avg-rms" type="number" min="0.001" max="0.2" step="0.001"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.5">
+            16kHz mono PCM / 20msフレームで処理。推奨: mode3, 開始 10中7, 終了18, 最小発話400ms。
           </div>
         </div>
       </div>
@@ -2265,14 +2335,26 @@ const echo = {
   asrRejectShortTextEnabled: localStorage.getItem('echo_asr_reject_short_text_enabled') !== 'false',
   asrRejectNoSpeechEnabled: localStorage.getItem('echo_asr_reject_no_speech_enabled') !== 'false',
   asrRejectLogprobEnabled: localStorage.getItem('echo_asr_reject_logprob_enabled') !== 'false',
+  asrRejectShortWordLowConfEnabled: localStorage.getItem('echo_asr_reject_short_word_lowconf_enabled') !== 'false',
   asrMinChars:    Math.max(1, parseInt(localStorage.getItem('echo_asr_min_chars') || '2', 10) || 2),
   asrShortTextMaxChars: Math.max(1, parseInt(localStorage.getItem('echo_asr_short_max_chars') || '4', 10) || 4),
   asrNoSpeechReject: Math.min(0.99, Math.max(0, _numOr(localStorage.getItem('echo_asr_no_speech_reject'), 0.72))),
   asrLowLogprobReject: _numOr(localStorage.getItem('echo_asr_low_logprob_reject'), -1.05),
+  asrShortWordMaxWords: Math.max(1, Math.min(4, parseInt(localStorage.getItem('echo_asr_short_word_max_words') || '2', 10) || 2)),
+  asrShortWordLowLogprobReject: _numOr(localStorage.getItem('echo_asr_short_word_low_logprob_reject'), -0.85),
   noiseGateEnabled: localStorage.getItem('echo_noise_gate_enabled') === 'true',
   noiseGateThreshold: Math.max(0.002, Math.min(0.1, _numOr(localStorage.getItem('echo_noise_gate_threshold'), 0.012))),
   highpassEnabled: localStorage.getItem('echo_highpass_enabled') !== 'false',
   highpassHz: Math.max(20, Math.min(240, _numOr(localStorage.getItem('echo_highpass_hz'), 120))),
+  vadEnabled: localStorage.getItem('echo_vad_enabled') !== 'false',
+  vadMode: Math.max(0, Math.min(3, parseInt(localStorage.getItem('echo_vad_mode') || '3', 10) || 3)),
+  vadStartWindowFrames: Math.max(4, Math.min(20, parseInt(localStorage.getItem('echo_vad_start_window_frames') || '10', 10) || 10)),
+  vadStartSpeechFrames: Math.max(1, Math.min(20, parseInt(localStorage.getItem('echo_vad_start_speech_frames') || '7', 10) || 7)),
+  vadEndNonSpeechFrames: Math.max(15, Math.min(20, parseInt(localStorage.getItem('echo_vad_end_nonspeech_frames') || '18', 10) || 18)),
+  vadMinSpeechMs: Math.max(100, Math.min(2000, parseInt(localStorage.getItem('echo_vad_min_speech_ms') || '400', 10) || 400)),
+  vadRmsThreshold: Math.max(0.001, Math.min(0.2, _numOr(localStorage.getItem('echo_vad_rms_threshold'), 0.012))),
+  vadMinAvgRms: Math.max(0.001, Math.min(0.2, _numOr(localStorage.getItem('echo_vad_min_avg_rms'), 0.008))),
+  vadFrameMs: 20,
   _highpassLastX: 0,
   _highpassLastY: 0,
   ttsTranslateEnabled: _ttsGetTranslateSettings('echo').enabled,
@@ -2838,6 +2920,7 @@ function saveEchoSettings() {
   echo.asrRejectShortTextEnabled = document.getElementById('echo-asr-reject-short-text-enabled')?.checked !== false;
   echo.asrRejectNoSpeechEnabled = document.getElementById('echo-asr-reject-no-speech-enabled')?.checked !== false;
   echo.asrRejectLogprobEnabled = document.getElementById('echo-asr-reject-logprob-enabled')?.checked !== false;
+  echo.asrRejectShortWordLowConfEnabled = document.getElementById('echo-asr-reject-short-word-lowconf-enabled')?.checked !== false;
   echo.asrMinChars = Math.max(1, parseInt(document.getElementById('echo-asr-min-chars')?.value || `${echo.asrMinChars || 2}`, 10) || 2);
   echo.asrShortTextMaxChars = Math.max(
     echo.asrMinChars,
@@ -2851,6 +2934,14 @@ function saveEchoSettings() {
     document.getElementById('echo-asr-low-logprob-reject')?.value,
     echo.asrLowLogprobReject || -1.05
   );
+  echo.asrShortWordMaxWords = Math.max(
+    1,
+    Math.min(4, parseInt(document.getElementById('echo-asr-short-word-max')?.value || `${echo.asrShortWordMaxWords || 2}`, 10) || 2)
+  );
+  echo.asrShortWordLowLogprobReject = _numOr(
+    document.getElementById('echo-asr-short-word-low-logprob-reject')?.value,
+    echo.asrShortWordLowLogprobReject || -0.85
+  );
   echo.noiseGateEnabled = document.getElementById('echo-noise-gate-enabled')?.checked !== false;
   echo.noiseGateThreshold = Math.max(
     0.002,
@@ -2861,6 +2952,20 @@ function saveEchoSettings() {
     20,
     Math.min(240, _numOr(document.getElementById('echo-highpass-hz')?.value, echo.highpassHz || 120))
   );
+  echo.vadEnabled = document.getElementById('echo-vad-enabled')?.checked !== false;
+  echo.vadMode = Math.max(0, Math.min(3, parseInt(document.getElementById('echo-vad-mode')?.value || `${echo.vadMode || 3}`, 10) || 3));
+  {
+    const ratioRaw = (document.getElementById('echo-vad-start-ratio')?.value || `${echo.vadStartWindowFrames || 10}/${echo.vadStartSpeechFrames || 7}`).trim();
+    const m = ratioRaw.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (m) {
+      echo.vadStartWindowFrames = Math.max(4, Math.min(20, parseInt(m[1], 10) || 10));
+      echo.vadStartSpeechFrames = Math.max(1, Math.min(echo.vadStartWindowFrames, parseInt(m[2], 10) || 7));
+    }
+  }
+  echo.vadEndNonSpeechFrames = Math.max(15, Math.min(20, parseInt(document.getElementById('echo-vad-end-nonspeech-frames')?.value || `${echo.vadEndNonSpeechFrames || 18}`, 10) || 18));
+  echo.vadMinSpeechMs = Math.max(100, Math.min(2000, parseInt(document.getElementById('echo-vad-min-speech-ms')?.value || `${echo.vadMinSpeechMs || 400}`, 10) || 400));
+  echo.vadRmsThreshold = Math.max(0.001, Math.min(0.2, _numOr(document.getElementById('echo-vad-rms-threshold')?.value, echo.vadRmsThreshold || 0.012)));
+  echo.vadMinAvgRms = Math.max(0.001, Math.min(0.2, _numOr(document.getElementById('echo-vad-min-avg-rms')?.value, echo.vadMinAvgRms || 0.008)));
   const asrDev = document.querySelector('input[name="echo-asr-device"]:checked')?.value || echo.asrDevice || localStorage.getItem('asr_device') || 'cuda';
   _syncAsrDeviceState(asrDev);
   localStorage.setItem('echo_autoplay_tts', echo.autoPlayTts);
@@ -2875,14 +2980,25 @@ function saveEchoSettings() {
   localStorage.setItem('echo_asr_reject_short_text_enabled', `${echo.asrRejectShortTextEnabled}`);
   localStorage.setItem('echo_asr_reject_no_speech_enabled', `${echo.asrRejectNoSpeechEnabled}`);
   localStorage.setItem('echo_asr_reject_logprob_enabled', `${echo.asrRejectLogprobEnabled}`);
+  localStorage.setItem('echo_asr_reject_short_word_lowconf_enabled', `${echo.asrRejectShortWordLowConfEnabled}`);
   localStorage.setItem('echo_asr_min_chars', `${echo.asrMinChars}`);
   localStorage.setItem('echo_asr_short_max_chars', `${echo.asrShortTextMaxChars}`);
   localStorage.setItem('echo_asr_no_speech_reject', `${echo.asrNoSpeechReject}`);
   localStorage.setItem('echo_asr_low_logprob_reject', `${echo.asrLowLogprobReject}`);
+  localStorage.setItem('echo_asr_short_word_max_words', `${echo.asrShortWordMaxWords}`);
+  localStorage.setItem('echo_asr_short_word_low_logprob_reject', `${echo.asrShortWordLowLogprobReject}`);
   localStorage.setItem('echo_noise_gate_enabled', `${echo.noiseGateEnabled}`);
   localStorage.setItem('echo_noise_gate_threshold', `${echo.noiseGateThreshold}`);
   localStorage.setItem('echo_highpass_enabled', `${echo.highpassEnabled}`);
   localStorage.setItem('echo_highpass_hz', `${echo.highpassHz}`);
+  localStorage.setItem('echo_vad_enabled', `${echo.vadEnabled}`);
+  localStorage.setItem('echo_vad_mode', `${echo.vadMode}`);
+  localStorage.setItem('echo_vad_start_window_frames', `${echo.vadStartWindowFrames}`);
+  localStorage.setItem('echo_vad_start_speech_frames', `${echo.vadStartSpeechFrames}`);
+  localStorage.setItem('echo_vad_end_nonspeech_frames', `${echo.vadEndNonSpeechFrames}`);
+  localStorage.setItem('echo_vad_min_speech_ms', `${echo.vadMinSpeechMs}`);
+  localStorage.setItem('echo_vad_rms_threshold', `${echo.vadRmsThreshold}`);
+  localStorage.setItem('echo_vad_min_avg_rms', `${echo.vadMinAvgRms}`);
   _updateEchoQwen3UiVisibility();
   const autoLbl = document.getElementById('echo-autoplay-label');
   if (autoLbl) autoLbl.textContent = echo.autoPlayTts ? 'ON' : 'OFF';
@@ -2907,10 +3023,21 @@ function saveEchoSettings() {
   const rejectShortInput = document.getElementById('echo-asr-reject-short-text-enabled');
   const rejectNoSpeechInput = document.getElementById('echo-asr-reject-no-speech-enabled');
   const rejectLogprobInput = document.getElementById('echo-asr-reject-logprob-enabled');
+  const rejectShortWordLowConfInput = document.getElementById('echo-asr-reject-short-word-lowconf-enabled');
+  const shortWordMaxInput = document.getElementById('echo-asr-short-word-max');
+  const shortWordLowLogprobInput = document.getElementById('echo-asr-short-word-low-logprob-reject');
   const noiseGateEnabledInput = document.getElementById('echo-noise-gate-enabled');
   const noiseGateThresholdInput = document.getElementById('echo-noise-gate-threshold');
   const highpassEnabledInput = document.getElementById('echo-highpass-enabled');
   const highpassHzInput = document.getElementById('echo-highpass-hz');
+  const vadEnabledInput = document.getElementById('echo-vad-enabled');
+  const vadEnabledLabel = document.getElementById('echo-vad-enabled-label');
+  const vadModeInput = document.getElementById('echo-vad-mode');
+  const vadStartRatioInput = document.getElementById('echo-vad-start-ratio');
+  const vadEndNonSpeechInput = document.getElementById('echo-vad-end-nonspeech-frames');
+  const vadMinSpeechMsInput = document.getElementById('echo-vad-min-speech-ms');
+  const vadRmsThresholdInput = document.getElementById('echo-vad-rms-threshold');
+  const vadMinAvgRmsInput = document.getElementById('echo-vad-min-avg-rms');
   if (minCharsInput) minCharsInput.value = `${echo.asrMinChars}`;
   if (shortCharsInput) shortCharsInput.value = `${echo.asrShortTextMaxChars}`;
   if (noSpeechInput) noSpeechInput.value = `${echo.asrNoSpeechReject}`;
@@ -2920,16 +3047,35 @@ function saveEchoSettings() {
   if (rejectShortInput) rejectShortInput.checked = !!echo.asrRejectShortTextEnabled;
   if (rejectNoSpeechInput) rejectNoSpeechInput.checked = !!echo.asrRejectNoSpeechEnabled;
   if (rejectLogprobInput) rejectLogprobInput.checked = !!echo.asrRejectLogprobEnabled;
+  if (rejectShortWordLowConfInput) rejectShortWordLowConfInput.checked = !!echo.asrRejectShortWordLowConfEnabled;
+  if (shortWordMaxInput) shortWordMaxInput.value = `${echo.asrShortWordMaxWords}`;
+  if (shortWordLowLogprobInput) shortWordLowLogprobInput.value = `${echo.asrShortWordLowLogprobReject}`;
   if (noiseGateEnabledInput) noiseGateEnabledInput.checked = !!echo.noiseGateEnabled;
   if (noiseGateThresholdInput) noiseGateThresholdInput.value = `${echo.noiseGateThreshold}`;
   if (highpassEnabledInput) highpassEnabledInput.checked = !!echo.highpassEnabled;
   if (highpassHzInput) highpassHzInput.value = `${echo.highpassHz}`;
+  if (vadEnabledInput) vadEnabledInput.checked = !!echo.vadEnabled;
+  if (vadEnabledLabel) vadEnabledLabel.textContent = echo.vadEnabled ? 'ON' : 'OFF';
+  if (vadModeInput) vadModeInput.value = `${echo.vadMode}`;
+  if (vadStartRatioInput) vadStartRatioInput.value = `${echo.vadStartWindowFrames}/${echo.vadStartSpeechFrames}`;
+  if (vadEndNonSpeechInput) vadEndNonSpeechInput.value = `${echo.vadEndNonSpeechFrames}`;
+  if (vadMinSpeechMsInput) vadMinSpeechMsInput.value = `${echo.vadMinSpeechMs}`;
+  if (vadRmsThresholdInput) vadRmsThresholdInput.value = `${echo.vadRmsThreshold}`;
+  if (vadMinAvgRmsInput) vadMinAvgRmsInput.value = `${echo.vadMinAvgRms}`;
   if (minCharsInput) minCharsInput.disabled = !echo.asrFilterEnabled;
   if (shortCharsInput) shortCharsInput.disabled = !echo.asrFilterEnabled;
   if (noSpeechInput) noSpeechInput.disabled = !echo.asrFilterEnabled;
   if (lowLogprobInput) lowLogprobInput.disabled = !echo.asrFilterEnabled;
+  if (shortWordMaxInput) shortWordMaxInput.disabled = !echo.asrFilterEnabled || !echo.asrRejectShortWordLowConfEnabled;
+  if (shortWordLowLogprobInput) shortWordLowLogprobInput.disabled = !echo.asrFilterEnabled || !echo.asrRejectShortWordLowConfEnabled;
   if (noiseGateThresholdInput) noiseGateThresholdInput.disabled = !echo.noiseGateEnabled;
   if (highpassHzInput) highpassHzInput.disabled = !echo.highpassEnabled;
+  if (vadModeInput) vadModeInput.disabled = !echo.vadEnabled;
+  if (vadStartRatioInput) vadStartRatioInput.disabled = !echo.vadEnabled;
+  if (vadEndNonSpeechInput) vadEndNonSpeechInput.disabled = !echo.vadEnabled;
+  if (vadMinSpeechMsInput) vadMinSpeechMsInput.disabled = !echo.vadEnabled;
+  if (vadRmsThresholdInput) vadRmsThresholdInput.disabled = !echo.vadEnabled;
+  if (vadMinAvgRmsInput) vadMinAvgRmsInput.disabled = !echo.vadEnabled;
 }
 
 function _echoInitSettingsUI() {
@@ -2963,33 +3109,63 @@ function _echoInitSettingsUI() {
   const rejectShortInput = document.getElementById('echo-asr-reject-short-text-enabled');
   const rejectNoSpeechInput = document.getElementById('echo-asr-reject-no-speech-enabled');
   const rejectLogprobInput = document.getElementById('echo-asr-reject-logprob-enabled');
+  const rejectShortWordLowConfInput = document.getElementById('echo-asr-reject-short-word-lowconf-enabled');
   const minCharsInput = document.getElementById('echo-asr-min-chars');
   const shortCharsInput = document.getElementById('echo-asr-short-max-chars');
   const noSpeechInput = document.getElementById('echo-asr-no-speech-reject');
   const lowLogprobInput = document.getElementById('echo-asr-low-logprob-reject');
+  const shortWordMaxInput = document.getElementById('echo-asr-short-word-max');
+  const shortWordLowLogprobInput = document.getElementById('echo-asr-short-word-low-logprob-reject');
   if (filterEnabledInput) filterEnabledInput.checked = !!echo.asrFilterEnabled;
   if (filterEnabledLabel) filterEnabledLabel.textContent = echo.asrFilterEnabled ? 'ON' : 'OFF';
   if (rejectShortInput) rejectShortInput.checked = !!echo.asrRejectShortTextEnabled;
   if (rejectNoSpeechInput) rejectNoSpeechInput.checked = !!echo.asrRejectNoSpeechEnabled;
   if (rejectLogprobInput) rejectLogprobInput.checked = !!echo.asrRejectLogprobEnabled;
+  if (rejectShortWordLowConfInput) rejectShortWordLowConfInput.checked = !!echo.asrRejectShortWordLowConfEnabled;
   if (minCharsInput) minCharsInput.disabled = !echo.asrFilterEnabled;
   if (shortCharsInput) shortCharsInput.disabled = !echo.asrFilterEnabled;
   if (noSpeechInput) noSpeechInput.disabled = !echo.asrFilterEnabled;
   if (lowLogprobInput) lowLogprobInput.disabled = !echo.asrFilterEnabled;
+  if (shortWordMaxInput) shortWordMaxInput.disabled = !echo.asrFilterEnabled || !echo.asrRejectShortWordLowConfEnabled;
+  if (shortWordLowLogprobInput) shortWordLowLogprobInput.disabled = !echo.asrFilterEnabled || !echo.asrRejectShortWordLowConfEnabled;
   if (minCharsInput) minCharsInput.value = `${echo.asrMinChars}`;
   if (shortCharsInput) shortCharsInput.value = `${echo.asrShortTextMaxChars}`;
   if (noSpeechInput) noSpeechInput.value = `${echo.asrNoSpeechReject}`;
   if (lowLogprobInput) lowLogprobInput.value = `${echo.asrLowLogprobReject}`;
+  if (shortWordMaxInput) shortWordMaxInput.value = `${echo.asrShortWordMaxWords}`;
+  if (shortWordLowLogprobInput) shortWordLowLogprobInput.value = `${echo.asrShortWordLowLogprobReject}`;
   const noiseGateEnabledInput = document.getElementById('echo-noise-gate-enabled');
   const noiseGateThresholdInput = document.getElementById('echo-noise-gate-threshold');
   const highpassEnabledInput = document.getElementById('echo-highpass-enabled');
   const highpassHzInput = document.getElementById('echo-highpass-hz');
+  const vadEnabledInput = document.getElementById('echo-vad-enabled');
+  const vadEnabledLabel = document.getElementById('echo-vad-enabled-label');
+  const vadModeInput = document.getElementById('echo-vad-mode');
+  const vadStartRatioInput = document.getElementById('echo-vad-start-ratio');
+  const vadEndNonSpeechInput = document.getElementById('echo-vad-end-nonspeech-frames');
+  const vadMinSpeechMsInput = document.getElementById('echo-vad-min-speech-ms');
+  const vadRmsThresholdInput = document.getElementById('echo-vad-rms-threshold');
+  const vadMinAvgRmsInput = document.getElementById('echo-vad-min-avg-rms');
   if (noiseGateEnabledInput) noiseGateEnabledInput.checked = !!echo.noiseGateEnabled;
   if (noiseGateThresholdInput) noiseGateThresholdInput.value = `${echo.noiseGateThreshold}`;
   if (highpassEnabledInput) highpassEnabledInput.checked = !!echo.highpassEnabled;
   if (highpassHzInput) highpassHzInput.value = `${echo.highpassHz}`;
+  if (vadEnabledInput) vadEnabledInput.checked = !!echo.vadEnabled;
+  if (vadEnabledLabel) vadEnabledLabel.textContent = echo.vadEnabled ? 'ON' : 'OFF';
+  if (vadModeInput) vadModeInput.value = `${echo.vadMode}`;
+  if (vadStartRatioInput) vadStartRatioInput.value = `${echo.vadStartWindowFrames}/${echo.vadStartSpeechFrames}`;
+  if (vadEndNonSpeechInput) vadEndNonSpeechInput.value = `${echo.vadEndNonSpeechFrames}`;
+  if (vadMinSpeechMsInput) vadMinSpeechMsInput.value = `${echo.vadMinSpeechMs}`;
+  if (vadRmsThresholdInput) vadRmsThresholdInput.value = `${echo.vadRmsThreshold}`;
+  if (vadMinAvgRmsInput) vadMinAvgRmsInput.value = `${echo.vadMinAvgRms}`;
   if (noiseGateThresholdInput) noiseGateThresholdInput.disabled = !echo.noiseGateEnabled;
   if (highpassHzInput) highpassHzInput.disabled = !echo.highpassEnabled;
+  if (vadModeInput) vadModeInput.disabled = !echo.vadEnabled;
+  if (vadStartRatioInput) vadStartRatioInput.disabled = !echo.vadEnabled;
+  if (vadEndNonSpeechInput) vadEndNonSpeechInput.disabled = !echo.vadEnabled;
+  if (vadMinSpeechMsInput) vadMinSpeechMsInput.disabled = !echo.vadEnabled;
+  if (vadRmsThresholdInput) vadRmsThresholdInput.disabled = !echo.vadEnabled;
+  if (vadMinAvgRmsInput) vadMinAvgRmsInput.disabled = !echo.vadEnabled;
   _syncAsrDeviceState(localStorage.getItem('asr_device') || echo.asrDevice || 'cuda');
   _updateEchoQwen3UiVisibility();
   _echoRenderTranscript(true);
@@ -5849,10 +6025,13 @@ function _echoConnectWs(wsMode) {
             reject_short_text: echo.asrRejectShortTextEnabled,
             reject_high_no_speech_prob: echo.asrRejectNoSpeechEnabled,
             reject_low_avg_logprob: echo.asrRejectLogprobEnabled,
+            reject_short_word_low_conf: echo.asrRejectShortWordLowConfEnabled,
             min_chars: echo.asrMinChars,
             short_text_max_chars: echo.asrShortTextMaxChars,
             no_speech_reject: echo.asrNoSpeechReject,
             low_logprob_reject: echo.asrLowLogprobReject,
+            short_word_max_words: echo.asrShortWordMaxWords,
+            short_word_low_logprob_reject: echo.asrShortWordLowLogprobReject,
           },
           audio_format: 'pcm_s16le',
           sample_rate: echo.pcmTargetRate,
@@ -5915,6 +6094,13 @@ async function _echoStart() {
   echo.unackedChunks = new Map();
   echo.reconnectCount = 0;
   echo.pcmPendingInt16 = new Int16Array(0);
+  echo._vadRecentFlags = [];
+  echo._vadPreRollFrames = [];
+  echo._vadInSpeech = false;
+  echo._vadUtteranceFrames = [];
+  echo._vadUtteranceRmsSum = 0;
+  echo._vadUtteranceSpeechFrames = 0;
+  echo._vadNonSpeechRun = 0;
   echo._highpassLastX = 0;
   echo._highpassLastY = 0;
   echo.startTime  = Date.now();
@@ -6012,16 +6198,104 @@ async function _echoStart() {
   }
 
   const chunkSamples = echo.pcmTargetRate * echo.pcmChunkSeconds;
+  const vadFrameSamples = Math.max(1, Math.floor((echo.pcmTargetRate * (echo.vadFrameMs || 20)) / 1000));
+  function _echoModeThresholdMultiplier(mode) {
+    const m = Number(mode);
+    if (m <= 0) return 0.85;
+    if (m === 1) return 1.0;
+    if (m === 2) return 1.15;
+    return 1.3; // mode=3
+  }
+  function _echoFrameRms(int16Frame) {
+    if (!int16Frame || int16Frame.length === 0) return 0;
+    let sum = 0;
+    for (let i = 0; i < int16Frame.length; i++) {
+      const x = (int16Frame[i] || 0) / 32768;
+      sum += x * x;
+    }
+    return Math.sqrt(sum / int16Frame.length);
+  }
+  function _echoConcatFrames(frames) {
+    if (!frames || !frames.length) return new Int16Array(0);
+    let total = 0;
+    for (const f of frames) total += f.length;
+    const out = new Int16Array(total);
+    let offset = 0;
+    for (const f of frames) {
+      out.set(f, offset);
+      offset += f.length;
+    }
+    return out;
+  }
+  function _echoFinalizeVadUtterance(force = false) {
+    if (!echo._vadInSpeech || !echo._vadUtteranceFrames.length) return;
+    if (!force && echo._vadNonSpeechRun < echo.vadEndNonSpeechFrames) return;
+    const frameCount = echo._vadUtteranceFrames.length;
+    const totalMs = frameCount * (echo.vadFrameMs || 20);
+    const avgRms = echo._vadUtteranceRmsSum / Math.max(1, frameCount);
+    const speechMs = echo._vadUtteranceSpeechFrames * (echo.vadFrameMs || 20);
+    if (speechMs >= echo.vadMinSpeechMs && avgRms >= echo.vadMinAvgRms) {
+      const utterance = _echoConcatFrames(echo._vadUtteranceFrames);
+      _echoEmitPcmChunk(utterance);
+    }
+    echo._vadInSpeech = false;
+    echo._vadUtteranceFrames = [];
+    echo._vadUtteranceRmsSum = 0;
+    echo._vadUtteranceSpeechFrames = 0;
+    echo._vadNonSpeechRun = 0;
+  }
+  function _echoConsumeVadFrame(frame) {
+    const rms = _echoFrameRms(frame);
+    const speechThreshold = Math.max(0.001, echo.vadRmsThreshold * _echoModeThresholdMultiplier(echo.vadMode));
+    const isSpeech = rms >= speechThreshold;
+    const recent = echo._vadRecentFlags || [];
+    recent.push(isSpeech);
+    while (recent.length > echo.vadStartWindowFrames) recent.shift();
+    echo._vadRecentFlags = recent;
+    const pre = echo._vadPreRollFrames || [];
+    pre.push(frame);
+    while (pre.length > echo.vadStartWindowFrames) pre.shift();
+    echo._vadPreRollFrames = pre;
+
+    if (!echo._vadInSpeech) {
+      const speechCount = recent.reduce((n, x) => n + (x ? 1 : 0), 0);
+      if (speechCount >= echo.vadStartSpeechFrames) {
+        echo._vadInSpeech = true;
+        echo._vadUtteranceFrames = [...pre];
+        echo._vadUtteranceRmsSum = pre.reduce((s, fr) => s + _echoFrameRms(fr), 0);
+        echo._vadUtteranceSpeechFrames = pre.reduce((s, fr) => s + (_echoFrameRms(fr) >= speechThreshold ? 1 : 0), 0);
+        echo._vadNonSpeechRun = isSpeech ? 0 : 1;
+      }
+      return;
+    }
+    echo._vadUtteranceFrames.push(frame);
+    echo._vadUtteranceRmsSum += rms;
+    if (isSpeech) {
+      echo._vadUtteranceSpeechFrames += 1;
+      echo._vadNonSpeechRun = 0;
+    } else {
+      echo._vadNonSpeechRun += 1;
+    }
+    _echoFinalizeVadUtterance(false);
+  }
   processor.onaudioprocess = (ev) => {
     if (!echo.recording) return;
     const input = ev.inputBuffer.getChannelData(0);
     const cleaned = _echoApplyRealtimeNoiseReduction(input, ctx.sampleRate);
     const downsampled = _echoDownsampleTo16k(cleaned, ctx.sampleRate, echo.pcmTargetRate);
     echo.pcmPendingInt16 = _echoConcatInt16(echo.pcmPendingInt16, downsampled);
-    while (echo.pcmPendingInt16.length >= chunkSamples) {
-      const emit = echo.pcmPendingInt16.slice(0, chunkSamples);
-      echo.pcmPendingInt16 = echo.pcmPendingInt16.slice(chunkSamples);
-      _echoEmitPcmChunk(emit);
+    if (!echo.vadEnabled) {
+      while (echo.pcmPendingInt16.length >= chunkSamples) {
+        const emit = echo.pcmPendingInt16.slice(0, chunkSamples);
+        echo.pcmPendingInt16 = echo.pcmPendingInt16.slice(chunkSamples);
+        _echoEmitPcmChunk(emit);
+      }
+      return;
+    }
+    while (echo.pcmPendingInt16.length >= vadFrameSamples) {
+      const frame = echo.pcmPendingInt16.slice(0, vadFrameSamples);
+      echo.pcmPendingInt16 = echo.pcmPendingInt16.slice(vadFrameSamples);
+      _echoConsumeVadFrame(frame);
     }
   };
 
@@ -6036,6 +6310,43 @@ async function _echoStop() {
   // タイマー停止
   if (echo.durationTimer) { clearInterval(echo.durationTimer); echo.durationTimer = null; }
   if (echo._reconnectTimer) { clearTimeout(echo._reconnectTimer); echo._reconnectTimer = null; }
+  if (echo.vadEnabled && echo._vadInSpeech) {
+    if (echo.pcmPendingInt16 && echo.pcmPendingInt16.length > 0) {
+      const tailFrame = echo.pcmPendingInt16.slice(0);
+      echo._vadUtteranceFrames = [...(echo._vadUtteranceFrames || []), tailFrame];
+      let sum = 0;
+      for (let i = 0; i < tailFrame.length; i++) {
+        const x = (tailFrame[i] || 0) / 32768;
+        sum += x * x;
+      }
+      const tailRms = Math.sqrt(sum / Math.max(1, tailFrame.length));
+      echo._vadUtteranceRmsSum = (echo._vadUtteranceRmsSum || 0) + tailRms;
+      const speechThreshold = Math.max(0.001, echo.vadRmsThreshold * (echo.vadMode === 0 ? 0.85 : echo.vadMode === 1 ? 1.0 : echo.vadMode === 2 ? 1.15 : 1.3));
+      if (tailRms >= speechThreshold) echo._vadUtteranceSpeechFrames = (echo._vadUtteranceSpeechFrames || 0) + 1;
+    }
+    const frameCount = (echo._vadUtteranceFrames || []).length;
+    const speechMs = (echo._vadUtteranceSpeechFrames || 0) * (echo.vadFrameMs || 20);
+    const avgRms = frameCount > 0 ? (echo._vadUtteranceRmsSum || 0) / frameCount : 0;
+    if (frameCount > 0 && speechMs >= echo.vadMinSpeechMs && avgRms >= echo.vadMinAvgRms) {
+      let total = 0;
+      for (const fr of echo._vadUtteranceFrames) total += fr.length;
+      const utterance = new Int16Array(total);
+      let off = 0;
+      for (const fr of echo._vadUtteranceFrames) { utterance.set(fr, off); off += fr.length; }
+      const seq = echo.nextChunkSeq++;
+      const pcmBytes = new Uint8Array(utterance.buffer.slice(utterance.byteOffset, utterance.byteOffset + utterance.byteLength));
+      const packet = new Uint8Array(4 + pcmBytes.length);
+      new DataView(packet.buffer).setUint32(0, seq, false);
+      packet.set(pcmBytes, 4);
+      echo.unackedChunks.set(seq, packet.buffer);
+    }
+    echo._vadInSpeech = false;
+    echo._vadUtteranceFrames = [];
+    echo._vadUtteranceRmsSum = 0;
+    echo._vadUtteranceSpeechFrames = 0;
+    echo._vadNonSpeechRun = 0;
+    echo.pcmPendingInt16 = new Int16Array(0);
+  }
   // PCM残バッファ flush
   if (echo.pcmPendingInt16 && echo.pcmPendingInt16.length > 0) {
     const seq = echo.nextChunkSeq++;
