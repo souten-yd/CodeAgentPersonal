@@ -24,6 +24,8 @@ import sys
 import difflib
 import time
 import inspect
+import io
+import traceback
 from datetime import datetime
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
@@ -8671,19 +8673,23 @@ try:
     import torch as _torch_mod
     from transformers import Qwen3TTSForConditionalGeneration as _Q3TModel  # type: ignore
     from transformers import AutoProcessor as _Q3TProc  # type: ignore
+    import transformers as _transformers_mod  # type: ignore
     import soundfile as _sf_mod  # type: ignore
     _QWEN3TTS_AVAILABLE = True
 except ImportError:
     _torch_mod = None
     _Q3TModel = None
     _Q3TProc = None
+    _transformers_mod = None
     _sf_mod = None
     _QWEN3TTS_AVAILABLE = False
 
 _qwen3tts_model     = None
 _qwen3tts_processor = None   # AutoProcessor (旧 _qwen3tts_tokenizer を改名)
+_qwen3tts_model_id: str | None = None
+_qwen3tts_device = "cpu"      # "cpu" | "cuda"
 _qwen3tts_lock      = threading.Lock()
-_QWEN3TTS_MODEL_ID  = "Qwen/Qwen3-TTS"
+_QWEN3TTS_MODEL_ID  = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 
 
 def _qwen3tts_model_dir() -> str:
@@ -8692,26 +8698,87 @@ def _qwen3tts_model_dir() -> str:
     return d
 
 
-def qwen3tts_load() -> dict:
-    global _qwen3tts_model, _qwen3tts_processor
-    if not _QWEN3TTS_AVAILABLE:
-        return {"error": "transformers>=4.52 / torch / soundfile がインストールされていません。pip install 'transformers>=4.52' torch torchaudio soundfile を実行してください。"}
-    with _qwen3tts_lock:
-        if _qwen3tts_model is not None:
-            return {"loaded": True, "model": _QWEN3TTS_MODEL_ID}
-        cache_dir = _qwen3tts_model_dir()
-        device = "cuda" if (_torch_mod and _torch_mod.cuda.is_available()) else "cpu"
+def _tts_debug_log_path() -> str:
+    return os.path.join(LOG_DIR, "debug_tts.log")
+
+
+def _collect_tts_env_info(device: str | None = None) -> dict:
+    torch_ver = getattr(_torch_mod, "__version__", None) if _torch_mod is not None else None
+    trf_ver = getattr(_transformers_mod, "__version__", None) if _transformers_mod is not None else None
+    active_device = device
+    if not active_device and _qwen3tts_model is not None:
         try:
-            _qwen3tts_processor = _Q3TProc.from_pretrained(
-                _QWEN3TTS_MODEL_ID, cache_dir=cache_dir, trust_remote_code=True
-            )
-            _qwen3tts_model = _Q3TModel.from_pretrained(
-                _QWEN3TTS_MODEL_ID, cache_dir=cache_dir, trust_remote_code=True,
-                torch_dtype=_torch_mod.float16 if device == "cuda" else _torch_mod.float32
-            ).to(device).eval()
-            return {"loaded": True, "model": _QWEN3TTS_MODEL_ID, "device": device}
-        except Exception as e:
-            return {"error": str(e)}
+            active_device = str(next(_qwen3tts_model.parameters()).device)
+        except Exception:
+            active_device = _qwen3tts_device
+    return {
+        "python": sys.version.split()[0],
+        "torch": torch_ver,
+        "transformers": trf_ver,
+        "device": active_device or _qwen3tts_device,
+    }
+
+
+def _append_tts_debug_error(engine: str, phase: str, error: Exception, *, detail: dict | None = None, device: str | None = None) -> dict:
+    entry = {
+        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "engine": engine,
+        "phase": phase,
+        "error_type": error.__class__.__name__,
+        "error": str(error),
+        "traceback": traceback.format_exc(),
+        "env": _collect_tts_env_info(device=device),
+    }
+    if detail:
+        entry["detail"] = detail
+    try:
+        with open(_tts_debug_log_path(), "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as log_e:
+        print(f"[TTS][debug-log] failed to append: {log_e}")
+    return entry
+
+
+def _read_recent_tts_debug_entries(limit: int = 20) -> list[dict]:
+    path = _tts_debug_log_path()
+    if not os.path.exists(path):
+        return []
+    entries: list[dict] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except Exception:
+                continue
+    return entries[-max(1, min(limit, 200)):]
+
+
+def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> dict:
+    global _qwen3tts_model, _qwen3tts_processor, _qwen3tts_model_id, _qwen3tts_device
+    if not _QWEN3TTS_AVAILABLE:
+        raise RuntimeError("transformers>=4.52 / torch / soundfile がインストールされていません。pip install 'transformers>=4.52' torch torchaudio soundfile を実行してください。")
+    with _qwen3tts_lock:
+        if _qwen3tts_model is not None and _qwen3tts_model_id == model_id and _qwen3tts_device == device:
+            return {"status": "loaded", "model_id": model_id, "device": device}
+        if _qwen3tts_model is not None:
+            _qwen3tts_model = None
+            _qwen3tts_processor = None
+        cache_dir = _qwen3tts_model_dir()
+        if device == "cuda" and not (_torch_mod and _torch_mod.cuda.is_available()):
+            raise RuntimeError("CUDAが利用できません。device='cpu' を指定してください。")
+        _qwen3tts_processor = _Q3TProc.from_pretrained(
+            model_id, cache_dir=cache_dir, trust_remote_code=True
+        )
+        _qwen3tts_model = _Q3TModel.from_pretrained(
+            model_id, cache_dir=cache_dir, trust_remote_code=True,
+            torch_dtype=_torch_mod.float16 if device == "cuda" else _torch_mod.float32
+        ).to(device).eval()
+        _qwen3tts_model_id = model_id
+        _qwen3tts_device = device
+        return {"status": "loaded", "model_id": model_id, "device": device}
 
 
 def qwen3tts_synthesize(text: str, speed: float = 1.0,
@@ -8722,15 +8789,12 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
         raise RuntimeError("Qwen3 TTS: transformers/torch がインストールされていません")
     with _qwen3tts_lock:
         if _qwen3tts_model is None:
-            result = qwen3tts_load()
-            if "error" in result:
-                raise RuntimeError(f"Qwen3 TTS ロード失敗: {result['error']}")
+            qwen3tts_load(_qwen3tts_model_id or _QWEN3TTS_MODEL_ID, _qwen3tts_device)
     with _qwen3tts_lock:
         device = next(_qwen3tts_model.parameters()).device
         proc_kwargs: dict = {"text": text, "return_tensors": "pt"}
         if ref_audio_bytes:
             try:
-                import numpy as _np
                 ref_wav, _ = _sf_mod.read(io.BytesIO(ref_audio_bytes))
                 proc_kwargs["reference_audio"] = ref_wav
                 proc_kwargs["reference_audio_sampling_rate"] = ref_sr
@@ -8755,11 +8819,6 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
 
 _tts_core = None        # voicevox_core.VoicevoxCore instance
 _tts_lock = threading.Lock()
-
-_qwen3tts_model = None          # Qwen3TTSModel instance
-_qwen3tts_model_id: str | None = None
-_qwen3tts_device = "cpu"        # "cpu" | "cuda"
-_qwen3tts_lock = threading.Lock()
 
 QWEN3TTS_MODEL_CANDIDATES = [
     "Qwen/Qwen3-TTS-0.6B",
@@ -8942,48 +9001,14 @@ async def tts_edgetts_list_voices_async() -> list:
     return result
 
 
-def qwen3tts_load(model_id: str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base", device: str = "cpu") -> dict:
-    """Qwen3 TTSモデルをロードして {status, model_id, device} を返す。"""
-    global _qwen3tts_model, _qwen3tts_model_id, _qwen3tts_device
-    if not _QWEN3TTS_AVAILABLE:
-        raise RuntimeError("transformers/torch/soundfile がインストールされていません。pip install 'transformers>=4.52' torch torchaudio soundfile を実行してください。")
-    cache_dir = _tts_models_dir()
-    model = Qwen3TTSModel.from_pretrained(model_id, cache_dir=cache_dir, device=device)
-    with _qwen3tts_lock:
-        _qwen3tts_model = model
-        _qwen3tts_model_id = model_id
-        _qwen3tts_device = device
-    return {"status": "loaded", "model_id": model_id, "device": device}
-
-
 def qwen3tts_unload() -> dict:
-    global _qwen3tts_model, _qwen3tts_model_id
+    global _qwen3tts_model, _qwen3tts_model_id, _qwen3tts_processor
     with _qwen3tts_lock:
         _qwen3tts_model = None
         _qwen3tts_model_id = None
+        _qwen3tts_processor = None
     import gc; gc.collect()
     return {"status": "unloaded"}
-
-
-def qwen3tts_synthesize(text: str, language: str = "ja",
-                         ref_audio_path: str | None = None,
-                         ref_text: str | None = None) -> bytes:
-    """Qwen3 TTS でテキストを WAV バイト列に変換する。"""
-    if not _SOUNDFILE_AVAILABLE:
-        raise RuntimeError("soundfile がインストールされていません。pip install soundfile を実行してください。")
-    import io
-    with _qwen3tts_lock:
-        if _qwen3tts_model is None:
-            raise RuntimeError("Qwen3 TTS モデルがロードされていません。/tts/load を先に呼び出してください。")
-        wavs, sr = _qwen3tts_model.generate_voice_clone(
-            text,
-            language=language,
-            ref_audio=ref_audio_path,
-            ref_text=ref_text or "",
-        )
-    buf = io.BytesIO()
-    _sf.write(buf, wavs, sr, format="WAV")
-    return buf.getvalue()
 
 
 @app.get("/tts/status")
@@ -9004,7 +9029,15 @@ def tts_status_api():
         "jtalk_exists": _tts_jtalk_exists(),
         "qwen3tts_available": _QWEN3TTS_AVAILABLE,
         "qwen3tts_loaded": q3t_loaded,
+        "qwen3tts_model_id": _qwen3tts_model_id,
+        "qwen3tts_device": _qwen3tts_device,
     }
+
+
+@app.get("/debug/TTS")
+def tts_debug_api(limit: int = 20):
+    errors = _read_recent_tts_debug_entries(limit)
+    return {"errors": errors, "count": len(errors)}
 
 
 @app.get("/tts/voices")
@@ -9035,19 +9068,18 @@ def tts_load_api(req: dict = {}):
                 result = tts_voicevox_load()
                 yield _sse({"type": "done", **result})
             except Exception as e:
+                _append_tts_debug_error("voicevox", "load", e, detail={"engine": engine})
                 yield _sse({"type": "error", "detail": str(e)})
         elif engine == "qwen3tts":
             if not _QWEN3TTS_AVAILABLE:
                 yield _sse({"type": "error", "detail": "transformers/torch/soundfile がインストールされていません。pip install transformers torch torchaudio soundfile を実行してください。"})
                 return
-            yield _sse({"type": "loading", "message": f"Qwen3 TTS モデル ({_QWEN3TTS_MODEL_ID}) をロード中です。初回はダウンロードに数分かかる場合があります..."})
+            yield _sse({"type": "loading", "message": f"Qwen3 TTS モデル ({model_id}) をロード中です。初回はダウンロードに数分かかる場合があります..."})
             try:
-                result = qwen3tts_load()
-                if "error" in result:
-                    yield _sse({"type": "error", "detail": result["error"]})
-                else:
-                    yield _sse({"type": "done", **result})
+                result = qwen3tts_load(model_id, device)
+                yield _sse({"type": "done", **result})
             except Exception as e:
+                _append_tts_debug_error("qwen3tts", "load", e, detail={"model_id": model_id, "device": device}, device=device)
                 yield _sse({"type": "error", "detail": str(e)})
         else:
             yield _sse({"type": "error", "detail": f"不明なエンジン: {engine}"})
@@ -9174,6 +9206,7 @@ def tts_synthesize_api(req: dict):
         try:
             wav = qwen3tts_synthesize(text, speed, ref_audio_bytes=ref_bytes)
         except Exception as e:
+            _append_tts_debug_error("qwen3tts", "inference", e, detail={"text_length": len(text), "speed": speed}, device=_qwen3tts_device)
             raise HTTPException(status_code=500, detail=str(e))
         return FastAPIResponse(content=wav, media_type="audio/wav")
 
