@@ -2541,8 +2541,9 @@ async function loadQwen3Tts(context) {
             document.getElementById('tsasr-qwen3-unload-btn')?.removeAttribute('style');
           }
         } else if (ev.type === 'error') {
-          if (status) status.textContent = 'エラー';
-          addMsg('error', 'Qwen3 TTS ロードエラー: ' + (ev.detail || ''));
+          const detail = ev.detail || '不明なエラー';
+          if (status) status.textContent = 'エラー: ' + detail;
+          addMsg('error', 'Qwen3 TTS ロードエラー: ' + detail);
         }
       }
     }
