@@ -8831,6 +8831,34 @@ def _voicevox_http_check() -> bool:
         return False
 
 
+def _voicevox_http_probe() -> dict:
+    """VOICEVOX HTTP接続状態を詳細に返す（UI診断向け）。"""
+    result = {
+        "http_available": False,
+        "speaker_count": 0,
+        "version": None,
+        "error": None,
+    }
+    try:
+        version_resp = requests.get(f"{_VOICEVOX_HTTP_URL}/version", timeout=2)
+        if version_resp.status_code != 200:
+            result["error"] = f"/version returned {version_resp.status_code}"
+            return result
+        result["http_available"] = True
+        result["version"] = version_resp.text.strip()
+    except Exception as e:
+        result["error"] = f"/version failed: {e}"
+        return result
+    try:
+        speakers = tts_voicevox_http_speakers()
+        result["speaker_count"] = len(speakers)
+        if result["speaker_count"] <= 0:
+            result["error"] = "/speakers returned 0 styles"
+    except Exception as e:
+        result["error"] = f"/speakers failed: {e}"
+    return result
+
+
 def tts_voicevox_http_speakers() -> list:
     """VOICEVOX HTTP API から話者一覧を取得する。"""
     r = requests.get(f"{_VOICEVOX_HTTP_URL}/speakers", timeout=5)
@@ -9227,16 +9255,44 @@ def qwen3tts_unload() -> dict:
 def tts_status_api():
     with _tts_lock:
         loaded = _tts_core is not None
-        speakers = len(_tts_core.metas()) if loaded else 0
+        core_speakers = len(_tts_core.metas()) if loaded else 0
     with _qwen3tts_lock:
         q3t_loaded = _qwen3tts_model is not None
-    http_ok = _voicevox_http_check()
+    http_probe = _voicevox_http_probe()
+    http_ok = bool(http_probe.get("http_available"))
+    http_speakers = int(http_probe.get("speaker_count", 0) or 0)
+    speakers = http_speakers if http_ok else core_speakers
+
+    auto_start_status = os.environ.get("RUNPOD_VOICEVOX_AUTOSTART_STATUS", "")
+    auto_start_hint = os.environ.get("RUNPOD_VOICEVOX_AUTOSTART_HINT", "")
+    diagnostics = []
+    if not http_ok:
+        diagnostics.append(f"VOICEVOX HTTP unavailable: {http_probe.get('error') or 'unknown error'}")
+        diagnostics.append(f"Configured VOICEVOX_URL={_VOICEVOX_HTTP_URL}")
+        if IS_RUNPOD_RUNTIME:
+            diagnostics.append("Runpod mode: Pod内で独自Docker daemonを前提にした起動は行いません。")
+            diagnostics.append("VOICEVOX_URL に到達可能な外部/別Podエンドポイントを設定してください。")
+        else:
+            diagnostics.append("If Docker is used, check: docker ps / docker logs voicevox_engine")
+            diagnostics.append("You can set VOICEVOX_URL to another reachable host (e.g. http://<host>:50021).")
+    if auto_start_status and auto_start_status not in {"ready", "not_requested"}:
+        diagnostics.append(f"Runpod auto-start status: {auto_start_status}")
+    if auto_start_hint:
+        diagnostics.append(auto_start_hint)
+
     return {
         "voicevox_available": _VOICEVOX_AVAILABLE,
         "voicevox_loaded": loaded or http_ok,
         "voicevox_speakers": speakers,
+        "voicevox_speakers_http": http_speakers,
+        "voicevox_speakers_core": core_speakers,
         "voicevox_http_available": http_ok,
         "voicevox_http_url": _VOICEVOX_HTTP_URL,
+        "voicevox_http_version": http_probe.get("version"),
+        "voicevox_http_error": http_probe.get("error"),
+        "voicevox_diagnostics": diagnostics,
+        "voicevox_autostart_status": auto_start_status or "unknown",
+        "voicevox_hint": diagnostics[0] if diagnostics else f"VOICEVOX is reachable at {_VOICEVOX_HTTP_URL}",
         "edgetts_available": _EDGE_TTS_AVAILABLE,
         "jtalk_exists": _tts_jtalk_exists(),
         "qwen3tts_available": _QWEN3TTS_AVAILABLE,
