@@ -6,9 +6,11 @@ pydantic>=2.6
 psutil>=5.9
 faster-whisper>=1.0
 edge-tts>=6.1
-qwen-tts>=0.1
+transformers>=4.52
 soundfile>=0.12
 # voicevox_core はプラットフォーム依存のため手動インストールが必要です:
 # pip install voicevox_core --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/"
-# Qwen3 TTS に必要な torch は CUDA版を推奨（CPUのみの場合は torch のみでも動作）:
+# Qwen3 TTS に必要な torch（CPU版）:
+# pip install torch torchaudio
+# Qwen3 TTS に必要な torch（CUDA版・GPU推奨）:
 # pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
