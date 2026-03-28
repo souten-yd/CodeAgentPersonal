@@ -8138,6 +8138,38 @@ _echo_sessions: dict = {}
 _echo_voice_lock = threading.Lock()   # voice_transcribe 専用ロック（Echo用）
 _echo_voice_model = None              # Echo用 Whisper モデル（通常ASRと分離）
 _echo_voice_model_name = ""
+_echo_debug_lock = threading.Lock()
+_echo_debug_events: dict[str, list[dict]] = {}
+_echo_debug_last_updated: dict[str, str] = {}
+ECHO_DEBUG_LOG_PATH = os.path.join(LOG_DIR, "echo_debug.log")
+
+
+def _echo_debug_now_iso() -> str:
+    return datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
+
+
+def _echo_debug_append(session_id: str, seq: int | None, event_type: str, **fields):
+    """Echo デバッグイベントをメモリ + JSONL ファイルへ追記する。"""
+    sid = str(session_id or "unknown")
+    payload = {
+        "ts": _echo_debug_now_iso(),
+        "session_id": sid,
+        "seq": seq,
+        "event": event_type,
+        **fields,
+    }
+    line = json.dumps(payload, ensure_ascii=False)
+    with _echo_debug_lock:
+        bucket = _echo_debug_events.setdefault(sid, [])
+        bucket.append(payload)
+        if len(bucket) > 5000:
+            del bucket[:-5000]
+        _echo_debug_last_updated[sid] = payload["ts"]
+        try:
+            with open(ECHO_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except Exception as e:
+            logging.error("echo debug log write failed: %s", e)
 
 
 def _echo_pcm_s16le_to_wav_bytes(audio_bytes: bytes, sample_rate: int = 16000, channels: int = 1) -> bytes:
@@ -8347,6 +8379,13 @@ async def echo_stream_ws(websocket: WebSocket):
     async def send(payload: dict):
         try:
             await websocket.send_text(json.dumps(payload, ensure_ascii=False))
+            if session_id:
+                _echo_debug_append(
+                    session_id=session_id,
+                    seq=payload.get("seq"),
+                    event_type="ws_send",
+                    payload_type=payload.get("type"),
+                )
         except Exception:
             pass
 
@@ -8385,6 +8424,16 @@ async def echo_stream_ws(websocket: WebSocket):
                         "buffer_format": "webm",
                     }
                     _echo_sessions[session_id] = session
+                    _echo_debug_append(
+                        session_id=session_id,
+                        seq=None,
+                        event_type="session_start",
+                        language=language,
+                        model_name=model_name,
+                        audio_format=chunk_audio_format,
+                        sample_rate=chunk_sample_rate,
+                        channels=chunk_channels,
+                    )
                     await send({"type": "status", "state": "recording"})
 
                 elif t == "resume":
@@ -8414,6 +8463,11 @@ async def echo_stream_ws(websocket: WebSocket):
                         }
                         _echo_sessions[session_id] = session
                     # 再接続時は同一チャンク再送を許容するため、重複除外セットを保持
+                    _echo_debug_append(
+                        session_id=session_id,
+                        seq=None,
+                        event_type="session_resume",
+                    )
                     await send({"type": "status", "state": "recording"})
 
                 elif t == "stop":
@@ -8430,12 +8484,21 @@ async def echo_stream_ws(websocket: WebSocket):
                             await send({"type": "error", "detail": f"保存エラー: {e}"})
                         # セッションクリーンアップ
                         _echo_sessions.pop(session_id, None)
+                        _echo_debug_append(
+                            session_id=session_id,
+                            seq=None,
+                            event_type="session_stop",
+                            duration_sec=session.get("duration_sec", 0),
+                            sentence_count=len(session.get("sentences", [])),
+                        )
                     break
 
             elif "bytes" in msg:
                 chunk = msg["bytes"]
                 if not chunk or not session:
                     continue
+                chunk_receive_iso = _echo_debug_now_iso()
+                chunk_receive_perf = time.perf_counter()
                 seq = None
                 audio_bytes = bytes(chunk)
                 if len(audio_bytes) >= 5:
@@ -8446,11 +8509,35 @@ async def echo_stream_ws(websocket: WebSocket):
                         seq = None
                 if seq is not None and seq in processed_chunk_seqs:
                     await send({"type": "ack", "seq": seq, "duplicate": True})
+                    _echo_debug_append(
+                        session_id=session_id,
+                        seq=seq,
+                        event_type="chunk_duplicate",
+                        receive_ts=chunk_receive_iso,
+                        bytes=len(audio_bytes or b""),
+                        ack_ts=_echo_debug_now_iso(),
+                    )
                     continue
                 if not audio_bytes:
                     if seq is not None:
                         await send({"type": "ack", "seq": seq})
+                        _echo_debug_append(
+                            session_id=session_id,
+                            seq=seq,
+                            event_type="chunk_empty",
+                            receive_ts=chunk_receive_iso,
+                            bytes=0,
+                            ack_ts=_echo_debug_now_iso(),
+                        )
                     continue
+
+                _echo_debug_append(
+                    session_id=session_id,
+                    seq=seq,
+                    event_type="chunk_receive",
+                    receive_ts=chunk_receive_iso,
+                    bytes=len(audio_bytes or b""),
+                )
 
                 runtime_audio_format = str(session.get("audio_format", chunk_audio_format)).strip().lower()
                 runtime_sample_rate = int(session.get("sample_rate", chunk_sample_rate) or 16000)
@@ -8469,11 +8556,27 @@ async def echo_stream_ws(websocket: WebSocket):
 
                 await send({"type": "status", "state": "transcribing"})
                 try:
+                    asr_start = time.perf_counter()
+                    _echo_debug_append(
+                        session_id=session_id,
+                        seq=seq,
+                        event_type="asr_start",
+                        perf_ms=round(asr_start * 1000, 3),
+                    )
                     res = await _asyncio.to_thread(
                         _echo_voice_transcribe,
                         audio_bytes, language, model_name, runtime_audio_format, runtime_sample_rate, runtime_channels
                     )
+                    asr_end = time.perf_counter()
                     text = res.get("text", "").strip()
+                    _echo_debug_append(
+                        session_id=session_id,
+                        seq=seq,
+                        event_type="asr_end",
+                        perf_ms=round(asr_end * 1000, 3),
+                        elapsed_ms=round((asr_end - asr_start) * 1000, 3),
+                        result_chars=len(text),
+                    )
                     if text:
                         sid = len(session["sentences"])
                         lang_det = res.get("language", "ja")
@@ -8483,14 +8586,41 @@ async def echo_stream_ws(websocket: WebSocket):
                         })
                         await send({"type": "sentence", "id": sid, "text": text, "lang": lang_det})
                         # 翻訳（ASR後に順次実行）
+                        tr_start = time.perf_counter()
+                        _echo_debug_append(
+                            session_id=session_id,
+                            seq=seq,
+                            event_type="translate_start",
+                            perf_ms=round(tr_start * 1000, 3),
+                            src_lang=lang_det,
+                            source_chars=len(text),
+                        )
                         transl = await _asyncio.to_thread(_echo_do_translate, text, lang_det)
+                        tr_end = time.perf_counter()
+                        _echo_debug_append(
+                            session_id=session_id,
+                            seq=seq,
+                            event_type="translate_end",
+                            perf_ms=round(tr_end * 1000, 3),
+                            elapsed_ms=round((tr_end - tr_start) * 1000, 3),
+                            result_chars=len(transl or ""),
+                        )
                         session["sentences"][sid]["translated"] = transl
                         tgt = "en" if lang_det == "ja" else "ja"
                         await send({"type": "translation", "id": sid, "translated": transl, "target_lang": tgt})
                     if seq is not None:
                         processed_chunk_seqs.add(seq)
                         await send({"type": "ack", "seq": seq})
+                    _echo_debug_append(
+                        session_id=session_id,
+                        seq=seq,
+                        event_type="chunk_done",
+                        send_done_ts=_echo_debug_now_iso(),
+                        ack_ts=_echo_debug_now_iso() if seq is not None else None,
+                        elapsed_ms=round((time.perf_counter() - chunk_receive_perf) * 1000, 3),
+                    )
                 except Exception as e:
+                    err_tb = traceback.format_exc()
                     print(
                         "[echo/asr-error]",
                         json.dumps(
@@ -8503,20 +8633,84 @@ async def echo_stream_ws(websocket: WebSocket):
                             ensure_ascii=False,
                         ),
                     )
-                    await send({"type": "error", "detail": f"ASR error: {e}"})
+                    logging.exception(
+                        "echo ASR error session_id=%s seq=%s bytes=%s mime=%s",
+                        session_id,
+                        seq,
+                        len(audio_bytes or b""),
+                        runtime_mime,
+                    )
+                    severe_summary = (
+                        f"[Echo重大エラー] ASR decode失敗 session={session_id} seq={seq} "
+                        f"bytes={len(audio_bytes or b'')} mime={runtime_mime}"
+                    )
+                    _echo_debug_append(
+                        session_id=session_id,
+                        seq=seq,
+                        event_type="chunk_error",
+                        receive_ts=chunk_receive_iso,
+                        elapsed_ms=round((time.perf_counter() - chunk_receive_perf) * 1000, 3),
+                        error=str(e),
+                        traceback=err_tb,
+                    )
+                    await send({"type": "error", "detail": f"ASR error: {e}", "summary": severe_summary})
+                    await send({"type": "ui_log", "level": "error", "summary": severe_summary})
                     if seq is not None:
                         processed_chunk_seqs.add(seq)
                         await send({"type": "ack", "seq": seq, "error": True})
+                        _echo_debug_append(
+                            session_id=session_id,
+                            seq=seq,
+                            event_type="ack_error",
+                            ack_ts=_echo_debug_now_iso(),
+                        )
                 await send({"type": "status", "state": "recording"})
 
     except WebSocketDisconnect:
         # 切断時はセッションを保持（クライアントが resume で再接続可能）
         pass
     except Exception as e:
+        _echo_debug_append(
+            session_id=session_id or "unknown",
+            seq=None,
+            event_type="ws_exception",
+            error=str(e),
+            traceback=traceback.format_exc(),
+        )
         try:
             await send({"type": "error", "detail": str(e)})
         except Exception:
             pass
+
+
+@app.get("/debug/echo")
+def debug_echo(session_id: str | None = None, limit: int = 100):
+    """Echo デバッグイベントの取得API。"""
+    lim = max(1, min(int(limit or 100), 1000))
+    with _echo_debug_lock:
+        if session_id:
+            sid = str(session_id)
+            events = _echo_debug_events.get(sid, [])
+            return {
+                "session_id": sid,
+                "count": len(events),
+                "events": events[-lim:],
+            }
+        if not _echo_debug_last_updated:
+            return {"session_id": None, "count": 0, "events": []}
+        latest_sid = max(_echo_debug_last_updated.items(), key=lambda kv: kv[1])[0]
+        events = _echo_debug_events.get(latest_sid, [])
+        return {
+            "session_id": latest_sid,
+            "count": len(events),
+            "events": events[-lim:],
+        }
+
+
+@app.get("/debu/echo")
+def debug_echo_typo_redirect():
+    """typo compatibility: /debu/echo -> /debug/echo"""
+    return RedirectResponse(url="/debug/echo", status_code=307)
 
 
 @app.get("/echo/sessions")

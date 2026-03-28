@@ -5110,7 +5110,9 @@ function _echoHandleEvent(ev) {
     refreshEchoVault();
   } else if (ev.type === 'error') {
     _echoSetStatus('⚠ ' + (ev.detail || 'エラー'));
-    addLog('err', 'echo', ev.detail || 'echo error');
+    addLog('err', 'echo', ev.summary || ev.detail || 'echo error');
+  } else if (ev.type === 'ui_log') {
+    addLog(ev.level === 'warn' ? 'warn' : 'err', 'echo', ev.summary || ev.message || 'echo log');
   } else if (ev.type === 'ack' && Number.isFinite(ev.seq)) {
     echo.unackedChunks.delete(ev.seq);
   }
