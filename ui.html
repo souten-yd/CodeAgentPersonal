@@ -425,6 +425,7 @@ header{
   border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;
 }
 .mob-tab.wide{flex:1 1 33.333%;min-width:0}
+.mob-tabs.echo-mode .mob-tab{flex:1 1 20%;min-width:0}
 .mob-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 @media(max-width:768px){
   .mob-tabs{display:flex}
@@ -939,11 +940,11 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <button class="mob-tab wide" id="mob-memory" onclick="mobSwitch('memory')">Memory</button>
   <button class="mob-tab" id="mob-models" onclick="mobSwitch('models')">Models</button>
   <!-- Echo モード用タブ (デフォルト非表示) -->
-  <button class="mob-tab wide" id="mob-echo" onclick="mobSwitch('echo')" style="display:none">Echo</button>
+  <button class="mob-tab" id="mob-echo" onclick="mobSwitch('echo')" style="display:none">Echo</button>
   <button class="mob-tab" id="mob-vault" onclick="mobSwitch('vault')" style="display:none">Vault</button>
   <button class="mob-tab" id="mob-log-echo" onclick="mobSwitch('log')" style="display:none">Log</button>
   <button class="mob-tab" id="mob-models-echo" onclick="mobSwitch('models')" style="display:none">Models</button>
-  <button class="mob-tab wide" id="mob-tsasr" onclick="mobSwitch('tsasr')" style="display:none">TTS/ASR</button>
+  <button class="mob-tab" id="mob-tsasr" onclick="mobSwitch('tsasr')" style="display:none">TTS/ASR</button>
 </div>
 
 <div class="app-body">
@@ -3270,6 +3271,8 @@ function _setEchoTabVisibility(isEcho) {
 
 function _updateMobTabs(m) {
   const isEcho = (m === 'echo');
+  const mobTabs = document.querySelector('.mob-tabs');
+  mobTabs?.classList.toggle('echo-mode', isEcho);
   _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? 'none' : ''; });
   _ECHO_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
 }
