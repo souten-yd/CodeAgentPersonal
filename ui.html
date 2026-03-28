@@ -944,7 +944,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <button class="mob-tab" id="mob-vault" onclick="mobSwitch('vault')" style="display:none">Vault</button>
   <button class="mob-tab" id="mob-log-echo" onclick="mobSwitch('log')" style="display:none">Log</button>
   <button class="mob-tab" id="mob-models-echo" onclick="mobSwitch('models')" style="display:none">Models</button>
-  <button class="mob-tab" id="mob-tsasr" onclick="mobSwitch('tsasr')" style="display:none">TTS/ASR</button>
+  <button class="mob-tab" id="mob-asr" onclick="mobSwitch('asr')" style="display:none">ASR</button>
+  <button class="mob-tab" id="mob-tts" onclick="mobSwitch('tts')" style="display:none">TTS</button>
 </div>
 
 <div class="app-body">
@@ -954,7 +955,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="msg system">
         <div class="msg-role">system</div>
         <div class="msg-bubble">CodeAgent ready. Select a project to begin.</div>
-      </div>
     </div>
     <div class="input-area">
       <div class="input-wrap">
@@ -999,7 +999,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <button class="tab-btn" id="tab-btn-vault" onclick="switchTab('vault')" style="display:none">Vault</button>
       <button class="tab-btn" id="tab-btn-log-echo" onclick="switchTab('log')" style="display:none">Log</button>
       <button class="tab-btn" id="tab-btn-models-echo" onclick="switchTab('models')" style="display:none">Models</button>
-      <button class="tab-btn" id="tab-btn-tsasr" onclick="switchTab('tsasr')" style="display:none">TTS/ASR</button>
+      <button class="tab-btn" id="tab-btn-asr" onclick="switchTab('asr')" style="display:none">ASR</button>
+      <button class="tab-btn" id="tab-btn-tts" onclick="switchTab('tts')" style="display:none">TTS</button>
       <div class="tab-spacer"></div>
       <span class="tab-label" id="tab-label">—</span>
     </div>
@@ -1280,27 +1281,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       </div>
     </div>
 
-    <!-- TTS/ASR TAB (Echo モード用) -->
-    <div class="tab-content" id="tab-tsasr" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
-      <div style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px">TTS / ASR</div>
-
-      <!-- ボイスクローン -->
-      <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px">
-        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🎤 Voice Clone</div>
-        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:10px">
-          <button onclick="echoRecordRefAudio()" id="echo-ref-mic-btn" style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="マイクで3秒以上録音">🎙 録音</button>
-          <label style="cursor:pointer;font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;color:var(--text2)" title="音声ファイルをアップロード">
-            📁 ファイル
-            <input type="file" id="echo-ref-audio-file" accept="audio/*,.wav,.mp3,.ogg,.m4a" style="display:none" onchange="echoUploadRefAudio(this)">
-          </label>
-          <button onclick="echoCaptureSystemAudio()" style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="PCで再生中の音声をキャプチャ">🖥 PC音声</button>
-          <span id="echo-ref-status" style="font-size:10px;color:var(--text3)">未設定</span>
-          <button id="echo-clear-ref" onclick="echoClearRefAudio()" style="display:none;font-size:10px;padding:2px 6px;border:1px solid var(--red);border-radius:4px;background:transparent;color:var(--red);cursor:pointer">✕ クリア</button>
-        </div>
-      </div>
-
-      <!-- ASR 設定 -->
-      <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px">
+    <!-- ASR TAB (Echo モード用) -->
+    <div class="tab-content" id="tab-asr" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px">ASR</div>
+      <div>
         <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🎙 ASR 設定</div>
         <div style="margin-bottom:8px">
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASR言語</div>
@@ -1355,6 +1339,28 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <button onclick="unloadAsrModelFromTab()" id="tsasr-asr-unload-btn"
             style="display:none;padding:5px 12px;font-size:11px;font-weight:700;background:var(--border);border:none;border-radius:4px;color:var(--text2);cursor:pointer">アンロード</button>
           <span id="tsasr-asr-status" style="font-size:10px;color:var(--text3);align-self:center">未ロード</span>
+        </div>
+      </div>
+
+      </div>
+    </div>
+
+    <!-- TTS TAB (Echo モード用) -->
+    <div class="tab-content" id="tab-tts" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px">TTS</div>
+
+      <!-- ボイスクローン -->
+      <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🎤 Voice Clone</div>
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:10px">
+          <button onclick="echoRecordRefAudio()" id="echo-ref-mic-btn" style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="マイクで3秒以上録音">🎙 録音</button>
+          <label style="cursor:pointer;font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;color:var(--text2)" title="音声ファイルをアップロード">
+            📁 ファイル
+            <input type="file" id="echo-ref-audio-file" accept="audio/*,.wav,.mp3,.ogg,.m4a" style="display:none" onchange="echoUploadRefAudio(this)">
+          </label>
+          <button onclick="echoCaptureSystemAudio()" style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="PCで再生中の音声をキャプチャ">🖥 PC音声</button>
+          <span id="echo-ref-status" style="font-size:10px;color:var(--text3)">未設定</span>
+          <button id="echo-clear-ref" onclick="echoClearRefAudio()" style="display:none;font-size:10px;padding:2px 6px;border:1px solid var(--red);border-radius:4px;background:transparent;color:var(--red);cursor:pointer">✕ クリア</button>
         </div>
       </div>
 
@@ -2721,10 +2727,8 @@ function saveTtsTranslateSettings(context = 'echo') {
   }
 }
 
-function refreshTsAsrTab() {
-  // TTS/ASR タブを開いた時の初期化
+function refreshAsrTab() {
   _echoInitSettingsUI();
-  // ASR ステータス表示
   fetch(API + '/voice/status').then(r => r.json()).then(s => {
     const statusEl = document.getElementById('tsasr-asr-status');
     const loadBtn  = document.getElementById('tsasr-asr-load-btn');
@@ -2735,7 +2739,14 @@ function refreshTsAsrTab() {
     if (loadBtn)  loadBtn.style.display  = s.loaded ? 'none' : '';
     if (unloadBtn) unloadBtn.style.display = s.loaded ? '' : 'none';
   }).catch(() => {});
-  // TTS ステータス表示
+  const asrPreload = document.getElementById('tsasr-asr-preload');
+  const asrDir   = document.getElementById('tsasr-asr-dir');
+  if (asrPreload) { asrPreload.checked = localStorage.getItem('tsasr_asr_preload') === 'true'; const lbl = document.getElementById('tsasr-asr-preload-label'); if (lbl) lbl.textContent = asrPreload.checked ? 'ON' : 'OFF'; }
+  if (asrDir)  asrDir.value  = localStorage.getItem('tsasr_asr_dir') || '';
+}
+
+function refreshTtsTab() {
+  _echoInitSettingsUI();
   fetch(API + '/tts/status').then(r => r.json()).then(s => {
     const statusEl  = document.getElementById('tsasr-qwen3-status');
     const loadBtn   = document.getElementById('tsasr-qwen3-load-btn');
@@ -2745,17 +2756,11 @@ function refreshTsAsrTab() {
     if (loadBtn)  loadBtn.style.display   = s.qwen3tts_loaded ? 'none' : '';
     if (unloadBtn) unloadBtn.style.display = s.qwen3tts_loaded ? '' : 'none';
   }).catch(() => {});
-  // 保存済み設定を復元
-  const asrPreload = document.getElementById('tsasr-asr-preload');
   const ttsPreload = document.getElementById('tsasr-tts-preload');
-  const asrDir   = document.getElementById('tsasr-asr-dir');
   const ttsDir   = document.getElementById('tsasr-tts-dir');
-  if (asrPreload) { asrPreload.checked = localStorage.getItem('tsasr_asr_preload') === 'true'; const lbl = document.getElementById('tsasr-asr-preload-label'); if (lbl) lbl.textContent = asrPreload.checked ? 'ON' : 'OFF'; }
   if (ttsPreload) { ttsPreload.checked = localStorage.getItem('tsasr_tts_preload') === 'true'; const lbl = document.getElementById('tsasr-tts-preload-label'); if (lbl) lbl.textContent = ttsPreload.checked ? 'ON' : 'OFF'; }
-  if (asrDir)  asrDir.value  = localStorage.getItem('tsasr_asr_dir') || '';
   if (ttsDir)  ttsDir.value  = localStorage.getItem('tsasr_tts_dir') || '';
   _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
-  // 翻訳設定
   const enableChk = document.getElementById('tts-translate-enable');
   const modeSel   = document.getElementById('tts-translate-mode');
   const en2jaChk  = document.getElementById('tts-translate-en2ja-enable');
@@ -3345,11 +3350,11 @@ function formatModelShortName(name) {
 // Chat/Task モード用パネルタブID
 const _CHAT_PANEL_TAB_IDS = ['tab-btn-output','tab-btn-preview','tab-btn-log','tab-btn-skills','tab-btn-memory','tab-btn-models'];
 // Echo モード用パネルタブID
-const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault','tab-btn-log-echo','tab-btn-models-echo','tab-btn-tsasr'];
+const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault','tab-btn-log-echo','tab-btn-models-echo','tab-btn-asr','tab-btn-tts'];
 // Chat/Task モード用モバイルタブID
 const _CHAT_MOB_TAB_IDS = ['mob-chat','mob-output','mob-preview','mob-log','mob-skills','mob-memory','mob-models'];
 // Echo モード用モバイルタブID
-const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-echo','mob-tsasr'];
+const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-echo','mob-asr','mob-tts'];
 
 function _setEchoTabVisibility(isEcho) {
   _CHAT_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? 'none' : ''; });
@@ -3389,9 +3394,9 @@ function setMode(m) {
     echoCol.style.display  = '';
     panelCol.style.display = '';
     _setEchoTabVisibility(true);
-    // Vault タブをデフォルト表示
-    const vaultActive = document.getElementById('tab-vault')?.classList.contains('active');
-    if (!vaultActive) switchTab('vault');
+    // ASR タブをデフォルト表示
+    const asrActive = document.getElementById('tab-asr')?.classList.contains('active');
+    if (!asrActive) switchTab('asr');
   } else {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
@@ -3400,7 +3405,7 @@ function setMode(m) {
     panelCol.style.display = '';
     _setEchoTabVisibility(false);
     // Echo モード用タブが選ばれていた場合は output に戻す
-    if (['vault','tsasr'].some(n => document.getElementById('tab-'+n)?.classList.contains('active'))) {
+    if (['vault','asr','tts'].some(n => document.getElementById('tab-'+n)?.classList.contains('active'))) {
       switchTab('output');
     } else {
       const activeTab = document.querySelector('.tab-content.active')?.id?.replace('tab-','') || 'output';
@@ -3436,11 +3441,16 @@ function mobSwitch(name) {
     cc.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
     switchTab('vault');
-  } else if (name === 'tsasr') {
+  } else if (name === 'asr') {
     if (ec) ec.classList.add('mob-hidden');
     cc.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
-    switchTab('tsasr');
+    switchTab('asr');
+  } else if (name === 'tts') {
+    if (ec) ec.classList.add('mob-hidden');
+    cc.classList.add('mob-hidden');
+    pc.classList.remove('mob-hidden');
+    switchTab('tts');
   } else {
     cc.classList.add('mob-hidden');
     if (ec) ec.classList.add('mob-hidden');
@@ -3559,7 +3569,8 @@ function switchTab(name) {
   if (name === 'memory') refreshMemory();
   if (name === 'models') { refreshModelDb(); refreshModelRoles(); }
   if (name === 'vault') refreshEchoVault();
-  if (name === 'tsasr') refreshTsAsrTab();
+  if (name === 'asr') refreshAsrTab();
+  if (name === 'tts') refreshTtsTab();
 }
 
 // ── GIT ──
