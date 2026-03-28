@@ -2032,6 +2032,12 @@ const echo = {
   sessionId:      '',
   ws:             null,
   mediaRecorder:  null,
+  audioCtx:       null,
+  processorNode:  null,
+  sourceNode:     null,
+  pcmTargetRate:  16000,
+  pcmChunkSeconds: 2,
+  pcmPendingInt16: new Int16Array(0),
   stream:         null,
   startTime:      null,
   durationTimer:  null,
@@ -5074,7 +5080,16 @@ function _echoConnectWs(wsMode) {
     _echoSetConn('connected');
     const payload = wsMode === 'resume'
       ? {type: 'resume', session_id: echo.sessionId}
-      : {type: 'start',  session_id: echo.sessionId, language: echo.asrLang, model: echo.asrModel};
+      : {
+          type: 'start',
+          session_id: echo.sessionId,
+          language: echo.asrLang,
+          model: echo.asrModel,
+          audio_format: 'pcm_s16le',
+          sample_rate: echo.pcmTargetRate,
+          channels: 1,
+          mime: `audio/pcm;rate=${echo.pcmTargetRate};channels=1`,
+        };
     ws.send(JSON.stringify(payload));
     _echoFlushPendingChunks();
     _echoSetStatus('● 録音中');
@@ -5105,6 +5120,7 @@ async function _echoStart() {
   echo.nextChunkSeq = 1;
   echo.unackedChunks = new Map();
   echo.reconnectCount = 0;
+  echo.pcmPendingInt16 = new Int16Array(0);
   echo.startTime  = Date.now();
   echo.recording  = true;
   _echoAutoScroll = true;
@@ -5120,33 +5136,72 @@ async function _echoStart() {
   echo.durationTimer = setInterval(_echoUpdateDuration, 1000);
   // WS接続
   _echoConnectWs('start');
-  // MediaRecorder (2s timeslice)
-  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-    ? 'audio/webm;codecs=opus' : 'audio/webm';
-  const mr = new MediaRecorder(echo.stream, {mimeType});
-  echo.mediaRecorder = mr;
-  mr.onstop = () => {
-    if (typeof echo._stopResolver === 'function') {
-      echo._stopResolver();
-      echo._stopResolver = null;
+  // AudioContext + ScriptProcessor で PCM(16k mono s16le) を2秒ごとに送信
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  echo.audioCtx = ctx;
+  const source = ctx.createMediaStreamSource(echo.stream);
+  echo.sourceNode = source;
+  const processor = ctx.createScriptProcessor(4096, 1, 1);
+  echo.processorNode = processor;
+
+  function _echoConcatInt16(a, b) {
+    if (!a || a.length === 0) return b;
+    if (!b || b.length === 0) return a;
+    const out = new Int16Array(a.length + b.length);
+    out.set(a, 0);
+    out.set(b, a.length);
+    return out;
+  }
+  function _echoDownsampleTo16k(float32, inputRate, outRate = 16000) {
+    if (!float32 || float32.length === 0) return new Int16Array(0);
+    if (inputRate <= 0 || outRate <= 0) return new Int16Array(0);
+    if (inputRate === outRate) {
+      const out = new Int16Array(float32.length);
+      for (let i = 0; i < float32.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32[i] || 0));
+        out[i] = s < 0 ? Math.round(s * 0x8000) : Math.round(s * 0x7fff);
+      }
+      return out;
+    }
+    const ratio = inputRate / outRate;
+    const outLen = Math.max(0, Math.floor(float32.length / ratio));
+    const out = new Int16Array(outLen);
+    let pos = 0;
+    for (let i = 0; i < outLen; i++) {
+      const idx = Math.floor(pos);
+      const s = Math.max(-1, Math.min(1, float32[idx] || 0));
+      out[i] = s < 0 ? Math.round(s * 0x8000) : Math.round(s * 0x7fff);
+      pos += ratio;
+    }
+    return out;
+  }
+  function _echoEmitPcmChunk(int16Chunk) {
+    if (!int16Chunk || int16Chunk.length === 0) return;
+    const seq = echo.nextChunkSeq++;
+    const pcmBytes = new Uint8Array(int16Chunk.buffer.slice(int16Chunk.byteOffset, int16Chunk.byteOffset + int16Chunk.byteLength));
+    const packet = new Uint8Array(4 + pcmBytes.length);
+    const dv = new DataView(packet.buffer);
+    dv.setUint32(0, seq, false); // big-endian
+    packet.set(pcmBytes, 4);
+    echo.unackedChunks.set(seq, packet.buffer);
+    if (echo.ws && echo.ws.readyState === WebSocket.OPEN) _echoFlushPendingChunks();
+  }
+
+  const chunkSamples = echo.pcmTargetRate * echo.pcmChunkSeconds;
+  processor.onaudioprocess = (ev) => {
+    if (!echo.recording) return;
+    const input = ev.inputBuffer.getChannelData(0);
+    const downsampled = _echoDownsampleTo16k(input, ctx.sampleRate, echo.pcmTargetRate);
+    echo.pcmPendingInt16 = _echoConcatInt16(echo.pcmPendingInt16, downsampled);
+    while (echo.pcmPendingInt16.length >= chunkSamples) {
+      const emit = echo.pcmPendingInt16.slice(0, chunkSamples);
+      echo.pcmPendingInt16 = echo.pcmPendingInt16.slice(chunkSamples);
+      _echoEmitPcmChunk(emit);
     }
   };
-  mr.ondataavailable = (e) => {
-    if (!e.data || e.data.size === 0) return;
-    // バイナリに変換してWSへ or ペンディングキューへ
-    e.data.arrayBuffer().then(buf => {
-      const seq = echo.nextChunkSeq++;
-      const header = new Uint8Array(4 + buf.byteLength);
-      const dv = new DataView(header.buffer);
-      dv.setUint32(0, seq, false); // big-endian
-      header.set(new Uint8Array(buf), 4);
-      echo.unackedChunks.set(seq, header.buffer);
-      if (echo.ws && echo.ws.readyState === WebSocket.OPEN) {
-        _echoFlushPendingChunks();
-      }
-    });
-  };
-  mr.start(2000); // 2秒ごとにチャンク
+
+  source.connect(processor);
+  processor.connect(ctx.destination);
 }
 
 async function _echoStop() {
@@ -5155,12 +5210,33 @@ async function _echoStop() {
   // タイマー停止
   if (echo.durationTimer) { clearInterval(echo.durationTimer); echo.durationTimer = null; }
   if (echo._reconnectTimer) { clearTimeout(echo._reconnectTimer); echo._reconnectTimer = null; }
-  // MediaRecorder停止
-  if (echo.mediaRecorder && echo.mediaRecorder.state !== 'inactive') {
-    const stopDone = new Promise((resolve) => { echo._stopResolver = resolve; });
-    echo.mediaRecorder.stop();
-    // stop直前チャンクのondataavailable完了を待つ
-    await Promise.race([stopDone, new Promise(res => setTimeout(res, 1000))]);
+  // PCM残バッファ flush
+  if (echo.pcmPendingInt16 && echo.pcmPendingInt16.length > 0) {
+    const seq = echo.nextChunkSeq++;
+    const pcmBytes = new Uint8Array(echo.pcmPendingInt16.buffer.slice(
+      echo.pcmPendingInt16.byteOffset,
+      echo.pcmPendingInt16.byteOffset + echo.pcmPendingInt16.byteLength
+    ));
+    const packet = new Uint8Array(4 + pcmBytes.length);
+    const dv = new DataView(packet.buffer);
+    dv.setUint32(0, seq, false);
+    packet.set(pcmBytes, 4);
+    echo.unackedChunks.set(seq, packet.buffer);
+    echo.pcmPendingInt16 = new Int16Array(0);
+  }
+  // Audio graph 停止
+  if (echo.processorNode) {
+    try { echo.processorNode.disconnect(); } catch(e) {}
+    echo.processorNode.onaudioprocess = null;
+    echo.processorNode = null;
+  }
+  if (echo.sourceNode) {
+    try { echo.sourceNode.disconnect(); } catch(e) {}
+    echo.sourceNode = null;
+  }
+  if (echo.audioCtx) {
+    try { await echo.audioCtx.close(); } catch(e) {}
+    echo.audioCtx = null;
   }
   // ストリーム停止
   if (echo.stream) {

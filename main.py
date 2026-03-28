@@ -8138,13 +8138,36 @@ _echo_voice_model = None              # Echo用 Whisper モデル（通常ASRと
 _echo_voice_model_name = ""
 
 
-def _echo_voice_transcribe(audio_bytes: bytes, language: str = "auto", model_name: str = "large-v3-turbo", audio_format: str = "webm") -> dict:
+def _echo_pcm_s16le_to_wav_bytes(audio_bytes: bytes, sample_rate: int = 16000, channels: int = 1) -> bytes:
+    """PCM(s16le) を WAV バイト列へ変換する。"""
+    import io, wave
+    with io.BytesIO() as bio:
+        with wave.open(bio, "wb") as wf:
+            wf.setnchannels(max(1, int(channels or 1)))
+            wf.setsampwidth(2)  # s16le
+            wf.setframerate(max(1, int(sample_rate or 16000)))
+            wf.writeframes(audio_bytes or b"")
+        return bio.getvalue()
+
+
+def _echo_voice_transcribe(
+    audio_bytes: bytes,
+    language: str = "auto",
+    model_name: str = "large-v3-turbo",
+    audio_format: str = "webm",
+    sample_rate: int = 16000,
+    channels: int = 1,
+) -> dict:
     """Echo専用 voice_transcribe。_echo_voice_lock を使用し通常ASRと競合しない。"""
     global _echo_voice_model, _echo_voice_model_name
     from faster_whisper import WhisperModel  # type: ignore
     import tempfile, re as _re
 
-    suffix = "." + _re.sub(r"[^a-zA-Z0-9]", "", (audio_format or "webm")).lower()
+    fmt = (audio_format or "webm").strip().lower()
+    if fmt in {"pcm", "pcm_s16le", "s16le", "raw"}:
+        audio_bytes = _echo_pcm_s16le_to_wav_bytes(audio_bytes, sample_rate=sample_rate, channels=channels)
+        fmt = "wav"
+    suffix = "." + _re.sub(r"[^a-zA-Z0-9]", "", fmt or "webm")
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
         tf.write(audio_bytes)
         temp_path = tf.name
@@ -8259,7 +8282,9 @@ def _echovault_save_session(session: dict) -> str:
 
     # 録音ファイル保存
     if audio_buf:
-        audio_path = os.path.join(ECHOVAULT_DIR, f"{base}.webm")
+        buffer_format = str(session.get("buffer_format", "webm")).strip().lower()
+        ext = "wav" if buffer_format in {"pcm", "pcm_s16le", "wav"} else "webm"
+        audio_path = os.path.join(ECHOVAULT_DIR, f"{base}.{ext}")
         with open(audio_path, "wb") as f:
             f.write(bytes(audio_buf))
 
@@ -8312,6 +8337,10 @@ async def echo_stream_ws(websocket: WebSocket):
     session: dict = {}
     language = "auto"
     model_name = "large-v3-turbo"
+    chunk_audio_format = "webm"
+    chunk_sample_rate = 16000
+    chunk_channels = 1
+    chunk_mime = "audio/webm"
     processed_chunk_seqs: set[int] = set()
     async def send(payload: dict):
         try:
@@ -8334,14 +8363,24 @@ async def echo_stream_ws(websocket: WebSocket):
                     session_id = str(ev.get("session_id", ""))
                     language   = str(ev.get("language", "auto"))
                     model_name = str(ev.get("model", "large-v3-turbo"))
+                    chunk_audio_format = str(ev.get("audio_format", "webm")).strip().lower() or "webm"
+                    chunk_sample_rate = int(ev.get("sample_rate", 16000) or 16000)
+                    chunk_channels = int(ev.get("channels", 1) or 1)
+                    chunk_mime = str(ev.get("mime", "audio/webm"))
                     processed_chunk_seqs = set()
                     session = {
                         "session_id": session_id,
-                        "buffer": bytearray(),
+                        "buffer": bytearray() if chunk_audio_format not in {"pcm", "pcm_s16le", "s16le", "raw"} else b"",
+                        "pcm_buffer": bytearray(),
                         "sentences": [],
                         "started_at": _dt.datetime.now(),
                         "duration_sec": 0,
                         "lang": language,
+                        "audio_format": chunk_audio_format,
+                        "sample_rate": chunk_sample_rate,
+                        "channels": chunk_channels,
+                        "mime": chunk_mime,
+                        "buffer_format": "webm",
                     }
                     _echo_sessions[session_id] = session
                     await send({"type": "status", "state": "recording"})
@@ -8351,15 +8390,25 @@ async def echo_stream_ws(websocket: WebSocket):
                     if session_id in _echo_sessions:
                         session = _echo_sessions[session_id]
                         language   = session.get("lang", "auto")
+                        chunk_audio_format = str(session.get("audio_format", "webm"))
+                        chunk_sample_rate = int(session.get("sample_rate", 16000))
+                        chunk_channels = int(session.get("channels", 1))
+                        chunk_mime = str(session.get("mime", "audio/webm"))
                     else:
                         # セッション不明の場合は新規として扱う
                         session = {
                             "session_id": session_id,
                             "buffer": bytearray(),
+                            "pcm_buffer": bytearray(),
                             "sentences": [],
                             "started_at": _dt.datetime.now(),
                             "duration_sec": 0,
                             "lang": language,
+                            "audio_format": chunk_audio_format,
+                            "sample_rate": chunk_sample_rate,
+                            "channels": chunk_channels,
+                            "mime": chunk_mime,
+                            "buffer_format": "webm",
                         }
                         _echo_sessions[session_id] = session
                     # 再接続時は同一チャンク再送を許容するため、重複除外セットを保持
@@ -8401,14 +8450,26 @@ async def echo_stream_ws(websocket: WebSocket):
                         await send({"type": "ack", "seq": seq})
                     continue
 
-                session["buffer"].extend(audio_bytes)
-                # MediaRecorder timeslice 単位(各 WebM チャンク)でASRする。
-                # 生バイト数しきい値で切るとコンテナ境界を壊し、デコードエラーになりやすい。
+                runtime_audio_format = str(session.get("audio_format", chunk_audio_format)).strip().lower()
+                runtime_sample_rate = int(session.get("sample_rate", chunk_sample_rate) or 16000)
+                runtime_channels = int(session.get("channels", chunk_channels) or 1)
+                runtime_mime = str(session.get("mime", chunk_mime))
+                if runtime_audio_format in {"pcm", "pcm_s16le", "s16le", "raw"}:
+                    pcm_buf = session.setdefault("pcm_buffer", bytearray())
+                    pcm_buf.extend(audio_bytes)
+                    session["buffer"] = _echo_pcm_s16le_to_wav_bytes(
+                        bytes(pcm_buf), sample_rate=runtime_sample_rate, channels=runtime_channels
+                    )
+                    session["buffer_format"] = "wav"
+                else:
+                    session["buffer"].extend(audio_bytes)
+                    session["buffer_format"] = "webm"
+
                 await send({"type": "status", "state": "transcribing"})
                 try:
                     res = await _asyncio.to_thread(
                         _echo_voice_transcribe,
-                        audio_bytes, language, model_name
+                        audio_bytes, language, model_name, runtime_audio_format, runtime_sample_rate, runtime_channels
                     )
                     text = res.get("text", "").strip()
                     if text:
@@ -8428,6 +8489,18 @@ async def echo_stream_ws(websocket: WebSocket):
                         processed_chunk_seqs.add(seq)
                         await send({"type": "ack", "seq": seq})
                 except Exception as e:
+                    print(
+                        "[echo/asr-error]",
+                        json.dumps(
+                            {
+                                "seq": seq,
+                                "bytes": len(audio_bytes or b""),
+                                "mime": runtime_mime,
+                                "session_id": session_id,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
                     await send({"type": "error", "detail": f"ASR error: {e}"})
                     if seq is not None:
                         processed_chunk_seqs.add(seq)
