@@ -955,6 +955,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="msg system">
         <div class="msg-role">system</div>
         <div class="msg-bubble">CodeAgent ready. Select a project to begin.</div>
+      </div>
     </div>
     <div class="input-area">
       <div class="input-wrap">
@@ -3604,6 +3605,22 @@ function setMode(m) {
     } else {
       const activeTab = document.querySelector('.tab-content.active')?.id?.replace('tab-','') || 'output';
       _setPanelTabActiveButton(activeTab);
+    }
+  }
+
+  // モバイルでは mode ボタン押下時にも表示カラムを明示的に同期
+  if (window.innerWidth <= 768) {
+    if (m === 'echo') {
+      chatCol?.classList.add('mob-hidden');
+      panelCol?.classList.add('mob-hidden');
+      echoCol?.classList.remove('mob-hidden');
+    } else {
+      // Chat/Task は常に chat カラムを見せる（設定系タブはモバイルタブで遷移）
+      chatCol?.classList.remove('mob-hidden');
+      panelCol?.classList.add('mob-hidden');
+      echoCol?.classList.add('mob-hidden');
+      [..._CHAT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS].forEach(id => document.getElementById(id)?.classList.remove('active'));
+      document.getElementById('mob-chat')?.classList.add('active');
     }
   }
 }
