@@ -675,6 +675,9 @@ textarea#input::placeholder{color:var(--text3)}
 .tab-btn.active{color:var(--accent);background:var(--accent-bg)}
 .tab-spacer{flex:1}
 .tab-label{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);font-family:var(--font-mono)}
+.panel-col.echo-tabs-equal .tab-spacer,
+.panel-col.echo-tabs-equal #tab-label{display:none}
+.panel-col.echo-tabs-equal .panel-tabs .tab-btn:not([style*="display:none"]){flex:1;text-align:center;min-width:0}
 .tab-content{display:none;flex:1;overflow:hidden;flex-direction:column;min-height:0}
 .tab-content.active{display:flex}
 
@@ -3156,6 +3159,15 @@ function _updateMobTabs(m) {
   _ECHO_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
 }
 
+function _setPanelTabActiveButton(name) {
+  const allBtnIds = [..._CHAT_PANEL_TAB_IDS, ..._ECHO_PANEL_TAB_IDS];
+  allBtnIds.forEach(id => document.getElementById(id)?.classList.remove('active'));
+  const activeBtnId = (mode === 'echo' && name === 'log') ? 'tab-btn-log-echo'
+    : (mode === 'echo' && name === 'models') ? 'tab-btn-models-echo'
+    : 'tab-btn-' + name;
+  document.getElementById(activeBtnId)?.classList.add('active');
+}
+
 function setMode(m) {
   mode = m;
   ['chat','task','echo'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
@@ -3167,6 +3179,7 @@ function setMode(m) {
   if (m === 'echo') {
     // Echo モード: echo-col（左）+ panel-col（右）の2カラムレイアウト
     appBody?.classList.add('echo-active');
+    panelCol?.classList.add('echo-tabs-equal');
     chatCol.style.display  = 'none';
     echoCol.style.display  = '';
     panelCol.style.display = '';
@@ -3176,6 +3189,7 @@ function setMode(m) {
     if (!vaultActive) switchTab('vault');
   } else {
     appBody?.classList.remove('echo-active');
+    panelCol?.classList.remove('echo-tabs-equal');
     chatCol.style.display  = '';
     echoCol.style.display  = 'none';
     panelCol.style.display = '';
@@ -3183,6 +3197,9 @@ function setMode(m) {
     // Echo モード用タブが選ばれていた場合は output に戻す
     if (['vault','tsasr'].some(n => document.getElementById('tab-'+n)?.classList.contains('active'))) {
       switchTab('output');
+    } else {
+      const activeTab = document.querySelector('.tab-content.active')?.id?.replace('tab-','') || 'output';
+      _setPanelTabActiveButton(activeTab);
     }
   }
 }
@@ -3329,17 +3346,7 @@ function discardSkillProposal(i, logIt = true) {
 
 // ── PANEL TABS ──
 function switchTab(name) {
-  // ID ベースで各タブボタンのアクティブ状態を更新
-  const allBtnIds = [..._CHAT_PANEL_TAB_IDS, ..._ECHO_PANEL_TAB_IDS];
-  // log/models は Echo モード用にも同じタブを指す
-  const resolvedName = name; // 'log', 'models' は共用
-  allBtnIds.forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    // id から対応するタブ名を取得
-    const tabName = id.replace('tab-btn-','').replace('-echo','');
-    el.classList.toggle('active', tabName === resolvedName);
-  });
+  _setPanelTabActiveButton(name);
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   document.getElementById('tab-'+name)?.classList.add('active');
   if (name === 'preview') refreshFileBrowser();
