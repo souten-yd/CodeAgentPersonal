@@ -39,6 +39,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Free disk space before Docker build
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/lib/android
+          docker system prune -af || true
+          df -h
+
       - name: Build smoke image
         run: |
           docker build \
