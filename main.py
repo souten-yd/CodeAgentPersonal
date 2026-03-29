@@ -8595,13 +8595,30 @@ def _echo_voice_transcribe(
     import tempfile, re as _re
 
     fmt = (audio_format or "webm").strip().lower()
+    temp_path = None
+    audio_input = None
     if fmt in {"pcm", "pcm_s16le", "s16le", "raw"}:
-        audio_bytes = _echo_pcm_s16le_to_wav_bytes(audio_bytes, sample_rate=sample_rate, channels=channels)
-        fmt = "wav"
-    suffix = "." + _re.sub(r"[^a-zA-Z0-9]", "", fmt or "webm")
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
-        tf.write(audio_bytes)
-        temp_path = tf.name
+        try:
+            import numpy as _np  # type: ignore
+
+            pcm = _np.frombuffer(audio_bytes or b"", dtype=_np.int16)
+            ch = max(1, int(channels or 1))
+            if ch > 1 and pcm.size >= ch:
+                frames = (pcm.size // ch) * ch
+                pcm = pcm[:frames].reshape(-1, ch).mean(axis=1).astype(_np.int16)
+            audio_input = pcm.astype(_np.float32) / 32768.0
+        except Exception:
+            # numpy未導入や異常データ時は従来どおりWAV経由へフォールバック
+            audio_input = _echo_pcm_s16le_to_wav_bytes(audio_bytes, sample_rate=sample_rate, channels=channels)
+            fmt = "wav"
+    else:
+        audio_input = audio_bytes
+    if isinstance(audio_input, (bytes, bytearray)):
+        suffix = "." + _re.sub(r"[^a-zA-Z0-9]", "", fmt or "webm")
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
+            tf.write(audio_input)
+            temp_path = tf.name
+        audio_input = temp_path
     try:
         filter_cfg = _resolve_asr_post_filter_config(asr_post_filter)
         with _echo_voice_lock:
@@ -8627,7 +8644,7 @@ def _echo_voice_transcribe(
             if prompt:
                 transcribe_kwargs["initial_prompt"] = prompt
             segments, info = _echo_voice_model.transcribe(
-                temp_path,
+                audio_input,
                 language=lang_arg,
                 **transcribe_kwargs,
             )
@@ -8645,7 +8662,7 @@ def _echo_voice_transcribe(
                     retry_kwargs["best_of"] = max(1, int(retry_kwargs.get("best_of", 1)) + int(filter_cfg.get("retry_best_of_add", 2)))
                     retry_applied = True
                     segments_retry, info = _echo_voice_model.transcribe(
-                        temp_path,
+                        audio_input,
                         language=lang_arg,
                         **retry_kwargs,
                     )
@@ -8681,10 +8698,11 @@ def _echo_voice_transcribe(
             },
         }
     finally:
-        try:
-            os.remove(temp_path)
-        except Exception:
-            pass
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
 
 
 
