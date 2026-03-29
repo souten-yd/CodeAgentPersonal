@@ -116,9 +116,9 @@ RUN set -eux; \
       ok=""; \
       for u in ${ORDER}; do \
         python -m pip uninstall -y voicevox_core >/dev/null 2>&1 || true; \
-        if python -m pip install --no-cache-dir --no-deps "${u}" && python -c "import voicevox_core" >/dev/null 2>&1; then ok="1"; break; fi; \
+        if python -m pip install --no-cache-dir --no-deps "${u}"; then ok="1"; break; fi; \
       done; \
-      if [ -z "${ok}" ]; then echo "[WARN] voicevox_core not available. VOICEVOX TTS will be disabled."; fi; \
+      if [ -z "${ok}" ]; then echo "[WARN] voicevox_core wheel install failed. VOICEVOX TTS will be disabled."; fi; \
     fi
 
 # Install ONNX Runtime shared library required by voicevox_core 0.15.x
@@ -136,6 +136,13 @@ RUN set -eux; \
       ln -sf /usr/local/lib/onnxruntime/libonnxruntime.so.1.13.1 /usr/local/lib/libonnxruntime.so.1.13.1; \
       ln -sf /usr/local/lib/onnxruntime/libonnxruntime.so.1.13.1 /usr/local/lib/libonnxruntime.so; \
       ldconfig; \
+    fi
+
+RUN set -eux; \
+    if python -c "import voicevox_core" >/dev/null 2>&1; then \
+      echo "[INFO] voicevox_core import check passed."; \
+    else \
+      echo "[WARN] voicevox_core import failed after dependency setup. VOICEVOX TTS may be disabled."; \
     fi
 
 # Prepare Open JTalk dictionary for VOICEVOX on Runpod-like path.
