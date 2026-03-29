@@ -884,8 +884,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .echo-sentence .ts-orig{font-size:13px;color:var(--text);line-height:1.55}
 .echo-sentence .ts-trans{font-size:12px;color:var(--text3);font-style:italic;line-height:1.45;min-height:18px}
 .echo-statusbar{display:flex;justify-content:flex-start;align-items:center;gap:10px;padding:5px 14px;border-top:1px solid var(--border);font-size:10px;font-family:var(--font-mono);color:var(--text3);flex-shrink:0;background:var(--bg);flex-wrap:wrap}
-.echo-translate-btn{padding:8px 18px;font-size:12px;font-weight:700;border-radius:6px;border:2px solid var(--accent);background:var(--accent-bg);color:var(--accent);cursor:pointer;transition:all .15s;font-family:var(--font-ui);letter-spacing:.04em}
+.echo-translate-btn{padding:8px 18px;font-size:12px;font-weight:700;border-radius:6px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);cursor:pointer;transition:all .15s;font-family:var(--font-ui);letter-spacing:.04em}
 .echo-translate-btn:hover{background:var(--accent-bg);color:var(--accent2,#7ec7ff);border-color:var(--accent2,#7ec7ff)}
+.echo-toolbar-elapsed{margin-left:auto;min-width:56px;text-align:right}
 .echo-translate-btn.enabled{background:var(--accent);border-color:var(--accent);color:var(--bg)}
 .echo-conn-ok{color:var(--green,#4caf50)}
 .echo-conn-off{color:var(--text3)}
@@ -985,8 +986,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <button class="echo-translate-btn" id="echo-toolbar-translate-enable" onclick="toggleEchoToolbarTranslate()" title="Mutual translation ON/OFF">
         ⇄ Smart Translate <b id="echo-toolbar-translate-enable-label">OFF</b>
       </button>
-      <span class="echo-duration" id="echo-duration">00:00</span>
-      <button id="echo-clear-btn" onclick="echoClearTranscript()" style="display:none;margin-left:auto;font-size:10px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="会話をクリア">✕ Clear</button>
+      <span class="echo-duration echo-toolbar-elapsed" id="echo-duration">00:00</span>
+      <button id="echo-clear-btn" onclick="echoClearTranscript()" style="display:none;font-size:10px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="会話をクリア">✕ Clear</button>
     </div>
     <div class="echo-transcript" id="echo-transcript">
       <div class="echo-empty">「Start」を押して同時通訳・録音を開始...</div>
@@ -6132,9 +6133,9 @@ function _echoHandleEvent(ev) {
 function _echoScheduleVaultRefresh(attempt = 0) {
   const tries = Math.max(1, Math.min(10, 1 + attempt));
   setTimeout(async () => {
-    await refreshEchoVault();
+    const cardCount = await refreshEchoVault();
     const saving = await _echoHasPendingSave();
-    if (!saving) {
+    if (!saving && cardCount > 0) {
       echo._isStoppingOrSaving = false;
       return;
     }
@@ -6621,7 +6622,7 @@ async function refreshEchoVault() {
     const files = d.files || [];
     if (!files.length) {
       el.innerHTML = '<div style="font-size:12px;color:var(--text3);text-align:center;padding:24px 0;font-family:var(--font-mono)">セッションデータはまだありません</div>';
-      return;
+      return 0;
     }
 
     const byGroup = new Map();
@@ -6686,8 +6687,10 @@ async function refreshEchoVault() {
         ${rows || '<div style="font-size:10px;color:var(--text3);padding:4px 0">ファイルなし</div>'}
       </div>`;
     }).join('');
+    return orderedGroups.length;
   } catch(e) {
     el.innerHTML = `<div style="font-size:11px;color:var(--red)">エラー: ${esc(e.message)}</div>`;
+    return -1;
   }
 }
 

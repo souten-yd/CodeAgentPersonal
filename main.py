@@ -8289,7 +8289,7 @@ def _echo_resolve_filter_config(raw: dict | None) -> dict:
     return cfg
 
 
-def _echo_should_reject_asr_text_with_config(text: str, metrics: dict, config: dict | None) -> tuple[bool, str]:
+def _echo_should_reject_asr_text_with_config(text: str, metrics: dict, config: dict | None, lang: str | None = None) -> tuple[bool, str]:
     """誤検出を抑える軽量棄却ルール（セッション設定対応）。"""
     cfg = _echo_resolve_filter_config(config)
     if not bool(cfg.get("enabled", True)):
@@ -8315,7 +8315,12 @@ def _echo_should_reject_asr_text_with_config(text: str, metrics: dict, config: d
         and float(mean_logprob) <= float(cfg["low_logprob_reject"])
     ):
         return True, "low_avg_logprob"
-    if bool(cfg.get("reject_short_word_low_conf", True)) and isinstance(mean_logprob, (int, float)):
+    normalized_lang = _echo_normalize_lang(lang, text)
+    if (
+        normalized_lang == "en"
+        and bool(cfg.get("reject_short_word_low_conf", True))
+        and isinstance(mean_logprob, (int, float))
+    ):
         word_count = len([w for w in (text or "").strip().split() if w])
         if (
             0 < word_count <= int(cfg.get("short_word_max_words", 2))
@@ -8370,9 +8375,10 @@ def _echo_voice_transcribe(
             segments = list(segments)
             text = "".join(seg.text for seg in segments).strip()
             metrics = _echo_asr_metrics(segments)
+        detected = _echo_normalize_lang(getattr(info, "language", language), text)
         return {
             "text": text,
-            "language": getattr(info, "language", language),
+            "language": detected,
             "duration": getattr(info, "duration", 0.0),
             "metrics": metrics,
         }
@@ -8382,6 +8388,19 @@ def _echo_voice_transcribe(
         except Exception:
             pass
 
+
+
+
+def _echo_normalize_lang(lang: str | None, text: str = "") -> str:
+    """Echo ASRの言語判定を ja/en の2値に正規化する。"""
+    raw = str(lang or "").strip().lower()
+    if raw.startswith("ja"):
+        return "ja"
+    if raw.startswith("en"):
+        return "en"
+    if any(("぀" <= c <= "ヿ") or ("一" <= c <= "鿿") for c in (text or "")):
+        return "ja"
+    return "en"
 
 def _echo_do_translate(text: str, src_lang: str, llm_url: str = "") -> str:
     """LLM を使い text を翻訳する。src_lang: 'ja'→英訳, 'en'→和訳。"""
@@ -8847,8 +8866,9 @@ async def echo_stream_ws(websocket: WebSocket):
                         mean_avg_logprob=metrics.get("mean_avg_logprob"),
                     )
                     if text:
+                        lang_det = _echo_normalize_lang(res.get("language", "auto"), text)
                         rejected, reject_reason = _echo_should_reject_asr_text_with_config(
-                            text, metrics, session.get("asr_filter", {})
+                            text, metrics, session.get("asr_filter", {}), lang_det
                         )
                         if rejected:
                             _echo_debug_append(
@@ -8866,7 +8886,6 @@ async def echo_stream_ws(websocket: WebSocket):
                             await send({"type": "status", "state": "recording"})
                             continue
                         sid = len(session["sentences"])
-                        lang_det = res.get("language", "ja")
                         session["sentences"].append({
                             "id": sid, "text": text,
                             "lang": lang_det, "translated": ""
