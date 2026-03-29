@@ -8415,6 +8415,42 @@ def _echo_generate_minutes(session: dict) -> str:
     sentences = session.get("sentences", [])
     if not sentences:
         return ""
+    import collections as _collections
+    import re as _re
+
+    def _guess_fallback_title(_sentences: list) -> str:
+        """JSONパース失敗時の簡易タイトル推定。"""
+        text_candidates = []
+        for s in _sentences:
+            t = str(s.get("text", "")).strip()
+            tr = str(s.get("translated", "")).strip()
+            if t:
+                text_candidates.append(t)
+            if tr:
+                text_candidates.append(tr)
+        if not text_candidates:
+            return "会議録"
+
+        # 1) 冒頭文から推定（句読点で短く区切る）
+        first_line = text_candidates[0]
+        first_short = _re.split(r"[。．.!?！？\n]", first_line, maxsplit=1)[0].strip()
+        first_short = _re.sub(r"\s+", " ", first_short)
+        if len(first_short) >= 4:
+            return first_short[:30]
+
+        # 2) 頻出語ベース
+        joined = " ".join(text_candidates)
+        tokens = _re.findall(r"[A-Za-z0-9一-龥ぁ-んァ-ヶー]{2,}", joined)
+        stop_words = {
+            "です", "ます", "する", "した", "して", "ある", "いる", "これ", "それ", "ため",
+            "the", "and", "for", "with", "that", "this", "from", "have", "will",
+        }
+        words = [w for w in tokens if w.lower() not in stop_words]
+        if words:
+            top = [w for w, _ in _collections.Counter(words).most_common(2)]
+            if top:
+                return f"{'・'.join(top)} 会議"
+        return "会議録"
     transcript_text = "\n".join(
         f"[{s.get('lang','?')}] {s.get('text','')} / {s.get('translated','')}"
         for s in sentences
@@ -8439,8 +8475,9 @@ def _echo_generate_minutes(session: dict) -> str:
                 raw = raw.split(marker, 1)[-1].rsplit("```", 1)[0].strip()
         data = _json.loads(raw)
     except Exception:
+        fallback_title = _guess_fallback_title(sentences)
         data = {
-            "title": "会議録",
+            "title": fallback_title,
             "summary": "自動生成に失敗しました。文字起こしを参照してください。",
             "topics": [],
             "action_items": [],
@@ -8464,6 +8501,9 @@ def _echovault_save_session(session: dict) -> str:
     # ファイル名に使えない文字を除去
     import re as _re2
     safe_title = _re2.sub(r'[\\/:*?"<>|]', "_", title)[:40]
+    safe_title = _re2.sub(r"[\s._-]+", "", safe_title)
+    if not safe_title:
+        safe_title = "会議録"
     ts = started_at.strftime("%Y-%m-%d_%H-%M")
     base = f"{ts}_{safe_title}"
 
@@ -8965,6 +9005,31 @@ def debug_echo_typo_redirect():
 def echo_list_sessions():
     """EchoVault フォルダのファイル一覧を返す。"""
     import datetime as _dt
+    import re as _re
+
+    def _extract_title_from_md(path: str) -> str:
+        try:
+            with open(path, "r", encoding="utf-8") as fp:
+                for _ in range(8):
+                    line = fp.readline()
+                    if not line:
+                        break
+                    m = _re.match(r"^#\s*(?:議事録|文字起こし)\s*[—-]\s*(.+?)\s*$", line.strip())
+                    if m:
+                        return m.group(1).strip()
+        except Exception:
+            return ""
+        return ""
+
+    def _title_from_filename(name: str) -> str:
+        stem = name.rsplit(".", 1)[0]
+        # 例: 2026-03-29_12-00_会議録_minutes
+        stem = _re.sub(r"_?(minutes|transcript)$", "", stem, flags=_re.IGNORECASE)
+        m = _re.match(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}_(.+)$", stem)
+        if m:
+            return m.group(1).strip(" _-")
+        return ""
+
     files = []
     try:
         for fname in sorted(os.listdir(ECHOVAULT_DIR)):
@@ -8973,11 +9038,17 @@ def echo_list_sessions():
                 continue
             stat = os.stat(fpath)
             ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+            title = ""
+            if ext == "md":
+                title = _extract_title_from_md(fpath)
+            if not title:
+                title = _title_from_filename(fname)
             files.append({
                 "name": fname,
                 "size": stat.st_size,
                 "mtime": _dt.datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
                 "type": ext,
+                "title": title,
             })
     except Exception as e:
         return {"files": [], "error": str(e)}
