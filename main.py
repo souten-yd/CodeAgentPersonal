@@ -7829,7 +7829,98 @@ def voice_status() -> dict:
             "candidates": _VOICE_MODEL_CANDIDATES,
         }
 
-def voice_transcribe(audio_bytes: bytes, language: str = "ja", model_name: str = "large-v3-turbo", auto_unload: bool = False, audio_format: str = "webm") -> dict:
+ASR_REPETITION_FILTER_ENABLED = str(os.environ.get("ASR_REPETITION_FILTER_ENABLED", "1")).strip().lower() not in {"0", "false", "off", "no"}
+ASR_REPETITION_TOKEN_RATIO_REJECT = min(1.0, max(0.0, float(os.environ.get("ASR_REPETITION_TOKEN_RATIO_REJECT", "0.55") or 0.55)))
+ASR_REPETITION_NGRAM_RATIO_REJECT = min(1.0, max(0.0, float(os.environ.get("ASR_REPETITION_NGRAM_RATIO_REJECT", "0.35") or 0.35)))
+ASR_REPETITION_NGRAM_N = max(2, min(4, int(os.environ.get("ASR_REPETITION_NGRAM_N", "3") or 3)))
+ASR_REPETITION_MIN_TOKENS = max(4, int(os.environ.get("ASR_REPETITION_MIN_TOKENS", "8") or 8))
+ASR_REPETITION_RETRY_ONCE = str(os.environ.get("ASR_REPETITION_RETRY_ONCE", "1")).strip().lower() not in {"0", "false", "off", "no"}
+ASR_REPETITION_RETRY_BEAM_SIZE = max(1, min(8, int(os.environ.get("ASR_REPETITION_RETRY_BEAM_SIZE", "4") or 4)))
+ASR_REPETITION_RETRY_BEST_OF = max(1, min(8, int(os.environ.get("ASR_REPETITION_RETRY_BEST_OF", "2") or 2)))
+
+
+def _resolve_asr_post_filter_config(raw: dict | None) -> dict:
+    """通常ASR / Echo ASR 共通のポストフィルタ設定を安全に解決する。"""
+    cfg = {
+        "enabled": True,
+        "reject_short_text": True,
+        "reject_high_no_speech_prob": True,
+        "reject_low_avg_logprob": True,
+        "reject_short_word_low_conf": True,
+        "min_chars": max(1, int(os.environ.get("ASR_MIN_CHARS", "2") or 2)),
+        "no_speech_reject": min(0.99, max(0.0, float(os.environ.get("ASR_NO_SPEECH_REJECT", "0.72") or 0.72))),
+        "low_logprob_reject": float(os.environ.get("ASR_LOW_LOGPROB_REJECT", "-1.05") or -1.05),
+        "short_text_max_chars": max(1, int(os.environ.get("ASR_SHORT_TEXT_MAX_CHARS", "4") or 4)),
+        "short_word_max_words": 2,
+        "short_word_low_logprob_reject": -0.85,
+        "reject_repetition_loop": ASR_REPETITION_FILTER_ENABLED,
+        "repetition_token_ratio_reject": ASR_REPETITION_TOKEN_RATIO_REJECT,
+        "repetition_ngram_ratio_reject": ASR_REPETITION_NGRAM_RATIO_REJECT,
+        "repetition_ngram_n": ASR_REPETITION_NGRAM_N,
+        "repetition_min_tokens": ASR_REPETITION_MIN_TOKENS,
+        "repetition_retry_once": ASR_REPETITION_RETRY_ONCE,
+        "repetition_retry_beam_size": ASR_REPETITION_RETRY_BEAM_SIZE,
+        "repetition_retry_best_of": ASR_REPETITION_RETRY_BEST_OF,
+    }
+    if not isinstance(raw, dict):
+        return cfg
+    try:
+        for k in (
+            "enabled", "reject_short_text", "reject_high_no_speech_prob",
+            "reject_low_avg_logprob", "reject_short_word_low_conf", "reject_repetition_loop",
+            "repetition_retry_once",
+        ):
+            if k in raw:
+                cfg[k] = bool(raw.get(k))
+        for k in ("min_chars", "short_text_max_chars", "short_word_max_words", "repetition_ngram_n", "repetition_min_tokens", "repetition_retry_beam_size", "repetition_retry_best_of"):
+            if k in raw:
+                cfg[k] = int(raw.get(k, cfg[k]))
+        for k in ("no_speech_reject", "low_logprob_reject", "short_word_low_logprob_reject", "repetition_token_ratio_reject", "repetition_ngram_ratio_reject"):
+            if k in raw:
+                cfg[k] = float(raw.get(k, cfg[k]))
+        cfg["min_chars"] = max(1, int(cfg["min_chars"]))
+        cfg["short_text_max_chars"] = max(1, int(cfg["short_text_max_chars"]))
+        cfg["short_word_max_words"] = max(1, min(4, int(cfg["short_word_max_words"])))
+        cfg["no_speech_reject"] = min(0.99, max(0.0, float(cfg["no_speech_reject"])))
+        cfg["repetition_token_ratio_reject"] = min(1.0, max(0.0, float(cfg["repetition_token_ratio_reject"])))
+        cfg["repetition_ngram_ratio_reject"] = min(1.0, max(0.0, float(cfg["repetition_ngram_ratio_reject"])))
+        cfg["repetition_ngram_n"] = max(2, min(4, int(cfg["repetition_ngram_n"])))
+        cfg["repetition_min_tokens"] = max(4, int(cfg["repetition_min_tokens"]))
+        cfg["repetition_retry_beam_size"] = max(1, min(8, int(cfg["repetition_retry_beam_size"])))
+        cfg["repetition_retry_best_of"] = max(1, min(8, int(cfg["repetition_retry_best_of"])))
+    except Exception:
+        return cfg
+    return cfg
+
+
+def _detect_repetition_loop(text: str, config: dict | None = None) -> tuple[bool, dict]:
+    cfg = _resolve_asr_post_filter_config(config)
+    tokens = [t for t in re.findall(r"\w+|[^\w\s]", (text or "").lower(), flags=re.UNICODE) if t and not t.isspace()]
+    token_count = len(tokens)
+    if token_count < int(cfg["repetition_min_tokens"]):
+        return False, {"token_count": token_count, "token_repeat_ratio": 0.0, "ngram_repeat_ratio": 0.0, "ngram_n": int(cfg["repetition_ngram_n"])}
+    uniq = len(set(tokens))
+    token_repeat_ratio = 1.0 - (uniq / token_count if token_count else 1.0)
+    n = int(cfg["repetition_ngram_n"])
+    if token_count >= n:
+        grams = [tuple(tokens[i:i + n]) for i in range(token_count - n + 1)]
+        gram_total = len(grams)
+        gram_repeat_ratio = 1.0 - (len(set(grams)) / gram_total if gram_total else 1.0)
+    else:
+        gram_repeat_ratio = 0.0
+    triggered = (
+        token_repeat_ratio >= float(cfg["repetition_token_ratio_reject"])
+        or gram_repeat_ratio >= float(cfg["repetition_ngram_ratio_reject"])
+    )
+    return triggered, {
+        "token_count": token_count,
+        "token_repeat_ratio": round(token_repeat_ratio, 5),
+        "ngram_repeat_ratio": round(gram_repeat_ratio, 5),
+        "ngram_n": n,
+    }
+
+
+def voice_transcribe(audio_bytes: bytes, language: str = "ja", model_name: str = "large-v3-turbo", auto_unload: bool = False, audio_format: str = "webm", asr_post_filter: dict | None = None) -> dict:
     """
     音声を文字起こしする。英語/日本語対応（Whisper多言語）。
     language: "ja" / "en" / "auto"
@@ -7840,19 +7931,34 @@ def voice_transcribe(audio_bytes: bytes, language: str = "ja", model_name: str =
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
         tf.write(audio_bytes)
         temp_path = tf.name
+    filter_cfg = _resolve_asr_post_filter_config(asr_post_filter)
     try:
         with _voice_lock:
-            segments, info = _voice_model.transcribe(
-                temp_path,
-                language=lang,
-                beam_size=1,
-                best_of=1,
-                temperature=0.0,
-                condition_on_previous_text=False,
-                vad_filter=True,
-                word_timestamps=False,
-            )
+            transcribe_kwargs = {
+                "language": lang,
+                "beam_size": 1,
+                "best_of": 1,
+                "temperature": 0.0,
+                "condition_on_previous_text": False,
+                "vad_filter": True,
+                "word_timestamps": False,
+            }
+            segments, info = _voice_model.transcribe(temp_path, **transcribe_kwargs)
             text = "".join(seg.text for seg in segments).strip()
+            retried_with_repetition_guard = False
+            repetition_rejected, repetition_metrics = _detect_repetition_loop(text, filter_cfg)
+            if repetition_rejected and bool(filter_cfg.get("reject_repetition_loop", True)):
+                if bool(filter_cfg.get("repetition_retry_once", True)):
+                    retry_kwargs = dict(transcribe_kwargs)
+                    retry_kwargs["beam_size"] = int(filter_cfg.get("repetition_retry_beam_size", 4))
+                    retry_kwargs["best_of"] = int(filter_cfg.get("repetition_retry_best_of", 2))
+                    segments, info = _voice_model.transcribe(temp_path, **retry_kwargs)
+                    text = "".join(seg.text for seg in segments).strip()
+                    retried_with_repetition_guard = True
+                    repetition_rejected, repetition_metrics = _detect_repetition_loop(text, filter_cfg)
+                if repetition_rejected:
+                    logging.info("reject_reason=repetition_loop scope=voice_transcribe metrics=%s", repetition_metrics)
+                    text = ""
         if auto_unload:
             voice_unload()
         return {
@@ -7861,6 +7967,10 @@ def voice_transcribe(audio_bytes: bytes, language: str = "ja", model_name: str =
             "duration": getattr(info, "duration", 0.0),
             "model": st.get("model", model_name),
             "auto_unloaded": auto_unload,
+            "asr_filter": {
+                "repetition_retried": retried_with_repetition_guard,
+                "repetition_metrics": repetition_metrics,
+            },
         }
     finally:
         try:
@@ -8114,6 +8224,7 @@ def voice_transcribe_api(req: dict):
     # モデルはサーバー終了まで RAM に常駐させる（unload しない）
     auto_unload = False
     audio_format = str(req.get("audio_format", "webm")).strip() or "webm"
+    asr_post_filter = req.get("asr_post_filter", {})
     try:
         audio = base64.b64decode(audio_b64)
     except Exception as e:
@@ -8141,6 +8252,7 @@ def voice_transcribe_api(req: dict):
                 model_name=model_name,
                 auto_unload=auto_unload,
                 audio_format=audio_format,
+                asr_post_filter=asr_post_filter if isinstance(asr_post_filter, dict) else {},
             )
             yield _sse({"type": "result", **result})
         except Exception as e:
@@ -8172,11 +8284,7 @@ _echo_save_lock = threading.Lock()
 _echo_saving_sessions: set[str] = set()
 _echo_minutes_lock = threading.Lock()
 _echo_generating_minutes_sessions: set[str] = set()
-# Echo ASRの軽量ポストフィルタ（CPU負荷ほぼゼロ）
-ECHO_ASR_MIN_CHARS = max(1, int(os.environ.get("ECHO_ASR_MIN_CHARS", "2") or 2))
-ECHO_ASR_NO_SPEECH_REJECT = min(0.99, max(0.0, float(os.environ.get("ECHO_ASR_NO_SPEECH_REJECT", "0.72") or 0.72)))
-ECHO_ASR_LOW_LOGPROB_REJECT = float(os.environ.get("ECHO_ASR_LOW_LOGPROB_REJECT", "-1.05") or -1.05)
-ECHO_ASR_SHORT_TEXT_MAX_CHARS = max(1, int(os.environ.get("ECHO_ASR_SHORT_TEXT_MAX_CHARS", "4") or 4))
+# Echo ASRの軽量ポストフィルタ（通常ASRと同じ設定体系）
 
 
 def _echo_debug_now_iso() -> str:
@@ -8247,48 +8355,8 @@ def _echo_should_reject_asr_text(text: str, metrics: dict) -> tuple[bool, str]:
 
 
 def _echo_resolve_filter_config(raw: dict | None) -> dict:
-    """Echo ASRポストフィルタ設定を安全に解決する。"""
-    cfg = {
-        "enabled": True,
-        "reject_short_text": True,
-        "reject_high_no_speech_prob": True,
-        "reject_low_avg_logprob": True,
-        "reject_short_word_low_conf": True,
-        "min_chars": ECHO_ASR_MIN_CHARS,
-        "no_speech_reject": ECHO_ASR_NO_SPEECH_REJECT,
-        "low_logprob_reject": ECHO_ASR_LOW_LOGPROB_REJECT,
-        "short_text_max_chars": ECHO_ASR_SHORT_TEXT_MAX_CHARS,
-        "short_word_max_words": 2,
-        "short_word_low_logprob_reject": -0.85,
-    }
-    if not isinstance(raw, dict):
-        return cfg
-    try:
-        if "enabled" in raw:
-            cfg["enabled"] = bool(raw.get("enabled"))
-        if "reject_short_text" in raw:
-            cfg["reject_short_text"] = bool(raw.get("reject_short_text"))
-        if "reject_high_no_speech_prob" in raw:
-            cfg["reject_high_no_speech_prob"] = bool(raw.get("reject_high_no_speech_prob"))
-        if "reject_low_avg_logprob" in raw:
-            cfg["reject_low_avg_logprob"] = bool(raw.get("reject_low_avg_logprob"))
-        if "reject_short_word_low_conf" in raw:
-            cfg["reject_short_word_low_conf"] = bool(raw.get("reject_short_word_low_conf"))
-        if "min_chars" in raw:
-            cfg["min_chars"] = max(1, int(raw.get("min_chars", cfg["min_chars"])))
-        if "no_speech_reject" in raw:
-            cfg["no_speech_reject"] = min(0.99, max(0.0, float(raw.get("no_speech_reject", cfg["no_speech_reject"]))))
-        if "low_logprob_reject" in raw:
-            cfg["low_logprob_reject"] = float(raw.get("low_logprob_reject", cfg["low_logprob_reject"]))
-        if "short_text_max_chars" in raw:
-            cfg["short_text_max_chars"] = max(1, int(raw.get("short_text_max_chars", cfg["short_text_max_chars"])))
-        if "short_word_max_words" in raw:
-            cfg["short_word_max_words"] = max(1, min(4, int(raw.get("short_word_max_words", cfg["short_word_max_words"]))))
-        if "short_word_low_logprob_reject" in raw:
-            cfg["short_word_low_logprob_reject"] = float(raw.get("short_word_low_logprob_reject", cfg["short_word_low_logprob_reject"]))
-    except Exception:
-        return cfg
-    return cfg
+    """Echo ASRポストフィルタ設定を安全に解決する（通常ASRと同一スキーマ）。"""
+    return _resolve_asr_post_filter_config(raw)
 
 
 def _echo_should_reject_asr_text_with_config(text: str, metrics: dict, config: dict | None, lang: str | None = None) -> tuple[bool, str]:
@@ -8329,6 +8397,10 @@ def _echo_should_reject_asr_text_with_config(text: str, metrics: dict, config: d
             and float(mean_logprob) <= float(cfg.get("short_word_low_logprob_reject", -0.85))
         ):
             return True, "short_word_low_conf"
+    if bool(cfg.get("reject_repetition_loop", True)):
+        repetition_rejected, _ = _detect_repetition_loop(text, cfg)
+        if repetition_rejected:
+            return True, "repetition_loop"
     return False, ""
 
 
@@ -8339,6 +8411,7 @@ def _echo_voice_transcribe(
     audio_format: str = "webm",
     sample_rate: int = 16000,
     channels: int = 1,
+    asr_post_filter: dict | None = None,
 ) -> dict:
     """Echo専用 voice_transcribe。_echo_voice_lock を使用し通常ASRと競合しない。"""
     global _echo_voice_model, _echo_voice_model_name
@@ -8354,6 +8427,7 @@ def _echo_voice_transcribe(
         tf.write(audio_bytes)
         temp_path = tf.name
     try:
+        filter_cfg = _echo_resolve_filter_config(asr_post_filter)
         with _echo_voice_lock:
             if _echo_voice_model is None or _echo_voice_model_name != model_name:
                 _echo_voice_model = WhisperModel(
@@ -8364,25 +8438,46 @@ def _echo_voice_transcribe(
                 )
                 _echo_voice_model_name = model_name
             lang_arg = None if language == "auto" else language
-            segments, info = _echo_voice_model.transcribe(
-                temp_path,
-                language=lang_arg,
-                beam_size=1,
-                best_of=1,
-                temperature=0.0,
-                condition_on_previous_text=False,
-                vad_filter=True,
-                word_timestamps=False,
-            )
+            transcribe_kwargs = {
+                "language": lang_arg,
+                "beam_size": 1,
+                "best_of": 1,
+                "temperature": 0.0,
+                "condition_on_previous_text": False,
+                "vad_filter": True,
+                "word_timestamps": False,
+            }
+            segments, info = _echo_voice_model.transcribe(temp_path, **transcribe_kwargs)
             segments = list(segments)
             text = "".join(seg.text for seg in segments).strip()
             metrics = _echo_asr_metrics(segments)
+            repetition_retried = False
+            repetition_rejected, repetition_metrics = _detect_repetition_loop(text, filter_cfg)
+            if repetition_rejected and bool(filter_cfg.get("reject_repetition_loop", True)):
+                if bool(filter_cfg.get("repetition_retry_once", True)):
+                    retry_kwargs = dict(transcribe_kwargs)
+                    retry_kwargs["beam_size"] = int(filter_cfg.get("repetition_retry_beam_size", 4))
+                    retry_kwargs["best_of"] = int(filter_cfg.get("repetition_retry_best_of", 2))
+                    segments, info = _echo_voice_model.transcribe(temp_path, **retry_kwargs)
+                    segments = list(segments)
+                    text = "".join(seg.text for seg in segments).strip()
+                    metrics = _echo_asr_metrics(segments)
+                    repetition_retried = True
+                    repetition_rejected, repetition_metrics = _detect_repetition_loop(text, filter_cfg)
+                if repetition_rejected:
+                    logging.info("reject_reason=repetition_loop scope=echo_voice_transcribe metrics=%s", repetition_metrics)
+                    text = ""
         detected = _echo_normalize_lang(getattr(info, "language", language), text)
         return {
             "text": text,
             "language": detected,
             "duration": getattr(info, "duration", 0.0),
             "metrics": metrics,
+            "asr_filter": {
+                "repetition_retried": repetition_retried,
+                "repetition_metrics": repetition_metrics,
+                "repetition_rejected": repetition_rejected,
+            },
         }
     finally:
         try:
@@ -8905,11 +9000,12 @@ async def echo_stream_ws(websocket: WebSocket):
                     )
                     res = await _asyncio.to_thread(
                         _echo_voice_transcribe,
-                        audio_bytes, language, model_name, runtime_audio_format, runtime_sample_rate, runtime_channels
+                        audio_bytes, language, model_name, runtime_audio_format, runtime_sample_rate, runtime_channels, session.get("asr_filter", {})
                     )
                     asr_end = time.perf_counter()
                     text = res.get("text", "").strip()
                     metrics = res.get("metrics", {}) if isinstance(res.get("metrics", {}), dict) else {}
+                    asr_filter_meta = res.get("asr_filter", {}) if isinstance(res.get("asr_filter", {}), dict) else {}
                     _echo_debug_append(
                         session_id=session_id,
                         seq=seq,
@@ -8919,7 +9015,22 @@ async def echo_stream_ws(websocket: WebSocket):
                         result_chars=len(text),
                         mean_no_speech_prob=metrics.get("mean_no_speech_prob"),
                         mean_avg_logprob=metrics.get("mean_avg_logprob"),
+                        repetition_retried=bool(asr_filter_meta.get("repetition_retried", False)),
                     )
+                    if not text and bool(asr_filter_meta.get("repetition_rejected", False)):
+                        _echo_debug_append(
+                            session_id=session_id,
+                            seq=seq,
+                            event_type="asr_reject",
+                            reason="repetition_loop",
+                            reject_reason="repetition_loop",
+                            repetition_metrics=asr_filter_meta.get("repetition_metrics", {}),
+                        )
+                        if seq is not None:
+                            processed_chunk_seqs.add(seq)
+                            await send({"type": "ack", "seq": seq, "filtered": True, "reason": "repetition_loop"})
+                        await send({"type": "status", "state": "recording"})
+                        continue
                     if text:
                         lang_det = _echo_normalize_lang(res.get("language", "auto"), text)
                         rejected, reject_reason = _echo_should_reject_asr_text_with_config(
