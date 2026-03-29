@@ -6062,7 +6062,7 @@ function _echoUpdateSentenceDom(sentence) {
   const _setSentenceText = (el, val) => {
     if (!el) return;
     const txt = String(val || '');
-    if (!txt.trim()) {
+    if (txt.length === 0) {
       if (el.textContent !== '—') el.textContent = '—';
       el.classList.add('echo-field-placeholder');
       return;
@@ -6147,7 +6147,7 @@ function _echoGetSentenceTexts(sentence) {
 }
 
 function _echoConcatByLanguage(lines, lang) {
-  const items = (lines || []).map(s => String(s || '').trim()).filter(Boolean);
+  const items = (lines || []).map(s => String(s || '')).filter(s => s.length > 0);
   if (!items.length) return '';
   if (lang === 'ja') return items.join('');
   return items.join(' ').replace(/\s+([,.!?;:])/g, '$1').trim();
