@@ -7829,7 +7829,58 @@ def voice_status() -> dict:
             "candidates": _VOICE_MODEL_CANDIDATES,
         }
 
-def voice_transcribe(audio_bytes: bytes, language: str = "ja", model_name: str = "large-v3-turbo", auto_unload: bool = False, audio_format: str = "webm") -> dict:
+_ASR_PROFILE_PRESETS = {
+    "fast": {"beam_size": 1, "best_of": 1},
+    "balanced": {"beam_size": 2, "best_of": 2},
+    "accurate": {"beam_size": 5, "best_of": 5},
+}
+
+
+def _resolve_asr_profile(profile: str | None) -> str:
+    p = str(profile or "balanced").strip().lower()
+    return p if p in _ASR_PROFILE_PRESETS else "balanced"
+
+
+def _build_asr_transcribe_kwargs(
+    asr_profile: str = "balanced",
+    beam_size: int | None = None,
+    best_of: int | None = None,
+    no_speech_threshold: float | None = None,
+    log_prob_threshold: float | None = None,
+    compression_ratio_threshold: float | None = None,
+) -> dict:
+    profile = _resolve_asr_profile(asr_profile)
+    preset = _ASR_PROFILE_PRESETS[profile]
+    kwargs = {
+        "beam_size": max(1, int(beam_size if beam_size is not None else preset["beam_size"])),
+        "best_of": max(1, int(best_of if best_of is not None else preset["best_of"])),
+        "temperature": 0.0,
+        "condition_on_previous_text": False,
+        "vad_filter": True,
+        "word_timestamps": False,
+    }
+    if no_speech_threshold is not None:
+        kwargs["no_speech_threshold"] = float(no_speech_threshold)
+    if log_prob_threshold is not None:
+        kwargs["log_prob_threshold"] = float(log_prob_threshold)
+    if compression_ratio_threshold is not None:
+        kwargs["compression_ratio_threshold"] = float(compression_ratio_threshold)
+    return kwargs
+
+
+def voice_transcribe(
+    audio_bytes: bytes,
+    language: str = "ja",
+    model_name: str = "large-v3-turbo",
+    auto_unload: bool = False,
+    audio_format: str = "webm",
+    asr_profile: str = "balanced",
+    beam_size: int | None = None,
+    best_of: int | None = None,
+    no_speech_threshold: float | None = None,
+    log_prob_threshold: float | None = None,
+    compression_ratio_threshold: float | None = None,
+) -> dict:
     """
     音声を文字起こしする。英語/日本語対応（Whisper多言語）。
     language: "ja" / "en" / "auto"
@@ -7841,16 +7892,20 @@ def voice_transcribe(audio_bytes: bytes, language: str = "ja", model_name: str =
         tf.write(audio_bytes)
         temp_path = tf.name
     try:
+        asr_profile = _resolve_asr_profile(asr_profile)
+        transcribe_kwargs = _build_asr_transcribe_kwargs(
+            asr_profile=asr_profile,
+            beam_size=beam_size,
+            best_of=best_of,
+            no_speech_threshold=no_speech_threshold,
+            log_prob_threshold=log_prob_threshold,
+            compression_ratio_threshold=compression_ratio_threshold,
+        )
         with _voice_lock:
             segments, info = _voice_model.transcribe(
                 temp_path,
                 language=lang,
-                beam_size=1,
-                best_of=1,
-                temperature=0.0,
-                condition_on_previous_text=False,
-                vad_filter=True,
-                word_timestamps=False,
+                **transcribe_kwargs,
             )
             text = "".join(seg.text for seg in segments).strip()
         if auto_unload:
@@ -7861,6 +7916,14 @@ def voice_transcribe(audio_bytes: bytes, language: str = "ja", model_name: str =
             "duration": getattr(info, "duration", 0.0),
             "model": st.get("model", model_name),
             "auto_unloaded": auto_unload,
+            "asr_profile": asr_profile,
+            "asr_params": {
+                "beam_size": transcribe_kwargs.get("beam_size"),
+                "best_of": transcribe_kwargs.get("best_of"),
+                "no_speech_threshold": transcribe_kwargs.get("no_speech_threshold"),
+                "log_prob_threshold": transcribe_kwargs.get("log_prob_threshold"),
+                "compression_ratio_threshold": transcribe_kwargs.get("compression_ratio_threshold"),
+            },
         }
     finally:
         try:
@@ -8114,6 +8177,32 @@ def voice_transcribe_api(req: dict):
     # モデルはサーバー終了まで RAM に常駐させる（unload しない）
     auto_unload = False
     audio_format = str(req.get("audio_format", "webm")).strip() or "webm"
+    asr_profile = _resolve_asr_profile(req.get("asr_profile", "balanced"))
+    beam_size = req.get("beam_size")
+    best_of = req.get("best_of")
+    no_speech_threshold = req.get("no_speech_threshold")
+    log_prob_threshold = req.get("log_prob_threshold")
+    compression_ratio_threshold = req.get("compression_ratio_threshold")
+    try:
+        beam_size = int(beam_size) if beam_size is not None else None
+    except Exception:
+        beam_size = None
+    try:
+        best_of = int(best_of) if best_of is not None else None
+    except Exception:
+        best_of = None
+    try:
+        no_speech_threshold = float(no_speech_threshold) if no_speech_threshold is not None else None
+    except Exception:
+        no_speech_threshold = None
+    try:
+        log_prob_threshold = float(log_prob_threshold) if log_prob_threshold is not None else None
+    except Exception:
+        log_prob_threshold = None
+    try:
+        compression_ratio_threshold = float(compression_ratio_threshold) if compression_ratio_threshold is not None else None
+    except Exception:
+        compression_ratio_threshold = None
     try:
         audio = base64.b64decode(audio_b64)
     except Exception as e:
@@ -8141,6 +8230,12 @@ def voice_transcribe_api(req: dict):
                 model_name=model_name,
                 auto_unload=auto_unload,
                 audio_format=audio_format,
+                asr_profile=asr_profile,
+                beam_size=beam_size,
+                best_of=best_of,
+                no_speech_threshold=no_speech_threshold,
+                log_prob_threshold=log_prob_threshold,
+                compression_ratio_threshold=compression_ratio_threshold,
             )
             yield _sse({"type": "result", **result})
         except Exception as e:
@@ -8339,6 +8434,12 @@ def _echo_voice_transcribe(
     audio_format: str = "webm",
     sample_rate: int = 16000,
     channels: int = 1,
+    asr_profile: str = "balanced",
+    beam_size: int | None = None,
+    best_of: int | None = None,
+    no_speech_threshold: float | None = None,
+    log_prob_threshold: float | None = None,
+    compression_ratio_threshold: float | None = None,
 ) -> dict:
     """Echo専用 voice_transcribe。_echo_voice_lock を使用し通常ASRと競合しない。"""
     global _echo_voice_model, _echo_voice_model_name
@@ -8364,15 +8465,19 @@ def _echo_voice_transcribe(
                 )
                 _echo_voice_model_name = model_name
             lang_arg = None if language == "auto" else language
+            asr_profile = _resolve_asr_profile(asr_profile)
+            transcribe_kwargs = _build_asr_transcribe_kwargs(
+                asr_profile=asr_profile,
+                beam_size=beam_size,
+                best_of=best_of,
+                no_speech_threshold=no_speech_threshold,
+                log_prob_threshold=log_prob_threshold,
+                compression_ratio_threshold=compression_ratio_threshold,
+            )
             segments, info = _echo_voice_model.transcribe(
                 temp_path,
                 language=lang_arg,
-                beam_size=1,
-                best_of=1,
-                temperature=0.0,
-                condition_on_previous_text=False,
-                vad_filter=True,
-                word_timestamps=False,
+                **transcribe_kwargs,
             )
             segments = list(segments)
             text = "".join(seg.text for seg in segments).strip()
@@ -8383,6 +8488,7 @@ def _echo_voice_transcribe(
             "language": detected,
             "duration": getattr(info, "duration", 0.0),
             "metrics": metrics,
+            "asr_profile": asr_profile,
         }
     finally:
         try:
@@ -8681,6 +8787,10 @@ async def echo_stream_ws(websocket: WebSocket):
     chunk_sample_rate = 16000
     chunk_channels = 1
     chunk_mime = "audio/webm"
+    asr_profile = "balanced"
+    asr_no_speech_threshold = None
+    asr_log_prob_threshold = None
+    asr_compression_ratio_threshold = None
     asr_device = ""
     processed_chunk_seqs: set[int] = set()
     async def send(payload: dict):
@@ -8711,6 +8821,19 @@ async def echo_stream_ws(websocket: WebSocket):
                     session_id = str(ev.get("session_id", ""))
                     language   = str(ev.get("language", "auto"))
                     model_name = str(ev.get("model", "large-v3-turbo"))
+                    asr_profile = _resolve_asr_profile(ev.get("asr_profile", "balanced"))
+                    try:
+                        asr_no_speech_threshold = float(ev.get("no_speech_threshold")) if ev.get("no_speech_threshold") is not None else None
+                    except Exception:
+                        asr_no_speech_threshold = None
+                    try:
+                        asr_log_prob_threshold = float(ev.get("log_prob_threshold")) if ev.get("log_prob_threshold") is not None else None
+                    except Exception:
+                        asr_log_prob_threshold = None
+                    try:
+                        asr_compression_ratio_threshold = float(ev.get("compression_ratio_threshold")) if ev.get("compression_ratio_threshold") is not None else None
+                    except Exception:
+                        asr_compression_ratio_threshold = None
                     asr_device = str(ev.get("asr_device", "")).strip().lower()
                     chunk_audio_format = str(ev.get("audio_format", "webm")).strip().lower() or "webm"
                     chunk_sample_rate = int(ev.get("sample_rate", 16000) or 16000)
@@ -8747,6 +8870,10 @@ async def echo_stream_ws(websocket: WebSocket):
                         "started_at": _dt.datetime.now(),
                         "duration_sec": 0,
                         "lang": language,
+                        "asr_profile": asr_profile,
+                        "asr_no_speech_threshold": asr_no_speech_threshold,
+                        "asr_log_prob_threshold": asr_log_prob_threshold,
+                        "asr_compression_ratio_threshold": asr_compression_ratio_threshold,
                         "audio_format": chunk_audio_format,
                         "sample_rate": chunk_sample_rate,
                         "channels": chunk_channels,
@@ -8763,6 +8890,10 @@ async def echo_stream_ws(websocket: WebSocket):
                         event_type="session_start",
                         language=language,
                         model_name=model_name,
+                        asr_profile=asr_profile,
+                        no_speech_threshold=asr_no_speech_threshold,
+                        log_prob_threshold=asr_log_prob_threshold,
+                        compression_ratio_threshold=asr_compression_ratio_threshold,
                         audio_format=chunk_audio_format,
                         sample_rate=chunk_sample_rate,
                         channels=chunk_channels,
@@ -8777,6 +8908,10 @@ async def echo_stream_ws(websocket: WebSocket):
                     if session_id in _echo_sessions:
                         session = _echo_sessions[session_id]
                         language   = session.get("lang", "auto")
+                        asr_profile = _resolve_asr_profile(session.get("asr_profile", "balanced"))
+                        asr_no_speech_threshold = session.get("asr_no_speech_threshold")
+                        asr_log_prob_threshold = session.get("asr_log_prob_threshold")
+                        asr_compression_ratio_threshold = session.get("asr_compression_ratio_threshold")
                         chunk_audio_format = str(session.get("audio_format", "webm"))
                         chunk_sample_rate = int(session.get("sample_rate", 16000))
                         chunk_channels = int(session.get("channels", 1))
@@ -8797,6 +8932,10 @@ async def echo_stream_ws(websocket: WebSocket):
                             "started_at": _dt.datetime.now(),
                             "duration_sec": 0,
                             "lang": language,
+                            "asr_profile": asr_profile,
+                            "asr_no_speech_threshold": asr_no_speech_threshold,
+                            "asr_log_prob_threshold": asr_log_prob_threshold,
+                            "asr_compression_ratio_threshold": asr_compression_ratio_threshold,
                             "audio_format": chunk_audio_format,
                             "sample_rate": chunk_sample_rate,
                             "channels": chunk_channels,
@@ -8905,7 +9044,18 @@ async def echo_stream_ws(websocket: WebSocket):
                     )
                     res = await _asyncio.to_thread(
                         _echo_voice_transcribe,
-                        audio_bytes, language, model_name, runtime_audio_format, runtime_sample_rate, runtime_channels
+                        audio_bytes,
+                        language,
+                        model_name,
+                        runtime_audio_format,
+                        runtime_sample_rate,
+                        runtime_channels,
+                        session.get("asr_profile", asr_profile),
+                        None,
+                        None,
+                        session.get("asr_no_speech_threshold", asr_no_speech_threshold),
+                        session.get("asr_log_prob_threshold", asr_log_prob_threshold),
+                        session.get("asr_compression_ratio_threshold", asr_compression_ratio_threshold),
                     )
                     asr_end = time.perf_counter()
                     text = res.get("text", "").strip()
