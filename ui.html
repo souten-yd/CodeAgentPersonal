@@ -6602,28 +6602,67 @@ async function refreshEchoVault() {
       el.innerHTML = '<div style="font-size:12px;color:var(--text3);text-align:center;padding:24px 0;font-family:var(--font-mono)">セッションデータはまだありません</div>';
       return;
     }
-    const ext2icon = {webm:'🎙', md:'📝', txt:'📄'};
+
+    const byGroup = new Map();
     const audioExts = new Set(['webm','wav','mp3','ogg','flac','m4a']);
-    el.innerHTML = files.map(f => {
+
+    for (const f of files) {
       const ext = f.name.includes('.') ? f.name.split('.').pop().toLowerCase() : '';
-      const icon = ext2icon[ext] || '📄';
+      const stem = ext ? f.name.slice(0, -(ext.length + 1)) : f.name;
+      const fallbackGroup = stem.replace(/_(minutes|transcript)$/i, '');
+      const groupKey = (f.group_key || fallbackGroup);
+      const current = byGroup.get(groupKey) || {
+        groupKey,
+        mtime: f.mtime || '',
+        files: {audio: null, transcript: null, minutes: null, others: []},
+      };
+      if (!current.mtime || (f.mtime || '') > current.mtime) current.mtime = f.mtime || current.mtime;
+      if (audioExts.has(ext)) current.files.audio = f;
+      else if (/_(transcript)\.md$/i.test(f.name)) current.files.transcript = f;
+      else if (/_(minutes)\.md$/i.test(f.name)) current.files.minutes = f;
+      else current.files.others.push(f);
+      byGroup.set(groupKey, current);
+    }
+
+    const orderedGroups = [...byGroup.values()].sort((a, b) => (a.mtime < b.mtime ? 1 : -1));
+    const renderRow = (f, kind) => {
+      if (!f) return '';
+      const encName = encodeURIComponent(f.name);
       const sizeStr = _fmtBytes(f.size);
-      const isAudio = audioExts.has(ext);
-      const isMd = ext === 'md';
-      const previewBtn = (isAudio || isMd)
-        ? `<button onclick="${isAudio ? `_echoVaultPlayAudio('${esc(f.name)}')` : `_echoVaultPreviewMd('${esc(f.name)}')`}"
-             style="font-size:10px;padding:3px 7px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer;flex-shrink:0" title="${isAudio ? '再生' : 'プレビュー'}">${isAudio ? '▶' : '👁'}</button>`
-        : '';
-      return `<div style="display:flex;align-items:center;gap:6px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);margin-bottom:3px">
-        <span style="font-size:15px;flex-shrink:0">${icon}</span>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:11px;font-family:var(--font-mono);color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.name)}">${esc(f.name)}</div>
+      const rowMeta = kind === 'audio'
+        ? {icon: '🎙', label: '音声', action: `<button onclick="_echoVaultPlayAudio(decodeURIComponent('${encName}'))" style="font-size:10px;padding:3px 7px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer;flex-shrink:0" title="再生">▶</button>`}
+        : kind === 'transcript'
+          ? {icon: '📄', label: '文字起こし', action: `<button onclick="_echoVaultPreviewMd(decodeURIComponent('${encName}'))" style="font-size:10px;padding:3px 7px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer;flex-shrink:0" title="プレビュー">👁</button>`}
+          : {icon: '📝', label: '議事録', action: `<button onclick="_echoVaultPreviewMd(decodeURIComponent('${encName}'))" style="font-size:10px;padding:3px 7px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer;flex-shrink:0" title="プレビュー">👁</button>`};
+      return `<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
+        <span style="font-size:14px;flex-shrink:0">${rowMeta.icon}</span>
+        <div style="min-width:0;flex:1">
+          <div style="display:flex;align-items:center;gap:6px;min-width:0">
+            <span style="font-size:10px;color:var(--text3);padding:1px 5px;border:1px solid var(--border);border-radius:10px;flex-shrink:0">${rowMeta.label}</span>
+            <span style="font-size:11px;font-family:var(--font-mono);color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.name)}">${esc(f.name)}</span>
+          </div>
           <div style="font-size:10px;color:var(--text3);margin-top:1px">${esc(f.mtime)} · ${sizeStr}</div>
         </div>
-        ${previewBtn}
-        <a href="${API}/echo/sessions/${encodeURIComponent(f.name)}" download="${esc(f.name)}"
+        ${rowMeta.action}
+        <a href="${API}/echo/sessions/${encName}" download="${esc(f.name)}"
            style="font-size:10px;padding:3px 9px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;text-decoration:none;flex-shrink:0;font-family:var(--font-ui);font-weight:600">↓ DL</a>
-        <button onclick="deleteEchoVaultFile('${esc(f.name)}')" style="font-size:10px;padding:3px 7px;border:1px solid var(--border);background:transparent;color:var(--text3);border-radius:4px;cursor:pointer;flex-shrink:0" title="削除">✕</button>
+        <button onclick="deleteEchoVaultFile(decodeURIComponent('${encName}'))" style="font-size:10px;padding:3px 7px;border:1px solid var(--border);background:transparent;color:var(--text3);border-radius:4px;cursor:pointer;flex-shrink:0" title="削除">✕</button>
+      </div>`;
+    };
+
+    el.innerHTML = orderedGroups.map(g => {
+      const rows = [
+        renderRow(g.files.audio, 'audio'),
+        renderRow(g.files.transcript, 'transcript'),
+        renderRow(g.files.minutes, 'minutes'),
+      ].filter(Boolean).join('');
+      const baseLabel = g.groupKey.replace(/^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})_/, '$1 ');
+      return `<div style="border:1px solid var(--border);border-radius:8px;background:var(--bg1);padding:8px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+          <div style="font-size:11px;font-family:var(--font-mono);color:var(--text);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(g.groupKey)}">${esc(baseLabel)}</div>
+          <div style="font-size:10px;color:var(--text3);flex-shrink:0">${esc(g.mtime)}</div>
+        </div>
+        ${rows || '<div style="font-size:10px;color:var(--text3);padding:4px 0">ファイルなし</div>'}
       </div>`;
     }).join('');
   } catch(e) {

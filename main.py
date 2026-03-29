@@ -8965,6 +8965,15 @@ def debug_echo_typo_redirect():
 def echo_list_sessions():
     """EchoVault フォルダのファイル一覧を返す。"""
     import datetime as _dt
+    import re as _re
+
+    def _echo_group_key(fname: str) -> str:
+        stem, _ = os.path.splitext(fname)
+        # *_minutes.md / *_transcript.md は同一セッションとして束ねる
+        if stem.endswith("_minutes") or stem.endswith("_transcript"):
+            return _re.sub(r"_(minutes|transcript)$", "", stem)
+        return stem
+
     files = []
     try:
         for fname in sorted(os.listdir(ECHOVAULT_DIR)):
@@ -8978,6 +8987,7 @@ def echo_list_sessions():
                 "size": stat.st_size,
                 "mtime": _dt.datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
                 "type": ext,
+                "group_key": _echo_group_key(fname),
             })
     except Exception as e:
         return {"files": [], "error": str(e)}
