@@ -886,6 +886,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .echo-statusbar{display:flex;justify-content:flex-start;align-items:center;gap:10px;padding:5px 14px;border-top:1px solid var(--border);font-size:10px;font-family:var(--font-mono);color:var(--text3);flex-shrink:0;background:var(--bg);flex-wrap:wrap}
 .echo-translate-btn{padding:8px 18px;font-size:12px;font-weight:700;border-radius:6px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);cursor:pointer;transition:all .15s;font-family:var(--font-ui);letter-spacing:.04em}
 .echo-translate-btn:hover{background:var(--accent-bg);color:var(--accent2,#7ec7ff);border-color:var(--accent2,#7ec7ff)}
+.echo-translate-btn:disabled{opacity:.55;cursor:not-allowed}
 .echo-toolbar-elapsed{margin-left:auto;min-width:56px;text-align:right}
 .echo-translate-btn.enabled{background:var(--accent);border-color:var(--accent);color:var(--bg)}
 .echo-conn-ok{color:var(--green,#4caf50)}
@@ -985,6 +986,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <button class="echo-record-btn" id="echo-record-btn" onclick="toggleEchoRecording()">● Start</button>
       <button class="echo-translate-btn" id="echo-toolbar-translate-enable" onclick="toggleEchoToolbarTranslate()" title="Mutual translation ON/OFF">
         ⇄ Smart Translate <b id="echo-toolbar-translate-enable-label">OFF</b>
+      </button>
+      <button class="echo-translate-btn" id="echo-toolbar-generate-minutes" onclick="echoGenerateMinutesNow()" title="最新の文字起こしから議事録を作成">
+        📝 議事録作成
       </button>
       <span class="echo-duration echo-toolbar-elapsed" id="echo-duration">00:00</span>
       <button id="echo-clear-btn" onclick="echoClearTranscript()" style="display:none;font-size:10px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="会話をクリア">✕ Clear</button>
@@ -3196,6 +3200,25 @@ function syncEchoTranslateUi() {
   if (toolbarLabel) toolbarLabel.textContent = enabled ? 'ON' : 'OFF';
   if (panelChk) panelChk.checked = enabled;
   if (panelLbl) panelLbl.textContent = enabled ? 'ON' : 'OFF';
+  _syncEchoMinutesButtonUi();
+}
+
+function _syncEchoMinutesButtonUi() {
+  const btn = document.getElementById('echo-toolbar-generate-minutes');
+  if (!btn) return;
+  const enabled = !!echo.ttsTranslateEnabled;
+  const busy = !!echo._isStoppingOrSaving;
+  btn.disabled = !enabled || busy;
+  if (!enabled) {
+    btn.textContent = '📝 議事録作成 (OFF)';
+    btn.title = 'Smart TranslateがOFFのため議事録作成はスキップされます';
+  } else if (busy) {
+    btn.textContent = '⟳ 議事録作成中...';
+    btn.title = '保存・生成処理中です';
+  } else {
+    btn.textContent = '📝 議事録作成';
+    btn.title = '最新の文字起こしから議事録を作成';
+  }
 }
 
 function _echoInitSettingsUI() {
@@ -3294,6 +3317,37 @@ function toggleEchoToolbarTranslate() {
   syncEchoTranslateUi();
   _ttsSyncTranslateDirectionChecks('echo');
   _echoRenderTranscript(true);
+}
+
+async function echoGenerateMinutesNow() {
+  if (!echo.ttsTranslateEnabled) {
+    _echoSetStatus('Smart Translate OFF: 議事録作成はスキップしました');
+    _syncEchoMinutesButtonUi();
+    return;
+  }
+  if (echo.recording) {
+    _echoSetStatus('録音中は議事録作成できません。停止後に実行してください。');
+    return;
+  }
+  echo._isStoppingOrSaving = true;
+  _echoSetStatus('⟳ 議事録を作成中...');
+  _syncEchoMinutesButtonUi();
+  try {
+    const resp = await fetch(API + '/echo/generate-minutes', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({})
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.detail || 'minutes generation failed');
+    _echoSetStatus('✓ 議事録作成完了: ' + (data.filename || ''));
+    await refreshEchoVault();
+  } catch (e) {
+    _echoSetStatus('⚠ 議事録作成失敗: ' + (e.message || String(e)));
+  } finally {
+    echo._isStoppingOrSaving = false;
+    _syncEchoMinutesButtonUi();
+  }
 }
 
 // ── TTS/ASR タブ設定 ──
@@ -5802,6 +5856,7 @@ function _echoSetStatus(text) {
     busyEl.classList.toggle('busy', busyNow);
     busyEl.title = busyNow ? `処理中: ${text || '-'}` : '待機中';
   }
+  _syncEchoMinutesButtonUi();
 }
 
 function _echoSetConn(state) {
@@ -6133,10 +6188,11 @@ function _echoHandleEvent(ev) {
 function _echoScheduleVaultRefresh(attempt = 0) {
   const tries = Math.max(1, Math.min(10, 1 + attempt));
   setTimeout(async () => {
-    const cardCount = await refreshEchoVault();
+    await refreshEchoVault();
     const saving = await _echoHasPendingSave();
-    if (!saving && cardCount > 0) {
+    if (!saving) {
       echo._isStoppingOrSaving = false;
+      _syncEchoMinutesButtonUi();
       return;
     }
     if (tries < 6) _echoScheduleVaultRefresh(tries);
