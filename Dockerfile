@@ -166,19 +166,24 @@ https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic_u
       echo "[WARN] Open JTalk dictionary was not prepared at ${JTDIR}. VOICEVOX may require manual setup."; \
     fi
 
-# Install torch/torchaudio (CUDA 12.4) and validate Qwen3 TTS runtime deps.
+# Install torch/torchaudio and validate Qwen3 TTS runtime deps.
+# Prefer CUDA 12.4 wheels, but fall back to CPU wheels in CI/build environments
+# where CUDA wheels may be unavailable (e.g., transient index/network issues).
 # If install fails, write an explicit status artifact that /tts/status can surface.
 RUN set -eux; \
     status_file="/app/qwen3_tts_install_status.json"; \
     if python -c "import transformers, torch, soundfile" >/dev/null 2>&1; then \
       printf '{"ok":true,"source":"preinstalled","error":"","timestamp":"%s"}\n' "$(date -u +%FT%TZ)" > "${status_file}"; \
     else \
-      if python -m pip install -r /app/requirements-tts.txt --index-url https://download.pytorch.org/whl/cu124 \
+      if ( \
+          python -m pip install -r /app/requirements-tts.txt --index-url https://download.pytorch.org/whl/cu124 \
+          || python -m pip install -r /app/requirements-tts.txt --index-url https://download.pytorch.org/whl/cpu \
+        ) \
         && python -m pip install --upgrade "transformers>=4.52" "soundfile>=0.12" \
         && python -c "import transformers, torch, soundfile" >/dev/null 2>&1; then \
         printf '{"ok":true,"source":"docker-install","error":"","timestamp":"%s"}\n' "$(date -u +%FT%TZ)" > "${status_file}"; \
       else \
-        err="transformers/torch/soundfile installation failed (Docker build)"; \
+        err="transformers/torch/soundfile installation failed (Docker build, cu124->cpu fallback attempted)"; \
         printf '{"ok":false,"source":"docker-install","error":"%s","timestamp":"%s"}\n' "${err}" "$(date -u +%FT%TZ)" > "${status_file}"; \
         if [ "${QWEN3_TTS_REQUIRED}" = "true" ]; then \
           echo "[ERROR] ${err}" >&2; \
