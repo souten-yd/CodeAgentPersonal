@@ -70,6 +70,8 @@ RUN apt-get update -o Acquire::Retries=3 \
         libcurl4 \
     && rm -rf /var/lib/apt/lists/*
 
+RUN python3.11 -m venv /opt/venv
+ENV PATH=/opt/venv/bin:${PATH}
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Copy application source first.
