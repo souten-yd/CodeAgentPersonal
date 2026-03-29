@@ -9007,28 +9007,12 @@ def echo_list_sessions():
     import datetime as _dt
     import re as _re
 
-    def _extract_title_from_md(path: str) -> str:
-        try:
-            with open(path, "r", encoding="utf-8") as fp:
-                for _ in range(8):
-                    line = fp.readline()
-                    if not line:
-                        break
-                    m = _re.match(r"^#\s*(?:議事録|文字起こし)\s*[—-]\s*(.+?)\s*$", line.strip())
-                    if m:
-                        return m.group(1).strip()
-        except Exception:
-            return ""
-        return ""
-
-    def _title_from_filename(name: str) -> str:
-        stem = name.rsplit(".", 1)[0]
-        # 例: 2026-03-29_12-00_会議録_minutes
-        stem = _re.sub(r"_?(minutes|transcript)$", "", stem, flags=_re.IGNORECASE)
-        m = _re.match(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}_(.+)$", stem)
-        if m:
-            return m.group(1).strip(" _-")
-        return ""
+    def _echo_group_key(fname: str) -> str:
+        stem, _ = os.path.splitext(fname)
+        # *_minutes.md / *_transcript.md は同一セッションとして束ねる
+        if stem.endswith("_minutes") or stem.endswith("_transcript"):
+            return _re.sub(r"_(minutes|transcript)$", "", stem)
+        return stem
 
     files = []
     try:
@@ -9048,7 +9032,7 @@ def echo_list_sessions():
                 "size": stat.st_size,
                 "mtime": _dt.datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
                 "type": ext,
-                "title": title,
+                "group_key": _echo_group_key(fname),
             })
     except Exception as e:
         return {"files": [], "error": str(e)}
