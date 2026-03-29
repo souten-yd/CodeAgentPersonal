@@ -9921,11 +9921,11 @@ def _qwen3_install_help_commands() -> list[str]:
     if _is_docker_runtime():
         return [
             "Docker (CPU): pip install -r requirements-tts.txt --index-url https://download.pytorch.org/whl/cpu",
-            "Docker (CUDA 12.4): pip install -r requirements-tts.txt --index-url https://download.pytorch.org/whl/cu124",
+            "Docker (CUDA 12.8): pip install -r requirements-tts.txt --index-url https://download.pytorch.org/whl/cu128 && pip install -r requirements-tts-qwen.txt",
         ]
     return [
         "ローカル (CPU): pip install -r requirements-tts.txt --index-url https://download.pytorch.org/whl/cpu",
-        "ローカル (CUDA 12.4): pip install -r requirements-tts.txt --index-url https://download.pytorch.org/whl/cu124",
+        "ローカル (CUDA 12.8): pip install -r requirements-tts.txt --index-url https://download.pytorch.org/whl/cu128 && pip install -r requirements-tts-qwen.txt",
     ]
 
 
@@ -9946,7 +9946,7 @@ def _qwen3_missing_requirements() -> list[dict]:
     if _QWEN3TTS_AVAILABLE:
         return missing
     status = _qwen3_install_status_file()
-    message = "transformers/torch/soundfile の import に失敗しました。"
+    message = "qwen-tts/transformers/torch/torchaudio/soundfile の import に失敗しました。"
     if status and status.get("error"):
         message = f"{message} build/install error: {status.get('error')}"
     missing.append({
@@ -9962,7 +9962,7 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> di
     if not _QWEN3TTS_AVAILABLE:
         commands = "\n".join(f"- {cmd}" for cmd in _qwen3_install_help_commands())
         raise RuntimeError(
-            "transformers>=4.52 / torch / soundfile がインストールされていません。\n"
+            "qwen-tts / transformers>=4.52 / torch / torchaudio / soundfile がインストールされていません。\n"
             f"{commands}"
         )
     with _qwen3tts_lock:
@@ -9999,7 +9999,7 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
     if not _QWEN3TTS_AVAILABLE:
         commands = "\n".join(f"- {cmd}" for cmd in _qwen3_install_help_commands())
         raise RuntimeError(
-            "Qwen3 TTS: transformers/torch/soundfile がインストールされていません。\n"
+            "Qwen3 TTS: qwen-tts/transformers/torch/torchaudio/soundfile がインストールされていません。\n"
             f"{commands}"
         )
     with _qwen3tts_lock:
