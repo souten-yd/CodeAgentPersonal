@@ -1643,7 +1643,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
             onchange="saveEchoSettings()">
             <option value="webspeech">Web Speech API（ブラウザ内蔵）</option>
-            <option value="voicevox">VOICEVOX（高品質日本語）</option>
             <option value="edgetts">Edge TTS（クラウド）</option>
             <option value="qwen3tts" selected>Qwen3 TTS（高品質・ローカル）</option>
           </select>
@@ -2221,7 +2220,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
             onchange="onTtsEngineChange()">
             <option value="webspeech">Web Speech API（ブラウザ内蔵・設定不要）</option>
-            <option value="voicevox">VOICEVOX（高品質日本語・組み込み）</option>
             <option value="edgetts">Edge TTS（高品質・クラウド・要ネット）</option>
             <option value="qwen3tts" selected>Qwen3 TTS（高品質・ローカルLLM型）</option>
           </select>
@@ -2443,6 +2441,11 @@ const tts = {
   _audio:       null,
   _utt:         null,
 };
+const _SUPPORTED_TTS_ENGINES = new Set(['webspeech', 'edgetts', 'qwen3tts']);
+function _normalizeTtsEngine(engine) {
+  return _SUPPORTED_TTS_ENGINES.has(engine) ? engine : 'qwen3tts';
+}
+tts.engine = _normalizeTtsEngine(tts.engine);
 
 // ── TALK MODE (EchoVault) グローバル状態 ──
 const echo = {
@@ -2528,6 +2531,7 @@ const echo = {
   _isStoppingOrSaving: false,
   _connState: 'disconnected',
 };
+echo.ttsEngine = _normalizeTtsEngine(echo.ttsEngine);
 
 // 旧表示モードの互換変換
 if (!localStorage.getItem('echo_display_style')) {
@@ -2702,8 +2706,8 @@ function _ttsPlayWebSpeech(text) {
 }
 
 async function _ttsFetchAudio(text, engine = tts.engine, context = 'main') {
+  engine = _normalizeTtsEngine(engine);
   const body = { text, engine, speed: tts.speed };
-  if (engine === 'voicevox') body.speaker_id = parseInt(tts.voice || '0');
   if (engine === 'edgetts')  body.voice = tts.voice || 'ja-JP-NanamiNeural';
   if (engine === 'qwen3tts') {
     body.language = 'ja';
@@ -2834,7 +2838,7 @@ function _ttsPlayBlob(blob) {
 function saveTtsSettings() {
   tts.enabled    = document.getElementById('tts-enable-chk').checked;
   tts.autoSpeak  = document.getElementById('tts-auto-chk').checked;
-  tts.engine     = document.getElementById('tts-engine-sel').value;
+  tts.engine     = _normalizeTtsEngine(document.getElementById('tts-engine-sel').value);
   tts.voice      = document.getElementById('tts-voice-sel').value;
   tts.speed      = parseFloat(document.getElementById('tts-speed-slider').value);
   const q3sel    = document.getElementById('tts-qwen3-model-sel');
@@ -2879,7 +2883,8 @@ function _numOr(v, fallback) {
 
 async function onTtsEngineChange() {
   saveTtsSettings();
-  const engine = tts.engine;
+  const engine = _normalizeTtsEngine(tts.engine);
+  tts.engine = engine;
   const note       = document.getElementById('tts-engine-note');
   const loadRow    = document.getElementById('tts-engine-load-row');
   const vvNote     = document.getElementById('tts-voicevox-note');
@@ -2891,7 +2896,7 @@ async function onTtsEngineChange() {
 
   // デフォルトで全行非表示にしてから必要なものだけ表示
   loadRow.style.display   = 'none';
-  vvNote.style.display    = 'none';
+  if (vvNote) vvNote.style.display = 'none';
   if (vvUrlRow) vvUrlRow.style.display = 'none';
   qwen3Row.style.display  = 'none';
   deviceRow.style.display = 'none';
@@ -2900,13 +2905,6 @@ async function onTtsEngineChange() {
   if (engine === 'webspeech') {
     note.textContent = 'ブラウザ内蔵の音声合成を使用します。追加インストール不要。';
     _ttsPopulateWebSpeechVoices();
-  } else if (engine === 'voicevox') {
-    note.textContent = 'voicevox_core が必要です。初回ロード時に Open JTalk 辞書を読み込みます。';
-    loadRow.style.display  = '';
-    vvNote.style.display   = '';
-    if (vvUrlRow) vvUrlRow.style.display = '';
-    deviceRow.style.display = '';
-    await _ttsLoadVoicesFromServer('voicevox');
   } else if (engine === 'edgetts') {
     note.textContent = 'pip install edge-tts が必要です。インターネット接続が必要。';
     await _ttsLoadVoicesFromServer('edgetts');
@@ -2923,7 +2921,7 @@ async function onTtsEngineChange() {
       if (statusEl) statusEl.textContent = st.qwen3tts_loaded ? '✓ ロード済み' : '未ロード';
     } catch(e) {}
   }
-  // qwen3 ロード行: edgetts/voicevox/webspeech 時は非表示
+  // qwen3 ロード行: edgetts/webspeech 時は非表示
   if (engine !== 'qwen3tts') {
     const q3row = document.getElementById('tts-qwen3-load-row');
     if (q3row) q3row.style.display = 'none';
@@ -2987,18 +2985,12 @@ function _ttsSyncUnloadBtn(engine) {
   if (!unloadBtn || !loadBtn) return;
   fetch(API + '/tts/status').then(r => r.json()).then(s => {
     _syncTtsDeviceState(s.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
-    const loaded = (engine === 'voicevox' && s.voicevox_loaded) ||
-                   (engine === 'qwen3tts' && s.qwen3tts_loaded);
+    const loaded = (engine === 'qwen3tts' && s.qwen3tts_loaded);
     unloadBtn.style.display = loaded ? '' : 'none';
     loadBtn.style.display   = loaded ? 'none' : '';
     const status = document.getElementById('tts-voicevox-status');
     if (!status) return;
-    if (engine === 'voicevox') {
-      if (s.voicevox_loaded) status.textContent = `ロード済み（${s.voicevox_speakers || '?'}話者）`;
-      else if (!s.voicevox_available) status.textContent = 'voicevox_core 未インストール';
-      else if (!s.jtalk_exists)       status.textContent = 'Open JTalk 辞書なし';
-      else                             status.textContent = '未ロード';
-    } else if (engine === 'qwen3tts') {
+    if (engine === 'qwen3tts') {
       if (s.qwen3tts_loaded) status.textContent = `ロード済み: ${(s.qwen3tts_model_id || '').split('/').pop()}（${s.qwen3tts_device || 'cpu'}）`;
       else if (!s.qwen3tts_available) status.textContent = 'qwen_tts 未インストール';
       else                             status.textContent = '未ロード';
@@ -3007,7 +2999,7 @@ function _ttsSyncUnloadBtn(engine) {
 }
 
 async function loadTtsEngine() {
-  const engine = tts.engine;
+  const engine = _normalizeTtsEngine(tts.engine);
   const btn    = document.getElementById('tts-engine-load-btn');
   const status = document.getElementById('tts-voicevox-status');
   btn.disabled = true;
@@ -3016,18 +3008,6 @@ async function loadTtsEngine() {
   if (engine === 'qwen3tts') {
     reqBody.model_id = tts.qwen3model;
     reqBody.device   = tts.ttsDevice;
-  }
-  // VOICEVOX URL設定をサーバーへ保存
-  if (engine === 'voicevox') {
-    const urlInput = document.getElementById('tts-voicevox-url');
-    if (urlInput?.value) {
-      try {
-        await fetch(API + '/settings', {
-          method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({key:'VOICEVOX_URL', value: urlInput.value})
-        });
-      } catch(e) {}
-    }
   }
   let loadMsgEl = addMsg('system', 'TTS エンジンをロード中です...');
   try {
@@ -3051,12 +3031,7 @@ async function loadTtsEngine() {
           loadMsgEl = addMsg('system', ev.message);
         } else if (ev.type === 'done') {
           if (loadMsgEl) { loadMsgEl.remove(); loadMsgEl = null; }
-          if (engine === 'voicevox') {
-            const mode = ev.mode === 'http' ? '(HTTP API)' : '(Core)';
-            status.textContent = `✓ 接続済み ${mode}（${ev.speakers || '?'}話者）`;
-            addMsg('system', `VOICEVOX ${mode} のロードが完了しました。${ev.speakers || '?'}話者が利用可能です。`);
-            await _ttsLoadVoicesFromServer('voicevox');
-          } else if (engine === 'qwen3tts') {
+          if (engine === 'qwen3tts') {
             const mid = (ev.model_id || tts.qwen3model || '').split('/').pop();
             status.textContent = `✓ ロード済み: ${mid}（${ev.device || 'cpu'}）`;
             addMsg('system', `Qwen3 TTS モデル ${mid} のロードが完了しました。`);
@@ -3145,7 +3120,7 @@ async function loadQwen3Tts(context) {
 
 function saveEchoSettings() {
   echo.autoPlayTts = document.getElementById('echo-autoplay-tts')?.checked || false;
-  echo.ttsEngine   = document.getElementById('echo-tts-engine')?.value     || 'qwen3tts';
+  echo.ttsEngine   = _normalizeTtsEngine(document.getElementById('echo-tts-engine')?.value || 'qwen3tts');
   echo.displayStyle = document.getElementById('echo-display-style')?.value || echo.displayStyle || 'lang_serial';
   echo.displayFilter = document.getElementById('echo-display-filter')?.value || echo.displayFilter || 'all';
   echo.groupOverflowMode = document.getElementById('echo-group-overflow-mode')?.value || echo.groupOverflowMode || 'rolling';
