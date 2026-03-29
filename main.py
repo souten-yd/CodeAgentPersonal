@@ -9819,15 +9819,9 @@ try:
     import torch as _torch_mod
     from qwen_tts import Qwen3TTSModel as _Q3TModel  # type: ignore
     import soundfile as _sf_mod  # type: ignore
+    from huggingface_hub import snapshot_download as _hf_snapshot_download  # type: ignore
 
     print(f"[Qwen3-TTS] import: ok (qwen_tts={getattr(_qwen_tts_mod, '__version__', 'unknown')})")
-
-    # qwen_tts のバージョン差分を吸収（Qwen3TTSProcessor / AutoProcessor のどちらか）
-    _Q3TProc = getattr(_qwen_tts_mod, "Qwen3TTSProcessor", None)
-    if _Q3TProc is None:
-        _Q3TProc = getattr(_qwen_tts_mod, "AutoProcessor", None)
-    if _Q3TProc is None:
-        print("[Qwen3-TTS] warning: processor API not found in qwen_tts; synthesize will use model-only fallback.")
     if shutil.which("sox") is None:
         print("[Qwen3-TTS] warning: SoX not found. Some audio paths may be slower/limited, but Qwen3-TTS remains enabled.")
     try:
@@ -9840,7 +9834,7 @@ except Exception as _qwen_e:
     _qwen_tts_mod = None
     _torch_mod = None
     _Q3TModel = None
-    _Q3TProc = None
+    _hf_snapshot_download = None
     _sf_mod = None
     _QWEN3TTS_AVAILABLE = False
     print(f"[Qwen3-TTS] import: failed ({repr(_qwen_e)})")
@@ -9855,6 +9849,13 @@ _qwen3tts_lock      = threading.Lock()
 _QWEN3TTS_MODEL_ID  = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 _QWEN3_INSTALL_STATUS_PATH = os.environ.get("CODEAGENT_QWEN3_INSTALL_STATUS_PATH", "/app/qwen3_tts_install_status.json")
 _tts_startup_health_snapshot: dict = {}
+_QWEN3_REQUIRED_FILES = (
+    "config.json",
+    "preprocessor_config.json",
+    os.path.join("speech_tokenizer", "config.json"),
+    os.path.join("speech_tokenizer", "preprocessor_config.json"),
+    os.path.join("speech_tokenizer", "model.safetensors"),
+)
 
 
 def _qwen3tts_model_dir() -> str:
@@ -9997,6 +9998,40 @@ def _qwen3_missing_requirements() -> list[dict]:
     return missing
 
 
+def _qwen3_local_required_file_status(model_root: str) -> dict:
+    root = os.path.abspath(model_root)
+    missing: list[str] = []
+    for rel_path in _QWEN3_REQUIRED_FILES:
+        full_path = os.path.join(root, rel_path)
+        if not os.path.exists(full_path):
+            missing.append(rel_path)
+    return {"root": root, "missing": missing, "ok": len(missing) == 0}
+
+
+def _qwen3_resolve_model_root(model_id: str, cache_dir: str) -> str:
+    path = os.path.expanduser(model_id)
+    if os.path.isdir(path):
+        status = _qwen3_local_required_file_status(path)
+        if status["ok"]:
+            return status["root"]
+        raise RuntimeError(
+            "Qwen3 TTS local model directory is incomplete. "
+            f"model_root={status['root']} missing={status['missing']}. "
+            "壊れたキャッシュの可能性があります。モデル全体を再取得してください。"
+        )
+    if not _hf_snapshot_download:
+        return model_id
+    downloaded_root = _hf_snapshot_download(repo_id=model_id, cache_dir=cache_dir)
+    status = _qwen3_local_required_file_status(downloaded_root)
+    if status["ok"]:
+        return downloaded_root
+    raise RuntimeError(
+        "Qwen3 TTS snapshot is incomplete after download. "
+        f"model_root={status['root']} missing={status['missing']}. "
+        "キャッシュを削除して再取得してください。"
+    )
+
+
 def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> dict:
     global _qwen3tts_model, _qwen3tts_processor, _qwen3tts_model_id, _qwen3tts_device
     if not _QWEN3TTS_AVAILABLE:
@@ -10019,21 +10054,24 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> di
         if device == "cuda" and not (_torch_mod and _torch_mod.cuda.is_available()):
             actual_device = "cpu"
             fallback_reason = "CUDAが利用できないため CPU へ自動フォールバックしました。"
-        print(f"[Qwen3-TTS] model loading: {model_id}")
-        if _Q3TProc is not None:
-            _qwen3tts_processor = _Q3TProc.from_pretrained(
-                model_id, cache_dir=cache_dir, trust_remote_code=True
-            )
-        else:
-            _qwen3tts_processor = None
-        _qwen3tts_model = _Q3TModel.from_pretrained(
-            model_id, cache_dir=cache_dir, trust_remote_code=True,
-            torch_dtype=_torch_mod.float16 if actual_device == "cuda" else _torch_mod.float32
-        ).to(actual_device).eval()
+        model_root = _qwen3_resolve_model_root(model_id, cache_dir)
+        _qwen3tts_processor = None
+        print(f"[Qwen3-TTS] model loading: model_id={model_id} model_root={model_root}")
+        try:
+            _qwen3tts_model = _Q3TModel.from_pretrained(
+                model_root, cache_dir=cache_dir, trust_remote_code=True,
+                torch_dtype=_torch_mod.float16 if actual_device == "cuda" else _torch_mod.float32
+            ).to(actual_device).eval()
+        except Exception as e:
+            raise RuntimeError(
+                "Qwen3 TTS model load failed. "
+                f"model_id={model_id} model_root={model_root} cache_dir={cache_dir} "
+                f"error={e}"
+            ) from e
         _qwen3tts_model_id = model_id
         _qwen3tts_device = actual_device
-        print(f"[Qwen3-TTS] model loaded successfully: model_id={model_id} device={actual_device}")
-        result = {"status": "loaded", "model_id": model_id, "device": actual_device}
+        print(f"[Qwen3-TTS] model loaded successfully: model_id={model_id} model_root={model_root} device={actual_device}")
+        result = {"status": "loaded", "model_id": model_id, "model_root": model_root, "device": actual_device}
         if fallback_reason:
             result["note"] = fallback_reason
         return result
@@ -10392,7 +10430,7 @@ def tts_load_api(req: dict = {}):
                     "type": "error",
                         "detail": (
                             "qwen_tts API / torch / soundfile がインストールされていないか、"
-                            "Qwen3TTSModel/Qwen3TTSProcessor の import に失敗しました。"
+                            "Qwen3TTSModel の import に失敗しました。"
                             f" detail={_QWEN3TTS_IMPORT_ERROR} / install: pip install -U qwen-tts"
                         ),
                     })
