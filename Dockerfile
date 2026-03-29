@@ -94,6 +94,23 @@ RUN if [ -f /app/requirements.txt ]; then \
         python -m pip install --no-cache-dir fastapi 'uvicorn[standard]' pydantic requests python-multipart; \
     fi
 
+# Install ONNX Runtime shared library required by voicevox_core 0.15.x
+RUN set -eux; \
+    if ! ldconfig -p | grep -q "libonnxruntime.so.1.13.1"; then \
+      ORT_TGZ="/tmp/onnxruntime-linux-x64-1.13.1.tgz"; \
+      curl -fL --retry 3 --retry-delay 2 \
+        "https://github.com/microsoft/onnxruntime/releases/download/v1.13.1/onnxruntime-linux-x64-1.13.1.tgz" \
+        -o "${ORT_TGZ}"; \
+      mkdir -p /tmp/ort_extract /usr/local/lib/onnxruntime; \
+      tar -xzf "${ORT_TGZ}" -C /tmp/ort_extract; \
+      ORT_LIB_DIR="$(find /tmp/ort_extract -type d -path '*/onnxruntime-linux-x64-1.13.1/lib' | head -n1)"; \
+      test -n "${ORT_LIB_DIR}"; \
+      cp -a "${ORT_LIB_DIR}/libonnxruntime.so.1.13.1" /usr/local/lib/onnxruntime/; \
+      ln -sf /usr/local/lib/onnxruntime/libonnxruntime.so.1.13.1 /usr/local/lib/libonnxruntime.so.1.13.1; \
+      ln -sf /usr/local/lib/onnxruntime/libonnxruntime.so.1.13.1 /usr/local/lib/libonnxruntime.so; \
+      ldconfig; \
+    fi
+
 # Install voicevox_core for Linux x86_64 (optional: VOICEVOX TTS support)
 # IMPORTANT: install an explicit wheel URL (CUDA -> CPU fallback).
 # Do not use `--find-links ... voicevox_core` here, because pip may pick both
@@ -119,23 +136,6 @@ RUN set -eux; \
         if python -m pip install --no-cache-dir --no-deps "${u}" && python -c "import voicevox_core" >/dev/null 2>&1; then ok="1"; break; fi; \
       done; \
       if [ -z "${ok}" ]; then echo "[WARN] voicevox_core not available. VOICEVOX TTS will be disabled."; fi; \
-    fi
-
-# Install ONNX Runtime shared library required by voicevox_core 0.15.x
-RUN set -eux; \
-    if ! ldconfig -p | grep -q "libonnxruntime.so.1.13.1"; then \
-      ORT_TGZ="/tmp/onnxruntime-linux-x64-1.13.1.tgz"; \
-      curl -fL --retry 3 --retry-delay 2 \
-        "https://github.com/microsoft/onnxruntime/releases/download/v1.13.1/onnxruntime-linux-x64-1.13.1.tgz" \
-        -o "${ORT_TGZ}"; \
-      mkdir -p /tmp/ort_extract /usr/local/lib/onnxruntime; \
-      tar -xzf "${ORT_TGZ}" -C /tmp/ort_extract; \
-      ORT_LIB_DIR="$(find /tmp/ort_extract -type d -path '*/onnxruntime-linux-x64-1.13.1/lib' | head -n1)"; \
-      test -n "${ORT_LIB_DIR}"; \
-      cp -a "${ORT_LIB_DIR}/libonnxruntime.so.1.13.1" /usr/local/lib/onnxruntime/; \
-      ln -sf /usr/local/lib/onnxruntime/libonnxruntime.so.1.13.1 /usr/local/lib/libonnxruntime.so.1.13.1; \
-      ln -sf /usr/local/lib/onnxruntime/libonnxruntime.so.1.13.1 /usr/local/lib/libonnxruntime.so; \
-      ldconfig; \
     fi
 
 # Prepare Open JTalk dictionary for VOICEVOX on Runpod-like path.
