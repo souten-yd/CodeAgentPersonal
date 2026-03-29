@@ -9812,29 +9812,36 @@ except ImportError:
     _edge_tts_mod = None
     _EDGE_TTS_AVAILABLE = False
 
-# Qwen3 TTS (transformers >= 4.52 + torch)
+# Qwen3 TTS (qwen-tts + torch)
 _QWEN3TTS_IMPORT_ERROR = ""
 try:
-    import qwen_tts as _qwen_tts_mod  # type: ignore  # noqa: F401
+    import qwen_tts as _qwen_tts_mod  # type: ignore
     import torch as _torch_mod
-    from transformers import AutoProcessor as _Q3TProc  # type: ignore
-    from transformers import AutoModel as _Q3TModelAuto  # type: ignore
-    import transformers as _transformers_mod  # type: ignore
+    from qwen_tts import Qwen3TTSModel as _Q3TModel  # type: ignore
     import soundfile as _sf_mod  # type: ignore
+
+    # qwen_tts のバージョン差分を吸収（Qwen3TTSProcessor / AutoProcessor のどちらか）
+    _Q3TProc = getattr(_qwen_tts_mod, "Qwen3TTSProcessor", None)
+    if _Q3TProc is None:
+        _Q3TProc = getattr(_qwen_tts_mod, "AutoProcessor", None)
+    if _Q3TProc is None:
+        raise ImportError(
+            "qwen_tts processor API が見つかりません。"
+            " qwen-tts を最新版に更新し、Qwen3TTSProcessor または AutoProcessor が利用可能か確認してください。"
+        )
     _QWEN3TTS_AVAILABLE = True
 except Exception as _qwen_e:
     _QWEN3TTS_IMPORT_ERROR = str(_qwen_e)
     _qwen_tts_mod = None
     _torch_mod = None
-    _Q3TModelAuto = None
+    _Q3TModel = None
     _Q3TProc = None
-    _transformers_mod = None
     _sf_mod = None
     _QWEN3TTS_AVAILABLE = False
-    print(f"[TTS] qwen3tts import failed: {_QWEN3TTS_IMPORT_ERROR}")
+    print(f"[TTS] qwen3tts import failed (qwen_tts API): {_QWEN3TTS_IMPORT_ERROR}")
 
 _qwen3tts_model     = None
-_qwen3tts_processor = None   # AutoProcessor (旧 _qwen3tts_tokenizer を改名)
+_qwen3tts_processor = None   # qwen_tts processor (旧 _qwen3tts_tokenizer を改名)
 _qwen3tts_model_id: str | None = None
 _qwen3tts_device = "cpu"      # "cpu" | "cuda"
 _qwen3tts_lock      = threading.Lock()
@@ -9855,7 +9862,7 @@ def _tts_debug_log_path() -> str:
 
 def _collect_tts_env_info(device: str | None = None) -> dict:
     torch_ver = getattr(_torch_mod, "__version__", None) if _torch_mod is not None else None
-    trf_ver = getattr(_transformers_mod, "__version__", None) if _transformers_mod is not None else None
+    qwen_tts_ver = getattr(_qwen_tts_mod, "__version__", None) if _qwen_tts_mod is not None else None
     active_device = device
     if not active_device and _qwen3tts_model is not None:
         try:
@@ -9865,7 +9872,7 @@ def _collect_tts_env_info(device: str | None = None) -> dict:
     return {
         "python": sys.version.split()[0],
         "torch": torch_ver,
-        "transformers": trf_ver,
+        "qwen_tts": qwen_tts_ver,
         "device": active_device or _qwen3tts_device,
     }
 
@@ -9970,7 +9977,7 @@ def _qwen3_missing_requirements() -> list[dict]:
     if _QWEN3TTS_AVAILABLE:
         return missing
     status = _qwen3_install_status_file()
-    message = "qwen-tts/transformers/torch/torchaudio/soundfile の import に失敗しました。"
+    message = "qwen-tts/torch/torchaudio/soundfile の import に失敗しました。"
     if _QWEN3TTS_IMPORT_ERROR:
         message = f"{message} import error: {_QWEN3TTS_IMPORT_ERROR}"
     if status and status.get("error"):
@@ -9988,7 +9995,8 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> di
     if not _QWEN3TTS_AVAILABLE:
         commands = "\n".join(f"- {cmd}" for cmd in _qwen3_install_help_commands())
         raise RuntimeError(
-            "qwen-tts / transformers>=4.52 / torch / torchaudio / soundfile がインストールされていません。\n"
+            "Qwen3 TTS: qwen_tts API / torch / torchaudio / soundfile がインストールされていません。\n"
+            f"import error: {_QWEN3TTS_IMPORT_ERROR}\n"
             f"{commands}"
         )
     with _qwen3tts_lock:
@@ -10006,12 +10014,13 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> di
         _qwen3tts_processor = _Q3TProc.from_pretrained(
             model_id, cache_dir=cache_dir, trust_remote_code=True
         )
-        _qwen3tts_model = _Q3TModelAuto.from_pretrained(
+        _qwen3tts_model = _Q3TModel.from_pretrained(
             model_id, cache_dir=cache_dir, trust_remote_code=True,
             torch_dtype=_torch_mod.float16 if actual_device == "cuda" else _torch_mod.float32
         ).to(actual_device).eval()
         _qwen3tts_model_id = model_id
         _qwen3tts_device = actual_device
+        print(f"[TTS][qwen3tts] model loaded: model_id={model_id} device={actual_device}")
         result = {"status": "loaded", "model_id": model_id, "device": actual_device}
         if fallback_reason:
             result["note"] = fallback_reason
@@ -10025,7 +10034,8 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
     if not _QWEN3TTS_AVAILABLE:
         commands = "\n".join(f"- {cmd}" for cmd in _qwen3_install_help_commands())
         raise RuntimeError(
-            "Qwen3 TTS: qwen-tts/transformers/torch/torchaudio/soundfile がインストールされていません。\n"
+            "Qwen3 TTS: qwen_tts API / torch / torchaudio / soundfile がインストールされていません。\n"
+            f"import error: {_QWEN3TTS_IMPORT_ERROR}\n"
             f"{commands}"
         )
     with _qwen3tts_lock:
@@ -10353,7 +10363,14 @@ def tts_load_api(req: dict = {}):
                 yield _sse({"type": "error", "detail": str(e)})
         elif engine == "qwen3tts":
             if not _QWEN3TTS_AVAILABLE:
-                yield _sse({"type": "error", "detail": "transformers/torch/soundfile がインストールされていません。pip install transformers torch torchaudio soundfile を実行してください。"})
+                yield _sse({
+                    "type": "error",
+                    "detail": (
+                        "qwen_tts API / torch / soundfile がインストールされていないか、"
+                        "Qwen3TTSModel/Qwen3TTSProcessor の import に失敗しました。"
+                        f" detail={_QWEN3TTS_IMPORT_ERROR}"
+                    ),
+                })
                 return
             yield _sse({"type": "loading", "message": f"Qwen3 TTS モデル ({model_id}) をロード中です。初回はダウンロードに数分かかる場合があります..."})
             try:
