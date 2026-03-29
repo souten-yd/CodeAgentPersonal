@@ -884,14 +884,16 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .echo-sentence .ts-time{color:var(--text3)}
 .echo-sentence .ts-play{font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer;transition:all .12s;font-family:var(--font-ui)}
 .echo-sentence .ts-play:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
-.echo-sentence .ts-orig{font-size:var(--echo-font-size);color:var(--text);line-height:1.55}
-.echo-sentence .ts-trans{font-size:calc(var(--echo-font-size) - 1px);color:var(--text3);font-style:italic;line-height:1.45;min-height:18px}
+.echo-sentence .ts-orig{font-size:var(--echo-font-size);color:var(--text);line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.echo-sentence .ts-trans{font-size:calc(var(--echo-font-size) - 1px);color:var(--text3);font-style:italic;line-height:1.45;min-height:18px;white-space:pre-wrap;word-break:break-word}
+.echo-field-placeholder{opacity:.5;font-style:italic}
 .echo-statusbar{display:flex;justify-content:flex-start;align-items:center;gap:10px;padding:5px 14px;border-top:1px solid var(--border);font-size:10px;font-family:var(--font-mono);color:var(--text3);flex-shrink:0;background:var(--bg);flex-wrap:wrap}
 .echo-translate-btn{padding:8px 18px;font-size:12px;font-weight:700;border-radius:6px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);cursor:pointer;transition:all .15s;font-family:var(--font-ui);letter-spacing:.04em}
 .echo-translate-btn:hover{background:var(--accent-bg);color:var(--accent2,#7ec7ff);border-color:var(--accent2,#7ec7ff)}
 .echo-translate-btn:disabled{opacity:.55;cursor:not-allowed}
 .echo-toolbar-elapsed{margin-left:auto;min-width:56px;text-align:right}
-.echo-translate-btn.enabled{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+.echo-translate-btn.enabled{background:var(--accent-bg);border-color:var(--accent);color:var(--accent)}
+.echo-translate-btn.enabled:hover{background:var(--accent-bg);border-color:var(--accent);color:var(--accent)}
 .echo-conn-ok{color:var(--green,#4caf50)}
 .echo-conn-off{color:var(--text3)}
 .echo-conn-err{color:var(--red)}
@@ -998,8 +1000,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <button class="echo-translate-btn" id="echo-toolbar-translate-enable" onclick="toggleEchoToolbarTranslate()" title="Mutual translation ON/OFF">
         ⇄ Smart Translate <b id="echo-toolbar-translate-enable-label">OFF</b>
       </button>
-      <button class="echo-translate-btn" id="echo-toolbar-generate-minutes" onclick="echoGenerateMinutesNow()" title="最新の文字起こしから議事録を作成">
-        📝 議事録 OFF
+      <button class="echo-translate-btn" id="echo-toolbar-generate-minutes" onclick="echoGenerateMinutesNow()" title="停止時にMinutesを作成するON/OFF">
+        📝 Minutes OFF
       </button>
       <button id="echo-clear-btn" onclick="echoClearTranscript()" style="display:none;font-size:10px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="会話をクリア">✕ Clear</button>
     </div>
@@ -3290,12 +3292,13 @@ function _syncEchoMinutesButtonUi() {
   if (!btn) return;
   const busy = !!echo._isStoppingOrSaving;
   btn.disabled = busy;
+  btn.classList.toggle('enabled', !!echo.autoGenerateMinutes && !busy);
   if (busy) {
-    btn.textContent = '⟳ 議事録作成中...';
-    btn.title = '保存・生成処理中です';
+    btn.textContent = '⟳ Minutes 処理中...';
+    btn.title = '保存・Minutes生成処理中です';
   } else {
-    btn.textContent = echo.autoGenerateMinutes ? '📝 議事録 ON' : '📝 議事録 OFF';
-    btn.title = echo.autoGenerateMinutes ? '停止時に議事録を作成します（クリックでOFF）' : '停止時の議事録作成を無効化中（クリックでON）';
+    btn.textContent = echo.autoGenerateMinutes ? '📝 Minutes ON' : '📝 Minutes OFF';
+    btn.title = echo.autoGenerateMinutes ? '停止時にMinutesを作成します（クリックでOFF）' : '停止時のMinutes作成を無効化中（クリックでON）';
   }
 }
 
@@ -3413,7 +3416,7 @@ async function echoGenerateMinutesNow() {
   }
   echo.autoGenerateMinutes = !echo.autoGenerateMinutes;
   localStorage.setItem('echo_auto_generate_minutes', echo.autoGenerateMinutes ? 'true' : 'false');
-  _echoSetStatus(echo.autoGenerateMinutes ? '議事録作成: ON（停止時に自動生成）' : '議事録作成: OFF（停止時に生成しません）');
+  _echoSetStatus(echo.autoGenerateMinutes ? 'Minutes: ON（停止時に自動生成）' : 'Minutes: OFF（停止時に生成しません）');
   _syncEchoMinutesButtonUi();
 }
 
@@ -6041,23 +6044,29 @@ function _echoUpdateSentenceDom(sentence) {
   let primary = view.orig;
   if (echo.displayFilter === 'ja') primary = view.jaText;
   else if (echo.displayFilter === 'en') primary = view.enText;
-  if (origEl) {
-    const next = (primary || '').trim();
-    if (!next) {
-      if (origEl.innerHTML !== '<em style="opacity:.5">—</em>') origEl.innerHTML = '<em style="opacity:.5">—</em>';
-    } else {
-      const rendered = esc(next).replace(/\n/g, '<br>');
-      if (origEl.innerHTML !== rendered) origEl.innerHTML = rendered;
+
+  const _setSentenceText = (el, val) => {
+    if (!el) return;
+    const txt = String(val || '');
+    if (!txt.trim()) {
+      if (el.textContent !== '—') el.textContent = '—';
+      el.classList.add('echo-field-placeholder');
+      return;
     }
+    if (el.textContent !== txt) el.textContent = txt;
+    el.classList.remove('echo-field-placeholder');
+  };
+
+  if (origEl) {
+    _setSentenceText(origEl, primary || '');
   }
   if (transEl) {
     const filter = echo.displayFilter || 'all';
     if (filter === 'all') {
       const translated = view.translated || '';
-      const rendered = translated ? esc(translated).replace(/\n/g, '<br>') : '<em style="opacity:.5">—</em>';
-      if (transEl.innerHTML !== rendered) transEl.innerHTML = rendered;
+      _setSentenceText(transEl, translated);
     } else {
-      if (transEl.innerHTML !== '<em style="opacity:.5">—</em>') transEl.innerHTML = '<em style="opacity:.5">—</em>';
+      _setSentenceText(transEl, '');
     }
   }
 }
