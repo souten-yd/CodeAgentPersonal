@@ -867,7 +867,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .echo-status{font-size:11px;color:var(--text3);font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:48vw}
 .echo-trans-toggle{display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);cursor:pointer}
 .echo-trans-toggle span{font-size:10px;color:var(--text2);font-family:var(--font-mono)}
-.echo-status-right{display:flex;align-items:center;gap:10px;min-width:0;justify-content:flex-start;flex-wrap:wrap}
+.echo-status-right{display:flex;align-items:center;gap:10px;min-width:0;flex:1;justify-content:flex-start;flex-wrap:wrap}
+.echo-output-count{margin-left:auto;flex-shrink:0;white-space:nowrap}
 .echo-busy-status{font-size:10px;font-weight:700;border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--text3);flex-shrink:0}
 .echo-busy-status.busy{color:var(--amber);border-color:var(--amber)}
 .echo-transcript{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px;scroll-behavior:smooth;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y}
@@ -995,7 +996,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="echo-status-right">
         <span id="echo-busy-status" class="echo-busy-status">idle</span>
         <span class="echo-status" id="echo-status">Ready</span>
-        <span id="echo-sentence-count">0 文</span>
+        <span id="echo-sentence-count" class="echo-output-count" title="ASR出力の確定回数（「出力まとめ回数」と同じ定義で1回=1カウント）">出力回数: 0</span>
       </div>
     </div>
   </div>
@@ -5810,7 +5811,7 @@ function _echoSetConn(state) {
 
 function _echoUpdateSentenceCount() {
   const el = document.getElementById('echo-sentence-count');
-  if (el) el.textContent = `${echo.sentences.length} 文`;
+  if (el) el.textContent = `出力回数: ${echo.sentences.length}`;
 }
 
 function _echoUpdateDuration() {
