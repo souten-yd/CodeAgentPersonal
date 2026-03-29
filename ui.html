@@ -889,11 +889,14 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .echo-field-placeholder{opacity:.5;font-style:italic}
 .echo-statusbar{display:flex;justify-content:flex-start;align-items:center;gap:10px;padding:5px 14px;border-top:1px solid var(--border);font-size:10px;font-family:var(--font-mono);color:var(--text3);flex-shrink:0;background:var(--bg);flex-wrap:wrap}
 .echo-translate-btn{padding:8px 18px;font-size:12px;font-weight:700;border-radius:6px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);cursor:pointer;transition:all .15s;font-family:var(--font-ui);letter-spacing:.04em}
-.echo-translate-btn:hover{background:var(--accent-bg);color:var(--accent2,#7ec7ff);border-color:var(--accent2,#7ec7ff)}
 .echo-translate-btn:disabled{opacity:.55;cursor:not-allowed}
 .echo-toolbar-elapsed{margin-left:auto;min-width:56px;text-align:right}
+.echo-translate-btn.off{background:var(--bg2);border-color:var(--border2);color:var(--text2)}
 .echo-translate-btn.enabled{background:var(--accent-bg);border-color:var(--accent);color:var(--accent)}
-.echo-translate-btn.enabled:hover{background:var(--accent-bg);border-color:var(--accent);color:var(--accent)}
+@media (hover:hover){
+  .echo-translate-btn.off:hover{background:var(--accent-bg);color:var(--accent2,#7ec7ff);border-color:var(--accent2,#7ec7ff)}
+  .echo-translate-btn.enabled:hover{background:var(--accent-bg);border-color:var(--accent);color:var(--accent)}
+}
 .echo-conn-ok{color:var(--green,#4caf50)}
 .echo-conn-off{color:var(--text3)}
 .echo-conn-err{color:var(--red)}
@@ -997,10 +1000,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <div class="echo-col" id="echo-col" style="display:none">
     <div class="echo-toolbar">
       <button class="echo-record-btn" id="echo-record-btn" onclick="toggleEchoRecording()">● Start</button>
-      <button class="echo-translate-btn" id="echo-toolbar-translate-enable" onclick="toggleEchoToolbarTranslate()" title="Mutual translation ON/OFF">
+      <button class="echo-translate-btn off" id="echo-toolbar-translate-enable" onclick="toggleEchoToolbarTranslate()" title="Mutual translation ON/OFF">
         ⇄ Smart Translate <b id="echo-toolbar-translate-enable-label">OFF</b>
       </button>
-      <button class="echo-translate-btn" id="echo-toolbar-generate-minutes" onclick="echoGenerateMinutesNow()" title="停止時にMinutesを作成するON/OFF">
+      <button class="echo-translate-btn off" id="echo-toolbar-generate-minutes" onclick="echoGenerateMinutesNow()" title="停止時にMinutesを作成するON/OFF">
         📝 Minutes OFF
       </button>
       <button id="echo-clear-btn" onclick="echoClearTranscript()" style="display:none;font-size:10px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="会話をクリア">✕ Clear</button>
@@ -1374,6 +1377,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div>
               <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">文字表示アニメーション(秒)</div>
               <input id="echo-text-reveal-seconds" type="number" min="0" max="5" step="0.1"
+                value="1.5"
                 style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text)"
                 onchange="saveEchoSettings()">
             </div>
@@ -3276,6 +3280,7 @@ function syncEchoTranslateUi() {
   const panelLbl = document.getElementById('tts-translate-enable-label');
   if (toolbarToggle) {
     toolbarToggle.classList.toggle('enabled', enabled);
+    toolbarToggle.classList.toggle('off', !enabled);
     // 以前のUI実装由来のインライン色が残っていても、状態に応じたCSSを優先させる
     toolbarToggle.style.background = '';
     toolbarToggle.style.borderColor = '';
@@ -3292,7 +3297,12 @@ function _syncEchoMinutesButtonUi() {
   if (!btn) return;
   const busy = !!echo._isStoppingOrSaving;
   btn.disabled = busy;
-  btn.classList.toggle('enabled', !!echo.autoGenerateMinutes && !busy);
+  const enabled = !!echo.autoGenerateMinutes && !busy;
+  btn.classList.toggle('enabled', enabled);
+  btn.classList.toggle('off', !enabled);
+  btn.style.background = '';
+  btn.style.borderColor = '';
+  btn.style.color = '';
   if (busy) {
     btn.textContent = '⟳ Minutes 処理中...';
     btn.title = '保存・Minutes生成処理中です';
@@ -3310,6 +3320,10 @@ function _echoInitSettingsUI() {
   if (localStorage.getItem('echo_autoplay_tts') === null) {
     localStorage.setItem('echo_autoplay_tts', 'false');
     echo.autoPlayTts = false;
+  }
+  if (localStorage.getItem('echo_text_reveal_seconds') === null) {
+    localStorage.setItem('echo_text_reveal_seconds', '1.5');
+    echo.textRevealSeconds = 1.5;
   }
   const autoChk = document.getElementById('echo-autoplay-tts');
   if (autoChk) autoChk.checked = echo.autoPlayTts;
@@ -6080,7 +6094,8 @@ function _echoAnimateSentenceField(sentence, field, rawText) {
   const revealSec = Math.max(0, Number(echo.textRevealSeconds) || 0);
   if (revealSec <= 0 || full.length <= 1) {
     sentence[field] = full;
-    _echoUpdateSentenceDom(sentence);
+    if (echo.displayStyle === 'sentence') _echoUpdateSentenceDom(sentence);
+    else _echoRequestRenderTranscript({scroll: false});
     return;
   }
   const current = String(sentence[field] || '');
@@ -6090,17 +6105,23 @@ function _echoAnimateSentenceField(sentence, field, rawText) {
   while (idx < sharedPrefixMax && current[idx] === full[idx]) idx += 1;
   if (idx >= full.length) {
     sentence[field] = full;
-    _echoUpdateSentenceDom(sentence);
+    if (echo.displayStyle === 'sentence') _echoUpdateSentenceDom(sentence);
+    else _echoRequestRenderTranscript({scroll: false});
     return;
   }
-  sentence[field] = full.slice(0, Math.max(1, idx));
+  const startIdx = Math.max(1, idx);
+  sentence[field] = full.slice(0, startIdx);
+  if (echo.displayStyle === 'sentence') _echoUpdateSentenceDom(sentence);
+  else _echoRequestRenderTranscript({scroll: false});
+  const charDuration = Math.max(12, (revealSec * 1000) / Math.max(1, full.length));
   const startAt = performance.now();
   const frame = (now) => {
-    const progress = Math.max(0, Math.min(1, (now - startAt) / (revealSec * 1000)));
-    const targetIdx = Math.max(idx, Math.floor(full.length * progress));
-    idx = Math.min(full.length, targetIdx + 1);
+    const elapsed = Math.max(0, now - startAt);
+    const advanced = Math.floor(elapsed / charDuration);
+    idx = Math.min(full.length, startIdx + advanced);
     sentence[field] = full.slice(0, idx);
-    _echoUpdateSentenceDom(sentence);
+    if (echo.displayStyle === 'sentence') _echoUpdateSentenceDom(sentence);
+    else _echoRequestRenderTranscript({scroll: false});
     if (idx >= full.length) {
       echo._animTimers.delete(key);
       return;
