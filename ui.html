@@ -1344,6 +1344,36 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <option value="medium">medium（バランス）</option>
           </select>
         </div>
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASRモード</div>
+          <select id="echo-asr-profile"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveEchoSettings()">
+            <option value="fast">高速優先（低負荷）</option>
+            <option value="balanced">バランス（既定）</option>
+            <option value="accurate">精度優先（高負荷）</option>
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+          <div>
+            <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">no_speech</div>
+            <input id="echo-asr-no-speech-threshold" type="number" min="0" max="1" step="0.01"
+              style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+              onchange="saveEchoSettings()">
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">log_prob</div>
+            <input id="echo-asr-log-prob-threshold" type="number" min="-5" max="0" step="0.05"
+              style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+              onchange="saveEchoSettings()">
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">compress</div>
+            <input id="echo-asr-compression-ratio-threshold" type="number" min="1" max="5" step="0.1"
+              style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+              onchange="saveEchoSettings()">
+          </div>
+        </div>
         <div style="margin-bottom:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
           <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🧩 表示設定</div>
           <div style="margin-bottom:8px">
@@ -2431,6 +2461,10 @@ const echo = {
   ttsEngine:      localStorage.getItem('echo_tts_engine')  || 'qwen3tts',
   asrLang:        localStorage.getItem('echo_asr_lang')    || 'auto',
   asrModel:       localStorage.getItem('echo_asr_model')   || 'large-v3-turbo',
+  asrProfile:     localStorage.getItem('echo_asr_profile') || 'balanced',
+  asrNoSpeechThreshold: Math.min(1, Math.max(0, _numOr(localStorage.getItem('echo_asr_no_speech_threshold'), 0.6))),
+  asrLogProbThreshold: _numOr(localStorage.getItem('echo_asr_log_prob_threshold'), -1.0),
+  asrCompressionRatioThreshold: Math.max(1, _numOr(localStorage.getItem('echo_asr_compression_ratio_threshold'), 2.4)),
   asrDevice:      localStorage.getItem('asr_device')       || 'cuda',
   asrFilterEnabled: localStorage.getItem('echo_asr_filter_enabled') !== 'false',
   asrRejectShortTextEnabled: localStorage.getItem('echo_asr_reject_short_text_enabled') !== 'false',
@@ -3103,6 +3137,19 @@ function saveEchoSettings() {
   echo.textRevealSeconds = Math.max(0, _numOr(document.getElementById('echo-text-reveal-seconds')?.value, echo.textRevealSeconds ?? 1.5));
   echo.asrLang     = document.getElementById('echo-asr-lang')?.value       || 'auto';
   echo.asrModel    = document.getElementById('echo-asr-model')?.value      || 'large-v3-turbo';
+  echo.asrProfile  = document.getElementById('echo-asr-profile')?.value    || 'balanced';
+  echo.asrNoSpeechThreshold = Math.min(
+    1,
+    Math.max(0, _numOr(document.getElementById('echo-asr-no-speech-threshold')?.value, echo.asrNoSpeechThreshold ?? 0.6))
+  );
+  echo.asrLogProbThreshold = _numOr(
+    document.getElementById('echo-asr-log-prob-threshold')?.value,
+    echo.asrLogProbThreshold ?? -1.0
+  );
+  echo.asrCompressionRatioThreshold = Math.max(
+    1,
+    _numOr(document.getElementById('echo-asr-compression-ratio-threshold')?.value, echo.asrCompressionRatioThreshold ?? 2.4)
+  );
   echo.asrFilterEnabled = document.getElementById('echo-asr-filter-enabled')?.checked !== false;
   echo.asrRejectShortTextEnabled = document.getElementById('echo-asr-reject-short-text-enabled')?.checked !== false;
   echo.asrRejectNoSpeechEnabled = document.getElementById('echo-asr-reject-no-speech-enabled')?.checked !== false;
@@ -3165,6 +3212,10 @@ function saveEchoSettings() {
   localStorage.setItem('echo_text_reveal_seconds', `${echo.textRevealSeconds}`);
   localStorage.setItem('echo_asr_lang',     echo.asrLang);
   localStorage.setItem('echo_asr_model',    echo.asrModel);
+  localStorage.setItem('echo_asr_profile', echo.asrProfile);
+  localStorage.setItem('echo_asr_no_speech_threshold', `${echo.asrNoSpeechThreshold}`);
+  localStorage.setItem('echo_asr_log_prob_threshold', `${echo.asrLogProbThreshold}`);
+  localStorage.setItem('echo_asr_compression_ratio_threshold', `${echo.asrCompressionRatioThreshold}`);
   localStorage.setItem('echo_asr_filter_enabled', `${echo.asrFilterEnabled}`);
   localStorage.setItem('echo_asr_reject_short_text_enabled', `${echo.asrRejectShortTextEnabled}`);
   localStorage.setItem('echo_asr_reject_no_speech_enabled', `${echo.asrRejectNoSpeechEnabled}`);
@@ -3348,6 +3399,14 @@ function _echoInitSettingsUI() {
   if (langSel) langSel.value = echo.asrLang;
   const modelSel = document.getElementById('echo-asr-model');
   if (modelSel) modelSel.value = echo.asrModel;
+  const profileSel = document.getElementById('echo-asr-profile');
+  if (profileSel) profileSel.value = echo.asrProfile || 'balanced';
+  const noSpeechThresholdInput = document.getElementById('echo-asr-no-speech-threshold');
+  const logProbThresholdInput = document.getElementById('echo-asr-log-prob-threshold');
+  const compressionRatioThresholdInput = document.getElementById('echo-asr-compression-ratio-threshold');
+  if (noSpeechThresholdInput) noSpeechThresholdInput.value = `${echo.asrNoSpeechThreshold ?? 0.6}`;
+  if (logProbThresholdInput) logProbThresholdInput.value = `${echo.asrLogProbThreshold ?? -1.0}`;
+  if (compressionRatioThresholdInput) compressionRatioThresholdInput.value = `${echo.asrCompressionRatioThreshold ?? 2.4}`;
   const filterEnabledInput = document.getElementById('echo-asr-filter-enabled');
   const filterEnabledLabel = document.getElementById('echo-asr-filter-enabled-label');
   const rejectShortInput = document.getElementById('echo-asr-reject-short-text-enabled');
@@ -5878,7 +5937,11 @@ async function transcribeVoiceBlob(blob){
         audio_base64: b64,
         audio_format: 'webm',
         language: lang,
-        model: 'large-v3-turbo',
+        model: echo.asrModel || 'large-v3-turbo',
+        asr_profile: echo.asrProfile || 'balanced',
+        no_speech_threshold: echo.asrNoSpeechThreshold,
+        log_prob_threshold: echo.asrLogProbThreshold,
+        compression_ratio_threshold: echo.asrCompressionRatioThreshold,
         auto_unload: false
       })
     });
@@ -6387,6 +6450,10 @@ function _echoConnectWs(wsMode) {
           session_id: echo.sessionId,
           language: echo.asrLang,
           model: echo.asrModel,
+          asr_profile: echo.asrProfile || 'balanced',
+          no_speech_threshold: echo.asrNoSpeechThreshold,
+          log_prob_threshold: echo.asrLogProbThreshold,
+          compression_ratio_threshold: echo.asrCompressionRatioThreshold,
           asr_device: echo.asrDevice,
           asr_post_filter: {
             enabled: echo.asrFilterEnabled,
