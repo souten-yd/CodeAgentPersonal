@@ -5,6 +5,7 @@
 ########################################
 ARG CUDA_VERSION=12.8.0
 ARG UBUNTU_VERSION=22.04
+ARG PYTORCH_IMAGE=pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
 
 FROM ubuntu:${UBUNTU_VERSION} AS llama_prebuilt
 
@@ -40,7 +41,7 @@ RUN set -eux; \
 ########################################
 # Runtime stage: Python + codeAgent + llama.cpp
 ########################################
-FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu${UBUNTU_VERSION} AS runtime
+FROM ${PYTORCH_IMAGE} AS runtime
 ARG VOICEVOX_WHEEL_VARIANT=auto
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -60,23 +61,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.list \
-    && apt-get update -o Acquire::Retries=3 \
+RUN apt-get update -o Acquire::Retries=3 \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        git \
         tini \
         libgomp1 \
         libcurl4 \
-        software-properties-common \
-        gnupg \
-    && add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-        python3.11 \
-        python3.11-venv \
-        python3.11-distutils \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3.11 -m venv /opt/venv
