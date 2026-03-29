@@ -8170,6 +8170,8 @@ _echo_debug_last_updated: dict[str, str] = {}
 ECHO_DEBUG_LOG_PATH = os.path.join(LOG_DIR, "echo_debug.log")
 _echo_save_lock = threading.Lock()
 _echo_saving_sessions: set[str] = set()
+_echo_minutes_lock = threading.Lock()
+_echo_generating_minutes_sessions: set[str] = set()
 # Echo ASRの軽量ポストフィルタ（CPU負荷ほぼゼロ）
 ECHO_ASR_MIN_CHARS = max(1, int(os.environ.get("ECHO_ASR_MIN_CHARS", "2") or 2))
 ECHO_ASR_NO_SPEECH_REJECT = min(0.99, max(0.0, float(os.environ.get("ECHO_ASR_NO_SPEECH_REJECT", "0.72") or 0.72)))
@@ -8429,7 +8431,19 @@ def _echo_do_translate(text: str, src_lang: str, llm_url: str = "") -> str:
         return f"[翻訳エラー: {e}]"
 
 
-def _echo_generate_minutes(session: dict) -> str:
+def _echo_guess_title_from_sentences(sentences: list[dict]) -> str:
+    for s in sentences or []:
+        text = str(s.get("text", "")).strip() or str(s.get("translated", "")).strip()
+        if not text:
+            continue
+        first = re.split(r"[。．.!?！？\n]", text, maxsplit=1)[0].strip()
+        first = re.sub(r"\s+", " ", first)
+        if len(first) >= 4:
+            return first[:30]
+    return "会議録"
+
+
+def _echo_generate_minutes(session: dict) -> dict:
     """LLM で議事録を生成し Markdown 文字列を返す。"""
     sentences = session.get("sentences", [])
     if not sentences:
@@ -8481,18 +8495,31 @@ def _echo_generate_minutes(session: dict) -> str:
         f"文字起こし:\n{transcript_text[:6000]}"
     )
     try:
-        content, _ = call_llm(
-            [{"role": "user", "content": prompt}],
-            llm_url=LLM_URL,
-        )
-        import json as _json
-        # JSONをパース
-        raw = (content or "").strip()
-        # コードブロック除去
-        for marker in ["```json", "```"]:
-            if marker in raw:
-                raw = raw.split(marker, 1)[-1].rsplit("```", 1)[0].strip()
-        data = _json.loads(raw)
+        data: dict = {}
+        err_holder: dict = {}
+
+        def _minutes_llm_worker():
+            try:
+                content, _ = call_llm(
+                    [{"role": "user", "content": prompt}],
+                    llm_url=LLM_URL,
+                )
+                import json as _json
+                raw = (content or "").strip()
+                for marker in ["```json", "```"]:
+                    if marker in raw:
+                        raw = raw.split(marker, 1)[-1].rsplit("```", 1)[0].strip()
+                data.update(_json.loads(raw))
+            except Exception as _e:
+                err_holder["error"] = _e
+
+        t = threading.Thread(target=_minutes_llm_worker, daemon=True)
+        t.start()
+        t.join(timeout=120)
+        if t.is_alive():
+            raise TimeoutError("minutes generation timeout (>120s)")
+        if "error" in err_holder:
+            raise err_holder["error"]
     except Exception:
         fallback_title = _guess_fallback_title(sentences)
         data = {
@@ -8506,7 +8533,7 @@ def _echo_generate_minutes(session: dict) -> str:
 
 
 def _echovault_save_session(session: dict) -> str:
-    """EchoVault にセッションファイルを保存。保存した minutes ファイル名を返す。"""
+    """EchoVault にセッションファイルを保存。保存した主要ファイル名を返す。"""
     import datetime as _dt
 
     sentences = session.get("sentences", [])
@@ -8514,9 +8541,9 @@ def _echovault_save_session(session: dict) -> str:
     started_at: _dt.datetime = session.get("started_at", _dt.datetime.now())
     session_id: str = session.get("session_id", "unknown")
 
-    # 議事録データ生成
-    minutes_data = _echo_generate_minutes(session)
-    title = (minutes_data.get("title", "会議録") if isinstance(minutes_data, dict) else "会議録")
+    create_minutes = bool(session.get("create_minutes", True))
+    # タイトルは文字起こしから推定し、議事録生成の有無に依存しない
+    title = _echo_guess_title_from_sentences(sentences)
     # ファイル名に使えない文字を除去
     import re as _re2
     safe_title = _re2.sub(r'[\\/:*?"<>|]', "_", title)[:40]
@@ -8548,7 +8575,11 @@ def _echovault_save_session(session: dict) -> str:
         f.write(f"**セッション:** {session_id}\n\n")
         f.write("\n".join(transcript_lines) + "\n")
 
+    if not create_minutes:
+        return os.path.basename(transcript_path)
+
     # 議事録Markdown保存
+    minutes_data = _echo_generate_minutes(session)
     minutes_path = os.path.join(ECHOVAULT_DIR, f"{base}_minutes.md")
     duration_sec = session.get("duration_sec", 0)
     dur_str = f"{int(duration_sec//3600):02d}:{int((duration_sec%3600)//60):02d}:{int(duration_sec%60):02d}"
@@ -8612,10 +8643,14 @@ def _echo_schedule_session_save(session_id: str, session: dict):
 def echo_save_status():
     with _echo_save_lock:
         sessions = sorted(_echo_saving_sessions)
+    with _echo_minutes_lock:
+        generating_sessions = sorted(_echo_generating_minutes_sessions)
     return {
-        "saving": len(sessions) > 0,
+        "saving": len(sessions) > 0 or len(generating_sessions) > 0,
         "count": len(sessions),
         "session_ids": sessions[:20],
+        "minutes_generating_count": len(generating_sessions),
+        "minutes_generating_session_ids": generating_sessions[:20],
     }
 
 
@@ -8704,6 +8739,7 @@ async def echo_stream_ws(websocket: WebSocket):
                         "buffer_format": "webm",
                         "asr_filter": asr_filter,
                         "translate_enabled": translate_enabled,
+                        "create_minutes": translate_enabled,
                     }
                     _echo_sessions[session_id] = session
                     _echo_debug_append(
@@ -8750,6 +8786,7 @@ async def echo_stream_ws(websocket: WebSocket):
                             "buffer_format": "webm",
                             "asr_filter": _echo_resolve_filter_config({}),
                             "translate_enabled": True,
+                            "create_minutes": True,
                         }
                         _echo_sessions[session_id] = session
                     # 再接続時は同一チャンク再送を許容するため、重複除外セットを保持
@@ -9018,6 +9055,153 @@ def debug_echo(session_id: str | None = None, limit: int = 100):
 def debug_echo_typo_redirect():
     """typo compatibility: /debu/echo -> /debug/echo"""
     return RedirectResponse(url="/debug/echo", status_code=307)
+
+
+def _title_from_filename(fname: str) -> str:
+    stem, _ = os.path.splitext(os.path.basename(fname or ""))
+    stem = re.sub(r"_(minutes|transcript)$", "", stem, flags=re.IGNORECASE)
+    stem = re.sub(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}_?", "", stem)
+    return stem or "会議録"
+
+
+def _extract_title_from_md(path: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for _ in range(40):
+                line = f.readline()
+                if not line:
+                    break
+                s = line.strip()
+                if s.startswith("#"):
+                    s = re.sub(r"^#+\s*", "", s)
+                    s = re.sub(r"^(議事録|文字起こし)\s*[—-]\s*", "", s).strip()
+                    if s:
+                        return s
+    except Exception:
+        pass
+    return ""
+
+
+def _echo_parse_transcript_markdown(md: str) -> list[dict]:
+    rows: list[dict] = []
+    for line in (md or "").splitlines():
+        s = line.strip()
+        if not s.startswith("|"):
+            continue
+        if "言語" in s and "原文" in s and "翻訳" in s:
+            continue
+        if re.fullmatch(r"\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|", s):
+            continue
+        parts = [p.strip() for p in s.strip("|").split("|")]
+        if len(parts) < 4:
+            continue
+        lang_cell = parts[1]
+        lang = "ja" if ("🇯🇵" in lang_cell or "ja" in lang_cell.lower()) else "en"
+        text = parts[2].replace("｜", "|")
+        translated = parts[3].replace("｜", "|")
+        if not text and not translated:
+            continue
+        rows.append({
+            "id": len(rows),
+            "lang": lang,
+            "text": text,
+            "translated": translated,
+        })
+    return rows
+
+
+def _echo_generate_minutes_from_transcript_file(transcript_filename: str, overwrite: bool = True) -> str:
+    safe = os.path.normpath(transcript_filename or "").lstrip("/\\")
+    if not safe.endswith("_transcript.md"):
+        raise HTTPException(status_code=400, detail="transcript_filename must end with _transcript.md")
+    transcript_path = os.path.join(ECHOVAULT_DIR, safe)
+    if not os.path.abspath(transcript_path).startswith(os.path.abspath(ECHOVAULT_DIR)):
+        raise HTTPException(status_code=403, detail="不正なパス")
+    if not os.path.isfile(transcript_path):
+        raise HTTPException(status_code=404, detail="transcript file not found")
+
+    base = re.sub(r"_transcript\.md$", "", safe, flags=re.IGNORECASE)
+    minutes_filename = f"{base}_minutes.md"
+    minutes_path = os.path.join(ECHOVAULT_DIR, minutes_filename)
+    if (not overwrite) and os.path.isfile(minutes_path):
+        return minutes_filename
+
+    try:
+        with open(transcript_path, "r", encoding="utf-8") as f:
+            md = f.read()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"transcript read failed: {e}")
+
+    sentences = _echo_parse_transcript_markdown(md)
+    if not sentences:
+        raise HTTPException(status_code=400, detail="transcript has no sentence rows")
+    started_at = datetime.fromtimestamp(os.path.getmtime(transcript_path))
+    session = {
+        "session_id": base,
+        "sentences": sentences,
+        "started_at": started_at,
+        "duration_sec": 0,
+        "create_minutes": True,
+    }
+    minutes_data = _echo_generate_minutes(session)
+    title = (
+        minutes_data.get("title", _extract_title_from_md(transcript_path) or _title_from_filename(transcript_filename))
+        if isinstance(minutes_data, dict)
+        else (_extract_title_from_md(transcript_path) or _title_from_filename(transcript_filename))
+    )
+    with open(minutes_path, "w", encoding="utf-8") as f:
+        f.write(f"# 議事録 — {title}\n\n")
+        f.write(f"**日付:** {started_at.strftime('%Y-%m-%d %H:%M')}  \n")
+        f.write(f"**録音時間:** 00:00:00  \n")
+        f.write(f"**セッション:** {base}\n\n")
+        if isinstance(minutes_data, dict):
+            f.write(f"## サマリー\n{minutes_data.get('summary','')}\n\n")
+            topics = minutes_data.get("topics", [])
+            if topics:
+                f.write("## 議題\n" + "\n".join(f"- {t}" for t in topics) + "\n\n")
+            ais = minutes_data.get("action_items", [])
+            if ais:
+                f.write("## アクションアイテム\n" + "\n".join(f"- [ ] {a}" for a in ais) + "\n\n")
+            cons = minutes_data.get("conclusions", [])
+            if cons:
+                f.write("## 結論\n" + "\n".join(f"- {c}" for c in cons) + "\n\n")
+        f.write("---\n## 文字起こし\n\n")
+        with open(transcript_path, "r", encoding="utf-8") as tf:
+            f.write(tf.read())
+    return minutes_filename
+
+
+@app.post("/echo/generate-minutes")
+def echo_generate_minutes(req: dict):
+    transcript_name = str((req or {}).get("transcript_filename", "")).strip()
+    overwrite = bool((req or {}).get("overwrite", True))
+    if not transcript_name:
+        all_files = sorted(
+            [f for f in os.listdir(ECHOVAULT_DIR) if f.endswith("_transcript.md")],
+            key=lambda n: os.path.getmtime(os.path.join(ECHOVAULT_DIR, n)),
+            reverse=True,
+        )
+        if not all_files:
+            raise HTTPException(status_code=404, detail="transcript not found")
+        for cand in all_files:
+            cand_minutes = re.sub(r"_transcript\.md$", "_minutes.md", cand, flags=re.IGNORECASE)
+            if not os.path.isfile(os.path.join(ECHOVAULT_DIR, cand_minutes)):
+                transcript_name = cand
+                break
+        if not transcript_name:
+            transcript_name = all_files[0]
+
+    session_key = re.sub(r"_transcript\.md$", "", transcript_name, flags=re.IGNORECASE)
+    with _echo_minutes_lock:
+        if session_key in _echo_generating_minutes_sessions:
+            raise HTTPException(status_code=409, detail="minutes generation already in progress")
+        _echo_generating_minutes_sessions.add(session_key)
+    try:
+        filename = _echo_generate_minutes_from_transcript_file(transcript_name, overwrite=overwrite)
+        return {"ok": True, "transcript": transcript_name, "filename": filename}
+    finally:
+        with _echo_minutes_lock:
+            _echo_generating_minutes_sessions.discard(session_key)
 
 
 @app.get("/echo/sessions")
