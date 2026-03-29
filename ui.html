@@ -884,7 +884,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .echo-sentence .ts-trans{font-size:12px;color:var(--text3);font-style:italic;line-height:1.45;min-height:18px}
 .echo-statusbar{display:flex;justify-content:flex-start;align-items:center;gap:10px;padding:5px 14px;border-top:1px solid var(--border);font-size:10px;font-family:var(--font-mono);color:var(--text3);flex-shrink:0;background:var(--bg);flex-wrap:wrap}
 .echo-translate-btn{padding:8px 18px;font-size:12px;font-weight:700;border-radius:6px;border:2px solid var(--accent);background:var(--accent-bg);color:var(--accent);cursor:pointer;transition:all .15s;font-family:var(--font-ui);letter-spacing:.04em}
-.echo-translate-btn:hover{background:var(--accent);color:var(--bg)}
+.echo-translate-btn:hover{background:var(--accent-bg);color:var(--accent2,#7ec7ff);border-color:var(--accent2,#7ec7ff)}
 .echo-translate-btn.enabled{background:var(--accent);color:var(--bg)}
 .echo-conn-ok{color:var(--green,#4caf50)}
 .echo-conn-off{color:var(--text3)}
@@ -2269,8 +2269,9 @@ function _ttsGetTranslateSettings(context = 'main') {
   const mode = localStorage.getItem(prefix + 'mode') || 'auto';
   const en2jaRaw = localStorage.getItem(prefix + 'en2ja_enabled');
   const ja2enRaw = localStorage.getItem(prefix + 'ja2en_enabled');
+  const enabledRaw = localStorage.getItem(prefix + 'enabled');
   return {
-    enabled: localStorage.getItem(prefix + 'enabled') !== 'false',
+    enabled: enabledRaw !== null ? enabledRaw === 'true' : (context !== 'echo'),
     mode,
     en2jaEnabled: en2jaRaw !== null ? en2jaRaw === 'true' : (mode === 'auto' || mode === 'ja'),
     ja2enEnabled: ja2enRaw !== null ? ja2enRaw === 'true' : (mode === 'auto' || mode === 'en'),
@@ -2910,7 +2911,6 @@ async function loadQwen3Tts(context) {
 function saveEchoSettings() {
   echo.autoPlayTts = document.getElementById('echo-autoplay-tts')?.checked || false;
   echo.ttsEngine   = document.getElementById('echo-tts-engine')?.value     || 'qwen3tts';
-  echo.ttsTranslateEnabled = document.getElementById('echo-toolbar-translate-enable')?.classList.contains('enabled') ?? echo.ttsTranslateEnabled;
   echo.displayMode = document.getElementById('echo-display-mode')?.value || echo.displayMode || 'paired';
   echo.parallelMaxSentences = Math.max(1, parseInt(document.getElementById('echo-parallel-max-sentences')?.value || `${echo.parallelMaxSentences || 4}`, 10) || 4);
   echo.textRevealSeconds = Math.max(0, _numOr(document.getElementById('echo-text-reveal-seconds')?.value, echo.textRevealSeconds ?? 1));
@@ -3078,6 +3078,18 @@ function saveEchoSettings() {
   if (vadMinAvgRmsInput) vadMinAvgRmsInput.disabled = !echo.vadEnabled;
 }
 
+function syncEchoTranslateUi() {
+  const enabled = !!echo.ttsTranslateEnabled;
+  const toolbarToggle = document.getElementById('echo-toolbar-translate-enable');
+  const toolbarLabel = document.getElementById('echo-toolbar-translate-enable-label');
+  const panelChk = document.getElementById('tts-translate-enable');
+  const panelLbl = document.getElementById('tts-translate-enable-label');
+  if (toolbarToggle) toolbarToggle.classList.toggle('enabled', enabled);
+  if (toolbarLabel) toolbarLabel.textContent = enabled ? 'ON' : 'OFF';
+  if (panelChk) panelChk.checked = enabled;
+  if (panelLbl) panelLbl.textContent = enabled ? 'ON' : 'OFF';
+}
+
 function _echoInitSettingsUI() {
   if (localStorage.getItem('echo_autoplay_tts') === null) {
     localStorage.setItem('echo_autoplay_tts', 'false');
@@ -3089,10 +3101,7 @@ function _echoInitSettingsUI() {
   if (autoLbl) autoLbl.textContent = echo.autoPlayTts ? 'ON' : 'OFF';
   const engSel = document.getElementById('echo-tts-engine');
   if (engSel) engSel.value = echo.ttsEngine;
-  const toolbarTranslateBtn = document.getElementById('echo-toolbar-translate-enable');
-  const toolbarTranslateLabel = document.getElementById('echo-toolbar-translate-enable-label');
-  if (toolbarTranslateBtn) toolbarTranslateBtn.classList.toggle('enabled', !!echo.ttsTranslateEnabled);
-  if (toolbarTranslateLabel) toolbarTranslateLabel.textContent = echo.ttsTranslateEnabled ? 'ON' : 'OFF';
+  syncEchoTranslateUi();
   const displayModeInput = document.getElementById('echo-display-mode');
   const parallelMaxInput = document.getElementById('echo-parallel-max-sentences');
   const revealSecondsInput = document.getElementById('echo-text-reveal-seconds');
@@ -3174,14 +3183,7 @@ function _echoInitSettingsUI() {
 function toggleEchoToolbarTranslate() {
   echo.ttsTranslateEnabled = !echo.ttsTranslateEnabled;
   localStorage.setItem('echo_tts_translate_enabled', `${echo.ttsTranslateEnabled}`);
-  const btn = document.getElementById('echo-toolbar-translate-enable');
-  if (btn) btn.classList.toggle('enabled', !!echo.ttsTranslateEnabled);
-  const lbl = document.getElementById('echo-toolbar-translate-enable-label');
-  if (lbl) lbl.textContent = echo.ttsTranslateEnabled ? 'ON' : 'OFF';
-  const panelChk = document.getElementById('tts-translate-enable');
-  if (panelChk) panelChk.checked = echo.ttsTranslateEnabled;
-  const panelLbl = document.getElementById('tts-translate-enable-label');
-  if (panelLbl) panelLbl.textContent = echo.ttsTranslateEnabled ? 'ON' : 'OFF';
+  syncEchoTranslateUi();
   _ttsSyncTranslateDirectionChecks('echo');
   _echoRenderTranscript(true);
 }
@@ -3227,6 +3229,7 @@ function saveTtsTranslateSettings(context = 'echo') {
     localStorage.setItem(prefix + 'enabled', enableChk.checked);
     const lbl = document.getElementById('tts-translate-enable-label');
     if (lbl) lbl.textContent = enableChk.checked ? 'ON' : 'OFF';
+    if (isEcho) syncEchoTranslateUi();
   }
   // 旧 mode 選択は互換用途として残しつつ、新しい方向別トグルを優先
   if (modeSel && document.activeElement === modeSel) {
@@ -3299,7 +3302,6 @@ function refreshTtsTab() {
   if (refTextInput) refTextInput.value = localStorage.getItem('qwen3_ref_text') || '';
   _syncQwen3ReferenceState();
   _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
-  const enableChk = document.getElementById('tts-translate-enable');
   const modeSel   = document.getElementById('tts-translate-mode');
   const en2jaChk  = document.getElementById('tts-translate-en2ja-enable');
   const ja2enChk  = document.getElementById('tts-translate-ja2en-enable');
@@ -3310,11 +3312,7 @@ function refreshTtsTab() {
   echo.ttsTranslateEnToJaEnabled = echoTranslate.en2jaEnabled;
   echo.ttsTranslateJaToEnEnabled = echoTranslate.ja2enEnabled;
   echo.ttsTranslateAutoplay = echoTranslate.autoplay;
-  if (enableChk) { enableChk.checked = echo.ttsTranslateEnabled; const lbl = document.getElementById('tts-translate-enable-label'); if (lbl) lbl.textContent = echo.ttsTranslateEnabled ? 'ON' : 'OFF'; }
-  const toolbarToggle = document.getElementById('echo-toolbar-translate-enable');
-  const toolbarLabel = document.getElementById('echo-toolbar-translate-enable-label');
-  if (toolbarToggle) toolbarToggle.classList.toggle('enabled', !!echo.ttsTranslateEnabled);
-  if (toolbarLabel) toolbarLabel.textContent = echo.ttsTranslateEnabled ? 'ON' : 'OFF';
+  syncEchoTranslateUi();
   if (modeSel)   modeSel.value = _ttsModeFromFlags(!!echo.ttsTranslateEnToJaEnabled, !!echo.ttsTranslateJaToEnEnabled);
   if (en2jaChk)  { en2jaChk.checked = !!echo.ttsTranslateEnToJaEnabled; const lbl = document.getElementById('tts-translate-en2ja-enable-label'); if (lbl) lbl.textContent = echo.ttsTranslateEnToJaEnabled ? 'ON' : 'OFF'; }
   if (ja2enChk)  { ja2enChk.checked = !!echo.ttsTranslateJaToEnEnabled; const lbl = document.getElementById('tts-translate-ja2en-enable-label'); if (lbl) lbl.textContent = echo.ttsTranslateJaToEnEnabled ? 'ON' : 'OFF'; }
