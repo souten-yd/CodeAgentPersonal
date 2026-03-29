@@ -9728,6 +9728,7 @@ async def echo_voice_ref_delete(request: Request):
 # =========================
 
 _VOICEVOX_IMPORT_ERROR = ""
+_VOICEVOX_ENABLED = os.environ.get("CODEAGENT_ENABLE_VOICEVOX", "").strip().lower() in {"1", "true", "yes", "on"}
 try:
     import voicevox_core as _vc_mod  # type: ignore
     _VOICEVOX_AVAILABLE = True
@@ -10259,7 +10260,9 @@ def tts_status_api():
     auto_start_status = os.environ.get("RUNPOD_VOICEVOX_AUTOSTART_STATUS", "")
     auto_start_hint = os.environ.get("RUNPOD_VOICEVOX_AUTOSTART_HINT", "")
     diagnostics = []
-    if not http_ok:
+    if not _VOICEVOX_ENABLED:
+        diagnostics.append("VOICEVOX is disabled in this build (CODEAGENT_ENABLE_VOICEVOX is not enabled).")
+    elif not http_ok:
         diagnostics.append(f"VOICEVOX HTTP unavailable: {http_probe.get('error') or 'unknown error'}")
         diagnostics.append(f"Configured VOICEVOX_URL={_VOICEVOX_HTTP_URL}")
         if IS_RUNPOD_RUNTIME:
@@ -10276,8 +10279,8 @@ def tts_status_api():
     qwen_status_file = _qwen3_install_status_file()
 
     return {
-        "voicevox_available": _VOICEVOX_AVAILABLE,
-        "voicevox_loaded": loaded or http_ok,
+        "voicevox_available": bool(_VOICEVOX_ENABLED and _VOICEVOX_AVAILABLE),
+        "voicevox_loaded": bool(_VOICEVOX_ENABLED and (loaded or http_ok)),
         "voicevox_speakers": speakers,
         "voicevox_speakers_http": http_speakers,
         "voicevox_speakers_core": core_speakers,
@@ -10307,8 +10310,10 @@ def tts_debug_api(limit: int = 20):
 
 
 @app.get("/tts/voices")
-async def tts_voices_api(engine: str = "voicevox"):
+async def tts_voices_api(engine: str = "qwen3tts"):
     if engine == "voicevox":
+        if not _VOICEVOX_ENABLED:
+            return {"voices": []}
         return {"voices": tts_voicevox_speakers()}
     elif engine == "edgetts":
         voices = await tts_edgetts_list_voices_async()
@@ -10320,7 +10325,7 @@ async def tts_voices_api(engine: str = "voicevox"):
 
 @app.post("/tts/load")
 def tts_load_api(req: dict = {}):
-    engine = str(req.get("engine", "voicevox"))
+    engine = str(req.get("engine", "qwen3tts"))
     device = str(req.get("device", "cpu")) if req.get("device") in ("cpu", "cuda") else "cpu"
     model_id = str(req.get("model_id", "Qwen/Qwen3-TTS-12Hz-1.7B-Base"))
 
@@ -10329,6 +10334,9 @@ def tts_load_api(req: dict = {}):
 
     def stream():
         if engine == "voicevox":
+            if not _VOICEVOX_ENABLED:
+                yield _sse({"type": "error", "detail": "VOICEVOX is disabled in this build."})
+                return
             yield _sse({"type": "loading", "message": "VOICEVOX に接続中です..."})
             try:
                 result = tts_voicevox_load()
@@ -10359,8 +10367,10 @@ def tts_load_api(req: dict = {}):
 
 @app.post("/tts/unload")
 def tts_unload_api(req: dict = {}):
-    engine = str(req.get("engine", "voicevox"))
+    engine = str(req.get("engine", "qwen3tts"))
     if engine == "voicevox":
+        if not _VOICEVOX_ENABLED:
+            return {"status": "unloaded", "engine": "voicevox"}
         global _tts_core
         with _tts_lock:
             _tts_core = None
@@ -10433,12 +10443,14 @@ def tts_ref_audio_delete(filename: str):
 @app.post("/tts/synthesize")
 def tts_synthesize_api(req: dict):
     from fastapi.responses import Response as FastAPIResponse
-    engine = str(req.get("engine", "voicevox"))
+    engine = str(req.get("engine", "qwen3tts"))
     text = str(req.get("text", "")).strip()
     if not text:
         raise HTTPException(status_code=400, detail="text required")
 
     if engine == "voicevox":
+        if not _VOICEVOX_ENABLED:
+            raise HTTPException(status_code=400, detail="VOICEVOX is disabled in this build.")
         speaker_id = int(req.get("speaker_id", 0))
         speed = float(req.get("speed", 1.0))
         try:
