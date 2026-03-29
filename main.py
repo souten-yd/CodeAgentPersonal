@@ -9817,8 +9817,8 @@ _QWEN3TTS_IMPORT_ERROR = ""
 try:
     import qwen_tts as _qwen_tts_mod  # type: ignore  # noqa: F401
     import torch as _torch_mod
-    from transformers import Qwen3TTSForConditionalGeneration as _Q3TModel  # type: ignore
     from transformers import AutoProcessor as _Q3TProc  # type: ignore
+    from transformers import AutoModel as _Q3TModelAuto  # type: ignore
     import transformers as _transformers_mod  # type: ignore
     import soundfile as _sf_mod  # type: ignore
     _QWEN3TTS_AVAILABLE = True
@@ -9826,7 +9826,7 @@ except Exception as _qwen_e:
     _QWEN3TTS_IMPORT_ERROR = str(_qwen_e)
     _qwen_tts_mod = None
     _torch_mod = None
-    _Q3TModel = None
+    _Q3TModelAuto = None
     _Q3TProc = None
     _transformers_mod = None
     _sf_mod = None
@@ -10006,7 +10006,7 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> di
         _qwen3tts_processor = _Q3TProc.from_pretrained(
             model_id, cache_dir=cache_dir, trust_remote_code=True
         )
-        _qwen3tts_model = _Q3TModel.from_pretrained(
+        _qwen3tts_model = _Q3TModelAuto.from_pretrained(
             model_id, cache_dir=cache_dir, trust_remote_code=True,
             torch_dtype=_torch_mod.float16 if actual_device == "cuda" else _torch_mod.float32
         ).to(actual_device).eval()
