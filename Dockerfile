@@ -166,41 +166,29 @@ https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic_u
       echo "[WARN] Open JTalk dictionary was not prepared at ${JTDIR}. VOICEVOX may require manual setup."; \
     fi
 
-# Install torch/torchaudio and validate Qwen3 TTS runtime deps.
-# Retry installs (cu124 -> cpu fallback) to absorb transient index/network failures.
-# If install still fails, write status and stop the build immediately.
+# Install Qwen3-TTS runtime dependencies with CUDA 12.8 aligned PyTorch wheels only.
+# Keep TTS deps isolated to reduce conflicts with existing FastAPI/WebUI stack.
 RUN set -eux; \
     status_file="/app/qwen3_tts_install_status.json"; \
-    retry_pip_install() { \
-      idx="$1"; \
-      n=1; \
-      while [ "${n}" -le 3 ]; do \
-        if python -m pip install --no-cache-dir -r /app/requirements-tts.txt --index-url "https://pypi.org/simple" --extra-index-url "${idx}"; then \
-          return 0; \
-        fi; \
-        echo "[WARN] torch install failed (index=${idx}, attempt=${n}/3)"; \
-        n=$((n+1)); \
-        sleep 3; \
-      done; \
-      return 1; \
-    }; \
-    if python -c "import transformers, torch, soundfile" >/dev/null 2>&1; then \
+    if python -c "import qwen_tts, transformers, torch, torchaudio, soundfile" >/dev/null 2>&1; then \
       printf '{"ok":true,"source":"preinstalled","error":"","timestamp":"%s"}\n' "$(date -u +%FT%TZ)" > "${status_file}"; \
     else \
-      if ( \
-          retry_pip_install "https://download.pytorch.org/whl/cu124" \
-          || retry_pip_install "https://download.pytorch.org/whl/cpu" \
-        ) \
-        && python -m pip install --no-cache-dir --upgrade "transformers>=4.52" "soundfile>=0.12" \
-        && python -c "import transformers, torch, soundfile" >/dev/null 2>&1; then \
+      python -m pip install --no-cache-dir --upgrade-strategy only-if-needed \
+        --index-url "https://download.pytorch.org/whl/cu128" \
+        -r /app/requirements-tts.txt; \
+      python -m pip install --no-cache-dir --upgrade-strategy only-if-needed \
+        -r /app/requirements-tts-qwen.txt; \
+      python -m pip check; \
+      if python -c "import qwen_tts, transformers, torch, torchaudio, soundfile" >/dev/null 2>&1; then \
         printf '{"ok":true,"source":"docker-install","error":"","timestamp":"%s"}\n' "$(date -u +%FT%TZ)" > "${status_file}"; \
       else \
-        err="transformers/torch/soundfile installation failed (Docker build, cu124->cpu fallback attempted)"; \
+        err="qwen-tts/transformers/torch dependency installation failed (cu128 only)"; \
         printf '{"ok":false,"source":"docker-install","error":"%s","timestamp":"%s"}\n' "${err}" "$(date -u +%FT%TZ)" > "${status_file}"; \
         echo "[ERROR] ${err}" >&2; \
         exit 1; \
       fi; \
     fi
+
 
 # Re-pin core framework versions in case optional deps caused downgrades
 RUN python -m pip install --no-cache-dir --upgrade "pydantic>=2.6" "fastapi>=0.110"

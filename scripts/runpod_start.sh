@@ -229,14 +229,16 @@ fi
     echo "[Runpod][WARN] voicevox_core installation failed. VOICEVOX TTS will be disabled."
   fi
 }
-# Install Qwen3 TTS runtime dependencies if missing (optional)
-"${PYTHON_BIN}" -c "import transformers, torch, soundfile" 2>/dev/null || {
-  echo "[Runpod] Installing Qwen3 TTS dependencies (transformers/torch/soundfile)..."
-  "${PYTHON_BIN}" -m pip install torch torchaudio \
-    --index-url https://download.pytorch.org/whl/cu124 \
-    && "${PYTHON_BIN}" -m pip install --upgrade "transformers>=4.52" "soundfile>=0.12" \
-    && "${PYTHON_BIN}" -c "import transformers, torch, soundfile" >/dev/null 2>&1 \
-    || echo "[Runpod][WARN] transformers/torch/soundfile installation failed. Qwen3 TTS will be disabled."
+# Install Qwen3-TTS runtime dependencies if missing (optional)
+"${PYTHON_BIN}" -c "import qwen_tts, transformers, torch, torchaudio, soundfile" 2>/dev/null || {
+  echo "[Runpod] Installing Qwen3-TTS dependencies (cu128 torch + qwen-tts)..."
+  "${PYTHON_BIN}" -m pip install --upgrade-strategy only-if-needed \
+    --index-url https://download.pytorch.org/whl/cu128 \
+    -r requirements-tts.txt \
+    && "${PYTHON_BIN}" -m pip install --upgrade-strategy only-if-needed -r requirements-tts-qwen.txt \
+    && "${PYTHON_BIN}" -m pip check \
+    && "${PYTHON_BIN}" -c "import qwen_tts, transformers, torch, torchaudio, soundfile" >/dev/null 2>&1 \
+    || echo "[Runpod][WARN] qwen-tts/torch dependency installation failed. Qwen3 TTS will be disabled."
 }
 # Re-pin core framework versions in case optional deps caused downgrades
 "${PYTHON_BIN}" -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110" 2>/dev/null || true
