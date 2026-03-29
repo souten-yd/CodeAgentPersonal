@@ -67,6 +67,9 @@ RUN apt-get update -o Acquire::Retries=3 \
         tini \
         libgomp1 \
         libcurl4 \
+        libsndfile1 \
+        build-essential \
+        pkg-config \
         software-properties-common \
         gnupg \
     && add-apt-repository ppa:deadsnakes/ppa \
@@ -172,7 +175,7 @@ RUN set -eux; \
       idx="$1"; \
       n=1; \
       while [ "${n}" -le 3 ]; do \
-        if python -m pip install --no-cache-dir -r /app/requirements-tts.txt --index-url "${idx}"; then \
+        if python -m pip install --no-cache-dir -r /app/requirements-tts.txt --index-url "https://pypi.org/simple" --extra-index-url "${idx}"; then \
           return 0; \
         fi; \
         echo "[WARN] torch install failed (index=${idx}, attempt=${n}/3)"; \
