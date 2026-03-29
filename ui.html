@@ -1336,7 +1336,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div>
-              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">言語別まとめ文数</div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">出力まとめ回数</div>
               <input id="echo-parallel-max-sentences" type="number" min="1" max="20" step="1"
                 style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text)"
                 onchange="saveEchoSettings()">
@@ -1349,7 +1349,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             </div>
           </div>
           <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.5">
-            0秒で従来どおり即時表示。初期値は1.0秒です。
+            0秒で従来どおり即時表示。初期値は1.0秒です。まとめ回数はASR出力1回を1カウントとして扱います。
           </div>
         </div>
         <div style="margin-bottom:8px">
@@ -2366,6 +2366,7 @@ const echo = {
   parallelMaxSentences: Math.max(1, parseInt(localStorage.getItem('echo_parallel_max_sentences') || '4', 10) || 4),
   textRevealSeconds: Math.max(0, _numOr(localStorage.getItem('echo_text_reveal_seconds'), 1.0)),
   _animTimers:     new Map(),
+  _parallelDomCache: null,
   voiceRefAudio:  null,    // ボイスクローン参照音声 base64
   nextChunkSeq:   1,
   unackedChunks:  new Map(), // seq -> ArrayBuffer(先頭4byte=seq)
@@ -5720,11 +5721,19 @@ function _echoScrollToBottom(force = false) {
 }
 
 let _echoRenderRaf = null;
-function _echoRequestRenderTranscript() {
+let _echoPendingRenderForceRebuild = false;
+let _echoPendingRenderScroll = false;
+function _echoRequestRenderTranscript({forceRebuild = false, scroll = false} = {}) {
+  _echoPendingRenderForceRebuild = _echoPendingRenderForceRebuild || !!forceRebuild;
+  _echoPendingRenderScroll = _echoPendingRenderScroll || !!scroll;
   if (_echoRenderRaf) return;
   _echoRenderRaf = requestAnimationFrame(() => {
+    const force = _echoPendingRenderForceRebuild;
+    const needScroll = _echoPendingRenderScroll;
+    _echoPendingRenderForceRebuild = false;
+    _echoPendingRenderScroll = false;
     _echoRenderRaf = null;
-    _echoRenderTranscript();
+    _echoRenderTranscript(force, needScroll);
   });
 }
 
@@ -5751,7 +5760,7 @@ function _echoCreateSentenceDom(sentence) {
 
 function _echoUpdateSentenceDom(sentence) {
   if (echo.displayMode !== 'paired') {
-    _echoRequestRenderTranscript();
+    _echoRequestRenderTranscript({scroll: false});
     return;
   }
   const node = _echoGetSentenceDom(sentence.id);
@@ -5776,8 +5785,17 @@ function _echoAnimateSentenceField(sentence, field, rawText) {
     _echoUpdateSentenceDom(sentence);
     return;
   }
-  sentence[field] = '';
+  const current = String(sentence[field] || '');
+  if (!current) sentence[field] = full.slice(0, 1);
   let idx = 0;
+  const sharedPrefixMax = Math.min(current.length, full.length);
+  while (idx < sharedPrefixMax && current[idx] === full[idx]) idx += 1;
+  if (idx >= full.length) {
+    sentence[field] = full;
+    _echoUpdateSentenceDom(sentence);
+    return;
+  }
+  sentence[field] = full.slice(0, Math.max(1, idx));
   const intervalMs = Math.max(16, Math.floor((revealSec * 1000) / full.length));
   const timer = setInterval(() => {
     idx = Math.min(full.length, idx + 1);
@@ -5815,14 +5833,49 @@ function _echoConcatByLanguage(lines, lang) {
   return items.join(' ').replace(/\s+([,.!?;:])/g, '$1').trim();
 }
 
-function _echoRenderTranscript(forceRebuild = false) {
+function _echoEnsureParallelDom(container) {
+  let cache = echo._parallelDomCache;
+  if (!cache || !container.contains(cache.root)) {
+    container.innerHTML = '';
+    const root = document.createElement('div');
+    root.className = 'echo-parallel-wrap';
+    const buildCol = (flag, label) => {
+      const sentenceEl = document.createElement('div');
+      sentenceEl.className = 'echo-sentence';
+      const meta = document.createElement('div');
+      meta.className = 'ts-meta';
+      const flagEl = document.createElement('span');
+      flagEl.className = 'ts-flag';
+      flagEl.textContent = flag;
+      const labelEl = document.createElement('span');
+      labelEl.className = 'ts-time';
+      labelEl.textContent = label;
+      meta.append(flagEl, labelEl);
+      const body = document.createElement('div');
+      body.className = 'ts-orig';
+      sentenceEl.append(meta, body);
+      root.appendChild(sentenceEl);
+      return body;
+    };
+    const jaTextNode = buildCol('🇯🇵', 'Japanese');
+    const enTextNode = buildCol('🇺🇸', 'English');
+    container.appendChild(root);
+    cache = {root, jaTextNode, enTextNode};
+    echo._parallelDomCache = cache;
+  }
+  return cache;
+}
+
+function _echoRenderTranscript(forceRebuild = false, shouldScroll = true) {
   const container = document.getElementById('echo-transcript');
   if (!container) return;
   if (!echo.sentences.length) {
+    echo._parallelDomCache = null;
     container.innerHTML = '<div class="echo-empty">「Start」を押して同時通訳・録音を開始...</div>';
     return;
   }
   if (echo.displayMode === 'paired') {
+    echo._parallelDomCache = null;
     if (forceRebuild) container.innerHTML = '';
     const empty = container.querySelector('.echo-empty');
     if (empty) empty.remove();
@@ -5834,14 +5887,15 @@ function _echoRenderTranscript(forceRebuild = false) {
       }
       _echoUpdateSentenceDom(s);
     }
-    _echoScrollToBottom();
+    if (shouldScroll) _echoScrollToBottom();
     return;
   }
   if (echo.displayMode === 'parallel') {
     const maxN = Math.max(1, Number(echo.parallelMaxSentences) || 4);
+    const latestEvents = echo.sentences.slice(Math.max(0, echo.sentences.length - maxN));
     const ja = [];
     const en = [];
-    echo.sentences.forEach((s) => {
+    latestEvents.forEach((s) => {
       const orig = s.text || '';
       const trans = echo.ttsTranslateEnabled ? (s.translated || '') : '';
       if ((s.lang || '') === 'ja') {
@@ -5852,22 +5906,15 @@ function _echoRenderTranscript(forceRebuild = false) {
         if (trans) ja.push(s.displayTranslated || trans);
       }
     });
-    const takeTail = (arr) => arr.slice(Math.max(0, arr.length - maxN));
-    const jaText = _echoConcatByLanguage(takeTail(ja), 'ja');
-    const enText = _echoConcatByLanguage(takeTail(en), 'en');
-    container.innerHTML = `
-      <div class="echo-sentence">
-        <div class="ts-meta"><span class="ts-flag">🇯🇵</span><span class="ts-time">Japanese</span></div>
-        <div class="ts-orig">${esc(jaText || '—')}</div>
-      </div>
-      <div class="echo-sentence">
-        <div class="ts-meta"><span class="ts-flag">🇺🇸</span><span class="ts-time">English</span></div>
-        <div class="ts-orig">${esc(enText || '—')}</div>
-      </div>
-    `;
-    _echoScrollToBottom();
+    const jaText = _echoConcatByLanguage(ja, 'ja');
+    const enText = _echoConcatByLanguage(en, 'en');
+    const dom = _echoEnsureParallelDom(container);
+    dom.jaTextNode.textContent = jaText || '—';
+    dom.enTextNode.textContent = enText || '—';
+    if (shouldScroll) _echoScrollToBottom();
     return;
   }
+  echo._parallelDomCache = null;
   container.innerHTML = echo.sentences.map((s) => {
     const view = _echoDisplaySentenceText(s);
     if (!view.text && echo.displayMode !== 'paired') return '';
@@ -5887,7 +5934,7 @@ function _echoRenderTranscript(forceRebuild = false) {
       </div>
     `;
   }).join('');
-  _echoScrollToBottom();
+  if (shouldScroll) _echoScrollToBottom();
 }
 
 function _echoAddSentence(ev) {
@@ -5904,7 +5951,7 @@ function _echoAddSentence(ev) {
       container.appendChild(_echoCreateSentenceDom(sentence));
     }
   } else {
-    _echoRenderTranscript();
+    _echoRequestRenderTranscript({scroll: true});
   }
   _echoAnimateSentenceField(sentence, 'displayText', ev.text);
   _echoUpdateSentenceDom(sentence);
@@ -6087,6 +6134,7 @@ async function _echoStart() {
   }
   echo.sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   echo.sentences  = [];
+  echo._parallelDomCache = null;
   echo._animTimers.forEach((timer) => clearInterval(timer));
   echo._animTimers.clear();
   echo.pendingChunks = [];
@@ -6414,6 +6462,7 @@ function echoClearTranscript() {
   echo._animTimers.forEach((timer) => clearInterval(timer));
   echo._animTimers.clear();
   echo.sentences = [];
+  echo._parallelDomCache = null;
   _echoPreviewMode = false;
   const container = document.getElementById('echo-transcript');
   if (container) container.innerHTML = '<div class="echo-empty">「Start」を押して同時通訳・録音を開始...</div>';
