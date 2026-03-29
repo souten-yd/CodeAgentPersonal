@@ -170,19 +170,33 @@ https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic_u
 # Keep TTS deps isolated to reduce conflicts with existing FastAPI/WebUI stack.
 RUN set -eux; \
     status_file="/app/qwen3_tts_install_status.json"; \
-    if python -c "import qwen_tts, transformers, torch, torchaudio, soundfile" >/dev/null 2>&1; then \
+    verify_imports() { \
+      failed=""; \
+      for mod in torch torchaudio transformers soundfile qwen_tts; do \
+        if ! python -c "import ${mod}" >/dev/null 2>&1; then \
+          failed="${failed}${failed:+,}${mod}"; \
+        fi; \
+      done; \
+      if [ -n "${failed}" ]; then \
+        echo "${failed}" > /tmp/qwen_tts_failed_imports.txt; \
+        return 1; \
+      fi; \
+      return 0; \
+    }; \
+    if verify_imports; then \
       printf '{"ok":true,"source":"preinstalled","error":"","timestamp":"%s"}\n' "$(date -u +%FT%TZ)" > "${status_file}"; \
     else \
       python -m pip install --no-cache-dir --upgrade-strategy only-if-needed \
         --index-url "https://download.pytorch.org/whl/cu128" \
         -r /app/requirements-tts.txt; \
       python -m pip install --no-cache-dir --upgrade-strategy only-if-needed \
+        --index-url "https://pypi.org/simple" \
         -r /app/requirements-tts-qwen.txt; \
       python -m pip check; \
-      if python -c "import qwen_tts, transformers, torch, torchaudio, soundfile" >/dev/null 2>&1; then \
+      if verify_imports; then \
         printf '{"ok":true,"source":"docker-install","error":"","timestamp":"%s"}\n' "$(date -u +%FT%TZ)" > "${status_file}"; \
       else \
-        err="qwen-tts/transformers/torch dependency installation failed (cu128 only)"; \
+        err="qwen-tts dependency installation failed; import failures: $(cat /tmp/qwen_tts_failed_imports.txt)"; \
         printf '{"ok":false,"source":"docker-install","error":"%s","timestamp":"%s"}\n' "${err}" "$(date -u +%FT%TZ)" > "${status_file}"; \
         echo "[ERROR] ${err}" >&2; \
         exit 1; \
