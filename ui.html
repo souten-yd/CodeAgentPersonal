@@ -1569,6 +1569,13 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <span id="echo-vad-enabled-label" style="font-size:10px;color:var(--text2)">ON</span>
             </label>
           </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:10px;color:var(--text2);font-weight:700">分割オーバーラップ送信</div>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input id="echo-vad-overlap-enabled" type="checkbox" style="width:14px;height:14px;accent-color:var(--accent)" onchange="saveEchoSettings()">
+              <span id="echo-vad-overlap-enabled-label" style="font-size:10px;color:var(--text2)">OFF</span>
+            </label>
+          </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div>
               <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">VAD mode</div>
@@ -1609,9 +1616,15 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
                 style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
                 onchange="saveEchoSettings()">
             </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">重なり長(ms)</div>
+              <input id="echo-vad-overlap-ms" type="number" min="200" max="400" step="20"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
           </div>
           <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.5">
-            16kHz mono PCM / 20msフレームで処理。推奨: mode1, 開始 10中7, 終了18, 最小発話200ms。
+            16kHz mono PCM / 20msフレームで処理。推奨: mode1, 開始 10中7, 終了18, 最小発話200ms。必要時のみ重なり200〜400msをON。
           </div>
         </div>
       </div>
@@ -2489,7 +2502,10 @@ const echo = {
   vadMinSpeechMs: Math.max(100, Math.min(2000, parseInt(localStorage.getItem('echo_vad_min_speech_ms') || '200', 10) || 200)),
   vadRmsThreshold: Math.max(0.001, Math.min(0.2, _numOr(localStorage.getItem('echo_vad_rms_threshold'), 0.012))),
   vadMinAvgRms: Math.max(0.001, Math.min(0.2, _numOr(localStorage.getItem('echo_vad_min_avg_rms'), 0.008))),
+  vadOverlapEnabled: localStorage.getItem('echo_vad_overlap_enabled') === 'true',
+  vadOverlapMs: Math.max(200, Math.min(400, parseInt(localStorage.getItem('echo_vad_overlap_ms') || '280', 10) || 280)),
   vadFrameMs: 20,
+  _vadOverlapTail: new Int16Array(0),
   _highpassLastX: 0,
   _highpassLastY: 0,
   ttsTranslateEnabled: _ttsGetTranslateSettings('echo').enabled,
@@ -3200,6 +3216,11 @@ function saveEchoSettings() {
   echo.vadMinSpeechMs = Math.max(100, Math.min(2000, parseInt(document.getElementById('echo-vad-min-speech-ms')?.value || `${echo.vadMinSpeechMs || 200}`, 10) || 200));
   echo.vadRmsThreshold = Math.max(0.001, Math.min(0.2, _numOr(document.getElementById('echo-vad-rms-threshold')?.value, echo.vadRmsThreshold || 0.012)));
   echo.vadMinAvgRms = Math.max(0.001, Math.min(0.2, _numOr(document.getElementById('echo-vad-min-avg-rms')?.value, echo.vadMinAvgRms || 0.008)));
+  echo.vadOverlapEnabled = document.getElementById('echo-vad-overlap-enabled')?.checked === true;
+  echo.vadOverlapMs = Math.max(
+    200,
+    Math.min(400, parseInt(document.getElementById('echo-vad-overlap-ms')?.value || `${echo.vadOverlapMs || 280}`, 10) || 280)
+  );
   const asrDev = document.querySelector('input[name="echo-asr-device"]:checked')?.value || echo.asrDevice || localStorage.getItem('asr_device') || 'cuda';
   _syncAsrDeviceState(asrDev);
   localStorage.setItem('echo_autoplay_tts', echo.autoPlayTts);
@@ -3239,6 +3260,8 @@ function saveEchoSettings() {
   localStorage.setItem('echo_vad_min_speech_ms', `${echo.vadMinSpeechMs}`);
   localStorage.setItem('echo_vad_rms_threshold', `${echo.vadRmsThreshold}`);
   localStorage.setItem('echo_vad_min_avg_rms', `${echo.vadMinAvgRms}`);
+  localStorage.setItem('echo_vad_overlap_enabled', `${echo.vadOverlapEnabled}`);
+  localStorage.setItem('echo_vad_overlap_ms', `${echo.vadOverlapMs}`);
   _updateEchoQwen3UiVisibility();
   const autoLbl = document.getElementById('echo-autoplay-label');
   if (autoLbl) autoLbl.textContent = echo.autoPlayTts ? 'ON' : 'OFF';
@@ -3277,6 +3300,9 @@ function saveEchoSettings() {
   const highpassHzInput = document.getElementById('echo-highpass-hz');
   const vadEnabledInput = document.getElementById('echo-vad-enabled');
   const vadEnabledLabel = document.getElementById('echo-vad-enabled-label');
+  const vadOverlapEnabledInput = document.getElementById('echo-vad-overlap-enabled');
+  const vadOverlapEnabledLabel = document.getElementById('echo-vad-overlap-enabled-label');
+  const vadOverlapMsInput = document.getElementById('echo-vad-overlap-ms');
   const vadModeInput = document.getElementById('echo-vad-mode');
   const vadStartRatioInput = document.getElementById('echo-vad-start-ratio');
   const vadEndNonSpeechInput = document.getElementById('echo-vad-end-nonspeech-frames');
@@ -3301,6 +3327,9 @@ function saveEchoSettings() {
   if (highpassHzInput) highpassHzInput.value = `${echo.highpassHz}`;
   if (vadEnabledInput) vadEnabledInput.checked = !!echo.vadEnabled;
   if (vadEnabledLabel) vadEnabledLabel.textContent = echo.vadEnabled ? 'ON' : 'OFF';
+  if (vadOverlapEnabledInput) vadOverlapEnabledInput.checked = !!echo.vadOverlapEnabled;
+  if (vadOverlapEnabledLabel) vadOverlapEnabledLabel.textContent = echo.vadOverlapEnabled ? 'ON' : 'OFF';
+  if (vadOverlapMsInput) vadOverlapMsInput.value = `${echo.vadOverlapMs}`;
   if (vadModeInput) vadModeInput.value = `${echo.vadMode}`;
   if (vadStartRatioInput) vadStartRatioInput.value = `${echo.vadStartWindowFrames}/${echo.vadStartSpeechFrames}`;
   if (vadEndNonSpeechInput) vadEndNonSpeechInput.value = `${echo.vadEndNonSpeechFrames}`;
@@ -3321,6 +3350,8 @@ function saveEchoSettings() {
   if (vadMinSpeechMsInput) vadMinSpeechMsInput.disabled = !echo.vadEnabled;
   if (vadRmsThresholdInput) vadRmsThresholdInput.disabled = !echo.vadEnabled;
   if (vadMinAvgRmsInput) vadMinAvgRmsInput.disabled = !echo.vadEnabled;
+  if (vadOverlapEnabledInput) vadOverlapEnabledInput.disabled = !echo.vadEnabled;
+  if (vadOverlapMsInput) vadOverlapMsInput.disabled = !echo.vadEnabled || !echo.vadOverlapEnabled;
 }
 
 function syncEchoTranslateUi() {
@@ -3443,6 +3474,9 @@ function _echoInitSettingsUI() {
   const highpassHzInput = document.getElementById('echo-highpass-hz');
   const vadEnabledInput = document.getElementById('echo-vad-enabled');
   const vadEnabledLabel = document.getElementById('echo-vad-enabled-label');
+  const vadOverlapEnabledInput = document.getElementById('echo-vad-overlap-enabled');
+  const vadOverlapEnabledLabel = document.getElementById('echo-vad-overlap-enabled-label');
+  const vadOverlapMsInput = document.getElementById('echo-vad-overlap-ms');
   const vadModeInput = document.getElementById('echo-vad-mode');
   const vadStartRatioInput = document.getElementById('echo-vad-start-ratio');
   const vadEndNonSpeechInput = document.getElementById('echo-vad-end-nonspeech-frames');
@@ -3455,6 +3489,9 @@ function _echoInitSettingsUI() {
   if (highpassHzInput) highpassHzInput.value = `${echo.highpassHz}`;
   if (vadEnabledInput) vadEnabledInput.checked = !!echo.vadEnabled;
   if (vadEnabledLabel) vadEnabledLabel.textContent = echo.vadEnabled ? 'ON' : 'OFF';
+  if (vadOverlapEnabledInput) vadOverlapEnabledInput.checked = !!echo.vadOverlapEnabled;
+  if (vadOverlapEnabledLabel) vadOverlapEnabledLabel.textContent = echo.vadOverlapEnabled ? 'ON' : 'OFF';
+  if (vadOverlapMsInput) vadOverlapMsInput.value = `${echo.vadOverlapMs}`;
   if (vadModeInput) vadModeInput.value = `${echo.vadMode}`;
   if (vadStartRatioInput) vadStartRatioInput.value = `${echo.vadStartWindowFrames}/${echo.vadStartSpeechFrames}`;
   if (vadEndNonSpeechInput) vadEndNonSpeechInput.value = `${echo.vadEndNonSpeechFrames}`;
@@ -3469,6 +3506,8 @@ function _echoInitSettingsUI() {
   if (vadMinSpeechMsInput) vadMinSpeechMsInput.disabled = !echo.vadEnabled;
   if (vadRmsThresholdInput) vadRmsThresholdInput.disabled = !echo.vadEnabled;
   if (vadMinAvgRmsInput) vadMinAvgRmsInput.disabled = !echo.vadEnabled;
+  if (vadOverlapEnabledInput) vadOverlapEnabledInput.disabled = !echo.vadEnabled;
+  if (vadOverlapMsInput) vadOverlapMsInput.disabled = !echo.vadEnabled || !echo.vadOverlapEnabled;
   _syncAsrDeviceState(localStorage.getItem('asr_device') || echo.asrDevice || 'cuda');
   _updateEchoQwen3UiVisibility();
   _echoRenderTranscript(true);
@@ -6540,6 +6579,7 @@ async function _echoStart() {
   echo._vadUtteranceRmsSum = 0;
   echo._vadUtteranceSpeechFrames = 0;
   echo._vadNonSpeechRun = 0;
+  echo._vadOverlapTail = new Int16Array(0);
   echo._highpassLastX = 0;
   echo._highpassLastY = 0;
   echo.startTime  = Date.now();
@@ -6607,6 +6647,22 @@ async function _echoStart() {
     packet.set(pcmBytes, 4);
     echo.unackedChunks.set(seq, packet.buffer);
     if (echo.ws && echo.ws.readyState === WebSocket.OPEN) _echoFlushPendingChunks();
+  }
+  function _echoWithVadOverlap(int16Chunk) {
+    if (!int16Chunk || int16Chunk.length === 0) return int16Chunk;
+    if (!echo.vadEnabled || !echo.vadOverlapEnabled) return int16Chunk;
+    const overlapSamples = Math.max(0, Math.floor((echo.pcmTargetRate * (echo.vadOverlapMs || 280)) / 1000));
+    if (overlapSamples <= 0) return int16Chunk;
+    const tail = echo._vadOverlapTail || new Int16Array(0);
+    let out = int16Chunk;
+    if (tail.length > 0) {
+      out = new Int16Array(tail.length + int16Chunk.length);
+      out.set(tail, 0);
+      out.set(int16Chunk, tail.length);
+    }
+    const tailLen = Math.min(overlapSamples, int16Chunk.length);
+    echo._vadOverlapTail = tailLen > 0 ? int16Chunk.slice(int16Chunk.length - tailLen) : new Int16Array(0);
+    return out;
   }
 
   function _echoApplyRealtimeNoiseReduction(float32, sampleRate) {
@@ -6676,7 +6732,7 @@ async function _echoStart() {
     const speechMs = echo._vadUtteranceSpeechFrames * (echo.vadFrameMs || 20);
     if (speechMs >= echo.vadMinSpeechMs && avgRms >= echo.vadMinAvgRms) {
       const utterance = _echoConcatFrames(echo._vadUtteranceFrames);
-      _echoEmitPcmChunk(utterance);
+      _echoEmitPcmChunk(_echoWithVadOverlap(utterance));
     }
     echo._vadInSpeech = false;
     echo._vadUtteranceFrames = [];
@@ -6721,7 +6777,7 @@ async function _echoStart() {
     for (const fr of echo._vadUtteranceFrames) utteranceSamples += fr.length;
     if (utteranceSamples >= chunkSamples) {
       const utterance = _echoConcatFrames(echo._vadUtteranceFrames);
-      _echoEmitPcmChunk(utterance);
+      _echoEmitPcmChunk(_echoWithVadOverlap(utterance));
       echo._vadUtteranceFrames = [];
       echo._vadUtteranceRmsSum = 0;
       echo._vadUtteranceSpeechFrames = 0;
@@ -6784,8 +6840,20 @@ async function _echoStop() {
       const utterance = new Int16Array(total);
       let off = 0;
       for (const fr of echo._vadUtteranceFrames) { utterance.set(fr, off); off += fr.length; }
+      let finalUtterance = utterance;
+      if (echo.vadEnabled && echo.vadOverlapEnabled) {
+        const overlapSamples = Math.max(0, Math.floor((echo.pcmTargetRate * (echo.vadOverlapMs || 280)) / 1000));
+        const tail = echo._vadOverlapTail || new Int16Array(0);
+        if (tail.length > 0) {
+          finalUtterance = new Int16Array(tail.length + utterance.length);
+          finalUtterance.set(tail, 0);
+          finalUtterance.set(utterance, tail.length);
+        }
+        const tailLen = Math.min(overlapSamples, utterance.length);
+        echo._vadOverlapTail = tailLen > 0 ? utterance.slice(utterance.length - tailLen) : new Int16Array(0);
+      }
       const seq = echo.nextChunkSeq++;
-      const pcmBytes = new Uint8Array(utterance.buffer.slice(utterance.byteOffset, utterance.byteOffset + utterance.byteLength));
+      const pcmBytes = new Uint8Array(finalUtterance.buffer.slice(finalUtterance.byteOffset, finalUtterance.byteOffset + finalUtterance.byteLength));
       const packet = new Uint8Array(4 + pcmBytes.length);
       new DataView(packet.buffer).setUint32(0, seq, false);
       packet.set(pcmBytes, 4);
@@ -6797,6 +6865,7 @@ async function _echoStop() {
     echo._vadUtteranceSpeechFrames = 0;
     echo._vadNonSpeechRun = 0;
     echo.pcmPendingInt16 = new Int16Array(0);
+    echo._vadOverlapTail = new Int16Array(0);
   }
   // PCM残バッファ flush
   if (echo.pcmPendingInt16 && echo.pcmPendingInt16.length > 0) {
@@ -6812,6 +6881,7 @@ async function _echoStop() {
     echo.unackedChunks.set(seq, packet.buffer);
     echo.pcmPendingInt16 = new Int16Array(0);
   }
+  echo._vadOverlapTail = new Int16Array(0);
   // Audio graph 停止
   if (echo.processorNode) {
     try { echo.processorNode.disconnect(); } catch(e) {}
