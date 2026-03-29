@@ -9160,6 +9160,8 @@ _qwen3tts_model_id: str | None = None
 _qwen3tts_device = "cpu"      # "cpu" | "cuda"
 _qwen3tts_lock      = threading.Lock()
 _QWEN3TTS_MODEL_ID  = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+_QWEN3_INSTALL_STATUS_PATH = os.environ.get("CODEAGENT_QWEN3_INSTALL_STATUS_PATH", "/app/qwen3_tts_install_status.json")
+_tts_startup_health_snapshot: dict = {}
 
 
 def _qwen3tts_model_dir() -> str:
@@ -9228,11 +9230,22 @@ def _read_recent_tts_debug_entries(limit: int = 20) -> list[dict]:
 
 def _log_tts_startup_health() -> None:
     """起動時にTTS依存の初期状態をログ出力する（簡易ヘルスガード）。"""
+    global _tts_startup_health_snapshot
     try:
         status = tts_status_api()
     except Exception as e:
         print(f"[TTS][startup] status check failed: {e}")
         return
+    qwen_missing = status.get("qwen3tts_missing_requirements") or []
+    _tts_startup_health_snapshot = {
+        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "qwen3tts_available": status.get("qwen3tts_available"),
+        "qwen3tts_loaded": status.get("qwen3tts_loaded"),
+        "voicevox_available": status.get("voicevox_available"),
+        "voicevox_http_available": status.get("voicevox_http_available"),
+        "edgetts_available": status.get("edgetts_available"),
+        "qwen3tts_missing_count": len(qwen_missing),
+    }
     print(
         "[TTS][startup] "
         f"qwen3tts_available={status.get('qwen3tts_available')} "
@@ -9240,12 +9253,63 @@ def _log_tts_startup_health() -> None:
         f"voicevox_available={status.get('voicevox_available')} "
         f"edgetts_available={status.get('edgetts_available')}"
     )
+    if qwen_missing:
+        for item in qwen_missing:
+            print(f"[TTS][startup][qwen3tts] {item.get('code')}: {item.get('message')}")
+
+
+def _is_docker_runtime() -> bool:
+    return os.path.exists("/.dockerenv") or os.environ.get("CODEAGENT_RUNTIME", "").strip().lower() == "docker"
+
+
+def _qwen3_install_help_commands() -> list[str]:
+    if _is_docker_runtime():
+        return [
+            "Docker (CPU): pip install -r requirements-tts.txt --index-url https://download.pytorch.org/whl/cpu",
+            "Docker (CUDA 12.4): pip install -r requirements-tts.txt --index-url https://download.pytorch.org/whl/cu124",
+        ]
+    return [
+        "ローカル (CPU): pip install -r requirements-tts.txt --index-url https://download.pytorch.org/whl/cpu",
+        "ローカル (CUDA 12.4): pip install -r requirements-tts.txt --index-url https://download.pytorch.org/whl/cu124",
+    ]
+
+
+def _qwen3_install_status_file() -> dict | None:
+    if not _QWEN3_INSTALL_STATUS_PATH:
+        return None
+    if not os.path.exists(_QWEN3_INSTALL_STATUS_PATH):
+        return None
+    try:
+        with open(_QWEN3_INSTALL_STATUS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"ok": False, "error": f"failed to parse status file: {_QWEN3_INSTALL_STATUS_PATH}"}
+
+
+def _qwen3_missing_requirements() -> list[dict]:
+    missing: list[dict] = []
+    if _QWEN3TTS_AVAILABLE:
+        return missing
+    status = _qwen3_install_status_file()
+    message = "transformers/torch/soundfile の import に失敗しました。"
+    if status and status.get("error"):
+        message = f"{message} build/install error: {status.get('error')}"
+    missing.append({
+        "code": "qwen3tts_dependencies_missing",
+        "message": message,
+        "commands": _qwen3_install_help_commands(),
+    })
+    return missing
 
 
 def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> dict:
     global _qwen3tts_model, _qwen3tts_processor, _qwen3tts_model_id, _qwen3tts_device
     if not _QWEN3TTS_AVAILABLE:
-        raise RuntimeError("transformers>=4.52 / torch / soundfile がインストールされていません。pip install 'transformers>=4.52' torch torchaudio soundfile を実行してください。")
+        commands = "\n".join(f"- {cmd}" for cmd in _qwen3_install_help_commands())
+        raise RuntimeError(
+            "transformers>=4.52 / torch / soundfile がインストールされていません。\n"
+            f"{commands}"
+        )
     with _qwen3tts_lock:
         if _qwen3tts_model is not None and _qwen3tts_model_id == model_id and _qwen3tts_device == device:
             return {"status": "loaded", "model_id": model_id, "device": device}
@@ -9278,7 +9342,11 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
     """Qwen3 TTS でテキストを WAV バイト列に変換する。ref_audio_bytes があればボイスクローン。"""
     global _qwen3tts_model, _qwen3tts_processor
     if not _QWEN3TTS_AVAILABLE:
-        raise RuntimeError("Qwen3 TTS: transformers/torch/soundfile がインストールされていません。pip install transformers torch torchaudio soundfile を実行してください。")
+        commands = "\n".join(f"- {cmd}" for cmd in _qwen3_install_help_commands())
+        raise RuntimeError(
+            "Qwen3 TTS: transformers/torch/soundfile がインストールされていません。\n"
+            f"{commands}"
+        )
     with _qwen3tts_lock:
         if _qwen3tts_model is None:
             qwen3tts_load(_qwen3tts_model_id or _QWEN3TTS_MODEL_ID, _qwen3tts_device)
@@ -9531,6 +9599,8 @@ def tts_status_api():
         diagnostics.append(f"Runpod auto-start status: {auto_start_status}")
     if auto_start_hint:
         diagnostics.append(auto_start_hint)
+    qwen_missing = _qwen3_missing_requirements()
+    qwen_status_file = _qwen3_install_status_file()
 
     return {
         "voicevox_available": _VOICEVOX_AVAILABLE,
@@ -9551,6 +9621,9 @@ def tts_status_api():
         "qwen3tts_loaded": q3t_loaded,
         "qwen3tts_model_id": _qwen3tts_model_id,
         "qwen3tts_device": _qwen3tts_device,
+        "qwen3tts_missing_requirements": qwen_missing,
+        "qwen3tts_install_status": qwen_status_file,
+        "tts_startup_health": _tts_startup_health_snapshot,
     }
 
 
