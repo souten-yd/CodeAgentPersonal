@@ -9824,8 +9824,10 @@ try:
     print(f"[Qwen3-TTS] import: ok (qwen_tts={getattr(_qwen_tts_mod, '__version__', 'unknown')})")
     if shutil.which("sox") is None:
         print("[Qwen3-TTS] warning: SoX not found. Some audio paths may be slower/limited, but Qwen3-TTS remains enabled.")
+    _QWEN3TTS_FLASH_AVAILABLE = False
     try:
         import flash_attn as _flash_attn_mod  # type: ignore  # noqa: F401
+        _QWEN3TTS_FLASH_AVAILABLE = True
     except Exception:
         print("[Qwen3-TTS] warning: flash-attn is not installed. Falling back to standard PyTorch attention.")
     _QWEN3TTS_AVAILABLE = True
@@ -9837,6 +9839,7 @@ except Exception as _qwen_e:
     _hf_snapshot_download = None
     _sf_mod = None
     _QWEN3TTS_AVAILABLE = False
+    _QWEN3TTS_FLASH_AVAILABLE = False
     print(f"[Qwen3-TTS] import: failed ({repr(_qwen_e)})")
     print("[Qwen3-TTS] disabled: qwen_tts API is unavailable. Install with: pip install -U qwen-tts")
     print(traceback.format_exc())
@@ -10058,10 +10061,17 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> di
         _qwen3tts_processor = None
         print(f"[Qwen3-TTS] model loading: model_id={model_id} model_root={model_root}")
         try:
-            _qwen3tts_model = _Q3TModel.from_pretrained(
-                model_root, cache_dir=cache_dir, trust_remote_code=True,
-                torch_dtype=_torch_mod.float16 if actual_device == "cuda" else _torch_mod.float32
-            ).to(actual_device).eval()
+            load_kwargs = {
+                "cache_dir": cache_dir,
+                "trust_remote_code": True,
+                # NOTE: qwen-tts は torch_dtype ではなく dtype を推奨
+                "dtype": _torch_mod.float16 if actual_device == "cuda" else _torch_mod.float32,
+                # NOTE: Qwen3TTSModel は .to(...) を持たないため、デバイス指定もロード時に行う
+                "device": actual_device,
+                # NOTE: attention 実装もロード時に指定する（Qwen3-TTS 分岐のみ）
+                "attn_implementation": "flash_attention_2" if (actual_device == "cuda" and _QWEN3TTS_FLASH_AVAILABLE) else "eager",
+            }
+            _qwen3tts_model = _Q3TModel.from_pretrained(model_root, **load_kwargs)
         except Exception as e:
             raise RuntimeError(
                 "Qwen3 TTS model load failed. "
