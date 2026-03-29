@@ -6134,8 +6134,12 @@ function _echoAnimateSentenceField(sentence, field, rawText) {
 }
 
 function _echoGetSentenceTexts(sentence) {
-  const orig = sentence.displayText || sentence.text || '';
-  const translated = echo.ttsTranslateEnabled ? (sentence.displayTranslated ?? sentence.translated ?? '') : '';
+  const hasDisplayText = Object.prototype.hasOwnProperty.call(sentence, 'displayText');
+  const hasDisplayTranslated = Object.prototype.hasOwnProperty.call(sentence, 'displayTranslated');
+  const orig = hasDisplayText ? (sentence.displayText ?? '') : (sentence.text || '');
+  const translated = echo.ttsTranslateEnabled
+    ? (hasDisplayTranslated ? (sentence.displayTranslated ?? '') : (sentence.translated ?? ''))
+    : '';
   const origLang = sentence.lang === 'ja' ? 'ja' : 'en';
   const jaText = origLang === 'ja' ? orig : translated;
   const enText = origLang === 'en' ? orig : translated;
