@@ -9813,20 +9813,25 @@ except ImportError:
     _EDGE_TTS_AVAILABLE = False
 
 # Qwen3 TTS (transformers >= 4.52 + torch)
+_QWEN3TTS_IMPORT_ERROR = ""
 try:
+    import qwen_tts as _qwen_tts_mod  # type: ignore  # noqa: F401
     import torch as _torch_mod
     from transformers import Qwen3TTSForConditionalGeneration as _Q3TModel  # type: ignore
     from transformers import AutoProcessor as _Q3TProc  # type: ignore
     import transformers as _transformers_mod  # type: ignore
     import soundfile as _sf_mod  # type: ignore
     _QWEN3TTS_AVAILABLE = True
-except ImportError:
+except Exception as _qwen_e:
+    _QWEN3TTS_IMPORT_ERROR = str(_qwen_e)
+    _qwen_tts_mod = None
     _torch_mod = None
     _Q3TModel = None
     _Q3TProc = None
     _transformers_mod = None
     _sf_mod = None
     _QWEN3TTS_AVAILABLE = False
+    print(f"[TTS] qwen3tts import failed: {_QWEN3TTS_IMPORT_ERROR}")
 
 _qwen3tts_model     = None
 _qwen3tts_processor = None   # AutoProcessor (旧 _qwen3tts_tokenizer を改名)
@@ -9966,6 +9971,8 @@ def _qwen3_missing_requirements() -> list[dict]:
         return missing
     status = _qwen3_install_status_file()
     message = "qwen-tts/transformers/torch/torchaudio/soundfile の import に失敗しました。"
+    if _QWEN3TTS_IMPORT_ERROR:
+        message = f"{message} import error: {_QWEN3TTS_IMPORT_ERROR}"
     if status and status.get("error"):
         message = f"{message} build/install error: {status.get('error')}"
     missing.append({
