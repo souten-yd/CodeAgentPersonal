@@ -5870,7 +5870,9 @@ async function transcribeVoiceBlob(blob){
     const arr = await blob.arrayBuffer();
     const b64 = _arrayBufferToBase64(arr);
     const input = document.getElementById('input');
-    const lang = (navigator.language || '').toLowerCase().startsWith('ja') ? 'ja' : 'en';
+    const uiAsrLang = document.getElementById('echo-asr-lang')?.value;
+    const selectedLang = String(uiAsrLang || echo?.asrLang || 'auto').toLowerCase();
+    const lang = (selectedLang === 'ja' || selectedLang === 'en' || selectedLang === 'auto') ? selectedLang : 'auto';
     const resp = await fetch(API + '/voice/transcribe', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
