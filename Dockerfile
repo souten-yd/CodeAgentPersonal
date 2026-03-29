@@ -5,7 +5,6 @@
 ########################################
 ARG CUDA_VERSION=12.8.0
 ARG UBUNTU_VERSION=22.04
-ARG PYTORCH_IMAGE=pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
 
 FROM ubuntu:${UBUNTU_VERSION} AS llama_prebuilt
 
@@ -41,8 +40,9 @@ RUN set -eux; \
 ########################################
 # Runtime stage: Python + codeAgent + llama.cpp
 ########################################
-FROM ${PYTORCH_IMAGE} AS runtime
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu${UBUNTU_VERSION} AS runtime
 ARG VOICEVOX_WHEEL_VARIANT=auto
+ARG QWEN3_TTS_REQUIRED=false
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -61,25 +61,37 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-RUN apt-get update -o Acquire::Retries=3 \
+RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.list \
+    && apt-get update -o Acquire::Retries=3 \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        git \
         tini \
         libgomp1 \
         libcurl4 \
+        software-properties-common \
+        gnupg \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3.11 \
+        python3.11-venv \
+        python3.11-distutils \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN python3.11 -m venv /opt/venv
+ENV PATH=/opt/venv/bin:${PATH}
+RUN python -m pip install --upgrade pip setuptools wheel
 
 # Copy application source first.
 COPY . /app
 
 # Install Python dependencies if present.
 RUN if [ -f /app/requirements.txt ]; then \
-        python -m pip install --no-cache-dir -r /app/requirements.txt; \
+        python -m pip install -r /app/requirements.txt; \
     else \
-        python -m pip install --no-cache-dir fastapi 'uvicorn[standard]' pydantic requests python-multipart; \
+        python -m pip install fastapi 'uvicorn[standard]' pydantic requests python-multipart; \
     fi
 
 # Install voicevox_core for Linux x86_64 (optional: VOICEVOX TTS support)
@@ -104,7 +116,7 @@ RUN set -eux; \
       ok=""; \
       for u in ${ORDER}; do \
         python -m pip uninstall -y voicevox_core >/dev/null 2>&1 || true; \
-        if python -m pip install --no-cache-dir --no-deps "${u}" && python -c "import voicevox_core" >/dev/null 2>&1; then ok="1"; break; fi; \
+        if python -m pip install --no-deps "${u}" && python -c "import voicevox_core" >/dev/null 2>&1; then ok="1"; break; fi; \
       done; \
       if [ -z "${ok}" ]; then echo "[WARN] voicevox_core not available. VOICEVOX TTS will be disabled."; fi; \
     fi
@@ -154,44 +166,29 @@ https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic_u
       echo "[WARN] Open JTalk dictionary was not prepared at ${JTDIR}. VOICEVOX may require manual setup."; \
     fi
 
-# Install torch/torchaudio and validate Qwen3 TTS runtime deps.
-# Retry installs (cu124 -> cpu fallback) to absorb transient index/network failures.
-# If install still fails, write status and stop the build immediately.
+# Install torch/torchaudio (CUDA 12.4) and validate Qwen3 TTS runtime deps.
+# If install fails, write an explicit status artifact that /tts/status can surface.
 RUN set -eux; \
     status_file="/app/qwen3_tts_install_status.json"; \
-    retry_pip_install() { \
-      idx="$1"; \
-      n=1; \
-      while [ "${n}" -le 3 ]; do \
-        if python -m pip install --no-cache-dir -r /app/requirements-tts.txt --index-url "${idx}"; then \
-          return 0; \
-        fi; \
-        echo "[WARN] torch install failed (index=${idx}, attempt=${n}/3)"; \
-        n=$((n+1)); \
-        sleep 3; \
-      done; \
-      return 1; \
-    }; \
     if python -c "import transformers, torch, soundfile" >/dev/null 2>&1; then \
       printf '{"ok":true,"source":"preinstalled","error":"","timestamp":"%s"}\n' "$(date -u +%FT%TZ)" > "${status_file}"; \
     else \
-      if ( \
-          retry_pip_install "https://download.pytorch.org/whl/cu124" \
-          || retry_pip_install "https://download.pytorch.org/whl/cpu" \
-        ) \
-        && python -m pip install --no-cache-dir --upgrade "transformers>=4.52" "soundfile>=0.12" \
+      if python -m pip install -r /app/requirements-tts.txt --index-url https://download.pytorch.org/whl/cu124 \
+        && python -m pip install --upgrade "transformers>=4.52" "soundfile>=0.12" \
         && python -c "import transformers, torch, soundfile" >/dev/null 2>&1; then \
         printf '{"ok":true,"source":"docker-install","error":"","timestamp":"%s"}\n' "$(date -u +%FT%TZ)" > "${status_file}"; \
       else \
-        err="transformers/torch/soundfile installation failed (Docker build, cu124->cpu fallback attempted)"; \
+        err="transformers/torch/soundfile installation failed (Docker build)"; \
         printf '{"ok":false,"source":"docker-install","error":"%s","timestamp":"%s"}\n' "${err}" "$(date -u +%FT%TZ)" > "${status_file}"; \
-        echo "[ERROR] ${err}" >&2; \
-        exit 1; \
+        if [ "${QWEN3_TTS_REQUIRED}" = "true" ]; then \
+          echo "[ERROR] ${err}" >&2; \
+          exit 1; \
+        fi; \
       fi; \
     fi
 
 # Re-pin core framework versions in case optional deps caused downgrades
-RUN python -m pip install --no-cache-dir --upgrade "pydantic>=2.6" "fastapi>=0.110"
+RUN python -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110"
 
 # Copy compiled llama artifacts into the paths the app expects.
 RUN mkdir -p /app/llama/bin /app/llama/lib /models
