@@ -8653,6 +8653,20 @@ def echo_save_status():
         "minutes_generating_session_ids": generating_sessions[:20],
     }
 
+@app.get("/echo/runtime-status")
+def echo_runtime_status():
+    with _echo_save_lock:
+        saving_sessions = sorted(_echo_saving_sessions)
+    with _echo_minutes_lock:
+        minutes_sessions = sorted(_echo_generating_minutes_sessions)
+    active_sessions = sorted(_echo_sessions.keys())
+    return {
+        "active": len(active_sessions) > 0 or len(saving_sessions) > 0 or len(minutes_sessions) > 0,
+        "active_sessions": active_sessions[:20],
+        "saving_sessions": saving_sessions[:20],
+        "minutes_sessions": minutes_sessions[:20],
+    }
+
 
 @app.websocket("/echo/stream")
 async def echo_stream_ws(websocket: WebSocket):
@@ -8703,6 +8717,7 @@ async def echo_stream_ws(websocket: WebSocket):
                     chunk_channels = int(ev.get("channels", 1) or 1)
                     chunk_mime = str(ev.get("mime", "audio/webm"))
                     translate_enabled = bool(ev.get("translate_enabled", True))
+                    create_minutes = bool(ev.get("create_minutes", translate_enabled))
                     processed_chunk_seqs = set()
                     if asr_device in {"cpu", "cuda"}:
                         try:
@@ -8739,7 +8754,7 @@ async def echo_stream_ws(websocket: WebSocket):
                         "buffer_format": "webm",
                         "asr_filter": asr_filter,
                         "translate_enabled": translate_enabled,
-                        "create_minutes": translate_enabled,
+                        "create_minutes": create_minutes,
                     }
                     _echo_sessions[session_id] = session
                     _echo_debug_append(
@@ -8753,6 +8768,7 @@ async def echo_stream_ws(websocket: WebSocket):
                         channels=chunk_channels,
                         asr_filter=asr_filter,
                         translate_enabled=translate_enabled,
+                        create_minutes=create_minutes,
                     )
                     await send({"type": "status", "state": "recording"})
 
@@ -8769,6 +8785,8 @@ async def echo_stream_ws(websocket: WebSocket):
                             session["asr_filter"] = _echo_resolve_filter_config({})
                         if "translate_enabled" not in session:
                             session["translate_enabled"] = True
+                        if "create_minutes" not in session:
+                            session["create_minutes"] = bool(session.get("translate_enabled", True))
                     else:
                         # セッション不明の場合は新規として扱う
                         session = {
