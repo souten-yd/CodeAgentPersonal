@@ -15,7 +15,7 @@ def main() -> int:
         import qwen_tts  # noqa: F401
         import transformers
 
-        from transformers import AutoProcessor, Qwen3TTSForConditionalGeneration  # noqa: F401
+        from transformers import AutoProcessor, AutoModel  # noqa: F401
 
         report = {
             "ok": True,

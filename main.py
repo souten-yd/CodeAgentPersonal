@@ -9728,6 +9728,7 @@ async def echo_voice_ref_delete(request: Request):
 # =========================
 
 _VOICEVOX_IMPORT_ERROR = ""
+_VOICEVOX_ENABLED = os.environ.get("CODEAGENT_ENABLE_VOICEVOX", "").strip().lower() in {"1", "true", "yes", "on"}
 try:
     import voicevox_core as _vc_mod  # type: ignore
     _VOICEVOX_AVAILABLE = True
@@ -9812,20 +9813,25 @@ except ImportError:
     _EDGE_TTS_AVAILABLE = False
 
 # Qwen3 TTS (transformers >= 4.52 + torch)
+_QWEN3TTS_IMPORT_ERROR = ""
 try:
+    import qwen_tts as _qwen_tts_mod  # type: ignore  # noqa: F401
     import torch as _torch_mod
-    from transformers import Qwen3TTSForConditionalGeneration as _Q3TModel  # type: ignore
     from transformers import AutoProcessor as _Q3TProc  # type: ignore
+    from transformers import AutoModel as _Q3TModelAuto  # type: ignore
     import transformers as _transformers_mod  # type: ignore
     import soundfile as _sf_mod  # type: ignore
     _QWEN3TTS_AVAILABLE = True
-except ImportError:
+except Exception as _qwen_e:
+    _QWEN3TTS_IMPORT_ERROR = str(_qwen_e)
+    _qwen_tts_mod = None
     _torch_mod = None
-    _Q3TModel = None
+    _Q3TModelAuto = None
     _Q3TProc = None
     _transformers_mod = None
     _sf_mod = None
     _QWEN3TTS_AVAILABLE = False
+    print(f"[TTS] qwen3tts import failed: {_QWEN3TTS_IMPORT_ERROR}")
 
 _qwen3tts_model     = None
 _qwen3tts_processor = None   # AutoProcessor (旧 _qwen3tts_tokenizer を改名)
@@ -9965,6 +9971,8 @@ def _qwen3_missing_requirements() -> list[dict]:
         return missing
     status = _qwen3_install_status_file()
     message = "qwen-tts/transformers/torch/torchaudio/soundfile の import に失敗しました。"
+    if _QWEN3TTS_IMPORT_ERROR:
+        message = f"{message} import error: {_QWEN3TTS_IMPORT_ERROR}"
     if status and status.get("error"):
         message = f"{message} build/install error: {status.get('error')}"
     missing.append({
@@ -9998,7 +10006,7 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> di
         _qwen3tts_processor = _Q3TProc.from_pretrained(
             model_id, cache_dir=cache_dir, trust_remote_code=True
         )
-        _qwen3tts_model = _Q3TModel.from_pretrained(
+        _qwen3tts_model = _Q3TModelAuto.from_pretrained(
             model_id, cache_dir=cache_dir, trust_remote_code=True,
             torch_dtype=_torch_mod.float16 if actual_device == "cuda" else _torch_mod.float32
         ).to(actual_device).eval()
@@ -10259,7 +10267,9 @@ def tts_status_api():
     auto_start_status = os.environ.get("RUNPOD_VOICEVOX_AUTOSTART_STATUS", "")
     auto_start_hint = os.environ.get("RUNPOD_VOICEVOX_AUTOSTART_HINT", "")
     diagnostics = []
-    if not http_ok:
+    if not _VOICEVOX_ENABLED:
+        diagnostics.append("VOICEVOX is disabled in this build (CODEAGENT_ENABLE_VOICEVOX is not enabled).")
+    elif not http_ok:
         diagnostics.append(f"VOICEVOX HTTP unavailable: {http_probe.get('error') or 'unknown error'}")
         diagnostics.append(f"Configured VOICEVOX_URL={_VOICEVOX_HTTP_URL}")
         if IS_RUNPOD_RUNTIME:
@@ -10276,8 +10286,8 @@ def tts_status_api():
     qwen_status_file = _qwen3_install_status_file()
 
     return {
-        "voicevox_available": _VOICEVOX_AVAILABLE,
-        "voicevox_loaded": loaded or http_ok,
+        "voicevox_available": bool(_VOICEVOX_ENABLED and _VOICEVOX_AVAILABLE),
+        "voicevox_loaded": bool(_VOICEVOX_ENABLED and (loaded or http_ok)),
         "voicevox_speakers": speakers,
         "voicevox_speakers_http": http_speakers,
         "voicevox_speakers_core": core_speakers,
@@ -10307,8 +10317,10 @@ def tts_debug_api(limit: int = 20):
 
 
 @app.get("/tts/voices")
-async def tts_voices_api(engine: str = "voicevox"):
+async def tts_voices_api(engine: str = "qwen3tts"):
     if engine == "voicevox":
+        if not _VOICEVOX_ENABLED:
+            return {"voices": []}
         return {"voices": tts_voicevox_speakers()}
     elif engine == "edgetts":
         voices = await tts_edgetts_list_voices_async()
@@ -10320,7 +10332,7 @@ async def tts_voices_api(engine: str = "voicevox"):
 
 @app.post("/tts/load")
 def tts_load_api(req: dict = {}):
-    engine = str(req.get("engine", "voicevox"))
+    engine = str(req.get("engine", "qwen3tts"))
     device = str(req.get("device", "cpu")) if req.get("device") in ("cpu", "cuda") else "cpu"
     model_id = str(req.get("model_id", "Qwen/Qwen3-TTS-12Hz-1.7B-Base"))
 
@@ -10329,6 +10341,9 @@ def tts_load_api(req: dict = {}):
 
     def stream():
         if engine == "voicevox":
+            if not _VOICEVOX_ENABLED:
+                yield _sse({"type": "error", "detail": "VOICEVOX is disabled in this build."})
+                return
             yield _sse({"type": "loading", "message": "VOICEVOX に接続中です..."})
             try:
                 result = tts_voicevox_load()
@@ -10359,8 +10374,10 @@ def tts_load_api(req: dict = {}):
 
 @app.post("/tts/unload")
 def tts_unload_api(req: dict = {}):
-    engine = str(req.get("engine", "voicevox"))
+    engine = str(req.get("engine", "qwen3tts"))
     if engine == "voicevox":
+        if not _VOICEVOX_ENABLED:
+            return {"status": "unloaded", "engine": "voicevox"}
         global _tts_core
         with _tts_lock:
             _tts_core = None
@@ -10433,12 +10450,14 @@ def tts_ref_audio_delete(filename: str):
 @app.post("/tts/synthesize")
 def tts_synthesize_api(req: dict):
     from fastapi.responses import Response as FastAPIResponse
-    engine = str(req.get("engine", "voicevox"))
+    engine = str(req.get("engine", "qwen3tts"))
     text = str(req.get("text", "")).strip()
     if not text:
         raise HTTPException(status_code=400, detail="text required")
 
     if engine == "voicevox":
+        if not _VOICEVOX_ENABLED:
+            raise HTTPException(status_code=400, detail="VOICEVOX is disabled in this build.")
         speaker_id = int(req.get("speaker_id", 0))
         speed = float(req.get("speed", 1.0))
         try:

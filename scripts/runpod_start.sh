@@ -202,33 +202,9 @@ fi
   "${PYTHON_BIN}" -m pip install -r requirements.txt
 }
 
-# Install voicevox_core if not present (optional: VOICEVOX TTS)
-# Install explicit wheel URL (CUDA -> CPU fallback).
-# Avoid `--find-links ... voicevox_core` to prevent cpu/cuda dual-candidate conflicts.
-"${PYTHON_BIN}" -c "import voicevox_core" 2>/dev/null || {
-  echo "[Runpod] Installing voicevox_core for VOICEVOX TTS..."
-  VV_CUDA_URL="https://github.com/VOICEVOX/voicevox_core/releases/download/0.15.0/voicevox_core-0.15.0%2Bcuda-cp38-abi3-linux_x86_64.whl"
-  VV_CPU_URL="https://github.com/VOICEVOX/voicevox_core/releases/download/0.15.0/voicevox_core-0.15.0%2Bcpu-cp38-abi3-linux_x86_64.whl"
-  VV_ORDER=()
-  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
-    VV_ORDER=("${VV_CUDA_URL}" "${VV_CPU_URL}")
-  else
-    # AMD/Intel/no-GPU 環境はCPU wheelを優先
-    VV_ORDER=("${VV_CPU_URL}" "${VV_CUDA_URL}")
-  fi
-  VV_OK=0
-  for vv_url in "${VV_ORDER[@]}"; do
-    "${PYTHON_BIN}" -m pip uninstall -y voicevox_core >/dev/null 2>&1 || true
-    if "${PYTHON_BIN}" -m pip install --no-deps "${vv_url}" \
-      && "${PYTHON_BIN}" -c "import voicevox_core" >/dev/null 2>&1; then
-      VV_OK=1
-      break
-    fi
-  done
-  if [[ "${VV_OK}" -ne 1 ]]; then
-    echo "[Runpod][WARN] voicevox_core installation failed. VOICEVOX TTS will be disabled."
-  fi
-}
+# Ensure VOICEVOX-related Python packages are removed and not reintroduced.
+"${PYTHON_BIN}" -m pip uninstall -y voicevox-core voicevox-client pyopenjtalk >/dev/null 2>&1 || true
+
 # Install Qwen3-TTS runtime dependencies if missing (optional)
 "${PYTHON_BIN}" -c "import qwen_tts, transformers, torch, torchaudio, soundfile" 2>/dev/null || {
   echo "[Runpod] Installing Qwen3-TTS dependencies (cu128 torch + qwen-tts)..."
