@@ -42,6 +42,7 @@ RUN set -eux; \
 ########################################
 FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu${UBUNTU_VERSION} AS runtime
 ARG VOICEVOX_WHEEL_VARIANT=auto
+ARG QWEN3_TTS_REQUIRED=false
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -165,12 +166,26 @@ https://downloads.sourceforge.net/project/open-jtalk/Dictionary/open_jtalk_dic_u
       echo "[WARN] Open JTalk dictionary was not prepared at ${JTDIR}. VOICEVOX may require manual setup."; \
     fi
 
-# Install torch/torchaudio (CUDA 12.4) and validate Qwen3 TTS runtime deps (optional)
-RUN python -c "import transformers, torch, soundfile" >/dev/null 2>&1 \
-    || (python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124 \
-    && python -m pip install --upgrade "transformers>=4.52" "soundfile>=0.12" \
-    && python -c "import transformers, torch, soundfile" >/dev/null 2>&1) \
-    || echo "[WARN] transformers/torch/soundfile installation failed. Qwen3 TTS will be disabled."
+# Install torch/torchaudio (CUDA 12.4) and validate Qwen3 TTS runtime deps.
+# If install fails, write an explicit status artifact that /tts/status can surface.
+RUN set -eux; \
+    status_file="/app/qwen3_tts_install_status.json"; \
+    if python -c "import transformers, torch, soundfile" >/dev/null 2>&1; then \
+      printf '{"ok":true,"source":"preinstalled","error":"","timestamp":"%s"}\n' "$(date -u +%FT%TZ)" > "${status_file}"; \
+    else \
+      if python -m pip install -r /app/requirements-tts.txt --index-url https://download.pytorch.org/whl/cu124 \
+        && python -m pip install --upgrade "transformers>=4.52" "soundfile>=0.12" \
+        && python -c "import transformers, torch, soundfile" >/dev/null 2>&1; then \
+        printf '{"ok":true,"source":"docker-install","error":"","timestamp":"%s"}\n' "$(date -u +%FT%TZ)" > "${status_file}"; \
+      else \
+        err="transformers/torch/soundfile installation failed (Docker build)"; \
+        printf '{"ok":false,"source":"docker-install","error":"%s","timestamp":"%s"}\n' "${err}" "$(date -u +%FT%TZ)" > "${status_file}"; \
+        if [ "${QWEN3_TTS_REQUIRED}" = "true" ]; then \
+          echo "[ERROR] ${err}" >&2; \
+          exit 1; \
+        fi; \
+      fi; \
+    fi
 
 # Re-pin core framework versions in case optional deps caused downgrades
 RUN python -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110"

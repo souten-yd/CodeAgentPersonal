@@ -14,7 +14,4 @@ soundfile>=0.12
 # Qwen3 TTS 共通依存:
 # - transformers>=4.52
 # - soundfile>=0.12
-# Qwen3 TTS に必要な torch/torchaudio（CPU版）:
-# pip install torch torchaudio
-# Qwen3 TTS に必要な torch/torchaudio（CUDA版・GPU推奨）:
-# pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+# Qwen3 TTS の torch/torchaudio は requirements-tts.txt で管理（CPU/GPU別のREADME手順を参照）
