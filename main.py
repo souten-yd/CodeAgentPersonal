@@ -8332,6 +8332,32 @@ def _echo_should_reject_asr_text_with_config(text: str, metrics: dict, config: d
     return False, ""
 
 
+def _echo_tail_text(text: str, keep_chars: int = 40) -> str:
+    """セッション用の直近確定テキストを末尾 keep_chars 文字で保持する。"""
+    src = str(text or "").strip()
+    if not src:
+        return ""
+    size = max(20, min(60, int(keep_chars or 40)))
+    return src[-size:]
+
+
+def _echo_trim_overlap_text(previous_text: str, current_text: str, min_overlap: int = 3) -> tuple[str, int]:
+    """前文のsuffixと新文のprefixが重なる場合に重複部分を除去する。"""
+    prev = str(previous_text or "").strip()
+    cur = str(current_text or "").strip()
+    if not prev or not cur:
+        return cur, 0
+    max_check = min(len(prev), len(cur))
+    overlap = 0
+    for i in range(max_check, min_overlap - 1, -1):
+        if prev[-i:] == cur[:i]:
+            overlap = i
+            break
+    if overlap <= 0:
+        return cur, 0
+    return cur[overlap:].lstrip(), overlap
+
+
 def _echo_voice_transcribe(
     audio_bytes: bytes,
     language: str = "auto",
@@ -8339,6 +8365,7 @@ def _echo_voice_transcribe(
     audio_format: str = "webm",
     sample_rate: int = 16000,
     channels: int = 1,
+    initial_prompt: str = "",
 ) -> dict:
     """Echo専用 voice_transcribe。_echo_voice_lock を使用し通常ASRと競合しない。"""
     global _echo_voice_model, _echo_voice_model_name
@@ -8371,6 +8398,7 @@ def _echo_voice_transcribe(
                 best_of=1,
                 temperature=0.0,
                 condition_on_previous_text=False,
+                initial_prompt=(initial_prompt or "").strip() or None,
                 vad_filter=True,
                 word_timestamps=False,
             )
@@ -8755,6 +8783,7 @@ async def echo_stream_ws(websocket: WebSocket):
                         "asr_filter": asr_filter,
                         "translate_enabled": translate_enabled,
                         "create_minutes": create_minutes,
+                        "recent_confirmed_text": "",
                     }
                     _echo_sessions[session_id] = session
                     _echo_debug_append(
@@ -8787,6 +8816,8 @@ async def echo_stream_ws(websocket: WebSocket):
                             session["translate_enabled"] = True
                         if "create_minutes" not in session:
                             session["create_minutes"] = bool(session.get("translate_enabled", True))
+                        if "recent_confirmed_text" not in session:
+                            session["recent_confirmed_text"] = ""
                     else:
                         # セッション不明の場合は新規として扱う
                         session = {
@@ -8805,6 +8836,7 @@ async def echo_stream_ws(websocket: WebSocket):
                             "asr_filter": _echo_resolve_filter_config({}),
                             "translate_enabled": True,
                             "create_minutes": True,
+                            "recent_confirmed_text": "",
                         }
                         _echo_sessions[session_id] = session
                     # 再接続時は同一チャンク再送を許容するため、重複除外セットを保持
@@ -8905,7 +8937,13 @@ async def echo_stream_ws(websocket: WebSocket):
                     )
                     res = await _asyncio.to_thread(
                         _echo_voice_transcribe,
-                        audio_bytes, language, model_name, runtime_audio_format, runtime_sample_rate, runtime_channels
+                        audio_bytes,
+                        language,
+                        model_name,
+                        runtime_audio_format,
+                        runtime_sample_rate,
+                        runtime_channels,
+                        session.get("recent_confirmed_text", ""),
                     )
                     asr_end = time.perf_counter()
                     text = res.get("text", "").strip()
@@ -8921,6 +8959,24 @@ async def echo_stream_ws(websocket: WebSocket):
                         mean_avg_logprob=metrics.get("mean_avg_logprob"),
                     )
                     if text:
+                        overlap_trimmed = 0
+                        if session.get("sentences"):
+                            prev_text = str(session["sentences"][-1].get("text", ""))
+                            text, overlap_trimmed = _echo_trim_overlap_text(prev_text, text)
+                        if overlap_trimmed > 0:
+                            _echo_debug_append(
+                                session_id=session_id,
+                                seq=seq,
+                                event_type="asr_overlap_trim",
+                                overlap_chars=overlap_trimmed,
+                                result_chars=len(text),
+                            )
+                        if not text:
+                            if seq is not None:
+                                processed_chunk_seqs.add(seq)
+                                await send({"type": "ack", "seq": seq, "trimmed_empty": True})
+                            await send({"type": "status", "state": "recording"})
+                            continue
                         lang_det = _echo_normalize_lang(res.get("language", "auto"), text)
                         rejected, reject_reason = _echo_should_reject_asr_text_with_config(
                             text, metrics, session.get("asr_filter", {}), lang_det
@@ -8945,6 +9001,10 @@ async def echo_stream_ws(websocket: WebSocket):
                             "id": sid, "text": text,
                             "lang": lang_det, "translated": ""
                         })
+                        session["recent_confirmed_text"] = _echo_tail_text(
+                            f"{session.get('recent_confirmed_text', '')} {text}".strip(),
+                            keep_chars=40,
+                        )
                         await send({"type": "sentence", "id": sid, "text": text, "lang": lang_det})
                         # 翻訳（ASR後に順次実行）
                         if session.get("translate_enabled", True):

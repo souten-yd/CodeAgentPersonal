@@ -1539,6 +1539,13 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <span id="echo-vad-enabled-label" style="font-size:10px;color:var(--text2)">ON</span>
             </label>
           </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:10px;color:var(--text2);font-weight:700">チャンク重なり送信</div>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input id="echo-vad-overlap-enabled" type="checkbox" style="width:14px;height:14px;accent-color:var(--accent)" onchange="saveEchoSettings()">
+              <span id="echo-vad-overlap-enabled-label" style="font-size:10px;color:var(--text2)">OFF</span>
+            </label>
+          </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div>
               <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">VAD mode</div>
@@ -1576,6 +1583,12 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div>
               <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">最小平均RMS</div>
               <input id="echo-vad-min-avg-rms" type="number" min="0.001" max="0.2" step="0.001"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">重なり長(ms)</div>
+              <input id="echo-vad-overlap-ms" type="number" min="200" max="400" step="20"
                 style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
                 onchange="saveEchoSettings()">
             </div>
@@ -2455,6 +2468,8 @@ const echo = {
   vadMinSpeechMs: Math.max(100, Math.min(2000, parseInt(localStorage.getItem('echo_vad_min_speech_ms') || '200', 10) || 200)),
   vadRmsThreshold: Math.max(0.001, Math.min(0.2, _numOr(localStorage.getItem('echo_vad_rms_threshold'), 0.012))),
   vadMinAvgRms: Math.max(0.001, Math.min(0.2, _numOr(localStorage.getItem('echo_vad_min_avg_rms'), 0.008))),
+  vadOverlapEnabled: localStorage.getItem('echo_vad_overlap_enabled') === 'true',
+  vadOverlapMs: Math.max(200, Math.min(400, parseInt(localStorage.getItem('echo_vad_overlap_ms') || '300', 10) || 300)),
   vadFrameMs: 20,
   _highpassLastX: 0,
   _highpassLastY: 0,
@@ -3153,6 +3168,11 @@ function saveEchoSettings() {
   echo.vadMinSpeechMs = Math.max(100, Math.min(2000, parseInt(document.getElementById('echo-vad-min-speech-ms')?.value || `${echo.vadMinSpeechMs || 200}`, 10) || 200));
   echo.vadRmsThreshold = Math.max(0.001, Math.min(0.2, _numOr(document.getElementById('echo-vad-rms-threshold')?.value, echo.vadRmsThreshold || 0.012)));
   echo.vadMinAvgRms = Math.max(0.001, Math.min(0.2, _numOr(document.getElementById('echo-vad-min-avg-rms')?.value, echo.vadMinAvgRms || 0.008)));
+  echo.vadOverlapEnabled = document.getElementById('echo-vad-overlap-enabled')?.checked === true;
+  echo.vadOverlapMs = Math.max(
+    200,
+    Math.min(400, parseInt(document.getElementById('echo-vad-overlap-ms')?.value || `${echo.vadOverlapMs || 300}`, 10) || 300)
+  );
   const asrDev = document.querySelector('input[name="echo-asr-device"]:checked')?.value || echo.asrDevice || localStorage.getItem('asr_device') || 'cuda';
   _syncAsrDeviceState(asrDev);
   localStorage.setItem('echo_autoplay_tts', echo.autoPlayTts);
@@ -3188,6 +3208,8 @@ function saveEchoSettings() {
   localStorage.setItem('echo_vad_min_speech_ms', `${echo.vadMinSpeechMs}`);
   localStorage.setItem('echo_vad_rms_threshold', `${echo.vadRmsThreshold}`);
   localStorage.setItem('echo_vad_min_avg_rms', `${echo.vadMinAvgRms}`);
+  localStorage.setItem('echo_vad_overlap_enabled', `${echo.vadOverlapEnabled}`);
+  localStorage.setItem('echo_vad_overlap_ms', `${echo.vadOverlapMs}`);
   _updateEchoQwen3UiVisibility();
   const autoLbl = document.getElementById('echo-autoplay-label');
   if (autoLbl) autoLbl.textContent = echo.autoPlayTts ? 'ON' : 'OFF';
@@ -3232,6 +3254,9 @@ function saveEchoSettings() {
   const vadMinSpeechMsInput = document.getElementById('echo-vad-min-speech-ms');
   const vadRmsThresholdInput = document.getElementById('echo-vad-rms-threshold');
   const vadMinAvgRmsInput = document.getElementById('echo-vad-min-avg-rms');
+  const vadOverlapEnabledInput = document.getElementById('echo-vad-overlap-enabled');
+  const vadOverlapEnabledLabel = document.getElementById('echo-vad-overlap-enabled-label');
+  const vadOverlapMsInput = document.getElementById('echo-vad-overlap-ms');
   if (minCharsInput) minCharsInput.value = `${echo.asrMinChars}`;
   if (shortCharsInput) shortCharsInput.value = `${echo.asrShortTextMaxChars}`;
   if (noSpeechInput) noSpeechInput.value = `${echo.asrNoSpeechReject}`;
@@ -3256,6 +3281,9 @@ function saveEchoSettings() {
   if (vadMinSpeechMsInput) vadMinSpeechMsInput.value = `${echo.vadMinSpeechMs}`;
   if (vadRmsThresholdInput) vadRmsThresholdInput.value = `${echo.vadRmsThreshold}`;
   if (vadMinAvgRmsInput) vadMinAvgRmsInput.value = `${echo.vadMinAvgRms}`;
+  if (vadOverlapEnabledInput) vadOverlapEnabledInput.checked = !!echo.vadOverlapEnabled;
+  if (vadOverlapEnabledLabel) vadOverlapEnabledLabel.textContent = echo.vadOverlapEnabled ? 'ON' : 'OFF';
+  if (vadOverlapMsInput) vadOverlapMsInput.value = `${echo.vadOverlapMs}`;
   if (minCharsInput) minCharsInput.disabled = !echo.asrFilterEnabled;
   if (shortCharsInput) shortCharsInput.disabled = !echo.asrFilterEnabled;
   if (noSpeechInput) noSpeechInput.disabled = !echo.asrFilterEnabled;
@@ -3270,6 +3298,8 @@ function saveEchoSettings() {
   if (vadMinSpeechMsInput) vadMinSpeechMsInput.disabled = !echo.vadEnabled;
   if (vadRmsThresholdInput) vadRmsThresholdInput.disabled = !echo.vadEnabled;
   if (vadMinAvgRmsInput) vadMinAvgRmsInput.disabled = !echo.vadEnabled;
+  if (vadOverlapEnabledInput) vadOverlapEnabledInput.disabled = !echo.vadEnabled;
+  if (vadOverlapMsInput) vadOverlapMsInput.disabled = !echo.vadEnabled || !echo.vadOverlapEnabled;
 }
 
 function syncEchoTranslateUi() {
@@ -6471,6 +6501,7 @@ async function _echoStart() {
   echo._vadUtteranceRmsSum = 0;
   echo._vadUtteranceSpeechFrames = 0;
   echo._vadNonSpeechRun = 0;
+  echo._vadOverlapTail = new Int16Array(0);
   echo._highpassLastX = 0;
   echo._highpassLastY = 0;
   echo.startTime  = Date.now();
@@ -6530,8 +6561,24 @@ async function _echoStart() {
   }
   function _echoEmitPcmChunk(int16Chunk) {
     if (!int16Chunk || int16Chunk.length === 0) return;
+    let emitChunk = int16Chunk;
+    if (echo.vadEnabled && echo.vadOverlapEnabled) {
+      const overlapTail = echo._vadOverlapTail instanceof Int16Array ? echo._vadOverlapTail : new Int16Array(0);
+      if (overlapTail.length > 0) {
+        emitChunk = _echoConcatInt16(overlapTail, int16Chunk);
+      }
+      const overlapSamples = Math.max(0, Math.floor(echo.pcmTargetRate * (Math.max(200, Math.min(400, echo.vadOverlapMs || 300)) / 1000)));
+      if (overlapSamples > 0) {
+        const keep = Math.min(overlapSamples, int16Chunk.length);
+        echo._vadOverlapTail = int16Chunk.slice(int16Chunk.length - keep);
+      } else {
+        echo._vadOverlapTail = new Int16Array(0);
+      }
+    } else if (echo.vadEnabled) {
+      echo._vadOverlapTail = new Int16Array(0);
+    }
     const seq = echo.nextChunkSeq++;
-    const pcmBytes = new Uint8Array(int16Chunk.buffer.slice(int16Chunk.byteOffset, int16Chunk.byteOffset + int16Chunk.byteLength));
+    const pcmBytes = new Uint8Array(emitChunk.buffer.slice(emitChunk.byteOffset, emitChunk.byteOffset + emitChunk.byteLength));
     const packet = new Uint8Array(4 + pcmBytes.length);
     const dv = new DataView(packet.buffer);
     dv.setUint32(0, seq, false); // big-endian
@@ -6727,6 +6774,7 @@ async function _echoStop() {
     echo._vadUtteranceRmsSum = 0;
     echo._vadUtteranceSpeechFrames = 0;
     echo._vadNonSpeechRun = 0;
+    echo._vadOverlapTail = new Int16Array(0);
     echo.pcmPendingInt16 = new Int16Array(0);
   }
   // PCM残バッファ flush
