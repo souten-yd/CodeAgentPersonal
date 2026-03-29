@@ -902,6 +902,12 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 @media(max-width:768px){
   .app-body.echo-active .echo-col{flex:1 1 100%}
   .app-body.echo-active .panel-col{flex:1 1 100%}
+  .echo-toolbar{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .echo-toolbar .echo-record-btn,
+  .echo-toolbar .echo-translate-btn{width:100%;padding:8px 10px;font-size:11px;white-space:nowrap}
+  .echo-toolbar .echo-toolbar-elapsed{grid-column:1 / -1;margin-left:0;text-align:left;min-width:0}
+  .echo-status-right{display:grid;grid-template-columns:auto auto 1fr auto;width:100%;gap:8px;align-items:center}
+  .echo-output-count{margin-left:0}
 }
 /* EchoVault 折り畳みパネル */
 .echo-vault-panel{border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0}
@@ -993,9 +999,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         ⇄ Smart Translate <b id="echo-toolbar-translate-enable-label">OFF</b>
       </button>
       <button class="echo-translate-btn" id="echo-toolbar-generate-minutes" onclick="echoGenerateMinutesNow()" title="最新の文字起こしから議事録を作成">
-        📝 議事録作成
+        📝 議事録 OFF
       </button>
-      <span class="echo-duration echo-toolbar-elapsed" id="echo-duration">00:00</span>
       <button id="echo-clear-btn" onclick="echoClearTranscript()" style="display:none;font-size:10px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="会話をクリア">✕ Clear</button>
     </div>
     <div class="echo-transcript" id="echo-transcript">
@@ -1006,6 +1011,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="echo-status-right">
         <span id="echo-busy-status" class="echo-busy-status">idle</span>
         <span class="echo-status" id="echo-status">Ready</span>
+        <span class="echo-duration echo-toolbar-elapsed" id="echo-duration">00:00</span>
         <span id="echo-sentence-count" class="echo-output-count" title="ASR出力の確定回数（「出力まとめ回数」と同じ定義で1回=1カウント）">出力回数: 0</span>
       </div>
     </div>
@@ -1296,6 +1302,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
         <button onclick="refreshEchoVault()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ 更新</button>
       </div>
+      <div id="echo-vault-info" style="display:none;margin-bottom:10px;padding:8px 10px;border:1px solid var(--amber);border-radius:6px;background:rgba(255,184,0,.12);font-size:11px;color:var(--text2);line-height:1.5"></div>
       <!-- インライン音声プレイヤー -->
       <div id="vault-audio-player" style="display:none;margin-bottom:10px;padding:10px;border:1px solid var(--accent-border);border-radius:6px;background:var(--accent-bg)">
         <div style="font-size:11px;color:var(--text2);margin-bottom:6px;font-weight:700" id="vault-audio-name"></div>
@@ -1379,7 +1386,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             </select>
           </div>
           <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.5">
-            0秒で従来どおり即時表示。初期値は1.0秒です。<br>
+            0秒で従来どおり即時表示。初期値は1.5秒です。<br>
             出力まとめ回数は「言語別直列 / 言語別並列」時のみ適用されます。
           </div>
         </div>
@@ -1568,7 +1575,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             </div>
           </div>
           <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.5">
-            16kHz mono PCM / 20msフレームで処理。推奨: mode3, 開始 10中7, 終了18, 最小発話400ms。
+            16kHz mono PCM / 20msフレームで処理。推奨: mode1, 開始 10中7, 終了18, 最小発話200ms。
           </div>
         </div>
       </div>
@@ -2435,11 +2442,11 @@ const echo = {
   highpassEnabled: localStorage.getItem('echo_highpass_enabled') !== 'false',
   highpassHz: Math.max(20, Math.min(240, _numOr(localStorage.getItem('echo_highpass_hz'), 120))),
   vadEnabled: localStorage.getItem('echo_vad_enabled') !== 'false',
-  vadMode: Math.max(0, Math.min(3, parseInt(localStorage.getItem('echo_vad_mode') || '3', 10) || 3)),
+  vadMode: Math.max(0, Math.min(3, parseInt(localStorage.getItem('echo_vad_mode') || '1', 10) || 1)),
   vadStartWindowFrames: Math.max(4, Math.min(20, parseInt(localStorage.getItem('echo_vad_start_window_frames') || '10', 10) || 10)),
   vadStartSpeechFrames: Math.max(1, Math.min(20, parseInt(localStorage.getItem('echo_vad_start_speech_frames') || '7', 10) || 7)),
   vadEndNonSpeechFrames: Math.max(15, Math.min(20, parseInt(localStorage.getItem('echo_vad_end_nonspeech_frames') || '18', 10) || 18)),
-  vadMinSpeechMs: Math.max(100, Math.min(2000, parseInt(localStorage.getItem('echo_vad_min_speech_ms') || '400', 10) || 400)),
+  vadMinSpeechMs: Math.max(100, Math.min(2000, parseInt(localStorage.getItem('echo_vad_min_speech_ms') || '200', 10) || 200)),
   vadRmsThreshold: Math.max(0.001, Math.min(0.2, _numOr(localStorage.getItem('echo_vad_rms_threshold'), 0.012))),
   vadMinAvgRms: Math.max(0.001, Math.min(0.2, _numOr(localStorage.getItem('echo_vad_min_avg_rms'), 0.008))),
   vadFrameMs: 20,
@@ -2450,11 +2457,12 @@ const echo = {
   ttsTranslateEnToJaEnabled: _ttsGetTranslateSettings('echo').en2jaEnabled,
   ttsTranslateJaToEnEnabled: _ttsGetTranslateSettings('echo').ja2enEnabled,
   ttsTranslateAutoplay: _ttsGetTranslateSettings('echo').autoplay,
-  displayStyle:    localStorage.getItem('echo_display_style') || 'sentence',
+  autoGenerateMinutes: localStorage.getItem('echo_auto_generate_minutes') === 'true',
+  displayStyle:    localStorage.getItem('echo_display_style') || 'lang_serial',
   displayFilter:   localStorage.getItem('echo_display_filter') || 'all',
-  groupOverflowMode: localStorage.getItem('echo_group_overflow_mode') || 'append',
-  parallelMaxSentences: Math.max(1, parseInt(localStorage.getItem('echo_parallel_max_sentences') || '4', 10) || 4),
-  textRevealSeconds: Math.max(0, _numOr(localStorage.getItem('echo_text_reveal_seconds'), 1.0)),
+  groupOverflowMode: localStorage.getItem('echo_group_overflow_mode') || 'rolling',
+  parallelMaxSentences: Math.max(1, parseInt(localStorage.getItem('echo_parallel_max_sentences') || '20', 10) || 20),
+  textRevealSeconds: Math.max(0, _numOr(localStorage.getItem('echo_text_reveal_seconds'), 1.5)),
   _animTimers:     new Map(),
   _parallelDomCache: null,
   voiceRefAudio:  null,    // ボイスクローン参照音声 base64
@@ -2462,13 +2470,14 @@ const echo = {
   unackedChunks:  new Map(), // seq -> ArrayBuffer(先頭4byte=seq)
   _stopResolver:  null,
   _isStoppingOrSaving: false,
+  _connState: 'disconnected',
 };
 
 // 旧表示モードの互換変換
 if (!localStorage.getItem('echo_display_style')) {
   const legacyMode = localStorage.getItem('echo_display_mode') || 'paired';
   if (legacyMode === 'parallel') echo.displayStyle = 'lang_parallel';
-  else echo.displayStyle = 'sentence';
+  else echo.displayStyle = 'lang_serial';
 }
 if (!localStorage.getItem('echo_display_filter')) {
   const legacyMode = localStorage.getItem('echo_display_mode') || 'paired';
@@ -3081,11 +3090,11 @@ async function loadQwen3Tts(context) {
 function saveEchoSettings() {
   echo.autoPlayTts = document.getElementById('echo-autoplay-tts')?.checked || false;
   echo.ttsEngine   = document.getElementById('echo-tts-engine')?.value     || 'qwen3tts';
-  echo.displayStyle = document.getElementById('echo-display-style')?.value || echo.displayStyle || 'sentence';
+  echo.displayStyle = document.getElementById('echo-display-style')?.value || echo.displayStyle || 'lang_serial';
   echo.displayFilter = document.getElementById('echo-display-filter')?.value || echo.displayFilter || 'all';
-  echo.groupOverflowMode = document.getElementById('echo-group-overflow-mode')?.value || echo.groupOverflowMode || 'append';
-  echo.parallelMaxSentences = Math.max(1, parseInt(document.getElementById('echo-parallel-max-sentences')?.value || `${echo.parallelMaxSentences || 4}`, 10) || 4);
-  echo.textRevealSeconds = Math.max(0, _numOr(document.getElementById('echo-text-reveal-seconds')?.value, echo.textRevealSeconds ?? 1));
+  echo.groupOverflowMode = document.getElementById('echo-group-overflow-mode')?.value || echo.groupOverflowMode || 'rolling';
+  echo.parallelMaxSentences = Math.max(1, parseInt(document.getElementById('echo-parallel-max-sentences')?.value || `${echo.parallelMaxSentences || 20}`, 10) || 20);
+  echo.textRevealSeconds = Math.max(0, _numOr(document.getElementById('echo-text-reveal-seconds')?.value, echo.textRevealSeconds ?? 1.5));
   echo.asrLang     = document.getElementById('echo-asr-lang')?.value       || 'auto';
   echo.asrModel    = document.getElementById('echo-asr-model')?.value      || 'large-v3-turbo';
   echo.asrFilterEnabled = document.getElementById('echo-asr-filter-enabled')?.checked !== false;
@@ -3125,7 +3134,7 @@ function saveEchoSettings() {
     Math.min(240, _numOr(document.getElementById('echo-highpass-hz')?.value, echo.highpassHz || 120))
   );
   echo.vadEnabled = document.getElementById('echo-vad-enabled')?.checked !== false;
-  echo.vadMode = Math.max(0, Math.min(3, parseInt(document.getElementById('echo-vad-mode')?.value || `${echo.vadMode || 3}`, 10) || 3));
+  echo.vadMode = Math.max(0, Math.min(3, parseInt(document.getElementById('echo-vad-mode')?.value || `${echo.vadMode || 1}`, 10) || 1));
   {
     const ratioRaw = (document.getElementById('echo-vad-start-ratio')?.value || `${echo.vadStartWindowFrames || 10}/${echo.vadStartSpeechFrames || 7}`).trim();
     const m = ratioRaw.match(/^(\d+)\s*\/\s*(\d+)$/);
@@ -3135,7 +3144,7 @@ function saveEchoSettings() {
     }
   }
   echo.vadEndNonSpeechFrames = Math.max(15, Math.min(20, parseInt(document.getElementById('echo-vad-end-nonspeech-frames')?.value || `${echo.vadEndNonSpeechFrames || 18}`, 10) || 18));
-  echo.vadMinSpeechMs = Math.max(100, Math.min(2000, parseInt(document.getElementById('echo-vad-min-speech-ms')?.value || `${echo.vadMinSpeechMs || 400}`, 10) || 400));
+  echo.vadMinSpeechMs = Math.max(100, Math.min(2000, parseInt(document.getElementById('echo-vad-min-speech-ms')?.value || `${echo.vadMinSpeechMs || 200}`, 10) || 200));
   echo.vadRmsThreshold = Math.max(0.001, Math.min(0.2, _numOr(document.getElementById('echo-vad-rms-threshold')?.value, echo.vadRmsThreshold || 0.012)));
   echo.vadMinAvgRms = Math.max(0.001, Math.min(0.2, _numOr(document.getElementById('echo-vad-min-avg-rms')?.value, echo.vadMinAvgRms || 0.008)));
   const asrDev = document.querySelector('input[name="echo-asr-device"]:checked')?.value || echo.asrDevice || localStorage.getItem('asr_device') || 'cuda';
@@ -3279,22 +3288,22 @@ function syncEchoTranslateUi() {
 function _syncEchoMinutesButtonUi() {
   const btn = document.getElementById('echo-toolbar-generate-minutes');
   if (!btn) return;
-  const enabled = !!echo.ttsTranslateEnabled;
   const busy = !!echo._isStoppingOrSaving;
-  btn.disabled = !enabled || busy;
-  if (!enabled) {
-    btn.textContent = '📝 議事録作成 (OFF)';
-    btn.title = 'Smart TranslateがOFFのため議事録作成はスキップされます';
-  } else if (busy) {
+  btn.disabled = busy;
+  if (busy) {
     btn.textContent = '⟳ 議事録作成中...';
     btn.title = '保存・生成処理中です';
   } else {
-    btn.textContent = '📝 議事録作成';
-    btn.title = '最新の文字起こしから議事録を作成';
+    btn.textContent = echo.autoGenerateMinutes ? '📝 議事録 ON' : '📝 議事録 OFF';
+    btn.title = echo.autoGenerateMinutes ? '停止時に議事録を作成します（クリックでOFF）' : '停止時の議事録作成を無効化中（クリックでON）';
   }
 }
 
 function _echoInitSettingsUI() {
+  if (localStorage.getItem('echo_auto_generate_minutes') === null) {
+    localStorage.setItem('echo_auto_generate_minutes', 'false');
+    echo.autoGenerateMinutes = false;
+  }
   if (localStorage.getItem('echo_autoplay_tts') === null) {
     localStorage.setItem('echo_autoplay_tts', 'false');
     echo.autoPlayTts = false;
@@ -3311,13 +3320,13 @@ function _echoInitSettingsUI() {
   const overflowModeInput = document.getElementById('echo-group-overflow-mode');
   const parallelMaxInput = document.getElementById('echo-parallel-max-sentences');
   const revealSecondsInput = document.getElementById('echo-text-reveal-seconds');
-  if (displayStyleInput) displayStyleInput.value = echo.displayStyle || 'sentence';
+  if (displayStyleInput) displayStyleInput.value = echo.displayStyle || 'lang_serial';
   if (displayFilterInput) displayFilterInput.value = echo.displayFilter || 'all';
-  if (overflowModeInput) overflowModeInput.value = echo.groupOverflowMode || 'append';
-  if (parallelMaxInput) parallelMaxInput.value = `${echo.parallelMaxSentences || 4}`;
-  if (revealSecondsInput) revealSecondsInput.value = `${echo.textRevealSeconds ?? 1}`;
-  if (parallelMaxInput) parallelMaxInput.disabled = !['lang_serial', 'lang_parallel'].includes(echo.displayStyle || 'sentence');
-  if (overflowModeInput) overflowModeInput.disabled = !['lang_serial', 'lang_parallel'].includes(echo.displayStyle || 'sentence');
+  if (overflowModeInput) overflowModeInput.value = echo.groupOverflowMode || 'rolling';
+  if (parallelMaxInput) parallelMaxInput.value = `${echo.parallelMaxSentences || 20}`;
+  if (revealSecondsInput) revealSecondsInput.value = `${echo.textRevealSeconds ?? 1.5}`;
+  if (parallelMaxInput) parallelMaxInput.disabled = !['lang_serial', 'lang_parallel'].includes(echo.displayStyle || 'lang_serial');
+  if (overflowModeInput) overflowModeInput.disabled = !['lang_serial', 'lang_parallel'].includes(echo.displayStyle || 'lang_serial');
   const langSel = document.getElementById('echo-asr-lang');
   if (langSel) langSel.value = echo.asrLang;
   const modelSel = document.getElementById('echo-asr-model');
@@ -3398,34 +3407,14 @@ function toggleEchoToolbarTranslate() {
 }
 
 async function echoGenerateMinutesNow() {
-  if (!echo.ttsTranslateEnabled) {
-    _echoSetStatus('Smart Translate OFF: 議事録作成はスキップしました');
-    _syncEchoMinutesButtonUi();
-    return;
-  }
   if (echo.recording) {
-    _echoSetStatus('録音中は議事録作成できません。停止後に実行してください。');
+    _echoSetStatus('録音中は議事録作成設定を変更できません。停止後に実行してください。');
     return;
   }
-  echo._isStoppingOrSaving = true;
-  _echoSetStatus('⟳ 議事録を作成中...');
+  echo.autoGenerateMinutes = !echo.autoGenerateMinutes;
+  localStorage.setItem('echo_auto_generate_minutes', echo.autoGenerateMinutes ? 'true' : 'false');
+  _echoSetStatus(echo.autoGenerateMinutes ? '議事録作成: ON（停止時に自動生成）' : '議事録作成: OFF（停止時に生成しません）');
   _syncEchoMinutesButtonUi();
-  try {
-    const resp = await fetch(API + '/echo/generate-minutes', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({})
-    });
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) throw new Error(data.detail || 'minutes generation failed');
-    _echoSetStatus('✓ 議事録作成完了: ' + (data.filename || ''));
-    await refreshEchoVault();
-  } catch (e) {
-    _echoSetStatus('⚠ 議事録作成失敗: ' + (e.message || String(e)));
-  } finally {
-    echo._isStoppingOrSaving = false;
-    _syncEchoMinutesButtonUi();
-  }
 }
 
 // ── TTS/ASR タブ設定 ──
@@ -5945,14 +5934,20 @@ function _echoWsUrl() {
 function _echoSetStatus(text) {
   const el = document.getElementById('echo-status');
   if (el) el.textContent = text;
-  const busyEl = document.getElementById('echo-busy-status');
-  if (busyEl) {
-    const busyNow = !!echo._isStoppingOrSaving || /(文字起こし中|保存中|議事録作成中|再接続中)/.test(text || '');
-    busyEl.textContent = busyNow ? 'busy' : 'idle';
-    busyEl.classList.toggle('busy', busyNow);
-    busyEl.title = busyNow ? `処理中: ${text || '-'}` : '待機中';
-  }
+  _echoSyncBusyStatus(text || '');
   _syncEchoMinutesButtonUi();
+}
+
+function _echoSyncBusyStatus(statusText = '') {
+  const busyEl = document.getElementById('echo-busy-status');
+  if (!busyEl) return;
+  const busyNow = !!echo.recording
+    || !!echo._isStoppingOrSaving
+    || echo._connState === 'reconnecting'
+    || /(文字起こし中|保存中|議事録作成中|再接続中)/.test(statusText || '');
+  busyEl.textContent = busyNow ? 'busy' : 'idle';
+  busyEl.classList.toggle('busy', busyNow);
+  busyEl.title = busyNow ? `処理中: ${statusText || '-'}` : '待機中';
 }
 
 function _echoSetConn(state) {
@@ -5966,8 +5961,13 @@ function _echoSetConn(state) {
     error:        ['● 接続エラー','echo-conn-err'],
   };
   const [text, cls] = map[state] || map.disconnected;
+  echo._connState = state;
   el.textContent = text;
   el.className = cls;
+  if (state === 'disconnected' && !echo._isStoppingOrSaving && !echo.recording) {
+    _echoVaultSetInfo('');
+  }
+  _echoSyncBusyStatus(document.getElementById('echo-status')?.textContent || '');
 }
 
 function _echoUpdateSentenceCount() {
@@ -6041,14 +6041,23 @@ function _echoUpdateSentenceDom(sentence) {
   let primary = view.orig;
   if (echo.displayFilter === 'ja') primary = view.jaText;
   else if (echo.displayFilter === 'en') primary = view.enText;
-  if (origEl) origEl.innerHTML = esc(primary || '').replace(/\n/g, '<br>') || '<em style="opacity:.5">—</em>';
+  if (origEl) {
+    const next = (primary || '').trim();
+    if (!next) {
+      if (origEl.innerHTML !== '<em style="opacity:.5">—</em>') origEl.innerHTML = '<em style="opacity:.5">—</em>';
+    } else {
+      const rendered = esc(next).replace(/\n/g, '<br>');
+      if (origEl.innerHTML !== rendered) origEl.innerHTML = rendered;
+    }
+  }
   if (transEl) {
     const filter = echo.displayFilter || 'all';
     if (filter === 'all') {
       const translated = view.translated || '';
-      transEl.innerHTML = translated ? esc(translated).replace(/\n/g, '<br>') : '<em style="opacity:.5">—</em>';
+      const rendered = translated ? esc(translated).replace(/\n/g, '<br>') : '<em style="opacity:.5">—</em>';
+      if (transEl.innerHTML !== rendered) transEl.innerHTML = rendered;
     } else {
-      transEl.innerHTML = '<em style="opacity:.5">—</em>';
+      if (transEl.innerHTML !== '<em style="opacity:.5">—</em>') transEl.innerHTML = '<em style="opacity:.5">—</em>';
     }
   }
 }
@@ -6056,8 +6065,9 @@ function _echoUpdateSentenceDom(sentence) {
 function _echoAnimateSentenceField(sentence, field, rawText) {
   const key = `${sentence.id}:${field}`;
   const prevTimer = echo._animTimers.get(key);
-  if (prevTimer) clearInterval(prevTimer);
+  if (prevTimer) cancelAnimationFrame(prevTimer);
   const full = String(rawText || '');
+  if (String(sentence[field] || '') === full) return;
   const revealSec = Math.max(0, Number(echo.textRevealSeconds) || 0);
   if (revealSec <= 0 || full.length <= 1) {
     sentence[field] = full;
@@ -6075,16 +6085,21 @@ function _echoAnimateSentenceField(sentence, field, rawText) {
     return;
   }
   sentence[field] = full.slice(0, Math.max(1, idx));
-  const intervalMs = Math.max(16, Math.floor((revealSec * 1000) / full.length));
-  const timer = setInterval(() => {
-    idx = Math.min(full.length, idx + 1);
+  const startAt = performance.now();
+  const frame = (now) => {
+    const progress = Math.max(0, Math.min(1, (now - startAt) / (revealSec * 1000)));
+    const targetIdx = Math.max(idx, Math.floor(full.length * progress));
+    idx = Math.min(full.length, targetIdx + 1);
     sentence[field] = full.slice(0, idx);
     _echoUpdateSentenceDom(sentence);
     if (idx >= full.length) {
-      clearInterval(timer);
       echo._animTimers.delete(key);
+      return;
     }
-  }, intervalMs);
+    const timer = requestAnimationFrame(frame);
+    echo._animTimers.set(key, timer);
+  };
+  const timer = requestAnimationFrame(frame);
   echo._animTimers.set(key, timer);
 }
 
@@ -6264,6 +6279,7 @@ function _echoHandleEvent(ev) {
   } else if (ev.type === 'summary_done') {
     echo._isStoppingOrSaving = false;
     _echoSetStatus('✓ 保存完了: ' + (ev.filename || ''));
+    _echoVaultSetInfo('');
     refreshEchoVault();
   } else if (ev.type === 'session_stopping') {
     echo._isStoppingOrSaving = true;
@@ -6286,6 +6302,8 @@ function _echoScheduleVaultRefresh(attempt = 0) {
     const saving = await _echoHasPendingSave();
     if (!saving) {
       echo._isStoppingOrSaving = false;
+      if (!echo.recording) _echoSetStatus('Ready');
+      _echoSyncBusyStatus(document.getElementById('echo-status')?.textContent || '');
       _syncEchoMinutesButtonUi();
       return;
     }
@@ -6354,6 +6372,7 @@ function _echoConnectWs(wsMode) {
           channels: 1,
           mime: `audio/pcm;rate=${echo.pcmTargetRate};channels=1`,
           translate_enabled: !!echo.ttsTranslateEnabled,
+          create_minutes: !!echo.autoGenerateMinutes,
         };
     ws.send(JSON.stringify(payload));
     _echoFlushPendingChunks();
@@ -6404,7 +6423,7 @@ async function _echoStart() {
   echo.sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   echo.sentences  = [];
   echo._parallelDomCache = null;
-  echo._animTimers.forEach((timer) => clearInterval(timer));
+  echo._animTimers.forEach((timer) => cancelAnimationFrame(timer));
   echo._animTimers.clear();
   echo.pendingChunks = [];
   echo.nextChunkSeq = 1;
@@ -6422,6 +6441,7 @@ async function _echoStart() {
   echo._highpassLastY = 0;
   echo.startTime  = Date.now();
   echo.recording  = true;
+  _echoVaultSetInfo('');
   _echoAutoScroll = true;
   _echoPreviewMode = false;
   // UI更新
@@ -6739,7 +6759,7 @@ function _echoUpdateClearBtn() {
 
 function echoClearTranscript() {
   if (echo.recording) return;
-  echo._animTimers.forEach((timer) => clearInterval(timer));
+  echo._animTimers.forEach((timer) => cancelAnimationFrame(timer));
   echo._animTimers.clear();
   echo.sentences = [];
   echo._parallelDomCache = null;
@@ -6762,6 +6782,63 @@ function _echoInitScrollListener() {
 }
 
 // EchoVault ファイルブラウザ（Vault タブ用）
+function _echoVaultSetInfo(msg = '', tone = 'warn') {
+  const el = document.getElementById('echo-vault-info');
+  if (!el) return;
+  if (!msg) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  el.style.display = '';
+  el.textContent = msg;
+  if (tone === 'ok') {
+    el.style.borderColor = 'var(--green,#4caf50)';
+    el.style.background = 'rgba(76,175,80,.12)';
+  } else {
+    el.style.borderColor = 'var(--amber)';
+    el.style.background = 'rgba(255,184,0,.12)';
+  }
+}
+
+async function _echoVaultHasActiveSession() {
+  try {
+    const r = await fetch(API + '/echo/runtime-status');
+    const d = await r.json();
+    return !!d.active;
+  } catch (_) {
+    return !!echo.recording;
+  }
+}
+
+async function _echoVaultGenerateMinutes(transcriptFilename) {
+  if (!transcriptFilename) return;
+  const active = await _echoVaultHasActiveSession();
+  if (active) {
+    _echoVaultSetInfo('通信中（録音/保存処理中）のため議事録を作成できません。セッション停止後に再実行してください。', 'warn');
+    return;
+  }
+  _echoVaultSetInfo('議事録を作成中です...', 'warn');
+  echo._isStoppingOrSaving = true;
+  _syncEchoMinutesButtonUi();
+  try {
+    const resp = await fetch(API + '/echo/generate-minutes', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({transcript_filename: transcriptFilename, overwrite: true}),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.detail || 'minutes generation failed');
+    _echoVaultSetInfo(`議事録を作成しました: ${data.filename || ''}`, 'ok');
+    await refreshEchoVault();
+  } catch (e) {
+    _echoVaultSetInfo(`議事録作成に失敗しました: ${e.message || String(e)}`, 'warn');
+  } finally {
+    echo._isStoppingOrSaving = false;
+    _syncEchoMinutesButtonUi();
+  }
+}
+
 async function refreshEchoVault() {
   const el = document.getElementById('echovault-list');
   if (!el) return;
@@ -6828,10 +6905,15 @@ async function refreshEchoVault() {
         renderRow(g.files.transcript, 'transcript'),
         renderRow(g.files.minutes, 'minutes'),
       ].filter(Boolean).join('');
+      const transcriptName = g.files.transcript?.name ? encodeURIComponent(g.files.transcript.name) : '';
+      const minutesAction = g.files.minutes || !transcriptName
+        ? ''
+        : `<button onclick="_echoVaultGenerateMinutes(decodeURIComponent('${transcriptName}'))" style="font-size:10px;padding:3px 7px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer;flex-shrink:0" title="このセッションの文字起こしから議事録を作成">📝 作成</button>`;
       const baseLabel = g.groupKey.replace(/^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})_/, '$1 ');
       return `<div style="border:1px solid var(--border);border-radius:8px;background:var(--bg1);padding:8px;display:flex;flex-direction:column;gap:6px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
-          <div style="font-size:11px;font-family:var(--font-mono);color:var(--text);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(g.groupKey)}">${esc(baseLabel)}</div>
+          <div style="font-size:11px;font-family:var(--font-mono);color:var(--text);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(g.groupKey)}">${esc(baseLabel)}${g.files.minutes ? '' : ' 📄'}</div>
+          ${minutesAction}
           <div style="font-size:10px;color:var(--text3);flex-shrink:0">${esc(g.mtime)}</div>
         </div>
         ${rows || '<div style="font-size:10px;color:var(--text3);padding:4px 0">ファイルなし</div>'}
