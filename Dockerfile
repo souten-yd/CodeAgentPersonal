@@ -151,11 +151,29 @@ RUN set -eux; \
           echo "[Qwen3-TTS][build] resolving flash-attn prebuilt wheel from v0.9.4"; \
           if curl -fsSL "${flash_release_api}" -o /tmp/flash_attn_release.json; then \
             jq -r '.assets[]?.browser_download_url' /tmp/flash_attn_release.json > "${flash_asset_list}" || true; \
-            flash_wheel_url="$(awk 'BEGIN{IGNORECASE=1} /cp311/ && /torch.?2\\.11/ && /cu128/ && (/linux_x86_64/ || (/manylinux/ && /x86_64/)) && /\\.whl$/ {print; exit}' "${flash_asset_list}")"; \
+            echo "[Qwen3-TTS][build] flash-attn release asset URLs (first 20):"; \
+            sed -n '1,20p' "${flash_asset_list}" || true; \
+            flash_candidates_cp311="$(grep -Ei 'cp311' "${flash_asset_list}" || true)"; \
+            echo "[Qwen3-TTS][build] flash-attn candidates after cp311 filter:"; \
+            if [ -n "${flash_candidates_cp311}" ]; then printf '%s\n' "${flash_candidates_cp311}"; else echo "(none)"; fi; \
+            flash_candidates_torch="$(printf '%s\n' "${flash_candidates_cp311}" | grep -Ei 'torch(2[._-]?11|211)|pytorch(2[._-]?11|211)' || true)"; \
+            echo "[Qwen3-TTS][build] flash-attn candidates after torch 2.11 filter:"; \
+            if [ -n "${flash_candidates_torch}" ]; then printf '%s\n' "${flash_candidates_torch}"; else echo "(none)"; fi; \
+            flash_candidates_cuda="$(printf '%s\n' "${flash_candidates_torch}" | grep -Ei 'cu128|cu12[._-]?8|cuda12[._-]?8|cu12' || true)"; \
+            echo "[Qwen3-TTS][build] flash-attn candidates after CUDA 12.8 filter:"; \
+            if [ -n "${flash_candidates_cuda}" ]; then printf '%s\n' "${flash_candidates_cuda}"; else echo "(none)"; fi; \
+            flash_candidates_platform="$(printf '%s\n' "${flash_candidates_cuda}" | grep -Ei 'linux_x86_64|manylinux.*x86_64' || true)"; \
+            echo "[Qwen3-TTS][build] flash-attn candidates after Linux x86_64 filter:"; \
+            if [ -n "${flash_candidates_platform}" ]; then printf '%s\n' "${flash_candidates_platform}"; else echo "(none)"; fi; \
+            flash_wheel_url="$(printf '%s\n' "${flash_candidates_platform}" | head -n1)"; \
+            if [ -z "${flash_wheel_url}" ]; then \
+              echo "[Qwen3-TTS][build] no prebuilt wheel candidate found. asset list kept at ${flash_asset_list}"; \
+            fi; \
           else \
             echo "[Qwen3-TTS][build] warning: failed to fetch ${flash_release_api}"; \
           fi; \
           install_and_import_ok=false; \
+          echo "[Qwen3-TTS][build] flash-attn selected prebuilt URL: ${flash_wheel_url:-<none>}"; \
           if [ -n "${flash_wheel_url}" ]; then \
             flash_attn_source="prebuilt-wheel(v0.9.4)"; \
             echo "[Qwen3-TTS][build] flash-attn prebuilt wheel URL: ${flash_wheel_url}"; \
