@@ -1710,8 +1710,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
                 style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);box-sizing:border-box;resize:vertical"></textarea>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
-              <button id="qwen3-clone-test-play-btn" onclick="runQwen3CloneTest()"
-                style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--accent);color:var(--bg);cursor:pointer">テスト再生</button>
+              <button id="qwen3-clone-test-generate-btn" onclick="runQwen3CloneTestGenerate()"
+                style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--accent);color:var(--bg);cursor:pointer">生成</button>
+              <button id="qwen3-clone-test-play-btn" onclick="toggleQwen3CloneTestPlayback()"
+                style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--bg3);color:var(--text2);cursor:pointer" disabled>再生</button>
               <span id="qwen3-clone-test-status" style="font-size:10px;color:var(--text3);align-self:center">待機中</span>
             </div>
             <div style="display:grid;grid-template-columns:1fr;gap:6px;font-size:10px;color:var(--text2)">
@@ -2632,8 +2634,10 @@ function ttsStop() {
   const cloneStatusEl = document.getElementById('qwen3-clone-test-status');
   if (cloneStatusEl) _setQwen3CloneTestStatus('停止');
   _setQwen3ClonePlayToggle(false);
+  const generateBtn = document.getElementById('qwen3-clone-test-generate-btn');
+  if (generateBtn) generateBtn.dataset.busy = 'false';
   const playBtn = document.getElementById('qwen3-clone-test-play-btn');
-  if (playBtn) playBtn.dataset.busy = 'false';
+  if (playBtn && _isEchoQwen3Selected()) playBtn.disabled = !_qwen3CloneTestAudioBlob;
 }
 
 let _ttsFallbackObjectUrl = null;
@@ -2787,7 +2791,7 @@ function _ttsPlayWebSpeech(text) {
 
 async function _ttsFetchAudio(text, engine = tts.engine, context = 'main') {
   engine = _normalizeTtsEngine(engine);
-  if (engine === 'qwen3tts' && context === 'echo') {
+  if (engine === 'qwen3tts') {
     await _ensureQwen3ReferenceState();
   }
   const body = { text, engine, speed: tts.speed };
@@ -2846,12 +2850,13 @@ function _setQwen3CloneTestStatus(msg = '待機中', isError = false) {
 function _setQwen3ClonePlayToggle(isPlaying) {
   const btn = document.getElementById('qwen3-clone-test-play-btn');
   if (!btn) return;
-  btn.textContent = isPlaying ? '停止' : 'テスト再生';
-  btn.style.background = isPlaying ? 'var(--red)' : 'var(--accent)';
-  btn.style.color = 'var(--bg)';
+  btn.textContent = isPlaying ? '停止' : '再生';
+  btn.style.background = isPlaying ? 'var(--red)' : 'var(--bg3)';
+  btn.style.color = isPlaying ? 'var(--bg)' : 'var(--text2)';
 }
 
 let _qwen3CloneStatusTimer = null;
+let _qwen3CloneTestAudioBlob = null;
 function _clearQwen3CloneStatusTimer() {
   if (_qwen3CloneStatusTimer) {
     clearInterval(_qwen3CloneStatusTimer);
@@ -2892,28 +2897,26 @@ function _syncQwen3CloneTestUi(state = null) {
     : (document.getElementById('tsasr-qwen3-load-btn')?.style.display === 'none');
   const fieldset = document.getElementById('qwen3-clone-test-fieldset');
   const note = document.getElementById('qwen3-clone-test-unloaded-note');
+  const generateBtn = document.getElementById('qwen3-clone-test-generate-btn');
   const playBtn = document.getElementById('qwen3-clone-test-play-btn');
   const deviceEl = document.getElementById('qwen3-clone-test-device');
   if (fieldset) fieldset.disabled = !loaded;
   if (note) note.style.display = loaded ? 'none' : '';
   if (deviceEl) deviceEl.textContent = (state?.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
-  if (playBtn) playBtn.disabled = !loaded;
+  if (generateBtn) generateBtn.disabled = !loaded;
+  if (playBtn) playBtn.disabled = !loaded || !_qwen3CloneTestAudioBlob;
   _setQwen3ClonePlayToggle(false);
   if (!loaded) _setQwen3CloneTestStatus('未ロード（ロード後に再生可能）');
 }
 
-async function runQwen3CloneTest() {
+async function runQwen3CloneTestGenerate() {
   if (!_isEchoQwen3Selected()) {
     _setQwen3CloneTestStatus('Qwen3 TTS選択時のみ利用可能', true);
     return;
   }
+  const generateBtn = document.getElementById('qwen3-clone-test-generate-btn');
   const playBtn = document.getElementById('qwen3-clone-test-play-btn');
-  if (playBtn?.dataset.busy === 'true') {
-    ttsStop();
-    if (playBtn) playBtn.dataset.busy = 'false';
-    _setQwen3ClonePlayToggle(false);
-    return;
-  }
+  if (generateBtn?.dataset.busy === 'true') return;
   const input = document.getElementById('qwen3-clone-test-text');
   const requireRef = !!document.getElementById('qwen3-clone-require-ref-text')?.checked;
   const disableTranslate = !!document.getElementById('qwen3-clone-disable-translate')?.checked;
@@ -2932,23 +2935,21 @@ async function runQwen3CloneTest() {
     document.getElementById('qwen3-ref-text-input')?.focus();
     return;
   }
-  if (playBtn) { playBtn.dataset.busy = 'true'; playBtn.disabled = false; }
-  _setQwen3ClonePlayToggle(true);
+  if (generateBtn) { generateBtn.dataset.busy = 'true'; generateBtn.disabled = true; }
+  if (playBtn) playBtn.disabled = true;
   try {
     ttsStop();
-    _setQwen3CloneTestStatus('再生準備中...');
+    _qwen3CloneTestAudioBlob = null;
+    _setQwen3CloneTestStatus('生成中...');
     const playText = disableTranslate ? text : await _ttsMaybeTranslate(text, 'echo');
     const blob = await _ttsFetchAudio(playText, 'qwen3tts', 'echo');
     if (!blob || blob.size <= 0) throw new Error('音声データが空です');
-    _setQwen3CloneTestStatus(`再生開始 (${disableTranslate ? '翻訳OFF' : '翻訳ON'})`);
-    _trackQwen3ClonePlaybackProgress();
-    const result = await _ttsPlayBlob(blob, {fallbackLabel: 'Qwen3 クローンテスト音声'});
+    _qwen3CloneTestAudioBlob = blob;
+    if (playBtn) playBtn.disabled = false;
+    _setQwen3CloneTestStatus(`生成完了 / 自動再生開始 (${disableTranslate ? '翻訳OFF' : '翻訳ON'})`);
+    const result = await _playQwen3CloneTestBlob();
     if (result?.ok === false) {
-      if (result?.reason === 'NotAllowedError') {
-        _setQwen3CloneTestStatus('自動再生が制限されました。右下プレイヤーで手動再生してください。', true);
-      } else {
-        _setQwen3CloneTestStatus('再生失敗: ブラウザで音声再生が拒否されました', true);
-      }
+      _setQwen3CloneTestStatus(`自動再生できませんでした（${result?.reason || 'blocked'}）。再生ボタンを押してください。`, true);
       return;
     }
     _setQwen3CloneTestStatus('✓ 再生完了');
@@ -2956,10 +2957,33 @@ async function runQwen3CloneTest() {
     _setQwen3CloneTestStatus(`再生エラー: ${e.message || e}`, true);
     console.warn('[Qwen3 clone test] failed:', e);
   } finally {
-    _clearQwen3CloneStatusTimer();
-    if (playBtn) { playBtn.dataset.busy = 'false'; playBtn.disabled = false; }
+    if (generateBtn) { generateBtn.dataset.busy = 'false'; generateBtn.disabled = false; }
     _setQwen3ClonePlayToggle(false);
   }
+}
+
+async function _playQwen3CloneTestBlob() {
+  if (!_qwen3CloneTestAudioBlob) return {ok: false, reason: 'no_audio'};
+  _trackQwen3ClonePlaybackProgress();
+  _setQwen3ClonePlayToggle(true);
+  const result = await _ttsPlayBlob(_qwen3CloneTestAudioBlob, {disableFallbackPlayer: true});
+  _clearQwen3CloneStatusTimer();
+  _setQwen3ClonePlayToggle(false);
+  return result;
+}
+
+async function toggleQwen3CloneTestPlayback() {
+  if (tts._playing) {
+    ttsStop();
+    _setQwen3CloneTestStatus('停止');
+    return;
+  }
+  if (!_qwen3CloneTestAudioBlob) {
+    _setQwen3CloneTestStatus('先に生成ボタンを押してください', true);
+    return;
+  }
+  const result = await _playQwen3CloneTestBlob();
+  if (result?.ok === false) _setQwen3CloneTestStatus('再生できませんでした。再度お試しください。', true);
 }
 
 function _buildQwen3LoadParams(context = 'main') {
@@ -2987,6 +3011,7 @@ function _formatQwen3SynthesisError(detail, requestBody = {}) {
 
 function _ttsPlayBlob(blob, opts = {}) {
   const fallbackLabel = opts.fallbackLabel || 'TTS 音声';
+  const disableFallbackPlayer = !!opts.disableFallbackPlayer;
   return new Promise((resolve) => {
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
@@ -2995,7 +3020,7 @@ function _ttsPlayBlob(blob, opts = {}) {
     audio.onerror = () => { URL.revokeObjectURL(url); resolve({ok: false, reason: 'audio_error'}); };
     audio.play().catch(e => {
       URL.revokeObjectURL(url);
-      if (e.name === 'NotAllowedError') {
+      if (e.name === 'NotAllowedError' && !disableFallbackPlayer) {
         console.warn('[TTS] Autoplay blocked. Awaiting user interaction.');
         _showTtsFallbackPlayer(blob, fallbackLabel);
       } else {
