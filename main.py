@@ -9686,6 +9686,40 @@ def echo_delete_session(filename: str):
 
 # Echo ボイスクローン 参照音声ストレージ (IP → {audio:bytes, sr:int, name:str})
 _echo_voice_ref: dict = {}
+ECHO_REF_MAX_SECONDS = max(3, int(os.environ.get("ECHO_REF_MAX_SECONDS", "30") or 30))
+
+
+def _echo_ref_audio_format_from_name(name: str) -> str:
+    ext = os.path.splitext((name or "").lower())[1]
+    if ext in {".wav"}:
+        return "wav"
+    if ext in {".mp3"}:
+        return "mp3"
+    if ext in {".flac"}:
+        return "flac"
+    if ext in {".ogg", ".oga"}:
+        return "ogg"
+    if ext in {".m4a", ".mp4"}:
+        return "m4a"
+    return "webm"
+
+
+def _trim_ref_audio_if_needed(audio_bytes: bytes, max_seconds: int = ECHO_REF_MAX_SECONDS) -> tuple[bytes, bool]:
+    """参照音声が長すぎる場合は先頭 max_seconds 秒にトリム（decode可能な形式のみ）。"""
+    try:
+        wav, sr = _sf_mod.read(io.BytesIO(audio_bytes))
+        if sr <= 0:
+            return audio_bytes, False
+        max_samples = int(max_seconds * sr)
+        if len(wav) <= max_samples:
+            return audio_bytes, False
+        trimmed = wav[:max_samples]
+        buf = io.BytesIO()
+        _sf_mod.write(buf, trimmed, samplerate=sr, format="WAV")
+        return buf.getvalue(), True
+    except Exception:
+        # decode不能な形式はそのまま保持（フロント側正規化に期待）
+        return audio_bytes, False
 
 
 @app.post("/echo/voice-ref")
@@ -9699,10 +9733,49 @@ async def echo_voice_ref_post(req: dict, request: Request):
         audio_bytes = _b64.b64decode(b64)
     except Exception:
         raise HTTPException(status_code=400, detail="audio_base64 decode error")
-    name = str(req.get("filename", "ref-audio"))[:80]
+    name = str(req.get("filename", "ref-audio.wav"))[:80]
+    ref_text = str(req.get("ref_text", "") or "").strip()
+    audio_format = _echo_ref_audio_format_from_name(name)
+    audio_bytes, trimmed = _trim_ref_audio_if_needed(audio_bytes, ECHO_REF_MAX_SECONDS)
+    asr_text = ""
+    asr_error = ""
+    # 参照テキスト未入力時はASRで補完（GPU優先）
+    if not ref_text:
+        try:
+            try:
+                voice_load(model_name="large-v3-turbo", device="cuda")
+            except Exception:
+                voice_load(model_name="large-v3-turbo", device="cpu")
+            tr = voice_transcribe(
+                audio_bytes,
+                language="auto",
+                model_name="large-v3-turbo",
+                audio_format=audio_format,
+                asr_profile="balanced",
+            )
+            asr_text = (tr.get("text", "") or "").strip()
+            if asr_text:
+                ref_text = asr_text
+        except Exception as e:
+            asr_error = str(e)
     client_ip = request.client.host if request.client else "unknown"
-    _echo_voice_ref[client_ip] = {"audio": audio_bytes, "sr": 24000, "name": name}
-    return {"ok": True, "name": name, "size": len(audio_bytes)}
+    _echo_voice_ref[client_ip] = {
+        "audio": audio_bytes,
+        "sr": 24000,
+        "name": name,
+        "ref_text": ref_text,
+        "trimmed": trimmed,
+    }
+    return {
+        "ok": True,
+        "name": name,
+        "size": len(audio_bytes),
+        "ref_text": ref_text,
+        "asr_generated": bool(asr_text),
+        "asr_error": asr_error,
+        "trimmed": trimmed,
+        "max_seconds": ECHO_REF_MAX_SECONDS,
+    }
 
 
 @app.get("/echo/voice-ref")
@@ -9717,6 +9790,9 @@ async def echo_voice_ref_get(request: Request):
         "set": True,
         "name": ref["name"],
         "size": len(ref["audio"]),
+        "ref_text": ref.get("ref_text", ""),
+        "trimmed": bool(ref.get("trimmed", False)),
+        "max_seconds": ECHO_REF_MAX_SECONDS,
         "audio_base64": _b64.b64encode(ref["audio"]).decode("ascii"),
     }
 

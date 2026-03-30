@@ -1665,10 +1665,15 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <button onclick="echoRecordRefAudio()" id="qwen3-ref-mic-btn" style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="マイクで3秒以上録音">🎙 録音</button>
             <label style="cursor:pointer;font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;color:var(--text2)" title="音声ファイルをアップロード">
               📁 ファイル
-              <input type="file" id="qwen3-ref-audio-file" accept="audio/*,.wav,.mp3,.ogg,.m4a" style="display:none" onchange="echoUploadRefAudio(this)">
+              <input type="file" id="qwen3-ref-audio-file" accept="audio/*,.wav,.mp3,.ogg,.m4a,.webm,.flac" style="display:none" onchange="echoUploadRefAudio(this)">
             </label>
+            <button id="qwen3-ref-download-btn" onclick="echoDownloadRefAudio()" style="display:none;font-size:10px;padding:2px 6px;border:1px solid var(--accent);border-radius:4px;background:transparent;color:var(--accent);cursor:pointer">⬇ ダウンロード</button>
             <span id="qwen3-ref-status" style="font-size:10px;color:var(--text3)">未設定（通常合成）</span>
             <button id="qwen3-clear-ref" onclick="echoClearRefAudio()" style="display:none;font-size:10px;padding:2px 6px;border:1px solid var(--red);border-radius:4px;background:transparent;color:var(--red);cursor:pointer">✕ クリア</button>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--text3);margin:4px 0 6px 0">
+            <span>録音時間</span>
+            <span id="qwen3-ref-rec-progress">0.0 / 30.0 秒</span>
           </div>
           <div>
             <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">参照テキスト（任意）</div>
@@ -1690,8 +1695,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
               <button id="qwen3-clone-test-play-btn" onclick="runQwen3CloneTest()"
                 style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--accent);color:var(--bg);cursor:pointer">テスト再生</button>
-              <button id="qwen3-clone-test-stop-btn" onclick="ttsStop()"
-                style="font-size:10px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">停止</button>
               <span id="qwen3-clone-test-status" style="font-size:10px;color:var(--text3);align-self:center">待機中</span>
             </div>
             <div style="display:grid;grid-template-columns:1fr;gap:6px;font-size:10px;color:var(--text2)">
@@ -2525,6 +2528,10 @@ const echo = {
   _animTimers:     new Map(),
   _parallelDomCache: null,
   voiceRefAudio:  null,    // ボイスクローン参照音声 base64
+  voiceRefName:   'ref-audio.wav',
+  voiceRefMaxSeconds: 30,
+  _refRecordTimer: null,
+  _refRecordStartTs: 0,
   nextChunkSeq:   1,
   unackedChunks:  new Map(), // seq -> ArrayBuffer(先頭4byte=seq)
   _stopResolver:  null,
@@ -2604,6 +2611,9 @@ function ttsStop() {
   _clearQwen3CloneStatusTimer();
   const cloneStatusEl = document.getElementById('qwen3-clone-test-status');
   if (cloneStatusEl) _setQwen3CloneTestStatus('停止');
+  _setQwen3ClonePlayToggle(false);
+  const playBtn = document.getElementById('qwen3-clone-test-play-btn');
+  if (playBtn) playBtn.dataset.busy = 'false';
 }
 
 function ttsSpeakMsg(btn) {
@@ -2748,6 +2758,14 @@ function _setQwen3CloneTestStatus(msg = '待機中', isError = false) {
   el.style.color = isError ? 'var(--red)' : 'var(--text3)';
 }
 
+function _setQwen3ClonePlayToggle(isPlaying) {
+  const btn = document.getElementById('qwen3-clone-test-play-btn');
+  if (!btn) return;
+  btn.textContent = isPlaying ? '停止' : 'テスト再生';
+  btn.style.background = isPlaying ? 'var(--red)' : 'var(--accent)';
+  btn.style.color = 'var(--bg)';
+}
+
 let _qwen3CloneStatusTimer = null;
 function _clearQwen3CloneStatusTimer() {
   if (_qwen3CloneStatusTimer) {
@@ -2795,6 +2813,7 @@ function _syncQwen3CloneTestUi(state = null) {
   if (note) note.style.display = loaded ? 'none' : '';
   if (deviceEl) deviceEl.textContent = (state?.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
   if (playBtn) playBtn.disabled = !loaded;
+  _setQwen3ClonePlayToggle(false);
   if (!loaded) _setQwen3CloneTestStatus('未ロード（ロード後に再生可能）');
 }
 
@@ -2804,7 +2823,12 @@ async function runQwen3CloneTest() {
     return;
   }
   const playBtn = document.getElementById('qwen3-clone-test-play-btn');
-  if (playBtn?.dataset.busy === 'true') return;
+  if (playBtn?.dataset.busy === 'true') {
+    ttsStop();
+    if (playBtn) playBtn.dataset.busy = 'false';
+    _setQwen3ClonePlayToggle(false);
+    return;
+  }
   const input = document.getElementById('qwen3-clone-test-text');
   const requireRef = !!document.getElementById('qwen3-clone-require-ref-text')?.checked;
   const disableTranslate = !!document.getElementById('qwen3-clone-disable-translate')?.checked;
@@ -2820,7 +2844,8 @@ async function runQwen3CloneTest() {
     document.getElementById('qwen3-ref-text-input')?.focus();
     return;
   }
-  if (playBtn) { playBtn.dataset.busy = 'true'; playBtn.disabled = true; }
+  if (playBtn) { playBtn.dataset.busy = 'true'; playBtn.disabled = false; }
+  _setQwen3ClonePlayToggle(true);
   try {
     ttsStop();
     _setQwen3CloneTestStatus('再生準備中...');
@@ -2841,6 +2866,7 @@ async function runQwen3CloneTest() {
   } finally {
     _clearQwen3CloneStatusTimer();
     if (playBtn) { playBtn.dataset.busy = 'false'; playBtn.disabled = false; }
+    _setQwen3ClonePlayToggle(false);
   }
 }
 
@@ -7215,15 +7241,110 @@ function _setQwen3RefStatus(message, isError = false) {
   statusEl.style.color = isError ? 'var(--red)' : 'var(--text3)';
 }
 
+function _qwen3RefUpdateRecProgress(sec = 0, maxSec = echo.voiceRefMaxSeconds || 30) {
+  const el = document.getElementById('qwen3-ref-rec-progress');
+  if (!el) return;
+  el.textContent = `${Math.max(0, sec).toFixed(1)} / ${Math.max(1, maxSec).toFixed(1)} 秒`;
+}
+
+function _qwen3RefStartRecProgress(maxSec = echo.voiceRefMaxSeconds || 30) {
+  if (echo._refRecordTimer) clearInterval(echo._refRecordTimer);
+  echo._refRecordStartTs = Date.now();
+  _qwen3RefUpdateRecProgress(0, maxSec);
+  echo._refRecordTimer = setInterval(() => {
+    const sec = (Date.now() - echo._refRecordStartTs) / 1000;
+    _qwen3RefUpdateRecProgress(Math.min(sec, maxSec), maxSec);
+  }, 120);
+}
+
+function _qwen3RefStopRecProgress() {
+  if (echo._refRecordTimer) {
+    clearInterval(echo._refRecordTimer);
+    echo._refRecordTimer = null;
+  }
+}
+
+function _arrayBufferToWavBlob(audioBuffer, maxSec = 30) {
+  const sampleRate = audioBuffer.sampleRate;
+  const channels = Math.min(2, audioBuffer.numberOfChannels || 1);
+  const frameCount = Math.min(audioBuffer.length, Math.floor(sampleRate * maxSec));
+  const bytesPerSample = 2;
+  const blockAlign = channels * bytesPerSample;
+  const dataSize = frameCount * blockAlign;
+  const ab = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(ab);
+  let offset = 0;
+  const writeStr = (s) => { for (let i = 0; i < s.length; i++) view.setUint8(offset++, s.charCodeAt(i)); };
+  writeStr('RIFF'); view.setUint32(offset, 36 + dataSize, true); offset += 4;
+  writeStr('WAVE');
+  writeStr('fmt '); view.setUint32(offset, 16, true); offset += 4;
+  view.setUint16(offset, 1, true); offset += 2; // PCM
+  view.setUint16(offset, channels, true); offset += 2;
+  view.setUint32(offset, sampleRate, true); offset += 4;
+  view.setUint32(offset, sampleRate * blockAlign, true); offset += 4;
+  view.setUint16(offset, blockAlign, true); offset += 2;
+  view.setUint16(offset, 16, true); offset += 2;
+  writeStr('data'); view.setUint32(offset, dataSize, true); offset += 4;
+  const chData = [];
+  for (let ch = 0; ch < channels; ch++) chData.push(audioBuffer.getChannelData(ch));
+  for (let i = 0; i < frameCount; i++) {
+    for (let ch = 0; ch < channels; ch++) {
+      let s = chData[ch][i] || 0;
+      s = Math.max(-1, Math.min(1, s));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      offset += 2;
+    }
+  }
+  return new Blob([ab], {type: 'audio/wav'});
+}
+
+async function _normalizeRefAudioBlob(blob, name, maxSec = 30) {
+  const baseName = (name || 'ref-audio').replace(/\.[^/.]+$/, '') || 'ref-audio';
+  const raw = await blob.arrayBuffer();
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  try {
+    const audioBuffer = await ctx.decodeAudioData(raw.slice(0));
+    const dur = audioBuffer.duration || 0;
+    const trimmed = dur > maxSec;
+    const wavBlob = _arrayBufferToWavBlob(audioBuffer, maxSec);
+    return {
+      blob: wavBlob,
+      name: `${baseName}.wav`,
+      duration: Math.min(dur, maxSec),
+      sourceDuration: dur,
+      trimmed,
+      format: 'wav',
+    };
+  } catch (e) {
+    return {
+      blob,
+      name,
+      duration: 0,
+      sourceDuration: 0,
+      trimmed: false,
+      format: (name || '').split('.').pop()?.toLowerCase() || 'unknown',
+    };
+  } finally {
+    await ctx.close().catch(() => {});
+  }
+}
+
 async function _syncQwen3ReferenceState() {
   try {
     const resp = await fetch(API + '/echo/voice-ref');
     if (!resp.ok) return;
     const data = await resp.json();
     echo.voiceRefAudio = data.audio_base64 || null;
+    echo.voiceRefName = data.name || 'ref-audio.wav';
+    if (data.max_seconds) echo.voiceRefMaxSeconds = Number(data.max_seconds) || echo.voiceRefMaxSeconds;
+    const refTextInput = document.getElementById('qwen3-ref-text-input');
+    if (refTextInput && !refTextInput.value.trim() && data.ref_text) refTextInput.value = data.ref_text;
     _setQwen3RefStatus(echo.voiceRefAudio ? '✓ 参照音声あり' : '未設定（通常合成）');
     const clearBtn = document.getElementById('qwen3-clear-ref');
     if (clearBtn) clearBtn.style.display = echo.voiceRefAudio ? '' : 'none';
+    const dlBtn = document.getElementById('qwen3-ref-download-btn');
+    if (dlBtn) dlBtn.style.display = echo.voiceRefAudio ? '' : 'none';
+    _qwen3RefUpdateRecProgress(0, echo.voiceRefMaxSeconds);
   } catch(e) {
     _setQwen3RefStatus('状態確認に失敗（通常合成）', true);
   }
@@ -7238,8 +7359,9 @@ async function echoRecordRefAudio() {
   } catch(e) {
     alert('マイクへのアクセスが拒否されました: ' + e.message); return;
   }
-  _setQwen3RefStatus('録音中... (3秒以上録音してください)');
+  _setQwen3RefStatus(`録音中... (最大${echo.voiceRefMaxSeconds}秒)`);
   if (btn) { btn.textContent = '⏹ 停止'; btn.dataset.recording = 'true'; }
+  _qwen3RefStartRecProgress(echo.voiceRefMaxSeconds);
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
   const mr = new MediaRecorder(stream, {mimeType});
   const chunks = [];
@@ -7247,10 +7369,12 @@ async function echoRecordRefAudio() {
   mr.onstop = async () => {
     stream.getTracks().forEach(t => t.stop());
     if (btn) { btn.textContent = '🎙 録音'; btn.dataset.recording = 'false'; }
+    _qwen3RefStopRecProgress();
     const blob = new Blob(chunks, {type: mimeType});
     await _echoUploadRefBlob(blob, 'mic-recording.webm');
   };
   mr.start();
+  setTimeout(() => { if (mr.state !== 'inactive') mr.stop(); }, Math.max(3000, (echo.voiceRefMaxSeconds || 30) * 1000));
   // ユーザーが「停止」ボタンを押すまで録音継続
   btn.onclick = () => { mr.stop(); btn.onclick = () => echoRecordRefAudio(); };
 }
@@ -7269,42 +7393,53 @@ async function echoCaptureSystemAudio() {
   } catch(e) {
     alert('PC音声キャプチャが拒否されました: ' + e.message); return;
   }
-  _setQwen3RefStatus('PC音声キャプチャ中... (3秒以上)');
+  _setQwen3RefStatus(`PC音声キャプチャ中... (最大${echo.voiceRefMaxSeconds}秒)`);
+  _qwen3RefStartRecProgress(echo.voiceRefMaxSeconds);
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
   const mr = new MediaRecorder(stream, {mimeType});
   const chunks = [];
   mr.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
   mr.onstop = async () => {
     stream.getTracks().forEach(t => t.stop());
+    _qwen3RefStopRecProgress();
     const blob = new Blob(chunks, {type: mimeType});
     await _echoUploadRefBlob(blob, 'system-audio.webm');
   };
   stream.getVideoTracks().forEach(t => { t.onended = () => mr.state !== 'inactive' && mr.stop(); });
   mr.start();
-  // 10秒後に自動停止
-  setTimeout(() => { if (mr.state !== 'inactive') mr.stop(); }, 10000);
+  // 最大秒数で自動停止
+  setTimeout(() => { if (mr.state !== 'inactive') mr.stop(); }, Math.max(3000, (echo.voiceRefMaxSeconds || 30) * 1000));
 }
 
 async function _echoUploadRefBlob(blob, name) {
   _setQwen3RefStatus('アップロード中...');
   try {
+    const normalized = await _normalizeRefAudioBlob(blob, name, echo.voiceRefMaxSeconds || 30);
+    const refText = document.getElementById('qwen3-ref-text-input')?.value?.trim() || '';
     const reader = new FileReader();
     const b64 = await new Promise((res, rej) => {
       reader.onload = () => res(reader.result.split(',')[1]);
       reader.onerror = rej;
-      reader.readAsDataURL(blob);
+      reader.readAsDataURL(normalized.blob);
     });
     const resp = await fetch(API + '/echo/voice-ref', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({audio_base64: b64, filename: name}),
+      body: JSON.stringify({audio_base64: b64, filename: normalized.name, ref_text: refText}),
     });
     const data = await resp.json();
     if (data.ok) {
       echo.voiceRefAudio = b64;
-      _setQwen3RefStatus(`✓ ${name}`);
+      echo.voiceRefName = normalized.name;
+      if (data.max_seconds) echo.voiceRefMaxSeconds = Number(data.max_seconds) || echo.voiceRefMaxSeconds;
+      const refTextInput = document.getElementById('qwen3-ref-text-input');
+      if (refTextInput && !refTextInput.value.trim() && data.ref_text) refTextInput.value = data.ref_text;
+      const trimMsg = (normalized.trimmed || data.trimmed) ? ` / 先頭${echo.voiceRefMaxSeconds}秒に調整` : '';
+      _setQwen3RefStatus(`✓ ${normalized.name}${trimMsg}${data.asr_generated ? ' / ASR参照文生成' : ''}`);
       const clearBtn = document.getElementById('qwen3-clear-ref');
       if (clearBtn) clearBtn.style.display = '';
+      const dlBtn = document.getElementById('qwen3-ref-download-btn');
+      if (dlBtn) dlBtn.style.display = '';
     } else {
       _setQwen3RefStatus('エラー: ' + (data.detail || '?'), true);
     }
@@ -7318,9 +7453,43 @@ async function echoClearRefAudio() {
     await fetch(API + '/echo/voice-ref', {method: 'DELETE'});
   } catch(e) {}
   echo.voiceRefAudio = null;
+  echo.voiceRefName = 'ref-audio.wav';
   _setQwen3RefStatus('未設定（通常合成）');
   const clearBtn = document.getElementById('qwen3-clear-ref');
   if (clearBtn) clearBtn.style.display = 'none';
+  const dlBtn = document.getElementById('qwen3-ref-download-btn');
+  if (dlBtn) dlBtn.style.display = 'none';
+  _qwen3RefUpdateRecProgress(0, echo.voiceRefMaxSeconds);
+}
+
+function echoDownloadRefAudio() {
+  if (!echo.voiceRefAudio) {
+    _setQwen3RefStatus('参照音声がありません', true);
+    return;
+  }
+  try {
+    const bin = atob(echo.voiceRefAudio);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const fname = echo.voiceRefName || `ref-audio-${Date.now()}.wav`;
+    const ext = (fname.split('.').pop() || 'wav').toLowerCase();
+    const mime = ext === 'mp3' ? 'audio/mpeg'
+      : ext === 'ogg' ? 'audio/ogg'
+      : ext === 'm4a' ? 'audio/mp4'
+      : ext === 'flac' ? 'audio/flac'
+      : ext === 'webm' ? 'audio/webm'
+      : 'audio/wav';
+    const blob = new Blob([bytes], {type: mime});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch(e) {
+    _setQwen3RefStatus('ダウンロード失敗: ' + e.message, true);
+  }
 }
 
 function _fmtBytes(bytes) {
