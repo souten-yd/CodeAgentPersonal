@@ -150,22 +150,26 @@ RUN set -eux; \
           flash_wheel_url=""; \
           echo "[Qwen3-TTS][build] resolving flash-attn prebuilt wheel from v0.9.4"; \
           if curl -fsSL "${flash_release_api}" -o /tmp/flash_attn_release.json; then \
-            jq -r '.assets[]?.browser_download_url' /tmp/flash_attn_release.json > "${flash_asset_list}" || true; \
-            echo "[Qwen3-TTS][build] flash-attn release asset URLs (first 20):"; \
+            flash_candidates_cp311_file="/tmp/flash_attn_candidates_cp311.txt"; \
+            flash_candidates_torch_file="/tmp/flash_attn_candidates_torch211.txt"; \
+            flash_candidates_cuda_file="/tmp/flash_attn_candidates_cuda128.txt"; \
+            flash_candidates_platform_file="/tmp/flash_attn_candidates_linux_x86_64.txt"; \
+            jq -r '.assets[].browser_download_url' /tmp/flash_attn_release.json | tee "${flash_asset_list}" > /dev/null || true; \
+            echo "[Qwen3-TTS][build] flash-attn release asset URLs (first 20 from jq):"; \
             sed -n '1,20p' "${flash_asset_list}" || true; \
-            flash_candidates_cp311="$(grep -Ei 'cp311' "${flash_asset_list}" || true)"; \
+            grep -Ei 'cp311' "${flash_asset_list}" > "${flash_candidates_cp311_file}" || true; \
             echo "[Qwen3-TTS][build] flash-attn candidates after cp311 filter:"; \
-            if [ -n "${flash_candidates_cp311}" ]; then printf '%s\n' "${flash_candidates_cp311}"; else echo "(none)"; fi; \
-            flash_candidates_torch="$(printf '%s\n' "${flash_candidates_cp311}" | grep -Ei 'torch(2[._-]?11|211)|pytorch(2[._-]?11|211)' || true)"; \
+            if [ -s "${flash_candidates_cp311_file}" ]; then cat "${flash_candidates_cp311_file}"; else echo "(none)"; fi; \
+            grep -Ei 'torch(2[._-]?11|211)|pytorch(2[._-]?11|211)' "${flash_candidates_cp311_file}" > "${flash_candidates_torch_file}" || true; \
             echo "[Qwen3-TTS][build] flash-attn candidates after torch 2.11 filter:"; \
-            if [ -n "${flash_candidates_torch}" ]; then printf '%s\n' "${flash_candidates_torch}"; else echo "(none)"; fi; \
-            flash_candidates_cuda="$(printf '%s\n' "${flash_candidates_torch}" | grep -Ei 'cu128|cu12[._-]?8|cuda12[._-]?8|cu12' || true)"; \
+            if [ -s "${flash_candidates_torch_file}" ]; then cat "${flash_candidates_torch_file}"; else echo "(none)"; fi; \
+            grep -Ei 'cu128|cu12[._-]?8|cuda12[._-]?8|cu12' "${flash_candidates_torch_file}" > "${flash_candidates_cuda_file}" || true; \
             echo "[Qwen3-TTS][build] flash-attn candidates after CUDA 12.8 filter:"; \
-            if [ -n "${flash_candidates_cuda}" ]; then printf '%s\n' "${flash_candidates_cuda}"; else echo "(none)"; fi; \
-            flash_candidates_platform="$(printf '%s\n' "${flash_candidates_cuda}" | grep -Ei 'linux_x86_64|manylinux.*x86_64' || true)"; \
+            if [ -s "${flash_candidates_cuda_file}" ]; then cat "${flash_candidates_cuda_file}"; else echo "(none)"; fi; \
+            grep -Ei 'linux_x86_64|manylinux.*x86_64' "${flash_candidates_cuda_file}" > "${flash_candidates_platform_file}" || true; \
             echo "[Qwen3-TTS][build] flash-attn candidates after Linux x86_64 filter:"; \
-            if [ -n "${flash_candidates_platform}" ]; then printf '%s\n' "${flash_candidates_platform}"; else echo "(none)"; fi; \
-            flash_wheel_url="$(printf '%s\n' "${flash_candidates_platform}" | head -n1)"; \
+            if [ -s "${flash_candidates_platform_file}" ]; then cat "${flash_candidates_platform_file}"; else echo "(none)"; fi; \
+            flash_wheel_url="$(head -n1 "${flash_candidates_platform_file}")"; \
             if [ -z "${flash_wheel_url}" ]; then \
               echo "[Qwen3-TTS][build] no prebuilt wheel candidate found. asset list kept at ${flash_asset_list}"; \
             fi; \
