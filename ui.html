@@ -2601,6 +2601,9 @@ function ttsStop() {
   tts._playing = false;
   if (tts._audio) { tts._audio.pause(); tts._audio = null; }
   if (tts._utt && window.speechSynthesis) window.speechSynthesis.cancel();
+  _clearQwen3CloneStatusTimer();
+  const cloneStatusEl = document.getElementById('qwen3-clone-test-status');
+  if (cloneStatusEl) _setQwen3CloneTestStatus('停止');
 }
 
 function ttsSpeakMsg(btn) {
@@ -2795,11 +2798,13 @@ function _syncQwen3CloneTestUi(state = null) {
   if (!loaded) _setQwen3CloneTestStatus('未ロード（ロード後に再生可能）');
 }
 
-function runQwen3CloneTest() {
+async function runQwen3CloneTest() {
   if (!_isEchoQwen3Selected()) {
     _setQwen3CloneTestStatus('Qwen3 TTS選択時のみ利用可能', true);
     return;
   }
+  const playBtn = document.getElementById('qwen3-clone-test-play-btn');
+  if (playBtn?.dataset.busy === 'true') return;
   const input = document.getElementById('qwen3-clone-test-text');
   const requireRef = !!document.getElementById('qwen3-clone-require-ref-text')?.checked;
   const disableTranslate = !!document.getElementById('qwen3-clone-disable-translate')?.checked;
@@ -2815,14 +2820,28 @@ function runQwen3CloneTest() {
     document.getElementById('qwen3-ref-text-input')?.focus();
     return;
   }
-  ttsStop();
-  _setQwen3CloneTestStatus('再生準備中...');
-  const prevEnabled = tts.enabled;
-  tts.enabled = true;
-  ttsSpeak(text, {context:'echo', engine:'qwen3tts', skipTranslate: disableTranslate});
-  tts.enabled = prevEnabled;
-  _setQwen3CloneTestStatus(`再生開始 (${disableTranslate ? '翻訳OFF' : '翻訳ON'})`);
-  _trackQwen3ClonePlaybackProgress();
+  if (playBtn) { playBtn.dataset.busy = 'true'; playBtn.disabled = true; }
+  try {
+    ttsStop();
+    _setQwen3CloneTestStatus('再生準備中...');
+    const playText = disableTranslate ? text : await _ttsMaybeTranslate(text, 'echo');
+    const blob = await _ttsFetchAudio(playText, 'qwen3tts', 'echo');
+    if (!blob || blob.size <= 0) throw new Error('音声データが空です');
+    _setQwen3CloneTestStatus(`再生開始 (${disableTranslate ? '翻訳OFF' : '翻訳ON'})`);
+    _trackQwen3ClonePlaybackProgress();
+    const result = await _ttsPlayBlob(blob);
+    if (result?.ok === false) {
+      _setQwen3CloneTestStatus('再生失敗: ブラウザで音声再生が拒否されました', true);
+      return;
+    }
+    _setQwen3CloneTestStatus('✓ 再生完了');
+  } catch(e) {
+    _setQwen3CloneTestStatus(`再生エラー: ${e.message || e}`, true);
+    console.warn('[Qwen3 clone test] failed:', e);
+  } finally {
+    _clearQwen3CloneStatusTimer();
+    if (playBtn) { playBtn.dataset.busy = 'false'; playBtn.disabled = false; }
+  }
 }
 
 function _buildQwen3LoadParams(context = 'main') {
@@ -2853,8 +2872,8 @@ function _ttsPlayBlob(blob) {
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
     tts._audio = audio;
-    audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-    audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+    audio.onended = () => { URL.revokeObjectURL(url); resolve({ok: true, reason: 'ended'}); };
+    audio.onerror = () => { URL.revokeObjectURL(url); resolve({ok: false, reason: 'audio_error'}); };
     audio.play().catch(e => {
       URL.revokeObjectURL(url);
       if (e.name === 'NotAllowedError') {
@@ -2862,7 +2881,7 @@ function _ttsPlayBlob(blob) {
       } else {
         console.warn('[TTS] play() error:', e);
       }
-      resolve();
+      resolve({ok: false, reason: e.name || 'play_error'});
     });
   });
 }
