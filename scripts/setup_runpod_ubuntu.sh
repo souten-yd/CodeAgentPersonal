@@ -31,7 +31,9 @@ ${SUDO} DEBIAN_FRONTEND=noninteractive apt-get install -y \
   python3-pip \
   vulkan-tools \
   libvulkan1 \
-  mesa-vulkan-drivers
+  mesa-vulkan-drivers \
+  sox \
+  libsox-fmt-all
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Docker not found. Installing Docker Engine from Docker APT repository..."
