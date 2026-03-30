@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
-<title>CodeAgent</title>
+<title>KasaneCore</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <script>
@@ -114,7 +114,7 @@ function renderSkills(skills, meta = {}) {
   const skillMdPath = (base) => /[A-Za-z]:\\/.test(base) ? `${base}\\スキル名\\SKILL.md` : `${base}/スキル名/SKILL.md`;
   if (pathInfo) {
     pathInfo.innerHTML = `📁 <code style="background:var(--bg3);padding:1px 4px;border-radius:3px">${esc(skillMdPath(activePath))}</code><br>
-      現在の構成: <b>${esc(runtime)}</b> / 共有資産: ユーザー追加・CodeAgent提案スキルを同じフォルダで管理`;
+      現在の構成: <b>${esc(runtime)}</b> / 共有資産: ユーザー追加・KasaneCore提案スキルを同じフォルダで管理`;
   }
   if (!skills.length) {
     el.innerHTML = `<div style="font-size:11px;color:var(--text3);padding:8px;line-height:1.8">
@@ -127,7 +127,7 @@ function renderSkills(skills, meta = {}) {
   el.innerHTML = skills.map(s => {
     const isCa = s.source === 'codeagent';
     const srcBadge = isCa
-      ? `<span style="font-size:9px;color:var(--blue);padding:1px 5px;border:1px solid rgba(68,136,255,.3);border-radius:3px">⚙ CodeAgent</span>`
+      ? `<span style="font-size:9px;color:var(--blue);padding:1px 5px;border:1px solid rgba(68,136,255,.3);border-radius:3px">⚙ KasaneCore</span>`
       : `<span style="font-size:9px;color:var(--text3);padding:1px 5px;border:1px solid var(--border);border-radius:3px">👤 user</span>`;
     const kws = (s.keywords||[]).map(k =>
       `<span style="background:var(--bg3);padding:1px 5px;border-radius:3px;font-size:10px">${esc(k)}</span>`
@@ -942,7 +942,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 <body>
 
 <header>
-  <div class="logo"><div class="logo-dot"></div>CodeAgent</div>
+  <div class="logo"><div class="logo-dot"></div>KasaneCore</div>
   <div class="hdr-mid">
     <div class="mode-wrap">
       <button class="mode-btn active" id="btn-chat" onclick="setMode('chat')">Chat</button>
@@ -1007,7 +1007,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     <div class="messages" id="messages">
       <div class="msg system">
         <div class="msg-role">system</div>
-        <div class="msg-bubble">CodeAgent ready. Select a project to begin.</div>
+        <div class="msg-bubble">KasaneCore ready. Select a project to begin.</div>
       </div>
     </div>
     <div class="input-area">
@@ -2097,7 +2097,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔗 MCP (Model Context Protocol)</div>
       <div style="padding:4px 0 14px">
         <div style="font-size:10px;color:var(--text3);line-height:1.7;margin-bottom:8px;padding:6px 8px;background:var(--bg2);border-radius:5px;border:1px solid var(--border)">
-          <b style="color:var(--text2)">MCPサーバー（このCodeAgent）:</b><br>
+          <b style="color:var(--text2)">MCPサーバー（このKasaneCore）:</b><br>
           <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">/mcp</code> エンドポイントで他エージェントからツールを呼び出せます<br>
           <button onclick="showMcpInfo()" style="font-size:10px;padding:2px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:3px;cursor:pointer;margin-top:4px">サーバー情報表示</button>
         </div>
