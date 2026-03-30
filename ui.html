@@ -2530,6 +2530,8 @@ const echo = {
   voiceRefAudio:  null,    // ボイスクローン参照音声 base64
   voiceRefName:   'ref-audio.wav',
   voiceRefMaxSeconds: 30,
+  _voiceRefSyncPromise: null,
+  _voiceRefSyncDone: false,
   _refRecordTimer: null,
   _refRecordStartTs: 0,
   nextChunkSeq:   1,
@@ -2720,6 +2722,9 @@ function _ttsPlayWebSpeech(text) {
 
 async function _ttsFetchAudio(text, engine = tts.engine, context = 'main') {
   engine = _normalizeTtsEngine(engine);
+  if (engine === 'qwen3tts' && context === 'echo') {
+    await _ensureQwen3ReferenceState();
+  }
   const body = { text, engine, speed: tts.speed };
   if (engine === 'edgetts')  body.voice = tts.voice || 'ja-JP-NanamiNeural';
   if (engine === 'qwen3tts') {
@@ -2736,6 +2741,21 @@ async function _ttsFetchAudio(text, engine = tts.engine, context = 'main') {
     throw new Error(_formatQwen3SynthesisError(err.detail || 'TTS synthesis failed', body));
   }
   return await resp.blob();
+}
+
+async function _ensureQwen3ReferenceState() {
+  if (echo.voiceRefAudio || echo._voiceRefSyncDone) return;
+  if (echo._voiceRefSyncPromise) {
+    await echo._voiceRefSyncPromise;
+    return;
+  }
+  echo._voiceRefSyncPromise = _syncQwen3ReferenceState()
+    .catch(() => {})
+    .finally(() => {
+      echo._voiceRefSyncDone = true;
+      echo._voiceRefSyncPromise = null;
+    });
+  await echo._voiceRefSyncPromise;
 }
 
 function _buildQwen3ReferenceParams(context = 'echo') {
@@ -7347,6 +7367,9 @@ async function _syncQwen3ReferenceState() {
     _qwen3RefUpdateRecProgress(0, echo.voiceRefMaxSeconds);
   } catch(e) {
     _setQwen3RefStatus('状態確認に失敗（通常合成）', true);
+  } finally {
+    echo._voiceRefSyncDone = true;
+    echo._voiceRefSyncPromise = null;
   }
 }
 
@@ -7431,6 +7454,7 @@ async function _echoUploadRefBlob(blob, name) {
     if (data.ok) {
       echo.voiceRefAudio = b64;
       echo.voiceRefName = normalized.name;
+      echo._voiceRefSyncDone = true;
       if (data.max_seconds) echo.voiceRefMaxSeconds = Number(data.max_seconds) || echo.voiceRefMaxSeconds;
       const refTextInput = document.getElementById('qwen3-ref-text-input');
       if (refTextInput && !refTextInput.value.trim() && data.ref_text) refTextInput.value = data.ref_text;
@@ -7454,6 +7478,7 @@ async function echoClearRefAudio() {
   } catch(e) {}
   echo.voiceRefAudio = null;
   echo.voiceRefName = 'ref-audio.wav';
+  echo._voiceRefSyncDone = true;
   _setQwen3RefStatus('未設定（通常合成）');
   const clearBtn = document.getElementById('qwen3-clear-ref');
   if (clearBtn) clearBtn.style.display = 'none';
