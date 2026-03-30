@@ -146,7 +146,13 @@ RUN set -eux; \
             flash_cmd="MAX_JOBS=${FLASH_ATTN_MAX_JOBS} ${flash_cmd}"; \
           fi; \
           echo "[Qwen3-TTS][build] flash-attn install command: ${flash_cmd}"; \
-          if ! sh -c "${flash_cmd}" 2>&1 | tee "${flash_attn_log}"; then \
+          install_and_import_ok=true; \
+          if ! bash -o pipefail -c "${flash_cmd} 2>&1 | tee '${flash_attn_log}'"; then \
+            install_and_import_ok=false; \
+          elif ! python -c "import flash_attn" >/dev/null 2>&1; then \
+            install_and_import_ok=false; \
+          fi; \
+          if [ "${install_and_import_ok}" != "true" ]; then \
             flash_attn_error="flash-attn install failed"; \
             flash_attn_error_detail="$(cat "${flash_attn_log}")"; \
             flash_attn_error_detail_summary="${flash_attn_error_detail}"; \
