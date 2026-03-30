@@ -9957,14 +9957,21 @@ try:
     from huggingface_hub import snapshot_download as _hf_snapshot_download  # type: ignore
 
     print(f"[Qwen3-TTS] import: ok (qwen_tts={getattr(_qwen_tts_mod, '__version__', 'unknown')})")
-    if shutil.which("sox") is None:
-        print("[Qwen3-TTS] warning: SoX not found. Some audio paths may be slower/limited, but Qwen3-TTS remains enabled.")
+    _QWEN3TTS_SOX_AVAILABLE = shutil.which("sox") is not None
+    if _QWEN3TTS_SOX_AVAILABLE:
+        print("[Qwen3-TTS] sox available: true")
+    else:
+        print("[Qwen3-TTS] warning: SoX command is missing (sox not found in PATH). Qwen3-TTS remains enabled with limited/slower audio paths.")
+
     _QWEN3TTS_FLASH_AVAILABLE = False
     try:
         import flash_attn as _flash_attn_mod  # type: ignore  # noqa: F401
         _QWEN3TTS_FLASH_AVAILABLE = True
     except Exception:
-        print("[Qwen3-TTS] warning: flash-attn is not installed. Falling back to standard PyTorch attention.")
+        _QWEN3TTS_FLASH_AVAILABLE = False
+    print(f"[Qwen3-TTS] flash-attn available: {'true' if _QWEN3TTS_FLASH_AVAILABLE else 'false'}")
+    if not _QWEN3TTS_FLASH_AVAILABLE:
+        print("[Qwen3-TTS] warning: flash-attn is not installed. Falling back to sdpa/eager attention backends.")
     _QWEN3TTS_AVAILABLE = True
 except Exception as _qwen_e:
     _QWEN3TTS_IMPORT_ERROR = str(_qwen_e)
@@ -9975,6 +9982,7 @@ except Exception as _qwen_e:
     _sf_mod = None
     _QWEN3TTS_AVAILABLE = False
     _QWEN3TTS_FLASH_AVAILABLE = False
+    _QWEN3TTS_SOX_AVAILABLE = shutil.which("sox") is not None
     print(f"[Qwen3-TTS] import: failed ({repr(_qwen_e)})")
     print("[Qwen3-TTS] disabled: qwen_tts API is unavailable. Install with: pip install -U qwen-tts")
     print(traceback.format_exc())
@@ -9985,6 +9993,9 @@ _qwen3tts_model_id: str | None = None
 _qwen3tts_device = "cuda"      # "cpu" | "cuda"
 _qwen3tts_attn_implementation = ""
 _qwen3tts_dtype = ""
+_qwen3tts_requested_device = "cuda"
+_qwen3tts_requested_attn_backend = "flash_attention_2"
+_qwen3tts_requested_dtype = "torch.bfloat16"
 _qwen3tts_lock      = threading.Lock()
 _qwen3tts_voice_prompt_cache: "OrderedDict[str, Any]" = OrderedDict()
 _QWEN3TTS_VOICE_PROMPT_CACHE_MAX = 16
@@ -10253,6 +10264,7 @@ def _qwen3_resolve_model_root(model_id: str, cache_dir: str) -> str:
 def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cuda") -> dict:
     global _qwen3tts_model, _qwen3tts_processor, _qwen3tts_model_id, _qwen3tts_device
     global _qwen3tts_attn_implementation, _qwen3tts_dtype
+    global _qwen3tts_requested_device, _qwen3tts_requested_attn_backend, _qwen3tts_requested_dtype
     if not _QWEN3TTS_AVAILABLE:
         commands = "\n".join(f"- {cmd}" for cmd in _qwen3_install_help_commands())
         raise RuntimeError(
@@ -10271,6 +10283,12 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cuda") -> d
             _qwen3tts_dtype = ""
             _qwen3tts_clear_voice_prompt_cache()
         cache_dir = _qwen3tts_model_dir(model_id)
+        requested_device = "cuda" if device == "cuda" else "cpu"
+        requested_dtype = _torch_mod.bfloat16 if requested_device == "cuda" else _torch_mod.float32
+        requested_attn_backend = "flash_attention_2" if requested_device == "cuda" else "sdpa"
+        _qwen3tts_requested_device = requested_device
+        _qwen3tts_requested_dtype = str(requested_dtype)
+        _qwen3tts_requested_attn_backend = requested_attn_backend
         actual_device = "cuda" if device == "cuda" else "cpu"
         fallback_reasons: list[str] = []
         if device == "cuda" and not (_torch_mod and _torch_mod.cuda.is_available()):
@@ -10283,9 +10301,12 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cuda") -> d
         # NOTE: Qwen3-TTS 分岐では共通 kwargs を流用せず、許可キーのみを明示的に組み立てる。
         resolved_device_map = "cuda:0" if actual_device == "cuda" else "cpu"
         resolved_dtype = _torch_mod.bfloat16 if actual_device == "cuda" else _torch_mod.float32
-        attn_candidates: list[str] = ["eager"] if actual_device != "cuda" else ["flash_attention_2", "sdpa", "eager"]
-        if actual_device == "cuda" and not _QWEN3TTS_FLASH_AVAILABLE:
-            print("[Qwen3-TTS] flash_attention_2 unavailable: flash-attn is not installed. Falling back to sdpa/eager.")
+        if actual_device == "cuda":
+            attn_candidates: list[str] = ["flash_attention_2", "sdpa", "eager"]
+            if not _QWEN3TTS_FLASH_AVAILABLE:
+                print("[Qwen3-TTS] flash_attention_2 unavailable: flash-attn is not installed. Falling back to sdpa/eager.")
+                attn_candidates = ["sdpa", "eager"]
+        else:
             attn_candidates = ["sdpa", "eager"]
         token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
         qwen_allowed_keys = {"device_map", "dtype", "attn_implementation", "local_files_only", "token"}
@@ -10315,9 +10336,11 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cuda") -> d
             except Exception as e:
                 last_error = e
                 if actual_device == "cuda" and attn_impl == "flash_attention_2":
-                    print("[Qwen3-TTS] fallback: flash2->sdpa")
+                    print(f"[Qwen3-TTS] fallback: flash2->sdpa reason={type(e).__name__}: {e}")
                 elif actual_device == "cuda" and attn_impl == "sdpa":
-                    print("[Qwen3-TTS] fallback: flash2->eager")
+                    print(f"[Qwen3-TTS] fallback: sdpa->eager reason={type(e).__name__}: {e}")
+                elif actual_device != "cuda" and attn_impl == "sdpa":
+                    print(f"[Qwen3-TTS] fallback: cpu sdpa->eager reason={type(e).__name__}: {e}")
                 continue
         if not loaded:
             if actual_device == "cuda":
@@ -10341,6 +10364,7 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cuda") -> d
                     _qwen3tts_attn_implementation = "eager"
                     loaded = True
                 except Exception as cpu_e:
+                    print(f"[Qwen3-TTS] fallback failed: gpu->cpu reason={type(cpu_e).__name__}: {cpu_e}")
                     raise RuntimeError(
                         "Qwen3 TTS model load failed. "
                         f"model_id={model_id} model_root={model_root} cache_dir={cache_dir} "
@@ -10355,9 +10379,14 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cuda") -> d
         _qwen3tts_model_id = model_id
         _qwen3tts_device = actual_device
         _qwen3tts_dtype = str(resolved_dtype)
-        print(f"[Qwen3-TTS] actual device: {_qwen3tts_runtime_device()}")
-        print(f"[Qwen3-TTS] actual dtype: {_qwen3tts_dtype}")
-        print(f"[Qwen3-TTS] actual attention: {_qwen3tts_attn_implementation}")
+        if fallback_reasons:
+            print(f"[Qwen3-TTS] fallback reasons: {'; '.join(fallback_reasons)}")
+        print(f"[Qwen3-TTS] requested attention backend: {_qwen3tts_requested_attn_backend}")
+        print(f"[Qwen3-TTS] requested dtype: {_qwen3tts_requested_dtype}")
+        print(f"[Qwen3-TTS] requested device: {_qwen3tts_requested_device}")
+        print(f"[Qwen3-TTS] selected attention backend: {_qwen3tts_attn_implementation}")
+        print(f"[Qwen3-TTS] selected dtype: {_qwen3tts_dtype}")
+        print(f"[Qwen3-TTS] qwen3tts_device: {_qwen3tts_runtime_device()}")
         print(f"[Qwen3-TTS] model loaded successfully: model_id={model_id} model_root={model_root} device={actual_device}")
         result = {"status": "loaded", "model_id": model_id, "model_root": model_root, "device": actual_device}
         if fallback_reasons:
@@ -10656,12 +10685,16 @@ async def tts_edgetts_list_voices_async() -> list:
 def qwen3tts_unload() -> dict:
     global _qwen3tts_model, _qwen3tts_model_id, _qwen3tts_processor
     global _qwen3tts_attn_implementation, _qwen3tts_dtype
+    global _qwen3tts_requested_device, _qwen3tts_requested_attn_backend, _qwen3tts_requested_dtype
     with _qwen3tts_lock:
         _qwen3tts_model = None
         _qwen3tts_model_id = None
         _qwen3tts_processor = None
         _qwen3tts_attn_implementation = ""
         _qwen3tts_dtype = ""
+        _qwen3tts_requested_device = "cuda"
+        _qwen3tts_requested_attn_backend = "flash_attention_2"
+        _qwen3tts_requested_dtype = "torch.bfloat16"
         _qwen3tts_clear_voice_prompt_cache()
     import gc; gc.collect()
     return {"status": "unloaded"}
@@ -10720,10 +10753,18 @@ def tts_status_api():
         "qwen3tts_loaded": q3t_loaded,
         "qwen3tts_selected_model_id": selected_model_id,
         "qwen3tts_model_id": _qwen3tts_model_id,
-        "qwen3tts_device": _qwen3tts_device,
+        "qwen3tts_device": _qwen3tts_requested_device,
+        "qwen3tts_requested_device": _qwen3tts_requested_device,
         "qwen3tts_actual_device": _qwen3tts_runtime_device() if q3t_loaded else _qwen3tts_device,
-        "qwen3tts_dtype": _qwen3tts_dtype,
-        "qwen3tts_attention": _qwen3tts_attn_implementation,
+        "qwen3tts_dtype": _qwen3tts_requested_dtype,
+        "qwen3tts_requested_dtype": _qwen3tts_requested_dtype,
+        "qwen3tts_actual_dtype": _qwen3tts_dtype,
+        "qwen3tts_attention": _qwen3tts_requested_attn_backend,
+        "qwen3tts_attn_backend": _qwen3tts_requested_attn_backend,
+        "qwen3tts_requested_attn_backend": _qwen3tts_requested_attn_backend,
+        "qwen3tts_actual_attn_backend": _qwen3tts_attn_implementation,
+        "qwen3tts_sox_available": _QWEN3TTS_SOX_AVAILABLE,
+        "qwen3tts_flash_attn_available": _QWEN3TTS_FLASH_AVAILABLE,
         "qwen3tts_missing_requirements": qwen_missing,
         "qwen3tts_install_status": qwen_status_file,
         "tts_startup_health": _tts_startup_health_snapshot,

@@ -55,7 +55,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LLAMA_SERVER_PATH=/app/llama/bin/llama-server \
     LD_LIBRARY_PATH=/app/llama/lib:/usr/local/lib:${LD_LIBRARY_PATH} \
     NVIDIA_VISIBLE_DEVICES=all \
-    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    INSTALL_FLASH_ATTN=1 \
+    REQUIRE_FLASH_ATTN=0 \
+    FLASH_ATTN_MAX_JOBS=""
 
 WORKDIR /app
 
@@ -71,6 +74,8 @@ RUN apt-get update -o Acquire::Retries=3 \
         pkg-config \
         software-properties-common \
         gnupg \
+        sox \
+        libsox-fmt-all \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -111,7 +116,11 @@ RUN set -eux; \
       return 0; \
     }; \
     if verify_imports; then \
-      printf '{"ok":true,"source":"preinstalled","error":"","timestamp":"%s"}\n' "$(date -u +%FT%TZ)" > "${status_file}"; \
+      sox_available=false; \
+      if command -v sox >/dev/null 2>&1; then sox_available=true; fi; \
+      flash_attn_available=false; \
+      if python -c "import flash_attn" >/dev/null 2>&1; then flash_attn_available=true; fi; \
+      printf '{"ok":true,"source":"preinstalled","error":"","timestamp":"%s","sox_available":%s,"flash_attn_attempted":false,"flash_attn_available":%s,"flash_attn_error":""}\n' "$(date -u +%FT%TZ)" "${sox_available}" "${flash_attn_available}" > "${status_file}"; \
     else \
       python -m pip install --no-cache-dir --upgrade-strategy only-if-needed \
         --index-url "https://download.pytorch.org/whl/cu128" \
@@ -121,7 +130,41 @@ RUN set -eux; \
         -r /app/requirements-tts-qwen.txt; \
       python -m pip check; \
       if verify_imports; then \
-        printf '{"ok":true,"source":"docker-install","error":"","timestamp":"%s"}\n' "$(date -u +%FT%TZ)" > "${status_file}"; \
+        sox_available=false; \
+        if command -v sox >/dev/null 2>&1; then sox_available=true; fi; \
+        flash_attn_attempted=false; \
+        flash_attn_available=false; \
+        flash_attn_error=""; \
+        is_runpod_env=false; \
+        if [ -n "${RUNPOD_POD_ID:-}" ] || [ -n "${RUNPOD_API_KEY:-}" ] || [ "${CODEAGENT_RUNTIME:-}" = "runpod" ] || [ "${CODEAGENT_RUNTIME:-}" = "rp" ]; then is_runpod_env=true; fi; \
+        has_cuda_env=false; \
+        if [ -d "/usr/local/cuda" ] || command -v nvidia-smi >/dev/null 2>&1; then has_cuda_env=true; fi; \
+        if [ "${INSTALL_FLASH_ATTN:-1}" = "1" ] && [ "${is_runpod_env}" = "true" ] && [ "${has_cuda_env}" = "true" ]; then \
+          flash_attn_attempted=true; \
+          flash_cmd="python -m pip install -U flash-attn --no-build-isolation"; \
+          if [ -n "${FLASH_ATTN_MAX_JOBS:-}" ]; then \
+            flash_cmd="MAX_JOBS=${FLASH_ATTN_MAX_JOBS} ${flash_cmd}"; \
+          fi; \
+          echo "[Qwen3-TTS][build] flash-attn install command: ${flash_cmd}"; \
+          if ! sh -c "${flash_cmd}"; then \
+            flash_attn_error="flash-attn install failed"; \
+            if [ "${REQUIRE_FLASH_ATTN:-0}" = "1" ]; then \
+              echo "[ERROR] flash-attn installation failed and REQUIRE_FLASH_ATTN=1" >&2; \
+              exit 1; \
+            fi; \
+            echo "[Qwen3-TTS][build] warning: flash-attn install failed; continuing with non-flash attention backend" >&2; \
+          fi; \
+        elif [ "${INSTALL_FLASH_ATTN:-1}" != "1" ]; then \
+          flash_attn_error="flash-attn install skipped (INSTALL_FLASH_ATTN!=1)"; \
+          echo "[Qwen3-TTS][build] flash-attn install skipped: INSTALL_FLASH_ATTN!=1"; \
+        else \
+          flash_attn_error="flash-attn install skipped (non-runpod or non-cuda environment)"; \
+          echo "[Qwen3-TTS][build] flash-attn install skipped: requires runpod + cuda/nvidia environment"; \
+        fi; \
+        if python -c "import flash_attn" >/dev/null 2>&1; then \
+          flash_attn_available=true; \
+        fi; \
+        printf '{"ok":true,"source":"docker-install","error":"","timestamp":"%s","sox_available":%s,"flash_attn_attempted":%s,"flash_attn_available":%s,"flash_attn_error":"%s"}\n' "$(date -u +%FT%TZ)" "${sox_available}" "${flash_attn_attempted}" "${flash_attn_available}" "${flash_attn_error}" > "${status_file}"; \
       else \
         err="qwen-tts dependency installation failed; import failures: $(cat /tmp/qwen_tts_failed_imports.txt)"; \
         printf '{"ok":false,"source":"docker-install","error":"%s","timestamp":"%s"}\n' "${err}" "$(date -u +%FT%TZ)" > "${status_file}"; \
