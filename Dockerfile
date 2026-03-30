@@ -38,24 +38,14 @@ RUN set -eux; \
     find "${SOURCE_ROOT}" \( -type f -o -type l \) -name '*.so*' -exec cp -a {} /out/lib/ \;
 
 ########################################
-# Runtime stage: Python + codeAgent + llama.cpp
+# Build stage: Python deps + Qwen3-TTS + flash-attn build (with CUDA toolkit)
 ########################################
-FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu${UBUNTU_VERSION} AS runtime
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu${UBUNTU_VERSION} AS tts_build
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    LLAMA_HOST=0.0.0.0 \
-    LLAMA_PORT=8080 \
-    CODEAGENT_HOST=0.0.0.0 \
-    CODEAGENT_PORT=8000 \
-    CODEAGENT_APP=main:app \
-    SANDBOX_MODE=process \
-    LLAMA_SERVER_PATH=/app/llama/bin/llama-server \
-    LD_LIBRARY_PATH=/app/llama/lib:/usr/local/lib:${LD_LIBRARY_PATH} \
-    NVIDIA_VISIBLE_DEVICES=all \
-    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
     INSTALL_FLASH_ATTN=1 \
     REQUIRE_FLASH_ATTN=0 \
     FLASH_ATTN_MAX_JOBS=""
@@ -66,10 +56,6 @@ RUN apt-get update -o Acquire::Retries=3 \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        tini \
-        libgomp1 \
-        libcurl4 \
-        libsndfile1 \
         build-essential \
         pkg-config \
         software-properties-common \
@@ -102,6 +88,7 @@ RUN if [ -f /app/requirements.txt ]; then \
 # Keep TTS deps isolated to reduce conflicts with existing FastAPI/WebUI stack.
 RUN set -eux; \
     status_file="/app/qwen3_tts_install_status.json"; \
+    flash_attn_log="/tmp/flash_attn_install.log"; \
     verify_imports() { \
       failed=""; \
       for mod in torch torchaudio transformers soundfile qwen_tts; do \
@@ -135,23 +122,43 @@ RUN set -eux; \
         flash_attn_attempted=false; \
         flash_attn_available=false; \
         flash_attn_error=""; \
-        is_runpod_env=false; \
-        if [ -n "${RUNPOD_POD_ID:-}" ] || [ -n "${RUNPOD_API_KEY:-}" ] || [ "${CODEAGENT_RUNTIME:-}" = "runpod" ] || [ "${CODEAGENT_RUNTIME:-}" = "rp" ]; then is_runpod_env=true; fi; \
+        flash_attn_error_detail=""; \
         has_cuda_env=false; \
-        if [ -d "/usr/local/cuda" ] || command -v nvidia-smi >/dev/null 2>&1; then has_cuda_env=true; fi; \
-        echo "[Qwen3-TTS][build] flash-attn environment: has_cuda_env=${has_cuda_env}, is_runpod_env=${is_runpod_env}"; \
+        if [ -d "/usr/local/cuda" ] || command -v nvidia-smi >/dev/null 2>&1 || command -v nvcc >/dev/null 2>&1; then has_cuda_env=true; fi; \
+        echo "[Qwen3-TTS][build] flash-attn environment: has_cuda_env=${has_cuda_env}"; \
         if [ "${INSTALL_FLASH_ATTN:-1}" = "1" ] && [ "${has_cuda_env}" = "true" ]; then \
+          python -m pip install --no-cache-dir packaging psutil ninja; \
+          python -m pip show packaging psutil ninja; \
+          echo "[Qwen3-TTS][build] ninja version check"; \
+          ninja --version; \
+          echo "[Qwen3-TTS][build] nvcc path check"; \
+          which nvcc; \
+          echo "[Qwen3-TTS][build] nvcc version check"; \
+          nvcc --version; \
+          echo "[Qwen3-TTS][build] torch/cuda check"; \
+          python -c "import torch; print(torch.__version__, torch.version.cuda)"; \
           flash_attn_attempted=true; \
-          flash_cmd="python -m pip install -U flash-attn --no-build-isolation"; \
+          rm -f "${flash_attn_log}"; \
+          flash_cmd="python -m pip install -v flash-attn --no-build-isolation"; \
           if [ -n "${FLASH_ATTN_MAX_JOBS:-}" ]; then \
             flash_cmd="MAX_JOBS=${FLASH_ATTN_MAX_JOBS} ${flash_cmd}"; \
           fi; \
           echo "[Qwen3-TTS][build] flash-attn install command: ${flash_cmd}"; \
-          if ! sh -c "${flash_cmd}"; then \
+          if ! sh -c "${flash_cmd}" 2>&1 | tee "${flash_attn_log}"; then \
             flash_attn_error="flash-attn install failed"; \
+            flash_attn_error_detail="$(cat "${flash_attn_log}")"; \
             echo "[Qwen3-TTS][build] flash-attn install failed: ${flash_attn_error}" >&2; \
             if [ "${REQUIRE_FLASH_ATTN:-0}" = "1" ]; then \
               echo "[ERROR] flash-attn installation failed and REQUIRE_FLASH_ATTN=1" >&2; \
+              FLASH_ATTN_ERROR_DETAIL="${flash_attn_error_detail}" python - <<'PY' \
+import json, os, time
+status_file = "/app/qwen3_tts_install_status.json"
+detail = os.getenv("FLASH_ATTN_ERROR_DETAIL", "")
+payload = {"ok": False, "source": "docker-install", "error": "flash-attn installation failed and REQUIRE_FLASH_ATTN=1", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "flash_attn_error_detail": detail}
+with open(status_file, "w", encoding="utf-8") as f:
+    json.dump(payload, f, ensure_ascii=False)
+    f.write("\n")
+PY \
               exit 1; \
             fi; \
             echo "[Qwen3-TTS][build] warning: flash-attn install failed; continuing with non-flash attention backend" >&2; \
@@ -169,7 +176,24 @@ RUN set -eux; \
         if python -c "import flash_attn" >/dev/null 2>&1; then \
           flash_attn_available=true; \
         fi; \
-        printf '{"ok":true,"source":"docker-install","error":"","timestamp":"%s","sox_available":%s,"flash_attn_attempted":%s,"flash_attn_available":%s,"flash_attn_error":"%s"}\n' "$(date -u +%FT%TZ)" "${sox_available}" "${flash_attn_attempted}" "${flash_attn_available}" "${flash_attn_error}" > "${status_file}"; \
+        SOX_AVAILABLE="${sox_available}" FLASH_ATTN_ATTEMPTED="${flash_attn_attempted}" FLASH_ATTN_AVAILABLE="${flash_attn_available}" FLASH_ATTN_ERROR="${flash_attn_error}" FLASH_ATTN_ERROR_DETAIL="${flash_attn_error_detail}" python - <<'PY' \
+import json, os, time
+status_file = "/app/qwen3_tts_install_status.json"
+payload = {
+  "ok": True,
+  "source": "docker-install",
+  "error": "",
+  "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+  "sox_available": os.getenv("SOX_AVAILABLE", "false") == "true",
+  "flash_attn_attempted": os.getenv("FLASH_ATTN_ATTEMPTED", "false") == "true",
+  "flash_attn_available": os.getenv("FLASH_ATTN_AVAILABLE", "false") == "true",
+  "flash_attn_error": os.getenv("FLASH_ATTN_ERROR", ""),
+  "flash_attn_error_detail": os.getenv("FLASH_ATTN_ERROR_DETAIL", ""),
+}
+with open(status_file, "w", encoding="utf-8") as f:
+    json.dump(payload, f, ensure_ascii=False)
+    f.write("\n")
+PY \
       else \
         err="qwen-tts dependency installation failed; import failures: $(cat /tmp/qwen_tts_failed_imports.txt)"; \
         printf '{"ok":false,"source":"docker-install","error":"%s","timestamp":"%s"}\n' "${err}" "$(date -u +%FT%TZ)" > "${status_file}"; \
@@ -182,9 +206,61 @@ RUN set -eux; \
 # Keep shared framework packages intact.
 RUN python -m pip uninstall -y voicevox-core voicevox-client pyopenjtalk || true
 
-
 # Re-pin core framework versions in case optional deps caused downgrades
 RUN python -m pip install --no-cache-dir --upgrade "pydantic>=2.6" "fastapi>=0.110"
+
+########################################
+# Runtime stage: Python + codeAgent + llama.cpp
+########################################
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu${UBUNTU_VERSION} AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    LLAMA_HOST=0.0.0.0 \
+    LLAMA_PORT=8080 \
+    CODEAGENT_HOST=0.0.0.0 \
+    CODEAGENT_PORT=8000 \
+    CODEAGENT_APP=main:app \
+    SANDBOX_MODE=process \
+    LLAMA_SERVER_PATH=/app/llama/bin/llama-server \
+    LD_LIBRARY_PATH=/app/llama/lib:/usr/local/lib:${LD_LIBRARY_PATH} \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    INSTALL_FLASH_ATTN=1 \
+    REQUIRE_FLASH_ATTN=0 \
+    FLASH_ATTN_MAX_JOBS=""
+
+WORKDIR /app
+
+RUN apt-get update -o Acquire::Retries=3 \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        tini \
+        libgomp1 \
+        libcurl4 \
+        libsndfile1 \
+        software-properties-common \
+        gnupg \
+        sox \
+        libsox-fmt-all \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3.11 \
+        python3.11-venv \
+        python3.11-distutils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3.11 -m venv /opt/venv
+ENV PATH=/opt/venv/bin:${PATH}
+
+# Copy application source and prebuilt venv artifacts from build stage.
+COPY . /app
+COPY --from=tts_build /opt/venv /opt/venv
+COPY --from=tts_build /app/qwen3_tts_install_status.json /app/qwen3_tts_install_status.json
 
 # Copy compiled llama artifacts into the paths the app expects.
 RUN mkdir -p /app/llama/bin /app/llama/lib /models
