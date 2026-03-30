@@ -10240,9 +10240,12 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
         device = _qwen3tts_runtime_device()
         with _torch_mod.no_grad():
             ref_wav = None
+            resolved_ref_sr = int(ref_sr or 24000)
             if ref_audio_bytes:
                 try:
-                    ref_wav, _ = _sf_mod.read(io.BytesIO(ref_audio_bytes))
+                    ref_wav, detected_sr = _sf_mod.read(io.BytesIO(ref_audio_bytes))
+                    if detected_sr and int(detected_sr) > 0:
+                        resolved_ref_sr = int(detected_sr)
                 except Exception as e:
                     raise RuntimeError(f"reference audio decode failed: {e}") from e
             lang_label = _qwen3tts_lang_label(language)
@@ -10252,7 +10255,7 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
                 clone_kwargs = {
                     "text": text,
                     "language": lang_label,
-                    "ref_audio": (ref_wav, ref_sr),
+                    "ref_audio": (ref_wav, resolved_ref_sr),
                 }
                 if ref_text.strip():
                     clone_kwargs["ref_text"] = ref_text.strip()
