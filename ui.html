@@ -464,6 +464,9 @@ header{
   height:calc(100dvh - 60px);/* iOS Safari dynamic viewport */
 }
 @media(max-width:768px){
+  :root{
+    --mobile-tab-inline-pad:8px;
+  }
   .app-body{
     flex:1;
     min-height:0;
@@ -484,9 +487,9 @@ header{
     width:100%;
     max-width:100%;
     box-sizing:border-box;
+    padding-left:var(--mobile-tab-inline-pad) !important;
+    padding-right:var(--mobile-tab-inline-pad) !important;
   }
-  #tab-vault,#tab-asr,#tab-tts{padding-left:0 !important;padding-right:0 !important}
-  #tab-memory{padding-left:0 !important;padding-right:0 !important}
   .mob-hidden{display:none!important}
 }
 @media(min-width:769px){
