@@ -9708,11 +9708,17 @@ async def echo_voice_ref_post(req: dict, request: Request):
 @app.get("/echo/voice-ref")
 async def echo_voice_ref_get(request: Request):
     """現在のボイスクローン参照音声情報を返す。"""
+    import base64 as _b64
     client_ip = request.client.host if request.client else "unknown"
     ref = _echo_voice_ref.get(client_ip)
     if not ref:
         return {"set": False}
-    return {"set": True, "name": ref["name"], "size": len(ref["audio"])}
+    return {
+        "set": True,
+        "name": ref["name"],
+        "size": len(ref["audio"]),
+        "audio_base64": _b64.b64encode(ref["audio"]).decode("ascii"),
+    }
 
 
 @app.delete("/echo/voice-ref")
