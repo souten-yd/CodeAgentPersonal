@@ -9987,6 +9987,31 @@ _qwen3tts_cached_clone_prompt = None
 _qwen3tts_cached_clone_prompt_key: str | None = None
 _QWEN3TTS_MODEL_ID  = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 _QWEN3_INSTALL_STATUS_PATH = os.environ.get("CODEAGENT_QWEN3_INSTALL_STATUS_PATH", "/app/qwen3_tts_install_status.json")
+
+QWEN3_TTS_MODEL_CHOICES = {
+    "qwen3tts_17b_base": {
+        "label": "Qwen3-TTS 1.7B Base（高品質）",
+        "repo_id": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+    },
+    "qwen3tts_06b_base": {
+        "label": "Qwen3-TTS 0.6B Base（速度優先）",
+        "repo_id": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+    },
+}
+QWEN3_TTS_ALLOWED_REPO_IDS = {v["repo_id"] for v in QWEN3_TTS_MODEL_CHOICES.values()}
+
+
+def _resolve_qwen3tts_model_id(selected_model: str | None) -> str:
+    """Qwen3-TTS のモデル選択を whitelist で正規化する。"""
+    if not selected_model:
+        return _QWEN3TTS_MODEL_ID
+    sel = str(selected_model).strip()
+    if sel in QWEN3_TTS_MODEL_CHOICES:
+        return str(QWEN3_TTS_MODEL_CHOICES[sel]["repo_id"])
+    if sel in QWEN3_TTS_ALLOWED_REPO_IDS:
+        return sel
+    allowed = ", ".join(sorted(QWEN3_TTS_ALLOWED_REPO_IDS))
+    raise HTTPException(status_code=400, detail=f"Unsupported qwen3tts model_id: {sel}. allowed: {allowed}")
 _tts_startup_health_snapshot: dict = {}
 _QWEN3_REQUIRED_FILES = (
     "config.json",
@@ -10374,11 +10399,7 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
 _tts_core = None        # voicevox_core.VoicevoxCore instance
 _tts_lock = threading.Lock()
 
-QWEN3TTS_MODEL_CANDIDATES = [
-    "Qwen/Qwen3-TTS-0.6B",
-    "Qwen/Qwen3-TTS-1.7B",
-    "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-]
+QWEN3TTS_MODEL_CANDIDATES = sorted(QWEN3_TTS_ALLOWED_REPO_IDS)
 
 
 def _tts_data_dir() -> str:
@@ -10650,7 +10671,7 @@ async def tts_voices_api(engine: str = "qwen3tts"):
 def tts_load_api(req: dict = {}):
     engine = str(req.get("engine", "qwen3tts"))
     device = str(req.get("device", "cuda")) if req.get("device") in ("cpu", "cuda") else "cuda"
-    model_id = str(req.get("model_id", "Qwen/Qwen3-TTS-12Hz-1.7B-Base"))
+    model_id = _resolve_qwen3tts_model_id(req.get("model_id", _QWEN3TTS_MODEL_ID))
 
     def _sse(payload: dict) -> str:
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"

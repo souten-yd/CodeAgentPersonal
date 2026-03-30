@@ -1671,8 +1671,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
             onchange="saveTsAsrSettings()">
             <option value="Qwen/Qwen3-TTS-12Hz-1.7B-Base" selected>Qwen3-TTS-12Hz-1.7B-Base（推奨）</option>
-            <option value="Qwen/Qwen3-TTS-0.6B">Qwen3-TTS-0.6B（軽量）</option>
-            <option value="Qwen/Qwen3-TTS-1.7B">Qwen3-TTS-1.7B</option>
+            <option value="Qwen/Qwen3-TTS-12Hz-0.6B-Base">Qwen3-TTS-12Hz-0.6B-Base（軽量）</option>
           </select>
         </div>
         <!-- Qwen3 参照音声（Qwen3選択時のみ） -->
@@ -2261,8 +2260,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
             onchange="saveTtsSettings()">
             <option value="Qwen/Qwen3-TTS-12Hz-1.7B-Base" selected>Qwen3-TTS-12Hz-1.7B-Base（推奨）</option>
-            <option value="Qwen/Qwen3-TTS-0.6B">Qwen3-TTS-0.6B（軽量）</option>
-            <option value="Qwen/Qwen3-TTS-1.7B">Qwen3-TTS-1.7B</option>
+            <option value="Qwen/Qwen3-TTS-12Hz-0.6B-Base">Qwen3-TTS-12Hz-0.6B-Base（軽量）</option>
           </select>
         </div>
         <!-- デバイス選択（VOICEVOX/Qwen3選択時のみ表示） -->
@@ -2462,10 +2460,18 @@ const tts = {
   _utt:         null,
 };
 const _SUPPORTED_TTS_ENGINES = new Set(['webspeech', 'edgetts', 'qwen3tts']);
+const _QWEN3_TTS_ALLOWED_MODEL_IDS = new Set([
+  'Qwen/Qwen3-TTS-12Hz-1.7B-Base',
+  'Qwen/Qwen3-TTS-12Hz-0.6B-Base',
+]);
 function _normalizeTtsEngine(engine) {
   return _SUPPORTED_TTS_ENGINES.has(engine) ? engine : 'qwen3tts';
 }
+function _normalizeQwen3ModelId(modelId) {
+  return _QWEN3_TTS_ALLOWED_MODEL_IDS.has(modelId) ? modelId : 'Qwen/Qwen3-TTS-12Hz-1.7B-Base';
+}
 tts.engine = _normalizeTtsEngine(tts.engine);
+tts.qwen3model = _normalizeQwen3ModelId(tts.qwen3model);
 
 // ── TALK MODE (EchoVault) グローバル状態 ──
 const echo = {
@@ -2998,9 +3004,10 @@ async function toggleQwen3CloneTestPlayback() {
 }
 
 function _buildQwen3LoadParams(context = 'main') {
-  const modelId = context === 'tts'
+  const modelIdRaw = context === 'tts'
     ? (document.getElementById('tsasr-qwen3-model-sel')?.value || tts.qwen3model)
     : (document.getElementById('tts-qwen3-model-sel')?.value || tts.qwen3model);
+  const modelId = _normalizeQwen3ModelId(modelIdRaw);
   const device = context === 'tts'
     ? (document.querySelector('input[name="tsasr-device"]:checked')?.value || tts.ttsDevice || 'cuda')
     : (document.querySelector('input[name="tts-device"]:checked')?.value || tts.ttsDevice || 'cuda');
@@ -3822,13 +3829,13 @@ function refreshTtsTab() {
   _echoInitSettingsUI();
   _updateEchoQwen3UiVisibility();
   const savedQwen3Model = localStorage.getItem('tsasr_qwen3model') || localStorage.getItem('tts_qwen3model') || tts.qwen3model;
-  tts.qwen3model = savedQwen3Model;
-  localStorage.setItem('tts_qwen3model', savedQwen3Model);
-  localStorage.setItem('tsasr_qwen3model', savedQwen3Model);
+  tts.qwen3model = _normalizeQwen3ModelId(savedQwen3Model);
+  localStorage.setItem('tts_qwen3model', tts.qwen3model);
+  localStorage.setItem('tsasr_qwen3model', tts.qwen3model);
   const tsasrQ3Sel = document.getElementById('tsasr-qwen3-model-sel');
   const mainQ3Sel = document.getElementById('tts-qwen3-model-sel');
-  if (tsasrQ3Sel) tsasrQ3Sel.value = savedQwen3Model;
-  if (mainQ3Sel) mainQ3Sel.value = savedQwen3Model;
+  if (tsasrQ3Sel) tsasrQ3Sel.value = tts.qwen3model;
+  if (mainQ3Sel) mainQ3Sel.value = tts.qwen3model;
   fetch(API + '/tts/status').then(r => r.json()).then(s => {
     const statusEl  = document.getElementById('tsasr-qwen3-status');
     const loadBtn   = document.getElementById('tsasr-qwen3-load-btn');
