@@ -56,6 +56,7 @@ RUN apt-get update -o Acquire::Retries=3 \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        jq \
         build-essential \
         pkg-config \
         software-properties-common \
@@ -116,12 +117,14 @@ RUN set -eux; \
       python -m pip install --no-cache-dir --upgrade-strategy only-if-needed \
         --index-url "https://pypi.org/simple" \
         -r /app/requirements-tts-qwen.txt; \
+      python -c "import torch, torchaudio; print(torch.__version__, torch.version.cuda, torchaudio.__version__)"; \
       python -m pip check; \
       if verify_imports; then \
         sox_available=false; \
         if command -v sox >/dev/null 2>&1; then sox_available=true; fi; \
         flash_attn_attempted=false; \
         flash_attn_available=false; \
+        flash_attn_source="not-installed"; \
         flash_attn_error=""; \
         flash_attn_error_detail=""; \
         flash_attn_error_detail_summary=""; \
@@ -142,16 +145,32 @@ RUN set -eux; \
           python -c "import torch; print(torch.__version__, torch.version.cuda)"; \
           flash_attn_attempted=true; \
           rm -f "${flash_attn_log}"; \
-          flash_cmd="python -m pip install -v flash-attn --no-build-isolation"; \
-          if [ -n "${FLASH_ATTN_MAX_JOBS:-}" ]; then \
-            flash_cmd="MAX_JOBS=${FLASH_ATTN_MAX_JOBS} ${flash_cmd}"; \
+          flash_release_api="https://api.github.com/repos/mjun0812/flash-attention-prebuild-wheels/releases/tags/v0.9.4"; \
+          flash_asset_list="/tmp/flash_attn_release_assets.txt"; \
+          flash_wheel_url=""; \
+          echo "[Qwen3-TTS][build] resolving flash-attn prebuilt wheel from v0.9.4"; \
+          if curl -fsSL "${flash_release_api}" -o /tmp/flash_attn_release.json; then \
+            jq -r '.assets[]?.browser_download_url' /tmp/flash_attn_release.json > "${flash_asset_list}" || true; \
+            flash_wheel_url="$(awk 'BEGIN{IGNORECASE=1} /cp311/ && /torch.?2\\.11/ && /cu128/ && (/linux_x86_64/ || (/manylinux/ && /x86_64/)) && /\\.whl$/ {print; exit}' "${flash_asset_list}")"; \
+          else \
+            echo "[Qwen3-TTS][build] warning: failed to fetch ${flash_release_api}"; \
           fi; \
-          echo "[Qwen3-TTS][build] flash-attn install command: ${flash_cmd}"; \
-          install_and_import_ok=true; \
-          if ! bash -o pipefail -c "${flash_cmd} 2>&1 | tee '${flash_attn_log}'"; then \
-            install_and_import_ok=false; \
-          elif ! python -c "import flash_attn" >/dev/null 2>&1; then \
-            install_and_import_ok=false; \
+          install_and_import_ok=false; \
+          if [ -n "${flash_wheel_url}" ]; then \
+            flash_attn_source="prebuilt-wheel(v0.9.4)"; \
+            echo "[Qwen3-TTS][build] flash-attn prebuilt wheel URL: ${flash_wheel_url}"; \
+            if python -m pip install --no-cache-dir "${flash_wheel_url}" 2>&1 | tee "${flash_attn_log}" && python -c "import flash_attn" >/dev/null 2>&1; then \
+              install_and_import_ok=true; \
+            fi; \
+          fi; \
+          if [ "${install_and_import_ok}" != "true" ]; then \
+            flash_attn_source="source-build"; \
+            source_jobs="${FLASH_ATTN_MAX_JOBS:-1}"; \
+            flash_cmd="MAX_JOBS=${source_jobs} python -m pip install -v flash-attn --no-build-isolation"; \
+            echo "[Qwen3-TTS][build] flash-attn fallback install command: ${flash_cmd}"; \
+            if bash -o pipefail -c "${flash_cmd} 2>&1 | tee '${flash_attn_log}'" && python -c "import flash_attn" >/dev/null 2>&1; then \
+              install_and_import_ok=true; \
+            fi; \
           fi; \
           if [ "${install_and_import_ok}" != "true" ]; then \
             flash_attn_error="flash-attn install failed"; \
@@ -172,7 +191,7 @@ RUN set -eux; \
             fi; \
             echo "[Qwen3-TTS][build] warning: flash-attn install failed; continuing with non-flash attention backend" >&2; \
           else \
-            echo "[Qwen3-TTS][build] flash-attn install succeeded"; \
+            echo "[Qwen3-TTS][build] flash-attn install succeeded via ${flash_attn_source}"; \
           fi; \
         elif [ "${INSTALL_FLASH_ATTN:-1}" != "1" ]; then \
           flash_attn_error="flash-attn install skipped (INSTALL_FLASH_ATTN!=1)"; \
