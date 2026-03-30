@@ -920,13 +920,15 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .echo-conn-ok{color:var(--green,#4caf50)}
 .echo-conn-off{color:var(--text3)}
 .echo-conn-err{color:var(--red)}
-/* Echo モードアクティブ時: echo-col（左）+ panel-col（右）の2カラムレイアウト */
-.app-body.echo-active .echo-col{flex:1 1 50%;min-width:0}
-.app-body.echo-active .panel-col{flex:0 0 var(--panel-col-width, min(46vw, 560px));min-width:260px;max-width:75vw}
+/* Echo モードアクティブ時: echo-col（左）+ panel-col（右）の2カラムレイアウト（デスクトップのみ） */
+@media(min-width:769px){
+  .app-body.echo-active .echo-col{flex:1 1 50%;min-width:0}
+  .app-body.echo-active .panel-col{flex:0 0 var(--panel-col-width, min(46vw, 560px));min-width:260px;max-width:75vw}
+}
 .app-body.echo-active .chat-col{display:none!important}
 @media(max-width:768px){
-  .app-body.echo-active .echo-col{flex:1 1 100%}
-  .app-body.echo-active .panel-col{flex:1 1 100%}
+  .app-body.echo-active .echo-col{flex:1 1 100%;width:100%;min-width:0;max-width:100%}
+  .app-body.echo-active .panel-col{flex:1 1 100%;width:100%;min-width:0;max-width:100%}
   .echo-toolbar{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
   .echo-toolbar .echo-record-btn,
   .echo-toolbar .echo-translate-btn{width:100%;padding:8px 10px;font-size:11px;white-space:nowrap}
