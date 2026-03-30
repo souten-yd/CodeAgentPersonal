@@ -28,6 +28,7 @@ import io
 import hashlib
 import traceback
 from datetime import datetime
+from collections import OrderedDict
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -9982,9 +9983,11 @@ _qwen3tts_model     = None
 _qwen3tts_processor = None   # qwen_tts processor (旧 _qwen3tts_tokenizer を改名)
 _qwen3tts_model_id: str | None = None
 _qwen3tts_device = "cuda"      # "cpu" | "cuda"
+_qwen3tts_attn_implementation = ""
+_qwen3tts_dtype = ""
 _qwen3tts_lock      = threading.Lock()
-_qwen3tts_cached_clone_prompt = None
-_qwen3tts_cached_clone_prompt_key: str | None = None
+_qwen3tts_voice_prompt_cache: "OrderedDict[str, Any]" = OrderedDict()
+_QWEN3TTS_VOICE_PROMPT_CACHE_MAX = 16
 _QWEN3TTS_MODEL_ID  = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 _QWEN3_INSTALL_STATUS_PATH = os.environ.get("CODEAGENT_QWEN3_INSTALL_STATUS_PATH", "/app/qwen3_tts_install_status.json")
 
@@ -10022,10 +10025,37 @@ _QWEN3_REQUIRED_FILES = (
 )
 
 
-def _qwen3tts_model_dir() -> str:
-    d = os.path.join(CA_DATA_DIR, "tts", "qwen3tts")
-    os.makedirs(d, exist_ok=True)
-    return d
+def _qwen3tts_model_dir(model_id: str | None = None) -> str:
+    base_dir = os.path.join(CA_DATA_DIR, "tts", "qwen3tts")
+    os.makedirs(base_dir, exist_ok=True)
+    if not model_id:
+        return base_dir
+    safe_model = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(model_id).strip())
+    model_dir = os.path.join(base_dir, safe_model)
+    os.makedirs(model_dir, exist_ok=True)
+    return model_dir
+
+
+def _qwen3tts_clear_voice_prompt_cache() -> None:
+    _qwen3tts_voice_prompt_cache.clear()
+
+
+def _qwen3tts_voice_prompt_cache_get(key: str):
+    value = _qwen3tts_voice_prompt_cache.get(key)
+    if value is None:
+        print("[Qwen3-TTS] voice clone prompt cache miss")
+        return None
+    _qwen3tts_voice_prompt_cache.move_to_end(key)
+    print("[Qwen3-TTS] voice clone prompt cache hit")
+    return value
+
+
+def _qwen3tts_voice_prompt_cache_set(key: str, value) -> None:
+    _qwen3tts_voice_prompt_cache[key] = value
+    _qwen3tts_voice_prompt_cache.move_to_end(key)
+    while len(_qwen3tts_voice_prompt_cache) > _QWEN3TTS_VOICE_PROMPT_CACHE_MAX:
+        _qwen3tts_voice_prompt_cache.popitem(last=False)
+        print("[Qwen3-TTS] voice clone prompt cache evicted")
 
 
 def _tts_debug_log_path() -> str:
@@ -10222,7 +10252,7 @@ def _qwen3_resolve_model_root(model_id: str, cache_dir: str) -> str:
 
 def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cuda") -> dict:
     global _qwen3tts_model, _qwen3tts_processor, _qwen3tts_model_id, _qwen3tts_device
-    global _qwen3tts_cached_clone_prompt, _qwen3tts_cached_clone_prompt_key
+    global _qwen3tts_attn_implementation, _qwen3tts_dtype
     if not _QWEN3TTS_AVAILABLE:
         commands = "\n".join(f"- {cmd}" for cmd in _qwen3_install_help_commands())
         raise RuntimeError(
@@ -10237,57 +10267,101 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cuda") -> d
         if _qwen3tts_model is not None:
             _qwen3tts_model = None
             _qwen3tts_processor = None
-            _qwen3tts_cached_clone_prompt = None
-            _qwen3tts_cached_clone_prompt_key = None
-        cache_dir = _qwen3tts_model_dir()
-        actual_device = device
-        fallback_reason = ""
+            _qwen3tts_attn_implementation = ""
+            _qwen3tts_dtype = ""
+            _qwen3tts_clear_voice_prompt_cache()
+        cache_dir = _qwen3tts_model_dir(model_id)
+        actual_device = "cuda" if device == "cuda" else "cpu"
+        fallback_reasons: list[str] = []
         if device == "cuda" and not (_torch_mod and _torch_mod.cuda.is_available()):
             actual_device = "cpu"
-            fallback_reason = "CUDAが利用できないため CPU へ自動フォールバックしました。"
+            fallback_reasons.append("gpu->cpu (CUDA unavailable)")
+            print("[Qwen3-TTS] fallback: gpu->cpu (CUDA unavailable)")
         model_root = _qwen3_resolve_model_root(model_id, cache_dir)
         _qwen3tts_processor = None
         print(f"[Qwen3-TTS] model loading: model_id={model_id} model_root={model_root}")
-        try:
-            # NOTE: Qwen3-TTS 分岐では共通 kwargs を流用せず、許可キーのみを明示的に組み立てる。
-            resolved_device_map = "cuda" if actual_device == "cuda" else "cpu"
-            resolved_dtype = _torch_mod.float16 if actual_device == "cuda" else _torch_mod.float32
-            resolved_attn_impl = "flash_attention_2" if (actual_device == "cuda" and _QWEN3TTS_FLASH_AVAILABLE) else "eager"
-            qwen_extra_candidates = {
-                "attn_implementation": resolved_attn_impl,
+        # NOTE: Qwen3-TTS 分岐では共通 kwargs を流用せず、許可キーのみを明示的に組み立てる。
+        resolved_device_map = "cuda:0" if actual_device == "cuda" else "cpu"
+        resolved_dtype = _torch_mod.bfloat16 if actual_device == "cuda" else _torch_mod.float32
+        attn_candidates: list[str] = ["eager"] if actual_device != "cuda" else ["flash_attention_2", "sdpa", "eager"]
+        if actual_device == "cuda" and not _QWEN3TTS_FLASH_AVAILABLE:
+            print("[Qwen3-TTS] flash_attention_2 unavailable: flash-attn is not installed. Falling back to sdpa/eager.")
+            attn_candidates = ["sdpa", "eager"]
+        token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+        qwen_allowed_keys = {"device_map", "dtype", "attn_implementation", "local_files_only", "token"}
+        forbidden_qwen_keys = {"device", "torch_dtype", "map_location", "low_cpu_mem_usage"}
+        last_error = None
+        loaded = False
+        for attn_impl in attn_candidates:
+            qwen_kwargs = {
+                "device_map": resolved_device_map,
+                "dtype": resolved_dtype,
+                "attn_implementation": attn_impl,
                 "local_files_only": True,
-                "token": os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN"),
             }
-            qwen_allowed_keys = {"device_map", "dtype", "attn_implementation", "local_files_only", "token"}
-            qwen_extra_kwargs = {
-                k: v for k, v in qwen_extra_candidates.items()
-                if (k in qwen_allowed_keys and v is not None)
-            }
-            forbidden_qwen_keys = {"device", "torch_dtype", "map_location", "low_cpu_mem_usage"}
-            assert all(k not in forbidden_qwen_keys for k in qwen_extra_kwargs), "forbidden key leaked into qwen kwargs"
-            assert "device" not in qwen_extra_kwargs, "device must not be passed to Qwen3-TTS"
-            qwen_log_kwargs = {"device_map": resolved_device_map, "dtype": str(resolved_dtype), **qwen_extra_kwargs}
-            if "dtype" in qwen_log_kwargs:
-                qwen_log_kwargs["dtype"] = str(qwen_log_kwargs["dtype"])
-            print(f"[Qwen3-TTS] load kwargs: {qwen_log_kwargs}")
-            _qwen3tts_model = _Q3TModel.from_pretrained(
-                model_root,
-                device_map=resolved_device_map,
-                dtype=resolved_dtype,
-                **qwen_extra_kwargs,
-            )
-        except Exception as e:
-            raise RuntimeError(
-                "Qwen3 TTS model load failed. "
-                f"model_id={model_id} model_root={model_root} cache_dir={cache_dir} "
-                f"error={e}"
-            ) from e
+            if token:
+                qwen_kwargs["token"] = token
+            assert all(k in qwen_allowed_keys for k in qwen_kwargs.keys()), "unexpected key leaked into qwen kwargs"
+            assert all(k not in forbidden_qwen_keys for k in qwen_kwargs.keys()), "forbidden key leaked into qwen kwargs"
+            print(f"[Qwen3-TTS] load kwargs: { {**qwen_kwargs, 'dtype': str(qwen_kwargs.get('dtype'))} }")
+            try:
+                _qwen3tts_model = _Q3TModel.from_pretrained(model_root, **qwen_kwargs)
+                loaded = True
+                if actual_device == "cuda" and attn_impl != "flash_attention_2":
+                    print(f"[Qwen3-TTS] fallback: flash2->{attn_impl}")
+                    fallback_reasons.append(f"flash2->{attn_impl}")
+                _qwen3tts_attn_implementation = attn_impl
+                break
+            except Exception as e:
+                last_error = e
+                if actual_device == "cuda" and attn_impl == "flash_attention_2":
+                    print("[Qwen3-TTS] fallback: flash2->sdpa")
+                elif actual_device == "cuda" and attn_impl == "sdpa":
+                    print("[Qwen3-TTS] fallback: flash2->eager")
+                continue
+        if not loaded:
+            if actual_device == "cuda":
+                # GPUロードに失敗した場合のみCPUへフォールバック
+                print(f"[Qwen3-TTS] fallback: gpu->cpu ({last_error})")
+                fallback_reasons.append("gpu->cpu (GPU load failure)")
+                try:
+                    qwen_kwargs_cpu = {
+                        "device_map": "cpu",
+                        "dtype": _torch_mod.float32,
+                        "attn_implementation": "eager",
+                        "local_files_only": True,
+                    }
+                    if token:
+                        qwen_kwargs_cpu["token"] = token
+                    print(f"[Qwen3-TTS] load kwargs: { {**qwen_kwargs_cpu, 'dtype': str(qwen_kwargs_cpu.get('dtype'))} }")
+                    _qwen3tts_model = _Q3TModel.from_pretrained(model_root, **qwen_kwargs_cpu)
+                    actual_device = "cpu"
+                    resolved_device_map = "cpu"
+                    resolved_dtype = _torch_mod.float32
+                    _qwen3tts_attn_implementation = "eager"
+                    loaded = True
+                except Exception as cpu_e:
+                    raise RuntimeError(
+                        "Qwen3 TTS model load failed. "
+                        f"model_id={model_id} model_root={model_root} cache_dir={cache_dir} "
+                        f"gpu_error={last_error} cpu_error={cpu_e}"
+                    ) from cpu_e
+            else:
+                raise RuntimeError(
+                    "Qwen3 TTS model load failed. "
+                    f"model_id={model_id} model_root={model_root} cache_dir={cache_dir} "
+                    f"error={last_error}"
+                ) from last_error
         _qwen3tts_model_id = model_id
         _qwen3tts_device = actual_device
+        _qwen3tts_dtype = str(resolved_dtype)
+        print(f"[Qwen3-TTS] actual device: {_qwen3tts_runtime_device()}")
+        print(f"[Qwen3-TTS] actual dtype: {_qwen3tts_dtype}")
+        print(f"[Qwen3-TTS] actual attention: {_qwen3tts_attn_implementation}")
         print(f"[Qwen3-TTS] model loaded successfully: model_id={model_id} model_root={model_root} device={actual_device}")
         result = {"status": "loaded", "model_id": model_id, "model_root": model_root, "device": actual_device}
-        if fallback_reason:
-            result["note"] = fallback_reason
+        if fallback_reasons:
+            result["note"] = "; ".join(fallback_reasons)
         return result
 
 
@@ -10307,7 +10381,6 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
                          ref_text: str = "", language: str = "Auto") -> bytes:
     """Qwen3 TTS でテキストを WAV バイト列に変換する。ref_audio_bytes があればボイスクローン。"""
     global _qwen3tts_model, _qwen3tts_processor
-    global _qwen3tts_cached_clone_prompt, _qwen3tts_cached_clone_prompt_key
     if not _QWEN3TTS_AVAILABLE:
         commands = "\n".join(f"- {cmd}" for cmd in _qwen3_install_help_commands())
         raise RuntimeError(
@@ -10318,7 +10391,8 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
         )
     with _qwen3tts_lock:
         if _qwen3tts_model is None:
-            qwen3tts_load(_qwen3tts_model_id or _QWEN3TTS_MODEL_ID, _qwen3tts_device)
+            default_model_id = _qwen3tts_model_id or settings_get("qwen3tts_model_id") or _QWEN3TTS_MODEL_ID
+            qwen3tts_load(_resolve_qwen3tts_model_id(default_model_id), _qwen3tts_device)
     with _qwen3tts_lock:
         device = _qwen3tts_runtime_device()
         with _torch_mod.no_grad():
@@ -10337,24 +10411,27 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
             # create_voice_clone_prompt を再利用し、毎回のプロンプト再抽出に伴う先頭不安定化を抑える。
             if ref_wav is not None and hasattr(_qwen3tts_model, "generate_voice_clone"):
                 ref_text_clean = ref_text.strip()
-                ref_audio_digest = hashlib.sha1(ref_audio_bytes).hexdigest() if ref_audio_bytes else ""
-                clone_prompt_key = f"{ref_audio_digest}:{resolved_ref_sr}:{ref_text_clean}:{lang_label}"
+                ref_audio_digest = hashlib.sha256(ref_audio_bytes).hexdigest() if ref_audio_bytes else ""
+                clone_prompt_key = hashlib.sha256(
+                    f"{_qwen3tts_model_id}|{ref_audio_digest}|{resolved_ref_sr}|{ref_text_clean}|{lang_label}".encode("utf-8")
+                ).hexdigest()
+                clone_prompt = _qwen3tts_voice_prompt_cache_get(clone_prompt_key)
                 if hasattr(_qwen3tts_model, "create_voice_clone_prompt"):
-                    if _qwen3tts_cached_clone_prompt is None or _qwen3tts_cached_clone_prompt_key != clone_prompt_key:
+                    if clone_prompt is None:
                         prompt_kwargs = {
                             "ref_audio": (ref_wav, resolved_ref_sr),
                             "x_vector_only_mode": not bool(ref_text_clean),
                         }
                         if ref_text_clean:
                             prompt_kwargs["ref_text"] = ref_text_clean
-                        _qwen3tts_cached_clone_prompt = _qwen3tts_model.create_voice_clone_prompt(**prompt_kwargs)
-                        _qwen3tts_cached_clone_prompt_key = clone_prompt_key
+                        clone_prompt = _qwen3tts_model.create_voice_clone_prompt(**prompt_kwargs)
+                        _qwen3tts_voice_prompt_cache_set(clone_prompt_key, clone_prompt)
                 clone_kwargs = {
                     "text": text,
                     "language": lang_label,
                 }
-                if _qwen3tts_cached_clone_prompt is not None and _qwen3tts_cached_clone_prompt_key == clone_prompt_key:
-                    clone_kwargs["voice_clone_prompt"] = _qwen3tts_cached_clone_prompt
+                if clone_prompt is not None:
+                    clone_kwargs["voice_clone_prompt"] = clone_prompt
                 else:
                     clone_kwargs["ref_audio"] = (ref_wav, resolved_ref_sr)
                     if ref_text_clean:
@@ -10578,13 +10655,14 @@ async def tts_edgetts_list_voices_async() -> list:
 
 def qwen3tts_unload() -> dict:
     global _qwen3tts_model, _qwen3tts_model_id, _qwen3tts_processor
-    global _qwen3tts_cached_clone_prompt, _qwen3tts_cached_clone_prompt_key
+    global _qwen3tts_attn_implementation, _qwen3tts_dtype
     with _qwen3tts_lock:
         _qwen3tts_model = None
         _qwen3tts_model_id = None
         _qwen3tts_processor = None
-        _qwen3tts_cached_clone_prompt = None
-        _qwen3tts_cached_clone_prompt_key = None
+        _qwen3tts_attn_implementation = ""
+        _qwen3tts_dtype = ""
+        _qwen3tts_clear_voice_prompt_cache()
     import gc; gc.collect()
     return {"status": "unloaded"}
 
@@ -10621,6 +10699,7 @@ def tts_status_api():
         diagnostics.append(auto_start_hint)
     qwen_missing = _qwen3_missing_requirements()
     qwen_status_file = _qwen3_install_status_file()
+    selected_model_id = settings_get("qwen3tts_model_id") or _QWEN3TTS_MODEL_ID
 
     return {
         "voicevox_available": bool(_VOICEVOX_ENABLED and _VOICEVOX_AVAILABLE),
@@ -10639,8 +10718,12 @@ def tts_status_api():
         "jtalk_exists": _tts_jtalk_exists(),
         "qwen3tts_available": _QWEN3TTS_AVAILABLE,
         "qwen3tts_loaded": q3t_loaded,
+        "qwen3tts_selected_model_id": selected_model_id,
         "qwen3tts_model_id": _qwen3tts_model_id,
         "qwen3tts_device": _qwen3tts_device,
+        "qwen3tts_actual_device": _qwen3tts_runtime_device() if q3t_loaded else _qwen3tts_device,
+        "qwen3tts_dtype": _qwen3tts_dtype,
+        "qwen3tts_attention": _qwen3tts_attn_implementation,
         "qwen3tts_missing_requirements": qwen_missing,
         "qwen3tts_install_status": qwen_status_file,
         "tts_startup_health": _tts_startup_health_snapshot,
@@ -10671,7 +10754,8 @@ async def tts_voices_api(engine: str = "qwen3tts"):
 def tts_load_api(req: dict = {}):
     engine = str(req.get("engine", "qwen3tts"))
     device = str(req.get("device", "cuda")) if req.get("device") in ("cpu", "cuda") else "cuda"
-    model_id = _resolve_qwen3tts_model_id(req.get("model_id", _QWEN3TTS_MODEL_ID))
+    saved_model_id = settings_get("qwen3tts_model_id") or _QWEN3TTS_MODEL_ID
+    model_id = _resolve_qwen3tts_model_id(req.get("model_id", saved_model_id))
 
     def _sse(payload: dict) -> str:
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -10702,6 +10786,7 @@ def tts_load_api(req: dict = {}):
             yield _sse({"type": "loading", "message": f"Qwen3 TTS モデル ({model_id}) をロード中です。初回はダウンロードに数分かかる場合があります..."})
             try:
                 result = qwen3tts_load(model_id, device)
+                settings_set("qwen3tts_model_id", model_id)
                 yield _sse({"type": "done", **result})
             except Exception as e:
                 _append_tts_debug_error("qwen3tts", "load", e, detail={"model_id": model_id, "device": device}, device=device)

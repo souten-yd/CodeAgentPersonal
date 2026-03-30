@@ -1670,8 +1670,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <select id="tsasr-qwen3-model-sel"
             style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
             onchange="saveTsAsrSettings()">
-            <option value="Qwen/Qwen3-TTS-12Hz-1.7B-Base" selected>Qwen3-TTS-12Hz-1.7B-Base（推奨）</option>
-            <option value="Qwen/Qwen3-TTS-12Hz-0.6B-Base">Qwen3-TTS-12Hz-0.6B-Base（軽量）</option>
+            <option value="Qwen/Qwen3-TTS-12Hz-1.7B-Base" selected>Qwen3-TTS 1.7B Base（高品質）</option>
+            <option value="Qwen/Qwen3-TTS-12Hz-0.6B-Base">Qwen3-TTS 0.6B Base（速度優先）</option>
           </select>
         </div>
         <!-- Qwen3 参照音声（Qwen3選択時のみ） -->
@@ -2259,8 +2259,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <select id="tts-qwen3-model-sel"
             style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
             onchange="saveTtsSettings()">
-            <option value="Qwen/Qwen3-TTS-12Hz-1.7B-Base" selected>Qwen3-TTS-12Hz-1.7B-Base（推奨）</option>
-            <option value="Qwen/Qwen3-TTS-12Hz-0.6B-Base">Qwen3-TTS-12Hz-0.6B-Base（軽量）</option>
+            <option value="Qwen/Qwen3-TTS-12Hz-1.7B-Base" selected>Qwen3-TTS 1.7B Base（高品質）</option>
+            <option value="Qwen/Qwen3-TTS-12Hz-0.6B-Base">Qwen3-TTS 0.6B Base（速度優先）</option>
           </select>
         </div>
         <!-- デバイス選択（VOICEVOX/Qwen3選択時のみ表示） -->
@@ -3205,7 +3205,7 @@ function _ttsSyncUnloadBtn(engine) {
     const status = document.getElementById('tts-voicevox-status');
     if (!status) return;
     if (engine === 'qwen3tts') {
-      if (s.qwen3tts_loaded) status.textContent = `ロード済み: ${(s.qwen3tts_model_id || '').split('/').pop()}（${s.qwen3tts_device || 'cpu'}）`;
+      if (s.qwen3tts_loaded) status.textContent = `ロード済み: ${(s.qwen3tts_model_id || '').split('/').pop()}（${s.qwen3tts_actual_device || s.qwen3tts_device || 'cpu'}）`;
       else if (!s.qwen3tts_available) status.textContent = 'qwen_tts 未インストール';
       else                             status.textContent = '未ロード';
     }
@@ -3841,7 +3841,7 @@ function refreshTtsTab() {
     const loadBtn   = document.getElementById('tsasr-qwen3-load-btn');
     const unloadBtn = document.getElementById('tsasr-qwen3-unload-btn');
     _syncTtsDeviceState(s.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
-    if (statusEl) statusEl.textContent = s.qwen3tts_loaded ? `✓ ロード済み (${(s.qwen3tts_model_id||'').split('/').pop()}, ${s.qwen3tts_device||'cuda'})` : '未ロード';
+    if (statusEl) statusEl.textContent = s.qwen3tts_loaded ? `✓ ロード済み (${(s.qwen3tts_model_id||'').split('/').pop()}, ${s.qwen3tts_actual_device||s.qwen3tts_device||'cuda'})` : '未ロード';
     if (loadBtn)  loadBtn.style.display   = s.qwen3tts_loaded ? 'none' : '';
     if (unloadBtn) unloadBtn.style.display = s.qwen3tts_loaded ? '' : 'none';
     _syncQwen3CloneTestUi(s);
