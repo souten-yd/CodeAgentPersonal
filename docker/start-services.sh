@@ -13,4 +13,32 @@ else
   echo "[Qwen3-TTS] warning: SoX command is missing (sox not found in PATH). Qwen3-TTS will continue with limited/slower audio paths."
 fi
 
+echo "[Qwen3-TTS][runtime] checking torch import..."
+if python - <<'PY'
+import torch
+print(f"[Qwen3-TTS][runtime] torch import OK: version={torch.__version__}, cuda={torch.version.cuda}")
+PY
+then
+  :
+else
+  echo "[Qwen3-TTS][runtime] torch import FAILED" >&2
+  exit 1
+fi
+
+echo "[Qwen3-TTS][runtime] checking flash_attn import..."
+if python - <<'PY'
+import flash_attn
+print(f"[Qwen3-TTS][runtime] flash_attn import OK: module={flash_attn.__name__}")
+PY
+then
+  :
+else
+  echo "[Qwen3-TTS][runtime] flash_attn import FAILED" >&2
+  if [ "${REQUIRE_FLASH_ATTN:-0}" = "1" ]; then
+    echo "[Qwen3-TTS][runtime] REQUIRE_FLASH_ATTN=1, exiting (fail-fast)." >&2
+    exit 1
+  fi
+  echo "[Qwen3-TTS][runtime] REQUIRE_FLASH_ATTN!=1, continuing without flash_attn." >&2
+fi
+
 exec python scripts/start_codeagent.py --host "$HOST" --port "$PORT" --primary-port "$PRIMARY_PORT"

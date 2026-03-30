@@ -123,6 +123,8 @@ RUN set -eux; \
         flash_attn_available=false; \
         flash_attn_error=""; \
         flash_attn_error_detail=""; \
+        flash_attn_error_detail_summary=""; \
+        flash_attn_error_detail_path=""; \
         has_cuda_env=false; \
         if [ -d "/usr/local/cuda" ] || command -v nvidia-smi >/dev/null 2>&1 || command -v nvcc >/dev/null 2>&1; then has_cuda_env=true; fi; \
         echo "[Qwen3-TTS][build] flash-attn environment: has_cuda_env=${has_cuda_env}"; \
@@ -147,14 +149,23 @@ RUN set -eux; \
           if ! sh -c "${flash_cmd}" 2>&1 | tee "${flash_attn_log}"; then \
             flash_attn_error="flash-attn install failed"; \
             flash_attn_error_detail="$(cat "${flash_attn_log}")"; \
+            flash_attn_error_detail_summary="${flash_attn_error_detail}"; \
+            flash_attn_log_size="$(wc -c < "${flash_attn_log}")"; \
+            if [ "${flash_attn_log_size}" -gt 12000 ]; then \
+              mkdir -p /app/logs; \
+              flash_attn_error_detail_path="/app/logs/flash_attn_install_error.log"; \
+              cp "${flash_attn_log}" "${flash_attn_error_detail_path}"; \
+              flash_attn_error_detail_summary="$( { echo "flash-attn verbose log too long (${flash_attn_log_size} bytes); saved to ${flash_attn_error_detail_path}"; echo "----- log head -----"; head -n 120 "${flash_attn_log}"; echo "----- log tail -----"; tail -n 120 "${flash_attn_log}"; } )"; \
+            fi; \
             echo "[Qwen3-TTS][build] flash-attn install failed: ${flash_attn_error}" >&2; \
             if [ "${REQUIRE_FLASH_ATTN:-0}" = "1" ]; then \
               echo "[ERROR] flash-attn installation failed and REQUIRE_FLASH_ATTN=1" >&2; \
-              FLASH_ATTN_ERROR_DETAIL="${flash_attn_error_detail}" python - <<'PY' \
+              FLASH_ATTN_ERROR_DETAIL_SUMMARY="${flash_attn_error_detail_summary}" FLASH_ATTN_ERROR_DETAIL_PATH="${flash_attn_error_detail_path}" python - <<'PY' \
 import json, os, time
 status_file = "/app/qwen3_tts_install_status.json"
-detail = os.getenv("FLASH_ATTN_ERROR_DETAIL", "")
-payload = {"ok": False, "source": "docker-install", "error": "flash-attn installation failed and REQUIRE_FLASH_ATTN=1", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "flash_attn_error_detail": detail}
+detail_summary = os.getenv("FLASH_ATTN_ERROR_DETAIL_SUMMARY", "")
+detail_path = os.getenv("FLASH_ATTN_ERROR_DETAIL_PATH", "")
+payload = {"ok": False, "source": "docker-install", "error": "flash-attn installation failed and REQUIRE_FLASH_ATTN=1", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "flash_attn_error_detail_summary": detail_summary, "flash_attn_error_detail_path": detail_path}
 with open(status_file, "w", encoding="utf-8") as f:
     json.dump(payload, f, ensure_ascii=False)
     f.write("\n")
@@ -176,7 +187,7 @@ PY \
         if python -c "import flash_attn" >/dev/null 2>&1; then \
           flash_attn_available=true; \
         fi; \
-        SOX_AVAILABLE="${sox_available}" FLASH_ATTN_ATTEMPTED="${flash_attn_attempted}" FLASH_ATTN_AVAILABLE="${flash_attn_available}" FLASH_ATTN_ERROR="${flash_attn_error}" FLASH_ATTN_ERROR_DETAIL="${flash_attn_error_detail}" python - <<'PY' \
+        SOX_AVAILABLE="${sox_available}" FLASH_ATTN_ATTEMPTED="${flash_attn_attempted}" FLASH_ATTN_AVAILABLE="${flash_attn_available}" FLASH_ATTN_ERROR="${flash_attn_error}" FLASH_ATTN_ERROR_DETAIL="${flash_attn_error_detail}" FLASH_ATTN_ERROR_DETAIL_SUMMARY="${flash_attn_error_detail_summary}" FLASH_ATTN_ERROR_DETAIL_PATH="${flash_attn_error_detail_path}" python - <<'PY' \
 import json, os, time
 status_file = "/app/qwen3_tts_install_status.json"
 payload = {
@@ -189,6 +200,8 @@ payload = {
   "flash_attn_available": os.getenv("FLASH_ATTN_AVAILABLE", "false") == "true",
   "flash_attn_error": os.getenv("FLASH_ATTN_ERROR", ""),
   "flash_attn_error_detail": os.getenv("FLASH_ATTN_ERROR_DETAIL", ""),
+  "flash_attn_error_detail_summary": os.getenv("FLASH_ATTN_ERROR_DETAIL_SUMMARY", ""),
+  "flash_attn_error_detail_path": os.getenv("FLASH_ATTN_ERROR_DETAIL_PATH", ""),
 }
 with open(status_file, "w", encoding="utf-8") as f:
     json.dump(payload, f, ensure_ascii=False)
