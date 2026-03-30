@@ -55,6 +55,8 @@ async def lifespan(app):
     if _schedule_model_load: _schedule_model_load(reason="startup")
     _log_tts_startup_health = globals().get("_log_tts_startup_health")
     if _log_tts_startup_health: _log_tts_startup_health()
+    _load_echo_voice_ref = globals().get("_load_persisted_echo_voice_ref")
+    if _load_echo_voice_ref: _load_echo_voice_ref()
     yield
     # 終了時: サーバーコンテナを全て停止
     cleanup = globals().get("_cleanup_server_containers")
@@ -9687,6 +9689,55 @@ def echo_delete_session(filename: str):
 # Echo ボイスクローン 参照音声ストレージ (IP → {audio:bytes, sr:int, name:str})
 _echo_voice_ref: dict = {}
 ECHO_REF_MAX_SECONDS = max(3, int(os.environ.get("ECHO_REF_MAX_SECONDS", "30") or 30))
+_ECHO_VOICE_REF_DIR = os.path.join(CA_DATA_DIR, "echo_voice_ref")
+_ECHO_VOICE_REF_META = os.path.join(_ECHO_VOICE_REF_DIR, "ref_meta.json")
+_ECHO_VOICE_REF_AUDIO = os.path.join(_ECHO_VOICE_REF_DIR, "ref_audio.bin")
+
+
+def _save_persisted_echo_voice_ref(ref: dict | None):
+    os.makedirs(_ECHO_VOICE_REF_DIR, exist_ok=True)
+    if not ref or not ref.get("audio"):
+        for p in (_ECHO_VOICE_REF_AUDIO, _ECHO_VOICE_REF_META):
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
+        return
+    with open(_ECHO_VOICE_REF_AUDIO, "wb") as f:
+        f.write(ref.get("audio", b""))
+    with open(_ECHO_VOICE_REF_META, "w", encoding="utf-8") as f:
+        json.dump({
+            "name": ref.get("name", "ref-audio.wav"),
+            "sr": int(ref.get("sr", 24000) or 24000),
+            "ref_text": ref.get("ref_text", "") or "",
+            "trimmed": bool(ref.get("trimmed", False)),
+            "max_seconds": int(ECHO_REF_MAX_SECONDS),
+            "updated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        }, f, ensure_ascii=False, indent=2)
+
+
+def _load_persisted_echo_voice_ref():
+    if not (os.path.isfile(_ECHO_VOICE_REF_AUDIO) and os.path.isfile(_ECHO_VOICE_REF_META)):
+        return
+    try:
+        with open(_ECHO_VOICE_REF_AUDIO, "rb") as f:
+            audio = f.read()
+        with open(_ECHO_VOICE_REF_META, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        if not audio:
+            return
+        _echo_voice_ref.clear()
+        _echo_voice_ref["global"] = {
+            "audio": audio,
+            "sr": int(meta.get("sr", 24000) or 24000),
+            "name": str(meta.get("name", "ref-audio.wav"))[:80],
+            "ref_text": str(meta.get("ref_text", "") or ""),
+            "trimmed": bool(meta.get("trimmed", False)),
+        }
+        print(f"[Echo] restored persisted voice reference: {_echo_voice_ref['global']['name']} ({len(audio)} bytes)")
+    except Exception as e:
+        print(f"[Echo] failed to restore persisted voice reference: {e}")
 
 
 def _echo_ref_audio_format_from_name(name: str) -> str:
@@ -9758,14 +9809,15 @@ async def echo_voice_ref_post(req: dict, request: Request):
                 ref_text = asr_text
         except Exception as e:
             asr_error = str(e)
-    client_ip = request.client.host if request.client else "unknown"
-    _echo_voice_ref[client_ip] = {
+    _echo_voice_ref.clear()
+    _echo_voice_ref["global"] = {
         "audio": audio_bytes,
         "sr": 24000,
         "name": name,
         "ref_text": ref_text,
         "trimmed": trimmed,
     }
+    _save_persisted_echo_voice_ref(_echo_voice_ref["global"])
     return {
         "ok": True,
         "name": name,
@@ -9782,8 +9834,7 @@ async def echo_voice_ref_post(req: dict, request: Request):
 async def echo_voice_ref_get(request: Request):
     """現在のボイスクローン参照音声情報を返す。"""
     import base64 as _b64
-    client_ip = request.client.host if request.client else "unknown"
-    ref = _echo_voice_ref.get(client_ip)
+    ref = _echo_voice_ref.get("global")
     if not ref:
         return {"set": False}
     return {
@@ -9800,8 +9851,8 @@ async def echo_voice_ref_get(request: Request):
 @app.delete("/echo/voice-ref")
 async def echo_voice_ref_delete(request: Request):
     """ボイスクローン参照音声をクリアする。"""
-    client_ip = request.client.host if request.client else "unknown"
-    _echo_voice_ref.pop(client_ip, None)
+    _echo_voice_ref.clear()
+    _save_persisted_echo_voice_ref(None)
     return {"ok": True}
 
 
