@@ -139,7 +139,8 @@ RUN set -eux; \
         if [ -n "${RUNPOD_POD_ID:-}" ] || [ -n "${RUNPOD_API_KEY:-}" ] || [ "${CODEAGENT_RUNTIME:-}" = "runpod" ] || [ "${CODEAGENT_RUNTIME:-}" = "rp" ]; then is_runpod_env=true; fi; \
         has_cuda_env=false; \
         if [ -d "/usr/local/cuda" ] || command -v nvidia-smi >/dev/null 2>&1; then has_cuda_env=true; fi; \
-        if [ "${INSTALL_FLASH_ATTN:-1}" = "1" ] && [ "${is_runpod_env}" = "true" ] && [ "${has_cuda_env}" = "true" ]; then \
+        echo "[Qwen3-TTS][build] flash-attn environment: has_cuda_env=${has_cuda_env}, is_runpod_env=${is_runpod_env}"; \
+        if [ "${INSTALL_FLASH_ATTN:-1}" = "1" ] && [ "${has_cuda_env}" = "true" ]; then \
           flash_attn_attempted=true; \
           flash_cmd="python -m pip install -U flash-attn --no-build-isolation"; \
           if [ -n "${FLASH_ATTN_MAX_JOBS:-}" ]; then \
@@ -148,19 +149,23 @@ RUN set -eux; \
           echo "[Qwen3-TTS][build] flash-attn install command: ${flash_cmd}"; \
           if ! sh -c "${flash_cmd}"; then \
             flash_attn_error="flash-attn install failed"; \
+            echo "[Qwen3-TTS][build] flash-attn install failed: ${flash_attn_error}" >&2; \
             if [ "${REQUIRE_FLASH_ATTN:-0}" = "1" ]; then \
               echo "[ERROR] flash-attn installation failed and REQUIRE_FLASH_ATTN=1" >&2; \
               exit 1; \
             fi; \
             echo "[Qwen3-TTS][build] warning: flash-attn install failed; continuing with non-flash attention backend" >&2; \
+          else \
+            echo "[Qwen3-TTS][build] flash-attn install succeeded"; \
           fi; \
         elif [ "${INSTALL_FLASH_ATTN:-1}" != "1" ]; then \
           flash_attn_error="flash-attn install skipped (INSTALL_FLASH_ATTN!=1)"; \
           echo "[Qwen3-TTS][build] flash-attn install skipped: INSTALL_FLASH_ATTN!=1"; \
         else \
-          flash_attn_error="flash-attn install skipped (non-runpod or non-cuda environment)"; \
-          echo "[Qwen3-TTS][build] flash-attn install skipped: requires runpod + cuda/nvidia environment"; \
+          flash_attn_error="flash-attn install skipped (no cuda environment)"; \
+          echo "[Qwen3-TTS][build] flash-attn install skipped: no cuda environment"; \
         fi; \
+        echo "[Qwen3-TTS][build] flash-attn install attempted: ${flash_attn_attempted}"; \
         if python -c "import flash_attn" >/dev/null 2>&1; then \
           flash_attn_available=true; \
         fi; \
