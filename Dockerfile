@@ -160,16 +160,7 @@ RUN set -eux; \
             echo "[Qwen3-TTS][build] flash-attn install failed: ${flash_attn_error}" >&2; \
             if [ "${REQUIRE_FLASH_ATTN:-0}" = "1" ]; then \
               echo "[ERROR] flash-attn installation failed and REQUIRE_FLASH_ATTN=1" >&2; \
-              FLASH_ATTN_ERROR_DETAIL_SUMMARY="${flash_attn_error_detail_summary}" FLASH_ATTN_ERROR_DETAIL_PATH="${flash_attn_error_detail_path}" python - <<'PY'
-import json, os, time
-status_file = "/app/qwen3_tts_install_status.json"
-detail_summary = os.getenv("FLASH_ATTN_ERROR_DETAIL_SUMMARY", "")
-detail_path = os.getenv("FLASH_ATTN_ERROR_DETAIL_PATH", "")
-payload = {"ok": False, "source": "docker-install", "error": "flash-attn installation failed and REQUIRE_FLASH_ATTN=1", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "flash_attn_error_detail_summary": detail_summary, "flash_attn_error_detail_path": detail_path}
-with open(status_file, "w", encoding="utf-8") as f:
-    json.dump(payload, f, ensure_ascii=False)
-    f.write("\n")
-PY
+              FLASH_ATTN_ERROR_DETAIL_SUMMARY="${flash_attn_error_detail_summary}" FLASH_ATTN_ERROR_DETAIL_PATH="${flash_attn_error_detail_path}" python -c 'import json, os, time; status_file="/app/qwen3_tts_install_status.json"; detail_summary=os.getenv("FLASH_ATTN_ERROR_DETAIL_SUMMARY", ""); detail_path=os.getenv("FLASH_ATTN_ERROR_DETAIL_PATH", ""); payload={"ok": False, "source": "docker-install", "error": "flash-attn installation failed and REQUIRE_FLASH_ATTN=1", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "flash_attn_error_detail_summary": detail_summary, "flash_attn_error_detail_path": detail_path}; open(status_file, "w", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False) + "\n")'; \
               exit 1; \
             fi; \
             echo "[Qwen3-TTS][build] warning: flash-attn install failed; continuing with non-flash attention backend" >&2; \
@@ -187,26 +178,7 @@ PY
         if python -c "import flash_attn" >/dev/null 2>&1; then \
           flash_attn_available=true; \
         fi; \
-        SOX_AVAILABLE="${sox_available}" FLASH_ATTN_ATTEMPTED="${flash_attn_attempted}" FLASH_ATTN_AVAILABLE="${flash_attn_available}" FLASH_ATTN_ERROR="${flash_attn_error}" FLASH_ATTN_ERROR_DETAIL="${flash_attn_error_detail}" FLASH_ATTN_ERROR_DETAIL_SUMMARY="${flash_attn_error_detail_summary}" FLASH_ATTN_ERROR_DETAIL_PATH="${flash_attn_error_detail_path}" python - <<'PY'
-import json, os, time
-status_file = "/app/qwen3_tts_install_status.json"
-payload = {
-  "ok": True,
-  "source": "docker-install",
-  "error": "",
-  "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-  "sox_available": os.getenv("SOX_AVAILABLE", "false") == "true",
-  "flash_attn_attempted": os.getenv("FLASH_ATTN_ATTEMPTED", "false") == "true",
-  "flash_attn_available": os.getenv("FLASH_ATTN_AVAILABLE", "false") == "true",
-  "flash_attn_error": os.getenv("FLASH_ATTN_ERROR", ""),
-  "flash_attn_error_detail": os.getenv("FLASH_ATTN_ERROR_DETAIL", ""),
-  "flash_attn_error_detail_summary": os.getenv("FLASH_ATTN_ERROR_DETAIL_SUMMARY", ""),
-  "flash_attn_error_detail_path": os.getenv("FLASH_ATTN_ERROR_DETAIL_PATH", ""),
-}
-with open(status_file, "w", encoding="utf-8") as f:
-    json.dump(payload, f, ensure_ascii=False)
-    f.write("\n")
-PY
+        SOX_AVAILABLE="${sox_available}" FLASH_ATTN_ATTEMPTED="${flash_attn_attempted}" FLASH_ATTN_AVAILABLE="${flash_attn_available}" FLASH_ATTN_ERROR="${flash_attn_error}" FLASH_ATTN_ERROR_DETAIL="${flash_attn_error_detail}" FLASH_ATTN_ERROR_DETAIL_SUMMARY="${flash_attn_error_detail_summary}" FLASH_ATTN_ERROR_DETAIL_PATH="${flash_attn_error_detail_path}" python -c 'import json, os, time; status_file="/app/qwen3_tts_install_status.json"; payload={"ok": True, "source": "docker-install", "error": "", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "sox_available": os.getenv("SOX_AVAILABLE", "false") == "true", "flash_attn_attempted": os.getenv("FLASH_ATTN_ATTEMPTED", "false") == "true", "flash_attn_available": os.getenv("FLASH_ATTN_AVAILABLE", "false") == "true", "flash_attn_error": os.getenv("FLASH_ATTN_ERROR", ""), "flash_attn_error_detail": os.getenv("FLASH_ATTN_ERROR_DETAIL", ""), "flash_attn_error_detail_summary": os.getenv("FLASH_ATTN_ERROR_DETAIL_SUMMARY", ""), "flash_attn_error_detail_path": os.getenv("FLASH_ATTN_ERROR_DETAIL_PATH", "")}; open(status_file, "w", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False) + "\n")'; \
       else \
         err="qwen-tts dependency installation failed; import failures: $(cat /tmp/qwen_tts_failed_imports.txt)"; \
         printf '{"ok":false,"source":"docker-install","error":"%s","timestamp":"%s"}\n' "${err}" "$(date -u +%FT%TZ)" > "${status_file}"; \
