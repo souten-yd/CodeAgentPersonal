@@ -9708,11 +9708,17 @@ async def echo_voice_ref_post(req: dict, request: Request):
 @app.get("/echo/voice-ref")
 async def echo_voice_ref_get(request: Request):
     """現在のボイスクローン参照音声情報を返す。"""
+    import base64 as _b64
     client_ip = request.client.host if request.client else "unknown"
     ref = _echo_voice_ref.get(client_ip)
     if not ref:
         return {"set": False}
-    return {"set": True, "name": ref["name"], "size": len(ref["audio"])}
+    return {
+        "set": True,
+        "name": ref["name"],
+        "size": len(ref["audio"]),
+        "audio_base64": _b64.b64encode(ref["audio"]).decode("ascii"),
+    }
 
 
 @app.delete("/echo/voice-ref")
@@ -9876,16 +9882,40 @@ def _collect_tts_env_info(device: str | None = None) -> dict:
     qwen_tts_ver = getattr(_qwen_tts_mod, "__version__", None) if _qwen_tts_mod is not None else None
     active_device = device
     if not active_device and _qwen3tts_model is not None:
-        try:
-            active_device = str(next(_qwen3tts_model.parameters()).device)
-        except Exception:
-            active_device = _qwen3tts_device
+        active_device = _qwen3tts_runtime_device()
     return {
         "python": sys.version.split()[0],
         "torch": torch_ver,
         "qwen_tts": qwen_tts_ver,
         "device": active_device or _qwen3tts_device,
     }
+
+
+def _qwen3tts_runtime_device() -> str:
+    """Qwen3TTSModel 実体から現在デバイスを安全に推定する。"""
+    if _qwen3tts_model is None:
+        return _qwen3tts_device
+    # torch.nn.Module 互換: parameters() を持つ場合
+    try:
+        return str(next(_qwen3tts_model.parameters()).device)
+    except Exception:
+        pass
+    # qwen_tts 実装差分: device 属性を持つ場合
+    try:
+        dev = getattr(_qwen3tts_model, "device", None)
+        if dev:
+            return str(dev)
+    except Exception:
+        pass
+    # 内部モデルへ委譲されている実装
+    try:
+        inner = getattr(_qwen3tts_model, "model", None)
+        dev = getattr(inner, "device", None) if inner is not None else None
+        if dev:
+            return str(dev)
+    except Exception:
+        pass
+    return _qwen3tts_device
 
 
 def _append_tts_debug_error(engine: str, phase: str, error: Exception, *, detail: dict | None = None, device: str | None = None) -> dict:
@@ -10103,8 +10133,20 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> di
         return result
 
 
+def _qwen3tts_lang_label(language: str | None) -> str:
+    lang = (language or "Auto").strip().lower()
+    if lang in {"ja", "japanese", "jp"}:
+        return "Japanese"
+    if lang in {"en", "english"}:
+        return "English"
+    if lang in {"zh", "chinese", "cn"}:
+        return "Chinese"
+    return "Auto"
+
+
 def qwen3tts_synthesize(text: str, speed: float = 1.0,
-                         ref_audio_bytes: bytes = None, ref_sr: int = 24000) -> bytes:
+                         ref_audio_bytes: bytes = None, ref_sr: int = 24000,
+                         ref_text: str = "", language: str = "Auto") -> bytes:
     """Qwen3 TTS でテキストを WAV バイト列に変換する。ref_audio_bytes があればボイスクローン。"""
     global _qwen3tts_model, _qwen3tts_processor
     if not _QWEN3TTS_AVAILABLE:
@@ -10119,42 +10161,60 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
         if _qwen3tts_model is None:
             qwen3tts_load(_qwen3tts_model_id or _QWEN3TTS_MODEL_ID, _qwen3tts_device)
     with _qwen3tts_lock:
-        device = next(_qwen3tts_model.parameters()).device
-        inputs: dict = {}
-        if _qwen3tts_processor is not None:
-            proc_kwargs: dict = {"text": text, "return_tensors": "pt"}
-            if ref_audio_bytes:
-                try:
-                    ref_wav, _ = _sf_mod.read(io.BytesIO(ref_audio_bytes))
-                    proc_kwargs["reference_audio"] = ref_wav
-                    proc_kwargs["reference_audio_sampling_rate"] = ref_sr
-                except Exception:
-                    pass
-            inputs = _qwen3tts_processor(**proc_kwargs)
-            inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, "to")}
-        else:
-            # qwen_tts の model-only API fallback
-            inputs = {"text": text}
-            if ref_audio_bytes:
-                try:
-                    ref_wav, _ = _sf_mod.read(io.BytesIO(ref_audio_bytes))
-                    inputs["reference_audio"] = ref_wav
-                    inputs["reference_audio_sampling_rate"] = ref_sr
-                except Exception:
-                    pass
+        device = _qwen3tts_runtime_device()
         with _torch_mod.no_grad():
-            output = _qwen3tts_model.generate(**inputs)
-        # 出力は ModelOutput or tensor
-        if hasattr(output, "waveforms"):
+            ref_wav = None
+            if ref_audio_bytes:
+                try:
+                    ref_wav, _ = _sf_mod.read(io.BytesIO(ref_audio_bytes))
+                except Exception as e:
+                    raise RuntimeError(f"reference audio decode failed: {e}") from e
+            lang_label = _qwen3tts_lang_label(language)
+
+            # 公式推奨API優先: clone時は generate_voice_clone を使う
+            if ref_wav is not None and hasattr(_qwen3tts_model, "generate_voice_clone"):
+                clone_kwargs = {
+                    "text": text,
+                    "language": lang_label,
+                    "ref_audio": (ref_wav, ref_sr),
+                }
+                if ref_text.strip():
+                    clone_kwargs["ref_text"] = ref_text.strip()
+                output = _qwen3tts_model.generate_voice_clone(**clone_kwargs)
+            else:
+                # 旧APIフォールバック
+                inputs: dict = {}
+                if _qwen3tts_processor is not None:
+                    proc_kwargs: dict = {"text": text, "return_tensors": "pt"}
+                    if ref_wav is not None:
+                        proc_kwargs["reference_audio"] = ref_wav
+                        proc_kwargs["reference_audio_sampling_rate"] = ref_sr
+                    inputs = _qwen3tts_processor(**proc_kwargs)
+                    inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, "to")}
+                else:
+                    inputs = {"text": text}
+                    if ref_wav is not None:
+                        inputs["reference_audio"] = ref_wav
+                        inputs["reference_audio_sampling_rate"] = ref_sr
+                output = _qwen3tts_model.generate(**inputs)
+
+        # 出力は (wavs, sr) or ModelOutput or tensor
+        sample_rate = 24000
+        if isinstance(output, tuple) and len(output) == 2:
+            wavs, sr = output
+            sample_rate = int(sr or 24000)
+            wav = wavs[0] if isinstance(wavs, (list, tuple)) else wavs
+            if hasattr(wav, "cpu"):
+                wav = wav.cpu().float().numpy()
+        elif hasattr(output, "waveforms"):
             wav = output.waveforms[0].cpu().float().numpy()
         elif hasattr(output, "audio"):
             wav = output.audio[0].cpu().float().numpy()
         else:
-            # fallback: tensor
             out_t = output[0] if hasattr(output, "__getitem__") else output
             wav = out_t.float().cpu().numpy() if hasattr(out_t, "float") else out_t.cpu().numpy()
     buf = io.BytesIO()
-    _sf_mod.write(buf, wav, samplerate=24000, format="WAV")
+    _sf_mod.write(buf, wav, samplerate=sample_rate, format="WAV")
     return buf.getvalue()
 
 _tts_core = None        # voicevox_core.VoicevoxCore instance
@@ -10586,6 +10646,8 @@ def tts_synthesize_api(req: dict):
 
     elif engine == "qwen3tts":
         speed = float(req.get("speed", 1.0))
+        ref_text = str(req.get("ref_text", "") or "")
+        language = str(req.get("language", "Auto") or "Auto")
         ref_b64 = str(req.get("ref_audio_base64", "") or "").strip()
         ref_bytes = None
         if ref_b64:
@@ -10595,7 +10657,13 @@ def tts_synthesize_api(req: dict):
             except Exception:
                 raise HTTPException(status_code=400, detail="ref_audio_base64 が不正です。参照音声を再登録してください。")
         try:
-            wav = qwen3tts_synthesize(text, speed, ref_audio_bytes=ref_bytes)
+            wav = qwen3tts_synthesize(
+                text,
+                speed,
+                ref_audio_bytes=ref_bytes,
+                ref_text=ref_text,
+                language=language,
+            )
         except Exception as e:
             _append_tts_debug_error("qwen3tts", "inference", e, detail={"text_length": len(text), "speed": speed}, device=_qwen3tts_device)
             raise HTTPException(status_code=500, detail=str(e))

@@ -2601,6 +2601,9 @@ function ttsStop() {
   tts._playing = false;
   if (tts._audio) { tts._audio.pause(); tts._audio = null; }
   if (tts._utt && window.speechSynthesis) window.speechSynthesis.cancel();
+  _clearQwen3CloneStatusTimer();
+  const cloneStatusEl = document.getElementById('qwen3-clone-test-status');
+  if (cloneStatusEl) _setQwen3CloneTestStatus('停止');
 }
 
 function ttsSpeakMsg(btn) {
@@ -2745,6 +2748,36 @@ function _setQwen3CloneTestStatus(msg = '待機中', isError = false) {
   el.style.color = isError ? 'var(--red)' : 'var(--text3)';
 }
 
+let _qwen3CloneStatusTimer = null;
+function _clearQwen3CloneStatusTimer() {
+  if (_qwen3CloneStatusTimer) {
+    clearInterval(_qwen3CloneStatusTimer);
+    _qwen3CloneStatusTimer = null;
+  }
+}
+
+function _trackQwen3ClonePlaybackProgress() {
+  _clearQwen3CloneStatusTimer();
+  let safetyTicks = 0;
+  _qwen3CloneStatusTimer = setInterval(() => {
+    safetyTicks += 1;
+    if (tts._playing) {
+      _setQwen3CloneTestStatus('再生中...');
+      return;
+    }
+    _clearQwen3CloneStatusTimer();
+    _setQwen3CloneTestStatus('✓ 再生完了');
+  }, 180);
+  // 60秒で安全停止（ブラウザ差異でplaying状態が戻らないケース対策）
+  setTimeout(() => {
+    if (!_qwen3CloneStatusTimer) return;
+    if (safetyTicks >= 300) {
+      _clearQwen3CloneStatusTimer();
+      _setQwen3CloneTestStatus('⚠ 状態不明（再生は停止済みの可能性）', true);
+    }
+  }, 60000);
+}
+
 function _syncQwen3CloneTestUi(state = null) {
   const row = document.getElementById('tsasr-qwen3-clone-test-row');
   if (!row) return;
@@ -2765,11 +2798,13 @@ function _syncQwen3CloneTestUi(state = null) {
   if (!loaded) _setQwen3CloneTestStatus('未ロード（ロード後に再生可能）');
 }
 
-function runQwen3CloneTest() {
+async function runQwen3CloneTest() {
   if (!_isEchoQwen3Selected()) {
     _setQwen3CloneTestStatus('Qwen3 TTS選択時のみ利用可能', true);
     return;
   }
+  const playBtn = document.getElementById('qwen3-clone-test-play-btn');
+  if (playBtn?.dataset.busy === 'true') return;
   const input = document.getElementById('qwen3-clone-test-text');
   const requireRef = !!document.getElementById('qwen3-clone-require-ref-text')?.checked;
   const disableTranslate = !!document.getElementById('qwen3-clone-disable-translate')?.checked;
@@ -2785,12 +2820,28 @@ function runQwen3CloneTest() {
     document.getElementById('qwen3-ref-text-input')?.focus();
     return;
   }
-  ttsStop();
-  const prevEnabled = tts.enabled;
-  tts.enabled = true;
-  ttsSpeak(text, {context:'echo', engine:'qwen3tts', skipTranslate: disableTranslate});
-  tts.enabled = prevEnabled;
-  _setQwen3CloneTestStatus(`再生開始 (${disableTranslate ? '翻訳OFF' : '翻訳ON'})`);
+  if (playBtn) { playBtn.dataset.busy = 'true'; playBtn.disabled = true; }
+  try {
+    ttsStop();
+    _setQwen3CloneTestStatus('再生準備中...');
+    const playText = disableTranslate ? text : await _ttsMaybeTranslate(text, 'echo');
+    const blob = await _ttsFetchAudio(playText, 'qwen3tts', 'echo');
+    if (!blob || blob.size <= 0) throw new Error('音声データが空です');
+    _setQwen3CloneTestStatus(`再生開始 (${disableTranslate ? '翻訳OFF' : '翻訳ON'})`);
+    _trackQwen3ClonePlaybackProgress();
+    const result = await _ttsPlayBlob(blob);
+    if (result?.ok === false) {
+      _setQwen3CloneTestStatus('再生失敗: ブラウザで音声再生が拒否されました', true);
+      return;
+    }
+    _setQwen3CloneTestStatus('✓ 再生完了');
+  } catch(e) {
+    _setQwen3CloneTestStatus(`再生エラー: ${e.message || e}`, true);
+    console.warn('[Qwen3 clone test] failed:', e);
+  } finally {
+    _clearQwen3CloneStatusTimer();
+    if (playBtn) { playBtn.dataset.busy = 'false'; playBtn.disabled = false; }
+  }
 }
 
 function _buildQwen3LoadParams(context = 'main') {
@@ -2821,8 +2872,8 @@ function _ttsPlayBlob(blob) {
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
     tts._audio = audio;
-    audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-    audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+    audio.onended = () => { URL.revokeObjectURL(url); resolve({ok: true, reason: 'ended'}); };
+    audio.onerror = () => { URL.revokeObjectURL(url); resolve({ok: false, reason: 'audio_error'}); };
     audio.play().catch(e => {
       URL.revokeObjectURL(url);
       if (e.name === 'NotAllowedError') {
@@ -2830,7 +2881,7 @@ function _ttsPlayBlob(blob) {
       } else {
         console.warn('[TTS] play() error:', e);
       }
-      resolve();
+      resolve({ok: false, reason: e.name || 'play_error'});
     });
   });
 }
@@ -3535,7 +3586,13 @@ function saveTsAsrSettings() {
   if (cloneTestText) localStorage.setItem('qwen3_clone_test_text', cloneTestText.value || '');
   // Qwen3 モデル選択を echo.ttsEngine と同期
   const q3ModelSel = document.getElementById('tsasr-qwen3-model-sel');
-  if (q3ModelSel) localStorage.setItem('tsasr_qwen3model', q3ModelSel.value);
+  if (q3ModelSel) {
+    localStorage.setItem('tsasr_qwen3model', q3ModelSel.value);
+    tts.qwen3model = q3ModelSel.value;
+    localStorage.setItem('tts_qwen3model', q3ModelSel.value);
+    const mainQ3Sel = document.getElementById('tts-qwen3-model-sel');
+    if (mainQ3Sel) mainQ3Sel.value = q3ModelSel.value;
+  }
   const devRadio = document.querySelector('input[name="tsasr-device"]:checked');
   if (devRadio) _syncTtsDeviceState(devRadio.value);
 }
@@ -3610,6 +3667,14 @@ function refreshAsrTab() {
 function refreshTtsTab() {
   _echoInitSettingsUI();
   _updateEchoQwen3UiVisibility();
+  const savedQwen3Model = localStorage.getItem('tsasr_qwen3model') || localStorage.getItem('tts_qwen3model') || tts.qwen3model;
+  tts.qwen3model = savedQwen3Model;
+  localStorage.setItem('tts_qwen3model', savedQwen3Model);
+  localStorage.setItem('tsasr_qwen3model', savedQwen3Model);
+  const tsasrQ3Sel = document.getElementById('tsasr-qwen3-model-sel');
+  const mainQ3Sel = document.getElementById('tts-qwen3-model-sel');
+  if (tsasrQ3Sel) tsasrQ3Sel.value = savedQwen3Model;
+  if (mainQ3Sel) mainQ3Sel.value = savedQwen3Model;
   fetch(API + '/tts/status').then(r => r.json()).then(s => {
     const statusEl  = document.getElementById('tsasr-qwen3-status');
     const loadBtn   = document.getElementById('tsasr-qwen3-load-btn');
@@ -3618,6 +3683,7 @@ function refreshTtsTab() {
     if (statusEl) statusEl.textContent = s.qwen3tts_loaded ? `✓ ロード済み (${(s.qwen3tts_model_id||'').split('/').pop()}, ${s.qwen3tts_device||'cpu'})` : '未ロード';
     if (loadBtn)  loadBtn.style.display   = s.qwen3tts_loaded ? 'none' : '';
     if (unloadBtn) unloadBtn.style.display = s.qwen3tts_loaded ? '' : 'none';
+    _syncQwen3CloneTestUi(s);
   }).catch(() => {});
   const ttsPreload = document.getElementById('tsasr-tts-preload');
   const ttsDir   = document.getElementById('tsasr-tts-dir');
@@ -3632,7 +3698,7 @@ function refreshTtsTab() {
   if (requireRef) requireRef.checked = localStorage.getItem('qwen3_clone_require_ref_text') === 'true';
   if (disableTranslate) disableTranslate.checked = localStorage.getItem('qwen3_clone_disable_translate') !== 'false';
   _syncQwen3ReferenceState();
-  _syncQwen3CloneTestUi(s);
+  _syncQwen3CloneTestUi();
   _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
   const modeSel   = document.getElementById('tts-translate-mode');
   const en2jaChk  = document.getElementById('tts-translate-en2ja-enable');
