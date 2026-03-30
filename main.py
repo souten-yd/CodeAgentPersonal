@@ -10061,17 +10061,33 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> di
         _qwen3tts_processor = None
         print(f"[Qwen3-TTS] model loading: model_id={model_id} model_root={model_root}")
         try:
-            load_kwargs = {
-                "cache_dir": cache_dir,
-                "trust_remote_code": True,
-                # NOTE: qwen-tts は torch_dtype ではなく dtype を推奨
-                "dtype": _torch_mod.float16 if actual_device == "cuda" else _torch_mod.float32,
-                # NOTE: Qwen3TTSModel は .to(...) を持たないため、デバイス指定もロード時に行う
-                "device": actual_device,
-                # NOTE: attention 実装もロード時に指定する（Qwen3-TTS 分岐のみ）
-                "attn_implementation": "flash_attention_2" if (actual_device == "cuda" and _QWEN3TTS_FLASH_AVAILABLE) else "eager",
+            # NOTE: Qwen3-TTS 分岐では共通 kwargs を流用せず、許可キーのみを明示的に組み立てる。
+            resolved_device_map = "cuda" if actual_device == "cuda" else "cpu"
+            resolved_dtype = _torch_mod.float16 if actual_device == "cuda" else _torch_mod.float32
+            resolved_attn_impl = "flash_attention_2" if (actual_device == "cuda" and _QWEN3TTS_FLASH_AVAILABLE) else "eager"
+            qwen_extra_candidates = {
+                "attn_implementation": resolved_attn_impl,
+                "local_files_only": True,
+                "token": os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN"),
             }
-            _qwen3tts_model = _Q3TModel.from_pretrained(model_root, **load_kwargs)
+            qwen_allowed_keys = {"device_map", "dtype", "attn_implementation", "local_files_only", "token"}
+            qwen_extra_kwargs = {
+                k: v for k, v in qwen_extra_candidates.items()
+                if (k in qwen_allowed_keys and v is not None)
+            }
+            forbidden_qwen_keys = {"device", "torch_dtype", "map_location", "low_cpu_mem_usage"}
+            assert all(k not in forbidden_qwen_keys for k in qwen_extra_kwargs), "forbidden key leaked into qwen kwargs"
+            assert "device" not in qwen_extra_kwargs, "device must not be passed to Qwen3-TTS"
+            qwen_log_kwargs = {"device_map": resolved_device_map, "dtype": str(resolved_dtype), **qwen_extra_kwargs}
+            if "dtype" in qwen_log_kwargs:
+                qwen_log_kwargs["dtype"] = str(qwen_log_kwargs["dtype"])
+            print(f"[Qwen3-TTS] load kwargs: {qwen_log_kwargs}")
+            _qwen3tts_model = _Q3TModel.from_pretrained(
+                model_root,
+                device_map=resolved_device_map,
+                dtype=resolved_dtype,
+                **qwen_extra_kwargs,
+            )
         except Exception as e:
             raise RuntimeError(
                 "Qwen3 TTS model load failed. "
