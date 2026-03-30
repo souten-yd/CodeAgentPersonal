@@ -510,9 +510,14 @@ header{
 .msg.user:hover .msg-edit-btn{opacity:1}
 .msg-edit-btn{opacity:0;transition:opacity .15s;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text3);font-size:10px;font-weight:600;font-family:var(--font-ui);padding:2px 7px;cursor:pointer;margin-top:4px;align-self:flex-end}
 .msg-edit-btn:hover{border-color:var(--blue);color:var(--blue)}
-.msg.assistant .msg-speak-btn{opacity:0;transition:opacity .15s;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text3);font-size:11px;padding:2px 6px;cursor:pointer;margin-top:4px;align-self:flex-end}
+.msg.assistant .msg-speak-btn{opacity:.78;transition:opacity .15s;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text3);font-size:11px;padding:2px 6px;cursor:pointer;margin-top:4px;align-self:flex-end}
 .msg.assistant:hover .msg-speak-btn{opacity:1}
 .msg-speak-btn:hover{border-color:var(--accent);color:var(--accent)}
+.tts-fallback-player{position:fixed;right:12px;bottom:12px;z-index:90;display:none;max-width:min(420px,calc(100vw - 24px));background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px;box-shadow:0 8px 26px rgba(0,0,0,.35)}
+.tts-fallback-player .row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.tts-fallback-player .title{font-size:11px;color:var(--text2);font-weight:700}
+.tts-fallback-player .close{font-size:11px;border:1px solid var(--border);background:transparent;color:var(--text3);border-radius:4px;padding:2px 8px;cursor:pointer}
+.tts-fallback-player .hint{font-size:10px;color:var(--text3);margin-top:6px}
 .msg-edit-area{width:92%;background:var(--blue-bg);border:1px solid rgba(68,136,255,.4);border-radius:var(--r2);padding:8px 10px;font-family:var(--font-ui);font-size:13px;color:var(--text);resize:none;outline:none;line-height:1.5;margin-top:4px}
 .msg-edit-actions{display:flex;gap:6px;margin-top:4px;justify-content:flex-end;width:92%}
 .msg-edit-send{padding:5px 14px;background:var(--blue);border:none;border-radius:6px;color:#fff;font-family:var(--font-ui);font-size:12px;font-weight:600;cursor:pointer}
@@ -934,6 +939,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
   </div>
   <div class="hdr-right">
+    <button class="hdr-icon-btn" id="tts-selection-btn" onclick="ttsSpeakSelectedText()" title="選択テキストを読み上げ">
+      🔊
+    </button>
     <button class="hdr-icon-btn" id="settings-btn" onclick="openSettings()" title="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06-.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
@@ -950,6 +958,15 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 <div class="sys-usage-row" id="sys-usage-row">
   <span id="sys-usage" title="CPU/GPU/RAM/VRAM usage">CPU -- | RAM --/-- | GPU -- | VRAM --/--</span>
   <span id="sys-llm-name" title="Current LLM"></span>
+</div>
+
+<div class="tts-fallback-player" id="tts-fallback-player">
+  <div class="row">
+    <span class="title" id="tts-fallback-title">TTS 手動再生</span>
+    <button class="close" onclick="closeTtsFallbackPlayer()">閉じる</button>
+  </div>
+  <audio id="tts-fallback-audio" controls style="width:100%;height:36px"></audio>
+  <div class="hint">ブラウザ制限で自動再生できない場合、再生ボタンを押してください。</div>
 </div>
 
 <div class="mob-tabs">
@@ -2530,6 +2547,8 @@ const echo = {
   voiceRefAudio:  null,    // ボイスクローン参照音声 base64
   voiceRefName:   'ref-audio.wav',
   voiceRefMaxSeconds: 30,
+  _voiceRefSyncPromise: null,
+  _voiceRefSyncDone: false,
   _refRecordTimer: null,
   _refRecordStartTs: 0,
   nextChunkSeq:   1,
@@ -2608,12 +2627,60 @@ function ttsStop() {
   tts._playing = false;
   if (tts._audio) { tts._audio.pause(); tts._audio = null; }
   if (tts._utt && window.speechSynthesis) window.speechSynthesis.cancel();
+  _releaseTtsFallbackUrl();
   _clearQwen3CloneStatusTimer();
   const cloneStatusEl = document.getElementById('qwen3-clone-test-status');
   if (cloneStatusEl) _setQwen3CloneTestStatus('停止');
   _setQwen3ClonePlayToggle(false);
   const playBtn = document.getElementById('qwen3-clone-test-play-btn');
   if (playBtn) playBtn.dataset.busy = 'false';
+}
+
+let _ttsFallbackObjectUrl = null;
+function _releaseTtsFallbackUrl() {
+  if (_ttsFallbackObjectUrl) {
+    URL.revokeObjectURL(_ttsFallbackObjectUrl);
+    _ttsFallbackObjectUrl = null;
+  }
+}
+
+function closeTtsFallbackPlayer() {
+  const wrap = document.getElementById('tts-fallback-player');
+  const audio = document.getElementById('tts-fallback-audio');
+  if (audio) {
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+  }
+  _releaseTtsFallbackUrl();
+  if (wrap) wrap.style.display = 'none';
+}
+
+function _showTtsFallbackPlayer(blob, label = 'TTS 音声') {
+  const wrap = document.getElementById('tts-fallback-player');
+  const audio = document.getElementById('tts-fallback-audio');
+  const title = document.getElementById('tts-fallback-title');
+  if (!wrap || !audio) return;
+  _releaseTtsFallbackUrl();
+  const url = URL.createObjectURL(blob);
+  _ttsFallbackObjectUrl = url;
+  if (title) title.textContent = label;
+  audio.src = url;
+  wrap.style.display = 'block';
+  const p = audio.play();
+  if (p && typeof p.catch === 'function') p.catch(() => {});
+}
+
+function ttsSpeakSelectedText() {
+  const selected = window.getSelection?.()?.toString?.().trim() || '';
+  if (!selected) {
+    addMsg('system', '読み上げたいテキストを選択してから 🔊 を押してください。');
+    return;
+  }
+  ttsStop();
+  tts.enabled = true;
+  ttsSpeak(selected, {context: mode === 'echo' ? 'echo' : 'main', engine: mode === 'echo' ? echo.ttsEngine : tts.engine, skipTranslate: false});
+  tts.enabled = localStorage.getItem('tts_enabled') === 'true';
 }
 
 function ttsSpeakMsg(btn) {
@@ -2623,7 +2690,7 @@ function ttsSpeakMsg(btn) {
   if (!text.trim()) return;
   ttsStop();
   tts.enabled = true;  // ボタンクリック時は enabled に関わらず再生
-  ttsSpeak(text);
+  ttsSpeak(text, {context: mode === 'echo' ? 'echo' : 'main', engine: mode === 'echo' ? echo.ttsEngine : tts.engine});
   tts.enabled = localStorage.getItem('tts_enabled') === 'true'; // 元に戻す
 }
 
@@ -2720,6 +2787,9 @@ function _ttsPlayWebSpeech(text) {
 
 async function _ttsFetchAudio(text, engine = tts.engine, context = 'main') {
   engine = _normalizeTtsEngine(engine);
+  if (engine === 'qwen3tts' && context === 'echo') {
+    await _ensureQwen3ReferenceState();
+  }
   const body = { text, engine, speed: tts.speed };
   if (engine === 'edgetts')  body.voice = tts.voice || 'ja-JP-NanamiNeural';
   if (engine === 'qwen3tts') {
@@ -2736,6 +2806,21 @@ async function _ttsFetchAudio(text, engine = tts.engine, context = 'main') {
     throw new Error(_formatQwen3SynthesisError(err.detail || 'TTS synthesis failed', body));
   }
   return await resp.blob();
+}
+
+async function _ensureQwen3ReferenceState() {
+  if (echo.voiceRefAudio || echo._voiceRefSyncDone) return;
+  if (echo._voiceRefSyncPromise) {
+    await echo._voiceRefSyncPromise;
+    return;
+  }
+  echo._voiceRefSyncPromise = _syncQwen3ReferenceState()
+    .catch(() => {})
+    .finally(() => {
+      echo._voiceRefSyncDone = true;
+      echo._voiceRefSyncPromise = null;
+    });
+  await echo._voiceRefSyncPromise;
 }
 
 function _buildQwen3ReferenceParams(context = 'echo') {
@@ -2839,6 +2924,9 @@ async function runQwen3CloneTest() {
     return;
   }
   const refParams = _buildQwen3ReferenceParams('echo');
+  if (!refParams.ref_audio_base64) {
+    _setQwen3CloneTestStatus('参照音声なし: 通常合成モードで再生します');
+  }
   if (requireRef && !refParams.ref_text) {
     _setQwen3CloneTestStatus('参照テキストが必須です', true);
     document.getElementById('qwen3-ref-text-input')?.focus();
@@ -2854,9 +2942,13 @@ async function runQwen3CloneTest() {
     if (!blob || blob.size <= 0) throw new Error('音声データが空です');
     _setQwen3CloneTestStatus(`再生開始 (${disableTranslate ? '翻訳OFF' : '翻訳ON'})`);
     _trackQwen3ClonePlaybackProgress();
-    const result = await _ttsPlayBlob(blob);
+    const result = await _ttsPlayBlob(blob, {fallbackLabel: 'Qwen3 クローンテスト音声'});
     if (result?.ok === false) {
-      _setQwen3CloneTestStatus('再生失敗: ブラウザで音声再生が拒否されました', true);
+      if (result?.reason === 'NotAllowedError') {
+        _setQwen3CloneTestStatus('自動再生が制限されました。右下プレイヤーで手動再生してください。', true);
+      } else {
+        _setQwen3CloneTestStatus('再生失敗: ブラウザで音声再生が拒否されました', true);
+      }
       return;
     }
     _setQwen3CloneTestStatus('✓ 再生完了');
@@ -2893,7 +2985,8 @@ function _formatQwen3SynthesisError(detail, requestBody = {}) {
   return `Qwen3ボイスクローンエラー: ${d}`;
 }
 
-function _ttsPlayBlob(blob) {
+function _ttsPlayBlob(blob, opts = {}) {
+  const fallbackLabel = opts.fallbackLabel || 'TTS 音声';
   return new Promise((resolve) => {
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
@@ -2904,6 +2997,7 @@ function _ttsPlayBlob(blob) {
       URL.revokeObjectURL(url);
       if (e.name === 'NotAllowedError') {
         console.warn('[TTS] Autoplay blocked. Awaiting user interaction.');
+        _showTtsFallbackPlayer(blob, fallbackLabel);
       } else {
         console.warn('[TTS] play() error:', e);
       }
@@ -7347,6 +7441,9 @@ async function _syncQwen3ReferenceState() {
     _qwen3RefUpdateRecProgress(0, echo.voiceRefMaxSeconds);
   } catch(e) {
     _setQwen3RefStatus('状態確認に失敗（通常合成）', true);
+  } finally {
+    echo._voiceRefSyncDone = true;
+    echo._voiceRefSyncPromise = null;
   }
 }
 
@@ -7431,6 +7528,7 @@ async function _echoUploadRefBlob(blob, name) {
     if (data.ok) {
       echo.voiceRefAudio = b64;
       echo.voiceRefName = normalized.name;
+      echo._voiceRefSyncDone = true;
       if (data.max_seconds) echo.voiceRefMaxSeconds = Number(data.max_seconds) || echo.voiceRefMaxSeconds;
       const refTextInput = document.getElementById('qwen3-ref-text-input');
       if (refTextInput && !refTextInput.value.trim() && data.ref_text) refTextInput.value = data.ref_text;
@@ -7454,6 +7552,7 @@ async function echoClearRefAudio() {
   } catch(e) {}
   echo.voiceRefAudio = null;
   echo.voiceRefName = 'ref-audio.wav';
+  echo._voiceRefSyncDone = true;
   _setQwen3RefStatus('未設定（通常合成）');
   const clearBtn = document.getElementById('qwen3-clear-ref');
   if (clearBtn) clearBtn.style.display = 'none';
