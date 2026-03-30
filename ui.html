@@ -482,8 +482,9 @@ header{
   .mob-hidden{display:none!important}
 }
 @media(min-width:769px){
-  .chat-col{width:520px;flex-shrink:0;border-right:1px solid var(--border)}
-  .panel-col{flex:1}
+  .chat-col,.echo-col{flex:1 1 auto;min-width:0;border-right:1px solid var(--border)}
+  .panel-col{flex:0 0 var(--panel-col-width, min(46vw, 560px));min-width:260px;max-width:75vw}
+  .panel-resizer{display:block}
 }
 
 /* ── CHAT COL ── */
@@ -678,6 +679,9 @@ textarea#input::placeholder{color:var(--text3)}
 
 /* ── PANEL COL ── */
 .panel-col{display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+.panel-resizer{display:none;flex:0 0 8px;cursor:col-resize;position:relative;background:transparent}
+.panel-resizer::after{content:'';position:absolute;left:3px;top:0;bottom:0;width:2px;background:var(--border);opacity:.7;transition:opacity .15s, background .15s}
+.panel-resizer:hover::after,.panel-resizer.active::after{opacity:1;background:var(--accent)}
 .panel-tabs{display:flex;align-items:center;padding:0 14px;height:44px;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0;gap:2px}
 .tab-btn{padding:5px 12px;font-size:12px;font-weight:600;letter-spacing:.04em;border-radius:6px;cursor:pointer;border:none;background:transparent;color:var(--text2);font-family:var(--font-ui);transition:all .15s}
 .tab-btn:hover{color:var(--text);background:var(--bg2)}
@@ -907,7 +911,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .echo-conn-err{color:var(--red)}
 /* Echo モードアクティブ時: echo-col（左）+ panel-col（右）の2カラムレイアウト */
 .app-body.echo-active .echo-col{flex:1 1 50%;min-width:0}
-.app-body.echo-active .panel-col{flex:0 0 340px;min-width:260px}
+.app-body.echo-active .panel-col{flex:0 0 var(--panel-col-width, min(46vw, 560px));min-width:260px;max-width:75vw}
 .app-body.echo-active .chat-col{display:none!important}
 @media(max-width:768px){
   .app-body.echo-active .echo-col{flex:1 1 100%}
@@ -939,9 +943,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
   </div>
   <div class="hdr-right">
-    <button class="hdr-icon-btn" id="tts-selection-btn" onclick="ttsSpeakSelectedText()" title="選択テキストを読み上げ">
-      🔊
-    </button>
     <button class="hdr-icon-btn" id="settings-btn" onclick="openSettings()" title="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06-.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
@@ -1040,6 +1041,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   </div>
 
   <!-- PANEL -->
+  <div class="panel-resizer" id="panel-resizer" role="separator" aria-label="Panel width resize handle" aria-orientation="vertical"></div>
   <div class="panel-col" id="panel-col">
     <div class="panel-tabs">
       <!-- Chat/Task モード用タブ -->
@@ -1700,13 +1702,17 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
         <!-- ボイスクローンテスト -->
         <div id="tsasr-qwen3-clone-test-row" style="display:none;margin-bottom:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:6px">🧪 ボイスクローンテスト</div>
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:6px">🧪 Voice Clone Test</div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:6px;line-height:1.5">Qwen3 TTS が未ロードの間はテスト再生できません。上の「Qwen3 TTS をロード」を先に実行してください。</div>
           <div id="qwen3-clone-test-unloaded-note" style="display:none;font-size:10px;color:var(--amber);margin-bottom:6px">未ロードのため入力UIを無効化しています。ロード後にテスト可能です。</div>
           <fieldset id="qwen3-clone-test-fieldset" style="margin:0;padding:0;border:none">
             <div style="margin-bottom:6px">
               <textarea id="qwen3-clone-test-text" rows="3" placeholder="ここにテスト読み上げテキストを入力" onchange="saveTsAsrSettings()"
                 style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);box-sizing:border-box;resize:vertical"></textarea>
+              <div style="margin-top:6px">
+                <button id="qwen3-clone-test-asr-btn" onclick="toggleCloneTestVoiceInput()"
+                  style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">🎙 ASR入力</button>
+              </div>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
               <button id="qwen3-clone-test-generate-jp-btn" onclick="runQwen3CloneTestGenerate('jp')"
@@ -1917,6 +1923,30 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="margin-top:6px;font-size:10px;color:var(--text3)">⚠ 推奨 Steps: 10〜25。過剰だと繰り返しループのリスクあり。</div>
       </div>
 
+      <!-- UI表示文字サイズ -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🅰 UI文字サイズ</div>
+      <div style="padding:4px 0 14px">
+        <div style="margin-bottom:10px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Chatモード文字サイズ</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" id="chat-font-size-slider" min="11" max="20" step="1" value="13"
+              style="flex:1;accent-color:var(--accent);cursor:pointer"
+              oninput="applyUiFontSettings()">
+            <span id="chat-font-size-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:42px;text-align:right">13px</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo ASR表示文字サイズ</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" id="echo-font-size-slider" min="11" max="24" step="1" value="13"
+              style="flex:1;accent-color:var(--accent);cursor:pointer"
+              oninput="applyUiFontSettings()">
+            <span id="echo-font-size-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:42px;text-align:right">13px</span>
+          </div>
+        </div>
+      </div>
+
+
       <!-- Code Implementation Mode -->
       <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🧩 コード実装モード</div>
       <div style="padding:4px 0 14px">
@@ -2025,29 +2055,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           style="width:100%;padding:6px 8px;font-size:10px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--font-mono);box-sizing:border-box"
           oninput="activeLlmUrl=this.value.trim(); _saveSettingDb('llm_url', this.value.trim())">
         <div class="settings-note">Blank is normal. If unset, the server uses its default local LLM endpoint.</div>
-      </div>
-
-      <!-- UI表示文字サイズ -->
-      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🅰 UI文字サイズ</div>
-      <div style="padding:4px 0 14px">
-        <div style="margin-bottom:10px">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Chatモード文字サイズ</div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <input type="range" id="chat-font-size-slider" min="11" max="20" step="1" value="13"
-              style="flex:1;accent-color:var(--accent);cursor:pointer"
-              oninput="applyUiFontSettings()">
-            <span id="chat-font-size-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:42px;text-align:right">13px</span>
-          </div>
-        </div>
-        <div>
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo ASR表示文字サイズ</div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <input type="range" id="echo-font-size-slider" min="11" max="24" step="1" value="13"
-              style="flex:1;accent-color:var(--accent);cursor:pointer"
-              oninput="applyUiFontSettings()">
-            <span id="echo-font-size-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:42px;text-align:right">13px</span>
-          </div>
-        </div>
       </div>
 
       <!-- Web検索 -->
@@ -2856,9 +2863,10 @@ function _setQwen3CloneTestStatus(msg = '待機中', isError = false) {
 function _setQwen3ClonePlayToggle(isPlaying) {
   const btn = document.getElementById('qwen3-clone-test-play-btn');
   if (!btn) return;
+  const hasAudio = !!_qwen3CloneTestAudioBlob;
   btn.textContent = isPlaying ? '停止' : '再生';
-  btn.style.background = isPlaying ? 'var(--red)' : 'var(--bg3)';
-  btn.style.color = isPlaying ? 'var(--bg)' : 'var(--text2)';
+  btn.style.background = (isPlaying || hasAudio) ? 'var(--red)' : 'var(--bg3)';
+  btn.style.color = (isPlaying || hasAudio) ? 'var(--bg)' : 'var(--text2)';
 }
 
 let _qwen3CloneStatusTimer = null;
@@ -2956,10 +2964,30 @@ async function runQwen3CloneTestGenerate(target = 'jp') {
     const srcLang = _ttsDetectLang(text);
     let playText = text;
     let reqLanguage = 'Japanese';
-    if (target === 'us') {
+    const translateByTarget = async (srcText, sourceLang, targetLang) => {
+      const resp = await fetch(API + '/tts/translate-text', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({text: srcText, src_lang: sourceLang})
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `翻訳失敗 (${sourceLang}→${targetLang})`);
+      }
+      const data = await resp.json().catch(() => ({}));
+      const translated = (data.translated || '').trim();
+      if (!translated) throw new Error(`翻訳結果が空です (${sourceLang}→${targetLang})`);
+      return translated;
+    };
+    if (target === 'jp') {
+      reqLanguage = 'Japanese';
+      if (srcLang === 'en') {
+        playText = await translateByTarget(text, 'en', 'ja');
+      }
+    } else if (target === 'us') {
       reqLanguage = 'English';
       if (srcLang === 'ja') {
-        playText = await _ttsMaybeTranslate(text, 'echo');
+        playText = await translateByTarget(text, 'ja', 'en');
       }
     }
     const blob = await _ttsFetchAudio(playText, 'qwen3tts', 'echo', {language: reqLanguage});
@@ -2967,8 +2995,6 @@ async function runQwen3CloneTestGenerate(target = 'jp') {
     _qwen3CloneTestAudioBlob = blob;
     if (playBtn) playBtn.disabled = false;
     _setQwen3CloneTestStatus(`生成完了 / ${target === 'us' ? '英語' : '日本語'}音声`);
-    // 自動再生は再生ボタンを押す動作で実行
-    if (playBtn) playBtn.click();
   } catch(e) {
     _setQwen3CloneTestStatus(`再生エラー: ${e.message || e}`, true);
     console.warn('[Qwen3 clone test] failed:', e);
@@ -4263,6 +4289,68 @@ function applyUiFontSettings() {
   localStorage.setItem('echo_font_size', `${echoSize}`);
 }
 
+const _PANEL_WIDTH_KEY = 'panel_col_width_pc';
+const _PANEL_MIN_WIDTH = 260;
+function _applyPanelWidth(widthPx, persist = true) {
+  const maxWidth = Math.floor(window.innerWidth * 0.75);
+  const next = Math.max(_PANEL_MIN_WIDTH, Math.min(maxWidth, Math.round(widthPx || 0)));
+  if (window.innerWidth <= 768) return;
+  document.documentElement.style.setProperty('--panel-col-width', `${next}px`);
+  if (persist) localStorage.setItem(_PANEL_WIDTH_KEY, String(next));
+}
+
+function _restorePanelWidth() {
+  if (window.innerWidth <= 768) return;
+  const saved = parseInt(localStorage.getItem(_PANEL_WIDTH_KEY) || '', 10);
+  if (Number.isFinite(saved) && saved > 0) {
+    _applyPanelWidth(saved, false);
+    return;
+  }
+  const panelCol = document.getElementById('panel-col');
+  if (panelCol) _applyPanelWidth(panelCol.getBoundingClientRect().width || 420, false);
+}
+
+function initPanelResizer() {
+  const handle = document.getElementById('panel-resizer');
+  const panelCol = document.getElementById('panel-col');
+  if (!handle || !panelCol) return;
+  let dragging = false;
+
+  const onMove = (ev) => {
+    if (!dragging) return;
+    _applyPanelWidth(window.innerWidth - ev.clientX, false);
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('active');
+    const width = panelCol.getBoundingClientRect().width;
+    _applyPanelWidth(width, true);
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+  };
+
+  handle.addEventListener('mousedown', (ev) => {
+    if (window.innerWidth <= 768) return;
+    dragging = true;
+    handle.classList.add('active');
+    ev.preventDefault();
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+
+  window.addEventListener('resize', () => {
+    if (window.innerWidth <= 768) {
+      document.documentElement.style.removeProperty('--panel-col-width');
+      return;
+    }
+    const current = parseInt(localStorage.getItem(_PANEL_WIDTH_KEY) || '', 10);
+    if (Number.isFinite(current) && current > 0) _applyPanelWidth(current, false);
+  });
+
+  _restorePanelWidth();
+}
+
 // ── INIT ──
 addEventListener('load', async () => {
   if (window.innerWidth <= 768) {
@@ -4282,6 +4370,7 @@ addEventListener('load', async () => {
   await loadHistory(currentProject);
   await loadJobs(currentProject);
   applyUiFontSettings();
+  initPanelResizer();
   startSystemSummaryPolling();
   // Echo スクロールリスナーを初期化
   _echoInitScrollListener();
@@ -4667,7 +4756,10 @@ async function planSkillImpl(i) {
     await refreshSkills();
     discardSkillProposal(i, false);
     setMode('task');
-    const input = document.getElementById('input');
+    const targetInputId = opts.targetInputId || 'input';
+    const input = document.getElementById(targetInputId);
+    const statusFn = typeof opts.statusFn === 'function' ? opts.statusFn : null;
+    const replaceMode = !!opts.replace;
     if (input) {
       input.value = `スキル ${p.name} を実装・改善してください。説明: ${p.description || ''}`;
       input.focus();
@@ -6115,6 +6207,54 @@ function _setMicState(recording=false, disabled=false){
   btn.textContent = recording ? '■' : '🎙';
   btn.title = recording ? '録音停止' : '音声入力 (日本語/英語)';
 }
+let cloneTestVoiceRecorder = null;
+let cloneTestVoiceRecording = false;
+let cloneTestVoiceChunks = [];
+
+function _setCloneTestMicState(recording=false, disabled=false){
+  const btn = document.getElementById('qwen3-clone-test-asr-btn');
+  if (!btn) return;
+  btn.disabled = !!disabled;
+  btn.textContent = recording ? '■ 停止' : '🎙 ASR入力';
+  btn.style.borderColor = recording ? 'var(--red)' : 'var(--border)';
+  btn.style.color = recording ? 'var(--red)' : 'var(--text2)';
+}
+
+async function toggleCloneTestVoiceInput(){
+  if (cloneTestVoiceRecording && cloneTestVoiceRecorder) {
+    cloneTestVoiceRecording = false;
+    _setCloneTestMicState(false, true);
+    cloneTestVoiceRecorder.stop();
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    _setQwen3CloneTestStatus('このブラウザは音声録音に対応していません。', true);
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+    cloneTestVoiceRecorder = new MediaRecorder(stream, {mimeType});
+    cloneTestVoiceChunks = [];
+    cloneTestVoiceRecorder.ondataavailable = (e) => { if (e.data?.size > 0) cloneTestVoiceChunks.push(e.data); };
+    cloneTestVoiceRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(cloneTestVoiceChunks, {type: mimeType});
+      cloneTestVoiceRecorder = null;
+      cloneTestVoiceChunks = [];
+      await transcribeVoiceBlob(blob, {targetInputId: 'qwen3-clone-test-text', statusFn: _setQwen3CloneTestStatus, replace: false, skipChatError: true, skipMainMicState: true});
+      _setCloneTestMicState(false, false);
+    };
+    cloneTestVoiceRecorder.start();
+    cloneTestVoiceRecording = true;
+    _setCloneTestMicState(true, false);
+    _setQwen3CloneTestStatus('録音中... もう一度押すと停止します');
+  } catch (e) {
+    _setQwen3CloneTestStatus('マイク起動に失敗: ' + (e.message || String(e)), true);
+    _setCloneTestMicState(false, false);
+  }
+}
+
 function _arrayBufferToBase64(buffer){
   let binary = '';
   const bytes = new Uint8Array(buffer);
@@ -6160,14 +6300,17 @@ async function toggleVoiceInput(){
   }
 }
 
-async function transcribeVoiceBlob(blob){
+async function transcribeVoiceBlob(blob, opts = {}){
   let downloadMsgEl = null;
   try {
     voiceRecording = false;
     _setMicState(false, true);
     const arr = await blob.arrayBuffer();
     const b64 = _arrayBufferToBase64(arr);
-    const input = document.getElementById('input');
+    const targetInputId = opts.targetInputId || 'input';
+    const input = document.getElementById(targetInputId);
+    const statusFn = typeof opts.statusFn === 'function' ? opts.statusFn : null;
+    const replaceMode = !!opts.replace;
     const langSel = document.getElementById('echo-asr-lang');
     const selectedLang = (echo.asrLang || langSel?.value || 'auto').toLowerCase();
     const lang = (selectedLang === 'ja' || selectedLang === 'en') ? selectedLang : 'auto';
@@ -6222,12 +6365,16 @@ async function transcribeVoiceBlob(blob){
           if (downloadMsgEl) { downloadMsgEl.remove(); downloadMsgEl = null; }
           const t = (ev.text || '').trim();
           if (!t) {
-            addMsg('error', '音声認識結果が空でした。');
+            if (!opts.skipChatError) addMsg('error', '音声認識結果が空でした。');
+            if (statusFn) statusFn('音声認識結果が空でした。', true);
             return;
           }
-          input.value = (input.value ? input.value + '\n' : '') + t;
-          autoResize(input);
-          input.focus();
+          if (input) {
+            input.value = replaceMode ? t : ((input.value ? input.value + '\n' : '') + t);
+            if (input.id === 'input') autoResize(input);
+            input.focus();
+          }
+          if (statusFn) statusFn(`ASR入力完了 (${ev.language || lang})`);
           addLog('ok','voice',`transcribed (${ev.language || lang})`);
         } else if (ev.type === 'error') {
           throw new Error(ev.detail || 'transcribe failed');
@@ -6236,10 +6383,11 @@ async function transcribeVoiceBlob(blob){
     }
   } catch (e) {
     if (downloadMsgEl) { downloadMsgEl.remove(); downloadMsgEl = null; }
-    addMsg('error', '音声認識に失敗: ' + (e.message || String(e)));
+    if (!opts.skipChatError) addMsg('error', '音声認識に失敗: ' + (e.message || String(e)));
+    if (statusFn) statusFn('音声認識に失敗: ' + (e.message || String(e)), true);
     addLog('err','voice', e.message || String(e));
   } finally {
-    _setMicState(false, false);
+    if (!opts.skipMainMicState) _setMicState(false, false);
   }
 }
 
@@ -6523,18 +6671,15 @@ function _echoRenderTranscript(forceRebuild = false, shouldScroll = true) {
       ? (echo.groupOverflowMode === 'rolling' ? '最新表示' : `表示枠 #${index + 1}`)
       : '表示';
     if (echo.displayStyle === 'lang_parallel') {
+      const showJa = filter !== 'en';
+      const showEn = filter !== 'ja';
+      const visibleCount = (showJa ? 1 : 0) + (showEn ? 1 : 0);
       return `
         <div class="echo-sentence">
           <div class="ts-meta"><span class="ts-time">${frameTitle}</span></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-            <div class="echo-sentence">
-              <div class="ts-meta"><span class="ts-flag">🇯🇵</span><span class="ts-time">Japanese</span></div>
-              <div class="ts-orig">${esc(jaText || '—').replace(/\n/g, '<br>')}</div>
-            </div>
-            <div class="echo-sentence">
-              <div class="ts-meta"><span class="ts-flag">🇺🇸</span><span class="ts-time">English</span></div>
-              <div class="ts-orig">${esc(enText || '—').replace(/\n/g, '<br>')}</div>
-            </div>
+          <div style="display:grid;grid-template-columns:repeat(${Math.max(1, visibleCount)},minmax(0,1fr));gap:8px">
+            ${showJa ? `<div class="echo-sentence"><div class="ts-meta"><span class="ts-flag">🇯🇵</span><span class="ts-time">Japanese</span></div><div class="ts-orig">${esc(jaText || '—').replace(/\n/g, '<br>')}</div></div>` : ''}
+            ${showEn ? `<div class="echo-sentence"><div class="ts-meta"><span class="ts-flag">🇺🇸</span><span class="ts-time">English</span></div><div class="ts-orig">${esc(enText || '—').replace(/\n/g, '<br>')}</div></div>` : ''}
           </div>
         </div>`;
     }
@@ -6543,14 +6688,8 @@ function _echoRenderTranscript(forceRebuild = false, shouldScroll = true) {
         <div class="echo-sentence">
           <div class="ts-meta"><span class="ts-time">${frameTitle}</span></div>
           ${filter === 'original' ? `<div class="ts-orig">${esc(originalText || '—').replace(/\n/g, '<br>')}</div>` : `
-            <div class="echo-sentence" style="margin-bottom:6px">
-              <div class="ts-meta"><span class="ts-flag">🇯🇵</span><span class="ts-time">Japanese</span></div>
-              <div class="ts-orig">${esc(jaText || '—').replace(/\n/g, '<br>')}</div>
-            </div>
-            <div class="echo-sentence">
-              <div class="ts-meta"><span class="ts-flag">🇺🇸</span><span class="ts-time">English</span></div>
-              <div class="ts-orig">${esc(enText || '—').replace(/\n/g, '<br>')}</div>
-            </div>`}
+            ${filter !== 'en' ? `<div class="echo-sentence" style="margin-bottom:${filter === 'all' ? '6px' : '0'}"><div class="ts-meta"><span class="ts-flag">🇯🇵</span><span class="ts-time">Japanese</span></div><div class="ts-orig">${esc(jaText || '—').replace(/\n/g, '<br>')}</div></div>` : ''}
+            ${filter !== 'ja' ? `<div class="echo-sentence"><div class="ts-meta"><span class="ts-flag">🇺🇸</span><span class="ts-time">English</span></div><div class="ts-orig">${esc(enText || '—').replace(/\n/g, '<br>')}</div></div>` : ''}`}
         </div>`;
     }
     return '';
