@@ -25,6 +25,7 @@ import difflib
 import time
 import inspect
 import io
+import hashlib
 import traceback
 from datetime import datetime
 
@@ -9980,8 +9981,10 @@ except Exception as _qwen_e:
 _qwen3tts_model     = None
 _qwen3tts_processor = None   # qwen_tts processor (旧 _qwen3tts_tokenizer を改名)
 _qwen3tts_model_id: str | None = None
-_qwen3tts_device = "cpu"      # "cpu" | "cuda"
+_qwen3tts_device = "cuda"      # "cpu" | "cuda"
 _qwen3tts_lock      = threading.Lock()
+_qwen3tts_cached_clone_prompt = None
+_qwen3tts_cached_clone_prompt_key: str | None = None
 _QWEN3TTS_MODEL_ID  = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 _QWEN3_INSTALL_STATUS_PATH = os.environ.get("CODEAGENT_QWEN3_INSTALL_STATUS_PATH", "/app/qwen3_tts_install_status.json")
 _tts_startup_health_snapshot: dict = {}
@@ -10192,8 +10195,9 @@ def _qwen3_resolve_model_root(model_id: str, cache_dir: str) -> str:
     )
 
 
-def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> dict:
+def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cuda") -> dict:
     global _qwen3tts_model, _qwen3tts_processor, _qwen3tts_model_id, _qwen3tts_device
+    global _qwen3tts_cached_clone_prompt, _qwen3tts_cached_clone_prompt_key
     if not _QWEN3TTS_AVAILABLE:
         commands = "\n".join(f"- {cmd}" for cmd in _qwen3_install_help_commands())
         raise RuntimeError(
@@ -10208,6 +10212,8 @@ def qwen3tts_load(model_id: str = _QWEN3TTS_MODEL_ID, device: str = "cpu") -> di
         if _qwen3tts_model is not None:
             _qwen3tts_model = None
             _qwen3tts_processor = None
+            _qwen3tts_cached_clone_prompt = None
+            _qwen3tts_cached_clone_prompt_key = None
         cache_dir = _qwen3tts_model_dir()
         actual_device = device
         fallback_reason = ""
@@ -10276,6 +10282,7 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
                          ref_text: str = "", language: str = "Auto") -> bytes:
     """Qwen3 TTS でテキストを WAV バイト列に変換する。ref_audio_bytes があればボイスクローン。"""
     global _qwen3tts_model, _qwen3tts_processor
+    global _qwen3tts_cached_clone_prompt, _qwen3tts_cached_clone_prompt_key
     if not _QWEN3TTS_AVAILABLE:
         commands = "\n".join(f"- {cmd}" for cmd in _qwen3_install_help_commands())
         raise RuntimeError(
@@ -10302,14 +10309,31 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
             lang_label = _qwen3tts_lang_label(language)
 
             # 公式推奨API優先: clone時は generate_voice_clone を使う
+            # create_voice_clone_prompt を再利用し、毎回のプロンプト再抽出に伴う先頭不安定化を抑える。
             if ref_wav is not None and hasattr(_qwen3tts_model, "generate_voice_clone"):
+                ref_text_clean = ref_text.strip()
+                ref_audio_digest = hashlib.sha1(ref_audio_bytes).hexdigest() if ref_audio_bytes else ""
+                clone_prompt_key = f"{ref_audio_digest}:{resolved_ref_sr}:{ref_text_clean}:{lang_label}"
+                if hasattr(_qwen3tts_model, "create_voice_clone_prompt"):
+                    if _qwen3tts_cached_clone_prompt is None or _qwen3tts_cached_clone_prompt_key != clone_prompt_key:
+                        prompt_kwargs = {
+                            "ref_audio": (ref_wav, resolved_ref_sr),
+                            "x_vector_only_mode": not bool(ref_text_clean),
+                        }
+                        if ref_text_clean:
+                            prompt_kwargs["ref_text"] = ref_text_clean
+                        _qwen3tts_cached_clone_prompt = _qwen3tts_model.create_voice_clone_prompt(**prompt_kwargs)
+                        _qwen3tts_cached_clone_prompt_key = clone_prompt_key
                 clone_kwargs = {
                     "text": text,
                     "language": lang_label,
-                    "ref_audio": (ref_wav, resolved_ref_sr),
                 }
-                if ref_text.strip():
-                    clone_kwargs["ref_text"] = ref_text.strip()
+                if _qwen3tts_cached_clone_prompt is not None and _qwen3tts_cached_clone_prompt_key == clone_prompt_key:
+                    clone_kwargs["voice_clone_prompt"] = _qwen3tts_cached_clone_prompt
+                else:
+                    clone_kwargs["ref_audio"] = (ref_wav, resolved_ref_sr)
+                    if ref_text_clean:
+                        clone_kwargs["ref_text"] = ref_text_clean
                 output = _qwen3tts_model.generate_voice_clone(**clone_kwargs)
             else:
                 # 旧APIフォールバック
@@ -10533,10 +10557,13 @@ async def tts_edgetts_list_voices_async() -> list:
 
 def qwen3tts_unload() -> dict:
     global _qwen3tts_model, _qwen3tts_model_id, _qwen3tts_processor
+    global _qwen3tts_cached_clone_prompt, _qwen3tts_cached_clone_prompt_key
     with _qwen3tts_lock:
         _qwen3tts_model = None
         _qwen3tts_model_id = None
         _qwen3tts_processor = None
+        _qwen3tts_cached_clone_prompt = None
+        _qwen3tts_cached_clone_prompt_key = None
     import gc; gc.collect()
     return {"status": "unloaded"}
 
@@ -10622,7 +10649,7 @@ async def tts_voices_api(engine: str = "qwen3tts"):
 @app.post("/tts/load")
 def tts_load_api(req: dict = {}):
     engine = str(req.get("engine", "qwen3tts"))
-    device = str(req.get("device", "cpu")) if req.get("device") in ("cpu", "cuda") else "cpu"
+    device = str(req.get("device", "cuda")) if req.get("device") in ("cpu", "cuda") else "cuda"
     model_id = str(req.get("model_id", "Qwen/Qwen3-TTS-12Hz-1.7B-Base"))
 
     def _sse(payload: dict) -> str:

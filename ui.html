@@ -1710,8 +1710,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
                 style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);box-sizing:border-box;resize:vertical"></textarea>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
-              <button id="qwen3-clone-test-generate-btn" onclick="runQwen3CloneTestGenerate()"
-                style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--accent);color:var(--bg);cursor:pointer">生成</button>
+              <button id="qwen3-clone-test-generate-jp-btn" onclick="runQwen3CloneTestGenerate('jp')"
+                style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--accent);color:var(--bg);cursor:pointer">生成(JP)</button>
+              <button id="qwen3-clone-test-generate-us-btn" onclick="runQwen3CloneTestGenerate('us')"
+                style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--blue);color:var(--bg);cursor:pointer">生成(US)</button>
               <button id="qwen3-clone-test-play-btn" onclick="toggleQwen3CloneTestPlayback()"
                 style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--bg3);color:var(--text2);cursor:pointer" disabled>再生</button>
               <span id="qwen3-clone-test-status" style="font-size:10px;color:var(--text3);align-self:center">待機中</span>
@@ -1725,10 +1727,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
                 <span>参照テキストを必須にする</span>
                 <input type="checkbox" id="qwen3-clone-require-ref-text" style="accent-color:var(--accent)" onchange="saveTsAsrSettings()">
               </label>
-              <label style="display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer">
-                <span>テスト時のみ自動翻訳OFF</span>
-                <input type="checkbox" id="qwen3-clone-disable-translate" checked style="accent-color:var(--accent)" onchange="saveTsAsrSettings()">
-              </label>
             </div>
           </fieldset>
         </div>
@@ -1737,10 +1735,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">デバイス</div>
           <div style="display:flex;gap:14px">
             <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
-              <input type="radio" name="tsasr-device" value="cpu" checked style="accent-color:var(--accent)"> CPU
+              <input type="radio" name="tsasr-device" value="cpu" style="accent-color:var(--accent)"> CPU
             </label>
             <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
-              <input type="radio" name="tsasr-device" value="cuda" style="accent-color:var(--accent)"> GPU (CUDA)
+              <input type="radio" name="tsasr-device" value="cuda" checked style="accent-color:var(--accent)"> GPU (CUDA)
             </label>
           </div>
         </div>
@@ -2184,10 +2182,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">デバイス</div>
           <div style="display:flex;gap:14px">
             <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
-              <input type="radio" name="asr-device" value="cpu" checked style="accent-color:var(--accent)" onchange="saveAsrSettings()"> CPU
+              <input type="radio" name="asr-device" value="cpu" style="accent-color:var(--accent)" onchange="saveAsrSettings()"> CPU
             </label>
             <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
-              <input type="radio" name="asr-device" value="cuda" style="accent-color:var(--accent)" onchange="saveAsrSettings()"> GPU (CUDA)
+              <input type="radio" name="asr-device" value="cuda" checked style="accent-color:var(--accent)" onchange="saveAsrSettings()"> GPU (CUDA)
             </label>
           </div>
           <div style="font-size:10px;color:var(--text3);margin-top:3px">デバイス変更は次のロード時に適用されます</div>
@@ -2272,10 +2270,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">デバイス</div>
           <div style="display:flex;gap:14px">
             <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
-              <input type="radio" name="tts-device" value="cpu" checked style="accent-color:var(--accent)"> CPU
+              <input type="radio" name="tts-device" value="cpu" style="accent-color:var(--accent)"> CPU
             </label>
             <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
-              <input type="radio" name="tts-device" value="cuda" style="accent-color:var(--accent)"> GPU (CUDA)
+              <input type="radio" name="tts-device" value="cuda" checked style="accent-color:var(--accent)"> GPU (CUDA)
             </label>
           </div>
           <div style="font-size:10px;color:var(--text3);margin-top:3px">デバイス変更は次のロード時に適用されます</div>
@@ -2452,7 +2450,7 @@ const tts = {
   voice:        localStorage.getItem('tts_voice')      || '',
   speed:        parseFloat(localStorage.getItem('tts_speed') || '1.0'),
   qwen3model:   localStorage.getItem('tts_qwen3model') || 'Qwen/Qwen3-TTS-12Hz-1.7B-Base',
-  ttsDevice:    localStorage.getItem('tts_device') || localStorage.getItem('tsasr_tts_device') || 'cpu',
+  ttsDevice:    localStorage.getItem('tts_device') || localStorage.getItem('tsasr_tts_device') || 'cuda',
   translateEnabled: _ttsGetTranslateSettings('main').enabled,
   translateMode:    _ttsGetTranslateSettings('main').mode,
   translateEnToJaEnabled: _ttsGetTranslateSettings('main').en2jaEnabled,
@@ -2634,8 +2632,8 @@ function ttsStop() {
   const cloneStatusEl = document.getElementById('qwen3-clone-test-status');
   if (cloneStatusEl) _setQwen3CloneTestStatus('停止');
   _setQwen3ClonePlayToggle(false);
-  const generateBtn = document.getElementById('qwen3-clone-test-generate-btn');
-  if (generateBtn) generateBtn.dataset.busy = 'false';
+  const generateBtns = _qwen3CloneGenerateButtons();
+  generateBtns.forEach((btn) => btn.dataset.busy = 'false');
   const playBtn = document.getElementById('qwen3-clone-test-play-btn');
   if (playBtn && _isEchoQwen3Selected()) playBtn.disabled = !_qwen3CloneTestAudioBlob;
 }
@@ -2789,7 +2787,7 @@ function _ttsPlayWebSpeech(text) {
   });
 }
 
-async function _ttsFetchAudio(text, engine = tts.engine, context = 'main') {
+async function _ttsFetchAudio(text, engine = tts.engine, context = 'main', opts = {}) {
   engine = _normalizeTtsEngine(engine);
   if (engine === 'qwen3tts') {
     await _ensureQwen3ReferenceState();
@@ -2797,7 +2795,9 @@ async function _ttsFetchAudio(text, engine = tts.engine, context = 'main') {
   const body = { text, engine, speed: tts.speed };
   if (engine === 'edgetts')  body.voice = tts.voice || 'ja-JP-NanamiNeural';
   if (engine === 'qwen3tts') {
-    body.language = 'ja';
+    const explicitLanguage = (opts.language || '').trim();
+    const langDetected = _ttsDetectLang(text) === 'ja' ? 'Japanese' : 'English';
+    body.language = explicitLanguage || langDetected;
     Object.assign(body, _buildQwen3ReferenceParams(context));
   }
   const resp = await fetch(API + '/tts/synthesize', {
@@ -2864,6 +2864,13 @@ function _clearQwen3CloneStatusTimer() {
   }
 }
 
+function _qwen3CloneGenerateButtons() {
+  return [
+    document.getElementById('qwen3-clone-test-generate-jp-btn'),
+    document.getElementById('qwen3-clone-test-generate-us-btn')
+  ].filter(Boolean);
+}
+
 function _trackQwen3ClonePlaybackProgress() {
   _clearQwen3CloneStatusTimer();
   let safetyTicks = 0;
@@ -2897,29 +2904,28 @@ function _syncQwen3CloneTestUi(state = null) {
     : (document.getElementById('tsasr-qwen3-load-btn')?.style.display === 'none');
   const fieldset = document.getElementById('qwen3-clone-test-fieldset');
   const note = document.getElementById('qwen3-clone-test-unloaded-note');
-  const generateBtn = document.getElementById('qwen3-clone-test-generate-btn');
+  const generateBtns = _qwen3CloneGenerateButtons();
   const playBtn = document.getElementById('qwen3-clone-test-play-btn');
   const deviceEl = document.getElementById('qwen3-clone-test-device');
   if (fieldset) fieldset.disabled = !loaded;
   if (note) note.style.display = loaded ? 'none' : '';
-  if (deviceEl) deviceEl.textContent = (state?.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
-  if (generateBtn) generateBtn.disabled = !loaded;
+  if (deviceEl) deviceEl.textContent = (state?.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
+  generateBtns.forEach((btn) => btn.disabled = !loaded);
   if (playBtn) playBtn.disabled = !loaded || !_qwen3CloneTestAudioBlob;
   _setQwen3ClonePlayToggle(false);
   if (!loaded) _setQwen3CloneTestStatus('未ロード（ロード後に再生可能）');
 }
 
-async function runQwen3CloneTestGenerate() {
+async function runQwen3CloneTestGenerate(target = 'jp') {
   if (!_isEchoQwen3Selected()) {
     _setQwen3CloneTestStatus('Qwen3 TTS選択時のみ利用可能', true);
     return;
   }
-  const generateBtn = document.getElementById('qwen3-clone-test-generate-btn');
+  const generateBtns = _qwen3CloneGenerateButtons();
   const playBtn = document.getElementById('qwen3-clone-test-play-btn');
-  if (generateBtn?.dataset.busy === 'true') return;
+  if (generateBtns.some((btn) => btn?.dataset.busy === 'true')) return;
   const input = document.getElementById('qwen3-clone-test-text');
   const requireRef = !!document.getElementById('qwen3-clone-require-ref-text')?.checked;
-  const disableTranslate = !!document.getElementById('qwen3-clone-disable-translate')?.checked;
   const text = input?.value?.trim() || '';
   if (!text) {
     _setQwen3CloneTestStatus('テスト文を入力してください', true);
@@ -2935,29 +2941,33 @@ async function runQwen3CloneTestGenerate() {
     document.getElementById('qwen3-ref-text-input')?.focus();
     return;
   }
-  if (generateBtn) { generateBtn.dataset.busy = 'true'; generateBtn.disabled = true; }
+  generateBtns.forEach((btn) => { btn.dataset.busy = 'true'; btn.disabled = true; });
   if (playBtn) playBtn.disabled = true;
   try {
     ttsStop();
     _qwen3CloneTestAudioBlob = null;
-    _setQwen3CloneTestStatus('生成中...');
-    const playText = disableTranslate ? text : await _ttsMaybeTranslate(text, 'echo');
-    const blob = await _ttsFetchAudio(playText, 'qwen3tts', 'echo');
+    _setQwen3CloneTestStatus(`生成中... (${target === 'us' ? 'US' : 'JP'})`);
+    const srcLang = _ttsDetectLang(text);
+    let playText = text;
+    let reqLanguage = 'Japanese';
+    if (target === 'us') {
+      reqLanguage = 'English';
+      if (srcLang === 'ja') {
+        playText = await _ttsMaybeTranslate(text, 'echo');
+      }
+    }
+    const blob = await _ttsFetchAudio(playText, 'qwen3tts', 'echo', {language: reqLanguage});
     if (!blob || blob.size <= 0) throw new Error('音声データが空です');
     _qwen3CloneTestAudioBlob = blob;
     if (playBtn) playBtn.disabled = false;
-    _setQwen3CloneTestStatus(`生成完了 / 自動再生開始 (${disableTranslate ? '翻訳OFF' : '翻訳ON'})`);
-    const result = await _playQwen3CloneTestBlob();
-    if (result?.ok === false) {
-      _setQwen3CloneTestStatus(`自動再生できませんでした（${result?.reason || 'blocked'}）。再生ボタンを押してください。`, true);
-      return;
-    }
-    _setQwen3CloneTestStatus('✓ 再生完了');
+    _setQwen3CloneTestStatus(`生成完了 / ${target === 'us' ? '英語' : '日本語'}音声`);
+    // 自動再生は再生ボタンを押す動作で実行
+    if (playBtn) playBtn.click();
   } catch(e) {
     _setQwen3CloneTestStatus(`再生エラー: ${e.message || e}`, true);
     console.warn('[Qwen3 clone test] failed:', e);
   } finally {
-    if (generateBtn) { generateBtn.dataset.busy = 'false'; generateBtn.disabled = false; }
+    generateBtns.forEach((btn) => { btn.dataset.busy = 'false'; btn.disabled = false; });
     _setQwen3ClonePlayToggle(false);
   }
 }
@@ -2984,6 +2994,7 @@ async function toggleQwen3CloneTestPlayback() {
   }
   const result = await _playQwen3CloneTestBlob();
   if (result?.ok === false) _setQwen3CloneTestStatus('再生できませんでした。再度お試しください。', true);
+  else _setQwen3CloneTestStatus('✓ 再生完了');
 }
 
 function _buildQwen3LoadParams(context = 'main') {
@@ -2991,8 +3002,8 @@ function _buildQwen3LoadParams(context = 'main') {
     ? (document.getElementById('tsasr-qwen3-model-sel')?.value || tts.qwen3model)
     : (document.getElementById('tts-qwen3-model-sel')?.value || tts.qwen3model);
   const device = context === 'tts'
-    ? (document.querySelector('input[name="tsasr-device"]:checked')?.value || tts.ttsDevice || 'cpu')
-    : (document.querySelector('input[name="tts-device"]:checked')?.value || tts.ttsDevice || 'cpu');
+    ? (document.querySelector('input[name="tsasr-device"]:checked')?.value || tts.ttsDevice || 'cuda')
+    : (document.querySelector('input[name="tts-device"]:checked')?.value || tts.ttsDevice || 'cuda');
   return { model_id: modelId, device };
 }
 
@@ -3180,7 +3191,7 @@ function _ttsSyncUnloadBtn(engine) {
   const loadBtn   = document.getElementById('tts-engine-load-btn');
   if (!unloadBtn || !loadBtn) return;
   fetch(API + '/tts/status').then(r => r.json()).then(s => {
-    _syncTtsDeviceState(s.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
+    _syncTtsDeviceState(s.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
     const loaded = (engine === 'qwen3tts' && s.qwen3tts_loaded);
     unloadBtn.style.display = loaded ? '' : 'none';
     loadBtn.style.display   = loaded ? 'none' : '';
@@ -3724,9 +3735,7 @@ function saveTsAsrSettings() {
   const refTextInput = document.getElementById('qwen3-ref-text-input');
   if (refTextInput) localStorage.setItem('qwen3_ref_text', refTextInput.value || '');
   const requireRef = document.getElementById('qwen3-clone-require-ref-text');
-  const disableTranslate = document.getElementById('qwen3-clone-disable-translate');
   if (requireRef) localStorage.setItem('qwen3_clone_require_ref_text', requireRef.checked ? 'true' : 'false');
-  if (disableTranslate) localStorage.setItem('qwen3_clone_disable_translate', disableTranslate.checked ? 'true' : 'false');
   const cloneTestText = document.getElementById('qwen3-clone-test-text');
   if (cloneTestText) localStorage.setItem('qwen3_clone_test_text', cloneTestText.value || '');
   // Qwen3 モデル選択を echo.ttsEngine と同期
@@ -3824,8 +3833,8 @@ function refreshTtsTab() {
     const statusEl  = document.getElementById('tsasr-qwen3-status');
     const loadBtn   = document.getElementById('tsasr-qwen3-load-btn');
     const unloadBtn = document.getElementById('tsasr-qwen3-unload-btn');
-    _syncTtsDeviceState(s.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
-    if (statusEl) statusEl.textContent = s.qwen3tts_loaded ? `✓ ロード済み (${(s.qwen3tts_model_id||'').split('/').pop()}, ${s.qwen3tts_device||'cpu'})` : '未ロード';
+    _syncTtsDeviceState(s.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
+    if (statusEl) statusEl.textContent = s.qwen3tts_loaded ? `✓ ロード済み (${(s.qwen3tts_model_id||'').split('/').pop()}, ${s.qwen3tts_device||'cuda'})` : '未ロード';
     if (loadBtn)  loadBtn.style.display   = s.qwen3tts_loaded ? 'none' : '';
     if (unloadBtn) unloadBtn.style.display = s.qwen3tts_loaded ? '' : 'none';
     _syncQwen3CloneTestUi(s);
@@ -3838,13 +3847,11 @@ function refreshTtsTab() {
   if (refTextInput) refTextInput.value = localStorage.getItem('qwen3_ref_text') || '';
   const cloneTestInput = document.getElementById('qwen3-clone-test-text');
   const requireRef = document.getElementById('qwen3-clone-require-ref-text');
-  const disableTranslate = document.getElementById('qwen3-clone-disable-translate');
   if (cloneTestInput) cloneTestInput.value = localStorage.getItem('qwen3_clone_test_text') || '';
   if (requireRef) requireRef.checked = localStorage.getItem('qwen3_clone_require_ref_text') === 'true';
-  if (disableTranslate) disableTranslate.checked = localStorage.getItem('qwen3_clone_disable_translate') !== 'false';
   _syncQwen3ReferenceState();
   _syncQwen3CloneTestUi();
-  _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
+  _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
   const modeSel   = document.getElementById('tts-translate-mode');
   const en2jaChk  = document.getElementById('tts-translate-en2ja-enable');
   const ja2enChk  = document.getElementById('tts-translate-ja2en-enable');
@@ -3916,7 +3923,7 @@ async function unloadTtsEngineFromTab() {
     if (statusEl) statusEl.textContent = '未ロード';
     document.getElementById('tsasr-qwen3-unload-btn')?.setAttribute('style','display:none');
     document.getElementById('tsasr-qwen3-load-btn')?.removeAttribute('style');
-    _syncQwen3CloneTestUi({qwen3tts_loaded:false, qwen3tts_device: localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu'});
+    _syncQwen3CloneTestUi({qwen3tts_loaded:false, qwen3tts_device: localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda'});
   } catch(e) {
     if (statusEl) statusEl.textContent = 'エラー: ' + e.message;
   }
@@ -3939,7 +3946,7 @@ function _ttsInitSettingsUI() {
   onTtsEngineChange();
   // VOICEVOX 状態チェック
   fetch(API + '/tts/status').then(r => r.json()).then(s => {
-    _syncTtsDeviceState(s.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cpu');
+    _syncTtsDeviceState(s.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
     const status = document.getElementById('tts-voicevox-status');
     const urlInput = document.getElementById('tts-voicevox-url');
     if (urlInput && s.voicevox_http_url) urlInput.value = s.voicevox_http_url;
@@ -3991,7 +3998,7 @@ async function loadAsrModel() {
   const statusTxt = document.getElementById('asr-status-txt');
   const loadBtn   = document.getElementById('asr-load-btn');
   const model  = modelSel ? modelSel.value : 'large-v3-turbo';
-  const device = devRadio ? devRadio.value : 'cpu';
+  const device = devRadio ? devRadio.value : 'cuda';
   _syncAsrDeviceState(device);
   if (loadBtn) loadBtn.disabled = true;
   if (statusTxt) statusTxt.textContent = 'ロード中...';
