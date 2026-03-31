@@ -957,7 +957,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 <header>
   <div class="logo">
     <img class="logo-img" src="assets/kasane-core-logo.svg" alt="Kasane Core logo"
-      onerror="this.style.display='none';document.body.classList.add('logo-fallback')">
+      data-logo-paths="assets/kasane-core-logo.svg,./assets/kasane-core-logo.svg,../assets/kasane-core-logo.svg,/assets/kasane-core-logo.svg"
+      onerror="handleLogoLoadError(this)">
     <div class="logo-dot"></div>
   </div>
   <div class="hdr-mid">
@@ -968,11 +969,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
   </div>
   <div class="hdr-right">
-    <select id="theme-select-header" class="theme-select js-theme-select" title="UI theme" onchange="onThemeSelectChange(this)">
-      <option value="cyber">Cyber</option>
-      <option value="midnight">Midnight</option>
-      <option value="kasane">Kasane</option>
-    </select>
     <button class="hdr-icon-btn" id="settings-btn" onclick="openSettings()" title="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06-.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
@@ -2437,6 +2433,23 @@ let currentLlmLabel = 'NoLoad';
 let currentLlmState = '—';
 let currentModelStatus = 'unknown';
 const THEME_STORAGE_KEY = 'kc_theme';
+function handleLogoLoadError(logoEl) {
+  if (!logoEl) return;
+  const candidates = (logoEl.dataset.logoPaths || '')
+    .split(',')
+    .map((path) => path.trim())
+    .filter(Boolean);
+  const tried = Number(logoEl.dataset.logoRetryIndex || '0');
+  if (tried < candidates.length - 1) {
+    const next = tried + 1;
+    logoEl.dataset.logoRetryIndex = String(next);
+    logoEl.src = candidates[next];
+    return;
+  }
+  logoEl.style.display = 'none';
+  document.body.classList.add('logo-fallback');
+}
+
 const UI_THEMES = {
   cyber: {
     label: 'Cyber',
