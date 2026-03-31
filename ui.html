@@ -297,12 +297,12 @@ async function editMemoryInline(id) {
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#050914;--bg1:#0a1227;--bg2:#121f3f;--bg3:#1a2b56;
-  --border:#243767;--border2:#315093;
-  --text:#e8f0ff;--text2:#9fb4da;--text3:#6078a8;
-  --accent:#4a7fff;--accent-bg:rgba(74,127,255,.14);--accent-border:rgba(74,127,255,.42);
-  --accent-soft:rgba(74,127,255,.1);--accent-softer:rgba(74,127,255,.06);--accent-glow:rgba(74,127,255,.35);
-  --blue:#77a8ff;--blue-bg:rgba(119,168,255,.12);
+  --bg:#0a0a0b;--bg1:#111113;--bg2:#18181c;--bg3:#222228;
+  --border:#2a2a32;--border2:#3a3a46;
+  --text:#e8e8f0;--text2:#8888a0;--text3:#4a4a60;
+  --accent:#00ff88;--accent-bg:rgba(0,255,136,.07);--accent-border:rgba(0,255,136,.22);
+  --accent-soft:rgba(0,255,136,.1);--accent-softer:rgba(0,255,136,.06);--accent-glow:rgba(0,255,136,.35);
+  --blue:#4488ff;--blue-bg:rgba(68,136,255,.09);
   --red:#ff4466;--amber:#ffaa00;
   --font-ui:'Syne',sans-serif;--font-mono:'DM Mono',monospace;
   --chat-font-size:13px;
@@ -324,9 +324,7 @@ header{
   flex-shrink:0;position:relative;z-index:20
 }
 .logo{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:700;letter-spacing:.05em}
-.logo-img{height:32px;width:auto;display:block;object-fit:contain;filter:drop-shadow(0 0 8px var(--accent-soft))}
-.logo-text{font-weight:700;color:var(--text)}
-.logo-sub{font-size:10px;color:var(--text2);letter-spacing:.08em;text-transform:uppercase;margin-left:2px}
+.logo-img{height:38px;width:auto;display:block;object-fit:contain}
 .logo-dot{display:none;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:pulse 2s ease-in-out infinite}
 body.logo-fallback .logo-dot{display:block}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
@@ -961,10 +959,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     <img class="logo-img" src="assets/kasane-core-logo.svg" alt="Kasane Core logo"
       onerror="this.style.display='none';document.body.classList.add('logo-fallback')">
     <div class="logo-dot"></div>
-    <div>
-      <div class="logo-text">KasaneCore</div>
-      <div class="logo-sub">Cyber UI</div>
-    </div>
   </div>
   <div class="hdr-mid">
     <div class="mode-wrap">
@@ -1919,7 +1913,19 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             oninput="saveRootFolder(this.value)">
           <button id="settings-scan-btn" onclick="doModelScanFromSettings()" style="padding:6px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:5px;color:var(--bg);cursor:pointer;white-space:nowrap">Benchmark</button>
         </div>
-        <div id="settings-scan-result" style="display:none;font-size:10px;color:var(--accent);margin-top:4px"></div>
+      <div id="settings-scan-result" style="display:none;font-size:10px;color:var(--accent);margin-top:4px"></div>
+      </div>
+
+      <!-- テーマ -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🎨 テーマ</div>
+      <div style="padding:4px 0 14px">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:6px">UIテーマの配色を切り替えます。</div>
+        <select id="theme-select" class="theme-select" title="UI theme" onchange="setTheme(this.value)"
+          style="width:100%;height:34px">
+          <option value="cyber">Cyber</option>
+          <option value="midnight">Midnight</option>
+          <option value="kasane">Kasane</option>
+        </select>
       </div>
 
       <!-- エージェント設定 -->
@@ -2435,13 +2441,13 @@ const UI_THEMES = {
   cyber: {
     label: 'Cyber',
     vars: {
-      '--bg':'#050914','--bg1':'#0a1227','--bg2':'#121f3f','--bg3':'#1a2b56',
-      '--border':'#243767','--border2':'#315093',
-      '--text':'#e8f0ff','--text2':'#9fb4da','--text3':'#6078a8',
-      '--accent':'#4a7fff','--accent-bg':'rgba(74,127,255,.14)','--accent-border':'rgba(74,127,255,.42)',
-      '--accent-soft':'rgba(74,127,255,.1)','--accent-softer':'rgba(74,127,255,.06)','--accent-glow':'rgba(74,127,255,.35)',
-      '--blue':'#77a8ff','--blue-bg':'rgba(119,168,255,.12)',
-      '--red':'#ff587b','--amber':'#f5b14a'
+      '--bg':'#0a0a0b','--bg1':'#111113','--bg2':'#18181c','--bg3':'#222228',
+      '--border':'#2a2a32','--border2':'#3a3a46',
+      '--text':'#e8e8f0','--text2':'#8888a0','--text3':'#4a4a60',
+      '--accent':'#00ff88','--accent-bg':'rgba(0,255,136,.07)','--accent-border':'rgba(0,255,136,.22)',
+      '--accent-soft':'rgba(0,255,136,.1)','--accent-softer':'rgba(0,255,136,.06)','--accent-glow':'rgba(0,255,136,.35)',
+      '--blue':'#4488ff','--blue-bg':'rgba(68,136,255,.09)',
+      '--red':'#ff4466','--amber':'#ffaa00'
     }
   },
   midnight: {
@@ -2456,8 +2462,8 @@ const UI_THEMES = {
       '--red':'#ff6d98','--amber':'#f4b66b'
     }
   },
-  daylight: {
-    label: 'Daylight',
+  kasane: {
+    label: 'Kasane',
     vars: {
       '--bg':'#edf3ff','--bg1':'#dbe8ff','--bg2':'#f5f9ff','--bg3':'#e6efff',
       '--border':'#bccde9','--border2':'#96b0d9',
@@ -2471,14 +2477,13 @@ const UI_THEMES = {
 };
 
 function setTheme(themeName, persist = true) {
-  const chosen = UI_THEMES[themeName] ? themeName : 'cyber';
+  const normalized = themeName === 'daylight' ? 'kasane' : themeName;
+  const chosen = UI_THEMES[normalized] ? normalized : 'cyber';
   const rootStyle = document.documentElement.style;
   Object.entries(UI_THEMES[chosen].vars).forEach(([k, v]) => rootStyle.setProperty(k, v));
   document.documentElement.setAttribute('data-theme', chosen);
   const themeSelect = document.getElementById('theme-select');
   if (themeSelect) themeSelect.value = chosen;
-  const sub = document.querySelector('.logo-sub');
-  if (sub) sub.textContent = `${UI_THEMES[chosen].label} UI`;
   if (persist) localStorage.setItem(THEME_STORAGE_KEY, chosen);
 }
 
