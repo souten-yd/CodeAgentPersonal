@@ -323,10 +323,23 @@ header{
   background:var(--bg1);
   flex-shrink:0;position:relative;z-index:20
 }
-.logo{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:700;letter-spacing:.05em}
-.logo-img{height:38px;width:auto;display:block;object-fit:contain}
-.logo-dot{display:none;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:pulse 2s ease-in-out infinite}
-body.logo-fallback .logo-dot{display:block}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-mark{position:relative;width:48px;height:48px;flex-shrink:0}
+.logo-img{width:100%;height:100%;display:block;object-fit:contain}
+.logo-dot{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:12px;height:12px;border-radius:50%;
+  background:radial-gradient(circle at 35% 35%, #5f63cf 0%, #333079 62%, #1b1f58 100%);
+  box-shadow:0 0 0 5px rgba(95,99,207,.35), 0 0 12px rgba(95,99,207,.5);
+  animation:pulse 2.2s ease-in-out infinite;
+}
+.logo-word{display:flex;flex-direction:column;line-height:1}
+.logo-kasane{font-size:15px;font-weight:800;letter-spacing:.01em;color:#07174a}
+.logo-core{font-size:12px;font-weight:500;color:#07174a;align-self:flex-end}
+body[data-theme="cyber"] .logo-kasane, body[data-theme="cyber"] .logo-core,
+body[data-theme="midnight"] .logo-kasane, body[data-theme="midnight"] .logo-core{
+  color:#dce7ff;
+}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .hdr-mid{display:flex;align-items:center;gap:6px}
 .proj-btn{display:flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:5px 10px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);transition:border-color .15s;user-select:none}
@@ -956,9 +969,14 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
 <header>
   <div class="logo">
-    <img class="logo-img" src="assets/kasane-core-logo.svg" alt="Kasane Core logo"
-      onerror="this.style.display='none';document.body.classList.add('logo-fallback')">
-    <div class="logo-dot"></div>
+    <div class="logo-mark">
+      <img class="logo-img" src="assets/kasane-core-logo.svg" alt="Kasane logo mark">
+      <div class="logo-dot"></div>
+    </div>
+    <div class="logo-word">
+      <div class="logo-kasane">Kasane</div>
+      <div class="logo-core">Core</div>
+    </div>
   </div>
   <div class="hdr-mid">
     <div class="mode-wrap">
