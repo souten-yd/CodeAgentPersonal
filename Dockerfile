@@ -152,7 +152,6 @@ RUN set -eux; \
           if curl -fsSL "${flash_release_api}" -o /tmp/flash_attn_release.json; then \
             flash_candidates_cp311_file="/tmp/flash_attn_candidates_cp311.txt"; \
             flash_candidates_torch_file="/tmp/flash_attn_candidates_torch211.txt"; \
-            flash_candidates_cuda_file="/tmp/flash_attn_candidates_cuda128.txt"; \
             flash_candidates_platform_file="/tmp/flash_attn_candidates_linux_x86_64.txt"; \
             jq -r '.assets[].browser_download_url' /tmp/flash_attn_release.json | tee "${flash_asset_list}" > /dev/null || true; \
             echo "[Qwen3-TTS][build] flash-attn release asset URLs (first 20 from jq):"; \
@@ -163,13 +162,28 @@ RUN set -eux; \
             grep -Ei 'torch(2[._-]?11|211)|pytorch(2[._-]?11|211)' "${flash_candidates_cp311_file}" > "${flash_candidates_torch_file}" || true; \
             echo "[Qwen3-TTS][build] flash-attn candidates after torch 2.11 filter:"; \
             if [ -s "${flash_candidates_torch_file}" ]; then cat "${flash_candidates_torch_file}"; else echo "(none)"; fi; \
-            grep -Ei 'cu128|cu12[._-]?8|cuda12[._-]?8|cu12' "${flash_candidates_torch_file}" > "${flash_candidates_cuda_file}" || true; \
-            echo "[Qwen3-TTS][build] flash-attn candidates after CUDA 12.8 filter:"; \
-            if [ -s "${flash_candidates_cuda_file}" ]; then cat "${flash_candidates_cuda_file}"; else echo "(none)"; fi; \
-            grep -Ei 'linux_x86_64|manylinux.*x86_64' "${flash_candidates_cuda_file}" > "${flash_candidates_platform_file}" || true; \
-            echo "[Qwen3-TTS][build] flash-attn candidates after Linux x86_64 filter:"; \
+            grep -Ei 'linux_x86_64' "${flash_candidates_torch_file}" | sort -u > "${flash_candidates_platform_file}" || true; \
+            echo "[Qwen3-TTS][build] flash-attn candidates after Linux x86_64 filter (sorted):"; \
             if [ -s "${flash_candidates_platform_file}" ]; then cat "${flash_candidates_platform_file}"; else echo "(none)"; fi; \
-            flash_wheel_url="$(head -n1 "${flash_candidates_platform_file}")"; \
+            flash_assets="$(cat "${flash_candidates_torch_file}")"; \
+            if [ -z "${flash_wheel_url}" ]; then \
+              flash_wheel_url="$(printf '%s\n' "${flash_assets}" | grep -Ei 'flash_attn-2\.8\.3' | grep -Ei 'cu128' | grep -Ei 'linux_x86_64' | head -n1)"; \
+            fi; \
+            if [ -z "${flash_wheel_url}" ]; then \
+              flash_wheel_url="$(printf '%s\n' "${flash_assets}" | grep -Ei 'flash_attn-2\.8\.3' | grep -Ei 'cu128' | grep -Ei 'manylinux.*x86_64' | head -n1)"; \
+            fi; \
+            if [ -z "${flash_wheel_url}" ]; then \
+              flash_wheel_url="$(printf '%s\n' "${flash_assets}" | grep -Ei 'flash_attn-2\.7\.4' | grep -Ei 'cu128' | grep -Ei 'linux_x86_64' | head -n1)"; \
+            fi; \
+            if [ -z "${flash_wheel_url}" ]; then \
+              flash_wheel_url="$(printf '%s\n' "${flash_assets}" | grep -Ei 'flash_attn-2\.7\.4' | grep -Ei 'cu128' | grep -Ei 'manylinux.*x86_64' | head -n1)"; \
+            fi; \
+            if [ -z "${flash_wheel_url}" ]; then \
+              flash_wheel_url="$(printf '%s\n' "${flash_assets}" | grep -Ei 'flash_attn-2\.6\.3' | grep -Ei 'cu128' | grep -Ei 'linux_x86_64' | head -n1)"; \
+            fi; \
+            if [ -z "${flash_wheel_url}" ]; then \
+              flash_wheel_url="$(printf '%s\n' "${flash_assets}" | grep -Ei 'flash_attn-2\.(8\.3|7\.4|6\.3)' | grep -Ei 'cu126' | grep -Ei 'linux_x86_64|manylinux.*x86_64' | head -n1)"; \
+            fi; \
             if [ -z "${flash_wheel_url}" ]; then \
               echo "[Qwen3-TTS][build] no prebuilt wheel candidate found. asset list kept at ${flash_asset_list}"; \
             fi; \
@@ -180,7 +194,6 @@ RUN set -eux; \
           echo "[Qwen3-TTS][build] flash-attn selected prebuilt URL: ${flash_wheel_url:-<none>}"; \
           if [ -n "${flash_wheel_url}" ]; then \
             flash_attn_source="prebuilt-wheel(v0.9.4)"; \
-            echo "[Qwen3-TTS][build] flash-attn prebuilt wheel URL: ${flash_wheel_url}"; \
             if python -m pip install --no-cache-dir "${flash_wheel_url}" 2>&1 | tee "${flash_attn_log}" && python -c "import flash_attn" >/dev/null 2>&1; then \
               install_and_import_ok=true; \
             fi; \
