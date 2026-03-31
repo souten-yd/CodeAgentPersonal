@@ -301,8 +301,10 @@ async function editMemoryInline(id) {
   --border:#2a2a32;--border2:#3a3a46;
   --text:#e8e8f0;--text2:#8888a0;--text3:#4a4a60;
   --accent:#00ff88;--accent-bg:rgba(0,255,136,.07);--accent-border:rgba(0,255,136,.22);
+  --accent-soft:rgba(0,255,136,.1);--accent-softer:rgba(0,255,136,.06);--accent-glow:rgba(0,255,136,.35);
   --blue:#4488ff;--blue-bg:rgba(68,136,255,.09);
   --red:#ff4466;--amber:#ffaa00;
+  --logo-text:#c9ffe6;--logo-sub:#a8e3cc;
   --font-ui:'Syne',sans-serif;--font-mono:'DM Mono',monospace;
   --chat-font-size:13px;
   --echo-font-size:13px;
@@ -322,8 +324,14 @@ header{
   background:var(--bg1);
   flex-shrink:0;position:relative;z-index:20
 }
-.logo{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:700;letter-spacing:.05em}
-.logo-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:pulse 2s ease-in-out infinite}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-mark{width:42px;height:42px;flex-shrink:0}
+.logo-mark svg{width:100%;height:100%;display:block}
+.logo-text-wrap{display:flex;flex-direction:column;line-height:1}
+.logo-main{font-size:19px;font-weight:700;letter-spacing:.04em;color:var(--logo-text)}
+.logo-sub{font-size:16px;font-weight:500;letter-spacing:.02em;color:var(--logo-sub);align-self:flex-end;margin-top:1px}
+.logo-dot{display:none;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:pulse 2s ease-in-out infinite}
+body.logo-fallback .logo-dot{display:block}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .hdr-mid{display:flex;align-items:center;gap:6px}
 .proj-btn{display:flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:5px 10px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);transition:border-color .15s;user-select:none}
@@ -594,7 +602,7 @@ header{
 .plan-card{border:1px solid var(--accent-border);border-radius:var(--r2);background:var(--accent-bg);margin-top:3px;overflow:hidden;width:100%}
 .plan-card-header{padding:10px 13px;font-size:13px;font-weight:700;color:var(--accent);letter-spacing:.05em;border-bottom:1px solid var(--accent-border);display:flex;align-items:center;gap:8px;word-break:break-word;white-space:normal;flex-wrap:wrap}
 .plan-tasks{padding:4px 0}
-.plan-task-row{display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:start;column-gap:8px;padding:6px 10px;border-bottom:1px solid rgba(0,255,136,.08)}
+.plan-task-row{display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:start;column-gap:8px;padding:6px 10px;border-bottom:1px solid var(--accent-softer)}
 .plan-task-row:last-child{border-bottom:none}
 .plan-task-num{width:20px;height:20px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);font-size:10px;font-weight:700;color:var(--text2);display:flex;align-items:center;justify-content:center;margin-top:1px}
 .plan-task-content{min-width:0;padding-right:2px}
@@ -628,20 +636,20 @@ header{
   transition:opacity .15s;flex-shrink:0;
 }
 .clarify-send:hover{opacity:.85}
-.plan-section{padding:8px 10px;border-top:1px solid rgba(0,255,136,.08)}
+.plan-section{padding:8px 10px;border-top:1px solid var(--accent-softer)}
 .plan-section-title{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--accent);opacity:.7;margin-bottom:5px}
 .plan-req-item{font-size:12px;color:var(--text2);padding:2px 0 2px 10px;border-left:2px solid var(--accent-border);margin-bottom:4px;line-height:1.5}
 .plan-approach-text{font-size:12px;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-word}
 .plan-verify-item{font-size:11px;color:var(--text2);padding:2px 0 2px 10px;border-left:2px solid rgba(68,136,255,.4);margin-bottom:3px}
 /* Model selector in plan card */
-.plan-model-bar{padding:9px 10px;border-top:1px solid rgba(0,255,136,.12);background:rgba(0,255,136,.03);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.plan-model-bar{padding:9px 10px;border-top:1px solid var(--accent-soft);background:var(--accent-softer);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .plan-model-label{font-size:11px;color:var(--text3);flex-shrink:0}
 .plan-model-badge{font-size:11px;font-weight:700;color:var(--accent);font-family:var(--font-mono);flex:1}
 .plan-model-eta{font-size:11px;color:var(--amber);font-family:var(--font-mono)}
 .plan-model-sel{font-size:11px;font-family:var(--font-ui);background:var(--bg2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:3px 7px;cursor:pointer}
 .plan-model-sel:focus{outline:none;border-color:var(--accent)}
 .plan-model-switching{font-size:11px;color:var(--amber);font-family:var(--font-mono);display:flex;align-items:center;gap:6px}
-.plan-actions{display:flex;gap:8px;padding:9px 10px;border-top:1px solid var(--accent-border);background:rgba(0,255,136,.04)}
+.plan-actions{display:flex;gap:8px;padding:9px 10px;border-top:1px solid var(--accent-border);background:var(--accent-softer)}
 .plan-execute-btn{flex:1;padding:9px;font-size:13px;font-weight:700;background:var(--accent);border:none;border-radius:var(--r);color:var(--bg);cursor:pointer;font-family:var(--font-ui);letter-spacing:.04em;transition:opacity .15s}
 .plan-execute-btn:hover{opacity:.85}
 .plan-revise-btn{padding:9px 14px;font-size:12px;font-weight:600;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);color:var(--text2);cursor:pointer;font-family:var(--font-ui);transition:all .15s}
@@ -654,7 +662,7 @@ header{
 .prog-elapsed{font-size:10px;font-family:var(--font-mono);color:var(--accent);flex-shrink:0}
 .prog-meter{display:flex;align-items:center;gap:8px;margin-top:6px}
 .prog-bar{position:relative;flex:1;height:5px;background:var(--bg3);border:1px solid var(--border);border-radius:999px;overflow:hidden}
-.prog-fill{position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,var(--accent),rgba(0,255,136,.6));transition:width .2s ease}
+.prog-fill{position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent-glow));transition:width .2s ease}
 .prog-pct{font-size:10px;color:var(--text3);font-family:var(--font-mono);min-width:30px;text-align:right}
 .prog-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px}
 .prog-step{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:999px;background:var(--bg3);border:1px solid var(--border);color:var(--amber)}
@@ -684,7 +692,7 @@ textarea#input::placeholder{color:var(--text3)}
 .mic-btn.recording{background:rgba(255,59,92,.14);border-color:rgba(255,59,92,.5);color:#ff728c;box-shadow:0 0 10px rgba(255,59,92,.25)}
 .mic-btn:disabled{opacity:.45;cursor:not-allowed}
 .send-btn{position:absolute;right:7px;bottom:7px;width:28px;height:28px;border-radius:6px;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;opacity:.9}
-.send-btn:hover{opacity:1;box-shadow:0 0 10px rgba(0,255,136,.3)}
+.send-btn:hover{opacity:1;box-shadow:0 0 10px var(--accent-glow)}
 .send-btn:disabled{background:var(--bg3);opacity:.5;cursor:not-allowed;box-shadow:none}
 .send-btn svg{width:13px;height:13px;fill:var(--bg)}
 
@@ -835,7 +843,12 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .hdr-icon-btn svg{width:14px;height:14px}
 .hdr-icon-btn:hover{border-color:var(--border2);color:var(--text)}
 .hdr-icon-btn.search-on{border-color:var(--accent-border);color:var(--accent);background:var(--accent-bg)}
-.hdr-icon-btn.search-on:hover{box-shadow:0 0 8px rgba(0,255,136,.2)}
+.hdr-icon-btn.search-on:hover{box-shadow:0 0 8px var(--accent-soft)}
+.theme-select{
+  height:30px;padding:0 8px;border-radius:6px;border:1px solid var(--border);
+  background:var(--bg2);color:var(--text2);font-size:11px;font-family:var(--font-ui);font-weight:600;
+}
+.theme-select:focus{outline:none;border-color:var(--accent-border);color:var(--text)}
 
 .search-badge{position:absolute;top:-4px;right:-4px;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 5px var(--accent)}
 
@@ -947,7 +960,37 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 <body>
 
 <header>
-  <div class="logo"><div class="logo-dot"></div>KasaneCore</div>
+  <div class="logo">
+    <div class="logo-mark" aria-label="Kasane Core logo">
+      <svg viewBox="0 0 120 120" role="img" aria-hidden="true">
+        <defs>
+          <linearGradient id="logoInk" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#050f3b"/>
+            <stop offset="1" stop-color="#334fa8"/>
+          </linearGradient>
+          <radialGradient id="logoDot" cx="50%" cy="44%" r="55%">
+            <stop offset="0" stop-color="#1e2f86"/>
+            <stop offset="1" stop-color="#060b33"/>
+          </radialGradient>
+        </defs>
+        <g transform="translate(8,8)" fill="none" stroke="url(#logoInk)" stroke-linecap="round">
+          <circle cx="52" cy="52" r="46" stroke-width="5"/>
+          <circle cx="52" cy="52" r="37" stroke-width="4.5"/>
+          <circle cx="52" cy="52" r="28" stroke-width="4"/>
+          <ellipse cx="50" cy="54" rx="44" ry="47" stroke-width="3.6" transform="rotate(-12 50 54)" opacity=".95"/>
+          <ellipse cx="54" cy="50" rx="42" ry="45" stroke-width="3.4" transform="rotate(10 54 50)" opacity=".9"/>
+          <ellipse cx="56" cy="52" rx="32" ry="35" stroke-width="3.2" transform="rotate(22 56 52)" opacity=".84"/>
+          <ellipse cx="48" cy="51" rx="34" ry="33" stroke-width="3" transform="rotate(-24 48 51)" opacity=".78"/>
+          <circle cx="52" cy="52" r="9" fill="url(#logoDot)" stroke="#162669" stroke-width="2"/>
+        </g>
+      </svg>
+    </div>
+    <div class="logo-dot"></div>
+    <div class="logo-text-wrap">
+      <div class="logo-main">Kasane</div>
+      <div class="logo-sub">Core</div>
+    </div>
+  </div>
   <div class="hdr-mid">
     <div class="mode-wrap">
       <button class="mode-btn active" id="btn-chat" onclick="setMode('chat')">Chat</button>
@@ -1896,7 +1939,19 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             oninput="saveRootFolder(this.value)">
           <button id="settings-scan-btn" onclick="doModelScanFromSettings()" style="padding:6px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:5px;color:var(--bg);cursor:pointer;white-space:nowrap">Benchmark</button>
         </div>
-        <div id="settings-scan-result" style="display:none;font-size:10px;color:var(--accent);margin-top:4px"></div>
+      <div id="settings-scan-result" style="display:none;font-size:10px;color:var(--accent);margin-top:4px"></div>
+      </div>
+
+      <!-- テーマ -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🎨 テーマ</div>
+      <div style="padding:4px 0 14px">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:6px">UIテーマの配色を切り替えます。</div>
+        <select id="theme-select" class="theme-select" title="UI theme" onchange="setTheme(this.value)"
+          style="width:100%;height:34px">
+          <option value="cyber">Cyber</option>
+          <option value="midnight">Midnight</option>
+          <option value="kasane">Kasane</option>
+        </select>
       </div>
 
       <!-- エージェント設定 -->
@@ -2407,6 +2462,64 @@ let systemSummaryPollTimer = null;
 let currentLlmLabel = 'NoLoad';
 let currentLlmState = '—';
 let currentModelStatus = 'unknown';
+const THEME_STORAGE_KEY = 'kc_theme';
+const UI_THEMES = {
+  cyber: {
+    label: 'Cyber',
+    vars: {
+      '--bg':'#0a0a0b','--bg1':'#111113','--bg2':'#18181c','--bg3':'#222228',
+      '--border':'#2a2a32','--border2':'#3a3a46',
+      '--text':'#e8e8f0','--text2':'#8888a0','--text3':'#4a4a60',
+      '--accent':'#00ff88','--accent-bg':'rgba(0,255,136,.07)','--accent-border':'rgba(0,255,136,.22)',
+      '--accent-soft':'rgba(0,255,136,.1)','--accent-softer':'rgba(0,255,136,.06)','--accent-glow':'rgba(0,255,136,.35)',
+      '--blue':'#4488ff','--blue-bg':'rgba(68,136,255,.09)',
+      '--red':'#ff4466','--amber':'#ffaa00',
+      '--logo-text':'#c9ffe6','--logo-sub':'#a8e3cc'
+    }
+  },
+  midnight: {
+    label: 'Midnight',
+    vars: {
+      '--bg':'#09080f','--bg1':'#131123','--bg2':'#1c1831','--bg3':'#262043',
+      '--border':'#352d56','--border2':'#4a3d74',
+      '--text':'#f0ecff','--text2':'#b6a8df','--text3':'#786c9b',
+      '--accent':'#8a6bff','--accent-bg':'rgba(138,107,255,.16)','--accent-border':'rgba(138,107,255,.42)',
+      '--accent-soft':'rgba(138,107,255,.12)','--accent-softer':'rgba(138,107,255,.07)','--accent-glow':'rgba(138,107,255,.36)',
+      '--blue':'#8fa5ff','--blue-bg':'rgba(143,165,255,.14)',
+      '--red':'#ff6d98','--amber':'#f4b66b',
+      '--logo-text':'#ddd2ff','--logo-sub':'#c7b9f5'
+    }
+  },
+  kasane: {
+    label: 'Kasane',
+    vars: {
+      '--bg':'#edf3ff','--bg1':'#dbe8ff','--bg2':'#f5f9ff','--bg3':'#e6efff',
+      '--border':'#bccde9','--border2':'#96b0d9',
+      '--text':'#1a2a45','--text2':'#3e557d','--text3':'#7085a7',
+      '--accent':'#2c66db','--accent-bg':'rgba(44,102,219,.12)','--accent-border':'rgba(44,102,219,.35)',
+      '--accent-soft':'rgba(44,102,219,.1)','--accent-softer':'rgba(44,102,219,.06)','--accent-glow':'rgba(44,102,219,.32)',
+      '--blue':'#2f78ff','--blue-bg':'rgba(47,120,255,.12)',
+      '--red':'#d1446b','--amber':'#c78a2b',
+      '--logo-text':'#0a1f65','--logo-sub':'#122f84'
+    }
+  }
+};
+
+function setTheme(themeName, persist = true) {
+  const normalized = themeName === 'daylight' ? 'kasane' : themeName;
+  const chosen = UI_THEMES[normalized] ? normalized : 'cyber';
+  const rootStyle = document.documentElement.style;
+  Object.entries(UI_THEMES[chosen].vars).forEach(([k, v]) => rootStyle.setProperty(k, v));
+  document.documentElement.setAttribute('data-theme', chosen);
+  const themeSelect = document.getElementById('theme-select');
+  if (themeSelect) themeSelect.value = chosen;
+  if (persist) localStorage.setItem(THEME_STORAGE_KEY, chosen);
+}
+
+function initTheme() {
+  const saved = localStorage.getItem(THEME_STORAGE_KEY) || 'cyber';
+  setTheme(saved, false);
+}
 
 function updateSystemLlmName() {
   const llmEl = document.getElementById('sys-llm-name');
@@ -4366,6 +4479,7 @@ function initPanelResizer() {
 
 // ── INIT ──
 addEventListener('load', async () => {
+  initTheme();
   if (window.innerWidth <= 768) {
     mobSwitch('chat');
   } else {
@@ -5138,7 +5252,7 @@ function renderModelCard(m) {
         </div>
         <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
           <button onclick="toggleModelEnabled('${esc(asText(m?.id))}', ${!enabled})"
-            style="font-size:10px;padding:2px 8px;border:1px solid ${toggleColor};background:${enabled?'rgba(0,255,136,.1)':'rgba(255,68,102,.08)'};color:${toggleColor};border-radius:10px;cursor:pointer;font-weight:700">
+            style="font-size:10px;padding:2px 8px;border:1px solid ${toggleColor};background:${enabled?'var(--accent-soft)':'rgba(255,68,102,.08)'};color:${toggleColor};border-radius:10px;cursor:pointer;font-weight:700">
             ${toggleLabel}
           </button>
           ${m?.is_vlm ? `<button onclick="toggleModelVlmEnabled('${esc(asText(m?.id))}', ${!vlmEnabled})"
