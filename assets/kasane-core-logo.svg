@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="Kasane logo mark">
+  <defs>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#041447"/>
+      <stop offset="1" stop-color="#001a61"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#ring)" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="60" cy="60" r="54" stroke-width="4.5"/>
+    <circle cx="60" cy="60" r="45" stroke-width="4"/>
+    <circle cx="60" cy="60" r="36" stroke-width="3.8"/>
+    <path d="M24 74a36 36 0 1 1 72-8" stroke-width="4.6"/>
+    <path d="M29 37a29 29 0 1 0 58 23" stroke-width="4.2"/>
+    <path d="M35 79a29 29 0 1 1 50-16" stroke-width="4"/>
+    <circle cx="60" cy="60" r="24" stroke-width="3.6"/>
+    <circle cx="60" cy="60" r="15" stroke-width="3.2" opacity="0.9"/>
+  </g>
+</svg>
