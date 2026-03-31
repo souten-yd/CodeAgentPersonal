@@ -4,26 +4,25 @@
       <stop offset="0" stop-color="#040a2d"/>
       <stop offset="1" stop-color="#273f98"/>
     </linearGradient>
-    <radialGradient id="dot" cx="50%" cy="45%" r="55%">
-      <stop offset="0" stop-color="#1e2f86"/>
-      <stop offset="1" stop-color="#060b33"/>
+    <radialGradient id="core" cx="45%" cy="40%" r="60%">
+      <stop offset="0" stop-color="#2e4ac8"/>
+      <stop offset="1" stop-color="#050b35"/>
     </radialGradient>
   </defs>
 
   <g transform="translate(10,8)" fill="none" stroke="url(#ink)" stroke-linecap="round">
-    <circle cx="54" cy="54" r="48" stroke-width="5.2"/>
-    <circle cx="54" cy="54" r="39" stroke-width="4.6"/>
-    <circle cx="54" cy="54" r="30" stroke-width="4.2"/>
-    <circle cx="54" cy="54" r="21" stroke-width="3.6"/>
-    <ellipse cx="52" cy="56" rx="46" ry="49" stroke-width="3.8" opacity="0.96" transform="rotate(-12 52 56)"/>
-    <ellipse cx="56" cy="52" rx="44" ry="47" stroke-width="3.6" opacity="0.9" transform="rotate(10 56 52)"/>
-    <ellipse cx="58" cy="54" rx="34" ry="37" stroke-width="3.4" opacity="0.86" transform="rotate(22 58 54)"/>
-    <ellipse cx="50" cy="53" rx="36" ry="35" stroke-width="3.1" opacity="0.8" transform="rotate(-24 50 53)"/>
-    <circle cx="54" cy="54" r="9.5" fill="url(#dot)" stroke="#162669" stroke-width="2"/>
+    <circle cx="54" cy="54" r="48" stroke-width="5"/>
+    <ellipse cx="53" cy="54" rx="45" ry="48" stroke-width="4.1" transform="rotate(-12 53 54)" opacity="0.93"/>
+    <ellipse cx="55" cy="53" rx="46" ry="42" stroke-width="3.8" transform="rotate(11 55 53)" opacity="0.88"/>
+    <ellipse cx="55" cy="54" rx="39" ry="35" stroke-width="3.5" transform="rotate(23 55 54)" opacity="0.9"/>
+    <ellipse cx="52" cy="54" rx="35" ry="39" stroke-width="3.3" transform="rotate(-20 52 54)" opacity="0.78"/>
+    <circle cx="54" cy="54" r="27" stroke-width="4.2" opacity="0.85"/>
+    <circle cx="54" cy="54" r="16" stroke-width="3.8" opacity="0.86"/>
+    <circle cx="54" cy="54" r="8.8" fill="url(#core)" stroke="#1b2c75" stroke-width="2"/>
   </g>
 
   <g fill="#050f3b" font-family="Inter,Segoe UI,Arial,sans-serif">
-    <text x="140" y="70" font-size="82" font-weight="700" letter-spacing="0.5">Kasane</text>
-    <text x="382" y="104" font-size="72" font-weight="500" letter-spacing="0.2">Core</text>
+    <text x="140" y="72" font-size="82" font-weight="700" letter-spacing="0.4">Kasane</text>
+    <text x="385" y="104" font-size="66" font-weight="500" letter-spacing="0.15">Core</text>
   </g>
 </svg>
