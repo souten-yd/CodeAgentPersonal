@@ -48,7 +48,15 @@ def copy_ui(base_dir: Path) -> None:
         return
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
-    print("[UI] ui.html copied")
+    assets_src = base_dir / "assets"
+    assets_dst = base_dir / "ui" / "assets"
+    if assets_src.exists() and assets_src.is_dir():
+        shutil.copytree(assets_src, assets_dst, dirs_exist_ok=True)
+    logo_src = assets_src / "kasane-core-logo.svg"
+    logo_dst = base_dir / "ui" / "kasane-core-logo.svg"
+    if logo_src.exists():
+        shutil.copy2(logo_src, logo_dst)
+    print("[UI] ui.html copied (+ assets synced to /ui/assets)")
 
 
 def resolve_llama_server_path(base_dir: Path, runpod: bool = False) -> Path:

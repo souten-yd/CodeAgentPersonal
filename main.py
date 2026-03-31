@@ -167,6 +167,7 @@ def _clamp_docker_timeout(tool: str, requested: int | None) -> int:
 
 UI_DIR = "./ui"
 os.makedirs(UI_DIR, exist_ok=True)
+ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
 # =========================
 # Web検索 有効/無効フラグ（デフォルトOFF）
@@ -13839,3 +13840,5 @@ def ui_redirect():
 
 app.mount("/workspace", StaticFiles(directory=WORK_DIR, html=True), name="workspace")
 app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
+if os.path.isdir(ASSETS_DIR):
+    app.mount("/assets", StaticFiles(directory=ASSETS_DIR, html=False), name="assets")
