@@ -968,10 +968,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
   </div>
   <div class="hdr-right">
-    <select id="theme-select" class="theme-select" title="UI theme" onchange="setTheme(this.value)">
+    <select id="theme-select-header" class="theme-select js-theme-select" title="UI theme" onchange="onThemeSelectChange(this)">
       <option value="cyber">Cyber</option>
       <option value="midnight">Midnight</option>
-      <option value="daylight">Daylight</option>
+      <option value="kasane">Kasane</option>
     </select>
     <button class="hdr-icon-btn" id="settings-btn" onclick="openSettings()" title="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06-.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -1920,7 +1920,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🎨 テーマ</div>
       <div style="padding:4px 0 14px">
         <div style="font-size:10px;color:var(--text3);margin-bottom:6px">UIテーマの配色を切り替えます。</div>
-        <select id="theme-select" class="theme-select" title="UI theme" onchange="setTheme(this.value)"
+        <select id="theme-select-settings" class="theme-select js-theme-select" title="UI theme" onchange="onThemeSelectChange(this)"
           style="width:100%;height:34px">
           <option value="cyber">Cyber</option>
           <option value="midnight">Midnight</option>
@@ -2482,9 +2482,22 @@ function setTheme(themeName, persist = true) {
   const rootStyle = document.documentElement.style;
   Object.entries(UI_THEMES[chosen].vars).forEach(([k, v]) => rootStyle.setProperty(k, v));
   document.documentElement.setAttribute('data-theme', chosen);
-  const themeSelect = document.getElementById('theme-select');
-  if (themeSelect) themeSelect.value = chosen;
+  document.querySelectorAll('.js-theme-select').forEach((themeSelect) => {
+    themeSelect.value = chosen;
+  });
   if (persist) localStorage.setItem(THEME_STORAGE_KEY, chosen);
+}
+
+
+
+function onThemeSelectChange(selectEl) {
+  if (!selectEl) return;
+  setTheme(selectEl.value);
+  // iOS Safari で選択UIが残留するケース対策としてフォーカスを確実に解除
+  if (typeof selectEl.blur === 'function') selectEl.blur();
+  setTimeout(() => {
+    if (document.activeElement === selectEl && typeof selectEl.blur === 'function') selectEl.blur();
+  }, 0);
 }
 
 function initTheme() {
