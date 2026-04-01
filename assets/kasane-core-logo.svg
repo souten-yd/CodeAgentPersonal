@@ -2,27 +2,27 @@
      width="820" height="260" viewBox="0 0 820 260"
      role="img" aria-label="Kasane Core">
   <defs>
-    <linearGradient id="ringStrokeC" x1="50" y1="20" x2="235" y2="210" gradientUnits="userSpaceOnUse">
+    <linearGradient id="ringStrokeB" x1="50" y1="20" x2="235" y2="210" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#02082b"/>
       <stop offset="0.45" stop-color="#08154a"/>
       <stop offset="1" stop-color="#3b4fb0"/>
     </linearGradient>
-    <linearGradient id="textFillC" x1="175" y1="70" x2="595" y2="200" gradientUnits="userSpaceOnUse">
+    <linearGradient id="textFillB" x1="190" y1="70" x2="610" y2="200" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#02082b"/>
       <stop offset="0.55" stop-color="#071447"/>
       <stop offset="1" stop-color="#23388f"/>
     </linearGradient>
-    <filter id="softDepthC" x="-20%" y="-20%" width="140%" height="140%">
+    <filter id="softDepthB" x="-20%" y="-20%" width="140%" height="140%">
       <feDropShadow dx="0" dy="1.2" stdDeviation="1.2" flood-color="#08113b" flood-opacity="0.22"/>
     </filter>
   </defs>
 
   <g transform="translate(36 26)"
      fill="none"
-     stroke="url(#ringStrokeC)"
+     stroke="url(#ringStrokeB)"
      stroke-linecap="round"
      stroke-linejoin="round"
-     filter="url(#softDepthC)">
+     filter="url(#softDepthB)">
     <circle  cx="110" cy="102" r="82" stroke-width="5.8"/>
     <ellipse cx="107" cy="103" rx="77" ry="83" stroke-width="4.9" transform="rotate(-13 107 103)" opacity="0.96"/>
     <ellipse cx="112" cy="101" rx="82" ry="71" stroke-width="4.7" transform="rotate(10 112 101)" opacity="0.92"/>
@@ -32,12 +32,17 @@
     <circle  cx="110" cy="102" r="24" stroke-width="4.7" opacity="0.82"/>
   </g>
 
-  <g fill="url(#textFillC)"
-     filter="url(#softDepthC)"
+  <g transform="translate(36 26)" aria-hidden="true">
+    <circle cx="110" cy="102" r="8" fill="var(--accent, #00ff88)"/>
+    <circle cx="110" cy="102" r="12" fill="none" stroke="var(--accent, #00ff88)" stroke-opacity="0.45" stroke-width="1.2"/>
+  </g>
+
+  <g fill="url(#textFillB)"
+     filter="url(#softDepthB)"
      font-family="'Avenir Next','Montserrat','Segoe UI',Arial,sans-serif">
-    <text x="590" y="128" text-anchor="end"
+    <text x="605" y="128" text-anchor="end"
           font-size="100" font-weight="800" letter-spacing="-1.8">Kasane</text>
-    <text x="590" y="196" text-anchor="end"
+    <text x="605" y="196" text-anchor="end"
           font-size="64" font-weight="500" letter-spacing="-1.0">Core</text>
   </g>
 </svg>
