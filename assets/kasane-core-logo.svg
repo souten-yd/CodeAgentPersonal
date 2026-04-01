@@ -3,17 +3,17 @@
      role="img" aria-label="Kasane Core">
   <defs>
     <linearGradient id="ringStrokeB" x1="50" y1="20" x2="235" y2="210" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#02082b"/>
-      <stop offset="0.45" stop-color="#08154a"/>
-      <stop offset="1" stop-color="#3b4fb0"/>
+      <stop offset="0" stop-color="var(--logo-accent-strong, var(--accent))"/>
+      <stop offset="0.45" stop-color="var(--logo-accent, var(--accent))"/>
+      <stop offset="1" stop-color="var(--logo-text, var(--text))"/>
     </linearGradient>
     <linearGradient id="textFillB" x1="190" y1="70" x2="610" y2="200" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#02082b"/>
-      <stop offset="0.55" stop-color="#071447"/>
-      <stop offset="1" stop-color="#23388f"/>
+      <stop offset="0" stop-color="var(--logo-text, var(--text))"/>
+      <stop offset="0.55" stop-color="var(--logo-accent-strong, var(--accent))"/>
+      <stop offset="1" stop-color="var(--logo-accent, var(--accent))"/>
     </linearGradient>
     <filter id="softDepthB" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="1.2" stdDeviation="1.2" flood-color="#08113b" flood-opacity="0.22"/>
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.2" flood-color="var(--logo-accent-strong, var(--accent))" flood-opacity="0.22"/>
     </filter>
   </defs>
 
@@ -33,8 +33,8 @@
   </g>
 
   <g transform="translate(36 26)" aria-hidden="true">
-    <circle cx="110" cy="102" r="8" fill="var(--accent, #00ff88)"/>
-    <circle cx="110" cy="102" r="12" fill="none" stroke="var(--accent, #00ff88)" stroke-opacity="0.45" stroke-width="1.2"/>
+    <circle cx="110" cy="102" r="21" fill="var(--accent, #00ff88)"/>
+    <circle cx="110" cy="102" r="24" fill="none" stroke="var(--accent, #00ff88)" stroke-opacity="0.45" stroke-width="1.6"/>
   </g>
 
   <g fill="url(#textFillB)"
