@@ -302,6 +302,7 @@ async function editMemoryInline(id) {
   --text:#e8e8f0;--text2:#8888a0;--text3:#4a4a60;
   --accent:#00ff88;--accent-bg:rgba(0,255,136,.07);--accent-border:rgba(0,255,136,.22);
   --accent-soft:rgba(0,255,136,.1);--accent-softer:rgba(0,255,136,.06);--accent-glow:rgba(0,255,136,.35);
+  --logo-accent:var(--accent);--logo-accent-strong:var(--accent);--logo-text:var(--text);
   --blue:#4488ff;--blue-bg:rgba(68,136,255,.09);
   --red:#ff4466;--amber:#ffaa00;
   --font-ui:'Syne',sans-serif;--font-mono:'DM Mono',monospace;
@@ -325,15 +326,10 @@ header{
   flex-shrink:0;position:relative;z-index:20
 }
 .logo{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:700;letter-spacing:.05em}
-.logo-img{height:38px;max-width:min(45vw,220px);width:auto;display:block;object-fit:contain;flex:0 1 auto}
-.logo-inline-svg{display:none;height:38px;width:auto;max-width:min(45vw,220px)}
-.logo-text{display:none;font-size:15px;font-weight:700;letter-spacing:.05em;color:var(--text)}
-.logo-dot{display:none;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:pulse 2s ease-in-out infinite}
-body.logo-fallback .logo-dot{display:block}
-body.logo-fallback .logo-img{display:none}
-body.logo-fallback .logo-inline-svg{display:block}
-body.logo-fallback .logo-text{display:block}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.logo-inline-svg{display:none;height:38px;width:auto;max-width:min(45vw,220px);flex:0 1 auto}
+.logo-text{display:inline;font-size:15px;font-weight:700;letter-spacing:.05em;color:var(--logo-text,var(--text));white-space:nowrap}
+html.logo-svg-ready .logo-inline-svg{display:block}
+html.logo-svg-ready .logo-text{display:none}
 .proj-btn{display:flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:5px 10px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);transition:border-color .15s;user-select:none}
 .proj-btn:hover{border-color:var(--border2);color:var(--text)}
 .proj-name{max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -458,7 +454,7 @@ body.logo-fallback .logo-text{display:block}
   .hdr-right .sdot,.hdr-right .stext{display:none !important}
   .hdr-right{gap:6px}
   .hdr-right .mode-btn{padding:5px 9px;font-size:11px}
-  .logo-inline-svg,.logo-img{max-width:min(42vw,180px)}
+  .logo-inline-svg{max-width:min(42vw,180px)}
   #settings-modal .modal{max-width:100vw;border-radius:0}
   #settings-modal select,
   #settings-modal input[type="text"],
@@ -965,16 +961,24 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
 <header>
   <div class="logo">
-    <img class="logo-img" src="assets/kasane-core-logo.svg" alt="Kasane Core logo"
-      data-logo-paths="assets/kasane-core-logo.svg,./assets/kasane-core-logo.svg,/assets/kasane-core-logo.svg,kasane-core-logo.svg,./kasane-core-logo.svg,/ui/assets/kasane-core-logo.svg,/ui/kasane-core-logo.svg"
-      onload="handleLogoLoadSuccess(this)"
-      onerror="handleLogoLoadError(this)">
-    <svg class="logo-inline-svg" viewBox="0 0 220 56" aria-hidden="true" role="img">
-      <rect x="3" y="6" width="44" height="44" rx="10" fill="rgba(0,255,136,.12)" stroke="rgba(0,255,136,.45)" />
-      <path d="M14 38V17h6l10 12V17h6v21h-6L20 26v12h-6z" fill="#00ff88"/>
-      <text x="58" y="35" font-size="22" font-weight="700" fill="#e8e8f0" letter-spacing="1.5">Kasane Core</text>
+    <svg class="logo-inline-svg" viewBox="0 0 230 56" role="img" aria-label="Kasane Core">
+      <defs>
+        <linearGradient id="logoRingGrad" x1="5" y1="6" x2="49" y2="50" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="var(--logo-accent-strong, var(--accent))"/>
+          <stop offset="100%" stop-color="var(--logo-accent, var(--accent))"/>
+        </linearGradient>
+        <linearGradient id="logoTextGrad" x1="58" y1="16" x2="212" y2="44" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="var(--logo-text, var(--text))"/>
+          <stop offset="100%" stop-color="var(--logo-accent, var(--accent))"/>
+        </linearGradient>
+      </defs>
+      <rect x="3" y="6" width="44" height="44" rx="11"
+        fill="var(--logo-accent, var(--accent))" fill-opacity=".14"
+        stroke="url(#logoRingGrad)" stroke-width="2" />
+      <path d="M14 38V17h6l10 12V17h6v21h-6L20 26v12h-6z" fill="url(#logoRingGrad)"/>
+      <circle cx="38" cy="17" r="3.2" fill="var(--logo-accent-strong, var(--accent))"/>
+      <text x="58" y="35" font-size="22" font-weight="700" fill="url(#logoTextGrad)" letter-spacing="1.5">Kasane Core</text>
     </svg>
-    <div class="logo-dot"></div>
     <span class="logo-text">Kasane Core</span>
   </div>
   <div class="hdr-right">
@@ -2447,28 +2451,8 @@ let currentLlmLabel = 'NoLoad';
 let currentLlmState = '—';
 let currentModelStatus = 'unknown';
 const THEME_STORAGE_KEY = 'kc_theme';
-function handleLogoLoadError(logoEl) {
-  if (!logoEl) return;
-  const candidates = Array.from(new Set((logoEl.dataset.logoPaths || '')
-    .split(',')
-    .map((path) => path.trim())
-    .filter(Boolean)));
-  const tried = Number(logoEl.dataset.logoRetryIndex || '0');
-  if (tried < candidates.length - 1) {
-    const next = tried + 1;
-    logoEl.dataset.logoRetryIndex = String(next);
-    logoEl.src = candidates[next];
-    return;
-  }
-  document.body.classList.add('logo-fallback');
-}
-
-function handleLogoLoadSuccess(logoEl) {
-  if (!logoEl) return;
-  if (logoEl.naturalWidth > 0 && logoEl.naturalHeight > 0) {
-    document.body.classList.remove('logo-fallback');
-  }
-}
+const SVG_SUPPORTED = !!(document.createElementNS && document.createElementNS('http://www.w3.org/2000/svg', 'svg').createSVGRect);
+if (SVG_SUPPORTED) document.documentElement.classList.add('logo-svg-ready');
 
 const UI_THEMES = {
   cyber: {
@@ -2479,6 +2463,7 @@ const UI_THEMES = {
       '--text':'#e8e8f0','--text2':'#8888a0','--text3':'#4a4a60',
       '--accent':'#00ff88','--accent-bg':'rgba(0,255,136,.07)','--accent-border':'rgba(0,255,136,.22)',
       '--accent-soft':'rgba(0,255,136,.1)','--accent-softer':'rgba(0,255,136,.06)','--accent-glow':'rgba(0,255,136,.35)',
+      '--logo-accent':'var(--accent)','--logo-accent-strong':'#00c86b','--logo-text':'#d6ffe9',
       '--blue':'#4488ff','--blue-bg':'rgba(68,136,255,.09)',
       '--red':'#ff4466','--amber':'#ffaa00'
     }
@@ -2491,6 +2476,7 @@ const UI_THEMES = {
       '--text':'#f0ecff','--text2':'#b6a8df','--text3':'#786c9b',
       '--accent':'#8a6bff','--accent-bg':'rgba(138,107,255,.16)','--accent-border':'rgba(138,107,255,.42)',
       '--accent-soft':'rgba(138,107,255,.12)','--accent-softer':'rgba(138,107,255,.07)','--accent-glow':'rgba(138,107,255,.36)',
+      '--logo-accent':'var(--accent)','--logo-accent-strong':'#7150ff','--logo-text':'#f3efff',
       '--blue':'#8fa5ff','--blue-bg':'rgba(143,165,255,.14)',
       '--red':'#ff6d98','--amber':'#f4b66b'
     }
@@ -2503,6 +2489,7 @@ const UI_THEMES = {
       '--text':'#1a2a45','--text2':'#3e557d','--text3':'#7085a7',
       '--accent':'#2c66db','--accent-bg':'rgba(44,102,219,.12)','--accent-border':'rgba(44,102,219,.35)',
       '--accent-soft':'rgba(44,102,219,.1)','--accent-softer':'rgba(44,102,219,.06)','--accent-glow':'rgba(44,102,219,.32)',
+      '--logo-accent':'var(--accent)','--logo-accent-strong':'#1f4db0','--logo-text':'#153667',
       '--blue':'#2f78ff','--blue-bg':'rgba(47,120,255,.12)',
       '--red':'#d1446b','--amber':'#c78a2b'
     }
