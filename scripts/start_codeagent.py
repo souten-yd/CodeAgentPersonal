@@ -224,9 +224,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def _sys_venv_paths(base_dir: Path) -> tuple[Path, Path, Path]:
-    venv_root = Path(os.environ.get("CODEAGENT_SYS_VENV_DIR", "")).expanduser()
-    if not str(venv_root).strip():
-        venv_root = base_dir / DEFAULT_SYS_VENV_NAME
+    _raw = os.environ.get("CODEAGENT_SYS_VENV_DIR", "").strip()
+    venv_root = Path(_raw).expanduser() if _raw else base_dir / DEFAULT_SYS_VENV_NAME
     if os.name == "nt":
         py = venv_root / "Scripts" / "python.exe"
         pip = venv_root / "Scripts" / "pip.exe"
