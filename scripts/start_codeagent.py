@@ -189,7 +189,7 @@ def post_json(url: str, payload: dict, timeout: float = 5.0) -> int | None:
     try:
         with urllib.request.urlopen(req, timeout=timeout) as res:
             return res.status
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError):
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ConnectionError, OSError):
         return None
 
 
@@ -281,6 +281,11 @@ def _ensure_local_bootstrap_venv(base_dir: Path, env: dict[str, str]) -> tuple[s
             install = subprocess.run([str(venv_pip), "install", "-r", str(req_txt)], cwd=base_dir, env=env, check=False)
             if install.returncode != 0:
                 print("[Bootstrap][WARN] pip install failed. Continue with existing environment.")
+        if os.name == "nt":
+            print("[Bootstrap] Installing qwen-tts into venv_sys (Windows)...")
+            qwen_tts_install = subprocess.run([str(venv_pip), "install", "-U", "qwen-tts"], cwd=base_dir, env=env, check=False)
+            if qwen_tts_install.returncode != 0:
+                print("[Bootstrap][WARN] qwen-tts install failed. Continue without qwen3 TTS.")
 
     env["CODEAGENT_SYS_VENV_DIR"] = str(venv_root)
     env["CODEAGENT_SYS_VENV_PYTHON"] = str(venv_python)
