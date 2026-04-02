@@ -10027,6 +10027,228 @@ def _resolve_qwen3tts_model_id(selected_model: str | None) -> str:
         return sel
     allowed = ", ".join(sorted(QWEN3_TTS_ALLOWED_REPO_IDS))
     raise HTTPException(status_code=400, detail=f"Unsupported qwen3tts model_id: {sel}. allowed: {allowed}")
+
+
+# =============================================================================
+# LongCat-AudioDiT TTS globals
+# =============================================================================
+# LongCat requires transformers>=5.3.0, which conflicts with Qwen3-TTS
+# (transformers==4.57.3).  It runs in a dedicated subprocess venv so the two
+# can coexist on the same machine.
+#
+# Venv auto-detection order:
+#   1. LONGCAT_TTS_VENV env var
+#   2. /workspace/.venvs/longcat-tts  (Runpod default)
+#   3. <project>/.venv-longcat        (local PC default)
+#
+# Setup: bash scripts/setup_longcat_tts.sh
+#        bash scripts/setup_longcat_tts.sh --local  (local PC)
+
+_LONGCAT_DEFAULT_MODEL_ID = "meituan-longcat/LongCat-AudioDiT-1B"
+
+LONGCAT_TTS_MODEL_CHOICES = {
+    "longcat_1b": {
+        "label": "LongCat-AudioDiT 1B",
+        "repo_id": "meituan-longcat/LongCat-AudioDiT-1B",
+    },
+    "longcat_3_5b": {
+        "label": "LongCat-AudioDiT 3.5B（高品質）",
+        "repo_id": "meituan-longcat/LongCat-AudioDiT-3.5B",
+    },
+}
+LONGCAT_TTS_ALLOWED_REPO_IDS = {v["repo_id"] for v in LONGCAT_TTS_MODEL_CHOICES.values()}
+
+_longcattts_lock = threading.Lock()
+
+
+def _longcat_tts_venv_dir() -> str:
+    """Return the LongCat venv directory (does not check existence)."""
+    explicit = os.environ.get("LONGCAT_TTS_VENV", "").strip()
+    if explicit:
+        return explicit
+    if IS_RUNPOD_RUNTIME:
+        return "/workspace/.venvs/longcat-tts"
+    # Local: project-relative venv
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv-longcat")
+
+
+def _longcat_tts_python() -> str | None:
+    """Return Python binary inside LongCat venv, or None if not set up."""
+    py = os.path.join(_longcat_tts_venv_dir(), "bin", "python")
+    return py if os.path.isfile(py) else None
+
+
+def _longcat_tts_available() -> bool:
+    return _longcat_tts_python() is not None
+
+
+def _longcat_repo_dir() -> str:
+    explicit = os.environ.get("LONGCAT_REPO_DIR", "").strip()
+    if explicit:
+        return explicit
+    if IS_RUNPOD_RUNTIME:
+        return "/workspace/LongCat-AudioDiT"
+    venv = _longcat_tts_venv_dir()
+    # Try to read from the marker file written by setup_longcat_tts.sh
+    marker = os.path.join(venv, "longcat_tts_info.json")
+    if os.path.isfile(marker):
+        try:
+            with open(marker, "r", encoding="utf-8") as f:
+                info = json.load(f)
+            repo = info.get("repo_dir", "")
+            if repo and os.path.isdir(repo):
+                return repo
+        except Exception:
+            pass
+    return os.path.join(CA_DATA_DIR, "tts", "longcattts", "repo")
+
+
+def _longcat_model_dir(model_id: str | None = None) -> str:
+    base = os.path.join(CA_DATA_DIR, "tts", "longcattts", "models")
+    os.makedirs(base, exist_ok=True)
+    if not model_id:
+        return base
+    safe = model_id.replace("/", "_").replace("\\", "_")
+    d = os.path.join(base, safe)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _resolve_longcattts_model_id(selected: str | None) -> str:
+    if not selected:
+        return _LONGCAT_DEFAULT_MODEL_ID
+    sel = str(selected).strip()
+    if sel in LONGCAT_TTS_MODEL_CHOICES:
+        return str(LONGCAT_TTS_MODEL_CHOICES[sel]["repo_id"])
+    if sel in LONGCAT_TTS_ALLOWED_REPO_IDS:
+        return sel
+    # Allow arbitrary HF repo IDs or local paths for flexibility
+    return sel
+
+
+def _longcat_worker_script() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "longcat_tts_worker.py")
+
+
+def longcattts_load(model_id: str = _LONGCAT_DEFAULT_MODEL_ID, device: str = "cuda") -> dict:
+    """Download/cache the LongCat model by running a short subprocess."""
+    python = _longcat_tts_python()
+    if not python:
+        raise RuntimeError(
+            "LongCat-AudioDiT venv が見つかりません。"
+            f" venv_dir={_longcat_tts_venv_dir()}"
+            " セットアップ: bash scripts/setup_longcat_tts.sh"
+        )
+    repo_dir = _longcat_repo_dir()
+    model_dir = _longcat_model_dir(model_id)
+    env = os.environ.copy()
+    env["LONGCAT_REPO_DIR"] = repo_dir
+    # Small download-only script: just call from_pretrained with local_files_only=False
+    download_script = (
+        "import sys, os; sys.path.insert(0, os.environ.get('LONGCAT_REPO_DIR',''));\n"
+        "import audiodit; from audiodit import AudioDiTModel;\n"  # noqa
+        f"m = AudioDiTModel.from_pretrained({repr(model_id)}, cache_dir={repr(model_dir)});\n"
+        "from transformers import AutoTokenizer;\n"
+        f"AutoTokenizer.from_pretrained(m.config.text_encoder_model, cache_dir={repr(model_dir)});\n"
+        "print('[LongCat-TTS] model downloaded/verified OK')"
+    )
+    result = subprocess.run(
+        [python, "-c", download_script],
+        capture_output=True, text=True, timeout=600, env=env,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"LongCat モデルのダウンロードに失敗しました: model_id={model_id}\n"
+            f"stderr: {result.stderr[-1000:]}\nstdout: {result.stdout[-500:]}"
+        )
+    return {"status": "ready", "model_id": model_id, "device": device, "model_dir": model_dir}
+
+
+def longcattts_synthesize(
+    text: str,
+    model_id: str = _LONGCAT_DEFAULT_MODEL_ID,
+    device: str = "cuda",
+    steps: int = 16,
+    cfg_strength: float = 4.0,
+    guidance_method: str = "cfg",
+    ref_audio_bytes: bytes | None = None,
+    ref_text: str = "",
+    seed: int = 1024,
+) -> bytes:
+    """Run LongCat-AudioDiT TTS synthesis via subprocess worker and return WAV bytes."""
+    python = _longcat_tts_python()
+    if not python:
+        raise RuntimeError(
+            "LongCat-AudioDiT venv が見つかりません。"
+            f" venv_dir={_longcat_tts_venv_dir()}"
+            " セットアップ: bash scripts/setup_longcat_tts.sh"
+        )
+
+    worker = _longcat_worker_script()
+    if not os.path.isfile(worker):
+        raise RuntimeError(f"LongCat worker script が見つかりません: {worker}")
+
+    repo_dir = _longcat_repo_dir()
+    model_dir = _longcat_model_dir(model_id)
+
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="longcat_tts_") as tmpdir:
+        output_path = os.path.join(tmpdir, "output.wav")
+
+        ref_audio_path = None
+        if ref_audio_bytes:
+            ref_audio_path = os.path.join(tmpdir, "ref_audio.wav")
+            with open(ref_audio_path, "wb") as f:
+                f.write(ref_audio_bytes)
+
+        cmd = [
+            python, worker,
+            "--text", text,
+            "--output-path", output_path,
+            "--model-dir", model_dir if os.path.isfile(os.path.join(model_dir, "config.json")) else model_id,
+            "--device", device,
+            "--steps", str(steps),
+            "--cfg-strength", str(cfg_strength),
+            "--guidance-method", guidance_method,
+            "--seed", str(seed),
+        ]
+        if ref_audio_path:
+            cmd += ["--ref-audio", ref_audio_path]
+            if ref_text:
+                cmd += ["--ref-text", ref_text]
+
+        env = os.environ.copy()
+        env["LONGCAT_REPO_DIR"] = repo_dir
+
+        with _longcattts_lock:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True, text=True,
+                timeout=300, env=env,
+            )
+
+        if proc.returncode != 0:
+            # Try to parse JSON error from worker
+            err_detail = proc.stderr[-800:] if proc.stderr else ""
+            try:
+                for line in reversed((proc.stdout or "").splitlines()):
+                    line = line.strip()
+                    if line.startswith("{"):
+                        payload = json.loads(line)
+                        if payload.get("status") == "error":
+                            err_detail = payload.get("error", err_detail)
+                        break
+            except Exception:
+                pass
+            raise RuntimeError(f"LongCat-TTS synthesis failed: {err_detail}")
+
+        if not os.path.isfile(output_path):
+            raise RuntimeError("LongCat-TTS: 出力ファイルが生成されませんでした。")
+
+        with open(output_path, "rb") as f:
+            return f.read()
+
+
 _tts_startup_health_snapshot: dict = {}
 _QWEN3_REQUIRED_FILES = (
     "config.json",
@@ -10169,13 +10391,15 @@ def _log_tts_startup_health() -> None:
         "voicevox_http_available": status.get("voicevox_http_available"),
         "edgetts_available": status.get("edgetts_available"),
         "qwen3tts_missing_count": len(qwen_missing),
+        "longcattts_available": status.get("longcattts_available"),
     }
     print(
         "[TTS][startup] "
         f"qwen3tts_available={status.get('qwen3tts_available')} "
         f"qwen3tts_loaded={status.get('qwen3tts_loaded')} "
         f"voicevox_available={status.get('voicevox_available')} "
-        f"edgetts_available={status.get('edgetts_available')}"
+        f"edgetts_available={status.get('edgetts_available')} "
+        f"longcattts_available={status.get('longcattts_available')}"
     )
     if qwen_missing:
         for item in qwen_missing:
@@ -10769,6 +10993,11 @@ def tts_status_api():
         "qwen3tts_missing_requirements": qwen_missing,
         "qwen3tts_install_status": qwen_status_file,
         "tts_startup_health": _tts_startup_health_snapshot,
+        "longcattts_available": _longcat_tts_available(),
+        "longcattts_venv_dir": _longcat_tts_venv_dir(),
+        "longcattts_repo_dir": _longcat_repo_dir(),
+        "longcattts_model_choices": LONGCAT_TTS_MODEL_CHOICES,
+        "longcattts_setup_command": "bash scripts/setup_longcat_tts.sh" + (" --local" if not IS_RUNPOD_RUNTIME else ""),
     }
 
 
@@ -10789,6 +11018,8 @@ async def tts_voices_api(engine: str = "qwen3tts"):
         return {"voices": voices}
     elif engine == "qwen3tts":
         return {"voices": []}
+    elif engine == "longcattts":
+        return {"voices": [], "models": list(LONGCAT_TTS_MODEL_CHOICES.items())}
     return {"voices": []}
 
 
@@ -10833,6 +11064,27 @@ def tts_load_api(req: dict = {}):
             except Exception as e:
                 _append_tts_debug_error("qwen3tts", "load", e, detail={"model_id": model_id, "device": device}, device=device)
                 yield _sse({"type": "error", "detail": str(e)})
+        elif engine == "longcattts":
+            if not _longcat_tts_available():
+                yield _sse({
+                    "type": "error",
+                    "detail": (
+                        "LongCat-AudioDiT venv が見つかりません。"
+                        f" venv_dir={_longcat_tts_venv_dir()}"
+                        " セットアップ: bash scripts/setup_longcat_tts.sh"
+                        + (" --local" if not IS_RUNPOD_RUNTIME else "")
+                    ),
+                })
+                return
+            longcat_model_id = _resolve_longcattts_model_id(req.get("model_id"))
+            yield _sse({"type": "loading", "message": f"LongCat-AudioDiT モデル ({longcat_model_id}) を確認中です..."})
+            try:
+                result = longcattts_load(longcat_model_id, device)
+                settings_set("longcattts_model_id", longcat_model_id)
+                yield _sse({"type": "done", **result})
+            except Exception as e:
+                _append_tts_debug_error("longcattts", "load", e, detail={"model_id": longcat_model_id, "device": device})
+                yield _sse({"type": "error", "detail": str(e)})
         else:
             yield _sse({"type": "error", "detail": f"不明なエンジン: {engine}"})
 
@@ -10856,6 +11108,9 @@ def tts_unload_api(req: dict = {}):
         return {"status": "unloaded", "engine": "voicevox"}
     elif engine == "qwen3tts":
         return {**qwen3tts_unload(), "engine": "qwen3tts"}
+    elif engine == "longcattts":
+        # LongCat runs in a subprocess; nothing to unload in-process
+        return {"status": "unloaded", "engine": "longcattts", "note": "subprocess-based engine has no in-process state"}
     raise HTTPException(status_code=400, detail=f"不明なエンジン: {engine}")
 
 
@@ -10971,6 +11226,53 @@ def tts_synthesize_api(req: dict):
             )
         except Exception as e:
             _append_tts_debug_error("qwen3tts", "inference", e, detail={"text_length": len(text), "speed": speed}, device=_qwen3tts_device)
+            raise HTTPException(status_code=500, detail=str(e))
+        return FastAPIResponse(content=wav, media_type="audio/wav")
+
+    elif engine == "longcattts":
+        if not _longcat_tts_available():
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "LongCat-AudioDiT venv が見つかりません。"
+                    f" venv_dir={_longcat_tts_venv_dir()}"
+                    " セットアップ: bash scripts/setup_longcat_tts.sh"
+                    + (" --local" if not IS_RUNPOD_RUNTIME else "")
+                ),
+            )
+        longcat_model_id = _resolve_longcattts_model_id(
+            req.get("model_id") or settings_get("longcattts_model_id")
+        )
+        device = str(req.get("device", "cuda")) if req.get("device") in ("cpu", "cuda") else "cuda"
+        steps = int(req.get("steps", 16))
+        cfg_strength = float(req.get("cfg_strength", 4.0))
+        guidance_method = str(req.get("guidance_method", "cfg"))
+        if guidance_method not in ("cfg", "apg"):
+            guidance_method = "cfg"
+        ref_text = str(req.get("ref_text", "") or "")
+        seed = int(req.get("seed", 1024))
+        ref_b64 = str(req.get("ref_audio_base64", "") or "").strip()
+        ref_bytes = None
+        if ref_b64:
+            try:
+                import base64 as _b64
+                ref_bytes = _b64.b64decode(ref_b64)
+            except Exception:
+                raise HTTPException(status_code=400, detail="ref_audio_base64 が不正です。参照音声を再登録してください。")
+        try:
+            wav = longcattts_synthesize(
+                text,
+                model_id=longcat_model_id,
+                device=device,
+                steps=steps,
+                cfg_strength=cfg_strength,
+                guidance_method=guidance_method,
+                ref_audio_bytes=ref_bytes,
+                ref_text=ref_text,
+                seed=seed,
+            )
+        except Exception as e:
+            _append_tts_debug_error("longcattts", "inference", e, detail={"text_length": len(text), "model_id": longcat_model_id})
             raise HTTPException(status_code=500, detail=str(e))
         return FastAPIResponse(content=wav, media_type="audio/wav")
 

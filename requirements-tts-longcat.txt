@@ -1,0 +1,21 @@
+# LongCat-AudioDiT TTS dependencies
+# NOTE: transformers>=5.3.0 is INCOMPATIBLE with Qwen3-TTS (==4.57.3).
+# This package set MUST be installed in a separate venv.
+#
+# Runpod setup:   bash scripts/setup_longcat_tts.sh
+# Local PC setup: bash scripts/setup_longcat_tts.sh --local
+#
+# The audiodit package (and utils module) comes from cloning the repo:
+#   git clone https://github.com/meituan-longcat/LongCat-AudioDiT.git
+#   pip install -e .
+#
+# PyTorch (CUDA 12.8) is installed separately:
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+
+transformers>=5.3.0
+safetensors>=0.4.0
+librosa>=0.10.0
+soundfile>=0.12.0
+numpy>=1.24.0
+einops>=0.8.0
+huggingface_hub>=0.23.0

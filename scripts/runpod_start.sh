@@ -223,6 +223,34 @@ VV_URL="${VOICEVOX_URL:-http://127.0.0.1:50021}" runpod_voicevox_autostart
 export RUNPOD_VOICEVOX_AUTOSTART_STATUS="${VOICEVOX_AUTOSTART_STATUS}"
 export RUNPOD_VOICEVOX_AUTOSTART_HINT="${VOICEVOX_AUTOSTART_HINT}"
 
+# ── LongCat-AudioDiT TTS (optional, separate venv) ────────────────────────────
+# LongCat requires transformers>=5.3.0, incompatible with Qwen3-TTS (==4.57.3).
+# It runs in /workspace/.venvs/longcat-tts to avoid conflicts.
+# Set RUNPOD_AUTO_SETUP_LONGCAT=true to enable automatic setup at launch.
+LONGCAT_VENV="${LONGCAT_TTS_VENV:-/workspace/.venvs/longcat-tts}"
+LONGCAT_REPO="${LONGCAT_REPO_DIR:-/workspace/LongCat-AudioDiT}"
+RUNPOD_AUTO_SETUP_LONGCAT="${RUNPOD_AUTO_SETUP_LONGCAT:-false}"
+
+if [[ "${RUNPOD_AUTO_SETUP_LONGCAT}" == "true" ]]; then
+  if [[ -x "${LONGCAT_VENV}/bin/python" ]]; then
+    echo "[Runpod][LongCat-TTS] Venv already exists at ${LONGCAT_VENV}, skipping setup."
+  else
+    echo "[Runpod][LongCat-TTS] Auto-setup enabled. Running scripts/setup_longcat_tts.sh..."
+    LONGCAT_TTS_VENV="${LONGCAT_VENV}" LONGCAT_REPO_DIR="${LONGCAT_REPO}" \
+      bash "${ROOT_DIR}/scripts/setup_longcat_tts.sh" \
+      || echo "[Runpod][LongCat-TTS][WARN] setup_longcat_tts.sh failed. LongCat TTS will be disabled."
+  fi
+else
+  echo "[Runpod][LongCat-TTS] Auto-setup disabled (RUNPOD_AUTO_SETUP_LONGCAT=${RUNPOD_AUTO_SETUP_LONGCAT})."
+  if [[ -x "${LONGCAT_VENV}/bin/python" ]]; then
+    echo "[Runpod][LongCat-TTS] Existing venv found at ${LONGCAT_VENV}."
+  else
+    echo "[Runpod][LongCat-TTS] Venv not found. Run: bash scripts/setup_longcat_tts.sh"
+  fi
+fi
+export LONGCAT_TTS_VENV="${LONGCAT_VENV}"
+export LONGCAT_REPO_DIR="${LONGCAT_REPO}"
+
 exec "${PYTHON_BIN}" scripts/start_codeagent.py \
   --host "${HOST}" \
   --port "${PORT}" \
