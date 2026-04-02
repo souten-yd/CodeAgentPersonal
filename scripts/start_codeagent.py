@@ -279,7 +279,7 @@ def _ensure_local_bootstrap_venv(base_dir: Path, env: dict[str, str]) -> tuple[s
         req_txt = base_dir / "requirements.txt"
         if req_txt.exists():
             print("[Bootstrap] Installing Python dependencies into venv_sys...")
-            install = subprocess.run([str(venv_pip), "install", "-r", str(req_txt)], cwd=base_dir, check=False)
+            install = subprocess.run([str(venv_pip), "install", "-r", str(req_txt)], cwd=base_dir, env=env, check=False)
             if install.returncode != 0:
                 print("[Bootstrap][WARN] pip install failed. Continue with existing environment.")
 
