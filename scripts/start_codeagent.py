@@ -199,7 +199,7 @@ def wait_http_200(url: str, timeout_sec: int, label: str, proc: subprocess.Popen
         if proc is not None and proc.poll() is not None:
             print(f"[ERROR] {label} process exited early with code {proc.returncode}")
             return False
-        status = request_status(url)
+        status = request_status(url, timeout=10.0)
         if status == 200:
             print(f"[OK] {label} ready")
             return True
