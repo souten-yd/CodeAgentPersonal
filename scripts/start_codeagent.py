@@ -224,9 +224,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def _sys_venv_paths(base_dir: Path) -> tuple[Path, Path, Path]:
-    venv_root = Path(os.environ.get("CODEAGENT_SYS_VENV_DIR", "")).expanduser()
-    if not str(venv_root).strip():
-        venv_root = base_dir / DEFAULT_SYS_VENV_NAME
+    _raw = os.environ.get("CODEAGENT_SYS_VENV_DIR", "").strip()
+    venv_root = Path(_raw).expanduser() if _raw else base_dir / DEFAULT_SYS_VENV_NAME
     if os.name == "nt":
         py = venv_root / "Scripts" / "python.exe"
         pip = venv_root / "Scripts" / "pip.exe"
@@ -279,7 +278,7 @@ def _ensure_local_bootstrap_venv(base_dir: Path, env: dict[str, str]) -> tuple[s
         req_txt = base_dir / "requirements.txt"
         if req_txt.exists():
             print("[Bootstrap] Installing Python dependencies into venv_sys...")
-            install = subprocess.run([str(venv_pip), "install", "-r", str(req_txt)], cwd=base_dir, check=False)
+            install = subprocess.run([str(venv_pip), "install", "-r", str(req_txt)], cwd=base_dir, env=env, check=False)
             if install.returncode != 0:
                 print("[Bootstrap][WARN] pip install failed. Continue with existing environment.")
 
