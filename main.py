@@ -13822,6 +13822,537 @@ def health():
     return _get_lightweight_health_status()
 
 # =========================
+# NovelConverter — 画像アーカイブ → テキスト変換
+# =========================
+
+NOVEL_DATA_DIR = os.path.join(CA_DATA_DIR, "novel_converter")
+os.makedirs(NOVEL_DATA_DIR, exist_ok=True)
+
+# RAR / OCR ライブラリの検出
+_HAS_RARFILE = False
+_HAS_PYTESSERACT = False
+_HAS_PIL = False
+try:
+    import rarfile as _rarfile
+    _HAS_RARFILE = True
+except ImportError:
+    _rarfile = None
+try:
+    import pytesseract as _pytesseract
+    _HAS_PYTESSERACT = True
+except ImportError:
+    _pytesseract = None
+try:
+    from PIL import Image as _PILImage
+    _HAS_PIL = True
+except ImportError:
+    _PILImage = None
+
+_novel_lock = threading.Lock()
+
+def _novel_db_path() -> str:
+    return os.path.join(NOVEL_DATA_DIR, "novel_jobs.db")
+
+def _get_novel_db() -> sqlite3.Connection:
+    conn = sqlite3.connect(_novel_db_path(), check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("""CREATE TABLE IF NOT EXISTS novel_jobs (
+        id TEXT PRIMARY KEY,
+        project TEXT NOT NULL DEFAULT 'default',
+        filename TEXT NOT NULL,
+        stage TEXT NOT NULL DEFAULT 'queued',
+        progress_pct INTEGER NOT NULL DEFAULT 0,
+        processed_count INTEGER NOT NULL DEFAULT 0,
+        total_count INTEGER NOT NULL DEFAULT 0,
+        message TEXT NOT NULL DEFAULT '',
+        error_category TEXT DEFAULT NULL,
+        error_detail TEXT DEFAULT NULL,
+        result_path TEXT DEFAULT NULL,
+        raw_text_path TEXT DEFAULT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )""")
+    conn.commit()
+    return conn
+
+# ── stage 定義 ──
+_NOVEL_STAGES = [
+    "queued", "uploading", "uploaded", "unpacking",
+    "scanning", "ocr_running", "merging",
+    "normalizing", "segmenting", "completed", "failed"
+]
+_NOVEL_STAGE_LABELS = {
+    "queued": "待機中",
+    "uploading": "アップロード中",
+    "uploaded": "アップロード完了",
+    "unpacking": "アーカイブ展開中",
+    "scanning": "画像スキャン中",
+    "ocr_running": "OCR処理中",
+    "merging": "テキスト結合中",
+    "normalizing": "テキスト正規化中",
+    "segmenting": "チャプター分割中",
+    "completed": "変換完了",
+    "failed": "失敗",
+}
+
+def _novel_job_update(job_id: str, **kwargs):
+    """novel_jobs の任意カラムを更新"""
+    kwargs["updated_at"] = datetime.now().isoformat()
+    sets = ", ".join(f"{k}=?" for k in kwargs)
+    vals = list(kwargs.values()) + [job_id]
+    with _novel_lock:
+        conn = _get_novel_db()
+        try:
+            conn.execute(f"UPDATE novel_jobs SET {sets} WHERE id=?", vals)
+            conn.commit()
+        finally:
+            conn.close()
+
+def _novel_job_get(job_id: str) -> dict | None:
+    conn = _get_novel_db()
+    try:
+        row = conn.execute(
+            "SELECT id,project,filename,stage,progress_pct,processed_count,total_count,"
+            "message,error_category,error_detail,result_path,raw_text_path,created_at,updated_at "
+            "FROM novel_jobs WHERE id=?", (job_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0], "project": row[1], "filename": row[2],
+        "stage": row[3], "progress_pct": row[4],
+        "processed_count": row[5], "total_count": row[6],
+        "message": row[7], "error_category": row[8],
+        "error_detail": row[9], "result_path": row[10],
+        "raw_text_path": row[11], "created_at": row[12], "updated_at": row[13],
+    }
+
+def _novel_job_list(project: str = None, limit: int = 50) -> list:
+    conn = _get_novel_db()
+    try:
+        if project:
+            rows = conn.execute(
+                "SELECT id,project,filename,stage,progress_pct,processed_count,total_count,"
+                "message,error_category,error_detail,result_path,raw_text_path,created_at,updated_at "
+                "FROM novel_jobs WHERE project=? ORDER BY created_at DESC LIMIT ?",
+                (project, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id,project,filename,stage,progress_pct,processed_count,total_count,"
+                "message,error_category,error_detail,result_path,raw_text_path,created_at,updated_at "
+                "FROM novel_jobs ORDER BY created_at DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+    finally:
+        conn.close()
+    return [{
+        "id": r[0], "project": r[1], "filename": r[2],
+        "stage": r[3], "progress_pct": r[4],
+        "processed_count": r[5], "total_count": r[6],
+        "message": r[7], "error_category": r[8],
+        "error_detail": r[9], "result_path": r[10],
+        "raw_text_path": r[11], "created_at": r[12], "updated_at": r[13],
+    } for r in rows]
+
+
+def _novel_extract_archive(archive_path: str, extract_dir: str, job_id: str) -> list[str]:
+    """アーカイブを展開し、画像ファイルパスのリストを返す。"""
+    ext = os.path.splitext(archive_path)[1].lower()
+    image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp", ".gif"}
+
+    if ext == ".rar":
+        if not _HAS_RARFILE:
+            raise RuntimeError("rar_unsupported:サーバーに rarfile ライブラリがインストールされていません。pip install rarfile を実行し、unrar コマンドもインストールしてください。")
+        try:
+            with _rarfile.RarFile(archive_path) as rf:
+                rf.extractall(extract_dir)
+        except Exception as e:
+            err_str = str(e)
+            if "unrar" in err_str.lower() or "tool" in err_str.lower():
+                raise RuntimeError(f"rar_tool_missing:unrar コマンドが見つかりません。apt install unrar または brew install unrar を実行してください。詳細: {err_str}")
+            raise RuntimeError(f"rar_extract_failed:RAR展開に失敗しました: {err_str}")
+    elif ext in (".zip",):
+        try:
+            with zipfile.ZipFile(archive_path, 'r') as zf:
+                zf.extractall(extract_dir)
+        except zipfile.BadZipFile:
+            raise RuntimeError("zip_corrupt:ZIPファイルが破損しています。")
+        except Exception as e:
+            raise RuntimeError(f"zip_extract_failed:ZIP展開に失敗しました: {str(e)}")
+    else:
+        raise RuntimeError(f"unsupported_format:サポートされていないアーカイブ形式です: {ext}")
+
+    # 画像ファイルを収集（自然順ソート）
+    images = []
+    for root, _dirs, files in os.walk(extract_dir):
+        for f in files:
+            if os.path.splitext(f)[1].lower() in image_exts:
+                images.append(os.path.join(root, f))
+
+    def _natural_sort_key(path):
+        basename = os.path.basename(path)
+        return [int(c) if c.isdigit() else c.lower() for c in re.split(r'(\d+)', basename)]
+
+    images.sort(key=_natural_sort_key)
+    return images
+
+
+def _novel_ocr_images(images: list[str], job_id: str) -> str:
+    """画像リストにOCRを実行し、結合テキストを返す。"""
+    if not _HAS_PYTESSERACT or not _HAS_PIL:
+        missing = []
+        if not _HAS_PYTESSERACT:
+            missing.append("pytesseract")
+        if not _HAS_PIL:
+            missing.append("Pillow")
+        raise RuntimeError(
+            f"ocr_missing_deps:OCRに必要なライブラリがありません: {', '.join(missing)}。"
+            f"pip install {' '.join(missing)} を実行してください。"
+            f"またtesseractコマンドも必要です: apt install tesseract-ocr tesseract-ocr-jpn"
+        )
+
+    total = len(images)
+    _novel_job_update(job_id, total_count=total, processed_count=0)
+
+    texts = []
+    for i, img_path in enumerate(images):
+        _novel_job_update(
+            job_id,
+            stage="ocr_running",
+            progress_pct=int((i / total) * 100) if total > 0 else 0,
+            processed_count=i,
+            message=f"OCR処理中: {i+1}/{total} ページ"
+        )
+        try:
+            img = _PILImage.open(img_path)
+            # 日本語+英語でOCR
+            text = _pytesseract.image_to_string(img, lang="jpn+eng")
+            texts.append(text.strip())
+        except Exception as e:
+            texts.append(f"[OCR ERROR page {i+1}: {str(e)}]")
+
+    _novel_job_update(
+        job_id,
+        progress_pct=100,
+        processed_count=total,
+        message=f"OCR完了: {total}ページ処理済み"
+    )
+    return "\n\n".join(texts)
+
+
+def _novel_normalize_text(raw_text: str) -> str:
+    """OCR出力テキストの正規化: 不要な空白・改行の整理"""
+    lines = raw_text.split("\n")
+    normalized = []
+    for line in lines:
+        line = line.rstrip()
+        # 全角スペースの連続を1つに
+        line = re.sub(r'　+', '　', line)
+        # 行頭の半角スペースを除去
+        line = re.sub(r'^ +', '', line)
+        # 空行の連続を最大2つに制限
+        if line == "" and normalized and normalized[-1] == "":
+            if len(normalized) >= 2 and normalized[-2] == "":
+                continue
+        normalized.append(line)
+    return "\n".join(normalized)
+
+
+def _novel_segment_chapters(text: str) -> str:
+    """テキストをチャプターマーカーで区切る（簡易版）"""
+    # 「第N章」「第N話」「Chapter N」などのパターンでセグメント
+    chapter_pattern = re.compile(
+        r'^(第[零一二三四五六七八九十百千\d]+[章話節編部回]|Chapter\s*\d+|CHAPTER\s*\d+|'
+        r'プロローグ|エピローグ|序章|終章|あとがき|Prologue|Epilogue)',
+        re.MULTILINE
+    )
+    matches = list(chapter_pattern.finditer(text))
+    if not matches:
+        return text
+
+    segments = []
+    for i, m in enumerate(matches):
+        start = m.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        segment = text[start:end].strip()
+        segments.append(f"{'='*40}\n{segment}")
+
+    # チャプター前のテキスト（前書きなど）
+    if matches[0].start() > 0:
+        preamble = text[:matches[0].start()].strip()
+        if preamble:
+            segments.insert(0, preamble)
+
+    return "\n\n".join(segments)
+
+
+def _novel_process_job(job_id: str, archive_path: str):
+    """バックグラウンドで画像アーカイブ→テキスト変換を実行するワーカー"""
+    job_dir = os.path.join(NOVEL_DATA_DIR, job_id)
+    extract_dir = os.path.join(job_dir, "extracted")
+    os.makedirs(extract_dir, exist_ok=True)
+
+    try:
+        # ── Stage: unpacking ──
+        _novel_job_update(job_id, stage="unpacking", progress_pct=0, message="アーカイブ展開中...")
+        images = _novel_extract_archive(archive_path, extract_dir, job_id)
+
+        # ── Stage: scanning ──
+        _novel_job_update(
+            job_id, stage="scanning", progress_pct=0,
+            total_count=len(images),
+            message=f"{len(images)}枚の画像を検出"
+        )
+
+        if not images:
+            _novel_job_update(
+                job_id, stage="failed", progress_pct=0,
+                error_category="no_images",
+                error_detail="アーカイブ内に画像ファイルが見つかりませんでした。",
+                message="画像が見つかりません"
+            )
+            return
+
+        # ── Stage: ocr_running ──
+        _novel_job_update(job_id, stage="ocr_running", progress_pct=0, message="OCR開始...")
+        raw_text = _novel_ocr_images(images, job_id)
+
+        # raw text を保存
+        raw_path = os.path.join(job_dir, "raw_ocr.txt")
+        with open(raw_path, "w", encoding="utf-8") as f:
+            f.write(raw_text)
+        _novel_job_update(job_id, raw_text_path=raw_path)
+
+        # ── Stage: merging ──
+        _novel_job_update(job_id, stage="merging", progress_pct=70, message="テキスト結合中...")
+
+        # ── Stage: normalizing ──
+        _novel_job_update(job_id, stage="normalizing", progress_pct=80, message="テキスト正規化中...")
+        normalized = _novel_normalize_text(raw_text)
+
+        # ── Stage: segmenting ──
+        _novel_job_update(job_id, stage="segmenting", progress_pct=90, message="チャプター分割中...")
+        final_text = _novel_segment_chapters(normalized)
+
+        # 最終テキストを保存
+        result_path = os.path.join(job_dir, "converted.txt")
+        with open(result_path, "w", encoding="utf-8") as f:
+            f.write(final_text)
+
+        # ── Stage: completed ──
+        _novel_job_update(
+            job_id, stage="completed", progress_pct=100,
+            result_path=result_path,
+            message=f"変換完了: {len(images)}ページ → {len(final_text)}文字"
+        )
+
+    except RuntimeError as e:
+        err_str = str(e)
+        if ":" in err_str:
+            cat, detail = err_str.split(":", 1)
+        else:
+            cat, detail = "processing_error", err_str
+        _novel_job_update(
+            job_id, stage="failed", progress_pct=0,
+            error_category=cat, error_detail=detail,
+            message=f"処理失敗: {detail[:100]}"
+        )
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"[NovelConverter] job {job_id} failed: {tb}")
+        _novel_job_update(
+            job_id, stage="failed", progress_pct=0,
+            error_category="internal_error",
+            error_detail=str(e)[:500],
+            message=f"内部エラー: {str(e)[:100]}"
+        )
+    finally:
+        # 展開ディレクトリの一時ファイルを削除（容量節約）
+        try:
+            if os.path.isdir(extract_dir):
+                shutil.rmtree(extract_dir)
+        except Exception:
+            pass
+
+
+# ── API エンドポイント ──
+
+@app.get("/novel/capabilities")
+def novel_capabilities():
+    """NovelConverterの機能サポート状況を返す"""
+    return {
+        "ocr_available": _HAS_PYTESSERACT and _HAS_PIL,
+        "rar_available": _HAS_RARFILE,
+        "supported_archives": [".zip"] + ([".rar"] if _HAS_RARFILE else []),
+        "supported_images": [".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"],
+        "missing_deps": {
+            "pytesseract": not _HAS_PYTESSERACT,
+            "pillow": not _HAS_PIL,
+            "rarfile": not _HAS_RARFILE,
+        },
+        "stages": _NOVEL_STAGES,
+        "stage_labels": _NOVEL_STAGE_LABELS,
+    }
+
+
+@app.post("/novel/upload")
+async def novel_upload(file: UploadFile, project: str = "default"):
+    """画像アーカイブをアップロードし、変換ジョブを開始する"""
+    filename = file.filename or "unknown"
+    ext = os.path.splitext(filename)[1].lower()
+
+    allowed_exts = {".zip"}
+    if _HAS_RARFILE:
+        allowed_exts.add(".rar")
+
+    if ext not in allowed_exts:
+        detail = f"サポートされていない形式: {ext}。"
+        if ext == ".rar" and not _HAS_RARFILE:
+            detail += " RAR形式はサーバーに rarfile ライブラリがインストールされていないためサポートされていません。ZIP形式に変換してアップロードしてください。"
+        else:
+            detail += f" 使用可能: {sorted(allowed_exts)}"
+        raise HTTPException(status_code=400, detail=detail)
+
+    # ジョブ作成
+    job_id = str(uuid.uuid4())[:12]
+    now = datetime.now().isoformat()
+    job_dir = os.path.join(NOVEL_DATA_DIR, job_id)
+    os.makedirs(job_dir, exist_ok=True)
+
+    archive_path = os.path.join(job_dir, f"archive{ext}")
+
+    with _novel_lock:
+        conn = _get_novel_db()
+        try:
+            conn.execute(
+                "INSERT INTO novel_jobs (id,project,filename,stage,progress_pct,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (job_id, project, filename, "uploading", 0, now, now)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    # ファイル保存
+    try:
+        data = await file.read()
+        with open(archive_path, "wb") as f:
+            f.write(data)
+        file_size_mb = len(data) / (1024 * 1024)
+    except Exception as e:
+        _novel_job_update(
+            job_id, stage="failed",
+            error_category="upload_failed",
+            error_detail=str(e)[:500],
+            message="アップロード中にエラーが発生しました"
+        )
+        raise HTTPException(status_code=500, detail=f"ファイル保存に失敗しました: {str(e)[:200]}")
+
+    _novel_job_update(
+        job_id, stage="uploaded", progress_pct=0,
+        message=f"アップロード完了 ({file_size_mb:.1f} MB)"
+    )
+
+    # バックグラウンドで変換処理を開始
+    t = threading.Thread(
+        target=_novel_process_job,
+        args=(job_id, archive_path),
+        daemon=True
+    )
+    t.start()
+
+    return {"job_id": job_id, "stage": "uploaded", "filename": filename}
+
+
+@app.get("/novel/jobs")
+def novel_jobs_list(project: str = None, limit: int = 50):
+    """ジョブ一覧を返す"""
+    return {"jobs": _novel_job_list(project, limit)}
+
+
+@app.get("/novel/jobs/{job_id}")
+def novel_job_status(job_id: str):
+    """ジョブのステータスを返す"""
+    job = _novel_job_get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="ジョブが見つかりません")
+    return job
+
+
+@app.get("/novel/jobs/{job_id}/poll")
+def novel_job_poll(job_id: str):
+    """UIポーリング用: ジョブの現在ステータスを返す（軽量）"""
+    job = _novel_job_get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="ジョブが見つかりません")
+    return {
+        "id": job["id"],
+        "stage": job["stage"],
+        "progress_pct": job["progress_pct"],
+        "processed_count": job["processed_count"],
+        "total_count": job["total_count"],
+        "message": job["message"],
+        "error_category": job["error_category"],
+        "error_detail": job["error_detail"],
+        "stage_label": _NOVEL_STAGE_LABELS.get(job["stage"], job["stage"]),
+    }
+
+
+@app.get("/novel/jobs/{job_id}/download")
+def novel_job_download(job_id: str, kind: str = "converted"):
+    """変換済みテキストをダウンロードする"""
+    job = _novel_job_get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="ジョブが見つかりません")
+
+    if kind == "raw":
+        path = job.get("raw_text_path")
+        suffix = "_raw"
+    else:
+        path = job.get("result_path")
+        suffix = ""
+
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="変換結果ファイルが見つかりません。処理が完了するまでお待ちください。")
+
+    base_name = os.path.splitext(job["filename"])[0]
+    download_name = f"{base_name}{suffix}.txt"
+    return FileResponse(
+        path, media_type="text/plain; charset=utf-8",
+        filename=download_name,
+        headers={"Content-Disposition": f'attachment; filename="{download_name}"'}
+    )
+
+
+@app.delete("/novel/jobs/{job_id}")
+def novel_job_delete(job_id: str):
+    """ジョブとその関連ファイルを削除する"""
+    job = _novel_job_get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="ジョブが見つかりません")
+
+    # ファイル削除
+    job_dir = os.path.join(NOVEL_DATA_DIR, job_id)
+    if os.path.isdir(job_dir):
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+    # DB削除
+    with _novel_lock:
+        conn = _get_novel_db()
+        try:
+            conn.execute("DELETE FROM novel_jobs WHERE id=?", (job_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    return {"deleted": job_id}
+
+
+# =========================
 # 静的ファイル配信
 # / と /ui/ どちらでもUIにアクセスできる
 # =========================

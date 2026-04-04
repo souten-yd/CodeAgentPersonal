@@ -1052,6 +1052,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skill</button>
   <button class="mob-tab wide" id="mob-memory" onclick="mobSwitch('memory')">Memory</button>
   <button class="mob-tab" id="mob-models" onclick="mobSwitch('models')">Models</button>
+  <button class="mob-tab" id="mob-novel" onclick="mobSwitch('novel')">Novel</button>
   <!-- Echo モード用タブ (デフォルト非表示) -->
   <button class="mob-tab" id="mob-echo" onclick="mobSwitch('echo')" style="display:none">Echo</button>
   <button class="mob-tab" id="mob-vault" onclick="mobSwitch('vault')" style="display:none">Vault</button>
@@ -1124,6 +1125,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <button class="tab-btn" id="tab-btn-skills" onclick="switchTab('skills')">Skill</button>
       <button class="tab-btn" id="tab-btn-memory" onclick="switchTab('memory')">Memory</button>
       <button class="tab-btn" id="tab-btn-models" onclick="switchTab('models')">Models</button>
+      <button class="tab-btn" id="tab-btn-novel" onclick="switchTab('novel')">Novel</button>
       <!-- Echo モード用タブ (デフォルト非表示) -->
       <button class="tab-btn" id="tab-btn-vault" onclick="switchTab('vault')" style="display:none">Vault</button>
       <button class="tab-btn" id="tab-btn-log-echo" onclick="switchTab('log')" style="display:none">Log</button>
@@ -1930,6 +1932,76 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <span style="font-size:11px;color:var(--text2)" id="tts-translate-autoplay-label">OFF</span>
           </label>
         </div>
+      </div>
+    </div>
+
+    <!-- Novel Converter タブ -->
+    <div class="tab-content" id="tab-novel" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">Novel Converter</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6;padding:6px 8px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)" id="novel-format-info">
+        画像アーカイブ (ZIP/RAR) をアップロードすると、OCRでテキストに変換します。<br>
+        対応形式: <b>ZIP</b> (推奨) / <b>RAR</b> (要サーバーサポート)<br>
+        <span id="novel-ios-hint" style="display:none;color:var(--yellow,#e8a838)">iOS/Safari: RAR形式はファイル選択画面で表示されない場合があります。ZIP形式をお使いください。</span>
+        <span id="novel-caps-info"></span>
+      </div>
+
+      <!-- アップロードエリア -->
+      <div style="border:2px dashed var(--border);border-radius:8px;padding:20px;text-align:center;margin-bottom:12px;transition:border-color .2s" id="novel-drop-zone">
+        <div style="font-size:20px;opacity:.3;margin-bottom:6px">📁</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:8px">画像アーカイブをドラッグ＆ドロップ、またはクリックして選択</div>
+        <label style="cursor:pointer;display:inline-block;padding:6px 16px;border:1px solid var(--accent);border-radius:6px;color:var(--accent);font-size:11px;font-weight:600">
+          ファイルを選択
+          <input type="file" id="novel-file-input" accept=".zip,.rar,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/vnd.rar" style="display:none" onchange="novelFileSelected(this)">
+        </label>
+        <div id="novel-selected-file" style="font-size:10px;color:var(--text3);margin-top:6px"></div>
+      </div>
+
+      <!-- アップロード進捗 (通信) -->
+      <div id="novel-upload-progress" style="display:none;margin-bottom:12px;padding:8px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-size:10px;font-weight:700;color:var(--text2)">アップロード</span>
+          <span style="font-size:10px;color:var(--text3)" id="novel-upload-pct">0%</span>
+        </div>
+        <div style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden">
+          <div id="novel-upload-bar" style="height:100%;width:0%;background:var(--accent);transition:width .3s;border-radius:2px"></div>
+        </div>
+      </div>
+
+      <!-- サーバー処理進捗 -->
+      <div id="novel-server-progress" style="display:none;margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-size:10px;font-weight:700;color:var(--text2)" id="novel-stage-label">処理中</span>
+          <span style="font-size:10px;color:var(--text3)" id="novel-server-pct">0%</span>
+        </div>
+        <div style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden">
+          <div id="novel-server-bar" style="height:100%;width:0%;background:var(--green,#4caf50);transition:width .3s;border-radius:2px"></div>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px" id="novel-server-msg"></div>
+      </div>
+
+      <!-- エラー表示 -->
+      <div id="novel-error" style="display:none;margin-bottom:12px;padding:10px;background:rgba(255,60,60,.08);border:1px solid rgba(255,60,60,.3);border-radius:6px">
+        <div style="font-size:11px;font-weight:700;color:var(--red,#ff4444);margin-bottom:4px" id="novel-error-title">エラー</div>
+        <div style="font-size:10px;color:var(--text2);line-height:1.5" id="novel-error-detail"></div>
+      </div>
+
+      <!-- 完了・ダウンロード -->
+      <div id="novel-result" style="display:none;margin-bottom:12px;padding:10px;background:rgba(76,175,80,.08);border:1px solid rgba(76,175,80,.3);border-radius:6px">
+        <div style="font-size:11px;font-weight:700;color:var(--green,#4caf50);margin-bottom:6px">変換完了</div>
+        <div style="font-size:10px;color:var(--text2);margin-bottom:8px" id="novel-result-msg"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="novelDownload('converted')" style="font-size:10px;padding:4px 12px;border:1px solid var(--accent);border-radius:4px;background:var(--accent);color:#fff;cursor:pointer;font-weight:600">変換済みテキスト (.txt)</button>
+          <button onclick="novelDownload('raw')" style="font-size:10px;padding:4px 12px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">Raw OCRテキスト</button>
+        </div>
+      </div>
+
+      <!-- ジョブ履歴 -->
+      <div style="margin-top:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:11px;font-weight:700;color:var(--text2)">変換履歴</span>
+          <button onclick="novelRefreshJobs()" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺</button>
+        </div>
+        <div id="novel-job-list" style="font-size:10px;color:var(--text3)">読み込み中...</div>
       </div>
     </div>
 
@@ -4957,6 +5029,7 @@ function switchTab(name) {
   if (name === 'vault') refreshEchoVault();
   if (name === 'asr') refreshAsrTab();
   if (name === 'tts') refreshTtsTab();
+  if (name === 'novel') novelTabInit();
 }
 
 // ── GIT ──
@@ -9445,6 +9518,329 @@ function proposeSkillImprovement(skillName) {
 function testSkill(skillName) {
   const msg = 'スキル「'+skillName+'」の動作テストをしてください。テストケースを作成・実行し、問題があれば修正も提案してください。';
   populateInputMessage(msg, 'Test: ' + skillName);
+}
+
+// =========================
+// NovelConverter
+// =========================
+let _novelCurrentJobId = null;
+let _novelPollTimer = null;
+let _novelCaps = null;  // capabilities cache
+
+async function novelTabInit() {
+  // capabilities を取得
+  if (!_novelCaps) {
+    try {
+      const r = await fetch(API + '/novel/capabilities');
+      _novelCaps = await r.json();
+    } catch(e) {
+      _novelCaps = { ocr_available: false, rar_available: false, supported_archives: ['.zip'] };
+    }
+  }
+  // capabilities に基づいてUI更新
+  const capsEl = document.getElementById('novel-caps-info');
+  if (capsEl) {
+    const parts = [];
+    if (!_novelCaps.ocr_available) parts.push('<span style="color:var(--red,#f44)">OCRライブラリ未検出 (pytesseract/Pillow)</span>');
+    if (!_novelCaps.rar_available) parts.push('RAR: 非対応 (rarfile未インストール)');
+    if (parts.length) capsEl.innerHTML = '<br>' + parts.join(' / ');
+  }
+  // iOS検出
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const iosHint = document.getElementById('novel-ios-hint');
+  if (iosHint && isIOS) iosHint.style.display = 'inline';
+  // accept属性を動的調整: iOSでは制限を緩くする
+  const fileInput = document.getElementById('novel-file-input');
+  if (fileInput) {
+    if (isIOS) {
+      // iOSではaccept制限でRARが見えなくなるので、制限を緩和
+      // ただしRARはiOS Files.appで非対応の場合があるのでZIP推奨
+      fileInput.setAttribute('accept', '.zip,.rar,application/zip,application/x-zip-compressed,application/octet-stream');
+    }
+  }
+  // ドラッグ＆ドロップ設定
+  const dropZone = document.getElementById('novel-drop-zone');
+  if (dropZone && !dropZone._novelDragBound) {
+    dropZone._novelDragBound = true;
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.style.borderColor = 'var(--accent)'; });
+    dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = 'var(--border)'; });
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.style.borderColor = 'var(--border)';
+      if (e.dataTransfer.files.length > 0) {
+        document.getElementById('novel-file-input').files = e.dataTransfer.files;
+        novelFileSelected(document.getElementById('novel-file-input'));
+      }
+    });
+  }
+  // 未完了ジョブがあれば復元
+  await novelCheckActiveJob();
+  novelRefreshJobs();
+}
+
+function novelFileSelected(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  const selEl = document.getElementById('novel-selected-file');
+  const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+  selEl.textContent = file.name + ' (' + sizeMB + ' MB)';
+  // 自動アップロード開始
+  novelUpload(file);
+}
+
+async function novelUpload(file) {
+  // UIリセット
+  _novelShowError(false);
+  _novelShowResult(false);
+  const uploadProg = document.getElementById('novel-upload-progress');
+  const serverProg = document.getElementById('novel-server-progress');
+  uploadProg.style.display = 'block';
+  serverProg.style.display = 'none';
+  _novelSetUploadProgress(0);
+
+  // XHR でアップロード進捗を取得
+  const xhr = new XMLHttpRequest();
+  const fd = new FormData();
+  fd.append('file', file);
+
+  xhr.upload.addEventListener('progress', e => {
+    if (e.lengthComputable) {
+      const pct = Math.round((e.loaded / e.total) * 100);
+      _novelSetUploadProgress(pct);
+    }
+  });
+
+  xhr.upload.addEventListener('loadend', () => {
+    _novelSetUploadProgress(100);
+  });
+
+  return new Promise((resolve) => {
+    xhr.onload = function() {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          _novelCurrentJobId = data.job_id;
+          // アップロード完了 → サーバー処理ポーリング開始
+          uploadProg.style.display = 'none';
+          serverProg.style.display = 'block';
+          _novelSetServerProgress(0, 'アップロード完了、処理開始...', 'uploaded');
+          _novelStartPolling(data.job_id);
+          resolve(data);
+        } catch(e) {
+          _novelShowError(true, 'レスポンス解析エラー', 'サーバーからの応答を解析できませんでした: ' + e.message);
+          uploadProg.style.display = 'none';
+          resolve(null);
+        }
+      } else {
+        let detail = 'HTTP ' + xhr.status;
+        try {
+          const errData = JSON.parse(xhr.responseText);
+          detail = errData.detail || detail;
+        } catch(_) { detail = xhr.responseText || detail; }
+        const category = _novelCategorizeError(xhr.status, detail);
+        _novelShowError(true, category.title, category.detail);
+        uploadProg.style.display = 'none';
+        resolve(null);
+      }
+    };
+
+    xhr.onerror = function() {
+      const category = _novelCategorizeError(0, 'network_error');
+      _novelShowError(true, category.title, category.detail);
+      uploadProg.style.display = 'none';
+      resolve(null);
+    };
+
+    xhr.ontimeout = function() {
+      _novelShowError(true, 'タイムアウト', 'アップロードがタイムアウトしました。ファイルサイズが大きい場合は分割してください。');
+      uploadProg.style.display = 'none';
+      resolve(null);
+    };
+
+    xhr.timeout = 600000; // 10分
+    xhr.open('POST', API + '/novel/upload?project=' + encodeURIComponent(currentProject));
+    xhr.send(fd);
+  });
+}
+
+function _novelSetUploadProgress(pct) {
+  document.getElementById('novel-upload-pct').textContent = pct + '%';
+  document.getElementById('novel-upload-bar').style.width = pct + '%';
+}
+
+function _novelSetServerProgress(pct, msg, stage) {
+  document.getElementById('novel-server-pct').textContent = pct + '%';
+  document.getElementById('novel-server-bar').style.width = pct + '%';
+  document.getElementById('novel-server-msg').textContent = msg || '';
+  const label = document.getElementById('novel-stage-label');
+  if (label) {
+    const stageLabels = _novelCaps?.stage_labels || {};
+    label.textContent = stageLabels[stage] || stage || '処理中';
+  }
+}
+
+function _novelStartPolling(jobId) {
+  _novelStopPolling();
+  let failCount = 0;
+  _novelPollTimer = setInterval(async () => {
+    try {
+      const r = await fetch(API + '/novel/jobs/' + jobId + '/poll');
+      if (!r.ok) { failCount++; if (failCount > 10) _novelStopPolling(); return; }
+      failCount = 0;
+      const d = await r.json();
+      const serverProg = document.getElementById('novel-server-progress');
+      serverProg.style.display = 'block';
+      _novelSetServerProgress(d.progress_pct, d.message, d.stage);
+
+      if (d.stage === 'completed') {
+        _novelStopPolling();
+        serverProg.style.display = 'none';
+        _novelShowResult(true, d.message);
+        novelRefreshJobs();
+      } else if (d.stage === 'failed') {
+        _novelStopPolling();
+        serverProg.style.display = 'none';
+        const cat = _novelCategorizeServerError(d.error_category, d.error_detail);
+        _novelShowError(true, cat.title, cat.detail);
+        novelRefreshJobs();
+      }
+    } catch(e) {
+      failCount++;
+      if (failCount > 10) _novelStopPolling();
+    }
+  }, 500); // 500ms ポーリング
+}
+
+function _novelStopPolling() {
+  if (_novelPollTimer) { clearInterval(_novelPollTimer); _novelPollTimer = null; }
+}
+
+function _novelShowError(show, title, detail) {
+  const el = document.getElementById('novel-error');
+  el.style.display = show ? 'block' : 'none';
+  if (show) {
+    document.getElementById('novel-error-title').textContent = title || 'エラー';
+    document.getElementById('novel-error-detail').textContent = detail || '';
+  }
+}
+
+function _novelShowResult(show, msg) {
+  const el = document.getElementById('novel-result');
+  el.style.display = show ? 'block' : 'none';
+  if (show) {
+    document.getElementById('novel-result-msg').textContent = msg || '変換完了';
+  }
+}
+
+function _novelCategorizeError(status, detail) {
+  const detailStr = String(detail || '').toLowerCase();
+  if (status === 0 || detailStr.includes('failed to fetch') || detailStr.includes('network_error') || detailStr.includes('networkerror')) {
+    return { title: 'ネットワークエラー', detail: 'サーバーに接続できません。ネットワーク接続を確認してください。大きなファイルの場合、リバースプロキシのタイムアウトやサイズ制限に抵触している可能性があります。' };
+  }
+  if (status === 413) {
+    return { title: 'ファイルサイズ超過', detail: 'アップロードファイルが大きすぎます。サーバーまたはリバースプロキシのサイズ制限を確認してください。' };
+  }
+  if (status === 400) {
+    if (detailStr.includes('rar') && detailStr.includes('サポート')) {
+      return { title: 'RAR形式非対応', detail: String(detail) + ' ZIP形式に変換してアップロードしてください。' };
+    }
+    return { title: '入力エラー', detail: String(detail) };
+  }
+  if (status === 500) {
+    return { title: 'サーバーエラー', detail: 'サーバー内部でエラーが発生しました。ログを確認してください。詳細: ' + String(detail) };
+  }
+  if (status === 504 || detailStr.includes('timeout') || detailStr.includes('gateway')) {
+    return { title: 'タイムアウト', detail: 'サーバー処理がタイムアウトしました。ファイルが大きい場合は分割してお試しください。' };
+  }
+  return { title: 'エラー (HTTP ' + status + ')', detail: String(detail) };
+}
+
+function _novelCategorizeServerError(category, detail) {
+  const catMap = {
+    'rar_unsupported': { title: 'RAR形式非対応', detail: String(detail) + '\nZIP形式に変換してアップロードしてください。' },
+    'rar_tool_missing': { title: 'unrarコマンド未インストール', detail: String(detail) },
+    'rar_extract_failed': { title: 'RAR展開エラー', detail: String(detail) },
+    'zip_corrupt': { title: 'ZIPファイル破損', detail: 'アップロードしたZIPファイルが破損しています。再圧縮してお試しください。' },
+    'zip_extract_failed': { title: 'ZIP展開エラー', detail: String(detail) },
+    'unsupported_format': { title: 'サポート外形式', detail: String(detail) },
+    'no_images': { title: '画像なし', detail: 'アーカイブ内に画像ファイル (JPG/PNG等) が見つかりませんでした。' },
+    'ocr_missing_deps': { title: 'OCRライブラリ未インストール', detail: String(detail) },
+    'processing_error': { title: '処理エラー', detail: String(detail) },
+    'internal_error': { title: '内部エラー', detail: 'サーバー内部でエラーが発生しました: ' + String(detail) },
+  };
+  return catMap[category] || { title: 'エラー: ' + (category || '不明'), detail: String(detail || '') };
+}
+
+async function novelCheckActiveJob() {
+  // 現在のプロジェクトで未完了ジョブがあるか確認し、あればポーリング再開
+  try {
+    const r = await fetch(API + '/novel/jobs?project=' + encodeURIComponent(currentProject));
+    if (!r.ok) return;
+    const d = await r.json();
+    const active = (d.jobs || []).find(j =>
+      j.stage !== 'completed' && j.stage !== 'failed'
+    );
+    if (active) {
+      _novelCurrentJobId = active.id;
+      const serverProg = document.getElementById('novel-server-progress');
+      if (serverProg) serverProg.style.display = 'block';
+      _novelSetServerProgress(active.progress_pct, active.message || '処理再接続中...', active.stage);
+      document.getElementById('novel-upload-progress').style.display = 'none';
+      _novelShowError(false);
+      _novelShowResult(false);
+      const selEl = document.getElementById('novel-selected-file');
+      if (selEl) selEl.textContent = active.filename + ' (処理継続中)';
+      _novelStartPolling(active.id);
+    }
+  } catch(e) { /* ignore */ }
+}
+
+async function novelRefreshJobs() {
+  const listEl = document.getElementById('novel-job-list');
+  if (!listEl) return;
+  try {
+    const r = await fetch(API + '/novel/jobs?project=' + encodeURIComponent(currentProject));
+    if (!r.ok) { listEl.textContent = 'エラー'; return; }
+    const d = await r.json();
+    const jobs = d.jobs || [];
+    if (!jobs.length) { listEl.textContent = '変換履歴なし'; return; }
+    const stageLabels = _novelCaps?.stage_labels || {};
+    listEl.innerHTML = jobs.map(j => {
+      const stageText = stageLabels[j.stage] || j.stage;
+      const stageColor = j.stage === 'completed' ? 'var(--green,#4caf50)' :
+                          j.stage === 'failed' ? 'var(--red,#f44)' : 'var(--text3)';
+      const time = j.created_at ? j.created_at.replace('T', ' ').substring(0, 19) : '';
+      const actions = [];
+      if (j.stage === 'completed') {
+        actions.push('<a href="#" onclick="event.preventDefault();_novelCurrentJobId=\'' + j.id + '\';novelDownload(\'converted\')" style="color:var(--accent);text-decoration:none">DL</a>');
+      }
+      actions.push('<a href="#" onclick="event.preventDefault();novelDeleteJob(\'' + j.id + '\')" style="color:var(--red,#f44);text-decoration:none">✕</a>');
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">' +
+        '<div><span style="color:var(--text)">' + (j.filename||'?').substring(0,30) + '</span> <span style="color:' + stageColor + '">[' + stageText + ']</span></div>' +
+        '<div style="display:flex;gap:8px;align-items:center"><span style="color:var(--text3)">' + time + '</span> ' + actions.join(' ') + '</div></div>';
+    }).join('');
+  } catch(e) { listEl.textContent = 'エラー: ' + e.message; }
+}
+
+function novelDownload(kind) {
+  if (!_novelCurrentJobId) return;
+  window.open(API + '/novel/jobs/' + _novelCurrentJobId + '/download?kind=' + kind, '_blank');
+}
+
+async function novelDeleteJob(jobId) {
+  if (!confirm('このジョブを削除しますか？')) return;
+  try {
+    await fetch(API + '/novel/jobs/' + jobId, { method: 'DELETE' });
+    if (jobId === _novelCurrentJobId) {
+      _novelStopPolling();
+      _novelCurrentJobId = null;
+      _novelShowResult(false);
+      _novelShowError(false);
+      document.getElementById('novel-server-progress').style.display = 'none';
+      document.getElementById('novel-selected-file').textContent = '';
+    }
+    novelRefreshJobs();
+  } catch(e) { alert('削除失敗: ' + e.message); }
 }
 
 </script>
