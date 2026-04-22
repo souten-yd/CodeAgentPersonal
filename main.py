@@ -5515,6 +5515,26 @@ def _repair_truncated_json(text: str):
         return None
 
 
+def _extract_first_json_object(text: str):
+    """
+    文字列中から最初にデコード可能なJSONオブジェクトを抽出する。
+    先頭/末尾に説明文が混ざっていても JSON 部分のみを取り出せるようにする。
+    """
+    if not text:
+        return None
+    decoder = json.JSONDecoder()
+    for idx, ch in enumerate(text):
+        if ch != "{":
+            continue
+        try:
+            parsed, _end = decoder.raw_decode(text[idx:])
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            continue
+    return None
+
+
 def extract_json(text: str, parser: str = "json"):
     """
     parser種別:
@@ -5542,15 +5562,10 @@ def extract_json(text: str, parser: str = "json"):
         except Exception:
             pass
 
-    # 3. テキスト中の最初のJSONオブジェクト
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if m:
-        try:
-            result = json.loads(m.group(0))
-            # actionフィールドがある場合のみ有効なエージェント応答とみなす
-            return result
-        except Exception:
-            pass
+    # 3. テキスト中の最初のJSONオブジェクト（前後ノイズ許容）
+    first_obj = _extract_first_json_object(text)
+    if first_obj is not None:
+        return first_obj
 
     # 4. 途中切れJSONの補完救済（トークン上限で切れた場合）
     repaired = _repair_truncated_json(text)
@@ -5585,7 +5600,7 @@ def _task_v2_apply_args_adapter(action_obj: dict) -> dict:
 def _parse_task_v2_action(text: str, parser: str = "json") -> dict | None:
     """
     Task v2専用パーサ:
-    - json.loads のみ（extract_json の救済ロジックは使わない）
+    - まず厳密に json.loads を試し、失敗時は extract_json で救済する
     - schema検証に失敗した場合は非JSON扱い（None）でリトライさせる
     """
     if parser == "qwen_think":
@@ -5594,20 +5609,26 @@ def _parse_task_v2_action(text: str, parser: str = "json") -> dict | None:
     try:
         raw = json.loads(text)
     except Exception:
-        return None
+        # strict JSON失敗時は「最初のJSONオブジェクト抽出」を最優先し、
+        # 取れない場合のみ既存の救済パーサにフォールバックする。
+        raw = _extract_first_json_object(text) or extract_json(text, parser=parser)
     if not isinstance(raw, dict):
         return None
 
     raw = _task_v2_apply_args_adapter(raw)
-    thought = raw.get("thought")
+    thought = raw.get("thought", "")
     action = raw.get("action")
-    args = raw.get("args")
-    if not isinstance(thought, str):
-        return None
+    args = raw.get("args", {})
+    if thought is None:
+        thought = ""
+    elif not isinstance(thought, str):
+        thought = str(thought)
+    raw["thought"] = thought
     if not isinstance(action, str) or not action.strip():
         return None
     if not isinstance(args, dict):
         return None
+    raw["args"] = args
     if action.strip().lower() == "final" and "output" in raw and not isinstance(raw.get("output"), str):
         return None
     return raw
