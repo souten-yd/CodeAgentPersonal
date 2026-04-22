@@ -29,12 +29,14 @@ import hashlib
 import traceback
 from datetime import datetime
 from collections import OrderedDict
-from agent.context_builder import ContextBuilder
+from agent.context_builder import ContextBuilder, TaskV2ContextBuilder
 from agent.evaluator import Evaluator
 from agent.executor import Executor
 from agent.loop import AgentLoop
-from agent.memory import MemoryStore
+from agent.memory import HybridMemoryStore, MemoryStore
 from agent.planner import Planner
+from agent.tools.registry import ToolRegistry
+from agent.types import Action, Evaluation, Plan, ToolResult
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -6227,6 +6229,251 @@ def _is_task_engine_v2_enabled() -> bool:
     """TASK_ENGINE_V2=true のときだけ新しいタスク実行経路を有効化する。"""
     return os.environ.get("TASK_ENGINE_V2", "false").strip().lower() in {"1", "true", "yes", "on"}
 
+def _task_engine_v2_phase() -> int:
+    raw = os.environ.get("TASK_ENGINE_V2_PHASE", "1").strip()
+    try:
+        return max(1, min(4, int(raw)))
+    except Exception:
+        return 1
+
+
+def _is_dev_dogfood_mode(llm_url: str = "") -> bool:
+    env = os.environ.get("CODEAGENT_ENV", "").strip().lower()
+    if env in {"dev", "development", "local", "dogfood"}:
+        return True
+    url = (llm_url or "").strip().lower()
+    return any(h in url for h in ("localhost", "127.0.0.1", "::1"))
+
+
+def _infer_task_type(task_title: str, task_detail: str) -> str:
+    text = f"{task_title}\n{task_detail}".lower()
+    if any(k in text for k in ("test", "pytest", "検証", "verify", "動作確認")):
+        return "test"
+    if any(k in text for k in ("docs", "readme", "document", "説明")):
+        return "docs"
+    if any(k in text for k in ("refactor", "cleanup", "整理")):
+        return "refactor"
+    return "code"
+
+
+def _is_task_type_in_rollout(task_type: str) -> bool:
+    allow_raw = os.environ.get("TASK_ENGINE_V2_TASK_TYPES", "code,refactor").strip()
+    allow = {v.strip().lower() for v in allow_raw.split(",") if v.strip()}
+    return task_type.lower() in allow
+
+
+def _should_use_task_engine_v2(task_title: str, task_detail: str, llm_url: str = "") -> bool:
+    if not _is_task_engine_v2_enabled():
+        return False
+    phase = _task_engine_v2_phase()
+    if phase == 1:
+        return _is_dev_dogfood_mode(llm_url=llm_url)
+    if phase == 2:
+        return _is_dev_dogfood_mode(llm_url=llm_url) and _is_task_type_in_rollout(_infer_task_type(task_title, task_detail))
+    return True
+
+
+class _TaskV2Planner(Planner):
+    def __init__(self, messages: list[dict], llm_url: str, max_steps: int, parser: str) -> None:
+        self._messages = messages
+        self._llm_url = llm_url
+        self._max_steps = max_steps
+        self._parser = parser
+        self._turn = 0
+        self._consecutive_json_errors = 0
+        self._last_history_len = 0
+
+    def create_plan(self, objective: str, context: dict) -> Plan:
+        plan_steps = ["Analyze objective", "Use one tool/action", "Iterate until final"]
+        return Plan(goal=objective, steps=plan_steps, metadata={"context": context})
+
+    def choose_next_action(self, plan: Plan, history: list[ToolResult]) -> Action | None:
+        self._append_history_to_messages(history)
+        if self._turn >= self._max_steps:
+            return Action(id=f"v2-{self._turn}", tool="__final__", input={"output": f"ステップ上限 ({self._max_steps})", "error": True})
+
+        self._turn += 1
+        reply, usage = call_llm_chat(self._messages, llm_url=self._llm_url)
+        action_obj = _parse_task_v2_action(reply, parser=self._parser)
+        if action_obj is None:
+            self._consecutive_json_errors += 1
+            feedback = 'JSON形式のみで出力してください。例: {"action":"list_files","args":{"subdir":""}}'
+            self._messages.append({"role": "assistant", "content": _sanitize_special_tokens((reply or "")[:500])})
+            self._messages.append({"role": "user", "content": feedback})
+            if self._consecutive_json_errors >= 3:
+                return Action(id=f"v2-{self._turn}", tool="__final__", input={"output": "JSON出力失敗（3回連続）", "error": True})
+            return Action(id=f"v2-{self._turn}", tool="__retry__", input={"reason": "json_parse_failed"})
+
+        self._consecutive_json_errors = 0
+        action = str(action_obj.get("action", "") or "").strip().lower()
+        action, note = _normalize_action_name(action)
+        thought = action_obj.get("thought", "")
+        args = action_obj.get("args", {})
+        if note:
+            thought = f"{thought} ({note})".strip()
+        payload = {
+            "args": args if isinstance(args, dict) else {},
+            "thought": thought,
+            "usage": usage or {},
+            "raw_action": action_obj,
+        }
+        if action in {"stop", "done", "finish", "complete", "end", "final"}:
+            payload["output"] = action_obj.get("output", thought or "完了")
+            return Action(id=f"v2-{self._turn}", tool="__final__", input=payload)
+        return Action(id=f"v2-{self._turn}", tool=action, input=payload)
+
+    def _append_history_to_messages(self, history: list[ToolResult]) -> None:
+        if self._last_history_len >= len(history):
+            return
+        for item in history[self._last_history_len:]:
+            output = item.output if isinstance(item.output, dict) else {"raw": item.output}
+            compact = output.get("compact_reply", "")
+            if compact:
+                self._messages.append({"role": "assistant", "content": _sanitize_special_tokens(compact)})
+            result_text = str(output.get("result", output.get("error") or ""))[:2000]
+            if result_text:
+                self._messages.append({"role": "user", "content": f"実行結果:\n{result_text}"})
+        self._last_history_len = len(history)
+
+
+class _TaskV2Executor(Executor):
+    def __init__(self, registry: ToolRegistry, active_tools: dict, max_retries: int = 2) -> None:
+        super().__init__(max_retries=max_retries)
+        self.registry = registry
+        self.active_tools = active_tools
+
+    def _execute_once(self, action: Action) -> ToolResult:
+        if action.tool == "__retry__":
+            return ToolResult(action_id=action.id, success=False, output={"error": "json_parse_failed"}, error="json_parse_failed")
+        if action.tool == "__final__":
+            return ToolResult(action_id=action.id, success=True, output={"final": True, "output": action.input.get("output", ""), "error": bool(action.input.get("error"))})
+
+        thought = action.input.get("thought", "")
+        tool_input = action.input.get("args", {})
+        safe_input, prep_error, prep_notes = _prepare_tool_call(self.active_tools, action.tool, tool_input)
+        if prep_error:
+            return ToolResult(
+                action_id=action.id,
+                success=False,
+                output={"action": action.tool, "input": tool_input, "thought": thought, "error": prep_error},
+                error=prep_error,
+            )
+        handler = self.registry.get(action.tool)
+        if handler is None:
+            return ToolResult(action_id=action.id, success=False, output={"error": f"unknown tool: {action.tool}"}, error=f"unknown tool: {action.tool}")
+        result = handler(Action(id=action.id, tool=action.tool, input=safe_input))
+        result_text = str(result.output)
+        output = {
+            "action": action.tool,
+            "input": safe_input,
+            "thought": thought,
+            "result": result.output,
+            "result_preview": result_text[:200],
+            "compact_reply": _compact_reply({"action": action.tool, "args": safe_input, "thought": thought}, max_chars=300),
+            "notes": prep_notes,
+        }
+        result.output = output
+        return result
+
+
+class _TaskV2Evaluator(Evaluator):
+    def evaluate(self, plan: Plan, history: list[ToolResult]) -> Evaluation:
+        if not history:
+            return Evaluation(passed=False, feedback="not_started", done=False)
+        latest = history[-1]
+        payload = latest.output if isinstance(latest.output, dict) else {}
+        if payload.get("final"):
+            return Evaluation(passed=not payload.get("error", False), feedback="final", done=True)
+        return super().evaluate(plan=plan, history=history)
+
+
+def _build_task_v2_file_candidates(project: str, max_files: int = 24, max_chars_each: int = 8000) -> list[dict]:
+    candidates: list[dict] = []
+    project_root = os.path.join(WORK_DIR, project)
+    for root, dirs, files in os.walk(project_root):
+        dirs[:] = [d for d in dirs if d not in {".git", ".venv", "__pycache__", "node_modules"}]
+        for name in files:
+            if len(candidates) >= max_files:
+                return candidates
+            path = os.path.join(root, name)
+            rel = os.path.relpath(path, project_root).replace("\\", "/")
+            try:
+                content = open(path, "r", encoding="utf-8").read(max_chars_each)
+            except Exception:
+                continue
+            candidates.append({"path": rel, "content": content})
+    return candidates
+
+
+def execute_task_stream_v2(task_detail: str, context: str = "", max_steps: int = 15, project: str = "default",
+                           search_enabled: bool = True, llm_url: str = "", job_id: str = "", task_id: int = 0, task_title: str = ""):
+    project_prompt = _build_system_prompt(project)
+    user_content = task_detail if not context else f"【前のタスクの結果】\n{context}\n\n【今のタスク】\n{task_detail}"
+    messages = [{"role": "system", "content": project_prompt}, {"role": "user", "content": user_content}]
+
+    active_tools = dict(TOOLS)
+    if not search_enabled:
+        active_tools.pop("web_search", None)
+    active_tools.update(_load_skill_functions())
+    import functools as _ft3
+    for _pt in ("read_file", "write_file", "edit_file", "get_outline", "patch_function", "list_files", "search_in_files",
+                "make_dir", "move_path", "delete_path", "run_shell", "run_python", "run_file", "run_server", "setup_venv"):
+        if _pt in active_tools:
+            active_tools[_pt] = _ft3.partial(active_tools[_pt], project=project)
+
+    registry = ToolRegistry()
+    for name, fn in active_tools.items():
+        registry.register(name, lambda tool_input, _fn=fn, _name=name: ToolResult(action_id=_name, success=not str((_r := _fn(**tool_input))).startswith("ERROR:"), output=_r, error=None if not str(_r).startswith("ERROR:") else str(_r)))
+
+    context_builder = TaskV2ContextBuilder()
+    runtime_state = {
+        "plan": task_title or task_detail[:120],
+        "current_step": "",
+        "file_candidates": _build_task_v2_file_candidates(project=project),
+    }
+    context_builder.build(objective=task_detail, runtime_state=runtime_state)
+
+    memory = HybridMemoryStore(
+        long_term_saver=lambda entry: memory_save(entry),
+        long_term_searcher=lambda query, limit: memory_search(query, limit=limit),
+    )
+    planner = _TaskV2Planner(messages=messages, llm_url=llm_url, max_steps=max_steps, parser=_model_manager.current_parser)
+    executor = _TaskV2Executor(registry=registry, active_tools=active_tools, max_retries=2)
+    evaluator = _TaskV2Evaluator()
+    loop = build_agent_loop(planner=planner, executor=executor, evaluator=evaluator, context_builder=context_builder, memory_store=memory)
+    evaluation, history = loop.run_once(objective=task_detail, runtime_state=runtime_state)
+
+    steps = []
+    prompt_tokens = 0
+    completion_tokens = 0
+    for idx, item in enumerate(history, 1):
+        payload = item.output if isinstance(item.output, dict) else {}
+        if payload.get("final"):
+            continue
+        usage = payload.get("usage", {})
+        prompt_tokens = max(prompt_tokens, int(usage.get("prompt_tokens", 0) or 0))
+        completion_tokens = max(completion_tokens, int(usage.get("completion_tokens", 0) or 0))
+        yield {"type": "tool_call", "action": payload.get("action"), "thought": payload.get("thought", ""), "step_num": idx, "max_steps": max_steps}
+        yield {"type": "tool_result", "action": payload.get("action"), "result_preview": str(payload.get("result_preview", ""))}
+        steps.append({"step": idx - 1, "type": "tool_call", "action": payload.get("action"), "input": payload.get("input", {}), "result_preview": str(payload.get("result_preview", ""))})
+
+    final_output = ""
+    final_error = None
+    if history and isinstance(history[-1].output, dict) and history[-1].output.get("final"):
+        final_output = str(history[-1].output.get("output", "") or "")
+        if history[-1].output.get("error"):
+            final_error = final_output or "task failed"
+    elif evaluation.done and evaluation.passed:
+        final_output = evaluation.feedback or "完了"
+    else:
+        final_error = evaluation.feedback or "task failed"
+
+    if final_error:
+        yield {"type": "task_error", "task_id": task_id, "title": task_title, "error": final_error, "steps": steps}
+        return
+    yield {"type": "task_done", "task_id": task_id, "title": task_title, "output": final_output, "steps": steps,
+           "total_steps": len(steps), "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "tps": 0}
+
 def run_task_mode_stream(
     task_detail: str,
     context: str = "",
@@ -6243,9 +6490,8 @@ def run_task_mode_stream(
     - デフォルト: 旧実装 execute_task_stream
     - TASK_ENGINE_V2=true: 新実装入口（現段階は既存実装へフォールバック）
     """
-    if _is_task_engine_v2_enabled():
-        # TODO: 新実装（例: agent.loop.run_task_mode）に差し替える
-        return execute_task_stream(
+    if _should_use_task_engine_v2(task_title=task_title, task_detail=task_detail, llm_url=llm_url):
+        return execute_task_stream_v2(
             task_detail=task_detail,
             context=context,
             max_steps=max_steps,
@@ -11816,7 +12062,7 @@ async def task_stream(req: TaskStreamRequest):
             task_status = "error"
             task_output = ""
 
-            for event in execute_task_stream(
+            for event in run_task_mode_stream(
                 task_detail=todo["detail"],
                 context=context,
                 max_steps=req.max_steps,
