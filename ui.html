@@ -8112,6 +8112,7 @@ async function sendMessage(msg) {
                 : `${ev.action}: ${(ev.thought||'')}`;
               setCard(progEl, {action: actionText});
             } else if (ev.type === 'tool_result') {
+              attachToolResult(chatSteps, ev);
               const resultAction = (ev.action||'') === 'web_search'
                 ? '✓ Web検索 完了 → 次のアクションを生成中...'
                 : `✓ ${ev.action||'tool'} 完了 → 次のアクションを生成中...`;
@@ -8340,12 +8341,18 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
           stepNum: ev.step_num ? `${ev.step_num}/${ev.max_steps||'?'}` : '-/-',
         });
       } else if (ev.type === 'tool_result') {
+        attachToolResult(allSteps, ev);
         // ツール実行完了 → LLMが次のアクションを生成中
         if ((ev.action||'') === 'web_search') {
           const preview = (ev.result_preview||'').slice(0, 120);
           const status = preview.startsWith('Search error') || preview.startsWith('SEARCH_') ? '⚠' : '✓';
           setCard(progCard, {action: `${status} Web検索 完了 → 次のアクションを生成中...`});
           if (preview) addLog(status === '✓' ? 'ok' : 'warn', 'search', `result: ${preview}`);
+        } else if ((ev.action||'') === 'read_file') {
+          const size = Number(ev.result_size);
+          const sizeText = Number.isFinite(size) ? size.toLocaleString() : '?';
+          setCard(progCard, {action: `✓ read_file 完了 → 次のアクションを生成中...`});
+          addLog('info', 'tool', `read_file returned ${sizeText} chars`);
         } else {
           setCard(progCard, {action: `✓ ${ev.action||'tool'} 完了 → 次のアクションを生成中...`});
         }
@@ -8444,6 +8451,8 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
         }
       } else if (ev.type === 'tool_call' || ev.type === 'step') {
         allSteps.push(ev);
+      } else if (ev.type === 'tool_result') {
+        attachToolResult(allSteps, ev);
       } else if (ev.type === 'skill_proposals') {
         _renderSkillProposals(ev.proposals||[], ev.stats||{});
       }
@@ -8719,6 +8728,29 @@ function toggleMdBubble(btn) {
     btn.textContent = 'MD';
   }
 }
+function attachToolResult(stepList, ev) {
+  if (!Array.isArray(stepList) || !ev) return;
+  for (let i = stepList.length - 1; i >= 0; i--) {
+    const step = stepList[i];
+    if (!step || step.type !== 'tool_call') continue;
+    if ((step.action || '') !== (ev.action || '')) continue;
+    if (step.result_preview) continue;
+    step.result_preview = ev.result_preview || '';
+    if ((ev.action || '') === 'read_file') {
+      step.result_excerpt = ev.result_excerpt || '';
+      step.result_size = ev.result_size;
+    }
+    break;
+  }
+}
+
+function toggleReadExcerpt(btn) {
+  const panel = btn?.closest('.read-excerpt-wrap')?.querySelector('.read-excerpt');
+  if (!panel) return;
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  btn.textContent = panel.style.display === 'none' ? 'Expand' : 'Collapse';
+}
+
 function addStepsBlock(steps) {
   const w = messages();
   const toolSteps = steps.filter(s=>s.type==='tool_call');
@@ -8732,6 +8764,15 @@ function addStepsBlock(steps) {
       ${s.thought?`<div class="step-thought">${esc(s.thought)}</div>`:''}
       ${s.action==='web_search' && s.input?.query ? `<div class="step-thought">query: ${esc(s.input.query)}</div>` : ''}
       ${s.result_preview?`<div class="step-result">${esc(s.result_preview)}</div>`:''}
+      ${
+        s.action === 'read_file' && s.result_excerpt
+          ? `<div class="read-excerpt-wrap">
+              <button class="pv-btn" style="font-size:10px;padding:2px 8px;margin-top:4px" onclick="toggleReadExcerpt(this)">Expand</button>
+              <pre class="step-result read-excerpt" style="display:none;margin-top:6px;max-height:240px;overflow:auto">${esc(s.result_excerpt)}</pre>
+              <div class="step-thought" style="margin-top:4px">read_file returned ${Number.isFinite(Number(s.result_size)) ? Number(s.result_size).toLocaleString() : '?'} chars</div>
+            </div>`
+          : ''
+      }
     </div></div>`).join('');
   d.innerHTML = `<div class="msg-role">Steps</div>
     <div class="steps-block">

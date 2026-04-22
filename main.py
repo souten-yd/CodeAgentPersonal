@@ -12079,6 +12079,20 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             return "（直近の探索結果要約なし）"
         return " / ".join(recent_exploration_notes[-limit:])
 
+    def _build_read_file_excerpt(text: str, max_chars: int = 4000) -> tuple[str, int]:
+        result_size = len(text)
+        if result_size <= max_chars:
+            return text, result_size
+        head = max_chars // 2
+        tail = max_chars - head
+        omitted = result_size - max_chars
+        excerpt = (
+            text[:head]
+            + f"\n\n[... {omitted} chars omitted ...]\n\n"
+            + text[-tail:]
+        )
+        return excerpt, result_size
+
     for step in range(max_steps):
         messages = _trim_messages(messages, _current_n_ctx, reserve_output=4096)
 
@@ -12240,13 +12254,22 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
                 except TypeError as e:
                     result = f"ERROR: 引数エラー - {e}"
 
+        result_text = str(result)
         step_record = {
             "step": step, "type": "tool_call",
             "action": action, "thought": thought,
-            "input": safe_input if safe_input is not None else tool_input, "result_preview": str(result)[:200]
+            "input": safe_input if safe_input is not None else tool_input, "result_preview": result_text[:200]
         }
+        tool_result_event = {"type": "tool_result", "action": action, "result_preview": result_text[:200]}
+        if action == "read_file":
+            excerpt, result_size = _build_read_file_excerpt(result_text)
+            step_record["result_excerpt"] = excerpt
+            step_record["result_size"] = result_size
+            tool_result_event["result_excerpt"] = excerpt
+            tool_result_event["result_size"] = result_size
+            print(f"[tool_result] read_file returned {result_size} chars")
         steps.append(step_record)
-        yield {"type": "tool_result", "action": action, "result_preview": str(result)[:200]}
+        yield tool_result_event
 
         recent_actions.append(action)
         if len(recent_actions) > stagnation_window:
@@ -12267,7 +12290,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
         # replyをmessagesに追加する際、write_fileのcontentなど巨大フィールドを省略
         compact = _compact_reply(action_obj, max_chars=300)
         messages.append({"role": "assistant", "content": _sanitize_special_tokens(compact or reply[:500])})
-        result_str = str(result)
+        result_str = result_text
         # write_file/patch_functionは成功メッセージ＋プレビューのみ
         if action in ("write_file", "patch_function"):
             result_str = result_str[:400]
