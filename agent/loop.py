@@ -3,7 +3,7 @@ from __future__ import annotations
 from agent.context_builder import ContextBuilder
 from agent.evaluator import Evaluator
 from agent.executor import Executor
-from agent.memory import MemoryStore
+from agent.memory import MemoryStore, TaskOutcome
 from agent.planner import Planner
 from agent.policy import ExecutionPolicy
 from agent.safety import build_autostop_notice
@@ -160,6 +160,32 @@ class AgentLoop:
             "last_result": last,
         }
         store_memory(key=f"job_summary:{objective[:80]}", value=summary, scope="long")
+        self._store_task_outcome(objective=objective, history=history, evaluation=evaluation)
+        finalize_session = getattr(self.memory, "finalize_session", None)
+        if callable(finalize_session):
+            finalize_session(objective=objective)
+
+    def _store_task_outcome(self, objective: str, history: list[ToolResult], evaluation: Evaluation) -> None:
+        record = getattr(self.memory, "record_task_outcome", None)
+        if not callable(record):
+            return
+        changed = [f"{item.action_id}: {'success' if item.success else 'failed'}" for item in history[-8:]]
+        verification: list[str] = []
+        for item in history[-8:]:
+            if item.success:
+                verification.append(f"tool={item.action_id} ok")
+            elif item.error:
+                verification.append(f"tool={item.action_id} error={item.error}")
+        if evaluation.feedback:
+            verification.append(f"evaluation={evaluation.feedback}")
+        outcome = TaskOutcome(
+            task_id=(history[-1].action_id if history else "task"),
+            task_title=objective[:120],
+            what_changed=changed,
+            why=evaluation.feedback or "task objective complete",
+            verification=verification,
+        )
+        record(outcome)
 
     def _is_unrecoverable(self, evaluation: Evaluation) -> bool:
         if evaluation.replan_level in {"task", "epic", "program"}:
