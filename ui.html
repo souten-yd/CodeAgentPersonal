@@ -1014,6 +1014,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     <div class="mode-wrap">
       <button class="mode-btn active" id="btn-chat" onclick="setMode('chat')">Chat</button>
       <button class="mode-btn" id="btn-task" onclick="setMode('task')">Task</button>
+      <button class="mode-btn" id="btn-agent" onclick="toggleAgent()">Agent</button>
       <button class="mode-btn" id="btn-echo" onclick="setMode('echo')">Echo</button>
     </div>
     <button class="hdr-icon-btn" id="settings-btn" onclick="openSettings()" title="Settings">
@@ -4795,6 +4796,12 @@ function setMode(m) {
       document.getElementById('mob-chat')?.classList.add('active');
     }
   }
+}
+
+let _agentRunning = false;
+function toggleAgent() {
+  _agentRunning = !_agentRunning;
+  document.getElementById('btn-agent')?.classList.toggle('active', _agentRunning);
 }
 
 // ── MOBILE ──
