@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from agent.context_builder import ContextBuilder, TaskV2ContextBuilder
 from agent.evaluator import Evaluator
 from agent.executor import Executor
+from agent.io import ConversationTurn, TextIOAdapter, VoiceIOAdapter
 from agent.loop import AgentLoop
 from agent.memory import HybridMemoryStore, MemoryStore
 from agent.planner import Planner
@@ -6069,6 +6070,9 @@ class ChatRequest(BaseModel):
     audio_base64: str = ""
     audio_format: str = "webm"
     voice_language: str = "ja"
+    interruption: bool = False
+    barge_in: bool = False
+    partial_transcript: str = ""
     mode: str = "task"          # "chat" → direct LLM call, "task" → agent loop
     chat_history: list = []     # 会話履歴（chat モード時に使用）
 
@@ -8538,18 +8542,27 @@ def voice_transcribe(
         except Exception:
             pass
 
-def _resolve_message_with_voice(req: ChatRequest) -> str:
-    msg = (req.message or "").strip()
-    if msg:
-        return msg
-    if not (req.audio_base64 or "").strip():
-        return ""
+def _build_conversation_io(req: ChatRequest):
+    has_audio = bool((req.audio_base64 or "").strip())
+    if has_audio:
+        return VoiceIOAdapter(
+            message=req.message,
+            audio_base64=req.audio_base64,
+            language=req.voice_language or "ja",
+            audio_format=req.audio_format or "webm",
+            asr_transcribe=voice_transcribe,
+            tts_synthesize=None,
+            interruption=bool(req.interruption),
+            barge_in=bool(req.barge_in),
+            partial_transcript=req.partial_transcript or "",
+        )
+    return TextIOAdapter(req.message)
+
+
+def _receive_user_turn(req: ChatRequest, io_adapter=None) -> ConversationTurn:
+    io_adapter = io_adapter or _build_conversation_io(req)
     try:
-        audio = base64.b64decode(req.audio_base64)
-        if not audio:
-            return ""
-        tr = voice_transcribe(audio, language=req.voice_language or "ja", model_name="large-v3-turbo", audio_format=req.audio_format or "webm")
-        return tr.get("text", "").strip()
+        return io_adapter.receive_turn()
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"voice transcription failed: {e}")
 
@@ -8645,15 +8658,19 @@ def _resolve_runtime_llm_url(requested_url: str = "") -> str:
 def chat(req: ChatRequest):
     sid = str(uuid.uuid4())[:8]
     chat_url = _resolve_runtime_llm_url(req.llm_url)
-    message = _resolve_message_with_voice(req)
+    io_adapter = _build_conversation_io(req)
+    user_turn = _receive_user_turn(req, io_adapter=io_adapter)
+    message = (user_turn.text or "").strip()
     if not message:
         raise HTTPException(status_code=400, detail="message is empty")
     result = execute_task(message, max_steps=req.max_steps, project=req.project,
                           search_enabled=req.search_enabled, llm_url=chat_url)
     save_session(sid, req.project, message, "chat", result)
     if result["status"] == "done":
+        sent = io_adapter.send_turn(ConversationTurn(text=result["output"], role="assistant"))
         return {
-            "result": result["output"],
+            "result": sent.get("text", result["output"]),
+            "response": sent,
             "steps": result["steps"],
             "total_steps": result["total_steps"]
         }
@@ -8719,7 +8736,9 @@ def llm_test(req: LLMTestRequest):
 @app.post("/plan")
 def plan_only(req: ChatRequest):
     """要件定義・タスクリストを返す。モデル推奨情報も含む。"""
-    message = _resolve_message_with_voice(req)
+    io_adapter = _build_conversation_io(req)
+    user_turn = _receive_user_turn(req, io_adapter=io_adapter)
+    message = (user_turn.text or "").strip()
     if not message:
         raise HTTPException(status_code=400, detail="message is empty")
     try:
