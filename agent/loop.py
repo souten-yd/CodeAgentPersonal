@@ -44,12 +44,20 @@ class AgentLoop:
                 if evaluation.done:
                     break
                 if self._is_unrecoverable(evaluation):
-                    context = self.context_builder.build(objective=objective, runtime_state=runtime_state)
-                    plan = self.planner.create_plan(objective=objective, context=context)
+                    replan_minimal = getattr(self.planner, "replan_minimal", None)
+                    if callable(replan_minimal):
+                        plan = replan_minimal(plan=plan, level=evaluation.replan_level, failed_action_id=history[-1].action_id if history else None)
+                    else:
+                        context = self.context_builder.build(objective=objective, runtime_state=runtime_state)
+                        plan = self.planner.create_plan(objective=objective, context=context)
                     continue
                 break
 
-            history.append(self.executor.execute(action))
+            result = self.executor.execute(action)
+            history.append(result)
+            mark_task_result = getattr(self.planner, "mark_task_result", None)
+            if callable(mark_task_result):
+                mark_task_result(plan, result)
             evaluation = self.evaluator.evaluate(plan=plan, history=history)
             self._store_step_memory(history[-1], evaluation)
             self._update_memory(objective=objective, history=history, evaluation=evaluation, plan=plan)
@@ -58,8 +66,12 @@ class AgentLoop:
             if evaluation.done:
                 break
             if self._is_unrecoverable(evaluation):
-                context = self.context_builder.build(objective=objective, runtime_state=runtime_state)
-                plan = self.planner.create_plan(objective=objective, context=context)
+                replan_minimal = getattr(self.planner, "replan_minimal", None)
+                if callable(replan_minimal):
+                    plan = replan_minimal(plan=plan, level=evaluation.replan_level, failed_action_id=history[-1].action_id if history else None)
+                else:
+                    context = self.context_builder.build(objective=objective, runtime_state=runtime_state)
+                    plan = self.planner.create_plan(objective=objective, context=context)
 
         if evaluation.done:
             self._promote_job_summary(objective=objective, history=history, evaluation=evaluation)
@@ -93,6 +105,8 @@ class AgentLoop:
         store_memory(key=f"job_summary:{objective[:80]}", value=summary, scope="long")
 
     def _is_unrecoverable(self, evaluation: Evaluation) -> bool:
+        if evaluation.replan_level in {"task", "epic", "program"}:
+            return True
         feedback = (evaluation.feedback or "").lower()
         return "回復不能" in evaluation.feedback or "unrecoverable" in feedback
 
