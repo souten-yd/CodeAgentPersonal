@@ -5585,7 +5585,7 @@ def _task_v2_apply_args_adapter(action_obj: dict) -> dict:
 def _parse_task_v2_action(text: str, parser: str = "json") -> dict | None:
     """
     Task v2専用パーサ:
-    - json.loads のみ（extract_json の救済ロジックは使わない）
+    - まず厳密に json.loads を試し、失敗時は extract_json で救済する
     - schema検証に失敗した場合は非JSON扱い（None）でリトライさせる
     """
     if parser == "qwen_think":
@@ -5594,20 +5594,24 @@ def _parse_task_v2_action(text: str, parser: str = "json") -> dict | None:
     try:
         raw = json.loads(text)
     except Exception:
-        return None
+        raw = extract_json(text, parser=parser)
     if not isinstance(raw, dict):
         return None
 
     raw = _task_v2_apply_args_adapter(raw)
-    thought = raw.get("thought")
+    thought = raw.get("thought", "")
     action = raw.get("action")
-    args = raw.get("args")
-    if not isinstance(thought, str):
-        return None
+    args = raw.get("args", {})
+    if thought is None:
+        thought = ""
+    elif not isinstance(thought, str):
+        thought = str(thought)
+    raw["thought"] = thought
     if not isinstance(action, str) or not action.strip():
         return None
     if not isinstance(args, dict):
         return None
+    raw["args"] = args
     if action.strip().lower() == "final" and "output" in raw and not isinstance(raw.get("output"), str):
         return None
     return raw
