@@ -4799,9 +4799,42 @@ function setMode(m) {
 }
 
 let _agentRunning = false;
-function toggleAgent() {
-  _agentRunning = !_agentRunning;
-  document.getElementById('btn-agent')?.classList.toggle('active', _agentRunning);
+function setAgentTaskInputLocked(locked) {
+  const inputEl = document.getElementById('input');
+  if (!inputEl) return;
+  inputEl.disabled = !!locked;
+}
+
+async function toggleAgent() {
+  const btn = document.getElementById('btn-agent');
+  const inputEl = document.getElementById('input');
+  if (!inputEl) return;
+
+  if (_agentRunning) {
+    _agentRunning = false;
+    btn?.classList.toggle('active', false);
+    setAgentTaskInputLocked(false);
+    return;
+  }
+
+  const task = (inputEl.value || '').trim();
+  if (!task) {
+    alert("Task is empty");
+    return;
+  }
+
+  try {
+    await fetch(API + '/agent/start', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({task})
+    });
+    _agentRunning = true;
+    btn?.classList.toggle('active', true);
+    setAgentTaskInputLocked(true);
+  } catch (e) {
+    addLog('err', 'agent', `agent start error: ${e.message}`);
+  }
 }
 
 // ── MOBILE ──
