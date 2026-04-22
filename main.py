@@ -29,6 +29,12 @@ import hashlib
 import traceback
 from datetime import datetime
 from collections import OrderedDict
+from agent.context_builder import ContextBuilder
+from agent.evaluator import Evaluator
+from agent.executor import Executor
+from agent.loop import AgentLoop
+from agent.memory import MemoryStore
+from agent.planner import Planner
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -65,6 +71,26 @@ async def lifespan(app):
     if cleanup: cleanup()
 
 app = FastAPI(lifespan=lifespan)
+
+
+def build_agent_loop(
+    planner: Planner,
+    executor: Executor,
+    evaluator: Evaluator,
+    context_builder: ContextBuilder,
+    memory_store: MemoryStore,
+) -> AgentLoop:
+    """
+    main.py が直接ツール実行/評価ロジックを持たないための境界。
+    実装詳細は agent/ 配下へ寄せ、ここでは依存注入のみを行う。
+    """
+    return AgentLoop(
+        planner=planner,
+        executor=executor,
+        evaluator=evaluator,
+        context_builder=context_builder,
+        memory=memory_store,
+    )
 
 app.add_middleware(
     CORSMiddleware,
