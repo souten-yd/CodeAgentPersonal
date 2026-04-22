@@ -6102,6 +6102,7 @@ class AgentState:
 
 agent_state = AgentState()
 agent_state_lock = threading.Lock()
+agent_loop_lock = threading.Lock()
 
 
 def _run_background_agent_loop() -> None:
@@ -6109,16 +6110,28 @@ def _run_background_agent_loop() -> None:
     軽量なバックグラウンドループ。
     /agent/stop で running=False に変更されたら終了する。
     """
-    while True:
+    fixed_task = None
+    try:
         with agent_state_lock:
+            fixed_task = agent_state.currentTask
+
+        while True:
+            with agent_state_lock:
+                if not agent_state.running:
+                    break
+                agent_state.loopCount += 1
+                action = f"loop:{agent_state.loopCount}"
+                agent_state.lastActions.append(action)
+                if len(agent_state.lastActions) > 50:
+                    agent_state.lastActions = agent_state.lastActions[-50:]
+            time.sleep(0.5)
+    finally:
+        with agent_state_lock:
+            # running中のtaskは開始時に固定し、途中で外部入力が変化しても再代入しない。
             if not agent_state.running:
-                break
-            agent_state.loopCount += 1
-            action = f"loop:{agent_state.loopCount}"
-            agent_state.lastActions.append(action)
-            if len(agent_state.lastActions) > 50:
-                agent_state.lastActions = agent_state.lastActions[-50:]
-        time.sleep(0.5)
+                agent_state.currentTask = fixed_task
+        if agent_loop_lock.locked():
+            agent_loop_lock.release()
 
 def execute_chat_with_optional_web_search(
     message: str,
@@ -11386,6 +11399,8 @@ async def agent_start(req: Request, background_tasks: BackgroundTasks):
     with agent_state_lock:
         if agent_state.running:
             return "already running"
+        if not agent_loop_lock.acquire(blocking=False):
+            return "already running"
         agent_state.running = True
         agent_state.loopCount = 0
         agent_state.currentTask = task
@@ -11398,6 +11413,8 @@ async def agent_start(req: Request, background_tasks: BackgroundTasks):
 @app.post("/agent/stop")
 def agent_stop():
     with agent_state_lock:
+        if not agent_state.running:
+            return "stopped"
         agent_state.running = False
     return "stopped"
 
