@@ -5332,7 +5332,7 @@ def _compact_reply(action_obj: dict, max_chars: int = 500) -> str:
         return ""
     compact = {}
     for k, v in action_obj.items():
-        if k == "input" and isinstance(v, dict):
+        if k in ("input", "args") and isinstance(v, dict):
             compact_input = {}
             for ik, iv in v.items():
                 iv_str = str(iv)
@@ -5560,6 +5560,53 @@ def extract_json(text: str, parser: str = "json"):
         return gpt_oss
 
     return None
+
+
+def _task_v2_apply_args_adapter(action_obj: dict) -> dict:
+    """
+    互換期間: 旧フォーマット input を新フォーマット args に寄せる。
+    移行完了後に削除予定。
+    """
+    if not isinstance(action_obj, dict):
+        return action_obj
+    if isinstance(action_obj.get("args"), dict):
+        return action_obj
+    if isinstance(action_obj.get("input"), dict):
+        patched = dict(action_obj)
+        patched["args"] = patched.get("input", {})
+        return patched
+    return action_obj
+
+
+def _parse_task_v2_action(text: str, parser: str = "json") -> dict | None:
+    """
+    Task v2専用パーサ:
+    - json.loads のみ（extract_json の救済ロジックは使わない）
+    - schema検証に失敗した場合は非JSON扱い（None）でリトライさせる
+    """
+    if parser == "qwen_think":
+        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+        text = re.sub(r'<\|thinking\|>.*?<\|/thinking\|>', '', text, flags=re.DOTALL).strip()
+    try:
+        raw = json.loads(text)
+    except Exception:
+        return None
+    if not isinstance(raw, dict):
+        return None
+
+    raw = _task_v2_apply_args_adapter(raw)
+    thought = raw.get("thought")
+    action = raw.get("action")
+    args = raw.get("args")
+    if not isinstance(thought, str):
+        return None
+    if not isinstance(action, str) or not action.strip():
+        return None
+    if not isinstance(args, dict):
+        return None
+    if action.strip().lower() == "final" and "output" in raw and not isinstance(raw.get("output"), str):
+        return None
+    return raw
 
 # =========================
 # LLM呼び出し
@@ -5817,7 +5864,7 @@ CHAT_SYSTEM_PROMPT = """あなたは親切で知識豊富なAIアシスタント
 ユーザーの質問・会話に対して、自然で分かりやすい言葉で返答してください。
 コードの作成・修正・ファイル操作などの具体的な作業が必要な場合は、その旨を伝えてTaskモードへの切り替えを促してください。"""
 
-SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
+TASK_V2_SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 
 【絶対ルール】
 - 必ず純粋なJSONオブジェクトのみを出力する。それ以外は一切禁止。
@@ -5827,10 +5874,10 @@ SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 - ツール実行結果がERRORの場合、同じaction+同じ引数を繰り返さない。必ずエラー内容を読んで引数や手順を変更する。
 
 【出力形式】（このフォーマット厳守）
-{"thought":"考えていること","action":"ツール名","input":{ツールの引数}}
+{"thought":"考えていること","action":"ツール名","args":{ツールの引数}}
 
 【最終回答】
-{"thought":"完了","action":"final","input":{},"output":"ユーザーへの回答"}
+{"thought":"完了","action":"final","args":{},"output":"ユーザーへの回答"}
 
 【ツール一覧】
 - list_files: {"subdir": ""}
@@ -5906,7 +5953,7 @@ def _build_system_prompt(project: str = "") -> str:
     スキルは ./skills/ の SKILL.md から自動ロード。
     {project} プレースホルダーを実際のプロジェクト名に置換する。
     """
-    base = SYSTEM_PROMPT.replace("{project}", project) if project else SYSTEM_PROMPT
+    base = TASK_V2_SYSTEM_PROMPT.replace("{project}", project) if project else TASK_V2_SYSTEM_PROMPT
     usage_fn = globals().get("_build_tool_success_playbook")
     usage_guide = usage_fn(project) if usage_fn else ""
     inject_fn = globals().get("_skills_to_prompt_injection")
@@ -7236,7 +7283,7 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
         if on_step:
             on_step({"type": "llm_thinking", "step_num": step + 1, "max_steps": max_steps})
         reply, _step_usage = call_llm_chat(messages, llm_url=llm_url)
-        action_obj = extract_json(reply, parser=_model_manager.current_parser)
+        action_obj = _parse_task_v2_action(reply, parser=_model_manager.current_parser)
 
         if action_obj is None:
             consecutive_errors += 1
@@ -7247,7 +7294,7 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
             messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
             messages.append({
                 "role": "user",
-                "content": "エラー: JSON形式で出力してください。説明不要。{\"action\": ..., \"input\": {...}} の形式のみ。"
+                "content": "エラー: JSON形式で出力してください。説明不要。{\"thought\":\"...\",\"action\":\"...\",\"args\":{...}} の形式のみ。"
             })
             steps.append({"step": step, "type": "json_retry", "raw": reply})
             continue
@@ -7257,7 +7304,7 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
         action = str(action_obj.get("action", "") or "").strip().lower()
         action, action_note = _normalize_action_name(action)
         thought = action_obj.get("thought", "")
-        tool_input = action_obj.get("input", {})
+        tool_input = action_obj.get("args", {})
         if action_note:
             thought = f"{thought} ({action_note})".strip()
         if action in {"stop", "done", "finish", "complete", "end"}:
@@ -11258,7 +11305,7 @@ async def stream(req: ChatRequest):
                 # APIがprompt_tokensを返さない場合はメッセージ長から推定
                 if not _step_usage.get("prompt_tokens"):
                     _step_usage = {**_step_usage, "prompt_tokens": _estimate_tokens(messages)}
-                action_obj = extract_json(reply, parser=_model_manager.current_parser)
+                action_obj = _parse_task_v2_action(reply, parser=_model_manager.current_parser)
 
                 if action_obj is None:
                     consecutive_errors += 1
@@ -11278,7 +11325,7 @@ async def stream(req: ChatRequest):
 
                 action = action_obj.get("action", "")
                 thought = action_obj.get("thought", "")
-                tool_input = action_obj.get("input", {})
+                tool_input = action_obj.get("args", {})
 
                 if action == "final":
                     task_status = "done"
@@ -11582,7 +11629,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
                     yield {"type": "task_error", "error": str(_ctx_ex.detail), "steps": steps}
                     return
 
-        action_obj = extract_json(reply)
+        action_obj = _parse_task_v2_action(reply, parser=_model_manager.current_parser)
 
         if action_obj is None:
             consecutive_errors += 1
@@ -11606,7 +11653,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             elif reply.strip().startswith("<|"):
                 fb = "チャンネルトークンは使わず、JSONのみを出力してください。最初の文字は{であること。"
             else:
-                fb = 'JSON形式のみで出力してください。最初の文字は{であること。例: {"thought":"考え","action":"list_files","input":{"subdir":""}}'
+                fb = 'JSON形式のみで出力してください。最初の文字は{であること。例: {"thought":"考え","action":"list_files","args":{"subdir":""}}'
             messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)[:500]})
             messages.append({"role": "user", "content": fb})
             continue
@@ -11616,7 +11663,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
         action = str(action_obj.get("action", "") or "").strip().lower()
         action, action_note = _normalize_action_name(action)
         thought = action_obj.get("thought", "")
-        tool_input = action_obj.get("input", {})
+        tool_input = action_obj.get("args", {})
         if action_note:
             thought = f"{thought} ({action_note})".strip()
         if action in {"stop", "done", "finish", "complete", "end"}:
