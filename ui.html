@@ -486,7 +486,7 @@ html.logo-svg-ready .logo-text{display:none}
     height:auto;
     width:100%;
   }
-  .chat-col{
+  .chat-col,.agent-col,.agent-panel-col{
     /* flex layout: messages flex-grow, input always visible at bottom */
     display:flex!important;flex-direction:column!important;
     height:100%;max-height:100%;
@@ -496,7 +496,7 @@ html.logo-svg-ready .logo-text{display:none}
     height:100%;max-height:100%;display:flex;flex-direction:column;
     width:100%;max-width:100%;flex:1 1 100%;
   }
-  #tab-output,#tab-preview,#tab-log,#tab-skills,#tab-memory,#tab-models,#tab-vault,#tab-asr,#tab-tts{
+  #tab-output,#tab-preview,#tab-log,#tab-skills,#tab-memory,#tab-models,#tab-vault,#tab-asr,#tab-tts,#agent-task-list{
     width:100%;
     max-width:100%;
     box-sizing:border-box;
@@ -506,12 +506,18 @@ html.logo-svg-ready .logo-text{display:none}
   .mob-hidden{display:none!important}
 }
 @media(min-width:769px){
-  .chat-col,.echo-col{flex:1 1 auto;min-width:0;border-right:1px solid var(--border)}
+  .chat-col,.echo-col,.agent-col{flex:1 1 auto;min-width:0;border-right:1px solid var(--border)}
   .panel-col{flex:0 0 var(--panel-col-width, min(46vw, 560px));min-width:260px;max-width:75vw}
+  .agent-panel-col{flex:0 0 min(42vw, 520px);min-width:240px;max-width:70vw}
   .panel-resizer{display:block}
 }
 
 /* ── CHAT COL ── */
+
+.agent-col,.agent-panel-col{display:flex;flex-direction:column;min-height:0;background:var(--bg1)}
+.agent-col{flex:1 1 auto;border-right:1px solid var(--border)}
+.agent-panel-col{flex:0 0 min(42vw,520px);min-width:240px;max-width:70vw}
+
 .chat-col{display:flex;flex-direction:column;background:var(--bg1);overflow:hidden;min-height:0}
 .chat-topbar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0}
 .messages{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
@@ -942,6 +948,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 @media(min-width:769px){
   .app-body.echo-active .echo-col{flex:1 1 50%;min-width:0}
   .app-body.echo-active .panel-col{flex:0 0 var(--panel-col-width, min(46vw, 560px));min-width:260px;max-width:75vw}
+  .agent-panel-col{flex:0 0 min(42vw, 520px);min-width:240px;max-width:70vw}
 }
 .app-body.echo-active .chat-col{display:none!important}
 @media(max-width:768px){
@@ -1014,7 +1021,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     <div class="mode-wrap">
       <button class="mode-btn active" id="btn-chat" onclick="setMode('chat')">Chat</button>
       <button class="mode-btn" id="btn-task" onclick="setMode('task')">Task</button>
-      <button class="mode-btn" id="btn-agent" onclick="toggleAgent()">Agent</button>
+      <button class="mode-btn" id="btn-agent" onclick="setMode('agent')">Agent</button>
       <button class="mode-btn" id="btn-echo" onclick="setMode('echo')">Echo</button>
     </div>
     <button class="hdr-icon-btn" id="settings-btn" onclick="openSettings()" title="Settings">
@@ -1053,6 +1060,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skill</button>
   <button class="mob-tab wide" id="mob-memory" onclick="mobSwitch('memory')">Memory</button>
   <button class="mob-tab" id="mob-models" onclick="mobSwitch('models')">Models</button>
+  <!-- Agent モード用タブ (デフォルト非表示) -->
+  <button class="mob-tab wide" id="mob-agent-chat" onclick="mobSwitch('agent_chat')" style="display:none">Agent Chat</button>
+  <button class="mob-tab wide" id="mob-agent-tasks" onclick="mobSwitch('agent_tasks')" style="display:none">Agent Tasks</button>
   <!-- Echo モード用タブ (デフォルト非表示) -->
   <button class="mob-tab" id="mob-echo" onclick="mobSwitch('echo')" style="display:none">Echo</button>
   <button class="mob-tab" id="mob-vault" onclick="mobSwitch('vault')" style="display:none">Vault</button>
@@ -1085,6 +1095,41 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- AGENT MODE -->
+  <div class="agent-col" id="agent-col" style="display:none">
+    <div class="chat-topbar">
+      <div style="font-size:11px;color:var(--text2);letter-spacing:.04em">Agent Session</div>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <button class="settings-btn ghost" style="font-size:10px;padding:4px 8px" onclick="stopAgentSession()">Stop</button>
+      </div>
+    </div>
+    <div class="messages" id="agent-messages">
+      <div class="msg system">
+        <div class="msg-role">system</div>
+        <div class="msg-bubble">Agent mode ready. 指示を送ると /agent/start で開始します。</div>
+      </div>
+    </div>
+    <div class="input-area">
+      <div class="input-wrap">
+        <textarea id="agent-input" placeholder="Agent への指示を入力..." rows="1"
+          onkeydown="handleAgentKey(event)" oninput="autoResize(this)"></textarea>
+        <button class="send-btn" id="agent-send-btn" onclick="sendAgentInput()">
+          <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="agent-panel-col" id="agent-panel-col" style="display:none">
+    <div class="panel-tabs" style="justify-content:space-between">
+      <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em">Agent Tasks</span>
+      <span class="tab-label" id="agent-status-label">idle</span>
+    </div>
+    <div style="padding:10px;overflow:auto;display:flex;flex-direction:column;gap:8px" id="agent-task-list">
+      <div style="font-size:11px;color:var(--text3)">まだ提案タスクはありません。</div>
     </div>
   </div>
 
@@ -4747,8 +4792,12 @@ const _CHAT_PANEL_TAB_IDS = ['tab-btn-output','tab-btn-preview','tab-btn-log','t
 const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault','tab-btn-log-echo','tab-btn-models-echo','tab-btn-asr','tab-btn-tts'];
 // Chat/Task モード用モバイルタブID
 const _CHAT_MOB_TAB_IDS = ['mob-chat','mob-output','mob-preview','mob-log','mob-skills','mob-memory','mob-models'];
+// Agent モード用モバイルタブID
+const _AGENT_MOB_TAB_IDS = ['mob-agent-chat','mob-agent-tasks'];
 // Echo モード用モバイルタブID
 const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-echo','mob-asr','mob-tts'];
+
+let agentSessionActive = false;
 
 function _setEchoTabVisibility(isEcho) {
   _CHAT_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? 'none' : ''; });
@@ -4756,10 +4805,13 @@ function _setEchoTabVisibility(isEcho) {
 }
 
 function _updateMobTabs(m) {
-  const isEcho = (m === 'echo');
   const mobTabs = document.querySelector('.mob-tabs');
+  const isEcho = (m === 'echo');
+  const isAgent = (m === 'agent');
   mobTabs?.classList.toggle('echo-mode', isEcho);
-  _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? 'none' : ''; });
+
+  _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = (!isEcho && !isAgent) ? '' : 'none'; });
+  _AGENT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isAgent ? '' : 'none'; });
   _ECHO_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
 }
 
@@ -4773,32 +4825,56 @@ function _setPanelTabActiveButton(name) {
 }
 
 function setMode(m) {
+  const prevMode = mode;
   mode = m;
-  ['chat','task','echo'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
+  ['chat','task','agent','echo'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
   const chatCol  = document.getElementById('chat-col');
   const echoCol  = document.getElementById('echo-col');
   const panelCol = document.getElementById('panel-col');
+  const agentCol = document.getElementById('agent-col');
+  const agentPanelCol = document.getElementById('agent-panel-col');
+  const resizer = document.getElementById('panel-resizer');
   const appBody  = document.querySelector('.app-body');
   _updateMobTabs(m);
+
+  if (prevMode === 'agent' && m !== 'agent') stopAgentSession(false);
+
   if (m === 'echo') {
-    // Echo モード: echo-col（左）+ panel-col（右）の2カラムレイアウト
     appBody?.classList.add('echo-active');
     panelCol?.classList.add('echo-tabs-equal');
     chatCol.style.display  = 'none';
     echoCol.style.display  = '';
     panelCol.style.display = '';
+    if (agentCol) agentCol.style.display = 'none';
+    if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(true);
-    // PR#160相当の挙動へ戻す: Echo遷移時はVaultを開いて保存結果を確認しやすくする
     const vaultActive = document.getElementById('tab-vault')?.classList.contains('active');
     if (!vaultActive) switchTab('vault');
+  } else if (m === 'agent') {
+    appBody?.classList.remove('echo-active');
+    panelCol?.classList.remove('echo-tabs-equal');
+    chatCol.style.display = 'none';
+    echoCol.style.display = 'none';
+    panelCol.style.display = 'none';
+    if (agentCol) agentCol.style.display = '';
+    if (agentPanelCol) agentPanelCol.style.display = '';
+    if (resizer) resizer.style.display = 'none';
+    _setEchoTabVisibility(false);
+    if (window.innerWidth <= 768) {
+      mobSwitch('agent_chat');
+      return;
+    }
   } else {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
     chatCol.style.display  = '';
     echoCol.style.display  = 'none';
     panelCol.style.display = '';
+    if (agentCol) agentCol.style.display = 'none';
+    if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(false);
-    // Echo モード用タブが選ばれていた場合は output に戻す
     if (['vault','asr','tts'].some(n => document.getElementById('tab-'+n)?.classList.contains('active'))) {
       switchTab('output');
     } else {
@@ -4807,106 +4883,140 @@ function setMode(m) {
     }
   }
 
-  // モバイルでは mode ボタン押下時にも表示カラムを明示的に同期
   if (window.innerWidth <= 768) {
+    const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS];
     if (m === 'echo') {
       chatCol?.classList.add('mob-hidden');
       panelCol?.classList.add('mob-hidden');
       echoCol?.classList.remove('mob-hidden');
-      [..._CHAT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS].forEach(id => document.getElementById(id)?.classList.remove('active'));
+      agentCol?.classList.add('mob-hidden');
+      agentPanelCol?.classList.add('mob-hidden');
+      allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
       document.getElementById('mob-echo')?.classList.add('active');
+    } else if (m === 'agent') {
+      chatCol?.classList.add('mob-hidden');
+      panelCol?.classList.add('mob-hidden');
+      echoCol?.classList.add('mob-hidden');
+      agentCol?.classList.remove('mob-hidden');
+      agentPanelCol?.classList.add('mob-hidden');
+      allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+      document.getElementById('mob-agent-chat')?.classList.add('active');
     } else {
-      // Chat/Task は常に chat カラムを見せる（設定系タブはモバイルタブで遷移）
       chatCol?.classList.remove('mob-hidden');
       panelCol?.classList.add('mob-hidden');
       echoCol?.classList.add('mob-hidden');
-      [..._CHAT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS].forEach(id => document.getElementById(id)?.classList.remove('active'));
+      agentCol?.classList.add('mob-hidden');
+      agentPanelCol?.classList.add('mob-hidden');
+      allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
       document.getElementById('mob-chat')?.classList.add('active');
     }
   }
 }
 
-let agentRunning = false;
-let agentTaskLocked = "";
-function setAgentTaskInputLocked(locked) {
-  const inputEl = document.getElementById('input');
-  if (!inputEl) return;
-  inputEl.disabled = !!locked;
+function _agentMessages() {
+  return document.getElementById('agent-messages');
+}
+function addAgentMsg(role, text) {
+  const w = _agentMessages();
+  if (!w) return;
+  const d = document.createElement('div');
+  d.className = 'msg ' + role;
+  const labels = {user:'Boss', assistant:'Agent', system:'System', error:'Error'};
+  d.innerHTML = `<div class="msg-role">${labels[role]||role}</div><div class="msg-bubble">${esc(String(text||''))}</div>`;
+  w.appendChild(d);
+  w.scrollTop = w.scrollHeight;
 }
 
-async function toggleAgent() {
-  const btn = document.getElementById('btn-agent');
-  const inputEl = document.getElementById('input');
-  if (!inputEl) return;
-
-  const prevRunning = agentRunning;
-  const prevLockedTask = agentTaskLocked;
-
-  if (!agentRunning) {
-    const inputTask = (inputEl.value || '').trim();
-    const latestUserTurn = [...chatHistory].reverse().find((turn) =>
-      turn?.role === 'user' && String(turn?.text || '').trim()
-    );
-    const task = inputTask || String(latestUserTurn?.text || '').trim();
-    const initialContext = chatHistory
-      .slice(-6)
-      .map((turn) => ({role: String(turn?.role || ''), text: String(turn?.text || '')}))
-      .filter((turn) => turn.role && turn.text.trim());
-
-    if (!task) {
-      alert("Task is empty: 入力欄か直近ユーザーメッセージが必要です。");
-      return;
-    }
-
-    agentTaskLocked = task;
-    agentRunning = true;
-    btn?.classList.toggle('active', true);
-    setAgentTaskInputLocked(true);
-
-    try {
-      const res = await fetch(API + '/agent/start', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          task,
-          initial_context: initialContext
-        })
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      addLog?.('ok', 'agent', 'agent started');
-    } catch (e) {
-      agentRunning = prevRunning;
-      agentTaskLocked = prevLockedTask;
-      btn?.classList.toggle('active', prevRunning);
-      setAgentTaskInputLocked(prevRunning);
-      addLog?.('err', 'agent', `agent start error: ${e.message}`);
-    }
+function renderAgentTasks(tasks = [], state = '') {
+  const list = document.getElementById('agent-task-list');
+  const label = document.getElementById('agent-status-label');
+  if (label) label.textContent = state || (agentSessionActive ? 'running' : 'idle');
+  if (!list) return;
+  if (!Array.isArray(tasks) || !tasks.length) {
+    list.innerHTML = '<div style="font-size:11px;color:var(--text3)">まだ提案タスクはありません。</div>';
     return;
   }
+  list.innerHTML = tasks.map((t, i) => {
+    const st = String(t.status || t.state || 'pending');
+    const color = st === 'done' ? 'var(--accent)' : st === 'error' ? 'var(--red)' : 'var(--amber)';
+    return `<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--bg2)">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:4px">
+        <span style="font-size:11px;font-weight:700;color:var(--text)">${i+1}. ${esc(t.title || t.task || 'task')}</span>
+        <span style="font-size:10px;color:${color};border:1px solid ${color};border-radius:10px;padding:1px 6px">${esc(st)}</span>
+      </div>
+      <div style="font-size:11px;color:var(--text2)">${esc(t.description || t.detail || '')}</div>
+    </div>`;
+  }).join('');
+}
 
-  agentRunning = false;
-  agentTaskLocked = "";
-  btn?.classList.toggle('active', false);
-  setAgentTaskInputLocked(false);
+async function _agentApi(path, payload = null) {
+  const init = payload == null
+    ? {method:'POST'}
+    : {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)};
+  const res = await fetch(API + path, init);
+  let data = {};
+  try { data = await res.json(); } catch(_) {}
+  if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+  return data;
+}
 
+async function stopAgentSession(notify = true) {
+  if (!agentSessionActive) return;
   try {
-    const res = await fetch(API + '/agent/stop', {method: 'POST'});
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    addLog?.('ok', 'agent', 'agent stopped');
+    await _agentApi('/agent/stop', {project: currentProject});
+    addLog('ok','agent','agent stopped');
+    if (notify) addAgentMsg('system', 'Agent session stopped.');
   } catch (e) {
-    agentRunning = prevRunning;
-    agentTaskLocked = prevLockedTask;
-    btn?.classList.toggle('active', prevRunning);
-    setAgentTaskInputLocked(prevRunning);
-    addLog?.('err', 'agent', `agent stop error: ${e.message}`);
+    addLog('err','agent',`agent stop error: ${e.message}`);
+    if (notify) addAgentMsg('error', `Stop failed: ${e.message}`);
   }
+  agentSessionActive = false;
+  renderAgentTasks([], 'idle');
+}
+
+async function sendAgentMessage(msg) {
+  const text = String(msg || '').trim();
+  if (!text || busy || mode !== 'agent') return;
+  setBusy(true);
+  addAgentMsg('user', text);
+  addLog('info','agent', text);
+  try {
+    const payload = {message: text, project: currentProject};
+    const data = agentSessionActive
+      ? await _agentApi('/agent/turn', payload)
+      : await _agentApi('/agent/start', {...payload, task: text});
+    agentSessionActive = true;
+
+    const reply = data.reply || data.result || data.message || '(no response)';
+    addAgentMsg('assistant', reply);
+    renderAgentTasks(data.tasks || data.proposed_tasks || [], data.state || 'running');
+  } catch (e) {
+    addAgentMsg('error', e.message);
+    addLog('err','agent',`agent request error: ${e.message}`);
+  }
+  setBusy(false);
+}
+
+function handleAgentKey(ev) {
+  if (ev.key === 'Enter' && !ev.shiftKey) {
+    ev.preventDefault();
+    sendAgentInput();
+  }
+}
+
+function sendAgentInput() {
+  const input = document.getElementById('agent-input');
+  const msg = (input?.value || '').trim();
+  if (!msg) return;
+  if (input) { input.value = ''; input.style.height = 'auto'; }
+  sendAgentMessage(msg);
 }
 
 // ── MOBILE ──
 function mobSwitch(name) {
-  // 全モブタブの active を解除
-  [..._CHAT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS].forEach(id => document.getElementById(id)?.classList.remove('active'));
-  // 対応するタブをアクティブに
+  const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS];
+  allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+
   const activeId = (name === 'log' && mode === 'echo') ? 'mob-log-echo'
     : (name === 'models' && mode === 'echo') ? 'mob-models-echo'
     : 'mob-' + name;
@@ -4915,33 +5025,62 @@ function mobSwitch(name) {
   const cc = document.getElementById('chat-col');
   const ec = document.getElementById('echo-col');
   const pc = document.getElementById('panel-col');
+  const ac = document.getElementById('agent-col');
+  const ap = document.getElementById('agent-panel-col');
+
   if (name === 'chat') {
     setMode('chat');
     cc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden');
-    if (ec) ec.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    ap?.classList.add('mob-hidden');
+  } else if (name === 'agent_chat') {
+    if (mode !== 'agent') { setMode('agent'); return; }
+    ac?.classList.remove('mob-hidden');
+    ap?.classList.add('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    pc?.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+  } else if (name === 'agent_tasks') {
+    if (mode !== 'agent') { setMode('agent'); return; }
+    ac?.classList.add('mob-hidden');
+    ap?.classList.remove('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    pc?.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
   } else if (name === 'echo') {
     setMode('echo');
-    if (ec) ec.classList.remove('mob-hidden');
-    cc.classList.add('mob-hidden');
-    pc.classList.add('mob-hidden');
+    ec?.classList.remove('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    pc?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    ap?.classList.add('mob-hidden');
   } else if (name === 'vault') {
-    if (ec) ec.classList.add('mob-hidden');
-    cc.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    ap?.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
     switchTab('vault');
   } else if (name === 'asr') {
-    if (ec) ec.classList.add('mob-hidden');
-    cc.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    ap?.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
     switchTab('asr');
   } else if (name === 'tts') {
-    if (ec) ec.classList.add('mob-hidden');
-    cc.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    ap?.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
     switchTab('tts');
   } else {
     cc.classList.add('mob-hidden');
-    if (ec) ec.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    ap?.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
     switchTab(name === 'output' ? 'output'
       : name === 'preview' ? 'preview'
@@ -8069,6 +8208,12 @@ async function send() {
 }
 async function sendMessage(msg) {
   resetTokenDisplay();
+
+  if (mode === 'agent') {
+    await sendAgentMessage(msg);
+    return;
+  }
+
   addMsg('user', msg);
   addToHistory('user', msg);
   addLog('info','send',`[${mode}][${currentProject}] ${msg}`);
@@ -9437,6 +9582,8 @@ function setBusy(b) {
   busy = b;
   const sendBtn = document.getElementById('send-btn');
   if (sendBtn) sendBtn.disabled = b;
+  const agentSendBtn = document.getElementById('agent-send-btn');
+  if (agentSendBtn) agentSendBtn.disabled = b;
   const micBtn = document.getElementById('mic-btn');
   if (micBtn) micBtn.disabled = b || voiceRecording;
 }
