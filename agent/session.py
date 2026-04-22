@@ -3,9 +3,10 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
-import re
 import time
 import uuid
+
+from agent.task_inference import infer_task_candidates
 
 
 @dataclass(slots=True)
@@ -16,6 +17,10 @@ class QueuedTask:
     priority: float
     confidence: float
     source_turn_id: str
+    rationale: str = ""
+    inputs: list[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
+    execution_snapshot: dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
     status: str = "queued"
 
@@ -37,23 +42,26 @@ class AgentSession:
         text = (message or "").strip()
         turn_id = str(uuid.uuid4())
         intent = self._classify_intent(text)
-        extracted = self._extract_tasks(text=text, intent=intent, turn_id=turn_id)
 
-        self.conversation_state["turns"].append(
-            {
-                "id": turn_id,
-                "role": "user",
-                "text": text,
-                "intent": intent,
-                "timestamp": time.time(),
-            }
-        )
+        turn = {
+            "id": turn_id,
+            "role": "user",
+            "text": text,
+            "intent": intent,
+            "timestamp": time.time(),
+        }
+        self.conversation_state["turns"].append(turn)
         self.conversation_state["last_intent"] = intent
         counts = self.conversation_state.setdefault("intent_counts", {})
         counts[intent] = int(counts.get(intent, 0)) + 1
 
+        extracted = self._extract_tasks(turn_id=turn_id)
         self.inferred_tasks.extend(extracted)
         for task in extracted:
+            if not self._passes_safety_policy(task):
+                continue
+            if float(task.get("confidence", 0.0)) < 0.6:
+                continue
             self.execution_queue.append(
                 QueuedTask(
                     id=task["id"],
@@ -62,8 +70,13 @@ class AgentSession:
                     priority=task["priority"],
                     confidence=task["confidence"],
                     source_turn_id=turn_id,
+                    rationale=task.get("rationale", ""),
+                    inputs=list(task.get("inputs", [])),
+                    dependencies=list(task.get("dependencies", [])),
+                    execution_snapshot=task.get("execution_snapshot", {}),
                 )
             )
+
         if intent == "task_request" and text:
             self._update_goals(text)
 
@@ -117,24 +130,52 @@ class AgentSession:
             return "question"
         return "chitchat"
 
-    def _extract_tasks(self, *, text: str, intent: str, turn_id: str) -> list[dict[str, Any]]:
-        if intent != "task_request":
-            return []
-        chunks = [part.strip(" ・\t") for part in re.split(r"[。\n]+", text) if part.strip()]
+    def _extract_tasks(self, *, turn_id: str) -> list[dict[str, Any]]:
+        candidates = infer_task_candidates(self.conversation_state.get("turns", []), max_candidates=5)
         tasks: list[dict[str, Any]] = []
-        for idx, chunk in enumerate(chunks[:5]):
-            confidence = 0.85 if len(chunk) >= 8 else 0.6
-            priority = 0.8 if idx == 0 else max(0.45, 0.75 - idx * 0.1)
+        turns = list(self.conversation_state.get("turns", []))
+        execution_snapshot = {
+            "frozen_turn_ids": [str(t.get("id", "")) for t in turns],
+            "frozen_turns": [
+                {
+                    "id": str(t.get("id", "")),
+                    "role": str(t.get("role", "")),
+                    "text": str(t.get("text", "")),
+                    "intent": str(t.get("intent", "")),
+                    "timestamp": t.get("timestamp"),
+                }
+                for t in turns
+            ],
+            "captured_at": time.time(),
+        }
+
+        for idx, candidate in enumerate(candidates):
             tasks.append(
                 {
-                    "id": f"task-{turn_id[:8]}-{idx+1}",
-                    "title": chunk[:80],
-                    "detail": chunk,
-                    "priority": round(priority, 2),
-                    "confidence": round(confidence, 2),
+                    "id": f"task-{turn_id[:8]}-{idx + 1}",
+                    "title": candidate.title,
+                    "detail": candidate.inputs[0] if candidate.inputs else candidate.title,
+                    "priority": round(0.8 if idx == 0 else max(0.45, 0.75 - idx * 0.1), 2),
+                    "confidence": round(candidate.confidence, 2),
+                    "rationale": candidate.rationale,
+                    "inputs": list(candidate.inputs),
+                    "dependencies": list(candidate.dependencies),
+                    "execution_snapshot": execution_snapshot,
                 }
             )
         return tasks
+
+    def _passes_safety_policy(self, task: dict[str, Any]) -> bool:
+        text = f"{task.get('title', '')}\n{task.get('detail', '')}".lower()
+        blocked = (
+            "rm -rf /",
+            "drop table",
+            "delete from",
+            "credential",
+            "password dump",
+            "malware",
+        )
+        return not any(pattern in text for pattern in blocked)
 
     def _update_goals(self, text: str) -> None:
         goal = text[:120]

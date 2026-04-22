@@ -6127,13 +6127,14 @@ def _execute_agent_session_queue(
             agent_state.lastActions.append(action)
             if len(agent_state.lastActions) > 50:
                 agent_state.lastActions = agent_state.lastActions[-50:]
+        snapshot_turns = list((queued_task.execution_snapshot or {}).get("frozen_turns", []))
         result = execute_task(
             task_detail=queued_task.detail,
             context="",
             max_steps=max_steps,
             project=project,
             llm_url=_resolve_runtime_llm_url(llm_url),
-            chat_history=session.conversation_state.get("turns", [])[-8:],
+            chat_history=snapshot_turns[-8:] if snapshot_turns else session.conversation_state.get("turns", [])[-8:],
         )
         queued_task.status = result.get("status", "error")
         executed.append(
@@ -11416,20 +11417,49 @@ def tts_synthesize_api(req: dict):
 async def agent_start(req: Request):
     body = await req.json()
     task = str((body or {}).get("task", "")).strip()
-    if not task:
-        raise HTTPException(status_code=400, detail="task is empty")
+    initial_context = (body or {}).get("initial_context")
 
     with agent_state_lock:
         if agent_state.running:
             return "already running"
         agent_state.running = True
         agent_state.loopCount = 0
-        agent_state.currentTask = task
+        agent_state.currentTask = task or None
         agent_state.lastActions = []
         agent_state.session = AgentSession()
-        ingest_meta = agent_state.session.ingest_user_turn(task)
 
-    return {"status": "started", "mode": "event_driven", "ingest": ingest_meta}
+        ingest_meta = {
+            "turn_id": None,
+            "intent": "bootstrap",
+            "extracted_tasks": [],
+            "queued_count": 0,
+        }
+
+        if task:
+            ingest_meta = agent_state.session.ingest_user_turn(task)
+        elif isinstance(initial_context, str) and initial_context.strip():
+            ingest_meta = agent_state.session.ingest_user_turn(initial_context.strip())
+        elif isinstance(initial_context, list):
+            loaded = 0
+            for turn in initial_context:
+                if not isinstance(turn, dict):
+                    continue
+                if str(turn.get("role", "")).lower() != "user":
+                    continue
+                text = str(turn.get("text", "")).strip()
+                if not text:
+                    continue
+                agent_state.session.ingest_user_turn(text)
+                loaded += 1
+            ingest_meta = {
+                "turn_id": None,
+                "intent": "bootstrap",
+                "extracted_tasks": list(agent_state.session.inferred_tasks[-5:]),
+                "queued_count": len(agent_state.session.execution_queue),
+                "loaded_turns": loaded,
+            }
+
+    return {"status": "started", "mode": "session_bootstrap", "ingest": ingest_meta}
 
 
 @app.post("/agent/stop")
