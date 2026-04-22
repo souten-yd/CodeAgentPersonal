@@ -38,6 +38,8 @@ class AgentLoop:
             action = self.planner.choose_next_action(plan=plan, history=history)
             if action is None:
                 evaluation = self.evaluator.evaluate(plan=plan, history=history)
+                if history:
+                    self._store_step_memory(history[-1], evaluation)
                 self._update_memory(objective=objective, history=history, evaluation=evaluation, plan=plan)
                 if evaluation.done:
                     break
@@ -49,6 +51,7 @@ class AgentLoop:
 
             history.append(self.executor.execute(action))
             evaluation = self.evaluator.evaluate(plan=plan, history=history)
+            self._store_step_memory(history[-1], evaluation)
             self._update_memory(objective=objective, history=history, evaluation=evaluation, plan=plan)
             iteration += 1
 
@@ -58,7 +61,36 @@ class AgentLoop:
                 context = self.context_builder.build(objective=objective, runtime_state=runtime_state)
                 plan = self.planner.create_plan(objective=objective, context=context)
 
+        if evaluation.done:
+            self._promote_job_summary(objective=objective, history=history, evaluation=evaluation)
+
         return evaluation, history
+
+
+    def _store_step_memory(self, result: ToolResult, evaluation: Evaluation) -> None:
+        store_memory = getattr(self.memory, "store_memory", None)
+        if not callable(store_memory):
+            return
+        store_memory(
+            key=f"step:{result.action_id}",
+            value={"result": result, "evaluation": evaluation},
+            scope="short",
+        )
+
+    def _promote_job_summary(self, objective: str, history: list[ToolResult], evaluation: Evaluation) -> None:
+        store_memory = getattr(self.memory, "store_memory", None)
+        if not callable(store_memory):
+            return
+
+        last = history[-1] if history else None
+        summary = {
+            "objective": objective,
+            "steps": len(history),
+            "final_feedback": evaluation.feedback,
+            "passed": evaluation.passed,
+            "last_result": last,
+        }
+        store_memory(key=f"job_summary:{objective[:80]}", value=summary, scope="long")
 
     def _is_unrecoverable(self, evaluation: Evaluation) -> bool:
         feedback = (evaluation.feedback or "").lower()
