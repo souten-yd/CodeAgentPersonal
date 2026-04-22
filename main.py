@@ -6958,13 +6958,84 @@ def run_job_background(job_id: str, req: "JobRequest"):
                         _output = f"[exception] {str(_ex)[:200]}"
                     return _steps, _status, _output
 
+                def _classify_orchestration_error(err_text: str) -> str:
+                    msg = (err_text or "").lower()
+                    if "playwright: not found" in msg:
+                        return "playwright_not_found"
+                    if "targetclosederror" in msg:
+                        return "target_closed"
+                    return ""
+
+                def _run_browser_precheck_flow() -> str:
+                    checks = [
+                        run_shell(command=".venv/bin/python -m playwright --version", project=project, timeout=60),
+                        run_shell(
+                            command=(
+                                ".venv/bin/python - <<'PY'\n"
+                                "from playwright.sync_api import sync_playwright\n"
+                                "with sync_playwright() as p:\n"
+                                "    print('chromium_executable=' + p.chromium.executable_path)\n"
+                                "PY"
+                            ),
+                            project=project,
+                            timeout=90,
+                        ),
+                    ]
+                    return "\n\n".join(str(c) for c in checks if c)
+
+                def _run_playwright_env_repair_flow() -> str:
+                    repair_logs = [
+                        setup_venv(requirements=["playwright"], project=project),
+                        run_shell(
+                            command=".venv/bin/pip install --upgrade pip playwright && .venv/bin/python -m playwright install chromium",
+                            project=project,
+                            timeout=300,
+                        ),
+                    ]
+                    repair_logs.append(_run_browser_precheck_flow())
+                    return "\n\n".join(str(c) for c in repair_logs if c)
+
+                last_error_key = ""
+                same_error_streak = 0
+
+                def _update_same_error_streak(err_text: str) -> int:
+                    nonlocal last_error_key, same_error_streak
+                    key = " ".join((err_text or "").strip().split()).lower()[:220]
+                    if not key:
+                        last_error_key = ""
+                        same_error_streak = 0
+                        return 0
+                    if key == last_error_key:
+                        same_error_streak += 1
+                    else:
+                        last_error_key = key
+                        same_error_streak = 1
+                    return same_error_streak
+
                 # Stage 1: 同じアプローチで再試行
                 if task_status in ("error", "pending"):
                     err0 = task_output or "不明なエラー"
+                    err0_type = _classify_orchestration_error(err0)
+                    _update_same_error_streak(err0)
                     loop_summary0 = _summarize_exploration_steps(task_steps)
                     loop_note0 = ""
                     if loop_summary0:
                         loop_note0 = f"【直前の探索結果要約】{loop_summary0}\n同じ探索シーケンスを繰り返さないこと。\n"
+                    preflight_note0 = ""
+                    if err0_type == "playwright_not_found":
+                        repair_log = _run_playwright_env_repair_flow()
+                        preflight_note0 = (
+                            "\n【オーケストレーション指示】Playwright 環境修復フローを実行済みです。"
+                            " run_browser 再実行前は必ず前提チェック結果を確認してください。"
+                            f"\n【環境修復ログ】\n{repair_log[:1200]}"
+                        )
+                    elif err0_type == "target_closed":
+                        preflight_log = _run_browser_precheck_flow()
+                        preflight_note0 = (
+                            "\n【オーケストレーション指示】TargetClosedError を検出。"
+                            " ブラウザを閉じる順序と終了処理（close / context manager）を見直してから再実行してください。"
+                            f"\n【run_browser 前提チェック】\n{preflight_log[:800]}"
+                        )
                     print(f"[JOB {job_id}] task {i+1}/{total} stage1 same-approach retry")
                     # メモリ参照: 類似エラーの過去の解決策を注入
                     _mem_hits1 = memory_search(f"{todo['title']} {err0}", limit=2)
@@ -6977,30 +7048,62 @@ def run_job_background(job_id: str, req: "JobRequest"):
                             f"【指示】前回と同じタスクをもう一度実行してください。"
                             f"エラーの原因を確認して修正してから再実行してください。"
                             f"{loop_note0}"
+                            f"{preflight_note0}"
                             f"{_mem_note1}")
                     task_steps, task_status, task_output = _run_stage("[再試行] ", ctx1, req.max_steps)
 
                 # Stage 2: 別アプローチで再試行
                 if task_status in ("error", "pending"):
                     err1 = task_output or err0
-                    loop_summary1 = _summarize_exploration_steps(task_steps)
-                    loop_note1 = ""
-                    if loop_summary1:
-                        loop_note1 = f"\n【直前の探索結果要約】{loop_summary1}\n上記と同じ探索シーケンスは禁止。編集対象を先に固定すること。"
-                    print(f"[JOB {job_id}] task {i+1}/{total} stage2 different-approach")
-                    # メモリ参照: 複合エラーの解決策を追加注入
-                    _mem_hits2 = memory_search(f"{err0} {err1}", limit=2)
-                    _mem_note2 = ""
-                    if _mem_hits2:
-                        _mem_note2 = "\n\n【過去の知識（メモリ）】\n" + "\n".join(
-                            f"- {h['title']}: {h['content'][:200]}" for h in _mem_hits2
+                    err1_type = _classify_orchestration_error(err1)
+                    err1_streak = _update_same_error_streak(err1)
+                    if err1_streak >= 2:
+                        print(f"[JOB {job_id}] task {i+1}/{total} abort retry on same error twice")
+                        collect_ctx = (
+                            f"{context}\n\n【同一エラー連続検出】{err1[:200]}\n"
+                            "【次アクション】設定確認ログ収集を実施してください。\n"
+                            "- run_shell で `pwd && ls -la .venv/bin` を実行\n"
+                            "- run_shell で `.venv/bin/python -m playwright --version` を実行\n"
+                            "- run_shell で `.venv/bin/python -m playwright install chromium --dry-run` を実行\n"
+                            "- run_browser は実行しない\n"
                         )
-                    ctx2 = (f"{context}\n\n【前回エラー×2】\n1回目: {err0[:100]}\n2回目: {err1[:100]}\n\n"
-                            f"【指示】これまでと異なるアプローチで実行してください。\n"
-                            f"例: write_file→edit_file / run_python→コード分割 / 大きなファイル→get_outline+部分編集"
-                            f"{loop_note1}"
-                            f"{_mem_note2}")
-                    task_steps, task_status, task_output = _run_stage("[別アプローチ] ", ctx2, req.max_steps)
+                        task_steps, task_status, task_output = _run_stage("[設定確認ログ収集] ", collect_ctx, req.max_steps)
+                        err2 = task_output or err1
+                    else:
+                        loop_summary1 = _summarize_exploration_steps(task_steps)
+                        loop_note1 = ""
+                        if loop_summary1:
+                            loop_note1 = f"\n【直前の探索結果要約】{loop_summary1}\n上記と同じ探索シーケンスは禁止。編集対象を先に固定すること。"
+                        preflight_note1 = ""
+                        if err1_type == "playwright_not_found":
+                            repair_log = _run_playwright_env_repair_flow()
+                            preflight_note1 = (
+                                "\n【オーケストレーション指示】`playwright: not found` のため、"
+                                " venv固定コマンドで再セットアップ済みです。"
+                                f"\n【環境修復ログ】\n{repair_log[:1200]}"
+                            )
+                        elif err1_type == "target_closed":
+                            preflight_log = _run_browser_precheck_flow()
+                            preflight_note1 = (
+                                "\n【オーケストレーション指示】TargetClosedError のため、"
+                                " ブラウザ終了処理を修正してから再試行してください。"
+                                f"\n【run_browser 前提チェック】\n{preflight_log[:800]}"
+                            )
+                        print(f"[JOB {job_id}] task {i+1}/{total} stage2 different-approach")
+                        # メモリ参照: 複合エラーの解決策を追加注入
+                        _mem_hits2 = memory_search(f"{err0} {err1}", limit=2)
+                        _mem_note2 = ""
+                        if _mem_hits2:
+                            _mem_note2 = "\n\n【過去の知識（メモリ）】\n" + "\n".join(
+                                f"- {h['title']}: {h['content'][:200]}" for h in _mem_hits2
+                            )
+                        ctx2 = (f"{context}\n\n【前回エラー×2】\n1回目: {err0[:100]}\n2回目: {err1[:100]}\n\n"
+                                f"【指示】これまでと異なるアプローチで実行してください。\n"
+                                f"例: write_file→edit_file / run_python→コード分割 / 大きなファイル→get_outline+部分編集"
+                                f"{loop_note1}"
+                                f"{preflight_note1}"
+                                f"{_mem_note2}")
+                        task_steps, task_status, task_output = _run_stage("[別アプローチ] ", ctx2, req.max_steps)
 
                 # Stage 3: 全失敗 → 複数対応案を生成 → LLM自動選択 or ユーザー手動選択
                 if task_status in ("error", "pending"):
