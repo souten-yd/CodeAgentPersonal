@@ -6809,6 +6809,23 @@ def run_job_background(job_id: str, req: "JobRequest"):
                 # Stage 4: 複数対応案をLLMが生成 → ユーザーが選択 → 再実行
                 # ────────────────────────────────────────────────────────
 
+                def _summarize_exploration_steps(_steps, limit=6):
+                    exp_actions = {"list_files", "get_outline", "read_file", "search_in_files"}
+                    chunks = []
+                    for _s in _steps:
+                        if _s.get("type") != "tool_call":
+                            continue
+                        _a = _s.get("action", "")
+                        if _a not in exp_actions:
+                            continue
+                        _inp = _s.get("input", {}) if isinstance(_s.get("input"), dict) else {}
+                        _target = (_inp.get("path") or _inp.get("subdir") or _inp.get("query") or "")
+                        _preview = str(_s.get("result_preview", "")).replace("\n", " ")[:90]
+                        chunks.append(f"{_a}({_target})=>{_preview}")
+                    if not chunks:
+                        return ""
+                    return " / ".join(chunks[-limit:])
+
                 def _run_stage(title_prefix, ctx, steps_limit, run_url=None):
                     """run_task_mode_streamを安全に実行してtask_status/outputを返す"""
                     _steps, _status, _output = [], "pending", ""
@@ -6843,6 +6860,10 @@ def run_job_background(job_id: str, req: "JobRequest"):
                 # Stage 1: 同じアプローチで再試行
                 if task_status in ("error", "pending"):
                     err0 = task_output or "不明なエラー"
+                    loop_summary0 = _summarize_exploration_steps(task_steps)
+                    loop_note0 = ""
+                    if loop_summary0:
+                        loop_note0 = f"【直前の探索結果要約】{loop_summary0}\n同じ探索シーケンスを繰り返さないこと。\n"
                     print(f"[JOB {job_id}] task {i+1}/{total} stage1 same-approach retry")
                     # メモリ参照: 類似エラーの過去の解決策を注入
                     _mem_hits1 = memory_search(f"{todo['title']} {err0}", limit=2)
@@ -6854,12 +6875,17 @@ def run_job_background(job_id: str, req: "JobRequest"):
                     ctx1 = (f"{context}\n\n【前回エラー】{err0[:200]}\n\n"
                             f"【指示】前回と同じタスクをもう一度実行してください。"
                             f"エラーの原因を確認して修正してから再実行してください。"
+                            f"{loop_note0}"
                             f"{_mem_note1}")
                     task_steps, task_status, task_output = _run_stage("[再試行] ", ctx1, req.max_steps)
 
                 # Stage 2: 別アプローチで再試行
                 if task_status in ("error", "pending"):
                     err1 = task_output or err0
+                    loop_summary1 = _summarize_exploration_steps(task_steps)
+                    loop_note1 = ""
+                    if loop_summary1:
+                        loop_note1 = f"\n【直前の探索結果要約】{loop_summary1}\n上記と同じ探索シーケンスは禁止。編集対象を先に固定すること。"
                     print(f"[JOB {job_id}] task {i+1}/{total} stage2 different-approach")
                     # メモリ参照: 複合エラーの解決策を追加注入
                     _mem_hits2 = memory_search(f"{err0} {err1}", limit=2)
@@ -6871,6 +6897,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                     ctx2 = (f"{context}\n\n【前回エラー×2】\n1回目: {err0[:100]}\n2回目: {err1[:100]}\n\n"
                             f"【指示】これまでと異なるアプローチで実行してください。\n"
                             f"例: write_file→edit_file / run_python→コード分割 / 大きなファイル→get_outline+部分編集"
+                            f"{loop_note1}"
                             f"{_mem_note2}")
                     task_steps, task_status, task_output = _run_stage("[別アプローチ] ", ctx2, req.max_steps)
 
@@ -12032,6 +12059,25 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
     steps = []
     consecutive_errors = 0
     repeated_failures: dict[str, int] = {}
+    stagnation_window = 6
+    stagnation_threshold = 0.8
+    exploration_actions = {"list_files", "get_outline", "read_file", "search_in_files"}
+    edit_actions = {"edit_file", "write_file", "patch_function"}
+    recent_actions: list[str] = []
+    recent_exploration_notes: list[str] = []
+    stagnation_events = 0
+    last_stagnation_summary = ""
+
+    def _shorten(v, max_len: int = 80) -> str:
+        s = str(v).replace("\n", " ").strip()
+        if len(s) > max_len:
+            return s[:max_len] + "..."
+        return s
+
+    def _summarize_recent_exploration(limit: int = 4) -> str:
+        if not recent_exploration_notes:
+            return "（直近の探索結果要約なし）"
+        return " / ".join(recent_exploration_notes[-limit:])
 
     for step in range(max_steps):
         messages = _trim_messages(messages, _current_n_ctx, reserve_output=4096)
@@ -12202,6 +12248,22 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
         steps.append(step_record)
         yield {"type": "tool_result", "action": action, "result_preview": str(result)[:200]}
 
+        recent_actions.append(action)
+        if len(recent_actions) > stagnation_window:
+            recent_actions = recent_actions[-stagnation_window:]
+        if action in exploration_actions:
+            _in = safe_input if safe_input is not None else tool_input
+            _target = _shorten(
+                _in.get("path")
+                or _in.get("subdir")
+                or _in.get("query")
+                or _in.get("function_name")
+                or ""
+            ) if isinstance(_in, dict) else ""
+            recent_exploration_notes.append(f"{action}({_target}) => {_shorten(result, 100)}")
+            if len(recent_exploration_notes) > 12:
+                recent_exploration_notes = recent_exploration_notes[-12:]
+
         # replyをmessagesに追加する際、write_fileのcontentなど巨大フィールドを省略
         compact = _compact_reply(action_obj, max_chars=300)
         messages.append({"role": "assistant", "content": _sanitize_special_tokens(compact or reply[:500])})
@@ -12234,7 +12296,63 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             repeated_failures.pop(call_key, None)
         messages.append({"role": "user", "content": f"実行結果:\n{result_str}"})
 
-    yield {"type": "task_error", "task_id": task_id, "title": task_title, "error": f"ステップ上限 ({max_steps})", "steps": steps}
+        if len(recent_actions) >= stagnation_window:
+            window = recent_actions[-stagnation_window:]
+            explore_count = sum(1 for a in window if a in exploration_actions)
+            edit_count = sum(1 for a in window if a in edit_actions)
+            explore_ratio = explore_count / max(1, len(window))
+            if edit_count == 0 and explore_ratio >= stagnation_threshold:
+                stagnation_events += 1
+                last_stagnation_summary = _summarize_recent_exploration(limit=5)
+                steps.append({
+                    "step": step,
+                    "type": "stagnation_detected",
+                    "reason": "探索ループ検知",
+                    "window": list(window),
+                    "explore_ratio": round(explore_ratio, 3),
+                    "summary": last_stagnation_summary,
+                })
+                yield {
+                    "type": "progress",
+                    "task_id": task_id,
+                    "title": task_title,
+                    "message": f"探索ループ検知: 直近{stagnation_window}ステップの探索比率={explore_ratio:.2f}。方針を強制切替します。",
+                }
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "探索ループ検知。次アクションは必ず次のどちらかにしてください。\n"
+                        "1) clarify で不足情報をユーザー確認する\n"
+                        "2) 編集対象のファイル/行範囲を固定して最小編集を行う（edit_file/write_file/patch_function）\n"
+                        f"直前探索の要約: {last_stagnation_summary}\n"
+                        "同じ探索シーケンス（list_files/get_outline/read_file/search_in_filesのみの反復）を繰り返さないこと。"
+                    )
+                })
+                if stagnation_events >= 2:
+                    yield {
+                        "type": "task_error",
+                        "task_id": task_id,
+                        "title": task_title,
+                        "error": (
+                            f"探索ループ検知により停止。直近要約: {last_stagnation_summary}"
+                        ),
+                        "steps": steps,
+                    }
+                    return
+
+    if stagnation_events > 0:
+        yield {
+            "type": "task_error",
+            "task_id": task_id,
+            "title": task_title,
+            "error": (
+                f"ステップ上限 ({max_steps})。探索ループ検知あり（{stagnation_events}回）。"
+                f" 直近要約: {last_stagnation_summary or _summarize_recent_exploration()}"
+            ),
+            "steps": steps,
+        }
+    else:
+        yield {"type": "task_error", "task_id": task_id, "title": task_title, "error": f"ステップ上限 ({max_steps})", "steps": steps}
 
 @app.post("/task/stream")
 async def task_stream(req: TaskStreamRequest):
