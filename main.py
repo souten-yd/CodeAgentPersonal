@@ -30,7 +30,7 @@ import traceback
 from datetime import datetime
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from agent.context_builder import ContextBuilder, TaskV2ContextBuilder
+from agent.context_builder import ContextBuilder, FileSummaryCache, TaskV2ContextBuilder
 from agent.evaluator import Evaluator
 from agent.executor import Executor
 from agent.io import ConversationTurn, TextIOAdapter, VoiceIOAdapter
@@ -451,6 +451,30 @@ def _safe_settings_get(key: str, default: str = "") -> str:
         except Exception:
             return default
     return default
+
+
+def _get_summary_token_limit() -> int:
+    raw = _safe_settings_get("summary_max_tokens", "200")
+    try:
+        val = int(raw)
+    except Exception:
+        val = 200
+    if val not in (200, 400, 800):
+        if val < 300:
+            return 200
+        if val < 600:
+            return 400
+        return 800
+    return val
+
+
+def _get_read_file_inject_max_chars() -> int:
+    raw = _safe_settings_get("read_file_inject_max_chars", "16000")
+    try:
+        val = int(raw)
+    except Exception:
+        val = 16000
+    return max(4000, min(val, 120000))
 
 
 def _is_quality_output_ok(output: str) -> bool:
@@ -1885,6 +1909,17 @@ def _trim_messages(messages: list, max_ctx: int, reserve_output: int = 4096) -> 
             break
 
     return system + kept
+
+
+def _calc_reserve_output(max_ctx: int, *, ratio: float = 0.25) -> int:
+    """
+    出力予約トークンを n_ctx 比率で動的計算する。
+    ratio は 20%〜35% にクランプする。
+    """
+    safe_ctx = max(512, int(max_ctx or 0))
+    safe_ratio = max(0.20, min(0.35, float(ratio)))
+    reserve = int(safe_ctx * safe_ratio)
+    return max(512, min(safe_ctx - 256, reserve))
 
 
 def get_project_context(project: str, limit: int = 5) -> str:
@@ -3698,6 +3733,8 @@ SETTINGS_DEFAULTS = {
     "search_num":         "5",
     "streaming_enabled":  "true",
     "ctx_size":           "8192",
+    "summary_max_tokens": "200",
+    "read_file_inject_max_chars": "16000",
     "llm_url":            "",
     "orchestration_policy": "ladder_fail_and_quality",
     "coder_primary": "",
@@ -5700,7 +5737,7 @@ def call_llm_chat(messages: list, llm_url: str = "", max_output_tokens: int | No
     except requests.exceptions.ReadTimeout as e:
         # タイムアウト時は一度だけリトライ（コンテキストを半分に減らして）
         print(f"[call_llm_chat] timeout, retrying with trimmed context...")
-        messages = _trim_messages(messages, _current_n_ctx // 2, reserve_output=2048)
+        messages = _trim_messages(messages, _current_n_ctx // 2, reserve_output=_calc_reserve_output(_current_n_ctx // 2, ratio=0.22))
         payload["messages"] = messages
         payload["max_tokens"] = min(
             _current_n_ctx // 2 - _estimate_tokens(messages) - 64,
@@ -6209,7 +6246,7 @@ def execute_chat_with_optional_web_search(
             *history_msgs,
             {"role": "user", "content": message},
         ]
-        messages = _trim_messages(messages, _current_n_ctx, reserve_output=2048)
+        messages = _trim_messages(messages, _current_n_ctx, reserve_output=_calc_reserve_output(_current_n_ctx, ratio=0.22))
         chat_reply, usage = call_llm_chat(messages, llm_url=llm_url)
         return {"status": "done", "output": chat_reply, "usage": usage, "steps": []}
 
@@ -6235,7 +6272,7 @@ def execute_chat_with_optional_web_search(
     safe_max_steps = max(2, min(int(max_steps or 6), 8))
 
     for step in range(safe_max_steps):
-        messages = _trim_messages(messages, _current_n_ctx, reserve_output=2048)
+        messages = _trim_messages(messages, _current_n_ctx, reserve_output=_calc_reserve_output(_current_n_ctx, ratio=0.22))
         if on_event:
             on_event({"type": "llm_thinking", "step_num": step + 1, "max_steps": safe_max_steps})
         reply, usage = call_llm_chat(messages, llm_url=llm_url)
@@ -6517,7 +6554,9 @@ def execute_task_stream_v2(task_detail: str, context: str = "", max_steps: int =
     for name, fn in active_tools.items():
         registry.register(name, lambda tool_input, _fn=fn, _name=name: ToolResult(action_id=_name, success=not str((_r := _fn(**tool_input))).startswith("ERROR:"), output=_r, error=None if not str(_r).startswith("ERROR:") else str(_r)))
 
-    context_builder = TaskV2ContextBuilder()
+    context_builder = TaskV2ContextBuilder(
+        file_summary_cache=FileSummaryCache(max_summary_tokens=_get_summary_token_limit())
+    )
     runtime_state = {
         "plan": task_title or task_detail[:120],
         "current_step": "",
@@ -7643,7 +7682,7 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
 
     for step in range(max_steps):
         # コンテキスト長チェック: 上限の80%を超えたら古いmessagesをtrim
-        messages = _trim_messages(messages, _current_n_ctx, reserve_output=4096)
+        messages = _trim_messages(messages, _current_n_ctx, reserve_output=_calc_reserve_output(_current_n_ctx, ratio=0.30))
         # LLM生成前に「考え中」イベントを通知（UIのWorking表示を更新するため）
         if on_step:
             on_step({"type": "llm_thinking", "step_num": step + 1, "max_steps": max_steps})
@@ -7752,8 +7791,10 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
             result_str = result_str[:400]
         elif action == "read_file":
             current_tokens = _estimate_tokens(messages)
-            remaining = _current_n_ctx - current_tokens - 4096
-            max_read_chars = max(4000, min(remaining * 4, 32000))
+            reserve_output = _calc_reserve_output(_current_n_ctx, ratio=0.30)
+            remaining = _current_n_ctx - current_tokens - reserve_output
+            read_file_cap = _get_read_file_inject_max_chars()
+            max_read_chars = max(4000, min(remaining * 4, read_file_cap))
             if len(result_str) > max_read_chars:
                 half = max_read_chars // 2
                 result_str = (result_str[:half]
@@ -11708,7 +11749,7 @@ async def stream(req: ChatRequest):
                 *history_msgs,
                 {"role": "user", "content": req.message},
             ]
-            msgs = _trim_messages(msgs, _current_n_ctx, reserve_output=2048)
+            msgs = _trim_messages(msgs, _current_n_ctx, reserve_output=_calc_reserve_output(_current_n_ctx, ratio=0.22))
             yield event("plan", {
                 "tasks": [{"id": 1, "title": req.message[:60], "detail": req.message}],
                 "total": 1,
@@ -12094,7 +12135,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
         return excerpt, result_size
 
     for step in range(max_steps):
-        messages = _trim_messages(messages, _current_n_ctx, reserve_output=4096)
+        messages = _trim_messages(messages, _current_n_ctx, reserve_output=_calc_reserve_output(_current_n_ctx, ratio=0.30))
 
         if _llm_streaming:
             # ストリーミングモード: トークン生成中にTPS/tokenをリアルタイム通知
@@ -12115,7 +12156,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             except HTTPException as _ctx_ex:
                 if _ctx_ex.status_code == 413:
                     print(f"[execute_task_stream] context exceeded (stream), force trimming...")
-                    messages = _trim_messages(messages, _current_n_ctx // 2, reserve_output=2048)
+                    messages = _trim_messages(messages, _current_n_ctx // 2, reserve_output=_calc_reserve_output(_current_n_ctx // 2, ratio=0.22))
                     for _sev in call_llm_chat_streaming(messages, llm_url=llm_url):
                         if _sev["type"] == "llm_done":
                             reply, usage = _sev["content"], _sev["usage"]
@@ -12138,7 +12179,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             except HTTPException as _ctx_ex:
                 if _ctx_ex.status_code == 413:
                     print(f"[execute_task_stream] context exceeded, force trimming...")
-                    messages = _trim_messages(messages, _current_n_ctx // 2, reserve_output=2048)
+                    messages = _trim_messages(messages, _current_n_ctx // 2, reserve_output=_calc_reserve_output(_current_n_ctx // 2, ratio=0.22))
                     try:
                         reply, usage = call_llm_chat(messages, llm_url=llm_url)
                     except Exception as _e2:
@@ -12298,8 +12339,10 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             # read_fileはファイル全体を渡す（コンテキスト余裕に応じて）
             # 現在使用トークン数を推定して残り容量を計算
             current_tokens = _estimate_tokens(messages)
-            remaining = _current_n_ctx - current_tokens - 4096  # 出力分を確保
-            max_read_chars = max(4000, min(remaining * 4, 32000))  # 4文字≒1トークン
+            reserve_output = _calc_reserve_output(_current_n_ctx, ratio=0.30)
+            remaining = _current_n_ctx - current_tokens - reserve_output  # 出力分を確保
+            read_file_cap = _get_read_file_inject_max_chars()
+            max_read_chars = max(4000, min(remaining * 4, read_file_cap))  # 4文字≒1トークン
             if len(result_str) > max_read_chars:
                 # 先頭と末尾を両方表示（中間を省略）
                 half = max_read_chars // 2
@@ -14051,6 +14094,17 @@ def save_settings_api(req: dict):
             req["ctx_size"] = str(max(512, min(65535, int(req["ctx_size"]))))
         except Exception:
             req.pop("ctx_size", None)
+    if "summary_max_tokens" in req:
+        try:
+            v = int(req["summary_max_tokens"])
+            req["summary_max_tokens"] = str(v if v in (200, 400, 800) else _get_summary_token_limit())
+        except Exception:
+            req.pop("summary_max_tokens", None)
+    if "read_file_inject_max_chars" in req:
+        try:
+            req["read_file_inject_max_chars"] = str(max(4000, min(120000, int(req["read_file_inject_max_chars"]))))
+        except Exception:
+            req.pop("read_file_inject_max_chars", None)
     if "ensemble_execution_mode" in req:
         req["ensemble_execution_mode"] = str(req.get("ensemble_execution_mode", "parallel")).strip().lower()
         if req["ensemble_execution_mode"] not in ("parallel", "serial"):

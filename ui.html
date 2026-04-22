@@ -2136,6 +2136,18 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px">
           <span>512</span><span id="ctx-max-label">max: 65535</span><span id="ctx-slider-max">65535</span>
         </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">要約トークン上限</div>
+        <select id="summary-max-tokens-select"
+          style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text)"
+          onchange="applySummaryMaxTokens(this.value)">
+          <option value="200">200 (light)</option>
+          <option value="400">400 (balanced)</option>
+          <option value="800">800 (detailed)</option>
+        </select>
+        <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">read_file 注入上限（chars）</div>
+        <input type="number" id="read-file-inject-max-chars" min="4000" max="120000" step="1000" value="16000"
+          style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);box-sizing:border-box"
+          onchange="applyReadFileInjectMaxChars(this.value)">
         <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">LLM URL（空=サーバーデフォルト）</div>
         <input type="text" id="llm-url-input" placeholder="http://localhost:8080/v1/chat/completions"
           style="width:100%;padding:6px 8px;font-size:10px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--font-mono);box-sizing:border-box"
@@ -2471,6 +2483,8 @@ let editorOpen = false;
 let searchEnabled = false;
 let streamingEnabled = true;  // サーバーデフォルトと同期
 let activeLlmUrl = '';    // 空文字 = サーバーデフォルト(LLM_URL)
+let summaryMaxTokens = 200;
+let readFileInjectMaxChars = 16000;
 let pendingPlan = null;   // 承認待ちのプラン
 let progressEl = null;    // 現在のプログレスカード
 let timerInterval = null;
@@ -4409,6 +4423,20 @@ async function loadSettingsFromDb() {
     activeLlmUrl = url;
     const ui = document.getElementById('llm-url-input');
     if (ui) ui.value = url;
+
+    // Summary max tokens
+    const sumMax = [200, 400, 800].includes(parseInt(d.summary_max_tokens, 10))
+      ? parseInt(d.summary_max_tokens, 10)
+      : 200;
+    summaryMaxTokens = sumMax;
+    const sumSel = document.getElementById('summary-max-tokens-select');
+    if (sumSel) sumSel.value = String(sumMax);
+
+    // read_file inject max chars
+    const readMax = Math.max(4000, Math.min(120000, parseInt(d.read_file_inject_max_chars, 10) || 16000));
+    readFileInjectMaxChars = readMax;
+    const readMaxEl = document.getElementById('read-file-inject-max-chars');
+    if (readMaxEl) readMaxEl.value = String(readMax);
 
     const em = document.getElementById('ensemble-execution-mode');
     const eas = document.getElementById('ensemble-auto-switch');
@@ -8526,6 +8554,7 @@ async function executePlan() {
   pendingPlan = null;
 
   setBusy(true);
+  compressDuplicateLogsByTimestamp();
   const progCard = addProgressCard(`Starting ${tasks.length} tasks...`, tasks.length);
   startTimer();
 
@@ -9074,6 +9103,29 @@ function addLog(level, tag, msg) {
   out.appendChild(d); out.scrollTop = out.scrollHeight;
 }
 
+function compressDuplicateLogsByTimestamp() {
+  const out = document.getElementById('log-output');
+  if (!out) return 0;
+  const lines = Array.from(out.querySelectorAll('.log-line'));
+  if (lines.length <= 1) return 0;
+
+  const seen = new Set();
+  let removed = 0;
+  for (const row of lines) {
+    const ts = row.querySelector('.ltime')?.textContent?.trim() || '';
+    const msg = row.querySelector('.lmsg')?.textContent?.trim() || row.textContent?.trim() || '';
+    const key = `${ts}|${msg}`;
+    if (seen.has(key)) {
+      row.remove();
+      removed++;
+      continue;
+    }
+    seen.add(key);
+  }
+  if (removed > 0) addLog('info', 'log', `重複ログを圧縮: ${removed}件`);
+  return removed;
+}
+
 // ── AUTO SELECT / SKILL TOGGLES ──
 function toggleAutoSelect(val) {
   autoSelectOption = !!val;
@@ -9183,6 +9235,24 @@ async function applyCtxLen(val) {
   } catch(e) {
     addLog('err', 'ctx', e.message);
   }
+}
+
+async function applySummaryMaxTokens(val) {
+  const n = [200, 400, 800].includes(parseInt(val, 10)) ? parseInt(val, 10) : 200;
+  summaryMaxTokens = n;
+  const el = document.getElementById('summary-max-tokens-select');
+  if (el) el.value = String(n);
+  await _saveSettingDb('summary_max_tokens', String(n));
+  addLog('ok', 'ctx', `summary_max_tokens=${n}`);
+}
+
+async function applyReadFileInjectMaxChars(val) {
+  const n = Math.max(4000, Math.min(120000, parseInt(val, 10) || 16000));
+  readFileInjectMaxChars = n;
+  const el = document.getElementById('read-file-inject-max-chars');
+  if (el) el.value = String(n);
+  await _saveSettingDb('read_file_inject_max_chars', String(n));
+  addLog('ok', 'ctx', `read_file_inject_max_chars=${n}`);
 }
 
 

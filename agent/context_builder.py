@@ -50,7 +50,7 @@ class FileSummaryEntry:
 class FileSummaryCache:
     """
     ファイルごとの要約キャッシュ。
-    - 要約は 200 tokens 以下を保証
+    - 要約は max_summary_tokens 以下を保証
     - 内容ハッシュが同一なら既存要約を再利用
     """
 
