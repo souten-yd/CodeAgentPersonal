@@ -4798,7 +4798,8 @@ function setMode(m) {
   }
 }
 
-let _agentRunning = false;
+let agentRunning = false;
+let agentTaskLocked = "";
 function setAgentTaskInputLocked(locked) {
   const inputEl = document.getElementById('input');
   if (!inputEl) return;
@@ -4810,30 +4811,54 @@ async function toggleAgent() {
   const inputEl = document.getElementById('input');
   if (!inputEl) return;
 
-  if (_agentRunning) {
-    _agentRunning = false;
-    btn?.classList.toggle('active', false);
-    setAgentTaskInputLocked(false);
-    return;
-  }
+  const prevRunning = agentRunning;
+  const prevLockedTask = agentTaskLocked;
 
-  const task = (inputEl.value || '').trim();
-  if (!task) {
-    alert("Task is empty");
-    return;
-  }
+  if (!agentRunning) {
+    const task = (inputEl.value || '').trim();
+    if (!task) {
+      alert("Task is empty");
+      return;
+    }
 
-  try {
-    await fetch(API + '/agent/start', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({task})
-    });
-    _agentRunning = true;
+    agentTaskLocked = task;
+    agentRunning = true;
     btn?.classList.toggle('active', true);
     setAgentTaskInputLocked(true);
+
+    try {
+      const res = await fetch(API + '/agent/start', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({task})
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      addLog?.('ok', 'agent', 'agent started');
+    } catch (e) {
+      agentRunning = prevRunning;
+      agentTaskLocked = prevLockedTask;
+      btn?.classList.toggle('active', prevRunning);
+      setAgentTaskInputLocked(prevRunning);
+      addLog?.('err', 'agent', `agent start error: ${e.message}`);
+    }
+    return;
+  }
+
+  agentRunning = false;
+  agentTaskLocked = "";
+  btn?.classList.toggle('active', false);
+  setAgentTaskInputLocked(false);
+
+  try {
+    const res = await fetch(API + '/agent/stop', {method: 'POST'});
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    addLog?.('ok', 'agent', 'agent stopped');
   } catch (e) {
-    addLog('err', 'agent', `agent start error: ${e.message}`);
+    agentRunning = prevRunning;
+    agentTaskLocked = prevLockedTask;
+    btn?.classList.toggle('active', prevRunning);
+    setAgentTaskInputLocked(prevRunning);
+    addLog?.('err', 'agent', `agent stop error: ${e.message}`);
   }
 }
 
