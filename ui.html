@@ -4815,9 +4815,18 @@ async function toggleAgent() {
   const prevLockedTask = agentTaskLocked;
 
   if (!agentRunning) {
-    const task = (inputEl.value || '').trim();
+    const inputTask = (inputEl.value || '').trim();
+    const latestUserTurn = [...chatHistory].reverse().find((turn) =>
+      turn?.role === 'user' && String(turn?.text || '').trim()
+    );
+    const task = inputTask || String(latestUserTurn?.text || '').trim();
+    const initialContext = chatHistory
+      .slice(-6)
+      .map((turn) => ({role: String(turn?.role || ''), text: String(turn?.text || '')}))
+      .filter((turn) => turn.role && turn.text.trim());
+
     if (!task) {
-      alert("Task is empty");
+      alert("Task is empty: 入力欄か直近ユーザーメッセージが必要です。");
       return;
     }
 
@@ -4830,7 +4839,10 @@ async function toggleAgent() {
       const res = await fetch(API + '/agent/start', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({task})
+        body: JSON.stringify({
+          task,
+          initial_context: initialContext
+        })
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       addLog?.('ok', 'agent', 'agent started');
