@@ -5,6 +5,8 @@ from agent.evaluator import Evaluator
 from agent.executor import Executor
 from agent.memory import MemoryStore
 from agent.planner import Planner
+from agent.policy import ExecutionPolicy
+from agent.safety import build_autostop_notice
 from agent.types import Evaluation, ToolResult
 
 
@@ -18,12 +20,14 @@ class AgentLoop:
         evaluator: Evaluator,
         context_builder: ContextBuilder,
         memory: MemoryStore,
+        execution_policy: ExecutionPolicy | None = None,
     ) -> None:
         self.planner = planner
         self.executor = executor
         self.evaluator = evaluator
         self.context_builder = context_builder
         self.memory = memory
+        self.execution_policy = execution_policy or ExecutionPolicy()
 
     def run_once(self, objective: str, runtime_state: dict) -> tuple[Evaluation, list[ToolResult]]:
         history: list[ToolResult] = []
@@ -35,9 +39,14 @@ class AgentLoop:
 
         iteration = 0
         while iteration < loop_limit:
+            self.execution_policy.register_iteration()
             action = self.planner.choose_next_action(plan=plan, history=history)
             if action is None:
                 evaluation = self.evaluator.evaluate(plan=plan, history=history)
+                stop = self.execution_policy.evaluate_autostop(evaluation)
+                if stop.should_stop:
+                    evaluation.feedback = build_autostop_notice(stop)
+                    evaluation.done = True
                 if history:
                     self._store_step_memory(history[-1], evaluation)
                 self._update_memory(objective=objective, history=history, evaluation=evaluation, plan=plan)
@@ -53,12 +62,60 @@ class AgentLoop:
                     continue
                 break
 
+            capability_decision = self.execution_policy.check_action(action)
+            if not capability_decision.allowed:
+                blocked = ToolResult(
+                    action_id=action.id,
+                    success=False,
+                    error=f"blocked_by_policy: {capability_decision.reason}",
+                    output={"_policy": {"blocked": True, "reason": capability_decision.reason}},
+                )
+                history.append(blocked)
+                evaluation = Evaluation(
+                    passed=False,
+                    feedback=f"実行ポリシーにより停止: {capability_decision.reason}",
+                    done=True,
+                )
+                self._store_step_memory(blocked, evaluation)
+                self._update_memory(objective=objective, history=history, evaluation=evaluation, plan=plan)
+                break
+
+            human_gate = self.execution_policy.assess_human_gate(action)
+            if human_gate.required:
+                blocked = ToolResult(
+                    action_id=action.id,
+                    success=False,
+                    error="human_gate_required",
+                    output={
+                        "_policy": {
+                            "human_gate_required": True,
+                            "risk_type": human_gate.risk_type,
+                            "reasons": human_gate.reasons,
+                            "prompt": human_gate.prompt,
+                        }
+                    },
+                )
+                history.append(blocked)
+                evaluation = Evaluation(
+                    passed=False,
+                    feedback=human_gate.prompt or "人間確認が必要な操作を検知しました。",
+                    done=True,
+                )
+                self._store_step_memory(blocked, evaluation)
+                self._update_memory(objective=objective, history=history, evaluation=evaluation, plan=plan)
+                break
+
             result = self.executor.execute(action)
             history.append(result)
+            self.execution_policy.register_result(result)
             mark_task_result = getattr(self.planner, "mark_task_result", None)
             if callable(mark_task_result):
                 mark_task_result(plan, result)
             evaluation = self.evaluator.evaluate(plan=plan, history=history)
+            stop = self.execution_policy.evaluate_autostop(evaluation)
+            if stop.should_stop:
+                evaluation.feedback = build_autostop_notice(stop)
+                evaluation.done = True
             self._store_step_memory(history[-1], evaluation)
             self._update_memory(objective=objective, history=history, evaluation=evaluation, plan=plan)
             iteration += 1
