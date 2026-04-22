@@ -2233,8 +2233,10 @@ def run_shell(command: str, project: str = "default", timeout: int = None) -> st
             return "ERROR: command is empty"
         cwd = _project_root(project)
         _timeout = _clamp_docker_timeout("run_shell", timeout)
+        cmd, preflight = _normalize_playwright_shell_command(cmd)
+        final_cmd = f"{preflight}\n{cmd}" if preflight else cmd
         result = _sp.run(
-            cmd,
+            final_cmd,
             shell=True,
             cwd=cwd,
             capture_output=True,
@@ -2245,11 +2247,58 @@ def run_shell(command: str, project: str = "default", timeout: int = None) -> st
         )
         out = (result.stdout + result.stderr).strip()
         status = "ok" if result.returncode == 0 else f"exit {result.returncode}"
-        return f"[{status}] {cmd}\n{out[:4000] if out else '(no output)'}"
+        return f"[{status}] {final_cmd}\n{out[:4000] if out else '(no output)'}"
     except _sp.TimeoutExpired:
         return f"ERROR: timeout ({_clamp_docker_timeout('run_shell', timeout)}s)."
     except Exception as e:
         return f"ERROR: {e}"
+
+
+def _normalize_playwright_shell_command(command: str) -> tuple[str, str]:
+    """
+    Playwright関連コマンドを project .venv 実行に正規化し、必要時のみ事前チェックを返す。
+    """
+    cmd = str(command or "").strip()
+    if not cmd:
+        return cmd, ""
+
+    normalized = cmd
+    normalized = re.sub(
+        r"(?<![\w./-])python\s+-m\s+playwright\s+install\s+chromium\b",
+        ".venv/bin/python -m playwright install chromium",
+        normalized
+    )
+    normalized = re.sub(
+        r"(?<![\w./-])playwright\s+install\s+chromium\b",
+        ".venv/bin/playwright install chromium",
+        normalized
+    )
+    normalized = re.sub(
+        r"(?<![\w./-])python\s+(_browser_run\.py)\b",
+        r".venv/bin/python \1",
+        normalized
+    )
+
+    needs_preflight = any(token in normalized for token in (
+        "playwright install chromium",
+        ".venv/bin/playwright",
+        ".venv/bin/python -m playwright",
+        ".venv/bin/python _browser_run.py",
+    ))
+    if not needs_preflight:
+        return normalized, ""
+
+    preflight = (
+        "if [ ! -x .venv/bin/python ]; then echo 'ERROR: missing .venv/bin/python'; exit 1; fi\n"
+        "source .venv/bin/activate\n"
+        "echo '[playwright preflight] which python:'\n"
+        "which python\n"
+        "echo '[playwright preflight] python -V:'\n"
+        "python -V\n"
+        "echo '[playwright preflight] pip show playwright:'\n"
+        "pip show playwright"
+    )
+    return normalized, preflight
 
 
 def _should_hide_preview_path(rel_path: str) -> bool:
@@ -2683,8 +2732,19 @@ def _run_browser_local(project: str, timeout: int) -> str:
             "setup_venv(requirements=[\"playwright\"]) 実行後に再試行してください。"
         )
     try:
+        preflight = (
+            "source .venv/bin/activate\n"
+            "echo '[browser preflight] which python:'\n"
+            "which python\n"
+            "echo '[browser preflight] python -V:'\n"
+            "python -V\n"
+            "echo '[browser preflight] pip show playwright:'\n"
+            "pip show playwright\n"
+        )
+        run_cmd = f"{preflight}{venv_python} _browser_run.py"
         result = _sp.run(
-            [venv_python, "_browser_run.py"],
+            run_cmd,
+            shell=True,
             cwd=project_dir,
             capture_output=True,
             text=True,
@@ -6034,7 +6094,7 @@ def _build_tool_success_playbook(project: str = "") -> str:
     runtime = "runpod" if IS_RUNPOD_RUNTIME else "local"
     runtime_note = (
         "- Runpod: run_python/run_file/run_browser は project配下 .venv を優先。"
-        " playwright不足時は setup_venv(requirements=[\"playwright\"]) → playwright install chromium。\n"
+        " playwright不足時は setup_venv(requirements=[\"playwright\"]) → .venv/bin/playwright install chromium。\n"
         if runtime == "runpod" else
         "- Local: Docker優先。Docker不可時のみローカルフォールバックを使う。"
         " エラー文に従って依存を最小追加する。\n"
