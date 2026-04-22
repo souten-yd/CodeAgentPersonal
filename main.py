@@ -6150,6 +6150,52 @@ def execute_chat_with_optional_web_search(
     fallback = "検索を試みましたが最終回答を構築できませんでした。質問を少し具体化してください。"
     return {"status": "error", "error": "chat_web_search_loop_exhausted", "output": fallback, "steps": steps}
 
+def _is_task_engine_v2_enabled() -> bool:
+    """TASK_ENGINE_V2=true のときだけ新しいタスク実行経路を有効化する。"""
+    return os.environ.get("TASK_ENGINE_V2", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+def run_task_mode_stream(
+    task_detail: str,
+    context: str = "",
+    max_steps: int = 15,
+    project: str = "default",
+    search_enabled: bool = True,
+    llm_url: str = "",
+    job_id: str = "",
+    task_id: int = 0,
+    task_title: str = "",
+):
+    """
+    taskモードの実行入口。
+    - デフォルト: 旧実装 execute_task_stream
+    - TASK_ENGINE_V2=true: 新実装入口（現段階は既存実装へフォールバック）
+    """
+    if _is_task_engine_v2_enabled():
+        # TODO: 新実装（例: agent.loop.run_task_mode）に差し替える
+        return execute_task_stream(
+            task_detail=task_detail,
+            context=context,
+            max_steps=max_steps,
+            project=project,
+            search_enabled=search_enabled,
+            llm_url=llm_url,
+            job_id=job_id,
+            task_id=task_id,
+            task_title=task_title,
+        )
+
+    return execute_task_stream(
+        task_detail=task_detail,
+        context=context,
+        max_steps=max_steps,
+        project=project,
+        search_enabled=search_enabled,
+        llm_url=llm_url,
+        job_id=job_id,
+        task_id=task_id,
+        task_title=task_title,
+    )
+
 def run_job_background(job_id: str, req: "JobRequest"):
     """
     バックグラウンドスレッドで実行。
@@ -6306,7 +6352,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                     "task_index": i, "total": total
                 })
 
-                # execute_task_stream を使ってステップごとに書き込む
+                # run_task_mode_stream を使ってステップごとに書き込む
                 task_steps = []
                 task_status = "pending"  # done/error/pendingで区別
                 task_output = ""
@@ -6314,7 +6360,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                 # req.llm_urlが明示されていればそちら、なければModelManagerのURL
                 task_url = _resolve_runtime_llm_url(req.llm_url)
                 try:
-                    for ev in execute_task_stream(
+                    for ev in run_task_mode_stream(
                         task_detail=todo["detail"], context=context,
                         max_steps=req.max_steps, project=project,
                         search_enabled=req.search_enabled, llm_url=task_url,
@@ -6353,7 +6399,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                 # ────────────────────────────────────────────────────────
 
                 def _run_stage(title_prefix, ctx, steps_limit, run_url=None):
-                    """execute_task_streamを安全に実行してtask_status/outputを返す"""
+                    """run_task_mode_streamを安全に実行してtask_status/outputを返す"""
                     _steps, _status, _output = [], "pending", ""
                     _url = run_url or task_url
                     try:
@@ -6361,7 +6407,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                             "task_id": todo["id"], "title": f"{title_prefix}{todo['title']}",
                             "task_index": i, "total": total
                         })
-                        for ev in execute_task_stream(
+                        for ev in run_task_mode_stream(
                             task_detail=todo["detail"], context=ctx,
                             max_steps=steps_limit, project=project,
                             search_enabled=req.search_enabled, llm_url=_url,
