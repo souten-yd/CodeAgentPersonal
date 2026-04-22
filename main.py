@@ -2675,11 +2675,12 @@ def _build_default_browser_script(url: str, project: str) -> str:
         "from playwright.sync_api import sync_playwright\n"
         "with sync_playwright() as p:\n"
         "    browser = p.chromium.launch(headless=True)\n"
-        "    page = browser.new_page()\n"
-        f"    page.goto({target!r}, wait_until='networkidle')\n"
+        "    context = browser.new_context()\n"
+        "    page = context.new_page()\n"
+        f"    page.goto({target!r})\n"
+        "    page.wait_for_load_state('networkidle')\n"
         "    page.screenshot(path='screenshot.png', full_page=True)\n"
         "    print(page.title())\n"
-        "    browser.close()\n"
     )
 
 
@@ -2697,11 +2698,12 @@ def run_browser(script: str = "", project: str = "default", timeout: int = None,
       from playwright.sync_api import sync_playwright
       with sync_playwright() as p:
           browser = p.chromium.launch(headless=True)
-          page = browser.new_page()
+          context = browser.new_context()
+          page = context.new_page()
           page.goto("http://host.docker.internal:8888/")
+          page.wait_for_load_state("networkidle")
           page.screenshot(path="/app/{project}/screenshot.png")
           print(page.title())
-          browser.close()
     """
     browser_script = str(script or "").strip()
     if not browser_script:
@@ -6018,7 +6020,7 @@ TASK_V2_SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 - run_shell: {"command": "pytest -q"}  ← プロジェクトディレクトリでシェルコマンド実行 / タイムアウト時: {"command":"...","timeout":120} (max 300s)
 - run_server: {"port": 8888}  ← 【最終タスクのみ】DockerでHTTPサーバー起動
 - stop_server: {"port": 8888}  ← 起動したサーバーを停止
-- run_browser: {"script": "from playwright.sync_api import sync_playwright\nwith sync_playwright() as p:\n  b=p.chromium.launch(headless=True)\n  pg=b.new_page()\n  pg.goto('http://host.docker.internal:8888/')\n  pg.screenshot(path='/app/{project}/screenshot.png')\n  print(pg.title())\n  b.close()"}  ← Playwright（Python）でブラウザ自動化・スクリーンショット・動作確認 / タイムアウト時: {"script":"...","timeout":120} (max 300s)
+- run_browser: {"script": "from playwright.sync_api import sync_playwright\nwith sync_playwright() as p:\n  b=p.chromium.launch(headless=True)\n  c=b.new_context()\n  pg=c.new_page()\n  pg.goto('http://host.docker.internal:8888/')\n  pg.wait_for_load_state('networkidle')\n  pg.screenshot(path='/app/{project}/screenshot.png')\n  print(pg.title())"}  ← Playwright（Python）でブラウザ自動化・スクリーンショット・動作確認 / タイムアウト時: {"script":"...","timeout":120} (max 300s)
 - run_npm: {"command": "test"}  ← npm コマンドをDockerで実行（test/install/run build等）/ タイムアウト時: {"command":"install","timeout":300} (max 600s)
 - run_node: {"script": "console.log(require('./script.js'))"}  ← JSコードをNode.jsで実行・テスト / タイムアウト時: {"script":"...","timeout":60} (max 300s)
 - setup_venv: {"requirements": ["flask","numpy"]}  ← Pythonプロジェクトで.venv構築＋requirements.txt生成（実行はユーザーが行う）
