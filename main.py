@@ -36,6 +36,7 @@ from agent.executor import Executor
 from agent.loop import AgentLoop
 from agent.memory import HybridMemoryStore, MemoryStore
 from agent.planner import Planner
+from agent.session import AgentSession
 from agent.tools.registry import ToolRegistry
 from agent.types import Action, Evaluation, Plan, ToolResult
 
@@ -6098,40 +6099,62 @@ class AgentState:
     currentTask: str | None = None
     loopCount: int = 0
     lastActions: list[str] = field(default_factory=list)
+    session: AgentSession | None = None
 
 
 agent_state = AgentState()
 agent_state_lock = threading.Lock()
-agent_loop_lock = threading.Lock()
 
 
-def _run_background_agent_loop() -> None:
-    """
-    軽量なバックグラウンドループ。
-    /agent/stop で running=False に変更されたら終了する。
-    """
-    fixed_task = None
-    try:
+def _execute_agent_session_queue(
+    *,
+    req_message: str,
+    project: str,
+    llm_url: str = "",
+    max_steps: int = 20,
+) -> dict:
+    with agent_state_lock:
+        session = agent_state.session
+    if session is None:
+        return {"status": "idle", "executed": [], "deferred": 0}
+
+    executed: list[dict] = []
+    ready_tasks = session.pop_executable_tasks(max_tasks=2, min_priority=0.5, min_confidence=0.6)
+    for queued_task in ready_tasks:
         with agent_state_lock:
-            fixed_task = agent_state.currentTask
+            agent_state.loopCount += 1
+            action = f"task:{queued_task.id}"
+            agent_state.lastActions.append(action)
+            if len(agent_state.lastActions) > 50:
+                agent_state.lastActions = agent_state.lastActions[-50:]
+        result = execute_task(
+            task_detail=queued_task.detail,
+            context="",
+            max_steps=max_steps,
+            project=project,
+            llm_url=_resolve_runtime_llm_url(llm_url),
+            chat_history=session.conversation_state.get("turns", [])[-8:],
+        )
+        queued_task.status = result.get("status", "error")
+        executed.append(
+            {
+                "task_id": queued_task.id,
+                "title": queued_task.title,
+                "priority": queued_task.priority,
+                "confidence": queued_task.confidence,
+                "status": queued_task.status,
+                "output": result.get("output", ""),
+                "steps": result.get("steps", []),
+            }
+        )
 
-        while True:
-            with agent_state_lock:
-                if not agent_state.running:
-                    break
-                agent_state.loopCount += 1
-                action = f"loop:{agent_state.loopCount}"
-                agent_state.lastActions.append(action)
-                if len(agent_state.lastActions) > 50:
-                    agent_state.lastActions = agent_state.lastActions[-50:]
-            time.sleep(0.5)
-    finally:
-        with agent_state_lock:
-            # running中のtaskは開始時に固定し、途中で外部入力が変化しても再代入しない。
-            if not agent_state.running:
-                agent_state.currentTask = fixed_task
-        if agent_loop_lock.locked():
-            agent_loop_lock.release()
+    return {
+        "status": "running" if agent_state.running else "stopped",
+        "intent_summary": session.conversation_state.get("intent_counts", {}),
+        "executed": executed,
+        "deferred": len(session.execution_queue),
+        "current_task": req_message,
+    }
 
 def execute_chat_with_optional_web_search(
     message: str,
@@ -11390,7 +11413,7 @@ def tts_synthesize_api(req: dict):
 # =========================
 
 @app.post("/agent/start")
-async def agent_start(req: Request, background_tasks: BackgroundTasks):
+async def agent_start(req: Request):
     body = await req.json()
     task = str((body or {}).get("task", "")).strip()
     if not task:
@@ -11399,15 +11422,14 @@ async def agent_start(req: Request, background_tasks: BackgroundTasks):
     with agent_state_lock:
         if agent_state.running:
             return "already running"
-        if not agent_loop_lock.acquire(blocking=False):
-            return "already running"
         agent_state.running = True
         agent_state.loopCount = 0
         agent_state.currentTask = task
         agent_state.lastActions = []
+        agent_state.session = AgentSession()
+        ingest_meta = agent_state.session.ingest_user_turn(task)
 
-    background_tasks.add_task(_run_background_agent_loop)
-    return "started"
+    return {"status": "started", "mode": "event_driven", "ingest": ingest_meta}
 
 
 @app.post("/agent/stop")
@@ -11416,7 +11438,51 @@ def agent_stop():
         if not agent_state.running:
             return "stopped"
         agent_state.running = False
+        agent_state.session = None
     return "stopped"
+
+
+@app.post("/agent/turn")
+async def agent_turn(req: Request):
+    body = await req.json()
+    message = str((body or {}).get("message", "")).strip()
+    project = str((body or {}).get("project", "default")).strip() or "default"
+    llm_url = str((body or {}).get("llm_url", "")).strip()
+    max_steps = int((body or {}).get("max_steps", 20) or 20)
+    if not message:
+        raise HTTPException(status_code=400, detail="message is empty")
+
+    with agent_state_lock:
+        if not agent_state.running:
+            raise HTTPException(status_code=409, detail="agent is not running")
+        if agent_state.session is None:
+            agent_state.session = AgentSession()
+        ingest_meta = agent_state.session.ingest_user_turn(message)
+
+    chat_result = execute_chat_with_optional_web_search(
+        message=message,
+        max_steps=min(max_steps, 6),
+        search_enabled=False,
+        llm_url=_resolve_runtime_llm_url(llm_url),
+        chat_history=(agent_state.session.conversation_state.get("turns", [])[:-1] if agent_state.session else []),
+    )
+    reply = str(chat_result.get("output", ""))
+    with agent_state_lock:
+        if agent_state.session is not None:
+            agent_state.session.append_assistant_turn(reply)
+
+    queue_result = _execute_agent_session_queue(
+        req_message=message,
+        project=project,
+        llm_url=llm_url,
+        max_steps=max_steps,
+    )
+    return {
+        "status": "ok",
+        "conversation": {"reply": reply, "usage": chat_result.get("usage", {})},
+        "ingest": ingest_meta,
+        "execution": queue_result,
+    }
 
 
 # =========================
