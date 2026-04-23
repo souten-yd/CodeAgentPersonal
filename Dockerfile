@@ -275,19 +275,32 @@ RUN rm -rf /app/Style-Bert-VITS2 \
 RUN set -eux; \
     cd /app/Style-Bert-VITS2; \
     python3.11 -m venv /app/Style-Bert-VITS2/.venv; \
-    /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir --upgrade pip setuptools wheel; \
-    /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir -e . --no-deps; \
-    if [ -f requirements.txt ]; then \
-      /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir -r requirements.txt; \
-    fi; \
-    if [ -f requirements_jp_extra.txt ]; then \
-      /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir -r requirements_jp_extra.txt; \
-    fi; \
-    if [ -f requirements-gpu.txt ]; then \
-      /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir -r requirements-gpu.txt; \
-    fi; \
     site_packages="$("/app/Style-Bert-VITS2/.venv/bin/python" -c 'import site; print(site.getsitepackages()[0])')"; \
-    printf '%s\n' '/app/Style-Bert-VITS2' > "${site_packages}/_runpod_opt_venv.pth"
+    cat > "${site_packages}/_runpod_opt_venv.pth" <<'EOF' \
+/opt/venv/lib/python3.11/site-packages
+/opt/venv/local/lib/python3.11/dist-packages
+/opt/venv/lib/python3/dist-packages
+/opt/venv/lib/python3.11/dist-packages
+EOF
+    /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir --upgrade pip setuptools wheel; \
+    /app/Style-Bert-VITS2/.venv/bin/python -c "import torch, torchaudio, av; print(torch.__version__, torchaudio.__version__, av.__version__)"; \
+    /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir -e . --no-deps; \
+    /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir \
+      "setuptools<82" \
+      "numpy<2" \
+      pyworld-prebuilt \
+      loguru \
+      pyopenjtalk-dict \
+      transformers \
+      cmudict \
+      cn2an \
+      g2p_en \
+      GPUtil \
+      "gradio>=4.32" \
+      jieba \
+      "nltk<=3.8.1" \
+      num2words \
+      pypinyin
 
 ########################################
 # Runtime stage: Python + codeAgent + llama.cpp
