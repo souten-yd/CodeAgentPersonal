@@ -44,6 +44,7 @@ from agent.types import Action, Evaluation, Plan, ToolResult
 from app.tts.engine_registry import EngineRegistry, TTSEngineRuntime
 from app.tts.qwen3_tts_runtime import Qwen3TTSRuntime
 from app.tts.style_bert_vits2_runtime import StyleBertVITS2Runtime
+from app.tts.style_bert_vits2_manager import import_model_zip
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -12326,26 +12327,8 @@ async def api_style_bert_vits2_models_upload(
     file: UploadFile,
     model_id: str = Form(default=""),
 ):
-    original_name = os.path.basename(file.filename or "")
-    ext = os.path.splitext(original_name)[-1].lower()
-    resolved_model_id = (model_id or os.path.splitext(original_name)[0] or "").strip()
-    if not resolved_model_id:
-        raise HTTPException(status_code=400, detail="model_id required")
-    if resolved_model_id in {".", ".."}:
-        raise HTTPException(status_code=400, detail="invalid model_id")
-    if "/" in resolved_model_id or "\\" in resolved_model_id:
-        raise HTTPException(status_code=400, detail="invalid model_id")
-    model_root = os.path.join(_STYLE_BERT_VITS2_MODELS_DIR, resolved_model_id)
-    os.makedirs(model_root, exist_ok=True)
-    raw = await file.read()
-    if ext == ".zip":
-        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-            zf.extractall(model_root)
-    else:
-        safe_name = original_name or "model.bin"
-        with open(os.path.join(model_root, safe_name), "wb") as f:
-            f.write(raw)
-    return {"model_id": resolved_model_id, "models": _style_bert_vits2_list_models()}
+    imported = await import_model_zip(file, model_id=model_id or None)
+    return {"model_id": imported["model_id"], "models": _style_bert_vits2_list_models()}
 
 
 @app.post("/tts/ref-audio/upload")
