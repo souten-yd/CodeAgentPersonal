@@ -276,17 +276,16 @@ RUN set -eux; \
     cd /app/Style-Bert-VITS2; \
     python3.11 -m venv /app/Style-Bert-VITS2/.venv; \
     site_packages="$("/app/Style-Bert-VITS2/.venv/bin/python" -c 'import site; print(site.getsitepackages()[0])')"; \
-    cat > "${site_packages}/_runpod_opt_venv.pth" <<'EOF' \
-/opt/venv/lib/python3.11/site-packages
-/opt/venv/local/lib/python3.11/dist-packages
-/opt/venv/lib/python3/dist-packages
-/opt/venv/lib/python3.11/dist-packages
-EOF
-    /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir --upgrade pip setuptools wheel; \
+    printf '%s\n' \
+      '/opt/venv/lib/python3.11/site-packages' \
+      '/opt/venv/local/lib/python3.11/dist-packages' \
+      '/opt/venv/lib/python3/dist-packages' \
+      '/opt/venv/lib/python3.11/dist-packages' \
+      > "${site_packages}/_runpod_opt_venv.pth"; \
+    /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir --upgrade pip wheel "setuptools<82"; \
     /app/Style-Bert-VITS2/.venv/bin/python -c "import torch, torchaudio, av; print(torch.__version__, torchaudio.__version__, av.__version__)"; \
     /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir -e . --no-deps; \
     /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir \
-      "setuptools<82" \
       "numpy<2" \
       pyworld-prebuilt \
       loguru \
