@@ -2014,6 +2014,211 @@ def _reset_project_dir(project: str) -> str:
             pass
     return root
 
+def _split_js_top_level_csv(raw: str) -> list[str]:
+    parts: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    in_single = False
+    in_double = False
+    in_template = False
+    esc = False
+    for ch in raw:
+        if esc:
+            buf.append(ch)
+            esc = False
+            continue
+        if ch == "\\":
+            buf.append(ch)
+            esc = True
+            continue
+        if in_single:
+            buf.append(ch)
+            if ch == "'":
+                in_single = False
+            continue
+        if in_double:
+            buf.append(ch)
+            if ch == '"':
+                in_double = False
+            continue
+        if in_template:
+            buf.append(ch)
+            if ch == "`":
+                in_template = False
+            continue
+        if ch == "'":
+            buf.append(ch)
+            in_single = True
+            continue
+        if ch == '"':
+            buf.append(ch)
+            in_double = True
+            continue
+        if ch == "`":
+            buf.append(ch)
+            in_template = True
+            continue
+        if ch in "([{":
+            depth += 1
+            buf.append(ch)
+            continue
+        if ch in ")]}":
+            depth = max(0, depth - 1)
+            buf.append(ch)
+            continue
+        if ch == "," and depth == 0:
+            parts.append("".join(buf).strip())
+            buf = []
+            continue
+        buf.append(ch)
+    tail = "".join(buf).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+def _extract_new_call_arg_count(src: str, open_paren_idx: int) -> int | None:
+    depth = 1
+    i = open_paren_idx + 1
+    in_single = False
+    in_double = False
+    in_template = False
+    esc = False
+    args_buf: list[str] = []
+    while i < len(src):
+        ch = src[i]
+        if esc:
+            args_buf.append(ch)
+            esc = False
+            i += 1
+            continue
+        if ch == "\\":
+            args_buf.append(ch)
+            esc = True
+            i += 1
+            continue
+        if in_single:
+            args_buf.append(ch)
+            if ch == "'":
+                in_single = False
+            i += 1
+            continue
+        if in_double:
+            args_buf.append(ch)
+            if ch == '"':
+                in_double = False
+            i += 1
+            continue
+        if in_template:
+            args_buf.append(ch)
+            if ch == "`":
+                in_template = False
+            i += 1
+            continue
+        if ch == "'":
+            args_buf.append(ch)
+            in_single = True
+            i += 1
+            continue
+        if ch == '"':
+            args_buf.append(ch)
+            in_double = True
+            i += 1
+            continue
+        if ch == "`":
+            args_buf.append(ch)
+            in_template = True
+            i += 1
+            continue
+        if ch == "(":
+            depth += 1
+            args_buf.append(ch)
+            i += 1
+            continue
+        if ch == ")":
+            depth -= 1
+            if depth == 0:
+                raw_args = "".join(args_buf).strip()
+                if not raw_args:
+                    return 0
+                return len(_split_js_top_level_csv(raw_args))
+            args_buf.append(ch)
+            i += 1
+            continue
+        args_buf.append(ch)
+        i += 1
+    return None
+
+def _script_js_static_integrity_check(project: str) -> dict:
+    project_root = _project_root(project)
+    script_path = os.path.join(project_root, "script.js")
+    if not os.path.exists(script_path):
+        return {"ok": True, "summary": "skip: script.js not found", "impact_lines": []}
+
+    node_check = _sp.run(["node", "--check", script_path], cwd=project_root, capture_output=True, text=True)
+    if node_check.returncode != 0:
+        detail = (node_check.stderr or node_check.stdout or "").strip()
+        return {"ok": False, "summary": "script.js syntax parse failed", "error": detail}
+
+    with open(script_path, "r", encoding="utf-8") as f:
+        script_content = f.read()
+    ctor_match = re.search(r"class\s+Ball\b[\s\S]*?\bconstructor\s*\(([\s\S]*?)\)", script_content)
+    if not ctor_match:
+        return {"ok": True, "summary": "skip: class Ball constructor not found", "impact_lines": []}
+
+    ctor_params = _split_js_top_level_csv(ctor_match.group(1))
+    min_arity = len([p for p in ctor_params if p and "=" not in p and not p.strip().startswith("...")])
+    has_rest = any(p.strip().startswith("...") for p in ctor_params if p)
+    max_arity = None if has_rest else len([p for p in ctor_params if p])
+
+    rg = _sp.run(
+        ["rg", "-n", r"new Ball\(", project_root],
+        cwd=project_root,
+        capture_output=True,
+        text=True
+    )
+    impact_lines = []
+    if rg.returncode == 0 and rg.stdout.strip():
+        impact_lines = [line.strip() for line in rg.stdout.strip().splitlines() if line.strip()]
+    elif rg.returncode not in (0, 1):
+        return {"ok": False, "summary": "rg failed while collecting new Ball callsites", "error": rg.stderr.strip()}
+
+    violations = []
+    for rel in impact_lines:
+        path_and_line = rel.split(":", 2)
+        if len(path_and_line) < 2:
+            continue
+        rel_path = path_and_line[0]
+        call_file = rel_path if os.path.isabs(rel_path) else os.path.join(project_root, rel_path)
+        try:
+            with open(call_file, "r", encoding="utf-8") as cf:
+                call_src = cf.read()
+        except Exception:
+            continue
+        for m in re.finditer(r"new\s+Ball\s*\(", call_src):
+            arg_count = _extract_new_call_arg_count(call_src, m.end() - 1)
+            if arg_count is None:
+                violations.append(f"{rel_path}:?: could not parse arguments")
+                continue
+            if arg_count < min_arity or (max_arity is not None and arg_count > max_arity):
+                call_line = call_src.count("\n", 0, m.start()) + 1
+                expect = f"{min_arity}..∞" if max_arity is None else (str(min_arity) if min_arity == max_arity else f"{min_arity}..{max_arity}")
+                violations.append(f"{rel_path}:{call_line}: args={arg_count}, expected={expect}")
+
+    if violations:
+        return {
+            "ok": False,
+            "summary": "new Ball callsites do not match Ball constructor signature",
+            "impact_lines": impact_lines,
+            "violations": violations,
+            "constructor_params": ctor_params,
+        }
+    return {
+        "ok": True,
+        "summary": "script.js static integrity check passed",
+        "impact_lines": impact_lines,
+        "constructor_params": ctor_params,
+    }
+
 # =========================
 # ツール定義
 # =========================
@@ -2043,6 +2248,17 @@ def edit_file(path: str, old_str: str, new_str: str, project: str = "default") -
         new_content = content.replace(old_str, new_str, 1)
         with open(full, "w", encoding="utf-8") as f:
             f.write(new_content)
+        if path.replace("\\", "/").endswith("script.js"):
+            check = _script_js_static_integrity_check(project)
+            if not check.get("ok"):
+                details = []
+                if check.get("impact_lines"):
+                    details.append("impact:\n" + "\n".join(check.get("impact_lines", [])))
+                if check.get("violations"):
+                    details.append("violations:\n" + "\n".join(check.get("violations", [])))
+                if check.get("error"):
+                    details.append(f"error:\n{check.get('error')}")
+                return f"ERROR: script.js static check failed after edit. {check.get('summary')}\n" + ("\n".join(details) if details else "")
         # 変更行を特定して報告
         old_lines = content.splitlines()
         new_lines = new_content.splitlines()
@@ -3005,6 +3221,20 @@ def write_file(path: str = "", content: str = "", project: str = "default") -> s
         os.makedirs(os.path.dirname(full), exist_ok=True)
         with open(full, "w", encoding="utf-8") as f:
             f.write(content)
+        if path.replace("\\", "/").endswith("script.js"):
+            check = _script_js_static_integrity_check(project)
+            impact = "\n".join(check.get("impact_lines", []))
+            if not check.get("ok"):
+                details = []
+                if impact:
+                    details.append("impact:\n" + impact)
+                if check.get("violations"):
+                    details.append("violations:\n" + "\n".join(check.get("violations", [])))
+                if check.get("error"):
+                    details.append(f"error:\n{check.get('error')}")
+                return f"ERROR: wrote {len(content)} chars to {path}, but static check failed. {check.get('summary')}\n" + ("\n".join(details) if details else "")
+            if impact:
+                return f"ok: wrote {len(content)} chars to {path}\nstatic_check: {check.get('summary')}\nimpact:\n{impact}"
         preview = "\n".join(content.splitlines()[:3])
         return f"ok: wrote {len(content)} chars to {path}\npreview:\n{preview}"
     except Exception as e:
@@ -3393,6 +3623,24 @@ def git_commit(message: str, project: str = "default") -> str:
     err_msg = _git_ensure_repo(cwd)
     if err_msg:
         return err_msg
+    rc_changed, out_changed, err_changed = _git_run(["status", "--porcelain"], cwd)
+    if rc_changed != 0:
+        return f"ERROR: git status failed: {err_changed}"
+    changed_lines = [ln.strip() for ln in out_changed.splitlines() if ln.strip()]
+    if any("script.js" in ln.replace("\\", "/") for ln in changed_lines):
+        check = _script_js_static_integrity_check(project)
+        if not check.get("ok"):
+            detail = []
+            if check.get("impact_lines"):
+                detail.append("impact:\n" + "\n".join(check.get("impact_lines", [])))
+            if check.get("violations"):
+                detail.append("violations:\n" + "\n".join(check.get("violations", [])))
+            if check.get("error"):
+                detail.append(f"error:\n{check.get('error')}")
+            return (
+                "ERROR: commit blocked by script.js static integrity check.\n"
+                f"reason: {check.get('summary')}\n" + ("\n".join(detail) if detail else "")
+            )
     rc, _, err = _git_run(["add", "-A"], cwd)
     if rc != 0:
         return f"ERROR: git add failed: {err}"
