@@ -702,6 +702,11 @@ textarea#input::placeholder{color:var(--text3)}
 .mic-btn:hover{opacity:1;color:var(--text)}
 .mic-btn.recording{background:rgba(255,59,92,.14);border-color:rgba(255,59,92,.5);color:#ff728c;box-shadow:0 0 10px rgba(255,59,92,.25)}
 .mic-btn:disabled{opacity:.45;cursor:not-allowed}
+.voice-monitor{display:none;align-items:center;gap:8px;margin-top:8px}
+.voice-monitor.active{display:flex}
+.voice-meter{position:relative;flex:1;height:6px;background:var(--bg3);border:1px solid var(--border);border-radius:999px;overflow:hidden}
+.voice-meter-fill{position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,var(--green),var(--accent));transition:width .08s linear}
+.voice-monitor-text{font-size:10px;color:var(--text3);font-family:var(--font-mono);min-width:132px;text-align:right}
 .send-btn{position:absolute;right:7px;bottom:7px;width:28px;height:28px;border-radius:6px;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;opacity:.9}
 .send-btn:hover{opacity:1;box-shadow:0 0 10px var(--accent-glow)}
 .send-btn:disabled{background:var(--bg3);opacity:.5;cursor:not-allowed;box-shadow:none}
@@ -1095,6 +1100,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <button class="send-btn" id="send-btn" onclick="send()">
           <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
         </button>
+      </div>
+      <div class="voice-monitor" id="voice-monitor">
+        <div class="voice-meter"><div class="voice-meter-fill" id="voice-meter-fill"></div></div>
+        <div class="voice-monitor-text" id="voice-monitor-text">待機中</div>
       </div>
     </div>
   </div>
@@ -2359,6 +2368,24 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </div>
           <div style="font-size:10px;color:var(--text3);margin-top:3px">デバイス変更は次のロード時に適用されます</div>
         </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div>
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">silence_ms</div>
+            <input id="asr-silence-ms" type="number" min="600" max="10000" step="100"
+              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+              onchange="saveAsrSettings()">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">min_speech_ms</div>
+            <input id="asr-min-speech-ms" type="number" min="200" max="5000" step="100"
+              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+              onchange="saveAsrSettings()">
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);cursor:pointer;margin-bottom:8px">
+          <input type="checkbox" id="asr-auto-send-after" style="width:14px;height:14px;accent-color:var(--accent)" onchange="saveAsrSettings()">
+          auto_send_after_asr（音声認識後に自動送信）
+        </label>
         <!-- ロード/アンロードボタン -->
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <button onclick="loadAsrModel()" id="asr-load-btn"
@@ -2654,6 +2681,117 @@ let _lastSystemUsageText = '';
 let voiceRecorder = null;
 let voiceChunks = [];
 let voiceRecording = false;
+let voiceAnalyserCtx = null;
+let voiceAnalyserNode = null;
+let voiceAnalyserSource = null;
+let voiceAnalyserData = null;
+let voiceMeterRaf = null;
+let voiceLastSampleTs = 0;
+let voiceSpeechAccumMs = 0;
+let voiceDetectedSpeech = false;
+let voiceSilenceDeadlineTs = 0;
+let voiceNoiseFloor = 0.005;
+let voiceAutoStopping = false;
+const voiceAsrSettings = {
+  silenceMs: Math.max(600, Math.min(10000, parseInt(localStorage.getItem('asr_silence_ms') || '1800', 10) || 1800)),
+  minSpeechMs: Math.max(200, Math.min(5000, parseInt(localStorage.getItem('asr_min_speech_ms') || '700', 10) || 700)),
+  autoSendAfterAsr: localStorage.getItem('asr_auto_send_after') === 'true',
+};
+
+function _voiceMonitorEls() {
+  return {
+    wrap: document.getElementById('voice-monitor'),
+    fill: document.getElementById('voice-meter-fill'),
+    text: document.getElementById('voice-monitor-text'),
+  };
+}
+
+function _setVoiceMonitor(level = 0, text = '待機中', active = false) {
+  const {wrap, fill, text: textEl} = _voiceMonitorEls();
+  if (wrap) wrap.classList.toggle('active', !!active);
+  if (fill) fill.style.width = `${Math.max(0, Math.min(1, level)) * 100}%`;
+  if (textEl) textEl.textContent = text;
+}
+
+function _stopVoiceLevelMonitoring() {
+  if (voiceMeterRaf) {
+    cancelAnimationFrame(voiceMeterRaf);
+    voiceMeterRaf = null;
+  }
+  try { if (voiceAnalyserSource) voiceAnalyserSource.disconnect(); } catch {}
+  try { if (voiceAnalyserNode) voiceAnalyserNode.disconnect(); } catch {}
+  voiceAnalyserSource = null;
+  voiceAnalyserNode = null;
+  voiceAnalyserData = null;
+  voiceLastSampleTs = 0;
+  voiceSpeechAccumMs = 0;
+  voiceDetectedSpeech = false;
+  voiceSilenceDeadlineTs = 0;
+  voiceNoiseFloor = 0.005;
+  voiceAutoStopping = false;
+  if (voiceAnalyserCtx) {
+    voiceAnalyserCtx.close().catch(() => {});
+    voiceAnalyserCtx = null;
+  }
+  _setVoiceMonitor(0, '待機中', false);
+}
+
+function _startVoiceLevelMonitoring(stream) {
+  _stopVoiceLevelMonitoring();
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  voiceAnalyserCtx = new Ctx();
+  voiceAnalyserSource = voiceAnalyserCtx.createMediaStreamSource(stream);
+  voiceAnalyserNode = voiceAnalyserCtx.createAnalyser();
+  voiceAnalyserNode.fftSize = 2048;
+  voiceAnalyserData = new Float32Array(voiceAnalyserNode.fftSize);
+  voiceAnalyserSource.connect(voiceAnalyserNode);
+  voiceLastSampleTs = performance.now();
+  _setVoiceMonitor(0, '話し始めると自動終了が有効になります', true);
+
+  const loop = () => {
+    if (!voiceRecording || !voiceRecorder || !voiceAnalyserNode || !voiceAnalyserData) return;
+    voiceAnalyserNode.getFloatTimeDomainData(voiceAnalyserData);
+    let sum = 0;
+    for (let i = 0; i < voiceAnalyserData.length; i++) sum += voiceAnalyserData[i] * voiceAnalyserData[i];
+    const rms = Math.sqrt(sum / voiceAnalyserData.length);
+    voiceNoiseFloor = voiceDetectedSpeech
+      ? voiceNoiseFloor
+      : Math.max(0.001, Math.min(0.03, voiceNoiseFloor * 0.95 + rms * 0.05));
+    const speechThreshold = Math.max(0.012, voiceNoiseFloor * 2.4);
+    const hasSpeechNow = rms > speechThreshold;
+    const now = performance.now();
+    const dt = Math.max(0, now - voiceLastSampleTs);
+    voiceLastSampleTs = now;
+    if (hasSpeechNow) {
+      voiceDetectedSpeech = true;
+      voiceSpeechAccumMs += dt;
+      voiceSilenceDeadlineTs = 0;
+    } else if (voiceDetectedSpeech && voiceSpeechAccumMs >= voiceAsrSettings.minSpeechMs) {
+      if (!voiceSilenceDeadlineTs) voiceSilenceDeadlineTs = now + voiceAsrSettings.silenceMs;
+      const remainMs = Math.max(0, voiceSilenceDeadlineTs - now);
+      const remainSec = Math.ceil(remainMs / 1000);
+      _setVoiceMonitor(Math.min(1, rms * 18), `自動確定まで${remainSec}秒`, true);
+      if (remainMs <= 0 && !voiceAutoStopping && voiceRecorder.state !== 'inactive') {
+        voiceAutoStopping = true;
+        voiceRecording = false;
+        _setMicState(false, true);
+        voiceRecorder.stop();
+        return;
+      }
+    }
+    if (!(voiceDetectedSpeech && voiceSpeechAccumMs >= voiceAsrSettings.minSpeechMs && !hasSpeechNow)) {
+      const hint = !voiceDetectedSpeech
+        ? '話し始めてください'
+        : (voiceSpeechAccumMs < voiceAsrSettings.minSpeechMs
+          ? `音声を検出中 (${Math.floor(voiceSpeechAccumMs)}ms)`
+          : '録音中');
+      _setVoiceMonitor(Math.min(1, rms * 18), hint, true);
+    }
+    voiceMeterRaf = requestAnimationFrame(loop);
+  };
+  voiceMeterRaf = requestAnimationFrame(loop);
+}
 
 function _migrateEchoTtsTranslateSettings() {
   const migratedKey = 'echo_tts_translate_migrated';
@@ -4239,6 +4377,12 @@ function _ttsInitSettingsUI() {
 // ── ASR 設定 JS ──
 
 function _asrInitSettingsUI() {
+  const silenceEl = document.getElementById('asr-silence-ms');
+  const minSpeechEl = document.getElementById('asr-min-speech-ms');
+  const autoSendEl = document.getElementById('asr-auto-send-after');
+  if (silenceEl) silenceEl.value = String(voiceAsrSettings.silenceMs);
+  if (minSpeechEl) minSpeechEl.value = String(voiceAsrSettings.minSpeechMs);
+  if (autoSendEl) autoSendEl.checked = !!voiceAsrSettings.autoSendAfterAsr;
   fetch(API + '/voice/status').then(r => r.json()).then(s => {
     const statusTxt = document.getElementById('asr-status-txt');
     const unloadBtn = document.getElementById('asr-unload-btn');
@@ -4262,6 +4406,20 @@ function _asrInitSettingsUI() {
 function saveAsrSettings() {
   const dev = document.querySelector('input[name="asr-device"]:checked')?.value || localStorage.getItem('asr_device') || echo.asrDevice || 'cuda';
   _syncAsrDeviceState(dev);
+  const silenceEl = document.getElementById('asr-silence-ms');
+  const minSpeechEl = document.getElementById('asr-min-speech-ms');
+  const autoSendEl = document.getElementById('asr-auto-send-after');
+  voiceAsrSettings.silenceMs = Math.max(600, Math.min(10000, parseInt(silenceEl?.value || `${voiceAsrSettings.silenceMs}`, 10) || 1800));
+  voiceAsrSettings.minSpeechMs = Math.max(200, Math.min(5000, parseInt(minSpeechEl?.value || `${voiceAsrSettings.minSpeechMs}`, 10) || 700));
+  voiceAsrSettings.autoSendAfterAsr = !!autoSendEl?.checked;
+  if (silenceEl) silenceEl.value = String(voiceAsrSettings.silenceMs);
+  if (minSpeechEl) minSpeechEl.value = String(voiceAsrSettings.minSpeechMs);
+  localStorage.setItem('asr_silence_ms', String(voiceAsrSettings.silenceMs));
+  localStorage.setItem('asr_min_speech_ms', String(voiceAsrSettings.minSpeechMs));
+  localStorage.setItem('asr_auto_send_after', voiceAsrSettings.autoSendAfterAsr ? 'true' : 'false');
+  _saveSettingDb('silence_ms', voiceAsrSettings.silenceMs);
+  _saveSettingDb('min_speech_ms', voiceAsrSettings.minSpeechMs);
+  _saveSettingDb('auto_send_after_asr', voiceAsrSettings.autoSendAfterAsr);
 }
 
 async function loadAsrModel() {
@@ -4511,6 +4669,23 @@ async function loadSettingsFromDb() {
     // Role lock (default: unlocked)
     _roleLocked = d.role_lock === 'true';
     _updateRoleLockBtn();
+
+    // Main mic ASR silence settings
+    const silenceMs = Math.max(600, Math.min(10000, parseInt(d.silence_ms, 10) || voiceAsrSettings.silenceMs));
+    const minSpeechMs = Math.max(200, Math.min(5000, parseInt(d.min_speech_ms, 10) || voiceAsrSettings.minSpeechMs));
+    const autoSendAfterAsr = d.auto_send_after_asr === 'true' || (d.auto_send_after_asr == null && voiceAsrSettings.autoSendAfterAsr);
+    voiceAsrSettings.silenceMs = silenceMs;
+    voiceAsrSettings.minSpeechMs = minSpeechMs;
+    voiceAsrSettings.autoSendAfterAsr = !!autoSendAfterAsr;
+    localStorage.setItem('asr_silence_ms', String(silenceMs));
+    localStorage.setItem('asr_min_speech_ms', String(minSpeechMs));
+    localStorage.setItem('asr_auto_send_after', autoSendAfterAsr ? 'true' : 'false');
+    const silenceEl = document.getElementById('asr-silence-ms');
+    const minSpeechEl = document.getElementById('asr-min-speech-ms');
+    const autoSendEl = document.getElementById('asr-auto-send-after');
+    if (silenceEl) silenceEl.value = String(silenceMs);
+    if (minSpeechEl) minSpeechEl.value = String(minSpeechMs);
+    if (autoSendEl) autoSendEl.checked = !!autoSendAfterAsr;
 
   } catch(e) { console.warn('loadSettingsFromDb error', e); }
 }
@@ -6909,6 +7084,7 @@ async function toggleVoiceInput(){
   if (busy) return;
   if (voiceRecording && voiceRecorder) {
     voiceRecording = false;
+    _stopVoiceLevelMonitoring();
     _setMicState(false, true);
     voiceRecorder.stop();
     return;
@@ -6925,16 +7101,19 @@ async function toggleVoiceInput(){
     voiceRecorder.ondataavailable = (e) => { if (e.data?.size > 0) voiceChunks.push(e.data); };
     voiceRecorder.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
+      _stopVoiceLevelMonitoring();
       const blob = new Blob(voiceChunks, {type: mimeType});
-      await transcribeVoiceBlob(blob);
+      await transcribeVoiceBlob(blob, {autoSendAfterAsr: voiceAsrSettings.autoSendAfterAsr});
       voiceRecorder = null;
       voiceChunks = [];
     };
     voiceRecorder.start();
     voiceRecording = true;
     _setMicState(true, false);
+    _startVoiceLevelMonitoring(stream);
     addLog('info','voice','recording started');
   } catch (e) {
+    _stopVoiceLevelMonitoring();
     addMsg('error', 'マイク起動に失敗: ' + (e.message || String(e)));
     _setMicState(false, false);
   }
@@ -7013,6 +7192,11 @@ async function transcribeVoiceBlob(blob, opts = {}){
             input.value = replaceMode ? t : ((input.value ? input.value + '\n' : '') + t);
             if (input.id === 'input') autoResize(input);
             input.focus();
+          }
+          const shouldAutoSend = opts.autoSendAfterAsr === true;
+          if (shouldAutoSend && input?.id === 'input') {
+            addLog('info','voice','auto send after asr');
+            await send();
           }
           if (statusFn) statusFn(`ASR入力完了 (${ev.language || lang})`);
           addLog('ok','voice',`transcribed (${ev.language || lang})`);
