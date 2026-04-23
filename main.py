@@ -1954,6 +1954,24 @@ def _project_root(project: str = "default") -> str:
         raise ValueError(f"invalid project: {project}")
     return root
 
+def _assert_within_project_root(project: str, target_path: str, allow_missing: bool = False) -> str:
+    """target_path が project root 配下にあることを厳格に検証する（symlink考慮）。"""
+    root = _project_root(project)
+    root_real = os.path.realpath(root)
+    target_abs = os.path.abspath(target_path)
+
+    if allow_missing and not os.path.exists(target_abs):
+        parent = os.path.dirname(target_abs) or root
+        parent_real = os.path.realpath(parent)
+        if parent_real != root_real and not parent_real.startswith(root_real + os.sep):
+            raise ValueError(f"path escapes project root: {target_path}")
+        return target_abs
+
+    target_real = os.path.realpath(target_abs)
+    if target_real != root_real and not target_real.startswith(root_real + os.sep):
+        raise ValueError(f"path escapes project root: {target_path}")
+    return target_abs
+
 def _normalize_project_relpath(path: str, project: str = "default") -> str:
     raw = str(path or "").replace("\\", "/").strip()
     while raw.startswith("./"):
@@ -1973,8 +1991,7 @@ def _project_path(project: str, path: str) -> tuple[str, str]:
     rel = _normalize_project_relpath(path, project)
     root = _project_root(project)
     full = os.path.abspath(os.path.join(root, rel))
-    if full != root and not full.startswith(root + os.sep):
-        raise ValueError(f"path escapes project: {path}")
+    _assert_within_project_root(project, full, allow_missing=True)
     return full, rel
 
 def _reset_project_dir(project: str) -> str:
@@ -12277,7 +12294,7 @@ def delete_project(name: str):
 
 @app.get("/projects/{name}/files")
 def project_files(name: str):
-    """Project file list for preview tab."""
+    """Project file list for preview / file manager tabs."""
     path = _project_root(name)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Project not found")
@@ -12290,6 +12307,43 @@ def project_files(name: str):
                 continue
             files.append(rel)
     return {"project": name, "files": sorted(files)}
+
+@app.delete("/projects/{name}/files/{path:path}")
+def delete_project_file(name: str, path: str):
+    project_root = _project_root(name)
+    if not os.path.isdir(project_root):
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        full, rel = _project_path(name, path)
+        full = _assert_within_project_root(name, full)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not os.path.exists(full):
+        raise HTTPException(status_code=404, detail="File not found")
+    if not os.path.isfile(full):
+        raise HTTPException(status_code=400, detail="Target is not a file")
+    os.remove(full)
+    return {"project": _normalize_project_name(name), "deleted": rel}
+
+@app.get("/projects/{name}/files/{path:path}/download")
+def download_project_file(name: str, path: str):
+    project_root = _project_root(name)
+    if not os.path.isdir(project_root):
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        full, rel = _project_path(name, path)
+        full = _assert_within_project_root(name, full)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(
+        path=full,
+        media_type="application/octet-stream",
+        filename=os.path.basename(rel),
+    )
 
 
 @app.get("/projects/{name}/download")
