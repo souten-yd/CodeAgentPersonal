@@ -3257,9 +3257,19 @@ async function _ttsFetchAudio(text, engine = tts.engine, context = 'main', opts 
   });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
-    throw new Error(_formatQwen3SynthesisError(err.detail || 'TTS synthesis failed', body));
+    const userMessage = _getUserFacingApiErrorMessage(err, '音声合成に失敗しました。');
+    throw new Error(_formatQwen3SynthesisError(userMessage, body));
   }
   return await resp.blob();
+}
+
+function _getUserFacingApiErrorMessage(err, fallback = '処理に失敗しました。') {
+  if (!err || typeof err !== 'object') return fallback;
+  const userMessage = typeof err.user_message === 'string' ? err.user_message.trim() : '';
+  if (userMessage) return userMessage;
+  const detail = typeof err.detail === 'string' ? err.detail.trim() : '';
+  if (!detail) return fallback;
+  return detail.length > 200 ? fallback : detail;
 }
 
 function _buildTtsRequestBodyByEngine({text, engine, context = 'main', opts = {}}) {
@@ -3789,7 +3799,7 @@ async function uploadStyleBertVits2ModelZip(input, context = 'echo') {
     fd.append('file', file, file.name);
     const resp = await fetch(API + '/api/tts/style-bert-vits2/models/upload', {method: 'POST', body: fd});
     const data = await resp.json();
-    if (!resp.ok) throw new Error(data?.detail || 'アップロードに失敗しました');
+    if (!resp.ok) throw new Error(_getUserFacingApiErrorMessage(data, 'アップロードに失敗しました。'));
     await refreshStyleBertVits2Models(context);
     const imported = data?.model_id || '';
     if (imported) {
@@ -3802,7 +3812,8 @@ async function uploadStyleBertVits2ModelZip(input, context = 'echo') {
     }
     if (statusEl) statusEl.textContent = `アップロード完了: ${imported || file.name}`;
   } catch (e) {
-    if (statusEl) statusEl.textContent = `アップロード失敗: ${e.message}`;
+    const safeMessage = e?.message || 'アップロードに失敗しました。';
+    if (statusEl) statusEl.textContent = `アップロード失敗: ${safeMessage}`;
   } finally {
     if (input) input.value = '';
     if (context === 'echo') saveEchoSettings();
