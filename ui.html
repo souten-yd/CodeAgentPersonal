@@ -1125,11 +1125,19 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
   <div class="agent-panel-col" id="agent-panel-col" style="display:none">
     <div class="panel-tabs" style="justify-content:space-between">
-      <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em">Agent Tasks</span>
+      <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em">タスク管理</span>
       <span class="tab-label" id="agent-status-label">idle</span>
     </div>
-    <div style="padding:10px;overflow:auto;display:flex;flex-direction:column;gap:8px" id="agent-task-list">
+    <div style="padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border)">
+      <input id="agent-task-search" placeholder="タスク名で検索..." oninput="handleAgentTaskSearch(this.value)"
+        style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:11px">
+      <div style="font-size:10px;color:var(--text3)">status / priority / confidence / source turn を表示・編集できます。</div>
+    </div>
+    <div style="padding:10px;overflow:auto;display:flex;flex-direction:column;gap:8px;flex:1;min-height:0" id="agent-task-list">
       <div style="font-size:11px;color:var(--text3)">まだ提案タスクはありません。</div>
+    </div>
+    <div style="border-top:1px solid var(--border);padding:10px;overflow:auto;max-height:34%" id="agent-task-history">
+      <div style="font-size:11px;color:var(--text3)">変更履歴はまだありません。</div>
     </div>
   </div>
 
@@ -4800,6 +4808,7 @@ const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-ech
 let agentSessionActive = false;
 let agentHistory = [];
 let agentTaskCache = [];
+let agentTaskSearchQuery = '';
 
 function _setEchoTabVisibility(isEcho) {
   _CHAT_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? 'none' : ''; });
@@ -4956,16 +4965,50 @@ function addAgentExecutionCard(executed = []) {
   addAgentHistoryItem('execution', {executed});
 }
 
+function handleAgentTaskSearch(query) {
+  agentTaskSearchQuery = String(query || '').trim().toLowerCase();
+  renderAgentTasks(agentTaskCache, agentSessionActive ? 'running' : 'idle');
+}
+
+function renderAgentTaskHistory(tasks = []) {
+  const el = document.getElementById('agent-task-history');
+  if (!el) return;
+  const rows = [];
+  (tasks || []).forEach((t) => {
+    (t.revision_history || []).forEach((rev, idx) => {
+      rows.push({task: t, rev, idx});
+    });
+  });
+  if (!rows.length) {
+    el.innerHTML = '<div style="font-size:11px;color:var(--text3)">変更履歴はまだありません。</div>';
+    return;
+  }
+  el.innerHTML = rows.reverse().slice(0, 20).map(({task, rev, idx}) => `
+    <div style="border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg2);margin-bottom:6px">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">${esc(task.title || task.id)} #${idx + 1}</div>
+      <div style="font-size:10px;color:var(--text2);margin-bottom:2px">before: ${esc((rev.before?.detail || '').slice(0, 120) || '-')}</div>
+      <div style="font-size:10px;color:var(--accent)">after: ${esc((rev.after?.detail || '').slice(0, 120) || '-')}</div>
+    </div>
+  `).join('');
+}
+
 function renderAgentTasks(tasks = [], state = '') {
   const list = document.getElementById('agent-task-list');
   const label = document.getElementById('agent-status-label');
   if (label) label.textContent = state || (agentSessionActive ? 'running' : 'idle');
   if (!list) return;
-  if (!Array.isArray(tasks) || !tasks.length) {
+  const visible = (Array.isArray(tasks) ? tasks : []).filter((t) => {
+    if (!agentTaskSearchQuery) return true;
+    const title = String(t.title || '').toLowerCase();
+    const aliases = Array.isArray(t.aliases) ? t.aliases.join(' ').toLowerCase() : '';
+    return title.includes(agentTaskSearchQuery) || aliases.includes(agentTaskSearchQuery);
+  });
+  renderAgentTaskHistory(Array.isArray(tasks) ? tasks : []);
+  if (!visible.length) {
     list.innerHTML = '<div style="font-size:11px;color:var(--text3)">まだ提案タスクはありません。</div>';
     return;
   }
-  list.innerHTML = tasks.map((t, i) => {
+  list.innerHTML = visible.map((t, i) => {
     const st = String(t.status || t.state || 'proposed');
     const color = st === 'done' ? 'var(--accent)' : st === 'failed' || st === 'rejected' ? 'var(--red)' : st === 'accepted' || st === 'running' ? 'var(--blue)' : 'var(--amber)';
     const canDecide = st === 'proposed';
@@ -4974,7 +5017,16 @@ function renderAgentTasks(tasks = [], state = '') {
         <span style="font-size:11px;font-weight:700;color:var(--text)">${i+1}. ${esc(t.title || t.task || 'task')}</span>
         <span style="font-size:10px;color:${color};border:1px solid ${color};border-radius:10px;padding:1px 6px">${esc(st)}</span>
       </div>
-      <div style="font-size:11px;color:var(--text2);margin-bottom:${canDecide ? '8px' : '0'}">${esc(t.description || t.detail || '')}</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">
+        priority: ${esc(String(t.priority ?? '-'))} / confidence: ${esc(String(t.confidence ?? '-'))}<br>
+        source turn: ${esc(String(t.source_turn_id || '-').slice(0, 12))}
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">${esc(t.description || t.detail || '')}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+        <button onclick="runAgentTask('${esc(t.id)}')" style="font-size:10px;padding:4px 8px;border:1px solid var(--blue);background:var(--blue-bg);color:var(--blue);border-radius:4px;cursor:pointer">実行</button>
+        <button onclick="openAgentTaskEdit('${esc(t.id)}')" style="font-size:10px;padding:4px 8px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">編集</button>
+        <button onclick="cancelAgentTask('${esc(t.id)}')" style="font-size:10px;padding:4px 8px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:4px;cursor:pointer">キャンセル</button>
+      </div>
       ${canDecide ? `
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button onclick="decideAgentTask('${esc(t.id)}','accept')" style="font-size:10px;padding:4px 8px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">承諾</button>
@@ -4983,6 +5035,40 @@ function renderAgentTasks(tasks = [], state = '') {
       </div>` : ''}
     </div>`;
   }).join('');
+}
+
+async function runAgentTask(taskId) {
+  if (!taskId) return;
+  try {
+    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/run`, {});
+    await refreshAgentTasks('running');
+  } catch (e) {
+    addAgentConversationMsg('error', `Run failed: ${e.message}`);
+  }
+}
+
+async function cancelAgentTask(taskId) {
+  if (!taskId) return;
+  try {
+    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/cancel`, {});
+    await refreshAgentTasks('running');
+  } catch (e) {
+    addAgentConversationMsg('error', `Cancel failed: ${e.message}`);
+  }
+}
+
+async function openAgentTaskEdit(taskId) {
+  const current = (agentTaskCache.find(t => t.id === taskId)?.detail || '');
+  const revised = prompt('タスク内容を編集:', current);
+  if (revised === null) return;
+  const instruction = String(revised || '').trim();
+  if (!instruction) return;
+  try {
+    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/revise`, {instruction});
+    await refreshAgentTasks('running');
+  } catch (e) {
+    addAgentConversationMsg('error', `Revise failed: ${e.message}`);
+  }
 }
 
 async function _agentApi(path, payload = null, method = 'POST') {

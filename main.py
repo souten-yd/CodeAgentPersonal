@@ -6221,6 +6221,12 @@ class AgentTaskDecisionRequest(BaseModel):
     decision: str
 
 
+class AgentTaskReviseRequest(BaseModel):
+    instruction: str = ""
+    title: str = ""
+    detail: str = ""
+
+
 @dataclass
 class AgentState:
     running: bool = False
@@ -11810,6 +11816,8 @@ def agent_tasks():
                 "status": task.status,
                 "source_turn_id": task.source_turn_id,
                 "rationale": task.rationale,
+                "aliases": list(task.aliases),
+                "revision_history": list(task.revision_history),
             }
             for task in session.list_tasks()
         ]
@@ -11828,6 +11836,65 @@ def agent_task_decision(task_id: str, req: AgentTaskDecisionRequest):
         if task is None:
             raise HTTPException(status_code=400, detail="invalid decision or task not found")
     return {"ok": True, "task_id": task.id, "status": task.status}
+
+
+@app.post("/agent/tasks/{task_id}/run")
+def agent_task_run(task_id: str):
+    with agent_state_lock:
+        if not agent_state.running:
+            raise HTTPException(status_code=409, detail="agent is not running")
+        session = agent_state.session
+        if session is None:
+            raise HTTPException(status_code=404, detail="agent session not found")
+        task = session.find_task_by_name_or_alias(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="task not found")
+        if task.status in {"done", "running"}:
+            return {"ok": True, "task_id": task.id, "status": task.status}
+        task.status = "accepted"
+    return {"ok": True, "task_id": task.id, "status": task.status}
+
+
+@app.post("/agent/tasks/{task_id}/cancel")
+def agent_task_cancel(task_id: str):
+    with agent_state_lock:
+        if not agent_state.running:
+            raise HTTPException(status_code=409, detail="agent is not running")
+        session = agent_state.session
+        if session is None:
+            raise HTTPException(status_code=404, detail="agent session not found")
+        task = session.find_task_by_name_or_alias(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="task not found")
+        if task.status in {"done", "failed"}:
+            return {"ok": True, "task_id": task.id, "status": task.status}
+        task.status = "cancelled"
+    return {"ok": True, "task_id": task.id, "status": task.status}
+
+
+@app.post("/agent/tasks/{task_id}/revise")
+def agent_task_revise(task_id: str, req: AgentTaskReviseRequest):
+    with agent_state_lock:
+        if not agent_state.running:
+            raise HTTPException(status_code=409, detail="agent is not running")
+        session = agent_state.session
+        if session is None:
+            raise HTTPException(status_code=404, detail="agent session not found")
+        instruction = (req.instruction or "").strip()
+        if not instruction:
+            title_hint = (req.title or "").strip()
+            detail_hint = (req.detail or "").strip()
+            instruction = " / ".join([part for part in [title_hint, detail_hint] if part])
+        task = session.revise_task(task_id, instruction, source_turn_id="api-revise")
+        if task is None:
+            raise HTTPException(status_code=400, detail="task not found or instruction is empty")
+    return {
+        "ok": True,
+        "task_id": task.id,
+        "status": task.status,
+        "detail": task.detail,
+        "revision_count": len(task.revision_history),
+    }
 
 
 # =========================
