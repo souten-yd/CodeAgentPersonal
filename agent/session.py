@@ -30,6 +30,7 @@ class QueuedTask:
 
 @dataclass(slots=True)
 class AgentSession:
+    project_key: str = "default"
     conversation_state: dict[str, Any] = field(
         default_factory=lambda: {
             "turns": [],
@@ -226,9 +227,10 @@ class AgentSession:
         }
 
         for idx, candidate in enumerate(candidates):
+            safe_project = re.sub(r"[^a-zA-Z0-9._-]", "-", (self.project_key or "default")).strip("-") or "default"
             tasks.append(
                 {
-                    "id": f"task-{turn_id[:8]}-{idx + 1}",
+                    "id": f"task-{safe_project}-{turn_id[:8]}-{idx + 1}",
                     "title": candidate.title,
                     "detail": candidate.inputs[0] if candidate.inputs else candidate.title,
                     "priority": round(0.8 if idx == 0 else max(0.45, 0.75 - idx * 0.1), 2),

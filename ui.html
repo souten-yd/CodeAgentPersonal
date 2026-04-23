@@ -4821,6 +4821,47 @@ let agentSessionActive = false;
 let agentHistory = [];
 let agentTaskCache = [];
 let agentTaskSearchQuery = '';
+const agentSessionActiveByProject = {};
+const agentHistoryByProject = {};
+const agentTaskCacheByProject = {};
+
+function _restoreAgentStateForProject(project) {
+  const key = String(project || 'default');
+  agentSessionActive = !!agentSessionActiveByProject[key];
+  agentHistory = Array.isArray(agentHistoryByProject[key]) ? [...agentHistoryByProject[key]] : [];
+  agentTaskCache = Array.isArray(agentTaskCacheByProject[key]) ? [...agentTaskCacheByProject[key]] : [];
+}
+
+function _persistAgentStateForProject(project) {
+  const key = String(project || 'default');
+  agentSessionActiveByProject[key] = !!agentSessionActive;
+  agentHistoryByProject[key] = Array.isArray(agentHistory) ? [...agentHistory] : [];
+  agentTaskCacheByProject[key] = Array.isArray(agentTaskCache) ? [...agentTaskCache] : [];
+}
+
+function _renderAgentMessagesFromHistory() {
+  const agentMsg = document.getElementById('agent-messages');
+  if (!agentMsg) return;
+  const entries = Array.isArray(agentHistory) ? agentHistory : [];
+  if (!entries.length) {
+    agentMsg.innerHTML = `<div class="msg system">
+      <div class="msg-role">system</div>
+      <div class="msg-bubble">Agent mode ready. Agent画面入場時にセッションを開始します。</div>
+    </div>`;
+    return;
+  }
+  agentMsg.innerHTML = '';
+  entries.forEach((entry) => {
+    const kind = String(entry.kind || '');
+    if (kind === 'conversation') {
+      addAgentConversationMsg(entry.role || 'system', entry.text || '', false);
+      return;
+    }
+    if (kind === 'execution') {
+      addAgentExecutionCard(entry.executed || [], false);
+    }
+  });
+}
 
 function _setEchoTabVisibility(isEcho) {
   _CHAT_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? 'none' : ''; });
@@ -4942,8 +4983,9 @@ function _agentMessages() {
 }
 function addAgentHistoryItem(kind, payload) {
   agentHistory.push({kind, ...payload, at: Date.now()});
+  _persistAgentStateForProject(currentProject);
 }
-function addAgentConversationMsg(role, text) {
+function addAgentConversationMsg(role, text, record = true) {
   const w = _agentMessages();
   if (!w) return;
   const d = document.createElement('div');
@@ -4952,10 +4994,10 @@ function addAgentConversationMsg(role, text) {
   d.innerHTML = `<div class="msg-role">${labels[role]||role}</div><div class="msg-bubble">${esc(String(text||''))}</div>`;
   w.appendChild(d);
   w.scrollTop = w.scrollHeight;
-  addAgentHistoryItem('conversation', {role, text: String(text || '')});
+  if (record) addAgentHistoryItem('conversation', {role, text: String(text || '')});
 }
 
-function addAgentExecutionCard(executed = []) {
+function addAgentExecutionCard(executed = [], record = true) {
   const w = _agentMessages();
   if (!w || !Array.isArray(executed) || !executed.length) return;
   const d = document.createElement('div');
@@ -4974,7 +5016,7 @@ function addAgentExecutionCard(executed = []) {
   d.innerHTML = `<div class="msg-role">Task Execution</div><div class="msg-bubble">${body}</div>`;
   w.appendChild(d);
   w.scrollTop = w.scrollHeight;
-  addAgentHistoryItem('execution', {executed});
+  if (record) addAgentHistoryItem('execution', {executed});
 }
 
 function handleAgentTaskSearch(query) {
@@ -5052,7 +5094,7 @@ function renderAgentTasks(tasks = [], state = '') {
 async function runAgentTask(taskId) {
   if (!taskId) return;
   try {
-    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/run`, {});
+    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/run`, {project: currentProject});
     await refreshAgentTasks('running');
   } catch (e) {
     addAgentConversationMsg('error', `Run failed: ${e.message}`);
@@ -5062,7 +5104,7 @@ async function runAgentTask(taskId) {
 async function cancelAgentTask(taskId) {
   if (!taskId) return;
   try {
-    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/cancel`, {});
+    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/cancel`, {project: currentProject});
     await refreshAgentTasks('running');
   } catch (e) {
     addAgentConversationMsg('error', `Cancel failed: ${e.message}`);
@@ -5076,7 +5118,7 @@ async function openAgentTaskEdit(taskId) {
   const instruction = String(revised || '').trim();
   if (!instruction) return;
   try {
-    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/revise`, {instruction});
+    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/revise`, {project: currentProject, instruction});
     await refreshAgentTasks('running');
   } catch (e) {
     addAgentConversationMsg('error', `Revise failed: ${e.message}`);
@@ -5110,6 +5152,7 @@ async function stopAgentSession(notify = true) {
   agentSessionActive = false;
   agentTaskCache = [];
   renderAgentTasks([], 'idle');
+  _persistAgentStateForProject(currentProject);
 }
 
 async function startAgentSession() {
@@ -5119,6 +5162,7 @@ async function startAgentSession() {
     agentSessionActive = true;
     addLog('ok','agent','agent started');
     await refreshAgentTasks('running');
+    _persistAgentStateForProject(currentProject);
   } catch (e) {
     addLog('err','agent',`agent start error: ${e.message}`);
     addAgentConversationMsg('error', `Start failed: ${e.message}`);
@@ -5132,9 +5176,10 @@ async function refreshAgentTasks(state = '') {
     return;
   }
   try {
-    const data = await _agentApi('/agent/tasks', null, 'GET');
+    const data = await _agentApi(`/agent/tasks?project=${encodeURIComponent(currentProject)}`, null, 'GET');
     agentTaskCache = Array.isArray(data?.tasks) ? data.tasks : [];
     renderAgentTasks(agentTaskCache, state || 'running');
+    _persistAgentStateForProject(currentProject);
   } catch (e) {
     addLog('err','agent',`agent tasks fetch error: ${e.message}`);
   }
@@ -5143,7 +5188,7 @@ async function refreshAgentTasks(state = '') {
 async function decideAgentTask(taskId, decision) {
   if (!taskId || !decision) return;
   try {
-    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/decision`, {decision});
+    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/decision`, {project: currentProject, decision});
     addLog('ok','agent', `task decision: ${taskId} -> ${decision}`);
     await refreshAgentTasks('running');
   } catch (e) {
@@ -6524,23 +6569,19 @@ async function downloadProjectZip(name) {
   }
 }
 async function selectProject(name) {
+  _persistAgentStateForProject(currentProject);
   currentProject = name;
   document.getElementById('proj-display').textContent = name;
   closeDrawer();
   document.getElementById('messages').innerHTML = `<div class="msg system"><div class="msg-role">system</div><div class="msg-bubble">Project: ${esc(name)}</div></div>`;
   chatHistory = [];
-  agentHistory = [];
-  const agentMsg = document.getElementById('agent-messages');
-  if (agentMsg) {
-    agentMsg.innerHTML = `<div class="msg system">
-      <div class="msg-role">system</div>
-      <div class="msg-bubble">Agent mode ready. Agent画面入場時にセッションを開始します。</div>
-    </div>`;
-  }
+  _restoreAgentStateForProject(name);
+  _renderAgentMessagesFromHistory();
+  renderAgentTasks(agentTaskCache, agentSessionActive ? 'running' : 'idle');
   await loadHistory(name);
   await loadJobs(name);
-  refreshFileBrowser();
-  refreshProjectFileManager();
+  await refreshFileBrowser();
+  await refreshProjectFileManager();
   refreshSkills();
   refreshMemory();
   addLog('info','project','Switched to: '+name);
