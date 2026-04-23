@@ -107,7 +107,7 @@ class AgentLoop:
 
             result = self.executor.execute(action)
             history.append(result)
-            self.execution_policy.register_result(result)
+            self.execution_policy.register_result(result, action=action)
             mark_task_result = getattr(self.planner, "mark_task_result", None)
             if callable(mark_task_result):
                 mark_task_result(plan, result)

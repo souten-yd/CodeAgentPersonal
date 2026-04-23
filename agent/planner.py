@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from agent.types import Action, EpicPlan, ExecutableTask, Plan, ProgramPlan, ToolResult
 
+PHASE_DOD_CHECKS: dict[str, list[str]] = {
+    "implementation": ["構文OK", "必須関数存在", "参照ファイル整合"],
+    "static_verification": ["構文OK", "必須関数存在", "参照ファイル整合"],
+    "execution_verification": ["実行時エラーなし", "期待挙動確認"],
+}
+
 
 class Planner:
     """3層計画 (Program/Epic/Task) を扱う Planner インターフェース。"""
@@ -12,6 +18,10 @@ class Planner:
         epics = self.create_epic_plans(program=program, context=context)
         for epic in epics:
             epic.tasks = self.create_executable_tasks(program=program, epic=epic, context=context)
+            for task in epic.tasks:
+                phase = self._infer_phase_from_task(task)
+                if not task.definition_of_done.checks:
+                    task.definition_of_done.checks = list(PHASE_DOD_CHECKS.get(phase, []))
         return Plan(
             goal=objective,
             steps=[task.title for epic in epics for task in epic.tasks],
@@ -82,6 +92,13 @@ class Planner:
                 if task.status in {"pending", "failed"}:
                     return task
         return None
+
+    def _infer_phase_from_task(self, task: ExecutableTask) -> str:
+        if task.action in {"run_server", "run_browser"}:
+            return "execution_verification"
+        if task.action in {"run_shell", "run_python", "run_file", "run_npm", "run_node"}:
+            return "static_verification"
+        return "implementation"
 
     def _dependencies_satisfied(self, plan: Plan, epic: EpicPlan) -> bool:
         if not epic.dependencies:
