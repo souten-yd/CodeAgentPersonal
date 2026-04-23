@@ -2252,9 +2252,14 @@ def run_shell(command: str, project: str = "default", timeout: int = None) -> st
         _timeout = _clamp_docker_timeout("run_shell", timeout)
         cmd, preflight = _normalize_playwright_shell_command(cmd)
         final_cmd = f"{preflight}\n{cmd}" if preflight else cmd
+        shell_bin = os.environ.get("SHELL", "/bin/sh")
+        if os.name != "nt" and os.path.basename(shell_bin) == "sh":
+            # /bin/sh では source が使えないため、POSIX互換の "." に置換する。
+            final_cmd = re.sub(r"(?m)(^|\s)source(\s+)", r"\1.\2", final_cmd)
         result = _sp.run(
             final_cmd,
             shell=True,
+            executable=None if os.name == "nt" else shell_bin,
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -2287,7 +2292,7 @@ def _normalize_playwright_shell_command(command: str) -> tuple[str, str]:
     )
     normalized = re.sub(
         r"(?<![\w./-])playwright\s+install\s+chromium\b",
-        ".venv/bin/playwright install chromium",
+        ".venv/bin/python -m playwright install chromium",
         normalized
     )
     normalized = re.sub(
@@ -2298,7 +2303,6 @@ def _normalize_playwright_shell_command(command: str) -> tuple[str, str]:
 
     needs_preflight = any(token in normalized for token in (
         "playwright install chromium",
-        ".venv/bin/playwright",
         ".venv/bin/python -m playwright",
         ".venv/bin/python _browser_run.py",
     ))
@@ -2307,13 +2311,21 @@ def _normalize_playwright_shell_command(command: str) -> tuple[str, str]:
 
     preflight = (
         "if [ ! -x .venv/bin/python ]; then echo 'ERROR: missing .venv/bin/python'; exit 1; fi\n"
-        "source .venv/bin/activate\n"
-        "echo '[playwright preflight] which python:'\n"
-        "which python\n"
-        "echo '[playwright preflight] python -V:'\n"
-        "python -V\n"
-        "echo '[playwright preflight] pip show playwright:'\n"
-        "pip show playwright"
+        "echo '[playwright preflight] python -m playwright --version:'\n"
+        ".venv/bin/python -m playwright --version\n"
+        "echo '[playwright preflight] chromium executable check:'\n"
+        "if ! .venv/bin/python - <<'PY'\n"
+        "from pathlib import Path\n"
+        "from playwright.sync_api import sync_playwright\n"
+        "with sync_playwright() as p:\n"
+        "    path = Path(p.chromium.executable_path)\n"
+        "    print('chromium_executable=' + str(path))\n"
+        "    raise SystemExit(0 if path.exists() else 1)\n"
+        "PY\n"
+        "then\n"
+        "  echo '[playwright preflight] chromium missing -> install chromium'\n"
+        "  .venv/bin/python -m playwright install chromium\n"
+        "fi"
     )
     return normalized, preflight
 
@@ -2752,13 +2764,12 @@ def _run_browser_local(project: str, timeout: int) -> str:
         )
     try:
         preflight = (
-            "source .venv/bin/activate\n"
             "echo '[browser preflight] which python:'\n"
-            "which python\n"
+            "command -v .venv/bin/python\n"
             "echo '[browser preflight] python -V:'\n"
-            "python -V\n"
+            ".venv/bin/python -V\n"
             "echo '[browser preflight] pip show playwright:'\n"
-            "pip show playwright\n"
+            ".venv/bin/pip show playwright\n"
         )
         run_cmd = f"{preflight}{venv_python} _browser_run.py"
         result = _sp.run(
@@ -2775,12 +2786,12 @@ def _run_browser_local(project: str, timeout: int) -> str:
         if "No module named 'playwright'" in out:
             return (
                 "ERROR: playwright module is missing in project .venv.\n"
-                "Install with: .venv/bin/pip install playwright && .venv/bin/playwright install chromium"
+                "Install with: .venv/bin/pip install playwright && .venv/bin/python -m playwright install chromium"
             )
         if "Executable doesn't exist" in out and "playwright" in out.lower():
             return (
                 "ERROR: Playwright browser binary is missing.\n"
-                "Run: .venv/bin/playwright install chromium"
+                "Run: .venv/bin/python -m playwright install chromium"
             )
         ss_path = os.path.join(project_dir, "screenshot.png")
         if os.path.exists(ss_path):
@@ -3067,6 +3078,17 @@ def run_file(path: str, project: str = "default", timeout: int = None) -> str:
     _timeout = _clamp_docker_timeout("run_file", timeout)
     try:
         _, rel_path = _project_path(project, path)
+        _, ext = os.path.splitext(rel_path.lower())
+        if ext == ".js":
+            return (
+                "ERROR: .js files are restricted to Node/Browser runners.\n"
+                "Use run_node(script=...) or run_browser(script=...) instead of run_file."
+            )
+        if ext != ".py":
+            return (
+                f"ERROR: unsupported file extension for run_file: {ext or '(none)'}.\n"
+                "run_file supports Python files (.py) only."
+            )
         return _execute_python_entry(project, rel_path, _timeout, tool_name="run_file")
     except subprocess.TimeoutExpired:
         return f"ERROR: timeout ({_timeout}s). 処理に時間がかかる場合は timeout パラメータを増やして再実行してください（最大300s）。"
@@ -7122,7 +7144,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                     if "playwright: not found" in msg:
                         return "playwright_not_found"
                     if "targetclosederror" in msg:
-                        return "target_closed"
+                        return "target_closed_env"
                     return ""
 
                 def _run_browser_precheck_flow() -> str:
@@ -7188,11 +7210,11 @@ def run_job_background(job_id: str, req: "JobRequest"):
                             " run_browser 再実行前は必ず前提チェック結果を確認してください。"
                             f"\n【環境修復ログ】\n{repair_log[:1200]}"
                         )
-                    elif err0_type == "target_closed":
+                    elif err0_type == "target_closed_env":
                         preflight_log = _run_browser_precheck_flow()
                         preflight_note0 = (
-                            "\n【オーケストレーション指示】TargetClosedError を検出。"
-                            " ブラウザを閉じる順序と終了処理（close / context manager）を見直してから再実行してください。"
+                            "\n【オーケストレーション指示】TargetClosedError を環境依存エラーとして分類。"
+                            " Playwright 再インストールは行わず、ブラウザを閉じる順序と終了処理（close / context manager）を見直してから再実行してください。"
                             f"\n【run_browser 前提チェック】\n{preflight_log[:800]}"
                         )
                     print(f"[JOB {job_id}] task {i+1}/{total} stage1 same-approach retry")
@@ -7241,11 +7263,11 @@ def run_job_background(job_id: str, req: "JobRequest"):
                                 " venv固定コマンドで再セットアップ済みです。"
                                 f"\n【環境修復ログ】\n{repair_log[:1200]}"
                             )
-                        elif err1_type == "target_closed":
+                        elif err1_type == "target_closed_env":
                             preflight_log = _run_browser_precheck_flow()
                             preflight_note1 = (
-                                "\n【オーケストレーション指示】TargetClosedError のため、"
-                                " ブラウザ終了処理を修正してから再試行してください。"
+                                "\n【オーケストレーション指示】TargetClosedError（環境依存）を再検出。"
+                                " 再インストールループは禁止し、ブラウザ終了処理を修正してから再試行してください。"
                                 f"\n【run_browser 前提チェック】\n{preflight_log[:800]}"
                             )
                         print(f"[JOB {job_id}] task {i+1}/{total} stage2 different-approach")
