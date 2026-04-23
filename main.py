@@ -12252,19 +12252,22 @@ _REF_AUDIO_ALLOWED_EXT = {".wav", ".mp3", ".flac", ".ogg", ".webm"}
 
 _STYLE_BERT_VITS2_BASE_DIR = "/workspace/ca_data/tts/style_bert_vits2"
 _STYLE_BERT_VITS2_MODELS_DIR = os.path.join(_STYLE_BERT_VITS2_BASE_DIR, "models")
-_STYLE_BERT_VITS2_REPO_DIR = os.environ.get("CODEAGENT_STYLE_BERT_VITS2_REPO_DIR", "/workspace/style-bert-vits2")
+_STYLE_BERT_VITS2_DEFAULT_REPO_DIR = "/app/Style-Bert-VITS2"
+_STYLE_BERT_VITS2_DEFAULT_VENV_DIR = "/app/Style-Bert-VITS2/.venv"
+_STYLE_BERT_VITS2_DEFAULT_INIT_FLAG = os.path.join(_STYLE_BERT_VITS2_BASE_DIR, ".initialized")
+_STYLE_BERT_VITS2_REPO_DIR = os.environ.get(
+    "CODEAGENT_STYLE_BERT_VITS2_REPO_DIR",
+    _STYLE_BERT_VITS2_DEFAULT_REPO_DIR,
+)
 _STYLE_BERT_VITS2_VENV_DIR = os.environ.get(
     "CODEAGENT_STYLE_BERT_VITS2_VENV_DIR",
-    os.path.join(_STYLE_BERT_VITS2_BASE_DIR, "venv"),
-)
-_STYLE_BERT_VITS2_PTH_FILE = os.environ.get(
-    "CODEAGENT_STYLE_BERT_VITS2_PTH_FILE",
-    os.path.join(_STYLE_BERT_VITS2_BASE_DIR, "style_bert_vits2.pth"),
+    _STYLE_BERT_VITS2_DEFAULT_VENV_DIR,
 )
 _STYLE_BERT_VITS2_INIT_FLAG = os.environ.get(
     "CODEAGENT_STYLE_BERT_VITS2_INIT_FLAG",
-    os.path.join(_STYLE_BERT_VITS2_BASE_DIR, ".initialized"),
+    _STYLE_BERT_VITS2_DEFAULT_INIT_FLAG,
 )
+_STYLE_BERT_VITS2_UI_ERROR = "Style-Bert-VITS2 の準備に失敗しました。サーバーログを確認してください。"
 _style_bert_vits2_init_lock = threading.Lock()
 
 
@@ -12278,15 +12281,73 @@ def _style_bert_vits2_list_models() -> list[str]:
     return model_dirs
 
 
+def _style_bert_vits2_python_path() -> str:
+    return os.path.join(_STYLE_BERT_VITS2_VENV_DIR, "bin", "python")
+
+
+def _style_bert_vits2_site_packages_dir() -> str | None:
+    lib_dir = os.path.join(_STYLE_BERT_VITS2_VENV_DIR, "lib")
+    if not os.path.isdir(lib_dir):
+        return None
+    for name in sorted(os.listdir(lib_dir)):
+        if not name.startswith("python"):
+            continue
+        candidate = os.path.join(lib_dir, name, "site-packages")
+        if os.path.isdir(candidate):
+            return candidate
+    return None
+
+
+def _style_bert_vits2_pth_file() -> str:
+    site_packages = _style_bert_vits2_site_packages_dir()
+    if site_packages:
+        return os.path.join(site_packages, "_runpod_opt_venv.pth")
+    # site-packages を見つけられない場合も、状態表示のため想定パスを返す
+    return os.path.join(_STYLE_BERT_VITS2_VENV_DIR, "lib", "python*", "site-packages", "_runpod_opt_venv.pth")
+
+
+def _style_bert_vits2_validate_prerequisites() -> tuple[bool, str]:
+    if not os.path.isdir(_STYLE_BERT_VITS2_REPO_DIR):
+        return False, f"repository directory not found: {_STYLE_BERT_VITS2_REPO_DIR}"
+    if not os.path.isdir(_STYLE_BERT_VITS2_VENV_DIR):
+        return False, f"venv directory not found: {_STYLE_BERT_VITS2_VENV_DIR}"
+    python_path = _style_bert_vits2_python_path()
+    if not os.path.isfile(python_path):
+        return False, f"python executable not found: {python_path}"
+    if not os.access(python_path, os.X_OK):
+        return False, f"python executable is not executable: {python_path}"
+    return True, ""
+
+
+def _style_bert_vits2_ensure_pth_file() -> tuple[bool, str]:
+    site_packages = _style_bert_vits2_site_packages_dir()
+    if not site_packages:
+        return False, f"site-packages directory not found under: {_STYLE_BERT_VITS2_VENV_DIR}"
+    pth_file = os.path.join(site_packages, "_runpod_opt_venv.pth")
+    if os.path.isfile(pth_file):
+        return True, ""
+    try:
+        with open(pth_file, "w", encoding="utf-8") as f:
+            f.write(f"{_STYLE_BERT_VITS2_REPO_DIR}\n")
+    except Exception as e:
+        return False, f"failed to create pth file: {pth_file} ({e})"
+    return True, ""
+
+
 def _style_bert_vits2_prepare_status() -> dict:
+    python_path = _style_bert_vits2_python_path()
+    pth_file = _style_bert_vits2_pth_file()
     return {
         "repo_exists": os.path.isdir(_STYLE_BERT_VITS2_REPO_DIR),
         "venv_exists": os.path.isdir(_STYLE_BERT_VITS2_VENV_DIR),
-        "pth_exists": os.path.isfile(_STYLE_BERT_VITS2_PTH_FILE),
+        "python_exists": os.path.isfile(python_path),
+        "python_executable": os.path.isfile(python_path) and os.access(python_path, os.X_OK),
+        "pth_exists": os.path.isfile(pth_file),
         "init_flag_exists": os.path.isfile(_STYLE_BERT_VITS2_INIT_FLAG),
         "repo_dir": _STYLE_BERT_VITS2_REPO_DIR,
         "venv_dir": _STYLE_BERT_VITS2_VENV_DIR,
-        "pth_file": _STYLE_BERT_VITS2_PTH_FILE,
+        "python_path": python_path,
+        "pth_file": pth_file,
         "init_flag_file": _STYLE_BERT_VITS2_INIT_FLAG,
     }
 
@@ -12298,10 +12359,65 @@ def api_tts_engines():
 
 @app.post("/api/tts/style-bert-vits2/prepare")
 def api_style_bert_vits2_prepare():
-    status = _style_bert_vits2_prepare_status()
     with _style_bert_vits2_init_lock:
+        ok, validation_error = _style_bert_vits2_validate_prerequisites()
+        if not ok:
+            print(f"[style-bert-vits2/prepare] prerequisite check failed: {validation_error}")
+            status = _style_bert_vits2_prepare_status()
+            status["ready"] = False
+            status["initialized_now"] = False
+            status["error"] = _STYLE_BERT_VITS2_UI_ERROR
+            return status
+
+        ok, pth_error = _style_bert_vits2_ensure_pth_file()
+        if not ok:
+            print(f"[style-bert-vits2/prepare] pth ensure failed: {pth_error}")
+            status = _style_bert_vits2_prepare_status()
+            status["ready"] = False
+            status["initialized_now"] = False
+            status["error"] = _STYLE_BERT_VITS2_UI_ERROR
+            return status
+
+        status = _style_bert_vits2_prepare_status()
         initialized_now = False
-        if status["repo_exists"] and status["venv_exists"] and status["pth_exists"] and not status["init_flag_exists"]:
+        if not status["init_flag_exists"]:
+            initialize_script = os.path.join(_STYLE_BERT_VITS2_REPO_DIR, "initialize.py")
+            if not os.path.isfile(initialize_script):
+                print(f"[style-bert-vits2/prepare] initialize.py not found: {initialize_script}")
+                status["ready"] = False
+                status["initialized_now"] = False
+                status["error"] = _STYLE_BERT_VITS2_UI_ERROR
+                return status
+            python_path = _style_bert_vits2_python_path()
+            cmd = [python_path, "initialize.py"]
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=_STYLE_BERT_VITS2_REPO_DIR,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                if proc.stdout:
+                    print(f"[style-bert-vits2/prepare] initialize.py stdout:\n{proc.stdout}")
+                if proc.stderr:
+                    print(f"[style-bert-vits2/prepare] initialize.py stderr:\n{proc.stderr}")
+            except subprocess.CalledProcessError as e:
+                print(
+                    "[style-bert-vits2/prepare] initialize.py failed: "
+                    f"code={e.returncode}\nstdout:\n{e.stdout}\nstderr:\n{e.stderr}"
+                )
+                status["ready"] = False
+                status["initialized_now"] = False
+                status["error"] = _STYLE_BERT_VITS2_UI_ERROR
+                return status
+            except Exception as e:
+                print(f"[style-bert-vits2/prepare] initialize.py failed unexpectedly: {e}")
+                status["ready"] = False
+                status["initialized_now"] = False
+                status["error"] = _STYLE_BERT_VITS2_UI_ERROR
+                return status
+
             os.makedirs(os.path.dirname(_STYLE_BERT_VITS2_INIT_FLAG), exist_ok=True)
             with open(_STYLE_BERT_VITS2_INIT_FLAG, "w", encoding="utf-8") as f:
                 f.write(datetime.utcnow().isoformat())
@@ -12311,6 +12427,8 @@ def api_style_bert_vits2_prepare():
     status["ready"] = bool(
         status["repo_exists"]
         and status["venv_exists"]
+        and status["python_exists"]
+        and status["python_executable"]
         and status["pth_exists"]
         and status["init_flag_exists"]
     )
