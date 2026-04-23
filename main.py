@@ -41,6 +41,9 @@ from agent.planner import Planner
 from agent.session import AgentSession
 from agent.tools.registry import ToolRegistry
 from agent.types import Action, Evaluation, Plan, ToolResult
+from app.tts.engine_registry import EngineRegistry, TTSEngineRuntime
+from app.tts.qwen3_tts_runtime import Qwen3TTSRuntime
+from app.tts.style_bert_vits2_runtime import StyleBertVITS2Runtime
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -11994,13 +11997,125 @@ def qwen3tts_unload() -> dict:
     return {"status": "unloaded"}
 
 
+class _VoiceVoxRuntime(TTSEngineRuntime):
+    engine_key = "voicevox"
+
+    def load_stream(self, req: dict, *, emit):
+        if not _VOICEVOX_ENABLED:
+            emit({"type": "error", "detail": "VOICEVOX is disabled in this build."})
+            return
+        emit({"type": "loading", "message": "VOICEVOX に接続中です..."})
+        try:
+            result = tts_voicevox_load()
+            emit({"type": "done", **result, "engine_key": self.engine_key})
+        except Exception as e:
+            _append_tts_debug_error("voicevox", "load", e, detail={"engine": self.engine_key})
+            emit({"type": "error", "detail": str(e)})
+
+    def unload(self, req: dict) -> dict:
+        if not _VOICEVOX_ENABLED:
+            return {"status": "unloaded", "engine": "voicevox", "engine_key": self.engine_key}
+        global _tts_core
+        with _tts_lock:
+            _tts_core = None
+        import gc; gc.collect()
+        return {"status": "unloaded", "engine": "voicevox", "engine_key": self.engine_key}
+
+    def synthesize(self, req: dict) -> tuple[bytes, str]:
+        if not _VOICEVOX_ENABLED:
+            raise RuntimeError("VOICEVOX is disabled in this build.")
+        speaker_id = int(req.get("speaker_id", 0))
+        speed = float(req.get("speed", 1.0))
+        wav = tts_voicevox_synthesize(str(req.get("text", "")), speaker_id, speed)
+        return wav, "audio/wav"
+
+    async def voices(self, req: dict) -> dict:
+        if not _VOICEVOX_ENABLED:
+            return {"voices": [], "engine_key": self.engine_key}
+        return {"voices": tts_voicevox_speakers(), "engine_key": self.engine_key}
+
+
+class _EdgeTTSRuntime(TTSEngineRuntime):
+    engine_key = "edgetts"
+
+    def load_stream(self, req: dict, *, emit):
+        emit({"type": "done", "status": "ready", "engine_key": self.engine_key})
+
+    def unload(self, req: dict) -> dict:
+        return {"status": "unloaded", "engine": "edgetts", "engine_key": self.engine_key}
+
+    def synthesize(self, req: dict) -> tuple[bytes, str]:
+        text = str(req.get("text", "")).strip()
+        voice = str(req.get("voice", "ja-JP-NanamiNeural"))
+        rate_val = float(req.get("speed", 1.0))
+        rate_pct = int((rate_val - 1.0) * 100)
+        rate_str = f"{rate_pct:+d}%"
+        mp3 = tts_edgetts_synthesize(text, voice, rate_str)
+        return mp3, "audio/mpeg"
+
+    async def voices(self, req: dict) -> dict:
+        return {"voices": await tts_edgetts_list_voices_async(), "engine_key": self.engine_key}
+
+
+def _build_tts_engine_registry() -> EngineRegistry:
+    registry = EngineRegistry(_engines={}, _aliases={"qwen3tts": "qwen3_tts"})
+    registry.register(_VoiceVoxRuntime())
+    registry.register(_EdgeTTSRuntime())
+    registry.register(
+        Qwen3TTSRuntime(
+            available=lambda: _QWEN3TTS_AVAILABLE,
+            import_error=lambda: _QWEN3TTS_IMPORT_ERROR,
+            default_model_id=lambda: settings_get("qwen3tts_model_id") or _QWEN3TTS_MODEL_ID,
+            resolve_model_id=lambda model_id: _resolve_qwen3tts_model_id(model_id),
+            load_fn=qwen3tts_load,
+            unload_fn=qwen3tts_unload,
+            synthesize_fn=qwen3tts_synthesize,
+            status_fn=_qwen3tts_status_snapshot,
+            debug_error_fn=_append_tts_debug_error,
+            settings_set=settings_set,
+            runtime_device=_qwen3tts_runtime_device,
+        ),
+        aliases=["qwen3_tts", "qwen3tts"],
+    )
+    registry.register(StyleBertVITS2Runtime(), aliases=["stylebertvits2", "style-bert-vits2"])
+    return registry
+
+
+def _qwen3tts_status_snapshot() -> dict:
+    with _qwen3tts_lock:
+        q3t_loaded = _qwen3tts_model is not None
+    qwen_missing = _qwen3_missing_requirements()
+    qwen_status_file = _qwen3_install_status_file()
+    selected_model_id = settings_get("qwen3tts_model_id") or _QWEN3TTS_MODEL_ID
+    return {
+        "qwen3tts_available": _QWEN3TTS_AVAILABLE,
+        "qwen3tts_loaded": q3t_loaded,
+        "qwen3tts_selected_model_id": selected_model_id,
+        "qwen3tts_model_id": _qwen3tts_model_id,
+        "qwen3tts_device": _qwen3tts_requested_device,
+        "qwen3tts_requested_device": _qwen3tts_requested_device,
+        "qwen3tts_actual_device": _qwen3tts_runtime_device() if q3t_loaded else _qwen3tts_device,
+        "qwen3tts_dtype": _qwen3tts_requested_dtype,
+        "qwen3tts_requested_dtype": _qwen3tts_requested_dtype,
+        "qwen3tts_actual_dtype": _qwen3tts_dtype,
+        "qwen3tts_attention": _qwen3tts_requested_attn_backend,
+        "qwen3tts_attn_backend": _qwen3tts_requested_attn_backend,
+        "qwen3tts_requested_attn_backend": _qwen3tts_requested_attn_backend,
+        "qwen3tts_actual_attn_backend": _qwen3tts_attn_implementation,
+        "qwen3tts_sox_available": _QWEN3TTS_SOX_AVAILABLE,
+        "qwen3tts_flash_attn_available": _QWEN3TTS_FLASH_AVAILABLE,
+        "qwen3tts_missing_requirements": qwen_missing,
+        "qwen3tts_install_status": qwen_status_file,
+    }
+
+_tts_engine_registry = _build_tts_engine_registry()
+
+
 @app.get("/tts/status")
 def tts_status_api():
     with _tts_lock:
         loaded = _tts_core is not None
         core_speakers = len(_tts_core.metas()) if loaded else 0
-    with _qwen3tts_lock:
-        q3t_loaded = _qwen3tts_model is not None
     http_probe = _voicevox_http_probe()
     http_ok = bool(http_probe.get("http_available"))
     http_speakers = int(http_probe.get("speaker_count", 0) or 0)
@@ -12024,11 +12139,8 @@ def tts_status_api():
         diagnostics.append(f"Runpod auto-start status: {auto_start_status}")
     if auto_start_hint:
         diagnostics.append(auto_start_hint)
-    qwen_missing = _qwen3_missing_requirements()
-    qwen_status_file = _qwen3_install_status_file()
-    selected_model_id = settings_get("qwen3tts_model_id") or _QWEN3TTS_MODEL_ID
-
-    return {
+    qwen_snapshot = _qwen3tts_status_snapshot()
+    response = {
         "voicevox_available": bool(_VOICEVOX_ENABLED and _VOICEVOX_AVAILABLE),
         "voicevox_loaded": bool(_VOICEVOX_ENABLED and (loaded or http_ok)),
         "voicevox_speakers": speakers,
@@ -12043,26 +12155,11 @@ def tts_status_api():
         "voicevox_hint": diagnostics[0] if diagnostics else f"VOICEVOX is reachable at {_VOICEVOX_HTTP_URL}",
         "edgetts_available": _EDGE_TTS_AVAILABLE,
         "jtalk_exists": _tts_jtalk_exists(),
-        "qwen3tts_available": _QWEN3TTS_AVAILABLE,
-        "qwen3tts_loaded": q3t_loaded,
-        "qwen3tts_selected_model_id": selected_model_id,
-        "qwen3tts_model_id": _qwen3tts_model_id,
-        "qwen3tts_device": _qwen3tts_requested_device,
-        "qwen3tts_requested_device": _qwen3tts_requested_device,
-        "qwen3tts_actual_device": _qwen3tts_runtime_device() if q3t_loaded else _qwen3tts_device,
-        "qwen3tts_dtype": _qwen3tts_requested_dtype,
-        "qwen3tts_requested_dtype": _qwen3tts_requested_dtype,
-        "qwen3tts_actual_dtype": _qwen3tts_dtype,
-        "qwen3tts_attention": _qwen3tts_requested_attn_backend,
-        "qwen3tts_attn_backend": _qwen3tts_requested_attn_backend,
-        "qwen3tts_requested_attn_backend": _qwen3tts_requested_attn_backend,
-        "qwen3tts_actual_attn_backend": _qwen3tts_attn_implementation,
-        "qwen3tts_sox_available": _QWEN3TTS_SOX_AVAILABLE,
-        "qwen3tts_flash_attn_available": _QWEN3TTS_FLASH_AVAILABLE,
-        "qwen3tts_missing_requirements": qwen_missing,
-        "qwen3tts_install_status": qwen_status_file,
         "tts_startup_health": _tts_startup_health_snapshot,
     }
+    response.update(qwen_snapshot)
+    response["engine_registry"] = _tts_engine_registry.collect_status()
+    return response
 
 
 @app.get("/debug/TTS")
@@ -12073,61 +12170,38 @@ def tts_debug_api(limit: int = 20):
 
 @app.get("/tts/voices")
 async def tts_voices_api(engine: str = "qwen3tts"):
-    if engine == "voicevox":
-        if not _VOICEVOX_ENABLED:
-            return {"voices": []}
-        return {"voices": tts_voicevox_speakers()}
-    elif engine == "edgetts":
-        voices = await tts_edgetts_list_voices_async()
-        return {"voices": voices}
-    elif engine == "qwen3tts":
+    try:
+        runtime = _tts_engine_registry.get(raw_engine=engine)
+    except KeyError:
         return {"voices": []}
-    return {"voices": []}
+    return await runtime.voices({"engine": engine})
 
 
 @app.post("/tts/load")
 def tts_load_api(req: dict = {}):
     engine = str(req.get("engine", "qwen3tts"))
-    device = str(req.get("device", "cuda")) if req.get("device") in ("cpu", "cuda") else "cuda"
-    saved_model_id = settings_get("qwen3tts_model_id") or _QWEN3TTS_MODEL_ID
-    model_id = _resolve_qwen3tts_model_id(req.get("model_id", saved_model_id))
+    engine_key = _tts_engine_registry.resolve_engine_key(engine, req.get("engine_key"))
 
     def _sse(payload: dict) -> str:
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
     def stream():
-        if engine == "voicevox":
-            if not _VOICEVOX_ENABLED:
-                yield _sse({"type": "error", "detail": "VOICEVOX is disabled in this build."})
-                return
-            yield _sse({"type": "loading", "message": "VOICEVOX に接続中です..."})
-            try:
-                result = tts_voicevox_load()
-                yield _sse({"type": "done", **result})
-            except Exception as e:
-                _append_tts_debug_error("voicevox", "load", e, detail={"engine": engine})
-                yield _sse({"type": "error", "detail": str(e)})
-        elif engine == "qwen3tts":
-            if not _QWEN3TTS_AVAILABLE:
-                yield _sse({
-                    "type": "error",
-                        "detail": (
-                            "qwen_tts API / torch / soundfile がインストールされていないか、"
-                            "Qwen3TTSModel の import に失敗しました。"
-                            f" detail={_QWEN3TTS_IMPORT_ERROR} / install: pip install -U qwen-tts"
-                        ),
-                    })
-                return
-            yield _sse({"type": "loading", "message": f"Qwen3 TTS モデル ({model_id}) をロード中です。初回はダウンロードに数分かかる場合があります..."})
-            try:
-                result = qwen3tts_load(model_id, device)
-                settings_set("qwen3tts_model_id", model_id)
-                yield _sse({"type": "done", **result})
-            except Exception as e:
-                _append_tts_debug_error("qwen3tts", "load", e, detail={"model_id": model_id, "device": device}, device=device)
-                yield _sse({"type": "error", "detail": str(e)})
-        else:
+        try:
+            runtime = _tts_engine_registry.get(raw_engine=engine, raw_engine_key=req.get("engine_key"))
+        except KeyError:
             yield _sse({"type": "error", "detail": f"不明なエンジン: {engine}"})
+            return
+
+        def emit(payload: dict):
+            payload.setdefault("engine", engine)
+            payload.setdefault("engine_key", engine_key)
+            payload.setdefault("engine_alias_normalized", engine_key)
+            yield_payloads.append(payload)
+
+        yield_payloads: list[dict] = []
+        runtime.load_stream(req, emit=emit)
+        for payload in yield_payloads:
+            yield _sse(payload)
 
     return StreamingResponse(
         stream(),
@@ -12139,17 +12213,17 @@ def tts_load_api(req: dict = {}):
 @app.post("/tts/unload")
 def tts_unload_api(req: dict = {}):
     engine = str(req.get("engine", "qwen3tts"))
-    if engine == "voicevox":
-        if not _VOICEVOX_ENABLED:
-            return {"status": "unloaded", "engine": "voicevox"}
-        global _tts_core
-        with _tts_lock:
-            _tts_core = None
-        import gc; gc.collect()
-        return {"status": "unloaded", "engine": "voicevox"}
-    elif engine == "qwen3tts":
-        return {**qwen3tts_unload(), "engine": "qwen3tts"}
-    raise HTTPException(status_code=400, detail=f"不明なエンジン: {engine}")
+    try:
+        runtime = _tts_engine_registry.get(raw_engine=engine, raw_engine_key=req.get("engine_key"))
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"不明なエンジン: {engine}")
+    normalized_key = _tts_engine_registry.resolve_engine_key(engine, req.get("engine_key"))
+    return {
+        **runtime.unload(req),
+        "engine": engine,
+        "engine_key": normalized_key,
+        "engine_alias_normalized": normalized_key,
+    }
 
 
 @app.post("/tts/translate-text")
@@ -12218,56 +12292,18 @@ def tts_synthesize_api(req: dict):
     text = str(req.get("text", "")).strip()
     if not text:
         raise HTTPException(status_code=400, detail="text required")
+    try:
+        runtime = _tts_engine_registry.get(raw_engine=engine, raw_engine_key=req.get("engine_key"))
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"不明なエンジン: {engine}")
 
-    if engine == "voicevox":
-        if not _VOICEVOX_ENABLED:
-            raise HTTPException(status_code=400, detail="VOICEVOX is disabled in this build.")
-        speaker_id = int(req.get("speaker_id", 0))
-        speed = float(req.get("speed", 1.0))
-        try:
-            wav = tts_voicevox_synthesize(text, speaker_id, speed)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-        return FastAPIResponse(content=wav, media_type="audio/wav")
-
-    elif engine == "edgetts":
-        voice = str(req.get("voice", "ja-JP-NanamiNeural"))
-        rate_val = float(req.get("speed", 1.0))
-        # edge-tts rate は "+10%" 形式
-        rate_pct = int((rate_val - 1.0) * 100)
-        rate_str = f"{rate_pct:+d}%"
-        try:
-            mp3 = tts_edgetts_synthesize(text, voice, rate_str)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-        return FastAPIResponse(content=mp3, media_type="audio/mpeg")
-
-    elif engine == "qwen3tts":
-        speed = float(req.get("speed", 1.0))
-        ref_text = str(req.get("ref_text", "") or "")
-        language = str(req.get("language", "Auto") or "Auto")
-        ref_b64 = str(req.get("ref_audio_base64", "") or "").strip()
-        ref_bytes = None
-        if ref_b64:
-            try:
-                import base64 as _b64
-                ref_bytes = _b64.b64decode(ref_b64)
-            except Exception:
-                raise HTTPException(status_code=400, detail="ref_audio_base64 が不正です。参照音声を再登録してください。")
-        try:
-            wav = qwen3tts_synthesize(
-                text,
-                speed,
-                ref_audio_bytes=ref_bytes,
-                ref_text=ref_text,
-                language=language,
-            )
-        except Exception as e:
-            _append_tts_debug_error("qwen3tts", "inference", e, detail={"text_length": len(text), "speed": speed}, device=_qwen3tts_device)
-            raise HTTPException(status_code=500, detail=str(e))
-        return FastAPIResponse(content=wav, media_type="audio/wav")
-
-    raise HTTPException(status_code=400, detail=f"不明なエンジン: {engine}")
+    try:
+        audio_bytes, media_type = runtime.synthesize(req)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return FastAPIResponse(content=audio_bytes, media_type=media_type)
 
 
 # =========================
