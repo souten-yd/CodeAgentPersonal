@@ -27,6 +27,7 @@ import inspect
 import io
 import hashlib
 import traceback
+import unicodedata
 from datetime import datetime
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -47,6 +48,11 @@ if sys.platform == "win32":
 logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 
 from contextlib import asynccontextmanager
+
+try:
+    import jsonschema as _jsonschema  # type: ignore
+except Exception:
+    _jsonschema = None
 
 @asynccontextmanager
 async def lifespan(app):
@@ -5810,6 +5816,113 @@ def _task_v2_apply_args_adapter(action_obj: dict) -> dict:
     return action_obj
 
 
+_TASK_V2_RESPONSE_SCHEMA: dict = {
+    "type": "object",
+    "required": ["thought", "action", "args"],
+    "additionalProperties": True,
+    "properties": {
+        "thought": {"type": "string"},
+        "action": {"type": "string", "minLength": 1},
+        "args": {"type": "object"},
+        "output": {"type": "string"},
+    },
+    "allOf": [
+        {
+            "if": {"properties": {"action": {"const": "final"}}},
+            "then": {"required": ["output"]},
+        },
+        {
+            "if": {"properties": {"action": {"not": {"const": "final"}}}},
+            "then": {"not": {"required": ["output"]}},
+        },
+    ],
+}
+
+_TASK_V2_ONE_ACTION_MODE = str(os.environ.get("CODEAGENT_ONE_ACTION_MODE", "1")).lower() in {"1", "true", "yes", "on"}
+_TASK_V2_RESPONSE_MAX_CHARS = max(500, min(int(os.environ.get("CODEAGENT_TASK_RESPONSE_MAX_CHARS", "900") or 900), 1000))
+
+
+def _normalize_task_v2_reply_text(text: str) -> str:
+    if not isinstance(text, str):
+        text = str(text)
+    normalized = unicodedata.normalize("NFKC", text)
+    replacements = {
+        "\r\n": "\n",
+        "\r": "\n",
+        "，": ",",
+        "：": ":",
+        "；": ";",
+        "（": "(",
+        "）": ")",
+        "｛": "{",
+        "｝": "}",
+        "［": "[",
+        "］": "]",
+        "＂": '"',
+        "＼": "\\",
+    }
+    for before, after in replacements.items():
+        normalized = normalized.replace(before, after)
+    return normalized
+
+
+def _force_summarize_text(text: str, max_chars: int) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(compact) <= max_chars:
+        return compact
+    head = max(120, int(max_chars * 0.55))
+    tail = max(60, max_chars - head - 16)
+    return f"{compact[:head]} ... {compact[-tail:]}"
+
+
+def _has_multi_action_enumeration(action: str) -> bool:
+    a = str(action or "").strip().lower()
+    if not a:
+        return False
+    separators = [",", " and ", " then ", "->", "=>", "/", "|", "\n", "→", "、", "と"]
+    return any(sep in a for sep in separators)
+
+
+def _validate_task_v2_response_schema(raw: dict) -> tuple[bool, str]:
+    if not isinstance(raw, dict):
+        return False, "response is not an object"
+    if _jsonschema is not None:
+        try:
+            _jsonschema.validate(instance=raw, schema=_TASK_V2_RESPONSE_SCHEMA)
+        except Exception as e:
+            return False, f"schema validation failed: {e}"
+    else:
+        required = ("thought", "action", "args")
+        for key in required:
+            if key not in raw:
+                return False, f"missing required field: {key}"
+        if not isinstance(raw.get("thought"), str):
+            return False, "thought must be string"
+        if not isinstance(raw.get("action"), str) or not str(raw.get("action", "")).strip():
+            return False, "action must be non-empty string"
+        if not isinstance(raw.get("args"), dict):
+            return False, "args must be object"
+        action_lower = str(raw.get("action", "")).strip().lower()
+        if action_lower == "final" and not isinstance(raw.get("output"), str):
+            return False, "final requires string output"
+        if action_lower != "final" and "output" in raw:
+            return False, "non-final action must not include output"
+
+    if _TASK_V2_ONE_ACTION_MODE and _has_multi_action_enumeration(str(raw.get("action", ""))):
+        return False, "one-step-one-action mode forbids multi-action enumeration"
+    return True, ""
+
+
+def _enforce_task_v2_response_limits(raw: dict) -> tuple[dict, bool]:
+    changed = False
+    patched = dict(raw)
+    for key in ("thought", "output"):
+        if key in patched and isinstance(patched.get(key), str) and len(patched[key]) > _TASK_V2_RESPONSE_MAX_CHARS:
+            patched[key] = _force_summarize_text(patched[key], _TASK_V2_RESPONSE_MAX_CHARS)
+            changed = True
+    return patched, changed
+
+
 def _parse_task_v2_action(text: str, parser: str = "json") -> dict | None:
     """
     Task v2専用パーサ:
@@ -5819,6 +5932,7 @@ def _parse_task_v2_action(text: str, parser: str = "json") -> dict | None:
     if parser == "qwen_think":
         text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
         text = re.sub(r'<\|thinking\|>.*?<\|/thinking\|>', '', text, flags=re.DOTALL).strip()
+    text = _normalize_task_v2_reply_text(text)
     try:
         raw = json.loads(text)
     except Exception:
@@ -5829,22 +5943,56 @@ def _parse_task_v2_action(text: str, parser: str = "json") -> dict | None:
         return None
 
     raw = _task_v2_apply_args_adapter(raw)
-    thought = raw.get("thought", "")
-    action = raw.get("action")
-    args = raw.get("args", {})
-    if thought is None:
-        thought = ""
-    elif not isinstance(thought, str):
-        thought = str(thought)
-    raw["thought"] = thought
-    if not isinstance(action, str) or not action.strip():
+    if raw.get("thought") is None:
+        raw["thought"] = ""
+    elif not isinstance(raw.get("thought"), str):
+        raw["thought"] = str(raw.get("thought"))
+    if "action" in raw and not isinstance(raw.get("action"), str):
+        raw["action"] = str(raw.get("action"))
+    if "args" in raw and raw.get("args") is None:
+        raw["args"] = {}
+    valid, _reason = _validate_task_v2_response_schema(raw)
+    if not valid:
         return None
-    if not isinstance(args, dict):
-        return None
-    raw["args"] = args
-    if action.strip().lower() == "final" and "output" in raw and not isinstance(raw.get("output"), str):
-        return None
+    raw, _ = _enforce_task_v2_response_limits(raw)
     return raw
+
+
+def _parse_task_v2_action_with_retry(
+    reply: str,
+    messages: list[dict],
+    llm_url: str,
+    parser: str = "json",
+    max_retry: int = 1,
+) -> tuple[dict | None, str, dict]:
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "tps": 0}
+    normalized_reply = _normalize_task_v2_reply_text(reply)
+    action_obj = _parse_task_v2_action(normalized_reply, parser=parser)
+    if action_obj is not None:
+        return action_obj, normalized_reply, usage
+
+    current_reply = normalized_reply
+    for _ in range(max(0, int(max_retry or 0))):
+        fix_prompt = (
+            "前回出力は無効です。JSON Schemaを厳守して再生成してください。"
+            " thought/action/argsを必須にし、actionがfinal以外ならoutputを含めないこと。"
+            " 1ステップ1アクションのみ。actionに複数ツール名を列挙しない。"
+            f" thought/outputは{_TASK_V2_RESPONSE_MAX_CHARS}文字以内に要約する。"
+            " 外部出力として有効なのはactionのみ（thoughtは内部用の短文）。"
+        )
+        retry_messages = list(messages) + [
+            {"role": "assistant", "content": _sanitize_special_tokens(current_reply)[:700]},
+            {"role": "user", "content": fix_prompt},
+        ]
+        retry_reply, retry_usage = call_llm_chat(retry_messages, llm_url=llm_url)
+        if not retry_usage.get("prompt_tokens"):
+            retry_usage = {**retry_usage, "prompt_tokens": _estimate_tokens(retry_messages)}
+        current_reply = _normalize_task_v2_reply_text(retry_reply)
+        action_obj = _parse_task_v2_action(current_reply, parser=parser)
+        usage = retry_usage
+        if action_obj is not None:
+            return action_obj, current_reply, usage
+    return None, current_reply, usage
 
 # =========================
 # LLM呼び出し
@@ -6109,7 +6257,9 @@ TASK_V2_SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 - <|channel|>や<|start|>などの特殊トークンは使わない。
 - マークダウン、説明文、コードブロック(```)も禁止。
 - 最初の文字は必ず { であること。
+- thought は内部用の短文（最大900文字）にし、外部に見せるべき内容は action / args / output にのみ含める。
 - ツール実行結果がERRORの場合、同じaction+同じ引数を繰り返さない。必ずエラー内容を読んで引数や手順を変更する。
+- 1ステップ1アクション。action に複数ツール名を列挙しない。
 
 【出力形式】（このフォーマット厳守）
 {"thought":"考えていること","action":"ツール名","args":{ツールの引数}}
@@ -8033,7 +8183,15 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
         if on_step:
             on_step({"type": "llm_thinking", "step_num": step + 1, "max_steps": max_steps})
         reply, _step_usage = call_llm_chat(messages, llm_url=llm_url)
-        action_obj = _parse_task_v2_action(reply, parser=_model_manager.current_parser)
+        action_obj, reply, retry_usage = _parse_task_v2_action_with_retry(
+            reply=reply,
+            messages=messages,
+            llm_url=llm_url,
+            parser=_model_manager.current_parser,
+            max_retry=1,
+        )
+        if retry_usage.get("prompt_tokens"):
+            _step_usage = retry_usage
 
         if action_obj is None:
             consecutive_errors += 1
@@ -12301,7 +12459,15 @@ async def stream(req: ChatRequest):
                 # APIがprompt_tokensを返さない場合はメッセージ長から推定
                 if not _step_usage.get("prompt_tokens"):
                     _step_usage = {**_step_usage, "prompt_tokens": _estimate_tokens(messages)}
-                action_obj = _parse_task_v2_action(reply, parser=_model_manager.current_parser)
+                action_obj, reply, retry_usage = _parse_task_v2_action_with_retry(
+                    reply=reply,
+                    messages=messages,
+                    llm_url="",
+                    parser=_model_manager.current_parser,
+                    max_retry=1,
+                )
+                if retry_usage.get("prompt_tokens"):
+                    _step_usage = retry_usage
 
                 if action_obj is None:
                     consecutive_errors += 1
@@ -12309,7 +12475,7 @@ async def stream(req: ChatRequest):
                         yield event("tool_call", {
                             "task_id": todo["id"], "step": step,
                             "step_num": step + 1, "max_steps": req.max_steps,
-                            "action": "error", "thought": "JSON出力失敗",
+                            "action": "error",
                             "progress": step_progress, "tps": 0,
                         })
                         break
@@ -12326,14 +12492,13 @@ async def stream(req: ChatRequest):
                 if action == "final":
                     task_status = "done"
                     task_output = action_obj.get("output", "")
-                    steps.append({"step": step, "type": "final", "thought": thought})
+                    steps.append({"step": step, "type": "final"})
                     yield event("tool_call", {
                         "task_id": todo["id"],
                         "step": step,
                         "step_num": step + 1,
                         "max_steps": req.max_steps,
                         "action": "final",
-                        "thought": thought,
                         "progress": int(((task_idx + 1) / total_tasks) * 85),
                         "prompt_tokens": _step_usage.get("prompt_tokens", 0),
                         "completion_tokens": _step_usage.get("completion_tokens", 0),
@@ -12353,7 +12518,7 @@ async def stream(req: ChatRequest):
 
                 step_data = {
                     "step": step, "type": "tool_call",
-                    "action": action, "thought": thought,
+                    "action": action,
                     "input": tool_input,
                     "result_preview": str(result)[:300]
                 }
@@ -12366,7 +12531,6 @@ async def stream(req: ChatRequest):
                     "step_num": step + 1,
                     "max_steps": req.max_steps,
                     "action": action,
-                    "thought": thought,
                     "result_preview": str(result)[:200],
                     "progress": step_progress,
                     "prompt_tokens": _step_usage.get("prompt_tokens", 0),
@@ -12695,7 +12859,15 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
                     yield {"type": "task_error", "error": str(_ctx_ex.detail), "steps": steps}
                     return
 
-        action_obj = _parse_task_v2_action(reply, parser=_model_manager.current_parser)
+        action_obj, reply, retry_usage = _parse_task_v2_action_with_retry(
+            reply=reply,
+            messages=messages,
+            llm_url=llm_url,
+            parser=_model_manager.current_parser,
+            max_retry=1,
+        )
+        if retry_usage.get("prompt_tokens"):
+            usage = retry_usage
 
         if action_obj is None:
             consecutive_errors += 1
@@ -12739,7 +12911,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
                 action_obj["output"] = thought or "Agent requested stop."
 
         if action == "final":
-            steps.append({"step": step, "type": "final", "thought": thought})
+            steps.append({"step": step, "type": "final"})
             yield {
                 "type": "task_done",
                 "task_id": task_id,
@@ -12769,7 +12941,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
 
         if action not in active_tools:
             # 未知のツール → スキル候補として記録
-            yield {"type": "skill_hint", "missing_tool": action, "thought": thought}
+            yield {"type": "skill_hint", "missing_tool": action}
             messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
             messages.append({"role": "user", "content": f"ERROR: unknown tool '{action}' — 使えるのは {list(active_tools.keys())} のみ。これらのツールで代替する。"})
             continue
@@ -12777,7 +12949,6 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
         yield {
             "type": "tool_call",
             "action": action,
-            "thought": thought,
             "step_num": step + 1,
             "max_steps": max_steps,
             "prompt_tokens": usage.get("prompt_tokens", 0),
@@ -12804,7 +12975,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
         result_text = str(result)
         step_record = {
             "step": step, "type": "tool_call",
-            "action": action, "thought": thought,
+            "action": action,
             "input": safe_input if safe_input is not None else tool_input, "result_preview": result_text[:200]
         }
         tool_result_event = {"type": "tool_result", "action": action, "result_preview": result_text[:200]}
