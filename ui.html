@@ -4799,6 +4799,7 @@ const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-ech
 
 let agentSessionActive = false;
 let agentHistory = [];
+let agentTaskCache = [];
 
 function _setEchoTabVisibility(isEcho) {
   _CHAT_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? 'none' : ''; });
@@ -4965,22 +4966,32 @@ function renderAgentTasks(tasks = [], state = '') {
     return;
   }
   list.innerHTML = tasks.map((t, i) => {
-    const st = String(t.status || t.state || 'pending');
-    const color = st === 'done' ? 'var(--accent)' : st === 'error' ? 'var(--red)' : 'var(--amber)';
+    const st = String(t.status || t.state || 'proposed');
+    const color = st === 'done' ? 'var(--accent)' : st === 'failed' || st === 'rejected' ? 'var(--red)' : st === 'accepted' || st === 'running' ? 'var(--blue)' : 'var(--amber)';
+    const canDecide = st === 'proposed';
     return `<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--bg2)">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:4px">
         <span style="font-size:11px;font-weight:700;color:var(--text)">${i+1}. ${esc(t.title || t.task || 'task')}</span>
         <span style="font-size:10px;color:${color};border:1px solid ${color};border-radius:10px;padding:1px 6px">${esc(st)}</span>
       </div>
-      <div style="font-size:11px;color:var(--text2)">${esc(t.description || t.detail || '')}</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:${canDecide ? '8px' : '0'}">${esc(t.description || t.detail || '')}</div>
+      ${canDecide ? `
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button onclick="decideAgentTask('${esc(t.id)}','accept')" style="font-size:10px;padding:4px 8px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">承諾</button>
+        <button onclick="decideAgentTask('${esc(t.id)}','reject')" style="font-size:10px;padding:4px 8px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:4px;cursor:pointer">却下</button>
+        <button onclick="decideAgentTask('${esc(t.id)}','defer')" style="font-size:10px;padding:4px 8px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);border-radius:4px;cursor:pointer">後で実行</button>
+      </div>` : ''}
     </div>`;
   }).join('');
 }
 
-async function _agentApi(path, payload = null) {
-  const init = payload == null
-    ? {method:'POST'}
-    : {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)};
+async function _agentApi(path, payload = null, method = 'POST') {
+  const m = String(method || 'POST').toUpperCase();
+  const init = (m === 'GET')
+    ? {method:'GET'}
+    : (payload == null
+      ? {method:m}
+      : {method:m, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
   const res = await fetch(API + path, init);
   let data = {};
   try { data = await res.json(); } catch(_) {}
@@ -4999,6 +5010,7 @@ async function stopAgentSession(notify = true) {
     if (notify) addAgentConversationMsg('error', `Stop failed: ${e.message}`);
   }
   agentSessionActive = false;
+  agentTaskCache = [];
   renderAgentTasks([], 'idle');
 }
 
@@ -5008,10 +5020,37 @@ async function startAgentSession() {
     await _agentApi('/agent/start', {project: currentProject, initial_context: agentHistory});
     agentSessionActive = true;
     addLog('ok','agent','agent started');
-    renderAgentTasks([], 'running');
+    await refreshAgentTasks('running');
   } catch (e) {
     addLog('err','agent',`agent start error: ${e.message}`);
     addAgentConversationMsg('error', `Start failed: ${e.message}`);
+  }
+}
+
+async function refreshAgentTasks(state = '') {
+  if (!agentSessionActive) {
+    agentTaskCache = [];
+    renderAgentTasks([], state || 'idle');
+    return;
+  }
+  try {
+    const data = await _agentApi('/agent/tasks', null, 'GET');
+    agentTaskCache = Array.isArray(data?.tasks) ? data.tasks : [];
+    renderAgentTasks(agentTaskCache, state || 'running');
+  } catch (e) {
+    addLog('err','agent',`agent tasks fetch error: ${e.message}`);
+  }
+}
+
+async function decideAgentTask(taskId, decision) {
+  if (!taskId || !decision) return;
+  try {
+    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/decision`, {decision});
+    addLog('ok','agent', `task decision: ${taskId} -> ${decision}`);
+    await refreshAgentTasks('running');
+  } catch (e) {
+    addLog('err','agent',`task decision error: ${e.message}`);
+    addAgentConversationMsg('error', `Decision failed: ${e.message}`);
   }
 }
 
@@ -5030,7 +5069,7 @@ async function sendAgentMessage(msg) {
     addAgentConversationMsg('assistant', reply);
     const executed = data?.execution?.executed || [];
     if (executed.length) addAgentExecutionCard(executed);
-    renderAgentTasks(executed, data?.execution?.status || 'running');
+    await refreshAgentTasks(data?.execution?.status || 'running');
   } catch (e) {
     addAgentConversationMsg('error', e.message);
     addLog('err','agent',`agent request error: ${e.message}`);
