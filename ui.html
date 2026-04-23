@@ -2894,6 +2894,10 @@ const _TTS_ENGINE_COMPAT_ALIASES = {
   stylebertvits2: 'style_bert_vits2',
   'style-bert-vits2': 'style_bert_vits2',
 };
+const _styleBertVits2PrepareState = {
+  prepared: false,
+  inFlight: null,
+};
 const _QWEN3_TTS_ALLOWED_MODEL_IDS = new Set([
   'Qwen/Qwen3-TTS-12Hz-1.7B-Base',
   'Qwen/Qwen3-TTS-12Hz-0.6B-Base',
@@ -3789,6 +3793,39 @@ async function refreshStyleBertVits2Models(context = 'echo') {
   }
 }
 
+async function _ensureStyleBertVits2Prepared({force = false, context = 'echo'} = {}) {
+  if (!force && _styleBertVits2PrepareState.prepared) return true;
+  if (_styleBertVits2PrepareState.inFlight) return _styleBertVits2PrepareState.inFlight;
+  const statusEl = document.getElementById('tsasr-style-bert-vits2-status');
+  _styleBertVits2PrepareState.inFlight = (async () => {
+    if (statusEl) statusEl.textContent = '初期セットアップ中...';
+    try {
+      const resp = await fetch(API + '/api/tts/style-bert-vits2/prepare', {method: 'POST'});
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(_getUserFacingApiErrorMessage(data, '初期セットアップに失敗しました。'));
+      }
+      _styleBertVits2PrepareState.prepared = !!data.ready;
+      if (statusEl) {
+        if (data.ready) {
+          statusEl.textContent = data.initialized_now ? '初期セットアップ完了' : '初期セットアップ済み';
+        } else {
+          statusEl.textContent = '初期セットアップ未完了';
+        }
+      }
+      if (data.ready) await refreshStyleBertVits2Models(context);
+      return !!data.ready;
+    } catch (e) {
+      _styleBertVits2PrepareState.prepared = false;
+      if (statusEl) statusEl.textContent = `初期セットアップ失敗: ${e.message || e}`;
+      return false;
+    } finally {
+      _styleBertVits2PrepareState.inFlight = null;
+    }
+  })();
+  return _styleBertVits2PrepareState.inFlight;
+}
+
 async function uploadStyleBertVits2ModelZip(input, context = 'echo') {
   const statusEl = document.getElementById('tsasr-style-bert-vits2-status');
   const file = input?.files?.[0];
@@ -4086,6 +4123,9 @@ function saveEchoSettings() {
   localStorage.setItem('echo_vad_overlap_enabled', `${echo.vadOverlapEnabled}`);
   localStorage.setItem('echo_vad_overlap_ms', `${echo.vadOverlapMs}`);
   _updateEchoQwen3UiVisibility();
+  if (echo.ttsEngine === 'style_bert_vits2') {
+    _ensureStyleBertVits2Prepared({context: 'echo'});
+  }
   const autoLbl = document.getElementById('echo-autoplay-label');
   if (autoLbl) autoLbl.textContent = echo.autoPlayTts ? 'ON' : 'OFF';
   const toolbarTranslateBtn = document.getElementById('echo-toolbar-translate-enable');
