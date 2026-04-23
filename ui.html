@@ -504,6 +504,13 @@ html.logo-svg-ready .logo-text{display:none}
     padding-right:var(--mobile-tab-inline-pad) !important;
   }
   .mob-hidden{display:none!important}
+  .agent-panel-col{
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    flex:1 1 100% !important;
+    border-right:none;
+  }
 }
 @media(min-width:769px){
   .chat-col,.echo-col,.agent-col{flex:1 1 auto;min-width:0;border-right:1px solid var(--border)}
@@ -517,6 +524,9 @@ html.logo-svg-ready .logo-text{display:none}
 .agent-col,.agent-panel-col{display:flex;flex-direction:column;min-height:0;background:var(--bg1)}
 .agent-col{flex:1 1 auto;border-right:1px solid var(--border)}
 .agent-panel-col{flex:0 0 min(42vw,520px);min-width:240px;max-width:70vw}
+@media(max-width:768px){
+  .agent-panel-col{width:100% !important;max-width:100% !important;min-width:0 !important;flex:1 1 100% !important;border-right:none}
+}
 
 .chat-col{display:flex;flex-direction:column;background:var(--bg1);overflow:hidden;min-height:0}
 .chat-topbar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0}
@@ -696,8 +706,8 @@ html.logo-svg-ready .logo-text{display:none}
 }
 .input-wrap{position:relative;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);transition:border-color .15s}
 .input-wrap:focus-within{border-color:var(--accent-border)}
-textarea#input{width:100%;padding:9px 74px 9px 13px;background:transparent;border:none;outline:none;resize:none;font-family:var(--font-ui);font-size:13px;color:var(--text);line-height:1.5;max-height:110px;min-height:40px}
-textarea#input::placeholder{color:var(--text3)}
+textarea#input,textarea#agent-input{width:100%;padding:9px 74px 9px 13px;background:transparent;border:none;outline:none;resize:none;font-family:var(--font-ui);font-size:13px;color:var(--text);line-height:1.5;max-height:110px;min-height:40px}
+textarea#input::placeholder,textarea#agent-input::placeholder{color:var(--text3)}
 .mic-btn{position:absolute;right:39px;bottom:7px;width:28px;height:28px;border-radius:6px;background:var(--bg3);border:1px solid var(--border2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;opacity:.95;color:var(--text2);font-size:13px}
 .mic-btn:hover{opacity:1;color:var(--text)}
 .mic-btn.recording{background:rgba(255,59,92,.14);border-color:rgba(255,59,92,.5);color:#ff728c;box-shadow:0 0 10px rgba(255,59,92,.25)}
@@ -1126,9 +1136,14 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="input-wrap">
         <textarea id="agent-input" placeholder="Agent への指示を入力..." rows="1"
           onkeydown="handleAgentKey(event)" oninput="autoResize(this)"></textarea>
+        <button class="mic-btn" id="agent-mic-btn" onclick="toggleVoiceInput('agent')" title="音声入力 (Agent)">🎙</button>
         <button class="send-btn" id="agent-send-btn" onclick="sendAgentInput()">
           <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
         </button>
+      </div>
+      <div class="voice-monitor" id="agent-voice-monitor">
+        <div class="voice-meter"><div class="voice-meter-fill" id="agent-voice-meter-fill"></div></div>
+        <div class="voice-monitor-text" id="agent-voice-monitor-text">待機中</div>
       </div>
     </div>
   </div>
@@ -2692,28 +2707,32 @@ let voiceDetectedSpeech = false;
 let voiceSilenceDeadlineTs = 0;
 let voiceNoiseFloor = 0.005;
 let voiceAutoStopping = false;
+let voiceTarget = 'chat';
+let voiceContinuousEnabled = false;
+let voiceContinuousRestartTimer = null;
 const voiceAsrSettings = {
   silenceMs: Math.max(600, Math.min(10000, parseInt(localStorage.getItem('asr_silence_ms') || '1800', 10) || 1800)),
   minSpeechMs: Math.max(200, Math.min(5000, parseInt(localStorage.getItem('asr_min_speech_ms') || '700', 10) || 700)),
   autoSendAfterAsr: localStorage.getItem('asr_auto_send_after') === 'true',
 };
 
-function _voiceMonitorEls() {
+function _voiceMonitorEls(target = voiceTarget) {
+  const pre = target === 'agent' ? 'agent-' : '';
   return {
-    wrap: document.getElementById('voice-monitor'),
-    fill: document.getElementById('voice-meter-fill'),
-    text: document.getElementById('voice-monitor-text'),
+    wrap: document.getElementById(`${pre}voice-monitor`),
+    fill: document.getElementById(`${pre}voice-meter-fill`),
+    text: document.getElementById(`${pre}voice-monitor-text`),
   };
 }
 
-function _setVoiceMonitor(level = 0, text = '待機中', active = false) {
-  const {wrap, fill, text: textEl} = _voiceMonitorEls();
+function _setVoiceMonitor(level = 0, text = '待機中', active = false, target = voiceTarget) {
+  const {wrap, fill, text: textEl} = _voiceMonitorEls(target);
   if (wrap) wrap.classList.toggle('active', !!active);
   if (fill) fill.style.width = `${Math.max(0, Math.min(1, level)) * 100}%`;
   if (textEl) textEl.textContent = text;
 }
 
-function _stopVoiceLevelMonitoring() {
+function _stopVoiceLevelMonitoring(target = voiceTarget) {
   if (voiceMeterRaf) {
     cancelAnimationFrame(voiceMeterRaf);
     voiceMeterRaf = null;
@@ -2733,11 +2752,11 @@ function _stopVoiceLevelMonitoring() {
     voiceAnalyserCtx.close().catch(() => {});
     voiceAnalyserCtx = null;
   }
-  _setVoiceMonitor(0, '待機中', false);
+  _setVoiceMonitor(0, '待機中', false, target);
 }
 
-function _startVoiceLevelMonitoring(stream) {
-  _stopVoiceLevelMonitoring();
+function _startVoiceLevelMonitoring(stream, target = voiceTarget) {
+  _stopVoiceLevelMonitoring(target);
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) return;
   voiceAnalyserCtx = new Ctx();
@@ -2747,7 +2766,7 @@ function _startVoiceLevelMonitoring(stream) {
   voiceAnalyserData = new Float32Array(voiceAnalyserNode.fftSize);
   voiceAnalyserSource.connect(voiceAnalyserNode);
   voiceLastSampleTs = performance.now();
-  _setVoiceMonitor(0, '話し始めると自動終了が有効になります', true);
+  _setVoiceMonitor(0, '話し始めると自動終了が有効になります', true, target);
 
   const loop = () => {
     if (!voiceRecording || !voiceRecorder || !voiceAnalyserNode || !voiceAnalyserData) return;
@@ -2771,11 +2790,11 @@ function _startVoiceLevelMonitoring(stream) {
       if (!voiceSilenceDeadlineTs) voiceSilenceDeadlineTs = now + voiceAsrSettings.silenceMs;
       const remainMs = Math.max(0, voiceSilenceDeadlineTs - now);
       const remainSec = Math.ceil(remainMs / 1000);
-      _setVoiceMonitor(Math.min(1, rms * 18), `自動確定まで${remainSec}秒`, true);
+      _setVoiceMonitor(Math.min(1, rms * 18), `自動確定まで${remainSec}秒`, true, target);
       if (remainMs <= 0 && !voiceAutoStopping && voiceRecorder.state !== 'inactive') {
         voiceAutoStopping = true;
         voiceRecording = false;
-        _setMicState(false, true);
+        _setMicState(false, true, target);
         voiceRecorder.stop();
         return;
       }
@@ -2786,7 +2805,7 @@ function _startVoiceLevelMonitoring(stream) {
         : (voiceSpeechAccumMs < voiceAsrSettings.minSpeechMs
           ? `音声を検出中 (${Math.floor(voiceSpeechAccumMs)}ms)`
           : '録音中');
-      _setVoiceMonitor(Math.min(1, rms * 18), hint, true);
+      _setVoiceMonitor(Math.min(1, rms * 18), hint, true, target);
     }
     voiceMeterRaf = requestAnimationFrame(loop);
   };
@@ -7011,16 +7030,16 @@ function cancelEdit(msgEl) {
   msgEl.querySelector('.msg-edit-actions')?.remove();
 }
 
-function _micBtn(){
-  return document.getElementById('mic-btn');
+function _micBtn(target='chat'){
+  return document.getElementById(target === 'agent' ? 'agent-mic-btn' : 'mic-btn');
 }
-function _setMicState(recording=false, disabled=false){
-  const btn = _micBtn();
+function _setMicState(recording=false, disabled=false, target='chat'){
+  const btn = _micBtn(target);
   if (!btn) return;
   btn.disabled = !!disabled;
   btn.classList.toggle('recording', !!recording);
   btn.textContent = recording ? '■' : '🎙';
-  btn.title = recording ? '録音停止' : '音声入力 (日本語/英語)';
+  btn.title = recording ? '録音停止' : (target === 'agent' ? '音声入力 (Agent)' : '音声入力 (日本語/英語)');
 }
 let cloneTestVoiceRecorder = null;
 let cloneTestVoiceRecording = false;
@@ -7080,12 +7099,37 @@ function _arrayBufferToBase64(buffer){
   return btoa(binary);
 }
 
-async function toggleVoiceInput(){
-  if (busy) return;
+async function _maybeRestartContinuousVoice() {
+  if (!voiceContinuousEnabled || busy || voiceRecording || voiceRecorder) return;
+  if (voiceContinuousRestartTimer) clearTimeout(voiceContinuousRestartTimer);
+  voiceContinuousRestartTimer = setTimeout(() => {
+    if (!voiceContinuousEnabled || busy || voiceRecording || voiceRecorder) return;
+    toggleVoiceInput(voiceTarget, true);
+  }, 220);
+}
+
+async function toggleVoiceInput(target = 'chat', autoRestart = false){
+  if (busy && !autoRestart) return;
+  if (!autoRestart) {
+    if (voiceContinuousEnabled && target === voiceTarget) {
+      voiceContinuousEnabled = false;
+      if (voiceRecording && voiceRecorder) {
+        voiceRecording = false;
+        _stopVoiceLevelMonitoring(voiceTarget);
+        _setMicState(false, true, voiceTarget);
+        voiceRecorder.stop();
+      } else {
+        _setMicState(false, false, voiceTarget);
+      }
+      return;
+    }
+    voiceTarget = target;
+    voiceContinuousEnabled = true;
+  }
   if (voiceRecording && voiceRecorder) {
     voiceRecording = false;
-    _stopVoiceLevelMonitoring();
-    _setMicState(false, true);
+    _stopVoiceLevelMonitoring(voiceTarget);
+    _setMicState(false, true, voiceTarget);
     voiceRecorder.stop();
     return;
   }
@@ -7101,21 +7145,22 @@ async function toggleVoiceInput(){
     voiceRecorder.ondataavailable = (e) => { if (e.data?.size > 0) voiceChunks.push(e.data); };
     voiceRecorder.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
-      _stopVoiceLevelMonitoring();
+      _stopVoiceLevelMonitoring(voiceTarget);
       const blob = new Blob(voiceChunks, {type: mimeType});
-      await transcribeVoiceBlob(blob, {autoSendAfterAsr: voiceAsrSettings.autoSendAfterAsr});
+      await transcribeVoiceBlob(blob, {targetInputId: voiceTarget === 'agent' ? 'agent-input' : 'input', autoSendAfterAsr: true, target: voiceTarget});
       voiceRecorder = null;
       voiceChunks = [];
+      if (voiceContinuousEnabled) _maybeRestartContinuousVoice();
     };
     voiceRecorder.start();
     voiceRecording = true;
-    _setMicState(true, false);
-    _startVoiceLevelMonitoring(stream);
-    addLog('info','voice','recording started');
+    _setMicState(true, false, voiceTarget);
+    _startVoiceLevelMonitoring(stream, voiceTarget);
+    addLog('info','voice',`recording started (${voiceTarget})`);
   } catch (e) {
-    _stopVoiceLevelMonitoring();
+    _stopVoiceLevelMonitoring(voiceTarget);
     addMsg('error', 'マイク起動に失敗: ' + (e.message || String(e)));
-    _setMicState(false, false);
+    _setMicState(false, false, voiceTarget);
   }
 }
 
@@ -7190,13 +7235,16 @@ async function transcribeVoiceBlob(blob, opts = {}){
           }
           if (input) {
             input.value = replaceMode ? t : ((input.value ? input.value + '\n' : '') + t);
-            if (input.id === 'input') autoResize(input);
+            autoResize(input);
             input.focus();
           }
           const shouldAutoSend = opts.autoSendAfterAsr === true;
           if (shouldAutoSend && input?.id === 'input') {
             addLog('info','voice','auto send after asr');
             await send();
+          } else if (shouldAutoSend && input?.id === 'agent-input') {
+            addLog('info','voice','auto send after asr (agent)');
+            sendAgentInput();
           }
           if (statusFn) statusFn(`ASR入力完了 (${ev.language || lang})`);
           addLog('ok','voice',`transcribed (${ev.language || lang})`);
@@ -7211,7 +7259,7 @@ async function transcribeVoiceBlob(blob, opts = {}){
     if (statusFn) statusFn('音声認識に失敗: ' + (e.message || String(e)), true);
     addLog('err','voice', e.message || String(e));
   } finally {
-    if (!opts.skipMainMicState) _setMicState(false, false);
+    if (!opts.skipMainMicState) _setMicState(false, false, opts.target || voiceTarget);
   }
 }
 
@@ -10064,7 +10112,10 @@ function setBusy(b) {
   const agentSendBtn = document.getElementById('agent-send-btn');
   if (agentSendBtn) agentSendBtn.disabled = b;
   const micBtn = document.getElementById('mic-btn');
-  if (micBtn) micBtn.disabled = b || voiceRecording;
+  if (micBtn) micBtn.disabled = b || (voiceRecording && voiceTarget === 'chat');
+  const agentMicBtn = document.getElementById('agent-mic-btn');
+  if (agentMicBtn) agentMicBtn.disabled = b || (voiceRecording && voiceTarget === 'agent');
+  if (!b) _maybeRestartContinuousVoice();
 }
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function synHL(c){return esc(c).replace(/\b(def|class|import|from|return|if|else|elif|for|while|try|except|with|as|pass|True|False|None|async|await)\b/g,'<span class="kw">$1</span>').replace(/(#[^\n]*)/g,'<span class="cm">$1</span>').replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g,'<span class="str">$1</span>').replace(/\b(\d+\.?\d*)\b/g,'<span class="num">$1</span>')}
