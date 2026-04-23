@@ -22,7 +22,7 @@ class QueuedTask:
     dependencies: list[str] = field(default_factory=list)
     execution_snapshot: dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
-    status: str = "queued"
+    status: str = "proposed"
 
 
 @dataclass(slots=True)
@@ -74,6 +74,7 @@ class AgentSession:
                     inputs=list(task.get("inputs", [])),
                     dependencies=list(task.get("dependencies", [])),
                     execution_snapshot=task.get("execution_snapshot", {}),
+                    status="proposed",
                 )
             )
 
@@ -108,17 +109,41 @@ class AgentSession:
         deferred: deque[QueuedTask] = deque()
         while self.execution_queue:
             task = self.execution_queue.popleft()
+            if task.status not in {"accepted", "ready"}:
+                deferred.append(task)
+                continue
             if len(executable) >= max_tasks:
                 deferred.append(task)
                 continue
             if task.priority >= min_priority and task.confidence >= min_confidence:
-                task.status = "ready"
+                task.status = "running"
                 executable.append(task)
             else:
                 task.status = "deferred"
                 deferred.append(task)
         self.execution_queue.extendleft(reversed(deferred))
         return executable
+
+    def list_tasks(self) -> list[QueuedTask]:
+        return list(self.execution_queue)
+
+    def decide_task(self, task_id: str, decision: str) -> QueuedTask | None:
+        normalized = (decision or "").strip().lower()
+        next_status = {
+            "accept": "accepted",
+            "reject": "rejected",
+            "defer": "deferred",
+        }.get(normalized)
+        if next_status is None:
+            return None
+        for task in self.execution_queue:
+            if task.id != task_id:
+                continue
+            if task.status in {"running", "done", "failed"}:
+                return task
+            task.status = next_status
+            return task
+        return None
 
     def _classify_intent(self, text: str) -> str:
         lower = text.lower()

@@ -6217,6 +6217,10 @@ class JobRequest(BaseModel):
     auto_skill_generation: bool = True  # True: 失敗時に不足スキルを自動生成して再試行
 
 
+class AgentTaskDecisionRequest(BaseModel):
+    decision: str
+
+
 @dataclass
 class AgentState:
     running: bool = False
@@ -6260,7 +6264,7 @@ def _execute_agent_session_queue(
             llm_url=_resolve_runtime_llm_url(llm_url),
             chat_history=snapshot_turns[-8:] if snapshot_turns else session.conversation_state.get("turns", [])[-8:],
         )
-        queued_task.status = result.get("status", "error")
+        queued_task.status = "done" if result.get("status") == "done" else "failed"
         executed.append(
             {
                 "task_id": queued_task.id,
@@ -11786,6 +11790,44 @@ async def agent_turn(req: Request):
         "ingest": ingest_meta,
         "execution": queue_result,
     }
+
+
+@app.get("/agent/tasks")
+def agent_tasks():
+    with agent_state_lock:
+        if not agent_state.running:
+            raise HTTPException(status_code=409, detail="agent is not running")
+        session = agent_state.session
+        if session is None:
+            return {"tasks": []}
+        tasks = [
+            {
+                "id": task.id,
+                "title": task.title,
+                "detail": task.detail,
+                "priority": task.priority,
+                "confidence": task.confidence,
+                "status": task.status,
+                "source_turn_id": task.source_turn_id,
+                "rationale": task.rationale,
+            }
+            for task in session.list_tasks()
+        ]
+    return {"tasks": tasks}
+
+
+@app.post("/agent/tasks/{task_id}/decision")
+def agent_task_decision(task_id: str, req: AgentTaskDecisionRequest):
+    with agent_state_lock:
+        if not agent_state.running:
+            raise HTTPException(status_code=409, detail="agent is not running")
+        session = agent_state.session
+        if session is None:
+            raise HTTPException(status_code=404, detail="agent session not found")
+        task = session.decide_task(task_id, req.decision)
+        if task is None:
+            raise HTTPException(status_code=400, detail="invalid decision or task not found")
+    return {"ok": True, "task_id": task.id, "status": task.status}
 
 
 # =========================
