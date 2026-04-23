@@ -220,6 +220,27 @@ fi
 "${PYTHON_BIN}" -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110" 2>/dev/null || true
 
 VV_URL="${VOICEVOX_URL:-http://127.0.0.1:50021}" runpod_voicevox_autostart
+
+
+STYLE_BERT_MODELS_DIR="${CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR:-/workspace/ca_data/tts/style_bert_vits2/models}"
+STYLE_BERT_SOURCE_MODELS_DIR="${RUNPOD_STYLE_BERT_VITS2_SOURCE_MODELS_DIR:-/app/Style-Bert-VITS2/model_assets}"
+
+mkdir -p "${STYLE_BERT_MODELS_DIR}"
+export CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR="${STYLE_BERT_MODELS_DIR}"
+
+if [[ -d "${STYLE_BERT_SOURCE_MODELS_DIR}" ]]; then
+  if [[ -z "$(find "${STYLE_BERT_MODELS_DIR}" -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
+    echo "[Runpod] Copying Style-Bert-VITS2 models to workspace: ${STYLE_BERT_SOURCE_MODELS_DIR} -> ${STYLE_BERT_MODELS_DIR}"
+    cp -a "${STYLE_BERT_SOURCE_MODELS_DIR}/." "${STYLE_BERT_MODELS_DIR}/"
+  else
+    echo "[Runpod] Style-Bert-VITS2 models dir already has content. Skip copy: ${STYLE_BERT_MODELS_DIR}"
+  fi
+else
+  echo "[Runpod] Style-Bert-VITS2 source models dir not found. Skip copy: ${STYLE_BERT_SOURCE_MODELS_DIR}"
+fi
+
+echo "[Runpod] Style-Bert-VITS2 models dir: ${CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR}"
+
 export RUNPOD_VOICEVOX_AUTOSTART_STATUS="${VOICEVOX_AUTOSTART_STATUS}"
 export RUNPOD_VOICEVOX_AUTOSTART_HINT="${VOICEVOX_AUTOSTART_HINT}"
 

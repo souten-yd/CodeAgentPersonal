@@ -310,6 +310,7 @@ def main() -> int:
         env.setdefault("CODEAGENT_CA_DATA_DIR", "/workspace/ca_data")
         env.setdefault("CODEAGENT_WORK_DIR", "/workspace/ca_data/workspace")
         env.setdefault("CODEAGENT_SKILLS_DIR", "/workspace/ca_data/skills")
+        env.setdefault("CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR", "/workspace/ca_data/tts/style_bert_vits2/models")
     python_exec = sys.executable
     if not runpod:
         python_exec, _ = _ensure_local_bootstrap_venv(base_dir, env)
@@ -322,6 +323,9 @@ def main() -> int:
         print(f" CA_DATA : {env.get('CODEAGENT_CA_DATA_DIR', '/workspace/ca_data')}")
         print(f" WORKDIR : {env.get('CODEAGENT_WORK_DIR', '/workspace/ca_data/workspace')}")
         print(f" SKILLS  : {env.get('CODEAGENT_SKILLS_DIR', '/workspace/ca_data/skills')}")
+        print(
+            f" SBV2    : {env.get('CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR', '/workspace/ca_data/tts/style_bert_vits2/models')}"
+        )
     print("==============================================")
 
     copy_ui(base_dir)
