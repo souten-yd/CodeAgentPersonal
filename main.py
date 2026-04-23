@@ -6202,7 +6202,7 @@ class ChatRequest(BaseModel):
     message: str
     max_steps: int = 20
     project: str = "default"
-    search_enabled: bool = True
+    search_enabled: bool | None = None
     llm_url: str = ""
     audio_base64: str = ""
     audio_format: str = "webm"
@@ -6225,7 +6225,7 @@ class JobRequest(BaseModel):
     project: str = "default"
     mode: str = "task"
     max_steps: int = 20
-    search_enabled: bool = False
+    search_enabled: bool | None = None
     llm_url: str = ""
     approved_tasks: list = None
     chat_history: list = []
@@ -6289,6 +6289,7 @@ def _execute_agent_session_queue(
     project: str,
     llm_url: str = "",
     max_steps: int = 20,
+    search_enabled: bool | None = None,
 ) -> dict:
     with agent_state_lock:
         project_state = agent_state.projects.get(project)
@@ -6297,6 +6298,8 @@ def _execute_agent_session_queue(
         return {"status": "idle", "executed": [], "deferred": 0}
 
     executed: list[dict] = []
+    search_events: list[dict] = []
+    effective_search_enabled = _resolve_effective_search_enabled(search_enabled)
     ready_tasks = session.pop_executable_tasks(max_tasks=2, min_priority=0.5, min_confidence=0.6)
     for queued_task in ready_tasks:
         with agent_state_lock:
@@ -6313,10 +6316,25 @@ def _execute_agent_session_queue(
             context="",
             max_steps=max_steps,
             project=project,
+            search_enabled=effective_search_enabled,
             llm_url=_resolve_runtime_llm_url(llm_url),
             chat_history=snapshot_turns[-8:] if snapshot_turns else session.conversation_state.get("turns", [])[-8:],
         )
         queued_task.status = "done" if result.get("status") == "done" else "failed"
+        steps = result.get("steps", []) or []
+        web_search_calls = [
+            s for s in steps
+            if isinstance(s, dict)
+            and s.get("type") == "tool_call"
+            and s.get("action") == "web_search"
+        ]
+        web_search_event_type = "agent_web_search_used" if web_search_calls else "agent_web_search_not_used"
+        web_search_event = {
+            "type": web_search_event_type,
+            "task_id": queued_task.id,
+            "count": len(web_search_calls),
+        }
+        search_events.append(web_search_event)
         executed.append(
             {
                 "task_id": queued_task.id,
@@ -6325,7 +6343,8 @@ def _execute_agent_session_queue(
                 "confidence": queued_task.confidence,
                 "status": queued_task.status,
                 "output": result.get("output", ""),
-                "steps": result.get("steps", []),
+                "steps": steps,
+                "search_event": web_search_event,
             }
         )
 
@@ -6333,9 +6352,18 @@ def _execute_agent_session_queue(
         "status": "running" if project_state and project_state.running else "stopped",
         "intent_summary": session.conversation_state.get("intent_counts", {}),
         "executed": executed,
+        "events": search_events,
         "deferred": len(session.execution_queue),
         "current_task": req_message,
     }
+
+
+def _resolve_effective_search_enabled(requested: bool | str | int | None) -> bool:
+    if requested is None:
+        return bool(_search_enabled)
+    if isinstance(requested, bool):
+        return requested
+    return str(requested).strip().lower() in ("true", "1", "yes", "on")
 
 def execute_chat_with_optional_web_search(
     message: str,
@@ -6770,6 +6798,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
     全イベントをDBに書き込み続ける（ブラウザが閉じても継続）。
     """
     project = req.project
+    effective_search_enabled = _resolve_effective_search_enabled(req.search_enabled)
     seq = 0
 
     # clarify待機用のEventを登録
@@ -6814,7 +6843,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
             chat_result = execute_chat_with_optional_web_search(
                 req.message,
                 max_steps=req.max_steps,
-                search_enabled=req.search_enabled,
+                search_enabled=effective_search_enabled,
                 llm_url=exec_url,
                 chat_history=req.chat_history,
                 on_event=lambda ev: write(ev.get("type", "chat_step"), ev),
@@ -6931,7 +6960,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                     for ev in run_task_mode_stream(
                         task_detail=todo["detail"], context=context,
                         max_steps=req.max_steps, project=project,
-                        search_enabled=req.search_enabled, llm_url=task_url,
+                        search_enabled=effective_search_enabled, llm_url=task_url,
                         job_id=job_id,
                         task_id=todo.get("id", i+1),
                         task_title=todo.get("title", ""),
@@ -6995,7 +7024,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                         for ev in run_task_mode_stream(
                             task_detail=todo["detail"], context=ctx,
                             max_steps=steps_limit, project=project,
-                            search_enabled=req.search_enabled, llm_url=_url,
+                            search_enabled=effective_search_enabled, llm_url=_url,
                             job_id=job_id,
                             task_id=todo.get("id", i+1),
                             task_title=f"{title_prefix}{todo.get('title','')}",
@@ -7538,7 +7567,7 @@ JSON形式で出力:
                     requirements=requirements,
                     verification_items=verification,
                     project=project, max_fix_rounds=2,
-                    llm_url=verify_url, search_enabled=req.search_enabled,
+                    llm_url=verify_url, search_enabled=effective_search_enabled,
                     on_event=lambda ev: write(ev.get("type","verify"), ev)
                 )
                 # 検証失敗時は、失敗内容をタスク化して再修正 → 再検証を1回実施
@@ -7594,7 +7623,7 @@ JSON形式で出力:
                             requirements=requirements,
                             verification_items=verification,
                             project=project, max_fix_rounds=2,
-                            llm_url=verify_url, search_enabled=req.search_enabled,
+                            llm_url=verify_url, search_enabled=effective_search_enabled,
                             on_event=lambda ev: write(ev.get("type", "verify"), ev)
                         )
                 if (orchestration_policy == "ladder_fail_and_quality"
@@ -7621,7 +7650,7 @@ JSON形式で出力:
                             requirements=requirements,
                             verification_items=verification,
                             project=project, max_fix_rounds=2,
-                            llm_url=_model_manager.llm_url, search_enabled=req.search_enabled,
+                            llm_url=_model_manager.llm_url, search_enabled=effective_search_enabled,
                             on_event=lambda ev: write(ev.get("type","verify"), ev)
                         )
                         if verify_result.get("passed", False):
@@ -7721,7 +7750,7 @@ class TaskStreamRequest(BaseModel):
     max_steps: int = 20
     project: str = "default"
     approved_tasks: list = None
-    search_enabled: bool = True
+    search_enabled: bool | None = None
     llm_url: str = ""
 
 # =========================
@@ -8973,8 +9002,9 @@ def chat(req: ChatRequest):
     message = (user_turn.text or "").strip()
     if not message:
         raise HTTPException(status_code=400, detail="message is empty")
+    effective_search_enabled = _resolve_effective_search_enabled(req.search_enabled)
     result = execute_task(message, max_steps=req.max_steps, project=req.project,
-                          search_enabled=req.search_enabled, llm_url=chat_url)
+                          search_enabled=effective_search_enabled, llm_url=chat_url)
     save_session(sid, req.project, message, "chat", result)
     if result["status"] == "done":
         sent = io_adapter.send_turn(ConversationTurn(text=result["output"], role="assistant"))
@@ -11815,6 +11845,8 @@ async def agent_turn(req: Request):
     project = _require_project_key(body)
     llm_url = str((body or {}).get("llm_url", "")).strip()
     max_steps = int((body or {}).get("max_steps", 20) or 20)
+    requested_search_enabled = (body or {}).get("search_enabled") if isinstance(body, dict) else None
+    effective_search_enabled = _resolve_effective_search_enabled(requested_search_enabled)
     if not message:
         raise HTTPException(status_code=400, detail="message is empty")
 
@@ -11829,7 +11861,7 @@ async def agent_turn(req: Request):
     chat_result = execute_chat_with_optional_web_search(
         message=message,
         max_steps=min(max_steps, 6),
-        search_enabled=False,
+        search_enabled=effective_search_enabled,
         llm_url=_resolve_runtime_llm_url(llm_url),
         chat_history=(project_state.session.conversation_state.get("turns", [])[:-1] if project_state.session else []),
     )
@@ -11844,10 +11876,12 @@ async def agent_turn(req: Request):
         project=project,
         llm_url=llm_url,
         max_steps=max_steps,
+        search_enabled=effective_search_enabled,
     )
     return {
         "status": "ok",
         "conversation": {"reply": reply, "usage": chat_result.get("usage", {})},
+        "search_enabled": effective_search_enabled,
         "ingest": ingest_meta,
         "execution": queue_result,
     }
@@ -12805,6 +12839,7 @@ async def task_stream(req: TaskStreamRequest):
     """
     def generate():
         session_id = str(uuid.uuid4())[:8]
+        effective_search_enabled = _resolve_effective_search_enabled(req.search_enabled)
 
         def sse(data: dict) -> str:
             return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
@@ -12840,7 +12875,7 @@ async def task_stream(req: TaskStreamRequest):
                 context=context,
                 max_steps=req.max_steps,
                 project=req.project,
-                search_enabled=req.search_enabled,
+                search_enabled=effective_search_enabled,
                 llm_url=req.llm_url
             ):
                 etype = event.get("type")
@@ -12913,7 +12948,7 @@ async def task_stream(req: TaskStreamRequest):
                 project=req.project,
                 max_fix_rounds=2,
                 llm_url=req.llm_url,
-                search_enabled=req.search_enabled,
+                search_enabled=effective_search_enabled,
             )
 
             yield sse({

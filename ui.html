@@ -5016,6 +5016,12 @@ function addAgentExecutionCard(executed = [], record = true) {
   d.innerHTML = `<div class="msg-role">Task Execution</div><div class="msg-bubble">${body}</div>`;
   w.appendChild(d);
   w.scrollTop = w.scrollHeight;
+  executed.forEach((item) => {
+    const ev = item?.search_event;
+    if (!ev || !ev.type) return;
+    const level = ev.type === 'agent_web_search_used' ? 'ok' : 'info';
+    addLog(level, 'agent-search', `${ev.type} task=${item.task_id || '-'} count=${Number(ev.count || 0)}`);
+  });
   if (record) addAgentHistoryItem('execution', {executed});
 }
 
@@ -5206,7 +5212,7 @@ async function sendAgentMessage(msg) {
   addAgentConversationMsg('user', text);
   addLog('info','agent', text);
   try {
-    const payload = {message: text, project: currentProject};
+    const payload = {message: text, project: currentProject, search_enabled: searchEnabled};
     const data = await _agentApi('/agent/turn', payload);
     const reply = data?.conversation?.reply || data.reply || data.result || data.message || '(no response)';
     addAgentConversationMsg('assistant', reply);
