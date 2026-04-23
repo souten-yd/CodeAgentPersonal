@@ -12357,6 +12357,27 @@ def _style_bert_vits2_prepare_status() -> dict:
     }
 
 
+def _style_bert_vits2_runtime_importable() -> tuple[bool, str]:
+    python_path = _style_bert_vits2_python_path()
+    try:
+        proc = subprocess.run(
+            [python_path, "-c", "import style_bert_vits2"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as e:
+        return False, f"runtime import check failed unexpectedly: {e}"
+
+    if proc.returncode == 0:
+        return True, ""
+
+    detail = (proc.stderr or proc.stdout or "").strip()
+    if detail:
+        return False, detail
+    return False, f"python exited with code {proc.returncode}"
+
+
 @app.get("/api/tts/engines")
 def api_tts_engines():
     return {"engines": ["qwen3_tts", "style_bert_vits2"]}
@@ -12365,6 +12386,15 @@ def api_tts_engines():
 @app.post("/api/tts/style-bert-vits2/prepare")
 def api_style_bert_vits2_prepare():
     with _style_bert_vits2_init_lock:
+        prepare_id = uuid.uuid4().hex[:8]
+        _style_bert_vits2_logger.info(
+            "[Style-Bert-VITS2][prepare:%s] start repo=%s venv=%s models=%s init_flag=%s",
+            prepare_id,
+            _STYLE_BERT_VITS2_REPO_DIR,
+            _STYLE_BERT_VITS2_VENV_DIR,
+            _STYLE_BERT_VITS2_MODELS_DIR,
+            _STYLE_BERT_VITS2_INIT_FLAG,
+        )
         ok, validation_error = _style_bert_vits2_validate_prerequisites()
         if not ok:
             raise StyleBertVITS2Error(
@@ -12383,43 +12413,83 @@ def api_style_bert_vits2_prepare():
 
         status = _style_bert_vits2_prepare_status()
         initialized_now = False
+        initialize_action = "already_initialized"
         if not status["init_flag_exists"]:
             initialize_script = os.path.join(_STYLE_BERT_VITS2_REPO_DIR, "initialize.py")
-            if not os.path.isfile(initialize_script):
-                raise StyleBertVITS2Error(
-                    status_code=500,
-                    user_message="initialize失敗: initialize.py が見つかりません。",
-                    log_detail=f"initialize.py not found: {initialize_script}",
+            runtime_ok, runtime_error = _style_bert_vits2_runtime_importable()
+            if runtime_ok:
+                initialize_action = "skipped_importable"
+                _style_bert_vits2_logger.info(
+                    "[Style-Bert-VITS2][prepare:%s] skip initialize.py because runtime import check passed.",
+                    prepare_id,
                 )
-            python_path = _style_bert_vits2_python_path()
-            cmd = [python_path, "initialize.py"]
-            try:
-                proc = subprocess.run(
+            else:
+                if not os.path.isfile(initialize_script):
+                    raise StyleBertVITS2Error(
+                        status_code=500,
+                        user_message="initialize失敗: initialize.py が見つかりません。",
+                        log_detail=(
+                            f"initialize.py not found: {initialize_script}\n"
+                            f"runtime import check error: {runtime_error}"
+                        ),
+                    )
+                python_path = _style_bert_vits2_python_path()
+                cmd = [python_path, "initialize.py"]
+                initialize_action = "executed"
+                _style_bert_vits2_logger.info(
+                    "[Style-Bert-VITS2][prepare:%s] running initialize.py cmd=%s cwd=%s",
+                    prepare_id,
                     cmd,
-                    cwd=_STYLE_BERT_VITS2_REPO_DIR,
-                    check=True,
-                    capture_output=True,
-                    text=True,
+                    _STYLE_BERT_VITS2_REPO_DIR,
                 )
-                if proc.stdout:
-                    print(f"[style-bert-vits2/prepare] initialize.py stdout:\n{proc.stdout}")
-                if proc.stderr:
-                    print(f"[style-bert-vits2/prepare] initialize.py stderr:\n{proc.stderr}")
-            except subprocess.CalledProcessError as e:
-                raise StyleBertVITS2Error(
-                    status_code=500,
-                    user_message="initialize失敗: 初期化スクリプトの実行に失敗しました。",
-                    log_detail=(
-                        "initialize.py failed: "
-                        f"code={e.returncode}\nstdout:\n{e.stdout}\nstderr:\n{e.stderr}"
-                    ),
-                )
-            except Exception as e:
-                raise StyleBertVITS2Error(
-                    status_code=500,
-                    user_message="initialize失敗: 初期化処理で予期しないエラーが発生しました。",
-                    log_detail=f"initialize.py failed unexpectedly: {e}\n{traceback.format_exc()}",
-                )
+                try:
+                    proc = subprocess.run(
+                        cmd,
+                        cwd=_STYLE_BERT_VITS2_REPO_DIR,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        env={**os.environ, "CI": "1"},
+                        timeout=900,
+                    )
+                    _style_bert_vits2_logger.info(
+                        "[Style-Bert-VITS2][prepare:%s] initialize.py completed code=0",
+                        prepare_id,
+                    )
+                    if proc.stdout:
+                        _style_bert_vits2_logger.info(
+                            "[Style-Bert-VITS2][prepare:%s] initialize.py stdout:\n%s",
+                            prepare_id,
+                            proc.stdout,
+                        )
+                    if proc.stderr:
+                        _style_bert_vits2_logger.info(
+                            "[Style-Bert-VITS2][prepare:%s] initialize.py stderr:\n%s",
+                            prepare_id,
+                            proc.stderr,
+                        )
+                except subprocess.TimeoutExpired as e:
+                    raise StyleBertVITS2Error(
+                        status_code=500,
+                        user_message="initialize失敗: 初期化スクリプトがタイムアウトしました。",
+                        log_detail=f"initialize.py timeout: {e}",
+                    )
+                except subprocess.CalledProcessError as e:
+                    raise StyleBertVITS2Error(
+                        status_code=500,
+                        user_message="initialize失敗: 初期化スクリプトの実行に失敗しました。",
+                        log_detail=(
+                            "initialize.py failed: "
+                            f"code={e.returncode}\nstdout:\n{e.stdout}\nstderr:\n{e.stderr}\n"
+                            f"runtime import check error(before initialize): {runtime_error}"
+                        ),
+                    )
+                except Exception as e:
+                    raise StyleBertVITS2Error(
+                        status_code=500,
+                        user_message="initialize失敗: 初期化処理で予期しないエラーが発生しました。",
+                        log_detail=f"initialize.py failed unexpectedly: {e}\n{traceback.format_exc()}",
+                    )
 
             os.makedirs(os.path.dirname(_STYLE_BERT_VITS2_INIT_FLAG), exist_ok=True)
             with open(_STYLE_BERT_VITS2_INIT_FLAG, "w", encoding="utf-8") as f:
@@ -12427,6 +12497,8 @@ def api_style_bert_vits2_prepare():
             initialized_now = True
             status["init_flag_exists"] = True
         status["initialized_now"] = initialized_now
+        status["prepare_id"] = prepare_id
+        status["initialize_action"] = initialize_action
         status["ready"] = bool(
             status["repo_exists"]
             and status["venv_exists"]
@@ -12434,6 +12506,13 @@ def api_style_bert_vits2_prepare():
             and status["python_executable"]
             and status["pth_exists"]
             and status["init_flag_exists"]
+        )
+        _style_bert_vits2_logger.info(
+            "[Style-Bert-VITS2][prepare:%s] done ready=%s initialized_now=%s action=%s",
+            prepare_id,
+            status["ready"],
+            initialized_now,
+            initialize_action,
         )
         return status
     # NOTE: ここに到達するのはStyleBertVITS2Errorを握りつぶした場合のみ
