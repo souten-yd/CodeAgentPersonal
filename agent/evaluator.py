@@ -29,7 +29,7 @@ class Evaluator:
         if replan_level != "none":
             return Evaluation(
                 passed=False,
-                feedback=f"replan_{replan_level}: {short_reason}",
+                feedback=f"phase_rollback({replan_level}): {short_reason}",
                 done=False,
                 replan_level=replan_level,
             )
