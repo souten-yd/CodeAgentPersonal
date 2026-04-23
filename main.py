@@ -6235,17 +6235,23 @@ class JobRequest(BaseModel):
 
 
 class AgentTaskDecisionRequest(BaseModel):
+    project: str
     decision: str
 
 
 class AgentTaskReviseRequest(BaseModel):
+    project: str
     instruction: str = ""
     title: str = ""
     detail: str = ""
 
 
+class AgentTaskProjectRequest(BaseModel):
+    project: str
+
+
 @dataclass
-class AgentState:
+class AgentProjectState:
     running: bool = False
     currentTask: str | None = None
     loopCount: int = 0
@@ -6253,8 +6259,28 @@ class AgentState:
     session: AgentSession | None = None
 
 
+@dataclass
+class AgentState:
+    projects: dict[str, AgentProjectState] = field(default_factory=dict)
+
+
 agent_state = AgentState()
 agent_state_lock = threading.Lock()
+
+
+def _require_project_key(payload: dict | None) -> str:
+    project = str((payload or {}).get("project", "")).strip()
+    if not project:
+        raise HTTPException(status_code=400, detail="project is required")
+    return _normalize_project_name(project)
+
+
+def _get_or_create_agent_project_state(project_key: str) -> AgentProjectState:
+    state = agent_state.projects.get(project_key)
+    if state is None:
+        state = AgentProjectState()
+        agent_state.projects[project_key] = state
+    return state
 
 
 def _execute_agent_session_queue(
@@ -6265,7 +6291,8 @@ def _execute_agent_session_queue(
     max_steps: int = 20,
 ) -> dict:
     with agent_state_lock:
-        session = agent_state.session
+        project_state = agent_state.projects.get(project)
+        session = project_state.session if project_state else None
     if session is None:
         return {"status": "idle", "executed": [], "deferred": 0}
 
@@ -6273,11 +6300,13 @@ def _execute_agent_session_queue(
     ready_tasks = session.pop_executable_tasks(max_tasks=2, min_priority=0.5, min_confidence=0.6)
     for queued_task in ready_tasks:
         with agent_state_lock:
-            agent_state.loopCount += 1
+            if project in agent_state.projects:
+                agent_state.projects[project].loopCount += 1
             action = f"task:{queued_task.id}"
-            agent_state.lastActions.append(action)
-            if len(agent_state.lastActions) > 50:
-                agent_state.lastActions = agent_state.lastActions[-50:]
+            if project in agent_state.projects:
+                agent_state.projects[project].lastActions.append(action)
+                if len(agent_state.projects[project].lastActions) > 50:
+                    agent_state.projects[project].lastActions = agent_state.projects[project].lastActions[-50:]
         snapshot_turns = list((queued_task.execution_snapshot or {}).get("frozen_turns", []))
         result = execute_task(
             task_detail=queued_task.detail,
@@ -6301,7 +6330,7 @@ def _execute_agent_session_queue(
         )
 
     return {
-        "status": "running" if agent_state.running else "stopped",
+        "status": "running" if project_state and project_state.running else "stopped",
         "intent_summary": session.conversation_state.get("intent_counts", {}),
         "executed": executed,
         "deferred": len(session.execution_queue),
@@ -11716,17 +11745,19 @@ def tts_synthesize_api(req: dict):
 @app.post("/agent/start")
 async def agent_start(req: Request):
     body = await req.json()
+    project = _require_project_key(body)
     task = str((body or {}).get("task", "")).strip()
     initial_context = (body or {}).get("initial_context")
 
     with agent_state_lock:
-        if agent_state.running:
-            return "already running"
-        agent_state.running = True
-        agent_state.loopCount = 0
-        agent_state.currentTask = task or None
-        agent_state.lastActions = []
-        agent_state.session = AgentSession()
+        project_state = _get_or_create_agent_project_state(project)
+        if project_state.running:
+            return {"status": "already_running", "project": project}
+        project_state.running = True
+        project_state.loopCount = 0
+        project_state.currentTask = task or None
+        project_state.lastActions = []
+        project_state.session = AgentSession(project_key=project)
 
         ingest_meta = {
             "turn_id": None,
@@ -11736,9 +11767,9 @@ async def agent_start(req: Request):
         }
 
         if task:
-            ingest_meta = agent_state.session.ingest_user_turn(task)
+            ingest_meta = project_state.session.ingest_user_turn(task)
         elif isinstance(initial_context, str) and initial_context.strip():
-            ingest_meta = agent_state.session.ingest_user_turn(initial_context.strip())
+            ingest_meta = project_state.session.ingest_user_turn(initial_context.strip())
         elif isinstance(initial_context, list):
             loaded = 0
             for turn in initial_context:
@@ -11749,57 +11780,64 @@ async def agent_start(req: Request):
                 text = str(turn.get("text", "")).strip()
                 if not text:
                     continue
-                agent_state.session.ingest_user_turn(text)
+                project_state.session.ingest_user_turn(text)
                 loaded += 1
             ingest_meta = {
                 "turn_id": None,
                 "intent": "bootstrap",
-                "extracted_tasks": list(agent_state.session.inferred_tasks[-5:]),
-                "queued_count": len(agent_state.session.execution_queue),
+                "extracted_tasks": list(project_state.session.inferred_tasks[-5:]),
+                "queued_count": len(project_state.session.execution_queue),
                 "loaded_turns": loaded,
             }
 
-    return {"status": "started", "mode": "session_bootstrap", "ingest": ingest_meta}
+    return {"status": "started", "project": project, "mode": "session_bootstrap", "ingest": ingest_meta}
 
 
 @app.post("/agent/stop")
-def agent_stop():
+async def agent_stop(req: Request):
+    body = await req.json()
+    project = _require_project_key(body)
     with agent_state_lock:
-        if not agent_state.running:
-            return "stopped"
-        agent_state.running = False
-        agent_state.session = None
-    return "stopped"
+        project_state = agent_state.projects.get(project)
+        if project_state is None or not project_state.running:
+            return {"status": "stopped", "project": project}
+        project_state.running = False
+        project_state.currentTask = None
+        project_state.lastActions = []
+        project_state.session = None
+    return {"status": "stopped", "project": project}
 
 
 @app.post("/agent/turn")
 async def agent_turn(req: Request):
     body = await req.json()
     message = str((body or {}).get("message", "")).strip()
-    project = str((body or {}).get("project", "default")).strip() or "default"
+    project = _require_project_key(body)
     llm_url = str((body or {}).get("llm_url", "")).strip()
     max_steps = int((body or {}).get("max_steps", 20) or 20)
     if not message:
         raise HTTPException(status_code=400, detail="message is empty")
 
     with agent_state_lock:
-        if not agent_state.running:
+        project_state = agent_state.projects.get(project)
+        if project_state is None or not project_state.running:
             raise HTTPException(status_code=409, detail="agent is not running")
-        if agent_state.session is None:
-            agent_state.session = AgentSession()
-        ingest_meta = agent_state.session.ingest_user_turn(message)
+        if project_state.session is None:
+            project_state.session = AgentSession(project_key=project)
+        ingest_meta = project_state.session.ingest_user_turn(message)
 
     chat_result = execute_chat_with_optional_web_search(
         message=message,
         max_steps=min(max_steps, 6),
         search_enabled=False,
         llm_url=_resolve_runtime_llm_url(llm_url),
-        chat_history=(agent_state.session.conversation_state.get("turns", [])[:-1] if agent_state.session else []),
+        chat_history=(project_state.session.conversation_state.get("turns", [])[:-1] if project_state.session else []),
     )
     reply = str(chat_result.get("output", ""))
     with agent_state_lock:
-        if agent_state.session is not None:
-            agent_state.session.append_assistant_turn(reply)
+        current_state = agent_state.projects.get(project)
+        if current_state and current_state.session is not None:
+            current_state.session.append_assistant_turn(reply)
 
     queue_result = _execute_agent_session_queue(
         req_message=message,
@@ -11816,11 +11854,13 @@ async def agent_turn(req: Request):
 
 
 @app.get("/agent/tasks")
-def agent_tasks():
+def agent_tasks(project: str = ""):
+    project_key = _require_project_key({"project": project})
     with agent_state_lock:
-        if not agent_state.running:
+        project_state = agent_state.projects.get(project_key)
+        if project_state is None or not project_state.running:
             raise HTTPException(status_code=409, detail="agent is not running")
-        session = agent_state.session
+        session = project_state.session
         if session is None:
             return {"tasks": []}
         tasks = [
@@ -11838,15 +11878,17 @@ def agent_tasks():
             }
             for task in session.list_tasks()
         ]
-    return {"tasks": tasks}
+    return {"project": project_key, "tasks": tasks}
 
 
 @app.post("/agent/tasks/{task_id}/decision")
 def agent_task_decision(task_id: str, req: AgentTaskDecisionRequest):
+    project_key = _require_project_key({"project": req.project})
     with agent_state_lock:
-        if not agent_state.running:
+        project_state = agent_state.projects.get(project_key)
+        if project_state is None or not project_state.running:
             raise HTTPException(status_code=409, detail="agent is not running")
-        session = agent_state.session
+        session = project_state.session
         if session is None:
             raise HTTPException(status_code=404, detail="agent session not found")
         task = session.decide_task(task_id, req.decision)
@@ -11856,11 +11898,13 @@ def agent_task_decision(task_id: str, req: AgentTaskDecisionRequest):
 
 
 @app.post("/agent/tasks/{task_id}/run")
-def agent_task_run(task_id: str):
+def agent_task_run(task_id: str, req: AgentTaskProjectRequest):
+    project_key = _require_project_key({"project": req.project})
     with agent_state_lock:
-        if not agent_state.running:
+        project_state = agent_state.projects.get(project_key)
+        if project_state is None or not project_state.running:
             raise HTTPException(status_code=409, detail="agent is not running")
-        session = agent_state.session
+        session = project_state.session
         if session is None:
             raise HTTPException(status_code=404, detail="agent session not found")
         task = session.find_task_by_name_or_alias(task_id)
@@ -11873,11 +11917,13 @@ def agent_task_run(task_id: str):
 
 
 @app.post("/agent/tasks/{task_id}/cancel")
-def agent_task_cancel(task_id: str):
+def agent_task_cancel(task_id: str, req: AgentTaskProjectRequest):
+    project_key = _require_project_key({"project": req.project})
     with agent_state_lock:
-        if not agent_state.running:
+        project_state = agent_state.projects.get(project_key)
+        if project_state is None or not project_state.running:
             raise HTTPException(status_code=409, detail="agent is not running")
-        session = agent_state.session
+        session = project_state.session
         if session is None:
             raise HTTPException(status_code=404, detail="agent session not found")
         task = session.find_task_by_name_or_alias(task_id)
@@ -11891,10 +11937,12 @@ def agent_task_cancel(task_id: str):
 
 @app.post("/agent/tasks/{task_id}/revise")
 def agent_task_revise(task_id: str, req: AgentTaskReviseRequest):
+    project_key = _require_project_key({"project": req.project})
     with agent_state_lock:
-        if not agent_state.running:
+        project_state = agent_state.projects.get(project_key)
+        if project_state is None or not project_state.running:
             raise HTTPException(status_code=409, detail="agent is not running")
-        session = agent_state.session
+        session = project_state.session
         if session is None:
             raise HTTPException(status_code=404, detail="agent session not found")
         instruction = (req.instruction or "").strip()
