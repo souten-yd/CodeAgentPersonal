@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, UploadFile
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, UploadFile, Form
 from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -12249,6 +12249,104 @@ async def tts_translate_text_api(req: dict = {}):
 
 _REF_AUDIO_ALLOWED_EXT = {".wav", ".mp3", ".flac", ".ogg", ".webm"}
 
+_STYLE_BERT_VITS2_BASE_DIR = "/workspace/ca_data/tts/style_bert_vits2"
+_STYLE_BERT_VITS2_MODELS_DIR = os.path.join(_STYLE_BERT_VITS2_BASE_DIR, "models")
+_STYLE_BERT_VITS2_REPO_DIR = os.environ.get("CODEAGENT_STYLE_BERT_VITS2_REPO_DIR", "/workspace/style-bert-vits2")
+_STYLE_BERT_VITS2_VENV_DIR = os.environ.get(
+    "CODEAGENT_STYLE_BERT_VITS2_VENV_DIR",
+    os.path.join(_STYLE_BERT_VITS2_BASE_DIR, "venv"),
+)
+_STYLE_BERT_VITS2_PTH_FILE = os.environ.get(
+    "CODEAGENT_STYLE_BERT_VITS2_PTH_FILE",
+    os.path.join(_STYLE_BERT_VITS2_BASE_DIR, "style_bert_vits2.pth"),
+)
+_STYLE_BERT_VITS2_INIT_FLAG = os.environ.get(
+    "CODEAGENT_STYLE_BERT_VITS2_INIT_FLAG",
+    os.path.join(_STYLE_BERT_VITS2_BASE_DIR, ".initialized"),
+)
+_style_bert_vits2_init_lock = threading.Lock()
+
+
+def _style_bert_vits2_list_models() -> list[str]:
+    os.makedirs(_STYLE_BERT_VITS2_MODELS_DIR, exist_ok=True)
+    model_dirs: list[str] = []
+    for name in sorted(os.listdir(_STYLE_BERT_VITS2_MODELS_DIR)):
+        path = os.path.join(_STYLE_BERT_VITS2_MODELS_DIR, name)
+        if os.path.isdir(path):
+            model_dirs.append(name)
+    return model_dirs
+
+
+def _style_bert_vits2_prepare_status() -> dict:
+    return {
+        "repo_exists": os.path.isdir(_STYLE_BERT_VITS2_REPO_DIR),
+        "venv_exists": os.path.isdir(_STYLE_BERT_VITS2_VENV_DIR),
+        "pth_exists": os.path.isfile(_STYLE_BERT_VITS2_PTH_FILE),
+        "init_flag_exists": os.path.isfile(_STYLE_BERT_VITS2_INIT_FLAG),
+        "repo_dir": _STYLE_BERT_VITS2_REPO_DIR,
+        "venv_dir": _STYLE_BERT_VITS2_VENV_DIR,
+        "pth_file": _STYLE_BERT_VITS2_PTH_FILE,
+        "init_flag_file": _STYLE_BERT_VITS2_INIT_FLAG,
+    }
+
+
+@app.get("/api/tts/engines")
+def api_tts_engines():
+    return {"engines": ["qwen3_tts", "style_bert_vits2"]}
+
+
+@app.post("/api/tts/style-bert-vits2/prepare")
+def api_style_bert_vits2_prepare():
+    status = _style_bert_vits2_prepare_status()
+    with _style_bert_vits2_init_lock:
+        initialized_now = False
+        if status["repo_exists"] and status["venv_exists"] and status["pth_exists"] and not status["init_flag_exists"]:
+            os.makedirs(os.path.dirname(_STYLE_BERT_VITS2_INIT_FLAG), exist_ok=True)
+            with open(_STYLE_BERT_VITS2_INIT_FLAG, "w", encoding="utf-8") as f:
+                f.write(datetime.utcnow().isoformat())
+            initialized_now = True
+            status["init_flag_exists"] = True
+    status["initialized_now"] = initialized_now
+    status["ready"] = bool(
+        status["repo_exists"]
+        and status["venv_exists"]
+        and status["pth_exists"]
+        and status["init_flag_exists"]
+    )
+    return status
+
+
+@app.get("/api/tts/style-bert-vits2/models")
+def api_style_bert_vits2_models():
+    return {"models": _style_bert_vits2_list_models()}
+
+
+@app.post("/api/tts/style-bert-vits2/models/upload")
+async def api_style_bert_vits2_models_upload(
+    file: UploadFile,
+    model_id: str = Form(default=""),
+):
+    original_name = os.path.basename(file.filename or "")
+    ext = os.path.splitext(original_name)[-1].lower()
+    resolved_model_id = (model_id or os.path.splitext(original_name)[0] or "").strip()
+    if not resolved_model_id:
+        raise HTTPException(status_code=400, detail="model_id required")
+    if resolved_model_id in {".", ".."}:
+        raise HTTPException(status_code=400, detail="invalid model_id")
+    if "/" in resolved_model_id or "\\" in resolved_model_id:
+        raise HTTPException(status_code=400, detail="invalid model_id")
+    model_root = os.path.join(_STYLE_BERT_VITS2_MODELS_DIR, resolved_model_id)
+    os.makedirs(model_root, exist_ok=True)
+    raw = await file.read()
+    if ext == ".zip":
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            zf.extractall(model_root)
+    else:
+        safe_name = original_name or "model.bin"
+        with open(os.path.join(model_root, safe_name), "wb") as f:
+            f.write(raw)
+    return {"model_id": resolved_model_id, "models": _style_bert_vits2_list_models()}
+
 
 @app.post("/tts/ref-audio/upload")
 async def tts_ref_audio_upload(file: UploadFile):
@@ -12292,6 +12390,11 @@ def tts_synthesize_api(req: dict):
     text = str(req.get("text", "")).strip()
     if not text:
         raise HTTPException(status_code=400, detail="text required")
+    normalized_key = _tts_engine_registry.resolve_engine_key(engine, req.get("engine_key"))
+    if normalized_key == "style_bert_vits2":
+        model = str(req.get("model", "")).strip()
+        if not model:
+            raise HTTPException(status_code=400, detail="model required when engine=style_bert_vits2")
     try:
         runtime = _tts_engine_registry.get(raw_engine=engine, raw_engine_key=req.get("engine_key"))
     except KeyError:
