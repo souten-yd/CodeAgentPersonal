@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, UploadFile, Form
-from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -44,7 +44,11 @@ from agent.types import Action, Evaluation, Plan, ToolResult
 from app.tts.engine_registry import EngineRegistry, TTSEngineRuntime
 from app.tts.qwen3_tts_runtime import Qwen3TTSRuntime
 from app.tts.style_bert_vits2_runtime import StyleBertVITS2Runtime
-from app.tts.style_bert_vits2_manager import import_model_zip
+from app.tts.style_bert_vits2_manager import (
+    StyleBertVITS2Error,
+    ensure_model_exists,
+    import_model_zip,
+)
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -12269,6 +12273,7 @@ _STYLE_BERT_VITS2_INIT_FLAG = os.environ.get(
 )
 _STYLE_BERT_VITS2_UI_ERROR = "Style-Bert-VITS2 の準備に失敗しました。サーバーログを確認してください。"
 _style_bert_vits2_init_lock = threading.Lock()
+_style_bert_vits2_logger = logging.getLogger("style_bert_vits2")
 
 
 def _style_bert_vits2_list_models() -> list[str]:
@@ -12362,32 +12367,30 @@ def api_style_bert_vits2_prepare():
     with _style_bert_vits2_init_lock:
         ok, validation_error = _style_bert_vits2_validate_prerequisites()
         if not ok:
-            print(f"[style-bert-vits2/prepare] prerequisite check failed: {validation_error}")
-            status = _style_bert_vits2_prepare_status()
-            status["ready"] = False
-            status["initialized_now"] = False
-            status["error"] = _STYLE_BERT_VITS2_UI_ERROR
-            return status
+            raise StyleBertVITS2Error(
+                status_code=500,
+                user_message="初期準備失敗: 実行環境を確認してください。",
+                log_detail=f"prerequisite check failed: {validation_error}",
+            )
 
         ok, pth_error = _style_bert_vits2_ensure_pth_file()
         if not ok:
-            print(f"[style-bert-vits2/prepare] pth ensure failed: {pth_error}")
-            status = _style_bert_vits2_prepare_status()
-            status["ready"] = False
-            status["initialized_now"] = False
-            status["error"] = _STYLE_BERT_VITS2_UI_ERROR
-            return status
+            raise StyleBertVITS2Error(
+                status_code=500,
+                user_message="初期準備失敗: 実行環境を確認してください。",
+                log_detail=f"pth ensure failed: {pth_error}",
+            )
 
         status = _style_bert_vits2_prepare_status()
         initialized_now = False
         if not status["init_flag_exists"]:
             initialize_script = os.path.join(_STYLE_BERT_VITS2_REPO_DIR, "initialize.py")
             if not os.path.isfile(initialize_script):
-                print(f"[style-bert-vits2/prepare] initialize.py not found: {initialize_script}")
-                status["ready"] = False
-                status["initialized_now"] = False
-                status["error"] = _STYLE_BERT_VITS2_UI_ERROR
-                return status
+                raise StyleBertVITS2Error(
+                    status_code=500,
+                    user_message="initialize失敗: initialize.py が見つかりません。",
+                    log_detail=f"initialize.py not found: {initialize_script}",
+                )
             python_path = _style_bert_vits2_python_path()
             cmd = [python_path, "initialize.py"]
             try:
@@ -12403,36 +12406,47 @@ def api_style_bert_vits2_prepare():
                 if proc.stderr:
                     print(f"[style-bert-vits2/prepare] initialize.py stderr:\n{proc.stderr}")
             except subprocess.CalledProcessError as e:
-                print(
-                    "[style-bert-vits2/prepare] initialize.py failed: "
-                    f"code={e.returncode}\nstdout:\n{e.stdout}\nstderr:\n{e.stderr}"
+                raise StyleBertVITS2Error(
+                    status_code=500,
+                    user_message="initialize失敗: 初期化スクリプトの実行に失敗しました。",
+                    log_detail=(
+                        "initialize.py failed: "
+                        f"code={e.returncode}\nstdout:\n{e.stdout}\nstderr:\n{e.stderr}"
+                    ),
                 )
-                status["ready"] = False
-                status["initialized_now"] = False
-                status["error"] = _STYLE_BERT_VITS2_UI_ERROR
-                return status
             except Exception as e:
-                print(f"[style-bert-vits2/prepare] initialize.py failed unexpectedly: {e}")
-                status["ready"] = False
-                status["initialized_now"] = False
-                status["error"] = _STYLE_BERT_VITS2_UI_ERROR
-                return status
+                raise StyleBertVITS2Error(
+                    status_code=500,
+                    user_message="initialize失敗: 初期化処理で予期しないエラーが発生しました。",
+                    log_detail=f"initialize.py failed unexpectedly: {e}\n{traceback.format_exc()}",
+                )
 
             os.makedirs(os.path.dirname(_STYLE_BERT_VITS2_INIT_FLAG), exist_ok=True)
             with open(_STYLE_BERT_VITS2_INIT_FLAG, "w", encoding="utf-8") as f:
                 f.write(datetime.utcnow().isoformat())
             initialized_now = True
             status["init_flag_exists"] = True
-    status["initialized_now"] = initialized_now
-    status["ready"] = bool(
-        status["repo_exists"]
-        and status["venv_exists"]
-        and status["python_exists"]
-        and status["python_executable"]
-        and status["pth_exists"]
-        and status["init_flag_exists"]
+        status["initialized_now"] = initialized_now
+        status["ready"] = bool(
+            status["repo_exists"]
+            and status["venv_exists"]
+            and status["python_exists"]
+            and status["python_executable"]
+            and status["pth_exists"]
+            and status["init_flag_exists"]
+        )
+        return status
+    # NOTE: ここに到達するのはStyleBertVITS2Errorを握りつぶした場合のみ
+    raise HTTPException(status_code=500, detail=_STYLE_BERT_VITS2_UI_ERROR)
+
+
+@app.exception_handler(StyleBertVITS2Error)
+async def _handle_style_bert_vits2_error(_request: Request, exc: StyleBertVITS2Error):
+    _style_bert_vits2_logger.error("[Style-Bert-VITS2] %s", exc.log_detail, exc_info=True)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.user_message, "user_message": exc.user_message},
     )
-    return status
 
 
 @app.get("/api/tts/style-bert-vits2/models")
@@ -12496,6 +12510,7 @@ def tts_synthesize_api(req: dict):
         model = str(req.get("model", "")).strip()
         if not model:
             raise HTTPException(status_code=400, detail="model required when engine=style_bert_vits2")
+        ensure_model_exists(model, _STYLE_BERT_VITS2_MODELS_DIR)
     try:
         runtime = _tts_engine_registry.get(raw_engine=engine, raw_engine_key=req.get("engine_key"))
     except KeyError:
