@@ -3068,7 +3068,8 @@ function _ttsSplitSentences(text) {
 function ttsSpeak(text, opts = {}) {
   if (!tts.enabled) return;
   const context = opts.context || 'main';
-  const engine = opts.engine || null;
+  const defaultEngine = context === 'echo' ? echo.ttsEngine : tts.engine;
+  const engine = _normalizeTtsEngine(opts.engine || defaultEngine || null);
   const sentences = _ttsSplitSentences(text);
   const skipTranslate = !!opts.skipTranslate;
   for (const s of sentences) tts._queue.push({text: s, context, engine, skipTranslate});
@@ -3202,7 +3203,10 @@ async function _ttsPlayNext() {
   const queueItem = tts._queue.shift();
   let sentence = typeof queueItem === 'string' ? queueItem : queueItem?.text;
   const context = typeof queueItem === 'string' ? 'main' : (queueItem?.context || 'main');
-  const playEngine = typeof queueItem === 'string' ? tts.engine : (queueItem?.engine || tts.engine);
+  const defaultEngine = context === 'echo' ? echo.ttsEngine : tts.engine;
+  const playEngine = _normalizeTtsEngine(
+    typeof queueItem === 'string' ? defaultEngine : (queueItem?.engine || defaultEngine)
+  );
   const skipTranslate = typeof queueItem === 'string' ? false : !!queueItem?.skipTranslate;
   if (!sentence) {
     tts._playing = false;
@@ -3245,19 +3249,7 @@ async function _ttsFetchAudio(text, engine = tts.engine, context = 'main', opts 
   if (engine === 'qwen3tts') {
     await _ensureQwen3ReferenceState();
   }
-  const body = { text, engine, speed: tts.speed };
-  if (engine === 'edgetts')  body.voice = tts.voice || 'ja-JP-NanamiNeural';
-  if (engine === 'qwen3tts') {
-    const explicitLanguage = (opts.language || '').trim();
-    const langDetected = _ttsDetectLang(text) === 'ja' ? 'Japanese' : 'English';
-    body.language = explicitLanguage || langDetected;
-    Object.assign(body, _buildQwen3ReferenceParams(context));
-  } else if (engine === 'style_bert_vits2') {
-    const modelId = context === 'echo'
-      ? (echo.styleBertVits2Model || tts.styleBertVits2Model || '')
-      : (tts.styleBertVits2Model || echo.styleBertVits2Model || '');
-    body.model = modelId;
-  }
+  const body = _buildTtsRequestBodyByEngine({ text, engine, context, opts });
   const resp = await fetch(API + '/tts/synthesize', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -3268,6 +3260,65 @@ async function _ttsFetchAudio(text, engine = tts.engine, context = 'main', opts 
     throw new Error(_formatQwen3SynthesisError(err.detail || 'TTS synthesis failed', body));
   }
   return await resp.blob();
+}
+
+function _buildTtsRequestBodyByEngine({text, engine, context = 'main', opts = {}}) {
+  if (engine === 'edgetts') return _buildEdgeTtsRequestBody({text, engine, opts});
+  if (engine === 'qwen3tts') return _buildQwen3TtsRequestBody({text, engine, context, opts});
+  if (engine === 'style_bert_vits2') return _buildStyleBertVits2RequestBody({text, engine, context, opts});
+  return _buildDefaultTtsRequestBody({text, engine});
+}
+
+function _buildDefaultTtsRequestBody({text, engine}) {
+  return {text, engine, speed: tts.speed};
+}
+
+function _buildEdgeTtsRequestBody({text, engine, opts = {}}) {
+  const body = _buildDefaultTtsRequestBody({text, engine});
+  body.voice = tts.voice || 'ja-JP-NanamiNeural';
+  _applyReservedTtsOptions(body, opts, {allowSpeed: true});
+  return body;
+}
+
+function _buildQwen3TtsRequestBody({text, engine, context, opts = {}}) {
+  const body = _buildDefaultTtsRequestBody({text, engine});
+  const explicitLanguage = (opts.language || '').trim();
+  const langDetected = _ttsDetectLang(text) === 'ja' ? 'Japanese' : 'English';
+  body.language = explicitLanguage || langDetected;
+  Object.assign(body, _buildQwen3ReferenceParams(context));
+  _applyReservedTtsOptions(body, opts, {allowSpeed: true, allowLanguage: true});
+  return body;
+}
+
+function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
+  const modelId = context === 'echo'
+    ? (echo.styleBertVits2Model || tts.styleBertVits2Model || '')
+    : (tts.styleBertVits2Model || echo.styleBertVits2Model || '');
+  const body = {text, engine, model: modelId};
+  _applyReservedTtsOptions(body, opts, {
+    allowStyle: true,
+    allowSpeaker: true,
+    allowSpeed: true,
+    allowLanguage: true,
+  });
+  _validateStyleBertVits2RequestBodyOrThrow(body);
+  return body;
+}
+
+function _applyReservedTtsOptions(body, opts = {}, allow = {}) {
+  if (allow.allowStyle && typeof opts.style === 'string' && opts.style.trim()) body.style = opts.style.trim();
+  if (allow.allowSpeaker && typeof opts.speaker === 'string' && opts.speaker.trim()) body.speaker = opts.speaker.trim();
+  if (allow.allowLanguage && typeof opts.language === 'string' && opts.language.trim()) body.language = opts.language.trim();
+  if (allow.allowSpeed && Number.isFinite(Number(opts.speed))) body.speed = Number(opts.speed);
+}
+
+function _validateStyleBertVits2RequestBodyOrThrow(body = {}) {
+  const requiredKeys = ['text', 'engine', 'model'];
+  const missing = requiredKeys.filter((k) => !String(body[k] || '').trim());
+  if (!missing.length) return;
+  const labelMap = {text: 'text', engine: 'engine', model: 'model'};
+  addMsg('system', `Style-Bert-VITS2 の送信前チェックで不足があります: ${missing.map((k) => labelMap[k]).join(', ')}`);
+  throw new Error(`Style-Bert-VITS2 requires ${missing.join(', ')}`);
 }
 
 async function _ensureQwen3ReferenceState() {
