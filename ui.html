@@ -1109,7 +1109,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     <div class="messages" id="agent-messages">
       <div class="msg system">
         <div class="msg-role">system</div>
-        <div class="msg-bubble">Agent mode ready. 指示を送ると /agent/start で開始します。</div>
+        <div class="msg-bubble">Agent mode ready. Agent画面入場時にセッションを開始します。</div>
       </div>
     </div>
     <div class="input-area">
@@ -4798,6 +4798,7 @@ const _AGENT_MOB_TAB_IDS = ['mob-agent-chat','mob-agent-tasks'];
 const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-echo','mob-asr','mob-tts'];
 
 let agentSessionActive = false;
+let agentHistory = [];
 
 function _setEchoTabVisibility(isEcho) {
   _CHAT_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? 'none' : ''; });
@@ -4861,6 +4862,7 @@ function setMode(m) {
     if (agentPanelCol) agentPanelCol.style.display = '';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
+    if (prevMode !== 'agent') startAgentSession();
     if (window.innerWidth <= 768) {
       mobSwitch('agent_chat');
       return;
@@ -4916,7 +4918,10 @@ function setMode(m) {
 function _agentMessages() {
   return document.getElementById('agent-messages');
 }
-function addAgentMsg(role, text) {
+function addAgentHistoryItem(kind, payload) {
+  agentHistory.push({kind, ...payload, at: Date.now()});
+}
+function addAgentConversationMsg(role, text) {
   const w = _agentMessages();
   if (!w) return;
   const d = document.createElement('div');
@@ -4925,6 +4930,29 @@ function addAgentMsg(role, text) {
   d.innerHTML = `<div class="msg-role">${labels[role]||role}</div><div class="msg-bubble">${esc(String(text||''))}</div>`;
   w.appendChild(d);
   w.scrollTop = w.scrollHeight;
+  addAgentHistoryItem('conversation', {role, text: String(text || '')});
+}
+
+function addAgentExecutionCard(executed = []) {
+  const w = _agentMessages();
+  if (!w || !Array.isArray(executed) || !executed.length) return;
+  const d = document.createElement('div');
+  d.className = 'msg system';
+  const body = executed.map((item, idx) => {
+    const st = String(item.status || 'unknown');
+    const color = st === 'done' ? 'var(--accent)' : st === 'error' ? 'var(--red)' : 'var(--amber)';
+    return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg2);margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+        <span style="font-size:11px;font-weight:700;color:var(--text)">${idx + 1}. ${esc(item.title || item.task_id || 'task')}</span>
+        <span style="font-size:10px;color:${color};border:1px solid ${color};border-radius:10px;padding:1px 6px">${esc(st)}</span>
+      </div>
+      ${item.output ? `<div style="font-size:11px;color:var(--text2);margin-top:4px;white-space:pre-wrap">${esc(String(item.output).slice(0, 300))}</div>` : ''}
+    </div>`;
+  }).join('');
+  d.innerHTML = `<div class="msg-role">Task Execution</div><div class="msg-bubble">${body}</div>`;
+  w.appendChild(d);
+  w.scrollTop = w.scrollHeight;
+  addAgentHistoryItem('execution', {executed});
 }
 
 function renderAgentTasks(tasks = [], state = '') {
@@ -4965,33 +4993,46 @@ async function stopAgentSession(notify = true) {
   try {
     await _agentApi('/agent/stop', {project: currentProject});
     addLog('ok','agent','agent stopped');
-    if (notify) addAgentMsg('system', 'Agent session stopped.');
+    if (notify) addAgentConversationMsg('system', 'Agent session stopped.');
   } catch (e) {
     addLog('err','agent',`agent stop error: ${e.message}`);
-    if (notify) addAgentMsg('error', `Stop failed: ${e.message}`);
+    if (notify) addAgentConversationMsg('error', `Stop failed: ${e.message}`);
   }
   agentSessionActive = false;
   renderAgentTasks([], 'idle');
 }
 
+async function startAgentSession() {
+  if (agentSessionActive) return;
+  try {
+    await _agentApi('/agent/start', {project: currentProject, initial_context: agentHistory});
+    agentSessionActive = true;
+    addLog('ok','agent','agent started');
+    renderAgentTasks([], 'running');
+  } catch (e) {
+    addLog('err','agent',`agent start error: ${e.message}`);
+    addAgentConversationMsg('error', `Start failed: ${e.message}`);
+  }
+}
+
 async function sendAgentMessage(msg) {
   const text = String(msg || '').trim();
   if (!text || busy || mode !== 'agent') return;
+  if (!agentSessionActive) await startAgentSession();
+  if (!agentSessionActive) return;
   setBusy(true);
-  addAgentMsg('user', text);
+  addAgentConversationMsg('user', text);
   addLog('info','agent', text);
   try {
     const payload = {message: text, project: currentProject};
-    const data = agentSessionActive
-      ? await _agentApi('/agent/turn', payload)
-      : await _agentApi('/agent/start', {...payload, task: text});
-    agentSessionActive = true;
-
-    const reply = data.reply || data.result || data.message || '(no response)';
-    addAgentMsg('assistant', reply);
-    renderAgentTasks(data.tasks || data.proposed_tasks || [], data.state || 'running');
+    const data = await _agentApi('/agent/turn', payload);
+    const reply = data?.conversation?.reply || data.reply || data.result || data.message || '(no response)';
+    addAgentConversationMsg('assistant', reply);
+    const executed = data?.execution?.executed || [];
+    if (executed.length) addAgentExecutionCard(executed);
+    renderAgentTasks(executed, data?.execution?.status || 'running');
   } catch (e) {
-    addAgentMsg('error', e.message);
+    addAgentConversationMsg('error', e.message);
     addLog('err','agent',`agent request error: ${e.message}`);
   }
   setBusy(false);
@@ -6349,6 +6390,14 @@ async function selectProject(name) {
   closeDrawer();
   document.getElementById('messages').innerHTML = `<div class="msg system"><div class="msg-role">system</div><div class="msg-bubble">Project: ${esc(name)}</div></div>`;
   chatHistory = [];
+  agentHistory = [];
+  const agentMsg = document.getElementById('agent-messages');
+  if (agentMsg) {
+    agentMsg.innerHTML = `<div class="msg system">
+      <div class="msg-role">system</div>
+      <div class="msg-bubble">Agent mode ready. Agent画面入場時にセッションを開始します。</div>
+    </div>`;
+  }
   await loadHistory(name);
   await loadJobs(name);
   refreshFileBrowser();
