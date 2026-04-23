@@ -5652,6 +5652,74 @@ def _extract_first_json_object(text: str):
     return None
 
 
+def _repair_common_json_issues(text: str):
+    """
+    LLMが出しがちな軽微なJSON崩れを補正してパースを試みる。
+    対象例:
+    - ```json ... ``` フェンス付き
+    - //, /* */ コメント混入
+    - シングルクォート文字列/キー
+    - 末尾カンマ
+    - bare key（key: "value"）の未クォート
+    """
+    if not text:
+        return None
+    candidate = text.strip()
+
+    # コードフェンス除去
+    fence = re.search(r"```(?:json)?\s*(.*?)\s*```", candidate, re.DOTALL)
+    if fence:
+        candidate = fence.group(1).strip()
+
+    # 先頭/末尾ノイズがある場合は最初の{〜最後の}を候補化
+    lidx, ridx = candidate.find("{"), candidate.rfind("}")
+    if lidx >= 0 and ridx > lidx:
+        candidate = candidate[lidx:ridx + 1]
+
+    # コメント除去
+    candidate = re.sub(r"/\*.*?\*/", "", candidate, flags=re.DOTALL)
+    candidate = re.sub(r"(^|[^:])//.*?$", r"\1", candidate, flags=re.MULTILINE)
+
+    # スマートクォート正規化
+    candidate = (candidate
+                 .replace("“", '"')
+                 .replace("”", '"')
+                 .replace("’", "'")
+                 .replace("‘", "'"))
+
+    # シングルクォートのキーをダブルクォートへ
+    def _sq_key_to_dq(match):
+        key = match.group(2).replace('"', r'\"')
+        return f'{match.group(1)}"{key}":'
+    candidate = re.sub(
+        r"([{\[,]\s*)'([^'\\]*(?:\\.[^'\\]*)*)'\s*:",
+        _sq_key_to_dq,
+        candidate,
+    )
+    # シングルクォートの値をダブルクォートへ
+    candidate = re.sub(
+        r":\s*'([^'\\]*(?:\\.[^'\\]*)*)'(\s*[,}\]])",
+        lambda m: ': "' + m.group(1).replace("\\'", "'").replace('"', r"\"") + '"' + m.group(2),
+        candidate,
+    )
+
+    # bare key をクォート
+    candidate = re.sub(
+        r'([{\[,]\s*)([A-Za-z_][A-Za-z0-9_\-]*)\s*:',
+        lambda m: f'{m.group(1)}"{m.group(2)}":',
+        candidate,
+    )
+
+    # 末尾カンマ除去
+    candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
+
+    try:
+        parsed = json.loads(candidate)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        return None
+
+
 def extract_json(text: str, parser: str = "json"):
     """
     parser種別:
@@ -5679,18 +5747,24 @@ def extract_json(text: str, parser: str = "json"):
         except Exception:
             pass
 
-    # 3. テキスト中の最初のJSONオブジェクト（前後ノイズ許容）
+    # 3. 軽微なJSON崩れを補正（single-quote/trailing-comma等）
+    repaired_common = _repair_common_json_issues(text)
+    if repaired_common is not None:
+        print("[extract_json] repaired common JSON issues")
+        return repaired_common
+
+    # 4. テキスト中の最初のJSONオブジェクト（前後ノイズ許容）
     first_obj = _extract_first_json_object(text)
     if first_obj is not None:
         return first_obj
 
-    # 4. 途中切れJSONの補完救済（トークン上限で切れた場合）
+    # 5. 途中切れJSONの補完救済（トークン上限で切れた場合）
     repaired = _repair_truncated_json(text)
     if repaired and repaired.get("action"):
         print(f"[extract_json] repaired truncated JSON: action={repaired['action']}")
         return repaired
 
-    # 5. GPT-OSS-20B チャンネル形式フォールバック
+    # 6. GPT-OSS-20B チャンネル形式フォールバック
     gpt_oss = _parse_gpt_oss_channel(text)
     if gpt_oss:
         return gpt_oss
