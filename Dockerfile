@@ -256,6 +256,40 @@ RUN python -m pip uninstall -y voicevox-core voicevox-client pyopenjtalk || true
 RUN python -m pip install --no-cache-dir --upgrade "pydantic>=2.6" "fastapi>=0.110"
 
 ########################################
+# Build stage: Style-Bert-VITS2 (isolated venv/layer)
+########################################
+FROM tts_build AS style_bert_vits2_build
+
+ARG STYLE_BERT_VITS2_REPO_URL="https://github.com/litagin02/Style-Bert-VITS2.git"
+ARG STYLE_BERT_VITS2_REF="master"
+
+RUN apt-get update -o Acquire::Retries=3 \
+    && apt-get install -y --no-install-recommends \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN rm -rf /app/Style-Bert-VITS2 \
+    && git clone --depth 1 --branch "${STYLE_BERT_VITS2_REF}" "${STYLE_BERT_VITS2_REPO_URL}" /app/Style-Bert-VITS2
+
+# Keep Style-Bert-VITS2 dependencies isolated from existing Qwen3-TTS pins by using a dedicated venv.
+RUN set -eux; \
+    cd /app/Style-Bert-VITS2; \
+    python3.11 -m venv /app/Style-Bert-VITS2/.venv; \
+    /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir --upgrade pip setuptools wheel; \
+    /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir -e . --no-deps; \
+    if [ -f requirements.txt ]; then \
+      /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir -r requirements.txt; \
+    fi; \
+    if [ -f requirements_jp_extra.txt ]; then \
+      /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir -r requirements_jp_extra.txt; \
+    fi; \
+    if [ -f requirements-gpu.txt ]; then \
+      /app/Style-Bert-VITS2/.venv/bin/python -m pip install --no-cache-dir -r requirements-gpu.txt; \
+    fi; \
+    site_packages="$("/app/Style-Bert-VITS2/.venv/bin/python" -c 'import site; print(site.getsitepackages()[0])')"; \
+    printf '%s\n' '/app/Style-Bert-VITS2' > "${site_packages}/_runpod_opt_venv.pth"
+
+########################################
 # Runtime stage: Python + codeAgent + llama.cpp
 ########################################
 FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu${UBUNTU_VERSION} AS runtime
@@ -307,6 +341,7 @@ ENV PATH=/opt/venv/bin:${PATH}
 COPY . /app
 COPY --from=tts_build /opt/venv /opt/venv
 COPY --from=tts_build /app/qwen3_tts_install_status.json /app/qwen3_tts_install_status.json
+COPY --from=style_bert_vits2_build /app/Style-Bert-VITS2 /app/Style-Bert-VITS2
 
 # Copy compiled llama artifacts into the paths the app expects.
 RUN mkdir -p /app/llama/bin /app/llama/lib /models
