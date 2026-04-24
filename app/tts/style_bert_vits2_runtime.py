@@ -34,30 +34,62 @@ def _models_dir() -> str:
     return resolve_style_bert_vits2_models_dir()
 
 
+def _validate_model_assets(model_path: Path, config_path: Path, style_vec_path: Path, *, source: str) -> None:
+    errors: list[str] = []
+    if not model_path.exists():
+        errors.append(f"model_path missing: {model_path} (source={source})")
+    if model_path.exists() and not model_path.is_file():
+        errors.append(f"model_path is not a file: {model_path} (source={source})")
+    if model_path.exists() and model_path.suffix.lower() not in _STYLE_BERT_VITS2_WEIGHT_EXTENSIONS:
+        errors.append(
+            f"model_path suffix invalid: {model_path.suffix!r} path={model_path} expected={_STYLE_BERT_VITS2_WEIGHT_EXTENSIONS}"
+        )
+    if not config_path.exists():
+        errors.append(f"config_path missing: {config_path}")
+    if config_path.exists() and not config_path.is_file():
+        errors.append(f"config_path is not a file: {config_path}")
+    if not style_vec_path.exists():
+        errors.append(f"style_vec_path missing: {style_vec_path}")
+    if style_vec_path.exists() and not style_vec_path.is_file():
+        errors.append(f"style_vec_path is not a file: {style_vec_path}")
+
+    if errors:
+        for msg in errors:
+            _logger.error("[Style-Bert-VITS2] path validation error: %s", msg)
+        raise RuntimeError("Style-Bert-VITS2 model validation failed: " + " | ".join(errors))
+
+
 def _resolve_model_paths(model_id: str) -> tuple[str, str, str]:
     model = (model_id or "").strip()
     if not model:
         raise ValueError("model required when engine=style_bert_vits2")
 
-    model_dir = Path(_models_dir()) / model
-    if not model_dir.is_dir():
-        raise RuntimeError(f"Style-Bert-VITS2 model not found: {model}")
+    model_dir: Path
+    weight_path: Path | None = None
+
+    model_candidate = Path(model).expanduser()
+    if model_candidate.is_file():
+        weight_path = model_candidate
+        model_dir = model_candidate.parent
+        source = "model_path"
+    else:
+        model_dir = Path(_models_dir()) / model
+        source = "model_id"
+        if not model_dir.is_dir():
+            raise RuntimeError(f"Style-Bert-VITS2 model not found: {model}")
 
     config_path = model_dir / "config.json"
     style_path = model_dir / "style_vectors.npy"
-    if not config_path.is_file():
-        raise RuntimeError(f"Style-Bert-VITS2 config.json missing: {config_path}")
-    if not style_path.is_file():
-        raise RuntimeError(f"Style-Bert-VITS2 style_vectors.npy missing: {style_path}")
 
-    weight_path: Path | None = None
-    for candidate in sorted(model_dir.rglob("*")):
-        if candidate.is_file() and candidate.suffix.lower() in _STYLE_BERT_VITS2_WEIGHT_EXTENSIONS:
-            weight_path = candidate
-            break
+    if weight_path is None:
+        for candidate in sorted(model_dir.rglob("*")):
+            if candidate.is_file() and candidate.suffix.lower() in _STYLE_BERT_VITS2_WEIGHT_EXTENSIONS:
+                weight_path = candidate
+                break
     if weight_path is None:
         raise RuntimeError(f"Style-Bert-VITS2 weight file missing in: {model_dir}")
 
+    _validate_model_assets(weight_path, config_path, style_path, source=source)
     return str(weight_path), str(config_path), str(style_path)
 
 
@@ -147,6 +179,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "model_path": model_path,
             "config_path": config_path,
             "style_vec_path": style_vec_path,
+            "out_path": str(req.get("out_path", "")).strip() or None,
             "device": device,
             "speaker_id": _to_optional_int(req.get("speaker_id"), 0),
             "speaker": str(req.get("speaker_name", "")).strip() or str(req.get("speaker", "")).strip() or None,
@@ -162,6 +195,14 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "assist_text_weight": _to_optional_float(req.get("assist_text_weight"), 1.0),
         }
 
+        _logger.info(
+            "[Style-Bert-VITS2][synthesize:%s] payload path types model=%s config=%s style=%s",
+            request_id,
+            type(payload.get("model_path")).__name__,
+            type(payload.get("config_path")).__name__,
+            type(payload.get("style_vec_path")).__name__,
+        )
+
         worker_code = r'''
 import base64
 import io
@@ -169,16 +210,34 @@ import inspect
 import json
 import traceback
 import wave
+from pathlib import Path
 
 import numpy as np
 from style_bert_vits2.tts_model import TTSModel
 
 req = json.loads(input())
 try:
+    model_path = Path(req["model_path"])
+    config_path = Path(req["config_path"])
+    style_vec_path = Path(req["style_vec_path"])
+    out_path = Path(req["out_path"]) if req.get("out_path") else None
+
+    path_errors = []
+    if not model_path.exists():
+        path_errors.append(f"model_path missing: {model_path} (type={type(req.get('model_path')).__name__})")
+    if model_path.exists() and model_path.suffix.lower() not in {".safetensors", ".onnx", ".pth", ".pt"}:
+        path_errors.append(f"model_path suffix invalid: {model_path.suffix!r} path={model_path}")
+    if not config_path.exists():
+        path_errors.append(f"config_path missing: {config_path} (type={type(req.get('config_path')).__name__})")
+    if not style_vec_path.exists():
+        path_errors.append(f"style_vec_path missing: {style_vec_path} (type={type(req.get('style_vec_path')).__name__})")
+    if path_errors:
+        raise FileNotFoundError(" | ".join(path_errors))
+
     model = TTSModel(
-        model_path=req["model_path"],
-        config_path=req["config_path"],
-        style_vec_path=req["style_vec_path"],
+        model_path=model_path,
+        config_path=config_path,
+        style_vec_path=style_vec_path,
         device=req.get("device", "cuda"),
     )
     line_split_raw = req.get("line_split", True)
@@ -234,6 +293,9 @@ try:
         wf.writeframes(audio_arr.tobytes())
 
     wav_bytes = buffer.getvalue()
+    if out_path is not None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(wav_bytes)
     print(json.dumps({"ok": True, "audio_b64": base64.b64encode(wav_bytes).decode("ascii")}))
 except Exception as e:
     print(json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()}))
