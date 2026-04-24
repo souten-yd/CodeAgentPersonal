@@ -208,9 +208,18 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         model = str(req.get("model", "")).strip()
         if not model:
             return {"status": "ready", "engine_key": self.engine_key, "preloaded": False}
-        preload_payload = self._build_payload(req, model=model, text="事前ロード")
+        warmup_started = time.perf_counter()
+        preload_payload = self._build_payload(req, model=model, text="事前ロードです。")
         result = self._send_to_worker(preload_payload)
-        return {"status": "ready", "engine_key": self.engine_key, "preloaded": bool(result.get("ok"))}
+        warmup_elapsed_ms = int((time.perf_counter() - warmup_started) * 1000)
+        return {
+            "status": "ready",
+            "engine_key": self.engine_key,
+            "preloaded": bool(result.get("ok")),
+            "device": str(result.get("device") or preload_payload.get("device") or "cpu"),
+            "warmup_elapsed_ms": warmup_elapsed_ms,
+            "cache_hit": bool(result.get("cache_hit")),
+        }
 
     def _build_payload(self, req: dict, *, model: str, text: str) -> dict:
         model_path, config_path, style_vec_path = _resolve_model_paths(model)
