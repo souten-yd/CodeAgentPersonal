@@ -3318,7 +3318,9 @@ function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
   const selectedDevice = context === 'echo'
     ? (echo.ttsDevice || tts.ttsDevice || localStorage.getItem('tsasr_tts_device') || localStorage.getItem('tts_device') || 'cpu')
     : (tts.ttsDevice || echo.ttsDevice || localStorage.getItem('tts_device') || localStorage.getItem('tsasr_tts_device') || 'cpu');
-  const body = {text, engine, model: modelId, device: selectedDevice};
+  const explicitLanguage = (opts.language || '').trim();
+  const detectedLang = _ttsDetectLang(text) === 'ja' ? 'JP' : 'EN';
+  const body = {text, engine, model: modelId, device: selectedDevice, language: explicitLanguage || detectedLang};
   _applyReservedTtsOptions(body, opts, {
     allowStyle: true,
     allowSpeaker: true,
