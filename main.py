@@ -12769,10 +12769,20 @@ def tts_ref_audio_delete(filename: str):
 @app.post("/tts/synthesize")
 def tts_synthesize_api(req: dict):
     from fastapi.responses import Response as FastAPIResponse
+    request_id = str(req.get("request_id") or uuid.uuid4().hex[:8])
     engine = str(req.get("engine", "qwen3tts"))
     text = str(req.get("text", "")).strip()
     if not text:
         raise HTTPException(status_code=400, detail="text required")
+    _style_bert_vits2_logger.info(
+        "[TTS][synthesize:%s] request engine=%s text_len=%d model=%s speaker=%s",
+        request_id,
+        engine,
+        len(text),
+        str(req.get("model", "")).strip(),
+        str(req.get("speaker_name", "")).strip() or str(req.get("speaker", "")).strip(),
+    )
+    req["request_id"] = request_id
     normalized_key = _tts_engine_registry.resolve_engine_key(engine, req.get("engine_key"))
     if normalized_key == "style_bert_vits2":
         model = str(req.get("model", "")).strip()
@@ -12786,9 +12796,24 @@ def tts_synthesize_api(req: dict):
 
     try:
         audio_bytes, media_type = runtime.synthesize(req)
+        _style_bert_vits2_logger.info(
+            "[TTS][synthesize:%s] success engine=%s media_type=%s bytes=%d",
+            request_id,
+            normalized_key,
+            media_type,
+            len(audio_bytes or b""),
+        )
     except ValueError as e:
+        _style_bert_vits2_logger.warning("[TTS][synthesize:%s] validation_error: %s", request_id, e)
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        _style_bert_vits2_logger.error(
+            "[TTS][synthesize:%s] failed engine=%s error=%s",
+            request_id,
+            normalized_key,
+            e,
+            exc_info=True,
+        )
         raise HTTPException(status_code=500, detail=str(e))
     return FastAPIResponse(content=audio_bytes, media_type=media_type)
 
