@@ -38,6 +38,19 @@ def _models_dir() -> str:
     return resolve_style_bert_vits2_models_dir()
 
 
+def _worker_count() -> int:
+    raw = str(os.environ.get("CODEAGENT_STYLE_BERT_VITS2_WORKERS", "1")).strip()
+    try:
+        value = int(raw)
+    except Exception:
+        _logger.warning(
+            "[Style-Bert-VITS2] invalid CODEAGENT_STYLE_BERT_VITS2_WORKERS=%r; fallback to 1 (recommended default)",
+            raw,
+        )
+        return 1
+    return max(1, value)
+
+
 def _validate_model_assets(model_path: Path, config_path: Path, style_vec_path: Path, *, source: str) -> None:
     errors: list[str] = []
     if not model_path.exists():
@@ -179,10 +192,17 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
 
     def __init__(self) -> None:
         self._worker_lock = threading.Lock()
-        self._worker_proc: subprocess.Popen | None = None
-        self._worker_script_path: str | None = None
-        self._worker_stderr_tail: collections.deque[str] = collections.deque(maxlen=_WORKER_STDERR_TAIL_LINES)
-        self._stderr_thread: threading.Thread | None = None
+        self._workers = _worker_count()
+        self._worker_procs: list[subprocess.Popen | None] = []
+        self._worker_script_paths: list[str | None] = []
+        self._worker_stderr_tails: list[collections.deque[str]] = []
+        self._stderr_threads: list[threading.Thread | None] = []
+        self._worker_rr_index = 0
+        if self._workers != 1:
+            _logger.warning(
+                "[Style-Bert-VITS2] CODEAGENT_STYLE_BERT_VITS2_WORKERS=%d. Multi-worker mode may degrade GPU performance due to contention; default/recommended is 1.",
+                self._workers,
+            )
 
     def load_stream(self, req: dict, *, emit):
         try:
@@ -199,7 +219,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
 
     def unload(self, req: dict) -> dict:
         with self._worker_lock:
-            self._stop_worker_locked()
+            self._stop_workers_locked()
         return {"status": "unloaded", "engine_key": self.engine_key}
 
     def prepare(self, req: dict | None = None) -> dict:
@@ -249,19 +269,20 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "normalized_language": normalized_language,
         }
 
-    def _stderr_reader(self, stderr_pipe) -> None:
+    @staticmethod
+    def _stderr_reader(stderr_pipe, stderr_tail: collections.deque[str]) -> None:
         try:
             while True:
                 line = stderr_pipe.readline()
                 if not line:
                     break
-                self._worker_stderr_tail.append(line.rstrip("\n"))
+                stderr_tail.append(line.rstrip("\n"))
         except Exception:
             pass
 
-    def _stop_worker_locked(self) -> None:
-        proc = self._worker_proc
-        self._worker_proc = None
+    def _stop_worker_locked(self, index: int) -> None:
+        proc = self._worker_procs[index]
+        self._worker_procs[index] = None
         if proc is None:
             return
 
@@ -280,12 +301,17 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             except Exception:
                 pass
 
-        if self._worker_script_path:
+        script_path = self._worker_script_paths[index]
+        if script_path:
             try:
-                os.remove(self._worker_script_path)
+                os.remove(script_path)
             except OSError:
                 pass
-            self._worker_script_path = None
+            self._worker_script_paths[index] = None
+
+    def _stop_workers_locked(self) -> None:
+        for idx in range(len(self._worker_procs)):
+            self._stop_worker_locked(idx)
 
     @staticmethod
     def _worker_code() -> str:
@@ -444,52 +470,71 @@ while True:
 
     def _ensure_worker_started(self) -> None:
         with self._worker_lock:
-            if self._worker_proc and self._worker_proc.poll() is None:
-                return
-            self._stop_worker_locked()
-
             py = _python_path()
             if not os.path.isfile(py):
                 raise RuntimeError(f"Style-Bert-VITS2 python not found: {py}")
+            while len(self._worker_procs) < self._workers:
+                self._worker_procs.append(None)
+                self._worker_script_paths.append(None)
+                self._worker_stderr_tails.append(collections.deque(maxlen=_WORKER_STDERR_TAIL_LINES))
+                self._stderr_threads.append(None)
 
-            with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".py", delete=False) as tf:
-                tf.write(self._worker_code())
-                self._worker_script_path = tf.name
+            for idx in range(self._workers):
+                proc = self._worker_procs[idx]
+                if proc and proc.poll() is None:
+                    continue
 
-            self._worker_proc = subprocess.Popen(
-                [py, self._worker_script_path],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-            )
-            if self._worker_proc.stderr:
-                self._stderr_thread = threading.Thread(target=self._stderr_reader, args=(self._worker_proc.stderr,), daemon=True)
-                self._stderr_thread.start()
+                self._stop_worker_locked(idx)
+                with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".py", delete=False) as tf:
+                    tf.write(self._worker_code())
+                    self._worker_script_paths[idx] = tf.name
+
+                self._worker_procs[idx] = subprocess.Popen(
+                    [py, self._worker_script_paths[idx]],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
+                )
+                if self._worker_procs[idx] and self._worker_procs[idx].stderr:
+                    self._stderr_threads[idx] = threading.Thread(
+                        target=self._stderr_reader,
+                        args=(self._worker_procs[idx].stderr, self._worker_stderr_tails[idx]),
+                        daemon=True,
+                    )
+                    self._stderr_threads[idx].start()
+
+    def _next_worker_index_locked(self) -> int:
+        if self._workers == 1:
+            return 0
+        worker_idx = self._worker_rr_index % self._workers
+        self._worker_rr_index = (self._worker_rr_index + 1) % self._workers
+        return worker_idx
 
     def _send_to_worker(self, payload: dict) -> dict:
         def _send_once() -> dict:
             self._ensure_worker_started()
             with self._worker_lock:
-                proc = self._worker_proc
+                worker_idx = self._next_worker_index_locked()
+                proc = self._worker_procs[worker_idx]
                 if proc is None or proc.stdin is None or proc.stdout is None:
                     raise RuntimeError("Style-Bert-VITS2 worker unavailable")
                 proc.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
                 proc.stdin.flush()
                 line = proc.stdout.readline()
                 if not line:
-                    stderr_tail = "\n".join(self._worker_stderr_tail)
-                    raise RuntimeError(f"Style-Bert-VITS2 worker returned no output.\n{stderr_tail}")
+                    stderr_tail = "\n".join(self._worker_stderr_tails[worker_idx])
+                    raise RuntimeError(f"Style-Bert-VITS2 worker returned no output (worker={worker_idx}).\n{stderr_tail}")
                 return json.loads(line)
 
         try:
             return _send_once()
         except Exception:
             with self._worker_lock:
-                self._stop_worker_locked()
+                self._stop_workers_locked()
             self._ensure_worker_started()
             _logger.warning("[Style-Bert-VITS2] worker_restart=true cache_hit=false retry=1")
             return _send_once()
@@ -589,5 +634,5 @@ while True:
             "venv_python": py,
             "models_dir": models,
             "detail": detail,
-            "worker_running": bool(self._worker_proc and self._worker_proc.poll() is None),
+            "worker_running": any(proc and proc.poll() is None for proc in self._worker_procs),
         }
