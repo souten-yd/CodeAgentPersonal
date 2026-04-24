@@ -7,17 +7,20 @@ import stat
 import traceback
 import uuid
 import zipfile
+import logging
 from pathlib import Path
 
 from fastapi import UploadFile
+from .style_bert_vits2_paths import resolve_style_bert_vits2_base_dir, resolve_style_bert_vits2_models_dir
 
-_STYLE_BERT_VITS2_BASE_DIR = "/workspace/ca_data/tts/style_bert_vits2"
-_STYLE_BERT_VITS2_MODELS_DIR = os.path.join(_STYLE_BERT_VITS2_BASE_DIR, "models")
+_STYLE_BERT_VITS2_BASE_DIR = resolve_style_bert_vits2_base_dir()
+_STYLE_BERT_VITS2_MODELS_DIR = resolve_style_bert_vits2_models_dir()
 _ALLOWED_EXTENSION = ".zip"
 _MAX_EXTRACT_FILES = 4096
 _MAX_EXTRACT_TOTAL_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB
 _REQUIRED_MODEL_FILES = {"config.json", "style_vectors.npy"}
 _REQUIRED_WEIGHT_EXTENSIONS = {".safetensors", ".pth", ".pt", ".onnx"}
+_logger = logging.getLogger("style_bert_vits2")
 
 
 class StyleBertVITS2Error(Exception):
@@ -178,6 +181,7 @@ async def import_model_zip(upload_file: UploadFile, model_id: str | None = None)
             log_detail=f"only {_ALLOWED_EXTENSION} is allowed",
         )
 
+    _logger.info("[Style-Bert-VITS2][models/upload] using models_dir=%s", _STYLE_BERT_VITS2_MODELS_DIR)
     os.makedirs(_STYLE_BERT_VITS2_MODELS_DIR, exist_ok=True)
     temp_dir = os.path.join("/tmp", f"style_bert_vits2_upload_{uuid.uuid4().hex}")
     os.makedirs(temp_dir, exist_ok=False)
@@ -199,6 +203,12 @@ async def import_model_zip(upload_file: UploadFile, model_id: str | None = None)
 
         _validate_model_dir(model_source_dir)
         shutil.move(model_source_dir, dest_dir)
+        _logger.info(
+            "[Style-Bert-VITS2][models/upload] imported model_id=%s path=%s models_dir=%s",
+            resolved_model_id,
+            dest_dir,
+            _STYLE_BERT_VITS2_MODELS_DIR,
+        )
         return {"model_id": resolved_model_id, "path": dest_dir}
     except zipfile.BadZipFile as exc:
         raise StyleBertVITS2Error(
