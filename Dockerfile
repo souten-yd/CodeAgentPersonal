@@ -46,6 +46,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PYTHONIOENCODING=utf-8 \
     INSTALL_FLASH_ATTN=1 \
     REQUIRE_FLASH_ATTN=0 \
     FLASH_ATTN_MAX_JOBS=""
@@ -299,7 +302,8 @@ RUN set -eux; \
       jieba \
       "nltk<=3.8.1" \
       num2words \
-      pypinyin
+      pypinyin; \
+    /app/Style-Bert-VITS2/.venv/bin/python -c "import pyopenjtalk; pyopenjtalk.g2p('辞書ウォームアップ')"
 
 ########################################
 # Runtime stage: Python + codeAgent + llama.cpp
@@ -310,6 +314,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PYTHONIOENCODING=utf-8 \
     LLAMA_HOST=0.0.0.0 \
     LLAMA_PORT=8080 \
     CODEAGENT_HOST=0.0.0.0 \
