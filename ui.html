@@ -3229,6 +3229,7 @@ async function _ttsPlayNext() {
     }
   } catch(e) {
     console.warn('[TTS] playback error:', e);
+    addMsg('error', `TTS 再生エラー: ${e?.message || e}`);
   }
   _ttsPlayNext();
 }
@@ -3254,6 +3255,10 @@ async function _ttsFetchAudio(text, engine = tts.engine, context = 'main', opts 
   engine = _normalizeTtsEngine(engine);
   if (engine === 'qwen3tts') {
     await _ensureQwen3ReferenceState();
+  }
+  if (engine === 'style_bert_vits2') {
+    const prepared = await _ensureStyleBertVits2Prepared({context});
+    if (!prepared) throw new Error('Style-Bert-VITS2 の初期セットアップに失敗しました。');
   }
   const body = _buildTtsRequestBodyByEngine({ text, engine, context, opts });
   const resp = await fetch(API + '/tts/synthesize', {
@@ -3310,7 +3315,10 @@ function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
   const modelId = context === 'echo'
     ? (echo.styleBertVits2Model || tts.styleBertVits2Model || '')
     : (tts.styleBertVits2Model || echo.styleBertVits2Model || '');
-  const body = {text, engine, model: modelId};
+  const selectedDevice = context === 'echo'
+    ? (echo.ttsDevice || tts.ttsDevice || localStorage.getItem('tsasr_tts_device') || localStorage.getItem('tts_device') || 'cpu')
+    : (tts.ttsDevice || echo.ttsDevice || localStorage.getItem('tts_device') || localStorage.getItem('tsasr_tts_device') || 'cpu');
+  const body = {text, engine, model: modelId, device: selectedDevice};
   _applyReservedTtsOptions(body, opts, {
     allowStyle: true,
     allowSpeaker: true,

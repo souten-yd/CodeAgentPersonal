@@ -62,7 +62,8 @@ def _pick_device(req: dict) -> str:
     requested = str(req.get("device", "")).strip().lower()
     if requested in {"cpu", "cuda", "mps"}:
         return requested
-    return "cuda"
+    # Style-Bert-VITS2 は未指定時に CPU を既定にする（GPU 非搭載環境での 500 を回避）
+    return "cpu"
 
 
 def _to_optional_float(v, default: float | None = None) -> float | None:
