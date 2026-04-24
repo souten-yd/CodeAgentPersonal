@@ -12813,6 +12813,31 @@ def tts_synthesize_api(req: dict):
         if not model:
             raise HTTPException(status_code=400, detail="model required when engine=style_bert_vits2")
         ensure_model_exists(model, _STYLE_BERT_VITS2_MODELS_DIR)
+        batch_items = _build_tts_batch_items_from_text(req, text)
+        if len(batch_items) >= 2:
+            batch_req = dict(req)
+            batch_req["output"] = "zip"
+            batch_req["items"] = batch_items
+            batch_req["text"] = text
+            batch_req["request_id"] = request_id
+            _style_bert_vits2_logger.info(
+                "[TTS][synthesize:%s] style_bert_vits2 multi-sentence batch route items=%d",
+                request_id,
+                len(batch_items),
+            )
+            batch_result = _run_tts_synthesize_batch(batch_req)
+            zip_bytes = batch_result.get("zip_bytes", b"") if isinstance(batch_result, dict) else b""
+            wav_chunks: list[bytes] = []
+            with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+                manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+                for item in manifest.get("items", []):
+                    fname = str(item.get("filename", "")).strip()
+                    if fname and fname.lower().endswith(".wav"):
+                        wav_chunks.append(zf.read(fname))
+            merged_wav = _merge_wav_bytes(wav_chunks)
+            if not merged_wav:
+                raise HTTPException(status_code=500, detail="batch synthesis returned empty audio")
+            return FastAPIResponse(content=merged_wav, media_type="audio/wav")
     try:
         runtime = _tts_engine_registry.get(raw_engine=engine, raw_engine_key=req.get("engine_key"))
     except KeyError:
@@ -12849,8 +12874,71 @@ def _sample_rate_from_wav_bytes(audio_bytes: bytes) -> int:
         return int(wf.getframerate())
 
 
-@app.post("/tts/synthesize-batch")
-def tts_synthesize_batch_api(req: dict):
+def _split_tts_batch_sentences(text: str) -> list[str]:
+    clean = str(text or "").strip()
+    if not clean:
+        return []
+    parts = re.split(r"(?<=[。！？\n])|(?<=[.!?])\s+", clean)
+    return [str(part or "").strip() for part in parts if str(part or "").strip()]
+
+
+def _build_tts_batch_items_from_text(req: dict, text: str) -> list[dict]:
+    sentences = _split_tts_batch_sentences(text)
+    if len(sentences) <= 1:
+        return []
+    items: list[dict] = []
+    for index, sentence in enumerate(sentences, start=1):
+        item: dict[str, object] = {"id": f"seg-{index:03d}", "text": sentence}
+        for key in ("style", "style_weight", "speaker", "speaker_name", "language", "speed"):
+            if key in req:
+                item[key] = req.get(key)
+        items.append(item)
+    return items
+
+
+def _merge_wav_bytes(wav_chunks: list[bytes]) -> bytes:
+    import wave as _wave
+
+    valid_chunks = [chunk for chunk in wav_chunks if chunk]
+    if not valid_chunks:
+        return b""
+    if len(valid_chunks) == 1:
+        return valid_chunks[0]
+
+    first_reader = _wave.open(io.BytesIO(valid_chunks[0]), "rb")
+    try:
+        params = first_reader.getparams()
+        merged_frames = [first_reader.readframes(first_reader.getnframes())]
+    finally:
+        first_reader.close()
+
+    for chunk in valid_chunks[1:]:
+        reader = _wave.open(io.BytesIO(chunk), "rb")
+        try:
+            same_format = (
+                reader.getnchannels() == params.nchannels
+                and reader.getsampwidth() == params.sampwidth
+                and reader.getframerate() == params.framerate
+                and reader.getcomptype() == params.comptype
+            )
+            if not same_format:
+                return valid_chunks[0]
+            merged_frames.append(reader.readframes(reader.getnframes()))
+        finally:
+            reader.close()
+
+    out = io.BytesIO()
+    writer = _wave.open(out, "wb")
+    try:
+        writer.setparams(params)
+        for frames in merged_frames:
+            writer.writeframes(frames)
+    finally:
+        writer.close()
+    return out.getvalue()
+
+
+def _run_tts_synthesize_batch(req: dict):
     engine = str(req.get("engine", "qwen3tts"))
     model = str(req.get("model", "")).strip()
     device = str(req.get("device", "")).strip()
@@ -13038,16 +13126,16 @@ def tts_synthesize_batch_api(req: dict):
             ),
         )
         zip_file.close()
-        zip_buffer.seek(0)
-        return StreamingResponse(
-            zip_buffer,
-            media_type="application/zip",
-            headers={
-                "Content-Disposition": f'attachment; filename="tts_batch_{request_id}.zip"',
-                "X-Project": project,
-                "X-Job-Id": job_id,
-            },
-        )
+        zip_bytes = zip_buffer.getvalue()
+        return {
+            "zip_bytes": zip_bytes,
+            "request_id": request_id,
+            "engine": normalized_key,
+            "model": model,
+            "device": device,
+            "project": project,
+            "job_id": job_id,
+        }
     except ValueError as e:
         _append_batch_step(
             "tts_batch_failed",
@@ -13087,6 +13175,25 @@ def tts_synthesize_batch_api(req: dict):
     finally:
         if zip_file is not None:
             zip_file.close()
+
+@app.post("/tts/synthesize-batch")
+def tts_synthesize_batch_api(req: dict):
+    result = _run_tts_synthesize_batch(req)
+    if isinstance(result, dict) and "zip_bytes" in result:
+        zip_bytes = result["zip_bytes"]
+        request_id = result["request_id"]
+        project = result["project"]
+        job_id = result["job_id"]
+        return StreamingResponse(
+            io.BytesIO(zip_bytes),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="tts_batch_{request_id}.zip"',
+                "X-Project": project,
+                "X-Job-Id": job_id,
+            },
+        )
+    return result
 
 
 # =========================
