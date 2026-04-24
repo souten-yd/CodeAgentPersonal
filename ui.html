@@ -1949,6 +1949,38 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             </label>
             <span id="tsasr-style-bert-vits2-status" style="font-size:10px;color:var(--text3)">モデルを選択してください</span>
           </div>
+          <div style="margin-top:8px">
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Style-Bert-VITS2 Language</div>
+            <select id="echo-tts-sbv2-language"
+              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+              onchange="saveEchoSettings()">
+              <option value="auto">Auto</option>
+              <option value="JP" selected>JP - Japanese</option>
+              <option value="EN">EN - English</option>
+              <option value="ZH">ZH - Chinese</option>
+            </select>
+            <div style="margin-top:4px;font-size:10px;color:var(--text3)">JP-ExtraモデルではJPに自動固定されます。</div>
+            <div id="echo-tts-sbv2-language-note" style="margin-top:2px;font-size:10px;color:var(--amber);display:none">JP-Extra detected: JP forced</div>
+          </div>
+          <div style="margin-top:8px;display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700">Use TTS translation</div>
+              <div style="font-size:10px;color:var(--text3);margin-top:2px">OFFの場合、翻訳処理を通さず、入力テキストをそのままTTSへ渡します。</div>
+            </div>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="echo-tts-use-translation"
+                style="width:14px;height:14px;accent-color:var(--accent)"
+                onchange="saveEchoSettings()">
+              <span style="font-size:11px;color:var(--text2)" id="echo-tts-use-translation-label">OFF</span>
+            </label>
+          </div>
+          <div style="margin-top:8px;padding:6px;border:1px dashed var(--border);border-radius:4px;background:var(--bg)">
+            <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS入力プレビュー</div>
+            <div id="echo-tts-preview-source" style="font-size:10px;color:var(--text3)">TTS text source: raw</div>
+            <div id="echo-tts-preview-language" style="font-size:10px;color:var(--text3)">Language: JP</div>
+            <div id="echo-tts-preview-effective-language" style="font-size:10px;color:var(--text3)">Effective language: JP</div>
+            <div id="echo-tts-preview-text" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Text preview: -</div>
+          </div>
         </div>
         <!-- TTS モデルディレクトリ -->
         <div style="margin-bottom:8px">
@@ -2900,6 +2932,7 @@ const _styleBertVits2PrepareState = {
   prepared: false,
   inFlight: null,
 };
+const _styleBertVits2ModelMeta = new Map();
 const _QWEN3_TTS_ALLOWED_MODEL_IDS = new Set([
   'Qwen/Qwen3-TTS-12Hz-1.7B-Base',
   'Qwen/Qwen3-TTS-12Hz-0.6B-Base',
@@ -2994,6 +3027,12 @@ const echo = {
   ttsTranslateEnToJaEnabled: _ttsGetTranslateSettings('echo').en2jaEnabled,
   ttsTranslateJaToEnEnabled: _ttsGetTranslateSettings('echo').ja2enEnabled,
   ttsTranslateAutoplay: _ttsGetTranslateSettings('echo').autoplay,
+  ttsSbv2Language: (() => {
+    const raw = (localStorage.getItem('echo_tts_sbv2_language') || 'JP').trim();
+    const normalized = raw.toUpperCase();
+    return ['AUTO', 'JP', 'EN', 'ZH'].includes(normalized) ? (normalized === 'AUTO' ? 'auto' : normalized) : 'JP';
+  })(),
+  ttsUseTranslation: localStorage.getItem('echo_tts_use_translation') === 'true',
   autoGenerateMinutes: localStorage.getItem('echo_auto_generate_minutes') === 'true',
   displayStyle:    localStorage.getItem('echo_display_style') || 'lang_serial',
   displayFilter:   localStorage.getItem('echo_display_filter') || 'all',
@@ -3176,7 +3215,11 @@ function _ttsModeFromFlags(en2ja, ja2en) {
 }
 
 // TTS 翻訳が必要かどうかを判定し、必要なら翻訳テキストを返す
-async function _ttsMaybeTranslate(text, context = 'main') {
+async function _ttsMaybeTranslate(text, context = 'main', engine = '') {
+  const normalizedEngine = _normalizeTtsEngine(engine || (context === 'echo' ? echo.ttsEngine : tts.engine));
+  if (context === 'echo' && normalizedEngine === 'style_bert_vits2' && !echo.ttsUseTranslation) {
+    return text;
+  }
   const cfg = context === 'echo'
     ? {
         translateEnabled: echo.ttsTranslateEnabled,
@@ -3220,7 +3263,7 @@ async function _ttsPlayNext() {
   }
   try {
     // 翻訳TTS処理（有効な場合）
-    sentence = skipTranslate ? sentence : await _ttsMaybeTranslate(sentence, context);
+    sentence = skipTranslate ? sentence : await _ttsMaybeTranslate(sentence, context, playEngine);
     if (playEngine === 'webspeech') {
       await _ttsPlayWebSpeech(sentence);
     } else {
@@ -3319,8 +3362,10 @@ function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
     ? (echo.ttsDevice || tts.ttsDevice || localStorage.getItem('tsasr_tts_device') || localStorage.getItem('tts_device') || 'cpu')
     : (tts.ttsDevice || echo.ttsDevice || localStorage.getItem('tts_device') || localStorage.getItem('tsasr_tts_device') || 'cpu');
   const explicitLanguage = (opts.language || '').trim();
-  const detectedLang = _ttsDetectLang(text) === 'ja' ? 'JP' : 'EN';
-  const body = {text, engine, model: modelId, device: selectedDevice, language: explicitLanguage || detectedLang};
+  const selectedEchoLanguage = _normalizeEchoSbv2Language(context === 'echo' ? echo.ttsSbv2Language : 'JP');
+  const fallbackLang = selectedEchoLanguage === 'auto' ? 'JP' : selectedEchoLanguage;
+  const effectiveLanguage = context === 'echo' ? _effectiveEchoSbv2Language() : fallbackLang;
+  const body = {text, engine, model: modelId, device: selectedDevice, language: explicitLanguage || effectiveLanguage};
   _applyReservedTtsOptions(body, opts, {
     allowStyle: true,
     allowSpeaker: true,
@@ -3786,6 +3831,61 @@ function _setStyleBertModelOptions(models = []) {
   });
 }
 
+function _normalizeEchoSbv2Language(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return 'JP';
+  if (raw.toLowerCase() === 'auto') return 'auto';
+  const upper = raw.toUpperCase();
+  if (['JP', 'EN', 'ZH'].includes(upper)) return upper;
+  return 'JP';
+}
+
+function _isJpExtraModelMeta(meta = null) {
+  if (!meta || typeof meta !== 'object') return false;
+  return !!meta.is_jp_extra;
+}
+
+function _getSelectedSbv2Meta() {
+  const modelId = echo.styleBertVits2Model || '';
+  return _styleBertVits2ModelMeta.get(modelId) || null;
+}
+
+function _effectiveEchoSbv2Language() {
+  const selected = _normalizeEchoSbv2Language(echo.ttsSbv2Language);
+  const meta = _getSelectedSbv2Meta();
+  if (_isJpExtraModelMeta(meta)) return 'JP';
+  if (selected === 'auto') return 'JP';
+  return selected;
+}
+
+function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
+  const source = (echo.ttsUseTranslation && translatedText) ? 'translated' : 'raw';
+  const activeText = source === 'translated' ? translatedText : rawText;
+  const selectedLanguage = _normalizeEchoSbv2Language(echo.ttsSbv2Language);
+  const effectiveLanguage = _effectiveEchoSbv2Language();
+  const sourceEl = document.getElementById('echo-tts-preview-source');
+  const langEl = document.getElementById('echo-tts-preview-language');
+  const effEl = document.getElementById('echo-tts-preview-effective-language');
+  const textEl = document.getElementById('echo-tts-preview-text');
+  if (sourceEl) sourceEl.textContent = `TTS text source: ${source}`;
+  if (langEl) langEl.textContent = `Language: ${selectedLanguage === 'auto' ? 'Auto' : selectedLanguage}`;
+  if (effEl) effEl.textContent = `Effective language: ${effectiveLanguage}`;
+  if (textEl) {
+    const preview = String(activeText || '').replace(/\n/g, '\\n').slice(0, 100) || '-';
+    textEl.textContent = `Text preview: ${preview}`;
+  }
+}
+
+function _updateEchoSbv2LanguageNote() {
+  const note = document.getElementById('echo-tts-sbv2-language-note');
+  const sel = document.getElementById('echo-tts-sbv2-language');
+  const isForced = _isJpExtraModelMeta(_getSelectedSbv2Meta());
+  if (note) note.style.display = isForced ? '' : 'none';
+  if (sel) {
+    sel.disabled = false;
+  }
+}
+
 async function refreshStyleBertVits2Models(context = 'echo') {
   const statusEl = document.getElementById('tsasr-style-bert-vits2-status');
   const refreshBtn = document.getElementById('tsasr-style-bert-vits2-refresh-btn');
@@ -3795,7 +3895,13 @@ async function refreshStyleBertVits2Models(context = 'echo') {
     const resp = await fetch(API + '/api/tts/style-bert-vits2/models');
     const data = await resp.json();
     const models = Array.isArray(data.models) ? data.models : [];
+    const details = Array.isArray(data.model_details) ? data.model_details : [];
+    _styleBertVits2ModelMeta.clear();
+    details.forEach((item) => {
+      if (item && item.model) _styleBertVits2ModelMeta.set(item.model, item);
+    });
     _setStyleBertModelOptions(models);
+    _updateEchoSbv2LanguageNote();
     if (statusEl) statusEl.textContent = models.length ? `モデル ${models.length} 件` : 'モデルがありません';
   } catch (e) {
     if (statusEl) statusEl.textContent = `取得失敗: ${e.message}`;
@@ -4042,6 +4148,8 @@ function saveEchoSettings() {
     echo.styleBertVits2Model = styleSel.value || '';
     tts.styleBertVits2Model = echo.styleBertVits2Model;
   }
+  echo.ttsSbv2Language = _normalizeEchoSbv2Language(document.getElementById('echo-tts-sbv2-language')?.value || echo.ttsSbv2Language || 'JP');
+  echo.ttsUseTranslation = !!document.getElementById('echo-tts-use-translation')?.checked;
   echo.displayStyle = document.getElementById('echo-display-style')?.value || echo.displayStyle || 'lang_serial';
   echo.displayFilter = document.getElementById('echo-display-filter')?.value || echo.displayFilter || 'all';
   echo.groupOverflowMode = document.getElementById('echo-group-overflow-mode')?.value || echo.groupOverflowMode || 'rolling';
@@ -4123,6 +4231,8 @@ function saveEchoSettings() {
   localStorage.setItem('echo_tts_engine',   echo.ttsEngine);
   localStorage.setItem('echo_style_bert_vits2_model', echo.styleBertVits2Model || '');
   localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model || echo.styleBertVits2Model || '');
+  localStorage.setItem('echo_tts_sbv2_language', `${echo.ttsSbv2Language}`);
+  localStorage.setItem('echo_tts_use_translation', echo.ttsUseTranslation ? 'true' : 'false');
   localStorage.setItem('echo_tts_translate_enabled', `${echo.ttsTranslateEnabled}`);
   localStorage.setItem('echo_display_style', echo.displayStyle);
   localStorage.setItem('echo_display_filter', echo.displayFilter);
@@ -4160,6 +4270,10 @@ function saveEchoSettings() {
   localStorage.setItem('echo_vad_min_avg_rms', `${echo.vadMinAvgRms}`);
   localStorage.setItem('echo_vad_overlap_enabled', `${echo.vadOverlapEnabled}`);
   localStorage.setItem('echo_vad_overlap_ms', `${echo.vadOverlapMs}`);
+  const useTranslationLabel = document.getElementById('echo-tts-use-translation-label');
+  if (useTranslationLabel) useTranslationLabel.textContent = echo.ttsUseTranslation ? 'ON' : 'OFF';
+  _updateEchoSbv2LanguageNote();
+  _updateEchoTtsPreview();
   _updateEchoQwen3UiVisibility();
   if (echo.ttsEngine === 'style_bert_vits2') {
     _ensureStyleBertVits2Prepared({context: 'echo'});
@@ -4316,12 +4430,20 @@ function _echoInitSettingsUI() {
   if (engSel) engSel.value = echo.ttsEngine;
   const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
   if (styleSel) styleSel.value = echo.styleBertVits2Model || tts.styleBertVits2Model || '';
+  const langSel = document.getElementById('echo-tts-sbv2-language');
+  if (langSel) langSel.value = _normalizeEchoSbv2Language(echo.ttsSbv2Language);
+  const useTranslationChk = document.getElementById('echo-tts-use-translation');
+  if (useTranslationChk) useTranslationChk.checked = !!echo.ttsUseTranslation;
+  const useTranslationLbl = document.getElementById('echo-tts-use-translation-label');
+  if (useTranslationLbl) useTranslationLbl.textContent = echo.ttsUseTranslation ? 'ON' : 'OFF';
   const selectedEchoTtsEngine = engSel?.value || echo.ttsEngine;
   if (selectedEchoTtsEngine === 'style_bert_vits2') {
     _ensureStyleBertVits2Prepared({context: 'echo'});
   } else {
     refreshStyleBertVits2Models('echo');
   }
+  _updateEchoSbv2LanguageNote();
+  _updateEchoTtsPreview();
   syncEchoTranslateUi();
   const displayStyleInput = document.getElementById('echo-display-style');
   const displayFilterInput = document.getElementById('echo-display-filter');
@@ -4335,8 +4457,8 @@ function _echoInitSettingsUI() {
   if (revealSecondsInput) revealSecondsInput.value = `${echo.textRevealSeconds ?? 1.5}`;
   if (parallelMaxInput) parallelMaxInput.disabled = !['lang_serial', 'lang_parallel'].includes(echo.displayStyle || 'lang_serial');
   if (overflowModeInput) overflowModeInput.disabled = !['lang_serial', 'lang_parallel'].includes(echo.displayStyle || 'lang_serial');
-  const langSel = document.getElementById('echo-asr-lang');
-  if (langSel) langSel.value = echo.asrLang;
+  const asrLangSel = document.getElementById('echo-asr-lang');
+  if (asrLangSel) asrLangSel.value = echo.asrLang;
   const modelSel = document.getElementById('echo-asr-model');
   if (modelSel) modelSel.value = echo.asrModel;
   const profileSel = document.getElementById('echo-asr-profile');
@@ -7899,6 +8021,7 @@ function _echoAddSentence(ev) {
   }
   _echoAnimateSentenceField(sentence, 'displayText', ev.text);
   _echoUpdateSentenceDom(sentence);
+  _updateEchoTtsPreview({rawText: ev.text || '', translatedText: ''});
   _echoUpdateClearBtn();
   // 自動TTS再生
   if (echo.autoPlayTts && ev.lang === 'ja') {
@@ -7912,17 +8035,20 @@ function _echoUpdateTranslation(id, translated) {
   s.translated = translated || '';
   _echoAnimateSentenceField(s, 'displayTranslated', translated || '');
   _echoUpdateSentenceDom(s);
+  _updateEchoTtsPreview({rawText: s.text || '', translatedText: s.translated || ''});
 }
 
 function _echoPlaySentence(sid) {
   const s = echo.sentences.find(x => x.id === sid);
   if (!s) return;
   const srcLang = s.lang === 'ja' ? 'ja' : 'en';
-  const canUseTranslated = !!echo.ttsTranslateEnabled
+  const canUseTranslated = !!echo.ttsUseTranslation
+    && !!echo.ttsTranslateEnabled
     && !!(s.translated || '').trim()
     && ((srcLang === 'ja' && !!echo.ttsTranslateJaToEnEnabled)
       || (srcLang === 'en' && !!echo.ttsTranslateEnToJaEnabled));
   const speechText = canUseTranslated ? s.translated : s.text;
+  _updateEchoTtsPreview({rawText: s.text || '', translatedText: s.translated || ''});
   // Echoモード用TTSエンジンで再生（グローバルtts.engineを書き換えない）
   // すでに Echo で翻訳済みテキストを選んだ場合は再翻訳しない。
   ttsSpeak(speechText, {context: 'echo', engine: echo.ttsEngine, skipTranslate: canUseTranslated});

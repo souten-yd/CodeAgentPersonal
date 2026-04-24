@@ -12253,6 +12253,15 @@ async def tts_translate_text_api(req: dict = {}):
     except Exception as e:
         return {"error": str(e), "translated": text, "target_lang": "en" if src_lang == "ja" else "ja"}
     target_lang = "en" if src_lang == "ja" else "ja"
+    text_preview = text.replace("\n", "\\n")[:500]
+    translated_preview = str(translated or "").replace("\n", "\\n")[:500]
+    _style_bert_vits2_logger.info(
+        '[Echo][translate_text] input="%s" output="%s" source_lang=%s target_lang=%s',
+        text_preview,
+        translated_preview,
+        src_lang,
+        target_lang,
+    )
     return {"translated": translated, "target_lang": target_lang, "src_lang": src_lang}
 
 
@@ -12315,6 +12324,57 @@ def _style_bert_vits2_list_models() -> list[str]:
             continue
         valid_models.append(name)
     return valid_models
+
+
+def _style_bert_vits2_is_jp_extra(model_version: str | None) -> bool:
+    return "jp-extra" in str(model_version or "").strip().lower()
+
+
+def _style_bert_vits2_find_assets(model_dir: str) -> tuple[str, str, str]:
+    config_path = os.path.join(model_dir, "config.json")
+    style_vec_path = os.path.join(model_dir, "style_vectors.npy")
+    weight_path = ""
+    for root, _dirs, files in os.walk(model_dir):
+        for filename in sorted(files):
+            _, ext = os.path.splitext(filename)
+            if ext.lower() in _STYLE_BERT_VITS2_REQUIRED_WEIGHT_EXTENSIONS:
+                weight_path = os.path.join(root, filename)
+                break
+        if weight_path:
+            break
+    return config_path, style_vec_path, weight_path
+
+
+def _style_bert_vits2_describe_model(model_id: str) -> dict:
+    model_dir = os.path.join(_STYLE_BERT_VITS2_MODELS_DIR, model_id)
+    config_path, style_vec_path, weight_path = _style_bert_vits2_find_assets(model_dir)
+    config: dict = {}
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    except Exception:
+        config = {}
+    model_version = str(config.get("version") or "").strip()
+    is_jp_extra = _style_bert_vits2_is_jp_extra(model_version)
+    spk2id = config.get("spk2id") if isinstance(config.get("spk2id"), dict) else {}
+    style2id = config.get("style2id") if isinstance(config.get("style2id"), dict) else {}
+    speakers = [{"name": str(name), "id": int(idx)} for name, idx in spk2id.items()]
+    styles = [str(name) for name in style2id.keys()]
+    supported_languages = ["JP"] if is_jp_extra else ["JP", "EN", "ZH"]
+    if not model_version and not is_jp_extra:
+        supported_languages = ["JP"]
+    return {
+        "model": model_id,
+        "display_name": model_id,
+        "config_path": config_path,
+        "weight_path": weight_path,
+        "style_vec_path": style_vec_path,
+        "model_version": model_version,
+        "is_jp_extra": is_jp_extra,
+        "speakers": speakers,
+        "styles": styles,
+        "supported_languages": supported_languages,
+    }
 
 
 def _style_bert_vits2_model_has_required_assets(model_dir: str) -> bool:
@@ -12762,7 +12822,9 @@ async def _handle_style_bert_vits2_error(_request: Request, exc: StyleBertVITS2E
 
 @app.get("/api/tts/style-bert-vits2/models")
 def api_style_bert_vits2_models():
-    return {"models": _style_bert_vits2_list_models()}
+    models = _style_bert_vits2_list_models()
+    detailed = [_style_bert_vits2_describe_model(model_id) for model_id in models]
+    return {"models": models, "model_details": detailed}
 
 
 @app.post("/api/tts/style-bert-vits2/models/upload")
