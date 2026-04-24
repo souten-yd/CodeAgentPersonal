@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import base64
+import collections
 import json
 import logging
 import os
 import subprocess
 import tempfile
+import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -15,6 +18,7 @@ from .style_bert_vits2_paths import resolve_style_bert_vits2_models_dir
 _STYLE_BERT_VITS2_DEFAULT_REPO_DIR = "/app/Style-Bert-VITS2"
 _STYLE_BERT_VITS2_DEFAULT_VENV_DIR = "/app/Style-Bert-VITS2/.venv"
 _STYLE_BERT_VITS2_WEIGHT_EXTENSIONS = (".safetensors", ".pth", ".pt", ".onnx")
+_WORKER_STDERR_TAIL_LINES = 120
 _logger = logging.getLogger("style_bert_vits2")
 
 
@@ -97,7 +101,6 @@ def _pick_device(req: dict) -> str:
     requested = str(req.get("device", "")).strip().lower()
     if requested in {"cpu", "cuda", "mps"}:
         return requested
-    # Style-Bert-VITS2 は未指定時に CPU を既定にする（GPU 非搭載環境での 500 を回避）
     return "cpu"
 
 
@@ -141,7 +144,6 @@ def _normalize_sbv2_language(raw_language: str | None, model_version: str | None
     raw = (raw_language or "").strip().lower()
     version = (model_version or "").strip().lower()
 
-    # JP-Extra モデルは JP 以外を許可しない
     if "jp-extra" in version:
         return "JP"
 
@@ -152,14 +154,26 @@ def _normalize_sbv2_language(raw_language: str | None, model_version: str | None
     if raw in {"zh", "cn", "chinese", "中国語"}:
         return "ZH"
 
-    # 安全側に倒して JP
     return "JP"
 
 
 class StyleBertVITS2Runtime(TTSEngineRuntime):
     engine_key = "style_bert_vits2"
 
+    def __init__(self) -> None:
+        self._worker_lock = threading.Lock()
+        self._worker_proc: subprocess.Popen | None = None
+        self._worker_script_path: str | None = None
+        self._worker_stderr_tail: collections.deque[str] = collections.deque(maxlen=_WORKER_STDERR_TAIL_LINES)
+        self._stderr_thread: threading.Thread | None = None
+
     def load_stream(self, req: dict, *, emit):
+        try:
+            self._ensure_worker_started()
+        except Exception as e:
+            emit({"type": "error", "engine_key": self.engine_key, "detail": f"worker unavailable: {e}"})
+            return
+
         status = self.status()
         if status["available"]:
             emit({"type": "status", "engine_key": self.engine_key, "detail": "Style-Bert-VITS2 runtime ready."})
@@ -167,42 +181,32 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             emit({"type": "error", "engine_key": self.engine_key, "detail": status.get("detail") or "runtime unavailable"})
 
     def unload(self, req: dict) -> dict:
+        with self._worker_lock:
+            self._stop_worker_locked()
         return {"status": "unloaded", "engine_key": self.engine_key}
 
-    def synthesize(self, req: dict) -> tuple[bytes, str]:
-        request_id = str(req.get("request_id") or uuid.uuid4().hex[:8])
-        text = str(req.get("text", "")).strip()
-        if not text:
-            raise ValueError("text required")
-
-        py = _python_path()
-        if not os.path.isfile(py):
-            raise RuntimeError(f"Style-Bert-VITS2 python not found: {py}")
-
+    def prepare(self, req: dict | None = None) -> dict:
+        req = req or {}
+        self._ensure_worker_started()
         model = str(req.get("model", "")).strip()
-        model_path, config_path, style_vec_path = _resolve_model_paths(model)
-        device = _pick_device(req)
-        _logger.info(
-            "[Style-Bert-VITS2][synthesize:%s] start model=%s text_len=%d device=%s repo=%s venv_python=%s models_dir=%s",
-            request_id,
-            model,
-            len(text),
-            device,
-            _repo_dir(),
-            py,
-            _models_dir(),
-        )
+        if not model:
+            return {"status": "ready", "engine_key": self.engine_key, "preloaded": False}
+        preload_payload = self._build_payload(req, model=model, text="事前ロード")
+        result = self._send_to_worker(preload_payload)
+        return {"status": "ready", "engine_key": self.engine_key, "preloaded": bool(result.get("ok"))}
 
+    def _build_payload(self, req: dict, *, model: str, text: str) -> dict:
+        model_path, config_path, style_vec_path = _resolve_model_paths(model)
         requested_language = str(req.get("language", "")).strip() or None
         normalized_language = _normalize_sbv2_language(requested_language)
-
-        payload = {
+        return {
             "text": text,
+            "model_name": model,
             "model_path": model_path,
             "config_path": config_path,
             "style_vec_path": style_vec_path,
             "out_path": str(req.get("out_path", "")).strip() or None,
-            "device": device,
+            "device": _pick_device(req),
             "speaker_id": _to_optional_int(req.get("speaker_id"), 0),
             "speaker": str(req.get("speaker_name", "")).strip() or str(req.get("speaker", "")).strip() or None,
             "style": str(req.get("style", "")).strip() or "Neutral",
@@ -219,20 +223,53 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "normalized_language": normalized_language,
         }
 
-        _logger.info(
-            "[Style-Bert-VITS2][synthesize:%s] payload path types model=%s config=%s style=%s",
-            request_id,
-            type(payload.get("model_path")).__name__,
-            type(payload.get("config_path")).__name__,
-            type(payload.get("style_vec_path")).__name__,
-        )
+    def _stderr_reader(self, stderr_pipe) -> None:
+        try:
+            while True:
+                line = stderr_pipe.readline()
+                if not line:
+                    break
+                self._worker_stderr_tail.append(line.rstrip("\n"))
+        except Exception:
+            pass
 
-        worker_code = r'''
+    def _stop_worker_locked(self) -> None:
+        proc = self._worker_proc
+        self._worker_proc = None
+        if proc is None:
+            return
+
+        try:
+            if proc.stdin:
+                proc.stdin.close()
+        except Exception:
+            pass
+
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+        if self._worker_script_path:
+            try:
+                os.remove(self._worker_script_path)
+            except OSError:
+                pass
+            self._worker_script_path = None
+
+    @staticmethod
+    def _worker_code() -> str:
+        return r'''
 import base64
 import io
 import inspect
 import json
 import traceback
+import warnings
 import wave
 from pathlib import Path
 
@@ -240,52 +277,37 @@ import numpy as np
 from style_bert_vits2.constants import Languages
 from style_bert_vits2.tts_model import TTSModel
 
-req = json.loads(input())
-try:
+warnings.filterwarnings("ignore", category=FutureWarning, module="torch.nn.utils.weight_norm")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="pyopenjtalk")
+
+loaded_model = None
+loaded_signature = None
+
+
+def synth(req: dict) -> dict:
+    global loaded_model, loaded_signature
     model_path = Path(req["model_path"])
     config_path = Path(req["config_path"])
     style_vec_path = Path(req["style_vec_path"])
+    device = req.get("device", "cpu")
+    signature = (str(model_path), str(config_path), str(style_vec_path), str(device))
+
+    if loaded_model is None or loaded_signature != signature:
+        loaded_model = TTSModel(
+            model_path=model_path,
+            config_path=config_path,
+            style_vec_path=style_vec_path,
+            device=device,
+        )
+        loaded_signature = signature
+
     out_path = Path(req["out_path"]) if req.get("out_path") else None
-
-    path_errors = []
-    if not model_path.exists():
-        path_errors.append(f"model_path missing: {model_path} (type={type(req.get('model_path')).__name__})")
-    if model_path.exists() and model_path.suffix.lower() not in {".safetensors", ".onnx", ".pth", ".pt"}:
-        path_errors.append(f"model_path suffix invalid: {model_path.suffix!r} path={model_path}")
-    if not config_path.exists():
-        path_errors.append(f"config_path missing: {config_path} (type={type(req.get('config_path')).__name__})")
-    if not style_vec_path.exists():
-        path_errors.append(f"style_vec_path missing: {style_vec_path} (type={type(req.get('style_vec_path')).__name__})")
-    if path_errors:
-        raise FileNotFoundError(" | ".join(path_errors))
-
-    model = TTSModel(
-        model_path=model_path,
-        config_path=config_path,
-        style_vec_path=style_vec_path,
-        device=req.get("device", "cuda"),
-    )
-    hp = getattr(model, "hyper_parameters", None)
-    model_version = ""
-    if hp is not None:
-        model_version = str(getattr(hp, "version", "") or "")
+    hp = getattr(loaded_model, "hyper_parameters", None)
+    model_version = str(getattr(hp, "version", "") or "")
     is_jp_extra = "jp-extra" in model_version.lower()
 
-    line_split_raw = req.get("line_split", True)
-    if isinstance(line_split_raw, str):
-        line_split = line_split_raw.strip().lower() in {"1", "true", "yes", "on"}
-    else:
-        line_split = bool(line_split_raw)
-
-    requested_language = req.get("requested_language")
-    normalized_language = req.get("normalized_language") or "JP"
-    language_map = {
-        "JP": Languages.JP,
-        "EN": Languages.EN,
-        "ZH": Languages.ZH,
-    }
-    language = language_map.get(str(normalized_language).strip().upper(), Languages.JP)
-    # 安全策: JP-Extra は必ず JP
+    language_map = {"JP": Languages.JP, "EN": Languages.EN, "ZH": Languages.ZH}
+    language = language_map.get(str(req.get("normalized_language") or "JP").strip().upper(), Languages.JP)
     if is_jp_extra:
         language = Languages.JP
 
@@ -298,14 +320,14 @@ try:
         "noise": float(req.get("noise", 0.6)),
         "noise_w": float(req.get("noise_w", 0.8)),
         "length": float(req.get("length", 1.0)),
-        "line_split": line_split,
+        "line_split": bool(req.get("line_split", True)),
         "split_interval": float(req.get("split_interval", 0.5)),
     }
     if req.get("assist_text"):
         kwargs["assist_text"] = req["assist_text"]
         kwargs["assist_text_weight"] = float(req.get("assist_text_weight", 1.0))
 
-    infer_signature = inspect.signature(model.infer)
+    infer_signature = inspect.signature(loaded_model.infer)
     infer_params = set(infer_signature.parameters.keys())
     if "language" not in infer_params:
         kwargs.pop("language", None)
@@ -319,14 +341,14 @@ try:
     elif "speaker_id" in infer_params:
         kwargs["speaker_id"] = int(req.get("speaker_id", 0))
 
-    infer_result = model.infer(**kwargs)
+    infer_result = loaded_model.infer(**kwargs)
     if isinstance(infer_result, tuple) and len(infer_result) == 2:
         sample_rate, audio = infer_result
     else:
         audio = infer_result
-        hp = getattr(model, "hyper_parameters", None)
         data = getattr(hp, "data", None)
         sample_rate = getattr(data, "sampling_rate", None) or 44100
+
     audio_arr = np.asarray(audio)
     if audio_arr.dtype != np.int16:
         audio_arr = np.clip(audio_arr, -32768, 32767).astype(np.int16)
@@ -342,89 +364,113 @@ try:
     if out_path is not None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(wav_bytes)
-    print(json.dumps({"ok": True, "audio_b64": base64.b64encode(wav_bytes).decode("ascii")}))
-except Exception as e:
-    print(json.dumps({
-        "ok": False,
-        "error": f"{type(e).__name__}: {e}",
-        "traceback": traceback.format_exc(),
-        "requested_language": req.get("requested_language"),
-        "normalized_language": req.get("normalized_language"),
-        "model_path": req.get("model_path"),
-        "config_path": req.get("config_path"),
-        "model_version": model_version if "model_version" in locals() else "",
-        "is_jp_extra": is_jp_extra if "is_jp_extra" in locals() else False,
-    }))
+
+    return {
+        "ok": True,
+        "audio_b64": base64.b64encode(wav_bytes).decode("ascii"),
+        "sample_rate": int(sample_rate),
+        "device": str(device),
+        "model_name": str(req.get("model_name", "")),
+    }
+
+
+while True:
+    try:
+        line = input()
+    except EOFError:
+        break
+    req = json.loads(line)
+    try:
+        print(json.dumps(synth(req), ensure_ascii=False), flush=True)
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()}, ensure_ascii=False), flush=True)
 '''
 
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".py", delete=False) as tf:
-            tf.write(worker_code)
-            script_path = tf.name
+    def _ensure_worker_started(self) -> None:
+        with self._worker_lock:
+            if self._worker_proc and self._worker_proc.poll() is None:
+                return
+            self._stop_worker_locked()
 
-        try:
-            proc = subprocess.run(
-                [py, script_path],
-                input=json.dumps(payload, ensure_ascii=False),
-                capture_output=True,
+            py = _python_path()
+            if not os.path.isfile(py):
+                raise RuntimeError(f"Style-Bert-VITS2 python not found: {py}")
+
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".py", delete=False) as tf:
+                tf.write(self._worker_code())
+                self._worker_script_path = tf.name
+
+            self._worker_proc = subprocess.Popen(
+                [py, self._worker_script_path],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                check=False,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
             )
-        finally:
-            try:
-                os.remove(script_path)
-            except OSError:
-                pass
+            if self._worker_proc.stderr:
+                self._stderr_thread = threading.Thread(target=self._stderr_reader, args=(self._worker_proc.stderr,), daemon=True)
+                self._stderr_thread.start()
 
+    def _send_to_worker(self, payload: dict) -> dict:
+        self._ensure_worker_started()
+        with self._worker_lock:
+            proc = self._worker_proc
+            if proc is None or proc.stdin is None or proc.stdout is None:
+                raise RuntimeError("Style-Bert-VITS2 worker unavailable")
+            proc.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            proc.stdin.flush()
+            line = proc.stdout.readline()
+            if not line:
+                stderr_tail = "\n".join(self._worker_stderr_tail)
+                raise RuntimeError(f"Style-Bert-VITS2 worker returned no output.\n{stderr_tail}")
+            return json.loads(line)
+
+    def synthesize(self, req: dict) -> tuple[bytes, str]:
+        request_id = str(req.get("request_id") or uuid.uuid4().hex[:8])
+        started = time.perf_counter()
+        text = str(req.get("text", "")).strip()
+        if not text:
+            raise ValueError("text required")
+
+        model = str(req.get("model", "")).strip()
+        device = _pick_device(req)
         _logger.info(
-            "[Style-Bert-VITS2][synthesize:%s] worker_exit code=%s stdout_lines=%d stderr_lines=%d",
+            "[Style-Bert-VITS2][synthesize:%s] start model=%s text_len=%d device=%s repo=%s venv_python=%s models_dir=%s",
             request_id,
-            proc.returncode,
-            len((proc.stdout or "").splitlines()),
-            len((proc.stderr or "").splitlines()),
+            model,
+            len(text),
+            device,
+            _repo_dir(),
+            _python_path(),
+            _models_dir(),
         )
-        if proc.stdout:
-            _logger.info("[Style-Bert-VITS2][synthesize:%s] worker_stdout_tail:\n%s", request_id, "\n".join((proc.stdout or "").splitlines()[-40:]))
-        if proc.stderr:
-            _logger.error("[Style-Bert-VITS2][synthesize:%s] worker_stderr_tail:\n%s", request_id, "\n".join((proc.stderr or "").splitlines()[-40:]))
 
-        if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout or "").strip()
-            raise RuntimeError(f"Style-Bert-VITS2 worker failed (code={proc.returncode}): {detail}")
-
-        output_raw = (proc.stdout or "").strip().splitlines()
-        if not output_raw:
-            raise RuntimeError("Style-Bert-VITS2 worker returned no output")
-
-        try:
-            output = json.loads(output_raw[-1])
-        except Exception as e:
-            raise RuntimeError(f"Style-Bert-VITS2 worker invalid output: {output_raw[-1]} ({e})")
-
+        payload = self._build_payload(req, model=model, text=text)
+        output = self._send_to_worker(payload)
         if not output.get("ok"):
             err = output.get("error") or "unknown error"
-            tb = output.get("traceback") or ""
-            _logger.error(
-                "[Style-Bert-VITS2][synthesize:%s] worker_error requested_language=%r normalized_language=%r model_path=%s config_path=%s model_version=%r is_jp_extra=%s",
-                request_id,
-                output.get("requested_language"),
-                output.get("normalized_language"),
-                output.get("model_path"),
-                output.get("config_path"),
-                output.get("model_version"),
-                output.get("is_jp_extra"),
-            )
-            raise RuntimeError(f"Style-Bert-VITS2 synth failed: {err}\n{tb}")
+            raise RuntimeError(f"Style-Bert-VITS2 synth failed: {err}\n{output.get('traceback', '')}")
 
         b64 = output.get("audio_b64")
         if not b64:
             raise RuntimeError("Style-Bert-VITS2 synth failed: empty audio payload")
+
+        audio_bytes = base64.b64decode(b64)
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
         _logger.info(
-            "[Style-Bert-VITS2][synthesize:%s] success bytes=%d model=%s",
+            "[Style-Bert-VITS2][synthesize] synthesize_id=%s model_name=%s text_length=%d elapsed_ms=%d output_bytes=%d sample_rate=%s device=%s",
             request_id,
-            len(b64),
-            model,
+            output.get("model_name") or model,
+            len(text),
+            elapsed_ms,
+            len(audio_bytes),
+            output.get("sample_rate") or "unknown",
+            output.get("device") or device,
         )
-        return base64.b64decode(b64), "audio/wav"
+        return audio_bytes, "audio/wav"
 
     async def voices(self, req: dict) -> dict:
         model = str(req.get("model", "")).strip()
@@ -476,4 +522,5 @@ except Exception as e:
             "venv_python": py,
             "models_dir": models,
             "detail": detail,
+            "worker_running": bool(self._worker_proc and self._worker_proc.poll() is None),
         }

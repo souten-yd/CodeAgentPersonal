@@ -12500,6 +12500,8 @@ def _style_bert_vits2_runtime_importable() -> tuple[bool, str]:
             [python_path, "-c", "import style_bert_vits2"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
     except Exception as e:
@@ -12590,6 +12592,8 @@ def api_style_bert_vits2_prepare():
                         check=True,
                         capture_output=True,
                         text=True,
+                        encoding="utf-8",
+                        errors="replace",
                         env=initialize_env,
                         timeout=900,
                     )
@@ -12682,6 +12686,24 @@ def api_style_bert_vits2_prepare():
             and status["init_flag_exists"]
             and status.get("models_ready", False)
         )
+        if status["ready"]:
+            try:
+                runtime = _tts_engine_registry.get(raw_engine_key="style_bert_vits2")
+                if hasattr(runtime, "prepare"):
+                    preload_model = status["models"][0] if status.get("models") else ""
+                    preload_result = runtime.prepare({"model": preload_model} if preload_model else {})
+                    _style_bert_vits2_logger.info(
+                        "[Style-Bert-VITS2][prepare:%s] worker_prepare result=%s",
+                        prepare_id,
+                        preload_result,
+                    )
+            except Exception as preload_error:
+                _style_bert_vits2_logger.warning(
+                    "[Style-Bert-VITS2][prepare:%s] worker prepare skipped: %s",
+                    prepare_id,
+                    preload_error,
+                )
+
         _style_bert_vits2_logger.info(
             "[Style-Bert-VITS2][prepare:%s] done ready=%s initialized_now=%s action=%s",
             prepare_id,
