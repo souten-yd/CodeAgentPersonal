@@ -471,18 +471,28 @@ while True:
                 self._stderr_thread.start()
 
     def _send_to_worker(self, payload: dict) -> dict:
-        self._ensure_worker_started()
-        with self._worker_lock:
-            proc = self._worker_proc
-            if proc is None or proc.stdin is None or proc.stdout is None:
-                raise RuntimeError("Style-Bert-VITS2 worker unavailable")
-            proc.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
-            proc.stdin.flush()
-            line = proc.stdout.readline()
-            if not line:
-                stderr_tail = "\n".join(self._worker_stderr_tail)
-                raise RuntimeError(f"Style-Bert-VITS2 worker returned no output.\n{stderr_tail}")
-            return json.loads(line)
+        def _send_once() -> dict:
+            self._ensure_worker_started()
+            with self._worker_lock:
+                proc = self._worker_proc
+                if proc is None or proc.stdin is None or proc.stdout is None:
+                    raise RuntimeError("Style-Bert-VITS2 worker unavailable")
+                proc.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                proc.stdin.flush()
+                line = proc.stdout.readline()
+                if not line:
+                    stderr_tail = "\n".join(self._worker_stderr_tail)
+                    raise RuntimeError(f"Style-Bert-VITS2 worker returned no output.\n{stderr_tail}")
+                return json.loads(line)
+
+        try:
+            return _send_once()
+        except Exception:
+            with self._worker_lock:
+                self._stop_worker_locked()
+            self._ensure_worker_started()
+            _logger.warning("[Style-Bert-VITS2] worker_restart=true cache_hit=false retry=1")
+            return _send_once()
 
     def synthesize(self, req: dict) -> tuple[bytes, str]:
         request_id = str(req.get("request_id") or uuid.uuid4().hex[:8])
