@@ -137,6 +137,25 @@ def _to_optional_bool(v, default: bool | None = None) -> bool | None:
         return default
 
 
+def _normalize_sbv2_language(raw_language: str | None, model_version: str | None = None) -> str:
+    raw = (raw_language or "").strip().lower()
+    version = (model_version or "").strip().lower()
+
+    # JP-Extra モデルは JP 以外を許可しない
+    if "jp-extra" in version:
+        return "JP"
+
+    if raw in {"", "auto", "ja", "jp", "jpn", "japanese", "日本語", "jp-extra"}:
+        return "JP"
+    if raw in {"en", "eng", "english"}:
+        return "EN"
+    if raw in {"zh", "cn", "chinese", "中国語"}:
+        return "ZH"
+
+    # 安全側に倒して JP
+    return "JP"
+
+
 class StyleBertVITS2Runtime(TTSEngineRuntime):
     engine_key = "style_bert_vits2"
 
@@ -174,6 +193,9 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             _models_dir(),
         )
 
+        requested_language = str(req.get("language", "")).strip() or None
+        normalized_language = _normalize_sbv2_language(requested_language)
+
         payload = {
             "text": text,
             "model_path": model_path,
@@ -193,7 +215,8 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "split_interval": _to_optional_float(req.get("split_interval"), 0.5),
             "assist_text": str(req.get("assist_text", "")).strip() or None,
             "assist_text_weight": _to_optional_float(req.get("assist_text_weight"), 1.0),
-            "language": str(req.get("language", "")).strip() or None,
+            "requested_language": requested_language,
+            "normalized_language": normalized_language,
         }
 
         _logger.info(
@@ -214,6 +237,7 @@ import wave
 from pathlib import Path
 
 import numpy as np
+from style_bert_vits2.constants import Languages
 from style_bert_vits2.tts_model import TTSModel
 
 req = json.loads(input())
@@ -241,14 +265,33 @@ try:
         style_vec_path=style_vec_path,
         device=req.get("device", "cuda"),
     )
+    hp = getattr(model, "hyper_parameters", None)
+    model_version = ""
+    if hp is not None:
+        model_version = str(getattr(hp, "version", "") or "")
+    is_jp_extra = "jp-extra" in model_version.lower()
+
     line_split_raw = req.get("line_split", True)
     if isinstance(line_split_raw, str):
         line_split = line_split_raw.strip().lower() in {"1", "true", "yes", "on"}
     else:
         line_split = bool(line_split_raw)
 
+    requested_language = req.get("requested_language")
+    normalized_language = req.get("normalized_language") or "JP"
+    language_map = {
+        "JP": Languages.JP,
+        "EN": Languages.EN,
+        "ZH": Languages.ZH,
+    }
+    language = language_map.get(str(normalized_language).strip().upper(), Languages.JP)
+    # 安全策: JP-Extra は必ず JP
+    if is_jp_extra:
+        language = Languages.JP
+
     kwargs = {
         "text": req["text"],
+        "language": language,
         "style": req.get("style") or "Neutral",
         "style_weight": float(req.get("style_weight", 1.0)),
         "sdp_ratio": float(req.get("sdp_ratio", 0.2)),
@@ -261,11 +304,11 @@ try:
     if req.get("assist_text"):
         kwargs["assist_text"] = req["assist_text"]
         kwargs["assist_text_weight"] = float(req.get("assist_text_weight", 1.0))
-    if req.get("language") and "language" in inspect.signature(model.infer).parameters:
-        kwargs["language"] = req["language"]
 
     infer_signature = inspect.signature(model.infer)
     infer_params = set(infer_signature.parameters.keys())
+    if "language" not in infer_params:
+        kwargs.pop("language", None)
 
     speaker = req.get("speaker")
     if speaker:
@@ -301,7 +344,17 @@ try:
         out_path.write_bytes(wav_bytes)
     print(json.dumps({"ok": True, "audio_b64": base64.b64encode(wav_bytes).decode("ascii")}))
 except Exception as e:
-    print(json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()}))
+    print(json.dumps({
+        "ok": False,
+        "error": f"{type(e).__name__}: {e}",
+        "traceback": traceback.format_exc(),
+        "requested_language": req.get("requested_language"),
+        "normalized_language": req.get("normalized_language"),
+        "model_path": req.get("model_path"),
+        "config_path": req.get("config_path"),
+        "model_version": model_version if "model_version" in locals() else "",
+        "is_jp_extra": is_jp_extra if "is_jp_extra" in locals() else False,
+    }))
 '''
 
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".py", delete=False) as tf:
@@ -350,6 +403,16 @@ except Exception as e:
         if not output.get("ok"):
             err = output.get("error") or "unknown error"
             tb = output.get("traceback") or ""
+            _logger.error(
+                "[Style-Bert-VITS2][synthesize:%s] worker_error requested_language=%r normalized_language=%r model_path=%s config_path=%s model_version=%r is_jp_extra=%s",
+                request_id,
+                output.get("requested_language"),
+                output.get("normalized_language"),
+                output.get("model_path"),
+                output.get("config_path"),
+                output.get("model_version"),
+                output.get("is_jp_extra"),
+            )
             raise RuntimeError(f"Style-Bert-VITS2 synth failed: {err}\n{tb}")
 
         b64 = output.get("audio_b64")
