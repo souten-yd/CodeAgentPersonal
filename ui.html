@@ -1941,6 +1941,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               style="padding:4px 10px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">再読込</button>
           </div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <button onclick="runStyleBertVits2InitialSetup('echo')" id="tsasr-style-bert-vits2-setup-btn"
+              style="padding:4px 10px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">初期設定</button>
             <label style="cursor:pointer;font-size:10px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;color:var(--text2)">
               ZIPアップロード
               <input type="file" id="tsasr-style-bert-vits2-zip" accept=".zip,application/zip" style="display:none" onchange="uploadStyleBertVits2ModelZip(this, 'echo')">
@@ -3829,6 +3831,27 @@ async function _ensureStyleBertVits2Prepared({force = false, context = 'echo'} =
     }
   })();
   return _styleBertVits2PrepareState.inFlight;
+}
+
+async function runStyleBertVits2InitialSetup(context = 'echo') {
+  const statusEl = document.getElementById('tsasr-style-bert-vits2-status');
+  const setupBtn = document.getElementById('tsasr-style-bert-vits2-setup-btn');
+  const wasPrepared = !!_styleBertVits2PrepareState.prepared;
+  if (setupBtn) setupBtn.disabled = true;
+  let ready = false;
+  if (statusEl) statusEl.textContent = '初期セットアップ中...';
+  try {
+    ready = await _ensureStyleBertVits2Prepared({force: false, context});
+  } catch (_e) {
+    ready = false;
+  } finally {
+    await refreshStyleBertVits2Models(context);
+    if (setupBtn) setupBtn.disabled = false;
+  }
+  if (statusEl) {
+    statusEl.textContent = ready ? (wasPrepared ? '初期セットアップ済み' : '初期セットアップ完了') : '初期設定に失敗しました。時間をおいて再試行してください。';
+  }
+  return ready;
 }
 
 async function uploadStyleBertVits2ModelZip(input, context = 'echo') {
