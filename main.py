@@ -4113,6 +4113,8 @@ SETTINGS_DEFAULTS = {
     "ensemble_auto_switch_on_low_vram": "true",
     "gpu_static_backend": "auto",
     "gpu_usage_backend": "auto",
+    "echo_tts_use_translation": "false",
+    "sbv2_jp_extra_non_japanese_policy": "block",
 }
 for _role in MODEL_ROLE_OPTIONS:
     SETTINGS_DEFAULTS.setdefault(_role_setting_key(_role), "")
@@ -12360,6 +12362,8 @@ def _style_bert_vits2_describe_model(model_id: str) -> dict:
     style2id = config.get("style2id") if isinstance(config.get("style2id"), dict) else {}
     speakers = [{"name": str(name), "id": int(idx)} for name, idx in spk2id.items()]
     styles = [str(name) for name in style2id.keys()]
+    default_style = styles[0] if styles else "Neutral"
+    default_speaker_id = speakers[0]["id"] if speakers else 0
     supported_languages = ["JP"] if is_jp_extra else ["JP", "EN", "ZH"]
     if not model_version and not is_jp_extra:
         supported_languages = ["JP"]
@@ -12373,6 +12377,8 @@ def _style_bert_vits2_describe_model(model_id: str) -> dict:
         "is_jp_extra": is_jp_extra,
         "speakers": speakers,
         "styles": styles,
+        "default_style": default_style,
+        "default_speaker_id": default_speaker_id,
         "supported_languages": supported_languages,
     }
 
@@ -12947,6 +12953,21 @@ def tts_synthesize_api(req: dict):
         )
     except ValueError as e:
         error_message = str(e)
+        try:
+            err_payload = json.loads(error_message)
+        except Exception:
+            err_payload = None
+        if isinstance(err_payload, dict) and int(err_payload.get("status_code") or 0) == 422:
+            _style_bert_vits2_logger.warning("[TTS][synthesize:%s] unprocessable_entity: %s", request_id, err_payload.get("error"))
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": err_payload.get("error") or "Unprocessable TTS input",
+                    "text_preview": err_payload.get("text_preview") or "",
+                    "effective_language": err_payload.get("effective_language") or "JP",
+                    "model_version": err_payload.get("model_version") or "",
+                },
+            )
         if "worker protocol error" in error_message.lower():
             _style_bert_vits2_logger.error("[TTS][synthesize:%s] worker_protocol_error: %s", request_id, e)
             raise HTTPException(status_code=500, detail=error_message)

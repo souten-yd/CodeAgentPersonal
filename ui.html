@@ -1826,6 +1826,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             onchange="saveEchoSettings()">
             <option value="webspeech">Web Speech API（ブラウザ内蔵）</option>
             <option value="edgetts">Edge TTS（クラウド）</option>
+            <option value="voicevox">VOICEVOX</option>
             <option value="qwen3tts" selected>Qwen3 TTS（高品質・ローカル）</option>
             <option value="style_bert_vits2">Style-Bert-VITS2</option>
           </select>
@@ -1974,6 +1975,41 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <span style="font-size:11px;color:var(--text2)" id="echo-tts-use-translation-label">OFF</span>
             </label>
           </div>
+          <div style="margin-top:8px">
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS text source</div>
+            <select id="echo-tts-text-source"
+              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+              onchange="saveEchoSettings()">
+              <option value="raw" selected>Raw text</option>
+              <option value="translated">Translated text</option>
+            </select>
+          </div>
+          <div style="margin-top:8px">
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">JP-Extra non-Japanese policy</div>
+            <select id="echo-tts-sbv2-non-japanese-policy"
+              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+              onchange="saveEchoSettings()">
+              <option value="block" selected>Block</option>
+              <option value="warn">Warn</option>
+              <option value="allow">Allow</option>
+            </select>
+          </div>
+          <details style="margin-top:8px">
+            <summary style="cursor:pointer;font-size:11px;color:var(--text2);font-weight:700">Advanced parameters</summary>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px">
+              <input id="echo-tts-sbv2-length" type="number" step="0.01" min="0.2" max="3.0" placeholder="length" onchange="saveEchoSettings()">
+              <input id="echo-tts-sbv2-sdp-ratio" type="number" step="0.01" min="0" max="1" placeholder="sdp_ratio" onchange="saveEchoSettings()">
+              <input id="echo-tts-sbv2-noise" type="number" step="0.01" min="0" max="2" placeholder="noise" onchange="saveEchoSettings()">
+              <input id="echo-tts-sbv2-noise-w" type="number" step="0.01" min="0" max="2" placeholder="noise_w" onchange="saveEchoSettings()">
+              <input id="echo-tts-sbv2-style-weight" type="number" step="0.01" min="0" max="20" placeholder="style_weight" onchange="saveEchoSettings()">
+              <input id="echo-tts-sbv2-split-interval" type="number" step="0.01" min="0" max="5" placeholder="split_interval" onchange="saveEchoSettings()">
+              <input id="echo-tts-sbv2-pitch-scale" type="number" step="0.01" min="0.5" max="2.0" placeholder="pitch_scale" onchange="saveEchoSettings()">
+              <input id="echo-tts-sbv2-intonation-scale" type="number" step="0.01" min="0.5" max="2.0" placeholder="intonation_scale" onchange="saveEchoSettings()">
+            </div>
+            <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:var(--text2)">
+              <input type="checkbox" id="echo-tts-sbv2-line-split" onchange="saveEchoSettings()"> line_split
+            </label>
+          </details>
           <div style="margin-top:8px;padding:6px;border:1px dashed var(--border);border-radius:4px;background:var(--bg)">
             <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS入力プレビュー</div>
             <div id="echo-tts-preview-source" style="font-size:10px;color:var(--text3)">TTS text source: raw</div>
@@ -2470,130 +2506,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
       </div>
 
-      <!-- TTS 読み上げ設定 -->
-      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔊 TTS (読み上げ)</div>
-      <div style="padding:4px 0 14px">
-        <!-- ON/OFF トグル -->
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div>
-            <div style="font-size:11px;font-weight:700;color:var(--text2)">TTS 読み上げ</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:2px">アシスタントの返答を音声で読み上げ</div>
-          </div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="tts-enable-chk"
-              style="width:14px;height:14px;accent-color:var(--accent)"
-              onchange="saveTtsSettings()">
-            <span style="font-size:11px;color:var(--text2)" id="tts-enable-label">OFF</span>
-          </label>
-        </div>
-        <!-- 自動読み上げ トグル -->
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div>
-            <div style="font-size:11px;font-weight:700;color:var(--text2)">自動読み上げ</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:2px">返答完了時に自動で読み上げ開始</div>
-          </div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="tts-auto-chk"
-              style="width:14px;height:14px;accent-color:var(--accent)"
-              onchange="saveTtsSettings()">
-            <span style="font-size:11px;color:var(--text2)" id="tts-auto-label">OFF</span>
-          </label>
-        </div>
-        <!-- エンジン選択 -->
-        <div style="margin-bottom:8px">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">エンジン</div>
-          <select id="tts-engine-sel"
-            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
-            onchange="onTtsEngineChange()">
-            <option value="webspeech">Web Speech API（ブラウザ内蔵・設定不要）</option>
-            <option value="edgetts">Edge TTS（高品質・クラウド・要ネット）</option>
-            <option value="qwen3tts" selected>Qwen3 TTS（高品質・ローカルLLM型）</option>
-            <option value="style_bert_vits2">Style-Bert-VITS2</option>
-          </select>
-          <div id="tts-engine-note" style="font-size:10px;color:var(--text3);margin-top:3px"></div>
-        </div>
-        <!-- 話者/音声 選択 -->
-        <div style="margin-bottom:8px" id="tts-voice-row">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">話者 / 音声</div>
-          <select id="tts-voice-sel"
-            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
-            onchange="saveTtsSettings()">
-            <option value="">（デフォルト）</option>
-          </select>
-        </div>
-        <!-- Qwen3 モデル選択（Qwen3選択時のみ表示） -->
-        <div style="margin-bottom:8px;display:none" id="tts-qwen3-row">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Qwen3 モデル</div>
-          <select id="tts-qwen3-model-sel"
-            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
-            onchange="saveTtsSettings()">
-            <option value="Qwen/Qwen3-TTS-12Hz-1.7B-Base" selected>Qwen3-TTS 1.7B Base（高品質）</option>
-            <option value="Qwen/Qwen3-TTS-12Hz-0.6B-Base">Qwen3-TTS 0.6B Base（速度優先）</option>
-          </select>
-        </div>
-        <!-- デバイス選択（VOICEVOX/Qwen3選択時のみ表示） -->
-        <div style="margin-bottom:8px;display:none" id="tts-device-row">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">デバイス</div>
-          <div style="display:flex;gap:14px">
-            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
-              <input type="radio" name="tts-device" value="cpu" style="accent-color:var(--accent)"> CPU
-            </label>
-            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
-              <input type="radio" name="tts-device" value="cuda" checked style="accent-color:var(--accent)"> GPU (CUDA)
-            </label>
-          </div>
-          <div style="font-size:10px;color:var(--text3);margin-top:3px">デバイス変更は次のロード時に適用されます</div>
-        </div>
-        <!-- 速度スライダー -->
-        <div style="margin-bottom:8px">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">読み上げ速度</div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <input type="range" id="tts-speed-slider" min="0.5" max="2.0" step="0.1" value="1.0"
-              style="flex:1;accent-color:var(--accent);cursor:pointer"
-              oninput="document.getElementById('tts-speed-lbl').textContent=parseFloat(this.value).toFixed(1)+'x'"
-              onchange="saveTtsSettings()">
-            <span id="tts-speed-lbl" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:36px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <!-- VOICEVOX / Qwen3 ロード・アンロードボタン -->
-        <div id="tts-engine-load-row" style="display:none;margin-bottom:8px">
-          <!-- VOICEVOX URL設定 (VOICEVOX選択時のみ表示) -->
-          <div id="tts-voicevox-url-row" style="display:none;margin-bottom:6px">
-            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:3px">VOICEVOX URL</div>
-            <input id="tts-voicevox-url" type="text" value="http://localhost:50021"
-              placeholder="http://localhost:50021"
-              style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);box-sizing:border-box"
-              onchange="saveTtsSettings()">
-            <div style="font-size:10px;color:var(--text3);margin-top:3px;line-height:1.6">
-              Docker: <code style="background:var(--bg3);padding:1px 4px;border-radius:2px;font-size:9px">docker run -d -p 50021:50021 voicevox/voicevox_engine:cpu-ubuntu20.04-latest</code>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <button onclick="loadTtsEngine()" id="tts-engine-load-btn"
-              style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">
-              接続テスト / ロード
-            </button>
-            <button onclick="unloadTtsEngine()" id="tts-unload-btn"
-              style="display:none;padding:5px 12px;font-size:11px;font-weight:700;background:var(--border);border:none;border-radius:4px;color:var(--text2);cursor:pointer">
-              アンロード
-            </button>
-            <span id="tts-voicevox-status" style="font-size:10px;color:var(--text3)">未接続</span>
-          </div>
-        </div>
-        <!-- Qwen3 TTS ロードボタン（メインTTS） -->
-        <div id="tts-qwen3-load-row" style="display:none;margin-bottom:8px">
-          <div style="font-size:10px;color:var(--text3);margin-bottom:5px;line-height:1.6">
-            初回は Qwen3 TTS モデル（Qwen/Qwen3-TTS）のダウンロードが必要です（約2GB）。<br>
-            <code style="background:var(--bg3);padding:1px 4px;border-radius:2px">pip install transformers torch torchaudio soundfile</code> が必要です。
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <button onclick="loadQwen3Tts('main')" id="tts-qwen3-load-btn"
-              style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">
-              Qwen3 TTS をロード
-            </button>
-            <span id="tts-qwen3-status" style="font-size:10px;color:var(--text3)">未ロード</span>
-          </div>
-        </div>
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔊 TTS</div>
+      <div style="padding:4px 0 14px;font-size:11px;color:var(--text3);line-height:1.7">
+        TTS 設定は Settings モーダルから削除されました。<br>
+        Echo の <strong style="color:var(--accent)">TTS タブ</strong> で管理してください。
       </div>
 
       <!-- ── Echo Mode 設定 ── -->
@@ -2922,7 +2838,7 @@ const tts = {
   _audio:       null,
   _utt:         null,
 };
-const _SUPPORTED_TTS_ENGINES = new Set(['webspeech', 'edgetts', 'qwen3tts', 'style_bert_vits2']);
+const _SUPPORTED_TTS_ENGINES = new Set(['webspeech', 'edgetts', 'qwen3tts', 'style_bert_vits2', 'voicevox']);
 const _TTS_ENGINE_COMPAT_ALIASES = {
   qwen3_tts: 'qwen3tts',
   stylebertvits2: 'style_bert_vits2',
@@ -3033,6 +2949,19 @@ const echo = {
     return ['AUTO', 'JP', 'EN', 'ZH'].includes(normalized) ? (normalized === 'AUTO' ? 'auto' : normalized) : 'JP';
   })(),
   ttsUseTranslation: localStorage.getItem('echo_tts_use_translation') === 'true',
+  ttsTextSource: (localStorage.getItem('echo_tts_text_source') || 'raw') === 'translated' ? 'translated' : 'raw',
+  sbv2NonJapanesePolicy: ['block', 'warn', 'allow'].includes((localStorage.getItem('sbv2_jp_extra_non_japanese_policy') || '').toLowerCase())
+    ? (localStorage.getItem('sbv2_jp_extra_non_japanese_policy') || '').toLowerCase()
+    : 'block',
+  sbv2Length: _numOr(localStorage.getItem('echo_sbv2_length'), 1.0),
+  sbv2SdpRatio: _numOr(localStorage.getItem('echo_sbv2_sdp_ratio'), 0.2),
+  sbv2Noise: _numOr(localStorage.getItem('echo_sbv2_noise'), 0.6),
+  sbv2NoiseW: _numOr(localStorage.getItem('echo_sbv2_noise_w'), 0.8),
+  sbv2StyleWeight: _numOr(localStorage.getItem('echo_sbv2_style_weight'), 1.0),
+  sbv2SplitInterval: _numOr(localStorage.getItem('echo_sbv2_split_interval'), 0.5),
+  sbv2LineSplit: localStorage.getItem('echo_sbv2_line_split') !== 'false',
+  sbv2PitchScale: _numOr(localStorage.getItem('echo_sbv2_pitch_scale'), 1.0),
+  sbv2IntonationScale: _numOr(localStorage.getItem('echo_sbv2_intonation_scale'), 1.0),
   autoGenerateMinutes: localStorage.getItem('echo_auto_generate_minutes') === 'true',
   displayStyle:    localStorage.getItem('echo_display_style') || 'lang_serial',
   displayFilter:   localStorage.getItem('echo_display_filter') || 'all',
@@ -3117,7 +3046,9 @@ function ttsSpeak(text, opts = {}) {
   const engine = _normalizeTtsEngine(opts.engine || defaultEngine || null);
   const sentences = _ttsSplitSentences(text);
   const skipTranslate = !!opts.skipTranslate;
-  for (const s of sentences) tts._queue.push({text: s, context, engine, skipTranslate});
+  for (const s of sentences) {
+    tts._queue.push({text: s, context, engine, skipTranslate, rawText: opts.rawText || s, translatedText: opts.translatedText || ''});
+  }
   if (!tts._playing) _ttsPlayNext();
 }
 
@@ -3217,8 +3148,8 @@ function _ttsModeFromFlags(en2ja, ja2en) {
 // TTS 翻訳が必要かどうかを判定し、必要なら翻訳テキストを返す
 async function _ttsMaybeTranslate(text, context = 'main', engine = '') {
   const normalizedEngine = _normalizeTtsEngine(engine || (context === 'echo' ? echo.ttsEngine : tts.engine));
-  if (context === 'echo' && normalizedEngine === 'style_bert_vits2' && !echo.ttsUseTranslation) {
-    return text;
+  if (normalizedEngine === 'style_bert_vits2') {
+    if (!echo.ttsUseTranslation) return text;
   }
   const cfg = context === 'echo'
     ? {
@@ -3234,6 +3165,9 @@ async function _ttsMaybeTranslate(text, context = 'main', engine = '') {
     : !!cfg.translateEnToJaEnabled;
   if (!needTranslate) return text;
   try {
+    if (normalizedEngine === 'style_bert_vits2' && !echo.ttsUseTranslation) {
+      console.error('[Echo][TTS][BUG] translate-text was called while echo_tts_use_translation=false');
+    }
     const r = await fetch(API + '/tts/translate-text', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({text, src_lang: srcLang})
@@ -3257,6 +3191,8 @@ async function _ttsPlayNext() {
     typeof queueItem === 'string' ? defaultEngine : (queueItem?.engine || defaultEngine)
   );
   const skipTranslate = typeof queueItem === 'string' ? false : !!queueItem?.skipTranslate;
+  const rawText = typeof queueItem === 'string' ? sentence : (queueItem?.rawText || sentence);
+  const translatedText = typeof queueItem === 'string' ? '' : (queueItem?.translatedText || '');
   if (!sentence) {
     tts._playing = false;
     return;
@@ -3267,7 +3203,7 @@ async function _ttsPlayNext() {
     if (playEngine === 'webspeech') {
       await _ttsPlayWebSpeech(sentence);
     } else {
-      const blob = await _ttsFetchAudio(sentence, playEngine, context);
+      const blob = await _ttsFetchAudio(sentence, playEngine, context, {rawText, translatedText});
       await _ttsPlayBlob(blob);
     }
   } catch(e) {
@@ -3322,6 +3258,9 @@ function _getUserFacingApiErrorMessage(err, fallback = '処理に失敗しまし
   const userMessage = typeof err.user_message === 'string' ? err.user_message.trim() : '';
   if (userMessage) return userMessage;
   const detail = typeof err.detail === 'string' ? err.detail.trim() : '';
+  if (!detail && err.detail && typeof err.detail === 'object' && typeof err.detail.error === 'string') {
+    return err.detail.error;
+  }
   if (!detail) return fallback;
   return detail.length > 200 ? fallback : detail;
 }
@@ -3365,7 +3304,32 @@ function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
   const selectedEchoLanguage = _normalizeEchoSbv2Language(context === 'echo' ? echo.ttsSbv2Language : 'JP');
   const fallbackLang = selectedEchoLanguage === 'auto' ? 'JP' : selectedEchoLanguage;
   const effectiveLanguage = context === 'echo' ? _effectiveEchoSbv2Language() : fallbackLang;
-  const body = {text, engine, model: modelId, device: selectedDevice, language: explicitLanguage || effectiveLanguage};
+  const selectedMeta = _getSelectedSbv2Meta();
+  const isJpExtra = _isJpExtraModelMeta(selectedMeta);
+  const language = isJpExtra ? 'JP' : (explicitLanguage || effectiveLanguage);
+  const body = {
+    text,
+    engine,
+    model: modelId,
+    device: selectedDevice,
+    language,
+    caller: context === 'echo' ? 'echo' : 'chat',
+    route: '/tts/synthesize',
+    use_translation: !!echo.ttsUseTranslation,
+    text_source: echo.ttsTextSource || 'raw',
+    raw_text: String(opts.rawText || text || ''),
+    translated_text: String(opts.translatedText || ''),
+    sbv2_jp_extra_non_japanese_policy: echo.sbv2NonJapanesePolicy || 'block',
+    length: _numOr(echo.sbv2Length, 1.0),
+    sdp_ratio: _numOr(echo.sbv2SdpRatio, 0.2),
+    noise: _numOr(echo.sbv2Noise, 0.6),
+    noise_w: _numOr(echo.sbv2NoiseW, 0.8),
+    style_weight: _numOr(echo.sbv2StyleWeight, 1.0),
+    split_interval: _numOr(echo.sbv2SplitInterval, 0.5),
+    line_split: !!echo.sbv2LineSplit,
+    pitch_scale: _numOr(echo.sbv2PitchScale, 1.0),
+    intonation_scale: _numOr(echo.sbv2IntonationScale, 1.0),
+  };
   _applyReservedTtsOptions(body, opts, {
     allowStyle: true,
     allowSpeaker: true,
@@ -3643,11 +3607,11 @@ function _ttsPlayBlob(blob, opts = {}) {
 }
 
 function saveTtsSettings() {
-  tts.enabled    = document.getElementById('tts-enable-chk').checked;
-  tts.autoSpeak  = document.getElementById('tts-auto-chk').checked;
-  tts.engine     = _normalizeTtsEngine(document.getElementById('tts-engine-sel').value);
-  tts.voice      = document.getElementById('tts-voice-sel').value;
-  tts.speed      = parseFloat(document.getElementById('tts-speed-slider').value);
+  tts.enabled    = document.getElementById('tts-enable-chk')?.checked ?? tts.enabled;
+  tts.autoSpeak  = document.getElementById('tts-auto-chk')?.checked ?? tts.autoSpeak;
+  tts.engine     = _normalizeTtsEngine(document.getElementById('tts-engine-sel')?.value || tts.engine);
+  tts.voice      = document.getElementById('tts-voice-sel')?.value || tts.voice;
+  tts.speed      = parseFloat(document.getElementById('tts-speed-slider')?.value || `${tts.speed || 1.0}`);
   const q3sel    = document.getElementById('tts-qwen3-model-sel');
   if (q3sel) tts.qwen3model = q3sel.value;
   const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
@@ -3661,8 +3625,10 @@ function saveTtsSettings() {
   localStorage.setItem('tts_speed',      tts.speed);
   localStorage.setItem('tts_qwen3model', tts.qwen3model);
   localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model || '');
-  document.getElementById('tts-enable-label').textContent = tts.enabled   ? 'ON' : 'OFF';
-  document.getElementById('tts-auto-label').textContent   = tts.autoSpeak ? 'ON' : 'OFF';
+  const ttsEnableLabel = document.getElementById('tts-enable-label');
+  const ttsAutoLabel = document.getElementById('tts-auto-label');
+  if (ttsEnableLabel) ttsEnableLabel.textContent = tts.enabled ? 'ON' : 'OFF';
+  if (ttsAutoLabel) ttsAutoLabel.textContent = tts.autoSpeak ? 'ON' : 'OFF';
 }
 
 function _syncTtsDeviceState(device) {
@@ -3693,6 +3659,7 @@ function _numOr(v, fallback) {
 
 async function onTtsEngineChange() {
   saveTtsSettings();
+  if (!document.getElementById('tts-engine-note')) return;
   const engine = _normalizeTtsEngine(tts.engine);
   tts.engine = engine;
   const note       = document.getElementById('tts-engine-note');
@@ -3815,9 +3782,11 @@ function _setStyleBertModelOptions(models = []) {
       return;
     }
     models.forEach(modelId => {
+      const meta = _styleBertVits2ModelMeta.get(modelId) || {};
+      const isJpExtra = !!meta.is_jp_extra;
       const opt = document.createElement('option');
       opt.value = modelId;
-      opt.textContent = modelId;
+      opt.textContent = isJpExtra ? `${modelId} (JP-Extra / JP only)` : modelId;
       if (modelId === current) opt.selected = true;
       sel.appendChild(opt);
     });
@@ -3859,7 +3828,7 @@ function _effectiveEchoSbv2Language() {
 }
 
 function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
-  const source = (echo.ttsUseTranslation && translatedText) ? 'translated' : 'raw';
+  const source = (echo.ttsUseTranslation && echo.ttsTextSource === 'translated' && translatedText) ? 'translated' : 'raw';
   const activeText = source === 'translated' ? translatedText : rawText;
   const selectedLanguage = _normalizeEchoSbv2Language(echo.ttsSbv2Language);
   const effectiveLanguage = _effectiveEchoSbv2Language();
@@ -3882,7 +3851,16 @@ function _updateEchoSbv2LanguageNote() {
   const isForced = _isJpExtraModelMeta(_getSelectedSbv2Meta());
   if (note) note.style.display = isForced ? '' : 'none';
   if (sel) {
-    sel.disabled = false;
+    const options = Array.from(sel.options || []);
+    if (isForced) {
+      sel.value = 'JP';
+      options.forEach((opt) => {
+        const v = String(opt.value || '').toUpperCase();
+        opt.disabled = !(v === 'JP' || v === 'AUTO');
+      });
+    } else {
+      options.forEach((opt) => { opt.disabled = false; });
+    }
   }
 }
 
@@ -4150,6 +4128,17 @@ function saveEchoSettings() {
   }
   echo.ttsSbv2Language = _normalizeEchoSbv2Language(document.getElementById('echo-tts-sbv2-language')?.value || echo.ttsSbv2Language || 'JP');
   echo.ttsUseTranslation = !!document.getElementById('echo-tts-use-translation')?.checked;
+  echo.ttsTextSource = (document.getElementById('echo-tts-text-source')?.value || echo.ttsTextSource || 'raw') === 'translated' ? 'translated' : 'raw';
+  echo.sbv2NonJapanesePolicy = (document.getElementById('echo-tts-sbv2-non-japanese-policy')?.value || echo.sbv2NonJapanesePolicy || 'block').toLowerCase();
+  echo.sbv2Length = _numOr(document.getElementById('echo-tts-sbv2-length')?.value, echo.sbv2Length || 1.0);
+  echo.sbv2SdpRatio = _numOr(document.getElementById('echo-tts-sbv2-sdp-ratio')?.value, echo.sbv2SdpRatio || 0.2);
+  echo.sbv2Noise = _numOr(document.getElementById('echo-tts-sbv2-noise')?.value, echo.sbv2Noise || 0.6);
+  echo.sbv2NoiseW = _numOr(document.getElementById('echo-tts-sbv2-noise-w')?.value, echo.sbv2NoiseW || 0.8);
+  echo.sbv2StyleWeight = _numOr(document.getElementById('echo-tts-sbv2-style-weight')?.value, echo.sbv2StyleWeight || 1.0);
+  echo.sbv2SplitInterval = _numOr(document.getElementById('echo-tts-sbv2-split-interval')?.value, echo.sbv2SplitInterval || 0.5);
+  echo.sbv2LineSplit = document.getElementById('echo-tts-sbv2-line-split')?.checked !== false;
+  echo.sbv2PitchScale = _numOr(document.getElementById('echo-tts-sbv2-pitch-scale')?.value, echo.sbv2PitchScale || 1.0);
+  echo.sbv2IntonationScale = _numOr(document.getElementById('echo-tts-sbv2-intonation-scale')?.value, echo.sbv2IntonationScale || 1.0);
   echo.displayStyle = document.getElementById('echo-display-style')?.value || echo.displayStyle || 'lang_serial';
   echo.displayFilter = document.getElementById('echo-display-filter')?.value || echo.displayFilter || 'all';
   echo.groupOverflowMode = document.getElementById('echo-group-overflow-mode')?.value || echo.groupOverflowMode || 'rolling';
@@ -4233,6 +4222,17 @@ function saveEchoSettings() {
   localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model || echo.styleBertVits2Model || '');
   localStorage.setItem('echo_tts_sbv2_language', `${echo.ttsSbv2Language}`);
   localStorage.setItem('echo_tts_use_translation', echo.ttsUseTranslation ? 'true' : 'false');
+  localStorage.setItem('echo_tts_text_source', echo.ttsTextSource || 'raw');
+  localStorage.setItem('sbv2_jp_extra_non_japanese_policy', echo.sbv2NonJapanesePolicy || 'block');
+  localStorage.setItem('echo_sbv2_length', `${echo.sbv2Length}`);
+  localStorage.setItem('echo_sbv2_sdp_ratio', `${echo.sbv2SdpRatio}`);
+  localStorage.setItem('echo_sbv2_noise', `${echo.sbv2Noise}`);
+  localStorage.setItem('echo_sbv2_noise_w', `${echo.sbv2NoiseW}`);
+  localStorage.setItem('echo_sbv2_style_weight', `${echo.sbv2StyleWeight}`);
+  localStorage.setItem('echo_sbv2_split_interval', `${echo.sbv2SplitInterval}`);
+  localStorage.setItem('echo_sbv2_line_split', `${echo.sbv2LineSplit}`);
+  localStorage.setItem('echo_sbv2_pitch_scale', `${echo.sbv2PitchScale}`);
+  localStorage.setItem('echo_sbv2_intonation_scale', `${echo.sbv2IntonationScale}`);
   localStorage.setItem('echo_tts_translate_enabled', `${echo.ttsTranslateEnabled}`);
   localStorage.setItem('echo_display_style', echo.displayStyle);
   localStorage.setItem('echo_display_filter', echo.displayFilter);
@@ -4436,6 +4436,28 @@ function _echoInitSettingsUI() {
   if (useTranslationChk) useTranslationChk.checked = !!echo.ttsUseTranslation;
   const useTranslationLbl = document.getElementById('echo-tts-use-translation-label');
   if (useTranslationLbl) useTranslationLbl.textContent = echo.ttsUseTranslation ? 'ON' : 'OFF';
+  const textSourceSel = document.getElementById('echo-tts-text-source');
+  if (textSourceSel) textSourceSel.value = echo.ttsTextSource || 'raw';
+  const policySel = document.getElementById('echo-tts-sbv2-non-japanese-policy');
+  if (policySel) policySel.value = echo.sbv2NonJapanesePolicy || 'block';
+  const sbv2Length = document.getElementById('echo-tts-sbv2-length');
+  if (sbv2Length) sbv2Length.value = `${echo.sbv2Length ?? 1.0}`;
+  const sbv2Sdp = document.getElementById('echo-tts-sbv2-sdp-ratio');
+  if (sbv2Sdp) sbv2Sdp.value = `${echo.sbv2SdpRatio ?? 0.2}`;
+  const sbv2Noise = document.getElementById('echo-tts-sbv2-noise');
+  if (sbv2Noise) sbv2Noise.value = `${echo.sbv2Noise ?? 0.6}`;
+  const sbv2NoiseW = document.getElementById('echo-tts-sbv2-noise-w');
+  if (sbv2NoiseW) sbv2NoiseW.value = `${echo.sbv2NoiseW ?? 0.8}`;
+  const sbv2StyleWeight = document.getElementById('echo-tts-sbv2-style-weight');
+  if (sbv2StyleWeight) sbv2StyleWeight.value = `${echo.sbv2StyleWeight ?? 1.0}`;
+  const sbv2SplitInterval = document.getElementById('echo-tts-sbv2-split-interval');
+  if (sbv2SplitInterval) sbv2SplitInterval.value = `${echo.sbv2SplitInterval ?? 0.5}`;
+  const sbv2LineSplit = document.getElementById('echo-tts-sbv2-line-split');
+  if (sbv2LineSplit) sbv2LineSplit.checked = !!echo.sbv2LineSplit;
+  const sbv2Pitch = document.getElementById('echo-tts-sbv2-pitch-scale');
+  if (sbv2Pitch) sbv2Pitch.value = `${echo.sbv2PitchScale ?? 1.0}`;
+  const sbv2Intonation = document.getElementById('echo-tts-sbv2-intonation-scale');
+  if (sbv2Intonation) sbv2Intonation.value = `${echo.sbv2IntonationScale ?? 1.0}`;
   const selectedEchoTtsEngine = engSel?.value || echo.ttsEngine;
   if (selectedEchoTtsEngine === 'style_bert_vits2') {
     _ensureStyleBertVits2Prepared({context: 'echo'});
@@ -4794,36 +4816,7 @@ async function unloadTtsEngineFromTab() {
 }
 
 function _ttsInitSettingsUI() {
-  document.getElementById('tts-enable-chk').checked    = tts.enabled;
-  document.getElementById('tts-auto-chk').checked      = tts.autoSpeak;
-  document.getElementById('tts-enable-label').textContent = tts.enabled   ? 'ON' : 'OFF';
-  document.getElementById('tts-auto-label').textContent   = tts.autoSpeak ? 'ON' : 'OFF';
-  document.getElementById('tts-engine-sel').value      = tts.engine;
-  document.getElementById('tts-speed-slider').value    = tts.speed;
-  document.getElementById('tts-speed-lbl').textContent = tts.speed.toFixed(1) + 'x';
-  const q3sel = document.getElementById('tts-qwen3-model-sel');
-  if (q3sel) q3sel.value = tts.qwen3model;
-  const devRadio = document.querySelector(`input[name="tts-device"][value="${tts.ttsDevice}"]`);
-  if (devRadio) devRadio.checked = true;
-  // エンジン別初期化（非同期）
-  onTtsEngineChange();
-  // VOICEVOX 状態チェック
-  fetch(API + '/tts/status').then(r => r.json()).then(s => {
-    _syncTtsDeviceState(s.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
-    const status = document.getElementById('tts-voicevox-status');
-    const urlInput = document.getElementById('tts-voicevox-url');
-    if (urlInput && s.voicevox_http_url) urlInput.value = s.voicevox_http_url;
-    if (s.voicevox_loaded) {
-      const mode = s.voicevox_http_available ? '(HTTP)' : '(Core)';
-      if (status) status.textContent = `✓ 接続済み ${mode}（${s.voicevox_speakers || '?'}話者）`;
-    } else if (s.voicevox_http_available) {
-      if (status) status.textContent = 'HTTP サーバー稼働中（未ロード）';
-    } else if (!s.voicevox_available) {
-      if (status) status.textContent = '未接続 — Docker で起動してください';
-    } else {
-      if (status) status.textContent = '未ロード';
-    }
-  }).catch(() => {});
+  // Settings モーダルから TTS 項目を削除したため no-op。
   _asrInitSettingsUI();
 }
 
@@ -8041,17 +8034,20 @@ function _echoUpdateTranslation(id, translated) {
 function _echoPlaySentence(sid) {
   const s = echo.sentences.find(x => x.id === sid);
   if (!s) return;
-  const srcLang = s.lang === 'ja' ? 'ja' : 'en';
   const canUseTranslated = !!echo.ttsUseTranslation
-    && !!echo.ttsTranslateEnabled
-    && !!(s.translated || '').trim()
-    && ((srcLang === 'ja' && !!echo.ttsTranslateJaToEnEnabled)
-      || (srcLang === 'en' && !!echo.ttsTranslateEnToJaEnabled));
+    && echo.ttsTextSource === 'translated'
+    && !!(s.translated || '').trim();
   const speechText = canUseTranslated ? s.translated : s.text;
   _updateEchoTtsPreview({rawText: s.text || '', translatedText: s.translated || ''});
   // Echoモード用TTSエンジンで再生（グローバルtts.engineを書き換えない）
   // すでに Echo で翻訳済みテキストを選んだ場合は再翻訳しない。
-  ttsSpeak(speechText, {context: 'echo', engine: echo.ttsEngine, skipTranslate: canUseTranslated});
+  ttsSpeak(speechText, {
+    context: 'echo',
+    engine: echo.ttsEngine,
+    skipTranslate: canUseTranslated || !echo.ttsUseTranslation,
+    rawText: s.text || '',
+    translatedText: s.translated || '',
+  });
 }
 
 function _echoHandleEvent(ev) {
