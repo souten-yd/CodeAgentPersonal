@@ -12274,6 +12274,10 @@ _STYLE_BERT_VITS2_INIT_FLAG = os.environ.get(
 _STYLE_BERT_VITS2_UI_ERROR = "Style-Bert-VITS2 の準備に失敗しました。サーバーログを確認してください。"
 _style_bert_vits2_init_lock = threading.Lock()
 _style_bert_vits2_logger = logging.getLogger("style_bert_vits2")
+_STYLE_BERT_VITS2_REQUIRED_MODEL_FILES = {"config.json", "style_vectors.npy"}
+_STYLE_BERT_VITS2_REQUIRED_WEIGHT_EXTENSIONS = {".safetensors", ".pth", ".pt", ".onnx"}
+_STYLE_BERT_VITS2_PTH_BLOCK_BEGIN = "# --- CodeAgent Style-Bert-VITS2 managed paths (begin) ---"
+_STYLE_BERT_VITS2_PTH_BLOCK_END = "# --- CodeAgent Style-Bert-VITS2 managed paths (end) ---"
 
 
 def _style_bert_vits2_list_models() -> list[str]:
@@ -12284,6 +12288,30 @@ def _style_bert_vits2_list_models() -> list[str]:
         if os.path.isdir(path):
             model_dirs.append(name)
     return model_dirs
+
+
+def _style_bert_vits2_model_has_required_assets(model_dir: str) -> bool:
+    file_names: set[str] = set()
+    has_weight = False
+    for _root, _dirs, files in os.walk(model_dir):
+        for filename in files:
+            file_names.add(filename)
+            _, ext = os.path.splitext(filename)
+            if ext.lower() in _STYLE_BERT_VITS2_REQUIRED_WEIGHT_EXTENSIONS:
+                has_weight = True
+    has_required_files = all(req in file_names for req in _STYLE_BERT_VITS2_REQUIRED_MODEL_FILES)
+    return has_required_files and has_weight
+
+
+def _style_bert_vits2_models_ready() -> tuple[bool, list[str], str]:
+    models = _style_bert_vits2_list_models()
+    if not models:
+        return False, models, "no model directories found"
+    for model_id in models:
+        model_dir = os.path.join(_STYLE_BERT_VITS2_MODELS_DIR, model_id)
+        if _style_bert_vits2_model_has_required_assets(model_dir):
+            return True, models, ""
+    return False, models, "model directories exist but required assets are missing"
 
 
 def _style_bert_vits2_python_path() -> str:
@@ -12329,11 +12357,44 @@ def _style_bert_vits2_ensure_pth_file() -> tuple[bool, str]:
     if not site_packages:
         return False, f"site-packages directory not found under: {_STYLE_BERT_VITS2_VENV_DIR}"
     pth_file = os.path.join(site_packages, "_runpod_opt_venv.pth")
-    if os.path.isfile(pth_file):
-        return True, ""
+    runpod_candidates: list[str] = []
+    opt_venv_lib_dir = "/opt/venv/lib"
+    if os.path.isdir(opt_venv_lib_dir):
+        for name in sorted(os.listdir(opt_venv_lib_dir)):
+            candidate = os.path.join(opt_venv_lib_dir, name, "site-packages")
+            if name.startswith("python") and os.path.isdir(candidate):
+                runpod_candidates.append(candidate)
+    if not runpod_candidates:
+        runpod_candidates = ["/opt/venv/lib/python3.11/site-packages"]
+
+    managed_paths: list[str] = [_STYLE_BERT_VITS2_REPO_DIR, *runpod_candidates]
+    managed_lines = "\n".join(dict.fromkeys(managed_paths))
+    managed_block = (
+        f"{_STYLE_BERT_VITS2_PTH_BLOCK_BEGIN}\n"
+        f"{managed_lines}\n"
+        f"{_STYLE_BERT_VITS2_PTH_BLOCK_END}\n"
+    )
+
     try:
+        existing_content = ""
+        if os.path.isfile(pth_file):
+            with open(pth_file, "r", encoding="utf-8") as f:
+                existing_content = f.read()
+
+        if _STYLE_BERT_VITS2_PTH_BLOCK_BEGIN in existing_content and _STYLE_BERT_VITS2_PTH_BLOCK_END in existing_content:
+            block_pattern = (
+                rf"{re.escape(_STYLE_BERT_VITS2_PTH_BLOCK_BEGIN)}\n.*?"
+                rf"{re.escape(_STYLE_BERT_VITS2_PTH_BLOCK_END)}\n?"
+            )
+            new_content = re.sub(block_pattern, managed_block, existing_content, flags=re.DOTALL)
+        elif existing_content.strip():
+            suffix = "\n" if not existing_content.endswith("\n") else ""
+            new_content = f"{existing_content}{suffix}{managed_block}"
+        else:
+            new_content = managed_block
+
         with open(pth_file, "w", encoding="utf-8") as f:
-            f.write(f"{_STYLE_BERT_VITS2_REPO_DIR}\n")
+            f.write(new_content)
     except Exception as e:
         return False, f"failed to create pth file: {pth_file} ({e})"
     return True, ""
@@ -12349,6 +12410,7 @@ def _style_bert_vits2_prepare_status() -> dict:
         "python_executable": os.path.isfile(python_path) and os.access(python_path, os.X_OK),
         "pth_exists": os.path.isfile(pth_file),
         "init_flag_exists": os.path.isfile(_STYLE_BERT_VITS2_INIT_FLAG),
+        "models": _style_bert_vits2_list_models(),
         "repo_dir": _STYLE_BERT_VITS2_REPO_DIR,
         "venv_dir": _STYLE_BERT_VITS2_VENV_DIR,
         "python_path": python_path,
@@ -12414,33 +12476,34 @@ def api_style_bert_vits2_prepare():
         status = _style_bert_vits2_prepare_status()
         initialized_now = False
         initialize_action = "already_initialized"
-        if not status["init_flag_exists"]:
+        models_ready, models, model_check_error = _style_bert_vits2_models_ready()
+        status["models"] = models
+        status["models_ready"] = models_ready
+        if not status["init_flag_exists"] or not models_ready:
             initialize_script = os.path.join(_STYLE_BERT_VITS2_REPO_DIR, "initialize.py")
             runtime_ok, runtime_error = _style_bert_vits2_runtime_importable()
-            if runtime_ok:
-                initialize_action = "skipped_importable"
-                _style_bert_vits2_logger.info(
-                    "[Style-Bert-VITS2][prepare:%s] skip initialize.py because runtime import check passed.",
-                    prepare_id,
-                )
-            else:
+            needs_initialize = (not runtime_ok) or (not models_ready)
+            if needs_initialize:
                 if not os.path.isfile(initialize_script):
                     raise StyleBertVITS2Error(
                         status_code=500,
                         user_message="initialize失敗: initialize.py が見つかりません。",
                         log_detail=(
                             f"initialize.py not found: {initialize_script}\n"
-                            f"runtime import check error: {runtime_error}"
+                            f"runtime import check error: {runtime_error}\n"
+                            f"model readiness error: {model_check_error}"
                         ),
                     )
                 python_path = _style_bert_vits2_python_path()
                 cmd = [python_path, "initialize.py"]
                 initialize_action = "executed"
                 _style_bert_vits2_logger.info(
-                    "[Style-Bert-VITS2][prepare:%s] running initialize.py cmd=%s cwd=%s",
+                    "[Style-Bert-VITS2][prepare:%s] running initialize.py cmd=%s cwd=%s reason(runtime_ok=%s, models_ready=%s)",
                     prepare_id,
                     cmd,
                     _STYLE_BERT_VITS2_REPO_DIR,
+                    runtime_ok,
+                    models_ready,
                 )
                 try:
                     proc = subprocess.run(
@@ -12481,7 +12544,8 @@ def api_style_bert_vits2_prepare():
                         log_detail=(
                             "initialize.py failed: "
                             f"code={e.returncode}\nstdout:\n{e.stdout}\nstderr:\n{e.stderr}\n"
-                            f"runtime import check error(before initialize): {runtime_error}"
+                            f"runtime import check error(before initialize): {runtime_error}\n"
+                            f"model readiness error(before initialize): {model_check_error}"
                         ),
                     )
                 except Exception as e:
@@ -12490,7 +12554,25 @@ def api_style_bert_vits2_prepare():
                         user_message="initialize失敗: 初期化処理で予期しないエラーが発生しました。",
                         log_detail=f"initialize.py failed unexpectedly: {e}\n{traceback.format_exc()}",
                     )
+            else:
+                initialize_action = "skipped_importable_and_models_ready"
+                _style_bert_vits2_logger.info(
+                    "[Style-Bert-VITS2][prepare:%s] skip initialize.py because runtime import check and model assets check passed.",
+                    prepare_id,
+                )
 
+            models_ready_after, models_after, model_check_error_after = _style_bert_vits2_models_ready()
+            status["models"] = models_after
+            status["models_ready"] = models_ready_after
+            if not models_ready_after:
+                raise StyleBertVITS2Error(
+                    status_code=500,
+                    user_message="initialize失敗: モデルアセットの準備が完了しませんでした。",
+                    log_detail=(
+                        "model assets not ready after prepare. "
+                        f"before={model_check_error}, after={model_check_error_after}, models={models_after}"
+                    ),
+                )
             os.makedirs(os.path.dirname(_STYLE_BERT_VITS2_INIT_FLAG), exist_ok=True)
             with open(_STYLE_BERT_VITS2_INIT_FLAG, "w", encoding="utf-8") as f:
                 f.write(datetime.utcnow().isoformat())
@@ -12506,6 +12588,7 @@ def api_style_bert_vits2_prepare():
             and status["python_executable"]
             and status["pth_exists"]
             and status["init_flag_exists"]
+            and status.get("models_ready", False)
         )
         _style_bert_vits2_logger.info(
             "[Style-Bert-VITS2][prepare:%s] done ready=%s initialized_now=%s action=%s",
