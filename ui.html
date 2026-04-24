@@ -7915,8 +7915,15 @@ function _echoUpdateTranslation(id, translated) {
 function _echoPlaySentence(sid) {
   const s = echo.sentences.find(x => x.id === sid);
   if (!s) return;
+  const srcLang = s.lang === 'ja' ? 'ja' : 'en';
+  const canUseTranslated = !!echo.ttsTranslateEnabled
+    && !!(s.translated || '').trim()
+    && ((srcLang === 'ja' && !!echo.ttsTranslateJaToEnEnabled)
+      || (srcLang === 'en' && !!echo.ttsTranslateEnToJaEnabled));
+  const speechText = canUseTranslated ? s.translated : s.text;
   // Echoモード用TTSエンジンで再生（グローバルtts.engineを書き換えない）
-  ttsSpeak(s.text, {context: 'echo', engine: echo.ttsEngine});
+  // すでに Echo で翻訳済みテキストを選んだ場合は再翻訳しない。
+  ttsSpeak(speechText, {context: 'echo', engine: echo.ttsEngine, skipTranslate: canUseTranslated});
 }
 
 function _echoHandleEvent(ev) {
