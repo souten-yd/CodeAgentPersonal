@@ -3813,7 +3813,12 @@ async function _ensureStyleBertVits2Prepared({force = false, context = 'echo'} =
           statusEl.textContent = '初期セットアップ未完了';
         }
       }
-      if (data.ready) await refreshStyleBertVits2Models(context);
+      if (data.ready) {
+        await refreshStyleBertVits2Models(context);
+        if (statusEl) {
+          statusEl.textContent = data.initialized_now ? '初期セットアップ完了' : '初期セットアップ済み';
+        }
+      }
       return !!data.ready;
     } catch (e) {
       _styleBertVits2PrepareState.prepared = false;
@@ -4278,7 +4283,12 @@ function _echoInitSettingsUI() {
   if (engSel) engSel.value = echo.ttsEngine;
   const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
   if (styleSel) styleSel.value = echo.styleBertVits2Model || tts.styleBertVits2Model || '';
-  refreshStyleBertVits2Models('echo');
+  const selectedEchoTtsEngine = engSel?.value || echo.ttsEngine;
+  if (selectedEchoTtsEngine === 'style_bert_vits2') {
+    _ensureStyleBertVits2Prepared({context: 'echo'});
+  } else {
+    refreshStyleBertVits2Models('echo');
+  }
   syncEchoTranslateUi();
   const displayStyleInput = document.getElementById('echo-display-style');
   const displayFilterInput = document.getElementById('echo-display-filter');
