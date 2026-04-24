@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
 
 from .engine_registry import TTSEngineRuntime
@@ -13,6 +15,7 @@ from .style_bert_vits2_paths import resolve_style_bert_vits2_models_dir
 _STYLE_BERT_VITS2_DEFAULT_REPO_DIR = "/app/Style-Bert-VITS2"
 _STYLE_BERT_VITS2_DEFAULT_VENV_DIR = "/app/Style-Bert-VITS2/.venv"
 _STYLE_BERT_VITS2_WEIGHT_EXTENSIONS = (".safetensors", ".pth", ".pt", ".onnx")
+_logger = logging.getLogger("style_bert_vits2")
 
 
 def _repo_dir() -> str:
@@ -116,6 +119,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         return {"status": "unloaded", "engine_key": self.engine_key}
 
     def synthesize(self, req: dict) -> tuple[bytes, str]:
+        request_id = str(req.get("request_id") or uuid.uuid4().hex[:8])
         text = str(req.get("text", "")).strip()
         if not text:
             raise ValueError("text required")
@@ -127,6 +131,16 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         model = str(req.get("model", "")).strip()
         model_path, config_path, style_vec_path = _resolve_model_paths(model)
         device = _pick_device(req)
+        _logger.info(
+            "[Style-Bert-VITS2][synthesize:%s] start model=%s text_len=%d device=%s repo=%s venv_python=%s models_dir=%s",
+            request_id,
+            model,
+            len(text),
+            device,
+            _repo_dir(),
+            py,
+            _models_dir(),
+        )
 
         payload = {
             "text": text,
@@ -243,6 +257,18 @@ except Exception as e:
             except OSError:
                 pass
 
+        _logger.info(
+            "[Style-Bert-VITS2][synthesize:%s] worker_exit code=%s stdout_lines=%d stderr_lines=%d",
+            request_id,
+            proc.returncode,
+            len((proc.stdout or "").splitlines()),
+            len((proc.stderr or "").splitlines()),
+        )
+        if proc.stdout:
+            _logger.info("[Style-Bert-VITS2][synthesize:%s] worker_stdout_tail:\n%s", request_id, "\n".join((proc.stdout or "").splitlines()[-40:]))
+        if proc.stderr:
+            _logger.error("[Style-Bert-VITS2][synthesize:%s] worker_stderr_tail:\n%s", request_id, "\n".join((proc.stderr or "").splitlines()[-40:]))
+
         if proc.returncode != 0:
             detail = (proc.stderr or proc.stdout or "").strip()
             raise RuntimeError(f"Style-Bert-VITS2 worker failed (code={proc.returncode}): {detail}")
@@ -264,6 +290,12 @@ except Exception as e:
         b64 = output.get("audio_b64")
         if not b64:
             raise RuntimeError("Style-Bert-VITS2 synth failed: empty audio payload")
+        _logger.info(
+            "[Style-Bert-VITS2][synthesize:%s] success bytes=%d model=%s",
+            request_id,
+            len(b64),
+            model,
+        )
         return base64.b64decode(b64), "audio/wav"
 
     async def voices(self, req: dict) -> dict:
