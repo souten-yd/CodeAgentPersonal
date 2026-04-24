@@ -84,6 +84,24 @@ def _to_optional_int(v, default: int | None = None) -> int | None:
         return default
 
 
+def _to_optional_bool(v, default: bool | None = None) -> bool | None:
+    if v is None or v == "":
+        return default
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        normalized = v.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+        return default
+    try:
+        return bool(v)
+    except Exception:
+        return default
+
+
 class StyleBertVITS2Runtime(TTSEngineRuntime):
     engine_key = "style_bert_vits2"
 
@@ -124,7 +142,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "noise": _to_optional_float(req.get("noise"), 0.6),
             "noise_w": _to_optional_float(req.get("noise_w"), 0.8),
             "length": _to_optional_float(req.get("length"), 1.0),
-            "line_split": bool(req.get("line_split", True)),
+            "line_split": _to_optional_bool(req.get("line_split"), True),
             "split_interval": _to_optional_float(req.get("split_interval"), 0.5),
             "assist_text": str(req.get("assist_text", "")).strip() or None,
             "assist_text_weight": _to_optional_float(req.get("assist_text_weight"), 1.0),
@@ -133,6 +151,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         worker_code = r'''
 import base64
 import io
+import inspect
 import json
 import traceback
 import wave
@@ -148,6 +167,12 @@ try:
         style_vec_path=req["style_vec_path"],
         device=req.get("device", "cuda"),
     )
+    line_split_raw = req.get("line_split", True)
+    if isinstance(line_split_raw, str):
+        line_split = line_split_raw.strip().lower() in {"1", "true", "yes", "on"}
+    else:
+        line_split = bool(line_split_raw)
+
     kwargs = {
         "text": req["text"],
         "style": req.get("style") or "Neutral",
@@ -156,20 +181,33 @@ try:
         "noise": float(req.get("noise", 0.6)),
         "noise_w": float(req.get("noise_w", 0.8)),
         "length": float(req.get("length", 1.0)),
-        "line_split": bool(req.get("line_split", True)),
+        "line_split": line_split,
         "split_interval": float(req.get("split_interval", 0.5)),
     }
     if req.get("assist_text"):
         kwargs["assist_text"] = req["assist_text"]
         kwargs["assist_text_weight"] = float(req.get("assist_text_weight", 1.0))
 
+    infer_signature = inspect.signature(model.infer)
+    infer_params = set(infer_signature.parameters.keys())
+
     speaker = req.get("speaker")
     if speaker:
-        kwargs["speaker"] = speaker
-    else:
+        if "speaker" in infer_params:
+            kwargs["speaker"] = speaker
+        elif "speaker_name" in infer_params:
+            kwargs["speaker_name"] = speaker
+    elif "speaker_id" in infer_params:
         kwargs["speaker_id"] = int(req.get("speaker_id", 0))
 
-    sample_rate, audio = model.infer(**kwargs)
+    infer_result = model.infer(**kwargs)
+    if isinstance(infer_result, tuple) and len(infer_result) == 2:
+        sample_rate, audio = infer_result
+    else:
+        audio = infer_result
+        hp = getattr(model, "hyper_parameters", None)
+        data = getattr(hp, "data", None)
+        sample_rate = getattr(data, "sampling_rate", None) or 44100
     audio_arr = np.asarray(audio)
     if audio_arr.dtype != np.int16:
         audio_arr = np.clip(audio_arr, -32768, 32767).astype(np.int16)
