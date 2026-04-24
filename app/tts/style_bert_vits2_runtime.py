@@ -259,6 +259,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "config_path": config_path,
             "style_vec_path": style_vec_path,
             "out_path": str(req.get("out_path", "")).strip() or None,
+            "return_mode": str(req.get("return_mode", "b64") or "b64").strip().lower(),
             "device": _pick_device(req),
             "speaker_id": _to_optional_int(req.get("speaker_id"), 0),
             "speaker": str(req.get("speaker_name", "")).strip() or str(req.get("speaker", "")).strip() or None,
@@ -378,6 +379,9 @@ def synth(req: dict) -> dict:
     load_elapsed_ms = int((time.perf_counter() - load_started) * 1000)
 
     out_path = Path(req["out_path"]) if req.get("out_path") else None
+    return_mode = str(req.get("return_mode", "b64") or "b64").strip().lower()
+    if return_mode not in {"b64", "file"}:
+        return_mode = "b64"
     hp = getattr(loaded_model, "hyper_parameters", None)
     model_version = str(getattr(hp, "version", "") or "")
     is_jp_extra = "jp-extra" in model_version.lower()
@@ -440,16 +444,21 @@ def synth(req: dict) -> dict:
         wf.writeframes(audio_arr.tobytes())
 
     wav_bytes = buffer.getvalue()
+    audio_b64 = None
     if out_path is not None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(wav_bytes)
+    if return_mode == "b64":
+        audio_b64 = base64.b64encode(wav_bytes).decode("ascii")
     encode_elapsed_ms = int((time.perf_counter() - encode_started) * 1000)
     total_elapsed_ms = int((time.perf_counter() - total_started) * 1000)
     text_value = str(req.get("text", ""))
 
     return {
         "ok": True,
-        "audio_b64": base64.b64encode(wav_bytes).decode("ascii"),
+        "audio_b64": audio_b64,
+        "return_mode": return_mode,
+        "out_path": str(out_path) if out_path is not None else "",
         "cache_hit": bool(cache_hit),
         "load_elapsed_ms": load_elapsed_ms,
         "infer_elapsed_ms": infer_elapsed_ms,
@@ -590,6 +599,65 @@ while True:
             int(output.get("output_bytes") or len(audio_bytes)),
         )
         return audio_bytes, "audio/wav"
+
+    def synthesize_batch_item_raw(self, req: dict) -> dict:
+        request_id = str(req.get("request_id") or uuid.uuid4().hex[:8])
+        text = str(req.get("text", "")).strip()
+        if not text:
+            raise ValueError("text required")
+
+        model = str(req.get("model", "")).strip()
+        if not model:
+            raise ValueError("model required when engine=style_bert_vits2")
+
+        payload = self._build_payload(req, model=model, text=text)
+        payload["return_mode"] = str(req.get("return_mode", payload.get("return_mode") or "b64") or "b64").strip().lower()
+        output = self._send_to_worker(payload)
+        if not output.get("ok"):
+            err = output.get("error") or "unknown error"
+            raise RuntimeError(f"Style-Bert-VITS2 synth failed: {err}\n{output.get('traceback', '')}")
+
+        return_mode = str(output.get("return_mode") or payload.get("return_mode") or "b64").strip().lower()
+        out_path = str(output.get("out_path") or payload.get("out_path") or "").strip()
+        audio_b64 = output.get("audio_b64")
+        audio_bytes = b""
+        if return_mode == "b64":
+            if not audio_b64:
+                raise RuntimeError("Style-Bert-VITS2 synth failed: empty audio payload")
+            audio_bytes = base64.b64decode(audio_b64)
+        elif return_mode == "file":
+            if not out_path or not os.path.isfile(out_path):
+                raise RuntimeError("Style-Bert-VITS2 synth failed: output file missing")
+        else:
+            raise RuntimeError(f"Style-Bert-VITS2 synth failed: unsupported return_mode={return_mode}")
+
+        _logger.info(
+            "[Style-Bert-VITS2][batch_item] id=%s model=%s text_len=%d return_mode=%s cache_hit=%s infer_ms=%d total_ms=%d bytes=%d out_path=%s",
+            request_id,
+            output.get("model_name") or model,
+            int(output.get("text_length") or len(text)),
+            return_mode,
+            bool(output.get("cache_hit")),
+            int(output.get("infer_elapsed_ms") or 0),
+            int(output.get("total_elapsed_ms") or 0),
+            int(output.get("output_bytes") or len(audio_bytes)),
+            out_path or "-",
+        )
+        return {
+            "audio_bytes": audio_bytes,
+            "out_path": out_path,
+            "return_mode": return_mode,
+            "sample_rate": int(output.get("sample_rate") or 0),
+            "output_bytes": int(output.get("output_bytes") or len(audio_bytes)),
+            "load_elapsed_ms": int(output.get("load_elapsed_ms") or 0),
+            "infer_elapsed_ms": int(output.get("infer_elapsed_ms") or 0),
+            "encode_elapsed_ms": int(output.get("encode_elapsed_ms") or 0),
+            "total_elapsed_ms": int(output.get("total_elapsed_ms") or 0),
+            "cache_hit": bool(output.get("cache_hit")),
+            "device": str(output.get("device") or payload.get("device") or "cpu"),
+            "model_name": str(output.get("model_name") or model),
+            "text_length": int(output.get("text_length") or len(text)),
+        }
 
     async def voices(self, req: dict) -> dict:
         model = str(req.get("model", "")).strip()

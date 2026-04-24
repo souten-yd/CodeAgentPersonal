@@ -13040,6 +13040,7 @@ def _run_tts_synthesize_batch(req: dict):
     json_items: list[dict] = []
     zip_buffer = io.BytesIO() if output_format == "zip" else None
     zip_file = zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) if zip_buffer else None
+    zip_tempdir_ctx = tempfile.TemporaryDirectory(prefix=f"tts_batch_{request_id}_") if output_format == "zip" else None
 
     try:
         total = len(items)
@@ -13070,12 +13071,33 @@ def _run_tts_synthesize_batch(req: dict):
             item_payload["device"] = device
             item_payload["request_id"] = f"{request_id}-{index+1:03d}"
 
+            item_infer_ms: int | None = None
+            item_total_ms: int | None = None
+            batch_route_mode = "legacy_b64"
+            audio_bytes = b""
+            sample_rate = 0
+            output_bytes = 0
             started = time.perf_counter()
-            audio_bytes, _media_type = runtime.synthesize(item_payload)
+            if output_format == "zip" and normalized_key == "style_bert_vits2" and hasattr(runtime, "synthesize_batch_item_raw"):
+                assert zip_tempdir_ctx is not None
+                out_path = os.path.join(zip_tempdir_ctx.name, f"{index+1:03d}_{item_id}.wav")
+                item_payload["return_mode"] = "file"
+                item_payload["out_path"] = out_path
+                raw_result = runtime.synthesize_batch_item_raw(item_payload)
+                batch_route_mode = "raw_file"
+                item_total_ms = int(raw_result.get("total_elapsed_ms") or 0)
+                item_infer_ms = int(raw_result.get("infer_elapsed_ms") or 0)
+                sample_rate = int(raw_result.get("sample_rate") or 0)
+                output_bytes = int(raw_result.get("output_bytes") or 0)
+                audio_path = str(raw_result.get("out_path") or out_path)
+                if not audio_path or not os.path.isfile(audio_path):
+                    raise HTTPException(status_code=500, detail=f"batch output file missing: {audio_path}")
+            else:
+                audio_bytes, _media_type = runtime.synthesize(item_payload)
+                sample_rate = _sample_rate_from_wav_bytes(audio_bytes)
+                output_bytes = len(audio_bytes)
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             item_elapsed_history_ms.append(elapsed_ms)
-            sample_rate = _sample_rate_from_wav_bytes(audio_bytes)
-            output_bytes = len(audio_bytes)
             filename = f"{index+1:03d}_{item_id}.wav"
 
             row = {
@@ -13083,6 +13105,8 @@ def _run_tts_synthesize_batch(req: dict):
                 "filename": filename,
                 "text": text,
                 "elapsed_ms": elapsed_ms,
+                "infer_ms": item_infer_ms,
+                "total_ms": item_total_ms,
                 "sample_rate": sample_rate,
                 "output_bytes": output_bytes,
             }
@@ -13097,12 +13121,28 @@ def _run_tts_synthesize_batch(req: dict):
                 )
             else:
                 assert zip_file is not None
-                zip_file.writestr(filename, audio_bytes)
+                if batch_route_mode == "raw_file":
+                    zip_file.write(audio_path, arcname=filename)
+                else:
+                    zip_file.writestr(filename, audio_bytes)
+            _style_bert_vits2_logger.info(
+                "[TTS][batch_item:%s] idx=%d id=%s route=%s elapsed_ms=%d infer_ms=%s total_ms=%s bytes=%d",
+                request_id,
+                current,
+                item_id,
+                batch_route_mode,
+                elapsed_ms,
+                "-" if item_infer_ms is None else str(item_infer_ms),
+                "-" if item_total_ms is None else str(item_total_ms),
+                output_bytes,
+            )
             _append_batch_step(
                 "tts_batch_item_done",
                 {
                     **_batch_progress_data(total=total, current=current, current_id=item_id),
                     "item_elapsed_ms": elapsed_ms,
+                    "infer_ms": item_infer_ms,
+                    "total_ms": item_total_ms,
                     "sample_rate": sample_rate,
                     "output_bytes": output_bytes,
                 },
@@ -13191,6 +13231,8 @@ def _run_tts_synthesize_batch(req: dict):
     finally:
         if zip_file is not None:
             zip_file.close()
+        if zip_tempdir_ctx is not None:
+            zip_tempdir_ctx.cleanup()
 
 @app.post("/tts/synthesize-batch")
 def tts_synthesize_batch_api(req: dict):
