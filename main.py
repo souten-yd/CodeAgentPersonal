@@ -12687,11 +12687,13 @@ def api_style_bert_vits2_prepare():
             and status.get("models_ready", False)
         )
         if status["ready"]:
+            status["runtime_prepare"] = None
             try:
                 runtime = _tts_engine_registry.get(raw_engine_key="style_bert_vits2")
                 if hasattr(runtime, "prepare"):
                     preload_model = status["models"][0] if status.get("models") else ""
                     preload_result = runtime.prepare({"model": preload_model} if preload_model else {})
+                    status["runtime_prepare"] = preload_result
                     _style_bert_vits2_logger.info(
                         "[Style-Bert-VITS2][prepare:%s] worker_prepare result=%s",
                         prepare_id,
