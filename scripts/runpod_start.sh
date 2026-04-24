@@ -4,9 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
-PORT="${PORT:-8000}"
+PORT="${PORT:-5000}"
 HOST="${HOST:-0.0.0.0}"
 PRIMARY_PORT="${PRIMARY_PORT:-8080}"
+WORKSPACE_ROOT="${RUNPOD_WORKSPACE_ROOT:-/workspace}"
 IS_RUNPOD_RUNTIME="false"
 # NOTE: Keep this aligned with scripts/start_codeagent.py::detect_runpod()
 if [[ -n "${RUNPOD_POD_ID:-}" || -n "${RUNPOD_API_KEY:-}" ]]; then
@@ -14,7 +15,7 @@ if [[ -n "${RUNPOD_POD_ID:-}" || -n "${RUNPOD_API_KEY:-}" ]]; then
 fi
 
 echo "[Runpod] Booting CodeAgent from ${ROOT_DIR}"
-echo "[Runpod] host=${HOST} port=${PORT} primary_port=${PRIMARY_PORT}"
+echo "[Runpod] host=${HOST} port=${PORT} primary_port=${PRIMARY_PORT} workspace_root=${WORKSPACE_ROOT}"
 echo "[Runpod] runtime_is_runpod=${IS_RUNPOD_RUNTIME}"
 
 AUTO_INSTALL_DOCKER="${RUNPOD_AUTO_INSTALL_DOCKER:-true}"
@@ -222,11 +223,46 @@ fi
 VV_URL="${VOICEVOX_URL:-http://127.0.0.1:50021}" runpod_voicevox_autostart
 
 
-STYLE_BERT_MODELS_DIR="${CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR:-/workspace/ca_data/tts/style_bert_vits2/models}"
+STYLE_BERT_BASE_DIR="${CODEAGENT_STYLE_BERT_VITS2_BASE_DIR:-${WORKSPACE_ROOT}/ca_data/tts/style_bert_vits2}"
+STYLE_BERT_MODELS_DIR="${CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR:-${STYLE_BERT_BASE_DIR}/models}"
 STYLE_BERT_SOURCE_MODELS_DIR="${RUNPOD_STYLE_BERT_VITS2_SOURCE_MODELS_DIR:-/app/Style-Bert-VITS2/model_assets}"
+STYLE_BERT_REPO_DIR="${CODEAGENT_STYLE_BERT_VITS2_REPO_DIR:-${WORKSPACE_ROOT}/Style-Bert-VITS2}"
+STYLE_BERT_REPO_FALLBACK="${RUNPOD_STYLE_BERT_VITS2_SOURCE_REPO_DIR:-/app/Style-Bert-VITS2}"
+STYLE_BERT_VENV_FALLBACK="${RUNPOD_STYLE_BERT_VITS2_SOURCE_VENV_DIR:-/app/Style-Bert-VITS2/.venv}"
+STYLE_BERT_BOOTSTRAP_VENV_DIR="${RUNPOD_STYLE_BERT_VITS2_BOOTSTRAP_VENV:-${WORKSPACE_ROOT}/.venvs/style-bert-vits2}"
 
 mkdir -p "${STYLE_BERT_MODELS_DIR}"
+mkdir -p "$(dirname "${STYLE_BERT_REPO_DIR}")"
+
+if [[ ! -d "${STYLE_BERT_REPO_DIR}" && -d "${STYLE_BERT_REPO_FALLBACK}" ]]; then
+  echo "[Runpod][SBV2] Workspace repo missing. Copying ${STYLE_BERT_REPO_FALLBACK} -> ${STYLE_BERT_REPO_DIR}"
+  cp -a "${STYLE_BERT_REPO_FALLBACK}" "${STYLE_BERT_REPO_DIR}"
+fi
+
+if [[ -n "${CODEAGENT_STYLE_BERT_VITS2_VENV_DIR:-}" ]]; then
+  STYLE_BERT_VENV_DIR="${CODEAGENT_STYLE_BERT_VITS2_VENV_DIR}"
+elif [[ -d "${STYLE_BERT_REPO_DIR}/.venv" ]]; then
+  STYLE_BERT_VENV_DIR="${STYLE_BERT_REPO_DIR}/.venv"
+elif [[ -d "${STYLE_BERT_VENV_FALLBACK}" ]]; then
+  # 既存venvはコピーせずそのまま利用（絶対パス混入・破損回避）
+  STYLE_BERT_VENV_DIR="${STYLE_BERT_VENV_FALLBACK}"
+else
+  mkdir -p "${STYLE_BERT_BOOTSTRAP_VENV_DIR}"
+  echo "[Runpod][SBV2] venv not found. Creating bootstrap venv at ${STYLE_BERT_BOOTSTRAP_VENV_DIR}"
+  "${BOOTSTRAP_PYTHON}" -m venv "${STYLE_BERT_BOOTSTRAP_VENV_DIR}" || true
+  STYLE_BERT_VENV_DIR="${STYLE_BERT_BOOTSTRAP_VENV_DIR}"
+fi
+
+if [[ -x "${STYLE_BERT_VENV_DIR}/bin/python" ]]; then
+  echo "[Runpod][SBV2] runtime python detected: ${STYLE_BERT_VENV_DIR}/bin/python"
+else
+  echo "[Runpod][SBV2][WARN] runtime python missing under ${STYLE_BERT_VENV_DIR}"
+fi
+
+export CODEAGENT_STYLE_BERT_VITS2_BASE_DIR="${STYLE_BERT_BASE_DIR}"
 export CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR="${STYLE_BERT_MODELS_DIR}"
+export CODEAGENT_STYLE_BERT_VITS2_REPO_DIR="${STYLE_BERT_REPO_DIR}"
+export CODEAGENT_STYLE_BERT_VITS2_VENV_DIR="${STYLE_BERT_VENV_DIR}"
 
 if [[ -d "${STYLE_BERT_SOURCE_MODELS_DIR}" ]]; then
   if [[ -z "$(find "${STYLE_BERT_MODELS_DIR}" -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
@@ -239,7 +275,15 @@ else
   echo "[Runpod] Style-Bert-VITS2 source models dir not found. Skip copy: ${STYLE_BERT_SOURCE_MODELS_DIR}"
 fi
 
-echo "[Runpod] Style-Bert-VITS2 models dir: ${CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR}"
+echo "[Runpod][SBV2] base_dir=${CODEAGENT_STYLE_BERT_VITS2_BASE_DIR}"
+echo "[Runpod][SBV2] repo_dir=${CODEAGENT_STYLE_BERT_VITS2_REPO_DIR} (fallback=${STYLE_BERT_REPO_FALLBACK})"
+echo "[Runpod][SBV2] venv_dir=${CODEAGENT_STYLE_BERT_VITS2_VENV_DIR} (fallback=${STYLE_BERT_VENV_FALLBACK}; existing venv is not copied)"
+echo "[Runpod][SBV2] models_dir=${CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR} (source=${STYLE_BERT_SOURCE_MODELS_DIR})"
+if [[ -d "${CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR}" ]]; then
+  echo "[Runpod][SBV2] models listing:"
+  find "${CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR}" -mindepth 1 -maxdepth 2 -type f \( -name 'config.json' -o -name 'style_vectors.npy' -o -name '*.safetensors' -o -name '*.pth' -o -name '*.pt' -o -name '*.onnx' \) | sed 's/^/[Runpod][SBV2]   /' || true
+fi
+echo "[Runpod] FastAPI will start on port ${PORT} (override with PORT env)."
 
 export RUNPOD_VOICEVOX_AUTOSTART_STATUS="${VOICEVOX_AUTOSTART_STATUS}"
 export RUNPOD_VOICEVOX_AUTOSTART_HINT="${VOICEVOX_AUTOSTART_HINT}"
