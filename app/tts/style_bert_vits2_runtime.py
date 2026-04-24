@@ -18,6 +18,7 @@ from .style_bert_vits2_paths import resolve_style_bert_vits2_models_dir
 _STYLE_BERT_VITS2_DEFAULT_REPO_DIR = "/app/Style-Bert-VITS2"
 _STYLE_BERT_VITS2_DEFAULT_VENV_DIR = "/app/Style-Bert-VITS2/.venv"
 _STYLE_BERT_VITS2_WEIGHT_EXTENSIONS = (".safetensors", ".pth", ".pt", ".onnx")
+_STYLE_BERT_VITS2_IGNORED_MODEL_DIRS = {"__pycache__", "cache", ".cache", "tmp", "temp", "logs"}
 _WORKER_STDERR_TAIL_LINES = 120
 _logger = logging.getLogger("style_bert_vits2")
 
@@ -80,6 +81,8 @@ def _resolve_model_paths(model_id: str) -> tuple[str, str, str]:
     model = (model_id or "").strip()
     if not model:
         raise ValueError("model required when engine=style_bert_vits2")
+    if model.startswith(".") or model.lower() in _STYLE_BERT_VITS2_IGNORED_MODEL_DIRS:
+        raise ValueError(f"invalid Style-Bert-VITS2 model selection: {model!r}")
 
     model_dir: Path
     weight_path: Path | None = None
@@ -233,8 +236,13 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         req = req or {}
         self._ensure_worker_started()
         model = str(req.get("model", "")).strip()
-        if not model:
-            return {"status": "ready", "engine_key": self.engine_key, "preloaded": False}
+        if not self._is_prepare_target_model(model):
+            return {
+                "status": "ready",
+                "engine_key": self.engine_key,
+                "preloaded": False,
+                "reason": "no_valid_model_selected",
+            }
         warmup_started = time.perf_counter()
         preload_payload = self._build_payload(req, model=model, text="事前ロードです。")
         result = self._send_to_worker(preload_payload)
@@ -247,6 +255,18 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "warmup_elapsed_ms": warmup_elapsed_ms,
             "cache_hit": bool(result.get("cache_hit")),
         }
+
+    @staticmethod
+    def _is_prepare_target_model(model: str) -> bool:
+        if not model:
+            return False
+        normalized = model.strip()
+        if not normalized:
+            return False
+        lowered = normalized.lower()
+        if normalized.startswith(".") or lowered in _STYLE_BERT_VITS2_IGNORED_MODEL_DIRS:
+            return False
+        return True
 
     def _build_payload(self, req: dict, *, model: str, text: str) -> dict:
         model_path, config_path, style_vec_path = _resolve_model_paths(model)
@@ -328,11 +348,15 @@ import base64
 import io
 import inspect
 import json
+import sys
 import time
 import traceback
 import warnings
 import wave
 from pathlib import Path
+
+_REAL_STDOUT = sys.stdout
+sys.stdout = sys.stderr
 
 import numpy as np
 from style_bert_vits2.constants import Languages
@@ -343,6 +367,11 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="pyopenjta
 
 loaded_model = None
 loaded_signature = None
+
+
+def emit_response(payload: dict) -> None:
+    _REAL_STDOUT.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    _REAL_STDOUT.flush()
 
 
 def synth(req: dict) -> dict:
@@ -477,11 +506,11 @@ while True:
         line = input()
     except EOFError:
         break
-    req = json.loads(line)
     try:
-        print(json.dumps(synth(req), ensure_ascii=False), flush=True)
+        req = json.loads(line)
+        emit_response(synth(req))
     except Exception as e:
-        print(json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()}, ensure_ascii=False), flush=True)
+        emit_response({"ok": False, "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()})
 '''
 
     def _ensure_worker_started(self) -> None:
@@ -530,30 +559,61 @@ while True:
         self._worker_rr_index = (self._worker_rr_index + 1) % self._workers
         return worker_idx
 
-    def _send_to_worker(self, payload: dict) -> dict:
-        def _send_once() -> dict:
-            self._ensure_worker_started()
-            with self._worker_lock:
-                worker_idx = self._next_worker_index_locked()
-                proc = self._worker_procs[worker_idx]
-                if proc is None or proc.stdin is None or proc.stdout is None:
-                    raise RuntimeError("Style-Bert-VITS2 worker unavailable")
-                proc.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
-                proc.stdin.flush()
+    def _send_once_to_worker(self, payload: dict) -> dict:
+        self._ensure_worker_started()
+        with self._worker_lock:
+            worker_idx = self._next_worker_index_locked()
+            proc = self._worker_procs[worker_idx]
+            if proc is None or proc.stdin is None or proc.stdout is None:
+                raise RuntimeError("Style-Bert-VITS2 worker unavailable")
+            proc.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            proc.stdin.flush()
+            invalid_lines: list[str] = []
+            for _ in range(3):
                 line = proc.stdout.readline()
                 if not line:
                     stderr_tail = "\n".join(self._worker_stderr_tails[worker_idx])
-                    raise RuntimeError(f"Style-Bert-VITS2 worker returned no output (worker={worker_idx}).\n{stderr_tail}")
-                return json.loads(line)
+                    raise RuntimeError(
+                        f"Style-Bert-VITS2 worker returned no output (worker={worker_idx}).\n{stderr_tail}"
+                    )
+                stripped = line.strip()
+                if not stripped:
+                    invalid_lines.append("<empty_line>")
+                    continue
+                try:
+                    return json.loads(stripped)
+                except json.JSONDecodeError as e:
+                    invalid_lines.append(stripped[:300])
+                    if len(invalid_lines) >= 3:
+                        stderr_tail = "\n".join(self._worker_stderr_tails[worker_idx])
+                        raise RuntimeError(
+                            "Style-Bert-VITS2 worker protocol error: stdout was not JSON. "
+                            f"line={stripped[:300]!r} json_error={e} invalid_lines={invalid_lines}\n{stderr_tail}"
+                        ) from e
+            stderr_tail = "\n".join(self._worker_stderr_tails[worker_idx])
+            raise RuntimeError(
+                "Style-Bert-VITS2 worker protocol error: exceeded non-JSON stdout line limit.\n"
+                f"invalid_lines={invalid_lines}\n{stderr_tail}"
+            )
 
-        try:
-            return _send_once()
-        except Exception:
-            with self._worker_lock:
-                self._stop_workers_locked()
-            self._ensure_worker_started()
-            _logger.warning("[Style-Bert-VITS2] worker_restart=true cache_hit=false retry=1")
-            return _send_once()
+    def _restart_workers(self) -> None:
+        with self._worker_lock:
+            self._stop_workers_locked()
+        self._ensure_worker_started()
+
+    def _send_to_worker(self, payload: dict) -> dict:
+        last_error: Exception | None = None
+        for attempt in range(2):
+            try:
+                return self._send_once_to_worker(payload)
+            except Exception as e:
+                last_error = e
+                if attempt == 0:
+                    self._restart_workers()
+                    _logger.warning("[Style-Bert-VITS2] worker_restart=true cache_hit=false retry=1")
+                    continue
+                raise RuntimeError(f"Style-Bert-VITS2 worker request failed after retry: {e}") from e
+        raise RuntimeError(f"Style-Bert-VITS2 worker request failed: {last_error}")
 
     def synthesize(self, req: dict) -> tuple[bytes, str]:
         request_id = str(req.get("request_id") or uuid.uuid4().hex[:8])

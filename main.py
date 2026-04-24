@@ -12290,18 +12290,31 @@ _style_bert_vits2_init_lock = threading.Lock()
 _style_bert_vits2_logger = logging.getLogger("style_bert_vits2")
 _STYLE_BERT_VITS2_REQUIRED_MODEL_FILES = {"config.json", "style_vectors.npy"}
 _STYLE_BERT_VITS2_REQUIRED_WEIGHT_EXTENSIONS = {".safetensors", ".pth", ".pt", ".onnx"}
+_STYLE_BERT_VITS2_IGNORED_MODEL_DIRS = {"__pycache__", "cache", ".cache", "tmp", "temp", "logs"}
 _STYLE_BERT_VITS2_PTH_BLOCK_BEGIN = "# --- CodeAgent Style-Bert-VITS2 managed paths (begin) ---"
 _STYLE_BERT_VITS2_PTH_BLOCK_END = "# --- CodeAgent Style-Bert-VITS2 managed paths (end) ---"
 
 
+def _style_bert_vits2_is_valid_model_dir_name(name: str) -> bool:
+    normalized = str(name or "").strip()
+    if not normalized or normalized.startswith("."):
+        return False
+    return normalized.lower() not in _STYLE_BERT_VITS2_IGNORED_MODEL_DIRS
+
+
 def _style_bert_vits2_list_models() -> list[str]:
     os.makedirs(_STYLE_BERT_VITS2_MODELS_DIR, exist_ok=True)
-    model_dirs: list[str] = []
+    valid_models: list[str] = []
     for name in sorted(os.listdir(_STYLE_BERT_VITS2_MODELS_DIR)):
         path = os.path.join(_STYLE_BERT_VITS2_MODELS_DIR, name)
-        if os.path.isdir(path):
-            model_dirs.append(name)
-    return model_dirs
+        if not os.path.isdir(path):
+            continue
+        if not _style_bert_vits2_is_valid_model_dir_name(name):
+            continue
+        if not _style_bert_vits2_model_has_required_assets(path):
+            continue
+        valid_models.append(name)
+    return valid_models
 
 
 def _style_bert_vits2_model_has_required_assets(model_dir: str) -> bool:
@@ -12695,6 +12708,8 @@ def api_style_bert_vits2_prepare(req: dict = {}):
                 runtime = _tts_engine_registry.get(raw_engine_key="style_bert_vits2")
                 if hasattr(runtime, "prepare"):
                     preload_model = requested_model
+                    if preload_model and not _style_bert_vits2_is_valid_model_dir_name(preload_model):
+                        preload_model = ""
                     if preload_model:
                         ensure_model_exists(preload_model, _STYLE_BERT_VITS2_MODELS_DIR)
                     elif status.get("models"):
@@ -12716,8 +12731,8 @@ def api_style_bert_vits2_prepare(req: dict = {}):
             except StyleBertVITS2Error:
                 raise
             except Exception as preload_error:
-                _style_bert_vits2_logger.warning(
-                    "[Style-Bert-VITS2][prepare:%s] worker prepare skipped: %s",
+                _style_bert_vits2_logger.info(
+                    "[Style-Bert-VITS2][prepare:%s] worker prepare info: %s",
                     prepare_id,
                     preload_error,
                 )
@@ -12869,8 +12884,12 @@ def tts_synthesize_api(req: dict):
             len(audio_bytes or b""),
         )
     except ValueError as e:
+        error_message = str(e)
+        if "worker protocol error" in error_message.lower():
+            _style_bert_vits2_logger.error("[TTS][synthesize:%s] worker_protocol_error: %s", request_id, e)
+            raise HTTPException(status_code=500, detail=error_message)
         _style_bert_vits2_logger.warning("[TTS][synthesize:%s] validation_error: %s", request_id, e)
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=error_message)
     except Exception as e:
         _style_bert_vits2_logger.error(
             "[TTS][synthesize:%s] failed engine=%s error=%s",
