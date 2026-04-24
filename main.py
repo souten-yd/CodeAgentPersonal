@@ -49,6 +49,10 @@ from app.tts.style_bert_vits2_manager import (
     ensure_model_exists,
     import_model_zip,
 )
+from app.tts.style_bert_vits2_paths import (
+    resolve_style_bert_vits2_base_dir,
+    resolve_style_bert_vits2_models_dir,
+)
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -12254,8 +12258,8 @@ async def tts_translate_text_api(req: dict = {}):
 
 _REF_AUDIO_ALLOWED_EXT = {".wav", ".mp3", ".flac", ".ogg", ".webm"}
 
-_STYLE_BERT_VITS2_BASE_DIR = "/workspace/ca_data/tts/style_bert_vits2"
-_STYLE_BERT_VITS2_MODELS_DIR = os.path.join(_STYLE_BERT_VITS2_BASE_DIR, "models")
+_STYLE_BERT_VITS2_BASE_DIR = resolve_style_bert_vits2_base_dir()
+_STYLE_BERT_VITS2_MODELS_DIR = resolve_style_bert_vits2_models_dir()
 _STYLE_BERT_VITS2_DEFAULT_REPO_DIR = "/app/Style-Bert-VITS2"
 _STYLE_BERT_VITS2_DEFAULT_VENV_DIR = "/app/Style-Bert-VITS2/.venv"
 _STYLE_BERT_VITS2_DEFAULT_INIT_FLAG = os.path.join(_STYLE_BERT_VITS2_BASE_DIR, ".initialized")
@@ -12416,6 +12420,7 @@ def _style_bert_vits2_prepare_status() -> dict:
         "python_path": python_path,
         "pth_file": pth_file,
         "init_flag_file": _STYLE_BERT_VITS2_INIT_FLAG,
+        "models_dir": _STYLE_BERT_VITS2_MODELS_DIR,
     }
 
 
@@ -12621,7 +12626,19 @@ async def api_style_bert_vits2_models_upload(
     file: UploadFile,
     model_id: str = Form(default=""),
 ):
+    _style_bert_vits2_logger.info(
+        "[Style-Bert-VITS2][models/upload] start filename=%s model_id=%s models_dir=%s",
+        file.filename,
+        model_id,
+        _STYLE_BERT_VITS2_MODELS_DIR,
+    )
     imported = await import_model_zip(file, model_id=model_id or None)
+    _style_bert_vits2_logger.info(
+        "[Style-Bert-VITS2][models/upload] done model_id=%s path=%s models_dir=%s",
+        imported["model_id"],
+        imported["path"],
+        _STYLE_BERT_VITS2_MODELS_DIR,
+    )
     return {"model_id": imported["model_id"], "models": _style_bert_vits2_list_models()}
 
 
