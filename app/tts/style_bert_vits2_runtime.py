@@ -113,6 +113,7 @@ def _resolve_model_paths(model_id: str) -> tuple[str, str, str]:
 def _pick_device(req: dict) -> str:
     valid_devices = {"cpu", "cuda", "mps"}
     auto_values = {"", "auto"}
+    disabled_markers = {"", "-1", "none", "void"}
 
     requested = str(req.get("device", "")).strip().lower()
     if requested in valid_devices:
@@ -125,11 +126,17 @@ def _pick_device(req: dict) -> str:
         if env_device in auto_values:
             cuda_visible = str(os.environ.get("CUDA_VISIBLE_DEVICES", "")).strip().lower()
             nvidia_visible = str(os.environ.get("NVIDIA_VISIBLE_DEVICES", "")).strip().lower()
-            disabled_markers = {"", "-1", "none", "void"}
             has_cuda_visibility = cuda_visible not in disabled_markers or nvidia_visible not in disabled_markers
             has_cuda_dir = os.path.isdir("/usr/local/cuda")
-            if has_cuda_visibility or has_cuda_dir:
-                return "auto"
+            torch_cuda_available = False
+            try:
+                import torch
+
+                torch_cuda_available = bool(torch.cuda.is_available())
+            except Exception:
+                torch_cuda_available = False
+            if has_cuda_visibility or has_cuda_dir or torch_cuda_available:
+                return "cuda"
 
     return "cpu"
 
