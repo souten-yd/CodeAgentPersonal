@@ -12840,6 +12840,143 @@ def tts_synthesize_api(req: dict):
     return FastAPIResponse(content=audio_bytes, media_type=media_type)
 
 
+def _sample_rate_from_wav_bytes(audio_bytes: bytes) -> int:
+    import wave as _wave
+
+    with _wave.open(io.BytesIO(audio_bytes), "rb") as wf:
+        return int(wf.getframerate())
+
+
+@app.post("/tts/synthesize-batch")
+def tts_synthesize_batch_api(req: dict):
+    engine = str(req.get("engine", "qwen3tts"))
+    model = str(req.get("model", "")).strip()
+    device = str(req.get("device", "")).strip()
+    output_format = str(req.get("output", "json") or "json").strip().lower()
+    items = req.get("items")
+    request_id = str(req.get("request_id") or uuid.uuid4().hex[:8])
+
+    if output_format not in {"json", "zip"}:
+        raise HTTPException(status_code=400, detail='output must be "json" or "zip"')
+    if not isinstance(items, list) or not items:
+        raise HTTPException(status_code=400, detail="items must be a non-empty list")
+
+    normalized_key = _tts_engine_registry.resolve_engine_key(engine, req.get("engine_key"))
+    if normalized_key == "style_bert_vits2" and not model:
+        raise HTTPException(status_code=400, detail="model required when engine=style_bert_vits2")
+    if normalized_key == "style_bert_vits2":
+        ensure_model_exists(model, _STYLE_BERT_VITS2_MODELS_DIR)
+
+    try:
+        runtime = _tts_engine_registry.get(raw_engine=engine, raw_engine_key=req.get("engine_key"))
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"不明なエンジン: {engine}")
+
+    # バッチ開始時に prepare 相当を実行（Style-Bert-VITS2 の事前ロード）
+    if normalized_key == "style_bert_vits2" and hasattr(runtime, "prepare"):
+        try:
+            runtime.prepare({"model": model, "device": device})
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"prepare failed: {e}")
+
+    common_payload = dict(req)
+    common_payload["engine"] = engine
+    common_payload["request_id"] = request_id
+    common_payload["model"] = model
+    common_payload["device"] = device
+
+    manifest: list[dict] = []
+    json_items: list[dict] = []
+    zip_buffer = io.BytesIO() if output_format == "zip" else None
+    zip_file = zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) if zip_buffer else None
+
+    try:
+        for index, raw_item in enumerate(items):
+            if not isinstance(raw_item, dict):
+                raise HTTPException(status_code=400, detail=f"items[{index}] must be object")
+            text = str(raw_item.get("text", "")).strip()
+            if not text:
+                raise HTTPException(status_code=400, detail=f"items[{index}].text required")
+
+            item_id = str(raw_item.get("id") or f"item-{index+1:03d}")
+            item_payload = dict(common_payload)
+            item_payload.update(raw_item)
+            item_payload["text"] = text
+            # ループ中は model/device を固定し、再ロードを防ぐ
+            item_payload["model"] = model
+            item_payload["device"] = device
+            item_payload["request_id"] = f"{request_id}-{index+1:03d}"
+
+            started = time.perf_counter()
+            audio_bytes, _media_type = runtime.synthesize(item_payload)
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            sample_rate = _sample_rate_from_wav_bytes(audio_bytes)
+            output_bytes = len(audio_bytes)
+            filename = f"{index+1:03d}_{item_id}.wav"
+
+            row = {
+                "id": item_id,
+                "filename": filename,
+                "text": text,
+                "elapsed_ms": elapsed_ms,
+                "sample_rate": sample_rate,
+                "output_bytes": output_bytes,
+            }
+            manifest.append(row)
+
+            if output_format == "json":
+                json_items.append(
+                    {
+                        **row,
+                        "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+                    }
+                )
+            else:
+                assert zip_file is not None
+                zip_file.writestr(filename, audio_bytes)
+
+        if output_format == "json":
+            return {
+                "request_id": request_id,
+                "engine": normalized_key,
+                "model": model,
+                "device": device,
+                "items": json_items,
+            }
+
+        assert zip_file is not None and zip_buffer is not None
+        zip_file.writestr(
+            "manifest.json",
+            json.dumps(
+                {
+                    "request_id": request_id,
+                    "engine": normalized_key,
+                    "model": model,
+                    "device": device,
+                    "items": manifest,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+        zip_file.close()
+        zip_buffer.seek(0)
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="tts_batch_{request_id}.zip"'},
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if zip_file is not None:
+            zip_file.close()
+
+
 # =========================
 # エンドポイント: /agent/start, /agent/stop
 # =========================
