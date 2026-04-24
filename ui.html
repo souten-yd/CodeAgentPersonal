@@ -2507,9 +2507,34 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       </div>
 
       <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔊 TTS</div>
-      <div style="padding:4px 0 14px;font-size:11px;color:var(--text3);line-height:1.7">
-        TTS 設定は Settings モーダルから削除されました。<br>
-        Echo の <strong style="color:var(--accent)">TTS タブ</strong> で管理してください。
+      <div style="padding:4px 0 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">TTS を有効化</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">Chat / Task の手動TTS再生を有効化</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="tts-enable-chk"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="saveTtsSettings()">
+            <span style="font-size:11px;color:var(--text2)" id="tts-enable-label">OFF</span>
+          </label>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">LLM回答の自動読み上げ</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">Chat / Task の assistant 応答を自動再生</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="tts-auto-chk"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="saveTtsSettings()">
+            <span style="font-size:11px;color:var(--text2)" id="tts-auto-label">OFF</span>
+          </label>
+        </div>
+        <div style="font-size:11px;color:var(--text3);line-height:1.7">
+          エンジン・音声・翻訳などの詳細は Echo の <strong style="color:var(--accent)">TTS タブ</strong> 設定を参照します。
+        </div>
       </div>
 
       <!-- ── Echo Mode 設定 ── -->
@@ -2985,6 +3010,9 @@ const echo = {
 };
 echo.ttsEngine = _normalizeTtsEngine(echo.ttsEngine);
 localStorage.setItem('echo_tts_engine', echo.ttsEngine);
+// Chat/Task のTTSは Echo TTS 設定を既定値として使う
+tts.engine = echo.ttsEngine;
+localStorage.setItem('tts_engine', tts.engine);
 
 // 旧表示モードの互換変換
 if (!localStorage.getItem('echo_display_style')) {
@@ -4121,6 +4149,8 @@ async function loadQwen3Tts(context) {
 function saveEchoSettings() {
   echo.autoPlayTts = document.getElementById('echo-autoplay-tts')?.checked || false;
   echo.ttsEngine   = _normalizeTtsEngine(document.getElementById('echo-tts-engine')?.value || 'qwen3tts');
+  // Chat/Task 側のTTSエンジンも Echo 設定を参照する
+  tts.engine = echo.ttsEngine;
   const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
   if (styleSel) {
     echo.styleBertVits2Model = styleSel.value || '';
@@ -4218,6 +4248,7 @@ function saveEchoSettings() {
   _syncAsrDeviceState(asrDev);
   localStorage.setItem('echo_autoplay_tts', echo.autoPlayTts);
   localStorage.setItem('echo_tts_engine',   echo.ttsEngine);
+  localStorage.setItem('tts_engine', tts.engine);
   localStorage.setItem('echo_style_bert_vits2_model', echo.styleBertVits2Model || '');
   localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model || echo.styleBertVits2Model || '');
   localStorage.setItem('echo_tts_sbv2_language', `${echo.ttsSbv2Language}`);
@@ -4816,7 +4847,14 @@ async function unloadTtsEngineFromTab() {
 }
 
 function _ttsInitSettingsUI() {
-  // Settings モーダルから TTS 項目を削除したため no-op。
+  const enableChk = document.getElementById('tts-enable-chk');
+  const autoChk = document.getElementById('tts-auto-chk');
+  const enableLbl = document.getElementById('tts-enable-label');
+  const autoLbl = document.getElementById('tts-auto-label');
+  if (enableChk) enableChk.checked = !!tts.enabled;
+  if (autoChk) autoChk.checked = !!tts.autoSpeak;
+  if (enableLbl) enableLbl.textContent = tts.enabled ? 'ON' : 'OFF';
+  if (autoLbl) autoLbl.textContent = tts.autoSpeak ? 'ON' : 'OFF';
   _asrInitSettingsUI();
 }
 
