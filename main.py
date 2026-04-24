@@ -12263,6 +12263,12 @@ _STYLE_BERT_VITS2_MODELS_DIR = resolve_style_bert_vits2_models_dir()
 _STYLE_BERT_VITS2_DEFAULT_REPO_DIR = "/app/Style-Bert-VITS2"
 _STYLE_BERT_VITS2_DEFAULT_VENV_DIR = "/app/Style-Bert-VITS2/.venv"
 _STYLE_BERT_VITS2_DEFAULT_INIT_FLAG = os.path.join(_STYLE_BERT_VITS2_BASE_DIR, ".initialized")
+_STYLE_BERT_VITS2_LEGACY_MODELS_DIR = "/app/Style-Bert-VITS2/model_assets"
+_STYLE_BERT_VITS2_MODELS_DIR_ENV = "CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR"
+_STYLE_BERT_VITS2_UPSTREAM_MODELS_DIR_ENVS = (
+    "STYLE_BERT_VITS2_MODELS_DIR",
+    "STYLE_BERT_VITS2_MODEL_ASSETS_DIR",
+)
 _STYLE_BERT_VITS2_REPO_DIR = os.environ.get(
     "CODEAGENT_STYLE_BERT_VITS2_REPO_DIR",
     _STYLE_BERT_VITS2_DEFAULT_REPO_DIR,
@@ -12275,7 +12281,11 @@ _STYLE_BERT_VITS2_INIT_FLAG = os.environ.get(
     "CODEAGENT_STYLE_BERT_VITS2_INIT_FLAG",
     _STYLE_BERT_VITS2_DEFAULT_INIT_FLAG,
 )
-_STYLE_BERT_VITS2_UI_ERROR = "Style-Bert-VITS2 の準備に失敗しました。サーバーログを確認してください。"
+_STYLE_BERT_VITS2_UI_ERROR = (
+    "Style-Bert-VITS2 の準備に失敗しました。"
+    f"検査先: {_STYLE_BERT_VITS2_MODELS_DIR}（legacy: {_STYLE_BERT_VITS2_LEGACY_MODELS_DIR}）。"
+    "サーバーログを確認してください。"
+)
 _style_bert_vits2_init_lock = threading.Lock()
 _style_bert_vits2_logger = logging.getLogger("style_bert_vits2")
 _STYLE_BERT_VITS2_REQUIRED_MODEL_FILES = {"config.json", "style_vectors.npy"}
@@ -12316,6 +12326,65 @@ def _style_bert_vits2_models_ready() -> tuple[bool, list[str], str]:
         if _style_bert_vits2_model_has_required_assets(model_dir):
             return True, models, ""
     return False, models, "model directories exist but required assets are missing"
+
+
+def _style_bert_vits2_log_model_locations(prepare_id: str, stage: str) -> None:
+    target_models = _style_bert_vits2_list_models()
+    legacy_models: list[str] = []
+    if os.path.isdir(_STYLE_BERT_VITS2_LEGACY_MODELS_DIR):
+        for name in sorted(os.listdir(_STYLE_BERT_VITS2_LEGACY_MODELS_DIR)):
+            legacy_path = os.path.join(_STYLE_BERT_VITS2_LEGACY_MODELS_DIR, name)
+            if os.path.isdir(legacy_path):
+                legacy_models.append(name)
+    _style_bert_vits2_logger.info(
+        "[Style-Bert-VITS2][prepare:%s] model location check stage=%s target_dir=%s target_models=%s legacy_dir=%s legacy_models=%s",
+        prepare_id,
+        stage,
+        _STYLE_BERT_VITS2_MODELS_DIR,
+        target_models,
+        _STYLE_BERT_VITS2_LEGACY_MODELS_DIR,
+        legacy_models,
+    )
+
+
+def _style_bert_vits2_migrate_legacy_models_if_needed(prepare_id: str) -> tuple[bool, list[str]]:
+    if not os.path.isdir(_STYLE_BERT_VITS2_LEGACY_MODELS_DIR):
+        return False, []
+    os.makedirs(_STYLE_BERT_VITS2_MODELS_DIR, exist_ok=True)
+    moved_paths: list[str] = []
+    for name in sorted(os.listdir(_STYLE_BERT_VITS2_LEGACY_MODELS_DIR)):
+        src = os.path.join(_STYLE_BERT_VITS2_LEGACY_MODELS_DIR, name)
+        if not os.path.isdir(src):
+            continue
+        dst = os.path.join(_STYLE_BERT_VITS2_MODELS_DIR, name)
+        if os.path.exists(dst):
+            _style_bert_vits2_logger.info(
+                "[Style-Bert-VITS2][prepare:%s] legacy fallback skip existing dst=%s (src=%s)",
+                prepare_id,
+                dst,
+                src,
+            )
+            continue
+        try:
+            shutil.move(src, dst)
+            moved_paths.append(dst)
+            _style_bert_vits2_logger.info(
+                "[Style-Bert-VITS2][prepare:%s] legacy fallback moved model src=%s dst=%s",
+                prepare_id,
+                src,
+                dst,
+            )
+        except Exception as move_error:
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+            moved_paths.append(dst)
+            _style_bert_vits2_logger.warning(
+                "[Style-Bert-VITS2][prepare:%s] legacy fallback copied model src=%s dst=%s (move failed: %s)",
+                prepare_id,
+                src,
+                dst,
+                move_error,
+            )
+    return bool(moved_paths), moved_paths
 
 
 def _style_bert_vits2_python_path() -> str:
@@ -12501,14 +12570,18 @@ def api_style_bert_vits2_prepare():
                     )
                 python_path = _style_bert_vits2_python_path()
                 cmd = [python_path, "initialize.py"]
+                initialize_env = {**os.environ, "CI": "1", _STYLE_BERT_VITS2_MODELS_DIR_ENV: _STYLE_BERT_VITS2_MODELS_DIR}
+                for env_name in _STYLE_BERT_VITS2_UPSTREAM_MODELS_DIR_ENVS:
+                    initialize_env[env_name] = _STYLE_BERT_VITS2_MODELS_DIR
                 initialize_action = "executed"
                 _style_bert_vits2_logger.info(
-                    "[Style-Bert-VITS2][prepare:%s] running initialize.py cmd=%s cwd=%s reason(runtime_ok=%s, models_ready=%s)",
+                    "[Style-Bert-VITS2][prepare:%s] running initialize.py cmd=%s cwd=%s reason(runtime_ok=%s, models_ready=%s) models_dir_env=%s",
                     prepare_id,
                     cmd,
                     _STYLE_BERT_VITS2_REPO_DIR,
                     runtime_ok,
                     models_ready,
+                    _STYLE_BERT_VITS2_MODELS_DIR,
                 )
                 try:
                     proc = subprocess.run(
@@ -12517,7 +12590,7 @@ def api_style_bert_vits2_prepare():
                         check=True,
                         capture_output=True,
                         text=True,
-                        env={**os.environ, "CI": "1"},
+                        env=initialize_env,
                         timeout=900,
                     )
                     _style_bert_vits2_logger.info(
@@ -12566,13 +12639,27 @@ def api_style_bert_vits2_prepare():
                     prepare_id,
                 )
 
+            _style_bert_vits2_log_model_locations(prepare_id, "after_initialize_before_ready_check")
             models_ready_after, models_after, model_check_error_after = _style_bert_vits2_models_ready()
+            if not models_ready_after:
+                migrated, migrated_paths = _style_bert_vits2_migrate_legacy_models_if_needed(prepare_id)
+                if migrated:
+                    _style_bert_vits2_logger.info(
+                        "[Style-Bert-VITS2][prepare:%s] legacy fallback migrated models=%s",
+                        prepare_id,
+                        migrated_paths,
+                    )
+                    _style_bert_vits2_log_model_locations(prepare_id, "after_legacy_fallback")
+                    models_ready_after, models_after, model_check_error_after = _style_bert_vits2_models_ready()
             status["models"] = models_after
             status["models_ready"] = models_ready_after
             if not models_ready_after:
                 raise StyleBertVITS2Error(
                     status_code=500,
-                    user_message="initialize失敗: モデルアセットの準備が完了しませんでした。",
+                    user_message=(
+                        "initialize失敗: モデルアセットの準備が完了しませんでした。"
+                        f"検査先: {_STYLE_BERT_VITS2_MODELS_DIR}（legacy: {_STYLE_BERT_VITS2_LEGACY_MODELS_DIR}）"
+                    ),
                     log_detail=(
                         "model assets not ready after prepare. "
                         f"before={model_check_error}, after={model_check_error_after}, models={models_after}"
@@ -12610,9 +12697,11 @@ def api_style_bert_vits2_prepare():
 @app.exception_handler(StyleBertVITS2Error)
 async def _handle_style_bert_vits2_error(_request: Request, exc: StyleBertVITS2Error):
     _style_bert_vits2_logger.error("[Style-Bert-VITS2] %s", exc.log_detail, exc_info=True)
+    inspected_dirs = f"検査先: {_STYLE_BERT_VITS2_MODELS_DIR}（legacy: {_STYLE_BERT_VITS2_LEGACY_MODELS_DIR}）"
+    user_message = exc.user_message if inspected_dirs in exc.user_message else f"{exc.user_message} {inspected_dirs}"
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.user_message, "user_message": exc.user_message},
+        content={"detail": user_message, "user_message": user_message},
     )
 
 
