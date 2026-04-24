@@ -98,9 +98,26 @@ def _resolve_model_paths(model_id: str) -> tuple[str, str, str]:
 
 
 def _pick_device(req: dict) -> str:
+    valid_devices = {"cpu", "cuda", "mps"}
+    auto_values = {"", "auto"}
+
     requested = str(req.get("device", "")).strip().lower()
-    if requested in {"cpu", "cuda", "mps"}:
+    if requested in valid_devices:
         return requested
+
+    if requested in auto_values:
+        env_device = str(os.environ.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "")).strip().lower()
+        if env_device in valid_devices:
+            return env_device
+        if env_device in auto_values:
+            cuda_visible = str(os.environ.get("CUDA_VISIBLE_DEVICES", "")).strip().lower()
+            nvidia_visible = str(os.environ.get("NVIDIA_VISIBLE_DEVICES", "")).strip().lower()
+            disabled_markers = {"", "-1", "none", "void"}
+            has_cuda_visibility = cuda_visible not in disabled_markers or nvidia_visible not in disabled_markers
+            has_cuda_dir = os.path.isdir("/usr/local/cuda")
+            if has_cuda_visibility or has_cuda_dir:
+                return "auto"
+
     return "cpu"
 
 
@@ -289,7 +306,16 @@ def synth(req: dict) -> dict:
     model_path = Path(req["model_path"])
     config_path = Path(req["config_path"])
     style_vec_path = Path(req["style_vec_path"])
-    device = req.get("device", "cpu")
+    device = str(req.get("device", "cpu") or "cpu").strip().lower()
+    if device == "auto":
+        try:
+            import torch
+
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        except Exception:
+            device = "cpu"
+    if device not in {"cpu", "cuda", "mps"}:
+        device = "cpu"
     signature = (str(model_path), str(config_path), str(style_vec_path), str(device))
 
     if loaded_model is None or loaded_signature != signature:
