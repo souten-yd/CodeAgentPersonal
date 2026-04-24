@@ -12522,7 +12522,10 @@ def api_tts_engines():
 
 
 @app.post("/api/tts/style-bert-vits2/prepare")
-def api_style_bert_vits2_prepare():
+def api_style_bert_vits2_prepare(req: dict = {}):
+    req = req or {}
+    requested_model = str(req.get("model", "") or "").strip()
+    requested_device = str(req.get("device", "") or "").strip().lower()
     with _style_bert_vits2_init_lock:
         prepare_id = uuid.uuid4().hex[:8]
         _style_bert_vits2_logger.info(
@@ -12691,14 +12694,27 @@ def api_style_bert_vits2_prepare():
             try:
                 runtime = _tts_engine_registry.get(raw_engine_key="style_bert_vits2")
                 if hasattr(runtime, "prepare"):
-                    preload_model = status["models"][0] if status.get("models") else ""
-                    preload_result = runtime.prepare({"model": preload_model} if preload_model else {})
+                    preload_model = requested_model
+                    if preload_model:
+                        ensure_model_exists(preload_model, _STYLE_BERT_VITS2_MODELS_DIR)
+                    elif status.get("models"):
+                        preload_model = status["models"][0]
+                    prepare_payload = {"model": preload_model} if preload_model else {}
+                    if requested_device:
+                        prepare_payload["device"] = requested_device
+                    preload_result = runtime.prepare(prepare_payload)
                     status["runtime_prepare"] = preload_result
+                    if isinstance(status["runtime_prepare"], dict):
+                        status["runtime_prepare"]["device"] = preload_result.get("device")
+                        status["runtime_prepare"]["warmup_elapsed_ms"] = preload_result.get("warmup_elapsed_ms")
+                        status["runtime_prepare"]["cache_hit"] = preload_result.get("cache_hit")
                     _style_bert_vits2_logger.info(
                         "[Style-Bert-VITS2][prepare:%s] worker_prepare result=%s",
                         prepare_id,
                         preload_result,
                     )
+            except StyleBertVITS2Error:
+                raise
             except Exception as preload_error:
                 _style_bert_vits2_logger.warning(
                     "[Style-Bert-VITS2][prepare:%s] worker prepare skipped: %s",
