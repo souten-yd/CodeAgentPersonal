@@ -234,11 +234,18 @@ def _sanitize_preview_text(value: str | None, *, limit: int) -> str:
     return text
 
 
-_JP_TEXT_PATTERN = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]")
+_JP_TEXT_PATTERN = re.compile(r"[ぁ-んァ-ン一-龯々〆〤]")
 
 
 def _looks_japanese(text: str | None) -> bool:
     return bool(_JP_TEXT_PATTERN.search(str(text or "")))
+
+
+def _normalize_non_japanese_policy(value: str | None) -> str:
+    raw = str(value or "").strip().lower()
+    if raw in {"block", "warn", "allow"}:
+        return raw
+    return "block"
 
 
 class StyleBertVITS2Runtime(TTSEngineRuntime):
@@ -319,6 +326,10 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             (req.get("settings") or {}).get("echo_tts_sbv2_language", "")
         ).strip() or None
         effective_language, normalized_language, is_jp_extra = _decide_effective_language(requested_language, model_version)
+        non_japanese_policy = _normalize_non_japanese_policy(
+            req.get("sbv2_jp_extra_non_japanese_policy")
+            or (req.get("settings") or {}).get("sbv2_jp_extra_non_japanese_policy")
+        )
         return {
             "text": text,
             "model_name": model,
@@ -345,6 +356,13 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "effective_language": effective_language,
             "model_version": model_version,
             "is_jp_extra": is_jp_extra,
+            "route": str(req.get("route") or "tts/synthesize"),
+            "caller": str(req.get("caller") or "manual"),
+            "use_translation": bool(req.get("use_translation", False)),
+            "text_source": str(req.get("text_source") or "raw"),
+            "raw_text": str(req.get("raw_text") or text),
+            "translated_text": str(req.get("translated_text") or ""),
+            "non_japanese_policy": non_japanese_policy,
         }
 
     @staticmethod
@@ -684,12 +702,15 @@ while True:
 
     def _log_sbv2_input(self, request_id: str, model: str, payload: dict, *, raw_text: str, translated_text: str = "", tts_text_source: str = "raw") -> None:
         final_tts_text = str(payload.get("text") or "")
+        looks_japanese = _looks_japanese(final_tts_text)
         raw_preview = _sanitize_preview_text(raw_text, limit=_TEXT_LOG_INFO_LIMIT)
         translated_preview = _sanitize_preview_text(translated_text, limit=_TEXT_LOG_INFO_LIMIT)
         final_preview = _sanitize_preview_text(final_tts_text, limit=_TEXT_LOG_INFO_LIMIT)
         _logger.info(
-            "[Style-Bert-VITS2][input] id=%s engine=%s model=%s model_path=%s model_version=%s is_jp_extra=%s requested_language=%s normalized_language=%s effective_language=%s text_source=%s raw_text=%r translated_text=%r final_text=%r final_tts_text_length=%d speaker_id=%s speaker=%s style=%s style_weight=%s device=%s line_split=%s length=%s sdp_ratio=%s noise=%s noise_w=%s",
+            "[Style-Bert-VITS2][input] id=%s route=%s caller=%s engine=%s model=%s model_path=%s model_version=%s is_jp_extra=%s requested_language=%s normalized_language=%s effective_language=%s use_translation=%s text_source=%s raw_text=%r translated_text=%r final_tts_text=%r final_tts_text_length=%d looks_japanese=%s non_japanese_policy=%s speaker_id=%s speaker=%s style=%s style_weight=%s device=%s line_split=%s length=%s sdp_ratio=%s noise=%s noise_w=%s",
             request_id,
+            payload.get("route") or "tts/synthesize",
+            payload.get("caller") or "manual",
             self.engine_key,
             model,
             payload.get("model_path"),
@@ -698,11 +719,14 @@ while True:
             payload.get("requested_language") or "JP",
             payload.get("normalized_language") or "JP",
             payload.get("effective_language") or "JP",
+            str(bool(payload.get("use_translation"))).lower(),
             tts_text_source,
             raw_preview,
             translated_preview,
             final_preview,
             len(final_tts_text),
+            str(looks_japanese).lower(),
+            payload.get("non_japanese_policy") or "block",
             payload.get("speaker_id"),
             payload.get("speaker"),
             payload.get("style"),
@@ -721,7 +745,7 @@ while True:
             _sanitize_preview_text(translated_text, limit=_TEXT_LOG_DEBUG_LIMIT),
             _sanitize_preview_text(final_tts_text, limit=_TEXT_LOG_DEBUG_LIMIT),
         )
-        if payload.get("is_jp_extra") and final_tts_text and not _looks_japanese(final_tts_text):
+        if payload.get("is_jp_extra") and final_tts_text and not looks_japanese:
             _logger.warning(
                 "[Style-Bert-VITS2][input_warning] JP-Extra selected but final_tts_text does not look Japanese. text_preview=%r",
                 final_preview,
@@ -747,7 +771,35 @@ while True:
         )
 
         payload = self._build_payload(req, model=model, text=text)
-        self._log_sbv2_input(request_id, model, payload, raw_text=text)
+        self._log_sbv2_input(
+            request_id,
+            model,
+            payload,
+            raw_text=str(payload.get("raw_text") or text),
+            translated_text=str(payload.get("translated_text") or ""),
+            tts_text_source=str(payload.get("text_source") or "raw"),
+        )
+        final_tts_text = str(payload.get("text") or "")
+        policy = _normalize_non_japanese_policy(payload.get("non_japanese_policy"))
+        if payload.get("is_jp_extra") and final_tts_text and not _looks_japanese(final_tts_text):
+            if policy == "block":
+                preview = _sanitize_preview_text(final_tts_text, limit=_TEXT_LOG_INFO_LIMIT)
+                _logger.error(
+                    "[Style-Bert-VITS2][input_blocked] JP-Extra requires Japanese text. final_text_preview=%r",
+                    preview,
+                )
+                raise ValueError(
+                    json.dumps(
+                        {
+                            "status_code": 422,
+                            "error": "JP-Extra model requires Japanese text",
+                            "text_preview": preview,
+                            "effective_language": payload.get("effective_language") or "JP",
+                            "model_version": payload.get("model_version") or "",
+                        },
+                        ensure_ascii=False,
+                    )
+                )
         output = self._send_to_worker(payload)
         if not output.get("ok"):
             err = output.get("error") or "unknown error"
@@ -784,7 +836,34 @@ while True:
             raise ValueError("model required when engine=style_bert_vits2")
 
         payload = self._build_payload(req, model=model, text=text)
-        self._log_sbv2_input(request_id, model, payload, raw_text=text)
+        self._log_sbv2_input(
+            request_id,
+            model,
+            payload,
+            raw_text=str(payload.get("raw_text") or text),
+            translated_text=str(payload.get("translated_text") or ""),
+            tts_text_source=str(payload.get("text_source") or "raw"),
+        )
+        final_tts_text = str(payload.get("text") or "")
+        policy = _normalize_non_japanese_policy(payload.get("non_japanese_policy"))
+        if payload.get("is_jp_extra") and final_tts_text and not _looks_japanese(final_tts_text) and policy == "block":
+            preview = _sanitize_preview_text(final_tts_text, limit=_TEXT_LOG_INFO_LIMIT)
+            _logger.error(
+                "[Style-Bert-VITS2][input_blocked] JP-Extra requires Japanese text. final_text_preview=%r",
+                preview,
+            )
+            raise ValueError(
+                json.dumps(
+                    {
+                        "status_code": 422,
+                        "error": "JP-Extra model requires Japanese text",
+                        "text_preview": preview,
+                        "effective_language": payload.get("effective_language") or "JP",
+                        "model_version": payload.get("model_version") or "",
+                    },
+                    ensure_ascii=False,
+                )
+            )
         payload["return_mode"] = str(req.get("return_mode", payload.get("return_mode") or "b64") or "b64").strip().lower()
         output = self._send_to_worker(payload)
         if not output.get("ok"):
