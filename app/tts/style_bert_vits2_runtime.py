@@ -193,6 +193,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "split_interval": _to_optional_float(req.get("split_interval"), 0.5),
             "assist_text": str(req.get("assist_text", "")).strip() or None,
             "assist_text_weight": _to_optional_float(req.get("assist_text_weight"), 1.0),
+            "language": str(req.get("language", "")).strip() or None,
         }
 
         _logger.info(
@@ -260,6 +261,8 @@ try:
     if req.get("assist_text"):
         kwargs["assist_text"] = req["assist_text"]
         kwargs["assist_text_weight"] = float(req.get("assist_text_weight", 1.0))
+    if req.get("language") and "language" in inspect.signature(model.infer).parameters:
+        kwargs["language"] = req["language"]
 
     infer_signature = inspect.signature(model.infer)
     infer_params = set(infer_signature.parameters.keys())
