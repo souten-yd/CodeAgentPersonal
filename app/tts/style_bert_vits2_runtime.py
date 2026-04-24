@@ -285,6 +285,7 @@ import base64
 import io
 import inspect
 import json
+import time
 import traceback
 import warnings
 import wave
@@ -303,6 +304,11 @@ loaded_signature = None
 
 def synth(req: dict) -> dict:
     global loaded_model, loaded_signature
+    total_started = time.perf_counter()
+    load_started = total_started
+    load_elapsed_ms = 0
+    infer_elapsed_ms = 0
+    encode_elapsed_ms = 0
     model_path = Path(req["model_path"])
     config_path = Path(req["config_path"])
     style_vec_path = Path(req["style_vec_path"])
@@ -317,6 +323,7 @@ def synth(req: dict) -> dict:
     if device not in {"cpu", "cuda", "mps"}:
         device = "cpu"
     signature = (str(model_path), str(config_path), str(style_vec_path), str(device))
+    cache_hit = loaded_model is not None and loaded_signature == signature
 
     if loaded_model is None or loaded_signature != signature:
         loaded_model = TTSModel(
@@ -326,6 +333,7 @@ def synth(req: dict) -> dict:
             device=device,
         )
         loaded_signature = signature
+    load_elapsed_ms = int((time.perf_counter() - load_started) * 1000)
 
     out_path = Path(req["out_path"]) if req.get("out_path") else None
     hp = getattr(loaded_model, "hyper_parameters", None)
@@ -367,7 +375,9 @@ def synth(req: dict) -> dict:
     elif "speaker_id" in infer_params:
         kwargs["speaker_id"] = int(req.get("speaker_id", 0))
 
+    infer_started = time.perf_counter()
     infer_result = loaded_model.infer(**kwargs)
+    infer_elapsed_ms = int((time.perf_counter() - infer_started) * 1000)
     if isinstance(infer_result, tuple) and len(infer_result) == 2:
         sample_rate, audio = infer_result
     else:
@@ -379,6 +389,7 @@ def synth(req: dict) -> dict:
     if audio_arr.dtype != np.int16:
         audio_arr = np.clip(audio_arr, -32768, 32767).astype(np.int16)
 
+    encode_started = time.perf_counter()
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as wf:
         wf.setnchannels(1)
@@ -390,13 +401,23 @@ def synth(req: dict) -> dict:
     if out_path is not None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(wav_bytes)
+    encode_elapsed_ms = int((time.perf_counter() - encode_started) * 1000)
+    total_elapsed_ms = int((time.perf_counter() - total_started) * 1000)
+    text_value = str(req.get("text", ""))
 
     return {
         "ok": True,
         "audio_b64": base64.b64encode(wav_bytes).decode("ascii"),
+        "cache_hit": bool(cache_hit),
+        "load_elapsed_ms": load_elapsed_ms,
+        "infer_elapsed_ms": infer_elapsed_ms,
+        "encode_elapsed_ms": encode_elapsed_ms,
+        "total_elapsed_ms": total_elapsed_ms,
         "sample_rate": int(sample_rate),
+        "output_bytes": len(wav_bytes),
         "device": str(device),
         "model_name": str(req.get("model_name", "")),
+        "text_length": len(text_value),
     }
 
 
@@ -456,7 +477,6 @@ while True:
 
     def synthesize(self, req: dict) -> tuple[bytes, str]:
         request_id = str(req.get("request_id") or uuid.uuid4().hex[:8])
-        started = time.perf_counter()
         text = str(req.get("text", "")).strip()
         if not text:
             raise ValueError("text required")
@@ -485,16 +505,18 @@ while True:
             raise RuntimeError("Style-Bert-VITS2 synth failed: empty audio payload")
 
         audio_bytes = base64.b64decode(b64)
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
         _logger.info(
-            "[Style-Bert-VITS2][synthesize] synthesize_id=%s model_name=%s text_length=%d elapsed_ms=%d output_bytes=%d sample_rate=%s device=%s",
+            "[Style-Bert-VITS2][synthesize] id=%s model=%s text_len=%d device=%s cache_hit=%s load_ms=%d infer_ms=%d encode_ms=%d total_ms=%d bytes=%d",
             request_id,
             output.get("model_name") or model,
-            len(text),
-            elapsed_ms,
-            len(audio_bytes),
-            output.get("sample_rate") or "unknown",
+            int(output.get("text_length") or len(text)),
             output.get("device") or device,
+            bool(output.get("cache_hit")),
+            int(output.get("load_elapsed_ms") or 0),
+            int(output.get("infer_elapsed_ms") or 0),
+            int(output.get("encode_elapsed_ms") or 0),
+            int(output.get("total_elapsed_ms") or 0),
+            int(output.get("output_bytes") or len(audio_bytes)),
         )
         return audio_bytes, "audio/wav"
 
