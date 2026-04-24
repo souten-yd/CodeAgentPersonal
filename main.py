@@ -12887,12 +12887,62 @@ def tts_synthesize_batch_api(req: dict):
     common_payload["model"] = model
     common_payload["device"] = device
 
+    project = str(req.get("project", "default") or "default")
+    job_id = job_create(
+        project=project,
+        message=f"tts_synthesize_batch request_id={request_id}",
+        mode="tts_batch",
+    )
+    job_update_status(project, job_id, "running")
+    seq = 0
+    batch_started_at = time.perf_counter()
+    item_elapsed_history_ms: list[int] = []
+    current_item_id: str | None = None
+    current_item_index = 0
+
+    def _batch_progress_data(
+        *,
+        total: int,
+        current: int,
+        current_id: str | None,
+        error: str | None = None,
+    ) -> dict:
+        elapsed_ms = int((time.perf_counter() - batch_started_at) * 1000)
+        if current <= 0:
+            estimated_remaining_ms = None
+        elif current >= total:
+            estimated_remaining_ms = 0
+        elif item_elapsed_history_ms:
+            estimated_remaining_ms = int(sum(item_elapsed_history_ms) / len(item_elapsed_history_ms) * (total - current))
+        else:
+            estimated_remaining_ms = None
+        data = {
+            "total": total,
+            "current": current,
+            "current_id": current_id,
+            "elapsed_ms": elapsed_ms,
+            "estimated_remaining_ms": estimated_remaining_ms,
+        }
+        if error:
+            data["error"] = error
+        return data
+
+    def _append_batch_step(event_type: str, data: dict):
+        nonlocal seq
+        job_append_step(project, job_id, seq, event_type, data)
+        seq += 1
+
     manifest: list[dict] = []
     json_items: list[dict] = []
     zip_buffer = io.BytesIO() if output_format == "zip" else None
     zip_file = zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) if zip_buffer else None
 
     try:
+        total = len(items)
+        _append_batch_step(
+            "tts_batch_started",
+            _batch_progress_data(total=total, current=0, current_id=None),
+        )
         for index, raw_item in enumerate(items):
             if not isinstance(raw_item, dict):
                 raise HTTPException(status_code=400, detail=f"items[{index}] must be object")
@@ -12901,6 +12951,13 @@ def tts_synthesize_batch_api(req: dict):
                 raise HTTPException(status_code=400, detail=f"items[{index}].text required")
 
             item_id = str(raw_item.get("id") or f"item-{index+1:03d}")
+            current = index + 1
+            current_item_id = item_id
+            current_item_index = current
+            _append_batch_step(
+                "tts_batch_item_started",
+                _batch_progress_data(total=total, current=current, current_id=item_id),
+            )
             item_payload = dict(common_payload)
             item_payload.update(raw_item)
             item_payload["text"] = text
@@ -12912,6 +12969,7 @@ def tts_synthesize_batch_api(req: dict):
             started = time.perf_counter()
             audio_bytes, _media_type = runtime.synthesize(item_payload)
             elapsed_ms = int((time.perf_counter() - started) * 1000)
+            item_elapsed_history_ms.append(elapsed_ms)
             sample_rate = _sample_rate_from_wav_bytes(audio_bytes)
             output_bytes = len(audio_bytes)
             filename = f"{index+1:03d}_{item_id}.wav"
@@ -12936,6 +12994,22 @@ def tts_synthesize_batch_api(req: dict):
             else:
                 assert zip_file is not None
                 zip_file.writestr(filename, audio_bytes)
+            _append_batch_step(
+                "tts_batch_item_done",
+                {
+                    **_batch_progress_data(total=total, current=current, current_id=item_id),
+                    "item_elapsed_ms": elapsed_ms,
+                    "sample_rate": sample_rate,
+                    "output_bytes": output_bytes,
+                },
+            )
+            current_item_id = None
+
+        _append_batch_step(
+            "tts_batch_done",
+            _batch_progress_data(total=total, current=total, current_id=None),
+        )
+        job_update_status(project, job_id, "done")
 
         if output_format == "json":
             return {
@@ -12943,6 +13017,8 @@ def tts_synthesize_batch_api(req: dict):
                 "engine": normalized_key,
                 "model": model,
                 "device": device,
+                "project": project,
+                "job_id": job_id,
                 "items": json_items,
             }
 
@@ -12966,13 +13042,47 @@ def tts_synthesize_batch_api(req: dict):
         return StreamingResponse(
             zip_buffer,
             media_type="application/zip",
-            headers={"Content-Disposition": f'attachment; filename="tts_batch_{request_id}.zip"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="tts_batch_{request_id}.zip"',
+                "X-Project": project,
+                "X-Job-Id": job_id,
+            },
         )
     except ValueError as e:
+        _append_batch_step(
+            "tts_batch_failed",
+            _batch_progress_data(
+                total=len(items),
+                current=current_item_index,
+                current_id=current_item_id,
+                error=str(e),
+            ),
+        )
+        job_update_status(project, job_id, "error")
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
+        _append_batch_step(
+            "tts_batch_failed",
+            _batch_progress_data(
+                total=len(items),
+                current=current_item_index,
+                current_id=current_item_id,
+                error="http_exception",
+            ),
+        )
+        job_update_status(project, job_id, "error")
         raise
     except Exception as e:
+        _append_batch_step(
+            "tts_batch_failed",
+            _batch_progress_data(
+                total=len(items),
+                current=current_item_index,
+                current_id=current_item_id,
+                error=str(e),
+            ),
+        )
+        job_update_status(project, job_id, "error")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if zip_file is not None:
