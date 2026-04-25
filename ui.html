@@ -569,6 +569,14 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-doc-actions{display:flex;gap:5px;flex-wrap:wrap}
 .nexus-doc-actions button{font-size:10px;padding:3px 7px;border-radius:4px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer}
 .nexus-doc-actions button.danger{border-color:rgba(255,68,102,.35);color:var(--red);background:rgba(255,68,102,.08)}
+.nexus-dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.nexus-metric-card{border:1px solid var(--border);border-radius:8px;background:var(--bg2);padding:12px}
+.nexus-metric-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em}
+.nexus-metric-value{margin-top:8px;font-size:28px;font-weight:800;color:var(--accent);font-family:var(--font-mono)}
+.nexus-job-list{display:flex;flex-direction:column;gap:6px;max-height:180px;overflow:auto}
+.nexus-job-item{border:1px solid var(--border);border-radius:6px;padding:7px;background:var(--bg1)}
+.nexus-job-item-title{font-size:11px;color:var(--text);font-weight:700}
+.nexus-job-item-meta{font-size:10px;color:var(--text3);margin-top:3px;font-family:var(--font-mono)}
 @media(max-width:768px){
   .nexus-topbar{flex-direction:column;align-items:stretch}
   .nexus-subtabs{padding-bottom:2px}
@@ -1155,6 +1163,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <button class="mob-tab" id="mob-models-echo" onclick="mobSwitch('models')" style="display:none">Models</button>
   <button class="mob-tab" id="mob-asr" onclick="mobSwitch('asr')" style="display:none">ASR</button>
   <button class="mob-tab" id="mob-tts" onclick="mobSwitch('tts')" style="display:none">TTS</button>
+  <button class="mob-tab wide" id="mob-nexus" onclick="mobSwitch('nexus')" style="display:none">Nexus</button>
 </div>
 
 <div class="app-body">
@@ -1282,68 +1291,41 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="nexus-subtabs">
         <button class="nexus-subtab active" id="nexus-btn-dashboard" onclick="switchNexusTab('dashboard')">Dashboard</button>
         <button class="nexus-subtab" id="nexus-btn-library" onclick="switchNexusTab('library')">Library</button>
-        <button class="nexus-subtab" id="nexus-btn-web-scout" onclick="switchNexusTab('web-scout')">Web Scout</button>
-        <button class="nexus-subtab" id="nexus-btn-news" onclick="switchNexusTab('news')">News</button>
-        <button class="nexus-subtab" id="nexus-btn-market" onclick="switchNexusTab('market')">Market</button>
-        <button class="nexus-subtab" id="nexus-btn-compare" onclick="switchNexusTab('compare')">Compare</button>
-        <button class="nexus-subtab" id="nexus-btn-formula" onclick="switchNexusTab('formula')">Formula</button>
-        <button class="nexus-subtab" id="nexus-btn-evidence" onclick="switchNexusTab('evidence')">Evidence</button>
-        <button class="nexus-subtab" id="nexus-btn-report" onclick="switchNexusTab('report')">Report</button>
       </div>
     </div>
     <div class="nexus-body">
-      <div class="nexus-tab active" id="nexus-tab-dashboard"><div class="nexus-empty">Nexus Dashboard ready.</div></div>
+      <div class="nexus-tab active" id="nexus-tab-dashboard">
+        <div class="nexus-dashboard-grid">
+          <div class="nexus-metric-card"><div class="nexus-metric-label">Documents</div><div class="nexus-metric-value" id="nexus-metric-documents">-</div></div>
+          <div class="nexus-metric-card"><div class="nexus-metric-label">Chunks</div><div class="nexus-metric-value" id="nexus-metric-chunks">-</div></div>
+          <div class="nexus-metric-card"><div class="nexus-metric-label">Reports</div><div class="nexus-metric-value" id="nexus-metric-reports">-</div></div>
+          <div class="nexus-metric-card"><div class="nexus-metric-label">Active Jobs</div><div class="nexus-metric-value" id="nexus-metric-active-jobs">-</div></div>
+        </div>
+      </div>
       <div class="nexus-tab" id="nexus-tab-library">
         <div class="nexus-lib-grid">
           <div class="nexus-card">
             <div class="nexus-card-title">Upload</div>
             <div class="nexus-upload-row">
               <input id="nexus-lib-upload" type="file" multiple>
-              <button class="settings-btn primary" style="padding:5px 10px;font-size:11px">Upload</button>
+              <button class="settings-btn primary" id="nexus-lib-upload-btn" style="padding:5px 10px;font-size:11px" onclick="nexusUploadDocuments()">Upload</button>
             </div>
-            <div style="font-size:10px;color:var(--text3)">PDF / DOCX / TXT / CSV を追加できます。</div>
+            <div style="font-size:10px;color:var(--text3)">PDF / MD / TXT / CSV / HTML を追加できます。</div>
           </div>
           <div class="nexus-card">
-            <div class="nexus-card-title">Search</div>
-            <input id="nexus-lib-search" type="text" placeholder="文書タイトル・タグ・本文で検索..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px">
+            <div class="nexus-card-title">Job Progress</div>
             <div id="nexus-lib-job" class="nexus-job">Job progress: idle</div>
+            <div id="nexus-lib-jobs" class="nexus-job-list">
+              <div class="nexus-empty">No active jobs</div>
+            </div>
           </div>
           <div class="nexus-card">
             <div class="nexus-card-title">Documents</div>
-            <div id="nexus-lib-list" class="nexus-doc-list">
-              <div class="nexus-doc-item">
-                <div>
-                  <div style="font-size:12px;font-weight:700">sample-report.pdf</div>
-                  <div style="font-size:10px;color:var(--text3)">更新: 2026-04-25 / 2.1MB</div>
-                </div>
-                <div class="nexus-doc-actions">
-                  <button>Detail</button><button>Download</button><button class="danger">Delete</button>
-                </div>
-              </div>
-              <div class="nexus-doc-item">
-                <div>
-                  <div style="font-size:12px;font-weight:700">market-notes.docx</div>
-                  <div style="font-size:10px;color:var(--text3)">更新: 2026-04-24 / 486KB</div>
-                </div>
-                <div class="nexus-doc-actions">
-                  <button>Detail</button><button>Download</button><button class="danger">Delete</button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="nexus-card">
-            <div class="nexus-card-title">Document Detail</div>
-            <div style="font-size:11px;color:var(--text2);line-height:1.65">文書を選択すると、要約・メタデータ・インデックス状態をここに表示します。</div>
+            <input id="nexus-lib-search" type="text" placeholder="文書名で検索..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px" oninput="searchNexusDocuments(this.value)">
+            <div id="nexus-lib-list" class="nexus-doc-list"></div>
           </div>
         </div>
       </div>
-      <div class="nexus-tab" id="nexus-tab-web-scout"><div class="nexus-empty">Web Scout tab</div></div>
-      <div class="nexus-tab" id="nexus-tab-news"><div class="nexus-empty">News tab</div></div>
-      <div class="nexus-tab" id="nexus-tab-market"><div class="nexus-empty">Market tab</div></div>
-      <div class="nexus-tab" id="nexus-tab-compare"><div class="nexus-empty">Compare tab</div></div>
-      <div class="nexus-tab" id="nexus-tab-formula"><div class="nexus-empty">Formula tab</div></div>
-      <div class="nexus-tab" id="nexus-tab-evidence"><div class="nexus-empty">Evidence tab</div></div>
-      <div class="nexus-tab" id="nexus-tab-report"><div class="nexus-empty">Report tab</div></div>
     </div>
   </div>
 
@@ -6590,7 +6572,7 @@ const _AGENT_MOB_TAB_IDS = ['mob-agent-chat','mob-agent-tasks'];
 // Echo モード用モバイルタブID
 const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-echo','mob-asr','mob-tts'];
 // Nexus モード用モバイルタブID（単一ビューのためタブ不要）
-const _NEXUS_MOB_TAB_IDS = [];
+const _NEXUS_MOB_TAB_IDS = ['mob-nexus'];
 
 let agentSessionActive = false;
 let agentSessionId = '';
@@ -6705,6 +6687,7 @@ function setMode(m) {
   _updateMobTabs(m);
 
   if (prevMode === 'agent' && m !== 'agent') stopAgentSession(false);
+  if (prevMode === 'nexus' && m !== 'nexus') stopNexusPolling();
 
   if (m === 'echo') {
     appBody?.classList.add('echo-active');
@@ -6750,6 +6733,7 @@ function setMode(m) {
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
     switchNexusTab(window._nexusTab || 'dashboard');
+    startNexusPolling();
   } else {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
@@ -6818,13 +6802,221 @@ function setMode(m) {
 }
 
 function switchNexusTab(name) {
-  const tabs = ['dashboard','library','web-scout','news','market','compare','formula','evidence','report'];
+  const tabs = ['dashboard','library'];
   const target = tabs.includes(name) ? name : 'dashboard';
   window._nexusTab = target;
   tabs.forEach(tab => {
     document.getElementById('nexus-tab-' + tab)?.classList.toggle('active', tab === target);
     document.getElementById('nexus-btn-' + tab)?.classList.toggle('active', tab === target);
   });
+  if (target === 'dashboard') refreshNexusDashboardSummary();
+  if (target === 'library') {
+    refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
+    refreshNexusJobs();
+  }
+}
+
+
+const NEXUS_POLL_MS = 2500;
+let nexusDocSearchTimer = null;
+let nexusJobsPollTimer = null;
+let nexusDashboardPollTimer = null;
+let nexusTrackers = {};
+
+function formatBytes(bytes) {
+  const b = Number(bytes || 0);
+  if (!Number.isFinite(b) || b <= 0) return '0 B';
+  const units = ['B','KB','MB','GB'];
+  let v = b;
+  let idx = 0;
+  while (v >= 1024 && idx < units.length - 1) { v /= 1024; idx += 1; }
+  return `${v.toFixed(v >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
+function updateNexusJobBanner(text, isErr = false) {
+  const el = document.getElementById('nexus-lib-job');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = isErr ? 'var(--red)' : 'var(--amber)';
+}
+
+function renderNexusDocuments(items = []) {
+  const el = document.getElementById('nexus-lib-list');
+  if (!el) return;
+  if (!items.length) {
+    el.innerHTML = '<div class="nexus-empty">No documents</div>';
+    return;
+  }
+  el.innerHTML = items.map((doc) => {
+    const dt = String(doc.created_at || '').replace('T', ' ').slice(0, 16);
+    return `<div class="nexus-doc-item">
+      <div>
+        <div style="font-size:12px;font-weight:700">${esc(doc.filename || 'untitled')}</div>
+        <div style="font-size:10px;color:var(--text3)">${esc(dt)} / ${esc(formatBytes(doc.size))} / chunks: ${doc.chunk_count || 0}</div>
+      </div>
+      <div class="nexus-doc-actions">
+        <button onclick="downloadNexusDocument('${esc(doc.id)}')">Download</button>
+        <button class="danger" onclick="deleteNexusDocument('${esc(doc.id)}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function refreshNexusDocuments(q = '') {
+  try {
+    const url = API + '/nexus/library/documents?project=' + encodeURIComponent(currentProject) + '&q=' + encodeURIComponent(q || '');
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    renderNexusDocuments(d.documents || []);
+  } catch (e) {
+    addLog('err', 'nexus', 'documents load failed: ' + e.message);
+    renderNexusDocuments([]);
+  }
+}
+
+function searchNexusDocuments(q) {
+  clearTimeout(nexusDocSearchTimer);
+  nexusDocSearchTimer = setTimeout(() => refreshNexusDocuments(q), 250);
+}
+
+async function deleteNexusDocument(documentId) {
+  if (!confirm('この文書を削除しますか？')) return;
+  try {
+    const r = await fetch(API + '/nexus/library/documents/' + encodeURIComponent(documentId) + '?project=' + encodeURIComponent(currentProject), { method: 'DELETE' });
+    if (!r.ok) throw new Error(await r.text());
+    updateNexusJobBanner('Document deleted.');
+    await refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
+    await refreshNexusDashboardSummary();
+  } catch (e) {
+    updateNexusJobBanner('Delete failed: ' + e.message, true);
+  }
+}
+
+function downloadNexusDocument(documentId) {
+  const url = API + '/nexus/library/documents/' + encodeURIComponent(documentId) + '/download?project=' + encodeURIComponent(currentProject);
+  window.open(url, '_blank', 'noopener');
+}
+
+function renderNexusJobs(jobs = []) {
+  const el = document.getElementById('nexus-lib-jobs');
+  if (!el) return;
+  if (!jobs.length) {
+    el.innerHTML = '<div class="nexus-empty">No active jobs</div>';
+    return;
+  }
+  el.innerHTML = jobs.map((job) => {
+    const st = esc(job.status || '-');
+    const msg = esc(job.message || '');
+    const updated = esc(String(job.updated_at || '').replace('T', ' ').slice(0, 19));
+    return `<div class="nexus-job-item"><div class="nexus-job-item-title">${esc(job.job_id || '')}</div><div class="nexus-job-item-meta">${st} ${msg ? '· ' + msg : ''} · ${updated}</div></div>`;
+  }).join('');
+}
+
+async function refreshNexusJobs() {
+  try {
+    const r = await fetch(API + '/nexus/jobs/active?limit=20');
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    renderNexusJobs(d.jobs || []);
+  } catch (e) {
+    addLog('err', 'nexus', 'jobs load failed: ' + e.message);
+  }
+}
+
+async function refreshNexusDashboardSummary() {
+  try {
+    const r = await fetch(API + '/nexus/dashboard/summary?project=' + encodeURIComponent(currentProject));
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    document.getElementById('nexus-metric-documents').textContent = d.documents ?? 0;
+    document.getElementById('nexus-metric-chunks').textContent = d.chunks ?? 0;
+    document.getElementById('nexus-metric-reports').textContent = d.reports ?? 0;
+    document.getElementById('nexus-metric-active-jobs').textContent = d.active_jobs ?? 0;
+  } catch (e) {
+    addLog('err', 'nexus', 'summary load failed: ' + e.message);
+  }
+}
+
+async function trackNexusJob(jobId) {
+  nexusTrackers[jobId] = { after: -1, done: false };
+  updateNexusJobBanner(`Job ${jobId} queued...`);
+  while (!nexusTrackers[jobId]?.done) {
+    try {
+      const after = nexusTrackers[jobId].after;
+      const evRes = await fetch(API + '/nexus/jobs/' + encodeURIComponent(jobId) + '/events?after=' + after);
+      if (evRes.ok) {
+        const evData = await evRes.json();
+        const events = evData.events || [];
+        events.forEach((ev) => {
+          nexusTrackers[jobId].after = Math.max(nexusTrackers[jobId].after, Number(ev.seq ?? -1));
+          const label = ev.data?.label || ev.type;
+          updateNexusJobBanner(`Job ${jobId}: ${label}`);
+        });
+      }
+      const jobRes = await fetch(API + '/nexus/jobs/' + encodeURIComponent(jobId));
+      if (jobRes.ok) {
+        const jobData = await jobRes.json();
+        const st = jobData?.job?.status || '';
+        if (st === 'completed' || st === 'failed') {
+          nexusTrackers[jobId].done = true;
+          const err = jobData?.job?.error;
+          updateNexusJobBanner(st === 'completed' ? `Job ${jobId} completed` : `Job ${jobId} failed: ${err || ''}`, st === 'failed');
+        }
+      }
+      await refreshNexusJobs();
+      await new Promise((resolve) => setTimeout(resolve, NEXUS_POLL_MS));
+    } catch (e) {
+      updateNexusJobBanner(`Job ${jobId} polling error: ${e.message}`, true);
+      break;
+    }
+  }
+  await refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
+  await refreshNexusDashboardSummary();
+}
+
+async function nexusUploadDocuments() {
+  const input = document.getElementById('nexus-lib-upload');
+  const btn = document.getElementById('nexus-lib-upload-btn');
+  const files = Array.from(input?.files || []);
+  if (!files.length) {
+    updateNexusJobBanner('ファイルを選択してください', true);
+    return;
+  }
+  if (btn) btn.disabled = true;
+  try {
+    for (const file of files) {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('project', currentProject);
+      const r = await fetch(API + '/nexus/upload', { method: 'POST', body: fd });
+      if (!r.ok) throw new Error(await r.text());
+      const d = await r.json();
+      if (d.job_id) trackNexusJob(d.job_id);
+    }
+    input.value = '';
+    updateNexusJobBanner('Upload accepted. Processing started...');
+  } catch (e) {
+    updateNexusJobBanner('Upload failed: ' + e.message, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function startNexusPolling() {
+  stopNexusPolling();
+  refreshNexusDashboardSummary();
+  refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
+  refreshNexusJobs();
+  nexusJobsPollTimer = setInterval(refreshNexusJobs, NEXUS_POLL_MS);
+  nexusDashboardPollTimer = setInterval(refreshNexusDashboardSummary, 5000);
+}
+
+function stopNexusPolling() {
+  if (nexusJobsPollTimer) clearInterval(nexusJobsPollTimer);
+  if (nexusDashboardPollTimer) clearInterval(nexusDashboardPollTimer);
+  nexusJobsPollTimer = null;
+  nexusDashboardPollTimer = null;
 }
 
 function _agentMessages() {
