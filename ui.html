@@ -7252,15 +7252,23 @@ async function runNexusNewsMvp() {
   if (btn) btn.disabled = true;
   setNexusNewsResult('実行中...');
   try {
-    const r = await fetch(API + '/nexus/news/mvp', {
+    let r = await fetch(API + '/nexus/news/search', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ topic, max_results_per_query: 5 }),
     });
+    if (r.status === 404) {
+      r = await fetch(API + '/nexus/news/mvp', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ topic, max_results_per_query: 5 }),
+      });
+    }
     const d = await r.json();
     if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
-    setNexusNewsResult(d);
-    if (d?.job_id) refreshNexusJobs();
+    const payload = d?.result || d;
+    setNexusNewsResult(payload);
+    if (payload?.job_id) refreshNexusJobs();
   } catch (e) {
     setNexusNewsResult('News MVP failed: ' + e.message, true);
   } finally {
@@ -7278,15 +7286,23 @@ async function runNexusMarketMvp() {
   if (btn) btn.disabled = true;
   setNexusMarketResult('実行中...');
   try {
-    const r = await fetch(API + '/nexus/market/mvp', {
+    let r = await fetch(API + '/nexus/market/research', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ symbol_or_theme: symbolOrTheme, max_results_per_query: 5 }),
     });
+    if (r.status === 404) {
+      r = await fetch(API + '/nexus/market/mvp', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ symbol_or_theme: symbolOrTheme, max_results_per_query: 5 }),
+      });
+    }
     const d = await r.json();
     if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
-    setNexusMarketResult(d);
-    if (d?.job_id) refreshNexusJobs();
+    const payload = d?.result || d;
+    setNexusMarketResult(payload);
+    if (payload?.job_id) refreshNexusJobs();
   } catch (e) {
     setNexusMarketResult('Market MVP failed: ' + e.message, true);
   } finally {
