@@ -9,8 +9,8 @@ import uuid
 
 from fastapi import UploadFile
 
-from app.nexus.db import NEXUS_DIR, insert_chunk, insert_document
-from app.nexus.extractors import DependencyMissingError, extract_pages
+from app.nexus.db import NEXUS_DIR, insert_chunk, insert_document, update_document_artifact_paths
+from app.nexus.extractors import DependencyMissingError, build_artifacts, extract_pages
 from app.nexus.jobs import append_job_event, create_job, update_job
 
 UPLOAD_ROOT = NEXUS_DIR / "uploads"
@@ -98,7 +98,25 @@ def _extract_and_index(document_id: str, path: Path, filename: str, job_id: str)
         append_job_event(job_id, "job_failed", {"document_id": document_id, "error": str(exc)})
         return
 
+    artifacts_dir = NEXUS_DIR / "extracted" / document_id
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    (artifacts_dir / "tables").mkdir(parents=True, exist_ok=True)
+    (artifacts_dir / "images").mkdir(parents=True, exist_ok=True)
+
+    artifacts = build_artifacts(pages)
+    extracted_text_path = artifacts_dir / "text.txt"
+    markdown_path = artifacts_dir / "document.md"
+    extracted_text_path.write_text(artifacts.text, encoding="utf-8")
+    markdown_path.write_text(artifacts.markdown, encoding="utf-8")
+
     created_at = _now_iso()
+    update_document_artifact_paths(
+        document_id=document_id,
+        extracted_text_path=str(extracted_text_path),
+        markdown_path=str(markdown_path),
+        updated_at=created_at,
+    )
+
     inserted = 0
     chunk_index = 0
     for page in pages:
@@ -124,7 +142,13 @@ def _extract_and_index(document_id: str, path: Path, filename: str, job_id: str)
     append_job_event(
         job_id,
         "job_completed",
-        {"status": "completed", "document_id": document_id, "chunks": inserted},
+        {
+            "status": "completed",
+            "document_id": document_id,
+            "chunks": inserted,
+            "extracted_text_path": str(extracted_text_path),
+            "markdown_path": str(markdown_path),
+        },
     )
 
 

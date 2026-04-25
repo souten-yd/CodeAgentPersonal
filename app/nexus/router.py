@@ -87,7 +87,8 @@ def nexus_list_documents(
     with get_conn() as conn:
         rows = conn.execute(
             """
-            SELECT d.id, d.project, d.filename, d.size, d.content_type, d.path, d.sha256, d.created_at,
+            SELECT d.id, d.project, d.filename, d.size, d.content_type, d.path, d.extracted_text_path,
+                   d.markdown_path, d.sha256, d.created_at,
                    COALESCE(COUNT(c.chunk_id), 0) AS chunk_count
             FROM nexus_documents d
             LEFT JOIN nexus_chunks c ON c.document_id = d.id
@@ -113,6 +114,10 @@ def nexus_list_documents(
                 "content_type": row["content_type"],
                 "created_at": row["created_at"],
                 "chunk_count": int(row["chunk_count"] or 0),
+                "extracted_text_path": str(row["extracted_text_path"] or ""),
+                "markdown_path": str(row["markdown_path"] or ""),
+                "has_extracted_text": bool(row["extracted_text_path"]),
+                "has_markdown": bool(row["markdown_path"]),
             }
         )
     return {"documents": documents}
@@ -124,6 +129,7 @@ def nexus_get_document(document_id: str, project: str = Query("default")) -> dic
         row = conn.execute(
             """
             SELECT d.id, d.project, d.filename, d.size, d.content_type, d.created_at,
+                   d.extracted_text_path, d.markdown_path,
                    COALESCE(COUNT(c.chunk_id), 0) AS chunk_count
             FROM nexus_documents d
             LEFT JOIN nexus_chunks c ON c.document_id = d.id
@@ -145,6 +151,10 @@ def nexus_get_document(document_id: str, project: str = Query("default")) -> dic
             "content_type": row["content_type"],
             "created_at": row["created_at"],
             "chunk_count": int(row["chunk_count"] or 0),
+            "extracted_text_path": str(row["extracted_text_path"] or ""),
+            "markdown_path": str(row["markdown_path"] or ""),
+            "has_extracted_text": bool(row["extracted_text_path"]),
+            "has_markdown": bool(row["markdown_path"]),
         }
     }
 
@@ -154,7 +164,7 @@ def nexus_get_document(document_id: str, project: str = Query("default")) -> dic
 def nexus_delete_document(document_id: str, project: str = Query("default")) -> dict:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, path FROM nexus_documents WHERE id = ? AND project = ?",
+            "SELECT id, path, extracted_text_path, markdown_path FROM nexus_documents WHERE id = ? AND project = ?",
             (document_id, project),
         ).fetchone()
         if row is None:
@@ -164,12 +174,30 @@ def nexus_delete_document(document_id: str, project: str = Query("default")) -> 
         conn.commit()
 
     path = Path(str(row["path"]))
+    raw_extracted_text_path = str(row["extracted_text_path"] or "").strip()
+    raw_markdown_path = str(row["markdown_path"] or "").strip()
     try:
         if path.exists():
             path.unlink()
         parent = path.parent
         if parent.exists() and parent.name == document_id:
             parent.rmdir()
+        if raw_extracted_text_path and Path(raw_extracted_text_path).exists():
+            extracted_text_path = Path(raw_extracted_text_path)
+            extracted_text_path.unlink()
+        if raw_markdown_path and Path(raw_markdown_path).exists():
+            markdown_path = Path(raw_markdown_path)
+            markdown_path.unlink()
+        if raw_extracted_text_path:
+            extracted_parent = Path(raw_extracted_text_path).parent
+            if extracted_parent.exists() and extracted_parent.name == document_id:
+                for child in extracted_parent.iterdir():
+                    if child.is_dir():
+                        try:
+                            child.rmdir()
+                        except OSError:
+                            pass
+                extracted_parent.rmdir()
     except OSError:
         # DB削除を優先し、ファイル削除失敗は非致命扱い
         pass
@@ -192,6 +220,46 @@ def nexus_download_document(document_id: str, project: str = Query("default")) -
         raise HTTPException(status_code=404, detail="file missing")
 
     return FileResponse(path, filename=str(row["filename"]))
+
+
+@nexus_router.get("/library/documents/{document_id}/download/text")
+def nexus_download_extracted_text(document_id: str, project: str = Query("default")) -> FileResponse:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT extracted_text_path FROM nexus_documents WHERE id = ? AND project = ?",
+            (document_id, project),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="document not found")
+
+    raw_path = str(row["extracted_text_path"] or "").strip()
+    if not raw_path:
+        raise HTTPException(status_code=404, detail="extracted text not ready")
+    path = Path(raw_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="extracted text missing")
+
+    return FileResponse(path, filename=f"{document_id}.txt")
+
+
+@nexus_router.get("/library/documents/{document_id}/download/markdown")
+def nexus_download_extracted_markdown(document_id: str, project: str = Query("default")) -> FileResponse:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT markdown_path FROM nexus_documents WHERE id = ? AND project = ?",
+            (document_id, project),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="document not found")
+
+    raw_path = str(row["markdown_path"] or "").strip()
+    if not raw_path:
+        raise HTTPException(status_code=404, detail="markdown not ready")
+    path = Path(raw_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="markdown missing")
+
+    return FileResponse(path, filename=f"{document_id}.md")
 
 
 @nexus_router.get("/jobs/active")
