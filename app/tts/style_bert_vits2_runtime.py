@@ -373,9 +373,15 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         normalization_result = None
         normalized_text = text
         normalization_settings = _resolve_sbv2_jp_extra_normalization_settings(req)
-        if is_jp_extra:
+        normalization_enabled = bool(
+            is_jp_extra and _to_optional_bool(normalization_settings.get("sbv2_jp_extra_text_normalization"), True)
+        )
+        if normalization_enabled:
             normalization_result = normalize_text_for_sbv2_jp_extra(text, normalization_settings)
             normalized_text = str(normalization_result.get("text") or "")
+        elif is_jp_extra:
+            normalization_result = {"changed": False}
+            normalized_text = text
         non_japanese_policy = _normalize_non_japanese_policy(
             normalization_settings.get("sbv2_jp_extra_non_japanese_policy")
         )
@@ -406,6 +412,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "effective_language": effective_language,
             "model_version": model_version,
             "is_jp_extra": is_jp_extra,
+            "normalization_enabled": normalization_enabled,
             "route": str(req.get("route") or "tts/synthesize"),
             "caller": str(req.get("caller") or "manual"),
             "use_translation": bool(req.get("use_translation", False)),
@@ -449,6 +456,9 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         normalization_settings = _resolve_sbv2_jp_extra_normalization_settings(req)
         normalization_result = None
         normalized_text = original_text
+        normalization_enabled = bool(
+            is_jp_extra and _to_optional_bool(normalization_settings.get("sbv2_jp_extra_text_normalization"), True)
+        )
         final_text = normalized_text
         looks_japanese_final = looks_japanese(final_text)
 
@@ -459,9 +469,16 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
                 effective_language, normalized_language, is_jp_extra = _decide_effective_language(
                     requested_language, model_version
                 )
-                if is_jp_extra:
+                normalization_enabled = bool(
+                    is_jp_extra
+                    and _to_optional_bool(normalization_settings.get("sbv2_jp_extra_text_normalization"), True)
+                )
+                if normalization_enabled:
                     normalization_result = normalize_text_for_sbv2_jp_extra(original_text, normalization_settings)
                     normalized_text = str(normalization_result.get("text") or "")
+                elif is_jp_extra:
+                    normalization_result = {"changed": False}
+                    normalized_text = original_text
                 final_text = normalized_text
                 looks_japanese_final = (
                     bool(normalization_result.get("looks_japanese_after"))
@@ -496,6 +513,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "effective_language": effective_language,
             "model_version": model_version,
             "is_jp_extra": is_jp_extra,
+            "normalization_enabled": normalization_enabled,
             "original_text": original_text,
             "normalized_text": normalized_text,
             "final_preview": final_text,
@@ -844,7 +862,7 @@ while True:
     def _log_sbv2_input(self, request_id: str, model: str, payload: dict, *, raw_text: str, translated_text: str = "", tts_text_source: str = "raw") -> None:
         final_tts_text = str(payload.get("text") or "")
         normalization_result = payload.get("jp_extra_normalization") or {}
-        normalization_enabled = bool(payload.get("is_jp_extra"))
+        normalization_enabled = bool(payload.get("normalization_enabled"))
         normalization_changed = bool(normalization_result.get("changed")) if normalization_result else False
         normalization_operations = normalization_result.get("operations") or []
         original_tts_text = translated_text if tts_text_source == "translated" and translated_text else raw_text
