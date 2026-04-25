@@ -44,7 +44,7 @@ def search_evidence(query: str, top_k: int = 10) -> list[dict]:
             """
             SELECT
                 c.chunk_id,
-                c.document_id,
+                nexus_chunks_fts.document_id,
                 c.title,
                 c.section_path,
                 c.text,
@@ -60,7 +60,7 @@ def search_evidence(query: str, top_k: int = 10) -> list[dict]:
                 d.created_at
             FROM nexus_chunks_fts
             JOIN nexus_chunks c ON c.chunk_id = nexus_chunks_fts.chunk_id
-            JOIN nexus_documents d ON d.id = c.document_id
+            JOIN nexus_documents d ON d.id = nexus_chunks_fts.document_id
             WHERE nexus_chunks_fts MATCH ?
             ORDER BY score
             LIMIT ?

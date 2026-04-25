@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -31,6 +32,8 @@ SCHEMA_SQL: tuple[str, ...] = (
         markdown_path TEXT NOT NULL DEFAULT '',
         sha256 TEXT NOT NULL,
         metadata TEXT NOT NULL DEFAULT '{}',
+        source_metadata TEXT NOT NULL DEFAULT '{}',
+        doc_metadata TEXT NOT NULL DEFAULT '{}',
         updated_at TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL
     )
@@ -55,6 +58,7 @@ SCHEMA_SQL: tuple[str, ...] = (
     """
     CREATE VIRTUAL TABLE IF NOT EXISTS nexus_chunks_fts USING fts5(
         chunk_id UNINDEXED,
+        document_id UNINDEXED,
         title,
         section_path,
         text
@@ -69,6 +73,9 @@ SCHEMA_SQL: tuple[str, ...] = (
         title TEXT,
         message TEXT,
         error TEXT,
+        progress REAL NOT NULL DEFAULT 0.0,
+        input_json TEXT NOT NULL DEFAULT '{}',
+        output_json TEXT NOT NULL DEFAULT '{}',
         payload TEXT NOT NULL DEFAULT '{}',
         result TEXT NOT NULL DEFAULT '{}',
         document_count INTEGER NOT NULL DEFAULT 0,
@@ -103,6 +110,10 @@ SCHEMA_SQL: tuple[str, ...] = (
         retrieved_at TEXT NOT NULL,
         note TEXT,
         quote TEXT,
+        relevance REAL NOT NULL DEFAULT 0.0,
+        credibility REAL NOT NULL DEFAULT 0.0,
+        freshness REAL NOT NULL DEFAULT 0.0,
+        evidence_level TEXT NOT NULL DEFAULT '',
         metadata TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL,
         FOREIGN KEY(job_id) REFERENCES nexus_jobs(job_id) ON DELETE CASCADE
@@ -160,6 +171,22 @@ def _add_column_if_missing(conn: sqlite3.Connection, table: str, definition: str
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {definition}")
 
 
+def _loads_json(value: object) -> dict:
+    if not isinstance(value, str) or not value.strip():
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _dumps_json(value: object) -> str:
+    if not isinstance(value, dict):
+        return "{}"
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
 def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
     # ALTER TABLE 互換マイグレーション（既存データ保持）
     for table, definitions in (
@@ -167,6 +194,8 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
             "nexus_documents",
             (
                 "metadata TEXT NOT NULL DEFAULT '{}'",
+                "source_metadata TEXT NOT NULL DEFAULT '{}'",
+                "doc_metadata TEXT NOT NULL DEFAULT '{}'",
                 "updated_at TEXT NOT NULL DEFAULT ''",
                 "extracted_text_path TEXT NOT NULL DEFAULT ''",
                 "markdown_path TEXT NOT NULL DEFAULT ''",
@@ -184,6 +213,10 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
             (
                 "project TEXT NOT NULL DEFAULT 'default'",
                 "job_type TEXT NOT NULL DEFAULT 'ingest'",
+                "error TEXT",
+                "progress REAL NOT NULL DEFAULT 0.0",
+                "input_json TEXT NOT NULL DEFAULT '{}'",
+                "output_json TEXT NOT NULL DEFAULT '{}'",
                 "payload TEXT NOT NULL DEFAULT '{}'",
                 "result TEXT NOT NULL DEFAULT '{}'",
                 "started_at TEXT",
@@ -197,6 +230,10 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
                 "document_id TEXT NOT NULL DEFAULT ''",
                 "title TEXT NOT NULL DEFAULT ''",
                 "section_path TEXT NOT NULL DEFAULT '/'",
+                "relevance REAL NOT NULL DEFAULT 0.0",
+                "credibility REAL NOT NULL DEFAULT 0.0",
+                "freshness REAL NOT NULL DEFAULT 0.0",
+                "evidence_level TEXT NOT NULL DEFAULT ''",
             ),
         ),
         (
@@ -213,6 +250,8 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
 
     # 欠損カラムのデフォルト埋め
     conn.execute("UPDATE nexus_documents SET metadata = '{}' WHERE metadata IS NULL OR metadata = ''")
+    conn.execute("UPDATE nexus_documents SET source_metadata = '{}' WHERE source_metadata IS NULL OR source_metadata = ''")
+    conn.execute("UPDATE nexus_documents SET doc_metadata = '{}' WHERE doc_metadata IS NULL OR doc_metadata = ''")
     conn.execute("UPDATE nexus_documents SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = ''")
     conn.execute("UPDATE nexus_documents SET extracted_text_path = '' WHERE extracted_text_path IS NULL")
     conn.execute("UPDATE nexus_documents SET markdown_path = '' WHERE markdown_path IS NULL")
@@ -220,6 +259,10 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE nexus_chunks SET metadata = '{}' WHERE metadata IS NULL OR metadata = ''")
     conn.execute("UPDATE nexus_jobs SET project = 'default' WHERE project IS NULL OR project = ''")
     conn.execute("UPDATE nexus_jobs SET job_type = 'ingest' WHERE job_type IS NULL OR job_type = ''")
+    conn.execute("UPDATE nexus_jobs SET progress = 0.0 WHERE progress IS NULL")
+    conn.execute("UPDATE nexus_jobs SET input_json = '{}' WHERE input_json IS NULL OR input_json = ''")
+    conn.execute("UPDATE nexus_jobs SET output_json = '{}' WHERE output_json IS NULL OR output_json = ''")
+    conn.execute("UPDATE nexus_jobs SET error = '' WHERE error IS NULL")
     conn.execute("UPDATE nexus_jobs SET payload = '{}' WHERE payload IS NULL OR payload = ''")
     conn.execute("UPDATE nexus_jobs SET result = '{}' WHERE result IS NULL OR result = ''")
     conn.execute("UPDATE nexus_jobs SET started_at = created_at WHERE started_at IS NULL")
@@ -233,9 +276,82 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
            OR section_path IS NULL OR section_path = ''
         """
     )
+    conn.execute("UPDATE nexus_evidence SET relevance = 0.0 WHERE relevance IS NULL")
+    conn.execute("UPDATE nexus_evidence SET credibility = 0.0 WHERE credibility IS NULL")
+    conn.execute("UPDATE nexus_evidence SET freshness = 0.0 WHERE freshness IS NULL")
+    conn.execute("UPDATE nexus_evidence SET evidence_level = '' WHERE evidence_level IS NULL")
     conn.execute("UPDATE nexus_reports SET project = 'default' WHERE project IS NULL OR project = ''")
     conn.execute("UPDATE nexus_reports SET summary = '' WHERE summary IS NULL")
     conn.execute("UPDATE nexus_reports SET metadata = '{}' WHERE metadata IS NULL OR metadata = ''")
+
+    # 旧 metadata JSON から新カラムへ補完
+    doc_rows = conn.execute(
+        "SELECT id, metadata, source_metadata, doc_metadata FROM nexus_documents"
+    ).fetchall()
+    for row in doc_rows:
+        metadata = _loads_json(row["metadata"])
+        source_metadata = _loads_json(row["source_metadata"])
+        doc_metadata = _loads_json(row["doc_metadata"])
+        if not source_metadata:
+            source_candidate = metadata.get("source")
+            if isinstance(source_candidate, dict):
+                source_metadata = source_candidate
+        if not doc_metadata:
+            doc_candidate = metadata.get("document") or metadata.get("doc")
+            if isinstance(doc_candidate, dict):
+                doc_metadata = doc_candidate
+        conn.execute(
+            """
+            UPDATE nexus_documents
+            SET source_metadata = ?, doc_metadata = ?
+            WHERE id = ?
+            """,
+            (_dumps_json(source_metadata), _dumps_json(doc_metadata), row["id"]),
+        )
+
+    job_rows = conn.execute(
+        "SELECT job_id, payload, result, input_json, output_json FROM nexus_jobs"
+    ).fetchall()
+    for row in job_rows:
+        payload = _loads_json(row["payload"])
+        result = _loads_json(row["result"])
+        input_json = _loads_json(row["input_json"]) or payload
+        output_json = _loads_json(row["output_json"]) or result
+        conn.execute(
+            """
+            UPDATE nexus_jobs
+            SET input_json = ?, output_json = ?
+            WHERE job_id = ?
+            """,
+            (_dumps_json(input_json), _dumps_json(output_json), row["job_id"]),
+        )
+
+    evidence_rows = conn.execute(
+        """
+        SELECT evidence_id, metadata, relevance, credibility, freshness, evidence_level
+        FROM nexus_evidence
+        """
+    ).fetchall()
+    for row in evidence_rows:
+        metadata = _loads_json(row["metadata"])
+        relevance = row["relevance"]
+        if relevance in (None, 0, 0.0):
+            relevance = metadata.get("relevance", metadata.get("score", 0.0))
+        credibility = row["credibility"]
+        if credibility in (None, 0, 0.0):
+            credibility = metadata.get("credibility", 0.0)
+        freshness = row["freshness"]
+        if freshness in (None, 0, 0.0):
+            freshness = metadata.get("freshness", 0.0)
+        evidence_level = row["evidence_level"] if row["evidence_level"] not in (None, "") else metadata.get("evidence_level", metadata.get("level", ""))
+        conn.execute(
+            """
+            UPDATE nexus_evidence
+            SET relevance = ?, credibility = ?, freshness = ?, evidence_level = ?
+            WHERE evidence_id = ?
+            """,
+            (float(relevance or 0.0), float(credibility or 0.0), float(freshness or 0.0), str(evidence_level or ""), row["evidence_id"]),
+        )
 
     # FTS再構成（title/section_path/text を索引）
     conn.execute("DROP TABLE IF EXISTS nexus_chunks_fts")
@@ -243,6 +359,7 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
         """
         CREATE VIRTUAL TABLE nexus_chunks_fts USING fts5(
             chunk_id UNINDEXED,
+            document_id UNINDEXED,
             title,
             section_path,
             text
@@ -251,8 +368,8 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         """
-        INSERT INTO nexus_chunks_fts(chunk_id, title, section_path, text)
-        SELECT chunk_id, title, section_path, text
+        INSERT INTO nexus_chunks_fts(chunk_id, document_id, title, section_path, text)
+        SELECT chunk_id, document_id, title, section_path, text
         FROM nexus_chunks
         """
     )
@@ -382,8 +499,8 @@ def insert_chunk(
             ),
         )
         conn.execute(
-            "INSERT OR REPLACE INTO nexus_chunks_fts(chunk_id, title, section_path, text) VALUES(?, ?, ?, ?)",
-            (chunk_id, title, section_path, content),
+            "INSERT OR REPLACE INTO nexus_chunks_fts(chunk_id, document_id, title, section_path, text) VALUES(?, ?, ?, ?, ?)",
+            (chunk_id, document_id, title, section_path, content),
         )
         conn.commit()
 
