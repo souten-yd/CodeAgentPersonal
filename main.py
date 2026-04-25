@@ -53,6 +53,7 @@ from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_base_dir,
     resolve_style_bert_vits2_models_dir,
 )
+from app.nexus.router import router as nexus_router
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -94,6 +95,7 @@ async def lifespan(app):
     if cleanup: cleanup()
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(nexus_router, prefix="/nexus", tags=["nexus"])
 
 
 def build_agent_loop(
