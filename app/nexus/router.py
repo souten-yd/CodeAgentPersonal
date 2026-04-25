@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
 import json
-import tempfile
 import time
 import uuid
-import zipfile
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.nexus.db import get_conn
+from app.nexus.export import create_nexus_bundle
+from app.nexus.evidence import EvidenceItem, save_evidence_items
 from app.nexus.ingest import accept_upload
 from app.nexus.jobs import (
     append_job_event,
@@ -22,6 +21,7 @@ from app.nexus.jobs import (
     list_active_jobs,
     update_job,
 )
+from app.nexus.report import build_report as build_report_files
 from app.nexus.search import search_evidence
 
 router = APIRouter()
@@ -34,15 +34,9 @@ class SearchRequest(BaseModel):
 
 class ReportBuildRequest(BaseModel):
     title: str = Field(default="Nexus Report")
-    document_ids: list[str] = Field(default_factory=list)
+    report_type: str = Field(default="standard")
+    sections: list[dict] = Field(default_factory=list)
 
-
-_BUNDLE_DIR = Path(tempfile.gettempdir()) / "codeagent_nexus_bundles"
-_BUNDLE_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _json_error(status_code: int, message: str) -> HTTPException:
@@ -175,43 +169,52 @@ def build_report(req: ReportBuildRequest) -> dict:
     append_job_event(job_id, "progress", {"label": "queued"})
     update_job(job_id, status="running")
 
-    with get_conn() as conn:
-        if req.document_ids:
-            placeholders = ",".join("?" for _ in req.document_ids)
-            query = f"""
-                SELECT id, filename, project, created_at
-                FROM nexus_documents
-                WHERE id IN ({placeholders})
-            """
-            rows = conn.execute(query, tuple(req.document_ids)).fetchall()
-        else:
-            rows = []
-        selected_docs = [dict(row) for row in rows]
-
-    bundle_path = _BUNDLE_DIR / f"{job_id}.zip"
     try:
-        with zipfile.ZipFile(bundle_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            manifest = [
-                {
-                    "id": d["id"],
-                    "filename": d["filename"],
-                    "project": d["project"],
-                    "created_at": d["created_at"],
-                }
-                for d in selected_docs
-            ]
-            zf.writestr("report.txt", f"{req.title}\nGenerated at: {_now_iso()}\n")
-            zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+        evidence_items: list[EvidenceItem] = []
+        for section in req.sections:
+            for ev in section.get("evidence") or []:
+                evidence_items.append(
+                    EvidenceItem(
+                        chunk_id=ev.get("chunk_id") or "",
+                        citation_label=ev.get("citation_label") or "",
+                        source_url=ev.get("source_url") or "",
+                        retrieved_at=ev.get("retrieved_at") or "",
+                        note=ev.get("note"),
+                        quote=ev.get("quote"),
+                        metadata=ev.get("metadata") or {},
+                    )
+                )
 
+        saved_count = save_evidence_items(job_id, evidence_items)
+        append_job_event(job_id, "progress", {"label": "evidence_saved", "count": saved_count})
+
+        report = build_report_files(
+            job_id=job_id,
+            report_type=req.report_type,
+            title=req.title,
+            sections=req.sections,
+        )
+        append_job_event(job_id, "progress", {"label": "report_built", "report_id": report["report_id"]})
+
+        bundle_path = create_nexus_bundle(job_id, report)
         download_url = f"/nexus/download/bundle/{job_id}"
         update_job(
             job_id,
             status="completed",
-            document_count=len(selected_docs),
+            document_count=saved_count,
             download_url=download_url,
             bundle_path=str(bundle_path),
         )
-        append_job_event(job_id, "job_completed", {"status": "completed", "download_url": download_url})
+        append_job_event(
+            job_id,
+            "job_completed",
+            {
+                "status": "completed",
+                "download_url": download_url,
+                "report_id": report["report_id"],
+                "bundle_path": str(bundle_path),
+            },
+        )
     except Exception as exc:
         update_job(job_id, status="failed", error=str(exc))
         append_job_event(job_id, "job_failed", {"status": "failed", "error": str(exc)})

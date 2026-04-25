@@ -68,6 +68,23 @@ CREATE TABLE IF NOT EXISTS nexus_jobs (
     completed_at TEXT
 );
 
+
+CREATE TABLE IF NOT EXISTS nexus_evidence (
+    evidence_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    chunk_id TEXT NOT NULL,
+    citation_label TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    retrieved_at TEXT NOT NULL,
+    note TEXT,
+    quote TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(job_id) REFERENCES nexus_jobs(job_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_nexus_evidence_job_created
+    ON nexus_evidence(job_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS nexus_job_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job_id TEXT NOT NULL,
@@ -107,6 +124,8 @@ def initialize_db() -> Path:
         _ensure_column(conn, "nexus_chunks", "page_start", "INTEGER NOT NULL DEFAULT 1")
         _ensure_column(conn, "nexus_chunks", "page_end", "INTEGER NOT NULL DEFAULT 1")
         _ensure_column(conn, "nexus_chunks", "citation_label", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(conn, "nexus_evidence", "source_url", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(conn, "nexus_evidence", "retrieved_at", "TEXT NOT NULL DEFAULT ''")
         conn.commit()
     return DB_PATH
 
