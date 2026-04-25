@@ -7,12 +7,17 @@ from pathlib import Path
 import tempfile
 import zipfile
 
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
+
 from app.nexus.evidence import list_evidence_items
 from app.nexus.jobs import get_job
+from app.nexus.report import get_latest_report
 
 
 _BUNDLE_DIR = Path(tempfile.gettempdir()) / "codeagent_nexus_bundles"
 _BUNDLE_DIR.mkdir(parents=True, exist_ok=True)
+nexus_export_router = APIRouter()
 
 
 
@@ -56,3 +61,24 @@ def create_nexus_bundle(job_id: str, report: dict) -> Path:
         zf.writestr("job.json", json.dumps(job_payload, ensure_ascii=False, indent=2))
 
     return zip_path
+
+
+@nexus_export_router.get("/download/bundle/{job_id}")
+def download_nexus_bundle(job_id: str) -> FileResponse:
+    if not job_id:
+        raise HTTPException(status_code=400, detail="job_id is required")
+
+    report = get_latest_report(job_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="report not found for job_id")
+
+    try:
+        zip_path = create_nexus_bundle(job_id, report=report)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return FileResponse(
+        path=zip_path,
+        media_type="application/zip",
+        filename=zip_path.name,
+    )

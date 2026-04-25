@@ -6,7 +6,14 @@ import json
 from pathlib import Path
 import uuid
 
-from app.nexus.db import NEXUS_DIR
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from app.nexus.db import NEXUS_DIR, get_conn, transaction
+from app.nexus.evidence import list_evidence_items
+from app.nexus.jobs import get_job
+
+nexus_report_router = APIRouter()
 
 
 REPORTS_DIR = NEXUS_DIR / "reports"
@@ -158,3 +165,94 @@ def build_report(job_id: str, report_type: str, title: str, sections: list[dict]
         "report_html_path": str(report_html_path),
         "generated_at": generated_at,
     }
+
+
+def save_report_record(report: dict) -> None:
+    created_at = _now_iso()
+    with transaction() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO nexus_reports(
+                report_id, job_id, report_type, title, report_dir,
+                report_md_path, report_json_path, report_html_path,
+                generated_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                report["report_id"],
+                report["job_id"],
+                report["report_type"],
+                report["title"],
+                report["report_dir"],
+                report["report_md_path"],
+                report["report_json_path"],
+                report["report_html_path"],
+                report["generated_at"],
+                created_at,
+            ),
+        )
+
+
+def get_latest_report(job_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                report_id, job_id, report_type, title, report_dir,
+                report_md_path, report_json_path, report_html_path,
+                generated_at, created_at
+            FROM nexus_reports
+            WHERE job_id = ?
+            ORDER BY generated_at DESC, created_at DESC
+            LIMIT 1
+            """,
+            (job_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def _build_sections_from_evidence(evidence_items: list[dict]) -> list[dict]:
+    if not evidence_items:
+        return [
+            {
+                "heading": "Evidence",
+                "summary": "No evidence was found for this job.",
+                "evidence": [],
+            }
+        ]
+
+    return [
+        {
+            "heading": "Evidence",
+            "summary": f"Collected evidence count: {len(evidence_items)}",
+            "evidence": evidence_items,
+        }
+    ]
+
+
+class BuildReportRequest(BaseModel):
+    job_id: str = Field(min_length=1)
+    report_type: str = Field(default="general", min_length=1)
+    title: str | None = None
+
+
+@nexus_report_router.post("/report/build")
+def build_job_report(payload: BuildReportRequest) -> dict:
+    job = get_job(payload.job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    evidence_items = list_evidence_items(payload.job_id)
+    sections = _build_sections_from_evidence(evidence_items)
+    title = payload.title or f"Nexus Report ({payload.job_id})"
+
+    report = build_report(
+        job_id=payload.job_id,
+        report_type=payload.report_type,
+        title=title,
+        sections=sections,
+    )
+    save_report_record(report)
+    return report
