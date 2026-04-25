@@ -9,6 +9,11 @@ from agent.tools.builtin import (
     search_code,
     write_file,
 )
+from agent.tools.nexus_tools import (
+    nexus_build_report,
+    nexus_search_library,
+    nexus_web_search,
+)
 
 __all__ = [
     "read_file",
@@ -18,4 +23,7 @@ __all__ = [
     "run_command",
     "run_tests",
     "get_error_trace",
+    "nexus_search_library",
+    "nexus_web_search",
+    "nexus_build_report",
 ]
