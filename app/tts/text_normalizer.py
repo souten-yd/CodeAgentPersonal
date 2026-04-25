@@ -4,6 +4,8 @@ import re
 import unicodedata
 from typing import Any
 
+from .katakanaizer import katakanaize_english_segments_with_llm
+
 _JP_TEXT_PATTERN = re.compile(r"[ぁ-ゟ゠-ヿ㐀-䶿一-鿿々〆〤ｦ-ﾟ]")
 _URL_PATTERN = re.compile(r"https?://[^\s]+|www\.[^\s]+", re.IGNORECASE)
 _EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
@@ -199,8 +201,12 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
 
         current = _ASCII_WORD_PATTERN.sub(_replace_en_word, current)
     elif english_policy == "llm":
-        warnings.append("english_policy=llm was requested; runtime normalizer applied rule fallback.")
-        current = _ASCII_WORD_PATTERN.sub(lambda m: english_dict.get(m.group(0).lower(), m.group(0)), current)
+        segments = [m.group(0) for m in _ASCII_WORD_PATTERN.finditer(current)]
+        llm_map = katakanaize_english_segments_with_llm(segments, english_dict=english_dict)
+        current = _ASCII_WORD_PATTERN.sub(
+            lambda m: llm_map.get(m.group(0), english_dict.get(m.group(0).lower(), m.group(0))),
+            current,
+        )
     elif english_policy in {"skip", "none"}:
         pass
     else:
