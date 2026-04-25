@@ -9,8 +9,17 @@ from .katakanaizer import katakanaize_english_segments_with_llm
 _JP_TEXT_PATTERN = re.compile(r"[ぁ-ゟ゠-ヿ㐀-䶿一-鿿々〆〤ｦ-ﾟ]")
 _URL_PATTERN = re.compile(r"https?://[^\s]+|www\.[^\s]+", re.IGNORECASE)
 _EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
-_EMOJI_PATTERN = re.compile(
-    "[\U0001F300-\U0001F5FF\U0001F600-\U0001F64F\U0001F680-\U0001F6FF\U0001F900-\U0001F9FF\U0001FA70-\U0001FAFF]+"
+_EMOJI_TOKEN_PATTERN = re.compile(
+    "(?:"
+    "(?:[0-9#*]\uFE0F?\u20E3)"
+    "|(?:[\U0001F1E6-\U0001F1FF]{2})"
+    "|(?:"
+    "[\u2600-\u26FF\u2700-\u27BF\U0001F300-\U0001FAFF]"
+    "(?:\uFE0F)?"
+    "(?:[\U0001F3FB-\U0001F3FF])?"
+    "(?:\u200D[\u2600-\u26FF\u2700-\u27BF\U0001F300-\U0001FAFF](?:\uFE0F)?(?:[\U0001F3FB-\U0001F3FF])?)*"
+    ")"
+    ")"
 )
 _ASCII_WORD_PATTERN = re.compile(r"\b[A-Za-z][A-Za-z0-9_\-]*\b")
 _CONTROL_PATTERN = re.compile(r"[\x00-\x08\x0B-\x1F\x7F]")
@@ -77,7 +86,6 @@ _SYMBOL_REPLACEMENTS = {
     "%": "パーセント",
     "=": "イコール",
 }
-
 
 def looks_japanese(text: str | None) -> bool:
     return bool(_JP_TEXT_PATTERN.search(str(text or "")))
@@ -155,16 +163,21 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
     if emoji_policy == "remove":
         emoji_policy = "skip"
     elif emoji_policy == "replace":
-        emoji_policy = "describe"
+        emoji_policy = "skip"
+    elif emoji_policy == "describe":
+        emoji_policy = "skip"
     if emoji_policy not in {"skip", "describe", "keep"}:
         warnings.append(f"unknown emoji policy: {emoji_policy}. fallback=skip")
         emoji_policy = "skip"
     if emoji_policy == "keep":
         pass
-    elif emoji_policy == "describe":
-        current = _EMOJI_PATTERN.sub(" 絵文字 ", current)
     else:
-        current = _EMOJI_PATTERN.sub("", current)
+        def _remove_emoji(m: re.Match[str]) -> str:
+            token = m.group(0)
+            _append_operation(operations, "emoji_removed", token, "", "emoji_policy_skip")
+            return ""
+
+        current = _EMOJI_TOKEN_PATTERN.sub(_remove_emoji, current)
     current = _MULTISPACE_PATTERN.sub(" ", current).strip()
     _append_operation(operations, "emoji_policy", before, current, emoji_policy)
 
