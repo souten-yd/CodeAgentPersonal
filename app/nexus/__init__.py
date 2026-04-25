@@ -1,5 +1,5 @@
-"""Nexus API package."""
+"""Nexus package exports."""
 
-from .router import router
+from app.nexus.router import nexus_router
 
-__all__ = ["router"]
+__all__ = ["nexus_router"]
