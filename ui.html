@@ -2002,35 +2002,35 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px">
               <div title="話速（長さ）調整。1.0が標準、低いほど速く・高いほど遅くなります。推奨初期値: 1.0">
                 <div style="font-size:10px;color:var(--text3);margin-bottom:2px">length (初期値: 1.0)</div>
-                <input id="echo-tts-sbv2-length" type="number" step="0.01" min="0.2" max="3.0" placeholder="length" onchange="saveEchoSettings()">
+                <input id="echo-tts-sbv2-length" type="number" step="0.01" min="0.2" max="3.0" value="1.0" placeholder="length" onchange="saveEchoSettings()">
               </div>
               <div title="韻律のランダム性の比率。高いほど揺らぎが増えます。推奨初期値: 0.2">
                 <div style="font-size:10px;color:var(--text3);margin-bottom:2px">sdp_ratio (初期値: 0.2)</div>
-                <input id="echo-tts-sbv2-sdp-ratio" type="number" step="0.01" min="0" max="1" placeholder="sdp_ratio" onchange="saveEchoSettings()">
+                <input id="echo-tts-sbv2-sdp-ratio" type="number" step="0.01" min="0" max="1" value="0.2" placeholder="sdp_ratio" onchange="saveEchoSettings()">
               </div>
               <div title="音声生成ノイズ量。高いほどランダム性が増えます。推奨初期値: 0.6">
                 <div style="font-size:10px;color:var(--text3);margin-bottom:2px">noise (初期値: 0.6)</div>
-                <input id="echo-tts-sbv2-noise" type="number" step="0.01" min="0" max="2" placeholder="noise" onchange="saveEchoSettings()">
+                <input id="echo-tts-sbv2-noise" type="number" step="0.01" min="0" max="2" value="0.6" placeholder="noise" onchange="saveEchoSettings()">
               </div>
               <div title="発音タイミング側のノイズ量。高いほど抑揚・タイミングが揺れます。推奨初期値: 0.8">
                 <div style="font-size:10px;color:var(--text3);margin-bottom:2px">noise_w (初期値: 0.8)</div>
-                <input id="echo-tts-sbv2-noise-w" type="number" step="0.01" min="0" max="2" placeholder="noise_w" onchange="saveEchoSettings()">
+                <input id="echo-tts-sbv2-noise-w" type="number" step="0.01" min="0" max="2" value="0.8" placeholder="noise_w" onchange="saveEchoSettings()">
               </div>
               <div title="スタイルの効き具合。高いほどスタイル反映を強くします。推奨初期値: 1.0">
                 <div style="font-size:10px;color:var(--text3);margin-bottom:2px">style_weight (初期値: 1.0)</div>
-                <input id="echo-tts-sbv2-style-weight" type="number" step="0.01" min="0" max="20" placeholder="style_weight" onchange="saveEchoSettings()">
+                <input id="echo-tts-sbv2-style-weight" type="number" step="0.01" min="0" max="20" value="1.0" placeholder="style_weight" onchange="saveEchoSettings()">
               </div>
               <div title="line_split有効時の文間ポーズ秒数。推奨初期値: 0.5">
                 <div style="font-size:10px;color:var(--text3);margin-bottom:2px">split_interval (初期値: 0.5)</div>
-                <input id="echo-tts-sbv2-split-interval" type="number" step="0.01" min="0" max="5" placeholder="split_interval" onchange="saveEchoSettings()">
+                <input id="echo-tts-sbv2-split-interval" type="number" step="0.01" min="0" max="5" value="0.5" placeholder="split_interval" onchange="saveEchoSettings()">
               </div>
               <div title="声の高さ倍率。1.0が標準です。推奨初期値: 1.0">
                 <div style="font-size:10px;color:var(--text3);margin-bottom:2px">pitch_scale (初期値: 1.0)</div>
-                <input id="echo-tts-sbv2-pitch-scale" type="number" step="0.01" min="0.5" max="2.0" placeholder="pitch_scale" onchange="saveEchoSettings()">
+                <input id="echo-tts-sbv2-pitch-scale" type="number" step="0.01" min="0.5" max="2.0" value="1.0" placeholder="pitch_scale" onchange="saveEchoSettings()">
               </div>
               <div title="抑揚の強さ。1.0が標準です。推奨初期値: 1.0">
                 <div style="font-size:10px;color:var(--text3);margin-bottom:2px">intonation_scale (初期値: 1.0)</div>
-                <input id="echo-tts-sbv2-intonation-scale" type="number" step="0.01" min="0.5" max="2.0" placeholder="intonation_scale" onchange="saveEchoSettings()">
+                <input id="echo-tts-sbv2-intonation-scale" type="number" step="0.01" min="0.5" max="2.0" value="1.0" placeholder="intonation_scale" onchange="saveEchoSettings()">
               </div>
             </div>
             <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:var(--text2)">
@@ -4096,8 +4096,27 @@ function _syncAsrDeviceState(device) {
 }
 
 function _numOr(v, fallback) {
+  if (v === null || v === undefined) return fallback;
+  if (typeof v === 'string' && v.trim() === '') return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function _normalizeEchoSbv2AdvancedDefaults() {
+  const defaults = {
+    sbv2Length: 1.0,
+    sbv2SdpRatio: 0.2,
+    sbv2Noise: 0.6,
+    sbv2NoiseW: 0.8,
+    sbv2StyleWeight: 1.0,
+    sbv2SplitInterval: 0.5,
+    sbv2PitchScale: 1.0,
+    sbv2IntonationScale: 1.0,
+  };
+  Object.entries(defaults).forEach(([key, fallback]) => {
+    const current = _numOr(echo[key], fallback);
+    echo[key] = current > 0 ? current : fallback;
+  });
 }
 
 async function onTtsEngineChange() {
@@ -4859,6 +4878,7 @@ function _syncEchoMinutesButtonUi() {
 }
 
 function _echoInitSettingsUI() {
+  _normalizeEchoSbv2AdvancedDefaults();
   if (localStorage.getItem('echo_auto_generate_minutes') === null) {
     localStorage.setItem('echo_auto_generate_minutes', 'false');
     echo.autoGenerateMinutes = false;
