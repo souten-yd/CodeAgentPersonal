@@ -5,12 +5,23 @@ from pathlib import Path
 import json
 import tempfile
 import threading
+import time
 import uuid
 import zipfile
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
+
+from app.nexus.db import insert_chunk
+from app.nexus.jobs import (
+    append_job_event,
+    create_job,
+    get_job as get_job_record,
+    get_job_events,
+    list_active_jobs,
+    update_job,
+)
 
 router = APIRouter()
 
@@ -32,7 +43,6 @@ _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 _BUNDLE_DIR.mkdir(parents=True, exist_ok=True)
 
 _DOCUMENTS: dict[str, dict] = {}
-_JOBS: dict[str, dict] = {}
 
 
 def _now_iso() -> str:
@@ -45,19 +55,18 @@ def _json_error(status_code: int, message: str) -> HTTPException:
 
 @router.get("/summary")
 def get_summary() -> dict:
+    active_jobs = list_active_jobs(limit=1000)
     with _DATA_LOCK:
-        queued = sum(1 for j in _JOBS.values() if j["status"] == "queued")
-        done = sum(1 for j in _JOBS.values() if j["status"] == "done")
-        error = sum(1 for j in _JOBS.values() if j["status"] == "error")
-        return {
-            "documents": len(_DOCUMENTS),
-            "jobs": {
-                "total": len(_JOBS),
-                "queued": queued,
-                "done": done,
-                "error": error,
-            },
-        }
+        documents = len(_DOCUMENTS)
+
+    return {
+        "documents": documents,
+        "jobs": {
+            "active": len(active_jobs),
+            "queued": sum(1 for j in active_jobs if j["status"] == "queued"),
+            "running": sum(1 for j in active_jobs if j["status"] == "running"),
+        },
+    }
 
 
 @router.post("/upload")
@@ -87,16 +96,76 @@ async def upload_document(
     with _DATA_LOCK:
         _DOCUMENTS[doc_id] = record
 
+    # 1チャンク分をFTS5に同期登録（テキスト化できない場合は空文字列）
+    chunk_text = content.decode("utf-8", errors="ignore")
+    insert_chunk(
+        chunk_id=f"{doc_id}:0",
+        document_id=doc_id,
+        chunk_index=0,
+        content=chunk_text,
+        created_at=record["created_at"],
+    )
+
     return {"document": {k: v for k, v in record.items() if k != "path"}}
 
 
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str) -> dict:
-    with _DATA_LOCK:
-        job = _JOBS.get(job_id)
+    job = get_job_record(job_id)
     if not job:
         raise _json_error(404, "Job not found")
     return job
+
+
+@router.get("/jobs/active")
+def get_active_jobs(limit: int = Query(default=100, ge=1, le=1000)) -> dict:
+    jobs = list_active_jobs(limit=limit)
+    return {"jobs": jobs, "count": len(jobs)}
+
+
+@router.get("/jobs/{job_id}/events")
+def get_job_events_endpoint(
+    job_id: str,
+    request: Request,
+    after: int = Query(default=-1),
+    mode: str = Query(default="auto", pattern="^(auto|poll|sse)$"),
+):
+    job = get_job_record(job_id)
+    if not job:
+        raise _json_error(404, "Job not found")
+
+    wants_sse = mode == "sse" or (mode == "auto" and "text/event-stream" in request.headers.get("accept", ""))
+
+    if not wants_sse:
+        events = get_job_events(job_id, after=after)
+        return {
+            "job_id": job_id,
+            "status": job["status"],
+            "events": events,
+            "next_after": (events[-1]["seq"] if events else after),
+        }
+
+    def generate():
+        last_seq = after
+        while True:
+            events = get_job_events(job_id, after=last_seq)
+            for event in events:
+                payload = json.dumps({**event["data"], "type": event["type"], "seq": event["seq"]}, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+                last_seq = event["seq"]
+
+            current = get_job_record(job_id)
+            if current and current["status"] in {"completed", "failed"}:
+                end_payload = json.dumps({"type": "job_end", "status": current["status"]}, ensure_ascii=False)
+                yield f"data: {end_payload}\n\n"
+                break
+            time.sleep(0.5)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/documents")
@@ -133,50 +202,56 @@ def search_documents(req: SearchRequest) -> dict:
 @router.post("/report/build")
 def build_report(req: ReportBuildRequest) -> dict:
     job_id = str(uuid.uuid4())
+
+    create_job(job_id, title=req.title, message="build_report")
+    append_job_event(job_id, "progress", {"label": "queued"})
+    update_job(job_id, status="running")
+
     with _DATA_LOCK:
-        selected_docs = [
-            _DOCUMENTS[d_id]
-            for d_id in req.document_ids
-            if d_id in _DOCUMENTS
-        ]
+        selected_docs = [_DOCUMENTS[d_id] for d_id in req.document_ids if d_id in _DOCUMENTS]
 
     bundle_path = _BUNDLE_DIR / f"{job_id}.zip"
-    with zipfile.ZipFile(bundle_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        manifest = [
-            {
-                "id": d["id"],
-                "filename": d["filename"],
-                "project": d["project"],
-                "created_at": d["created_at"],
-            }
-            for d in selected_docs
-        ]
-        zf.writestr("report.txt", f"{req.title}\nGenerated at: {_now_iso()}\n")
-        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+    try:
+        with zipfile.ZipFile(bundle_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            manifest = [
+                {
+                    "id": d["id"],
+                    "filename": d["filename"],
+                    "project": d["project"],
+                    "created_at": d["created_at"],
+                }
+                for d in selected_docs
+            ]
+            zf.writestr("report.txt", f"{req.title}\nGenerated at: {_now_iso()}\n")
+            zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
 
-    job = {
-        "job_id": job_id,
-        "status": "done",
-        "title": req.title,
-        "document_count": len(selected_docs),
-        "created_at": _now_iso(),
-        "download_url": f"/nexus/download/bundle/{job_id}",
-        "bundle_path": str(bundle_path),
-    }
-    with _DATA_LOCK:
-        _JOBS[job_id] = job
+        download_url = f"/nexus/download/bundle/{job_id}"
+        update_job(
+            job_id,
+            status="completed",
+            document_count=len(selected_docs),
+            download_url=download_url,
+            bundle_path=str(bundle_path),
+        )
+        append_job_event(job_id, "job_completed", {"status": "completed", "download_url": download_url})
+    except Exception as exc:
+        update_job(job_id, status="failed", error=str(exc))
+        append_job_event(job_id, "job_failed", {"status": "failed", "error": str(exc)})
+        raise
 
-    return {k: v for k, v in job.items() if k != "bundle_path"}
+    job = get_job_record(job_id)
+    if not job:
+        raise _json_error(500, "Failed to save job")
+    return job
 
 
 @router.get("/download/bundle/{job_id}")
 def download_bundle(job_id: str):
-    with _DATA_LOCK:
-        job = _JOBS.get(job_id)
+    job = get_job_record(job_id)
     if not job:
         raise _json_error(404, "Job not found")
 
-    bundle_path = Path(job.get("bundle_path", ""))
+    bundle_path = Path((job.get("bundle_path") or "").strip())
     if not bundle_path.exists():
         raise _json_error(404, "Bundle not found")
 
