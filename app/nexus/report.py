@@ -19,6 +19,15 @@ nexus_report_router = APIRouter()
 REPORTS_DIR = NEXUS_DIR / "reports"
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
+STANDARD_CHAPTERS: tuple[str, ...] = (
+    "調査目的",
+    "条件",
+    "結論",
+    "比較",
+    "不確実性",
+    "Evidence",
+)
+
 
 
 def _now_iso() -> str:
@@ -218,22 +227,30 @@ def get_latest_report(job_id: str) -> dict | None:
 
 
 def _build_sections_from_evidence(evidence_items: list[dict]) -> list[dict]:
-    if not evidence_items:
-        return [
-            {
-                "heading": "Evidence",
-                "summary": "No evidence was found for this job.",
-                "evidence": [],
-            }
-        ]
+    evidence_count = len(evidence_items)
+    evidence_summary = (
+        f"Collected evidence count: {evidence_count}" if evidence_items else "No evidence was found for this job."
+    )
 
-    return [
-        {
-            "heading": "Evidence",
-            "summary": f"Collected evidence count: {len(evidence_items)}",
-            "evidence": evidence_items,
-        }
-    ]
+    chapter_defaults: dict[str, str] = {
+        "調査目的": "この章では、調査対象・背景・意思決定に必要な問いを定義します。",
+        "条件": "この章では、調査範囲・期間・前提条件・制約を明示します。",
+        "結論": "この章では、Evidence 章の根拠に基づく結論を記載します。",
+        "比較": "この章では、候補間の比較軸と差分を整理します。",
+        "不確実性": "この章では、データ欠損・バイアス・時点差による不確実性を明示します。",
+        "Evidence": evidence_summary,
+    }
+
+    sections: list[dict] = []
+    for heading in STANDARD_CHAPTERS:
+        sections.append(
+            {
+                "heading": heading,
+                "summary": chapter_defaults[heading],
+                "evidence": evidence_items if heading == "Evidence" else [],
+            }
+        )
+    return sections
 
 
 class BuildReportRequest(BaseModel):
