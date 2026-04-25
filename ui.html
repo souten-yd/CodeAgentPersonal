@@ -2017,6 +2017,24 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div id="echo-tts-preview-effective-language" style="font-size:10px;color:var(--text3)">Effective language: JP</div>
             <div id="echo-tts-preview-text" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Text preview: -</div>
           </div>
+          <div id="tsasr-sbv2-test-row" style="margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:6px">🧪 Style-Bert-VITS2 Test</div>
+            <div style="margin-bottom:6px">
+              <textarea id="sbv2-test-text" rows="3" placeholder="テスト読み上げ文（任意）"
+                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);box-sizing:border-box;resize:vertical"></textarea>
+              <div style="margin-top:6px">
+                <button id="sbv2-test-asr-btn" onclick="toggleSbv2TestVoiceInput()"
+                  style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">🎙 ASR入力</button>
+              </div>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+              <button id="sbv2-test-generate-btn" onclick="runSbv2TestGenerate()"
+                style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--accent);color:var(--bg);cursor:pointer">生成</button>
+              <button id="sbv2-test-play-btn" onclick="toggleSbv2TestPlayback()"
+                style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--bg3);color:var(--text2);cursor:pointer" disabled>再生</button>
+              <span id="sbv2-test-status" style="font-size:10px;color:var(--text3)">待機中</span>
+            </div>
+          </div>
         </div>
         <!-- TTS モデルディレクトリ -->
         <div style="margin-bottom:8px">
@@ -3094,6 +3112,8 @@ function ttsStop() {
   generateBtns.forEach((btn) => btn.dataset.busy = 'false');
   const playBtn = document.getElementById('qwen3-clone-test-play-btn');
   if (playBtn && _isEchoQwen3Selected()) playBtn.disabled = !_qwen3CloneTestAudioBlob;
+  _setSbv2TestPlayToggle(false);
+  _syncSbv2TestUi();
 }
 
 let _ttsFallbackObjectUrl = null;
@@ -3430,6 +3450,11 @@ function _setQwen3ClonePlayToggle(isPlaying) {
 
 let _qwen3CloneStatusTimer = null;
 let _qwen3CloneTestAudioBlob = null;
+let _sbv2TestAudioBlob = null;
+let _sbv2TestBusy = false;
+let _sbv2TestVoiceRecorder = null;
+let _sbv2TestVoiceRecording = false;
+let _sbv2TestVoiceChunks = [];
 function _clearQwen3CloneStatusTimer() {
   if (_qwen3CloneStatusTimer) {
     clearInterval(_qwen3CloneStatusTimer);
@@ -3586,6 +3611,170 @@ async function toggleQwen3CloneTestPlayback() {
   const result = await _playQwen3CloneTestBlob();
   if (result?.ok === false) _setQwen3CloneTestStatus('再生できませんでした。再度お試しください。', true);
   else _setQwen3CloneTestStatus('✓ 再生完了');
+}
+
+function _setSbv2TestStatus(msg = '待機中', isError = false) {
+  const el = document.getElementById('sbv2-test-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = isError ? 'var(--red)' : 'var(--text3)';
+}
+
+function _setSbv2TestPlayToggle(isPlaying = false) {
+  const btn = document.getElementById('sbv2-test-play-btn');
+  if (!btn) return;
+  const hasAudio = !!_sbv2TestAudioBlob;
+  btn.textContent = isPlaying ? '停止' : '再生';
+  btn.style.background = (isPlaying || hasAudio) ? 'var(--red)' : 'var(--bg3)';
+  btn.style.color = (isPlaying || hasAudio) ? 'var(--bg)' : 'var(--text2)';
+}
+
+function _syncSbv2TestUi() {
+  const row = document.getElementById('tsasr-sbv2-test-row');
+  if (!row) return;
+  const isSbv2 = _isEchoStyleBertVits2Selected();
+  row.style.display = isSbv2 ? '' : 'none';
+  if (!isSbv2) return;
+  const hasModel = !!(echo.styleBertVits2Model || '').trim();
+  const canPlay = hasModel && !!_sbv2TestAudioBlob && !_sbv2TestBusy;
+  const genBtn = document.getElementById('sbv2-test-generate-btn');
+  const asrBtn = document.getElementById('sbv2-test-asr-btn');
+  const playBtn = document.getElementById('sbv2-test-play-btn');
+  const input = document.getElementById('sbv2-test-text');
+  if (genBtn) genBtn.disabled = _sbv2TestBusy || !hasModel;
+  if (asrBtn) asrBtn.disabled = _sbv2TestBusy;
+  if (playBtn) playBtn.disabled = !canPlay;
+  if (input) input.disabled = _sbv2TestBusy;
+  _setSbv2TestPlayToggle(false);
+  if (!hasModel) _setSbv2TestStatus('Style-Bert-VITS2 モデルを選択してください', true);
+}
+
+async function runSbv2TestGenerate() {
+  if (!_isEchoStyleBertVits2Selected()) {
+    _setSbv2TestStatus('Style-Bert-VITS2 選択時のみ利用可能', true);
+    return;
+  }
+  const modelId = (echo.styleBertVits2Model || '').trim();
+  if (!modelId) {
+    _setSbv2TestStatus('Style-Bert-VITS2 モデル未選択です', true);
+    _syncSbv2TestUi();
+    return;
+  }
+  if (_sbv2TestBusy) return;
+  const input = document.getElementById('sbv2-test-text');
+  const text = input?.value?.trim() || '';
+  if (!text) {
+    _setSbv2TestStatus('テスト文を入力してください', true);
+    input?.focus();
+    return;
+  }
+  _sbv2TestBusy = true;
+  _sbv2TestAudioBlob = null;
+  _syncSbv2TestUi();
+  try {
+    ttsStop();
+    _setSbv2TestStatus('生成中...');
+    const selectedLanguage = _effectiveEchoSbv2Language();
+    const blob = await _ttsFetchAudio(text, 'style_bert_vits2', 'echo', {
+      rawText: text,
+      translatedText: text,
+      language: selectedLanguage,
+    });
+    if (!blob || blob.size <= 0) throw new Error('音声データが空です');
+    _sbv2TestAudioBlob = blob;
+    _setSbv2TestStatus('生成完了');
+  } catch (e) {
+    _setSbv2TestStatus(`生成失敗: ${e.message || e}`, true);
+  } finally {
+    _sbv2TestBusy = false;
+    _syncSbv2TestUi();
+  }
+}
+
+async function toggleSbv2TestPlayback() {
+  if (tts._playing) {
+    ttsStop();
+    _setSbv2TestStatus('停止');
+    _setSbv2TestPlayToggle(false);
+    _syncSbv2TestUi();
+    return;
+  }
+  if (!_sbv2TestAudioBlob) {
+    _setSbv2TestStatus('先に生成してください', true);
+    return;
+  }
+  _setSbv2TestPlayToggle(true);
+  _setSbv2TestStatus('再生中...');
+  const result = await _ttsPlayBlob(_sbv2TestAudioBlob, {disableFallbackPlayer: true});
+  _setSbv2TestPlayToggle(false);
+  if (result?.ok === false) _setSbv2TestStatus('再生できませんでした', true);
+  else _setSbv2TestStatus('✓ 再生完了');
+  _syncSbv2TestUi();
+}
+
+async function toggleSbv2TestVoiceInput() {
+  if (_sbv2TestVoiceRecording && _sbv2TestVoiceRecorder) {
+    _sbv2TestVoiceRecording = false;
+    const btn = document.getElementById('sbv2-test-asr-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '■ 停止';
+    }
+    _sbv2TestVoiceRecorder.stop();
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    _setSbv2TestStatus('このブラウザは音声録音に対応していません。', true);
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+    _sbv2TestVoiceRecorder = new MediaRecorder(stream, {mimeType});
+    _sbv2TestVoiceChunks = [];
+    _sbv2TestVoiceRecorder.ondataavailable = (e) => { if (e.data?.size > 0) _sbv2TestVoiceChunks.push(e.data); };
+    _sbv2TestVoiceRecorder.onstop = async () => {
+      _sbv2TestVoiceRecording = false;
+      stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(_sbv2TestVoiceChunks, {type: mimeType});
+      _sbv2TestVoiceRecorder = null;
+      _sbv2TestVoiceChunks = [];
+      await transcribeVoiceBlob(blob, {
+        targetInputId: 'sbv2-test-text',
+        statusFn: _setSbv2TestStatus,
+        replace: false,
+        skipChatError: true,
+        skipMainMicState: true,
+      });
+      const btn = document.getElementById('sbv2-test-asr-btn');
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '🎙 ASR入力';
+        btn.style.borderColor = 'var(--border)';
+        btn.style.color = 'var(--text2)';
+      }
+      _syncSbv2TestUi();
+    };
+    _sbv2TestVoiceRecorder.start();
+    _sbv2TestVoiceRecording = true;
+    const btn = document.getElementById('sbv2-test-asr-btn');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '■ 停止';
+      btn.style.borderColor = 'var(--red)';
+      btn.style.color = 'var(--red)';
+    }
+    _setSbv2TestStatus('録音中... もう一度押すと停止します');
+  } catch (e) {
+    _sbv2TestVoiceRecording = false;
+    _setSbv2TestStatus('マイク起動に失敗: ' + (e.message || String(e)), true);
+    const btn = document.getElementById('sbv2-test-asr-btn');
+    if (btn) {
+      btn.textContent = '🎙 ASR入力';
+      btn.style.borderColor = 'var(--border)';
+      btn.style.color = 'var(--text2)';
+    }
+  }
 }
 
 function _buildQwen3LoadParams(context = 'main') {
@@ -3753,6 +3942,7 @@ function _updateEchoQwen3UiVisibility() {
   if (qwen3LoadRow) qwen3LoadRow.style.display = isQwen3 ? '' : 'none';
   if (styleBertRow) styleBertRow.style.display = isStyleBert ? '' : 'none';
   _syncQwen3CloneTestUi();
+  _syncSbv2TestUi();
 }
 
 function _isEchoStyleBertVits2Selected() {
@@ -4306,6 +4496,7 @@ function saveEchoSettings() {
   _updateEchoSbv2LanguageNote();
   _updateEchoTtsPreview();
   _updateEchoQwen3UiVisibility();
+  _syncSbv2TestUi();
   if (echo.ttsEngine === 'style_bert_vits2') {
     _ensureStyleBertVits2Prepared({context: 'echo'});
   }
@@ -4497,6 +4688,7 @@ function _echoInitSettingsUI() {
   }
   _updateEchoSbv2LanguageNote();
   _updateEchoTtsPreview();
+  _syncSbv2TestUi();
   syncEchoTranslateUi();
   const displayStyleInput = document.getElementById('echo-display-style');
   const displayFilterInput = document.getElementById('echo-display-filter');
