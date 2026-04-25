@@ -23,6 +23,7 @@ from app.nexus.news import (
 )
 from app.nexus.report import nexus_report_router
 from app.nexus.search import search_evidence
+from app.nexus.web_scout import plan_web_queries, run_web_search
 
 
 nexus_router = APIRouter()
@@ -61,6 +62,22 @@ class NexusWatchlistUpdateRequest(BaseModel):
     source_type: str | None = None
     is_active: bool | None = None
     last_checked_at: str | None = None
+
+
+class NexusWebSearchRequest(BaseModel):
+    query: str = Field(min_length=1)
+    mode: str = Field(default="standard")
+    max_queries: int | None = Field(default=None, ge=1, le=20)
+    max_results_per_query: int | None = Field(default=None, ge=1, le=20)
+
+
+def _as_canonical_payload(operation: str, request: dict, result: dict) -> dict:
+    return {
+        "ok": True,
+        "operation": operation,
+        "request": request,
+        "result": result,
+    }
 
 
 @nexus_router.get("/health")
@@ -335,28 +352,102 @@ def nexus_search(payload: NexusSearchRequest) -> dict:
     return response
 
 
+@nexus_router.post("/web/search")
+def nexus_web_search(payload: NexusWebSearchRequest) -> dict:
+    query = payload.query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query must not be empty")
+    queries = plan_web_queries(query, mode=payload.mode, max_queries=payload.max_queries)
+    search = run_web_search(
+        queries,
+        mode=payload.mode,
+        max_results_per_query=payload.max_results_per_query,
+    )
+    return _as_canonical_payload(
+        "web.search",
+        payload.model_dump(),
+        {
+            "queries": queries,
+            "search": search,
+            "items": search.get("items") or [],
+            "total_items": len(search.get("items") or []),
+        },
+    )
+
+
+@nexus_router.post("/web/research")
+def nexus_web_research(payload: NexusWebSearchRequest) -> dict:
+    query = payload.query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query must not be empty")
+    queries = plan_web_queries(query, mode=payload.mode, max_queries=payload.max_queries)
+    search = run_web_search(
+        queries,
+        mode=payload.mode,
+        max_results_per_query=payload.max_results_per_query,
+    )
+    highlights = [str(item.get("title") or item.get("snippet") or "") for item in (search.get("items") or [])[:5]]
+    return _as_canonical_payload(
+        "web.research",
+        payload.model_dump(),
+        {
+            "queries": queries,
+            "search": search,
+            "highlights": highlights,
+            "summary": f"{query} に関するWeb調査（MVP）",
+        },
+    )
+
+
+@nexus_router.post("/news/search")
+@nexus_router.post("/news/scan")
 @nexus_router.post("/news/mvp")
 def nexus_news_mvp(payload: NexusNewsMvpRequest) -> dict:
     try:
-        return run_news_mvp(
+        legacy = run_news_mvp(
             topic=payload.topic,
             mode=payload.mode,
             max_results_per_query=payload.max_results_per_query,
         )
+        return _as_canonical_payload("news.search", payload.model_dump(), legacy)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@nexus_router.post("/market/research")
+@nexus_router.post("/market/compare")
 @nexus_router.post("/market/mvp")
 def nexus_market_mvp(payload: NexusMarketMvpRequest) -> dict:
     try:
-        return run_market_mvp(
+        legacy = run_market_mvp(
             symbol_or_theme=payload.symbol_or_theme,
             mode=payload.mode,
             max_results_per_query=payload.max_results_per_query,
         )
+        return _as_canonical_payload("market.research", payload.model_dump(), legacy)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@nexus_router.post("/ask")
+def nexus_ask(payload: NexusSearchRequest) -> dict:
+    query = payload.query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query must not be empty")
+    results = search_evidence(query=query, top_k=payload.top_k)
+    top = results[0] if results else None
+    answer = (
+        f"上位候補: {top.get('chunk', {}).get('title')}" if top else "該当する候補が見つかりませんでした。"
+    )
+    return _as_canonical_payload(
+        "ask",
+        payload.model_dump(),
+        {
+            "answer": answer,
+            "results": results,
+            "evidence": [asdict(item) for item in build_library_evidence(results)] if payload.as_evidence else [],
+        },
+    )
 
 
 @nexus_router.get("/news/watchlists")
