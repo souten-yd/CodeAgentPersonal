@@ -27,6 +27,8 @@ SCHEMA_SQL: tuple[str, ...] = (
         size INTEGER NOT NULL,
         content_type TEXT NOT NULL,
         path TEXT NOT NULL,
+        extracted_text_path TEXT NOT NULL DEFAULT '',
+        markdown_path TEXT NOT NULL DEFAULT '',
         sha256 TEXT NOT NULL,
         metadata TEXT NOT NULL DEFAULT '{}',
         updated_at TEXT NOT NULL DEFAULT '',
@@ -161,7 +163,15 @@ def _add_column_if_missing(conn: sqlite3.Connection, table: str, definition: str
 def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
     # ALTER TABLE 互換マイグレーション（既存データ保持）
     for table, definitions in (
-        ("nexus_documents", ("metadata TEXT NOT NULL DEFAULT '{}'", "updated_at TEXT NOT NULL DEFAULT ''")),
+        (
+            "nexus_documents",
+            (
+                "metadata TEXT NOT NULL DEFAULT '{}'",
+                "updated_at TEXT NOT NULL DEFAULT ''",
+                "extracted_text_path TEXT NOT NULL DEFAULT ''",
+                "markdown_path TEXT NOT NULL DEFAULT ''",
+            ),
+        ),
         (
             "nexus_chunks",
             (
@@ -204,6 +214,8 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
     # 欠損カラムのデフォルト埋め
     conn.execute("UPDATE nexus_documents SET metadata = '{}' WHERE metadata IS NULL OR metadata = ''")
     conn.execute("UPDATE nexus_documents SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = ''")
+    conn.execute("UPDATE nexus_documents SET extracted_text_path = '' WHERE extracted_text_path IS NULL")
+    conn.execute("UPDATE nexus_documents SET markdown_path = '' WHERE markdown_path IS NULL")
     conn.execute("UPDATE nexus_chunks SET text = content WHERE text IS NULL OR text = ''")
     conn.execute("UPDATE nexus_chunks SET metadata = '{}' WHERE metadata IS NULL OR metadata = ''")
     conn.execute("UPDATE nexus_jobs SET project = 'default' WHERE project IS NULL OR project = ''")
@@ -310,6 +322,25 @@ def insert_document(
             VALUES(?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (document_id, project, filename, size, content_type, path, sha256, created_at),
+        )
+        conn.commit()
+
+
+def update_document_artifact_paths(
+    *,
+    document_id: str,
+    extracted_text_path: str,
+    markdown_path: str,
+    updated_at: str,
+) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE nexus_documents
+            SET extracted_text_path = ?, markdown_path = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (extracted_text_path, markdown_path, updated_at, document_id),
         )
         conn.commit()
 

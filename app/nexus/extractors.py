@@ -16,6 +16,12 @@ class ExtractedPage:
     text: str
 
 
+@dataclass(frozen=True)
+class ExtractedArtifacts:
+    text: str
+    markdown: str
+
+
 class _HTMLTextExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -92,3 +98,15 @@ def extract_pages(path: Path) -> list[ExtractedPage]:
     if ext == ".html":
         return _extract_html(path)
     raise ValueError(f"Unsupported file type: {ext}")
+
+
+def build_artifacts(pages: list[ExtractedPage]) -> ExtractedArtifacts:
+    normalized_pages: list[ExtractedPage] = [
+        ExtractedPage(page_no=page.page_no, text=page.text.strip()) for page in pages if page.text.strip()
+    ]
+    if not normalized_pages:
+        return ExtractedArtifacts(text="", markdown="")
+
+    text = "\n\n".join(page.text for page in normalized_pages)
+    markdown = "\n\n".join(f"## Page {page.page_no}\n\n{page.text}" for page in normalized_pages)
+    return ExtractedArtifacts(text=text, markdown=markdown)
