@@ -2032,6 +2032,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
                 style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--accent);color:var(--bg);cursor:pointer">生成</button>
               <button id="sbv2-test-play-btn" onclick="toggleSbv2TestPlayback()"
                 style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--bg3);color:var(--text2);cursor:pointer" disabled>再生</button>
+              <button id="sbv2-test-download-btn" onclick="downloadSbv2TestAudio()"
+                style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--blue);color:var(--bg);cursor:pointer" disabled>⬇ ダウンロード</button>
               <span id="sbv2-test-status" style="font-size:10px;color:var(--text3)">待機中</span>
             </div>
           </div>
@@ -3749,10 +3751,12 @@ function _syncSbv2TestUi() {
   const genBtn = document.getElementById('sbv2-test-generate-btn');
   const asrBtn = document.getElementById('sbv2-test-asr-btn');
   const playBtn = document.getElementById('sbv2-test-play-btn');
+  const dlBtn = document.getElementById('sbv2-test-download-btn');
   const input = document.getElementById('sbv2-test-text');
   if (genBtn) genBtn.disabled = _sbv2TestBusy || !hasModel;
   if (asrBtn) asrBtn.disabled = _sbv2TestBusy;
   if (playBtn) playBtn.disabled = !canPlay;
+  if (dlBtn) dlBtn.disabled = _sbv2TestBusy || !_sbv2TestAudioBlob;
   if (input) input.disabled = _sbv2TestBusy;
   _setSbv2TestPlayToggle(false);
   if (!hasModel) _setSbv2TestStatus('Style-Bert-VITS2 モデルを選択してください', true);
@@ -3819,6 +3823,29 @@ async function toggleSbv2TestPlayback() {
   if (result?.ok === false) _setSbv2TestStatus('再生できませんでした', true);
   else _setSbv2TestStatus('✓ 再生完了');
   _syncSbv2TestUi();
+}
+
+function downloadSbv2TestAudio() {
+  if (!_sbv2TestAudioBlob || _sbv2TestAudioBlob.size <= 0) {
+    _setSbv2TestStatus('ダウンロード対象の音声がありません（先に生成してください）', true);
+    return;
+  }
+  try {
+    const model = (echo.styleBertVits2Model || 'style-bert-vits2').replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 40);
+    const ts = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, 'Z');
+    const filename = `sbv2-sample-${model}-${ts}.wav`;
+    const url = URL.createObjectURL(_sbv2TestAudioBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    _setSbv2TestStatus('✓ 生成音声をダウンロードしました');
+  } catch (e) {
+    _setSbv2TestStatus(`ダウンロード失敗: ${e.message || e}`, true);
+  }
 }
 
 async function toggleSbv2TestVoiceInput() {
