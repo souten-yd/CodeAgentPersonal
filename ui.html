@@ -338,6 +338,14 @@ html.logo-svg-ready .logo-text{display:none}
 .proj-btn{display:flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:5px 10px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);transition:border-color .15s;user-select:none}
 .proj-btn:hover{border-color:var(--border2);color:var(--text)}
 .proj-name{max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-task-toggle{
+  display:flex;align-items:center;gap:6px;
+  padding:5px 10px;border:1px solid var(--border);border-radius:var(--r);
+  background:var(--bg2);color:var(--text2);font-size:11px;font-weight:700;
+  letter-spacing:.04em;cursor:pointer;transition:all .15s;user-select:none;
+}
+.chat-task-toggle:hover{border-color:var(--border2);color:var(--text)}
+.chat-task-toggle.on{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
 .mode-wrap{display:flex;background:var(--bg2);border:1px solid var(--border);border-radius:6px;overflow:hidden}
 .hdr-right .mode-wrap{flex-shrink:0}
 .mode-btn{padding:5px 12px;font-size:12px;font-weight:600;font-family:var(--font-ui);letter-spacing:.04em;cursor:pointer;border:none;background:transparent;color:var(--text2);transition:all .15s}
@@ -440,13 +448,12 @@ html.logo-svg-ready .logo-text{display:none}
 .mob-tabs.echo-mode{overflow-x:hidden;flex-wrap:nowrap}
 .mob-tabs.echo-mode .mob-tab{flex:1 1 calc(100% / 6);width:auto;min-width:0}
 .mob-tabs.chat-task-mode{
-  overflow-x:hidden;
-  flex-wrap:wrap;
+  overflow-x:auto;
+  flex-wrap:nowrap;
 }
 .mob-tabs.chat-task-mode .mob-tab{
-  flex:0 0 25%;
-  width:25%;
-  min-width:0;
+  flex:0 0 auto;
+  min-width:58px;
   text-align:center;
 }
 .mob-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
@@ -1075,7 +1082,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <div class="hdr-right">
     <div class="mode-wrap">
       <button class="mode-btn active" id="btn-chat" onclick="setMode('chat')">Chat</button>
-      <button class="mode-btn" id="btn-task" onclick="setMode('task')">Task</button>
       <button class="mode-btn" id="btn-agent" onclick="setMode('agent')">Agent</button>
       <button class="mode-btn" id="btn-echo" onclick="setMode('echo')">Echo</button>
       <button class="mode-btn" id="btn-nexus" onclick="setMode('nexus')">Nexus</button>
@@ -1110,8 +1116,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 <div class="mob-tabs">
   <!-- Chat/Task モード用タブ -->
   <button class="mob-tab wide active" id="mob-chat" onclick="mobSwitch('chat')">Chat</button>
-  <button class="mob-tab" id="mob-output" onclick="mobSwitch('output')">Output</button>
-  <button class="mob-tab wide" id="mob-preview" onclick="mobSwitch('preview')">Preview</button>
   <button class="mob-tab wide" id="mob-files" onclick="mobSwitch('files')">Files</button>
   <button class="mob-tab" id="mob-log" onclick="mobSwitch('log')">Log</button>
   <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skill</button>
@@ -1136,6 +1140,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="proj-btn" onclick="toggleDrawer()">
         <span>◈</span><span class="proj-name" id="proj-display">default</span><span style="font-size:9px;color:var(--text3)">▼</span>
       </div>
+      <button class="chat-task-toggle" id="chat-task-toggle" onclick="toggleChatTaskMode()" title="Task実行をON/OFF">
+        <span>Task</span><span id="chat-task-toggle-label">OFF</span>
+      </button>
     </div>
     <div class="messages" id="messages">
       <div class="msg system">
@@ -1310,9 +1317,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <div class="panel-col" id="panel-col">
     <div class="panel-tabs">
       <!-- Chat/Task モード用タブ -->
-      <button class="tab-btn active" id="tab-btn-output" onclick="switchTab('output')">Output</button>
-      <button class="tab-btn" id="tab-btn-preview" onclick="switchTab('preview')">Preview</button>
-      <button class="tab-btn" id="tab-btn-files" onclick="switchTab('files')">Files</button>
+      <button class="tab-btn active" id="tab-btn-files" onclick="switchTab('files')">Files</button>
       <button class="tab-btn" id="tab-btn-log" onclick="switchTab('log')">Log</button>
       <button class="tab-btn" id="tab-btn-skills" onclick="switchTab('skills')">Skill</button>
       <button class="tab-btn" id="tab-btn-memory" onclick="switchTab('memory')">Memory</button>
@@ -1327,13 +1332,13 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <span class="tab-label" id="tab-label">—</span>
     </div>
 
-    <div class="tab-content active" id="tab-output">
+    <div class="tab-content" id="tab-output" style="display:none !important">
       <div class="code-output" id="code-output">
         <div class="empty-state"><div class="empty-icon">⌘</div><div class="empty-text">No output yet</div></div>
       </div>
     </div>
 
-    <div class="tab-content" id="tab-preview">
+    <div class="tab-content" id="tab-preview" style="display:none !important">
       <div class="preview-layout">
 
         <!-- 左: ファイルブラウザ -->
@@ -1372,7 +1377,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="log-output" id="log-output"></div>
     </div>
 
-    <div class="tab-content" id="tab-files" style="overflow-y:auto;padding:12px">
+    <div class="tab-content active" id="tab-files" style="overflow-y:auto;padding:12px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">File Manager</span>
         <button onclick="refreshProjectFileManager()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ Refresh</button>
@@ -6373,11 +6378,11 @@ function formatModelShortName(name) {
 
 // ── MODE ──
 // Chat/Task モード用パネルタブID
-const _CHAT_PANEL_TAB_IDS = ['tab-btn-output','tab-btn-preview','tab-btn-files','tab-btn-log','tab-btn-skills','tab-btn-memory','tab-btn-models'];
+const _CHAT_PANEL_TAB_IDS = ['tab-btn-files','tab-btn-log','tab-btn-skills','tab-btn-memory','tab-btn-models'];
 // Echo モード用パネルタブID
 const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault','tab-btn-log-echo','tab-btn-models-echo','tab-btn-asr','tab-btn-tts'];
 // Chat/Task モード用モバイルタブID
-const _CHAT_MOB_TAB_IDS = ['mob-chat','mob-output','mob-preview','mob-files','mob-log','mob-skills','mob-memory','mob-models'];
+const _CHAT_MOB_TAB_IDS = ['mob-chat','mob-files','mob-log','mob-skills','mob-memory','mob-models'];
 // Agent モード用モバイルタブID
 const _AGENT_MOB_TAB_IDS = ['mob-agent-chat','mob-agent-tasks'];
 // Echo モード用モバイルタブID
@@ -6460,10 +6465,24 @@ function _setPanelTabActiveButton(name) {
   document.getElementById(activeBtnId)?.classList.add('active');
 }
 
+function syncChatTaskToggle() {
+  const isTaskMode = (mode === 'task');
+  const toggle = document.getElementById('chat-task-toggle');
+  const label = document.getElementById('chat-task-toggle-label');
+  toggle?.classList.toggle('on', isTaskMode);
+  if (label) label.textContent = isTaskMode ? 'ON' : 'OFF';
+}
+
+function toggleChatTaskMode() {
+  if (mode === 'task') setMode('chat');
+  else setMode('task');
+}
+
 function setMode(m) {
   const prevMode = mode;
   mode = m;
   ['chat','task','agent','echo','nexus'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
+  syncChatTaskToggle();
   const chatCol  = document.getElementById('chat-col');
   const echoCol  = document.getElementById('echo-col');
   const panelCol = document.getElementById('panel-col');
@@ -6533,9 +6552,9 @@ function setMode(m) {
     if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(false);
     if (['vault','asr','tts'].some(n => document.getElementById('tab-'+n)?.classList.contains('active'))) {
-      switchTab('output');
+      switchTab('files');
     } else {
-      const activeTab = document.querySelector('.tab-content.active')?.id?.replace('tab-','') || 'output';
+      const activeTab = document.querySelector('.tab-content.active')?.id?.replace('tab-','') || 'files';
       _setPanelTabActiveButton(activeTab);
     }
   }
@@ -6942,9 +6961,7 @@ function mobSwitch(name) {
     ap?.classList.add('mob-hidden');
     nc?.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
-    switchTab(name === 'output' ? 'output'
-      : name === 'preview' ? 'preview'
-      : name === 'files' ? 'files'
+    switchTab(name === 'files' ? 'files'
       : name === 'skills' ? 'skills'
       : name === 'memory' ? 'memory'
       : name === 'models' ? 'models'
@@ -10981,7 +10998,7 @@ function renderStepsToOutput(steps) {
       const ext = fp.split('.').pop().toLowerCase();
       const isRunnable = ['py','js','html'].includes(ext);
       const runBtnHtml = isRunnable
-        ? `<button class="pv-btn run" style="font-size:10px;padding:2px 8px" onclick="switchTab('preview');setTimeout(()=>runFile('${esc(fp)}'),100)">▶ Run</button>`
+        ? `<button class="pv-btn run" style="font-size:10px;padding:2px 8px" onclick="switchTab('files');setTimeout(()=>runFile('${esc(fp)}'),100)">▶ Run</button>`
         : '';
       b.innerHTML = `<div class="cb-hdr">
         <span class="cb-lang">${s.action==='patch_function'?'patch':'file'}</span>
@@ -11005,7 +11022,7 @@ function detectHtml(data) {
   if (found.length) {
     htmlFiles = found;
     loadPreview(htmlFiles[htmlFiles.length-1]);
-    switchTab('preview');  // switchTab('preview') 内で refreshFileBrowser() を呼ぶため重複呼び出し不要
+    switchTab('files');
   } else {
     refreshFileBrowser();
   }
