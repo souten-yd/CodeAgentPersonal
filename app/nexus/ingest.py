@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from hashlib import sha256
-from pathlib import Path
+from pathlib import Path, PurePath
+import re
 import threading
 import uuid
 
@@ -22,9 +23,36 @@ MAX_OVERLAP = 200
 DEFAULT_CHUNK_SIZE = 1000
 DEFAULT_OVERLAP = 150
 
+MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024
+ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv", ".html"}
+_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _sanitize_filename(filename: str) -> str:
+    base = PurePath(filename).name.strip()
+    if not base:
+        raise ValueError("File name is required")
+
+    # path traversal 対策: basename化後に危険パターンを拒否
+    if base in {".", ".."}:
+        raise ValueError("Invalid filename")
+
+    safe = _FILENAME_RE.sub("_", base).strip("._")
+    if not safe:
+        safe = "upload"
+
+    ext = Path(base).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise ValueError("Unsupported file extension")
+
+    if not safe.lower().endswith(ext):
+        safe = f"{safe}{ext}"
+
+    return safe
 
 
 def _chunk_text(text: str) -> list[str]:
@@ -100,18 +128,43 @@ def _extract_and_index(document_id: str, path: Path, filename: str, job_id: str)
     )
 
 
+async def _read_upload_bytes(file: UploadFile) -> bytes:
+    total = 0
+    chunks: list[bytes] = []
+    while True:
+        part = await file.read(1024 * 1024)
+        if not part:
+            break
+        total += len(part)
+        if total > MAX_UPLOAD_SIZE_BYTES:
+            raise ValueError(f"File too large (max {MAX_UPLOAD_SIZE_BYTES} bytes)")
+        chunks.append(part)
+    return b"".join(chunks)
+
+
 async def accept_upload(*, file: UploadFile, project: str = "default") -> dict:
     if not file.filename:
         raise ValueError("File name is required")
 
-    document_id = str(uuid.uuid4())
-    ext = Path(file.filename).suffix.lower()
-    safe_ext = ext if ext else ".bin"
-    doc_dir = UPLOAD_ROOT / document_id
-    doc_dir.mkdir(parents=True, exist_ok=True)
-    stored_path = doc_dir / f"original{safe_ext}"
+    safe_filename = _sanitize_filename(file.filename)
+    ext = Path(safe_filename).suffix.lower()
 
-    content = await file.read()
+    content = await _read_upload_bytes(file)
+    if not content:
+        raise ValueError("Empty file is not allowed")
+
+    document_id = str(uuid.uuid4())
+    doc_dir = (UPLOAD_ROOT / document_id).resolve()
+    doc_dir.mkdir(parents=True, exist_ok=True)
+
+    root_resolved = UPLOAD_ROOT.resolve()
+    if root_resolved not in doc_dir.parents and doc_dir != root_resolved:
+        raise ValueError("Invalid upload path")
+
+    stored_path = (doc_dir / f"original{ext}").resolve()
+    if doc_dir not in stored_path.parents:
+        raise ValueError("Invalid upload destination")
+
     stored_path.write_bytes(content)
     digest = sha256(content).hexdigest()
     created_at = _now_iso()
@@ -119,7 +172,7 @@ async def accept_upload(*, file: UploadFile, project: str = "default") -> dict:
     insert_document(
         document_id=document_id,
         project=project,
-        filename=Path(file.filename).name,
+        filename=safe_filename,
         size=len(content),
         content_type=file.content_type or "application/octet-stream",
         path=str(stored_path),
@@ -133,20 +186,21 @@ async def accept_upload(*, file: UploadFile, project: str = "default") -> dict:
 
     worker = threading.Thread(
         target=_extract_and_index,
-        args=(document_id, stored_path, Path(file.filename).name, job_id),
+        args=(document_id, stored_path, safe_filename, job_id),
         daemon=True,
     )
     worker.start()
 
     return {
+        "job_id": job_id,
+        "status": "queued",
         "document": {
             "id": document_id,
             "project": project,
-            "filename": Path(file.filename).name,
+            "filename": safe_filename,
             "size": len(content),
             "content_type": file.content_type or "application/octet-stream",
             "sha256": digest,
             "created_at": created_at,
         },
-        "job": {"job_id": job_id, "status": "queued"},
     }
