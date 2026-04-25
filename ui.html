@@ -3382,14 +3382,39 @@ function _showTtsFallbackPlayer(blob, label = 'TTS 音声') {
 function _updateEchoAudioUnlockUi() {
   const unlockBtn = document.getElementById('echo-audio-unlock-btn');
   const readyLabel = document.getElementById('echo-audio-ready-label');
-  if (unlockBtn) unlockBtn.style.display = audioUnlocked ? 'none' : '';
-  if (readyLabel) readyLabel.style.display = audioUnlocked ? '' : 'none';
+  if (audioUnlocked) {
+    _hideEchoAudioUnlockButton(unlockBtn);
+    _showEchoAudioReadyLabel(readyLabel);
+    return;
+  }
+  _showEchoAudioUnlockButton(unlockBtn);
+  _hideEchoAudioReadyLabel(readyLabel);
+}
+
+function _showEchoAudioUnlockButton(unlockBtn) {
+  if (!unlockBtn) return;
+  unlockBtn.style.display = '';
+}
+
+function _hideEchoAudioUnlockButton(unlockBtn) {
+  if (!unlockBtn) return;
+  unlockBtn.style.display = 'none';
+}
+
+function _showEchoAudioReadyLabel(readyLabel) {
+  if (!readyLabel) return;
+  readyLabel.style.display = '';
+}
+
+function _hideEchoAudioReadyLabel(readyLabel) {
+  if (!readyLabel) return;
+  readyLabel.style.display = 'none';
 }
 
 function _resumePendingTtsPlaybackAfterUnlock() {
   if (ttsAudioQueue.length === 0) return;
   tts._autoplayBlockedNoticeShown = false;
-  console.info(`[TTS][play_waiting_unlock] resume queued=${ttsAudioQueue.length}`);
+  console.info(`[TTS][play_waiting_unlock] action=resume_after_unlock queue=${ttsAudioQueue.length}`);
   playNextTtsAudio();
 }
 
@@ -4350,10 +4375,10 @@ function playNextTtsAudio() {
         audioUnlocked = false;
         _updateEchoAudioUnlockUi();
         ttsAudioQueue.unshift(item);
-        console.warn(`[TTS][play_blocked] id=${id} error=${e.name}`);
-        console.info(`[TTS][play_waiting_unlock] id=${id} queue=${ttsAudioQueue.length}`);
+        console.warn(`[TTS][play_blocked] id=${id} error_name=${e.name}`);
+        console.info(`[TTS][play_waiting_unlock] action=waiting_for_unlock id=${id} queue=${ttsAudioQueue.length}`);
         if (!tts._autoplayBlockedNoticeShown) {
-          addMsg('system', 'ブラウザの自動再生制限により、次のクリック/キー操作で音声を再開します。');
+          addMsg('system', '音声再生がブロックされました。🔊 音声を有効化 を押してください');
           tts._autoplayBlockedNoticeShown = true;
         }
         if (typeof resolve === 'function') resolve({ok: false, reason: 'blocked'});
