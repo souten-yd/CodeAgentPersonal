@@ -64,8 +64,9 @@ def _append_operation(
     before: str,
     after: str,
     value: Any = None,
+    force: bool = False,
 ) -> None:
-    if before == after:
+    if before == after and not force:
         return
     operation: dict[str, Any] = {"type": op_type, "from": before, "to": after}
     if value is not None:
@@ -207,13 +208,15 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
             lambda m: llm_map.get(m.group(0), english_dict.get(m.group(0).lower(), m.group(0))),
             current,
         )
-    elif english_policy in {"skip", "none"}:
+    elif english_policy == "skip":
+        current = _ASCII_WORD_PATTERN.sub(" ", current)
+    elif english_policy == "none":
         pass
     else:
         warnings.append(f"unknown english_to_katakana policy: {english_policy}. fallback=rule")
         current = _ASCII_WORD_PATTERN.sub(lambda m: english_dict.get(m.group(0).lower(), m.group(0)), current)
     current = _MULTISPACE_PATTERN.sub(" ", current).strip()
-    _append_operation(operations, "english_to_katakana", before, current, english_policy)
+    _append_operation(operations, "english_to_katakana", before, current, english_policy, force=True)
 
     looks_after = looks_japanese(current)
     if current and not looks_after:
