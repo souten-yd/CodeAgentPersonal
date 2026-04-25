@@ -274,15 +274,58 @@ def _resolve_sbv2_jp_extra_normalization_settings(req: dict) -> dict:
     english_to_katakana = str(resolved.get("sbv2_jp_extra_english_to_katakana") or "llm").strip().lower()
     resolved["sbv2_jp_extra_english_policy"] = english_to_katakana
 
-    emoji_policy = str(resolved.get("sbv2_jp_extra_emoji_policy") or "skip").strip().lower()
+    legacy_emoji = None
+    if isinstance(settings, dict):
+        legacy_emoji = settings.get("emoji_policy")
+    if legacy_emoji is None:
+        legacy_emoji = req.get("emoji_policy")
+    emoji_policy_raw = resolved.get("sbv2_jp_extra_emoji_policy")
+    if emoji_policy_raw in (None, "") and legacy_emoji not in (None, ""):
+        emoji_policy_raw = legacy_emoji
+    emoji_policy = str(emoji_policy_raw or "skip").strip().lower()
+    if emoji_policy == "remove":
+        emoji_policy = "skip"
+    elif emoji_policy == "replace":
+        emoji_policy = "describe"
+    if emoji_policy not in {"skip", "describe", "keep"}:
+        emoji_policy = "skip"
+    resolved["sbv2_jp_extra_emoji_policy"] = emoji_policy
     resolved["emoji_policy"] = "keep" if emoji_policy == "keep" else "replace" if emoji_policy == "describe" else "remove"
-    resolved["sbv2_jp_extra_emoji_policy"] = resolved["emoji_policy"]
 
-    symbol_policy = str(resolved.get("sbv2_jp_extra_symbol_policy") or "readable").strip().lower()
+    legacy_symbol = None
+    if isinstance(settings, dict):
+        legacy_symbol = settings.get("symbol_policy")
+    if legacy_symbol is None:
+        legacy_symbol = req.get("symbol_policy")
+    symbol_policy_raw = resolved.get("sbv2_jp_extra_symbol_policy")
+    if symbol_policy_raw in (None, "") and legacy_symbol not in (None, ""):
+        symbol_policy_raw = legacy_symbol
+    symbol_policy = str(symbol_policy_raw or "readable").strip().lower()
+    if symbol_policy == "remove":
+        symbol_policy = "skip"
+    elif symbol_policy == "replace":
+        symbol_policy = "readable"
+    if symbol_policy not in {"skip", "readable", "keep"}:
+        symbol_policy = "readable"
+    resolved["sbv2_jp_extra_symbol_policy"] = symbol_policy
     resolved["symbol_policy"] = "keep" if symbol_policy == "keep" else "replace" if symbol_policy == "readable" else "remove"
-    resolved["sbv2_jp_extra_symbol_policy"] = resolved["symbol_policy"]
 
-    url_policy = str(resolved.get("sbv2_jp_extra_url_policy") or "skip").strip().lower()
+    legacy_url = None
+    if isinstance(settings, dict):
+        legacy_url = settings.get("url_email_policy")
+    if legacy_url is None:
+        legacy_url = req.get("url_email_policy")
+    url_policy_raw = resolved.get("sbv2_jp_extra_url_policy")
+    if url_policy_raw in (None, "") and legacy_url not in (None, ""):
+        url_policy_raw = legacy_url
+    url_policy = str(url_policy_raw or "skip").strip().lower()
+    if url_policy == "remove":
+        url_policy = "skip"
+    elif url_policy == "replace":
+        url_policy = "readable"
+    if url_policy not in {"skip", "readable"}:
+        url_policy = "skip"
+    resolved["sbv2_jp_extra_url_policy"] = url_policy
     resolved["url_email_policy"] = "replace" if url_policy == "readable" else "remove"
     resolved["sbv2_jp_extra_url_email_policy"] = resolved["url_email_policy"]
 
