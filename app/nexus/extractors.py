@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
-import csv
 
 
 class DependencyMissingError(RuntimeError):
@@ -20,8 +20,20 @@ class _HTMLTextExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self._parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:  # noqa: ANN001
+        _ = attrs
+        if tag in {"script", "style", "noscript"}:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style", "noscript"} and self._skip_depth > 0:
+            self._skip_depth -= 1
 
     def handle_data(self, data: str) -> None:
+        if self._skip_depth > 0:
+            return
         value = data.strip()
         if value:
             self._parts.append(value)
@@ -63,6 +75,7 @@ def _extract_csv(path: Path) -> list[ExtractedPage]:
 def _extract_html(path: Path) -> list[ExtractedPage]:
     parser = _HTMLTextExtractor()
     parser.feed(path.read_text(encoding="utf-8", errors="ignore"))
+    parser.close()
     return [ExtractedPage(page_no=1, text=parser.get_text())]
 
 

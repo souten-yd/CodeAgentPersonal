@@ -52,6 +52,7 @@ def create_nexus_bundle(job_id: str, report: dict) -> Path:
         if report_html.exists():
             zf.write(report_html, "report.html")
 
-        zf.writestr("job.json", json.dumps(job, ensure_ascii=False, indent=2))
+        job_payload = job.model_dump(mode="json") if hasattr(job, "model_dump") else job
+        zf.writestr("job.json", json.dumps(job_payload, ensure_ascii=False, indent=2))
 
     return zip_path
