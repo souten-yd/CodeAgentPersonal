@@ -2107,10 +2107,52 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <select id="echo-tts-sbv2-non-japanese-policy"
               style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
               onchange="saveEchoSettings()">
-              <option value="block" selected>Block</option>
-              <option value="warn">Warn</option>
-              <option value="allow">Allow</option>
+              <option value="normalize_then_skip" selected>normalize_then_skip</option>
+              <option value="normalize_then_rule">normalize_then_rule</option>
+              <option value="normalize_then_llm">normalize_then_llm</option>
+              <option value="normalize_then_none">normalize_then_none</option>
             </select>
+          </div>
+          <div style="margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:6px">JP-Extra text preprocess options</div>
+            <label style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;cursor:pointer">
+              <span style="font-size:10px;color:var(--text2)">sbv2_jp_extra_text_normalization</span>
+              <input id="echo-tts-sbv2-text-normalization" type="checkbox" checked style="accent-color:var(--accent)" onchange="saveEchoSettings()">
+            </label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              <div>
+                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">sbv2_jp_extra_english_to_katakana</div>
+                <select id="echo-tts-sbv2-english-to-katakana" style="width:100%;padding:5px 8px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)" onchange="saveEchoSettings()">
+                  <option value="llm" selected>llm</option>
+                  <option value="rule">rule</option>
+                  <option value="skip">skip</option>
+                  <option value="none">none</option>
+                </select>
+              </div>
+              <div>
+                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">sbv2_jp_extra_emoji_policy</div>
+                <select id="echo-tts-sbv2-emoji-policy" style="width:100%;padding:5px 8px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)" onchange="saveEchoSettings()">
+                  <option value="skip" selected>skip</option>
+                  <option value="describe">describe</option>
+                  <option value="keep">keep</option>
+                </select>
+              </div>
+              <div>
+                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">sbv2_jp_extra_symbol_policy</div>
+                <select id="echo-tts-sbv2-symbol-policy" style="width:100%;padding:5px 8px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)" onchange="saveEchoSettings()">
+                  <option value="skip" selected>skip</option>
+                  <option value="readable">readable</option>
+                  <option value="keep">keep</option>
+                </select>
+              </div>
+              <div>
+                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">sbv2_jp_extra_url_policy</div>
+                <select id="echo-tts-sbv2-url-policy" style="width:100%;padding:5px 8px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)" onchange="saveEchoSettings()">
+                  <option value="skip" selected>skip</option>
+                  <option value="readable">readable</option>
+                </select>
+              </div>
+            </div>
           </div>
           <details style="margin-top:8px">
             <summary style="cursor:pointer;font-size:11px;color:var(--text2);font-weight:700">Advanced parameters</summary>
@@ -2160,7 +2202,11 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div id="echo-tts-preview-source" style="font-size:10px;color:var(--text3)">TTS text source: raw</div>
             <div id="echo-tts-preview-language" style="font-size:10px;color:var(--text3)">Language: JP</div>
             <div id="echo-tts-preview-effective-language" style="font-size:10px;color:var(--text3)">Effective language: JP</div>
-            <div id="echo-tts-preview-text" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Text preview: -</div>
+            <div id="echo-tts-preview-original-text" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Original text preview: -</div>
+            <div id="echo-tts-preview-normalized-text" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Normalized text preview: -</div>
+            <div id="echo-tts-preview-final-text" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Final text preview: -</div>
+            <div id="echo-tts-preview-looks-japanese" style="font-size:10px;color:var(--text3);margin-top:3px">Looks Japanese: no</div>
+            <div id="echo-tts-preview-operations" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Operations: -</div>
           </div>
           <div id="tsasr-sbv2-test-row" style="margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">
             <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:6px">🧪 Style-Bert-VITS2 Test</div>
@@ -3147,9 +3193,22 @@ const echo = {
   })(),
   ttsUseTranslation: localStorage.getItem('echo_tts_use_translation') === 'true',
   ttsTextSource: (localStorage.getItem('echo_tts_text_source') || 'raw') === 'translated' ? 'translated' : 'raw',
-  sbv2NonJapanesePolicy: ['block', 'warn', 'allow'].includes((localStorage.getItem('sbv2_jp_extra_non_japanese_policy') || '').toLowerCase())
+  sbv2TextNormalization: localStorage.getItem('sbv2_jp_extra_text_normalization') !== 'false',
+  sbv2EnglishToKatakana: ['llm', 'rule', 'skip', 'none'].includes((localStorage.getItem('sbv2_jp_extra_english_to_katakana') || '').toLowerCase())
+    ? (localStorage.getItem('sbv2_jp_extra_english_to_katakana') || '').toLowerCase()
+    : 'llm',
+  sbv2EmojiPolicy: ['skip', 'describe', 'keep'].includes((localStorage.getItem('sbv2_jp_extra_emoji_policy') || '').toLowerCase())
+    ? (localStorage.getItem('sbv2_jp_extra_emoji_policy') || '').toLowerCase()
+    : 'skip',
+  sbv2SymbolPolicy: ['skip', 'readable', 'keep'].includes((localStorage.getItem('sbv2_jp_extra_symbol_policy') || '').toLowerCase())
+    ? (localStorage.getItem('sbv2_jp_extra_symbol_policy') || '').toLowerCase()
+    : 'skip',
+  sbv2UrlPolicy: ['skip', 'readable'].includes((localStorage.getItem('sbv2_jp_extra_url_policy') || '').toLowerCase())
+    ? (localStorage.getItem('sbv2_jp_extra_url_policy') || '').toLowerCase()
+    : 'skip',
+  sbv2NonJapanesePolicy: ['normalize_then_llm', 'normalize_then_rule', 'normalize_then_skip', 'normalize_then_none'].includes((localStorage.getItem('sbv2_jp_extra_non_japanese_policy') || '').toLowerCase())
     ? (localStorage.getItem('sbv2_jp_extra_non_japanese_policy') || '').toLowerCase()
-    : 'block',
+    : 'normalize_then_skip',
   sbv2Length: _numOr(localStorage.getItem('echo_sbv2_length'), 1.0),
   sbv2SdpRatio: _numOr(localStorage.getItem('echo_sbv2_sdp_ratio'), 0.2),
   sbv2Noise: _numOr(localStorage.getItem('echo_sbv2_noise'), 0.6),
@@ -3523,6 +3582,8 @@ function _pickStyleBertBatchItemProps(payload = {}) {
   const keys = [
     'style', 'style_weight', 'speaker', 'speaker_name', 'language', 'speed',
     'caller', 'route', 'use_translation', 'text_source', 'raw_text', 'translated_text',
+    'sbv2_jp_extra_text_normalization', 'sbv2_jp_extra_english_to_katakana',
+    'sbv2_jp_extra_emoji_policy', 'sbv2_jp_extra_symbol_policy', 'sbv2_jp_extra_url_policy',
     'sbv2_jp_extra_non_japanese_policy', 'length', 'sdp_ratio', 'noise', 'noise_w',
     'split_interval', 'line_split', 'pitch_scale', 'intonation_scale'
   ];
@@ -3710,7 +3771,12 @@ function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
     text_source: echo.ttsTextSource || 'raw',
     raw_text: String(opts.rawText || text || ''),
     translated_text: String(opts.translatedText || ''),
-    sbv2_jp_extra_non_japanese_policy: echo.sbv2NonJapanesePolicy || 'block',
+    sbv2_jp_extra_text_normalization: echo.sbv2TextNormalization !== false,
+    sbv2_jp_extra_english_to_katakana: echo.sbv2EnglishToKatakana || 'llm',
+    sbv2_jp_extra_emoji_policy: echo.sbv2EmojiPolicy || 'skip',
+    sbv2_jp_extra_symbol_policy: echo.sbv2SymbolPolicy || 'skip',
+    sbv2_jp_extra_url_policy: echo.sbv2UrlPolicy || 'skip',
+    sbv2_jp_extra_non_japanese_policy: echo.sbv2NonJapanesePolicy || 'normalize_then_skip',
     length: _numOr(echo.sbv2Length, 1.0),
     sdp_ratio: _numOr(echo.sbv2SdpRatio, 0.2),
     noise: _numOr(echo.sbv2Noise, 0.6),
@@ -4385,6 +4451,14 @@ function _normalizeEchoSbv2AdvancedDefaults() {
     const current = _numOr(echo[key], fallback);
     echo[key] = current > 0 ? current : fallback;
   });
+  if (typeof echo.sbv2TextNormalization !== 'boolean') echo.sbv2TextNormalization = true;
+  if (!['llm', 'rule', 'skip', 'none'].includes(echo.sbv2EnglishToKatakana)) echo.sbv2EnglishToKatakana = 'llm';
+  if (!['skip', 'describe', 'keep'].includes(echo.sbv2EmojiPolicy)) echo.sbv2EmojiPolicy = 'skip';
+  if (!['skip', 'readable', 'keep'].includes(echo.sbv2SymbolPolicy)) echo.sbv2SymbolPolicy = 'skip';
+  if (!['skip', 'readable'].includes(echo.sbv2UrlPolicy)) echo.sbv2UrlPolicy = 'skip';
+  if (!['normalize_then_llm', 'normalize_then_rule', 'normalize_then_skip', 'normalize_then_none'].includes(echo.sbv2NonJapanesePolicy)) {
+    echo.sbv2NonJapanesePolicy = 'normalize_then_skip';
+  }
 }
 
 async function onTtsEngineChange() {
@@ -4558,22 +4632,75 @@ function _effectiveEchoSbv2Language() {
   return selected;
 }
 
+function _looksJapaneseText(text = '') {
+  return /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(String(text || ''));
+}
+
+function _simulateEchoSbv2Preview(text = '') {
+  const operations = [];
+  const original = String(text || '');
+  let normalized = original;
+  if (echo.sbv2TextNormalization) {
+    normalized = normalized
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\r\n?/g, '\n')
+      .trim();
+    operations.push('text_normalization');
+  }
+  if (echo.sbv2UrlPolicy === 'skip') {
+    normalized = normalized.replace(/https?:\/\/\S+/gi, '');
+    operations.push('url:skip');
+  } else if (echo.sbv2UrlPolicy === 'readable') {
+    normalized = normalized.replace(/https?:\/\/\S+/gi, ' URL ');
+    operations.push('url:readable');
+  }
+  if (echo.sbv2EmojiPolicy === 'skip') {
+    normalized = normalized.replace(/[\u{1F300}-\u{1FAFF}]/gu, '');
+    operations.push('emoji:skip');
+  } else if (echo.sbv2EmojiPolicy === 'describe') {
+    operations.push('emoji:describe');
+  }
+  if (echo.sbv2SymbolPolicy === 'skip') {
+    normalized = normalized.replace(/[^\p{L}\p{N}\s\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/gu, ' ');
+    operations.push('symbol:skip');
+  } else if (echo.sbv2SymbolPolicy === 'readable') {
+    operations.push('symbol:readable');
+  }
+  if (echo.sbv2EnglishToKatakana !== 'none') operations.push(`english_to_katakana:${echo.sbv2EnglishToKatakana}`);
+  operations.push(`non_japanese:${echo.sbv2NonJapanesePolicy}`);
+  const finalText = normalized.replace(/\s{2,}/g, ' ').trim();
+  return {
+    original,
+    normalized,
+    finalText,
+    looksJapanese: _looksJapaneseText(finalText),
+    operations,
+  };
+}
+
 function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
   const source = (echo.ttsUseTranslation && echo.ttsTextSource === 'translated' && translatedText) ? 'translated' : 'raw';
   const activeText = source === 'translated' ? translatedText : rawText;
   const selectedLanguage = _normalizeEchoSbv2Language(echo.ttsSbv2Language);
   const effectiveLanguage = _effectiveEchoSbv2Language();
+  const previewData = _simulateEchoSbv2Preview(activeText);
   const sourceEl = document.getElementById('echo-tts-preview-source');
   const langEl = document.getElementById('echo-tts-preview-language');
   const effEl = document.getElementById('echo-tts-preview-effective-language');
-  const textEl = document.getElementById('echo-tts-preview-text');
+  const orgEl = document.getElementById('echo-tts-preview-original-text');
+  const normEl = document.getElementById('echo-tts-preview-normalized-text');
+  const finalEl = document.getElementById('echo-tts-preview-final-text');
+  const jpEl = document.getElementById('echo-tts-preview-looks-japanese');
+  const opsEl = document.getElementById('echo-tts-preview-operations');
+  const fmtPreview = (value) => String(value || '').replace(/\n/g, '\\n').slice(0, 160) || '-';
   if (sourceEl) sourceEl.textContent = `TTS text source: ${source}`;
   if (langEl) langEl.textContent = `Language: ${selectedLanguage === 'auto' ? 'Auto' : selectedLanguage}`;
   if (effEl) effEl.textContent = `Effective language: ${effectiveLanguage}`;
-  if (textEl) {
-    const preview = String(activeText || '').replace(/\n/g, '\\n').slice(0, 100) || '-';
-    textEl.textContent = `Text preview: ${preview}`;
-  }
+  if (orgEl) orgEl.textContent = `Original text preview: ${fmtPreview(previewData.original)}`;
+  if (normEl) normEl.textContent = `Normalized text preview: ${fmtPreview(previewData.normalized)}`;
+  if (finalEl) finalEl.textContent = `Final text preview: ${fmtPreview(previewData.finalText)}`;
+  if (jpEl) jpEl.textContent = `Looks Japanese: ${previewData.looksJapanese ? 'yes' : 'no'}`;
+  if (opsEl) opsEl.textContent = `Operations: ${previewData.operations.length ? previewData.operations.join(', ') : '-'}`;
 }
 
 function _updateEchoSbv2LanguageNote() {
@@ -4862,7 +4989,12 @@ function saveEchoSettings() {
   echo.ttsSbv2Language = _normalizeEchoSbv2Language(document.getElementById('echo-tts-sbv2-language')?.value || echo.ttsSbv2Language || 'JP');
   echo.ttsUseTranslation = !!document.getElementById('echo-tts-use-translation')?.checked;
   echo.ttsTextSource = (document.getElementById('echo-tts-text-source')?.value || echo.ttsTextSource || 'raw') === 'translated' ? 'translated' : 'raw';
-  echo.sbv2NonJapanesePolicy = (document.getElementById('echo-tts-sbv2-non-japanese-policy')?.value || echo.sbv2NonJapanesePolicy || 'block').toLowerCase();
+  echo.sbv2TextNormalization = document.getElementById('echo-tts-sbv2-text-normalization')?.checked !== false;
+  echo.sbv2EnglishToKatakana = (document.getElementById('echo-tts-sbv2-english-to-katakana')?.value || echo.sbv2EnglishToKatakana || 'llm').toLowerCase();
+  echo.sbv2EmojiPolicy = (document.getElementById('echo-tts-sbv2-emoji-policy')?.value || echo.sbv2EmojiPolicy || 'skip').toLowerCase();
+  echo.sbv2SymbolPolicy = (document.getElementById('echo-tts-sbv2-symbol-policy')?.value || echo.sbv2SymbolPolicy || 'skip').toLowerCase();
+  echo.sbv2UrlPolicy = (document.getElementById('echo-tts-sbv2-url-policy')?.value || echo.sbv2UrlPolicy || 'skip').toLowerCase();
+  echo.sbv2NonJapanesePolicy = (document.getElementById('echo-tts-sbv2-non-japanese-policy')?.value || echo.sbv2NonJapanesePolicy || 'normalize_then_skip').toLowerCase();
   echo.sbv2Length = _numOr(document.getElementById('echo-tts-sbv2-length')?.value, echo.sbv2Length || 1.0);
   echo.sbv2SdpRatio = _numOr(document.getElementById('echo-tts-sbv2-sdp-ratio')?.value, echo.sbv2SdpRatio || 0.2);
   echo.sbv2Noise = _numOr(document.getElementById('echo-tts-sbv2-noise')?.value, echo.sbv2Noise || 0.6);
@@ -4957,7 +5089,12 @@ function saveEchoSettings() {
   localStorage.setItem('echo_tts_sbv2_language', `${echo.ttsSbv2Language}`);
   localStorage.setItem('echo_tts_use_translation', echo.ttsUseTranslation ? 'true' : 'false');
   localStorage.setItem('echo_tts_text_source', echo.ttsTextSource || 'raw');
-  localStorage.setItem('sbv2_jp_extra_non_japanese_policy', echo.sbv2NonJapanesePolicy || 'block');
+  localStorage.setItem('sbv2_jp_extra_text_normalization', `${echo.sbv2TextNormalization !== false}`);
+  localStorage.setItem('sbv2_jp_extra_english_to_katakana', echo.sbv2EnglishToKatakana || 'llm');
+  localStorage.setItem('sbv2_jp_extra_emoji_policy', echo.sbv2EmojiPolicy || 'skip');
+  localStorage.setItem('sbv2_jp_extra_symbol_policy', echo.sbv2SymbolPolicy || 'skip');
+  localStorage.setItem('sbv2_jp_extra_url_policy', echo.sbv2UrlPolicy || 'skip');
+  localStorage.setItem('sbv2_jp_extra_non_japanese_policy', echo.sbv2NonJapanesePolicy || 'normalize_then_skip');
   localStorage.setItem('echo_sbv2_length', `${echo.sbv2Length}`);
   localStorage.setItem('echo_sbv2_sdp_ratio', `${echo.sbv2SdpRatio}`);
   localStorage.setItem('echo_sbv2_noise', `${echo.sbv2Noise}`);
@@ -5175,8 +5312,18 @@ function _echoInitSettingsUI() {
   if (useTranslationLbl) useTranslationLbl.textContent = echo.ttsUseTranslation ? 'ON' : 'OFF';
   const textSourceSel = document.getElementById('echo-tts-text-source');
   if (textSourceSel) textSourceSel.value = echo.ttsTextSource || 'raw';
+  const textNormChk = document.getElementById('echo-tts-sbv2-text-normalization');
+  if (textNormChk) textNormChk.checked = echo.sbv2TextNormalization !== false;
+  const enToKanaSel = document.getElementById('echo-tts-sbv2-english-to-katakana');
+  if (enToKanaSel) enToKanaSel.value = echo.sbv2EnglishToKatakana || 'llm';
+  const emojiPolicySel = document.getElementById('echo-tts-sbv2-emoji-policy');
+  if (emojiPolicySel) emojiPolicySel.value = echo.sbv2EmojiPolicy || 'skip';
+  const symbolPolicySel = document.getElementById('echo-tts-sbv2-symbol-policy');
+  if (symbolPolicySel) symbolPolicySel.value = echo.sbv2SymbolPolicy || 'skip';
+  const urlPolicySel = document.getElementById('echo-tts-sbv2-url-policy');
+  if (urlPolicySel) urlPolicySel.value = echo.sbv2UrlPolicy || 'skip';
   const policySel = document.getElementById('echo-tts-sbv2-non-japanese-policy');
-  if (policySel) policySel.value = echo.sbv2NonJapanesePolicy || 'block';
+  if (policySel) policySel.value = echo.sbv2NonJapanesePolicy || 'normalize_then_skip';
   const sbv2Length = document.getElementById('echo-tts-sbv2-length');
   if (sbv2Length) sbv2Length.value = `${echo.sbv2Length ?? 1.0}`;
   const sbv2Sdp = document.getElementById('echo-tts-sbv2-sdp-ratio');
