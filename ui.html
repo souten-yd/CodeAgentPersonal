@@ -486,7 +486,7 @@ html.logo-svg-ready .logo-text{display:none}
     height:auto;
     width:100%;
   }
-  .chat-col,.agent-col,.agent-panel-col{
+  .chat-col,.agent-col,.agent-panel-col,.nexus-col{
     /* flex layout: messages flex-grow, input always visible at bottom */
     display:flex!important;flex-direction:column!important;
     height:100%;max-height:100%;
@@ -514,6 +514,7 @@ html.logo-svg-ready .logo-text{display:none}
 }
 @media(min-width:769px){
   .chat-col,.echo-col,.agent-col{flex:1 1 auto;min-width:0;border-right:1px solid var(--border)}
+  .nexus-col{flex:1 1 auto;min-width:0}
   .panel-col{flex:0 0 var(--panel-col-width, min(46vw, 560px));min-width:260px;max-width:75vw}
   .agent-panel-col{flex:0 0 min(42vw, 520px);min-width:240px;max-width:70vw}
   .panel-resizer{display:block}
@@ -529,6 +530,31 @@ html.logo-svg-ready .logo-text{display:none}
 }
 
 .chat-col{display:flex;flex-direction:column;background:var(--bg1);overflow:hidden;min-height:0}
+.nexus-col{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;background:var(--bg1)}
+.nexus-topbar{display:flex;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--bg1)}
+.nexus-title{font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;white-space:nowrap}
+.nexus-subtabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+.nexus-subtabs::-webkit-scrollbar{display:none}
+.nexus-subtab{padding:5px 10px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text2);cursor:pointer;white-space:nowrap}
+.nexus-subtab.active{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
+.nexus-body{flex:1;min-height:0;overflow:auto;padding:12px}
+.nexus-tab{display:none}
+.nexus-tab.active{display:block}
+.nexus-empty{font-size:12px;color:var(--text3);padding:10px;border:1px dashed var(--border);border-radius:8px;background:var(--bg2)}
+.nexus-lib-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
+.nexus-card{border:1px solid var(--border);border-radius:8px;background:var(--bg2);padding:10px;display:flex;flex-direction:column;gap:8px}
+.nexus-card-title{font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.04em;text-transform:uppercase}
+.nexus-upload-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.nexus-job{font-size:10px;color:var(--amber);padding:6px 8px;border:1px solid rgba(255,170,0,.28);border-radius:6px;background:rgba(255,170,0,.07)}
+.nexus-doc-list{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow:auto}
+.nexus-doc-item{display:flex;justify-content:space-between;gap:8px;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg1)}
+.nexus-doc-actions{display:flex;gap:5px;flex-wrap:wrap}
+.nexus-doc-actions button{font-size:10px;padding:3px 7px;border-radius:4px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer}
+.nexus-doc-actions button.danger{border-color:rgba(255,68,102,.35);color:var(--red);background:rgba(255,68,102,.08)}
+@media(max-width:768px){
+  .nexus-topbar{flex-direction:column;align-items:stretch}
+  .nexus-subtabs{padding-bottom:2px}
+}
 .chat-topbar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0}
 .messages{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
 .messages::-webkit-scrollbar{width:3px}
@@ -1038,6 +1064,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <button class="mode-btn" id="btn-task" onclick="setMode('task')">Task</button>
       <button class="mode-btn" id="btn-agent" onclick="setMode('agent')">Agent</button>
       <button class="mode-btn" id="btn-echo" onclick="setMode('echo')">Echo</button>
+      <button class="mode-btn" id="btn-nexus" onclick="setMode('nexus')">Nexus</button>
     </div>
     <button class="hdr-icon-btn" id="settings-btn" onclick="openSettings()" title="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06-.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -1086,6 +1113,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <button class="mob-tab" id="mob-models-echo" onclick="mobSwitch('models')" style="display:none">Models</button>
   <button class="mob-tab" id="mob-asr" onclick="mobSwitch('asr')" style="display:none">ASR</button>
   <button class="mob-tab" id="mob-tts" onclick="mobSwitch('tts')" style="display:none">TTS</button>
+  <!-- Nexus モード用タブ (デフォルト非表示) -->
+  <button class="mob-tab wide" id="mob-nexus" onclick="mobSwitch('nexus')" style="display:none">Nexus</button>
 </div>
 
 <div class="app-body">
@@ -1189,6 +1218,78 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <span class="echo-duration echo-toolbar-elapsed" id="echo-duration">00:00</span>
         <span id="echo-sentence-count" class="echo-output-count" title="ASR出力の確定回数（「出力まとめ回数」と同じ定義で1回=1カウント）">出力回数: 0</span>
       </div>
+    </div>
+  </div>
+
+  <!-- NEXUS MODE -->
+  <div class="nexus-col" id="nexus-col" style="display:none">
+    <div class="nexus-topbar">
+      <div class="nexus-title">Nexus Workspace</div>
+      <div class="nexus-subtabs">
+        <button class="nexus-subtab active" id="nexus-btn-dashboard" onclick="switchNexusTab('dashboard')">Dashboard</button>
+        <button class="nexus-subtab" id="nexus-btn-library" onclick="switchNexusTab('library')">Library</button>
+        <button class="nexus-subtab" id="nexus-btn-web-scout" onclick="switchNexusTab('web-scout')">Web Scout</button>
+        <button class="nexus-subtab" id="nexus-btn-news" onclick="switchNexusTab('news')">News</button>
+        <button class="nexus-subtab" id="nexus-btn-market" onclick="switchNexusTab('market')">Market</button>
+        <button class="nexus-subtab" id="nexus-btn-compare" onclick="switchNexusTab('compare')">Compare</button>
+        <button class="nexus-subtab" id="nexus-btn-formula" onclick="switchNexusTab('formula')">Formula</button>
+        <button class="nexus-subtab" id="nexus-btn-evidence" onclick="switchNexusTab('evidence')">Evidence</button>
+        <button class="nexus-subtab" id="nexus-btn-report" onclick="switchNexusTab('report')">Report</button>
+      </div>
+    </div>
+    <div class="nexus-body">
+      <div class="nexus-tab active" id="nexus-tab-dashboard"><div class="nexus-empty">Nexus Dashboard ready.</div></div>
+      <div class="nexus-tab" id="nexus-tab-library">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">Upload</div>
+            <div class="nexus-upload-row">
+              <input id="nexus-lib-upload" type="file" multiple>
+              <button class="settings-btn primary" style="padding:5px 10px;font-size:11px">Upload</button>
+            </div>
+            <div style="font-size:10px;color:var(--text3)">PDF / DOCX / TXT / CSV を追加できます。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Search</div>
+            <input id="nexus-lib-search" type="text" placeholder="文書タイトル・タグ・本文で検索..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px">
+            <div id="nexus-lib-job" class="nexus-job">Job progress: idle</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Documents</div>
+            <div id="nexus-lib-list" class="nexus-doc-list">
+              <div class="nexus-doc-item">
+                <div>
+                  <div style="font-size:12px;font-weight:700">sample-report.pdf</div>
+                  <div style="font-size:10px;color:var(--text3)">更新: 2026-04-25 / 2.1MB</div>
+                </div>
+                <div class="nexus-doc-actions">
+                  <button>Detail</button><button>Download</button><button class="danger">Delete</button>
+                </div>
+              </div>
+              <div class="nexus-doc-item">
+                <div>
+                  <div style="font-size:12px;font-weight:700">market-notes.docx</div>
+                  <div style="font-size:10px;color:var(--text3)">更新: 2026-04-24 / 486KB</div>
+                </div>
+                <div class="nexus-doc-actions">
+                  <button>Detail</button><button>Download</button><button class="danger">Delete</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Document Detail</div>
+            <div style="font-size:11px;color:var(--text2);line-height:1.65">文書を選択すると、要約・メタデータ・インデックス状態をここに表示します。</div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-web-scout"><div class="nexus-empty">Web Scout tab</div></div>
+      <div class="nexus-tab" id="nexus-tab-news"><div class="nexus-empty">News tab</div></div>
+      <div class="nexus-tab" id="nexus-tab-market"><div class="nexus-empty">Market tab</div></div>
+      <div class="nexus-tab" id="nexus-tab-compare"><div class="nexus-empty">Compare tab</div></div>
+      <div class="nexus-tab" id="nexus-tab-formula"><div class="nexus-empty">Formula tab</div></div>
+      <div class="nexus-tab" id="nexus-tab-evidence"><div class="nexus-empty">Evidence tab</div></div>
+      <div class="nexus-tab" id="nexus-tab-report"><div class="nexus-empty">Report tab</div></div>
     </div>
   </div>
 
@@ -5914,6 +6015,8 @@ const _CHAT_MOB_TAB_IDS = ['mob-chat','mob-output','mob-preview','mob-files','mo
 const _AGENT_MOB_TAB_IDS = ['mob-agent-chat','mob-agent-tasks'];
 // Echo モード用モバイルタブID
 const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-echo','mob-asr','mob-tts'];
+// Nexus モード用モバイルタブID
+const _NEXUS_MOB_TAB_IDS = ['mob-nexus'];
 
 let agentSessionActive = false;
 let agentHistory = [];
@@ -5970,11 +6073,13 @@ function _updateMobTabs(m) {
   const mobTabs = document.querySelector('.mob-tabs');
   const isEcho = (m === 'echo');
   const isAgent = (m === 'agent');
+  const isNexus = (m === 'nexus');
   mobTabs?.classList.toggle('echo-mode', isEcho);
 
-  _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = (!isEcho && !isAgent) ? '' : 'none'; });
+  _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = (!isEcho && !isAgent && !isNexus) ? '' : 'none'; });
   _AGENT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isAgent ? '' : 'none'; });
   _ECHO_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
+  _NEXUS_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isNexus ? '' : 'none'; });
 }
 
 function _setPanelTabActiveButton(name) {
@@ -5989,12 +6094,13 @@ function _setPanelTabActiveButton(name) {
 function setMode(m) {
   const prevMode = mode;
   mode = m;
-  ['chat','task','agent','echo'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
+  ['chat','task','agent','echo','nexus'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
   const chatCol  = document.getElementById('chat-col');
   const echoCol  = document.getElementById('echo-col');
   const panelCol = document.getElementById('panel-col');
   const agentCol = document.getElementById('agent-col');
   const agentPanelCol = document.getElementById('agent-panel-col');
+  const nexusCol = document.getElementById('nexus-col');
   const resizer = document.getElementById('panel-resizer');
   const appBody  = document.querySelector('.app-body');
   _updateMobTabs(m);
@@ -6009,6 +6115,7 @@ function setMode(m) {
     panelCol.style.display = '';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(true);
     const vaultActive = document.getElementById('tab-vault')?.classList.contains('active');
@@ -6021,6 +6128,7 @@ function setMode(m) {
     panelCol.style.display = 'none';
     if (agentCol) agentCol.style.display = '';
     if (agentPanelCol) agentPanelCol.style.display = '';
+    if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
     if (prevMode !== 'agent') startAgentSession();
@@ -6028,6 +6136,18 @@ function setMode(m) {
       mobSwitch('agent_chat');
       return;
     }
+  } else if (m === 'nexus') {
+    appBody?.classList.remove('echo-active');
+    panelCol?.classList.remove('echo-tabs-equal');
+    chatCol.style.display  = 'none';
+    echoCol.style.display  = 'none';
+    panelCol.style.display = 'none';
+    if (agentCol) agentCol.style.display = 'none';
+    if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (nexusCol) nexusCol.style.display = '';
+    if (resizer) resizer.style.display = 'none';
+    _setEchoTabVisibility(false);
+    switchNexusTab(window._nexusTab || 'dashboard');
   } else {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
@@ -6036,6 +6156,7 @@ function setMode(m) {
     panelCol.style.display = '';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(false);
     if (['vault','asr','tts'].some(n => document.getElementById('tab-'+n)?.classList.contains('active'))) {
@@ -6047,13 +6168,14 @@ function setMode(m) {
   }
 
   if (window.innerWidth <= 768) {
-    const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS];
+    const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS];
     if (m === 'echo') {
       chatCol?.classList.add('mob-hidden');
       panelCol?.classList.add('mob-hidden');
       echoCol?.classList.remove('mob-hidden');
       agentCol?.classList.add('mob-hidden');
       agentPanelCol?.classList.add('mob-hidden');
+      nexusCol?.classList.add('mob-hidden');
       allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
       document.getElementById('mob-echo')?.classList.add('active');
     } else if (m === 'agent') {
@@ -6062,18 +6184,39 @@ function setMode(m) {
       echoCol?.classList.add('mob-hidden');
       agentCol?.classList.remove('mob-hidden');
       agentPanelCol?.classList.add('mob-hidden');
+      nexusCol?.classList.add('mob-hidden');
       allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
       document.getElementById('mob-agent-chat')?.classList.add('active');
+    } else if (m === 'nexus') {
+      chatCol?.classList.add('mob-hidden');
+      panelCol?.classList.add('mob-hidden');
+      echoCol?.classList.add('mob-hidden');
+      agentCol?.classList.add('mob-hidden');
+      agentPanelCol?.classList.add('mob-hidden');
+      nexusCol?.classList.remove('mob-hidden');
+      allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+      document.getElementById('mob-nexus')?.classList.add('active');
     } else {
       chatCol?.classList.remove('mob-hidden');
       panelCol?.classList.add('mob-hidden');
       echoCol?.classList.add('mob-hidden');
       agentCol?.classList.add('mob-hidden');
       agentPanelCol?.classList.add('mob-hidden');
+      nexusCol?.classList.add('mob-hidden');
       allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
       document.getElementById('mob-chat')?.classList.add('active');
     }
   }
+}
+
+function switchNexusTab(name) {
+  const tabs = ['dashboard','library','web-scout','news','market','compare','formula','evidence','report'];
+  const target = tabs.includes(name) ? name : 'dashboard';
+  window._nexusTab = target;
+  tabs.forEach(tab => {
+    document.getElementById('nexus-tab-' + tab)?.classList.toggle('active', tab === target);
+    document.getElementById('nexus-btn-' + tab)?.classList.toggle('active', tab === target);
+  });
 }
 
 function _agentMessages() {
@@ -6341,7 +6484,7 @@ function sendAgentInput() {
 
 // ── MOBILE ──
 function mobSwitch(name) {
-  const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS];
+  const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS];
   allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
 
   const activeId = (name === 'log' && mode === 'echo') ? 'mob-log-echo'
@@ -6354,6 +6497,7 @@ function mobSwitch(name) {
   const pc = document.getElementById('panel-col');
   const ac = document.getElementById('agent-col');
   const ap = document.getElementById('agent-panel-col');
+  const nc = document.getElementById('nexus-col');
 
   if (name === 'chat') {
     setMode('chat');
@@ -6361,6 +6505,7 @@ function mobSwitch(name) {
     ec?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
     ap?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
   } else if (name === 'agent_chat') {
     if (mode !== 'agent') { setMode('agent'); return; }
     ac?.classList.remove('mob-hidden');
@@ -6368,6 +6513,7 @@ function mobSwitch(name) {
     cc?.classList.add('mob-hidden');
     pc?.classList.add('mob-hidden');
     ec?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
   } else if (name === 'agent_tasks') {
     if (mode !== 'agent') { setMode('agent'); return; }
     ac?.classList.add('mob-hidden');
@@ -6375,6 +6521,7 @@ function mobSwitch(name) {
     cc?.classList.add('mob-hidden');
     pc?.classList.add('mob-hidden');
     ec?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
   } else if (name === 'echo') {
     setMode('echo');
     ec?.classList.remove('mob-hidden');
@@ -6382,11 +6529,21 @@ function mobSwitch(name) {
     pc?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
     ap?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
+  } else if (name === 'nexus') {
+    if (mode !== 'nexus') { setMode('nexus'); return; }
+    nc?.classList.remove('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    ap?.classList.add('mob-hidden');
+    pc?.classList.add('mob-hidden');
   } else if (name === 'vault') {
     ec?.classList.add('mob-hidden');
     cc?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
     ap?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
     switchTab('vault');
   } else if (name === 'asr') {
@@ -6394,6 +6551,7 @@ function mobSwitch(name) {
     cc?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
     ap?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
     switchTab('asr');
   } else if (name === 'tts') {
@@ -6401,6 +6559,7 @@ function mobSwitch(name) {
     cc?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
     ap?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
     switchTab('tts');
   } else {
@@ -6408,6 +6567,7 @@ function mobSwitch(name) {
     ec?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
     ap?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
     switchTab(name === 'output' ? 'output'
       : name === 'preview' ? 'preview'
