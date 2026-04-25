@@ -2,31 +2,53 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
-import os
 from typing import Any
 from urllib import parse, request
 
+from app.nexus.config import load_runtime_config
 from app.nexus.evidence import EvidenceItem
 
 
 _BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
+
+_SEARCH_MODE_SETTINGS: dict[str, dict[str, int]] = {
+    "quick": {"max_queries": 2, "max_results_per_query": 3},
+    "standard": {"max_queries": 4, "max_results_per_query": 5},
+    "deep": {"max_queries": 6, "max_results_per_query": 8},
+    "exhaustive": {"max_queries": 8, "max_results_per_query": 12},
+}
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def plan_web_queries(topic: str, *, max_queries: int = 4) -> list[str]:
+def _normalize_mode(mode: str | None) -> str:
+    raw_mode = (mode or "standard").strip().lower()
+    if raw_mode in _SEARCH_MODE_SETTINGS:
+        return raw_mode
+    return "standard"
+
+
+def plan_web_queries(topic: str, *, mode: str = "standard", max_queries: int | None = None) -> list[str]:
     """Build lightweight web-search queries from one topic string."""
     topic = (topic or "").strip()
     if not topic:
         return []
 
+    normalized_mode = _normalize_mode(mode)
+    default_max_queries = _SEARCH_MODE_SETTINGS[normalized_mode]["max_queries"]
+    query_cap = max(1, max_queries if max_queries is not None else default_max_queries)
+
     seeds = [
         topic,
         f"{topic} latest",
         f"{topic} analysis",
+        f"{topic} outlook",
         f"{topic} risks opportunities",
+        f"{topic} catalysts",
+        f"{topic} valuation",
+        f"{topic} expert commentary",
     ]
 
     unique: list[str] = []
@@ -34,46 +56,88 @@ def plan_web_queries(topic: str, *, max_queries: int = 4) -> list[str]:
         q = " ".join(query.split())
         if q and q not in unique:
             unique.append(q)
-        if len(unique) >= max(1, max_queries):
+        if len(unique) >= query_cap:
             break
     return unique
+
+
+def _build_stub_items(queries: list[str], *, reason: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "query": query,
+            "rank": 1,
+            "title": f"[stub] {query}",
+            "url": "",
+            "snippet": reason,
+            "age": None,
+            "is_stub": True,
+        }
+        for query in queries
+    ]
 
 
 def run_web_search(
     queries: list[str],
     *,
-    max_results_per_query: int = 5,
+    mode: str = "standard",
+    max_results_per_query: int | None = None,
     country: str = "US",
     search_lang: str = "en",
 ) -> dict[str, Any]:
-    """Run Brave Search when configured, otherwise return non-fatal stub results."""
+    """Run configured web search provider and return a non-fatal normalized payload."""
+    cfg = load_runtime_config()
+    normalized_mode = _normalize_mode(mode)
+    mode_defaults = _SEARCH_MODE_SETTINGS[normalized_mode]
+    result_cap = max_results_per_query if max_results_per_query is not None else mode_defaults["max_results_per_query"]
+    result_cap = max(1, min(20, int(result_cap)))
+
     normalized_queries = [q.strip() for q in queries if (q or "").strip()]
-    api_key = (os.environ.get("BRAVE_SEARCH_API_KEY") or "").strip()
 
     if not normalized_queries:
         return {
-            "provider": "brave",
-            "configured": bool(api_key),
+            "provider": cfg.web_search_provider,
+            "mode": normalized_mode,
+            "configured": bool(cfg.brave_search_api_key),
             "items": [],
             "message": "query が空です。",
         }
 
-    if not api_key:
+    if not cfg.enable_web:
+        message = "NEXUS_ENABLE_WEB=false のため、Web検索は無効です。"
+        return {
+            "provider": cfg.web_search_provider,
+            "mode": normalized_mode,
+            "configured": False,
+            "items": _build_stub_items(normalized_queries, reason=message),
+            "message": message,
+            "non_fatal": True,
+        }
+
+    if cfg.web_search_provider != "brave":
+        message = (
+            "未対応プロバイダです。NEXUS_WEB_SEARCH_PROVIDER=brave を設定してください。"
+        )
+        return {
+            "provider": cfg.web_search_provider,
+            "mode": normalized_mode,
+            "configured": False,
+            "items": _build_stub_items(normalized_queries, reason=message),
+            "message": message,
+            "non_fatal": True,
+        }
+
+    if not cfg.brave_search_api_key:
+        message = "設定不足: BRAVE_SEARCH_API_KEY が未設定のため、Web検索はスタブ結果を返します。"
         return {
             "provider": "brave",
+            "mode": normalized_mode,
             "configured": False,
-            "message": "設定不足: BRAVE_SEARCH_API_KEY が未設定のため、Web検索はスタブ結果を返します。",
-            "items": [
-                {
-                    "query": query,
-                    "rank": 1,
-                    "title": f"[stub] {query}",
-                    "url": "",
-                    "snippet": "BRAVE_SEARCH_API_KEY を設定すると実検索結果に切り替わります。",
-                    "is_stub": True,
-                }
-                for query in normalized_queries
-            ],
+            "message": message,
+            "non_fatal": True,
+            "items": _build_stub_items(
+                normalized_queries,
+                reason="BRAVE_SEARCH_API_KEY を設定すると実検索結果に切り替わります。",
+            ),
         }
 
     items: list[dict[str, Any]] = []
@@ -82,7 +146,7 @@ def run_web_search(
         params = parse.urlencode(
             {
                 "q": query,
-                "count": max(1, min(20, max_results_per_query)),
+                "count": result_cap,
                 "country": country,
                 "search_lang": search_lang,
             }
@@ -91,7 +155,7 @@ def run_web_search(
             f"{_BRAVE_ENDPOINT}?{params}",
             headers={
                 "Accept": "application/json",
-                "X-Subscription-Token": api_key,
+                "X-Subscription-Token": cfg.brave_search_api_key,
             },
             method="GET",
         )
@@ -119,6 +183,7 @@ def run_web_search(
 
     response: dict[str, Any] = {
         "provider": "brave",
+        "mode": normalized_mode,
         "configured": True,
         "items": items,
         "message": "ok",
@@ -128,33 +193,56 @@ def run_web_search(
     return response
 
 
+def normalize_search_rows(search_output: dict[str, Any]) -> list[dict[str, Any]]:
+    """Provider依存の検索結果を Evidence 生成向け共通形式に揃える。"""
+    normalized: list[dict[str, Any]] = []
+    provider = str(search_output.get("provider") or "unknown")
+
+    for idx, row in enumerate(search_output.get("items") or [], start=1):
+        query = str(row.get("query") or "")
+        rank = int(row.get("rank") or idx)
+        normalized.append(
+            {
+                "provider": provider,
+                "query": query,
+                "rank": rank,
+                "title": str(row.get("title") or ""),
+                "url": str(row.get("url") or "about:blank"),
+                "snippet": str(row.get("snippet") or ""),
+                "age": row.get("age"),
+                "is_stub": bool(row.get("is_stub")),
+            }
+        )
+    return normalized
+
+
 def build_web_evidence(search_output: dict[str, Any], *, note: str | None = None) -> list[EvidenceItem]:
     """Normalize web-search output to persistable EvidenceItem list."""
     retrieved_at = _now_iso()
     items: list[EvidenceItem] = []
 
-    for idx, row in enumerate(search_output.get("items") or [], start=1):
-        query = str(row.get("query") or "")
-        rank = int(row.get("rank") or idx)
+    for idx, row in enumerate(normalize_search_rows(search_output), start=1):
+        query = row["query"]
+        rank = row["rank"]
         chunk_id = f"web:{query}:{rank}:{idx}"
         citation_label = f"[web-{idx}]"
-        source_url = str(row.get("url") or "about:blank")
 
         items.append(
             EvidenceItem(
                 chunk_id=chunk_id,
                 citation_label=citation_label,
-                source_url=source_url,
+                source_url=row["url"],
                 retrieved_at=retrieved_at,
                 note=note or "web_search",
-                quote=str(row.get("snippet") or ""),
+                quote=row["snippet"],
                 metadata={
-                    "provider": search_output.get("provider", "brave"),
+                    "provider": row["provider"],
                     "query": query,
                     "rank": rank,
-                    "title": row.get("title"),
-                    "age": row.get("age"),
-                    "is_stub": bool(row.get("is_stub")),
+                    "title": row["title"],
+                    "age": row["age"],
+                    "is_stub": row["is_stub"],
+                    "mode": search_output.get("mode", "standard"),
                 },
             )
         )
