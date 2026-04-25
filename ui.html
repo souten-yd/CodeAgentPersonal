@@ -3074,6 +3074,19 @@ function ttsSpeak(text, opts = {}) {
   const engine = _normalizeTtsEngine(opts.engine || defaultEngine || null);
   const sentences = _ttsSplitSentences(text);
   const skipTranslate = !!opts.skipTranslate;
+  if (engine === 'style_bert_vits2' && sentences.length > 1) {
+    tts._queue.push({
+      kind: 'style_bert_vits2_batch',
+      context,
+      engine,
+      skipTranslate,
+      sentences,
+      rawText: opts.rawText || text,
+      translatedText: opts.translatedText || '',
+    });
+    if (!tts._playing) _ttsPlayNext();
+    return;
+  }
   for (const s of sentences) {
     tts._queue.push({text: s, context, engine, skipTranslate, rawText: opts.rawText || s, translatedText: opts.translatedText || ''});
   }
@@ -3221,6 +3234,16 @@ async function _ttsPlayNext() {
   const skipTranslate = typeof queueItem === 'string' ? false : !!queueItem?.skipTranslate;
   const rawText = typeof queueItem === 'string' ? sentence : (queueItem?.rawText || sentence);
   const translatedText = typeof queueItem === 'string' ? '' : (queueItem?.translatedText || '');
+  if (queueItem && typeof queueItem === 'object' && queueItem.kind === 'style_bert_vits2_batch') {
+    try {
+      await _ttsPlayStyleBertVits2Batch(queueItem);
+    } catch(e) {
+      console.warn('[TTS][SBV2 batch] playback error:', e);
+      addMsg('error', `TTS 再生エラー: ${e?.message || e}`);
+    }
+    _ttsPlayNext();
+    return;
+  }
   if (!sentence) {
     tts._playing = false;
     return;
@@ -3239,6 +3262,77 @@ async function _ttsPlayNext() {
     addMsg('error', `TTS 再生エラー: ${e?.message || e}`);
   }
   _ttsPlayNext();
+}
+
+function _shouldForceSbv2LineSplitOff(sentences = []) {
+  if (!Array.isArray(sentences) || sentences.length < 2) return false;
+  const shortCount = sentences.filter((s) => String(s || '').trim().length <= 60).length;
+  return shortCount >= Math.ceil(sentences.length * 0.5);
+}
+
+function _pickStyleBertBatchItemProps(payload = {}) {
+  const keys = [
+    'style', 'style_weight', 'speaker', 'speaker_name', 'language', 'speed',
+    'caller', 'route', 'use_translation', 'text_source', 'raw_text', 'translated_text',
+    'sbv2_jp_extra_non_japanese_policy', 'length', 'sdp_ratio', 'noise', 'noise_w',
+    'split_interval', 'line_split', 'pitch_scale', 'intonation_scale'
+  ];
+  const out = {};
+  keys.forEach((k) => {
+    if (Object.prototype.hasOwnProperty.call(payload, k)) out[k] = payload[k];
+  });
+  return out;
+}
+
+async function _ttsPlayStyleBertVits2Batch(queueItem = {}) {
+  const context = queueItem.context || 'main';
+  const sentences = Array.isArray(queueItem.sentences)
+    ? queueItem.sentences.map((s) => String(s || '').trim()).filter(Boolean)
+    : [];
+  if (sentences.length < 2) throw new Error('style_bert_vits2 batch requires multi sentences');
+  const skipTranslate = !!queueItem.skipTranslate;
+  const translatedSentences = [];
+  for (const sentence of sentences) {
+    const translated = skipTranslate ? sentence : await _ttsMaybeTranslate(sentence, context, 'style_bert_vits2');
+    translatedSentences.push(translated);
+  }
+  const forceLineSplitOff = _shouldForceSbv2LineSplitOff(translatedSentences);
+  const common = _buildStyleBertVits2RequestBody({
+    text: translatedSentences[0],
+    engine: 'style_bert_vits2',
+    context,
+    opts: {
+      rawText: sentences[0],
+      translatedText: translatedSentences[0],
+      forceLineSplitOff,
+    },
+  });
+  const items = translatedSentences.map((text, index) => {
+    const payload = _buildStyleBertVits2RequestBody({
+      text,
+      engine: 'style_bert_vits2',
+      context,
+      opts: {
+        rawText: sentences[index] || text,
+        translatedText: translatedSentences[index] || '',
+        forceLineSplitOff,
+      },
+    });
+    return {
+      id: `seg-${String(index + 1).padStart(3, '0')}`,
+      text,
+      ..._pickStyleBertBatchItemProps(payload),
+    };
+  });
+  const body = {
+    ...common,
+    text: translatedSentences.join(' '),
+    route: '/tts/synthesize-batch',
+    output: 'wav',
+    items,
+  };
+  const blob = await _ttsFetchBatchAudio(body, {fallbackMessage: 'Style-Bert-VITS2 バッチ音声合成に失敗しました。'});
+  await _ttsPlayBlob(blob);
 }
 
 function _ttsPlayWebSpeech(text) {
@@ -3277,6 +3371,20 @@ async function _ttsFetchAudio(text, engine = tts.engine, context = 'main', opts 
     const err = await resp.json().catch(() => ({}));
     const userMessage = _getUserFacingApiErrorMessage(err, '音声合成に失敗しました。');
     throw new Error(_formatQwen3SynthesisError(userMessage, body));
+  }
+  return await resp.blob();
+}
+
+async function _ttsFetchBatchAudio(body = {}, opts = {}) {
+  const resp = await fetch(API + '/tts/synthesize-batch', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    const fallback = opts.fallbackMessage || 'バッチ音声合成に失敗しました。';
+    throw new Error(_getUserFacingApiErrorMessage(err, fallback));
   }
   return await resp.blob();
 }
@@ -3335,6 +3443,7 @@ function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
   const selectedMeta = _getSelectedSbv2Meta();
   const isJpExtra = _isJpExtraModelMeta(selectedMeta);
   const language = isJpExtra ? 'JP' : (explicitLanguage || effectiveLanguage);
+  const forceLineSplitOff = !!opts.forceLineSplitOff;
   const body = {
     text,
     engine,
@@ -3353,8 +3462,8 @@ function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
     noise: _numOr(echo.sbv2Noise, 0.6),
     noise_w: _numOr(echo.sbv2NoiseW, 0.8),
     style_weight: _numOr(echo.sbv2StyleWeight, 1.0),
-    split_interval: _numOr(echo.sbv2SplitInterval, 0.5),
-    line_split: !!echo.sbv2LineSplit,
+    split_interval: forceLineSplitOff ? 0.0 : _numOr(echo.sbv2SplitInterval, 0.5),
+    line_split: forceLineSplitOff ? false : !!echo.sbv2LineSplit,
     pitch_scale: _numOr(echo.sbv2PitchScale, 1.0),
     intonation_scale: _numOr(echo.sbv2IntonationScale, 1.0),
   };

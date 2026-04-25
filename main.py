@@ -13064,8 +13064,8 @@ def _run_tts_synthesize_batch(req: dict):
     items = req.get("items")
     request_id = str(req.get("request_id") or uuid.uuid4().hex[:8])
 
-    if output_format not in {"json", "zip"}:
-        raise HTTPException(status_code=400, detail='output must be "json" or "zip"')
+    if output_format not in {"json", "zip", "wav"}:
+        raise HTTPException(status_code=400, detail='output must be "json", "zip", or "wav"')
     if not isinstance(items, list) or not items:
         raise HTTPException(status_code=400, detail="items must be a non-empty list")
 
@@ -13140,6 +13140,7 @@ def _run_tts_synthesize_batch(req: dict):
 
     manifest: list[dict] = []
     json_items: list[dict] = []
+    wav_chunks: list[bytes] = []
     zip_buffer = io.BytesIO() if output_format == "zip" else None
     zip_file = zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) if zip_buffer else None
     zip_tempdir_ctx = tempfile.TemporaryDirectory(prefix=f"tts_batch_{request_id}_") if output_format == "zip" else None
@@ -13198,6 +13199,12 @@ def _run_tts_synthesize_batch(req: dict):
                 audio_bytes, _media_type = runtime.synthesize(item_payload)
                 sample_rate = _sample_rate_from_wav_bytes(audio_bytes)
                 output_bytes = len(audio_bytes)
+            if output_format == "wav":
+                if batch_route_mode == "raw_file":
+                    with open(audio_path, "rb") as f:
+                        wav_chunks.append(f.read())
+                else:
+                    wav_chunks.append(audio_bytes)
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             item_elapsed_history_ms.append(elapsed_ms)
             filename = f"{index+1:03d}_{item_id}.wav"
@@ -13221,7 +13228,7 @@ def _run_tts_synthesize_batch(req: dict):
                         "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
                     }
                 )
-            else:
+            elif output_format == "zip":
                 assert zip_file is not None
                 if batch_route_mode == "raw_file":
                     zip_file.write(audio_path, arcname=filename)
@@ -13266,6 +13273,20 @@ def _run_tts_synthesize_batch(req: dict):
                 "project": project,
                 "job_id": job_id,
                 "items": json_items,
+            }
+
+        if output_format == "wav":
+            merged_wav = _merge_wav_bytes(wav_chunks)
+            if not merged_wav:
+                raise HTTPException(status_code=500, detail="batch synthesis returned empty audio")
+            return {
+                "wav_bytes": merged_wav,
+                "request_id": request_id,
+                "engine": normalized_key,
+                "model": model,
+                "device": device,
+                "project": project,
+                "job_id": job_id,
             }
 
         assert zip_file is not None and zip_buffer is not None
@@ -13339,6 +13360,20 @@ def _run_tts_synthesize_batch(req: dict):
 @app.post("/tts/synthesize-batch")
 def tts_synthesize_batch_api(req: dict):
     result = _run_tts_synthesize_batch(req)
+    if isinstance(result, dict) and "wav_bytes" in result:
+        wav_bytes = result["wav_bytes"]
+        request_id = result["request_id"]
+        project = result["project"]
+        job_id = result["job_id"]
+        return StreamingResponse(
+            io.BytesIO(wav_bytes),
+            media_type="audio/wav",
+            headers={
+                "Content-Disposition": f'attachment; filename="tts_batch_{request_id}.wav"',
+                "X-Project": project,
+                "X-Job-Id": job_id,
+            },
+        )
     if isinstance(result, dict) and "zip_bytes" in result:
         zip_bytes = result["zip_bytes"]
         request_id = result["request_id"]
