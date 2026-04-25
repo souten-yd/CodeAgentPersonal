@@ -23,7 +23,7 @@ _STYLE_BERT_VITS2_IGNORED_MODEL_DIRS = {"__pycache__", "cache", ".cache", "tmp",
 _WORKER_STDERR_TAIL_LINES = 120
 _logger = logging.getLogger("style_bert_vits2")
 _TEXT_LOG_INFO_LIMIT = 500
-_TEXT_LOG_DEBUG_LIMIT = 5000
+_TEXT_LOG_DEBUG_LIMIT = 50000
 
 
 def _repo_dir() -> str:
@@ -294,7 +294,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
                 "reason": "no_valid_model_selected",
             }
         warmup_started = time.perf_counter()
-        preload_payload = self._build_payload(req, model=model, text="事前ロードです。")
+        preload_payload = self._build_payload(req, model=model, text="事前ロードです。", request_id="prepare")
         result = self._send_to_worker(preload_payload)
         warmup_elapsed_ms = int((time.perf_counter() - warmup_started) * 1000)
         return {
@@ -318,7 +318,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             return False
         return True
 
-    def _build_payload(self, req: dict, *, model: str, text: str) -> dict:
+    def _build_payload(self, req: dict, *, model: str, text: str, request_id: str | None = None) -> dict:
         model_path, config_path, style_vec_path = _resolve_model_paths(model)
         model_version = _read_model_version(config_path)
         requested_language = str(req.get("language", "")).strip() or str(
@@ -335,6 +335,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             or (req.get("settings") or {}).get("sbv2_jp_extra_non_japanese_policy")
         )
         return {
+            "request_id": str(request_id or ""),
             "text": normalized_text,
             "model_name": model,
             "model_path": model_path,
@@ -528,8 +529,10 @@ def synth(req: dict) -> dict:
     infer_text_preview = infer_text.replace("\n", "\\n")
     if len(infer_text_preview) > 500:
         infer_text_preview = infer_text_preview[:500] + "…"
+    request_id = str(req.get("request_id") or "-")
     sys.stderr.write(
         "[Style-Bert-VITS2][worker_infer] "
+        f"id={request_id} "
         f"language={language_code} "
         f"model_version={model_version or '-'} "
         f"is_jp_extra={str(is_jp_extra).lower()} "
@@ -708,6 +711,16 @@ while True:
     def _log_sbv2_input(self, request_id: str, model: str, payload: dict, *, raw_text: str, translated_text: str = "", tts_text_source: str = "raw") -> None:
         final_tts_text = str(payload.get("text") or "")
         normalization_result = payload.get("jp_extra_normalization") or {}
+        normalization_enabled = bool(payload.get("is_jp_extra"))
+        normalization_changed = bool(normalization_result.get("changed")) if normalization_result else False
+        normalization_operations = normalization_result.get("operations") or []
+        original_tts_text = translated_text if tts_text_source == "translated" and translated_text else raw_text
+        normalized_tts_text = str(normalization_result.get("text") or original_tts_text)
+        looks_japanese_before = bool(
+            normalization_result.get("looks_japanese_before")
+            if normalization_result.get("looks_japanese_before") is not None
+            else looks_japanese(original_tts_text)
+        )
         looks_japanese_after = bool(
             normalization_result.get("looks_japanese_after")
             if normalization_result.get("looks_japanese_after") is not None
@@ -715,9 +728,11 @@ while True:
         )
         raw_preview = _sanitize_preview_text(raw_text, limit=_TEXT_LOG_INFO_LIMIT)
         translated_preview = _sanitize_preview_text(translated_text, limit=_TEXT_LOG_INFO_LIMIT)
-        final_preview = _sanitize_preview_text(final_tts_text, limit=_TEXT_LOG_INFO_LIMIT)
+        original_tts_text_preview = _sanitize_preview_text(original_tts_text, limit=_TEXT_LOG_INFO_LIMIT)
+        normalized_tts_text_preview = _sanitize_preview_text(normalized_tts_text, limit=_TEXT_LOG_INFO_LIMIT)
+        final_tts_text_preview = _sanitize_preview_text(final_tts_text, limit=_TEXT_LOG_INFO_LIMIT)
         _logger.info(
-            "[Style-Bert-VITS2][input] id=%s route=%s caller=%s engine=%s model=%s model_path=%s model_version=%s is_jp_extra=%s requested_language=%s normalized_language=%s effective_language=%s use_translation=%s text_source=%s raw_text=%r translated_text=%r final_tts_text=%r final_tts_text_length=%d looks_japanese=%s non_japanese_policy=%s speaker_id=%s speaker=%s style=%s style_weight=%s device=%s line_split=%s length=%s sdp_ratio=%s noise=%s noise_w=%s",
+            "[Style-Bert-VITS2][input] id=%s route=%s caller=%s engine=%s model=%s model_path=%s model_version=%s is_jp_extra=%s requested_language=%s normalized_language=%s effective_language=%s use_translation=%s text_source=%s raw_text=%r translated_text=%r original_tts_text_preview=%r normalized_tts_text_preview=%r final_tts_text_preview=%r final_tts_text_length=%d normalization_enabled=%s normalization_changed=%s normalization_operations=%s looks_japanese_before=%s looks_japanese_after=%s looks_japanese=%s non_japanese_policy=%s speaker_id=%s speaker=%s style=%s style_weight=%s device=%s line_split=%s length=%s sdp_ratio=%s noise=%s noise_w=%s",
             request_id,
             payload.get("route") or "tts/synthesize",
             payload.get("caller") or "manual",
@@ -733,8 +748,15 @@ while True:
             tts_text_source,
             raw_preview,
             translated_preview,
-            final_preview,
+            original_tts_text_preview,
+            normalized_tts_text_preview,
+            final_tts_text_preview,
             len(final_tts_text),
+            str(normalization_enabled).lower(),
+            str(normalization_changed).lower(),
+            normalization_operations,
+            str(looks_japanese_before).lower(),
+            str(looks_japanese_after).lower(),
             str(looks_japanese_after).lower(),
             payload.get("non_japanese_policy") or "normalize_then_block",
             payload.get("speaker_id"),
@@ -749,11 +771,20 @@ while True:
             payload.get("noise_w"),
         )
         _logger.debug(
-            "[Style-Bert-VITS2][input_debug] id=%s raw_text=%r translated_text=%r final_text=%r",
+            "[Style-Bert-VITS2][input_debug] id=%s raw_text=%r translated_text=%r original_tts_text_preview=%r normalized_tts_text_preview=%r final_tts_text_preview=%r final_text=%r normalization_enabled=%s normalization_changed=%s normalization_operations=%s looks_japanese_before=%s looks_japanese_after=%s non_japanese_policy=%s",
             request_id,
             _sanitize_preview_text(raw_text, limit=_TEXT_LOG_DEBUG_LIMIT),
             _sanitize_preview_text(translated_text, limit=_TEXT_LOG_DEBUG_LIMIT),
+            _sanitize_preview_text(original_tts_text, limit=_TEXT_LOG_DEBUG_LIMIT),
+            _sanitize_preview_text(normalized_tts_text, limit=_TEXT_LOG_DEBUG_LIMIT),
             _sanitize_preview_text(final_tts_text, limit=_TEXT_LOG_DEBUG_LIMIT),
+            _sanitize_preview_text(final_tts_text, limit=_TEXT_LOG_DEBUG_LIMIT),
+            str(normalization_enabled).lower(),
+            str(normalization_changed).lower(),
+            normalization_operations,
+            str(looks_japanese_before).lower(),
+            str(looks_japanese_after).lower(),
+            payload.get("non_japanese_policy") or "normalize_then_block",
         )
         if normalization_result:
             _logger.info(
@@ -768,7 +799,7 @@ while True:
         if payload.get("is_jp_extra") and final_tts_text and not looks_japanese_after:
             _logger.warning(
                 "[Style-Bert-VITS2][input_warning] JP-Extra selected but final_tts_text does not look Japanese. text_preview=%r",
-                final_preview,
+                final_tts_text_preview,
             )
 
     def synthesize(self, req: dict) -> tuple[bytes, str]:
@@ -790,7 +821,7 @@ while True:
             _models_dir(),
         )
 
-        payload = self._build_payload(req, model=model, text=text)
+        payload = self._build_payload(req, model=model, text=text, request_id=request_id)
         self._log_sbv2_input(
             request_id,
             model,
@@ -868,7 +899,7 @@ while True:
         if not model:
             raise ValueError("model required when engine=style_bert_vits2")
 
-        payload = self._build_payload(req, model=model, text=text)
+        payload = self._build_payload(req, model=model, text=text, request_id=request_id)
         self._log_sbv2_input(
             request_id,
             model,
