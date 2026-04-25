@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 import json
 import tempfile
-import threading
 import time
 import uuid
 import zipfile
@@ -13,7 +12,8 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Upload
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.nexus.db import insert_chunk
+from app.nexus.db import get_conn
+from app.nexus.ingest import accept_upload
 from app.nexus.jobs import (
     append_job_event,
     create_job,
@@ -22,6 +22,7 @@ from app.nexus.jobs import (
     list_active_jobs,
     update_job,
 )
+from app.nexus.search import search_evidence
 
 router = APIRouter()
 
@@ -36,13 +37,8 @@ class ReportBuildRequest(BaseModel):
     document_ids: list[str] = Field(default_factory=list)
 
 
-_DATA_LOCK = threading.Lock()
-_UPLOAD_DIR = Path(tempfile.gettempdir()) / "codeagent_nexus_uploads"
 _BUNDLE_DIR = Path(tempfile.gettempdir()) / "codeagent_nexus_bundles"
-_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 _BUNDLE_DIR.mkdir(parents=True, exist_ok=True)
-
-_DOCUMENTS: dict[str, dict] = {}
 
 
 def _now_iso() -> str:
@@ -56,8 +52,8 @@ def _json_error(status_code: int, message: str) -> HTTPException:
 @router.get("/summary")
 def get_summary() -> dict:
     active_jobs = list_active_jobs(limit=1000)
-    with _DATA_LOCK:
-        documents = len(_DOCUMENTS)
+    with get_conn() as conn:
+        documents = conn.execute("SELECT COUNT(*) FROM nexus_documents").fetchone()[0]
 
     return {
         "documents": documents,
@@ -74,39 +70,10 @@ async def upload_document(
     file: UploadFile = File(...),
     project: str = Form(default="default"),
 ) -> dict:
-    if not file.filename:
-        raise _json_error(400, "File name is required")
-
-    doc_id = str(uuid.uuid4())
-    safe_name = Path(file.filename).name
-    dest = _UPLOAD_DIR / f"{doc_id}_{safe_name}"
-
-    content = await file.read()
-    dest.write_bytes(content)
-
-    record = {
-        "id": doc_id,
-        "project": project,
-        "filename": safe_name,
-        "size": len(content),
-        "content_type": file.content_type or "application/octet-stream",
-        "path": str(dest),
-        "created_at": _now_iso(),
-    }
-    with _DATA_LOCK:
-        _DOCUMENTS[doc_id] = record
-
-    # 1チャンク分をFTS5に同期登録（テキスト化できない場合は空文字列）
-    chunk_text = content.decode("utf-8", errors="ignore")
-    insert_chunk(
-        chunk_id=f"{doc_id}:0",
-        document_id=doc_id,
-        chunk_index=0,
-        content=chunk_text,
-        created_at=record["created_at"],
-    )
-
-    return {"document": {k: v for k, v in record.items() if k != "path"}}
+    try:
+        return await accept_upload(file=file, project=project)
+    except ValueError as exc:
+        raise _json_error(400, str(exc)) from exc
 
 
 @router.get("/jobs/{job_id}")
@@ -170,33 +137,34 @@ def get_job_events_endpoint(
 
 @router.get("/documents")
 def list_documents(project: str | None = None) -> dict:
-    with _DATA_LOCK:
-        documents = list(_DOCUMENTS.values())
+    with get_conn() as conn:
+        if project:
+            rows = conn.execute(
+                """
+                SELECT id, project, filename, size, content_type, sha256, created_at
+                FROM nexus_documents
+                WHERE project = ?
+                ORDER BY created_at DESC
+                """,
+                (project,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, project, filename, size, content_type, sha256, created_at
+                FROM nexus_documents
+                ORDER BY created_at DESC
+                """
+            ).fetchall()
 
-    if project:
-        documents = [d for d in documents if d["project"] == project]
-
-    public_docs = [{k: v for k, v in d.items() if k != "path"} for d in documents]
-    return {"documents": public_docs, "count": len(public_docs)}
+    documents = [dict(row) for row in rows]
+    return {"documents": documents, "count": len(documents)}
 
 
 @router.post("/search")
 def search_documents(req: SearchRequest) -> dict:
-    query = req.query.lower()
-    with _DATA_LOCK:
-        docs = list(_DOCUMENTS.values())
-
-    hits = [
-        {
-            "document_id": d["id"],
-            "filename": d["filename"],
-            "project": d["project"],
-            "score": 1.0,
-        }
-        for d in docs
-        if query in d["filename"].lower() or query in d["project"].lower()
-    ]
-    return {"query": req.query, "hits": hits[: req.top_k], "count": len(hits)}
+    hits = search_evidence(req.query, top_k=req.top_k)
+    return {"query": req.query, "hits": hits, "count": len(hits)}
 
 
 @router.post("/report/build")
@@ -207,8 +175,18 @@ def build_report(req: ReportBuildRequest) -> dict:
     append_job_event(job_id, "progress", {"label": "queued"})
     update_job(job_id, status="running")
 
-    with _DATA_LOCK:
-        selected_docs = [_DOCUMENTS[d_id] for d_id in req.document_ids if d_id in _DOCUMENTS]
+    with get_conn() as conn:
+        if req.document_ids:
+            placeholders = ",".join("?" for _ in req.document_ids)
+            query = f"""
+                SELECT id, filename, project, created_at
+                FROM nexus_documents
+                WHERE id IN ({placeholders})
+            """
+            rows = conn.execute(query, tuple(req.document_ids)).fetchall()
+        else:
+            rows = []
+        selected_docs = [dict(row) for row in rows]
 
     bundle_path = _BUNDLE_DIR / f"{job_id}.zip"
     try:
