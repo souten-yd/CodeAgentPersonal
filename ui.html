@@ -2793,6 +2793,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 <script>
 const API = window.location.origin;
 let mode = 'chat';
+const CHAT_TASK_TOGGLE_KEY = 'chat_task_enabled';
+let isTaskEnabled = localStorage.getItem(CHAT_TASK_TOGGLE_KEY) === 'true';
 let busy = false;
 let maxSteps = 20;
 let autoSelectOption = true; // プランナーLLMによる自動選択
@@ -6177,6 +6179,8 @@ function initPanelResizer() {
 // ── INIT ──
 addEventListener('load', async () => {
   initTheme();
+  if (mode === 'task') mode = 'chat';
+  syncChatTaskToggle();
   if (window.innerWidth <= 768) {
     mobSwitch('chat');
   } else {
@@ -6466,22 +6470,28 @@ function _setPanelTabActiveButton(name) {
 }
 
 function syncChatTaskToggle() {
-  const isTaskMode = (mode === 'task');
   const toggle = document.getElementById('chat-task-toggle');
   const label = document.getElementById('chat-task-toggle-label');
-  toggle?.classList.toggle('on', isTaskMode);
-  if (label) label.textContent = isTaskMode ? 'ON' : 'OFF';
+  toggle?.classList.toggle('on', !!isTaskEnabled);
+  if (label) label.textContent = isTaskEnabled ? 'ON' : 'OFF';
 }
 
 function toggleChatTaskMode() {
-  if (mode === 'task') setMode('chat');
-  else setMode('task');
+  isTaskEnabled = !isTaskEnabled;
+  localStorage.setItem(CHAT_TASK_TOGGLE_KEY, isTaskEnabled ? 'true' : 'false');
+  syncChatTaskToggle();
+}
+
+function getChatModeBadge() {
+  if (mode !== 'chat') return mode;
+  return isTaskEnabled ? 'chat/task:on' : 'chat/task:off';
 }
 
 function setMode(m) {
+  if (m === 'task') m = 'chat';
   const prevMode = mode;
   mode = m;
-  ['chat','task','agent','echo','nexus'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
+  ['chat','agent','echo','nexus'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
   syncChatTaskToggle();
   const chatCol  = document.getElementById('chat-col');
   const echoCol  = document.getElementById('echo-col');
@@ -7037,7 +7047,8 @@ async function planSkillImpl(i) {
     addLog('ok','skill', `${d.action === 'updated' ? 'Updated' : 'Saved'} skill: ${d.skill_name || p.name}${d.version ? ` v${d.version}` : ''}`);
     await refreshSkills();
     discardSkillProposal(i, false);
-    setMode('task');
+    if (mode !== 'chat') setMode('chat');
+    if (!isTaskEnabled) toggleChatTaskMode();
     const targetInputId = opts.targetInputId || 'input';
     const input = document.getElementById(targetInputId);
     const statusFn = typeof opts.statusFn === 'function' ? opts.statusFn : null;
@@ -8182,7 +8193,8 @@ async function replayJob(jobId) {
         : (res.result || '');
       if (msg) {
         const successClass = (d.status === 'done') ? 'assistant' : 'error';
-        addMsg(successClass, `📂 [復元] ${msg}`);
+        const modeLabel = d.mode === 'task' ? 'chat/task:on' : (d.mode || 'chat/task:off');
+        addMsg(successClass, `📂 [復元:${modeLabel}] ${msg}`);
       }
     } else {
       addMsg('system', `📂 Job ${jobId} [${d.status}] — ${d.step_count} steps`);
@@ -8225,6 +8237,7 @@ async function downloadProjectZip(name) {
 async function selectProject(name) {
   _persistAgentStateForProject(currentProject);
   currentProject = name;
+  syncChatTaskToggle();
   document.getElementById('proj-display').textContent = name;
   closeDrawer();
   document.getElementById('messages').innerHTML = `<div class="msg system"><div class="msg-role">system</div><div class="msg-bubble">Project: ${esc(name)}</div></div>`;
@@ -10181,9 +10194,9 @@ async function sendMessage(msg) {
 
   addMsg('user', msg);
   addToHistory('user', msg);
-  addLog('info','send',`[${mode}][${currentProject}] ${msg}`);
+  addLog('info','send',`[${getChatModeBadge()}][${currentProject}] ${msg}`);
 
-  if (mode === 'task') {
+  if (mode === 'chat' && isTaskEnabled) {
     // Task mode: plan first → approval → execute
     setBusy(true);
     const progEl = addProgressCard('Generating plan...');
