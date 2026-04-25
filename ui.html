@@ -3014,6 +3014,10 @@ const tts = {
   _playing:     false,
   _audio:       null,
   _utt:         null,
+  _autoplayUnlocked: false,
+  _pendingAutoplayBlob: null,
+  _pendingAutoplayLabel: '',
+  _autoplayBlockedNoticeShown: false,
 };
 const _SUPPORTED_TTS_ENGINES = new Set(['webspeech', 'edgetts', 'qwen3tts', 'style_bert_vits2', 'voicevox']);
 const _TTS_ENGINE_COMPAT_ALIASES = {
@@ -3250,6 +3254,9 @@ function ttsStop() {
   tts._playing = false;
   if (tts._audio) { tts._audio.pause(); tts._audio = null; }
   if (tts._utt && window.speechSynthesis) window.speechSynthesis.cancel();
+  tts._pendingAutoplayBlob = null;
+  tts._pendingAutoplayLabel = '';
+  tts._autoplayBlockedNoticeShown = false;
   _releaseTtsFallbackUrl();
   _clearQwen3CloneStatusTimer();
   const cloneStatusEl = document.getElementById('qwen3-clone-test-status');
@@ -3297,6 +3304,26 @@ function _showTtsFallbackPlayer(blob, label = 'TTS 音声') {
   wrap.style.display = 'block';
   const p = audio.play();
   if (p && typeof p.catch === 'function') p.catch(() => {});
+}
+
+function _ensureTtsAutoplayUnlockHooks() {
+  if (tts._unlockHooksInstalled) return;
+  tts._unlockHooksInstalled = true;
+  const events = ['pointerdown', 'keydown', 'touchstart'];
+  events.forEach((name) => {
+    document.addEventListener(name, _onTtsUserGesture, {passive: true});
+  });
+}
+
+function _onTtsUserGesture() {
+  tts._autoplayUnlocked = true;
+  if (!tts._pendingAutoplayBlob) return;
+  const pendingBlob = tts._pendingAutoplayBlob;
+  const pendingLabel = tts._pendingAutoplayLabel || 'TTS 音声';
+  tts._pendingAutoplayBlob = null;
+  tts._pendingAutoplayLabel = '';
+  tts._autoplayBlockedNoticeShown = false;
+  _ttsPlayBlob(pendingBlob, {fallbackLabel: pendingLabel, disableFallbackPlayer: true});
 }
 
 function ttsSpeakSelectedText() {
@@ -3721,7 +3748,7 @@ function _qwen3CloneGenerateButtons() {
 }
 
 function _isRecordingBlockedByTts() {
-  return !!(tts._playing || _qwen3CloneTestBusy || _sbv2TestBusy);
+  return !!(tts._playing || _qwen3CloneTestBusy || _sbv2TestBusy || !!tts._pendingAutoplayBlob);
 }
 
 function _syncRecordingControlsWithTts() {
@@ -4121,6 +4148,7 @@ function _formatQwen3SynthesisError(detail, requestBody = {}) {
 function _ttsPlayBlob(blob, opts = {}) {
   const fallbackLabel = opts.fallbackLabel || 'TTS 音声';
   const disableFallbackPlayer = !!opts.disableFallbackPlayer;
+  _ensureTtsAutoplayUnlockHooks();
   return new Promise((resolve) => {
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
@@ -4143,9 +4171,15 @@ function _ttsPlayBlob(blob, opts = {}) {
       URL.revokeObjectURL(url);
       tts._playing = false;
       _syncRecordingControlsWithTts();
-      if (e.name === 'NotAllowedError' && !disableFallbackPlayer) {
-        console.warn('[TTS] Autoplay blocked. Awaiting user interaction.');
-        _showTtsFallbackPlayer(blob, fallbackLabel);
+      if (e.name === 'NotAllowedError') {
+        console.warn('[TTS] Autoplay blocked. Waiting for the next user interaction to resume.');
+        tts._pendingAutoplayBlob = blob;
+        tts._pendingAutoplayLabel = fallbackLabel;
+        if (!tts._autoplayBlockedNoticeShown) {
+          addMsg('system', 'ブラウザの自動再生制限により、次のクリック/キー操作で音声を再開します。');
+          tts._autoplayBlockedNoticeShown = true;
+        }
+        if (!disableFallbackPlayer) closeTtsFallbackPlayer();
       } else {
         console.warn('[TTS] play() error:', e);
       }
@@ -9099,6 +9133,17 @@ async function _echoStart() {
   }
   processor.onaudioprocess = (ev) => {
     if (!echo.recording) return;
+    if (_isRecordingBlockedByTts()) {
+      echo.pcmPendingInt16 = new Int16Array(0);
+      echo._vadRecentFlags = [];
+      echo._vadPreRollFrames = [];
+      echo._vadInSpeech = false;
+      echo._vadUtteranceFrames = [];
+      echo._vadUtteranceRmsSum = 0;
+      echo._vadUtteranceSpeechFrames = 0;
+      echo._vadNonSpeechRun = 0;
+      return;
+    }
     const input = ev.inputBuffer.getChannelData(0);
     const cleaned = _echoApplyRealtimeNoiseReduction(input, ctx.sampleRate);
     const downsampled = _echoDownsampleTo16k(cleaned, ctx.sampleRate, echo.pcmTargetRate);
