@@ -70,6 +70,49 @@ def save_evidence_items(job_id: str, items: list[EvidenceItem]) -> int:
 
 
 
+def build_library_evidence(
+    search_results: list[dict],
+    *,
+    note: str | None = None,
+    retrieved_at: str | None = None,
+) -> list[EvidenceItem]:
+    """Convert library search results (`search_evidence`) into EvidenceItem list."""
+    ts = retrieved_at or _now_iso()
+    items: list[EvidenceItem] = []
+
+    for row in search_results:
+        chunk = row.get("chunk") or {}
+        document = row.get("document") or {}
+        source_url = str(document.get("path") or "")
+        if not source_url:
+            source_url = f"nexus://document/{chunk.get('document_id', 'unknown')}"
+
+        score = row.get("score")
+        metadata = {
+            "source": "library_search",
+            "document": document,
+            "score": float(score) if score is not None else None,
+            "section_path": chunk.get("section_path"),
+            "page_start": chunk.get("page_start"),
+            "page_end": chunk.get("page_end"),
+        }
+
+        items.append(
+            EvidenceItem(
+                chunk_id=str(chunk.get("chunk_id") or ""),
+                citation_label=str(chunk.get("citation_label") or row.get("citation_label") or ""),
+                source_url=source_url,
+                retrieved_at=ts,
+                note=note or "library_search",
+                quote=str(chunk.get("text") or ""),
+                metadata=metadata,
+            )
+        )
+
+    return items
+
+
+
 def list_evidence_items(job_id: str) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(

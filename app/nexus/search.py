@@ -21,13 +21,10 @@ class EvidenceCandidate:
 
 
 class VectorIndex(Protocol):
-    """Future extension point for semantic/vector retrieval."""
+    """Future extension point (FAISS / Chroma etc.)."""
 
-    def upsert(self, document_id: str, chunks: list[dict]) -> None:
-        ...
-
-    def search(self, query: str, top_k: int = 10) -> list[EvidenceCandidate]:
-        ...
+    # Intentionally empty marker interface for future implementations.
+    pass
 
 
 class NullVectorIndex:
@@ -57,6 +54,7 @@ def search_evidence(query: str, top_k: int = 10) -> list[dict]:
                 bm25(nexus_chunks_fts) AS score,
                 d.project,
                 d.filename,
+                d.path,
                 d.content_type,
                 d.sha256,
                 d.created_at
@@ -76,6 +74,7 @@ def search_evidence(query: str, top_k: int = 10) -> list[dict]:
             {
                 "type": "evidence_candidate",
                 "score": float(row["score"]),
+                "citation_label": row["citation_label"],
                 "chunk": {
                     "chunk_id": row["chunk_id"],
                     "document_id": row["document_id"],
@@ -89,6 +88,7 @@ def search_evidence(query: str, top_k: int = 10) -> list[dict]:
                 "document": {
                     "project": row["project"],
                     "filename": row["filename"],
+                    "path": row["path"],
                     "content_type": row["content_type"],
                     "sha256": row["sha256"],
                     "created_at": row["created_at"],
