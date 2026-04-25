@@ -4116,21 +4116,66 @@ SETTINGS_DEFAULTS = {
     "gpu_static_backend": "auto",
     "gpu_usage_backend": "auto",
     "echo_tts_use_translation": "false",
-    "sbv2_jp_extra_non_japanese_policy": "block",
-    "echo_sbv2_length": "1.0",
-    "echo_sbv2_sdp_ratio": "0.2",
-    "echo_sbv2_noise": "0.6",
-    "echo_sbv2_noise_w": "0.8",
-    "echo_sbv2_style_weight": "1.0",
-    "echo_sbv2_split_interval": "0.5",
-    "echo_sbv2_pitch_scale": "1.0",
-    "echo_sbv2_intonation_scale": "1.0",
+    "sbv2_jp_extra_text_normalization": "true",
+    "sbv2_jp_extra_english_to_katakana": "llm",
+    "sbv2_jp_extra_emoji_policy": "skip",
+    "sbv2_jp_extra_symbol_policy": "readable",
+    "sbv2_jp_extra_url_policy": "skip",
+    "sbv2_jp_extra_non_japanese_policy": "normalize_then_block",
+    "sbv2_length": "1.0",
+    "sbv2_sdp_ratio": "0.2",
+    "sbv2_noise": "0.6",
+    "sbv2_noise_w": "0.8",
+    "sbv2_style_weight": "1.0",
+    "sbv2_split_interval": "0.5",
+    "sbv2_pitch_scale": "1.0",
+    "sbv2_intonation_scale": "1.0",
 }
 for _role in MODEL_ROLE_OPTIONS:
     SETTINGS_DEFAULTS.setdefault(_role_setting_key(_role), "")
 
+_SETTINGS_KEY_ALIASES_TO_CANONICAL = {
+    "echo_sbv2_length": "sbv2_length",
+    "echo_sbv2_sdp_ratio": "sbv2_sdp_ratio",
+    "echo_sbv2_noise": "sbv2_noise",
+    "echo_sbv2_noise_w": "sbv2_noise_w",
+    "echo_sbv2_style_weight": "sbv2_style_weight",
+    "echo_sbv2_split_interval": "sbv2_split_interval",
+    "echo_sbv2_pitch_scale": "sbv2_pitch_scale",
+    "echo_sbv2_intonation_scale": "sbv2_intonation_scale",
+}
+
+
+def _canonicalize_setting_key(key: str) -> str:
+    return _SETTINGS_KEY_ALIASES_TO_CANONICAL.get(key, key)
+
+
+def _normalize_non_japanese_policy_value(value: str) -> str:
+    raw = str(value or "").strip().lower()
+    if raw in ("normalize_then_block", "normalize_then_warn", "normalize_then_allow"):
+        return raw
+    if raw == "block":
+        return "normalize_then_block"
+    if raw == "warn":
+        return "normalize_then_warn"
+    if raw == "allow":
+        return "normalize_then_allow"
+    return SETTINGS_DEFAULTS.get("sbv2_jp_extra_non_japanese_policy", "normalize_then_block")
+
+
+def _canonicalize_settings_map(data: dict) -> dict:
+    out = {}
+    for raw_key, raw_value in (data or {}).items():
+        key = _canonicalize_setting_key(str(raw_key))
+        value = raw_value
+        if key == "sbv2_jp_extra_non_japanese_policy":
+            value = _normalize_non_japanese_policy_value(str(raw_value))
+        out[key] = value
+    return out
+
 def settings_get(key: str) -> str:
     """1件取得。存在しなければデフォルト値を返す"""
+    key = _canonicalize_setting_key(str(key))
     with _model_db_lock:
         conn = _get_model_db(create_if_missing=False)
         if conn is None:
@@ -4143,6 +4188,9 @@ def settings_get(key: str) -> str:
 
 def settings_set(key: str, value: str):
     """1件保存（upsert）"""
+    key = _canonicalize_setting_key(str(key))
+    if key == "sbv2_jp_extra_non_japanese_policy":
+        value = _normalize_non_japanese_policy_value(str(value))
     now = datetime.now().isoformat()
     with _model_db_lock:
         conn = _get_model_db()
@@ -4166,11 +4214,13 @@ def settings_get_all() -> dict:
         finally:
             conn.close()
     result = dict(SETTINGS_DEFAULTS)
-    result.update({r["key"]: r["value"] for r in rows})
+    restored = _canonicalize_settings_map({r["key"]: r["value"] for r in rows})
+    result.update(restored)
     return result
 
 def settings_set_bulk(data: dict):
     """複数キーを一括保存"""
+    data = _canonicalize_settings_map(data or {})
     now = datetime.now().isoformat()
     with _model_db_lock:
         conn = _get_model_db()
@@ -4233,6 +4283,45 @@ def _restore_settings_from_db():
             print(f"[settings] model DB not found at {MODEL_DB_PATH}; using defaults")
             return
         all_s = settings_get_all()
+        compat_updates = {}
+        with _model_db_lock:
+            conn = _get_model_db(create_if_missing=False)
+            legacy_rows = []
+            canonical_present_keys = set()
+            raw_non_jp_policy_value = None
+            if conn is not None:
+                try:
+                    q = ",".join("?" for _ in _SETTINGS_KEY_ALIASES_TO_CANONICAL)
+                    legacy_rows = conn.execute(
+                        f"SELECT key, value FROM settings WHERE key IN ({q})",
+                        tuple(_SETTINGS_KEY_ALIASES_TO_CANONICAL.keys()),
+                    ).fetchall()
+                    canonical_targets = tuple(set(_SETTINGS_KEY_ALIASES_TO_CANONICAL.values()))
+                    cq = ",".join("?" for _ in canonical_targets)
+                    canonical_rows = conn.execute(
+                        f"SELECT key FROM settings WHERE key IN ({cq})",
+                        canonical_targets,
+                    ).fetchall()
+                    canonical_present_keys = {str(r["key"]) for r in canonical_rows}
+                    policy_row = conn.execute(
+                        "SELECT value FROM settings WHERE key=?",
+                        ("sbv2_jp_extra_non_japanese_policy",),
+                    ).fetchone()
+                    if policy_row and policy_row["value"] is not None:
+                        raw_non_jp_policy_value = str(policy_row["value"])
+                finally:
+                    conn.close()
+        for row in legacy_rows:
+            canonical_key = _canonicalize_setting_key(str(row["key"]))
+            if canonical_key and canonical_key not in canonical_present_keys:
+                compat_updates[canonical_key] = str(row["value"])
+        raw_legacy_non_jp = raw_non_jp_policy_value if raw_non_jp_policy_value is not None else all_s.get("sbv2_jp_extra_non_japanese_policy", "")
+        normalized_non_jp = _normalize_non_japanese_policy_value(str(raw_legacy_non_jp))
+        if str(raw_legacy_non_jp) != normalized_non_jp:
+            compat_updates["sbv2_jp_extra_non_japanese_policy"] = normalized_non_jp
+        if compat_updates:
+            settings_set_bulk(compat_updates)
+            all_s.update(compat_updates)
         if "search_enabled" in all_s:
             _search_enabled = str(all_s["search_enabled"]).lower() in ("true", "1", "yes")
         if "streaming_enabled" in all_s:
@@ -4251,7 +4340,18 @@ def _restore_settings_from_db():
 
 def _cleanup_legacy_llm_settings():
     """過去版のLLM設定キーを settings テーブルから削除する。"""
-    legacy_keys = ("max_output_tokens", "llm_port")
+    legacy_keys = (
+        "max_output_tokens",
+        "llm_port",
+        "echo_sbv2_length",
+        "echo_sbv2_sdp_ratio",
+        "echo_sbv2_noise",
+        "echo_sbv2_noise_w",
+        "echo_sbv2_style_weight",
+        "echo_sbv2_split_interval",
+        "echo_sbv2_pitch_scale",
+        "echo_sbv2_intonation_scale",
+    )
     with _model_db_lock:
         conn = _get_model_db(create_if_missing=False)
         if conn is None:
