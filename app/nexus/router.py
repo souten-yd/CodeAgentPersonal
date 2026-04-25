@@ -12,6 +12,8 @@ from app.nexus.evidence import build_library_evidence
 from app.nexus.export import nexus_export_router
 from app.nexus.ingest import accept_upload
 from app.nexus.jobs import get_job, get_job_events, list_active_jobs
+from app.nexus.market import run_market_mvp
+from app.nexus.news import run_news_mvp
 from app.nexus.report import nexus_report_router
 from app.nexus.search import search_evidence
 
@@ -23,6 +25,16 @@ class NexusSearchRequest(BaseModel):
     query: str = Field(min_length=1)
     top_k: int = Field(default=10, ge=1, le=100)
     as_evidence: bool = False
+
+
+class NexusNewsMvpRequest(BaseModel):
+    topic: str = Field(min_length=1)
+    max_results_per_query: int = Field(default=5, ge=1, le=20)
+
+
+class NexusMarketMvpRequest(BaseModel):
+    symbol_or_theme: str = Field(min_length=1)
+    max_results_per_query: int = Field(default=5, ge=1, le=20)
 
 
 @nexus_router.get("/health")
@@ -193,6 +205,28 @@ def nexus_search(payload: NexusSearchRequest) -> dict:
     if payload.as_evidence:
         response["evidence"] = [asdict(item) for item in build_library_evidence(results)]
     return response
+
+
+@nexus_router.post("/news/mvp")
+def nexus_news_mvp(payload: NexusNewsMvpRequest) -> dict:
+    try:
+        return run_news_mvp(
+            topic=payload.topic,
+            max_results_per_query=payload.max_results_per_query,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@nexus_router.post("/market/mvp")
+def nexus_market_mvp(payload: NexusMarketMvpRequest) -> dict:
+    try:
+        return run_market_mvp(
+            symbol_or_theme=payload.symbol_or_theme,
+            max_results_per_query=payload.max_results_per_query,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # 既存インポート互換

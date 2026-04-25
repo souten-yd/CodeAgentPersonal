@@ -1291,6 +1291,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="nexus-subtabs">
         <button class="nexus-subtab active" id="nexus-btn-dashboard" onclick="switchNexusTab('dashboard')">Dashboard</button>
         <button class="nexus-subtab" id="nexus-btn-library" onclick="switchNexusTab('library')">Library</button>
+        <button class="nexus-subtab" id="nexus-btn-news" onclick="switchNexusTab('news')">News</button>
+        <button class="nexus-subtab" id="nexus-btn-market" onclick="switchNexusTab('market')">Market</button>
       </div>
     </div>
     <div class="nexus-body">
@@ -1323,6 +1325,38 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div class="nexus-card-title">Documents</div>
             <input id="nexus-lib-search" type="text" placeholder="文書名で検索..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px" oninput="searchNexusDocuments(this.value)">
             <div id="nexus-lib-list" class="nexus-doc-list"></div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-news">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">News MVP (Phase 1)</div>
+            <div style="display:grid;grid-template-columns:1fr auto;gap:8px">
+              <input id="nexus-news-topic" type="text" placeholder="調査トピックを入力 (例: AI半導体供給網)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px">
+              <button class="settings-btn primary" id="nexus-news-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusNewsMvp()">Run MVP</button>
+            </div>
+            <div style="font-size:10px;color:var(--text3);margin-top:6px">Phase 2: source filtering / timeline, Phase 3: narrative synthesis を追加予定。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">News Result Placeholder</div>
+            <div id="nexus-news-result" class="nexus-job" style="min-height:100px;white-space:pre-wrap">未実行: 入力受付 + スタブ応答 + Evidence保存（MVP）</div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-market">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">Market MVP (Phase 1)</div>
+            <div style="display:grid;grid-template-columns:1fr auto;gap:8px">
+              <input id="nexus-market-symbol" type="text" placeholder="銘柄/テーマを入力 (例: NVDA, 再生可能エネルギー)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px">
+              <button class="settings-btn primary" id="nexus-market-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusMarketMvp()">Run MVP</button>
+            </div>
+            <div style="font-size:10px;color:var(--text3);margin-top:6px">Phase 2: filings/earnings link, Phase 3: scenario analysis を追加予定。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Market Result Placeholder</div>
+            <div id="nexus-market-result" class="nexus-job" style="min-height:100px;white-space:pre-wrap">未実行: 入力受付 + スタブ応答 + Evidence保存（MVP）</div>
           </div>
         </div>
       </div>
@@ -6802,7 +6836,7 @@ function setMode(m) {
 }
 
 function switchNexusTab(name) {
-  const tabs = ['dashboard','library'];
+  const tabs = ['dashboard','library','news','market'];
   const target = tabs.includes(name) ? name : 'dashboard';
   window._nexusTab = target;
   tabs.forEach(tab => {
@@ -6998,6 +7032,72 @@ async function nexusUploadDocuments() {
     updateNexusJobBanner('Upload accepted. Processing started...');
   } catch (e) {
     updateNexusJobBanner('Upload failed: ' + e.message, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function setNexusNewsResult(payload, isErr = false) {
+  const el = document.getElementById('nexus-news-result');
+  if (!el) return;
+  el.style.color = isErr ? 'var(--red)' : 'var(--text2)';
+  el.textContent = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+}
+
+function setNexusMarketResult(payload, isErr = false) {
+  const el = document.getElementById('nexus-market-result');
+  if (!el) return;
+  el.style.color = isErr ? 'var(--red)' : 'var(--text2)';
+  el.textContent = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+}
+
+async function runNexusNewsMvp() {
+  const topic = (document.getElementById('nexus-news-topic')?.value || '').trim();
+  const btn = document.getElementById('nexus-news-run-btn');
+  if (!topic) {
+    setNexusNewsResult('topic を入力してください。', true);
+    return;
+  }
+  if (btn) btn.disabled = true;
+  setNexusNewsResult('実行中...');
+  try {
+    const r = await fetch(API + '/nexus/news/mvp', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ topic, max_results_per_query: 5 }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
+    setNexusNewsResult(d);
+    if (d?.job_id) refreshNexusJobs();
+  } catch (e) {
+    setNexusNewsResult('News MVP failed: ' + e.message, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runNexusMarketMvp() {
+  const symbolOrTheme = (document.getElementById('nexus-market-symbol')?.value || '').trim();
+  const btn = document.getElementById('nexus-market-run-btn');
+  if (!symbolOrTheme) {
+    setNexusMarketResult('symbol/theme を入力してください。', true);
+    return;
+  }
+  if (btn) btn.disabled = true;
+  setNexusMarketResult('実行中...');
+  try {
+    const r = await fetch(API + '/nexus/market/mvp', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ symbol_or_theme: symbolOrTheme, max_results_per_query: 5 }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
+    setNexusMarketResult(d);
+    if (d?.job_id) refreshNexusJobs();
+  } catch (e) {
+    setNexusMarketResult('Market MVP failed: ' + e.message, true);
   } finally {
     if (btn) btn.disabled = false;
   }
