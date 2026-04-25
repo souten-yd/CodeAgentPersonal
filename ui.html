@@ -3008,6 +3008,8 @@ _migrateEchoTtsTranslateSettings();
 // ── TTS (Text-to-Speech) ──
 let audioUnlocked = false;
 let audioContext = null;
+let ttsAudioQueue = [];
+let isTtsPlaying = false;
 
 const tts = {
   enabled:      localStorage.getItem('tts_enabled')    === 'true',
@@ -3031,8 +3033,6 @@ const tts = {
   _audio:       null,
   _utt:         null,
   _autoplayUnlocked: false,
-  _pendingAutoplayBlob: null,
-  _pendingAutoplayLabel: '',
   _autoplayBlockedNoticeShown: false,
 };
 const _SUPPORTED_TTS_ENGINES = new Set(['webspeech', 'edgetts', 'qwen3tts', 'style_bert_vits2', 'voicevox']);
@@ -3267,11 +3267,11 @@ function ttsSpeak(text, opts = {}) {
 
 function ttsStop() {
   tts._queue = [];
+  ttsAudioQueue = [];
+  isTtsPlaying = false;
   tts._playing = false;
   if (tts._audio) { tts._audio.pause(); tts._audio = null; }
   if (tts._utt && window.speechSynthesis) window.speechSynthesis.cancel();
-  tts._pendingAutoplayBlob = null;
-  tts._pendingAutoplayLabel = '';
   tts._autoplayBlockedNoticeShown = false;
   _releaseTtsFallbackUrl();
   _clearQwen3CloneStatusTimer();
@@ -3330,13 +3330,10 @@ function _updateEchoAudioUnlockUi() {
 }
 
 function _resumePendingTtsPlaybackAfterUnlock() {
-  if (!tts._pendingAutoplayBlob) return;
-  const pendingBlob = tts._pendingAutoplayBlob;
-  const pendingLabel = tts._pendingAutoplayLabel || 'TTS 音声';
-  tts._pendingAutoplayBlob = null;
-  tts._pendingAutoplayLabel = '';
+  if (ttsAudioQueue.length === 0) return;
   tts._autoplayBlockedNoticeShown = false;
-  _ttsPlayBlob(pendingBlob, {fallbackLabel: pendingLabel, disableFallbackPlayer: true});
+  console.info(`[TTS][play_waiting_unlock] resume queued=${ttsAudioQueue.length}`);
+  playNextTtsAudio();
 }
 
 async function unlockAudioFromUserGesture() {
@@ -3503,7 +3500,11 @@ async function _ttsPlayNext() {
       await _ttsPlayWebSpeech(sentence);
     } else {
       const blob = await _ttsFetchAudio(sentence, playEngine, context, {rawText, translatedText});
-      await _ttsPlayBlob(blob);
+      const result = await enqueueTtsAudioBlob(blob, `tts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, {
+        context,
+        engine: playEngine,
+      });
+      if (result?.reason === 'blocked') return;
     }
   } catch(e) {
     console.warn('[TTS] playback error:', e);
@@ -3580,7 +3581,12 @@ async function _ttsPlayStyleBertVits2Batch(queueItem = {}) {
     items,
   };
   const blob = await _ttsFetchBatchAudio(body, {fallbackMessage: 'Style-Bert-VITS2 バッチ音声合成に失敗しました。'});
-  await _ttsPlayBlob(blob);
+  const result = await enqueueTtsAudioBlob(blob, `tts-batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, {
+    context,
+    engine: 'style_bert_vits2',
+    kind: 'batch',
+  });
+  if (result?.reason === 'blocked') return;
 }
 
 function _ttsPlayWebSpeech(text) {
@@ -3808,7 +3814,7 @@ function _qwen3CloneGenerateButtons() {
 }
 
 function _isRecordingBlockedByTts() {
-  return !!(tts._playing || _qwen3CloneTestBusy || _sbv2TestBusy || !!tts._pendingAutoplayBlob);
+  return !!(tts._playing || _qwen3CloneTestBusy || _sbv2TestBusy || ttsAudioQueue.length > 0);
 }
 
 function _syncRecordingControlsWithTts() {
@@ -3965,7 +3971,11 @@ async function _playQwen3CloneTestBlob() {
   if (!_qwen3CloneTestAudioBlob) return {ok: false, reason: 'no_audio'};
   _trackQwen3ClonePlaybackProgress();
   _setQwen3ClonePlayToggle(true);
-  const result = await _ttsPlayBlob(_qwen3CloneTestAudioBlob, {disableFallbackPlayer: true});
+  const result = await enqueueTtsAudioBlob(_qwen3CloneTestAudioBlob, `qwen3-clone-${Date.now()}`, {
+    context: 'echo',
+    engine: 'qwen3tts',
+    kind: 'clone_test',
+  });
   _clearQwen3CloneStatusTimer();
   _setQwen3ClonePlayToggle(false);
   return result;
@@ -4082,7 +4092,11 @@ async function toggleSbv2TestPlayback() {
   }
   _setSbv2TestPlayToggle(true);
   _setSbv2TestStatus('再生中...');
-  const result = await _ttsPlayBlob(_sbv2TestAudioBlob, {disableFallbackPlayer: true});
+  const result = await enqueueTtsAudioBlob(_sbv2TestAudioBlob, `sbv2-test-${Date.now()}`, {
+    context: 'echo',
+    engine: 'style_bert_vits2',
+    kind: 'sbv2_test',
+  });
   _setSbv2TestPlayToggle(false);
   if (result?.ok === false) _setSbv2TestStatus('再生できませんでした', true);
   else _setSbv2TestStatus('✓ 再生完了');
@@ -4205,49 +4219,83 @@ function _formatQwen3SynthesisError(detail, requestBody = {}) {
   return `Qwen3ボイスクローンエラー: ${d}`;
 }
 
-function _ttsPlayBlob(blob, opts = {}) {
-  const fallbackLabel = opts.fallbackLabel || 'TTS 音声';
-  const disableFallbackPlayer = !!opts.disableFallbackPlayer;
+function enqueueTtsAudioBlob(blob, id, meta = {}) {
   _ensureTtsAutoplayUnlockHooks();
   return new Promise((resolve) => {
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    tts._audio = audio;
-    tts._playing = true;
+    const item = {blob, id: id || `tts-${Date.now()}`, meta, resolve};
+    ttsAudioQueue.push(item);
+    console.info(`[TTS][enqueue] id=${item.id} queue=${ttsAudioQueue.length}`);
+    if (!isTtsPlaying) playNextTtsAudio();
+  });
+}
+
+function playNextTtsAudio() {
+  if (isTtsPlaying) return;
+  if (ttsAudioQueue.length === 0) {
+    tts._audio = null;
+    tts._playing = false;
     _syncRecordingControlsWithTts();
-    audio.onended = () => {
+    return;
+  }
+  const item = ttsAudioQueue.shift();
+  const {blob, id, resolve} = item;
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  tts._audio = audio;
+  tts._playing = true;
+  isTtsPlaying = true;
+  _syncRecordingControlsWithTts();
+  console.info(`[TTS][play_start] id=${id} queue=${ttsAudioQueue.length}`);
+
+  const done = (result = {ok: true, reason: 'ended'}) => {
+    URL.revokeObjectURL(url);
+    tts._audio = null;
+    tts._playing = false;
+    isTtsPlaying = false;
+    _syncRecordingControlsWithTts();
+    if (typeof resolve === 'function') resolve(result);
+    playNextTtsAudio();
+  };
+
+  audio.onended = () => {
+    console.info(`[TTS][play_done] id=${id} reason=ended`);
+    done({ok: true, reason: 'ended'});
+  };
+  audio.onerror = () => {
+    console.warn(`[TTS][play_error] id=${id} reason=audio_error`);
+    done({ok: false, reason: 'audio_error'});
+  };
+  audio.onabort = () => {
+    console.warn(`[TTS][play_error] id=${id} reason=abort`);
+    done({ok: false, reason: 'abort'});
+  };
+
+  const p = audio.play();
+  if (p && typeof p.catch === 'function') {
+    p.catch((e) => {
       URL.revokeObjectURL(url);
+      tts._audio = null;
       tts._playing = false;
+      isTtsPlaying = false;
       _syncRecordingControlsWithTts();
-      resolve({ok: true, reason: 'ended'});
-    };
-    audio.onerror = () => {
-      URL.revokeObjectURL(url);
-      tts._playing = false;
-      _syncRecordingControlsWithTts();
-      resolve({ok: false, reason: 'audio_error'});
-    };
-    audio.play().catch(e => {
-      URL.revokeObjectURL(url);
-      tts._playing = false;
-      _syncRecordingControlsWithTts();
-      if (e.name === 'NotAllowedError') {
+      if (e?.name === 'NotAllowedError') {
         audioUnlocked = false;
         _updateEchoAudioUnlockUi();
-        console.warn('[TTS] Autoplay blocked. Waiting for the next user interaction to resume.');
-        tts._pendingAutoplayBlob = blob;
-        tts._pendingAutoplayLabel = fallbackLabel;
+        ttsAudioQueue.unshift(item);
+        console.warn(`[TTS][play_blocked] id=${id} error=${e.name}`);
+        console.info(`[TTS][play_waiting_unlock] id=${id} queue=${ttsAudioQueue.length}`);
         if (!tts._autoplayBlockedNoticeShown) {
           addMsg('system', 'ブラウザの自動再生制限により、次のクリック/キー操作で音声を再開します。');
           tts._autoplayBlockedNoticeShown = true;
         }
-        if (!disableFallbackPlayer) closeTtsFallbackPlayer();
-      } else {
-        console.warn('[TTS] play() error:', e);
+        if (typeof resolve === 'function') resolve({ok: false, reason: 'blocked'});
+        return;
       }
-      resolve({ok: false, reason: e.name || 'play_error'});
+      console.warn(`[TTS][play_error] id=${id} reason=${e?.name || 'play_error'}`);
+      if (typeof resolve === 'function') resolve({ok: false, reason: e?.name || 'play_error'});
+      playNextTtsAudio();
     });
-  });
+  }
 }
 
 function saveTtsSettings() {
