@@ -582,11 +582,14 @@ html.logo-svg-ready .logo-text{display:none}
 .agent-stop-btn:disabled{opacity:.45;cursor:not-allowed}
 .tts-player-slot{display:flex;align-items:center;min-width:0}
 .tts-player-slot-chat,.tts-player-slot-agent,.tts-player-slot-echo{margin-left:auto;display:flex;justify-content:flex-end;min-width:0}
-.tts-player-wrap{display:flex;align-items:center;gap:8px;min-width:0;max-width:100%}
-#tts-player{width:220px;height:32px;flex:0 1 220px}
-.audio-status{font-size:11px;color:var(--text2);white-space:nowrap;font-family:var(--font-mono)}
-.audio-unlock-btn{font-size:11px;padding:6px 10px;border-radius:6px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);cursor:pointer;white-space:nowrap}
-.audio-unlock-btn.ready{border-color:var(--border);background:var(--bg2);color:var(--text2)}
+.tts-player-wrap{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;max-width:100%;flex-wrap:nowrap;position:relative}
+.audio-mini-btn{min-width:34px;min-height:30px;padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px;cursor:pointer;line-height:1}
+.audio-mini-btn.unlock{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
+.audio-status{font-size:11px;color:var(--text2);white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-mono)}
+.tts-native-player-panel{width:min(320px,92vw)}
+.tts-native-player-panel.collapsed{display:none}
+.tts-native-player-panel.expanded{display:block;position:absolute;right:0;top:calc(100% + 6px);z-index:30}
+#tts-player{width:100%;max-width:100%;height:32px}
 .messages{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
 .messages::-webkit-scrollbar{width:3px}
 .messages::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
@@ -1038,10 +1041,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   .tts-player-slot-chat,
   .tts-player-slot-agent,
   .tts-player-slot-echo{width:100%;margin-left:0;justify-content:flex-end}
-  .tts-player-wrap{width:100%;justify-content:flex-end;flex-wrap:wrap}
-  #tts-player{width:100%;max-width:100%;flex-basis:100%}
+  .tts-player-wrap{width:100%;justify-content:flex-end;position:relative}
   .audio-status{font-size:10px}
-  .audio-unlock-btn{min-height:34px}
+  .audio-status{max-width:90px}
+  .audio-mini-btn{min-height:34px}
 }
 /* EchoVault 折り畳みパネル */
 .echo-vault-panel{border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0}
@@ -1124,10 +1127,14 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <span id="sys-llm-name" title="Current LLM"></span>
 </div>
 
-<div id="tts-player-wrap" class="tts-player-wrap">
-  <button id="audio-unlock-btn" class="audio-unlock-btn" type="button" onclick="enableAudioFromUserGesture()">🔊 音声を有効化</button>
-  <span id="audio-status" class="audio-status">Audio: Locked</span>
-  <audio id="tts-player" controls playsinline preload="auto"></audio>
+<div id="tts-player-wrap" class="tts-player-wrap compact">
+  <button id="audio-unlock-btn" class="audio-mini-btn unlock" type="button" onclick="enableAudioFromUserGesture()" title="音声有効化">🔊</button>
+  <button id="tts-play-pause-btn" class="audio-mini-btn" type="button" onclick="toggleTtsPlayPause()" title="再生/一時停止">▶</button>
+  <span id="audio-status" class="audio-status">Ready</span>
+  <button id="tts-player-toggle" class="audio-mini-btn" type="button" onclick="toggleNativeAudioPanel()" title="プレイヤー詳細">⋯</button>
+  <div id="tts-native-player-panel" class="tts-native-player-panel collapsed">
+    <audio id="tts-player" controls playsinline preload="auto"></audio>
+  </div>
 </div>
 
 <div class="mob-tabs">
@@ -3325,13 +3332,71 @@ function _ttsSplitSentences(text) {
   return result.filter(s => s.length > 0);
 }
 
+function _ttsPreviewText(text, limit = 80) {
+  const v = String(text || '').replace(/\s+/g, ' ').trim();
+  return v.length > limit ? `${v.slice(0, limit)}…` : v;
+}
+
+function _ttsLooksSpeakable(text) {
+  const v = String(text || '').trim();
+  if (!v) return false;
+  return /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}A-Za-z0-9]/u.test(v);
+}
+
+function _normalizeForSbv2JpExtraChunk(text) {
+  const original = String(text || '');
+  let normalized = original.normalize('NFKC');
+  normalized = normalized.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0E}\u{FE0F}]/gu, ' ');
+  normalized = normalized.replace(/\s+/g, ' ').trim();
+  const operations = [];
+  if (normalized !== original) operations.push('client_nfkc_or_emoji_cleanup');
+  return { original, normalized_text: normalized, operations };
+}
+
+function _prepareSpeakableChunksForSbv2(text, source = 'main') {
+  const chunks = _ttsSplitSentences(text);
+  const speakable = [];
+  let skipped = 0;
+  console.info(`[TTSText][split_start] source=${source} text_len=${String(text || '').length}`);
+  chunks.forEach((chunk, index) => {
+    const result = _normalizeForSbv2JpExtraChunk(chunk);
+    const normalized = String(result.normalized_text || '').trim();
+    if (!normalized) {
+      skipped += 1;
+      console.info(`[TTSText][chunk_skip] index=${index} reason=empty_after_normalize original=${JSON.stringify(_ttsPreviewText(chunk))}`);
+      console.info(`[TTS][chunk_skip] index=${index} reason=empty_after_normalize`);
+      return;
+    }
+    const speakableFlag = _ttsLooksSpeakable(normalized);
+    if (!speakableFlag) {
+      skipped += 1;
+      console.info(`[TTSText][chunk_skip] index=${index} reason=unspeakable original=${JSON.stringify(_ttsPreviewText(chunk))} normalized=${JSON.stringify(_ttsPreviewText(normalized))}`);
+      console.info(`[TTS][chunk_skip] index=${index} reason=unspeakable`);
+      return;
+    }
+    console.info(`[TTSText][chunk] index=${index} original=${JSON.stringify(_ttsPreviewText(chunk))} normalized=${JSON.stringify(_ttsPreviewText(normalized))} speakable=true`);
+    speakable.push({ text: normalized, original: chunk });
+  });
+  console.info(`[TTSText][split_done] total=${chunks.length} speakable=${speakable.length} skipped=${skipped}`);
+  return { chunks, speakable, skipped };
+}
+
 function ttsSpeak(text, opts = {}) {
   if (!tts.enabled) return;
   const context = opts.context || 'main';
   const defaultEngine = context === 'echo' ? echo.ttsEngine : tts.engine;
   const engine = _normalizeTtsEngine(opts.engine || defaultEngine || null);
-  const sentences = _ttsSplitSentences(text);
+  const source = context === 'agent' ? 'agent' : (context === 'echo' ? 'echo' : 'chat');
+  const splitResult = engine === 'style_bert_vits2'
+    ? _prepareSpeakableChunksForSbv2(text, source)
+    : { speakable: _ttsSplitSentences(text).map((s) => ({ text: s, original: s })) };
+  const sentences = splitResult.speakable.map((s) => s.text).filter(Boolean);
   const skipTranslate = !!opts.skipTranslate;
+  if (!sentences.length) {
+    _showTtsNoticeOnce('読み上げ可能なテキストがありません');
+    console.info(`[TTS][no_speakable_text] source=${source}`);
+    return;
+  }
   if (engine === 'style_bert_vits2' && sentences.length > 1) {
     tts._queue.push({
       kind: 'style_bert_vits2_batch',
@@ -3377,6 +3442,8 @@ function ttsStop() {
 
 let _currentTtsObjectUrl = null;
 let _lastAudioBlockedSystemNoticeAt = 0;
+let _lastTtsNoticeMessage = '';
+let _lastTtsNoticeAt = 0;
 
 function getTtsPlayer() {
   return document.getElementById('tts-player');
@@ -3384,21 +3451,78 @@ function getTtsPlayer() {
 
 function setAudioStatus(text) {
   const el = document.getElementById('audio-status');
-  if (el) el.textContent = text || 'Audio: Locked';
+  if (el) el.textContent = text || 'Ready';
+  const playBtn = document.getElementById('tts-play-pause-btn');
+  if (playBtn) {
+    const active = isTtsPlaying || (tts._audio && !tts._audio.paused);
+    playBtn.textContent = active ? '⏸' : '▶';
+  }
 }
 
 function showAudioUnlockButton() {
   const btn = document.getElementById('audio-unlock-btn');
   if (!btn) return;
-  btn.style.display = '';
-  btn.classList.remove('ready');
+  btn.classList.add('unlock');
 }
 
 function hideAudioUnlockButton() {
   const btn = document.getElementById('audio-unlock-btn');
   if (!btn) return;
-  btn.style.display = 'none';
-  btn.classList.add('ready');
+  btn.classList.remove('unlock');
+}
+
+function toggleNativeAudioPanel() {
+  const panel = document.getElementById('tts-native-player-panel');
+  if (!panel) return;
+  const expanded = panel.classList.contains('expanded');
+  panel.classList.toggle('expanded', !expanded);
+  panel.classList.toggle('collapsed', expanded);
+}
+
+async function toggleTtsPlayPause() {
+  const player = getTtsPlayer();
+  if (!player) return;
+  if (isTtsPlaying && !player.paused) {
+    player.pause();
+    tts._playing = false;
+    isTtsPlaying = false;
+    _syncRecordingControlsWithTts();
+    setAudioStatus(`Paused | Queue: ${ttsAudioQueue.length}`);
+    return;
+  }
+  if (!audioUnlocked && (ttsAudioQueue.length > 0 || player.src)) {
+    await enableAudioFromUserGesture();
+    return;
+  }
+  if (!player.src && ttsAudioQueue.length > 0) {
+    playNextTtsAudio();
+    return;
+  }
+  if (!player.src) return;
+  const p = player.play();
+  if (p && typeof p.catch === 'function') {
+    p.catch((e) => {
+      if (e?.name === 'NotAllowedError') {
+        console.warn('[TTS][play_blocked] reason=mini_play_btn_not_allowed');
+        if (ttsAudioQueue.length > 0) {
+          audioUnlocked = false;
+          showAudioUnlockButton();
+        }
+      } else {
+        console.warn(`[TTS][play_error] reason=mini_play_btn_${e?.name || 'unknown'}`);
+      }
+    });
+  }
+}
+
+function _showTtsNoticeOnce(message) {
+  const msg = String(message || '').trim();
+  if (!msg) return;
+  const now = Date.now();
+  if (_lastTtsNoticeMessage === msg && (now - _lastTtsNoticeAt) < 8000) return;
+  _lastTtsNoticeMessage = msg;
+  _lastTtsNoticeAt = now;
+  addMsg('system', `TTS通知: ${msg}`);
 }
 
 function moveTtsPlayerTo(slotId, modeLabel = '') {
@@ -3423,7 +3547,7 @@ async function enableAudioFromUserGesture() {
   audioUnlocked = true;
   tts._autoplayUnlocked = true;
   tts._autoplayBlockedNoticeShown = false;
-  setAudioStatus('Audio: Ready');
+  setAudioStatus(`Ready | Queue: ${ttsAudioQueue.length}`);
   hideAudioUnlockButton();
   await playNextTtsAudio();
   return true;
@@ -3535,7 +3659,15 @@ async function _ttsPlayNext() {
       await _ttsPlayStyleBertVits2Batch(queueItem);
     } catch(e) {
       console.warn('[TTS][SBV2 batch] playback error:', e);
-      addMsg('error', `TTS 再生エラー: ${e?.message || e}`);
+      if (e?.name === 'TTSNoSpeakableTextError') {
+        _showTtsNoticeOnce('読み上げ可能なテキストがありません');
+      } else if (e?.name === 'TTSNetworkError') {
+        addMsg('error', 'TTS接続エラー');
+      } else if (e?.name === 'TTSModelError') {
+        addMsg('error', `TTS生成エラー: ${e?.message || 'unknown'}`);
+      } else {
+        addMsg('error', `TTS生成エラー: ${e?.message || e}`);
+      }
     }
     _ttsPlayNext();
     return;
@@ -3561,8 +3693,16 @@ async function _ttsPlayNext() {
       if (result?.reason === 'blocked') return;
     }
   } catch(e) {
-    console.warn('[TTS] playback error:', e);
-    addMsg('error', `TTS 再生エラー: ${e?.message || e}`);
+    if (e?.name === 'TTSNoSpeakableTextError') {
+      _showTtsNoticeOnce('読み上げ可能なテキストがありません');
+    } else if (e?.name === 'TTSNetworkError') {
+      addMsg('error', 'TTS接続エラー');
+    } else if (e?.name === 'TTSModelError') {
+      addMsg('error', `TTS生成エラー: ${e?.message || 'unknown'}`);
+    } else {
+      console.warn('[TTS][play_error] playback error:', e);
+      addMsg('error', `TTS生成エラー: ${e?.message || e}`);
+    }
   }
   _ttsPlayNext();
 }
@@ -3597,9 +3737,29 @@ async function _ttsPlayStyleBertVits2Batch(queueItem = {}) {
   if (sentences.length < 2) throw new Error('style_bert_vits2 batch requires multi sentences');
   const skipTranslate = !!queueItem.skipTranslate;
   const translatedSentences = [];
-  for (const sentence of sentences) {
+  const translatedPairs = [];
+  let skippedAfterTranslate = 0;
+  for (let index = 0; index < sentences.length; index += 1) {
+    const sentence = sentences[index];
     const translated = skipTranslate ? sentence : await _ttsMaybeTranslate(sentence, context, 'style_bert_vits2');
-    translatedSentences.push(translated);
+    const result = _normalizeForSbv2JpExtraChunk(translated);
+    const normalized = String(result.normalized_text || '').trim();
+    if (!normalized || !_ttsLooksSpeakable(normalized)) {
+      skippedAfterTranslate += 1;
+      console.info(`[TTSText][chunk_skip] index=${index} reason=empty_or_unspeakable_after_translate original=${JSON.stringify(_ttsPreviewText(sentence))}`);
+      console.info(`[TTS][chunk_skip] index=${index} reason=empty_or_unspeakable_after_translate`);
+      continue;
+    }
+    translatedSentences.push(normalized);
+    translatedPairs.push({raw: sentence, text: normalized});
+  }
+  if (!translatedSentences.length) {
+    console.info('[TTS][no_speakable_text] reason=all_chunks_skipped_after_translate');
+    _showTtsNoticeOnce('読み上げ可能なテキストがありません');
+    return;
+  }
+  if (skippedAfterTranslate > 0) {
+    console.info(`[TTS][notice] skipped ${skippedAfterTranslate} empty/emoji-only chunks`);
   }
   const forceLineSplitOff = _shouldForceSbv2LineSplitOff(translatedSentences);
   const common = _buildStyleBertVits2RequestBody({
@@ -3607,7 +3767,7 @@ async function _ttsPlayStyleBertVits2Batch(queueItem = {}) {
     engine: 'style_bert_vits2',
     context,
     opts: {
-      rawText: sentences[0],
+      rawText: translatedPairs[0]?.raw || sentences[0],
       translatedText: translatedSentences[0],
       forceLineSplitOff,
     },
@@ -3618,7 +3778,7 @@ async function _ttsPlayStyleBertVits2Batch(queueItem = {}) {
       engine: 'style_bert_vits2',
       context,
       opts: {
-        rawText: sentences[index] || text,
+        rawText: translatedPairs[index]?.raw || text,
         translatedText: translatedSentences[index] || '',
         forceLineSplitOff,
       },
@@ -3681,8 +3841,29 @@ async function _ttsFetchAudio(text, engine = tts.engine, context = 'main', opts 
   });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
-    const userMessage = _getUserFacingApiErrorMessage(err, '音声合成に失敗しました。');
-    throw new Error(_formatQwen3SynthesisError(userMessage, body));
+    const detail = _getUserFacingApiErrorMessage(err, '音声合成に失敗しました。');
+    const statusCode = Number(err?.status_code || err?.detail?.status_code || resp.status || 0);
+    const isNoSpeakable = statusCode === 422 && /読み上げ可能なテキストがありません/.test(detail);
+    if (isNoSpeakable) {
+      console.info('[TTS][no_speakable_text] status=422');
+      const ex = new Error(detail);
+      ex.name = 'TTSNoSpeakableTextError';
+      throw ex;
+    }
+    if (resp.status >= 500 || resp.status === 0) {
+      console.warn(`[TTS][network_error] status=${resp.status} detail=${JSON.stringify(detail)}`);
+      const ex = new Error('TTS接続エラー');
+      ex.name = 'TTSNetworkError';
+      throw ex;
+    }
+    const message = _formatQwen3SynthesisError(detail, body);
+    console.warn(`[TTS][model_error] status=${resp.status} detail=${JSON.stringify(message)}`);
+    const ex = new Error(message || 'TTS生成エラー');
+    ex.name = 'TTSModelError';
+    throw ex;
+  }
+  if (engine === 'style_bert_vits2') {
+    console.info(`[Style-Bert-VITS2][input] final_text=${JSON.stringify(_ttsPreviewText(text, 120))} looks_japanese=${_ttsLooksSpeakable(text)}`);
   }
   return await resp.blob();
 }
@@ -4313,11 +4494,11 @@ function playNextTtsAudio() {
     tts._audio = null;
     tts._playing = false;
     _syncRecordingControlsWithTts();
-    setAudioStatus(audioUnlocked ? 'Audio: Ready' : 'Audio: Locked');
+    setAudioStatus(audioUnlocked ? 'Ready' : 'Locked');
     return;
   }
   if (!audioUnlocked) {
-    setAudioStatus(`Audio: Locked | Queue: ${ttsAudioQueue.length}`);
+    setAudioStatus(`Locked | Queue: ${ttsAudioQueue.length}`);
     showAudioUnlockButton();
     return;
   }
@@ -4337,7 +4518,7 @@ function playNextTtsAudio() {
   tts._playing = true;
   isTtsPlaying = true;
   _syncRecordingControlsWithTts();
-  setAudioStatus(`Audio: Playing | Queue: ${ttsAudioQueue.length}`);
+  setAudioStatus(`Playing | Queue: ${ttsAudioQueue.length}`);
   console.info(`[TTS][play_start] id=${id} queue=${ttsAudioQueue.length}`);
 
   const done = (result = {ok: true, reason: 'ended'}) => {
@@ -4349,7 +4530,7 @@ function playNextTtsAudio() {
     tts._playing = false;
     isTtsPlaying = false;
     _syncRecordingControlsWithTts();
-    setAudioStatus(audioUnlocked ? `Audio: Ready | Queue: ${ttsAudioQueue.length}` : `Audio: Locked | Queue: ${ttsAudioQueue.length}`);
+    setAudioStatus(audioUnlocked ? `Ready | Queue: ${ttsAudioQueue.length}` : `Locked | Queue: ${ttsAudioQueue.length}`);
     if (typeof resolve === 'function') resolve(result);
     playNextTtsAudio();
   };
@@ -4380,7 +4561,7 @@ function playNextTtsAudio() {
       _syncRecordingControlsWithTts();
       if (e?.name === 'NotAllowedError') {
         audioUnlocked = false;
-        setAudioStatus(`Audio: Blocked | Queue: ${ttsAudioQueue.length + 1}`);
+        setAudioStatus(`Blocked | Queue: ${ttsAudioQueue.length + 1}`);
         showAudioUnlockButton();
         ttsAudioQueue.unshift(item);
         console.warn(`[TTS][play_blocked] id=${id} error_name=${e.name}`);
@@ -6201,8 +6382,25 @@ addEventListener('load', async () => {
   _echoInitScrollListener();
   // Clear ボタン初期状態
   _echoUpdateClearBtn();
-  setAudioStatus('Audio: Locked');
+  setAudioStatus('Locked');
   showAudioUnlockButton();
+  const ttsPlayer = getTtsPlayer();
+  if (ttsPlayer) {
+    ttsPlayer.addEventListener('pause', () => {
+      if (!ttsPlayer.ended) {
+        tts._playing = false;
+        isTtsPlaying = false;
+        _syncRecordingControlsWithTts();
+        setAudioStatus(`Paused | Queue: ${ttsAudioQueue.length}`);
+      }
+    });
+    ttsPlayer.addEventListener('play', () => {
+      tts._playing = true;
+      isTtsPlaying = true;
+      _syncRecordingControlsWithTts();
+      setAudioStatus(`Playing | Queue: ${ttsAudioQueue.length}`);
+    });
+  }
   moveTtsPlayerTo('chat-tts-player-slot', 'chat');
   syncAgentSessionUi();
 });
