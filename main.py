@@ -13437,17 +13437,46 @@ def _run_tts_synthesize_batch(req: dict):
             "job_id": job_id,
         }
     except ValueError as e:
+        error_message = str(e)
+        err_payload = None
+        try:
+            err_payload = json.loads(error_message)
+        except Exception:
+            err_payload = None
+        if isinstance(err_payload, dict) and int(err_payload.get("status_code") or 0) == 422:
+            _style_bert_vits2_logger.warning(
+                "[TTS][synthesize_batch:%s] unprocessable_entity: %s",
+                request_id,
+                err_payload.get("error"),
+            )
+            detail_payload = {
+                "error": err_payload.get("error") or "Unprocessable TTS input",
+                "text_preview": err_payload.get("text_preview") or "",
+                "effective_language": err_payload.get("effective_language") or "JP",
+                "model_version": err_payload.get("model_version") or "",
+            }
+            _append_batch_step(
+                "tts_batch_failed",
+                _batch_progress_data(
+                    total=len(items),
+                    current=current_item_index,
+                    current_id=current_item_id,
+                    error=str(detail_payload.get("error")),
+                ),
+            )
+            job_update_status(project, job_id, "error")
+            raise HTTPException(status_code=422, detail=detail_payload)
         _append_batch_step(
             "tts_batch_failed",
             _batch_progress_data(
                 total=len(items),
                 current=current_item_index,
                 current_id=current_item_id,
-                error=str(e),
+                error=error_message,
             ),
         )
         job_update_status(project, job_id, "error")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=error_message)
     except HTTPException:
         _append_batch_step(
             "tts_batch_failed",
