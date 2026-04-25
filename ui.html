@@ -574,6 +574,19 @@ html.logo-svg-ready .logo-text{display:none}
   .nexus-subtabs{padding-bottom:2px}
 }
 .chat-topbar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0}
+.chat-control-row{display:flex;align-items:center;gap:10px;width:100%;min-width:0}
+.chat-control-left{display:flex;align-items:center;gap:10px;min-width:0}
+.agent-session-row{display:flex;align-items:center;gap:10px;width:100%;min-width:0}
+.agent-session-left{display:flex;align-items:center;gap:8px;min-width:0}
+.agent-stop-btn{padding:6px 10px;border-radius:6px;border:1px solid rgba(255,68,102,.35);background:rgba(255,68,102,.08);color:var(--red);font-size:11px;font-weight:700;cursor:pointer}
+.agent-stop-btn:disabled{opacity:.45;cursor:not-allowed}
+.tts-player-slot{display:flex;align-items:center;min-width:0}
+.tts-player-slot-chat,.tts-player-slot-agent,.tts-player-slot-echo{margin-left:auto;display:flex;justify-content:flex-end;min-width:0}
+.tts-player-wrap{display:flex;align-items:center;gap:8px;min-width:0;max-width:100%}
+#tts-player{width:220px;height:32px;flex:0 1 220px}
+.audio-status{font-size:11px;color:var(--text2);white-space:nowrap;font-family:var(--font-mono)}
+.audio-unlock-btn{font-size:11px;padding:6px 10px;border-radius:6px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);cursor:pointer;white-space:nowrap}
+.audio-unlock-btn.ready{border-color:var(--border);background:var(--bg2);color:var(--text2)}
 .messages{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
 .messages::-webkit-scrollbar{width:3px}
 .messages::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
@@ -598,11 +611,6 @@ html.logo-svg-ready .logo-text{display:none}
 .msg.assistant .msg-speak-btn{opacity:.78;transition:opacity .15s;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text3);font-size:11px;padding:2px 6px;cursor:pointer;margin-top:4px;align-self:flex-end}
 .msg.assistant:hover .msg-speak-btn{opacity:1}
 .msg-speak-btn:hover{border-color:var(--accent);color:var(--accent)}
-.tts-fallback-player{position:fixed;right:12px;bottom:12px;z-index:90;display:none;max-width:min(420px,calc(100vw - 24px));background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px;box-shadow:0 8px 26px rgba(0,0,0,.35)}
-.tts-fallback-player .row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
-.tts-fallback-player .title{font-size:11px;color:var(--text2);font-weight:700}
-.tts-fallback-player .close{font-size:11px;border:1px solid var(--border);background:transparent;color:var(--text3);border-radius:4px;padding:2px 8px;cursor:pointer}
-.tts-fallback-player .hint{font-size:10px;color:var(--text3);margin-top:6px}
 .msg-edit-area{width:92%;background:var(--blue-bg);border:1px solid rgba(68,136,255,.4);border-radius:var(--r2);padding:8px 10px;font-family:var(--font-ui);font-size:13px;color:var(--text);resize:none;outline:none;line-height:1.5;margin-top:4px}
 .msg-edit-actions{display:flex;gap:6px;margin-top:4px;justify-content:flex-end;width:92%}
 .msg-edit-send{padding:5px 14px;background:var(--blue);border:none;border-radius:6px;color:#fff;font-family:var(--font-ui);font-size:12px;font-weight:600;cursor:pointer}
@@ -994,6 +1002,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .echo-sentence .ts-trans{font-size:calc(var(--echo-font-size) - 1px);color:var(--text3);font-style:italic;line-height:1.45;min-height:18px;white-space:pre-wrap;word-break:break-word}
 .echo-field-placeholder{opacity:.5;font-style:italic}
 .echo-statusbar{display:flex;justify-content:flex-start;align-items:center;gap:10px;padding:5px 14px;border-top:1px solid var(--border);font-size:10px;font-family:var(--font-mono);color:var(--text3);flex-shrink:0;background:var(--bg);flex-wrap:wrap}
+.echo-bottom-row{display:flex;align-items:center;gap:10px;width:100%}
+.echo-duration{flex:0 0 auto;font-family:var(--font-mono);font-size:11px;color:var(--text2);white-space:nowrap}
 .echo-translate-btn{padding:8px 18px;font-size:12px;font-weight:700;border-radius:6px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);cursor:pointer;transition:all .15s;font-family:var(--font-ui);letter-spacing:.04em}
 .echo-translate-btn:disabled{opacity:.55;cursor:not-allowed}
 .echo-toolbar-elapsed{margin-left:auto;min-width:56px;text-align:right}
@@ -1022,6 +1032,16 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   .echo-toolbar .echo-toolbar-elapsed{grid-column:1 / -1;margin-left:0;text-align:left;min-width:0}
   .echo-status-right{display:grid;grid-template-columns:auto auto 1fr auto;width:100%;gap:8px;align-items:center}
   .echo-output-count{margin-left:0}
+  .chat-control-row,
+  .agent-session-row,
+  .echo-bottom-row{flex-wrap:wrap}
+  .tts-player-slot-chat,
+  .tts-player-slot-agent,
+  .tts-player-slot-echo{width:100%;margin-left:0;justify-content:flex-end}
+  .tts-player-wrap{width:100%;justify-content:flex-end;flex-wrap:wrap}
+  #tts-player{width:100%;max-width:100%;flex-basis:100%}
+  .audio-status{font-size:10px}
+  .audio-unlock-btn{min-height:34px}
 }
 /* EchoVault 折り畳みパネル */
 .echo-vault-panel{border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0}
@@ -1104,13 +1124,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <span id="sys-llm-name" title="Current LLM"></span>
 </div>
 
-<div class="tts-fallback-player" id="tts-fallback-player">
-  <div class="row">
-    <span class="title" id="tts-fallback-title">TTS 手動再生</span>
-    <button class="close" onclick="closeTtsFallbackPlayer()">閉じる</button>
-  </div>
-  <audio id="tts-fallback-audio" controls style="width:100%;height:36px"></audio>
-  <div class="hint">ブラウザ制限で自動再生できない場合、再生ボタンを押してください。</div>
+<div id="tts-player-wrap" class="tts-player-wrap">
+  <button id="audio-unlock-btn" class="audio-unlock-btn" type="button" onclick="enableAudioFromUserGesture()">🔊 音声を有効化</button>
+  <span id="audio-status" class="audio-status">Audio: Locked</span>
+  <audio id="tts-player" controls playsinline preload="auto"></audio>
 </div>
 
 <div class="mob-tabs">
@@ -1137,12 +1154,17 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <!-- CHAT -->
   <div class="chat-col" id="chat-col">
     <div class="chat-topbar">
-      <div class="proj-btn" onclick="toggleDrawer()">
-        <span>◈</span><span class="proj-name" id="proj-display">default</span><span style="font-size:9px;color:var(--text3)">▼</span>
+      <div class="chat-control-row">
+        <div class="chat-control-left">
+          <div class="proj-btn" onclick="toggleDrawer()">
+            <span>◈</span><span class="proj-name" id="proj-display">default</span><span style="font-size:9px;color:var(--text3)">▼</span>
+          </div>
+          <button class="chat-task-toggle" id="chat-task-toggle" onclick="toggleChatTaskMode()" title="Task実行をON/OFF">
+            <span>Task</span><span id="chat-task-toggle-label">OFF</span>
+          </button>
+        </div>
+        <div id="chat-tts-player-slot" class="tts-player-slot tts-player-slot-chat"></div>
       </div>
-      <button class="chat-task-toggle" id="chat-task-toggle" onclick="toggleChatTaskMode()" title="Task実行をON/OFF">
-        <span>Task</span><span id="chat-task-toggle-label">OFF</span>
-      </button>
     </div>
     <div class="messages" id="messages">
       <div class="msg system">
@@ -1169,9 +1191,12 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <!-- AGENT MODE -->
   <div class="agent-col" id="agent-col" style="display:none">
     <div class="chat-topbar">
-      <div style="font-size:11px;color:var(--text2);letter-spacing:.04em">Agent Session</div>
-      <div style="margin-left:auto;display:flex;gap:6px">
-        <button class="settings-btn ghost" style="font-size:10px;padding:4px 8px" onclick="stopAgentSession()">Stop</button>
+      <div class="agent-session-row">
+        <div class="agent-session-left">
+          <span id="agent-session-label" style="font-size:11px;color:var(--text2);letter-spacing:.04em">Agent session: -</span>
+          <button id="agent-stop-btn" class="agent-stop-btn" type="button" onclick="handleAgentStopClick()" disabled>Stop</button>
+        </div>
+        <div id="agent-tts-player-slot" class="tts-player-slot tts-player-slot-agent"></div>
       </div>
     </div>
     <div class="messages" id="agent-messages">
@@ -1234,8 +1259,11 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="echo-status-right">
         <span id="echo-busy-status" class="echo-busy-status">idle</span>
         <span class="echo-status" id="echo-status">Ready</span>
-        <span class="echo-duration echo-toolbar-elapsed" id="echo-duration">00:00</span>
         <span id="echo-sentence-count" class="echo-output-count" title="ASR出力の確定回数（「出力まとめ回数」と同じ定義で1回=1カウント）">出力回数: 0</span>
+      </div>
+      <div class="echo-bottom-row">
+        <div id="echo-tts-player-slot" class="tts-player-slot tts-player-slot-echo"></div>
+        <span class="echo-duration echo-toolbar-elapsed" id="echo-duration">00:00</span>
       </div>
     </div>
   </div>
@@ -1937,11 +1965,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <!-- TTS 設定 -->
       <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px">
         <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🔊 Echo TTS 設定</div>
-        <div id="echo-audio-unlock-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-          <button id="echo-audio-unlock-btn" onclick="handleEchoAudioUnlockClick()"
-            style="font-size:10px;padding:4px 10px;border:1px solid var(--amber);border-radius:4px;background:rgba(255,184,0,.12);color:var(--amber);cursor:pointer">🔊 音声を有効化</button>
-          <span id="echo-audio-ready-label" style="display:none;font-size:10px;color:var(--accent);font-weight:700">🔊 Audio Ready</span>
-        </div>
         <div style="margin-bottom:8px">
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS エンジン</div>
           <select id="echo-tts-engine"
@@ -3060,7 +3083,6 @@ _migrateEchoTtsTranslateSettings();
 
 // ── TTS (Text-to-Speech) ──
 let audioUnlocked = false;
-let audioContext = null;
 let ttsAudioQueue = [];
 let isTtsPlaying = false;
 
@@ -3334,10 +3356,12 @@ function ttsStop() {
   ttsAudioQueue = [];
   isTtsPlaying = false;
   tts._playing = false;
-  if (tts._audio) { tts._audio.pause(); tts._audio = null; }
+  const player = getTtsPlayer();
+  if (player) player.pause();
+  releaseCurrentTtsObjectUrl();
+  tts._audio = null;
   if (tts._utt && window.speechSynthesis) window.speechSynthesis.cancel();
   tts._autoplayBlockedNoticeShown = false;
-  _releaseTtsFallbackUrl();
   _clearQwen3CloneStatusTimer();
   const cloneStatusEl = document.getElementById('qwen3-clone-test-status');
   if (cloneStatusEl) _setQwen3CloneTestStatus('停止');
@@ -3351,125 +3375,58 @@ function ttsStop() {
   _syncRecordingControlsWithTts();
 }
 
-let _ttsFallbackObjectUrl = null;
-function _releaseTtsFallbackUrl() {
-  if (_ttsFallbackObjectUrl) {
-    URL.revokeObjectURL(_ttsFallbackObjectUrl);
-    _ttsFallbackObjectUrl = null;
+let _currentTtsObjectUrl = null;
+let _lastAudioBlockedSystemNoticeAt = 0;
+
+function getTtsPlayer() {
+  return document.getElementById('tts-player');
+}
+
+function setAudioStatus(text) {
+  const el = document.getElementById('audio-status');
+  if (el) el.textContent = text || 'Audio: Locked';
+}
+
+function showAudioUnlockButton() {
+  const btn = document.getElementById('audio-unlock-btn');
+  if (!btn) return;
+  btn.style.display = '';
+  btn.classList.remove('ready');
+}
+
+function hideAudioUnlockButton() {
+  const btn = document.getElementById('audio-unlock-btn');
+  if (!btn) return;
+  btn.style.display = 'none';
+  btn.classList.add('ready');
+}
+
+function moveTtsPlayerTo(slotId, modeLabel = '') {
+  const wrap = document.getElementById('tts-player-wrap');
+  const slot = document.getElementById(slotId);
+  if (!wrap || !slot) return;
+  if (wrap.parentElement !== slot) {
+    slot.appendChild(wrap);
+    console.info(`[Audio][player_move] mode=${modeLabel} slot=${slotId}`);
   }
 }
 
-function closeTtsFallbackPlayer() {
-  const wrap = document.getElementById('tts-fallback-player');
-  const audio = document.getElementById('tts-fallback-audio');
-  if (audio) {
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
+function releaseCurrentTtsObjectUrl() {
+  if (_currentTtsObjectUrl) {
+    URL.revokeObjectURL(_currentTtsObjectUrl);
+    _currentTtsObjectUrl = null;
   }
-  _releaseTtsFallbackUrl();
-  if (wrap) wrap.style.display = 'none';
 }
 
-function _showTtsFallbackPlayer(blob, label = 'TTS 音声') {
-  const wrap = document.getElementById('tts-fallback-player');
-  const audio = document.getElementById('tts-fallback-audio');
-  const title = document.getElementById('tts-fallback-title');
-  if (!wrap || !audio) return;
-  _releaseTtsFallbackUrl();
-  const url = URL.createObjectURL(blob);
-  _ttsFallbackObjectUrl = url;
-  if (title) title.textContent = label;
-  audio.src = url;
-  wrap.style.display = 'block';
-  const p = audio.play();
-  if (p && typeof p.catch === 'function') p.catch(() => {});
-}
-
-function _updateEchoAudioUnlockUi() {
-  const unlockBtn = document.getElementById('echo-audio-unlock-btn');
-  const readyLabel = document.getElementById('echo-audio-ready-label');
-  if (audioUnlocked) {
-    _hideEchoAudioUnlockButton(unlockBtn);
-    _showEchoAudioReadyLabel(readyLabel);
-    return;
-  }
-  _showEchoAudioUnlockButton(unlockBtn);
-  _hideEchoAudioReadyLabel(readyLabel);
-}
-
-function _showEchoAudioUnlockButton(unlockBtn) {
-  if (!unlockBtn) return;
-  unlockBtn.style.display = '';
-}
-
-function _hideEchoAudioUnlockButton(unlockBtn) {
-  if (!unlockBtn) return;
-  unlockBtn.style.display = 'none';
-}
-
-function _showEchoAudioReadyLabel(readyLabel) {
-  if (!readyLabel) return;
-  readyLabel.style.display = '';
-}
-
-function _hideEchoAudioReadyLabel(readyLabel) {
-  if (!readyLabel) return;
-  readyLabel.style.display = 'none';
-}
-
-function _resumePendingTtsPlaybackAfterUnlock() {
-  if (ttsAudioQueue.length === 0) return;
+async function enableAudioFromUserGesture() {
+  console.info('[Audio][enable_click]');
+  audioUnlocked = true;
+  tts._autoplayUnlocked = true;
   tts._autoplayBlockedNoticeShown = false;
-  console.info(`[TTS][play_waiting_unlock] action=resume_after_unlock queue=${ttsAudioQueue.length}`);
-  playNextTtsAudio();
-}
-
-async function unlockAudioFromUserGesture() {
-  console.info('[Audio][unlock] start');
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) throw new Error('AudioContext unsupported');
-    audioContext = audioContext || new Ctx();
-    await audioContext.resume();
-    const silentSource = audioContext.createBufferSource();
-    const silentBuffer = audioContext.createBuffer(1, 1, Math.max(8000, audioContext.sampleRate || 44100));
-    silentSource.buffer = silentBuffer;
-    silentSource.connect(audioContext.destination);
-    silentSource.start(0);
-    audioUnlocked = true;
-    tts._autoplayUnlocked = true;
-    console.info(`[Audio][unlock] success context_state=${audioContext.state}`);
-  } catch (e) {
-    audioUnlocked = false;
-    tts._autoplayUnlocked = false;
-    const msg = e && (e.message || String(e)) ? (e.message || String(e)) : 'unknown';
-    console.warn(`[Audio][unlock] failed error=${msg}`);
-  } finally {
-    _updateEchoAudioUnlockUi();
-  }
-  return audioUnlocked;
-}
-
-async function handleEchoAudioUnlockClick() {
-  const ok = await unlockAudioFromUserGesture();
-  if (ok) _resumePendingTtsPlaybackAfterUnlock();
-}
-
-function _ensureTtsAutoplayUnlockHooks() {
-  if (tts._unlockHooksInstalled) return;
-  tts._unlockHooksInstalled = true;
-  const events = ['pointerdown', 'keydown', 'touchstart'];
-  events.forEach((name) => {
-    document.addEventListener(name, _onTtsUserGesture, {passive: true});
-  });
-}
-
-function _onTtsUserGesture() {
-  unlockAudioFromUserGesture().then((ok) => {
-    if (!ok) return;
-    _resumePendingTtsPlaybackAfterUnlock();
-  });
+  setAudioStatus('Audio: Ready');
+  hideAudioUnlockButton();
+  await playNextTtsAudio();
+  return true;
 }
 
 function ttsSpeakSelectedText() {
@@ -3597,7 +3554,9 @@ async function _ttsPlayNext() {
       const blob = await _ttsFetchAudio(sentence, playEngine, context, {rawText, translatedText});
       const result = await enqueueTtsAudioBlob(blob, `tts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, {
         context,
+        source: context === 'echo' ? 'echo' : (context === 'agent' ? 'agent' : 'chat'),
         engine: playEngine,
+        textPreview: String(sentence || '').slice(0, 60),
       });
       if (result?.reason === 'blocked') return;
     }
@@ -3680,8 +3639,10 @@ async function _ttsPlayStyleBertVits2Batch(queueItem = {}) {
   const blob = await _ttsFetchBatchAudio(body, {fallbackMessage: 'Style-Bert-VITS2 バッチ音声合成に失敗しました。'});
   const result = await enqueueTtsAudioBlob(blob, `tts-batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, {
     context,
+    source: context === 'echo' ? 'echo' : (context === 'agent' ? 'agent' : 'chat'),
     engine: 'style_bert_vits2',
     kind: 'batch',
+    textPreview: String(translatedSentences[0] || '').slice(0, 60),
   });
   if (result?.reason === 'blocked') return;
 }
@@ -4083,6 +4044,7 @@ async function _playQwen3CloneTestBlob() {
   _setQwen3ClonePlayToggle(true);
   const result = await enqueueTtsAudioBlob(_qwen3CloneTestAudioBlob, `qwen3-clone-${Date.now()}`, {
     context: 'echo',
+    source: 'echo',
     engine: 'qwen3tts',
     kind: 'clone_test',
   });
@@ -4204,6 +4166,7 @@ async function toggleSbv2TestPlayback() {
   _setSbv2TestStatus('再生中...');
   const result = await enqueueTtsAudioBlob(_sbv2TestAudioBlob, `sbv2-test-${Date.now()}`, {
     context: 'echo',
+    source: 'echo',
     engine: 'style_bert_vits2',
     kind: 'sbv2_test',
   });
@@ -4330,11 +4293,11 @@ function _formatQwen3SynthesisError(detail, requestBody = {}) {
 }
 
 function enqueueTtsAudioBlob(blob, id, meta = {}) {
-  _ensureTtsAutoplayUnlockHooks();
   return new Promise((resolve) => {
     const item = {blob, id: id || `tts-${Date.now()}`, meta, resolve};
     ttsAudioQueue.push(item);
-    console.info(`[TTS][enqueue] id=${item.id} queue=${ttsAudioQueue.length}`);
+    const source = item.meta?.source || item.meta?.context || 'chat';
+    console.info(`[TTS][enqueue] source=${source} id=${item.id} queue_len=${ttsAudioQueue.length}`);
     if (!isTtsPlaying) playNextTtsAudio();
   });
 }
@@ -4346,61 +4309,87 @@ function playNextTtsAudio() {
     return;
   }
   if (ttsAudioQueue.length === 0) {
+    releaseCurrentTtsObjectUrl();
     tts._audio = null;
     tts._playing = false;
     _syncRecordingControlsWithTts();
+    setAudioStatus(audioUnlocked ? 'Audio: Ready' : 'Audio: Locked');
+    return;
+  }
+  if (!audioUnlocked) {
+    setAudioStatus(`Audio: Locked | Queue: ${ttsAudioQueue.length}`);
+    showAudioUnlockButton();
     return;
   }
   const item = ttsAudioQueue.shift();
   const {blob, id, resolve} = item;
+  const player = getTtsPlayer();
+  if (!player) {
+    console.warn('[TTS][play_error] reason=missing_player');
+    if (typeof resolve === 'function') resolve({ok: false, reason: 'missing_player'});
+    return;
+  }
+  releaseCurrentTtsObjectUrl();
   const url = URL.createObjectURL(blob);
-  const audio = new Audio(url);
-  tts._audio = audio;
+  _currentTtsObjectUrl = url;
+  player.src = url;
+  tts._audio = player;
   tts._playing = true;
   isTtsPlaying = true;
   _syncRecordingControlsWithTts();
+  setAudioStatus(`Audio: Playing | Queue: ${ttsAudioQueue.length}`);
   console.info(`[TTS][play_start] id=${id} queue=${ttsAudioQueue.length}`);
 
   const done = (result = {ok: true, reason: 'ended'}) => {
-    URL.revokeObjectURL(url);
+    player.onended = null;
+    player.onerror = null;
+    player.onabort = null;
+    releaseCurrentTtsObjectUrl();
     tts._audio = null;
     tts._playing = false;
     isTtsPlaying = false;
     _syncRecordingControlsWithTts();
+    setAudioStatus(audioUnlocked ? `Audio: Ready | Queue: ${ttsAudioQueue.length}` : `Audio: Locked | Queue: ${ttsAudioQueue.length}`);
     if (typeof resolve === 'function') resolve(result);
     playNextTtsAudio();
   };
 
-  audio.onended = () => {
+  player.onended = () => {
     console.info(`[TTS][play_done] id=${id} reason=ended`);
     done({ok: true, reason: 'ended'});
   };
-  audio.onerror = () => {
+  player.onerror = () => {
     console.warn(`[TTS][play_error] id=${id} reason=audio_error`);
     done({ok: false, reason: 'audio_error'});
   };
-  audio.onabort = () => {
+  player.onabort = () => {
     console.warn(`[TTS][play_error] id=${id} reason=abort`);
     done({ok: false, reason: 'abort'});
   };
 
-  const p = audio.play();
+  const p = player.play();
   if (p && typeof p.catch === 'function') {
     p.catch((e) => {
-      URL.revokeObjectURL(url);
+      player.onended = null;
+      player.onerror = null;
+      player.onabort = null;
+      releaseCurrentTtsObjectUrl();
       tts._audio = null;
       tts._playing = false;
       isTtsPlaying = false;
       _syncRecordingControlsWithTts();
       if (e?.name === 'NotAllowedError') {
         audioUnlocked = false;
-        _updateEchoAudioUnlockUi();
+        setAudioStatus(`Audio: Blocked | Queue: ${ttsAudioQueue.length + 1}`);
+        showAudioUnlockButton();
         ttsAudioQueue.unshift(item);
         console.warn(`[TTS][play_blocked] id=${id} error_name=${e.name}`);
         console.info(`[TTS][play_waiting_unlock] action=waiting_for_unlock id=${id} queue=${ttsAudioQueue.length}`);
-        if (!tts._autoplayBlockedNoticeShown) {
+        const now = Date.now();
+        if (!tts._autoplayBlockedNoticeShown || (now - _lastAudioBlockedSystemNoticeAt) >= 10000) {
           addMsg('system', '音声再生がブロックされました。🔊 音声を有効化 を押してください');
           tts._autoplayBlockedNoticeShown = true;
+          _lastAudioBlockedSystemNoticeAt = now;
         }
         if (typeof resolve === 'function') resolve({ok: false, reason: 'blocked'});
         return;
@@ -4416,7 +4405,7 @@ document.addEventListener('visibilitychange', () => {
   const state = document.visibilityState === 'visible' ? 'visible' : 'hidden';
   console.info(`[Audio][visibility] state=${state}`);
   if (document.visibilityState !== 'visible') return;
-  if (audioUnlocked && !isTtsPlaying && ttsAudioQueue.length > 0) {
+  if (!isTtsPlaying && ttsAudioQueue.length > 0) {
     playNextTtsAudio();
   }
 });
@@ -6212,7 +6201,10 @@ addEventListener('load', async () => {
   _echoInitScrollListener();
   // Clear ボタン初期状態
   _echoUpdateClearBtn();
-  _updateEchoAudioUnlockUi();
+  setAudioStatus('Audio: Locked');
+  showAudioUnlockButton();
+  moveTtsPlayerTo('chat-tts-player-slot', 'chat');
+  syncAgentSessionUi();
 });
 
 // ── SYSTEM SUMMARY / HEALTH ──
@@ -6403,6 +6395,7 @@ const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-ech
 const _NEXUS_MOB_TAB_IDS = [];
 
 let agentSessionActive = false;
+let agentSessionId = '';
 let agentHistory = [];
 let agentTaskCache = [];
 let agentTaskSearchQuery = '';
@@ -6415,6 +6408,8 @@ function _restoreAgentStateForProject(project) {
   agentSessionActive = !!agentSessionActiveByProject[key];
   agentHistory = Array.isArray(agentHistoryByProject[key]) ? [...agentHistoryByProject[key]] : [];
   agentTaskCache = Array.isArray(agentTaskCacheByProject[key]) ? [...agentTaskCacheByProject[key]] : [];
+  if (!agentSessionActive) agentSessionId = '';
+  syncAgentSessionUi();
 }
 
 function _persistAgentStateForProject(project) {
@@ -6577,6 +6572,11 @@ function setMode(m) {
     }
   }
 
+  if (m === 'chat') moveTtsPlayerTo('chat-tts-player-slot', 'chat');
+  else if (m === 'agent') moveTtsPlayerTo('agent-tts-player-slot', 'agent');
+  else if (m === 'echo') moveTtsPlayerTo('echo-tts-player-slot', 'echo');
+  syncAgentSessionUi();
+
   if (window.innerWidth <= 768) {
     const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS];
     if (m === 'echo') {
@@ -6643,6 +6643,9 @@ function addAgentConversationMsg(role, text, record = true) {
   d.className = 'msg ' + role;
   const labels = {user:'Boss', assistant:'Agent', system:'System', error:'Error'};
   d.innerHTML = `<div class="msg-role">${labels[role]||role}</div><div class="msg-bubble">${esc(String(text||''))}</div>`;
+  if (role === 'assistant' && tts.enabled && tts.autoSpeak) {
+    ttsSpeak(String(text || ''), {context: 'agent', engine: tts.engine});
+  }
   w.appendChild(d);
   w.scrollTop = w.scrollHeight;
   if (record) addAgentHistoryItem('conversation', {role, text: String(text || '')});
@@ -6796,6 +6799,21 @@ async function _agentApi(path, payload = null, method = 'POST') {
   return data;
 }
 
+function syncAgentSessionUi() {
+  const label = document.getElementById('agent-session-label');
+  const stopBtn = document.getElementById('agent-stop-btn');
+  if (label) {
+    const sid = agentSessionId || '-';
+    label.textContent = `Agent session: ${sid}`;
+  }
+  if (stopBtn) stopBtn.disabled = !agentSessionActive;
+}
+
+function handleAgentStopClick() {
+  console.info(`[Agent][stop_click] session_id=${agentSessionId || '-'}`);
+  stopAgentSession(true);
+}
+
 async function stopAgentSession(notify = true) {
   if (!agentSessionActive) return;
   try {
@@ -6807,22 +6825,27 @@ async function stopAgentSession(notify = true) {
     if (notify) addAgentConversationMsg('error', `Stop failed: ${e.message}`);
   }
   agentSessionActive = false;
+  agentSessionId = '';
   agentTaskCache = [];
   renderAgentTasks([], 'idle');
+  syncAgentSessionUi();
   _persistAgentStateForProject(currentProject);
 }
 
 async function startAgentSession() {
   if (agentSessionActive) return;
   try {
-    await _agentApi('/agent/start', {project: currentProject, initial_context: agentHistory});
+    const started = await _agentApi('/agent/start', {project: currentProject, initial_context: agentHistory});
     agentSessionActive = true;
+    agentSessionId = String(started?.session_id || started?.id || agentSessionId || Date.now());
     addLog('ok','agent','agent started');
+    syncAgentSessionUi();
     await refreshAgentTasks('running');
     _persistAgentStateForProject(currentProject);
   } catch (e) {
     addLog('err','agent',`agent start error: ${e.message}`);
     addAgentConversationMsg('error', `Start failed: ${e.message}`);
+    syncAgentSessionUi();
   }
 }
 
@@ -9647,7 +9670,7 @@ async function toggleEchoRecording() {
       _echoSetStatus('TTS生成/再生中は録音を開始できません。');
       return;
     }
-    await unlockAudioFromUserGesture();
+    if (!audioUnlocked) await enableAudioFromUserGesture();
     await _echoStart();
   }
 }
