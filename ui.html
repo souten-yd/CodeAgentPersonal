@@ -3510,9 +3510,10 @@ function _ttsModeFromFlags(en2ja, ja2en) {
 // TTS 翻訳が必要かどうかを判定し、必要なら翻訳テキストを返す
 async function _ttsMaybeTranslate(text, context = 'main', engine = '') {
   const normalizedEngine = _normalizeTtsEngine(engine || (context === 'echo' ? echo.ttsEngine : tts.engine));
-  if (normalizedEngine === 'style_bert_vits2') {
-    if (!echo.ttsUseTranslation) return text;
-  }
+  const isEchoSbv2 = context === 'echo' && normalizedEngine === 'style_bert_vits2';
+  // Echo + Style-Bert-VITS2 では echo.ttsUseTranslation のみを翻訳実行フラグとして扱う。
+  // OFF の場合は translate-text を絶対に呼ばない。
+  if (isEchoSbv2 && !echo.ttsUseTranslation) return text;
   const cfg = context === 'echo'
     ? {
         translateEnabled: echo.ttsTranslateEnabled,
@@ -3520,15 +3521,20 @@ async function _ttsMaybeTranslate(text, context = 'main', engine = '') {
         translateEnToJaEnabled: echo.ttsTranslateEnToJaEnabled,
       }
     : tts;
-  if (!cfg.translateEnabled) return text;
   const srcLang = _ttsDetectLang(text);
-  const needTranslate = srcLang === 'ja'
-    ? !!cfg.translateJaToEnEnabled
-    : !!cfg.translateEnToJaEnabled;
+  const needTranslate = isEchoSbv2
+    ? !!echo.ttsUseTranslation
+    : (
+      !!cfg.translateEnabled
+      && (srcLang === 'ja'
+        ? !!cfg.translateJaToEnEnabled
+        : !!cfg.translateEnToJaEnabled)
+    );
   if (!needTranslate) return text;
   try {
-    if (normalizedEngine === 'style_bert_vits2' && !echo.ttsUseTranslation) {
+    if (isEchoSbv2 && !echo.ttsUseTranslation) {
       console.error('[Echo][TTS][BUG] translate-text was called while echo_tts_use_translation=false');
+      return text;
     }
     const r = await fetch(API + '/tts/translate-text', {
       method: 'POST', headers: {'Content-Type':'application/json'},
