@@ -23,7 +23,7 @@ _STYLE_BERT_VITS2_IGNORED_MODEL_DIRS = {"__pycache__", "cache", ".cache", "tmp",
 _WORKER_STDERR_TAIL_LINES = 120
 _logger = logging.getLogger("style_bert_vits2")
 _TEXT_LOG_INFO_LIMIT = 500
-_TEXT_LOG_DEBUG_LIMIT = 5000
+_TEXT_LOG_DEBUG_LIMIT = 50000
 
 
 def _repo_dir() -> str:
@@ -523,8 +523,10 @@ def synth(req: dict) -> dict:
     infer_text_preview = infer_text.replace("\n", "\\n")
     if len(infer_text_preview) > 500:
         infer_text_preview = infer_text_preview[:500] + "…"
+    request_id = str(req.get("request_id") or "-")
     sys.stderr.write(
         "[Style-Bert-VITS2][worker_infer] "
+        f"id={request_id} "
         f"language={language_code} "
         f"model_version={model_version or '-'} "
         f"is_jp_extra={str(is_jp_extra).lower()} "
@@ -701,13 +703,23 @@ while True:
         raise RuntimeError(f"Style-Bert-VITS2 worker request failed: {last_error}")
 
     def _log_sbv2_input(self, request_id: str, model: str, payload: dict, *, raw_text: str, translated_text: str = "", tts_text_source: str = "raw") -> None:
+        original_tts_text = str(payload.get("original_tts_text") or raw_text or "")
+        normalized_tts_text = str(payload.get("normalized_tts_text") or payload.get("text") or "")
         final_tts_text = str(payload.get("text") or "")
-        looks_japanese = _looks_japanese(final_tts_text)
+        normalization_enabled = bool(payload.get("normalization_enabled"))
+        normalization_changed = bool(payload.get("normalization_changed"))
+        normalization_operations = payload.get("normalization_operations")
+        if normalization_operations is None:
+            normalization_operations = []
+        looks_japanese_before = _looks_japanese(original_tts_text)
+        looks_japanese_after = _looks_japanese(final_tts_text)
         raw_preview = _sanitize_preview_text(raw_text, limit=_TEXT_LOG_INFO_LIMIT)
         translated_preview = _sanitize_preview_text(translated_text, limit=_TEXT_LOG_INFO_LIMIT)
+        original_preview = _sanitize_preview_text(original_tts_text, limit=_TEXT_LOG_INFO_LIMIT)
+        normalized_preview = _sanitize_preview_text(normalized_tts_text, limit=_TEXT_LOG_INFO_LIMIT)
         final_preview = _sanitize_preview_text(final_tts_text, limit=_TEXT_LOG_INFO_LIMIT)
         _logger.info(
-            "[Style-Bert-VITS2][input] id=%s route=%s caller=%s engine=%s model=%s model_path=%s model_version=%s is_jp_extra=%s requested_language=%s normalized_language=%s effective_language=%s use_translation=%s text_source=%s raw_text=%r translated_text=%r final_tts_text=%r final_tts_text_length=%d looks_japanese=%s non_japanese_policy=%s speaker_id=%s speaker=%s style=%s style_weight=%s device=%s line_split=%s length=%s sdp_ratio=%s noise=%s noise_w=%s",
+            "[Style-Bert-VITS2][input] id=%s route=%s caller=%s engine=%s model=%s model_path=%s model_version=%s is_jp_extra=%s requested_language=%s normalized_language=%s effective_language=%s use_translation=%s text_source=%s raw_text=%r translated_text=%r original_tts_text_preview=%r normalized_tts_text_preview=%r final_tts_text_preview=%r final_tts_text_length=%d normalization_enabled=%s normalization_changed=%s normalization_operations=%s looks_japanese_before=%s looks_japanese_after=%s non_japanese_policy=%s speaker_id=%s speaker=%s style=%s style_weight=%s device=%s line_split=%s length=%s sdp_ratio=%s noise=%s noise_w=%s",
             request_id,
             payload.get("route") or "tts/synthesize",
             payload.get("caller") or "manual",
@@ -723,9 +735,15 @@ while True:
             tts_text_source,
             raw_preview,
             translated_preview,
+            original_preview,
+            normalized_preview,
             final_preview,
             len(final_tts_text),
-            str(looks_japanese).lower(),
+            str(normalization_enabled).lower(),
+            str(normalization_changed).lower(),
+            normalization_operations,
+            str(looks_japanese_before).lower(),
+            str(looks_japanese_after).lower(),
             payload.get("non_japanese_policy") or "block",
             payload.get("speaker_id"),
             payload.get("speaker"),
@@ -739,13 +757,21 @@ while True:
             payload.get("noise_w"),
         )
         _logger.debug(
-            "[Style-Bert-VITS2][input_debug] id=%s raw_text=%r translated_text=%r final_text=%r",
+            "[Style-Bert-VITS2][input_debug] id=%s raw_text=%r translated_text=%r original_tts_text=%r normalized_tts_text=%r final_text=%r normalization_enabled=%s normalization_changed=%s normalization_operations=%s looks_japanese_before=%s looks_japanese_after=%s non_japanese_policy=%s",
             request_id,
             _sanitize_preview_text(raw_text, limit=_TEXT_LOG_DEBUG_LIMIT),
             _sanitize_preview_text(translated_text, limit=_TEXT_LOG_DEBUG_LIMIT),
+            _sanitize_preview_text(original_tts_text, limit=_TEXT_LOG_DEBUG_LIMIT),
+            _sanitize_preview_text(normalized_tts_text, limit=_TEXT_LOG_DEBUG_LIMIT),
             _sanitize_preview_text(final_tts_text, limit=_TEXT_LOG_DEBUG_LIMIT),
+            str(normalization_enabled).lower(),
+            str(normalization_changed).lower(),
+            normalization_operations,
+            str(looks_japanese_before).lower(),
+            str(looks_japanese_after).lower(),
+            payload.get("non_japanese_policy") or "block",
         )
-        if payload.get("is_jp_extra") and final_tts_text and not looks_japanese:
+        if payload.get("is_jp_extra") and final_tts_text and not looks_japanese_after:
             _logger.warning(
                 "[Style-Bert-VITS2][input_warning] JP-Extra selected but final_tts_text does not look Japanese. text_preview=%r",
                 final_preview,
@@ -771,6 +797,7 @@ while True:
         )
 
         payload = self._build_payload(req, model=model, text=text)
+        payload["request_id"] = request_id
         self._log_sbv2_input(
             request_id,
             model,
@@ -836,6 +863,7 @@ while True:
             raise ValueError("model required when engine=style_bert_vits2")
 
         payload = self._build_payload(req, model=model, text=text)
+        payload["request_id"] = request_id
         self._log_sbv2_input(
             request_id,
             model,
