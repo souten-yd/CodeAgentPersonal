@@ -13126,9 +13126,37 @@ def _build_tts_batch_items_from_text(req: dict, text: str) -> list[dict]:
     if len(sentences) <= 1:
         return []
     items: list[dict] = []
+    propagate_keys = (
+        "style",
+        "style_weight",
+        "speaker",
+        "speaker_name",
+        "language",
+        "speed",
+        "caller",
+        "route",
+        "use_translation",
+        "text_source",
+        "raw_text",
+        "translated_text",
+        "sbv2_jp_extra_text_normalization",
+        "sbv2_jp_extra_english_to_katakana",
+        "sbv2_jp_extra_emoji_policy",
+        "sbv2_jp_extra_symbol_policy",
+        "sbv2_jp_extra_url_policy",
+        "sbv2_jp_extra_non_japanese_policy",
+        "length",
+        "sdp_ratio",
+        "noise",
+        "noise_w",
+        "split_interval",
+        "line_split",
+        "pitch_scale",
+        "intonation_scale",
+    )
     for index, sentence in enumerate(sentences, start=1):
         item: dict[str, object] = {"id": f"seg-{index:03d}", "text": sentence}
-        for key in ("style", "style_weight", "speaker", "speaker_name", "language", "speed"):
+        for key in propagate_keys:
             if key in req:
                 item[key] = req.get(key)
         items.append(item)

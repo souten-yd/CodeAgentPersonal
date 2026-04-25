@@ -3517,10 +3517,10 @@ function _ttsModeFromFlags(en2ja, ja2en) {
 // TTS 翻訳が必要かどうかを判定し、必要なら翻訳テキストを返す
 async function _ttsMaybeTranslate(text, context = 'main', engine = '') {
   const normalizedEngine = _normalizeTtsEngine(engine || (context === 'echo' ? echo.ttsEngine : tts.engine));
-  const isEchoSbv2 = context === 'echo' && normalizedEngine === 'style_bert_vits2';
-  // Echo + Style-Bert-VITS2 では echo.ttsUseTranslation のみを翻訳実行フラグとして扱う。
+  const isSbv2EchoProfile = normalizedEngine === 'style_bert_vits2' && (context === 'echo' || context === 'main');
+  // Echo/SBV2 プロファイルでは echo.ttsUseTranslation のみを翻訳実行フラグとして扱う。
   // OFF の場合は translate-text を絶対に呼ばない。
-  if (isEchoSbv2 && !echo.ttsUseTranslation) return text;
+  if (isSbv2EchoProfile && !echo.ttsUseTranslation) return text;
   const cfg = context === 'echo'
     ? {
         translateEnabled: echo.ttsTranslateEnabled,
@@ -3529,7 +3529,7 @@ async function _ttsMaybeTranslate(text, context = 'main', engine = '') {
       }
     : tts;
   const srcLang = _ttsDetectLang(text);
-  const needTranslate = isEchoSbv2
+  const needTranslate = isSbv2EchoProfile
     ? !!echo.ttsUseTranslation
     : (
       !!cfg.translateEnabled
@@ -3539,7 +3539,7 @@ async function _ttsMaybeTranslate(text, context = 'main', engine = '') {
     );
   if (!needTranslate) return text;
   try {
-    if (isEchoSbv2 && !echo.ttsUseTranslation) {
+    if (isSbv2EchoProfile && !echo.ttsUseTranslation) {
       console.error('[Echo][TTS][BUG] translate-text was called while echo_tts_use_translation=false');
       return text;
     }
@@ -3788,7 +3788,9 @@ function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
     ? (echo.ttsDevice || tts.ttsDevice || localStorage.getItem('tsasr_tts_device') || localStorage.getItem('tts_device') || 'cpu')
     : (tts.ttsDevice || echo.ttsDevice || localStorage.getItem('tts_device') || localStorage.getItem('tsasr_tts_device') || 'cpu');
   const explicitLanguage = (opts.language || '').trim();
-  const selectedEchoLanguage = _normalizeEchoSbv2Language(context === 'echo' ? echo.ttsSbv2Language : 'JP');
+  const selectedEchoLanguage = _normalizeEchoSbv2Language(
+    (context === 'echo' || context === 'main') ? echo.ttsSbv2Language : 'JP'
+  );
   const fallbackLang = selectedEchoLanguage === 'auto' ? 'JP' : selectedEchoLanguage;
   const effectiveLanguage = context === 'echo' ? _effectiveEchoSbv2Language() : fallbackLang;
   const selectedMeta = _getSelectedSbv2Meta();
@@ -3830,6 +3832,12 @@ function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
     allowLanguage: true,
   });
   _validateStyleBertVits2RequestBodyOrThrow(body);
+  if (context === 'main') {
+    console.debug('[TTS][SBV2][main] request payload', {
+      text_preview: String(text || '').slice(0, 140),
+      payload: body,
+    });
+  }
   return body;
 }
 
