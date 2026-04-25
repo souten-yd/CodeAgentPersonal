@@ -4115,6 +4115,14 @@ SETTINGS_DEFAULTS = {
     "gpu_usage_backend": "auto",
     "echo_tts_use_translation": "false",
     "sbv2_jp_extra_non_japanese_policy": "block",
+    "echo_sbv2_length": "1.0",
+    "echo_sbv2_sdp_ratio": "0.2",
+    "echo_sbv2_noise": "0.6",
+    "echo_sbv2_noise_w": "0.8",
+    "echo_sbv2_style_weight": "1.0",
+    "echo_sbv2_split_interval": "0.5",
+    "echo_sbv2_pitch_scale": "1.0",
+    "echo_sbv2_intonation_scale": "1.0",
 }
 for _role in MODEL_ROLE_OPTIONS:
     SETTINGS_DEFAULTS.setdefault(_role_setting_key(_role), "")
