@@ -12943,6 +12943,17 @@ def api_style_bert_vits2_models():
     return {"models": models, "model_details": detailed}
 
 
+@app.post("/api/tts/style-bert-vits2/preview-normalization")
+def api_style_bert_vits2_preview_normalization(req: dict):
+    try:
+        runtime = _tts_engine_registry.get(raw_engine="style_bert_vits2")
+    except KeyError:
+        raise HTTPException(status_code=500, detail="style_bert_vits2 runtime unavailable")
+    if not isinstance(runtime, StyleBertVITS2Runtime):
+        raise HTTPException(status_code=500, detail="style_bert_vits2 runtime mismatch")
+    return runtime.build_normalization_preview(req)
+
+
 @app.post("/api/tts/style-bert-vits2/models/upload")
 async def api_style_bert_vits2_models_upload(
     file: UploadFile,
