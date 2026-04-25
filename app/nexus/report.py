@@ -169,17 +169,19 @@ def build_report(job_id: str, report_type: str, title: str, sections: list[dict]
 
 def save_report_record(report: dict) -> None:
     created_at = _now_iso()
+    project = str(report.get("project") or "default")
     with transaction() as conn:
         conn.execute(
             """
             INSERT OR REPLACE INTO nexus_reports(
-                report_id, job_id, report_type, title, report_dir,
+                report_id, project, job_id, report_type, title, report_dir,
                 report_md_path, report_json_path, report_html_path,
-                generated_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                summary, metadata, generated_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 report["report_id"],
+                project,
                 report["job_id"],
                 report["report_type"],
                 report["title"],
@@ -187,6 +189,8 @@ def save_report_record(report: dict) -> None:
                 report["report_md_path"],
                 report["report_json_path"],
                 report["report_html_path"],
+                str(report.get("summary") or ""),
+                "{}",
                 report["generated_at"],
                 created_at,
             ),
@@ -198,9 +202,9 @@ def get_latest_report(job_id: str) -> dict | None:
         row = conn.execute(
             """
             SELECT
-                report_id, job_id, report_type, title, report_dir,
+                report_id, project, job_id, report_type, title, report_dir,
                 report_md_path, report_json_path, report_html_path,
-                generated_at, created_at
+                summary, metadata, generated_at, created_at
             FROM nexus_reports
             WHERE job_id = ?
             ORDER BY generated_at DESC, created_at DESC
@@ -254,5 +258,6 @@ def build_job_report(payload: BuildReportRequest) -> dict:
         title=title,
         sections=sections,
     )
+    report["project"] = "default"
     save_report_record(report)
     return report
