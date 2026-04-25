@@ -90,7 +90,23 @@ SCHEMA_SQL: tuple[str, ...] = (
         FOREIGN KEY(job_id) REFERENCES nexus_jobs(job_id) ON DELETE CASCADE
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS nexus_reports (
+        report_id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        report_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        report_dir TEXT NOT NULL,
+        report_md_path TEXT NOT NULL,
+        report_json_path TEXT NOT NULL,
+        report_html_path TEXT NOT NULL,
+        generated_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(job_id) REFERENCES nexus_jobs(job_id) ON DELETE CASCADE
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_evidence_job_id ON nexus_evidence(job_id)",
+    "CREATE INDEX IF NOT EXISTS idx_reports_job_id ON nexus_reports(job_id)",
     "CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON nexus_chunks(document_id)",
     "CREATE INDEX IF NOT EXISTS idx_jobs_status ON nexus_jobs(status)",
 )

@@ -6,7 +6,9 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from app.nexus.evidence import build_library_evidence
+from app.nexus.export import nexus_export_router
 from app.nexus.ingest import accept_upload
+from app.nexus.report import nexus_report_router
 from app.nexus.search import search_evidence
 
 
@@ -50,3 +52,6 @@ def nexus_search(payload: NexusSearchRequest) -> dict:
 
 # 既存インポート互換
 router = nexus_router
+
+nexus_router.include_router(nexus_report_router)
+nexus_router.include_router(nexus_export_router)
