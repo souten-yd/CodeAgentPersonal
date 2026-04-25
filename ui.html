@@ -566,9 +566,15 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-job{font-size:10px;color:var(--amber);padding:6px 8px;border:1px solid rgba(255,170,0,.28);border-radius:6px;background:rgba(255,170,0,.07)}
 .nexus-doc-list{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow:auto}
 .nexus-doc-item{display:flex;justify-content:space-between;gap:8px;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg1)}
+.nexus-doc-item.active{border-color:var(--accent-border);box-shadow:0 0 0 1px var(--accent-border) inset}
 .nexus-doc-actions{display:flex;gap:5px;flex-wrap:wrap}
 .nexus-doc-actions button{font-size:10px;padding:3px 7px;border-radius:4px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer}
 .nexus-doc-actions button.danger{border-color:rgba(255,68,102,.35);color:var(--red);background:rgba(255,68,102,.08)}
+.nexus-doc-meta{font-size:10px;color:var(--text3);display:flex;flex-direction:column;gap:2px}
+.nexus-detail-panel{border:1px solid var(--border);border-radius:6px;background:var(--bg1);padding:8px;display:flex;flex-direction:column;gap:5px;min-height:120px}
+.nexus-detail-row{font-size:10px;color:var(--text3);word-break:break-all}
+.nexus-detail-row b{color:var(--text2)}
+.nexus-detail-pre{margin:0;max-height:110px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:10px;color:var(--text3);font-family:var(--font-mono)}
 .nexus-dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
 .nexus-metric-card{border:1px solid var(--border);border-radius:8px;background:var(--bg2);padding:12px}
 .nexus-metric-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em}
@@ -577,6 +583,14 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-job-item{border:1px solid var(--border);border-radius:6px;padding:7px;background:var(--bg1)}
 .nexus-job-item-title{font-size:11px;color:var(--text);font-weight:700}
 .nexus-job-item-meta{font-size:10px;color:var(--text3);margin-top:3px;font-family:var(--font-mono)}
+.nexus-timeline{display:flex;flex-direction:column;gap:6px;max-height:160px;overflow:auto}
+.nexus-tl-item{border-left:2px solid var(--accent-border);padding-left:8px}
+.nexus-tl-head{font-size:10px;color:var(--text2);font-family:var(--font-mono)}
+.nexus-tl-body{font-size:10px;color:var(--text3);line-height:1.4}
+.nexus-result-panel{display:flex;flex-direction:column;gap:9px}
+.nexus-result-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.nexus-result-item{border:1px solid var(--border);border-radius:6px;background:var(--bg1);padding:8px;display:flex;flex-direction:column;gap:5px}
+.nexus-result-meta{font-size:10px;color:var(--text3);font-family:var(--font-mono)}
 @media(max-width:768px){
   .nexus-topbar{flex-direction:column;align-items:stretch}
   .nexus-subtabs{padding-bottom:2px}
@@ -1320,11 +1334,19 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div id="nexus-lib-jobs" class="nexus-job-list">
               <div class="nexus-empty">No active jobs</div>
             </div>
+            <div class="nexus-card-title" style="margin-top:4px">Event Timeline</div>
+            <div id="nexus-lib-timeline" class="nexus-timeline">
+              <div class="nexus-empty">No timeline events</div>
+            </div>
           </div>
           <div class="nexus-card">
             <div class="nexus-card-title">Documents</div>
             <input id="nexus-lib-search" type="text" placeholder="文書名で検索..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px" oninput="searchNexusDocuments(this.value)">
             <div id="nexus-lib-list" class="nexus-doc-list"></div>
+            <div class="nexus-card-title" style="margin-top:4px">Document Detail</div>
+            <div id="nexus-lib-detail" class="nexus-detail-panel">
+              <div class="nexus-empty">文書を選択すると詳細を表示します</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1340,7 +1362,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </div>
           <div class="nexus-card">
             <div class="nexus-card-title">News Result Placeholder</div>
-            <div id="nexus-news-result" class="nexus-job" style="min-height:100px;white-space:pre-wrap">未実行: 入力受付 + スタブ応答 + Evidence保存（MVP）</div>
+            <div id="nexus-news-result" class="nexus-result-panel" style="min-height:100px">
+              <div class="nexus-empty">未実行: 入力受付 + スタブ応答 + Evidence保存（MVP）</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1356,7 +1380,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </div>
           <div class="nexus-card">
             <div class="nexus-card-title">Market Result Placeholder</div>
-            <div id="nexus-market-result" class="nexus-job" style="min-height:100px;white-space:pre-wrap">未実行: 入力受付 + スタブ応答 + Evidence保存（MVP）</div>
+            <div id="nexus-market-result" class="nexus-result-panel" style="min-height:100px">
+              <div class="nexus-empty">未実行: 入力受付 + スタブ応答 + Evidence保存（MVP）</div>
+            </div>
           </div>
         </div>
       </div>
@@ -6856,6 +6882,9 @@ let nexusDocSearchTimer = null;
 let nexusJobsPollTimer = null;
 let nexusDashboardPollTimer = null;
 let nexusTrackers = {};
+let nexusSelectedDocumentId = null;
+let nexusEventTimeline = [];
+let nexusSavedEvidence = [];
 
 function formatBytes(bytes) {
   const b = Number(bytes || 0);
@@ -6874,11 +6903,72 @@ function updateNexusJobBanner(text, isErr = false) {
   el.style.color = isErr ? 'var(--red)' : 'var(--amber)';
 }
 
+function renderNexusDocumentDetail(doc = null) {
+  const el = document.getElementById('nexus-lib-detail');
+  if (!el) return;
+  if (!doc) {
+    el.innerHTML = '<div class="nexus-empty">文書を選択すると詳細を表示します</div>';
+    return;
+  }
+  const created = String(doc.created_at || '').replace('T', ' ').slice(0, 19) || '-';
+  const metadata = doc.metadata || {
+    content_type: doc.content_type || '-',
+    has_extracted_text: !!doc.has_extracted_text,
+    has_markdown: !!doc.has_markdown,
+  };
+  el.innerHTML = `
+    <div class="nexus-detail-row"><b>ID:</b> ${esc(doc.id || '-')}</div>
+    <div class="nexus-detail-row"><b>作成日時:</b> ${esc(created)}</div>
+    <div class="nexus-detail-row"><b>chunk数:</b> ${Number(doc.chunk_count || 0)}</div>
+    <div class="nexus-detail-row"><b>サイズ:</b> ${esc(formatBytes(doc.size || 0))}</div>
+    <div class="nexus-detail-row"><b>メタデータ:</b></div>
+    <pre class="nexus-detail-pre">${esc(JSON.stringify(metadata, null, 2))}</pre>
+  `;
+}
+
+async function selectNexusDocument(documentId) {
+  nexusSelectedDocumentId = documentId;
+  const query = '?project=' + encodeURIComponent(currentProject);
+  try {
+    const r = await fetch(API + '/nexus/documents/' + encodeURIComponent(documentId) + query);
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    renderNexusDocumentDetail(d.document || null);
+  } catch (e) {
+    renderNexusDocumentDetail(null);
+    updateNexusJobBanner('Detail load failed: ' + e.message, true);
+  }
+}
+
+function renderNexusTimeline() {
+  const el = document.getElementById('nexus-lib-timeline');
+  if (!el) return;
+  if (!nexusEventTimeline.length) {
+    el.innerHTML = '<div class="nexus-empty">No timeline events</div>';
+    return;
+  }
+  el.innerHTML = nexusEventTimeline.slice(0, 50).map((row) => `
+    <div class="nexus-tl-item">
+      <div class="nexus-tl-head">${esc(row.time)} · ${esc(row.job_id)}</div>
+      <div class="nexus-tl-body">${esc(row.label)}</div>
+    </div>
+  `).join('');
+}
+
+function pushNexusTimelineEvent(jobId, label, ts = '') {
+  const timeRaw = ts || new Date().toISOString();
+  const time = String(timeRaw).replace('T', ' ').slice(0, 19);
+  nexusEventTimeline.unshift({ job_id: String(jobId || '-'), label: String(label || '-'), time });
+  if (nexusEventTimeline.length > 120) nexusEventTimeline = nexusEventTimeline.slice(0, 120);
+  renderNexusTimeline();
+}
+
 function renderNexusDocuments(items = []) {
   const el = document.getElementById('nexus-lib-list');
   if (!el) return;
   if (!items.length) {
     el.innerHTML = '<div class="nexus-empty">No documents</div>';
+    renderNexusDocumentDetail(null);
     return;
   }
   el.innerHTML = items.map((doc) => {
@@ -6886,14 +6976,27 @@ function renderNexusDocuments(items = []) {
     return `<div class="nexus-doc-item">
       <div>
         <div style="font-size:12px;font-weight:700">${esc(doc.filename || 'untitled')}</div>
-        <div style="font-size:10px;color:var(--text3)">${esc(dt)} / ${esc(formatBytes(doc.size))} / chunks: ${doc.chunk_count || 0}</div>
+        <div class="nexus-doc-meta">
+          <span>created: ${esc(dt)}</span>
+          <span>size: ${esc(formatBytes(doc.size))}</span>
+          <span>chunks: ${doc.chunk_count || 0}</span>
+          <span>metadata: ${esc(doc.content_type || '-')}</span>
+        </div>
       </div>
       <div class="nexus-doc-actions">
-        <button onclick="downloadNexusDocument('${esc(doc.id)}')">Download</button>
-        <button class="danger" onclick="deleteNexusDocument('${esc(doc.id)}')">Delete</button>
+        <button onclick="event.stopPropagation();downloadNexusDocument('${esc(doc.id)}')">Original download</button>
+        <button onclick="event.stopPropagation();downloadNexusExtractedText('${esc(doc.id)}')">Extracted text download</button>
+        <button class="danger" onclick="event.stopPropagation();deleteNexusDocument('${esc(doc.id)}')">Delete</button>
       </div>
     </div>`;
   }).join('');
+  Array.from(el.querySelectorAll('.nexus-doc-item')).forEach((node, idx) => {
+    const doc = items[idx];
+    const isActive = nexusSelectedDocumentId === doc.id;
+    node.classList.toggle('active', isActive);
+    node.onclick = () => selectNexusDocument(doc.id);
+  });
+  if (!nexusSelectedDocumentId && items[0]?.id) selectNexusDocument(items[0].id);
 }
 
 async function fetchNexusCanonicalWithAlias(canonicalPath, aliasPath, init) {
@@ -6941,6 +7044,11 @@ function downloadNexusDocument(documentId) {
   window.open(url, '_blank', 'noopener');
 }
 
+function downloadNexusExtractedText(documentId) {
+  const url = API + '/nexus/library/documents/' + encodeURIComponent(documentId) + '/download/text?project=' + encodeURIComponent(currentProject);
+  window.open(url, '_blank', 'noopener');
+}
+
 function renderNexusJobs(jobs = []) {
   const el = document.getElementById('nexus-lib-jobs');
   if (!el) return;
@@ -6985,6 +7093,7 @@ async function refreshNexusDashboardSummary() {
 async function trackNexusJob(jobId) {
   nexusTrackers[jobId] = { after: -1, done: false };
   updateNexusJobBanner(`Job ${jobId} queued...`);
+  pushNexusTimelineEvent(jobId, 'queued');
   while (!nexusTrackers[jobId]?.done) {
     try {
       const after = nexusTrackers[jobId].after;
@@ -6996,6 +7105,7 @@ async function trackNexusJob(jobId) {
           nexusTrackers[jobId].after = Math.max(nexusTrackers[jobId].after, Number(ev.seq ?? -1));
           const label = ev.data?.label || ev.type;
           updateNexusJobBanner(`Job ${jobId}: ${label}`);
+          pushNexusTimelineEvent(jobId, label, ev.created_at || ev.timestamp || '');
         });
       }
       const jobRes = await fetch(API + '/nexus/jobs/' + encodeURIComponent(jobId));
@@ -7005,6 +7115,7 @@ async function trackNexusJob(jobId) {
         if (st === 'completed' || st === 'failed') {
           nexusTrackers[jobId].done = true;
           const err = jobData?.job?.error;
+          pushNexusTimelineEvent(jobId, st === 'completed' ? 'completed' : `failed: ${err || ''}`, jobData?.job?.updated_at || '');
           updateNexusJobBanner(st === 'completed' ? `Job ${jobId} completed` : `Job ${jobId} failed: ${err || ''}`, st === 'failed');
         }
       }
@@ -7050,15 +7161,85 @@ async function nexusUploadDocuments() {
 function setNexusNewsResult(payload, isErr = false) {
   const el = document.getElementById('nexus-news-result');
   if (!el) return;
-  el.style.color = isErr ? 'var(--red)' : 'var(--text2)';
-  el.textContent = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+  if (isErr || typeof payload === 'string') {
+    el.innerHTML = `<div class="nexus-job" style="color:${isErr ? 'var(--red)' : 'var(--text2)'}">${esc(typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2))}</div>`;
+    return;
+  }
+  renderNexusSearchResultPanel(el, payload, 'news');
 }
 
 function setNexusMarketResult(payload, isErr = false) {
   const el = document.getElementById('nexus-market-result');
   if (!el) return;
-  el.style.color = isErr ? 'var(--red)' : 'var(--text2)';
-  el.textContent = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+  if (isErr || typeof payload === 'string') {
+    el.innerHTML = `<div class="nexus-job" style="color:${isErr ? 'var(--red)' : 'var(--text2)'}">${esc(typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2))}</div>`;
+    return;
+  }
+  renderNexusSearchResultPanel(el, payload, 'market');
+}
+
+function nexusCitationLabel(item, idx) {
+  return item.citation_label || item.citation || `[web-${idx + 1}]`;
+}
+
+function renderNexusSearchResultPanel(container, payload, mode = 'news') {
+  const items = payload?.search?.items || [];
+  const jobId = payload?.job_id || '';
+  const summary = payload?.digest?.summary || payload?.snapshot?.summary || '';
+  container.innerHTML = `
+    <div class="nexus-result-head">
+      <div style="font-size:11px;color:var(--text2)">${esc(summary || '検索結果')}</div>
+      <button class="settings-btn" style="font-size:10px;padding:3px 8px" onclick="saveNexusAllEvidence('${esc(jobId)}','${esc(mode)}')">Evidence保存</button>
+    </div>
+    <div class="nexus-result-meta">job: ${esc(jobId || '-')} / saved_evidence: ${Number(payload?.saved_evidence || 0)} / hits: ${items.length}</div>
+    ${(items.length ? items.map((item, idx) => {
+      const citation = nexusCitationLabel(item, idx);
+      const pStart = item.page_start ?? item.page ?? '-';
+      const pEnd = item.page_end ?? item.page ?? '-';
+      const snippet = item.snippet || item.quote || '(snippetなし)';
+      return `<div class="nexus-result-item">
+        <div style="font-size:11px;color:var(--text2);font-weight:700">${esc(item.title || '(untitled)')}</div>
+        <div class="nexus-result-meta">citation_label: ${esc(citation)} / page_start: ${esc(String(pStart))} / page_end: ${esc(String(pEnd))}</div>
+        <div style="font-size:11px;color:var(--text3)">${esc(snippet)}</div>
+        <div class="nexus-doc-actions">
+          <button onclick="saveSingleNexusEvidence('${esc(jobId)}','${esc(mode)}',${idx}, this)">Evidence保存</button>
+          ${item.url ? `<button onclick="window.open('${esc(item.url)}','_blank','noopener')">Open Source</button>` : ''}
+        </div>
+      </div>`;
+    }).join('')) : '<div class="nexus-empty">検索結果がありません</div>'}
+  `;
+  if (!container._payloadCache) container._payloadCache = {};
+  container._payloadCache[mode] = payload;
+}
+
+function saveSingleNexusEvidence(jobId, mode, idx, btn) {
+  const root = document.getElementById(mode === 'news' ? 'nexus-news-result' : 'nexus-market-result');
+  const payload = root?._payloadCache?.[mode];
+  const item = payload?.search?.items?.[idx];
+  if (!item) return;
+  nexusSavedEvidence.push({
+    job_id: jobId,
+    mode,
+    citation_label: nexusCitationLabel(item, idx),
+    page_start: item.page_start ?? item.page ?? null,
+    page_end: item.page_end ?? item.page ?? null,
+    snippet: item.snippet || item.quote || '',
+    saved_at: new Date().toISOString(),
+  });
+  if (nexusSavedEvidence.length > 400) nexusSavedEvidence = nexusSavedEvidence.slice(-400);
+  if (btn) {
+    btn.textContent = '保存済み';
+    btn.disabled = true;
+  }
+  updateNexusJobBanner(`Evidence保存: ${jobId} (${mode})`);
+}
+
+function saveNexusAllEvidence(jobId, mode) {
+  const root = document.getElementById(mode === 'news' ? 'nexus-news-result' : 'nexus-market-result');
+  const payload = root?._payloadCache?.[mode];
+  const items = payload?.search?.items || [];
+  items.forEach((_, idx) => saveSingleNexusEvidence(jobId, mode, idx, null));
+  updateNexusJobBanner(`Evidenceをまとめて保存: ${items.length}件 (${mode})`);
 }
 
 async function runNexusNewsMvp() {
@@ -7118,6 +7299,7 @@ function startNexusPolling() {
   refreshNexusDashboardSummary();
   refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
   refreshNexusJobs();
+  renderNexusTimeline();
   nexusJobsPollTimer = setInterval(refreshNexusJobs, NEXUS_POLL_MS);
   nexusDashboardPollTimer = setInterval(refreshNexusDashboardSummary, 5000);
 }
