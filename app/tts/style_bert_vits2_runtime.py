@@ -247,6 +247,51 @@ def _normalize_non_japanese_policy(value: str | None) -> str:
     return "normalize_then_block"
 
 
+_SBV2_JP_EXTRA_NORMALIZATION_DEFAULTS = {
+    "sbv2_jp_extra_text_normalization": True,
+    "sbv2_jp_extra_english_to_katakana": "llm",
+    "sbv2_jp_extra_emoji_policy": "skip",
+    "sbv2_jp_extra_symbol_policy": "readable",
+    "sbv2_jp_extra_url_policy": "skip",
+    "sbv2_jp_extra_non_japanese_policy": "normalize_then_block",
+}
+
+
+def _resolve_sbv2_jp_extra_normalization_settings(req: dict) -> dict:
+    settings = req.get("settings") or {}
+    resolved = {}
+    for key, default_value in _SBV2_JP_EXTRA_NORMALIZATION_DEFAULTS.items():
+        top_level_value = req.get(key)
+        nested_value = settings.get(key) if isinstance(settings, dict) else None
+        resolved[key] = (
+            top_level_value
+            if top_level_value is not None
+            else nested_value
+            if nested_value is not None
+            else default_value
+        )
+
+    english_to_katakana = str(resolved.get("sbv2_jp_extra_english_to_katakana") or "llm").strip().lower()
+    resolved["sbv2_jp_extra_english_policy"] = english_to_katakana
+
+    emoji_policy = str(resolved.get("sbv2_jp_extra_emoji_policy") or "skip").strip().lower()
+    resolved["emoji_policy"] = "keep" if emoji_policy == "keep" else "replace" if emoji_policy == "describe" else "remove"
+    resolved["sbv2_jp_extra_emoji_policy"] = resolved["emoji_policy"]
+
+    symbol_policy = str(resolved.get("sbv2_jp_extra_symbol_policy") or "readable").strip().lower()
+    resolved["symbol_policy"] = "keep" if symbol_policy == "keep" else "replace" if symbol_policy == "readable" else "remove"
+    resolved["sbv2_jp_extra_symbol_policy"] = resolved["symbol_policy"]
+
+    url_policy = str(resolved.get("sbv2_jp_extra_url_policy") or "skip").strip().lower()
+    resolved["url_email_policy"] = "replace" if url_policy == "readable" else "remove"
+    resolved["sbv2_jp_extra_url_email_policy"] = resolved["url_email_policy"]
+
+    resolved["sbv2_jp_extra_non_japanese_policy"] = _normalize_non_japanese_policy(
+        resolved.get("sbv2_jp_extra_non_japanese_policy")
+    )
+    return resolved
+
+
 class StyleBertVITS2Runtime(TTSEngineRuntime):
     engine_key = "style_bert_vits2"
 
@@ -327,12 +372,12 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         effective_language, normalized_language, is_jp_extra = _decide_effective_language(requested_language, model_version)
         normalization_result = None
         normalized_text = text
+        normalization_settings = _resolve_sbv2_jp_extra_normalization_settings(req)
         if is_jp_extra:
-            normalization_result = normalize_text_for_sbv2_jp_extra(text, req.get("settings"))
+            normalization_result = normalize_text_for_sbv2_jp_extra(text, normalization_settings)
             normalized_text = str(normalization_result.get("text") or "")
         non_japanese_policy = _normalize_non_japanese_policy(
-            req.get("sbv2_jp_extra_non_japanese_policy")
-            or (req.get("settings") or {}).get("sbv2_jp_extra_non_japanese_policy")
+            normalization_settings.get("sbv2_jp_extra_non_japanese_policy")
         )
         return {
             "request_id": str(request_id or ""),
