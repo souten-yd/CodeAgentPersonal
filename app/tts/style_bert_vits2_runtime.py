@@ -5,7 +5,6 @@ import collections
 import json
 import logging
 import os
-import re
 import subprocess
 import tempfile
 import threading
@@ -15,6 +14,7 @@ from pathlib import Path
 
 from .engine_registry import TTSEngineRuntime
 from .style_bert_vits2_paths import resolve_style_bert_vits2_models_dir
+from .text_normalizer import looks_japanese, normalize_text_for_sbv2_jp_extra
 
 _STYLE_BERT_VITS2_DEFAULT_REPO_DIR = "/app/Style-Bert-VITS2"
 _STYLE_BERT_VITS2_DEFAULT_VENV_DIR = "/app/Style-Bert-VITS2/.venv"
@@ -234,13 +234,6 @@ def _sanitize_preview_text(value: str | None, *, limit: int) -> str:
     return text
 
 
-_JP_TEXT_PATTERN = re.compile(r"[ぁ-んァ-ン一-龯々〆〤]")
-
-
-def _looks_japanese(text: str | None) -> bool:
-    return bool(_JP_TEXT_PATTERN.search(str(text or "")))
-
-
 def _normalize_non_japanese_policy(value: str | None) -> str:
     raw = str(value or "").strip().lower()
     if raw in {"block", "warn", "allow"}:
@@ -326,12 +319,17 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             (req.get("settings") or {}).get("echo_tts_sbv2_language", "")
         ).strip() or None
         effective_language, normalized_language, is_jp_extra = _decide_effective_language(requested_language, model_version)
+        normalization_result = None
+        normalized_text = text
+        if is_jp_extra:
+            normalization_result = normalize_text_for_sbv2_jp_extra(text, req.get("settings"))
+            normalized_text = str(normalization_result.get("text") or "")
         non_japanese_policy = _normalize_non_japanese_policy(
             req.get("sbv2_jp_extra_non_japanese_policy")
             or (req.get("settings") or {}).get("sbv2_jp_extra_non_japanese_policy")
         )
         return {
-            "text": text,
+            "text": normalized_text,
             "model_name": model,
             "model_path": model_path,
             "config_path": config_path,
@@ -363,6 +361,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "raw_text": str(req.get("raw_text") or text),
             "translated_text": str(req.get("translated_text") or ""),
             "non_japanese_policy": non_japanese_policy,
+            "jp_extra_normalization": normalization_result,
         }
 
     @staticmethod
@@ -702,7 +701,7 @@ while True:
 
     def _log_sbv2_input(self, request_id: str, model: str, payload: dict, *, raw_text: str, translated_text: str = "", tts_text_source: str = "raw") -> None:
         final_tts_text = str(payload.get("text") or "")
-        looks_japanese = _looks_japanese(final_tts_text)
+        looks_japanese_text = looks_japanese(final_tts_text)
         raw_preview = _sanitize_preview_text(raw_text, limit=_TEXT_LOG_INFO_LIMIT)
         translated_preview = _sanitize_preview_text(translated_text, limit=_TEXT_LOG_INFO_LIMIT)
         final_preview = _sanitize_preview_text(final_tts_text, limit=_TEXT_LOG_INFO_LIMIT)
@@ -725,7 +724,7 @@ while True:
             translated_preview,
             final_preview,
             len(final_tts_text),
-            str(looks_japanese).lower(),
+            str(looks_japanese_text).lower(),
             payload.get("non_japanese_policy") or "block",
             payload.get("speaker_id"),
             payload.get("speaker"),
@@ -745,7 +744,18 @@ while True:
             _sanitize_preview_text(translated_text, limit=_TEXT_LOG_DEBUG_LIMIT),
             _sanitize_preview_text(final_tts_text, limit=_TEXT_LOG_DEBUG_LIMIT),
         )
-        if payload.get("is_jp_extra") and final_tts_text and not looks_japanese:
+        normalization_result = payload.get("jp_extra_normalization") or {}
+        if normalization_result:
+            _logger.info(
+                "[Style-Bert-VITS2][normalizer] id=%s changed=%s looks_japanese_before=%s looks_japanese_after=%s warnings=%s operations=%s",
+                request_id,
+                str(bool(normalization_result.get("changed"))).lower(),
+                str(bool(normalization_result.get("looks_japanese_before"))).lower(),
+                str(bool(normalization_result.get("looks_japanese_after"))).lower(),
+                normalization_result.get("warnings") or [],
+                normalization_result.get("operations") or [],
+            )
+        if payload.get("is_jp_extra") and final_tts_text and not looks_japanese_text:
             _logger.warning(
                 "[Style-Bert-VITS2][input_warning] JP-Extra selected but final_tts_text does not look Japanese. text_preview=%r",
                 final_preview,
@@ -780,8 +790,10 @@ while True:
             tts_text_source=str(payload.get("text_source") or "raw"),
         )
         final_tts_text = str(payload.get("text") or "")
+        if payload.get("is_jp_extra") and not final_tts_text:
+            raise ValueError(json.dumps({"status_code": 422, "error": "読み上げ可能なテキストがありません"}, ensure_ascii=False))
         policy = _normalize_non_japanese_policy(payload.get("non_japanese_policy"))
-        if payload.get("is_jp_extra") and final_tts_text and not _looks_japanese(final_tts_text):
+        if payload.get("is_jp_extra") and final_tts_text and not looks_japanese(final_tts_text):
             if policy == "block":
                 preview = _sanitize_preview_text(final_tts_text, limit=_TEXT_LOG_INFO_LIMIT)
                 _logger.error(
@@ -845,8 +857,10 @@ while True:
             tts_text_source=str(payload.get("text_source") or "raw"),
         )
         final_tts_text = str(payload.get("text") or "")
+        if payload.get("is_jp_extra") and not final_tts_text:
+            raise ValueError(json.dumps({"status_code": 422, "error": "読み上げ可能なテキストがありません"}, ensure_ascii=False))
         policy = _normalize_non_japanese_policy(payload.get("non_japanese_policy"))
-        if payload.get("is_jp_extra") and final_tts_text and not _looks_japanese(final_tts_text) and policy == "block":
+        if payload.get("is_jp_extra") and final_tts_text and not looks_japanese(final_tts_text) and policy == "block":
             preview = _sanitize_preview_text(final_tts_text, limit=_TEXT_LOG_INFO_LIMIT)
             _logger.error(
                 "[Style-Bert-VITS2][input_blocked] JP-Extra requires Japanese text. final_text_preview=%r",
