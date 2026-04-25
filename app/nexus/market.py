@@ -3,12 +3,28 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from app.nexus.config import load_runtime_config
 from app.nexus.evidence import save_evidence_items
 from app.nexus.jobs import create_job, update_job
 from app.nexus.web_scout import build_web_evidence, plan_web_queries, run_web_search
 
 
-def run_market_mvp(symbol_or_theme: str, *, max_results_per_query: int = 5) -> dict[str, Any]:
+ALLOWED_SEARCH_MODES = {"quick", "standard", "deep", "exhaustive"}
+
+
+def _normalize_mode(mode: str | None) -> str:
+    raw_mode = (mode or "standard").strip().lower()
+    if raw_mode in ALLOWED_SEARCH_MODES:
+        return raw_mode
+    return "standard"
+
+
+def run_market_mvp(
+    symbol_or_theme: str,
+    *,
+    mode: str = "standard",
+    max_results_per_query: int | None = None,
+) -> dict[str, Any]:
     """MVP: market input -> web evidence save -> quick market snapshot.
 
     Future extension points:
@@ -16,16 +32,32 @@ def run_market_mvp(symbol_or_theme: str, *, max_results_per_query: int = 5) -> d
     - GDELT connector for macro/geopolitical event overlays.
     - Crossref connector for supporting research references.
     """
+    cfg = load_runtime_config()
     seed = (symbol_or_theme or "").strip()
     if not seed:
         raise ValueError("symbol_or_theme is required")
+
+    normalized_mode = _normalize_mode(mode)
+
+    if not cfg.enable_market:
+        return {
+            "symbol_or_theme": seed,
+            "mode": normalized_mode,
+            "saved_evidence": 0,
+            "message": "NEXUS_ENABLE_MARKET=false のため、マーケット取得をスキップしました。",
+            "disabled": True,
+        }
 
     job_id = str(uuid.uuid4())
     create_job(job_id, title=f"market:{seed}", message="market_mvp")
     update_job(job_id, status="running")
 
-    queries = plan_web_queries(f"{seed} market outlook")
-    search_output = run_web_search(queries, max_results_per_query=max_results_per_query)
+    queries = plan_web_queries(f"{seed} market outlook", mode=normalized_mode)
+    search_output = run_web_search(
+        queries,
+        mode=normalized_mode,
+        max_results_per_query=max_results_per_query,
+    )
     evidence_items = build_web_evidence(search_output, note="market_mvp")
     saved_count = save_evidence_items(job_id, evidence_items)
 
@@ -36,6 +68,7 @@ def run_market_mvp(symbol_or_theme: str, *, max_results_per_query: int = 5) -> d
 
     template = {
         "symbol_or_theme": seed,
+        "mode": normalized_mode,
         "bull_case": "TBD",
         "bear_case": "TBD",
         "catalysts": catalysts,
@@ -45,6 +78,7 @@ def run_market_mvp(symbol_or_theme: str, *, max_results_per_query: int = 5) -> d
     update_job(job_id, status="completed", document_count=saved_count)
     return {
         "job_id": job_id,
+        "mode": normalized_mode,
         "queries": queries,
         "saved_evidence": saved_count,
         "search": search_output,

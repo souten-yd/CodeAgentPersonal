@@ -13,7 +13,14 @@ from app.nexus.export import nexus_export_router
 from app.nexus.ingest import accept_upload
 from app.nexus.jobs import get_job, get_job_events, list_active_jobs
 from app.nexus.market import run_market_mvp
-from app.nexus.news import run_news_mvp
+from app.nexus.news import (
+    create_watchlist,
+    delete_watchlist,
+    get_watchlist,
+    list_watchlists,
+    run_news_mvp,
+    update_watchlist,
+)
 from app.nexus.report import nexus_report_router
 from app.nexus.search import search_evidence
 
@@ -29,12 +36,31 @@ class NexusSearchRequest(BaseModel):
 
 class NexusNewsMvpRequest(BaseModel):
     topic: str = Field(min_length=1)
-    max_results_per_query: int = Field(default=5, ge=1, le=20)
+    mode: str = Field(default="standard")
+    max_results_per_query: int | None = Field(default=None, ge=1, le=20)
 
 
 class NexusMarketMvpRequest(BaseModel):
     symbol_or_theme: str = Field(min_length=1)
-    max_results_per_query: int = Field(default=5, ge=1, le=20)
+    mode: str = Field(default="standard")
+    max_results_per_query: int | None = Field(default=None, ge=1, le=20)
+
+
+class NexusWatchlistCreateRequest(BaseModel):
+    project: str = Field(default="default")
+    name: str = Field(min_length=1)
+    query: str = Field(min_length=1)
+    source_type: str = Field(default="news")
+    is_active: bool = True
+
+
+class NexusWatchlistUpdateRequest(BaseModel):
+    project: str = Field(default="default")
+    name: str | None = None
+    query: str | None = None
+    source_type: str | None = None
+    is_active: bool | None = None
+    last_checked_at: str | None = None
 
 
 @nexus_router.get("/health")
@@ -314,6 +340,7 @@ def nexus_news_mvp(payload: NexusNewsMvpRequest) -> dict:
     try:
         return run_news_mvp(
             topic=payload.topic,
+            mode=payload.mode,
             max_results_per_query=payload.max_results_per_query,
         )
     except ValueError as exc:
@@ -325,10 +352,56 @@ def nexus_market_mvp(payload: NexusMarketMvpRequest) -> dict:
     try:
         return run_market_mvp(
             symbol_or_theme=payload.symbol_or_theme,
+            mode=payload.mode,
             max_results_per_query=payload.max_results_per_query,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@nexus_router.get("/news/watchlists")
+def nexus_list_watchlists(
+    project: str = Query("default"),
+    include_inactive: bool = Query(True),
+) -> dict:
+    return {
+        "watchlists": list_watchlists(project=project, include_inactive=include_inactive),
+    }
+
+
+@nexus_router.get("/news/watchlists/{watchlist_id}")
+def nexus_get_watchlist(watchlist_id: str, project: str = Query("default")) -> dict:
+    row = get_watchlist(watchlist_id, project=project)
+    if row is None:
+        raise HTTPException(status_code=404, detail="watchlist not found")
+    return {"watchlist": row}
+
+
+@nexus_router.post("/news/watchlists")
+def nexus_create_watchlist(payload: NexusWatchlistCreateRequest) -> dict:
+    try:
+        return {"watchlist": create_watchlist(**payload.model_dump())}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@nexus_router.patch("/news/watchlists/{watchlist_id}")
+def nexus_update_watchlist(watchlist_id: str, payload: NexusWatchlistUpdateRequest) -> dict:
+    try:
+        row = update_watchlist(watchlist_id, **payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail="watchlist not found")
+    return {"watchlist": row}
+
+
+@nexus_router.delete("/news/watchlists/{watchlist_id}")
+def nexus_delete_watchlist(watchlist_id: str, project: str = Query("default")) -> dict:
+    deleted = delete_watchlist(watchlist_id, project=project)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="watchlist not found")
+    return {"ok": True, "watchlist_id": watchlist_id}
 
 
 # 既存インポート互換
