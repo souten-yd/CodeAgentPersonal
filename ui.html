@@ -1996,15 +1996,42 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </div>
           <details style="margin-top:8px">
             <summary style="cursor:pointer;font-size:11px;color:var(--text2);font-weight:700">Advanced parameters</summary>
+            <div style="margin-top:6px;padding:6px;border:1px solid var(--border);border-radius:6px;background:rgba(64,178,255,.06);font-size:10px;color:var(--text3);line-height:1.5">
+              💡 各パラメータは右側の説明で効果を確認できます（推奨初期値つき）。
+            </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px">
-              <input id="echo-tts-sbv2-length" type="number" step="0.01" min="0.2" max="3.0" placeholder="length" onchange="saveEchoSettings()">
-              <input id="echo-tts-sbv2-sdp-ratio" type="number" step="0.01" min="0" max="1" placeholder="sdp_ratio" onchange="saveEchoSettings()">
-              <input id="echo-tts-sbv2-noise" type="number" step="0.01" min="0" max="2" placeholder="noise" onchange="saveEchoSettings()">
-              <input id="echo-tts-sbv2-noise-w" type="number" step="0.01" min="0" max="2" placeholder="noise_w" onchange="saveEchoSettings()">
-              <input id="echo-tts-sbv2-style-weight" type="number" step="0.01" min="0" max="20" placeholder="style_weight" onchange="saveEchoSettings()">
-              <input id="echo-tts-sbv2-split-interval" type="number" step="0.01" min="0" max="5" placeholder="split_interval" onchange="saveEchoSettings()">
-              <input id="echo-tts-sbv2-pitch-scale" type="number" step="0.01" min="0.5" max="2.0" placeholder="pitch_scale" onchange="saveEchoSettings()">
-              <input id="echo-tts-sbv2-intonation-scale" type="number" step="0.01" min="0.5" max="2.0" placeholder="intonation_scale" onchange="saveEchoSettings()">
+              <div title="話速（長さ）調整。1.0が標準、低いほど速く・高いほど遅くなります。推奨初期値: 1.0">
+                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">length (初期値: 1.0)</div>
+                <input id="echo-tts-sbv2-length" type="number" step="0.01" min="0.2" max="3.0" placeholder="length" onchange="saveEchoSettings()">
+              </div>
+              <div title="韻律のランダム性の比率。高いほど揺らぎが増えます。推奨初期値: 0.2">
+                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">sdp_ratio (初期値: 0.2)</div>
+                <input id="echo-tts-sbv2-sdp-ratio" type="number" step="0.01" min="0" max="1" placeholder="sdp_ratio" onchange="saveEchoSettings()">
+              </div>
+              <div title="音声生成ノイズ量。高いほどランダム性が増えます。推奨初期値: 0.6">
+                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">noise (初期値: 0.6)</div>
+                <input id="echo-tts-sbv2-noise" type="number" step="0.01" min="0" max="2" placeholder="noise" onchange="saveEchoSettings()">
+              </div>
+              <div title="発音タイミング側のノイズ量。高いほど抑揚・タイミングが揺れます。推奨初期値: 0.8">
+                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">noise_w (初期値: 0.8)</div>
+                <input id="echo-tts-sbv2-noise-w" type="number" step="0.01" min="0" max="2" placeholder="noise_w" onchange="saveEchoSettings()">
+              </div>
+              <div title="スタイルの効き具合。高いほどスタイル反映を強くします。推奨初期値: 1.0">
+                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">style_weight (初期値: 1.0)</div>
+                <input id="echo-tts-sbv2-style-weight" type="number" step="0.01" min="0" max="20" placeholder="style_weight" onchange="saveEchoSettings()">
+              </div>
+              <div title="line_split有効時の文間ポーズ秒数。推奨初期値: 0.5">
+                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">split_interval (初期値: 0.5)</div>
+                <input id="echo-tts-sbv2-split-interval" type="number" step="0.01" min="0" max="5" placeholder="split_interval" onchange="saveEchoSettings()">
+              </div>
+              <div title="声の高さ倍率。1.0が標準です。推奨初期値: 1.0">
+                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">pitch_scale (初期値: 1.0)</div>
+                <input id="echo-tts-sbv2-pitch-scale" type="number" step="0.01" min="0.5" max="2.0" placeholder="pitch_scale" onchange="saveEchoSettings()">
+              </div>
+              <div title="抑揚の強さ。1.0が標準です。推奨初期値: 1.0">
+                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">intonation_scale (初期値: 1.0)</div>
+                <input id="echo-tts-sbv2-intonation-scale" type="number" step="0.01" min="0.5" max="2.0" placeholder="intonation_scale" onchange="saveEchoSettings()">
+              </div>
             </div>
             <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:var(--text2)">
               <input type="checkbox" id="echo-tts-sbv2-line-split" onchange="saveEchoSettings()"> line_split
@@ -3129,6 +3156,7 @@ function ttsStop() {
   if (playBtn && _isEchoQwen3Selected()) playBtn.disabled = !_qwen3CloneTestAudioBlob;
   _setSbv2TestPlayToggle(false);
   _syncSbv2TestUi();
+  _syncRecordingControlsWithTts();
 }
 
 let _ttsFallbackObjectUrl = null;
@@ -3244,8 +3272,13 @@ async function _ttsMaybeTranslate(text, context = 'main', engine = '') {
 }
 
 async function _ttsPlayNext() {
-  if (tts._queue.length === 0) { tts._playing = false; return; }
+  if (tts._queue.length === 0) {
+    tts._playing = false;
+    _syncRecordingControlsWithTts();
+    return;
+  }
   tts._playing = true;
+  _syncRecordingControlsWithTts();
   const queueItem = tts._queue.shift();
   let sentence = typeof queueItem === 'string' ? queueItem : queueItem?.text;
   const context = typeof queueItem === 'string' ? 'main' : (queueItem?.context || 'main');
@@ -3268,6 +3301,7 @@ async function _ttsPlayNext() {
   }
   if (!sentence) {
     tts._playing = false;
+    _syncRecordingControlsWithTts();
     return;
   }
   try {
@@ -3561,6 +3595,7 @@ function _setQwen3ClonePlayToggle(isPlaying) {
 
 let _qwen3CloneStatusTimer = null;
 let _qwen3CloneTestAudioBlob = null;
+let _qwen3CloneTestBusy = false;
 let _sbv2TestAudioBlob = null;
 let _sbv2TestBusy = false;
 let _sbv2TestVoiceRecorder = null;
@@ -3578,6 +3613,37 @@ function _qwen3CloneGenerateButtons() {
     document.getElementById('qwen3-clone-test-generate-jp-btn'),
     document.getElementById('qwen3-clone-test-generate-us-btn')
   ].filter(Boolean);
+}
+
+function _isRecordingBlockedByTts() {
+  return !!(tts._playing || _qwen3CloneTestBusy || _sbv2TestBusy);
+}
+
+function _syncRecordingControlsWithTts() {
+  const blocked = _isRecordingBlockedByTts();
+  const reason = blocked ? 'TTS生成/再生中は録音を開始できません。' : '';
+  _setMicState(voiceRecording, blocked || voiceRecording, voiceTarget || 'chat');
+  const cloneBtn = document.getElementById('qwen3-clone-test-asr-btn');
+  if (cloneBtn && !cloneTestVoiceRecording) {
+    cloneBtn.disabled = blocked;
+    cloneBtn.title = reason;
+  }
+  const sbv2Btn = document.getElementById('sbv2-test-asr-btn');
+  if (sbv2Btn && !_sbv2TestVoiceRecording) {
+    sbv2Btn.disabled = blocked || _sbv2TestBusy;
+    sbv2Btn.title = reason;
+  }
+  const echoBtn = document.getElementById('echo-record-btn');
+  if (echoBtn && !echo.recording) {
+    echoBtn.disabled = blocked;
+    echoBtn.title = reason;
+  }
+  if (blocked && voiceRecording && voiceRecorder) {
+    voiceRecording = false;
+    _stopVoiceLevelMonitoring(voiceTarget);
+    _setMicState(false, true, voiceTarget || 'chat');
+    voiceRecorder.stop();
+  }
 }
 
 function _trackQwen3ClonePlaybackProgress() {
@@ -3651,6 +3717,8 @@ async function runQwen3CloneTestGenerate(target = 'jp') {
     return;
   }
   generateBtns.forEach((btn) => { btn.dataset.busy = 'true'; btn.disabled = true; });
+  _qwen3CloneTestBusy = true;
+  _syncRecordingControlsWithTts();
   if (playBtn) playBtn.disabled = true;
   try {
     ttsStop();
@@ -3694,6 +3762,8 @@ async function runQwen3CloneTestGenerate(target = 'jp') {
     _setQwen3CloneTestStatus(`再生エラー: ${e.message || e}`, true);
     console.warn('[Qwen3 clone test] failed:', e);
   } finally {
+    _qwen3CloneTestBusy = false;
+    _syncRecordingControlsWithTts();
     generateBtns.forEach((btn) => { btn.dataset.busy = 'false'; btn.disabled = false; });
     _setQwen3ClonePlayToggle(false);
   }
@@ -3754,7 +3824,7 @@ function _syncSbv2TestUi() {
   const dlBtn = document.getElementById('sbv2-test-download-btn');
   const input = document.getElementById('sbv2-test-text');
   if (genBtn) genBtn.disabled = _sbv2TestBusy || !hasModel;
-  if (asrBtn) asrBtn.disabled = _sbv2TestBusy;
+  if (asrBtn) asrBtn.disabled = _sbv2TestBusy || _isRecordingBlockedByTts();
   if (playBtn) playBtn.disabled = !canPlay;
   if (dlBtn) dlBtn.disabled = _sbv2TestBusy || !_sbv2TestAudioBlob;
   if (input) input.disabled = _sbv2TestBusy;
@@ -3783,6 +3853,7 @@ async function runSbv2TestGenerate() {
   }
   _sbv2TestBusy = true;
   _sbv2TestAudioBlob = null;
+  _syncRecordingControlsWithTts();
   _syncSbv2TestUi();
   try {
     ttsStop();
@@ -3800,6 +3871,7 @@ async function runSbv2TestGenerate() {
     _setSbv2TestStatus(`生成失敗: ${e.message || e}`, true);
   } finally {
     _sbv2TestBusy = false;
+    _syncRecordingControlsWithTts();
     _syncSbv2TestUi();
   }
 }
@@ -3849,6 +3921,10 @@ function downloadSbv2TestAudio() {
 }
 
 async function toggleSbv2TestVoiceInput() {
+  if (!_sbv2TestVoiceRecording && _isRecordingBlockedByTts()) {
+    _setSbv2TestStatus('TTS生成/再生中は録音できません。', true);
+    return;
+  }
   if (_sbv2TestVoiceRecording && _sbv2TestVoiceRecorder) {
     _sbv2TestVoiceRecording = false;
     const btn = document.getElementById('sbv2-test-asr-btn');
@@ -3944,10 +4020,24 @@ function _ttsPlayBlob(blob, opts = {}) {
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
     tts._audio = audio;
-    audio.onended = () => { URL.revokeObjectURL(url); resolve({ok: true, reason: 'ended'}); };
-    audio.onerror = () => { URL.revokeObjectURL(url); resolve({ok: false, reason: 'audio_error'}); };
+    tts._playing = true;
+    _syncRecordingControlsWithTts();
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      tts._playing = false;
+      _syncRecordingControlsWithTts();
+      resolve({ok: true, reason: 'ended'});
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      tts._playing = false;
+      _syncRecordingControlsWithTts();
+      resolve({ok: false, reason: 'audio_error'});
+    };
     audio.play().catch(e => {
       URL.revokeObjectURL(url);
+      tts._playing = false;
+      _syncRecordingControlsWithTts();
       if (e.name === 'NotAllowedError' && !disableFallbackPlayer) {
         console.warn('[TTS] Autoplay blocked. Awaiting user interaction.');
         _showTtsFallbackPlayer(blob, fallbackLabel);
@@ -4633,6 +4723,7 @@ function saveEchoSettings() {
   _updateEchoTtsPreview();
   _updateEchoQwen3UiVisibility();
   _syncSbv2TestUi();
+  _syncRecordingControlsWithTts();
   if (echo.ttsEngine === 'style_bert_vits2') {
     _ensureStyleBertVits2Prepared({context: 'echo'});
   }
@@ -7829,10 +7920,15 @@ function _micBtn(target='chat'){
 function _setMicState(recording=false, disabled=false, target='chat'){
   const btn = _micBtn(target);
   if (!btn) return;
-  btn.disabled = !!disabled;
+  const ttsBlocked = _isRecordingBlockedByTts && _isRecordingBlockedByTts();
+  btn.disabled = !!disabled || (!recording && ttsBlocked);
   btn.classList.toggle('recording', !!recording);
   btn.textContent = recording ? '■' : '🎙';
-  btn.title = recording ? '録音停止' : (target === 'agent' ? '音声入力 (Agent)' : '音声入力 (日本語/英語)');
+  if (!recording && ttsBlocked) {
+    btn.title = 'TTS生成/再生中は録音を開始できません。';
+  } else {
+    btn.title = recording ? '録音停止' : (target === 'agent' ? '音声入力 (Agent)' : '音声入力 (日本語/英語)');
+  }
 }
 let cloneTestVoiceRecorder = null;
 let cloneTestVoiceRecording = false;
@@ -7848,6 +7944,10 @@ function _setCloneTestMicState(recording=false, disabled=false){
 }
 
 async function toggleCloneTestVoiceInput(){
+  if (!cloneTestVoiceRecording && _isRecordingBlockedByTts()) {
+    _setQwen3CloneTestStatus('TTS生成/再生中は録音できません。', true);
+    return;
+  }
   if (cloneTestVoiceRecording && cloneTestVoiceRecorder) {
     cloneTestVoiceRecording = false;
     _setCloneTestMicState(false, true);
@@ -7903,6 +8003,10 @@ async function _maybeRestartContinuousVoice() {
 
 async function toggleVoiceInput(target = 'chat', autoRestart = false){
   if (busy && !autoRestart) return;
+  if (_isRecordingBlockedByTts() && !voiceRecording) {
+    if (!autoRestart) addMsg('system', 'TTS生成/再生中は録音を開始できません。');
+    return;
+  }
   if (!autoRestart) {
     if (voiceContinuousEnabled && target === voiceTarget) {
       voiceContinuousEnabled = false;
@@ -8937,6 +9041,10 @@ async function toggleEchoRecording() {
   if (echo.recording) {
     await _echoStop();
   } else {
+    if (_isRecordingBlockedByTts()) {
+      _echoSetStatus('TTS生成/再生中は録音を開始できません。');
+      return;
+    }
     await _echoStart();
   }
 }
