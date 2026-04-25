@@ -4231,6 +4231,10 @@ function enqueueTtsAudioBlob(blob, id, meta = {}) {
 
 function playNextTtsAudio() {
   if (isTtsPlaying) return;
+  if (document.visibilityState !== 'visible') {
+    console.info('[TTS][play_waiting_visible]');
+    return;
+  }
   if (ttsAudioQueue.length === 0) {
     tts._audio = null;
     tts._playing = false;
@@ -4297,6 +4301,21 @@ function playNextTtsAudio() {
     });
   }
 }
+
+document.addEventListener('visibilitychange', () => {
+  const state = document.visibilityState === 'visible' ? 'visible' : 'hidden';
+  console.info(`[Audio][visibility] state=${state}`);
+  if (document.visibilityState !== 'visible') return;
+  if (audioUnlocked && !isTtsPlaying && ttsAudioQueue.length > 0) {
+    playNextTtsAudio();
+  }
+});
+window.addEventListener('pagehide', () => {
+  console.info('[Audio][pagehide]');
+});
+window.addEventListener('pageshow', () => {
+  console.info('[Audio][pageshow]');
+});
 
 function saveTtsSettings() {
   tts.enabled    = document.getElementById('tts-enable-chk')?.checked ?? tts.enabled;
