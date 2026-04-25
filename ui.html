@@ -582,13 +582,13 @@ html.logo-svg-ready .logo-text{display:none}
 .agent-stop-btn:disabled{opacity:.45;cursor:not-allowed}
 .tts-player-slot{display:flex;align-items:center;min-width:0}
 .tts-player-slot-chat,.tts-player-slot-agent,.tts-player-slot-echo{margin-left:auto;display:flex;justify-content:flex-end;min-width:0}
-.tts-player-wrap{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;max-width:100%;flex-wrap:wrap}
+.tts-player-wrap{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;max-width:100%;flex-wrap:nowrap;position:relative}
 .audio-mini-btn{min-width:34px;min-height:30px;padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px;cursor:pointer;line-height:1}
 .audio-mini-btn.unlock{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
 .audio-status{font-size:11px;color:var(--text2);white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-mono)}
-.tts-native-player-panel{width:100%}
+.tts-native-player-panel{width:min(320px,92vw)}
 .tts-native-player-panel.collapsed{display:none}
-.tts-native-player-panel.expanded{display:block;width:100%;margin-top:6px}
+.tts-native-player-panel.expanded{display:block;position:absolute;right:0;top:calc(100% + 6px);z-index:30}
 #tts-player{width:100%;max-width:100%;height:32px}
 .messages{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
 .messages::-webkit-scrollbar{width:3px}
@@ -1041,7 +1041,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   .tts-player-slot-chat,
   .tts-player-slot-agent,
   .tts-player-slot-echo{width:100%;margin-left:0;justify-content:flex-end}
-  .tts-player-wrap{width:100%;justify-content:flex-end}
+  .tts-player-wrap{width:100%;justify-content:flex-end;position:relative}
   .audio-status{font-size:10px}
   .audio-status{max-width:90px}
   .audio-mini-btn{min-height:34px}
@@ -3484,20 +3484,30 @@ async function toggleTtsPlayPause() {
   if (!player) return;
   if (isTtsPlaying && !player.paused) {
     player.pause();
+    tts._playing = false;
+    isTtsPlaying = false;
+    _syncRecordingControlsWithTts();
     setAudioStatus(`Paused | Queue: ${ttsAudioQueue.length}`);
     return;
   }
-  if (!audioUnlocked) {
+  if (!audioUnlocked && (ttsAudioQueue.length > 0 || player.src)) {
     await enableAudioFromUserGesture();
     return;
   }
+  if (!player.src && ttsAudioQueue.length > 0) {
+    playNextTtsAudio();
+    return;
+  }
+  if (!player.src) return;
   const p = player.play();
   if (p && typeof p.catch === 'function') {
     p.catch((e) => {
       if (e?.name === 'NotAllowedError') {
         console.warn('[TTS][play_blocked] reason=mini_play_btn_not_allowed');
-        audioUnlocked = false;
-        showAudioUnlockButton();
+        if (ttsAudioQueue.length > 0) {
+          audioUnlocked = false;
+          showAudioUnlockButton();
+        }
       } else {
         console.warn(`[TTS][play_error] reason=mini_play_btn_${e?.name || 'unknown'}`);
       }
@@ -6374,6 +6384,23 @@ addEventListener('load', async () => {
   _echoUpdateClearBtn();
   setAudioStatus('Locked');
   showAudioUnlockButton();
+  const ttsPlayer = getTtsPlayer();
+  if (ttsPlayer) {
+    ttsPlayer.addEventListener('pause', () => {
+      if (!ttsPlayer.ended) {
+        tts._playing = false;
+        isTtsPlaying = false;
+        _syncRecordingControlsWithTts();
+        setAudioStatus(`Paused | Queue: ${ttsAudioQueue.length}`);
+      }
+    });
+    ttsPlayer.addEventListener('play', () => {
+      tts._playing = true;
+      isTtsPlaying = true;
+      _syncRecordingControlsWithTts();
+      setAudioStatus(`Playing | Queue: ${ttsAudioQueue.length}`);
+    });
+  }
   moveTtsPlayerTo('chat-tts-player-slot', 'chat');
   syncAgentSessionUi();
 });
