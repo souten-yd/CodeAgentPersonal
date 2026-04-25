@@ -16,25 +16,49 @@ _ASCII_WORD_PATTERN = re.compile(r"\b[A-Za-z][A-Za-z0-9_\-]*\b")
 _CONTROL_PATTERN = re.compile(r"[\x00-\x08\x0B-\x1F\x7F]")
 _MULTISPACE_PATTERN = re.compile(r"[ \t\u3000]+")
 _NUMBER_UNIT_PATTERN = re.compile(
-    r"(?P<number>\d+(?:[.,]\d+)?)\s*(?P<unit>km|kg|cm|mm|m|g|ml|l|℃|°C|%|円|¥|\$)\b",
+    r"(?P<number>\d+(?:[.,]\d+)?)\s*(?P<unit>tb|gb|mb|kb|vram|ghz|mhz|khz|km|kg|cm|mm|m|g|mg|ml|l|℃|°C|%|円|¥|\$)\b",
     re.IGNORECASE,
 )
+_CURRENCY_PREFIX_PATTERN = re.compile(r"(?P<currency>[$¥])\s*(?P<number>\d+(?:[.,]\d+)?)")
+_NO_PATTERN = re.compile(r"\bNo\.\s*(?P<number>\d+)\b", re.IGNORECASE)
+_VERSION_PATTERN = re.compile(r"\bv(?P<version>\d+(?:\.\d+)+)\b", re.IGNORECASE)
 
 _DEFAULT_ENGLISH_DICT = {
     "ai": "エーアイ",
     "api": "エーピーアイ",
     "cpu": "シーピーユー",
     "gpu": "ジーピーユー",
+    "openai": "オープンエーアイ",
+    "chatgpt": "チャットジーピーティー",
+    "llm": "エルエルエム",
+    "asr": "エーエスアール",
+    "tts": "ティーティーエス",
+    "url": "ユーアールエル",
+    "docker": "ドッカー",
+    "github": "ギットハブ",
+    "kasanecore": "カサネコア",
+    "style-bert-vits2": "スタイルバートブイツーツー",
+    "jp-extra": "ジェーピーエクストラ",
+    "vram": "ブイラム",
     "ok": "オーケー",
     "ng": "エヌジー",
 }
 _UNIT_READABLE_MAP = {
+    "tb": "テラバイト",
+    "gb": "ギガバイト",
+    "mb": "メガバイト",
+    "kb": "キロバイト",
+    "vram": "ブイラム",
+    "ghz": "ギガヘルツ",
+    "mhz": "メガヘルツ",
+    "khz": "キロヘルツ",
     "km": "キロメートル",
     "kg": "キログラム",
     "cm": "センチメートル",
     "mm": "ミリメートル",
     "m": "メートル",
     "g": "グラム",
+    "mg": "ミリグラム",
     "ml": "ミリリットル",
     "l": "リットル",
     "℃": "度",
@@ -50,6 +74,7 @@ _SYMBOL_REPLACEMENTS = {
     "@": "アット",
     "#": "シャープ",
     "+": "プラス",
+    "%": "パーセント",
     "=": "イコール",
 }
 
@@ -165,7 +190,13 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
     current = _MULTISPACE_PATTERN.sub(" ", current).strip()
     _append_operation(operations, "symbol_policy", before, current, symbol_policy)
 
-    # 6) number + unit readability
+    # 6) notation rules (No. / version)
+    before = current
+    current = _NO_PATTERN.sub(lambda m: f"ナンバー{m.group('number')}", current)
+    current = _VERSION_PATTERN.sub(lambda m: f"バージョン{m.group('version')}", current)
+    _append_operation(operations, "notation_rules", before, current, {"no": "ナンバー", "version": "バージョン"})
+
+    # 7) number + unit readability
     before = current
 
     def _replace_unit(m: re.Match[str]) -> str:
@@ -174,10 +205,19 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
         unit_readable = _UNIT_READABLE_MAP.get(unit.lower(), _UNIT_READABLE_MAP.get(unit, unit))
         return f"{number}{unit_readable}"
 
+    def _replace_currency_prefix(m: re.Match[str]) -> str:
+        currency = m.group("currency")
+        number = m.group("number")
+        currency_readable = _UNIT_READABLE_MAP.get(currency, currency)
+        return f"{number}{currency_readable}"
+
+    current = _CURRENCY_PREFIX_PATTERN.sub(_replace_currency_prefix, current)
     current = _NUMBER_UNIT_PATTERN.sub(_replace_unit, current)
+    current = current.replace("$", " ドル ").replace("¥", " 円 ")
+    current = _MULTISPACE_PATTERN.sub(" ", current).strip()
     _append_operation(operations, "number_unit_readability", before, current)
 
-    # 7) english dictionary replacement + strategy
+    # 8) english dictionary replacement + strategy
     before = current
     english_policy = str(
         settings.get("sbv2_jp_extra_english_to_katakana")
