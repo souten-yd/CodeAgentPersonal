@@ -43,8 +43,9 @@ def nexus_health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@nexus_router.get("/summary")
 @nexus_router.get("/dashboard/summary")
-def nexus_dashboard_summary(project: str = Query("default")) -> dict[str, int]:
+def nexus_summary(project: str = Query("default")) -> dict[str, int]:
     """Dashboardカード表示向けのサマリー。"""
     with get_conn() as conn:
         docs_row = conn.execute(
@@ -74,6 +75,7 @@ def nexus_dashboard_summary(project: str = Query("default")) -> dict[str, int]:
     }
 
 
+@nexus_router.get("/documents")
 @nexus_router.get("/library/documents")
 def nexus_list_documents(
     project: str = Query("default"),
@@ -116,6 +118,38 @@ def nexus_list_documents(
     return {"documents": documents}
 
 
+@nexus_router.get("/documents/{document_id}")
+def nexus_get_document(document_id: str, project: str = Query("default")) -> dict:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT d.id, d.project, d.filename, d.size, d.content_type, d.created_at,
+                   COALESCE(COUNT(c.chunk_id), 0) AS chunk_count
+            FROM nexus_documents d
+            LEFT JOIN nexus_chunks c ON c.document_id = d.id
+            WHERE d.id = ? AND d.project = ?
+            GROUP BY d.id
+            """,
+            (document_id, project),
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="document not found")
+
+    return {
+        "document": {
+            "id": row["id"],
+            "project": row["project"],
+            "filename": str(row["filename"] or ""),
+            "size": int(row["size"] or 0),
+            "content_type": row["content_type"],
+            "created_at": row["created_at"],
+            "chunk_count": int(row["chunk_count"] or 0),
+        }
+    }
+
+
+@nexus_router.delete("/documents/{document_id}")
 @nexus_router.delete("/library/documents/{document_id}")
 def nexus_delete_document(document_id: str, project: str = Query("default")) -> dict:
     with get_conn() as conn:
