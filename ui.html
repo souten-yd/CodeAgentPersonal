@@ -1932,6 +1932,11 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <!-- TTS 設定 -->
       <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px">
         <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🔊 Echo TTS 設定</div>
+        <div id="echo-audio-unlock-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <button id="echo-audio-unlock-btn" onclick="handleEchoAudioUnlockClick()"
+            style="font-size:10px;padding:4px 10px;border:1px solid var(--amber);border-radius:4px;background:rgba(255,184,0,.12);color:var(--amber);cursor:pointer">🔊 音声を有効化</button>
+          <span id="echo-audio-ready-label" style="display:none;font-size:10px;color:var(--accent);font-weight:700">🔊 Audio Ready</span>
+        </div>
         <div style="margin-bottom:8px">
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS エンジン</div>
           <select id="echo-tts-engine"
@@ -3001,6 +3006,9 @@ function _ttsGetTranslateSettings(context = 'main') {
 _migrateEchoTtsTranslateSettings();
 
 // ── TTS (Text-to-Speech) ──
+let audioUnlocked = false;
+let audioContext = null;
+
 const tts = {
   enabled:      localStorage.getItem('tts_enabled')    === 'true',
   autoSpeak:    localStorage.getItem('tts_auto_speak') === 'true',
@@ -3314,6 +3322,54 @@ function _showTtsFallbackPlayer(blob, label = 'TTS 音声') {
   if (p && typeof p.catch === 'function') p.catch(() => {});
 }
 
+function _updateEchoAudioUnlockUi() {
+  const unlockBtn = document.getElementById('echo-audio-unlock-btn');
+  const readyLabel = document.getElementById('echo-audio-ready-label');
+  if (unlockBtn) unlockBtn.style.display = audioUnlocked ? 'none' : '';
+  if (readyLabel) readyLabel.style.display = audioUnlocked ? '' : 'none';
+}
+
+function _resumePendingTtsPlaybackAfterUnlock() {
+  if (!tts._pendingAutoplayBlob) return;
+  const pendingBlob = tts._pendingAutoplayBlob;
+  const pendingLabel = tts._pendingAutoplayLabel || 'TTS 音声';
+  tts._pendingAutoplayBlob = null;
+  tts._pendingAutoplayLabel = '';
+  tts._autoplayBlockedNoticeShown = false;
+  _ttsPlayBlob(pendingBlob, {fallbackLabel: pendingLabel, disableFallbackPlayer: true});
+}
+
+async function unlockAudioFromUserGesture() {
+  console.info('[Audio][unlock] start');
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) throw new Error('AudioContext unsupported');
+    audioContext = audioContext || new Ctx();
+    await audioContext.resume();
+    const silentSource = audioContext.createBufferSource();
+    const silentBuffer = audioContext.createBuffer(1, 1, Math.max(8000, audioContext.sampleRate || 44100));
+    silentSource.buffer = silentBuffer;
+    silentSource.connect(audioContext.destination);
+    silentSource.start(0);
+    audioUnlocked = true;
+    tts._autoplayUnlocked = true;
+    console.info(`[Audio][unlock] success context_state=${audioContext.state}`);
+  } catch (e) {
+    audioUnlocked = false;
+    tts._autoplayUnlocked = false;
+    const msg = e && (e.message || String(e)) ? (e.message || String(e)) : 'unknown';
+    console.warn(`[Audio][unlock] failed error=${msg}`);
+  } finally {
+    _updateEchoAudioUnlockUi();
+  }
+  return audioUnlocked;
+}
+
+async function handleEchoAudioUnlockClick() {
+  const ok = await unlockAudioFromUserGesture();
+  if (ok) _resumePendingTtsPlaybackAfterUnlock();
+}
+
 function _ensureTtsAutoplayUnlockHooks() {
   if (tts._unlockHooksInstalled) return;
   tts._unlockHooksInstalled = true;
@@ -3324,14 +3380,10 @@ function _ensureTtsAutoplayUnlockHooks() {
 }
 
 function _onTtsUserGesture() {
-  tts._autoplayUnlocked = true;
-  if (!tts._pendingAutoplayBlob) return;
-  const pendingBlob = tts._pendingAutoplayBlob;
-  const pendingLabel = tts._pendingAutoplayLabel || 'TTS 音声';
-  tts._pendingAutoplayBlob = null;
-  tts._pendingAutoplayLabel = '';
-  tts._autoplayBlockedNoticeShown = false;
-  _ttsPlayBlob(pendingBlob, {fallbackLabel: pendingLabel, disableFallbackPlayer: true});
+  unlockAudioFromUserGesture().then((ok) => {
+    if (!ok) return;
+    _resumePendingTtsPlaybackAfterUnlock();
+  });
 }
 
 function ttsSpeakSelectedText() {
@@ -4180,6 +4232,8 @@ function _ttsPlayBlob(blob, opts = {}) {
       tts._playing = false;
       _syncRecordingControlsWithTts();
       if (e.name === 'NotAllowedError') {
+        audioUnlocked = false;
+        _updateEchoAudioUnlockUi();
         console.warn('[TTS] Autoplay blocked. Waiting for the next user interaction to resume.');
         tts._pendingAutoplayBlob = blob;
         tts._pendingAutoplayLabel = fallbackLabel;
@@ -5875,6 +5929,7 @@ addEventListener('load', async () => {
   _echoInitScrollListener();
   // Clear ボタン初期状態
   _echoUpdateClearBtn();
+  _updateEchoAudioUnlockUi();
 });
 
 // ── SYSTEM SUMMARY / HEALTH ──
@@ -9288,6 +9343,7 @@ async function toggleEchoRecording() {
       _echoSetStatus('TTS生成/再生中は録音を開始できません。');
       return;
     }
+    await unlockAudioFromUserGesture();
     await _echoStart();
   }
 }
