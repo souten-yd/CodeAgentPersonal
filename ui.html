@@ -439,6 +439,7 @@ html.logo-svg-ready .logo-text{display:none}
 .mob-tab.wide{flex:1 1 33.333%;min-width:0}
 .mob-tabs.echo-mode{overflow-x:hidden;flex-wrap:nowrap}
 .mob-tabs.echo-mode .mob-tab{flex:1 1 calc(100% / 6);width:auto;min-width:0}
+.mob-tabs.chat-task-mode .mob-tab{flex:0 0 calc((100% - 12px) / 3);width:calc((100% - 12px) / 3);min-width:0;text-align:center}
 .mob-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 @media(max-width:768px){
   .mob-tabs{display:flex}
@@ -762,6 +763,9 @@ textarea#input::placeholder,textarea#agent-input::placeholder{color:var(--text3)
 .panel-col.echo-tabs-equal .tab-spacer,
 .panel-col.echo-tabs-equal #tab-label{display:none}
 .panel-col.echo-tabs-equal .panel-tabs .tab-btn:not([style*="display:none"]){flex:1;text-align:center;min-width:0}
+.panel-col.chat-task-tabs-equal .tab-spacer,
+.panel-col.chat-task-tabs-equal #tab-label{display:none}
+.panel-col.chat-task-tabs-equal .panel-tabs .tab-btn:not([style*="display:none"]){flex:1;text-align:center;min-width:0}
 .tab-content{display:none;flex:1;overflow:hidden;flex-direction:column;min-height:0}
 .tab-content.active{display:flex}
 
@@ -6074,9 +6078,11 @@ function _updateMobTabs(m) {
   const isEcho = (m === 'echo');
   const isAgent = (m === 'agent');
   const isNexus = (m === 'nexus');
+  const isChatTask = !isEcho && !isAgent && !isNexus;
   mobTabs?.classList.toggle('echo-mode', isEcho);
+  mobTabs?.classList.toggle('chat-task-mode', isChatTask);
 
-  _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = (!isEcho && !isAgent && !isNexus) ? '' : 'none'; });
+  _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isChatTask ? '' : 'none'; });
   _AGENT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isAgent ? '' : 'none'; });
   _ECHO_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
   _NEXUS_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isNexus ? '' : 'none'; });
@@ -6110,6 +6116,7 @@ function setMode(m) {
   if (m === 'echo') {
     appBody?.classList.add('echo-active');
     panelCol?.classList.add('echo-tabs-equal');
+    panelCol?.classList.remove('chat-task-tabs-equal');
     chatCol.style.display  = 'none';
     echoCol.style.display  = '';
     panelCol.style.display = '';
@@ -6123,6 +6130,7 @@ function setMode(m) {
   } else if (m === 'agent') {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
+    panelCol?.classList.remove('chat-task-tabs-equal');
     chatCol.style.display = 'none';
     echoCol.style.display = 'none';
     panelCol.style.display = 'none';
@@ -6139,6 +6147,7 @@ function setMode(m) {
   } else if (m === 'nexus') {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
+    panelCol?.classList.remove('chat-task-tabs-equal');
     chatCol.style.display  = 'none';
     echoCol.style.display  = 'none';
     panelCol.style.display = 'none';
@@ -6151,6 +6160,7 @@ function setMode(m) {
   } else {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
+    panelCol?.classList.add('chat-task-tabs-equal');
     chatCol.style.display  = '';
     echoCol.style.display  = 'none';
     panelCol.style.display = '';
