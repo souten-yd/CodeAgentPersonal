@@ -416,6 +416,94 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "jp_extra_normalization": normalization_result,
         }
 
+    def build_normalization_preview(self, req: dict | None = None) -> dict:
+        req = req or {}
+        selected_source = str(req.get("text_source") or "raw").strip().lower()
+        if selected_source not in {"raw", "translated"}:
+            selected_source = "raw"
+        use_translation = bool(req.get("use_translation", False))
+        raw_text = str(req.get("raw_text") or req.get("text") or "")
+        translated_text = str(req.get("translated_text") or "")
+        translated_available = bool(translated_text.strip())
+
+        source = "raw"
+        source_reason = "selected"
+        if selected_source == "translated" and use_translation and translated_available:
+            source = "translated"
+        elif selected_source == "translated" and not use_translation:
+            source_reason = "fallback_raw_translation_disabled"
+        elif selected_source == "translated" and not translated_available:
+            source_reason = "fallback_raw_translation_empty"
+
+        original_text = translated_text if source == "translated" else raw_text
+        requested_language = str(req.get("language", "")).strip() or str(
+            (req.get("settings") or {}).get("echo_tts_sbv2_language", "")
+        ).strip() or None
+        model = str(req.get("model", "")).strip()
+        model_version = ""
+        is_jp_extra = False
+        normalized_language = _normalize_sbv2_language(requested_language, model_version=model_version)
+        effective_language = "JP" if normalized_language == "auto" else normalized_language
+        if effective_language not in {"JP", "EN", "ZH"}:
+            effective_language = "JP"
+        normalization_settings = _resolve_sbv2_jp_extra_normalization_settings(req)
+        normalization_result = None
+        normalized_text = original_text
+        final_text = normalized_text
+        looks_japanese_final = looks_japanese(final_text)
+
+        if model:
+            try:
+                model_path, config_path, style_vec_path = _resolve_model_paths(model)
+                model_version = _read_model_version(config_path)
+                effective_language, normalized_language, is_jp_extra = _decide_effective_language(
+                    requested_language, model_version
+                )
+                if is_jp_extra:
+                    normalization_result = normalize_text_for_sbv2_jp_extra(original_text, normalization_settings)
+                    normalized_text = str(normalization_result.get("text") or "")
+                final_text = normalized_text
+                looks_japanese_final = (
+                    bool(normalization_result.get("looks_japanese_after"))
+                    if normalization_result and normalization_result.get("looks_japanese_after") is not None
+                    else looks_japanese(final_text)
+                )
+                _ = model_path, style_vec_path
+            except Exception:
+                # preview should stay available even if model metadata lookup fails
+                pass
+
+        operations = normalization_result.get("operations") if normalization_result else []
+        operation_labels: list[str] = []
+        for op in operations or []:
+            if not isinstance(op, dict):
+                continue
+            op_type = str(op.get("type") or "").strip()
+            op_value = op.get("value")
+            if op_type and op_value not in (None, ""):
+                operation_labels.append(f"{op_type}:{op_value}")
+            elif op_type:
+                operation_labels.append(op_type)
+
+        return {
+            "text_source": source,
+            "selected_text_source": selected_source,
+            "source_reason": source_reason,
+            "use_translation": use_translation,
+            "translation_available": translated_available,
+            "requested_language": requested_language or "JP",
+            "normalized_language": normalized_language,
+            "effective_language": effective_language,
+            "model_version": model_version,
+            "is_jp_extra": is_jp_extra,
+            "original_text": original_text,
+            "normalized_text": normalized_text,
+            "final_preview": final_text,
+            "looks_japanese": bool(looks_japanese_final),
+            "normalization_operations": operation_labels,
+            "normalization_operation_details": operations or [],
+        }
+
     @staticmethod
     def _stderr_reader(stderr_pipe, stderr_tail: collections.deque[str]) -> None:
         try:

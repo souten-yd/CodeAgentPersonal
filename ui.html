@@ -2199,6 +2199,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div style="margin-top:8px;padding:6px;border:1px dashed var(--border);border-radius:4px;background:var(--bg)">
             <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS入力プレビュー</div>
             <div id="echo-tts-preview-source" style="font-size:10px;color:var(--text3)">TTS text source: raw</div>
+            <div id="echo-tts-preview-use-translation" style="font-size:10px;color:var(--text3)">Use translation: OFF</div>
             <div id="echo-tts-preview-language" style="font-size:10px;color:var(--text3)">Language: JP</div>
             <div id="echo-tts-preview-effective-language" style="font-size:10px;color:var(--text3)">Effective language: JP</div>
             <div id="echo-tts-preview-original-text" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Original text preview: -</div>
@@ -4646,59 +4647,13 @@ function _effectiveEchoSbv2Language() {
   return selected;
 }
 
-function _looksJapaneseText(text = '') {
-  return /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(String(text || ''));
-}
+let _echoTtsPreviewSeq = 0;
 
-function _simulateEchoSbv2Preview(text = '') {
-  const operations = [];
-  const original = String(text || '');
-  let normalized = original;
-  if (echo.sbv2TextNormalization) {
-    normalized = normalized
-      .replace(/[ \t]+/g, ' ')
-      .replace(/\r\n?/g, '\n')
-      .trim();
-    operations.push('text_normalization');
-  }
-  if (echo.sbv2UrlPolicy === 'skip') {
-    normalized = normalized.replace(/https?:\/\/\S+/gi, '');
-    operations.push('url:skip');
-  } else if (echo.sbv2UrlPolicy === 'readable') {
-    normalized = normalized.replace(/https?:\/\/\S+/gi, ' URL ');
-    operations.push('url:readable');
-  }
-  if (echo.sbv2EmojiPolicy === 'skip') {
-    normalized = normalized.replace(/[\u{1F300}-\u{1FAFF}]/gu, '');
-    operations.push('emoji:skip');
-  } else if (echo.sbv2EmojiPolicy === 'describe') {
-    operations.push('emoji:describe');
-  }
-  if (echo.sbv2SymbolPolicy === 'skip') {
-    normalized = normalized.replace(/[^\p{L}\p{N}\s\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/gu, ' ');
-    operations.push('symbol:skip');
-  } else if (echo.sbv2SymbolPolicy === 'readable') {
-    operations.push('symbol:readable');
-  }
-  if (echo.sbv2EnglishToKatakana !== 'none') operations.push(`english_to_katakana:${echo.sbv2EnglishToKatakana}`);
-  operations.push(`non_japanese:${echo.sbv2NonJapanesePolicy}`);
-  const finalText = normalized.replace(/\s{2,}/g, ' ').trim();
-  return {
-    original,
-    normalized,
-    finalText,
-    looksJapanese: _looksJapaneseText(finalText),
-    operations,
-  };
-}
-
-function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
-  const source = (echo.ttsUseTranslation && echo.ttsTextSource === 'translated' && translatedText) ? 'translated' : 'raw';
-  const activeText = source === 'translated' ? translatedText : rawText;
+async function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
+  const previewSeq = ++_echoTtsPreviewSeq;
   const selectedLanguage = _normalizeEchoSbv2Language(echo.ttsSbv2Language);
-  const effectiveLanguage = _effectiveEchoSbv2Language();
-  const previewData = _simulateEchoSbv2Preview(activeText);
   const sourceEl = document.getElementById('echo-tts-preview-source');
+  const useTranslationEl = document.getElementById('echo-tts-preview-use-translation');
   const langEl = document.getElementById('echo-tts-preview-language');
   const effEl = document.getElementById('echo-tts-preview-effective-language');
   const orgEl = document.getElementById('echo-tts-preview-original-text');
@@ -4707,14 +4662,64 @@ function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
   const jpEl = document.getElementById('echo-tts-preview-looks-japanese');
   const opsEl = document.getElementById('echo-tts-preview-operations');
   const fmtPreview = (value) => String(value || '').replace(/\n/g, '\\n').slice(0, 160) || '-';
-  if (sourceEl) sourceEl.textContent = `TTS text source: ${source}`;
+  if (sourceEl) sourceEl.textContent = `TTS text source: ...`;
+  if (useTranslationEl) useTranslationEl.textContent = `Use translation: ${echo.ttsUseTranslation ? 'ON' : 'OFF'}`;
   if (langEl) langEl.textContent = `Language: ${selectedLanguage === 'auto' ? 'Auto' : selectedLanguage}`;
-  if (effEl) effEl.textContent = `Effective language: ${effectiveLanguage}`;
-  if (orgEl) orgEl.textContent = `Original text preview: ${fmtPreview(previewData.original)}`;
-  if (normEl) normEl.textContent = `Normalized text preview: ${fmtPreview(previewData.normalized)}`;
-  if (finalEl) finalEl.textContent = `Final text preview: ${fmtPreview(previewData.finalText)}`;
-  if (jpEl) jpEl.textContent = `Looks Japanese: ${previewData.looksJapanese ? 'yes' : 'no'}`;
-  if (opsEl) opsEl.textContent = `Operations: ${previewData.operations.length ? previewData.operations.join(', ') : '-'}`;
+  if (effEl) effEl.textContent = `Effective language: ...`;
+  if (orgEl) orgEl.textContent = `Original text preview: ...`;
+  if (normEl) normEl.textContent = `Normalized text preview: ...`;
+  if (finalEl) finalEl.textContent = `Final text preview: ...`;
+  if (jpEl) jpEl.textContent = `Looks Japanese: ...`;
+  if (opsEl) opsEl.textContent = `Operations: ...`;
+  try {
+    const resp = await fetch(API + '/api/tts/style-bert-vits2/preview-normalization', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        model: echo.styleBertVits2Model || '',
+        language: echo.ttsSbv2Language || 'JP',
+        use_translation: !!echo.ttsUseTranslation,
+        text_source: echo.ttsTextSource || 'raw',
+        raw_text: String(rawText || ''),
+        translated_text: String(translatedText || ''),
+        sbv2_jp_extra_text_normalization: echo.sbv2TextNormalization !== false,
+        sbv2_jp_extra_english_to_katakana: echo.sbv2EnglishToKatakana || 'llm',
+        sbv2_jp_extra_emoji_policy: echo.sbv2EmojiPolicy || 'skip',
+        sbv2_jp_extra_symbol_policy: echo.sbv2SymbolPolicy || 'readable',
+        sbv2_jp_extra_url_policy: echo.sbv2UrlPolicy || 'skip',
+        sbv2_jp_extra_non_japanese_policy: _normalizeEchoSbv2NonJapanesePolicy(echo.sbv2NonJapanesePolicy),
+      })
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error((data && data.detail) ? String(data.detail) : `HTTP ${resp.status}`);
+    if (previewSeq !== _echoTtsPreviewSeq) return;
+    const source = String(data.text_source || 'raw');
+    const sourceReason = String(data.source_reason || 'selected');
+    const sourceNote =
+      sourceReason === 'fallback_raw_translation_disabled'
+        ? ' (translated選択 / translation OFF のため raw を使用)'
+        : sourceReason === 'fallback_raw_translation_empty'
+        ? ' (translated選択だが翻訳結果が空のため raw を使用)'
+        : '';
+    if (sourceEl) sourceEl.textContent = `TTS text source: ${source}${sourceNote}`;
+    if (useTranslationEl) useTranslationEl.textContent = `Use translation: ${data.use_translation ? 'ON' : 'OFF'}`;
+    if (effEl) effEl.textContent = `Effective language: ${String(data.effective_language || 'JP')}`;
+    if (orgEl) orgEl.textContent = `Original text preview: ${fmtPreview(data.original_text)}`;
+    if (normEl) normEl.textContent = `Normalized text preview: ${fmtPreview(data.normalized_text)}`;
+    if (finalEl) finalEl.textContent = `Final text preview: ${fmtPreview(data.final_preview)}`;
+    if (jpEl) jpEl.textContent = `Looks Japanese: ${data.looks_japanese ? 'yes' : 'no'}`;
+    const ops = Array.isArray(data.normalization_operations) ? data.normalization_operations : [];
+    if (opsEl) opsEl.textContent = `Operations: ${ops.length ? ops.join(', ') : '-'}`;
+  } catch (e) {
+    if (previewSeq !== _echoTtsPreviewSeq) return;
+    if (sourceEl) sourceEl.textContent = `TTS text source: raw`;
+    if (effEl) effEl.textContent = `Effective language: ${_effectiveEchoSbv2Language()}`;
+    if (orgEl) orgEl.textContent = `Original text preview: ${fmtPreview(rawText)}`;
+    if (normEl) normEl.textContent = `Normalized text preview: -`;
+    if (finalEl) finalEl.textContent = `Final text preview: ${fmtPreview(rawText)}`;
+    if (jpEl) jpEl.textContent = `Looks Japanese: -`;
+    if (opsEl) opsEl.textContent = `Operations: preview API unavailable`;
+  }
 }
 
 function _updateEchoSbv2LanguageNote() {
