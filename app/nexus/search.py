@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from typing import Protocol
+from typing import Any, Protocol, TypedDict
 
 from app.nexus.db import get_conn
 
@@ -21,20 +21,51 @@ class EvidenceCandidate:
     metadata: dict
 
 
+class IndexChunk(TypedDict, total=False):
+    """Vector indexに投入する最小チャンク構造。"""
+
+    chunk_id: str
+    document_id: str
+    text: str
+    metadata: dict[str, Any]
+
+
+class VectorSearchHit(TypedDict):
+    """将来の実装差し替え時に共通利用する検索結果の最小構造。"""
+
+    chunk_id: str
+    document_id: str
+    score: float
+    snippet: str
+
+
 class VectorIndex(Protocol):
     """Future extension point (FAISS / Chroma etc.)."""
 
-    # Intentionally empty marker interface for future implementations.
-    pass
+    def add_chunks(self, chunks: list[IndexChunk]) -> None:
+        ...
+
+    def search(self, query: str, limit: int = 20) -> list[VectorSearchHit]:
+        ...
 
 
 class NullVectorIndex:
     """No-op implementation used until vector search is introduced."""
 
-    def upsert(self, document_id: str, chunks: list[dict]) -> None:
+    def add_chunks(self, chunks: list[IndexChunk]) -> None:
         return None
 
-    def search(self, query: str, top_k: int = 10) -> list[EvidenceCandidate]:
+    def upsert(self, document_id: str, chunks: list[IndexChunk]) -> None:
+        """Backward-compatible wrapper: upsert -> add_chunks."""
+        normalized_chunks: list[IndexChunk] = []
+        for chunk in chunks:
+            merged_chunk: IndexChunk = dict(chunk)
+            if not merged_chunk.get("document_id"):
+                merged_chunk["document_id"] = document_id
+            normalized_chunks.append(merged_chunk)
+        self.add_chunks(normalized_chunks)
+
+    def search(self, query: str, limit: int = 20) -> list[VectorSearchHit]:
         return []
 
 
