@@ -85,7 +85,7 @@ def build_report(job_id: str, report_type: str, title: str, sections: list[dict]
             md_lines.append("### Evidence")
             for ev in evidence:
                 citation_label = ev.get("citation_label") or "[citation missing]"
-                source_url = ev.get("source_url") or ""
+                source_url = ev.get("url") or ev.get("source_url") or ""
                 retrieved_at = ev.get("retrieved_at") or ""
                 quote = _safe_quote(ev.get("quote"))
                 row = f"- {citation_label}"
@@ -105,7 +105,7 @@ def build_report(job_id: str, report_type: str, title: str, sections: list[dict]
                 "evidence": [
                     {
                         "citation_label": ev.get("citation_label"),
-                        "source_url": ev.get("source_url"),
+                        "source_url": ev.get("url") or ev.get("source_url"),
                         "retrieved_at": ev.get("retrieved_at"),
                         "quote": _safe_quote(ev.get("quote")),
                         "note": ev.get("note"),
@@ -149,7 +149,7 @@ def build_report(job_id: str, report_type: str, title: str, sections: list[dict]
             html_body.append("<ul>")
             for ev in section["evidence"]:
                 citation = html.escape(ev.get("citation_label") or "[citation missing]")
-                url = html.escape(ev.get("source_url") or "")
+                url = html.escape(ev.get("source_url") or ev.get("url") or "")
                 rt = html.escape(ev.get("retrieved_at") or "")
                 html_body.append(f"<li>{citation} {url} {rt}</li>")
             html_body.append("</ul>")
@@ -169,6 +169,9 @@ def build_report(job_id: str, report_type: str, title: str, sections: list[dict]
         "report_type": report_type,
         "title": title,
         "report_dir": str(report_dir),
+        "markdown_path": str(report_md_path),
+        "json_path": str(report_json_path),
+        "html_path": str(report_html_path),
         "report_md_path": str(report_md_path),
         "report_json_path": str(report_json_path),
         "report_html_path": str(report_html_path),
@@ -184,9 +187,10 @@ def save_report_record(report: dict) -> None:
             """
             INSERT OR REPLACE INTO nexus_reports(
                 report_id, project, job_id, report_type, title, report_dir,
+                markdown_path, json_path, html_path,
                 report_md_path, report_json_path, report_html_path,
                 summary, metadata, generated_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 report["report_id"],
@@ -195,6 +199,9 @@ def save_report_record(report: dict) -> None:
                 report["report_type"],
                 report["title"],
                 report["report_dir"],
+                report["markdown_path"],
+                report["json_path"],
+                report["html_path"],
                 report["report_md_path"],
                 report["report_json_path"],
                 report["report_html_path"],
@@ -212,6 +219,7 @@ def get_latest_report(job_id: str) -> dict | None:
             """
             SELECT
                 report_id, project, job_id, report_type, title, report_dir,
+                markdown_path, json_path, html_path,
                 report_md_path, report_json_path, report_html_path,
                 summary, metadata, generated_at, created_at
             FROM nexus_reports
@@ -297,6 +305,7 @@ def get_report_detail(report_id: str, project: str = Query("default")) -> dict:
             """
             SELECT
                 report_id, title, report_type, generated_at, job_id,
+                markdown_path, json_path, html_path,
                 report_md_path, report_json_path, report_html_path
             FROM nexus_reports
             WHERE report_id = ? AND project = ?
@@ -314,12 +323,15 @@ def get_report_detail(report_id: str, project: str = Query("default")) -> dict:
             "report_type": row["report_type"],
             "generated_at": row["generated_at"],
             "job_id": row["job_id"],
-            "report_md_path": str(row["report_md_path"] or ""),
-            "report_json_path": str(row["report_json_path"] or ""),
-            "report_html_path": str(row["report_html_path"] or ""),
-            "report_md": _path_status(row["report_md_path"]),
-            "report_json": _path_status(row["report_json_path"]),
-            "report_html": _path_status(row["report_html_path"]),
+            "markdown_path": str(row["markdown_path"] or row["report_md_path"] or ""),
+            "json_path": str(row["json_path"] or row["report_json_path"] or ""),
+            "html_path": str(row["html_path"] or row["report_html_path"] or ""),
+            "report_md_path": str(row["report_md_path"] or row["markdown_path"] or ""),
+            "report_json_path": str(row["report_json_path"] or row["json_path"] or ""),
+            "report_html_path": str(row["report_html_path"] or row["html_path"] or ""),
+            "report_md": _path_status(row["markdown_path"] or row["report_md_path"]),
+            "report_json": _path_status(row["json_path"] or row["report_json_path"]),
+            "report_html": _path_status(row["html_path"] or row["report_html_path"]),
         }
     }
 

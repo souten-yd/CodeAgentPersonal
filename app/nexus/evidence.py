@@ -61,8 +61,9 @@ def save_evidence_items(job_id: str, items: list[EvidenceItem]) -> int:
                     evidence_id, job_id, source_type, document_id, chunk_id, title,
                     citation_label, source_url, publisher, published_date,
                     retrieved_at, note, quote, relevance, credibility, freshness,
-                    evidence_level, metadata_json, metadata, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    evidence_level, metadata_json, metadata,
+                    url, relevance_score, credibility_score, freshness_score, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.evidence_id,
@@ -84,6 +85,10 @@ def save_evidence_items(job_id: str, items: list[EvidenceItem]) -> int:
                     item.evidence_level,
                     json.dumps(item.metadata_json, ensure_ascii=False),
                     json.dumps(item.metadata_json, ensure_ascii=False),
+                    item.url,
+                    float(item.relevance_score or 0.0),
+                    float(item.credibility_score or 0.0),
+                    float(item.freshness_score or 0.0),
                     created_at,
                 ),
             )
@@ -158,7 +163,9 @@ def list_evidence_items(job_id: str) -> list[dict]:
             SELECT evidence_id, job_id, source_type, document_id, chunk_id, source_url,
                    title, publisher, published_date, citation_label, retrieved_at,
                    note, quote, relevance, credibility, freshness, evidence_level,
-                   metadata_json, metadata, created_at
+                   metadata_json, metadata, url,
+                   relevance_score, credibility_score, freshness_score,
+                   created_at
             FROM nexus_evidence
             WHERE job_id = ?
             ORDER BY created_at ASC, evidence_id ASC
@@ -173,16 +180,16 @@ def list_evidence_items(job_id: str) -> list[dict]:
             "source_type": row["source_type"],
             "document_id": row["document_id"],
             "chunk_id": row["chunk_id"],
-            "url": row["source_url"],
-            "source_url": row["source_url"],
+            "url": row["url"] or row["source_url"],
+            "source_url": row["source_url"] or row["url"],
             "title": row["title"],
             "publisher": row["publisher"],
             "published_date": row["published_date"],
             "citation_label": row["citation_label"],
             "retrieved_at": row["retrieved_at"],
-            "relevance_score": float(row["relevance"] or 0.0),
-            "credibility_score": float(row["credibility"] or 0.0),
-            "freshness_score": float(row["freshness"] or 0.0),
+            "relevance_score": float(row["relevance_score"] or row["relevance"] or 0.0),
+            "credibility_score": float(row["credibility_score"] or row["credibility"] or 0.0),
+            "freshness_score": float(row["freshness_score"] or row["freshness"] or 0.0),
             "evidence_level": str(row["evidence_level"] or ""),
             "note": row["note"],
             "quote": row["quote"],
@@ -220,7 +227,9 @@ def list_evidence_table_items(
             SELECT evidence_id, job_id, source_type, document_id, chunk_id, source_url,
                    title, publisher, published_date, citation_label, retrieved_at, note,
                    quote, relevance, credibility, freshness, evidence_level,
-                   metadata_json, metadata, created_at
+                   metadata_json, metadata, url,
+                   relevance_score, credibility_score, freshness_score,
+                   created_at
             FROM nexus_evidence
             WHERE job_id = ?
             ORDER BY created_at DESC, evidence_id DESC
@@ -243,7 +252,7 @@ def list_evidence_table_items(
 
         searchable_parts = (
             str(row["citation_label"] or ""),
-            str(row["source_url"] or ""),
+            str(row["url"] or row["source_url"] or ""),
             str(row["note"] or ""),
             str(row["quote"] or ""),
             str(row["title"] or ""),
@@ -260,19 +269,19 @@ def list_evidence_table_items(
                 "source_type": row_source_type,
                 "document_id": str(row["document_id"] or ""),
                 "chunk_id": row["chunk_id"],
-                "url": row["source_url"],
+                "url": row["url"] or row["source_url"],
                 "title": str(row["title"] or ""),
                 "publisher": str(row["publisher"] or ""),
                 "published_date": str(row["published_date"] or ""),
                 "citation_label": row["citation_label"],
                 "citation": row["citation_label"],
                 "retrieved_at": row["retrieved_at"],
-                "relevance_score": float(row["relevance"] or 0.0),
-                "credibility_score": float(row["credibility"] or 0.0),
-                "freshness_score": float(row["freshness"] or 0.0),
-                "relevance": float(row["relevance"] or 0.0),
-                "credibility": float(row["credibility"] or 0.0),
-                "freshness": float(row["freshness"] or 0.0),
+                "relevance_score": float(row["relevance_score"] or row["relevance"] or 0.0),
+                "credibility_score": float(row["credibility_score"] or row["credibility"] or 0.0),
+                "freshness_score": float(row["freshness_score"] or row["freshness"] or 0.0),
+                "relevance": float(row["relevance_score"] or row["relevance"] or 0.0),
+                "credibility": float(row["credibility_score"] or row["credibility"] or 0.0),
+                "freshness": float(row["freshness_score"] or row["freshness"] or 0.0),
                 "evidence_level": str(row["evidence_level"] or ""),
                 "metadata_json": metadata,
             }
