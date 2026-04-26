@@ -349,6 +349,7 @@ html.logo-svg-ready .logo-text{display:none}
 .mode-wrap{display:flex;background:var(--bg2);border:1px solid var(--border);border-radius:6px;overflow:hidden}
 .hdr-right .mode-wrap{flex-shrink:0}
 .mode-btn{padding:5px 12px;font-size:12px;font-weight:600;font-family:var(--font-ui);letter-spacing:.04em;cursor:pointer;border:none;background:transparent;color:var(--text2);transition:all .15s}
+.mode-btn{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .mode-btn.active{background:var(--bg3);color:var(--text)}
 .hdr-right{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:nowrap;min-width:0}
 .sys-usage-row{
@@ -554,6 +555,7 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-subtabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
 .nexus-subtabs::-webkit-scrollbar{display:none}
 .nexus-subtab{padding:5px 10px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text2);cursor:pointer;white-space:nowrap}
+.nexus-subtab{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .nexus-subtab.active{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
 .nexus-body{flex:1;min-height:0;overflow:auto;padding:12px}
 .nexus-tab{display:none}
@@ -6552,6 +6554,7 @@ function initPanelResizer() {
 // ── INIT ──
 addEventListener('load', async () => {
   initTheme();
+  bindModeAndNexusTapHandlers();
   if (mode === 'task') mode = 'chat';
   syncChatTaskToggle();
   if (window.innerWidth <= 768) {
@@ -6882,6 +6885,27 @@ function toggleChatTaskMode() {
 function getChatModeBadge() {
   if (mode !== 'chat') return mode;
   return isTaskEnabled ? 'chat/task:on' : 'chat/task:off';
+}
+
+function _bindTapClick(el, handler) {
+  if (!el || typeof handler !== 'function') return;
+  if (el.dataset.tapBound === '1') return;
+  el.dataset.tapBound = '1';
+  const onTap = (ev) => {
+    if (ev) ev.preventDefault();
+    handler();
+  };
+  el.addEventListener('click', onTap);
+  el.addEventListener('touchend', onTap, {passive:false});
+}
+
+function bindModeAndNexusTapHandlers() {
+  ['chat','agent','echo','nexus'].forEach((name) => {
+    _bindTapClick(document.getElementById('btn-' + name), () => setMode(name));
+  });
+  ['dashboard','library','news','market','web-scout','compare','formula','evidence','report'].forEach((name) => {
+    _bindTapClick(document.getElementById('nexus-btn-' + name), () => switchNexusTab(name));
+  });
 }
 
 function setMode(m) {
