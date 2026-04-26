@@ -7635,6 +7635,9 @@ function setNexusWebResult(payload, isErr = false) {
 }
 
 function formatNexusWebStatus(status = {}, runtimeMeta = {}) {
+  const searxngState = String(status?.searxng_state || runtimeMeta?.searxng_state || '').trim().toLowerCase();
+  if (searxngState) return [searxngState];
+
   const labels = [];
   const activeProvider = String(status?.active_provider || status?.provider || runtimeMeta?.provider || '').toLowerCase();
   const isStub = Boolean(runtimeMeta?.is_stub);
@@ -7666,6 +7669,7 @@ function setNexusWebStatus(status = {}, runtimeMeta = {}, isErr = false) {
     return;
   }
   const labels = formatNexusWebStatus(status, runtimeMeta);
+  const searxngState = String(status?.searxng_state || runtimeMeta?.searxng_state || '').trim().toLowerCase();
   const provider = runtimeMeta?.provider || status?.active_provider || status?.provider || '-';
   const providerStatus = status?.provider_status;
   const providerKey = String(status?.active_provider || status?.provider || provider || '').toLowerCase();
@@ -7675,11 +7679,12 @@ function setNexusWebStatus(status = {}, runtimeMeta = {}, isErr = false) {
   const active = status?.provider_status_active || activeFromDict || providerStatus || {};
   const engine = runtimeMeta?.engine || '-';
   const extra = [];
+  if (status?.searxng_state_message) extra.push(status.searxng_state_message);
   if (active?.message) extra.push(active.message);
   if (status?.message && status.message !== active?.message) extra.push(status.message);
   if (runtimeMeta?.message) extra.push(runtimeMeta.message);
   el.style.color = 'var(--text2)';
-  el.textContent = `状態: ${labels.join(' / ')} | provider:${provider} | engine:${engine}${extra.length ? ` | ${extra.join(' | ')}` : ''}`;
+  el.textContent = `状態: ${labels.join(' / ')} | provider:${provider} | engine:${engine}${searxngState ? ` | searxng_state:${searxngState}` : ''}${extra.length ? ` | ${extra.join(' | ')}` : ''}`;
 }
 
 async function refreshNexusWebStatus(runtimeMeta = {}) {
