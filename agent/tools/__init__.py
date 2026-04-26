@@ -11,7 +11,12 @@ from agent.tools.builtin import (
 )
 from agent.tools.nexus_tools import (
     nexus_build_report,
+    nexus_build_report_legacy,
+    nexus_export_bundle,
+    nexus_market_research,
+    nexus_news_scan,
     nexus_search_library,
+    nexus_upload_document,
     nexus_web_search,
 )
 
@@ -26,4 +31,9 @@ __all__ = [
     "nexus_search_library",
     "nexus_web_search",
     "nexus_build_report",
+    "nexus_build_report_legacy",
+    "nexus_upload_document",
+    "nexus_news_scan",
+    "nexus_market_research",
+    "nexus_export_bundle",
 ]

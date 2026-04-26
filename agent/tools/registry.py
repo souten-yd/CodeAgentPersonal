@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import inspect
 
 from agent.types import Action, ToolResult
 from agent.tools import builtin, nexus_tools
@@ -34,8 +35,23 @@ class ToolRegistry:
         return handler(action.input)
 
 
+def _validate_tool_input(fn: Callable[..., dict], tool_input: dict) -> str | None:
+    if not isinstance(tool_input, dict):
+        return "tool input must be a dict"
+
+    signature = inspect.signature(fn)
+    try:
+        signature.bind(**tool_input)
+    except TypeError as exc:
+        return str(exc)
+    return None
+
+
 def _wrap_dict_tool(name: str, fn: Callable[..., dict]) -> ToolCallable:
     def _handler(tool_input: dict) -> ToolResult:
+        validation_error = _validate_tool_input(fn, tool_input)
+        if validation_error:
+            return ToolResult(action_id=name, success=False, error=f"invalid arguments for {name}: {validation_error}")
         try:
             result = fn(**tool_input)
             ok = bool(result.get("ok", True))
@@ -61,5 +77,13 @@ def create_default_registry() -> ToolRegistry:
     registry.register("nexus_search_library", _wrap_dict_tool("nexus_search_library", nexus_tools.nexus_search_library))
     registry.register("nexus_web_search", _wrap_dict_tool("nexus_web_search", nexus_tools.nexus_web_search))
     registry.register("nexus_build_report", _wrap_dict_tool("nexus_build_report", nexus_tools.nexus_build_report))
+    registry.register(
+        "nexus_build_report_legacy",
+        _wrap_dict_tool("nexus_build_report_legacy", nexus_tools.nexus_build_report_legacy),
+    )
+    registry.register("nexus_upload_document", _wrap_dict_tool("nexus_upload_document", nexus_tools.nexus_upload_document))
+    registry.register("nexus_news_scan", _wrap_dict_tool("nexus_news_scan", nexus_tools.nexus_news_scan))
+    registry.register("nexus_market_research", _wrap_dict_tool("nexus_market_research", nexus_tools.nexus_market_research))
+    registry.register("nexus_export_bundle", _wrap_dict_tool("nexus_export_bundle", nexus_tools.nexus_export_bundle))
 
     return registry
