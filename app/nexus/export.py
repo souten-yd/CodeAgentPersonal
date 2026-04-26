@@ -68,8 +68,8 @@ def create_nexus_bundle(job_id: str, report: dict) -> Path:
 
     evidence = list_evidence_items(job_id)
     related_document_ids = _collect_document_ids(job_id, evidence)
-    report_md = Path(report["report_md_path"])
-    report_html = Path(report["report_html_path"])
+    report_md = Path(str(report.get("markdown_path") or report.get("report_md_path") or ""))
+    report_html = Path(str(report.get("html_path") or report.get("report_html_path") or ""))
 
     zip_path = _BUNDLE_DIR / f"nexus_bundle_{job_id}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -82,7 +82,7 @@ def create_nexus_bundle(job_id: str, report: dict) -> Path:
             writer.writerow(
                 {
                     "citation_label": item.get("citation_label", ""),
-                    "source_url": item.get("source_url", ""),
+                    "source_url": item.get("url", "") or item.get("source_url", ""),
                     "retrieved_at": item.get("retrieved_at", ""),
                     "chunk_id": item.get("chunk_id", ""),
                 }
@@ -126,13 +126,13 @@ def download_nexus_bundle(job_id: str) -> FileResponse:
 def download_report_file(report_id: str) -> FileResponse:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT report_md_path FROM nexus_reports WHERE report_id = ?",
+            "SELECT markdown_path, report_md_path FROM nexus_reports WHERE report_id = ?",
             (report_id,),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="report not found")
 
-    report_md = Path(str(row["report_md_path"]))
+    report_md = Path(str(row["markdown_path"] or row["report_md_path"] or ""))
     if not report_md.exists():
         raise HTTPException(status_code=404, detail="report markdown missing")
 
@@ -143,13 +143,13 @@ def download_report_file(report_id: str) -> FileResponse:
 def download_report_html_file(report_id: str) -> FileResponse:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT report_html_path FROM nexus_reports WHERE report_id = ?",
+            "SELECT html_path, report_html_path FROM nexus_reports WHERE report_id = ?",
             (report_id,),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="report not found")
 
-    report_html = Path(str(row["report_html_path"] or ""))
+    report_html = Path(str(row["html_path"] or row["report_html_path"] or ""))
     if not report_html.exists():
         raise HTTPException(status_code=404, detail="report html missing")
 
@@ -160,13 +160,13 @@ def download_report_html_file(report_id: str) -> FileResponse:
 def download_report_json_file(report_id: str) -> FileResponse:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT report_json_path FROM nexus_reports WHERE report_id = ?",
+            "SELECT json_path, report_json_path FROM nexus_reports WHERE report_id = ?",
             (report_id,),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="report not found")
 
-    report_json = Path(str(row["report_json_path"] or ""))
+    report_json = Path(str(row["json_path"] or row["report_json_path"] or ""))
     if not report_json.exists():
         raise HTTPException(status_code=404, detail="report json missing")
 

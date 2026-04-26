@@ -119,6 +119,10 @@ SCHEMA_SQL: tuple[str, ...] = (
         evidence_level TEXT NOT NULL DEFAULT '',
         metadata_json TEXT NOT NULL DEFAULT '{}',
         metadata TEXT NOT NULL DEFAULT '{}',
+        url TEXT NOT NULL DEFAULT '',
+        relevance_score REAL NOT NULL DEFAULT 0.0,
+        credibility_score REAL NOT NULL DEFAULT 0.0,
+        freshness_score REAL NOT NULL DEFAULT 0.0,
         created_at TEXT NOT NULL,
         FOREIGN KEY(job_id) REFERENCES nexus_jobs(job_id) ON DELETE CASCADE
     )
@@ -134,6 +138,9 @@ SCHEMA_SQL: tuple[str, ...] = (
         report_md_path TEXT NOT NULL,
         report_json_path TEXT NOT NULL,
         report_html_path TEXT NOT NULL,
+        markdown_path TEXT NOT NULL DEFAULT '',
+        json_path TEXT NOT NULL DEFAULT '',
+        html_path TEXT NOT NULL DEFAULT '',
         summary TEXT NOT NULL DEFAULT '',
         metadata TEXT NOT NULL DEFAULT '{}',
         generated_at TEXT NOT NULL,
@@ -242,6 +249,10 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
                 "freshness REAL NOT NULL DEFAULT 0.0",
                 "evidence_level TEXT NOT NULL DEFAULT ''",
                 "metadata_json TEXT NOT NULL DEFAULT '{}'",
+                "url TEXT NOT NULL DEFAULT ''",
+                "relevance_score REAL NOT NULL DEFAULT 0.0",
+                "credibility_score REAL NOT NULL DEFAULT 0.0",
+                "freshness_score REAL NOT NULL DEFAULT 0.0",
             ),
         ),
         (
@@ -250,6 +261,9 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
                 "project TEXT NOT NULL DEFAULT 'default'",
                 "summary TEXT NOT NULL DEFAULT ''",
                 "metadata TEXT NOT NULL DEFAULT '{}'",
+                "markdown_path TEXT NOT NULL DEFAULT ''",
+                "json_path TEXT NOT NULL DEFAULT ''",
+                "html_path TEXT NOT NULL DEFAULT ''",
             ),
         ),
     ):
@@ -293,9 +307,23 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE nexus_evidence SET freshness = 0.0 WHERE freshness IS NULL")
     conn.execute("UPDATE nexus_evidence SET evidence_level = '' WHERE evidence_level IS NULL")
     conn.execute("UPDATE nexus_evidence SET metadata_json = '{}' WHERE metadata_json IS NULL OR metadata_json = ''")
+    conn.execute("UPDATE nexus_evidence SET url = source_url WHERE url IS NULL OR url = ''")
+    conn.execute("UPDATE nexus_evidence SET source_url = url WHERE source_url IS NULL OR source_url = ''")
+    conn.execute("UPDATE nexus_evidence SET relevance_score = relevance WHERE relevance_score IS NULL")
+    conn.execute("UPDATE nexus_evidence SET credibility_score = credibility WHERE credibility_score IS NULL")
+    conn.execute("UPDATE nexus_evidence SET freshness_score = freshness WHERE freshness_score IS NULL")
+    conn.execute("UPDATE nexus_evidence SET relevance = relevance_score WHERE relevance IS NULL")
+    conn.execute("UPDATE nexus_evidence SET credibility = credibility_score WHERE credibility IS NULL")
+    conn.execute("UPDATE nexus_evidence SET freshness = freshness_score WHERE freshness IS NULL")
     conn.execute("UPDATE nexus_reports SET project = 'default' WHERE project IS NULL OR project = ''")
     conn.execute("UPDATE nexus_reports SET summary = '' WHERE summary IS NULL")
     conn.execute("UPDATE nexus_reports SET metadata = '{}' WHERE metadata IS NULL OR metadata = ''")
+    conn.execute("UPDATE nexus_reports SET markdown_path = report_md_path WHERE markdown_path IS NULL OR markdown_path = ''")
+    conn.execute("UPDATE nexus_reports SET json_path = report_json_path WHERE json_path IS NULL OR json_path = ''")
+    conn.execute("UPDATE nexus_reports SET html_path = report_html_path WHERE html_path IS NULL OR html_path = ''")
+    conn.execute("UPDATE nexus_reports SET report_md_path = markdown_path WHERE report_md_path IS NULL OR report_md_path = ''")
+    conn.execute("UPDATE nexus_reports SET report_json_path = json_path WHERE report_json_path IS NULL OR report_json_path = ''")
+    conn.execute("UPDATE nexus_reports SET report_html_path = html_path WHERE report_html_path IS NULL OR report_html_path = ''")
 
     # 旧 metadata JSON から新カラムへ補完
     doc_rows = conn.execute(
@@ -342,7 +370,8 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
     evidence_rows = conn.execute(
         """
         SELECT evidence_id, source_type, publisher, published_date, metadata_json,
-               metadata, relevance, credibility, freshness, evidence_level
+               metadata, source_url, url, relevance, credibility, freshness,
+               relevance_score, credibility_score, freshness_score, evidence_level
         FROM nexus_evidence
         """
     ).fetchall()
@@ -354,13 +383,14 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
         source_type = row["source_type"] if row["source_type"] not in (None, "") else metadata_json.get("source_type", metadata_json.get("source", ""))
         publisher = row["publisher"] if row["publisher"] not in (None, "") else metadata_json.get("publisher", "")
         published_date = row["published_date"] if row["published_date"] not in (None, "") else metadata_json.get("published_date", metadata_json.get("published_at", ""))
-        relevance = row["relevance"]
+        url = row["url"] if row["url"] not in (None, "") else row["source_url"]
+        relevance = row["relevance_score"] if row["relevance_score"] not in (None, 0, 0.0) else row["relevance"]
         if relevance in (None, 0, 0.0):
             relevance = metadata_json.get("relevance_score", metadata_json.get("relevance", metadata_json.get("score", 0.0)))
-        credibility = row["credibility"]
+        credibility = row["credibility_score"] if row["credibility_score"] not in (None, 0, 0.0) else row["credibility"]
         if credibility in (None, 0, 0.0):
             credibility = metadata_json.get("credibility_score", metadata_json.get("credibility", 0.0))
-        freshness = row["freshness"]
+        freshness = row["freshness_score"] if row["freshness_score"] not in (None, 0, 0.0) else row["freshness"]
         if freshness in (None, 0, 0.0):
             freshness = metadata_json.get("freshness_score", metadata_json.get("freshness", 0.0))
         evidence_level = row["evidence_level"] if row["evidence_level"] not in (None, "") else metadata_json.get("evidence_level", metadata_json.get("level", ""))
@@ -368,7 +398,11 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
             """
             UPDATE nexus_evidence
             SET source_type = ?, publisher = ?, published_date = ?,
-                relevance = ?, credibility = ?, freshness = ?, evidence_level = ?,
+                source_url = ?, url = ?,
+                relevance = ?, relevance_score = ?,
+                credibility = ?, credibility_score = ?,
+                freshness = ?, freshness_score = ?,
+                evidence_level = ?,
                 metadata_json = ?, metadata = ?
             WHERE evidence_id = ?
             """,
@@ -376,8 +410,13 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
                 str(source_type or ""),
                 str(publisher or ""),
                 str(published_date or ""),
+                str(url or ""),
+                str(url or ""),
+                float(relevance or 0.0),
                 float(relevance or 0.0),
                 float(credibility or 0.0),
+                float(credibility or 0.0),
+                float(freshness or 0.0),
                 float(freshness or 0.0),
                 str(evidence_level or ""),
                 _dumps_json(metadata_json),
