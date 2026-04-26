@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from pathlib import Path
+from urllib import parse, request
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
@@ -86,6 +88,55 @@ def _as_canonical_payload(operation: str, request: dict, result: dict) -> dict:
         "request": request,
         "result": result,
     }
+
+
+def _provider_kind(provider: str) -> str:
+    normalized = (provider or "").strip().lower()
+    if normalized == "searxng":
+        return "free_self_hosted"
+    return "paid_or_quota_api"
+
+
+def _is_provider_enabled(provider: str, cfg) -> bool:
+    normalized = (provider or "").strip().lower()
+    if normalized == "brave" and cfg.search_free_only and not cfg.search_paid_providers_enabled:
+        return False
+    return True
+
+
+def _is_provider_configured(provider: str, cfg) -> tuple[bool, str]:
+    normalized = (provider or "").strip().lower()
+    if normalized == "brave":
+        has_key = bool(cfg.brave_search_api_key)
+        if not has_key:
+            return False, "BRAVE_SEARCH_API_KEY が未設定です。"
+        return True, "設定済みです。"
+    if normalized == "searxng":
+        if not cfg.searxng_url.strip():
+            return False, "NEXUS_SEARXNG_URL が未設定です。"
+        return True, "設定済みです。"
+    return False, "未対応プロバイダです。"
+
+
+def _check_searxng_connectivity(url: str) -> tuple[bool, str]:
+    base_url = (url or "").strip().rstrip("/")
+    if not base_url:
+        return False, "NEXUS_SEARXNG_URL が未設定のため疎通確認をスキップしました。"
+
+    params = parse.urlencode({"q": "healthcheck", "format": "json"})
+    req = request.Request(
+        f"{base_url}/search?{params}",
+        headers={"Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with request.urlopen(req, timeout=2) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            if isinstance(payload.get("results"), list):
+                return True, "SearXNG 疎通確認に成功しました。"
+            return False, "SearXNG から想定外レスポンスを受信しました。"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"SearXNG 疎通確認に失敗しました: {exc}"
 
 
 @nexus_router.get("/health")
@@ -431,6 +482,56 @@ def nexus_web_search(payload: NexusWebSearchRequest) -> dict:
             "total_items": len(search.get("items") or []),
         },
     )
+
+
+@nexus_router.get("/web/status")
+def nexus_web_status() -> dict:
+    cfg = load_runtime_config()
+    providers: list[str] = []
+    for provider_name in [cfg.web_search_provider, *cfg.search_fallback_providers]:
+        normalized = (provider_name or "").strip().lower()
+        if normalized and normalized not in providers:
+            providers.append(normalized)
+
+    active_provider = providers[0] if providers else cfg.web_search_provider
+    enabled = _is_provider_enabled(active_provider, cfg)
+    provider_configured, provider_message = _is_provider_configured(active_provider, cfg)
+
+    searxng_configured = bool(cfg.searxng_url.strip())
+    searxng_probe_ok = True
+    searxng_probe_message = "SearXNG 疎通確認をスキップしました。"
+    if searxng_configured:
+        searxng_probe_ok, searxng_probe_message = _check_searxng_connectivity(cfg.searxng_url)
+
+    configured = provider_configured
+    if active_provider == "searxng":
+        configured = configured and searxng_probe_ok
+
+    message_parts = [provider_message]
+    if active_provider == "searxng":
+        message_parts.append(searxng_probe_message)
+    if not enabled:
+        message_parts.append("free-only 設定のため有償/クォータ制プロバイダは無効です。")
+
+    return {
+        "enable_web": cfg.enable_web,
+        "provider": cfg.web_search_provider,
+        "fallback_providers": list(cfg.search_fallback_providers),
+        "free_only": cfg.search_free_only,
+        "paid_providers_enabled": cfg.search_paid_providers_enabled,
+        "brave_search_api_key_set": bool(cfg.brave_search_api_key),
+        "searxng_url": cfg.searxng_url,
+        "searxng_configured": searxng_configured,
+        "configured": configured,
+        "active_provider": active_provider,
+        "provider_status": {
+            "kind": _provider_kind(active_provider),
+            "enabled": enabled,
+            "configured": configured,
+            "message": " ".join(part for part in message_parts if part),
+        },
+        "message": " ".join(part for part in message_parts if part),
+    }
 
 
 @nexus_router.post("/web/research")
