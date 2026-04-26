@@ -57,7 +57,7 @@ def load_runtime_config() -> NexusRuntimeConfig:
         enable_market=_env_bool("NEXUS_ENABLE_MARKET", default=True),
         web_search_provider=provider or "brave",
         brave_search_api_key=(os.environ.get("BRAVE_SEARCH_API_KEY") or "").strip(),
-        max_upload_mb=_env_int("NEXUS_MAX_UPLOAD_MB", default=20, minimum=1),
+        max_upload_mb=_env_int("NEXUS_MAX_UPLOAD_MB", default=200, minimum=1),
     )
 
 
