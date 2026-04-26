@@ -30,29 +30,95 @@ def _normalize_mode(mode: str | None) -> str:
     return "standard"
 
 
-def plan_web_queries(topic: str, *, mode: str = "standard", max_queries: int | None = None) -> list[str]:
+def _normalize_scope(scope: str | list[str] | None) -> list[str]:
+    if scope is None:
+        return []
+    raw_values = [scope] if isinstance(scope, str) else scope
+    normalized: list[str] = []
+    for raw in raw_values:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        lower = value.lower()
+        if lower not in normalized:
+            normalized.append(lower)
+    return normalized
+
+
+def _normalize_language(language: str | None) -> str:
+    raw = (language or "en").strip().lower()
+    if not raw:
+        return "en"
+    aliases = {
+        "jp": "ja",
+        "jpn": "ja",
+        "eng": "en",
+    }
+    return aliases.get(raw, raw)
+
+
+def _scope_suffix(scope_tokens: list[str]) -> str:
+    mapped: list[str] = []
+    for token in scope_tokens:
+        if token == "news":
+            mapped.append("latest news")
+        elif token == "official":
+            mapped.append("official source")
+        elif token.startswith("site:") or token.startswith("filetype:"):
+            mapped.append(token)
+        else:
+            mapped.append(token)
+    return " ".join(mapped).strip()
+
+
+def plan_web_queries(
+    topic: str,
+    *,
+    mode: str = "standard",
+    max_queries: int | None = None,
+    scope: str | list[str] | None = None,
+    language: str | None = None,
+) -> list[str]:
     """Build lightweight web-search queries from one topic string."""
     topic = (topic or "").strip()
     if not topic:
         return []
 
     normalized_mode = _normalize_mode(mode)
+    normalized_scope = _normalize_scope(scope)
+    normalized_language = _normalize_language(language)
+    suffix = _scope_suffix(normalized_scope)
     default_max_queries = _SEARCH_MODE_SETTINGS[normalized_mode]["max_queries"]
     query_cap = max(1, max_queries if max_queries is not None else default_max_queries)
 
-    seeds = [
-        topic,
-        f"{topic} latest",
-        f"{topic} analysis",
-        f"{topic} outlook",
-        f"{topic} risks opportunities",
-        f"{topic} catalysts",
-        f"{topic} valuation",
-        f"{topic} expert commentary",
-    ]
+    if normalized_language == "ja":
+        seeds = [
+            topic,
+            f"{topic} 最新",
+            f"{topic} 分析",
+            f"{topic} 見通し",
+            f"{topic} リスク 機会",
+            f"{topic} 触媒",
+            f"{topic} バリュエーション",
+            f"{topic} 専門家 コメント",
+        ]
+    else:
+        seeds = [
+            topic,
+            f"{topic} latest",
+            f"{topic} analysis",
+            f"{topic} outlook",
+            f"{topic} risks opportunities",
+            f"{topic} catalysts",
+            f"{topic} valuation",
+            f"{topic} expert commentary",
+        ]
 
     unique: list[str] = []
-    for query in seeds:
+    for seed in seeds:
+        query = seed
+        if suffix:
+            query = f"{query} {suffix}"
         q = " ".join(query.split())
         if q and q not in unique:
             unique.append(q)
@@ -81,8 +147,10 @@ def run_web_search(
     *,
     mode: str = "standard",
     max_results_per_query: int | None = None,
+    scope: str | list[str] | None = None,
+    language: str | None = None,
     country: str = "US",
-    search_lang: str = "en",
+    search_lang: str | None = None,
 ) -> dict[str, Any]:
     """Run configured web search provider and return a non-fatal normalized payload."""
     cfg = load_runtime_config()
@@ -90,14 +158,25 @@ def run_web_search(
     mode_defaults = _SEARCH_MODE_SETTINGS[normalized_mode]
     result_cap = max_results_per_query if max_results_per_query is not None else mode_defaults["max_results_per_query"]
     result_cap = max(1, min(20, int(result_cap)))
+    normalized_scope = _normalize_scope(scope)
+    normalized_language = _normalize_language(language)
+    effective_search_lang = _normalize_language(search_lang) if search_lang else normalized_language
 
     normalized_queries = [q.strip() for q in queries if (q or "").strip()]
+    effective_query_plan = {
+        "requested_scope": scope,
+        "normalized_scope": normalized_scope,
+        "requested_language": language,
+        "search_lang": effective_search_lang,
+        "queries": normalized_queries,
+    }
 
     if not normalized_queries:
         return {
             "provider": cfg.web_search_provider,
             "mode": normalized_mode,
             "configured": bool(cfg.brave_search_api_key),
+            "effective_query_plan": effective_query_plan,
             "items": [],
             "message": "query が空です。",
         }
@@ -108,6 +187,7 @@ def run_web_search(
             "provider": cfg.web_search_provider,
             "mode": normalized_mode,
             "configured": False,
+            "effective_query_plan": effective_query_plan,
             "items": _build_stub_items(normalized_queries, reason=message),
             "message": message,
             "non_fatal": True,
@@ -121,6 +201,7 @@ def run_web_search(
             "provider": cfg.web_search_provider,
             "mode": normalized_mode,
             "configured": False,
+            "effective_query_plan": effective_query_plan,
             "items": _build_stub_items(normalized_queries, reason=message),
             "message": message,
             "non_fatal": True,
@@ -132,6 +213,7 @@ def run_web_search(
             "provider": "brave",
             "mode": normalized_mode,
             "configured": False,
+            "effective_query_plan": effective_query_plan,
             "message": message,
             "non_fatal": True,
             "items": _build_stub_items(
@@ -148,7 +230,7 @@ def run_web_search(
                 "q": query,
                 "count": result_cap,
                 "country": country,
-                "search_lang": search_lang,
+                "search_lang": effective_search_lang,
             }
         )
         req = request.Request(
@@ -185,6 +267,7 @@ def run_web_search(
         "provider": "brave",
         "mode": normalized_mode,
         "configured": True,
+        "effective_query_plan": effective_query_plan,
         "items": items,
         "message": "ok",
     }
