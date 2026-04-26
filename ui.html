@@ -6554,7 +6554,9 @@ function initPanelResizer() {
 // ── INIT ──
 addEventListener('load', async () => {
   initTheme();
-  bindModeAndNexusTapHandlers();
+  if (window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window) {
+    bindModeAndNexusTapHandlers();
+  }
   if (mode === 'task') mode = 'chat';
   syncChatTaskToggle();
   if (window.innerWidth <= 768) {
@@ -6891,12 +6893,19 @@ function _bindTapClick(el, handler) {
   if (!el || typeof handler !== 'function') return;
   if (el.dataset.tapBound === '1') return;
   el.dataset.tapBound = '1';
-  const onTap = (ev) => {
+
+  let lastTouchTs = 0;
+  el.addEventListener('touchend', (ev) => {
+    lastTouchTs = Date.now();
     if (ev) ev.preventDefault();
     handler();
-  };
-  el.addEventListener('click', onTap);
-  el.addEventListener('touchend', onTap, {passive:false});
+  }, {passive:false});
+
+  el.addEventListener('click', () => {
+    // touchend直後に発火する合成clickを無視
+    if (Date.now() - lastTouchTs < 700) return;
+    handler();
+  });
 }
 
 function bindModeAndNexusTapHandlers() {
