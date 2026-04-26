@@ -7442,8 +7442,13 @@ function setNexusWebResult(payload, isErr = false) {
     return;
   }
   const searchItems = payload?.search?.items || [];
-  const searchQueries = payload?.queries || [];
+  const searchQueries = payload?.generated_queries || payload?.queries || [];
   const highlights = payload?.highlights || [];
+  const trace = payload?.trace || {};
+  const userInputText = [trace?.input_query || payload?.query || '-', trace?.scope ? `scope:${trace.scope}` : '', trace?.language ? `language:${trace.language}` : '', trace?.depth ? `depth:${trace.depth}` : '']
+    .filter(Boolean)
+    .join(' ');
+  const resultPreview = searchItems.slice(0, 5).map((item, idx) => `#${idx + 1} [${item.query || '-'}] ${item.title || '(untitled)'}`);
   el.innerHTML = `
     <div class="nexus-result-item">
       <div style="font-size:11px;color:var(--text2);font-weight:700">Research Summary</div>
@@ -7451,8 +7456,12 @@ function setNexusWebResult(payload, isErr = false) {
       <div class="nexus-result-meta">queries: ${searchQueries.length} / hits: ${searchItems.length}</div>
     </div>
     <div class="nexus-result-item">
-      <div style="font-size:11px;color:var(--text2);font-weight:700">Query Plan</div>
+      <div style="font-size:11px;color:var(--text2);font-weight:700">Trace: Input → Actual Queries → Results</div>
+      <div class="nexus-result-meta">入力値: ${esc(userInputText || '-')}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">実クエリ:</div>
       <div class="nexus-result-meta">${searchQueries.map((q) => esc(q)).join(' / ') || '(none)'}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">取得結果(先頭5件):</div>
+      ${(resultPreview.length ? resultPreview.map((line) => `<div class="nexus-result-meta">${esc(line)}</div>`).join('') : '<div class="nexus-empty">取得結果なし</div>')}
     </div>
     <div class="nexus-result-item">
       <div style="font-size:11px;color:var(--text2);font-weight:700">Highlights</div>
@@ -7603,13 +7612,12 @@ async function runNexusWebScoutMvp() {
     setNexusWebResult('topic を入力してください。', true);
     return;
   }
-  const composedQuery = [topic, scope ? `scope:${scope}` : '', language ? `language:${language}` : ''].filter(Boolean).join(' ');
   const maxQueries = depth === 'deep' ? 6 : 3;
   const maxResultsPerQuery = depth === 'deep' ? 8 : 4;
   if (btn) btn.disabled = true;
   setNexusWebResult('実行中...');
   try {
-    const payload = { query: composedQuery, mode: depth, max_queries: maxQueries, max_results_per_query: maxResultsPerQuery };
+    const payload = { query: topic, mode: depth, depth, scope, language, max_queries: maxQueries, max_results_per_query: maxResultsPerQuery };
     const [searchRes, researchRes] = await Promise.all([
       fetch(API + '/nexus/web/search', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }),
       fetch(API + '/nexus/web/research', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }),
@@ -7624,9 +7632,16 @@ async function runNexusWebScoutMvp() {
       scope,
       language,
       queries: researchData?.result?.queries || searchData?.result?.queries || [],
+      generated_queries: researchData?.result?.generated_queries || searchData?.result?.generated_queries || [],
       search: searchData?.result?.search || {},
       highlights: researchData?.result?.highlights || [],
       summary: researchData?.result?.summary || `${topic} に関する Web Scout summary`,
+      trace: {
+        input_query: topic,
+        scope,
+        language,
+        depth,
+      },
     };
     setNexusWebResult(merged, false);
   } catch (e) {

@@ -72,6 +72,7 @@ class NexusWatchlistUpdateRequest(BaseModel):
 class NexusWebSearchRequest(BaseModel):
     query: str = Field(min_length=1)
     mode: str = Field(default="standard")
+    depth: str | None = None
     max_queries: int | None = Field(default=None, ge=1, le=20)
     max_results_per_query: int | None = Field(default=None, ge=1, le=20)
     scope: str | list[str] | None = None
@@ -401,9 +402,11 @@ def nexus_web_search(payload: NexusWebSearchRequest) -> dict:
     query = payload.query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="query must not be empty")
+    requested_depth = (payload.depth or payload.mode or "standard").strip() or "standard"
     queries = plan_web_queries(
         query,
         mode=payload.mode,
+        depth=requested_depth,
         max_queries=payload.max_queries,
         scope=payload.scope,
         language=payload.language,
@@ -411,6 +414,7 @@ def nexus_web_search(payload: NexusWebSearchRequest) -> dict:
     search = run_web_search(
         queries,
         mode=payload.mode,
+        depth=requested_depth,
         max_results_per_query=payload.max_results_per_query,
         scope=payload.scope,
         language=payload.language,
@@ -420,6 +424,7 @@ def nexus_web_search(payload: NexusWebSearchRequest) -> dict:
         payload.model_dump(),
         {
             "queries": queries,
+            "generated_queries": search.get("generated_queries", queries),
             "effective_query_plan": search.get("effective_query_plan", {}),
             "search": search,
             "items": search.get("items") or [],
@@ -433,9 +438,11 @@ def nexus_web_research(payload: NexusWebSearchRequest) -> dict:
     query = payload.query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="query must not be empty")
+    requested_depth = (payload.depth or payload.mode or "standard").strip() or "standard"
     queries = plan_web_queries(
         query,
         mode=payload.mode,
+        depth=requested_depth,
         max_queries=payload.max_queries,
         scope=payload.scope,
         language=payload.language,
@@ -443,6 +450,7 @@ def nexus_web_research(payload: NexusWebSearchRequest) -> dict:
     search = run_web_search(
         queries,
         mode=payload.mode,
+        depth=requested_depth,
         max_results_per_query=payload.max_results_per_query,
         scope=payload.scope,
         language=payload.language,
@@ -453,6 +461,7 @@ def nexus_web_research(payload: NexusWebSearchRequest) -> dict:
         payload.model_dump(),
         {
             "queries": queries,
+            "generated_queries": search.get("generated_queries", queries),
             "effective_query_plan": search.get("effective_query_plan", {}),
             "search": search,
             "highlights": highlights,
