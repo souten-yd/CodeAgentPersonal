@@ -1255,7 +1255,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div class="agent-session-left">
           <span id="agent-session-label" style="font-size:11px;color:var(--text2);letter-spacing:.04em">Agent session: -</span>
           <button id="agent-stop-btn" class="agent-stop-btn" type="button" onclick="handleAgentStopClick()" disabled>Stop</button>
-          <button class="chat-task-toggle" id="agent-tts-toggle" onclick="toggleChatTtsUnified()" title="Agent TTS 自動読み上げのON/OFF">
+          <button class="chat-task-toggle" id="agent-tts-toggle" onclick="toggleAgentTts()" title="Agent TTS 自動読み上げのON/OFF">
             <span id="agent-tts-toggle-label">TTS OFF</span>
           </button>
         </div>
@@ -3326,6 +3326,17 @@ const tts = {
   _autoplayUnlocked: false,
   _autoplayBlockedNoticeShown: false,
 };
+const agentTts = {
+  enabled: (() => {
+    const raw = localStorage.getItem('agent_tts_enabled');
+    return raw !== null ? raw === 'true' : tts.enabled;
+  })(),
+  autoSpeak: (() => {
+    const raw = localStorage.getItem('agent_tts_auto_speak');
+    return raw !== null ? raw === 'true' : tts.autoSpeak;
+  })(),
+};
+
 const _SUPPORTED_TTS_ENGINES = new Set(['webspeech', 'edgetts', 'qwen3tts', 'style_bert_vits2', 'voicevox']);
 const _TTS_ENGINE_COMPAT_ALIASES = {
   qwen3_tts: 'qwen3tts',
@@ -6995,7 +7006,7 @@ function syncChatTtsToggle() {
 function syncAgentTtsToggle() {
   const toggle = document.getElementById('agent-tts-toggle');
   const label = document.getElementById('agent-tts-toggle-label');
-  const isOn = !!(tts.enabled && tts.autoSpeak);
+  const isOn = !!(agentTts.enabled && agentTts.autoSpeak);
   toggle?.classList.toggle('on', isOn);
   if (label) label.textContent = isOn ? 'TTS ON' : 'TTS OFF';
 }
@@ -7012,6 +7023,15 @@ function toggleChatTtsUnified(nextState = null) {
   localStorage.setItem('tts_enabled', next ? 'true' : 'false');
   localStorage.setItem('tts_auto_speak', next ? 'true' : 'false');
   syncAllTtsToggles();
+}
+
+function toggleAgentTts(nextState = null) {
+  const next = typeof nextState === 'boolean' ? nextState : !(agentTts.enabled && agentTts.autoSpeak);
+  agentTts.enabled = !!next;
+  agentTts.autoSpeak = !!next;
+  localStorage.setItem('agent_tts_enabled', next ? 'true' : 'false');
+  localStorage.setItem('agent_tts_auto_speak', next ? 'true' : 'false');
+  syncAgentTtsToggle();
 }
 
 function toggleChatTaskMode() {
@@ -8093,7 +8113,7 @@ function addAgentConversationMsg(role, text, record = true) {
   d.className = 'msg ' + role;
   const labels = {user:'Boss', assistant:'Agent', system:'System', error:'Error'};
   d.innerHTML = `<div class="msg-role">${labels[role]||role}</div><div class="msg-bubble">${esc(String(text||''))}</div>`;
-  if (role === 'assistant' && tts.enabled && tts.autoSpeak) {
+  if (role === 'assistant' && agentTts.enabled && agentTts.autoSpeak) {
     ttsSpeak(String(text || ''), {context: 'agent', engine: tts.engine});
   }
   w.appendChild(d);
