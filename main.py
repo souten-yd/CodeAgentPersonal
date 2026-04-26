@@ -6120,6 +6120,94 @@ def _repair_common_json_issues(text: str):
         return None
 
 
+def _extract_json_like_range(text: str) -> str:
+    if not isinstance(text, str):
+        return ""
+    s = text.strip()
+    if not s:
+        return ""
+    lidx = s.find("{")
+    ridx = s.rfind("}")
+    if lidx >= 0 and ridx > lidx:
+        return s[lidx:ridx + 1].strip()
+    return s
+
+
+def _parse_agent_protocol_json(text: str) -> tuple[dict | None, str | None]:
+    """
+    Agent chat JSON protocol parser.
+    1) 生JSON
+    2) ```json フェンス除去
+    3) JSONらしき範囲抽出
+    """
+    if not isinstance(text, str) or not text.strip():
+        return None, "empty_output"
+    raw = text.strip()
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None, None if isinstance(parsed, dict) else "not_object"
+    except Exception:
+        pass
+
+    fence = re.search(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL | re.IGNORECASE)
+    if fence:
+        fenced = fence.group(1).strip()
+        try:
+            parsed = json.loads(fenced)
+            return parsed if isinstance(parsed, dict) else None, None if isinstance(parsed, dict) else "not_object"
+        except Exception:
+            pass
+
+    candidate = _extract_json_like_range(raw)
+    if candidate and candidate != raw:
+        try:
+            parsed = json.loads(candidate)
+            return parsed if isinstance(parsed, dict) else None, None if isinstance(parsed, dict) else "not_object"
+        except Exception as e:
+            return None, f"json_parse_failed:{e}"
+
+    try:
+        repaired = _repair_common_json_issues(raw)
+        if isinstance(repaired, dict):
+            return repaired, None
+    except Exception:
+        pass
+    return None, "json_parse_failed"
+
+
+def _validate_agent_action_payload(action_obj: dict) -> tuple[dict | None, str | None]:
+    if not isinstance(action_obj, dict):
+        return None, "payload_not_object"
+    action = str(action_obj.get("action", "") or "").strip().lower()
+    if action == "final":
+        content = str(action_obj.get("content", "") or "").strip()
+        if not content:
+            return None, "final_content_empty"
+        return {"action": "final", "content": content}, None
+    if action == "tool":
+        tool = str(action_obj.get("tool", "") or "").strip()
+        args = action_obj.get("arguments", {})
+        if tool != "web_search":
+            return None, f"tool_not_allowed:{tool}"
+        if not isinstance(args, dict):
+            return None, "tool_arguments_not_object"
+        query = str(args.get("query", "") or "").strip()
+        if not query:
+            return None, "web_search_query_empty"
+        num_results_raw = args.get("num_results", 3)
+        try:
+            num_results = int(num_results_raw)
+        except Exception:
+            return None, "web_search_num_results_invalid"
+        num_results = max(1, min(num_results, 10))
+        return {
+            "action": "tool",
+            "tool": "web_search",
+            "arguments": {"query": query, "num_results": num_results},
+        }, None
+    return None, f"unknown_action:{action}"
+
+
 def extract_json(text: str, parser: str = "json"):
     """
     parser種別:
@@ -7014,17 +7102,24 @@ def execute_chat_with_optional_web_search(
         chat_reply, usage = call_llm_chat(messages, llm_url=llm_url)
         return {"status": "done", "output": chat_reply, "usage": usage, "steps": []}
 
-    CHAT_SEARCH_PROMPT = """あなたはCodeAgentのチャットモードです。
-必要なときだけ web_search を使って情報を補強してください。
+    CHAT_SEARCH_PROMPT = """You are CodeAgent in agent mode.
+Return valid JSON object only. No markdown. No pseudo tags like <|tool_call> or call:web_search.
 
-出力は必ず次のJSON形式のみ:
-1) Web検索が必要: {"action":"web_search","input":{"query":"検索クエリ","num_results":5},"thought":"短い理由"}
-2) 最終回答: {"action":"final","output":"ユーザーへの回答"}
+Allowed response formats (strict):
+1) Tool call:
+{"action":"tool","tool":"web_search","arguments":{"query":"横浜 有名な公園","num_results":3}}
+2) Final answer:
+{"action":"final","content":"回答本文"}
 
-ルール:
-- web_search以外のツール名は絶対に使わない
-- 既知の内容だけで十分なら即finalを返す
-- 最大でも2回までweb_searchし、最後は必ずfinalで終了する
+Rules:
+- Do not output any text before/after JSON.
+- Only web_search is allowed as tool.
+- web_search schema:
+  - name: web_search
+  - arguments.query: string (required)
+  - arguments.num_results: number (optional, default 3)
+- If no tool is needed, return final immediately.
+- At most 2 tool calls, and then return final.
 """
     messages = [
         {"role": "system", "content": CHAT_SEARCH_PROMPT},
@@ -7032,6 +7127,7 @@ def execute_chat_with_optional_web_search(
         {"role": "user", "content": message},
     ]
     steps = []
+    agent_debug_logs: list[dict] = []
     searches_used = 0
     safe_max_steps = max(2, min(int(max_steps or 6), 8))
 
@@ -7040,67 +7136,77 @@ def execute_chat_with_optional_web_search(
         if on_event:
             on_event({"type": "llm_thinking", "step_num": step + 1, "max_steps": safe_max_steps})
         reply, usage = call_llm_chat(messages, llm_url=llm_url)
-        action_obj = extract_json(reply, parser=_model_manager.current_parser)
-
+        raw_reply = str(reply or "")
+        action_obj, parse_error = _parse_agent_protocol_json(raw_reply)
+        retry_used = False
         if action_obj is None:
-            if step == 0:
-                # JSON出力に失敗しても、初回は自然文回答として扱って即終了
-                return {"status": "done", "output": reply, "usage": usage, "steps": steps}
-            messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
-            messages.append({
-                "role": "user",
-                "content": "JSON形式のみで返してください。{\"action\":\"final\",\"output\":\"...\"} または web_search。",
-            })
+            retry_used = True
+            messages.append({"role": "assistant", "content": _sanitize_special_tokens(raw_reply)[:800]})
+            messages.append({"role": "user", "content": "valid JSONのみで再出力してください。"})
+            retry_reply, retry_usage = call_llm_chat(messages, llm_url=llm_url)
+            if retry_usage.get("prompt_tokens"):
+                usage = retry_usage
+            raw_reply = str(retry_reply or "")
+            action_obj, parse_error = _parse_agent_protocol_json(raw_reply)
+
+        validated_obj = None
+        validation_error = None
+        if action_obj is not None:
+            validated_obj, validation_error = _validate_agent_action_payload(action_obj)
+
+        debug_item = {
+            "step": step + 1,
+            "raw_model_output": raw_reply[:1200],
+            "parsed_action": (validated_obj or action_obj or {}).get("action", ""),
+            "selected_tool": (validated_obj or action_obj or {}).get("tool", ""),
+            "tool_arguments": (validated_obj or action_obj or {}).get("arguments", {}),
+            "tool_result_summary": "",
+            "parse_error": parse_error or validation_error or "",
+            "retry_used": retry_used,
+        }
+
+        if validated_obj is None:
+            agent_debug_logs.append(debug_item)
+            if step >= safe_max_steps - 1:
+                break
+            messages.append({"role": "assistant", "content": _sanitize_special_tokens(raw_reply)[:800]})
+            messages.append({"role": "user", "content": "JSONオブジェクトのみ。actionは tool または final だけを使ってください。"})
             continue
 
-        action = str(action_obj.get("action", "") or "").strip().lower()
-        action, _ = _normalize_action_name(action)
-        tool_input = action_obj.get("input", {}) or {}
-        thought = str(action_obj.get("thought", "") or "")
+        action = validated_obj.get("action", "")
 
         if action == "final":
-            out = str(action_obj.get("output", "") or "").strip()
-            if out:
-                return {"status": "done", "output": out, "usage": usage, "steps": steps}
-            return {"status": "done", "output": thought or "完了しました。", "usage": usage, "steps": steps}
-
-        if action != "web_search":
-            messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
-            messages.append({
-                "role": "user",
-                "content": "web_search か final だけを使ってください。不要ならfinalで回答してください。",
-            })
-            continue
+            out = str(validated_obj.get("content", "") or "").strip()
+            debug_item["tool_result_summary"] = "final_response"
+            agent_debug_logs.append(debug_item)
+            return {"status": "done", "output": out, "usage": usage, "steps": steps, "logs": agent_debug_logs}
 
         if searches_used >= 2:
-            messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
+            debug_item["parse_error"] = "web_search_limit_reached"
+            agent_debug_logs.append(debug_item)
+            messages.append({"role": "assistant", "content": _sanitize_special_tokens(raw_reply)})
             messages.append({
                 "role": "user",
-                "content": "web_searchの上限(2回)に達しました。検索結果をもとにfinalで回答してください。",
+                "content": "Tool call上限(2回)に達しました。final JSONで回答してください。",
             })
             continue
 
+        tool_input = validated_obj.get("arguments", {}) or {}
         query = str(tool_input.get("query", "") or "").strip()
-        num_results = int(tool_input.get("num_results", 0) or 0)
-        if not query:
-            messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
-            messages.append({
-                "role": "user",
-                "content": "query が空です。検索せずfinalで回答するか、queryを指定してweb_searchしてください。",
-            })
-            continue
+        num_results = int(tool_input.get("num_results", 3) or 3)
 
         if on_event:
             on_event({
                 "type": "tool_call",
                 "step_num": step + 1,
                 "action": "web_search",
-                "thought": thought,
                 "input": {"query": query, "num_results": num_results},
             })
         result = web_search(query=query, num_results=num_results)
         searches_used += 1
         preview = str(result)[:400]
+        debug_item["tool_result_summary"] = preview
+        agent_debug_logs.append(debug_item)
         steps.append({"step": step + 1, "type": "tool", "action": "web_search", "input": {"query": query, "num_results": num_results}})
         if on_event:
             on_event({
@@ -7109,14 +7215,18 @@ def execute_chat_with_optional_web_search(
                 "action": "web_search",
                 "result_preview": preview,
             })
-        messages.append({"role": "assistant", "content": _sanitize_special_tokens(reply)})
+        messages.append({"role": "assistant", "content": _sanitize_special_tokens(raw_reply)})
         messages.append({
             "role": "user",
-            "content": f"web_searchの結果:\n{result}\n\n上記を使って必要なら追加検索、十分ならfinalで回答してください。",
+            "content": (
+                f"tool result:\n{result}\n\n"
+                "次はJSONオブジェクトのみで返答してください。"
+                "追加検索が必要なら action=tool、不要なら action=final を返してください。"
+            ),
         })
 
     fallback = "検索を試みましたが最終回答を構築できませんでした。質問を少し具体化してください。"
-    return {"status": "error", "error": "chat_web_search_loop_exhausted", "output": fallback, "steps": steps}
+    return {"status": "error", "error": "chat_web_search_loop_exhausted", "output": fallback, "steps": steps, "logs": agent_debug_logs}
 
 def _is_task_engine_v2_enabled() -> bool:
     """TASK_ENGINE_V2=true のときだけ新しいタスク実行経路を有効化する。"""
@@ -13681,7 +13791,7 @@ async def agent_turn(req: Request):
     )
     return {
         "status": "ok",
-        "conversation": {"reply": reply, "usage": chat_result.get("usage", {})},
+        "conversation": {"reply": reply, "usage": chat_result.get("usage", {}), "logs": chat_result.get("logs", [])},
         "search_enabled": effective_search_enabled,
         "ingest": ingest_meta,
         "execution": queue_result,

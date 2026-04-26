@@ -8213,15 +8213,34 @@ async function sendAgentMessage(msg) {
   setBusy(true);
   addAgentConversationMsg('user', text);
   addLog('info','agent', text);
+  const agentMsgWrap = _agentMessages();
+  let runningNode = null;
+  if (agentMsgWrap) {
+    runningNode = document.createElement('div');
+    runningNode.className = 'msg system';
+    runningNode.innerHTML = `<div class="msg-role">System</div><div class="msg-bubble">web_search を実行中...</div>`;
+    agentMsgWrap.appendChild(runningNode);
+    agentMsgWrap.scrollTop = agentMsgWrap.scrollHeight;
+  }
   try {
     const payload = {message: text, project: currentProject, search_enabled: searchEnabled};
     const data = await _agentApi('/agent/turn', payload);
+    if (runningNode?.parentNode) runningNode.parentNode.removeChild(runningNode);
     const reply = data?.conversation?.reply || data.reply || data.result || data.message || '(no response)';
     addAgentConversationMsg('assistant', reply);
+    const loopLogs = Array.isArray(data?.conversation?.logs) ? data.conversation.logs : [];
+    loopLogs.forEach((item, idx) => {
+      addLog('info', 'agent-raw', `step=${idx + 1} raw_model_output=${String(item?.raw_model_output || '').slice(0, 500)}`);
+      addLog('info', 'agent-parse', `step=${idx + 1} parsed_action=${item?.parsed_action || '-'} selected_tool=${item?.selected_tool || '-'} parse_error=${item?.parse_error || '-'}`);
+      if (item?.selected_tool) {
+        addLog('info', 'agent-tool', `step=${idx + 1} tool_arguments=${JSON.stringify(item?.tool_arguments || {})} tool_result_summary=${String(item?.tool_result_summary || '').slice(0, 240)}`);
+      }
+    });
     const executed = data?.execution?.executed || [];
     if (executed.length) addAgentExecutionCard(executed);
     await refreshAgentTasks(data?.execution?.status || 'running');
   } catch (e) {
+    if (runningNode?.parentNode) runningNode.parentNode.removeChild(runningNode);
     addAgentConversationMsg('error', e.message);
     addLog('err','agent',`agent request error: ${e.message}`);
   }
