@@ -18,10 +18,21 @@ echo "[Runpod] Booting CodeAgent from ${ROOT_DIR}"
 echo "[Runpod] host=${HOST} port=${PORT} primary_port=${PRIMARY_PORT} workspace_root=${WORKSPACE_ROOT}"
 echo "[Runpod] runtime_is_runpod=${IS_RUNPOD_RUNTIME}"
 
-if [[ -z "${NEXUS_SEARXNG_URL:-}" ]]; then
-  export NEXUS_SEARXNG_URL="http://127.0.0.1:8088"
-fi
+# Runpod標準値（未設定時のみ適用。明示指定は尊重）
+export AUTO_START_SEARXNG="${AUTO_START_SEARXNG:-true}"
+export NEXUS_WEB_SEARCH_PROVIDER="${NEXUS_WEB_SEARCH_PROVIDER:-searxng}"
+export NEXUS_SEARXNG_URL="${NEXUS_SEARXNG_URL:-http://127.0.0.1:8088}"
+export NEXUS_SEARCH_FREE_ONLY="${NEXUS_SEARCH_FREE_ONLY:-true}"
+export NEXUS_SEARCH_PAID_PROVIDERS_ENABLED="${NEXUS_SEARCH_PAID_PROVIDERS_ENABLED:-false}"
+export SEARXNG_PORT="${SEARXNG_PORT:-8088}"
+export SEARXNG_BIND_ADDRESS="${SEARXNG_BIND_ADDRESS:-127.0.0.1}"
+echo "[Runpod] AUTO_START_SEARXNG=${AUTO_START_SEARXNG}"
+echo "[Runpod] NEXUS_WEB_SEARCH_PROVIDER=${NEXUS_WEB_SEARCH_PROVIDER}"
 echo "[Runpod] NEXUS_SEARXNG_URL=${NEXUS_SEARXNG_URL}"
+echo "[Runpod] NEXUS_SEARCH_FREE_ONLY=${NEXUS_SEARCH_FREE_ONLY}"
+echo "[Runpod] NEXUS_SEARCH_PAID_PROVIDERS_ENABLED=${NEXUS_SEARCH_PAID_PROVIDERS_ENABLED}"
+echo "[Runpod] SEARXNG_PORT=${SEARXNG_PORT}"
+echo "[Runpod] SEARXNG_BIND_ADDRESS=${SEARXNG_BIND_ADDRESS}"
 
 AUTO_INSTALL_DOCKER="${RUNPOD_AUTO_INSTALL_DOCKER:-true}"
 if [[ "${AUTO_INSTALL_DOCKER}" == "true" ]]; then
@@ -93,7 +104,7 @@ fi
 "${PYTHON_BIN}" -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110" 2>/dev/null || true
 
 # Runpod専用デフォルト: Runpod起動スクリプトでは SearXNG 自動起動を既定で有効化する。
-AUTO_START_SEARXNG="${RUNPOD_AUTO_START_SEARXNG:-true}"
+AUTO_START_SEARXNG="${AUTO_START_SEARXNG:-${RUNPOD_AUTO_START_SEARXNG:-true}}"
 if [[ "${AUTO_START_SEARXNG}" == "true" ]]; then
   echo "[Runpod] SearXNG auto-start enabled."
   searxng_status_file="$(mktemp)"
