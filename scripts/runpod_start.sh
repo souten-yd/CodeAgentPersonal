@@ -222,6 +222,14 @@ fi
 
 VV_URL="${VOICEVOX_URL:-http://127.0.0.1:50021}" runpod_voicevox_autostart
 
+AUTO_START_SEARXNG="${RUNPOD_AUTO_START_SEARXNG:-false}"
+if [[ "${AUTO_START_SEARXNG}" == "true" ]]; then
+  echo "[Runpod] SearXNG auto-start enabled."
+  bash scripts/start_searxng.sh || true
+else
+  echo "[Runpod] SearXNG auto-start disabled (RUNPOD_AUTO_START_SEARXNG=${AUTO_START_SEARXNG})."
+fi
+
 
 STYLE_BERT_BASE_DIR="${CODEAGENT_STYLE_BERT_VITS2_BASE_DIR:-${WORKSPACE_ROOT}/ca_data/tts/style_bert_vits2}"
 STYLE_BERT_MODELS_DIR="${CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR:-${STYLE_BERT_BASE_DIR}/models}"
