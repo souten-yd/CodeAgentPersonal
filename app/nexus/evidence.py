@@ -152,3 +152,84 @@ def list_evidence_items(job_id: str) -> list[dict]:
         }
         for row in rows
     ]
+
+
+def list_evidence_table_items(
+    job_id: str,
+    *,
+    source_type: str | None = None,
+    filter_text: str | None = None,
+    limit: int = 50,
+) -> dict:
+    """UI table binding ready evidence list with pagination envelope.
+
+    Returns:
+        {
+            "total": int,
+            "items": list[dict],
+            "next_cursor": str | None,  # reserved for future paging
+        }
+    """
+    normalized_limit = max(1, min(int(limit), 200))
+    normalized_source_type = (source_type or "").strip().lower()
+    normalized_filter = (filter_text or "").strip().lower()
+
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT evidence_id, job_id, chunk_id, citation_label, source_url,
+                   retrieved_at, note, quote, relevance, credibility, freshness,
+                   evidence_level, metadata, created_at, title
+            FROM nexus_evidence
+            WHERE job_id = ?
+            ORDER BY created_at DESC, evidence_id DESC
+            """,
+            (job_id,),
+        ).fetchall()
+
+    filtered_items: list[dict] = []
+    for row in rows:
+        metadata = json.loads(row["metadata"] or "{}")
+        row_source_type = str(
+            metadata.get("source_type")
+            or metadata.get("source")
+            or row["note"]
+            or ""
+        ).strip().lower()
+        if normalized_source_type and row_source_type != normalized_source_type:
+            continue
+
+        searchable_parts = (
+            str(row["citation_label"] or ""),
+            str(row["source_url"] or ""),
+            str(row["note"] or ""),
+            str(row["quote"] or ""),
+            str(row["title"] or ""),
+            row_source_type,
+        )
+        searchable_text = " ".join(searchable_parts).lower()
+        if normalized_filter and normalized_filter not in searchable_text:
+            continue
+
+        filtered_items.append(
+            {
+                "evidence_id": row["evidence_id"],
+                "job_id": row["job_id"],
+                "chunk_id": row["chunk_id"],
+                "citation_label": row["citation_label"],
+                "source_url": row["source_url"],
+                "retrieved_at": row["retrieved_at"],
+                "relevance": float(row["relevance"] or 0.0),
+                "credibility": float(row["credibility"] or 0.0),
+                "freshness": float(row["freshness"] or 0.0),
+                "evidence_level": str(row["evidence_level"] or ""),
+                "source_type": row_source_type,
+            }
+        )
+
+    total = len(filtered_items)
+    return {
+        "total": total,
+        "items": filtered_items[:normalized_limit],
+        "next_cursor": None,
+    }
