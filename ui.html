@@ -4733,6 +4733,9 @@ function playNextTtsAudio() {
     setAudioStatus(audioUnlocked ? `Ready | Queue: ${ttsAudioQueue.length}` : `Locked | Queue: ${ttsAudioQueue.length}`);
     if (typeof resolve === 'function') resolve(result);
     playNextTtsAudio();
+    if (ttsAudioQueue.length === 0 && voiceContinuousEnabled) {
+      _scheduleContinuousVoiceRestart('tts_done', 300);
+    }
   };
 
   player.onended = () => {
@@ -9923,23 +9926,50 @@ function _arrayBufferToBase64(buffer){
 }
 
 async function _maybeRestartContinuousVoice() {
-  if (!voiceContinuousEnabled || busy || voiceRecording || voiceRecorder) return;
-  if (voiceContinuousRestartTimer) clearTimeout(voiceContinuousRestartTimer);
+  _scheduleContinuousVoiceRestart('maybe', 350);
+}
+
+function _clearContinuousVoiceRestartTimer() {
+  if (!voiceContinuousRestartTimer) return;
+  clearTimeout(voiceContinuousRestartTimer);
+  voiceContinuousRestartTimer = null;
+}
+
+function _canRestartContinuousVoice() {
+  return voiceContinuousEnabled && !busy && !voiceRecording && !voiceRecorder && !_isRecordingBlockedByTts();
+}
+
+function _scheduleContinuousVoiceRestart(reason = 'unknown', delay = 350) {
+  if (!voiceContinuousEnabled) {
+    _clearContinuousVoiceRestartTimer();
+    return;
+  }
+  _clearContinuousVoiceRestartTimer();
   voiceContinuousRestartTimer = setTimeout(() => {
-    if (!voiceContinuousEnabled || busy || voiceRecording || voiceRecorder) return;
-    toggleVoiceInput(voiceTarget, true);
-  }, 220);
+    voiceContinuousRestartTimer = null;
+    if (!voiceContinuousEnabled) return;
+    if (_canRestartContinuousVoice()) {
+      toggleVoiceInput(voiceTarget, true);
+      return;
+    }
+    _scheduleContinuousVoiceRestart(reason, delay);
+  }, delay);
 }
 
 async function toggleVoiceInput(target = 'chat', autoRestart = false){
   if (busy && !autoRestart) return;
   if (_isRecordingBlockedByTts() && !voiceRecording) {
-    if (!autoRestart) addMsg('system', 'TTS生成/再生中は録音を開始できません。');
+    if (autoRestart) {
+      _scheduleContinuousVoiceRestart('tts_blocked', 500);
+      return;
+    }
+    addMsg('system', 'TTS生成/再生中は録音を開始できません。');
     return;
   }
   if (!autoRestart) {
     if (voiceContinuousEnabled && target === voiceTarget) {
       voiceContinuousEnabled = false;
+      _clearContinuousVoiceRestartTimer();
       if (voiceRecording && voiceRecorder) {
         voiceRecording = false;
         _stopVoiceLevelMonitoring(voiceTarget);
@@ -10087,6 +10117,9 @@ async function transcribeVoiceBlob(blob, opts = {}){
     addLog('err','voice', e.message || String(e));
   } finally {
     if (!opts.skipMainMicState) _setMicState(false, false, opts.target || voiceTarget);
+    if (voiceContinuousEnabled && !opts.skipMainMicState) {
+      _scheduleContinuousVoiceRestart('asr_finally', 500);
+    }
   }
 }
 
@@ -12972,7 +13005,7 @@ function setBusy(b) {
   if (micBtn) micBtn.disabled = b || (voiceRecording && voiceTarget === 'chat');
   const agentMicBtn = document.getElementById('agent-mic-btn');
   if (agentMicBtn) agentMicBtn.disabled = b || (voiceRecording && voiceTarget === 'agent');
-  if (!b) _maybeRestartContinuousVoice();
+  if (!b && voiceContinuousEnabled) _scheduleContinuousVoiceRestart('busy_false', 300);
 }
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function synHL(c){return esc(c).replace(/\b(def|class|import|from|return|if|else|elif|for|while|try|except|with|as|pass|True|False|None|async|await)\b/g,'<span class="kw">$1</span>').replace(/(#[^\n]*)/g,'<span class="cm">$1</span>').replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g,'<span class="str">$1</span>').replace(/\b(\d+\.?\d*)\b/g,'<span class="num">$1</span>')}
