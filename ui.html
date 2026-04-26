@@ -1881,6 +1881,15 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </select>
         </div>
         <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASR入力デバイス（Echo）</div>
+          <select id="echo-asr-input-device"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveEchoSettings()">
+            <option value="default">システム既定</option>
+          </select>
+          <div id="echo-asr-input-device-note" style="font-size:10px;color:var(--text3);margin-top:4px;line-height:1.5"></div>
+        </div>
+        <div style="margin-bottom:8px">
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASRモデル</div>
           <select id="echo-asr-model"
             style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
@@ -2194,6 +2203,17 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <option value="qwen3tts" selected>Qwen3 TTS（高品質・ローカル）</option>
             <option value="style_bert_vits2">Style-Bert-VITS2</option>
           </select>
+        </div>
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS再生デバイス（Echo）</div>
+          <select id="echo-tts-output-device"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveEchoSettings()">
+            <option value="default">システム既定（iPhoneはOS側で切替）</option>
+          </select>
+          <div id="echo-tts-output-device-note" style="font-size:10px;color:var(--text3);margin-top:4px;line-height:1.5">
+            iPhone/Safari はブラウザから直接出力先を指定できない場合があります。
+          </div>
         </div>
         <!-- Qwen3 モデル選択 -->
         <div style="margin-bottom:8px" id="tsasr-qwen3-model-row">
@@ -3366,11 +3386,13 @@ const echo = {
     return autoPlayTtsStored === 'true';
   })(),
   ttsEngine:      localStorage.getItem('echo_tts_engine')  || 'qwen3tts',
+  ttsOutputDeviceId: localStorage.getItem('echo_tts_output_device_id') || 'default',
   styleBertVits2Model: localStorage.getItem('echo_style_bert_vits2_model')
                     || localStorage.getItem('echo_stylebertvits2_model')
                     || localStorage.getItem('echo_style-bert-vits2_model')
                     || '',
   asrLang:        localStorage.getItem('echo_asr_lang')    || 'auto',
+  asrInputDeviceId: localStorage.getItem('echo_asr_input_device_id') || 'default',
   asrModel:       localStorage.getItem('echo_asr_model')   || 'large-v3-turbo',
   asrProfile:     localStorage.getItem('echo_asr_profile') || 'balanced',
   asrNoSpeechThreshold: Math.min(1, Math.max(0, _numOr(localStorage.getItem('echo_asr_no_speech_threshold'), 0.6))),
@@ -4269,6 +4291,64 @@ function _isRecordingBlockedByTts() {
   return !!(tts._playing || _qwen3CloneTestBusy || _sbv2TestBusy || ttsAudioQueue.length > 0);
 }
 
+function _isEchoRecordingBlockedByTts() {
+  // Echo は TTS再生中でも常時録音を継続可能にする
+  return false;
+}
+
+async function _echoRefreshAudioDeviceSelectors() {
+  const inSel = document.getElementById('echo-asr-input-device');
+  const outSel = document.getElementById('echo-tts-output-device');
+  const inNote = document.getElementById('echo-asr-input-device-note');
+  const outNote = document.getElementById('echo-tts-output-device-note');
+  if (!inSel && !outSel) return;
+  const fallbackIn = [{id: 'default', label: 'システム既定'}];
+  const fallbackOut = [{id: 'default', label: 'システム既定（iPhoneはOS側で切替）'}];
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    if (inSel) {
+      inSel.innerHTML = fallbackIn.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
+      inSel.value = echo.asrInputDeviceId || 'default';
+    }
+    if (outSel) {
+      outSel.innerHTML = fallbackOut.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
+      outSel.value = echo.ttsOutputDeviceId || 'default';
+    }
+    if (inNote) inNote.textContent = 'このブラウザは入力デバイス一覧取得に未対応です。';
+    if (outNote) outNote.textContent = 'このブラウザは出力デバイス一覧取得に未対応です。';
+    return;
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const ins = devices.filter((d) => d.kind === 'audioinput');
+    const outs = devices.filter((d) => d.kind === 'audiooutput');
+    if (inSel) {
+      const inputOpts = [
+        {id: 'default', label: 'システム既定'},
+        ...ins.map((d, idx) => ({id: d.deviceId, label: d.label || `マイク ${idx + 1}`})),
+      ];
+      inSel.innerHTML = inputOpts.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
+      inSel.value = inputOpts.some((x) => x.id === echo.asrInputDeviceId) ? echo.asrInputDeviceId : 'default';
+    }
+    if (outSel) {
+      const outputOpts = [
+        {id: 'default', label: 'システム既定（iPhoneはOS側で切替）'},
+        ...outs.map((d, idx) => ({id: d.deviceId, label: d.label || `出力 ${idx + 1}`})),
+      ];
+      outSel.innerHTML = outputOpts.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
+      outSel.value = outputOpts.some((x) => x.id === echo.ttsOutputDeviceId) ? echo.ttsOutputDeviceId : 'default';
+    }
+    if (inNote) inNote.textContent = ins.length ? '接続済みマイク/イヤホンを選択できます。' : 'マイク一覧を取得するには一度録音許可が必要な場合があります。';
+    if (outNote) {
+      outNote.textContent = outs.length
+        ? '対応ブラウザではTTS出力先を選択できます。iPhone/SafariではOS側切替を利用してください。'
+        : '出力先の列挙不可。iPhone/SafariではOS側の出力切替を利用してください。';
+    }
+  } catch (e) {
+    if (inNote) inNote.textContent = `入力デバイス一覧取得に失敗: ${e.message || String(e)}`;
+    if (outNote) outNote.textContent = `出力デバイス一覧取得に失敗: ${e.message || String(e)}`;
+  }
+}
+
 function _syncRecordingControlsWithTts() {
   const blocked = _isRecordingBlockedByTts();
   const reason = blocked ? 'TTS生成/再生中は録音を開始できません。' : '';
@@ -4285,8 +4365,9 @@ function _syncRecordingControlsWithTts() {
   }
   const echoBtn = document.getElementById('echo-record-btn');
   if (echoBtn && !echo.recording) {
-    echoBtn.disabled = blocked;
-    echoBtn.title = reason;
+    const echoBlocked = _isEchoRecordingBlockedByTts();
+    echoBtn.disabled = echoBlocked;
+    echoBtn.title = echoBlocked ? reason : '';
   }
   if (blocked && voiceRecording && voiceRecorder) {
     voiceRecording = false;
@@ -4719,6 +4800,16 @@ async function tryPlayTtsQueue({userGesture = false} = {}) {
     if (typeof resolve === 'function') resolve({ok: false, reason: 'missing_player'});
     return;
   }
+  const requestedSinkId = item?.meta?.context === 'echo'
+    ? (echo.ttsOutputDeviceId || 'default')
+    : 'default';
+  if (requestedSinkId && requestedSinkId !== 'default' && typeof player.setSinkId === 'function') {
+    try {
+      await player.setSinkId(requestedSinkId);
+    } catch (e) {
+      console.warn(`[TTS][sink_change_failed] id=${id} sink=${requestedSinkId} err=${e?.message || e}`);
+    }
+  }
   _cleanupCurrentTtsSource({clearPlayer: false});
   const url = URL.createObjectURL(blob);
   _currentTtsObjectUrl = url;
@@ -4809,7 +4900,13 @@ window.addEventListener('pagehide', () => {
 });
 window.addEventListener('pageshow', () => {
   console.info('[Audio][pageshow]');
+  _echoRefreshAudioDeviceSelectors();
 });
+if (navigator.mediaDevices?.addEventListener) {
+  navigator.mediaDevices.addEventListener('devicechange', () => {
+    _echoRefreshAudioDeviceSelectors();
+  });
+}
 
 function saveTtsSettings() {
   tts.engine     = _normalizeTtsEngine(document.getElementById('tts-engine-sel')?.value || tts.engine);
@@ -5423,6 +5520,7 @@ async function loadQwen3Tts(context) {
 function saveEchoSettings() {
   echo.autoPlayTts = document.getElementById('echo-autoplay-tts')?.checked || false;
   echo.ttsEngine   = _normalizeTtsEngine(document.getElementById('echo-tts-engine')?.value || 'qwen3tts');
+  echo.ttsOutputDeviceId = document.getElementById('echo-tts-output-device')?.value || echo.ttsOutputDeviceId || 'default';
   // Chat/Task 側のTTSエンジンも Echo 設定を参照する
   tts.engine = echo.ttsEngine;
   const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
@@ -5456,6 +5554,7 @@ function saveEchoSettings() {
   echo.parallelMaxSentences = Math.max(1, parseInt(document.getElementById('echo-parallel-max-sentences')?.value || `${echo.parallelMaxSentences || 20}`, 10) || 20);
   echo.textRevealSeconds = Math.max(0, _numOr(document.getElementById('echo-text-reveal-seconds')?.value, echo.textRevealSeconds ?? 1.5));
   echo.asrLang     = document.getElementById('echo-asr-lang')?.value       || 'auto';
+  echo.asrInputDeviceId = document.getElementById('echo-asr-input-device')?.value || echo.asrInputDeviceId || 'default';
   echo.asrModel    = document.getElementById('echo-asr-model')?.value      || 'large-v3-turbo';
   echo.asrProfile  = document.getElementById('echo-asr-profile')?.value    || 'balanced';
   echo.asrNoSpeechThreshold = Math.min(
@@ -5529,6 +5628,7 @@ function saveEchoSettings() {
   _syncAsrDeviceState(asrDev);
   localStorage.setItem('echo_autoplay_tts', echo.autoPlayTts);
   localStorage.setItem('echo_tts_engine',   echo.ttsEngine);
+  localStorage.setItem('echo_tts_output_device_id', echo.ttsOutputDeviceId || 'default');
   localStorage.setItem('tts_engine', tts.engine);
   localStorage.setItem('echo_style_bert_vits2_model', echo.styleBertVits2Model || '');
   localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model || echo.styleBertVits2Model || '');
@@ -5557,6 +5657,7 @@ function saveEchoSettings() {
   localStorage.setItem('echo_parallel_max_sentences', `${echo.parallelMaxSentences}`);
   localStorage.setItem('echo_text_reveal_seconds', `${echo.textRevealSeconds}`);
   localStorage.setItem('echo_asr_lang',     echo.asrLang);
+  localStorage.setItem('echo_asr_input_device_id', echo.asrInputDeviceId || 'default');
   localStorage.setItem('echo_asr_model',    echo.asrModel);
   localStorage.setItem('echo_asr_profile', echo.asrProfile);
   localStorage.setItem('echo_asr_no_speech_threshold', `${echo.asrNoSpeechThreshold}`);
@@ -5748,6 +5849,8 @@ function _echoInitSettingsUI() {
   if (autoLbl) autoLbl.textContent = echo.autoPlayTts ? 'ON' : 'OFF';
   const engSel = document.getElementById('echo-tts-engine');
   if (engSel) engSel.value = echo.ttsEngine;
+  const echoOutSel = document.getElementById('echo-tts-output-device');
+  if (echoOutSel) echoOutSel.value = echo.ttsOutputDeviceId || 'default';
   const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
   if (styleSel) styleSel.value = echo.styleBertVits2Model || tts.styleBertVits2Model || '';
   const langSel = document.getElementById('echo-tts-sbv2-language');
@@ -5812,6 +5915,8 @@ function _echoInitSettingsUI() {
   if (overflowModeInput) overflowModeInput.disabled = !['lang_serial', 'lang_parallel'].includes(echo.displayStyle || 'lang_serial');
   const asrLangSel = document.getElementById('echo-asr-lang');
   if (asrLangSel) asrLangSel.value = echo.asrLang;
+  const asrInputSel = document.getElementById('echo-asr-input-device');
+  if (asrInputSel) asrInputSel.value = echo.asrInputDeviceId || 'default';
   const modelSel = document.getElementById('echo-asr-model');
   if (modelSel) modelSel.value = echo.asrModel;
   const profileSel = document.getElementById('echo-asr-profile');
@@ -5882,6 +5987,7 @@ function _echoInitSettingsUI() {
   if (vadMinSpeechMsInput) vadMinSpeechMsInput.value = `${echo.vadMinSpeechMs}`;
   if (vadRmsThresholdInput) vadRmsThresholdInput.value = `${echo.vadRmsThreshold}`;
   if (vadMinAvgRmsInput) vadMinAvgRmsInput.value = `${echo.vadMinAvgRms}`;
+  _echoRefreshAudioDeviceSelectors();
   if (noiseGateThresholdInput) noiseGateThresholdInput.disabled = !echo.noiseGateEnabled;
   if (highpassHzInput) highpassHzInput.disabled = !echo.highpassEnabled;
   if (vadModeInput) vadModeInput.disabled = !echo.vadEnabled;
@@ -10691,7 +10797,11 @@ async function _echoStart() {
   }
   echo._isStoppingOrSaving = false;
   try {
-    echo.stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    const selectedInput = String(echo.asrInputDeviceId || 'default');
+    const audioConstraints = selectedInput && selectedInput !== 'default'
+      ? {deviceId: {exact: selectedInput}}
+      : true;
+    echo.stream = await navigator.mediaDevices.getUserMedia({audio: audioConstraints});
   } catch(e) {
     _echoSetStatus('マイクのアクセスが拒否されました: ' + e.message);
     return;
@@ -10921,7 +11031,7 @@ async function _echoStart() {
   }
   processor.onaudioprocess = (ev) => {
     if (!echo.recording) return;
-    if (_isRecordingBlockedByTts()) {
+    if (_isEchoRecordingBlockedByTts()) {
       echo.pcmPendingInt16 = new Int16Array(0);
       echo._vadRecentFlags = [];
       echo._vadPreRollFrames = [];
@@ -11064,7 +11174,7 @@ async function toggleEchoRecording() {
   if (echo.recording) {
     await _echoStop();
   } else {
-    if (_isRecordingBlockedByTts()) {
+    if (_isEchoRecordingBlockedByTts()) {
       _echoSetStatus('TTS生成/再生中は録音を開始できません。');
       return;
     }
