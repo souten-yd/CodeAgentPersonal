@@ -8375,6 +8375,9 @@ async function sendAgentMessage(msg) {
   if (!text || busy || mode !== 'agent') return;
   if (!agentSessionActive) await startAgentSession();
   if (!agentSessionActive) return;
+  if (agentTts.enabled && agentTts.autoSpeak && !ttsManualUnlocked) {
+    await enableAudioFromUserGesture();
+  }
   setBusy(true);
   addAgentConversationMsg('user', text);
   addLog('info','agent', text);
