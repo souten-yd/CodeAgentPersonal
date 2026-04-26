@@ -161,6 +161,62 @@ SCHEMA_SQL: tuple[str, ...] = (
         updated_at TEXT NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS nexus_sources (
+        source_id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        project TEXT NOT NULL DEFAULT 'default',
+        source_type TEXT NOT NULL DEFAULT '',
+        url TEXT NOT NULL DEFAULT '',
+        final_url TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL DEFAULT '',
+        publisher TEXT NOT NULL DEFAULT '',
+        domain TEXT NOT NULL DEFAULT '',
+        language TEXT NOT NULL DEFAULT '',
+        content_type TEXT NOT NULL DEFAULT '',
+        local_original_path TEXT NOT NULL DEFAULT '',
+        local_text_path TEXT NOT NULL DEFAULT '',
+        local_markdown_path TEXT NOT NULL DEFAULT '',
+        local_screenshot_path TEXT NOT NULL DEFAULT '',
+        linked_document_id TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT '',
+        error TEXT NOT NULL DEFAULT '',
+        retrieved_at TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(job_id) REFERENCES nexus_jobs(job_id) ON DELETE CASCADE,
+        FOREIGN KEY(linked_document_id) REFERENCES nexus_documents(id) ON DELETE SET NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS nexus_research_answers (
+        answer_id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        project TEXT NOT NULL DEFAULT 'default',
+        question TEXT NOT NULL DEFAULT '',
+        answer_markdown TEXT NOT NULL DEFAULT '',
+        evidence_json TEXT NOT NULL DEFAULT '[]',
+        source_ids_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(job_id) REFERENCES nexus_jobs(job_id) ON DELETE CASCADE
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS nexus_source_chunks (
+        id TEXT PRIMARY KEY,
+        source_id TEXT NOT NULL,
+        document_id TEXT NOT NULL DEFAULT '',
+        chunk_id TEXT NOT NULL DEFAULT '',
+        page_start INTEGER NOT NULL DEFAULT 0,
+        page_end INTEGER NOT NULL DEFAULT 0,
+        section_path TEXT NOT NULL DEFAULT '',
+        citation_label TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(source_id) REFERENCES nexus_sources(source_id) ON DELETE CASCADE,
+        FOREIGN KEY(document_id) REFERENCES nexus_documents(id) ON DELETE CASCADE,
+        FOREIGN KEY(chunk_id) REFERENCES nexus_chunks(chunk_id) ON DELETE CASCADE
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_evidence_job_id ON nexus_evidence(job_id)",
     "CREATE INDEX IF NOT EXISTS idx_reports_job_id ON nexus_reports(job_id)",
     "CREATE INDEX IF NOT EXISTS idx_reports_project ON nexus_reports(project)",
@@ -168,6 +224,11 @@ SCHEMA_SQL: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_jobs_status ON nexus_jobs(status)",
     "CREATE INDEX IF NOT EXISTS idx_jobs_project ON nexus_jobs(project)",
     "CREATE INDEX IF NOT EXISTS idx_watchlists_project ON nexus_watchlists(project)",
+    "CREATE INDEX IF NOT EXISTS idx_sources_job_id ON nexus_sources(job_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sources_linked_document_id ON nexus_sources(linked_document_id)",
+    "CREATE INDEX IF NOT EXISTS idx_research_answers_job_id ON nexus_research_answers(job_id)",
+    "CREATE INDEX IF NOT EXISTS idx_source_chunks_source_id ON nexus_source_chunks(source_id)",
+    "CREATE INDEX IF NOT EXISTS idx_source_chunks_chunk_id ON nexus_source_chunks(chunk_id)",
 )
 
 
@@ -200,6 +261,69 @@ def _dumps_json(value: object) -> str:
 
 def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
     # ALTER TABLE 互換マイグレーション（既存データ保持）
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nexus_sources (
+            source_id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            project TEXT NOT NULL DEFAULT 'default',
+            source_type TEXT NOT NULL DEFAULT '',
+            url TEXT NOT NULL DEFAULT '',
+            final_url TEXT NOT NULL DEFAULT '',
+            title TEXT NOT NULL DEFAULT '',
+            publisher TEXT NOT NULL DEFAULT '',
+            domain TEXT NOT NULL DEFAULT '',
+            language TEXT NOT NULL DEFAULT '',
+            content_type TEXT NOT NULL DEFAULT '',
+            local_original_path TEXT NOT NULL DEFAULT '',
+            local_text_path TEXT NOT NULL DEFAULT '',
+            local_markdown_path TEXT NOT NULL DEFAULT '',
+            local_screenshot_path TEXT NOT NULL DEFAULT '',
+            linked_document_id TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT '',
+            error TEXT NOT NULL DEFAULT '',
+            retrieved_at TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(job_id) REFERENCES nexus_jobs(job_id) ON DELETE CASCADE,
+            FOREIGN KEY(linked_document_id) REFERENCES nexus_documents(id) ON DELETE SET NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nexus_research_answers (
+            answer_id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            project TEXT NOT NULL DEFAULT 'default',
+            question TEXT NOT NULL DEFAULT '',
+            answer_markdown TEXT NOT NULL DEFAULT '',
+            evidence_json TEXT NOT NULL DEFAULT '[]',
+            source_ids_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(job_id) REFERENCES nexus_jobs(job_id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nexus_source_chunks (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL,
+            document_id TEXT NOT NULL DEFAULT '',
+            chunk_id TEXT NOT NULL DEFAULT '',
+            page_start INTEGER NOT NULL DEFAULT 0,
+            page_end INTEGER NOT NULL DEFAULT 0,
+            section_path TEXT NOT NULL DEFAULT '',
+            citation_label TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(source_id) REFERENCES nexus_sources(source_id) ON DELETE CASCADE,
+            FOREIGN KEY(document_id) REFERENCES nexus_documents(id) ON DELETE CASCADE,
+            FOREIGN KEY(chunk_id) REFERENCES nexus_chunks(chunk_id) ON DELETE CASCADE
+        )
+        """
+    )
+
     for table, definitions in (
         (
             "nexus_documents",
@@ -266,9 +390,65 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
                 "html_path TEXT NOT NULL DEFAULT ''",
             ),
         ),
+        (
+            "nexus_sources",
+            (
+                "job_id TEXT NOT NULL DEFAULT ''",
+                "project TEXT NOT NULL DEFAULT 'default'",
+                "source_type TEXT NOT NULL DEFAULT ''",
+                "url TEXT NOT NULL DEFAULT ''",
+                "final_url TEXT NOT NULL DEFAULT ''",
+                "title TEXT NOT NULL DEFAULT ''",
+                "publisher TEXT NOT NULL DEFAULT ''",
+                "domain TEXT NOT NULL DEFAULT ''",
+                "language TEXT NOT NULL DEFAULT ''",
+                "content_type TEXT NOT NULL DEFAULT ''",
+                "local_original_path TEXT NOT NULL DEFAULT ''",
+                "local_text_path TEXT NOT NULL DEFAULT ''",
+                "local_markdown_path TEXT NOT NULL DEFAULT ''",
+                "local_screenshot_path TEXT NOT NULL DEFAULT ''",
+                "linked_document_id TEXT NOT NULL DEFAULT ''",
+                "status TEXT NOT NULL DEFAULT ''",
+                "error TEXT NOT NULL DEFAULT ''",
+                "retrieved_at TEXT NOT NULL DEFAULT ''",
+                "created_at TEXT NOT NULL DEFAULT ''",
+                "updated_at TEXT NOT NULL DEFAULT ''",
+            ),
+        ),
+        (
+            "nexus_research_answers",
+            (
+                "job_id TEXT NOT NULL DEFAULT ''",
+                "project TEXT NOT NULL DEFAULT 'default'",
+                "question TEXT NOT NULL DEFAULT ''",
+                "answer_markdown TEXT NOT NULL DEFAULT ''",
+                "evidence_json TEXT NOT NULL DEFAULT '[]'",
+                "source_ids_json TEXT NOT NULL DEFAULT '[]'",
+                "created_at TEXT NOT NULL DEFAULT ''",
+            ),
+        ),
+        (
+            "nexus_source_chunks",
+            (
+                "source_id TEXT NOT NULL DEFAULT ''",
+                "document_id TEXT NOT NULL DEFAULT ''",
+                "chunk_id TEXT NOT NULL DEFAULT ''",
+                "page_start INTEGER NOT NULL DEFAULT 0",
+                "page_end INTEGER NOT NULL DEFAULT 0",
+                "section_path TEXT NOT NULL DEFAULT ''",
+                "citation_label TEXT NOT NULL DEFAULT ''",
+                "created_at TEXT NOT NULL DEFAULT ''",
+            ),
+        ),
     ):
         for definition in definitions:
             _add_column_if_missing(conn, table, definition)
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sources_job_id ON nexus_sources(job_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sources_linked_document_id ON nexus_sources(linked_document_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_research_answers_job_id ON nexus_research_answers(job_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_source_chunks_source_id ON nexus_source_chunks(source_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_source_chunks_chunk_id ON nexus_source_chunks(chunk_id)")
 
     # 欠損カラムのデフォルト埋め
     conn.execute("UPDATE nexus_documents SET metadata = '{}' WHERE metadata IS NULL OR metadata = ''")
