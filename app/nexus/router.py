@@ -32,7 +32,11 @@ nexus_router = APIRouter()
 
 class NexusSearchRequest(BaseModel):
     query: str = Field(min_length=1)
-    top_k: int = Field(default=10, ge=1, le=100)
+    scope: str | None = None
+    doc_types: list[str] = Field(default_factory=list)
+    limit: int | None = Field(default=None, ge=1, le=100)
+    filters: dict = Field(default_factory=dict)
+    top_k: int | None = Field(default=None, ge=1, le=100)
     as_evidence: bool = False
 
 
@@ -351,8 +355,23 @@ def nexus_search(payload: NexusSearchRequest) -> dict:
     if not query:
         raise HTTPException(status_code=400, detail="query must not be empty")
 
-    results = search_evidence(query=query, top_k=payload.top_k)
-    response: dict = {"query": query, "top_k": payload.top_k, "results": results}
+    limit = payload.limit if payload.limit is not None else (payload.top_k if payload.top_k is not None else 10)
+    results = search_evidence(
+        query=query,
+        limit=limit,
+        scope=payload.scope,
+        doc_types=payload.doc_types,
+        filters=payload.filters,
+    )
+    response: dict = {
+        "query": query,
+        "scope": payload.scope,
+        "doc_types": payload.doc_types,
+        "limit": limit,
+        "top_k": payload.top_k,
+        "filters": payload.filters,
+        "results": results,
+    }
     if payload.as_evidence:
         response["evidence"] = [asdict(item) for item in build_library_evidence(results)]
     return response
@@ -440,7 +459,14 @@ def nexus_ask(payload: NexusSearchRequest) -> dict:
     query = payload.query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="query must not be empty")
-    results = search_evidence(query=query, top_k=payload.top_k)
+    limit = payload.limit if payload.limit is not None else (payload.top_k if payload.top_k is not None else 10)
+    results = search_evidence(
+        query=query,
+        limit=limit,
+        scope=payload.scope,
+        doc_types=payload.doc_types,
+        filters=payload.filters,
+    )
     top = results[0] if results else None
     answer = (
         f"上位候補: {top.get('chunk', {}).get('title')}" if top else "該当する候補が見つかりませんでした。"
