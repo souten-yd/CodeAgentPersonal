@@ -54,7 +54,7 @@ from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_models_dir,
 )
 from app.nexus.router import router as nexus_router
-from app.nexus.web_scout import plan_web_queries, run_web_search
+from app.nexus.web_scout import run_web_search
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -3406,8 +3406,11 @@ def sanitize_query(query: str) -> tuple[str, list[str]]:
 
 def web_search(query: str, num_results: int = 0) -> str:
     """
-    Web検索を実行する。送信前にクエリを無害化する。
-    結果はLLMに渡すのみ、ローカル保存なし。
+    Web検索の唯一入口。
+    - すべての経路（/chat, /agent/turn, execute_task, job実行系）はこの関数のみを呼ぶ。
+    - 実検索の実装はNexus委譲（run_web_search）に限定する。
+    - 将来 provider（MCP等）を追加する場合も run_web_search() 側を差し替えるだけで
+      全経路へ反映される。
     """
     global _search_enabled
     if not _search_enabled:
@@ -3422,11 +3425,8 @@ def web_search(query: str, num_results: int = 0) -> str:
         if removed:
             print(f"[SEARCH][SANITIZED] original_len={len(query)} removed={removed}")
 
-        planned_queries = plan_web_queries(topic=safe_query, max_queries=1, mode="quick")
-        if not planned_queries:
-            planned_queries = [safe_query]
         search_output = run_web_search(
-            planned_queries,
+            [safe_query],
             mode="quick",
             max_results_per_query=n,
         )
@@ -7420,6 +7420,7 @@ def execute_task_stream_v2(task_detail: str, context: str = "", max_steps: int =
 
     active_tools = dict(TOOLS)
     if not search_enabled:
+        # search_enabled=false の場合は web_search ツール自体を公開しない（既存挙動を維持）。
         active_tools.pop("web_search", None)
     active_tools.update(_load_skill_functions())
     import functools as _ft3
@@ -8645,6 +8646,7 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
         for sname, sfn in k_skill().items():
             active_tools.setdefault(sname, sfn)  # 既存ツールは上書きしない
     if not search_enabled:
+        # search_enabled=false の場合は web_search ツール自体を公開しない（既存挙動を維持）。
         active_tools.pop("web_search", None)
     # project引数を持つツールに現在のprojectを自動バインド
     _project_tools = ("read_file", "write_file", "edit_file", "get_outline",
@@ -14490,6 +14492,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
     # スキルをTOOLSに動的追加（ホットリロード対応）
     active_tools = dict(TOOLS)
     if not search_enabled:
+        # search_enabled=false の場合は web_search ツール自体を公開しない（既存挙動を維持）。
         active_tools.pop("web_search", None)
     skill_fns = _load_skill_functions()
     active_tools.update(skill_fns)
