@@ -3612,9 +3612,7 @@ function ttsStop() {
   ttsAudioQueue = [];
   isTtsPlaying = false;
   tts._playing = false;
-  const player = getTtsPlayer();
-  if (player) player.pause();
-  releaseCurrentTtsObjectUrl();
+  releaseCurrentTtsObjectUrl({clearPlayer: true});
   tts._audio = null;
   if (tts._utt && window.speechSynthesis) window.speechSynthesis.cancel();
   tts._autoplayBlockedNoticeShown = false;
@@ -3730,7 +3728,13 @@ function _showTtsNoticeOnce(message) {
   addMsg('system', `TTS通知: ${msg}`);
 }
 
-function releaseCurrentTtsObjectUrl() {
+function releaseCurrentTtsObjectUrl({clearPlayer = false} = {}) {
+  const player = getTtsPlayer();
+  if (clearPlayer && player) {
+    player.pause();
+    player.removeAttribute('src');
+    player.load();
+  }
   if (_currentTtsObjectUrl) {
     URL.revokeObjectURL(_currentTtsObjectUrl);
     _currentTtsObjectUrl = null;
@@ -4686,11 +4690,10 @@ function playNextTtsAudio() {
     return;
   }
   if (ttsAudioQueue.length === 0) {
-    releaseCurrentTtsObjectUrl();
     tts._audio = null;
     tts._playing = false;
     _syncRecordingControlsWithTts();
-    setAudioStatus(audioUnlocked ? 'Ready' : 'Locked');
+    setAudioStatus('Ready...');
     hideFloatingTtsPlayer();
     return;
   }
@@ -4708,7 +4711,7 @@ function playNextTtsAudio() {
     if (typeof resolve === 'function') resolve({ok: false, reason: 'missing_player'});
     return;
   }
-  releaseCurrentTtsObjectUrl();
+  releaseCurrentTtsObjectUrl({clearPlayer: false});
   const url = URL.createObjectURL(blob);
   _currentTtsObjectUrl = url;
   player.src = url;
@@ -4723,7 +4726,6 @@ function playNextTtsAudio() {
     player.onended = null;
     player.onerror = null;
     player.onabort = null;
-    releaseCurrentTtsObjectUrl();
     tts._audio = null;
     tts._playing = false;
     isTtsPlaying = false;
@@ -4752,7 +4754,6 @@ function playNextTtsAudio() {
       player.onended = null;
       player.onerror = null;
       player.onabort = null;
-      releaseCurrentTtsObjectUrl();
       tts._audio = null;
       tts._playing = false;
       isTtsPlaying = false;
