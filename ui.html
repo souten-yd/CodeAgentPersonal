@@ -7701,9 +7701,14 @@ function formatNexusWebStatus(status = {}, runtimeMeta = {}) {
   const activeProvider = String(status?.active_provider || status?.provider || runtimeMeta?.provider || '').toLowerCase();
   const isStub = Boolean(runtimeMeta?.is_stub);
   const fallbackUsed = Boolean(runtimeMeta?.fallback_used);
-  const providerEnabled = status?.provider_status?.enabled !== false;
+  const providerStatus = status?.provider_status;
+  const activeFromDict = providerStatus && typeof providerStatus === 'object' && !Array.isArray(providerStatus)
+    ? providerStatus?.[activeProvider]
+    : null;
+  const active = status?.provider_status_active || activeFromDict || providerStatus || {};
+  const providerEnabled = active?.enabled !== false;
   const braveKeySet = status?.brave_search_api_key_set !== false;
-  const searxngMessage = String(status?.provider_status?.message || status?.message || '');
+  const searxngMessage = String(active?.message || status?.message || '');
   const searxngUnavailable = activeProvider === 'searxng' && /疎通確認に失敗|想定外レスポンス|接続/i.test(searxngMessage);
 
   labels.push(isStub ? 'スタブ中' : '実検索中');
@@ -7724,9 +7729,16 @@ function setNexusWebStatus(status = {}, runtimeMeta = {}, isErr = false) {
   }
   const labels = formatNexusWebStatus(status, runtimeMeta);
   const provider = runtimeMeta?.provider || status?.active_provider || status?.provider || '-';
+  const providerStatus = status?.provider_status;
+  const providerKey = String(status?.active_provider || status?.provider || provider || '').toLowerCase();
+  const activeFromDict = providerStatus && typeof providerStatus === 'object' && !Array.isArray(providerStatus)
+    ? providerStatus?.[providerKey]
+    : null;
+  const active = status?.provider_status_active || activeFromDict || providerStatus || {};
   const engine = runtimeMeta?.engine || '-';
   const extra = [];
-  if (status?.message) extra.push(status.message);
+  if (active?.message) extra.push(active.message);
+  if (status?.message && status.message !== active?.message) extra.push(status.message);
   if (runtimeMeta?.message) extra.push(runtimeMeta.message);
   el.style.color = 'var(--text2)';
   el.textContent = `状態: ${labels.join(' / ')} | provider:${provider} | engine:${engine}${extra.length ? ` | ${extra.join(' | ')}` : ''}`;
