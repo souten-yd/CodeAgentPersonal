@@ -92,7 +92,8 @@ fi
 # Re-pin core framework versions in case optional deps caused downgrades
 "${PYTHON_BIN}" -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110" 2>/dev/null || true
 
-AUTO_START_SEARXNG="${RUNPOD_AUTO_START_SEARXNG:-false}"
+# Runpod専用デフォルト: Runpod起動スクリプトでは SearXNG 自動起動を既定で有効化する。
+AUTO_START_SEARXNG="${RUNPOD_AUTO_START_SEARXNG:-true}"
 if [[ "${AUTO_START_SEARXNG}" == "true" ]]; then
   echo "[Runpod] SearXNG auto-start enabled."
   searxng_status_file="$(mktemp)"

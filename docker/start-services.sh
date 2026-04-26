@@ -6,7 +6,16 @@ cd /app
 HOST="${CODEAGENT_HOST:-0.0.0.0}"
 PORT="${CODEAGENT_PORT:-8000}"
 PRIMARY_PORT="${LLAMA_PORT:-8080}"
-AUTO_START_SEARXNG="${AUTO_START_SEARXNG:-false}"
+IS_RUNPOD_RUNTIME="false"
+if [[ -n "${RUNPOD_POD_ID:-}" || -n "${RUNPOD_API_KEY:-}" ]]; then
+  IS_RUNPOD_RUNTIME="true"
+fi
+# Runpod専用デフォルト: Runpod実行時のみ SearXNG を既定で自動起動する。
+if [[ "${IS_RUNPOD_RUNTIME}" == "true" ]]; then
+  AUTO_START_SEARXNG="${AUTO_START_SEARXNG:-true}"
+else
+  AUTO_START_SEARXNG="${AUTO_START_SEARXNG:-false}"
+fi
 
 if command -v sox >/dev/null 2>&1; then
   echo "[Qwen3-TTS] sox binary: $(command -v sox)"
