@@ -632,15 +632,27 @@ html.logo-svg-ready .logo-text{display:none}
 .agent-session-left{display:flex;align-items:center;gap:8px;min-width:0}
 .agent-stop-btn{padding:6px 10px;border-radius:6px;border:1px solid rgba(255,68,102,.35);background:rgba(255,68,102,.08);color:var(--red);font-size:11px;font-weight:700;cursor:pointer}
 .agent-stop-btn:disabled{opacity:.45;cursor:not-allowed}
-.audio-mini-btn{min-width:34px;min-height:30px;padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px;cursor:pointer;line-height:1}
-.audio-mini-btn.unlock{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
-.tts-player-bar{
-  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
-  padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0;
+.tts-floating-player{
+  position:fixed;
+  top:calc(92px + env(safe-area-inset-top));
+  left:12px;
+  right:12px;
+  z-index:9999;
+  border:1px solid var(--border);
+  background:rgba(20,20,28,.96);
+  backdrop-filter:blur(10px);
+  border-radius:14px;
+  padding:10px;
+  box-shadow:0 8px 32px rgba(0,0,0,.35);
 }
-.tts-player-meta{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 260px}
-.audio-status{font-size:11px;color:var(--text2);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-mono);min-width:0}
-#tts-player{width:min(520px,100%);max-width:100%;height:32px;flex:1 1 320px}
+.tts-floating-player.hidden{display:none}
+.tts-floating-main{display:flex;align-items:center;gap:10px}
+#tts-floating-title{flex:1;min-width:0;font-size:12px;color:var(--text2);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#tts-floating-play{min-height:38px;padding:8px 16px;border-radius:10px;font-weight:700}
+#tts-floating-close{min-height:38px;min-width:38px;padding:8px 10px;border-radius:10px}
+.tts-floating-native-slot{display:none;margin-top:8px}
+.tts-floating-native-slot.visible{display:block}
+#tts-audio{width:100%;height:34px}
 .messages{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
 .messages::-webkit-scrollbar{width:3px}
 .messages::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
@@ -1084,12 +1096,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   .echo-status-right{display:flex;width:100%;gap:8px;align-items:center}
   .chat-control-row,
   .agent-session-row{flex-wrap:wrap}
-  .tts-player-bar{padding:8px}
-  .tts-player-meta{flex:1 1 100%;width:100%}
-  #tts-player{width:100%;flex:1 1 100%}
-  .audio-status{font-size:10px}
-  .audio-status{max-width:120px}
-  .audio-mini-btn{min-height:34px}
+  .tts-floating-player{left:8px;right:8px;top:calc(82px + env(safe-area-inset-top))}
 }
 /* EchoVault 折り畳みパネル */
 .echo-vault-panel{border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0}
@@ -1172,16 +1179,15 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <span id="sys-llm-name" title="Current LLM"></span>
 </div>
 
-<div id="tts-player-bar" class="tts-player-bar">
-  <div class="tts-player-meta">
-    <span id="tts-floating-message" class="audio-status">状態: 自動再生がブロックされました</span>
-    <span id="tts-floating-queue" class="audio-status">Queue: 0</span>
-    <button id="audio-unlock-btn" class="audio-mini-btn unlock" type="button" onclick="enableAudioFromUserGesture()" title="音声有効化">🔊</button>
-    <button id="tts-play-pause-btn" class="audio-mini-btn" type="button" onclick="toggleTtsPlayPause()" title="再生/一時停止">▶</button>
-    <span id="audio-status" class="audio-status">Blocked</span>
+<div id="tts-floating-player" class="tts-floating-player hidden">
+  <div class="tts-floating-main">
+    <span id="tts-floating-title">音声の再生待ち</span>
+    <button id="tts-floating-play" type="button">▶ 再生</button>
+    <button id="tts-floating-close" type="button">×</button>
   </div>
-  <audio id="tts-player" controls playsinline preload="metadata"></audio>
+  <div id="tts-floating-native-slot" class="tts-floating-native-slot"></div>
 </div>
+<audio id="tts-audio" playsinline preload="auto" style="display:none"></audio>
 
 <div class="mob-tabs">
   <!-- Chat/Task モード用タブ -->
@@ -3273,8 +3279,9 @@ function _ttsGetTranslateSettings(context = 'main') {
 _migrateEchoTtsTranslateSettings();
 
 // ── TTS (Text-to-Speech) ──
-let audioUnlocked = false;
-let preferNativeAudioBar = localStorage.getItem('tts_native_bar_default') === 'true';
+let ttsManualUnlocked = false;
+let ttsNeedsUserGesture = false;
+let _lastAutoplayBlockedAt = 0;
 let ttsAudioQueue = [];
 let isTtsPlaying = false;
 
@@ -3608,6 +3615,8 @@ function ttsStop() {
   tts._playing = false;
   releaseCurrentTtsObjectUrl({clearPlayer: true});
   tts._audio = null;
+  clearTtsBlockedState();
+  hideFloatingTtsPlayer();
   if (tts._utt && window.speechSynthesis) window.speechSynthesis.cancel();
   tts._autoplayBlockedNoticeShown = false;
   _clearQwen3CloneStatusTimer();
@@ -3627,97 +3636,47 @@ let _currentTtsObjectUrl = null;
 let _lastAudioBlockedSystemNoticeAt = 0;
 let _lastTtsNoticeMessage = '';
 let _lastTtsNoticeAt = 0;
-let _nativeBarGestureUnlockBound = false;
-let _nativeBarPlayerHooked = false;
-
-function _markNativeAudioBarDefault(reason = 'autoplay_blocked') {
-  if (!preferNativeAudioBar) {
-    preferNativeAudioBar = true;
-    localStorage.setItem('tts_native_bar_default', 'true');
-  }
-  console.info(`[TTS][native_bar_default] reason=${reason}`);
-  _bindNativeBarGestureUnlock();
-}
-
-function _bindNativeBarGestureUnlock() {
-  if (!preferNativeAudioBar || _nativeBarGestureUnlockBound) return;
-  const tryUnlock = async () => {
-    if (audioUnlocked) return;
-    try {
-      await enableAudioFromUserGesture();
-    } catch (e) {
-      console.warn(`[TTS][native_bar_default] unlock_failed reason=${e?.name || e?.message || 'unknown'}`);
-    }
-  };
-  const opts = {passive: true};
-  document.addEventListener('pointerdown', tryUnlock, opts);
-  document.addEventListener('touchend', tryUnlock, opts);
-  document.addEventListener('keydown', tryUnlock);
-  _nativeBarGestureUnlockBound = true;
-}
-
-function _hookNativeAudioPlayer() {
-  if (_nativeBarPlayerHooked) return;
-  const player = getTtsPlayer();
-  if (!player) return;
-  player.addEventListener('play', () => {
-    if (!audioUnlocked) {
-      audioUnlocked = true;
-      tts._autoplayUnlocked = true;
-      _markNativeAudioBarDefault('native_controls_play');
-    }
-    hideAudioUnlockButton();
-    setAudioStatus(`Playing | Queue: ${ttsAudioQueue.length}`);
-  });
-  _nativeBarPlayerHooked = true;
-}
-
-function _markNativeAudioBarDefault(reason = 'autoplay_blocked') {
-  if (!preferNativeAudioBar) {
-    preferNativeAudioBar = true;
-    localStorage.setItem('tts_native_bar_default', 'true');
-  }
-  console.info(`[TTS][native_bar_default] reason=${reason}`);
-}
 
 function getTtsPlayer() {
-  return document.getElementById('tts-player');
+  return document.getElementById('tts-audio');
 }
 
 function setAudioStatus(text) {
-  const el = document.getElementById('audio-status');
-  if (el) el.textContent = text || 'Ready';
-  const queueEl = document.getElementById('tts-floating-queue');
-  if (queueEl) queueEl.textContent = `Queue: ${ttsAudioQueue.length}`;
-  const playBtn = document.getElementById('tts-play-pause-btn');
-  if (playBtn) {
-    const active = isTtsPlaying || (tts._audio && !tts._audio.paused);
-    playBtn.textContent = active ? '⏸' : '▶';
-  }
+  return text;
 }
 
-function showAudioUnlockButton() {
-  const btn = document.getElementById('audio-unlock-btn');
-  if (!btn) return;
-  btn.classList.add('unlock');
+function clearTtsBlockedState() {
+  ttsNeedsUserGesture = false;
 }
 
-function hideAudioUnlockButton() {
-  const btn = document.getElementById('audio-unlock-btn');
-  if (!btn) return;
-  btn.classList.remove('unlock');
+function _syncFloatingNativeControls() {
+  const slot = document.getElementById('tts-floating-native-slot');
+  const audio = getTtsPlayer();
+  if (!slot || !audio) return;
+  const showNative = false;
+  audio.controls = showNative;
+  slot.classList.toggle('visible', showNative);
+  if (showNative && !slot.contains(audio)) slot.appendChild(audio);
 }
 
-function showFloatingTtsPlayer(reason = '状態: 自動再生がブロックされました') {
-  const wrap = document.getElementById('tts-player-bar') || document.getElementById('tts-player-wrap');
+function showFloatingTtsPlayer(reason = '音声の再生待ち') {
+  const wrap = document.getElementById('tts-floating-player');
   if (!wrap) return;
-  _markNativeAudioBarDefault('fallback');
-  const msgEl = document.getElementById('tts-floating-message');
-  if (msgEl) msgEl.textContent = reason;
+  const title = document.getElementById('tts-floating-title');
+  if (title) title.textContent = reason;
+  wrap.classList.remove('hidden');
+  _syncFloatingNativeControls();
+  console.info(`[TTS][floating_show] queue_len=${ttsAudioQueue.length}`);
 }
 
 function hideFloatingTtsPlayer() {
-  // 常設バー化のため no-op（互換目的）
+  const wrap = document.getElementById('tts-floating-player');
+  if (!wrap) return;
+  wrap.classList.add('hidden');
+  const audio = getTtsPlayer();
+  if (audio && audio.parentElement && audio.parentElement.id === 'tts-floating-native-slot') {
+    document.body.appendChild(audio);
+  }
 }
 
 function toggleNativeAudioPanel() {
@@ -3729,40 +3688,7 @@ function moveTtsPlayerTo() {
 }
 
 async function toggleTtsPlayPause() {
-  const player = getTtsPlayer();
-  if (!player) return;
-  if (isTtsPlaying && !player.paused) {
-    player.pause();
-    tts._playing = false;
-    isTtsPlaying = false;
-    _syncRecordingControlsWithTts();
-    setAudioStatus(`Paused | Queue: ${ttsAudioQueue.length}`);
-    return;
-  }
-  if (!audioUnlocked && (ttsAudioQueue.length > 0 || player.src)) {
-    await enableAudioFromUserGesture();
-    return;
-  }
-  if (!player.src && ttsAudioQueue.length > 0) {
-    playNextTtsAudio();
-    return;
-  }
-  if (!player.src) return;
-  const p = player.play();
-  if (p && typeof p.catch === 'function') {
-    p.catch((e) => {
-      if (e?.name === 'NotAllowedError') {
-        console.warn('[TTS][play_blocked] reason=floating_play_btn_not_allowed');
-        if (ttsAudioQueue.length > 0) {
-          audioUnlocked = false;
-          showAudioUnlockButton();
-          showFloatingTtsPlayer();
-        }
-      } else {
-        console.warn(`[TTS][play_error] reason=floating_play_btn_${e?.name || 'unknown'}`);
-      }
-    });
-  }
+  await tryPlayTtsQueue({userGesture: true});
 }
 
 function _showTtsNoticeOnce(message) {
@@ -3789,20 +3715,17 @@ function releaseCurrentTtsObjectUrl({clearPlayer = false} = {}) {
 }
 
 async function enableAudioFromUserGesture() {
-  console.info('[Audio][enable_click]');
-  audioUnlocked = true;
-  tts._autoplayUnlocked = true;
-  _markNativeAudioBarDefault('user_unlock');
+  ttsManualUnlocked = true;
+  clearTtsBlockedState();
   tts._autoplayBlockedNoticeShown = false;
-  setAudioStatus(`Ready | Queue: ${ttsAudioQueue.length}`);
-  hideAudioUnlockButton();
-  await playNextTtsAudio();
-  hideFloatingTtsPlayer();
+  await tryPlayTtsQueue({userGesture: true});
   return true;
 }
 
-_hookNativeAudioPlayer();
-_bindNativeBarGestureUnlock();
+async function playTtsQueueFromFloatingGesture() {
+  ttsManualUnlocked = true;
+  await tryPlayTtsQueue({userGesture: true});
+}
 
 function ttsSpeakSelectedText() {
   const selected = window.getSelection?.()?.toString?.().trim() || '';
@@ -3912,6 +3835,8 @@ async function _ttsPlayNext() {
       console.warn('[TTS][SBV2 batch] playback error:', e);
       if (e?.name === 'TTSNoSpeakableTextError') {
         _showTtsNoticeOnce('読み上げ可能なテキストがありません');
+      } else if (e?.name === 'NotSupportedError') {
+        addMsg('error', '音声形式エラー');
       } else if (e?.name === 'TTSNetworkError') {
         addMsg('error', 'TTS接続エラー');
       } else if (e?.name === 'TTSModelError') {
@@ -3946,6 +3871,8 @@ async function _ttsPlayNext() {
   } catch(e) {
     if (e?.name === 'TTSNoSpeakableTextError') {
       _showTtsNoticeOnce('読み上げ可能なテキストがありません');
+    } else if (e?.name === 'NotSupportedError') {
+      addMsg('error', '音声形式エラー');
     } else if (e?.name === 'TTSNetworkError') {
       addMsg('error', 'TTS接続エラー');
     } else if (e?.name === 'TTSModelError') {
@@ -4116,7 +4043,7 @@ async function _ttsFetchAudio(text, engine = tts.engine, context = 'main', opts 
   if (engine === 'style_bert_vits2') {
     console.info(`[Style-Bert-VITS2][input] final_text=${JSON.stringify(_ttsPreviewText(text, 120))} looks_japanese=${_ttsLooksSpeakable(text)}`);
   }
-  return await resp.blob();
+  return await _ttsReadValidatedAudioBlob(resp, {route: '/tts/synthesize', engine});
 }
 
 async function _ttsFetchBatchAudio(body = {}, opts = {}) {
@@ -4130,7 +4057,32 @@ async function _ttsFetchBatchAudio(body = {}, opts = {}) {
     const fallback = opts.fallbackMessage || 'バッチ音声合成に失敗しました。';
     throw new Error(_getUserFacingApiErrorMessage(err, fallback));
   }
-  return await resp.blob();
+  return await _ttsReadValidatedAudioBlob(resp, {route: '/tts/synthesize-batch', engine: body?.engine || 'unknown'});
+}
+
+async function _ttsReadValidatedAudioBlob(resp, meta = {}) {
+  const ct = String(resp.headers.get('Content-Type') || '').toLowerCase();
+  if (!ct.startsWith('audio/')) {
+    const text = await resp.text().catch(() => '');
+    console.warn(`[TTS][response_not_audio] route=${meta.route || 'unknown'} engine=${meta.engine || 'unknown'} content_type=${ct || 'none'} body_preview=${JSON.stringify(String(text || '').slice(0, 120))}`);
+    const ex = new Error('TTSレスポンスが音声形式ではありません');
+    ex.name = 'TTSModelError';
+    throw ex;
+  }
+  const blob = await resp.blob();
+  if (!blob || blob.size <= 0) {
+    console.warn(`[TTS][empty_blob] route=${meta.route || 'unknown'} engine=${meta.engine || 'unknown'} content_type=${ct || blob?.type || 'none'} blob_size=${blob?.size || 0}`);
+    const ex = new Error('TTS音声が空です');
+    ex.name = 'TTSModelError';
+    throw ex;
+  }
+  if (!String(blob.type || ct).toLowerCase().startsWith('audio/')) {
+    console.warn(`[TTS][not_supported] route=${meta.route || 'unknown'} engine=${meta.engine || 'unknown'} content_type=${ct || 'none'} blob_type=${blob.type || 'none'} blob_size=${blob.size}`);
+    const ex = new Error('音声形式エラー');
+    ex.name = 'NotSupportedError';
+    throw ex;
+  }
+  return blob;
 }
 
 function _getUserFacingApiErrorMessage(err, fallback = '処理に失敗しました。') {
@@ -4730,11 +4682,24 @@ function enqueueTtsAudioBlob(blob, id, meta = {}) {
     ttsAudioQueue.push(item);
     const source = item.meta?.source || item.meta?.context || 'chat';
     console.info(`[TTS][enqueue] source=${source} id=${item.id} queue_len=${ttsAudioQueue.length}`);
-    if (!isTtsPlaying) playNextTtsAudio();
+    tryPlayTtsQueue({userGesture: false});
   });
 }
 
-function playNextTtsAudio() {
+function _cleanupCurrentTtsSource({clearPlayer = false} = {}) {
+  const player = getTtsPlayer();
+  if (clearPlayer && player) {
+    player.pause();
+    player.removeAttribute('src');
+    player.load();
+  }
+  if (_currentTtsObjectUrl) {
+    URL.revokeObjectURL(_currentTtsObjectUrl);
+    _currentTtsObjectUrl = null;
+  }
+}
+
+async function tryPlayTtsQueue({userGesture = false} = {}) {
   if (isTtsPlaying) return;
   if (document.visibilityState !== 'visible') {
     console.info('[TTS][play_waiting_visible]');
@@ -4744,17 +4709,9 @@ function playNextTtsAudio() {
     tts._audio = null;
     tts._playing = false;
     _syncRecordingControlsWithTts();
-    setAudioStatus('Ready...');
     hideFloatingTtsPlayer();
-    return;
-  }
-  if (!audioUnlocked) {
-    if (preferNativeAudioBar) {
-      console.info('[TTS][native_bar_default] waiting_user_gesture');
-    }
-    setAudioStatus(`Locked | Queue: ${ttsAudioQueue.length}`);
-    showAudioUnlockButton();
-    showFloatingTtsPlayer();
+    clearTtsBlockedState();
+    console.info('[TTS][queue_empty_hide_floating]');
     return;
   }
   const item = ttsAudioQueue.shift();
@@ -4765,7 +4722,7 @@ function playNextTtsAudio() {
     if (typeof resolve === 'function') resolve({ok: false, reason: 'missing_player'});
     return;
   }
-  releaseCurrentTtsObjectUrl({clearPlayer: false});
+  _cleanupCurrentTtsSource({clearPlayer: false});
   const url = URL.createObjectURL(blob);
   _currentTtsObjectUrl = url;
   player.src = url;
@@ -4773,20 +4730,20 @@ function playNextTtsAudio() {
   tts._playing = true;
   isTtsPlaying = true;
   _syncRecordingControlsWithTts();
-  setAudioStatus(`Playing | Queue: ${ttsAudioQueue.length}`);
-  console.info(`[TTS][play_start] id=${id} queue=${ttsAudioQueue.length}`);
+  console.info('[TTS][audio_reuse] same_element=true');
+  console.info(`[TTS][${userGesture ? 'manual_play_attempt' : 'autoplay_attempt'}] id=${id}`);
 
   const done = (result = {ok: true, reason: 'ended'}) => {
     player.onended = null;
     player.onerror = null;
     player.onabort = null;
+    _cleanupCurrentTtsSource({clearPlayer: true});
     tts._audio = null;
     tts._playing = false;
     isTtsPlaying = false;
     _syncRecordingControlsWithTts();
-    setAudioStatus(audioUnlocked ? `Ready | Queue: ${ttsAudioQueue.length}` : `Locked | Queue: ${ttsAudioQueue.length}`);
     if (typeof resolve === 'function') resolve(result);
-    playNextTtsAudio();
+    tryPlayTtsQueue({userGesture: false});
     if (ttsAudioQueue.length === 0 && voiceContinuousEnabled) {
       _scheduleContinuousVoiceRestart('tts_done', 300);
     }
@@ -4807,34 +4764,37 @@ function playNextTtsAudio() {
 
   const p = player.play();
   if (p && typeof p.catch === 'function') {
-    p.catch((e) => {
+    p.then(() => {
+      clearTtsBlockedState();
+      ttsManualUnlocked = ttsManualUnlocked || !!userGesture;
+      if (userGesture) {
+        console.info(`[TTS][manual_play_success] id=${id}`);
+      } else {
+        console.info(`[TTS][autoplay_success] id=${id}`);
+      }
+      hideFloatingTtsPlayer();
+    }).catch((e) => {
       player.onended = null;
       player.onerror = null;
       player.onabort = null;
+      _cleanupCurrentTtsSource({clearPlayer: true});
       tts._audio = null;
       tts._playing = false;
       isTtsPlaying = false;
       _syncRecordingControlsWithTts();
       if (e?.name === 'NotAllowedError') {
-        audioUnlocked = false;
-        setAudioStatus(`Blocked | Queue: ${ttsAudioQueue.length + 1}`);
-        showAudioUnlockButton();
-        showFloatingTtsPlayer();
         ttsAudioQueue.unshift(item);
-        console.warn(`[TTS][play_blocked] id=${id} error_name=${e.name}`);
-        console.info(`[TTS][play_waiting_unlock] action=waiting_for_unlock id=${id} queue=${ttsAudioQueue.length}`);
-        const now = Date.now();
-        if (!tts._autoplayBlockedNoticeShown || (now - _lastAudioBlockedSystemNoticeAt) >= 10000) {
-          addMsg('system', '音声再生がブロックされました。🔊 音声を有効化 を押してください');
-          tts._autoplayBlockedNoticeShown = true;
-          _lastAudioBlockedSystemNoticeAt = now;
-        }
+        ttsNeedsUserGesture = true;
+        _lastAutoplayBlockedAt = Date.now();
+        console.info(`[TTS][autoplay_blocked] id=${id} name=NotAllowedError`);
+        showFloatingTtsPlayer('音声の再生待ち');
         if (typeof resolve === 'function') resolve({ok: false, reason: 'blocked'});
         return;
       }
-      console.warn(`[TTS][play_error] id=${id} reason=${e?.name || 'play_error'}`);
+      if (userGesture) console.warn(`[TTS][manual_play_failed] id=${id} name=${e?.name || 'play_error'}`);
+      else console.warn(`[TTS][play_error] id=${id} reason=${e?.name || 'play_error'}`);
       if (typeof resolve === 'function') resolve({ok: false, reason: e?.name || 'play_error'});
-      playNextTtsAudio();
+      tryPlayTtsQueue({userGesture: false});
     });
   }
 }
@@ -4844,7 +4804,7 @@ document.addEventListener('visibilitychange', () => {
   console.info(`[Audio][visibility] state=${state}`);
   if (document.visibilityState !== 'visible') return;
   if (!isTtsPlaying && ttsAudioQueue.length > 0) {
-    playNextTtsAudio();
+    tryPlayTtsQueue({userGesture: false});
   }
 });
 window.addEventListener('pagehide', () => {
@@ -6645,22 +6605,20 @@ addEventListener('load', async () => {
   _echoUpdateClearBtn();
   setAudioStatus('Ready');
   hideFloatingTtsPlayer();
-  const ttsPlayer = getTtsPlayer();
-  if (ttsPlayer) {
-    ttsPlayer.addEventListener('pause', () => {
-      if (!ttsPlayer.ended) {
-        tts._playing = false;
-        isTtsPlaying = false;
-        _syncRecordingControlsWithTts();
-        setAudioStatus(`Paused | Queue: ${ttsAudioQueue.length}`);
-      }
+  const floatingPlayBtn = document.getElementById('tts-floating-play');
+  if (floatingPlayBtn) {
+    floatingPlayBtn.addEventListener('touchend', async (ev) => {
+      ev.preventDefault();
+      await playTtsQueueFromFloatingGesture();
+    }, {passive: false});
+    floatingPlayBtn.addEventListener('click', async (ev) => {
+      ev.preventDefault();
+      await playTtsQueueFromFloatingGesture();
     });
-    ttsPlayer.addEventListener('play', () => {
-      tts._playing = true;
-      isTtsPlaying = true;
-      _syncRecordingControlsWithTts();
-      setAudioStatus(`Playing | Queue: ${ttsAudioQueue.length}`);
-    });
+  }
+  const floatingCloseBtn = document.getElementById('tts-floating-close');
+  if (floatingCloseBtn) {
+    floatingCloseBtn.addEventListener('click', () => hideFloatingTtsPlayer());
   }
   syncAgentSessionUi();
 });
@@ -11073,7 +11031,7 @@ async function toggleEchoRecording() {
       _echoSetStatus('TTS生成/再生中は録音を開始できません。');
       return;
     }
-    if (!audioUnlocked) await enableAudioFromUserGesture();
+    if (!ttsManualUnlocked) await enableAudioFromUserGesture();
     await _echoStart();
   }
 }
