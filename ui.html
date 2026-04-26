@@ -7025,6 +7025,7 @@ let nexusEventTimeline = [];
 let nexusSavedEvidence = [];
 let nexusEvidenceRows = [];
 let nexusReportRows = [];
+let nexusSelectedReportId = null;
 
 function formatBytes(bytes) {
   const b = Number(bytes || 0);
@@ -7630,19 +7631,67 @@ function renderNexusReportList(rows = []) {
   const root = document.getElementById('nexus-report-list');
   if (!root) return;
   if (!rows.length) {
+    nexusSelectedReportId = null;
+    renderNexusReportDetail(null);
     root.innerHTML = '<div class="nexus-empty">一致する report がありません</div>';
     return;
   }
   root.innerHTML = rows.map((row) => `
-    <div class="nexus-result-item">
+    <div class="nexus-result-item ${nexusSelectedReportId === row.report_id ? 'active' : ''}" onclick="selectNexusReport('${esc(row.report_id || '')}')">
       <div style="font-size:11px;color:var(--text2);font-weight:700">${esc(row.title || row.report_id || '(untitled report)')}</div>
       <div class="nexus-result-meta">report_id: ${esc(row.report_id || '-')} / job_id: ${esc(row.job_id || '-')} / type: ${esc(row.report_type || '-')}</div>
-      <div class="nexus-doc-actions">
-        <button onclick="previewNexusReportMarkdown('${esc(row.report_id || '')}')">MD Preview</button>
-        <button onclick="downloadNexusReport('${esc(row.report_id || '')}')">Download (.md)</button>
-      </div>
     </div>
   `).join('');
+}
+
+function renderNexusReportDetail(report = null) {
+  const preview = document.getElementById('nexus-report-preview');
+  if (!preview) return;
+  if (!report) {
+    preview.innerHTML = '<div class="nexus-empty">一覧からレポートを選択すると詳細を表示します</div>';
+    return;
+  }
+  const generated = String(report.generated_at || '').replace('T', ' ').slice(0, 19) || '-';
+  const mdExists = !!report.report_md?.exists;
+  const jsonExists = !!report.report_json?.exists;
+  const htmlExists = !!report.report_html?.exists;
+  preview.innerHTML = `
+    <div class="nexus-detail-row"><b>タイトル:</b> ${esc(report.title || '-')}</div>
+    <div class="nexus-detail-row"><b>report_id:</b> ${esc(report.report_id || '-')}</div>
+    <div class="nexus-detail-row"><b>job_id:</b> ${esc(report.job_id || '-')}</div>
+    <div class="nexus-detail-row"><b>種別:</b> ${esc(report.report_type || '-')}</div>
+    <div class="nexus-detail-row"><b>生成日時:</b> ${esc(generated)}</div>
+    <div class="nexus-detail-row"><b>Artifacts:</b></div>
+    <pre class="nexus-detail-pre">${esc(JSON.stringify({
+      report_md_path: report.report_md_path || '',
+      report_md_exists: mdExists,
+      report_json_path: report.report_json_path || '',
+      report_json_exists: jsonExists,
+      report_html_path: report.report_html_path || '',
+      report_html_exists: htmlExists,
+    }, null, 2))}</pre>
+    <div class="nexus-doc-actions">
+      <button ${mdExists ? '' : 'disabled'} onclick="previewNexusReportMarkdown('${esc(report.report_id || '')}')">Preview Markdown</button>
+      <button ${mdExists ? '' : 'disabled'} onclick="downloadNexusReport('${esc(report.report_id || '')}')">Download (.md)</button>
+    </div>
+  `;
+}
+
+async function selectNexusReport(reportId) {
+  if (!reportId) return;
+  nexusSelectedReportId = reportId;
+  renderNexusReportList(nexusReportRows);
+  const preview = document.getElementById('nexus-report-preview');
+  if (preview) preview.innerHTML = '<div class="nexus-job">レポート詳細をロード中...</div>';
+  try {
+    const query = '?project=' + encodeURIComponent(currentProject);
+    const r = await fetch(API + '/nexus/reports/' + encodeURIComponent(reportId) + query);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
+    renderNexusReportDetail(d.report || null);
+  } catch (e) {
+    if (preview) preview.innerHTML = `<div class="nexus-job" style="color:var(--red)">Detail failed: ${esc(e.message)}</div>`;
+  }
 }
 
 async function runNexusReportMvp() {
@@ -7661,6 +7710,12 @@ async function runNexusReportMvp() {
     });
     nexusReportRows = rows;
     renderNexusReportList(rows);
+    if (rows.length) {
+      const hasSelected = rows.some((row) => row.report_id === nexusSelectedReportId);
+      await selectNexusReport(hasSelected ? nexusSelectedReportId : rows[0].report_id);
+    } else {
+      renderNexusReportDetail(null);
+    }
   } catch (e) {
     const root = document.getElementById('nexus-report-list');
     if (root) root.innerHTML = `<div class="nexus-job" style="color:var(--red)">Report MVP failed: ${esc(e.message)}</div>`;

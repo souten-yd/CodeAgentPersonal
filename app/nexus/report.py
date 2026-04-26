@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.nexus.db import NEXUS_DIR, get_conn, transaction
@@ -257,6 +257,71 @@ class BuildReportRequest(BaseModel):
     job_id: str = Field(min_length=1)
     report_type: str = Field(default="general", min_length=1)
     title: str | None = None
+
+
+def _path_status(path_value: str | None) -> dict[str, object]:
+    raw = str(path_value or "").strip()
+    exists = False
+    if raw:
+        try:
+            exists = Path(raw).exists()
+        except OSError:
+            exists = False
+    return {"path": raw, "exists": exists}
+
+
+@nexus_report_router.get("/reports")
+@nexus_report_router.get("/report/list")
+def list_reports(
+    project: str = Query("default"),
+    limit: int = Query(100, ge=1, le=500),
+) -> dict:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT report_id, title, report_type, generated_at, job_id
+            FROM nexus_reports
+            WHERE project = ?
+            ORDER BY generated_at DESC, created_at DESC
+            LIMIT ?
+            """,
+            (project, limit),
+        ).fetchall()
+    return {"reports": [dict(row) for row in rows]}
+
+
+@nexus_report_router.get("/reports/{report_id}")
+def get_report_detail(report_id: str, project: str = Query("default")) -> dict:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                report_id, title, report_type, generated_at, job_id,
+                report_md_path, report_json_path, report_html_path
+            FROM nexus_reports
+            WHERE report_id = ? AND project = ?
+            """,
+            (report_id, project),
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="report not found")
+
+    return {
+        "report": {
+            "report_id": row["report_id"],
+            "title": row["title"],
+            "report_type": row["report_type"],
+            "generated_at": row["generated_at"],
+            "job_id": row["job_id"],
+            "report_md_path": str(row["report_md_path"] or ""),
+            "report_json_path": str(row["report_json_path"] or ""),
+            "report_html_path": str(row["report_html_path"] or ""),
+            "report_md": _path_status(row["report_md_path"]),
+            "report_json": _path_status(row["report_json_path"]),
+            "report_html": _path_status(row["report_html_path"]),
+        }
+    }
 
 
 @nexus_report_router.post("/report/build")
