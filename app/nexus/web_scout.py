@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from typing import Any
+from urllib import error as urllib_error
 from urllib import parse, request
 
 from app.nexus.config import load_runtime_config
@@ -10,6 +11,9 @@ from app.nexus.evidence import EvidenceItem
 
 
 _BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
+_SEARXNG_ENDPOINT_PATH = "/search"
+_QUOTA_ERROR_KEYWORDS = ("quota", "billing", "payment", "plan", "subscription", "rate limit")
+_TEMPORARILY_DISABLED_PROVIDERS: dict[str, float] = {}
 
 _SEARCH_MODE_SETTINGS: dict[str, dict[str, int]] = {
     "quick": {"max_queries": 2, "max_results_per_query": 3},
@@ -180,6 +184,178 @@ def _build_stub_items(queries: list[str], *, reason: str) -> list[dict[str, Any]
     ]
 
 
+def _normalize_provider_result(
+    *,
+    provider: str,
+    query: str,
+    rank: int,
+    title: str | None,
+    url: str | None,
+    snippet: str | None,
+    age: str | None = None,
+    engine: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "provider": provider,
+        "query": query,
+        "rank": rank,
+        "title": title or "",
+        "url": url or "",
+        "snippet": snippet or "",
+        "age": age,
+        "engine": engine,
+        "is_stub": False,
+    }
+
+
+def _is_paid_or_quota_error(
+    *,
+    status_code: int | None = None,
+    body: str | None = None,
+    error_message: str | None = None,
+) -> bool:
+    normalized_body = (body or "").lower()
+    normalized_error = (error_message or "").lower()
+    if status_code in {402, 429}:
+        return True
+    if status_code == 403 and any(keyword in normalized_body or keyword in normalized_error for keyword in _QUOTA_ERROR_KEYWORDS):
+        return True
+    return any(keyword in normalized_body or keyword in normalized_error for keyword in _QUOTA_ERROR_KEYWORDS)
+
+
+def _mark_provider_temporarily_disabled(provider: str, *, cooldown_sec: int, reason: str | None = None) -> None:
+    _ = reason
+    until_timestamp = datetime.now(timezone.utc).timestamp() + max(60, cooldown_sec)
+    _TEMPORARILY_DISABLED_PROVIDERS[provider] = until_timestamp
+
+
+def _should_skip_provider(provider: str, cfg: Any) -> bool:
+    if provider == "brave" and cfg.search_free_only and not cfg.search_paid_providers_enabled:
+        return True
+    disabled_until = _TEMPORARILY_DISABLED_PROVIDERS.get(provider)
+    if disabled_until is None:
+        return False
+    now_ts = datetime.now(timezone.utc).timestamp()
+    if now_ts < disabled_until:
+        return True
+    _TEMPORARILY_DISABLED_PROVIDERS.pop(provider, None)
+    return False
+
+
+def _run_searxng_search(
+    *,
+    cfg: Any,
+    queries: list[str],
+    result_cap: int,
+    search_lang: str,
+) -> tuple[list[dict[str, Any]], list[str], bool]:
+    base_url = cfg.searxng_url.rstrip("/")
+    items: list[dict[str, Any]] = []
+    errors: list[str] = []
+    had_connection_failure = False
+
+    for query in queries:
+        params = parse.urlencode(
+            {
+                "q": query,
+                "format": "json",
+                "language": search_lang,
+                "categories": "general",
+            }
+        )
+        req = request.Request(f"{base_url}{_SEARXNG_ENDPOINT_PATH}?{params}", headers={"Accept": "application/json"}, method="GET")
+        try:
+            with request.urlopen(req, timeout=20) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            had_connection_failure = True
+            errors.append(f"{query}: {exc}")
+            continue
+
+        results = payload.get("results") or []
+        for idx, entry in enumerate(results[:result_cap], start=1):
+            items.append(
+                _normalize_provider_result(
+                    provider="searxng",
+                    query=query,
+                    rank=idx,
+                    title=entry.get("title"),
+                    url=entry.get("url"),
+                    snippet=entry.get("content"),
+                    age=entry.get("publishedDate"),
+                    engine=entry.get("engine"),
+                )
+            )
+    return items, errors, had_connection_failure
+
+
+def _run_brave_search(
+    *,
+    cfg: Any,
+    queries: list[str],
+    result_cap: int,
+    country: str,
+    search_lang: str,
+) -> tuple[list[dict[str, Any]], list[str], bool, bool]:
+    items: list[dict[str, Any]] = []
+    errors: list[str] = []
+    had_connection_failure = False
+    should_cooldown = False
+
+    for query in queries:
+        params = parse.urlencode(
+            {
+                "q": query,
+                "count": result_cap,
+                "country": country,
+                "search_lang": search_lang,
+            }
+        )
+        req = request.Request(
+            f"{_BRAVE_ENDPOINT}?{params}",
+            headers={
+                "Accept": "application/json",
+                "X-Subscription-Token": cfg.brave_search_api_key,
+            },
+            method="GET",
+        )
+        try:
+            with request.urlopen(req, timeout=20) as resp:
+                body = resp.read().decode("utf-8")
+                payload = json.loads(body)
+                if _is_paid_or_quota_error(status_code=getattr(resp, "status", None), body=body):
+                    should_cooldown = True
+        except urllib_error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="ignore")
+            is_quota = _is_paid_or_quota_error(status_code=exc.code, body=body, error_message=str(exc))
+            if is_quota:
+                should_cooldown = True
+            errors.append(f"{query}: HTTP {exc.code} {exc.reason}")
+            continue
+        except Exception as exc:  # noqa: BLE001
+            had_connection_failure = True
+            if _is_paid_or_quota_error(error_message=str(exc)):
+                should_cooldown = True
+            errors.append(f"{query}: {exc}")
+            continue
+
+        web_results = (payload.get("web") or {}).get("results") or []
+        for idx, entry in enumerate(web_results, start=1):
+            items.append(
+                _normalize_provider_result(
+                    provider="brave",
+                    query=query,
+                    rank=idx,
+                    title=entry.get("title"),
+                    url=entry.get("url"),
+                    snippet=entry.get("description"),
+                    age=entry.get("age"),
+                    engine="brave",
+                )
+            )
+    return items, errors, had_connection_failure, should_cooldown
+
+
 def run_web_search(
     queries: list[str],
     *,
@@ -237,98 +413,93 @@ def run_web_search(
             "non_fatal": True,
         }
 
-    if cfg.web_search_provider != "brave":
-        message = (
-            "未対応プロバイダです。NEXUS_WEB_SEARCH_PROVIDER=brave を設定してください。"
-        )
-        return {
-            "provider": cfg.web_search_provider,
-            "mode": normalized_mode,
-            "configured": False,
-            "effective_query_plan": effective_query_plan,
-            "generated_queries": normalized_queries,
-            "items": _build_stub_items(normalized_queries, reason=message),
-            "message": message,
-            "non_fatal": True,
-        }
+    ordered_providers: list[str] = []
+    for provider in [cfg.web_search_provider, *cfg.search_fallback_providers]:
+        candidate = (provider or "").strip().lower()
+        if candidate and candidate not in ordered_providers:
+            ordered_providers.append(candidate)
 
-    if not cfg.brave_search_api_key:
-        message = "設定不足: BRAVE_SEARCH_API_KEY が未設定のため、Web検索はスタブ結果を返します。"
-        return {
-            "provider": "brave",
-            "mode": normalized_mode,
-            "configured": False,
-            "effective_query_plan": effective_query_plan,
-            "generated_queries": normalized_queries,
-            "message": message,
-            "non_fatal": True,
-            "items": _build_stub_items(
-                normalized_queries,
-                reason="BRAVE_SEARCH_API_KEY を設定すると実検索結果に切り替わります。",
-            ),
-        }
+    provider_errors: dict[str, list[str]] = {}
+    skip_reasons: dict[str, str] = {}
 
-    items: list[dict[str, Any]] = []
-    errors: list[str] = []
-    for query in normalized_queries:
-        params = parse.urlencode(
-            {
-                "q": query,
-                "count": result_cap,
-                "country": country,
-                "search_lang": effective_search_lang,
-            }
-        )
-        req = request.Request(
-            f"{_BRAVE_ENDPOINT}?{params}",
-            headers={
-                "Accept": "application/json",
-                "X-Subscription-Token": cfg.brave_search_api_key,
-            },
-            method="GET",
-        )
-
-        try:
-            with request.urlopen(req, timeout=20) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"{query}: {exc}")
+    for provider in ordered_providers:
+        if _should_skip_provider(provider, cfg):
+            skip_reasons[provider] = "cooldown もしくは free-only 設定によりスキップされました。"
             continue
 
-        web_results = (payload.get("web") or {}).get("results") or []
-        for idx, entry in enumerate(web_results, start=1):
-            items.append(
-                {
-                    "query": query,
-                    "rank": idx,
-                    "title": entry.get("title") or "",
-                    "url": entry.get("url") or "",
-                    "snippet": entry.get("description") or "",
-                    "age": entry.get("age"),
-                    "is_stub": False,
-                }
+        if provider == "brave" and not cfg.brave_search_api_key:
+            provider_errors.setdefault(provider, []).append("BRAVE_SEARCH_API_KEY が未設定です。")
+            continue
+
+        items: list[dict[str, Any]] = []
+        errors: list[str] = []
+        had_connection_failure = False
+        should_cooldown = False
+
+        if provider == "searxng":
+            items, errors, had_connection_failure = _run_searxng_search(
+                cfg=cfg,
+                queries=normalized_queries,
+                result_cap=result_cap,
+                search_lang=effective_search_lang,
+            )
+        elif provider == "brave":
+            items, errors, had_connection_failure, should_cooldown = _run_brave_search(
+                cfg=cfg,
+                queries=normalized_queries,
+                result_cap=result_cap,
+                country=country,
+                search_lang=effective_search_lang,
+            )
+        else:
+            provider_errors.setdefault(provider, []).append("未対応プロバイダです。")
+            continue
+
+        if should_cooldown:
+            _mark_provider_temporarily_disabled(
+                provider,
+                cooldown_sec=cfg.search_provider_cooldown_sec,
+                reason="quota / billing",
             )
 
-    response: dict[str, Any] = {
-        "provider": "brave",
+        if items:
+            response: dict[str, Any] = {
+                "provider": provider,
+                "mode": normalized_mode,
+                "configured": True,
+                "effective_query_plan": effective_query_plan,
+                "generated_queries": normalized_queries,
+                "items": items,
+                "message": "ok",
+            }
+            if errors:
+                response["errors"] = errors
+            return response
+
+        provider_errors[provider] = errors or ["結果が空のため、次の provider にフォールバックしました。"]
+        if not had_connection_failure and not errors:
+            provider_errors[provider].append("空結果フォールバック")
+
+    message = "すべての検索 provider が失敗したため、non-fatal stub を返します。"
+    return {
+        "provider": ordered_providers[0] if ordered_providers else cfg.web_search_provider,
         "mode": normalized_mode,
-        "configured": True,
+        "configured": False,
         "effective_query_plan": effective_query_plan,
         "generated_queries": normalized_queries,
-        "items": items,
-        "message": "ok",
+        "items": _build_stub_items(normalized_queries, reason=message),
+        "message": message,
+        "non_fatal": True,
+        "errors": provider_errors,
+        "skipped_providers": skip_reasons,
     }
-    if errors:
-        response["errors"] = errors
-    return response
 
 
 def normalize_search_rows(search_output: dict[str, Any]) -> list[dict[str, Any]]:
     """Provider依存の検索結果を Evidence 生成向け共通形式に揃える。"""
     normalized: list[dict[str, Any]] = []
-    provider = str(search_output.get("provider") or "unknown")
-
     for idx, row in enumerate(search_output.get("items") or [], start=1):
+        provider = str(row.get("provider") or search_output.get("provider") or "unknown")
         query = str(row.get("query") or "")
         rank = int(row.get("rank") or idx)
         normalized.append(
@@ -340,6 +511,7 @@ def normalize_search_rows(search_output: dict[str, Any]) -> list[dict[str, Any]]
                 "url": str(row.get("url") or "about:blank"),
                 "snippet": str(row.get("snippet") or ""),
                 "age": row.get("age"),
+                "engine": row.get("engine"),
                 "is_stub": bool(row.get("is_stub")),
             }
         )
@@ -374,6 +546,7 @@ def build_web_evidence(search_output: dict[str, Any], *, note: str | None = None
                     "rank": rank,
                     "title": row["title"],
                     "age": row["age"],
+                    "engine": row["engine"],
                     "is_stub": row["is_stub"],
                     "mode": search_output.get("mode", "standard"),
                 },
