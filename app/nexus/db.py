@@ -101,9 +101,12 @@ SCHEMA_SQL: tuple[str, ...] = (
         evidence_id TEXT PRIMARY KEY,
         project TEXT NOT NULL DEFAULT 'default',
         job_id TEXT NOT NULL,
+        source_type TEXT NOT NULL DEFAULT '',
         document_id TEXT NOT NULL DEFAULT '',
         chunk_id TEXT NOT NULL,
         title TEXT NOT NULL DEFAULT '',
+        publisher TEXT NOT NULL DEFAULT '',
+        published_date TEXT NOT NULL DEFAULT '',
         section_path TEXT NOT NULL DEFAULT '/',
         citation_label TEXT NOT NULL,
         source_url TEXT NOT NULL,
@@ -114,6 +117,7 @@ SCHEMA_SQL: tuple[str, ...] = (
         credibility REAL NOT NULL DEFAULT 0.0,
         freshness REAL NOT NULL DEFAULT 0.0,
         evidence_level TEXT NOT NULL DEFAULT '',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
         metadata TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL,
         FOREIGN KEY(job_id) REFERENCES nexus_jobs(job_id) ON DELETE CASCADE
@@ -229,11 +233,15 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
                 "project TEXT NOT NULL DEFAULT 'default'",
                 "document_id TEXT NOT NULL DEFAULT ''",
                 "title TEXT NOT NULL DEFAULT ''",
+                "source_type TEXT NOT NULL DEFAULT ''",
+                "publisher TEXT NOT NULL DEFAULT ''",
+                "published_date TEXT NOT NULL DEFAULT ''",
                 "section_path TEXT NOT NULL DEFAULT '/'",
                 "relevance REAL NOT NULL DEFAULT 0.0",
                 "credibility REAL NOT NULL DEFAULT 0.0",
                 "freshness REAL NOT NULL DEFAULT 0.0",
                 "evidence_level TEXT NOT NULL DEFAULT ''",
+                "metadata_json TEXT NOT NULL DEFAULT '{}'",
             ),
         ),
         (
@@ -269,10 +277,14 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
         UPDATE nexus_evidence
-        SET project = 'default', document_id = '', title = '', section_path = '/'
+        SET project = 'default', source_type = '', document_id = '', title = '',
+            publisher = '', published_date = '', section_path = '/'
         WHERE project IS NULL OR project = ''
+           OR source_type IS NULL
            OR document_id IS NULL
            OR title IS NULL
+           OR publisher IS NULL
+           OR published_date IS NULL
            OR section_path IS NULL OR section_path = ''
         """
     )
@@ -280,6 +292,7 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE nexus_evidence SET credibility = 0.0 WHERE credibility IS NULL")
     conn.execute("UPDATE nexus_evidence SET freshness = 0.0 WHERE freshness IS NULL")
     conn.execute("UPDATE nexus_evidence SET evidence_level = '' WHERE evidence_level IS NULL")
+    conn.execute("UPDATE nexus_evidence SET metadata_json = '{}' WHERE metadata_json IS NULL OR metadata_json = ''")
     conn.execute("UPDATE nexus_reports SET project = 'default' WHERE project IS NULL OR project = ''")
     conn.execute("UPDATE nexus_reports SET summary = '' WHERE summary IS NULL")
     conn.execute("UPDATE nexus_reports SET metadata = '{}' WHERE metadata IS NULL OR metadata = ''")
@@ -328,29 +341,49 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
 
     evidence_rows = conn.execute(
         """
-        SELECT evidence_id, metadata, relevance, credibility, freshness, evidence_level
+        SELECT evidence_id, source_type, publisher, published_date, metadata_json,
+               metadata, relevance, credibility, freshness, evidence_level
         FROM nexus_evidence
         """
     ).fetchall()
     for row in evidence_rows:
+        metadata_json = _loads_json(row["metadata_json"])
         metadata = _loads_json(row["metadata"])
+        if not metadata_json:
+            metadata_json = metadata
+        source_type = row["source_type"] if row["source_type"] not in (None, "") else metadata_json.get("source_type", metadata_json.get("source", ""))
+        publisher = row["publisher"] if row["publisher"] not in (None, "") else metadata_json.get("publisher", "")
+        published_date = row["published_date"] if row["published_date"] not in (None, "") else metadata_json.get("published_date", metadata_json.get("published_at", ""))
         relevance = row["relevance"]
         if relevance in (None, 0, 0.0):
-            relevance = metadata.get("relevance", metadata.get("score", 0.0))
+            relevance = metadata_json.get("relevance_score", metadata_json.get("relevance", metadata_json.get("score", 0.0)))
         credibility = row["credibility"]
         if credibility in (None, 0, 0.0):
-            credibility = metadata.get("credibility", 0.0)
+            credibility = metadata_json.get("credibility_score", metadata_json.get("credibility", 0.0))
         freshness = row["freshness"]
         if freshness in (None, 0, 0.0):
-            freshness = metadata.get("freshness", 0.0)
-        evidence_level = row["evidence_level"] if row["evidence_level"] not in (None, "") else metadata.get("evidence_level", metadata.get("level", ""))
+            freshness = metadata_json.get("freshness_score", metadata_json.get("freshness", 0.0))
+        evidence_level = row["evidence_level"] if row["evidence_level"] not in (None, "") else metadata_json.get("evidence_level", metadata_json.get("level", ""))
         conn.execute(
             """
             UPDATE nexus_evidence
-            SET relevance = ?, credibility = ?, freshness = ?, evidence_level = ?
+            SET source_type = ?, publisher = ?, published_date = ?,
+                relevance = ?, credibility = ?, freshness = ?, evidence_level = ?,
+                metadata_json = ?, metadata = ?
             WHERE evidence_id = ?
             """,
-            (float(relevance or 0.0), float(credibility or 0.0), float(freshness or 0.0), str(evidence_level or ""), row["evidence_id"]),
+            (
+                str(source_type or ""),
+                str(publisher or ""),
+                str(published_date or ""),
+                float(relevance or 0.0),
+                float(credibility or 0.0),
+                float(freshness or 0.0),
+                str(evidence_level or ""),
+                _dumps_json(metadata_json),
+                _dumps_json(metadata_json),
+                row["evidence_id"],
+            ),
         )
 
     # FTS再構成（title/section_path/text を索引）

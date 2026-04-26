@@ -312,13 +312,16 @@ def build_web_evidence(search_output: dict[str, Any], *, note: str | None = None
 
         items.append(
             EvidenceItem(
+                source_type="web",
+                document_id="",
                 chunk_id=chunk_id,
-                citation_label=citation_label,
-                source_url=row["url"],
+                url=row["url"],
                 retrieved_at=retrieved_at,
+                title=row["title"],
+                citation_label=citation_label,
                 note=note or "web_search",
                 quote=row["snippet"],
-                metadata={
+                metadata_json={
                     "provider": row["provider"],
                     "query": query,
                     "rank": rank,
