@@ -30,6 +30,14 @@ def _normalize_mode(mode: str | None) -> str:
     return "standard"
 
 
+def _resolve_depth(mode: str | None, depth: str | None) -> str:
+    """depth と mode の両入力を受け取り、最終的な探索深度を返す。"""
+    depth_mode = _normalize_mode(depth)
+    if depth and depth_mode in _SEARCH_MODE_SETTINGS:
+        return depth_mode
+    return _normalize_mode(mode)
+
+
 def _normalize_scope(scope: str | list[str] | None) -> list[str]:
     if scope is None:
         return []
@@ -71,10 +79,61 @@ def _scope_suffix(scope_tokens: list[str]) -> str:
     return " ".join(mapped).strip()
 
 
+_LANGUAGE_BASE_SEEDS: dict[str, list[str]] = {
+    "ja": [
+        "{topic}",
+        "{topic} 最新",
+        "{topic} 分析",
+        "{topic} 見通し",
+        "{topic} リスク 機会",
+        "{topic} 触媒",
+        "{topic} バリュエーション",
+        "{topic} 専門家 コメント",
+    ],
+    "en": [
+        "{topic}",
+        "{topic} latest",
+        "{topic} analysis",
+        "{topic} outlook",
+        "{topic} risks opportunities",
+        "{topic} catalysts",
+        "{topic} valuation",
+        "{topic} expert commentary",
+    ],
+}
+
+
+_SCOPE_EXTRA_SEEDS: dict[str, dict[str, list[str]]] = {
+    "news": {
+        "ja": ["{topic} 速報", "{topic} ヘッドライン", "{topic} 今日"],
+        "en": ["{topic} breaking news", "{topic} headlines", "{topic} today"],
+    },
+    "official": {
+        "ja": ["{topic} 公式 発表", "{topic} IR", "{topic} プレスリリース"],
+        "en": ["{topic} official statement", "{topic} investor relations", "{topic} press release"],
+    },
+    "academic": {
+        "ja": ["{topic} 論文", "{topic} 研究", "{topic} 学術"],
+        "en": ["{topic} research paper", "{topic} study", "{topic} academic"],
+    },
+}
+
+
+def _build_query_seeds(topic: str, *, language: str, scope_tokens: list[str]) -> list[str]:
+    lang_key = "ja" if language == "ja" else "en"
+    templates = _LANGUAGE_BASE_SEEDS[lang_key]
+    seeds = [template.format(topic=topic) for template in templates]
+    for scope_token in scope_tokens:
+        scoped_templates = (_SCOPE_EXTRA_SEEDS.get(scope_token) or {}).get(lang_key, [])
+        seeds.extend(template.format(topic=topic) for template in scoped_templates)
+    return seeds
+
+
 def plan_web_queries(
     topic: str,
     *,
     mode: str = "standard",
+    depth: str | None = None,
     max_queries: int | None = None,
     scope: str | list[str] | None = None,
     language: str | None = None,
@@ -84,35 +143,14 @@ def plan_web_queries(
     if not topic:
         return []
 
-    normalized_mode = _normalize_mode(mode)
+    normalized_mode = _resolve_depth(mode, depth)
     normalized_scope = _normalize_scope(scope)
     normalized_language = _normalize_language(language)
     suffix = _scope_suffix(normalized_scope)
     default_max_queries = _SEARCH_MODE_SETTINGS[normalized_mode]["max_queries"]
     query_cap = max(1, max_queries if max_queries is not None else default_max_queries)
 
-    if normalized_language == "ja":
-        seeds = [
-            topic,
-            f"{topic} 最新",
-            f"{topic} 分析",
-            f"{topic} 見通し",
-            f"{topic} リスク 機会",
-            f"{topic} 触媒",
-            f"{topic} バリュエーション",
-            f"{topic} 専門家 コメント",
-        ]
-    else:
-        seeds = [
-            topic,
-            f"{topic} latest",
-            f"{topic} analysis",
-            f"{topic} outlook",
-            f"{topic} risks opportunities",
-            f"{topic} catalysts",
-            f"{topic} valuation",
-            f"{topic} expert commentary",
-        ]
+    seeds = _build_query_seeds(topic, language=normalized_language, scope_tokens=normalized_scope)
 
     unique: list[str] = []
     for seed in seeds:
@@ -146,6 +184,7 @@ def run_web_search(
     queries: list[str],
     *,
     mode: str = "standard",
+    depth: str | None = None,
     max_results_per_query: int | None = None,
     scope: str | list[str] | None = None,
     language: str | None = None,
@@ -154,7 +193,7 @@ def run_web_search(
 ) -> dict[str, Any]:
     """Run configured web search provider and return a non-fatal normalized payload."""
     cfg = load_runtime_config()
-    normalized_mode = _normalize_mode(mode)
+    normalized_mode = _resolve_depth(mode, depth)
     mode_defaults = _SEARCH_MODE_SETTINGS[normalized_mode]
     result_cap = max_results_per_query if max_results_per_query is not None else mode_defaults["max_results_per_query"]
     result_cap = max(1, min(20, int(result_cap)))
@@ -167,8 +206,11 @@ def run_web_search(
         "requested_scope": scope,
         "normalized_scope": normalized_scope,
         "requested_language": language,
+        "requested_depth": depth if depth is not None else mode,
+        "resolved_depth": normalized_mode,
         "search_lang": effective_search_lang,
         "queries": normalized_queries,
+        "generated_queries": normalized_queries,
     }
 
     if not normalized_queries:
@@ -177,6 +219,7 @@ def run_web_search(
             "mode": normalized_mode,
             "configured": bool(cfg.brave_search_api_key),
             "effective_query_plan": effective_query_plan,
+            "generated_queries": normalized_queries,
             "items": [],
             "message": "query が空です。",
         }
@@ -188,6 +231,7 @@ def run_web_search(
             "mode": normalized_mode,
             "configured": False,
             "effective_query_plan": effective_query_plan,
+            "generated_queries": normalized_queries,
             "items": _build_stub_items(normalized_queries, reason=message),
             "message": message,
             "non_fatal": True,
@@ -202,6 +246,7 @@ def run_web_search(
             "mode": normalized_mode,
             "configured": False,
             "effective_query_plan": effective_query_plan,
+            "generated_queries": normalized_queries,
             "items": _build_stub_items(normalized_queries, reason=message),
             "message": message,
             "non_fatal": True,
@@ -214,6 +259,7 @@ def run_web_search(
             "mode": normalized_mode,
             "configured": False,
             "effective_query_plan": effective_query_plan,
+            "generated_queries": normalized_queries,
             "message": message,
             "non_fatal": True,
             "items": _build_stub_items(
@@ -268,6 +314,7 @@ def run_web_search(
         "mode": normalized_mode,
         "configured": True,
         "effective_query_plan": effective_query_plan,
+        "generated_queries": normalized_queries,
         "items": items,
         "message": "ok",
     }
