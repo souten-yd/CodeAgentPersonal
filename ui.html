@@ -7787,7 +7787,10 @@ function renderNexusReportDetail(report = null) {
     }, null, 2))}</pre>
     <div class="nexus-doc-actions">
       <button ${mdExists ? '' : 'disabled'} onclick="previewNexusReportMarkdown('${esc(report.report_id || '')}')">Preview Markdown</button>
-      <button ${mdExists ? '' : 'disabled'} onclick="downloadNexusReport('${esc(report.report_id || '')}')">Download (.md)</button>
+      <button ${mdExists ? '' : 'disabled'} onclick="downloadNexusReportArtifact('${esc(report.report_id || '')}', 'md')">MD</button>
+      <button ${htmlExists ? '' : 'disabled'} onclick="downloadNexusReportArtifact('${esc(report.report_id || '')}', 'html')">HTML</button>
+      <button ${jsonExists ? '' : 'disabled'} onclick="downloadNexusReportArtifact('${esc(report.report_id || '')}', 'json')">JSON</button>
+      <button ${report.job_id ? '' : 'disabled'} onclick="downloadNexusReportBundle('${esc(report.job_id || '')}')">ZIP</button>
     </div>
   `;
 }
@@ -7839,9 +7842,18 @@ async function runNexusReportMvp() {
   }
 }
 
-function downloadNexusReport(reportId) {
+function downloadNexusReportArtifact(reportId, format = 'md') {
   if (!reportId) return;
-  const url = API + '/nexus/export/download/report/' + encodeURIComponent(reportId);
+  let path = '/nexus/export/download/report/' + encodeURIComponent(reportId);
+  if (format === 'html') path += '/html';
+  if (format === 'json') path += '/json';
+  const url = API + path;
+  window.open(url, '_blank', 'noopener');
+}
+
+function downloadNexusReportBundle(jobId) {
+  if (!jobId) return;
+  const url = API + '/nexus/export/download/bundle/' + encodeURIComponent(jobId);
   window.open(url, '_blank', 'noopener');
 }
 

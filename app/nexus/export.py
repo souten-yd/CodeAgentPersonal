@@ -139,6 +139,40 @@ def download_report_file(report_id: str) -> FileResponse:
     return FileResponse(report_md, filename=f"{report_id}.md")
 
 
+@nexus_export_router.get("/download/report/{report_id}/html")
+def download_report_html_file(report_id: str) -> FileResponse:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT report_html_path FROM nexus_reports WHERE report_id = ?",
+            (report_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="report not found")
+
+    report_html = Path(str(row["report_html_path"] or ""))
+    if not report_html.exists():
+        raise HTTPException(status_code=404, detail="report html missing")
+
+    return FileResponse(report_html, filename=f"{report_id}.html", media_type="text/html")
+
+
+@nexus_export_router.get("/download/report/{report_id}/json")
+def download_report_json_file(report_id: str) -> FileResponse:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT report_json_path FROM nexus_reports WHERE report_id = ?",
+            (report_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="report not found")
+
+    report_json = Path(str(row["report_json_path"] or ""))
+    if not report_json.exists():
+        raise HTTPException(status_code=404, detail="report json missing")
+
+    return FileResponse(report_json, filename=f"{report_id}.json", media_type="application/json")
+
+
 @nexus_export_router.get("/download/evidence/{job_id}")
 def download_evidence_file(job_id: str) -> FileResponse:
     if get_job(job_id) is None:
