@@ -151,6 +151,21 @@ def _check_searxng_connectivity(url: str) -> tuple[bool, str]:
         return False, f"SearXNG 疎通確認に失敗しました: {exc}"
 
 
+def _resolve_searxng_state(autostart_status: str, probe_ok: bool) -> tuple[str, str]:
+    normalized = (autostart_status or "").strip().lower()
+    if normalized in {"not_requested", "disabled"}:
+        return "autostart_disabled", "SearXNG auto-start is disabled. Set AUTO_START_SEARXNG=true."
+    if normalized == "failed_runtime_missing":
+        return "runtime_missing", "SearXNG runtime is not installed in this image."
+    if probe_ok:
+        return "connected", "SearXNG is connected."
+    if normalized in {"ready", "ready_existing", "started_unverified"}:
+        return "disconnected", "Check log: /workspace/ca_data/searxng/searxng.log"
+    if normalized.startswith("failed_"):
+        return "disconnected", "Check log: /workspace/ca_data/searxng/searxng.log"
+    return "starting", "SearXNG is starting."
+
+
 @nexus_router.get("/health")
 def nexus_health() -> dict[str, str]:
     """Nexus ルーターの疎通確認用エンドポイント。"""
@@ -519,11 +534,14 @@ def nexus_web_status() -> dict:
 
     active_provider = providers[0] if providers else (cfg.web_search_provider or "").strip().lower()
 
+    runpod_searxng_autostart_status = os.getenv("RUNPOD_SEARXNG_AUTOSTART_STATUS", "")
+    runpod_searxng_autostart_hint = os.getenv("RUNPOD_SEARXNG_AUTOSTART_HINT", "")
     searxng_configured = bool(cfg.searxng_url.strip())
     searxng_probe_ok = True
     searxng_probe_message = "SearXNG 疎通確認をスキップしました。"
     if searxng_configured:
         searxng_probe_ok, searxng_probe_message = _check_searxng_connectivity(cfg.searxng_url)
+    searxng_state, searxng_state_message = _resolve_searxng_state(runpod_searxng_autostart_status, searxng_probe_ok)
 
     provider_status: dict[str, dict[str, str | bool]] = {}
     for provider_name in providers:
@@ -533,7 +551,7 @@ def nexus_web_status() -> dict:
         message_parts = [provider_message]
         if provider_name == "searxng":
             configured = configured and searxng_probe_ok
-            message_parts.append(searxng_probe_message)
+            message_parts = [searxng_state_message, searxng_probe_message]
         if not enabled:
             message_parts.append("free-only 設定のため有償/クォータ制プロバイダは無効です。")
         provider_status[provider_name] = {
@@ -554,6 +572,8 @@ def nexus_web_status() -> dict:
     )
 
     status_message = str(active_provider_status.get("message", ""))
+    if active_provider == "searxng":
+        status_message = searxng_state_message
     status_non_fatal = not bool(active_provider_status.get("configured", False))
     status_provider_errors: dict[str, list[str]] = {}
     if status_non_fatal:
@@ -573,11 +593,13 @@ def nexus_web_status() -> dict:
         "provider_status": provider_status,
         "provider_status_active": active_provider_status,
         "message": status_message,
+        "searxng_state": searxng_state,
+        "searxng_state_message": searxng_state_message,
         "non_fatal": status_non_fatal,
         "stub": status_non_fatal,
         "provider_errors": status_provider_errors,
-        "runpod_searxng_autostart_status": os.getenv("RUNPOD_SEARXNG_AUTOSTART_STATUS", ""),
-        "runpod_searxng_autostart_hint": os.getenv("RUNPOD_SEARXNG_AUTOSTART_HINT", ""),
+        "runpod_searxng_autostart_status": runpod_searxng_autostart_status,
+        "runpod_searxng_autostart_hint": runpod_searxng_autostart_hint,
     }
 
 
