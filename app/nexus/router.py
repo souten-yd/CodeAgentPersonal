@@ -90,6 +90,17 @@ def _as_canonical_payload(operation: str, request: dict, result: dict) -> dict:
     }
 
 
+def _with_item_provider_engine(search: dict) -> list[dict]:
+    selected_provider = str(search.get("selected_provider") or search.get("provider") or "unknown")
+    normalized_items: list[dict] = []
+    for item in (search.get("items") or []):
+        row = dict(item)
+        row["provider"] = str(row.get("provider") or selected_provider)
+        row["engine"] = str(row.get("engine") or row.get("provider") or "unknown")
+        normalized_items.append(row)
+    return normalized_items
+
+
 def _provider_kind(provider: str) -> str:
     normalized = (provider or "").strip().lower()
     if normalized == "searxng":
@@ -470,6 +481,9 @@ def nexus_web_search(payload: NexusWebSearchRequest) -> dict:
         scope=payload.scope,
         language=payload.language,
     )
+    items = _with_item_provider_engine(search)
+    search["items"] = items
+    search["total_items"] = int(search.get("total_items") or len(items))
     return _as_canonical_payload(
         "web.search",
         payload.model_dump(),
@@ -477,9 +491,18 @@ def nexus_web_search(payload: NexusWebSearchRequest) -> dict:
             "queries": queries,
             "generated_queries": search.get("generated_queries", queries),
             "effective_query_plan": search.get("effective_query_plan", {}),
+            "provider": search.get("provider"),
+            "selected_provider": search.get("selected_provider"),
+            "attempted_providers": search.get("attempted_providers", []),
+            "fallback_used": bool(search.get("fallback_used", False)),
+            "skipped_providers": search.get("skipped_providers", {}),
+            "provider_errors": search.get("provider_errors", {}),
+            "configured": bool(search.get("configured", False)),
+            "non_fatal": bool(search.get("non_fatal", False)),
+            "message": search.get("message", ""),
             "search": search,
-            "items": search.get("items") or [],
-            "total_items": len(search.get("items") or []),
+            "items": items,
+            "total_items": search.get("total_items", len(items)),
         },
     )
 
@@ -556,7 +579,10 @@ def nexus_web_research(payload: NexusWebSearchRequest) -> dict:
         scope=payload.scope,
         language=payload.language,
     )
-    highlights = [str(item.get("title") or item.get("snippet") or "") for item in (search.get("items") or [])[:5]]
+    items = _with_item_provider_engine(search)
+    search["items"] = items
+    search["total_items"] = int(search.get("total_items") or len(items))
+    highlights = [str(item.get("title") or item.get("snippet") or "") for item in items[:5]]
     return _as_canonical_payload(
         "web.research",
         payload.model_dump(),
@@ -564,7 +590,18 @@ def nexus_web_research(payload: NexusWebSearchRequest) -> dict:
             "queries": queries,
             "generated_queries": search.get("generated_queries", queries),
             "effective_query_plan": search.get("effective_query_plan", {}),
+            "provider": search.get("provider"),
+            "selected_provider": search.get("selected_provider"),
+            "attempted_providers": search.get("attempted_providers", []),
+            "fallback_used": bool(search.get("fallback_used", False)),
+            "skipped_providers": search.get("skipped_providers", {}),
+            "provider_errors": search.get("provider_errors", {}),
+            "configured": bool(search.get("configured", False)),
+            "non_fatal": bool(search.get("non_fatal", False)),
+            "message": search.get("message", ""),
             "search": search,
+            "items": items,
+            "total_items": search.get("total_items", len(items)),
             "highlights": highlights,
             "summary": f"{query} に関するWeb調査（MVP）",
         },
