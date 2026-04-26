@@ -1219,6 +1219,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <button class="chat-task-toggle" id="chat-task-toggle" onclick="toggleChatTaskMode()" title="Task実行をON/OFF">
             <span>Task</span><span id="chat-task-toggle-label">OFF</span>
           </button>
+          <button class="chat-task-toggle" id="chat-tts-toggle" onclick="toggleChatTtsUnified()" title="Chat TTS 自動読み上げのON/OFF">
+            <span id="chat-tts-toggle-label">TTS OFF</span>
+          </button>
         </div>
       </div>
     </div>
@@ -2941,30 +2944,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
       <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔊 TTS</div>
       <div style="padding:4px 0 14px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div>
-            <div style="font-size:11px;font-weight:700;color:var(--text2)">TTS を有効化</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:2px">Chat / Task の手動TTS再生を有効化</div>
-          </div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="tts-enable-chk"
-              style="width:14px;height:14px;accent-color:var(--accent)"
-              onchange="saveTtsSettings()">
-            <span style="font-size:11px;color:var(--text2)" id="tts-enable-label">OFF</span>
-          </label>
-        </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div>
-            <div style="font-size:11px;font-weight:700;color:var(--text2)">LLM回答の自動読み上げ</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:2px">Chat / Task の assistant 応答を自動再生</div>
-          </div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="tts-auto-chk"
-              style="width:14px;height:14px;accent-color:var(--accent)"
-              onchange="saveTtsSettings()">
-            <span style="font-size:11px;color:var(--text2)" id="tts-auto-label">OFF</span>
-          </label>
-        </div>
         <div style="font-size:11px;color:var(--text3);line-height:1.7">
           エンジン・音声・翻訳などの詳細は Echo の <strong style="color:var(--accent)">TTS タブ</strong> 設定を参照します。
         </div>
@@ -4812,8 +4791,6 @@ window.addEventListener('pageshow', () => {
 });
 
 function saveTtsSettings() {
-  tts.enabled    = document.getElementById('tts-enable-chk')?.checked ?? tts.enabled;
-  tts.autoSpeak  = document.getElementById('tts-auto-chk')?.checked ?? tts.autoSpeak;
   tts.engine     = _normalizeTtsEngine(document.getElementById('tts-engine-sel')?.value || tts.engine);
   tts.voice      = document.getElementById('tts-voice-sel')?.value || tts.voice;
   tts.speed      = parseFloat(document.getElementById('tts-speed-slider')?.value || `${tts.speed || 1.0}`);
@@ -4830,10 +4807,7 @@ function saveTtsSettings() {
   localStorage.setItem('tts_speed',      tts.speed);
   localStorage.setItem('tts_qwen3model', tts.qwen3model);
   localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model || '');
-  const ttsEnableLabel = document.getElementById('tts-enable-label');
-  const ttsAutoLabel = document.getElementById('tts-auto-label');
-  if (ttsEnableLabel) ttsEnableLabel.textContent = tts.enabled ? 'ON' : 'OFF';
-  if (ttsAutoLabel) ttsAutoLabel.textContent = tts.autoSpeak ? 'ON' : 'OFF';
+  syncChatTtsToggle();
 }
 
 function _syncTtsDeviceState(device) {
@@ -6152,14 +6126,7 @@ async function unloadTtsEngineFromTab() {
 }
 
 function _ttsInitSettingsUI() {
-  const enableChk = document.getElementById('tts-enable-chk');
-  const autoChk = document.getElementById('tts-auto-chk');
-  const enableLbl = document.getElementById('tts-enable-label');
-  const autoLbl = document.getElementById('tts-auto-label');
-  if (enableChk) enableChk.checked = !!tts.enabled;
-  if (autoChk) autoChk.checked = !!tts.autoSpeak;
-  if (enableLbl) enableLbl.textContent = tts.enabled ? 'ON' : 'OFF';
-  if (autoLbl) autoLbl.textContent = tts.autoSpeak ? 'ON' : 'OFF';
+  syncChatTtsToggle();
   _asrInitSettingsUI();
 }
 
@@ -6576,6 +6543,7 @@ addEventListener('load', async () => {
   }
   if (mode === 'task') mode = 'chat';
   syncChatTaskToggle();
+  syncChatTtsToggle();
   if (window.innerWidth <= 768) {
     mobSwitch('chat');
   } else {
@@ -6584,6 +6552,7 @@ addEventListener('load', async () => {
   }
   localStorage.removeItem('llm_endpoints'); // 旧LLMエンドポイント設定をクリーンアップ
   await loadSettingsFromDb();   // DBから設定を復元（localStorage優先ではなくDB優先）
+  syncChatTtsToggle();
   await refreshSystemSummary();
   loadProjects();
   initCtxSlider();
@@ -6890,6 +6859,24 @@ function syncChatTaskToggle() {
   const label = document.getElementById('chat-task-toggle-label');
   toggle?.classList.toggle('on', !!isTaskEnabled);
   if (label) label.textContent = isTaskEnabled ? 'ON' : 'OFF';
+}
+
+function syncChatTtsToggle() {
+  const toggle = document.getElementById('chat-tts-toggle');
+  const label = document.getElementById('chat-tts-toggle-label');
+  const isOn = !!(tts.enabled && tts.autoSpeak);
+  toggle?.classList.toggle('on', isOn);
+  if (label) label.textContent = isOn ? 'TTS ON' : 'TTS OFF';
+}
+
+function toggleChatTtsUnified() {
+  const next = !(tts.enabled && tts.autoSpeak);
+  tts.enabled = next;
+  tts.autoSpeak = next;
+  localStorage.setItem('tts_enabled', next ? 'true' : 'false');
+  localStorage.setItem('tts_auto_speak', next ? 'true' : 'false');
+  saveTtsSettings();
+  syncChatTtsToggle();
 }
 
 function toggleChatTaskMode() {
