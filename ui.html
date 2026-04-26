@@ -599,6 +599,12 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-table tr:last-child td{border-bottom:none}
 .nexus-score{font-family:var(--font-mono);color:var(--accent);font-weight:700}
 .nexus-report-preview{margin:0;max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:11px;color:var(--text2);font-family:var(--font-mono)}
+.nexus-form-grid{display:grid;gap:8px}
+.nexus-form-grid.cols-2{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+.nexus-form-grid.cols-3{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+.nexus-input,.nexus-select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px}
+.nexus-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.nexus-phase-note{font-size:10px;color:var(--text3);line-height:1.5}
 @media(max-width:768px){
   .nexus-topbar{flex-direction:column;align-items:stretch}
   .nexus-subtabs{padding-bottom:2px}
@@ -1315,6 +1321,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <button class="nexus-subtab" id="nexus-btn-library" onclick="switchNexusTab('library')">Library</button>
         <button class="nexus-subtab" id="nexus-btn-news" onclick="switchNexusTab('news')">News</button>
         <button class="nexus-subtab" id="nexus-btn-market" onclick="switchNexusTab('market')">Market</button>
+        <button class="nexus-subtab" id="nexus-btn-web-scout" onclick="switchNexusTab('web-scout')">Web Scout</button>
+        <button class="nexus-subtab" id="nexus-btn-compare" onclick="switchNexusTab('compare')">Compare</button>
+        <button class="nexus-subtab" id="nexus-btn-formula" onclick="switchNexusTab('formula')">Formula</button>
         <button class="nexus-subtab" id="nexus-btn-evidence" onclick="switchNexusTab('evidence')">Evidence</button>
         <button class="nexus-subtab" id="nexus-btn-report" onclick="switchNexusTab('report')">Report</button>
       </div>
@@ -1392,6 +1401,80 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div class="nexus-card-title">Market Result Placeholder</div>
             <div id="nexus-market-result" class="nexus-result-panel" style="min-height:100px">
               <div class="nexus-empty">未実行: 入力受付 + スタブ応答 + Evidence保存（MVP）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-web-scout">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">Web Scout MVP (Phase 1)</div>
+            <div class="nexus-form-grid">
+              <input id="nexus-web-topic" class="nexus-input" type="text" placeholder="topic (例: AI regulation in US healthcare)">
+              <div class="nexus-form-grid cols-3">
+                <select id="nexus-web-depth" class="nexus-select">
+                  <option value="standard">depth: standard</option>
+                  <option value="deep">depth: deep</option>
+                </select>
+                <input id="nexus-web-scope" class="nexus-input" type="text" placeholder="scope (market/policy/product)">
+                <input id="nexus-web-language" class="nexus-input" type="text" placeholder="language (ja/en)">
+              </div>
+              <div class="nexus-actions">
+                <button class="settings-btn primary" id="nexus-web-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusWebScoutMvp()">Run Web Scout</button>
+              </div>
+            </div>
+            <div class="nexus-phase-note">/nexus/web/search と /nexus/web/research を連続実行し、query plan + highlights を統合表示するMVP。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Web Scout Result</div>
+            <div id="nexus-web-result" class="nexus-result-panel" style="min-height:120px">
+              <div class="nexus-empty">未実行: topic/depth/scope/language を入力して Web Scout を実行してください</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-compare">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">Compare MVP Placeholder (Phase 2)</div>
+            <div class="nexus-form-grid cols-2">
+              <input id="nexus-compare-topic" class="nexus-input" type="text" placeholder="topic (比較対象のテーマ)">
+              <input id="nexus-compare-scope" class="nexus-input" type="text" placeholder="scope (geo/sector/time)">
+            </div>
+            <div class="nexus-actions" style="margin-top:8px">
+              <button class="settings-btn primary" id="nexus-compare-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusCompareMvp()">Run Compare MVP</button>
+            </div>
+            <div class="nexus-phase-note">Phase 2 拡張ポイント: multi-source diff / evidence alignment / contradiction detection。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Compare Result Placeholder</div>
+            <div id="nexus-compare-result" class="nexus-result-panel" style="min-height:100px">
+              <div class="nexus-empty">MVP placeholder: 現状は入力値を保持し、拡張用スキーマを表示します</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-formula">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">Formula MVP Placeholder (Phase 3)</div>
+            <div class="nexus-form-grid cols-2">
+              <input id="nexus-formula-topic" class="nexus-input" type="text" placeholder="topic (計算対象のテーマ)">
+              <input id="nexus-formula-language" class="nexus-input" type="text" placeholder="language (ja/en)">
+            </div>
+            <div class="nexus-form-grid cols-2" style="margin-top:8px">
+              <input id="nexus-formula-depth" class="nexus-input" type="text" placeholder="depth (quick/deep)">
+              <input id="nexus-formula-scope" class="nexus-input" type="text" placeholder="scope (model/assumption)">
+            </div>
+            <div class="nexus-actions" style="margin-top:8px">
+              <button class="settings-btn primary" id="nexus-formula-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusFormulaMvp()">Run Formula MVP</button>
+            </div>
+            <div class="nexus-phase-note">Phase 3 拡張ポイント: factor graph / equation builder / scenario simulator。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Formula Result Placeholder</div>
+            <div id="nexus-formula-result" class="nexus-result-panel" style="min-height:100px">
+              <div class="nexus-empty">MVP placeholder: 数式エンジン接続前の入出力骨組みのみ提供します</div>
             </div>
           </div>
         </div>
@@ -6915,7 +6998,7 @@ function setMode(m) {
 }
 
 function switchNexusTab(name) {
-  const tabs = ['dashboard','library','news','market','evidence','report'];
+  const tabs = ['dashboard','library','news','market','web-scout','compare','formula','evidence','report'];
   const target = tabs.includes(name) ? name : 'dashboard';
   window._nexusTab = target;
   tabs.forEach(tab => {
@@ -7235,6 +7318,33 @@ function setNexusMarketResult(payload, isErr = false) {
   renderNexusSearchResultPanel(el, payload, 'market');
 }
 
+function setNexusWebResult(payload, isErr = false) {
+  const el = document.getElementById('nexus-web-result');
+  if (!el) return;
+  if (isErr || typeof payload === 'string') {
+    el.innerHTML = `<div class="nexus-job" style="color:${isErr ? 'var(--red)' : 'var(--text2)'}">${esc(typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2))}</div>`;
+    return;
+  }
+  const searchItems = payload?.search?.items || [];
+  const searchQueries = payload?.queries || [];
+  const highlights = payload?.highlights || [];
+  el.innerHTML = `
+    <div class="nexus-result-item">
+      <div style="font-size:11px;color:var(--text2);font-weight:700">Research Summary</div>
+      <div style="font-size:11px;color:var(--text3)">${esc(payload?.summary || 'summary unavailable')}</div>
+      <div class="nexus-result-meta">queries: ${searchQueries.length} / hits: ${searchItems.length}</div>
+    </div>
+    <div class="nexus-result-item">
+      <div style="font-size:11px;color:var(--text2);font-weight:700">Query Plan</div>
+      <div class="nexus-result-meta">${searchQueries.map((q) => esc(q)).join(' / ') || '(none)'}</div>
+    </div>
+    <div class="nexus-result-item">
+      <div style="font-size:11px;color:var(--text2);font-weight:700">Highlights</div>
+      ${(highlights.length ? highlights.map((h) => `<div style="font-size:11px;color:var(--text3)">• ${esc(h)}</div>`).join('') : '<div class="nexus-empty">highlights なし</div>')}
+    </div>
+  `;
+}
+
 function nexusCitationLabel(item, idx) {
   return item.citation_label || item.citation || `[web-${idx + 1}]`;
 }
@@ -7365,6 +7475,81 @@ async function runNexusMarketMvp() {
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+async function runNexusWebScoutMvp() {
+  const topic = (document.getElementById('nexus-web-topic')?.value || '').trim();
+  const depth = (document.getElementById('nexus-web-depth')?.value || 'standard').trim() || 'standard';
+  const scope = (document.getElementById('nexus-web-scope')?.value || '').trim();
+  const language = (document.getElementById('nexus-web-language')?.value || '').trim();
+  const btn = document.getElementById('nexus-web-run-btn');
+  if (!topic) {
+    setNexusWebResult('topic を入力してください。', true);
+    return;
+  }
+  const composedQuery = [topic, scope ? `scope:${scope}` : '', language ? `language:${language}` : ''].filter(Boolean).join(' ');
+  const maxQueries = depth === 'deep' ? 6 : 3;
+  const maxResultsPerQuery = depth === 'deep' ? 8 : 4;
+  if (btn) btn.disabled = true;
+  setNexusWebResult('実行中...');
+  try {
+    const payload = { query: composedQuery, mode: depth, max_queries: maxQueries, max_results_per_query: maxResultsPerQuery };
+    const [searchRes, researchRes] = await Promise.all([
+      fetch(API + '/nexus/web/search', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }),
+      fetch(API + '/nexus/web/research', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }),
+    ]);
+    const searchData = await searchRes.json();
+    const researchData = await researchRes.json();
+    if (!searchRes.ok) throw new Error(searchData?.detail || JSON.stringify(searchData));
+    if (!researchRes.ok) throw new Error(researchData?.detail || JSON.stringify(researchData));
+    const merged = {
+      query: topic,
+      depth,
+      scope,
+      language,
+      queries: researchData?.result?.queries || searchData?.result?.queries || [],
+      search: searchData?.result?.search || {},
+      highlights: researchData?.result?.highlights || [],
+      summary: researchData?.result?.summary || `${topic} に関する Web Scout summary`,
+    };
+    setNexusWebResult(merged, false);
+  } catch (e) {
+    setNexusWebResult('Web Scout MVP failed: ' + e.message, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function runNexusCompareMvp() {
+  const topic = (document.getElementById('nexus-compare-topic')?.value || '').trim();
+  const scope = (document.getElementById('nexus-compare-scope')?.value || '').trim();
+  const root = document.getElementById('nexus-compare-result');
+  if (!root) return;
+  root.innerHTML = `
+    <div class="nexus-result-item">
+      <div style="font-size:11px;color:var(--text2);font-weight:700">Compare MVP Placeholder</div>
+      <div class="nexus-result-meta">phase: 2 / status: extension-point</div>
+      <div style="font-size:11px;color:var(--text3)">topic: ${esc(topic || '-')} / scope: ${esc(scope || '-')}</div>
+    </div>
+    <div class="nexus-empty">次フェーズで source-pair scoring / contradiction matrix / consensus map を接続予定。</div>
+  `;
+}
+
+function runNexusFormulaMvp() {
+  const topic = (document.getElementById('nexus-formula-topic')?.value || '').trim();
+  const depth = (document.getElementById('nexus-formula-depth')?.value || '').trim();
+  const scope = (document.getElementById('nexus-formula-scope')?.value || '').trim();
+  const language = (document.getElementById('nexus-formula-language')?.value || '').trim();
+  const root = document.getElementById('nexus-formula-result');
+  if (!root) return;
+  root.innerHTML = `
+    <div class="nexus-result-item">
+      <div style="font-size:11px;color:var(--text2);font-weight:700">Formula MVP Placeholder</div>
+      <div class="nexus-result-meta">phase: 3 / status: extension-point</div>
+      <div style="font-size:11px;color:var(--text3)">topic: ${esc(topic || '-')} / depth: ${esc(depth || '-')} / scope: ${esc(scope || '-')} / language: ${esc(language || '-')}</div>
+    </div>
+    <div class="nexus-empty">次フェーズで variable extraction / formula graph / scenario simulation API を接続予定。</div>
+  `;
 }
 
 function nexusEvidenceScore(row) {
