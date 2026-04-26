@@ -331,14 +331,19 @@ WORKDIR /app
 
 RUN apt-get update -o Acquire::Retries=3 \
     && apt-get install -y --no-install-recommends \
+        build-essential \
         ca-certificates \
         curl \
+        git \
         tini \
         libgomp1 \
         libcurl4 \
+        libffi-dev \
         libsndfile1 \
+        libssl-dev \
         libxml2 \
-        libxslt1.1 \
+        libxslt-dev \
+        zlib1g-dev \
         software-properties-common \
         gnupg \
         sox \
@@ -360,8 +365,15 @@ COPY --from=tts_build /opt/venv /opt/venv
 COPY --from=tts_build /app/qwen3_tts_install_status.json /app/qwen3_tts_install_status.json
 COPY --from=style_bert_vits2_build /app/Style-Bert-VITS2 /app/Style-Bert-VITS2
 
-# Install SearXNG runtime for Runpod single-container startup.
-RUN python -m pip install --no-cache-dir searxng
+# Build SearXNG editable runtime inside isolated venv for Runpod single-container startup.
+RUN set -eux; \
+    mkdir -p /opt/searxng; \
+    git clone https://github.com/searxng/searxng /opt/searxng/searxng-src; \
+    python3.11 -m venv /opt/searxng/searx-pyenv; \
+    /opt/searxng/searx-pyenv/bin/pip install --no-cache-dir -U pip setuptools wheel; \
+    /opt/searxng/searx-pyenv/bin/pip install --no-cache-dir -U pyyaml msgspec typing-extensions pybind11; \
+    cd /opt/searxng/searxng-src; \
+    /opt/searxng/searx-pyenv/bin/pip install --no-cache-dir --use-pep517 --no-build-isolation -e .
 
 # Copy compiled llama artifacts into the paths the app expects.
 RUN mkdir -p /app/llama/bin /app/llama/lib /models

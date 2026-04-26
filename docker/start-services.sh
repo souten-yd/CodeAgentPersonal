@@ -51,6 +51,12 @@ else
   echo "[Qwen3-TTS][runtime] REQUIRE_FLASH_ATTN!=1, continuing without flash_attn." >&2
 fi
 
+if [ -x /opt/searxng/searx-pyenv/bin/python ]; then
+  echo "[SearXNG] venv python OK: /opt/searxng/searx-pyenv/bin/python"
+else
+  echo "[SearXNG][WARN] venv python missing or not executable: /opt/searxng/searx-pyenv/bin/python"
+fi
+
 if [ "${AUTO_START_SEARXNG}" = "true" ]; then
   echo "[SearXNG] auto-start enabled from container entrypoint."
   bash /app/scripts/start_searxng.sh || echo "[SearXNG][WARN] start_searxng.sh failed; continuing FastAPI startup."
