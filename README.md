@@ -304,7 +304,7 @@ curl http://127.0.0.1:8000/nexus/web/status
 | `NEXUS_MAX_UPLOAD_MB` | アップロード可能な最大サイズ（MB） | `200` | UI Upload 上限に反映 |
 | `NEXUS_ENABLE_WEB` | Web 検索機能の有効/無効 | `true` | `false` なら Web 検索をスキップ |
 | `NEXUS_WEB_SEARCH_PROVIDER` | プライマリ Web 検索プロバイダ | `searxng` | **推奨値は `searxng`** |
-| `NEXUS_SEARXNG_URL` | SearXNG ベース URL | `http://searxng:8080` | `/search` にアクセスできる URL |
+| `NEXUS_SEARXNG_URL` | SearXNG ベース URL | `http://searxng:8080` | `/search` にアクセスできる URL。Runpod既定: `http://127.0.0.1:8088` / 非Runpod既定: `http://searxng:8080` |
 | `NEXUS_SEARCH_FALLBACK_PROVIDERS` | フォールバック候補（CSV） | `searxng,brave` | 先頭から順に評価 |
 | `NEXUS_SEARCH_FREE_ONLY` | 無料系 provider のみ許可 | `true` | `true` なら有償系を抑制 |
 | `NEXUS_SEARCH_PAID_PROVIDERS_ENABLED` | 有償 provider 許可フラグ | `false` | `false` なら Brave 等を抑制 |
@@ -315,7 +315,19 @@ curl http://127.0.0.1:8000/nexus/web/status
 
 ### 構成例
 
-#### 1) 無料優先（推奨）
+#### 1) 無料優先（推奨・Runpod向け）
+
+```bash
+NEXUS_ENABLE_WEB=true
+NEXUS_WEB_SEARCH_PROVIDER=searxng
+NEXUS_SEARXNG_URL=http://127.0.0.1:8088
+NEXUS_SEARCH_FALLBACK_PROVIDERS=searxng
+NEXUS_SEARCH_FREE_ONLY=true
+NEXUS_SEARCH_PAID_PROVIDERS_ENABLED=false
+NEXUS_SEARCH_PROVIDER_COOLDOWN_SEC=3600
+```
+
+#### 2) 無料優先（推奨・通常環境向け）
 
 ```bash
 NEXUS_ENABLE_WEB=true
@@ -327,7 +339,7 @@ NEXUS_SEARCH_PAID_PROVIDERS_ENABLED=false
 NEXUS_SEARCH_PROVIDER_COOLDOWN_SEC=3600
 ```
 
-#### 2) Brave 有効化（API キーあり）
+#### 3) Brave 有効化（API キーあり）
 
 ```bash
 NEXUS_ENABLE_WEB=true
@@ -339,7 +351,7 @@ NEXUS_SEARCH_PROVIDER_COOLDOWN_SEC=3600
 BRAVE_SEARCH_API_KEY=YOUR_BRAVE_KEY
 ```
 
-#### 3) SearXNG + Brave フォールバック
+#### 4) SearXNG + Brave フォールバック
 
 ```bash
 NEXUS_ENABLE_WEB=true
@@ -358,6 +370,18 @@ BRAVE_SEARCH_API_KEY=YOUR_BRAVE_KEY
 - **fallback 設定**（`fallback_providers`）
 - **stub になり得る構成の判定補助**（`configured`, `provider_status.configured`, `message`）
 - **errors / 未設定の原因確認**（`provider_status.message`, `message`）
+
+#### 運用手順: `searxng_url` の確認
+
+1. ステータス API を実行:
+
+   ```bash
+   curl http://127.0.0.1:8000/nexus/web/status
+   ```
+
+2. レスポンス JSON の `searxng_url` を確認し、実行環境の既定値と一致しているかを確認:
+   - Runpod: `http://127.0.0.1:8088`
+   - 非Runpod: `http://searxng:8080`
 
 ### Brave API キー未設定時の挙動
 
