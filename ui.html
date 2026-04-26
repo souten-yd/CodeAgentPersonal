@@ -7235,6 +7235,7 @@ async function trackNexusJob(jobId) {
   nexusTrackers[jobId] = { after: -1, done: false };
   updateNexusJobBanner(`Job ${jobId} queued...`);
   pushNexusTimelineEvent(jobId, 'queued');
+  const terminalStatuses = new Set(['completed', 'failed', 'degraded']);
   while (!nexusTrackers[jobId]?.done) {
     try {
       const after = nexusTrackers[jobId].after;
@@ -7253,11 +7254,20 @@ async function trackNexusJob(jobId) {
       if (jobRes.ok) {
         const jobData = await jobRes.json();
         const st = jobData?.job?.status || '';
-        if (st === 'completed' || st === 'failed') {
+        const err = jobData?.job?.error;
+        if (terminalStatuses.has(st)) {
           nexusTrackers[jobId].done = true;
-          const err = jobData?.job?.error;
-          pushNexusTimelineEvent(jobId, st === 'completed' ? 'completed' : `failed: ${err || ''}`, jobData?.job?.updated_at || '');
-          updateNexusJobBanner(st === 'completed' ? `Job ${jobId} completed` : `Job ${jobId} failed: ${err || ''}`, st === 'failed');
+          if (st === 'completed') {
+            pushNexusTimelineEvent(jobId, 'completed', jobData?.job?.updated_at || '');
+            updateNexusJobBanner(`Job ${jobId} completed`);
+          } else if (st === 'degraded') {
+            const reason = err || jobData?.job?.message || 'dependency missing';
+            pushNexusTimelineEvent(jobId, `degraded: ${reason}`, jobData?.job?.updated_at || '');
+            updateNexusJobBanner(`Job ${jobId} degraded: ${reason}`, true);
+          } else {
+            pushNexusTimelineEvent(jobId, `failed: ${err || ''}`, jobData?.job?.updated_at || '');
+            updateNexusJobBanner(`Job ${jobId} failed: ${err || ''}`, true);
+          }
         }
       }
       await refreshNexusJobs();

@@ -84,18 +84,35 @@ def _chunk_text(text: str) -> list[str]:
     return chunks
 
 
+def _job_event_payload(
+    *,
+    status: str,
+    progress: float,
+    message: str,
+    error: str | None = None,
+    **extra: object,
+) -> dict[str, object]:
+    return {
+        "status": status,
+        "progress": progress,
+        "message": message,
+        "error": error,
+        **extra,
+    }
+
+
 def _extract_and_index(document_id: str, path: Path, filename: str, job_id: str) -> None:
     update_job(job_id, status="running", progress=0.05, message="extracting")
     append_job_event(
         job_id,
         "progress",
-        {
-            "status": "running",
-            "progress": 0.05,
-            "message": "extracting",
-            "label": "extracting",
-            "document_id": document_id,
-        },
+        _job_event_payload(
+            status="running",
+            progress=0.05,
+            message="extracting",
+            label="extracting",
+            document_id=document_id,
+        ),
     )
 
     try:
@@ -104,7 +121,7 @@ def _extract_and_index(document_id: str, path: Path, filename: str, job_id: str)
         message = str(exc)
         update_job(
             job_id,
-            status="completed",
+            status="degraded",
             progress=1.0,
             message="dependency_missing",
             error=message,
@@ -113,13 +130,13 @@ def _extract_and_index(document_id: str, path: Path, filename: str, job_id: str)
         append_job_event(
             job_id,
             "dependency_missing",
-            {
-                "status": "completed",
-                "progress": 1.0,
-                "message": "dependency_missing",
-                "document_id": document_id,
-                "error": message,
-            },
+            _job_event_payload(
+                status="degraded",
+                progress=1.0,
+                message="dependency_missing",
+                error=message,
+                document_id=document_id,
+            ),
         )
         return
     except Exception as exc:
@@ -127,13 +144,13 @@ def _extract_and_index(document_id: str, path: Path, filename: str, job_id: str)
         append_job_event(
             job_id,
             "job_failed",
-            {
-                "status": "failed",
-                "progress": 1.0,
-                "message": "extract_failed",
-                "document_id": document_id,
-                "error": str(exc),
-            },
+            _job_event_payload(
+                status="failed",
+                progress=1.0,
+                message="extract_failed",
+                error=str(exc),
+                document_id=document_id,
+            ),
         )
         return
 
@@ -165,14 +182,14 @@ def _extract_and_index(document_id: str, path: Path, filename: str, job_id: str)
         append_job_event(
             job_id,
             "progress",
-            {
-                "status": "running",
-                "progress": page_progress,
-                "message": f"indexing_page_{page_idx}",
-                "document_id": document_id,
-                "page": page_idx,
-                "total_pages": total_pages,
-            },
+            _job_event_payload(
+                status="running",
+                progress=page_progress,
+                message=f"indexing_page_{page_idx}",
+                document_id=document_id,
+                page=page_idx,
+                total_pages=total_pages,
+            ),
         )
         for content in _chunk_text(page.text):
             chunk_id = f"{document_id}:{chunk_index}"
@@ -196,15 +213,15 @@ def _extract_and_index(document_id: str, path: Path, filename: str, job_id: str)
     append_job_event(
         job_id,
         "job_completed",
-        {
-            "status": "completed",
-            "progress": 1.0,
-            "message": "extracted",
-            "document_id": document_id,
-            "chunks": inserted,
-            "extracted_text_path": str(extracted_text_path),
-            "markdown_path": str(markdown_path),
-        },
+        _job_event_payload(
+            status="completed",
+            progress=1.0,
+            message="extracted",
+            document_id=document_id,
+            chunks=inserted,
+            extracted_text_path=str(extracted_text_path),
+            markdown_path=str(markdown_path),
+        ),
     )
 
 
@@ -267,13 +284,13 @@ async def accept_upload(*, file: UploadFile, project: str = "default") -> dict:
     append_job_event(
         job_id,
         "queued",
-        {
-            "status": "queued",
-            "progress": 0.0,
-            "message": "queued",
-            "document_id": document_id,
-            "path": str(stored_path),
-        },
+        _job_event_payload(
+            status="queued",
+            progress=0.0,
+            message="queued",
+            document_id=document_id,
+            path=str(stored_path),
+        ),
     )
 
     worker = threading.Thread(
