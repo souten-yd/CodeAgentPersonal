@@ -516,9 +516,7 @@ def nexus_web_status() -> dict:
         if normalized and normalized not in providers:
             providers.append(normalized)
 
-    active_provider = providers[0] if providers else cfg.web_search_provider
-    enabled = _is_provider_enabled(active_provider, cfg)
-    provider_configured, provider_message = _is_provider_configured(active_provider, cfg)
+    active_provider = providers[0] if providers else (cfg.web_search_provider or "").strip().lower()
 
     searxng_configured = bool(cfg.searxng_url.strip())
     searxng_probe_ok = True
@@ -526,15 +524,33 @@ def nexus_web_status() -> dict:
     if searxng_configured:
         searxng_probe_ok, searxng_probe_message = _check_searxng_connectivity(cfg.searxng_url)
 
-    configured = provider_configured
-    if active_provider == "searxng":
-        configured = configured and searxng_probe_ok
+    provider_status: dict[str, dict[str, str | bool]] = {}
+    for provider_name in providers:
+        enabled = _is_provider_enabled(provider_name, cfg)
+        provider_configured, provider_message = _is_provider_configured(provider_name, cfg)
+        configured = provider_configured
+        message_parts = [provider_message]
+        if provider_name == "searxng":
+            configured = configured and searxng_probe_ok
+            message_parts.append(searxng_probe_message)
+        if not enabled:
+            message_parts.append("free-only 設定のため有償/クォータ制プロバイダは無効です。")
+        provider_status[provider_name] = {
+            "kind": _provider_kind(provider_name),
+            "enabled": enabled,
+            "configured": configured,
+            "message": " ".join(part for part in message_parts if part),
+        }
 
-    message_parts = [provider_message]
-    if active_provider == "searxng":
-        message_parts.append(searxng_probe_message)
-    if not enabled:
-        message_parts.append("free-only 設定のため有償/クォータ制プロバイダは無効です。")
+    active_provider_status = provider_status.get(
+        active_provider,
+        {
+            "kind": _provider_kind(active_provider),
+            "enabled": _is_provider_enabled(active_provider, cfg),
+            "configured": False,
+            "message": "プロバイダ状態を取得できませんでした。",
+        },
+    )
 
     return {
         "enable_web": cfg.enable_web,
@@ -545,15 +561,11 @@ def nexus_web_status() -> dict:
         "brave_search_api_key_set": bool(cfg.brave_search_api_key),
         "searxng_url": cfg.searxng_url,
         "searxng_configured": searxng_configured,
-        "configured": configured,
+        "configured": bool(active_provider_status.get("configured", False)),
         "active_provider": active_provider,
-        "provider_status": {
-            "kind": _provider_kind(active_provider),
-            "enabled": enabled,
-            "configured": configured,
-            "message": " ".join(part for part in message_parts if part),
-        },
-        "message": " ".join(part for part in message_parts if part),
+        "provider_status": provider_status,
+        "provider_status_active": active_provider_status,
+        "message": str(active_provider_status.get("message", "")),
     }
 
 
