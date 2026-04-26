@@ -27,6 +27,7 @@ class NexusRuntimeConfig:
     enable_market: bool
     web_search_provider: str
     brave_search_api_key: str
+    max_upload_mb: int
 
 
 def _env_bool(name: str, *, default: bool) -> bool:
@@ -34,6 +35,17 @@ def _env_bool(name: str, *, default: bool) -> bool:
     if not raw:
         return default
     return raw in {"1", "true", "yes", "on", "enabled"}
+
+
+def _env_int(name: str, *, default: int, minimum: int) -> int:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(minimum, value)
 
 
 def load_runtime_config() -> NexusRuntimeConfig:
@@ -45,6 +57,7 @@ def load_runtime_config() -> NexusRuntimeConfig:
         enable_market=_env_bool("NEXUS_ENABLE_MARKET", default=True),
         web_search_provider=provider or "brave",
         brave_search_api_key=(os.environ.get("BRAVE_SEARCH_API_KEY") or "").strip(),
+        max_upload_mb=_env_int("NEXUS_MAX_UPLOAD_MB", default=20, minimum=1),
     )
 
 

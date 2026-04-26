@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.nexus.db import get_conn
+from app.nexus.config import load_runtime_config
 from app.nexus.evidence import build_library_evidence
 from app.nexus.export import nexus_export_router
 from app.nexus.ingest import accept_upload
@@ -88,7 +89,7 @@ def nexus_health() -> dict[str, str]:
 
 @nexus_router.get("/summary")
 @nexus_router.get("/dashboard/summary")
-def nexus_summary(project: str = Query("default")) -> dict[str, int]:
+def nexus_summary(project: str = Query("default")) -> dict:
     """Dashboardカード表示向けのサマリー。"""
     with get_conn() as conn:
         docs_row = conn.execute(
@@ -110,11 +111,16 @@ def nexus_summary(project: str = Query("default")) -> dict[str, int]:
         ).fetchone()
 
     active_jobs = sum(1 for job in list_active_jobs(limit=500) if job.status in ("queued", "running"))
+    cfg = load_runtime_config()
     return {
         "documents": int(docs_row["c"] if docs_row else 0),
         "chunks": int(chunks_row["c"] if chunks_row else 0),
         "reports": int(reports_row["c"] if reports_row else 0),
         "active_jobs": active_jobs,
+        "limits": {
+            "max_upload_mb": cfg.max_upload_mb,
+            "max_upload_bytes": cfg.max_upload_mb * 1024 * 1024,
+        },
     }
 
 

@@ -9,6 +9,7 @@ import uuid
 
 from fastapi import UploadFile
 
+from app.nexus.config import load_runtime_config
 from app.nexus.db import NEXUS_DIR, insert_chunk, insert_document, update_document_artifact_paths
 from app.nexus.extractors import DependencyMissingError, build_artifacts, extract_pages
 from app.nexus.jobs import append_job_event, create_job, update_job
@@ -23,9 +24,16 @@ MAX_OVERLAP = 200
 DEFAULT_CHUNK_SIZE = 1000
 DEFAULT_OVERLAP = 150
 
-MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv", ".html"}
 _FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _max_upload_mb() -> int:
+    return load_runtime_config().max_upload_mb
+
+
+def _max_upload_size_bytes() -> int:
+    return _max_upload_mb() * 1024 * 1024
 
 
 def _now_iso() -> str:
@@ -201,6 +209,8 @@ def _extract_and_index(document_id: str, path: Path, filename: str, job_id: str)
 
 
 async def _read_upload_bytes(file: UploadFile) -> bytes:
+    max_upload_mb = _max_upload_mb()
+    max_upload_size_bytes = _max_upload_size_bytes()
     total = 0
     chunks: list[bytes] = []
     while True:
@@ -208,8 +218,8 @@ async def _read_upload_bytes(file: UploadFile) -> bytes:
         if not part:
             break
         total += len(part)
-        if total > MAX_UPLOAD_SIZE_BYTES:
-            raise ValueError(f"File too large (max {MAX_UPLOAD_SIZE_BYTES} bytes)")
+        if total > max_upload_size_bytes:
+            raise ValueError(f"File too large (max {max_upload_mb} MB)")
         chunks.append(part)
     return b"".join(chunks)
 
