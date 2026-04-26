@@ -54,7 +54,7 @@ from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_models_dir,
 )
 from app.nexus.router import router as nexus_router
-from app.nexus.web_scout import run_web_search
+from app.nexus.web_scout import plan_web_queries, run_web_search
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -3406,18 +3406,13 @@ def sanitize_query(query: str) -> tuple[str, list[str]]:
 
 def web_search(query: str, num_results: int = 0) -> str:
     """
-    Web検索の唯一入口。
-    - すべての経路（/chat, /agent/turn, execute_task, job実行系）はこの関数のみを呼ぶ。
-    - 実検索の実装はNexus委譲（run_web_search）に限定する。
-    - 将来 provider（MCP等）を追加する場合も run_web_search() 側を差し替えるだけで
-      全経路へ反映される。
+    旧互換のWeb検索入口。
+    実装は nexus_web_search() 経由で app.nexus.web_scout.run_web_search に統一委譲する。
     """
     global _search_enabled
     if not _search_enabled:
         return "SEARCH_DISABLED: Web search is currently disabled. The user must enable it from the UI."
     try:
-        # クエリ無害化（機密情報を除去）
-        # num_results=0 はグローバル設定を使用
         n = num_results if num_results > 0 else _search_num_results
         safe_query, removed = sanitize_query(query)
         if not safe_query:
@@ -3425,50 +3420,92 @@ def web_search(query: str, num_results: int = 0) -> str:
         if removed:
             print(f"[SEARCH][SANITIZED] original_len={len(query)} removed={removed}")
 
-        search_output = run_web_search(
-            [safe_query],
-            mode="quick",
+        return nexus_web_search(
+            topic=safe_query,
             max_results_per_query=n,
+            mode="quick",
+            depth="quick",
+            max_queries=1,
         )
-
-        selected_provider = str(search_output.get("selected_provider") or search_output.get("provider") or "unknown")
-        fallback_used = bool(search_output.get("fallback_used", False))
-        items = search_output.get("items") or []
-        is_stub = bool(search_output.get("non_fatal", False)) or all(bool(row.get("is_stub")) for row in items) if items else bool(search_output.get("non_fatal", False))
-        meta_line = (
-            f"meta: selected_provider={selected_provider} "
-            f"fallback_used={str(fallback_used).lower()} "
-            f"is_stub={str(is_stub).lower()}"
-        )
-
-        if not items:
-            return f"No results found for: {safe_query}"
-
-        results: list[str] = []
-        for row in items[:n]:
-            title = str(row.get("title") or "").strip()
-            snippet = str(row.get("snippet") or "").strip()
-            url = str(row.get("url") or "").strip()
-            if title and snippet:
-                line = f"[{title[:80]}] {snippet[:150]}"
-                if url and url != "about:blank":
-                    line += f" ({url[:140]})"
-                results.append(line)
-            elif title:
-                results.append(f"[{title[:80]}]")
-            elif snippet:
-                results.append(snippet[:150])
-
-        if not results:
-            return f"No results found for: {safe_query}"
-
-        # 合計文字数を件数に応じて調整
-        max_chars = 700 + n * 220
-        body_text = f"{meta_line}\nSearch: {safe_query}\n" + "\n".join(results)
-        return body_text[:max_chars]
-
     except Exception as e:
         return f"Search error: {e}"
+
+
+def nexus_web_search(
+    topic: str,
+    max_results_per_query: int = 5,
+    mode: str = "standard",
+    depth: str | None = None,
+    language: str | None = None,
+    scope: str | list[str] | None = None,
+    max_queries: int = 4,
+) -> str:
+    """Task/Agent向けのNexus WebSearchツール名。内部実装は run_web_search に統一する。"""
+    global _search_enabled
+    if not _search_enabled:
+        return "SEARCH_DISABLED: Web search is currently disabled. The user must enable it from the UI."
+
+    safe_topic, removed = sanitize_query(topic)
+    if not safe_topic:
+        return "SEARCH_BLOCKED: Query contained only sensitive data and was not sent."
+    if removed:
+        print(f"[SEARCH][SANITIZED] original_len={len(topic)} removed={removed}")
+
+    requested_depth = (depth or mode or "standard").strip() or "standard"
+    query_plan = plan_web_queries(
+        safe_topic,
+        mode=mode,
+        depth=requested_depth,
+        max_queries=max_queries,
+        scope=scope,
+        language=language,
+    )
+    capped = max(1, min(int(max_results_per_query or _search_num_results or 5), 20))
+    search_output = run_web_search(
+        query_plan,
+        mode=mode,
+        depth=requested_depth,
+        max_results_per_query=capped,
+        scope=scope,
+        language=language,
+    )
+
+    selected_provider = str(search_output.get("selected_provider") or search_output.get("provider") or "unknown")
+    fallback_used = bool(search_output.get("fallback_used", False))
+    items = search_output.get("items") or []
+    is_stub = bool(search_output.get("non_fatal", False)) or (
+        all(bool(row.get("is_stub")) for row in items) if items else bool(search_output.get("non_fatal", False))
+    )
+    meta_line = (
+        f"meta: selected_provider={selected_provider} "
+        f"fallback_used={str(fallback_used).lower()} "
+        f"is_stub={str(is_stub).lower()}"
+    )
+
+    if not items:
+        return f"No results found for: {safe_topic}"
+
+    results: list[str] = []
+    for row in items[:capped]:
+        title = str(row.get("title") or "").strip()
+        snippet = str(row.get("snippet") or "").strip()
+        url = str(row.get("url") or "").strip()
+        if title and snippet:
+            line = f"[{title[:80]}] {snippet[:150]}"
+            if url and url != "about:blank":
+                line += f" ({url[:140]})"
+            results.append(line)
+        elif title:
+            results.append(f"[{title[:80]}]")
+        elif snippet:
+            results.append(snippet[:150])
+
+    if not results:
+        return f"No results found for: {safe_topic}"
+
+    max_chars = 700 + capped * 220
+    body_text = f"{meta_line}\nSearch: {safe_topic}\n" + "\n".join(results)
+    return body_text[:max_chars]
 
 
 # =========================
@@ -6751,7 +6788,8 @@ TASK_V2_SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 - run_npm: {"command": "test"}  ← npm コマンドをDockerで実行（test/install/run build等）/ タイムアウト時: {"command":"install","timeout":300} (max 600s)
 - run_node: {"script": "console.log(require('./script.js'))"}  ← JSコードをNode.jsで実行・テスト / タイムアウト時: {"script":"...","timeout":60} (max 300s)
 - setup_venv: {"requirements": ["flask","numpy"]}  ← Pythonプロジェクトで.venv構築＋requirements.txt生成（実行はユーザーが行う）
-- web_search: {"query": "検索クエリ", "num_results": 5}
+- nexus_web_search: {"topic": "検索クエリ", "max_results_per_query": 5, "mode": "standard", "depth": "standard", "scope": ["news"], "language": "ja"}
+- web_search: {"query": "検索クエリ", "num_results": 5}  ← 互換用エイリアス（内部はNexus WebSearch委譲）
 - clarify: {"question": "質問", "options": ["選択肢1", "選択肢2"]}
 - git_status: {"project": "..."}  ← プロジェクトのgit変更一覧（M=変更 A=追加 ?=未追跡）。タスク開始前に実行推奨
 - git_diff: {"path": "foo.py", "project": "..."}  ← 差分確認。pathを省略すると全体差分
@@ -6770,6 +6808,7 @@ TASK_V2_SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 6. HTTPサーバー起動は run_python ではなく run_server を使う（run_pythonはサーバー系タイムアウトする）
 7. 要件が曖昧な場合は clarify でユーザーに確認
 7.5. ツール結果の解釈は出力テキストに厳密に従うこと。出力に書かれていない .venv / Docker Compose / Runpod 設定不備を推測で断定しない。
+7.6. 最新情報・外部調査・ニュース・価格・仕様確認が必要な場合は、必ず nexus_web_search を使って確認する（web_searchは互換エイリアス）。
 9. 【Gitワークフロー】タスク開始時に git_checkout_branch でfeatureブランチを作成し、
    完了後に git_commit でコミットすること。失敗時は git_reset で即座に復元できる。
 8. 【タイムアウト対策】"ERROR: timeout (Xs)" が返ってきた場合:
@@ -6892,6 +6931,7 @@ TOOLS = {
     "run_node": run_node,
     "setup_venv": setup_venv,
     "stop_server": stop_server,
+    "nexus_web_search": nexus_web_search,
     "web_search": web_search,
     # Git ツール
     "git_status": git_status,
@@ -7422,6 +7462,7 @@ def execute_task_stream_v2(task_detail: str, context: str = "", max_steps: int =
     if not search_enabled:
         # search_enabled=false の場合は web_search ツール自体を公開しない（既存挙動を維持）。
         active_tools.pop("web_search", None)
+        active_tools.pop("nexus_web_search", None)
     active_tools.update(_load_skill_functions())
     import functools as _ft3
     for _pt in ("read_file", "write_file", "edit_file", "get_outline", "patch_function", "list_files", "search_in_files",
@@ -8648,6 +8689,7 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
     if not search_enabled:
         # search_enabled=false の場合は web_search ツール自体を公開しない（既存挙動を維持）。
         active_tools.pop("web_search", None)
+        active_tools.pop("nexus_web_search", None)
     # project引数を持つツールに現在のprojectを自動バインド
     _project_tools = ("read_file", "write_file", "edit_file", "get_outline",
                        "patch_function", "list_files", "search_in_files",
@@ -14161,6 +14203,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
     if not search_enabled:
         # search_enabled=false の場合は web_search ツール自体を公開しない（既存挙動を維持）。
         active_tools.pop("web_search", None)
+        active_tools.pop("nexus_web_search", None)
     skill_fns = _load_skill_functions()
     active_tools.update(skill_fns)
     # ファイル操作ツールにprojectを自動バインド
