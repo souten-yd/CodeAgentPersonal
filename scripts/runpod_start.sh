@@ -44,6 +44,8 @@ echo "[Runpod] You can also provide an explicit binary path with LLAMA_SERVER_PA
 
 VOICEVOX_AUTOSTART_STATUS="${RUNPOD_VOICEVOX_AUTOSTART_STATUS:-not_requested}"
 VOICEVOX_AUTOSTART_HINT=""
+SEARXNG_AUTOSTART_STATUS="${RUNPOD_SEARXNG_AUTOSTART_STATUS:-not_requested}"
+SEARXNG_AUTOSTART_HINT="${RUNPOD_SEARXNG_AUTOSTART_HINT:-}"
 
 runpod_voicevox_autostart() {
   local auto_start="${RUNPOD_AUTO_START_VOICEVOX:-false}"
@@ -225,9 +227,25 @@ VV_URL="${VOICEVOX_URL:-http://127.0.0.1:50021}" runpod_voicevox_autostart
 AUTO_START_SEARXNG="${RUNPOD_AUTO_START_SEARXNG:-false}"
 if [[ "${AUTO_START_SEARXNG}" == "true" ]]; then
   echo "[Runpod] SearXNG auto-start enabled."
-  bash scripts/start_searxng.sh || true
+  searxng_status_file="$(mktemp)"
+  RUNPOD_SEARXNG_STATUS_OUTPUT_FILE="${searxng_status_file}" bash scripts/start_searxng.sh || true
+  if [[ -s "${searxng_status_file}" ]]; then
+    # shellcheck disable=SC1090
+    source "${searxng_status_file}"
+    SEARXNG_AUTOSTART_STATUS="${RUNPOD_SEARXNG_AUTOSTART_STATUS:-failed_unknown}"
+    SEARXNG_AUTOSTART_HINT="${RUNPOD_SEARXNG_AUTOSTART_HINT:-SearXNG status unavailable. Check startup logs.}"
+  else
+    SEARXNG_AUTOSTART_STATUS="failed_status_unavailable"
+    SEARXNG_AUTOSTART_HINT="SearXNG status file was not generated. Check startup logs."
+  fi
+  rm -f "${searxng_status_file}" || true
+  if [[ "${SEARXNG_AUTOSTART_STATUS}" == failed_* ]]; then
+    echo "[Runpod][SearXNG][WARN] ${SEARXNG_AUTOSTART_HINT}"
+  fi
 else
   echo "[Runpod] SearXNG auto-start disabled (RUNPOD_AUTO_START_SEARXNG=${AUTO_START_SEARXNG})."
+  SEARXNG_AUTOSTART_STATUS="not_requested"
+  SEARXNG_AUTOSTART_HINT="RUNPOD_AUTO_START_SEARXNG が true ではないため起動していません。"
 fi
 
 
@@ -295,6 +313,8 @@ echo "[Runpod] FastAPI will start on port ${PORT} (override with PORT env)."
 
 export RUNPOD_VOICEVOX_AUTOSTART_STATUS="${VOICEVOX_AUTOSTART_STATUS}"
 export RUNPOD_VOICEVOX_AUTOSTART_HINT="${VOICEVOX_AUTOSTART_HINT}"
+export RUNPOD_SEARXNG_AUTOSTART_STATUS="${SEARXNG_AUTOSTART_STATUS}"
+export RUNPOD_SEARXNG_AUTOSTART_HINT="${SEARXNG_AUTOSTART_HINT}"
 
 exec "${PYTHON_BIN}" scripts/start_codeagent.py \
   --host "${HOST}" \

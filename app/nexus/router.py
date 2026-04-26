@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 from urllib import parse, request
@@ -566,6 +567,8 @@ def nexus_web_status() -> dict:
         "provider_status": provider_status,
         "provider_status_active": active_provider_status,
         "message": str(active_provider_status.get("message", "")),
+        "runpod_searxng_autostart_status": os.getenv("RUNPOD_SEARXNG_AUTOSTART_STATUS", ""),
+        "runpod_searxng_autostart_hint": os.getenv("RUNPOD_SEARXNG_AUTOSTART_HINT", ""),
     }
 
 
