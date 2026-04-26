@@ -6,6 +6,7 @@ cd /app
 HOST="${CODEAGENT_HOST:-0.0.0.0}"
 PORT="${CODEAGENT_PORT:-8000}"
 PRIMARY_PORT="${LLAMA_PORT:-8080}"
+AUTO_START_SEARXNG="${AUTO_START_SEARXNG:-false}"
 
 if command -v sox >/dev/null 2>&1; then
   echo "[Qwen3-TTS] sox binary: $(command -v sox)"
@@ -39,6 +40,13 @@ else
     exit 1
   fi
   echo "[Qwen3-TTS][runtime] REQUIRE_FLASH_ATTN!=1, continuing without flash_attn." >&2
+fi
+
+if [ "${AUTO_START_SEARXNG}" = "true" ]; then
+  echo "[SearXNG] auto-start enabled from container entrypoint."
+  bash /app/scripts/start_searxng.sh || echo "[SearXNG][WARN] start_searxng.sh failed; continuing FastAPI startup."
+else
+  echo "[SearXNG] auto-start disabled (AUTO_START_SEARXNG=${AUTO_START_SEARXNG})."
 fi
 
 exec python scripts/start_codeagent.py --host "$HOST" --port "$PORT" --primary-port "$PRIMARY_PORT"

@@ -341,6 +341,8 @@ RUN apt-get update -o Acquire::Retries=3 \
         libgomp1 \
         libcurl4 \
         libsndfile1 \
+        libxml2 \
+        libxslt1.1 \
         software-properties-common \
         gnupg \
         sox \
@@ -361,6 +363,9 @@ COPY . /app
 COPY --from=tts_build /opt/venv /opt/venv
 COPY --from=tts_build /app/qwen3_tts_install_status.json /app/qwen3_tts_install_status.json
 COPY --from=style_bert_vits2_build /app/Style-Bert-VITS2 /app/Style-Bert-VITS2
+
+# Install SearXNG runtime for Runpod single-container startup.
+RUN python -m pip install --no-cache-dir searxng
 
 # Copy compiled llama artifacts into the paths the app expects.
 RUN mkdir -p /app/llama/bin /app/llama/lib /models
