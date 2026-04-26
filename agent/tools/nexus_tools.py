@@ -42,10 +42,28 @@ def _call_nexus_api(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
 
     if operation == "web.search":
         topic = str(payload.get("topic") or "").strip()
+        mode = str(payload.get("mode") or "standard").strip() or "standard"
+        depth = payload.get("depth")
+        language = payload.get("language")
+        scope = payload.get("scope")
         max_queries = int(payload.get("max_queries", 4))
         max_results_per_query = int(payload.get("max_results_per_query", 5))
-        queries = plan_web_queries(topic, max_queries=max_queries)
-        search_output = run_web_search(queries, max_results_per_query=max_results_per_query)
+        queries = plan_web_queries(
+            topic,
+            mode=mode,
+            depth=depth,
+            max_queries=max_queries,
+            scope=scope,
+            language=language,
+        )
+        search_output = run_web_search(
+            queries,
+            mode=mode,
+            depth=depth,
+            max_results_per_query=max_results_per_query,
+            scope=scope,
+            language=language,
+        )
 
         job_id = str(uuid.uuid4())
         create_job(job_id, title=f"nexus_web_search:{topic}", message="tool_invocation")
@@ -167,7 +185,15 @@ def nexus_search_library(query: str, top_k: int = 10) -> dict[str, Any]:
     return _call_nexus_api("library.search", {"query": query, "top_k": top_k})
 
 
-def nexus_web_search(topic: str, max_queries: int = 4, max_results_per_query: int = 5) -> dict[str, Any]:
+def nexus_web_search(
+    topic: str,
+    max_queries: int = 4,
+    max_results_per_query: int = 5,
+    mode: str = "standard",
+    depth: str | None = None,
+    language: str | None = None,
+    scope: str | list[str] | None = None,
+) -> dict[str, Any]:
     """Run web search and store resulting evidence."""
     return _call_nexus_api(
         "web.search",
@@ -175,6 +201,10 @@ def nexus_web_search(topic: str, max_queries: int = 4, max_results_per_query: in
             "topic": topic,
             "max_queries": max_queries,
             "max_results_per_query": max_results_per_query,
+            "mode": mode,
+            "depth": depth,
+            "language": language,
+            "scope": scope,
         },
     )
 
