@@ -11,6 +11,8 @@ SEARXNG_SECRET_FILE="${SEARXNG_SECRET_FILE:-${SEARXNG_CONFIG_DIR}/secret_key}"
 SEARXNG_PROBE_URL="http://127.0.0.1:${SEARXNG_PORT}/search?format=json&q=healthcheck"
 SEARXNG_START_TIMEOUT_SEC="${SEARXNG_START_TIMEOUT_SEC:-12}"
 SEARXNG_LOG_FILE="${SEARXNG_LOG_FILE:-${SEARXNG_CONFIG_DIR}/searxng.log}"
+SEARXNG_PYTHON="${SEARXNG_PYTHON:-/opt/searxng/searx-pyenv/bin/python}"
+SEARXNG_SRC="${SEARXNG_SRC:-/opt/searxng/searxng-src}"
 STATUS_OUTPUT_FILE="${RUNPOD_SEARXNG_STATUS_OUTPUT_FILE:-}"
 RUNPOD_SEARXNG_AUTOSTART_STATUS="${RUNPOD_SEARXNG_AUTOSTART_STATUS:-not_requested}"
 RUNPOD_SEARXNG_AUTOSTART_HINT="${RUNPOD_SEARXNG_AUTOSTART_HINT:-}"
@@ -88,13 +90,15 @@ if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 2 "${SEARXNG_PROBE_UR
 fi
 
 START_CMD=""
-if command -v searxng-run >/dev/null 2>&1; then
+if [[ -x "${SEARXNG_PYTHON}" && -f "${SEARXNG_SRC}/searx/webapp.py" ]]; then
+  START_CMD="cd ${SEARXNG_SRC} && ${SEARXNG_PYTHON} searx/webapp.py"
+elif command -v searxng-run >/dev/null 2>&1; then
   START_CMD="searxng-run"
 elif python -c "import searx" >/dev/null 2>&1; then
   START_CMD="python -m searx.webapp"
 else
-  warn "SearXNG runtime command not found (searxng-run / python -m searx.webapp)."
-  set_autostart_status "failed_runtime_missing" "SearXNG実行コマンド(searxng-run / python -m searx.webapp)が見つかりません。"
+  warn "SearXNG runtime command not found (${SEARXNG_PYTHON} + ${SEARXNG_SRC}/searx/webapp.py / searxng-run / python -m searx.webapp)."
+  set_autostart_status "failed_runtime_missing" "imageにruntime未導入のため、SearXNG実行コマンド(${SEARXNG_PYTHON} + ${SEARXNG_SRC}/searx/webapp.py / searxng-run / python -m searx.webapp)が見つかりません。"
   exit 0
 fi
 
