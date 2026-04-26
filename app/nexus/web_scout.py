@@ -172,12 +172,14 @@ def plan_web_queries(
 def _build_stub_items(queries: list[str], *, reason: str) -> list[dict[str, Any]]:
     return [
         {
+            "provider": "stub",
             "query": query,
             "rank": 1,
             "title": f"[stub] {query}",
             "url": "",
             "snippet": reason,
             "age": None,
+            "engine": "stub",
             "is_stub": True,
         }
         for query in queries
@@ -389,14 +391,24 @@ def run_web_search(
         "generated_queries": normalized_queries,
     }
 
+    configured_by_provider: dict[str, bool] = {}
+
     if not normalized_queries:
+        selected_provider = (cfg.web_search_provider or "").strip().lower() or "unknown"
         return {
-            "provider": cfg.web_search_provider,
+            "provider": selected_provider,
+            "selected_provider": selected_provider,
+            "attempted_providers": [],
+            "fallback_used": False,
+            "skipped_providers": {},
+            "provider_errors": {},
             "mode": normalized_mode,
             "configured": bool(cfg.brave_search_api_key),
+            "non_fatal": True,
             "effective_query_plan": effective_query_plan,
             "generated_queries": normalized_queries,
             "items": [],
+            "total_items": 0,
             "message": "query が空です。",
         }
 
@@ -404,11 +416,17 @@ def run_web_search(
         message = "NEXUS_ENABLE_WEB=false のため、Web検索は無効です。"
         return {
             "provider": cfg.web_search_provider,
+            "selected_provider": (cfg.web_search_provider or "").strip().lower() or "unknown",
+            "attempted_providers": [],
+            "fallback_used": False,
+            "skipped_providers": {},
+            "provider_errors": {},
             "mode": normalized_mode,
             "configured": False,
             "effective_query_plan": effective_query_plan,
             "generated_queries": normalized_queries,
             "items": _build_stub_items(normalized_queries, reason=message),
+            "total_items": len(normalized_queries),
             "message": message,
             "non_fatal": True,
         }
@@ -420,17 +438,22 @@ def run_web_search(
             ordered_providers.append(candidate)
 
     provider_errors: dict[str, list[str]] = {}
+    attempted_providers: list[str] = []
     skip_reasons: dict[str, str] = {}
 
     for provider in ordered_providers:
         if _should_skip_provider(provider, cfg):
             skip_reasons[provider] = "cooldown もしくは free-only 設定によりスキップされました。"
+            configured_by_provider[provider] = provider != "brave" or bool(cfg.brave_search_api_key)
             continue
 
         if provider == "brave" and not cfg.brave_search_api_key:
             provider_errors.setdefault(provider, []).append("BRAVE_SEARCH_API_KEY が未設定です。")
+            configured_by_provider[provider] = False
             continue
 
+        configured_by_provider[provider] = True
+        attempted_providers.append(provider)
         items: list[dict[str, Any]] = []
         errors: list[str] = []
         had_connection_failure = False
@@ -463,13 +486,22 @@ def run_web_search(
             )
 
         if items:
+            selected_provider = provider
+            primary_provider = ordered_providers[0] if ordered_providers else selected_provider
             response: dict[str, Any] = {
-                "provider": provider,
+                "provider": primary_provider,
+                "selected_provider": selected_provider,
+                "attempted_providers": attempted_providers,
+                "fallback_used": selected_provider != primary_provider,
+                "skipped_providers": skip_reasons,
+                "provider_errors": provider_errors,
                 "mode": normalized_mode,
-                "configured": True,
+                "configured": configured_by_provider.get(selected_provider, True),
+                "non_fatal": False,
                 "effective_query_plan": effective_query_plan,
                 "generated_queries": normalized_queries,
                 "items": items,
+                "total_items": len(items),
                 "message": "ok",
             }
             if errors:
@@ -481,16 +513,23 @@ def run_web_search(
             provider_errors[provider].append("空結果フォールバック")
 
     message = "すべての検索 provider が失敗したため、non-fatal stub を返します。"
+    selected_provider = attempted_providers[-1] if attempted_providers else (ordered_providers[0] if ordered_providers else cfg.web_search_provider)
+    primary_provider = ordered_providers[0] if ordered_providers else cfg.web_search_provider
+    stub_items = _build_stub_items(normalized_queries, reason=message)
     return {
-        "provider": ordered_providers[0] if ordered_providers else cfg.web_search_provider,
+        "provider": primary_provider,
+        "selected_provider": selected_provider,
+        "attempted_providers": attempted_providers,
+        "fallback_used": bool(attempted_providers and selected_provider != primary_provider),
         "mode": normalized_mode,
-        "configured": False,
+        "configured": configured_by_provider.get(selected_provider, False),
         "effective_query_plan": effective_query_plan,
         "generated_queries": normalized_queries,
-        "items": _build_stub_items(normalized_queries, reason=message),
+        "items": stub_items,
+        "total_items": len(stub_items),
         "message": message,
         "non_fatal": True,
-        "errors": provider_errors,
+        "provider_errors": provider_errors,
         "skipped_providers": skip_reasons,
     }
 
