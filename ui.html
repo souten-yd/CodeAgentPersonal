@@ -591,6 +591,14 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-result-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 .nexus-result-item{border:1px solid var(--border);border-radius:6px;background:var(--bg1);padding:8px;display:flex;flex-direction:column;gap:5px}
 .nexus-result-meta{font-size:10px;color:var(--text3);font-family:var(--font-mono)}
+.nexus-table-wrap{overflow:auto;border:1px solid var(--border);border-radius:6px;background:var(--bg1)}
+.nexus-table{width:100%;border-collapse:collapse;font-size:11px}
+.nexus-table th,.nexus-table td{padding:6px 8px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+.nexus-table th{font-size:10px;color:var(--text2);background:var(--bg3);text-transform:uppercase;letter-spacing:.05em}
+.nexus-table td{color:var(--text3)}
+.nexus-table tr:last-child td{border-bottom:none}
+.nexus-score{font-family:var(--font-mono);color:var(--accent);font-weight:700}
+.nexus-report-preview{margin:0;max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:11px;color:var(--text2);font-family:var(--font-mono)}
 @media(max-width:768px){
   .nexus-topbar{flex-direction:column;align-items:stretch}
   .nexus-subtabs{padding-bottom:2px}
@@ -1307,6 +1315,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <button class="nexus-subtab" id="nexus-btn-library" onclick="switchNexusTab('library')">Library</button>
         <button class="nexus-subtab" id="nexus-btn-news" onclick="switchNexusTab('news')">News</button>
         <button class="nexus-subtab" id="nexus-btn-market" onclick="switchNexusTab('market')">Market</button>
+        <button class="nexus-subtab" id="nexus-btn-evidence" onclick="switchNexusTab('evidence')">Evidence</button>
+        <button class="nexus-subtab" id="nexus-btn-report" onclick="switchNexusTab('report')">Report</button>
       </div>
     </div>
     <div class="nexus-body">
@@ -1382,6 +1392,49 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div class="nexus-card-title">Market Result Placeholder</div>
             <div id="nexus-market-result" class="nexus-result-panel" style="min-height:100px">
               <div class="nexus-empty">未実行: 入力受付 + スタブ応答 + Evidence保存（MVP）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-evidence">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">Evidence MVP (Phase 1)</div>
+            <div style="display:grid;grid-template-columns:minmax(140px,1fr) minmax(160px,1.2fr) auto;gap:8px">
+              <input id="nexus-evidence-type" type="text" placeholder="type (例: web/library)">
+              <input id="nexus-evidence-filter" type="text" placeholder="filter (citation/url/snippet)">
+              <button class="settings-btn primary" id="nexus-evidence-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusEvidenceMvp()">Run MVP</button>
+            </div>
+            <div style="font-size:10px;color:var(--text3)">`nexus_evidence` を type/filter で最小検索して score で並べるMVPプレースホルダ。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Evidence Result</div>
+            <div id="nexus-evidence-result" class="nexus-result-panel" style="min-height:100px">
+              <div class="nexus-empty">未実行: 入力受付 + 一覧表示（type/filter/score）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-report">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">Report MVP (Phase 1)</div>
+            <div style="display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:8px">
+              <input id="nexus-report-filter" type="text" placeholder="report filter (title/job_id/report_id)">
+              <button class="settings-btn primary" id="nexus-report-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusReportMvp()">Run MVP</button>
+            </div>
+            <div style="font-size:10px;color:var(--text3)">一覧・md preview・download導線を接続するMVPプレースホルダ。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Report List</div>
+            <div id="nexus-report-list" class="nexus-result-panel" style="min-height:120px">
+              <div class="nexus-empty">未実行: report一覧をロードしてください</div>
+            </div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Report Markdown Preview</div>
+            <div id="nexus-report-preview" class="nexus-detail-panel">
+              <div class="nexus-empty">レポートを選択するとMarkdown previewを表示します</div>
             </div>
           </div>
         </div>
@@ -6862,7 +6915,7 @@ function setMode(m) {
 }
 
 function switchNexusTab(name) {
-  const tabs = ['dashboard','library','news','market'];
+  const tabs = ['dashboard','library','news','market','evidence','report'];
   const target = tabs.includes(name) ? name : 'dashboard';
   window._nexusTab = target;
   tabs.forEach(tab => {
@@ -6874,6 +6927,8 @@ function switchNexusTab(name) {
     refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
     refreshNexusJobs();
   }
+  if (target === 'evidence') runNexusEvidenceMvp();
+  if (target === 'report') runNexusReportMvp();
 }
 
 
@@ -6885,6 +6940,8 @@ let nexusTrackers = {};
 let nexusSelectedDocumentId = null;
 let nexusEventTimeline = [];
 let nexusSavedEvidence = [];
+let nexusEvidenceRows = [];
+let nexusReportRows = [];
 
 function formatBytes(bytes) {
   const b = Number(bytes || 0);
@@ -7307,6 +7364,147 @@ async function runNexusMarketMvp() {
     setNexusMarketResult('Market MVP failed: ' + e.message, true);
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+function nexusEvidenceScore(row) {
+  const rel = Number(row?.relevance || 0);
+  const cred = Number(row?.credibility || 0);
+  const fresh = Number(row?.freshness || 0);
+  const score = (rel + cred + fresh) / 3;
+  return Number.isFinite(score) ? score : 0;
+}
+
+function renderNexusEvidenceRows(rows = []) {
+  const root = document.getElementById('nexus-evidence-result');
+  if (!root) return;
+  if (!rows.length) {
+    root.innerHTML = '<div class="nexus-empty">一致する evidence がありません</div>';
+    return;
+  }
+  root.innerHTML = `
+    <div class="nexus-table-wrap">
+      <table class="nexus-table">
+        <thead>
+          <tr>
+            <th>type</th>
+            <th>filter</th>
+            <th>score</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr>
+              <td>${esc(row.type || '-')}</td>
+              <td title="${esc(row.filter_text || '-')}">${esc((row.filter_text || '-').slice(0, 120))}</td>
+              <td class="nexus-score">${nexusEvidenceScore(row).toFixed(3)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function runNexusEvidenceMvp() {
+  const type = (document.getElementById('nexus-evidence-type')?.value || '').trim().toLowerCase();
+  const filter = (document.getElementById('nexus-evidence-filter')?.value || '').trim().toLowerCase();
+  const btn = document.getElementById('nexus-evidence-run-btn');
+  const root = document.getElementById('nexus-evidence-result');
+  if (btn) btn.disabled = true;
+  if (root) root.innerHTML = '<div class="nexus-job">実行中...</div>';
+  try {
+    const query = '?project=' + encodeURIComponent(currentProject) + '&limit=200';
+    let r = await fetchNexusCanonicalWithAlias('/nexus/evidence' + query, '/nexus/library/evidence' + query);
+    if (!r.ok) {
+      r = await fetch(API + '/nexus/search', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ query: filter || type || 'evidence', top_k: 50, as_evidence: true }),
+      });
+    }
+    const d = await r.json();
+    if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
+    const rowsRaw = Array.isArray(d?.evidence) ? d.evidence : (Array.isArray(d?.items) ? d.items : []);
+    const normalized = rowsRaw.map((row) => {
+      const kind = String(row?.type || row?.source_type || row?.evidence_level || row?.mode || '').trim() || 'unknown';
+      const filterText = String(row?.citation_label || row?.source_url || row?.snippet || row?.summary || '');
+      return { ...row, type: kind, filter_text: filterText };
+    }).filter((row) => (!type || row.type.toLowerCase().includes(type)) && (!filter || row.filter_text.toLowerCase().includes(filter)));
+    normalized.sort((a, b) => nexusEvidenceScore(b) - nexusEvidenceScore(a));
+    nexusEvidenceRows = normalized;
+    renderNexusEvidenceRows(normalized);
+  } catch (e) {
+    if (root) root.innerHTML = `<div class="nexus-job" style="color:var(--red)">Evidence MVP failed: ${esc(e.message)}</div>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderNexusReportList(rows = []) {
+  const root = document.getElementById('nexus-report-list');
+  if (!root) return;
+  if (!rows.length) {
+    root.innerHTML = '<div class="nexus-empty">一致する report がありません</div>';
+    return;
+  }
+  root.innerHTML = rows.map((row) => `
+    <div class="nexus-result-item">
+      <div style="font-size:11px;color:var(--text2);font-weight:700">${esc(row.title || row.report_id || '(untitled report)')}</div>
+      <div class="nexus-result-meta">report_id: ${esc(row.report_id || '-')} / job_id: ${esc(row.job_id || '-')} / type: ${esc(row.report_type || '-')}</div>
+      <div class="nexus-doc-actions">
+        <button onclick="previewNexusReportMarkdown('${esc(row.report_id || '')}')">MD Preview</button>
+        <button onclick="downloadNexusReport('${esc(row.report_id || '')}')">Download (.md)</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function runNexusReportMvp() {
+  const filter = (document.getElementById('nexus-report-filter')?.value || '').trim().toLowerCase();
+  const btn = document.getElementById('nexus-report-run-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const query = '?project=' + encodeURIComponent(currentProject) + '&limit=100';
+    let r = await fetchNexusCanonicalWithAlias('/nexus/reports' + query, '/nexus/report/list' + query);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
+    const rows = (d.reports || []).filter((row) => {
+      if (!filter) return true;
+      const index = `${row.title || ''} ${row.job_id || ''} ${row.report_id || ''}`.toLowerCase();
+      return index.includes(filter);
+    });
+    nexusReportRows = rows;
+    renderNexusReportList(rows);
+  } catch (e) {
+    const root = document.getElementById('nexus-report-list');
+    if (root) root.innerHTML = `<div class="nexus-job" style="color:var(--red)">Report MVP failed: ${esc(e.message)}</div>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function downloadNexusReport(reportId) {
+  if (!reportId) return;
+  const url = API + '/nexus/export/download/report/' + encodeURIComponent(reportId);
+  window.open(url, '_blank', 'noopener');
+}
+
+async function previewNexusReportMarkdown(reportId) {
+  const preview = document.getElementById('nexus-report-preview');
+  if (!preview) return;
+  if (!reportId) {
+    preview.innerHTML = '<div class="nexus-empty">report_id が不正です</div>';
+    return;
+  }
+  preview.innerHTML = '<div class="nexus-job">Markdown preview をロード中...</div>';
+  try {
+    const r = await fetch(API + '/nexus/export/download/report/' + encodeURIComponent(reportId));
+    if (!r.ok) throw new Error(await r.text());
+    const md = await r.text();
+    preview.innerHTML = `<pre class="nexus-report-preview">${esc(md || '')}</pre>`;
+  } catch (e) {
+    preview.innerHTML = `<div class="nexus-job" style="color:var(--red)">Preview failed: ${esc(e.message)}</div>`;
   }
 }
 
