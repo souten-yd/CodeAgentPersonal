@@ -19,6 +19,9 @@ def _row_to_job(row: Any) -> NexusJob:
     return NexusJob(
         job_id=row["job_id"],
         status=row["status"],
+        progress=float(row["progress"] or 0.0),
+        message=row["message"],
+        error=row["error"],
         created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
         updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None,
     )
@@ -53,6 +56,7 @@ def update_job(
     job_id: str,
     *,
     status: JobStatus | None = None,
+    progress: float | None = None,
     message: str | None = None,
     error: str | None = None,
     document_count: int | None = None,
@@ -63,6 +67,9 @@ def update_job(
     if status is not None:
         assignments.append("status = ?")
         params.append(status)
+    if progress is not None:
+        assignments.append("progress = ?")
+        params.append(max(0.0, min(1.0, float(progress))))
     if message is not None:
         assignments.append("message = ?")
         params.append(message)
@@ -117,7 +124,15 @@ def list_active_jobs(limit: int = 100) -> list[NexusJob]:
 
 def append_job_event(job_id: str, event_type: str, data: dict[str, Any]) -> NexusJobEvent:
     now = _now_iso()
-    encoded = json.dumps(data, ensure_ascii=False)
+    normalized_data = {
+        "status": data.get("status"),
+        "progress": data.get("progress"),
+        "message": data.get("message"),
+        "error": data.get("error"),
+        "updated_at": data.get("updated_at") or now,
+        **data,
+    }
+    encoded = json.dumps(normalized_data, ensure_ascii=False)
     with get_conn() as conn:
         job_row = conn.execute("SELECT 1 FROM nexus_jobs WHERE job_id = ?", (job_id,)).fetchone()
         if job_row is None:
@@ -138,11 +153,23 @@ def append_job_event(job_id: str, event_type: str, data: dict[str, Any]) -> Nexu
         )
         conn.commit()
 
+    updated_raw = normalized_data.get("updated_at")
+    updated_at = datetime.fromisoformat(now)
+    if isinstance(updated_raw, str):
+        try:
+            updated_at = datetime.fromisoformat(updated_raw)
+        except ValueError:
+            updated_at = datetime.fromisoformat(now)
+
     return NexusJobEvent(
         seq=seq,
         type=event_type,
-        data=data,
+        data=normalized_data,
         ts=datetime.fromisoformat(now),
+        status=normalized_data.get("status"),
+        progress=normalized_data.get("progress"),
+        message=normalized_data.get("message"),
+        updated_at=updated_at,
     )
 
 
@@ -162,5 +189,25 @@ def get_job_events(job_id: str, after: int = -1) -> list[NexusJobEvent]:
     for row in rows:
         payload = json.loads(row["data"]) if row["data"] else {}
         ts = datetime.fromisoformat(row["ts"]) if row["ts"] else None
-        events.append(NexusJobEvent(seq=int(row["seq"]), type=row["type"], data=payload, ts=ts))
+        updated_raw = payload.get("updated_at")
+        updated_at = None
+        if isinstance(updated_raw, str) and updated_raw:
+            try:
+                updated_at = datetime.fromisoformat(updated_raw)
+            except ValueError:
+                updated_at = ts
+        else:
+            updated_at = ts
+        events.append(
+            NexusJobEvent(
+                seq=int(row["seq"]),
+                type=row["type"],
+                data=payload,
+                ts=ts,
+                status=payload.get("status"),
+                progress=payload.get("progress"),
+                message=payload.get("message"),
+                updated_at=updated_at,
+            )
+        )
     return events
