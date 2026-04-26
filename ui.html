@@ -1837,6 +1837,23 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <button onclick="refreshEchoVault()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ 更新</button>
       </div>
       <div id="echo-vault-info" style="display:none;margin-bottom:10px;padding:8px 10px;border:1px solid var(--amber);border-radius:6px;background:rgba(255,184,0,.12);font-size:11px;color:var(--text2);line-height:1.5"></div>
+      <div style="margin-bottom:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+          <div style="font-size:11px;font-weight:700;color:var(--text2)">音声ファイルから取り込み</div>
+          <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text2);cursor:pointer;user-select:none">
+            <input id="echo-upload-auto-minutes" type="checkbox" style="margin:0" checked>
+            文字起こし後に議事録を生成
+          </label>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <input id="echo-upload-file-input" type="file" accept="audio/*,.wav,.mp3,.m4a,.webm,.ogg,.flac"
+            style="flex:1;min-width:210px;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg1);color:var(--text)"
+            >
+          <button id="echo-upload-btn" onclick="echoUploadSessionAudio(document.getElementById('echo-upload-file-input'))"
+            style="font-size:11px;padding:6px 10px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:6px;cursor:pointer;white-space:nowrap">アップロードして文字起こし</button>
+        </div>
+        <div id="echo-upload-status" style="display:none;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg1);font-size:11px;color:var(--text2)"></div>
+      </div>
       <!-- インライン音声プレイヤー -->
       <div id="vault-audio-player" style="display:none;margin-bottom:10px;padding:10px;border:1px solid var(--accent-border);border-radius:6px;background:var(--accent-bg)">
         <div style="font-size:11px;color:var(--text2);margin-bottom:6px;font-weight:700" id="vault-audio-name"></div>
@@ -11087,6 +11104,178 @@ function _echoInitScrollListener() {
   }, {passive: true});
 }
 
+const ECHO_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+const ECHO_UPLOAD_ALLOWED_EXTS = new Set(['wav', 'mp3', 'm4a', 'webm', 'ogg', 'flac']);
+
+function _echoUploadSetStatus(msg = '', tone = 'info', showRetry = false, transcriptFilename = '') {
+  const el = document.getElementById('echo-upload-status');
+  if (!el) return;
+  if (!msg) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  el.style.display = '';
+  const safe = esc(msg);
+  const retryBtn = showRetry && transcriptFilename
+    ? `<button onclick="_echoVaultGenerateMinutes(decodeURIComponent('${encodeURIComponent(transcriptFilename)}'))" style="margin-left:8px;font-size:10px;padding:3px 7px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">議事録を再試行</button>`
+    : '';
+  el.innerHTML = `<span>${safe}</span>${retryBtn}`;
+  if (tone === 'error') {
+    el.style.borderColor = 'var(--red)';
+    el.style.background = 'rgba(255,77,109,.12)';
+    el.style.color = 'var(--red)';
+  } else if (tone === 'ok') {
+    el.style.borderColor = 'var(--green,#4caf50)';
+    el.style.background = 'rgba(76,175,80,.12)';
+    el.style.color = 'var(--text2)';
+  } else {
+    el.style.borderColor = 'var(--border)';
+    el.style.background = 'var(--bg1)';
+    el.style.color = 'var(--text2)';
+  }
+}
+
+function _readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const v = String(reader.result || '');
+      const comma = v.indexOf(',');
+      resolve(comma >= 0 ? v.slice(comma + 1) : v);
+    };
+    reader.onerror = () => reject(reader.error || new Error('file read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function echoUploadSessionAudio(input) {
+  const file = input?.files?.[0];
+  const btn = document.getElementById('echo-upload-btn');
+  if (!file) {
+    _echoUploadSetStatus('音声ファイルを選択してください。', 'error');
+    return;
+  }
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  if (!ECHO_UPLOAD_ALLOWED_EXTS.has(ext)) {
+    _echoUploadSetStatus('非対応フォーマットです。wav/mp3/m4a/webm/ogg/flac を選択してください。', 'error');
+    return;
+  }
+  if (file.size > ECHO_UPLOAD_MAX_BYTES) {
+    _echoUploadSetStatus(`ファイルサイズ上限を超えています（上限 ${_fmtBytes(ECHO_UPLOAD_MAX_BYTES)}）。`, 'error');
+    return;
+  }
+  const langSel = document.getElementById('echo-asr-lang');
+  const selectedLang = (echo.asrLang || langSel?.value || 'auto').toLowerCase();
+  const lang = (selectedLang === 'ja' || selectedLang === 'en') ? selectedLang : 'auto';
+  const autoMinutes = !!document.getElementById('echo-upload-auto-minutes')?.checked;
+  const audioFormat = ext || 'webm';
+  if (btn) btn.disabled = true;
+  try {
+    _echoUploadSetStatus('ファイルを読み込み中です...', 'info');
+    const b64 = await _readFileAsBase64(file);
+    _echoUploadSetStatus('音声を文字起こし中です。初回はASRモデルのロードで時間がかかる場合があります...', 'info');
+    const resp = await fetch(API + '/voice/transcribe', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        audio_base64: b64,
+        audio_format: audioFormat,
+        language: lang,
+        model: echo.asrModel || 'large-v3-turbo',
+        asr_profile: echo.asrProfile || 'balanced',
+        auto_unload: false,
+      })
+    });
+    if (!resp.ok || !resp.body) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.detail || 'ASR処理に失敗しました。');
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let done = false;
+    let transcriptText = '';
+    let detectedLang = lang;
+
+    while (!done) {
+      const {value, done: streamDone} = await reader.read();
+      done = streamDone;
+      if (value) buffer += decoder.decode(value, {stream: !done});
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        let ev = null;
+        try { ev = JSON.parse(line.slice(6).trim()); } catch (_) { continue; }
+        if (!ev) continue;
+        if (ev.type === 'downloading') {
+          _echoUploadSetStatus(ev.message || 'ASRモデルをダウンロード中です...', 'info');
+        } else if (ev.type === 'transcribing') {
+          _echoUploadSetStatus(ev.message || '音声を文字変換中です...', 'info');
+        } else if (ev.type === 'error') {
+          throw new Error(ev.detail || 'ASR失敗');
+        } else if (ev.type === 'result') {
+          transcriptText = String(ev.text || '').trim();
+          detectedLang = ev.language || detectedLang;
+        }
+      }
+    }
+    if (!transcriptText) throw new Error('音声認識結果が空でした。');
+
+    _echoUploadSetStatus('文字起こしをVaultへ保存中です...', 'info');
+    const saveResp = await fetch(API + '/echo/import-audio-transcript', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        transcript_text: transcriptText,
+        language: detectedLang,
+        model: echo.asrModel || 'large-v3-turbo',
+        asr_profile: echo.asrProfile || 'balanced',
+        audio_format: audioFormat,
+        audio_base64: b64,
+        original_filename: file.name,
+      }),
+    });
+    const saveData = await saveResp.json().catch(() => ({}));
+    if (!saveResp.ok) throw new Error(saveData.detail || '文字起こし保存に失敗しました。');
+
+    let minutesFailed = false;
+    if (autoMinutes && saveData.transcript_filename) {
+      _echoUploadSetStatus('議事録を生成中です...', 'info');
+      const minutesResp = await fetch(API + '/echo/generate-minutes', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({transcript_filename: saveData.transcript_filename, overwrite: true}),
+      });
+      const minutesData = await minutesResp.json().catch(() => ({}));
+      if (!minutesResp.ok) {
+        minutesFailed = true;
+        _echoUploadSetStatus(`文字起こし保存は成功。議事録生成に失敗: ${minutesData.detail || 'unknown error'}`, 'error', true, saveData.transcript_filename);
+      }
+    }
+
+    await refreshEchoVault();
+    if (!minutesFailed) {
+      _echoUploadSetStatus(`保存完了: ${saveData.transcript_filename || 'transcript'}`, 'ok');
+    }
+  } catch (e) {
+    const msg = String(e?.message || e || 'unknown error');
+    if (/format|unsupported|ffmpeg/i.test(msg)) {
+      _echoUploadSetStatus('非対応フォーマットです。別形式（wav/mp3/m4a/webm/ogg/flac）をお試しください。', 'error');
+    } else if (/size|too large|payload/i.test(msg)) {
+      _echoUploadSetStatus('ファイルサイズが大きすぎます。短い音声に分割してください。', 'error');
+    } else if (/load|model|ASR|whisper/i.test(msg)) {
+      _echoUploadSetStatus(`ASRモデルのロード/推論に失敗しました: ${msg}`, 'error');
+    } else {
+      _echoUploadSetStatus(`アップロード処理に失敗しました: ${msg}`, 'error');
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // EchoVault ファイルブラウザ（Vault タブ用）
 function _echoVaultSetInfo(msg = '', tone = 'warn') {
   const el = document.getElementById('echo-vault-info');
@@ -11160,11 +11349,17 @@ async function refreshEchoVault() {
 
     const byGroup = new Map();
     const audioExts = new Set(['webm','wav','mp3','ogg','flac','m4a']);
+    const normalizeGroupKey = (name = '') => {
+      const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+      const stem = ext ? name.slice(0, -(ext.length + 1)) : name;
+      return stem
+        .replace(/_(minutes|transcript)$/i, '')
+        .replace(/_audio$/i, '');
+    };
 
     for (const f of files) {
       const ext = f.name.includes('.') ? f.name.split('.').pop().toLowerCase() : '';
-      const stem = ext ? f.name.slice(0, -(ext.length + 1)) : f.name;
-      const fallbackGroup = stem.replace(/_(minutes|transcript)$/i, '');
+      const fallbackGroup = normalizeGroupKey(f.name);
       const groupKey = (f.group_key || fallbackGroup);
       const current = byGroup.get(groupKey) || {
         groupKey,
