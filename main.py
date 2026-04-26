@@ -163,6 +163,8 @@ OPENCODE_CONFIG_PATH = os.path.join(BASE_DIR, "opencode.json")
 LOG_DIR = os.path.join(CA_DATA_DIR, "Logs")
 OPENCODE_ENSEMBLE_LOG_DIR = os.path.join(LOG_DIR, "ensemble")
 ECHOVAULT_DIR = os.path.join(CA_DATA_DIR, "EchoVault")
+ECHO_UPLOAD_MAX_BYTES = max(1, int(os.environ.get("ECHO_UPLOAD_MAX_BYTES", str(100 * 1024 * 1024)) or (100 * 1024 * 1024)))
+ECHO_UPLOAD_ALLOWED_FORMATS = {"wav", "mp3", "m4a", "webm", "ogg", "flac"}
 LLAMA_STARTUP_LOG_PATH = os.path.join(LOG_DIR, "llama_startup.log")
 
 os.makedirs(CA_DATA_DIR, exist_ok=True)
@@ -11004,10 +11006,28 @@ def debug_echo_typo_redirect():
     return RedirectResponse(url="/debug/echo", status_code=307)
 
 
-def _title_from_filename(fname: str) -> str:
+def _echo_group_key_for_filename(fname: str) -> str:
     stem, _ = os.path.splitext(os.path.basename(fname or ""))
     stem = re.sub(r"_(minutes|transcript)$", "", stem, flags=re.IGNORECASE)
+    stem = re.sub(r"_audio$", "", stem, flags=re.IGNORECASE)
+    return stem
+
+
+def _echo_build_upload_base_name(original_filename: str = "") -> str:
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    stem = os.path.splitext(os.path.basename(original_filename or ""))[0]
+    safe = re.sub(r'[^0-9A-Za-z一-龥ぁ-んァ-ヶー_-]', "_", stem).strip("_")
+    safe = re.sub(r"[_-]+", "_", safe)
+    if safe:
+        safe = safe[:32]
+        return f"{now}_upload_{safe}"
+    return f"{now}_upload"
+
+
+def _title_from_filename(fname: str) -> str:
+    stem = _echo_group_key_for_filename(fname)
     stem = re.sub(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}_?", "", stem)
+    stem = re.sub(r"^upload_?", "", stem, flags=re.IGNORECASE)
     return stem or "会議録"
 
 
@@ -11151,18 +11171,74 @@ def echo_generate_minutes(req: dict):
             _echo_generating_minutes_sessions.discard(session_key)
 
 
+@app.post("/echo/import-audio-transcript")
+def echo_import_audio_transcript(req: dict):
+    payload = req or {}
+    transcript_text = str(payload.get("transcript_text", "")).strip()
+    if not transcript_text:
+        raise HTTPException(status_code=400, detail="transcript_text required")
+
+    audio_b64 = str(payload.get("audio_base64", "")).strip()
+    audio_format = str(payload.get("audio_format", "webm")).strip().lower() or "webm"
+    if audio_format not in ECHO_UPLOAD_ALLOWED_FORMATS:
+        raise HTTPException(status_code=400, detail=f"unsupported audio format: {audio_format}")
+
+    language = str(payload.get("language", "auto")).strip().lower() or "auto"
+    if language not in {"auto", "ja", "en"}:
+        language = "auto"
+    model = str(payload.get("model", "")).strip()
+    asr_profile = _resolve_asr_profile(payload.get("asr_profile", "balanced"))
+    original_filename = str(payload.get("original_filename", "")).strip()
+
+    started_at = datetime.now()
+    base = _echo_build_upload_base_name(original_filename)
+    transcript_filename = f"{base}_transcript.md"
+    transcript_path = os.path.join(ECHOVAULT_DIR, transcript_filename)
+
+    audio_filename = ""
+    audio_size = 0
+    if audio_b64:
+        try:
+            audio_bytes = base64.b64decode(audio_b64)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"invalid audio_base64: {e}")
+        audio_size = len(audio_bytes)
+        if audio_size <= 0:
+            raise HTTPException(status_code=400, detail="audio payload empty")
+        if audio_size > ECHO_UPLOAD_MAX_BYTES:
+            raise HTTPException(status_code=413, detail=f"audio file too large (max {ECHO_UPLOAD_MAX_BYTES} bytes)")
+        audio_filename = f"{base}.{audio_format}"
+        audio_path = os.path.join(ECHOVAULT_DIR, audio_filename)
+        with open(audio_path, "wb") as af:
+            af.write(audio_bytes)
+
+    title = _title_from_filename(transcript_filename)
+    lang_flag = "🇯🇵" if language == "ja" else ("🇺🇸" if language == "en" else "🌐")
+    safe_text = transcript_text.replace("|", "｜")
+    lines = ["| # | 言語 | 原文 | 翻訳 |", "|---|------|------|------|", f"| 1 | {lang_flag} | {safe_text} |  |"]
+    with open(transcript_path, "w", encoding="utf-8") as f:
+        f.write(f"# 文字起こし — {title}\n\n")
+        f.write(f"**日付:** {started_at.strftime('%Y-%m-%d %H:%M')}  \n")
+        f.write(f"**セッション:** {base}  \n")
+        if model:
+            f.write(f"**ASRモデル:** {model}  \n")
+        f.write(f"**ASRプロファイル:** {asr_profile}  \n")
+        f.write(f"**言語:** {language}\n\n")
+        f.write("\n".join(lines) + "\n")
+
+    return {
+        "ok": True,
+        "session": base,
+        "transcript_filename": transcript_filename,
+        "audio_filename": audio_filename,
+        "audio_size": audio_size,
+    }
+
+
 @app.get("/echo/sessions")
 def echo_list_sessions():
     """EchoVault フォルダのファイル一覧を返す。"""
     import datetime as _dt
-    import re as _re
-
-    def _echo_group_key(fname: str) -> str:
-        stem, _ = os.path.splitext(fname)
-        # *_minutes.md / *_transcript.md は同一セッションとして束ねる
-        if stem.endswith("_minutes") or stem.endswith("_transcript"):
-            return _re.sub(r"_(minutes|transcript)$", "", stem)
-        return stem
 
     files = []
     try:
@@ -11182,7 +11258,7 @@ def echo_list_sessions():
                 "size": stat.st_size,
                 "mtime": _dt.datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
                 "type": ext,
-                "group_key": _echo_group_key(fname),
+                "group_key": _echo_group_key_for_filename(fname),
             })
     except Exception as e:
         return {"files": [], "error": str(e)}
