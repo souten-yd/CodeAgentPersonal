@@ -1255,6 +1255,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div class="agent-session-left">
           <span id="agent-session-label" style="font-size:11px;color:var(--text2);letter-spacing:.04em">Agent session: -</span>
           <button id="agent-stop-btn" class="agent-stop-btn" type="button" onclick="handleAgentStopClick()" disabled>Stop</button>
+          <button class="chat-task-toggle" id="agent-tts-toggle" onclick="toggleChatTtsUnified()" title="Agent TTS 自動読み上げのON/OFF">
+            <span id="agent-tts-toggle-label">TTS OFF</span>
+          </button>
         </div>
       </div>
     </div>
@@ -4808,7 +4811,7 @@ function saveTtsSettings() {
   localStorage.setItem('tts_speed',      tts.speed);
   localStorage.setItem('tts_qwen3model', tts.qwen3model);
   localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model || '');
-  syncChatTtsToggle();
+  syncAllTtsToggles();
 }
 
 function _syncTtsDeviceState(device) {
@@ -6127,7 +6130,7 @@ async function unloadTtsEngineFromTab() {
 }
 
 function _ttsInitSettingsUI() {
-  syncChatTtsToggle();
+  syncAllTtsToggles();
   _asrInitSettingsUI();
 }
 
@@ -6544,7 +6547,7 @@ addEventListener('load', async () => {
   }
   if (mode === 'task') mode = 'chat';
   syncChatTaskToggle();
-  syncChatTtsToggle();
+  syncAllTtsToggles();
   if (window.innerWidth <= 768) {
     mobSwitch('chat');
   } else {
@@ -6553,7 +6556,7 @@ addEventListener('load', async () => {
   }
   localStorage.removeItem('llm_endpoints'); // 旧LLMエンドポイント設定をクリーンアップ
   await loadSettingsFromDb();   // DBから設定を復元（localStorage優先ではなくDB優先）
-  syncChatTtsToggle();
+  syncAllTtsToggles();
   await refreshSystemSummary();
   loadProjects();
   initCtxSlider();
@@ -6870,14 +6873,27 @@ function syncChatTtsToggle() {
   if (label) label.textContent = isOn ? 'TTS ON' : 'TTS OFF';
 }
 
-function toggleChatTtsUnified() {
-  const next = !(tts.enabled && tts.autoSpeak);
-  tts.enabled = next;
-  tts.autoSpeak = next;
+function syncAgentTtsToggle() {
+  const toggle = document.getElementById('agent-tts-toggle');
+  const label = document.getElementById('agent-tts-toggle-label');
+  const isOn = !!(tts.enabled && tts.autoSpeak);
+  toggle?.classList.toggle('on', isOn);
+  if (label) label.textContent = isOn ? 'TTS ON' : 'TTS OFF';
+}
+
+function syncAllTtsToggles() {
+  syncChatTtsToggle();
+  syncAgentTtsToggle();
+}
+
+function toggleChatTtsUnified(nextState = null) {
+  const next = typeof nextState === 'boolean' ? nextState : !(tts.enabled && tts.autoSpeak);
+  tts.enabled = !!next;
+  tts.autoSpeak = !!next;
   localStorage.setItem('tts_enabled', next ? 'true' : 'false');
   localStorage.setItem('tts_auto_speak', next ? 'true' : 'false');
   saveTtsSettings();
-  syncChatTtsToggle();
+  syncAllTtsToggles();
 }
 
 function toggleChatTaskMode() {
