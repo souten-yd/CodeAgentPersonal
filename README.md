@@ -229,6 +229,59 @@ bash scripts/runpod_start.sh
 
 ---
 
+## Nexus
+
+Nexus は、ドキュメント投入から検索・レポート生成・成果物ダウンロードまでを一連で扱う調査支援ワークフローです。
+
+### 起動手順
+
+1. CodeAgent 本体を起動（Windows: `start.bat` / Linux・Runpod: `python scripts/start_codeagent.py`）。
+2. 必要に応じて下記 Nexus 環境変数を設定（`.env` または実行環境の `export` / `set`）。
+3. UI を開き、Nexus 画面で `Upload → Job → Search → Report → Download` の順で操作。
+
+### 主要 API
+
+| API | 用途 |
+|---|---|
+| `POST /nexus/upload` | ファイルをアップロードし、解析対象として登録 |
+| `POST /nexus/job` | 解析ジョブを作成・実行開始 |
+| `POST /nexus/search` | ジョブに紐づく横断検索（Web/News/Market を含む） |
+| `POST /nexus/report` | 検索・解析結果からレポート生成 |
+| `GET /nexus/download/{job_id}` | 生成物（レポート等）をダウンロード |
+
+### UI 操作手順（Upload→Job→Search→Report→Download）
+
+1. **Upload**: 対象ファイルをアップロード（上限は `NEXUS_MAX_UPLOAD_MB`）。
+2. **Job**: 解析ジョブを作成し、ステータスが `running/completed` になるまで確認。
+3. **Search**: 必要なクエリを実行。Web 検索は `NEXUS_ENABLE_WEB` とプロバイダ設定に従って動作。
+4. **Report**: 収集結果をもとに要約・引用付きのレポートを生成。
+5. **Download**: 完成した成果物を `Download` から取得。
+
+### 必須環境変数
+
+| 変数名 | 役割 | 例 | 備考 |
+|---|---|---|---|
+| `NEXUS_MAX_UPLOAD_MB` | アップロード可能な最大サイズ（MB） | `50` | UI Upload 上限に反映 |
+| `NEXUS_ENABLE_WEB` | Web 検索機能の有効/無効 | `true` | `false` なら Web 検索をスキップ |
+| `NEXUS_WEB_SEARCH_PROVIDER` | Web 検索プロバイダ指定 | `brave` | 現在は `brave` 想定 |
+| `BRAVE_SEARCH_API_KEY` | Brave Search API キー | `BSA...` | 未設定時はスタブ応答にフォールバック |
+| `NEXUS_ENABLE_NEWS` | ニュース検索の有効/無効 | `true` | `false` なら News 系処理を無効化 |
+| `NEXUS_ENABLE_MARKET` | マーケット情報検索の有効/無効 | `true` | `false` なら Market 系処理を無効化 |
+
+### Brave API キー未設定時の挙動
+
+- `BRAVE_SEARCH_API_KEY` が未設定でも Nexus 全体は**非致命（起動・ジョブ継続）**で動作します。
+- Web 検索実行時は外部 API 呼び出しの代わりに**スタブ応答**へフォールバックし、UI には「キー未設定」相当の状態を表示します。
+- そのため、Upload / Job / Report / Download の基本フローは継続可能です（Web 検索結果の品質のみ制限）。
+
+### 著作権配慮（運用ポリシー）
+
+- 取得した記事・Web ページは**全文転載を避ける**こと。
+- レポートには要点要約・短い引用・出典 URL を優先し、原文の大量複製を行わないこと。
+- 配布物（Report/Download）にも同方針を適用し、権利者の利用条件に従って運用してください。
+
+---
+
 ## ポート要件
 
 **ユーザーが外部に公開する必要があるポートは 8000 番のみです。**
