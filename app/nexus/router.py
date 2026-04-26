@@ -32,7 +32,7 @@ nexus_router = APIRouter()
 
 class NexusSearchRequest(BaseModel):
     query: str = Field(min_length=1)
-    scope: str | None = None
+    scope: str | list[str] | None = None
     doc_types: list[str] = Field(default_factory=list)
     limit: int | None = Field(default=None, ge=1, le=100)
     filters: dict = Field(default_factory=dict)
@@ -356,7 +356,7 @@ def nexus_search(payload: NexusSearchRequest) -> dict:
         raise HTTPException(status_code=400, detail="query must not be empty")
 
     limit = payload.limit if payload.limit is not None else (payload.top_k if payload.top_k is not None else 10)
-    results = search_evidence(
+    results, applied_filters = search_evidence(
         query=query,
         limit=limit,
         scope=payload.scope,
@@ -370,6 +370,7 @@ def nexus_search(payload: NexusSearchRequest) -> dict:
         "limit": limit,
         "top_k": payload.top_k,
         "filters": payload.filters,
+        "applied_filters": applied_filters,
         "results": results,
     }
     if payload.as_evidence:
@@ -460,7 +461,7 @@ def nexus_ask(payload: NexusSearchRequest) -> dict:
     if not query:
         raise HTTPException(status_code=400, detail="query must not be empty")
     limit = payload.limit if payload.limit is not None else (payload.top_k if payload.top_k is not None else 10)
-    results = search_evidence(
+    results, applied_filters = search_evidence(
         query=query,
         limit=limit,
         scope=payload.scope,
@@ -476,6 +477,7 @@ def nexus_ask(payload: NexusSearchRequest) -> dict:
         payload.model_dump(),
         {
             "answer": answer,
+            "applied_filters": applied_filters,
             "results": results,
             "evidence": [asdict(item) for item in build_library_evidence(results)] if payload.as_evidence else [],
         },

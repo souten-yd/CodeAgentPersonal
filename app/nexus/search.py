@@ -62,17 +62,70 @@ def _matches_filters(row: dict, filters: dict) -> bool:
     return True
 
 
+def _normalize_scope(scope: str | list[str] | None) -> list[str]:
+    if scope is None:
+        return []
+    raw_values = [scope] if isinstance(scope, str) else scope
+    normalized: list[str] = []
+    for value in raw_values:
+        trimmed = str(value or "").strip().lower()
+        if trimmed and trimmed not in normalized:
+            normalized.append(trimmed)
+    return normalized
+
+
+def _normalize_doc_types(doc_types: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    for value in doc_types or []:
+        trimmed = str(value or "").strip().lower()
+        if trimmed and trimmed not in normalized:
+            normalized.append(trimmed)
+    return normalized
+
+
+def _normalize_filters(filters: dict | None) -> dict:
+    normalized: dict = {}
+    for key, expected in (filters or {}).items():
+        normalized_key = str(key).strip()
+        if not normalized_key:
+            continue
+        if isinstance(expected, list):
+            values = []
+            for item in expected:
+                if isinstance(item, str):
+                    item = item.strip()
+                if item in ("", None):
+                    continue
+                values.append(item)
+            normalized[normalized_key] = values
+            continue
+        if isinstance(expected, str):
+            expected = expected.strip()
+            if expected == "":
+                continue
+        normalized[normalized_key] = expected
+    return normalized
+
+
 def search_evidence(
     query: str,
     *,
     limit: int = 10,
-    scope: str | None = None,
+    scope: str | list[str] | None = None,
     doc_types: list[str] | None = None,
     filters: dict | None = None,
-) -> list[dict]:
+) -> tuple[list[dict], dict]:
     limit = max(1, min(100, limit))
-    filters = filters or {}
-    normalized_doc_types = {value.strip().lower() for value in (doc_types or []) if value and value.strip()}
+    normalized_scope = _normalize_scope(scope)
+    normalized_scope_set = set(normalized_scope)
+    normalized_doc_types = _normalize_doc_types(doc_types)
+    normalized_doc_types_set = set(normalized_doc_types)
+    normalized_filters = _normalize_filters(filters)
+    applied_filters = {
+        "scope": normalized_scope,
+        "doc_types": normalized_doc_types,
+        "filters": normalized_filters,
+    }
 
     with get_conn() as conn:
         rows = conn.execute(
@@ -105,7 +158,6 @@ def search_evidence(
             (query,),
         ).fetchall()
 
-    scope_normalized = (scope or "").strip().lower()
     candidates: list[dict] = []
     for row in rows:
         content_type = str(row["content_type"] or "").strip().lower()
@@ -129,13 +181,13 @@ def search_evidence(
             **doc_metadata,
         }
 
-        if scope_normalized:
+        if normalized_scope_set:
             row_scope = str(filter_source.get("scope") or "").strip().lower()
-            if row_scope != scope_normalized:
+            if row_scope not in normalized_scope_set:
                 continue
-        if normalized_doc_types and doc_type not in normalized_doc_types and content_type not in normalized_doc_types:
+        if normalized_doc_types_set and doc_type not in normalized_doc_types_set and content_type not in normalized_doc_types_set:
             continue
-        if not _matches_filters(filter_source, filters):
+        if not _matches_filters(filter_source, normalized_filters):
             continue
 
         candidates.append(
@@ -171,4 +223,4 @@ def search_evidence(
         )
         if len(candidates) >= limit:
             break
-    return candidates
+    return candidates, applied_filters
