@@ -1249,7 +1249,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   </div>
 
   <!-- AGENT MODE -->
-  <div class="agent-col" id="agent-col" style="display:none">
+  <div class="agent-col mob-hidden" id="agent-col" style="display:none">
     <div class="chat-topbar">
       <div class="agent-session-row">
         <div class="agent-session-left">
@@ -1281,7 +1281,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
   </div>
 
-  <div class="agent-panel-col" id="agent-panel-col" style="display:none">
+  <div class="agent-panel-col mob-hidden" id="agent-panel-col" style="display:none">
     <div class="panel-tabs" style="justify-content:space-between">
       <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em">タスク管理</span>
       <span class="tab-label" id="agent-status-label">idle</span>
@@ -1300,7 +1300,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   </div>
 
   <!-- ECHO MODE (EchoVault) -->
-  <div class="echo-col" id="echo-col" style="display:none">
+  <div class="echo-col mob-hidden" id="echo-col" style="display:none">
     <div class="echo-toolbar">
       <button class="echo-record-btn" id="echo-record-btn" onclick="toggleEchoRecording()">● Start</button>
       <button class="echo-translate-btn off" id="echo-toolbar-translate-enable" onclick="toggleEchoToolbarTranslate()" title="Mutual translation ON/OFF">
@@ -1329,7 +1329,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   </div>
 
   <!-- NEXUS MODE -->
-  <div class="nexus-col" id="nexus-col" style="display:none">
+  <div class="nexus-col mob-hidden" id="nexus-col" style="display:none">
     <div class="nexus-topbar">
       <div class="nexus-title">Nexus Workspace</div>
       <div class="nexus-subtabs">
@@ -1544,7 +1544,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
   <!-- PANEL -->
   <div class="panel-resizer" id="panel-resizer" role="separator" aria-label="Panel width resize handle" aria-orientation="vertical"></div>
-  <div class="panel-col" id="panel-col">
+  <div class="panel-col mob-hidden" id="panel-col">
     <div class="panel-tabs">
       <!-- Chat/Task モード用タブ -->
       <button class="tab-btn active" id="tab-btn-files" onclick="switchTab('files')">Files</button>
