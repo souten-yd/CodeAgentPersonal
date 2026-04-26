@@ -4821,14 +4821,11 @@ function saveTtsSettings() {
   if (styleSel) tts.styleBertVits2Model = styleSel.value || tts.styleBertVits2Model || '';
   const devRadio = document.querySelector('input[name="tts-device"]:checked');
   if (devRadio) _syncTtsDeviceState(devRadio.value);
-  localStorage.setItem('tts_enabled',    tts.enabled);
-  localStorage.setItem('tts_auto_speak', tts.autoSpeak);
   localStorage.setItem('tts_engine',     tts.engine);
   localStorage.setItem('tts_voice',      tts.voice);
   localStorage.setItem('tts_speed',      tts.speed);
   localStorage.setItem('tts_qwen3model', tts.qwen3model);
   localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model || '');
-  syncAllTtsToggles();
 }
 
 function _syncTtsDeviceState(device) {
@@ -6147,7 +6144,6 @@ async function unloadTtsEngineFromTab() {
 }
 
 function _ttsInitSettingsUI() {
-  syncAllTtsToggles();
   _asrInitSettingsUI();
 }
 
@@ -6909,7 +6905,6 @@ function toggleChatTtsUnified(nextState = null) {
   tts.autoSpeak = !!next;
   localStorage.setItem('tts_enabled', next ? 'true' : 'false');
   localStorage.setItem('tts_auto_speak', next ? 'true' : 'false');
-  saveTtsSettings();
   syncAllTtsToggles();
 }
 
