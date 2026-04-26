@@ -563,6 +563,22 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-card{border:1px solid var(--border);border-radius:8px;background:var(--bg2);padding:10px;display:flex;flex-direction:column;gap:8px}
 .nexus-card-title{font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.04em;text-transform:uppercase}
 .nexus-upload-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.nexus-dropzone{
+  margin-top:8px;
+  border:1px dashed var(--border2);
+  border-radius:8px;
+  background:var(--bg1);
+  color:var(--text3);
+  font-size:11px;
+  padding:14px 12px;
+  text-align:center;
+  transition:border-color .15s, background .15s, color .15s;
+}
+.nexus-dropzone.active{
+  border-color:var(--accent-border);
+  background:var(--accent-bg);
+  color:var(--accent);
+}
 .nexus-job{font-size:10px;color:var(--amber);padding:6px 8px;border:1px solid rgba(255,170,0,.28);border-radius:6px;background:rgba(255,170,0,.07)}
 .nexus-doc-list{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow:auto}
 .nexus-doc-item{display:flex;justify-content:space-between;gap:8px;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg1)}
@@ -1342,9 +1358,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div class="nexus-card">
             <div class="nexus-card-title">Upload</div>
             <div class="nexus-upload-row">
-              <input id="nexus-lib-upload" type="file" multiple>
+              <input id="nexus-lib-upload" type="file" multiple accept=".pdf,.md,.txt,.csv,.html">
               <button class="settings-btn primary" id="nexus-lib-upload-btn" style="padding:5px 10px;font-size:11px" onclick="nexusUploadDocuments()">Upload</button>
             </div>
+            <div id="nexus-lib-dropzone" class="nexus-dropzone">ここにファイルをドラッグ&ドロップしてアップロード</div>
             <div style="font-size:10px;color:var(--text3)">PDF / MD / TXT / CSV / HTML を追加できます。</div>
           </div>
           <div class="nexus-card">
@@ -6555,6 +6572,7 @@ addEventListener('load', async () => {
   await loadJobs(currentProject);
   applyUiFontSettings();
   initPanelResizer();
+  initNexusLibraryDropzone();
   startSystemSummaryPolling();
   // Echo スクロールリスナーを初期化
   _echoInitScrollListener();
@@ -7026,6 +7044,9 @@ let nexusSavedEvidence = [];
 let nexusEvidenceRows = [];
 let nexusReportRows = [];
 let nexusSelectedReportId = null;
+let nexusMaxUploadBytes = 20 * 1024 * 1024;
+const nexusAllowedUploadExt = new Set(['.pdf', '.txt', '.md', '.csv', '.html']);
+let nexusDropDragDepth = 0;
 
 function formatBytes(bytes) {
   const b = Number(bytes || 0);
@@ -7226,9 +7247,86 @@ async function refreshNexusDashboardSummary() {
     document.getElementById('nexus-metric-chunks').textContent = d.chunks ?? 0;
     document.getElementById('nexus-metric-reports').textContent = d.reports ?? 0;
     document.getElementById('nexus-metric-active-jobs').textContent = d.active_jobs ?? 0;
+    nexusMaxUploadBytes = Number(d?.limits?.max_upload_bytes || nexusMaxUploadBytes || (20 * 1024 * 1024));
   } catch (e) {
     addLog('err', 'nexus', 'summary load failed: ' + e.message);
   }
+}
+
+function nexusGetExt(name = '') {
+  const idx = String(name).lastIndexOf('.');
+  return idx >= 0 ? String(name).slice(idx).toLowerCase() : '';
+}
+
+function validateNexusUploadFiles(files = []) {
+  const normalized = Array.from(files || []);
+  for (const file of normalized) {
+    const ext = nexusGetExt(file?.name || '');
+    if (!nexusAllowedUploadExt.has(ext)) {
+      return { ok: false, message: `非対応拡張子です: ${file?.name || '(unknown)'}` };
+    }
+    if (Number(file?.size || 0) > nexusMaxUploadBytes) {
+      return {
+        ok: false,
+        message: `サイズ超過: ${file?.name || '(unknown)'} (最大 ${formatBytes(nexusMaxUploadBytes)})`,
+      };
+    }
+  }
+  return { ok: true, files: normalized };
+}
+
+function setNexusDropzoneActive(active) {
+  const dz = document.getElementById('nexus-lib-dropzone');
+  if (!dz) return;
+  dz.classList.toggle('active', !!active);
+}
+
+function initNexusLibraryDropzone() {
+  const dz = document.getElementById('nexus-lib-dropzone');
+  const input = document.getElementById('nexus-lib-upload');
+  if (!dz || !input) return;
+
+  if (!input.dataset.nexusBound) {
+    input.addEventListener('change', () => {
+      const files = Array.from(input.files || []);
+      if (!files.length) return;
+      const check = validateNexusUploadFiles(files);
+      if (!check.ok) {
+        updateNexusJobBanner(check.message, true);
+        input.value = '';
+      }
+    });
+    input.dataset.nexusBound = '1';
+  }
+
+  if (dz.dataset.nexusBound) return;
+  dz.addEventListener('dragenter', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    nexusDropDragDepth += 1;
+    setNexusDropzoneActive(true);
+  });
+  dz.addEventListener('dragover', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    setNexusDropzoneActive(true);
+  });
+  dz.addEventListener('dragleave', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    nexusDropDragDepth = Math.max(0, nexusDropDragDepth - 1);
+    if (nexusDropDragDepth === 0) setNexusDropzoneActive(false);
+  });
+  dz.addEventListener('drop', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    nexusDropDragDepth = 0;
+    setNexusDropzoneActive(false);
+    const files = Array.from(ev.dataTransfer?.files || []);
+    if (!files.length) return;
+    nexusUploadDocuments(files);
+  });
+  dz.dataset.nexusBound = '1';
 }
 
 async function trackNexusJob(jobId) {
@@ -7281,12 +7379,17 @@ async function trackNexusJob(jobId) {
   await refreshNexusDashboardSummary();
 }
 
-async function nexusUploadDocuments() {
+async function nexusUploadDocuments(droppedFiles = null) {
   const input = document.getElementById('nexus-lib-upload');
   const btn = document.getElementById('nexus-lib-upload-btn');
-  const files = Array.from(input?.files || []);
+  const files = Array.from(droppedFiles || input?.files || []);
   if (!files.length) {
     updateNexusJobBanner('ファイルを選択してください', true);
+    return;
+  }
+  const check = validateNexusUploadFiles(files);
+  if (!check.ok) {
+    updateNexusJobBanner(check.message, true);
     return;
   }
   if (btn) btn.disabled = true;
@@ -7300,7 +7403,7 @@ async function nexusUploadDocuments() {
       const d = await r.json();
       if (d.job_id) trackNexusJob(d.job_id);
     }
-    input.value = '';
+    if (input) input.value = '';
     updateNexusJobBanner('Upload accepted. Processing started...');
   } catch (e) {
     updateNexusJobBanner('Upload failed: ' + e.message, true);
