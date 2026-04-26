@@ -378,6 +378,19 @@ python -m pip install -r requirements-tts-qwen.txt
 python scripts/check_environment.py --expect-python 3.11 --strict
 ```
 
+### UI syntax / smoke checks (latest UI)
+
+```bash
+# 1) ui.html の inline script を抽出して node --check
+python scripts/check_ui_inline_script_syntax.py
+
+# 2) ブラウザスモーク (desktop + mobile viewport)
+python scripts/smoke_ui_modes_playwright.py
+```
+
+上記2つで、`setMode` / `switchNexusTab` の定義、Chat/Agent/Echo/Nexus切替、
+Nexusサブタブ切替、pageerror / console error の有無を確認できます。
+
 ---
 
 ## Docker自動プッシュ（GitHub Actions）

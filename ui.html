@@ -7511,27 +7511,33 @@ function renderNexusSearchResultPanel(container, payload, mode = 'news') {
   const items = payload?.search?.items || [];
   const jobId = payload?.job_id || '';
   const summary = payload?.digest?.summary || payload?.snapshot?.summary || '';
-  container.innerHTML = `
-    <div class="nexus-result-head">
-      <div style="font-size:11px;color:var(--text2)">${esc(summary || '検索結果')}</div>
-      <button class="settings-btn" style="font-size:10px;padding:3px 8px" onclick="saveNexusAllEvidence('${esc(jobId)}','${esc(mode)}')">Evidence保存</button>
-    </div>
-    <div class="nexus-result-meta">job: ${esc(jobId || '-')} / saved_evidence: ${Number(payload?.saved_evidence || 0)} / hits: ${items.length}</div>
-    ${(items.length ? items.map((item, idx) => {
+  const itemsHtml = items.length
+    ? items.map((item, idx) => {
       const citation = nexusCitationLabel(item, idx);
       const pStart = item.page_start ?? item.page ?? '-';
       const pEnd = item.page_end ?? item.page ?? '-';
       const snippet = item.snippet || item.quote || '(snippetなし)';
+      const openSourceButton = item.url
+        ? `<button onclick="window.open('${esc(item.url)}','_blank','noopener')">Open Source</button>`
+        : '';
       return `<div class="nexus-result-item">
         <div style="font-size:11px;color:var(--text2);font-weight:700">${esc(item.title || '(untitled)')}</div>
         <div class="nexus-result-meta">citation_label: ${esc(citation)} / page_start: ${esc(String(pStart))} / page_end: ${esc(String(pEnd))}</div>
         <div style="font-size:11px;color:var(--text3)">${esc(snippet)}</div>
         <div class="nexus-doc-actions">
           <button onclick="saveSingleNexusEvidence('${esc(jobId)}','${esc(mode)}',${idx}, this)">Evidence保存</button>
-          ${item.url ? `<button onclick="window.open('${esc(item.url)}','_blank','noopener')">Open Source</button>` : ''}
+          ${openSourceButton}
         </div>
       </div>`;
-    }).join('')) : '<div class="nexus-empty">検索結果がありません</div>'}
+    }).join('')
+    : '<div class="nexus-empty">検索結果がありません</div>';
+  container.innerHTML = `
+    <div class="nexus-result-head">
+      <div style="font-size:11px;color:var(--text2)">${esc(summary || '検索結果')}</div>
+      <button class="settings-btn" style="font-size:10px;padding:3px 8px" onclick="saveNexusAllEvidence('${esc(jobId)}','${esc(mode)}')">Evidence保存</button>
+    </div>
+    <div class="nexus-result-meta">job: ${esc(jobId || '-')} / saved_evidence: ${Number(payload?.saved_evidence || 0)} / hits: ${items.length}</div>
+    ${itemsHtml}
   `;
   if (!container._payloadCache) container._payloadCache = {};
   container._payloadCache[mode] = payload;
