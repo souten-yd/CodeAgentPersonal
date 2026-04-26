@@ -391,6 +391,32 @@ python scripts/smoke_ui_modes_playwright.py
 上記2つで、`setMode` / `switchNexusTab` の定義、Chat/Agent/Echo/Nexus切替、
 Nexusサブタブ切替、pageerror / console error の有無を確認できます。
 
+#### Ui3 回帰チェックリスト（追補）
+
+1. **構文エラー確認（必須）**
+   - `python scripts/smoke_ui_modes_playwright.py` 実行後、ブラウザコンソールログを確認し、`SyntaxError` が **0件** であることを明示的に確認する。
+   - 併せて、`setMode is not defined` / `toggleVoiceInput is not defined` が **1件も出ていないこと** を必須確認項目とする。
+
+2. **モード切替確認（必須）**
+   - UI 上部のモードボタンを **Chat → Agent → Echo → Nexus** の順に押す。
+   - 各押下ごとに、以下をチェックする。
+     - 対応タブ（画面）が即時表示される。
+     - 前モードの表示崩れ・操作不能が残らない。
+     - コンソールに新規エラー（特に `ReferenceError` / `TypeError`）が出ない。
+
+3. **iPhone 幅 UI 確認（390x844）**
+   - DevTools などで viewport を **390x844**（iPhone幅）に設定して確認する。
+   - 以下3点が満たされることを確認する。
+     - TTSボトムバーが常時表示される。
+     - Echo 画面下部の余白が1行ぶんに収まる（過剰な空きがない）。
+     - 録音時間表示の左側に不要な空行・空白帯がない。
+
+4. **連続録音シナリオ確認（必須）**
+   - 次の順序で操作する:  
+     **録音開始 → 無音停止 → ASR完了 → 自動送信 → TTS再生 → 録音自動復帰 → 再押下で停止**
+   - 期待結果（固定文言）:  
+     **「無音で自動停止した録音がASR完了後に自動送信され、TTS再生後は録音待機へ自動復帰し、ユーザーの再押下で確実に停止できること。」**
+
 ---
 
 ## Docker自動プッシュ（GitHub Actions）
