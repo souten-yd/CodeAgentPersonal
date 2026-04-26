@@ -11470,91 +11470,6 @@ async def echo_voice_ref_delete(request: Request):
 # TTS (Text-to-Speech) / CPUオンデマンド
 # =========================
 
-_VOICEVOX_IMPORT_ERROR = ""
-_VOICEVOX_ENABLED = os.environ.get("CODEAGENT_ENABLE_VOICEVOX", "").strip().lower() in {"1", "true", "yes", "on"}
-try:
-    import voicevox_core as _vc_mod  # type: ignore
-    _VOICEVOX_AVAILABLE = True
-except Exception as _vv_e:
-    _vc_mod = None
-    _VOICEVOX_AVAILABLE = False
-    _VOICEVOX_IMPORT_ERROR = str(_vv_e)
-    print(f"[TTS] voicevox_core import failed: {_VOICEVOX_IMPORT_ERROR}")
-
-# VOICEVOX HTTP API (Docker or standalone server)
-_VOICEVOX_HTTP_URL = os.environ.get("VOICEVOX_URL", "http://localhost:50021")
-
-
-def _voicevox_http_check() -> bool:
-    """VOICEVOX HTTP サーバーが動作しているか確認する。"""
-    try:
-        r = requests.get(f"{_VOICEVOX_HTTP_URL}/version", timeout=2)
-        return r.status_code == 200
-    except Exception:
-        return False
-
-
-def _voicevox_http_probe() -> dict:
-    """VOICEVOX HTTP接続状態を詳細に返す（UI診断向け）。"""
-    result = {
-        "http_available": False,
-        "speaker_count": 0,
-        "version": None,
-        "error": None,
-    }
-    try:
-        version_resp = requests.get(f"{_VOICEVOX_HTTP_URL}/version", timeout=2)
-        if version_resp.status_code != 200:
-            result["error"] = f"/version returned {version_resp.status_code}"
-            return result
-        result["http_available"] = True
-        result["version"] = version_resp.text.strip()
-    except Exception as e:
-        result["error"] = f"/version failed: {e}"
-        return result
-    try:
-        speakers = tts_voicevox_http_speakers()
-        result["speaker_count"] = len(speakers)
-        if result["speaker_count"] <= 0:
-            result["error"] = "/speakers returned 0 styles"
-    except Exception as e:
-        result["error"] = f"/speakers failed: {e}"
-    return result
-
-
-def tts_voicevox_http_speakers() -> list:
-    """VOICEVOX HTTP API から話者一覧を取得する。"""
-    r = requests.get(f"{_VOICEVOX_HTTP_URL}/speakers", timeout=5)
-    result = []
-    for s in r.json():
-        for style in s.get("styles", []):
-            result.append({"id": style["id"], "name": f"{s['name']}（{style['name']}）"})
-    return result
-
-
-def tts_voicevox_http_synthesize(text: str, speaker_id: int = 0, speed: float = 1.0) -> bytes:
-    """VOICEVOX HTTP API でテキストを WAV バイト列に変換する。"""
-    q = requests.post(
-        f"{_VOICEVOX_HTTP_URL}/audio_query",
-        params={"text": text, "speaker": speaker_id},
-        timeout=30,
-    ).json()
-    q["speedScale"] = max(0.5, min(2.0, speed))
-    wav = requests.post(
-        f"{_VOICEVOX_HTTP_URL}/synthesis",
-        params={"speaker": speaker_id},
-        json=q,
-        timeout=60,
-    ).content
-    return wav
-
-try:
-    import edge_tts as _edge_tts_mod  # type: ignore
-    _EDGE_TTS_AVAILABLE = True
-except ImportError:
-    _edge_tts_mod = None
-    _EDGE_TTS_AVAILABLE = False
-
 # Qwen3 TTS (qwen-tts + torch)
 _QWEN3TTS_IMPORT_ERROR = ""
 try:
@@ -11772,17 +11687,12 @@ def _log_tts_startup_health() -> None:
         "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
         "qwen3tts_available": status.get("qwen3tts_available"),
         "qwen3tts_loaded": status.get("qwen3tts_loaded"),
-        "voicevox_available": status.get("voicevox_available"),
-        "voicevox_http_available": status.get("voicevox_http_available"),
-        "edgetts_available": status.get("edgetts_available"),
         "qwen3tts_missing_count": len(qwen_missing),
     }
     print(
         "[TTS][startup] "
         f"qwen3tts_available={status.get('qwen3tts_available')} "
         f"qwen3tts_loaded={status.get('qwen3tts_loaded')} "
-        f"voicevox_available={status.get('voicevox_available')} "
-        f"edgetts_available={status.get('edgetts_available')}"
     )
     if qwen_missing:
         for item in qwen_missing:
@@ -12110,185 +12020,6 @@ def qwen3tts_synthesize(text: str, speed: float = 1.0,
     _sf_mod.write(buf, wav, samplerate=sample_rate, format="WAV")
     return buf.getvalue()
 
-_tts_core = None        # voicevox_core.VoicevoxCore instance
-_tts_lock = threading.Lock()
-
-QWEN3TTS_MODEL_CANDIDATES = sorted(QWEN3_TTS_ALLOWED_REPO_IDS)
-
-
-def _tts_data_dir() -> str:
-    d = os.path.join(DEFAULT_CA_DATA_DIR, "tts")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
-def _tts_jtalk_dir() -> str:
-    return os.path.join(_tts_data_dir(), "open_jtalk_dic_utf_8-1.11")
-
-
-def _tts_voicevox_models_dir() -> str:
-    d = os.path.join(_tts_data_dir(), "voicevox_models")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
-def _tts_jtalk_exists() -> bool:
-    d = _tts_jtalk_dir()
-    return os.path.isdir(d) and bool(os.listdir(d))
-
-def _tts_voicevox_missing_requirements() -> list[dict]:
-    missing: list[dict] = []
-    if not _VOICEVOX_AVAILABLE:
-        base_msg = "voicevox_core がインストールされていません。"
-        base_hint = "VOICEVOX公式Releasesのwheel URLを直接指定して `pip install --no-deps <wheel_url>` を実行してください。"
-        if _VOICEVOX_IMPORT_ERROR:
-            base_msg = f"voicevox_core のimportに失敗しました: {_VOICEVOX_IMPORT_ERROR}"
-            if "libonnxruntime.so.1.13.1" in _VOICEVOX_IMPORT_ERROR:
-                base_hint = (
-                    "libonnxruntime.so.1.13.1 が不足しています。"
-                    "ONNX Runtime 1.13.1 の共有ライブラリを導入し、LD_LIBRARY_PATH に含めてください。"
-                )
-        base_hint += " AMD/Intel環境ではCPU版wheel（+cpu）を優先してください。"
-        missing.append({
-            "code": "voicevox_core_missing",
-            "message": base_msg,
-            "hint": base_hint,
-        })
-    if not _tts_jtalk_exists():
-        missing.append({
-            "code": "open_jtalk_dict_missing",
-            "message": f"Open JTalk 辞書が見つかりません: {_tts_jtalk_dir()}",
-            "hint": "open_jtalk_dic_utf_8-1.11 を上記パスに配置してください。",
-        })
-    return missing
-
-
-def _tts_models_dir() -> str:
-    """TTSModels ディレクトリ (ASRModels と同階層)"""
-    if IS_RUNPOD_RUNTIME:
-        d = "/workspace/TTSModels"
-    else:
-        d = os.path.join(BASE_DIR, "models", "TTSModels")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
-def _ref_audio_dir() -> str:
-    """参照音声 (voice clone) 保存ディレクトリ"""
-    d = os.path.join(DEFAULT_CA_DATA_DIR, "ref_audio")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
-def tts_voicevox_load() -> dict:
-    """VOICEVOX をロードする。HTTP API → voicevox_core の順で試みる。"""
-    global _tts_core
-    # HTTP API が使えるなら接続確認だけ
-    if _voicevox_http_check():
-        try:
-            speakers = tts_voicevox_http_speakers()
-            return {"loaded": True, "speakers": len(speakers), "mode": "http"}
-        except Exception as e:
-            pass  # HTTP 失敗時は voicevox_core にフォールバック
-    # voicevox_core フォールバック
-    if not _VOICEVOX_AVAILABLE:
-        import_note = f" (import error: {_VOICEVOX_IMPORT_ERROR})" if _VOICEVOX_IMPORT_ERROR else ""
-        raise RuntimeError(
-            "VOICEVOX HTTP サーバーが見つかりません。\n"
-            "Docker: docker run -d -p 50021:50021 voicevox/voicevox_engine:cpu-ubuntu20.04-latest\n"
-            f"または voicevox_core をインストールしてください{import_note}。"
-        )
-    if not _tts_jtalk_exists():
-        raise RuntimeError(
-            f"Open JTalk 辞書が見つかりません: {_tts_jtalk_dir()}\n"
-            "VOICEVOX Core の初期化には open_jtalk_dic_utf_8-1.11 が必要です。"
-        )
-    with _tts_lock:
-        if _tts_core is not None:
-            return {"loaded": True, "speakers": len(_tts_core.metas()), "mode": "core"}
-        AccMode = getattr(_vc_mod, "AccelerationMode", None)
-        kwargs = {}
-        if AccMode is not None:
-            kwargs["acceleration_mode"] = AccMode.CPU
-        kwargs["open_jtalk_dict_dir"] = _tts_jtalk_dir()
-        core = _vc_mod.VoicevoxCore(**kwargs)
-        _tts_core = core
-        return {"loaded": True, "speakers": len(core.metas()), "mode": "core"}
-
-
-def tts_voicevox_speakers() -> list:
-    """VOICEVOX 話者一覧を返す。HTTP API → voicevox_core の順で試みる。"""
-    if _voicevox_http_check():
-        try:
-            return tts_voicevox_http_speakers()
-        except Exception:
-            pass
-    with _tts_lock:
-        if _tts_core is None:
-            return []
-        result = []
-        for m in _tts_core.metas():
-            for s in m.styles:
-                result.append({"id": s.id, "name": f"{m.name}（{s.name}）"})
-        return result
-
-
-def tts_voicevox_synthesize(text: str, speaker_id: int = 0, speed_scale: float = 1.0) -> bytes:
-    """VOICEVOX でテキストを WAV バイト列に変換する。HTTP API → voicevox_core の順。"""
-    if _voicevox_http_check():
-        try:
-            return tts_voicevox_http_synthesize(text, speaker_id, speed_scale)
-        except Exception:
-            pass
-    with _tts_lock:
-        if _tts_core is None:
-            raise RuntimeError("VOICEVOX がロードされていません。/tts/load を先に呼び出してください。")
-        aq = _tts_core.audio_query(text, speaker_id)
-        aq.speed_scale = max(0.5, min(2.0, speed_scale))
-        wav = _tts_core.synthesis(aq, speaker_id)
-    return bytes(wav)
-
-
-def tts_edgetts_synthesize(text: str, voice: str = "ja-JP-NanamiNeural", rate: str = "+0%") -> bytes:
-    """Edge TTS でテキストを MP3 バイト列に変換する（同期ラッパー）。"""
-    if not _EDGE_TTS_AVAILABLE:
-        raise RuntimeError("edge_tts がインストールされていません。pip install edge-tts を実行してください。")
-    import io
-    import asyncio
-
-    async def _run():
-        buf = io.BytesIO()
-        communicate = _edge_tts_mod.Communicate(text, voice, rate=rate)
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                buf.write(chunk["data"])
-        return buf.getvalue()
-
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, _run())
-                return future.result(timeout=30)
-        else:
-            return loop.run_until_complete(_run())
-    except Exception:
-        return asyncio.run(_run())
-
-
-async def tts_edgetts_list_voices_async() -> list:
-    """Edge TTS の日英音声一覧を返す（async）。"""
-    if not _EDGE_TTS_AVAILABLE:
-        return []
-    voices = await _edge_tts_mod.list_voices()
-    result = []
-    for v in voices:
-        locale = v.get("Locale", "")
-        if locale.startswith("ja") or locale.startswith("en"):
-            result.append({"id": v["ShortName"], "name": v.get("FriendlyName", v["ShortName"])})
-    return result
-
 
 def qwen3tts_unload() -> dict:
     global _qwen3tts_model, _qwen3tts_model_id, _qwen3tts_processor
@@ -12308,70 +12039,45 @@ def qwen3tts_unload() -> dict:
     return {"status": "unloaded"}
 
 
-class _VoiceVoxRuntime(TTSEngineRuntime):
-    engine_key = "voicevox"
-
-    def load_stream(self, req: dict, *, emit):
-        if not _VOICEVOX_ENABLED:
-            emit({"type": "error", "detail": "VOICEVOX is disabled in this build."})
-            return
-        emit({"type": "loading", "message": "VOICEVOX に接続中です..."})
-        try:
-            result = tts_voicevox_load()
-            emit({"type": "done", **result, "engine_key": self.engine_key})
-        except Exception as e:
-            _append_tts_debug_error("voicevox", "load", e, detail={"engine": self.engine_key})
-            emit({"type": "error", "detail": str(e)})
-
-    def unload(self, req: dict) -> dict:
-        if not _VOICEVOX_ENABLED:
-            return {"status": "unloaded", "engine": "voicevox", "engine_key": self.engine_key}
-        global _tts_core
-        with _tts_lock:
-            _tts_core = None
-        import gc; gc.collect()
-        return {"status": "unloaded", "engine": "voicevox", "engine_key": self.engine_key}
-
-    def synthesize(self, req: dict) -> tuple[bytes, str]:
-        if not _VOICEVOX_ENABLED:
-            raise RuntimeError("VOICEVOX is disabled in this build.")
-        speaker_id = int(req.get("speaker_id", 0))
-        speed = float(req.get("speed", 1.0))
-        wav = tts_voicevox_synthesize(str(req.get("text", "")), speaker_id, speed)
-        return wav, "audio/wav"
-
-    async def voices(self, req: dict) -> dict:
-        if not _VOICEVOX_ENABLED:
-            return {"voices": [], "engine_key": self.engine_key}
-        return {"voices": tts_voicevox_speakers(), "engine_key": self.engine_key}
+def _tts_data_dir() -> str:
+    d = os.path.join(DEFAULT_CA_DATA_DIR, "tts")
+    os.makedirs(d, exist_ok=True)
+    return d
 
 
-class _EdgeTTSRuntime(TTSEngineRuntime):
-    engine_key = "edgetts"
+def _tts_jtalk_dir() -> str:
+    return os.path.join(_tts_data_dir(), "open_jtalk_dic_utf_8-1.11")
 
-    def load_stream(self, req: dict, *, emit):
-        emit({"type": "done", "status": "ready", "engine_key": self.engine_key})
 
-    def unload(self, req: dict) -> dict:
-        return {"status": "unloaded", "engine": "edgetts", "engine_key": self.engine_key}
+def _tts_jtalk_exists() -> bool:
+    d = _tts_jtalk_dir()
+    return os.path.isdir(d) and bool(os.listdir(d))
 
-    def synthesize(self, req: dict) -> tuple[bytes, str]:
-        text = str(req.get("text", "")).strip()
-        voice = str(req.get("voice", "ja-JP-NanamiNeural"))
-        rate_val = float(req.get("speed", 1.0))
-        rate_pct = int((rate_val - 1.0) * 100)
-        rate_str = f"{rate_pct:+d}%"
-        mp3 = tts_edgetts_synthesize(text, voice, rate_str)
-        return mp3, "audio/mpeg"
 
-    async def voices(self, req: dict) -> dict:
-        return {"voices": await tts_edgetts_list_voices_async(), "engine_key": self.engine_key}
+def _ref_audio_dir() -> str:
+    """参照音声 (voice clone) 保存ディレクトリ"""
+    d = os.path.join(DEFAULT_CA_DATA_DIR, "ref_audio")
+    os.makedirs(d, exist_ok=True)
+    return d
+
 
 
 def _build_tts_engine_registry() -> EngineRegistry:
-    registry = EngineRegistry(_engines={}, _aliases={"qwen3tts": "qwen3_tts"})
-    registry.register(_VoiceVoxRuntime())
-    registry.register(_EdgeTTSRuntime())
+    registry = EngineRegistry(
+        _engines={},
+        _aliases={
+            "qwen3tts": "qwen3_tts",
+            "qwen3_tts": "qwen3_tts",
+            "stylebertvits2": "style_bert_vits2",
+            "style-bert-vits2": "style_bert_vits2",
+            "voicevox": "qwen3_tts",
+            "edgetts": "qwen3_tts",
+            "edge_tts": "qwen3_tts",
+            "webspeech": "qwen3_tts",
+            "web_speech": "qwen3_tts",
+            "browser_tts": "qwen3_tts",
+        },
+    )
     registry.register(
         Qwen3TTSRuntime(
             available=lambda: _QWEN3TTS_AVAILABLE,
@@ -12386,7 +12092,7 @@ def _build_tts_engine_registry() -> EngineRegistry:
             settings_set=settings_set,
             runtime_device=_qwen3tts_runtime_device,
         ),
-        aliases=["qwen3_tts", "qwen3tts"],
+        aliases=["qwen3tts"],
     )
     registry.register(StyleBertVITS2Runtime(), aliases=["stylebertvits2", "style-bert-vits2"])
     return registry
@@ -12424,47 +12130,8 @@ _tts_engine_registry = _build_tts_engine_registry()
 
 @app.get("/tts/status")
 def tts_status_api():
-    with _tts_lock:
-        loaded = _tts_core is not None
-        core_speakers = len(_tts_core.metas()) if loaded else 0
-    http_probe = _voicevox_http_probe()
-    http_ok = bool(http_probe.get("http_available"))
-    http_speakers = int(http_probe.get("speaker_count", 0) or 0)
-    speakers = http_speakers if http_ok else core_speakers
-
-    auto_start_status = os.environ.get("RUNPOD_VOICEVOX_AUTOSTART_STATUS", "")
-    auto_start_hint = os.environ.get("RUNPOD_VOICEVOX_AUTOSTART_HINT", "")
-    diagnostics = []
-    if not _VOICEVOX_ENABLED:
-        diagnostics.append("VOICEVOX is disabled in this build (CODEAGENT_ENABLE_VOICEVOX is not enabled).")
-    elif not http_ok:
-        diagnostics.append(f"VOICEVOX HTTP unavailable: {http_probe.get('error') or 'unknown error'}")
-        diagnostics.append(f"Configured VOICEVOX_URL={_VOICEVOX_HTTP_URL}")
-        if IS_RUNPOD_RUNTIME:
-            diagnostics.append("Runpod mode: Pod内で独自Docker daemonを前提にした起動は行いません。")
-            diagnostics.append("VOICEVOX_URL に到達可能な外部/別Podエンドポイントを設定してください。")
-        else:
-            diagnostics.append("If Docker is used, check: docker ps / docker logs voicevox_engine")
-            diagnostics.append("You can set VOICEVOX_URL to another reachable host (e.g. http://<host>:50021).")
-    if auto_start_status and auto_start_status not in {"ready", "not_requested"}:
-        diagnostics.append(f"Runpod auto-start status: {auto_start_status}")
-    if auto_start_hint:
-        diagnostics.append(auto_start_hint)
     qwen_snapshot = _qwen3tts_status_snapshot()
     response = {
-        "voicevox_available": bool(_VOICEVOX_ENABLED and _VOICEVOX_AVAILABLE),
-        "voicevox_loaded": bool(_VOICEVOX_ENABLED and (loaded or http_ok)),
-        "voicevox_speakers": speakers,
-        "voicevox_speakers_http": http_speakers,
-        "voicevox_speakers_core": core_speakers,
-        "voicevox_http_available": http_ok,
-        "voicevox_http_url": _VOICEVOX_HTTP_URL,
-        "voicevox_http_version": http_probe.get("version"),
-        "voicevox_http_error": http_probe.get("error"),
-        "voicevox_diagnostics": diagnostics,
-        "voicevox_autostart_status": auto_start_status or "unknown",
-        "voicevox_hint": diagnostics[0] if diagnostics else f"VOICEVOX is reachable at {_VOICEVOX_HTTP_URL}",
-        "edgetts_available": _EDGE_TTS_AVAILABLE,
         "jtalk_exists": _tts_jtalk_exists(),
         "tts_startup_health": _tts_startup_health_snapshot,
     }
@@ -12480,7 +12147,7 @@ def tts_debug_api(limit: int = 20):
 
 
 @app.get("/tts/voices")
-async def tts_voices_api(engine: str = "qwen3tts"):
+async def tts_voices_api(engine: str = "qwen3_tts"):
     try:
         runtime = _tts_engine_registry.get(raw_engine=engine)
     except KeyError:
@@ -12490,7 +12157,7 @@ async def tts_voices_api(engine: str = "qwen3tts"):
 
 @app.post("/tts/load")
 def tts_load_api(req: dict = {}):
-    engine = str(req.get("engine", "qwen3tts"))
+    engine = str(req.get("engine", "qwen3_tts"))
     engine_key = _tts_engine_registry.resolve_engine_key(engine, req.get("engine_key"))
 
     def _sse(payload: dict) -> str:
@@ -12523,7 +12190,7 @@ def tts_load_api(req: dict = {}):
 
 @app.post("/tts/unload")
 def tts_unload_api(req: dict = {}):
-    engine = str(req.get("engine", "qwen3tts"))
+    engine = str(req.get("engine", "qwen3_tts"))
     try:
         runtime = _tts_engine_registry.get(raw_engine=engine, raw_engine_key=req.get("engine_key"))
     except KeyError:
@@ -13204,7 +12871,7 @@ def tts_ref_audio_delete(filename: str):
 def tts_synthesize_api(req: dict):
     from fastapi.responses import Response as FastAPIResponse
     request_id = str(req.get("request_id") or uuid.uuid4().hex[:8])
-    engine = str(req.get("engine", "qwen3tts"))
+    engine = str(req.get("engine", "qwen3_tts"))
     text = str(req.get("text", "")).strip()
     if not text:
         raise HTTPException(status_code=400, detail="text required")
@@ -13396,7 +13063,7 @@ def _merge_wav_bytes(wav_chunks: list[bytes]) -> bytes:
 
 
 def _run_tts_synthesize_batch(req: dict):
-    engine = str(req.get("engine", "qwen3tts"))
+    engine = str(req.get("engine", "qwen3_tts"))
     model = str(req.get("model", "")).strip()
     device = str(req.get("device", "")).strip()
     output_format = str(req.get("output", "json") or "json").strip().lower()

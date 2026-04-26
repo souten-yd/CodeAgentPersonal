@@ -251,10 +251,6 @@ RUN set -eux; \
       fi; \
     fi
 
-# Remove VOICEVOX-related Python packages to avoid pydantic conflicts.
-# Keep shared framework packages intact.
-RUN python -m pip uninstall -y voicevox-core voicevox-client pyopenjtalk || true
-
 # Re-pin core framework versions in case optional deps caused downgrades
 RUN python -m pip install --no-cache-dir --upgrade "pydantic>=2.6" "fastapi>=0.110"
 
