@@ -28,6 +28,7 @@ from app.nexus.news import (
 from app.nexus.report import nexus_report_router
 from app.nexus.search import search_evidence
 from app.nexus.web_scout import plan_web_queries, run_web_search
+from app.nexus.research_agent import ResearchAgentInput, run_research_job
 
 
 nexus_router = APIRouter()
@@ -608,34 +609,34 @@ def nexus_web_research(payload: NexusWebSearchRequest) -> dict:
     query = payload.query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="query must not be empty")
-    requested_depth = (payload.depth or payload.mode or "standard").strip() or "standard"
-    queries = plan_web_queries(
-        query,
-        mode=payload.mode,
-        depth=requested_depth,
-        max_queries=payload.max_queries,
-        scope=payload.scope,
-        language=payload.language,
-    )
-    search = run_web_search(
-        queries,
-        mode=payload.mode,
-        depth=requested_depth,
-        max_results_per_query=payload.max_results_per_query,
-        scope=payload.scope,
-        language=payload.language,
-    )
+
+    try:
+        result = run_research_job(
+            ResearchAgentInput(
+                query=query,
+                mode=payload.mode,
+                depth=payload.depth,
+                max_queries=payload.max_queries,
+                max_results_per_query=payload.max_results_per_query,
+                scope=payload.scope,
+                language=payload.language,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    search = dict(result.get("search") or {})
     items = _with_item_provider_engine(search)
     search["items"] = items
     search["total_items"] = int(search.get("total_items") or len(items))
     highlights = [str(item.get("title") or item.get("snippet") or "") for item in items[:5]]
+
     return _as_canonical_payload(
         "web.research",
         payload.model_dump(),
         {
-            "queries": queries,
-            "generated_queries": search.get("generated_queries", queries),
-            "effective_query_plan": search.get("effective_query_plan", {}),
+            "job_id": result.get("job_id"),
+            "queries": result.get("queries", []),
             "provider": search.get("provider"),
             "selected_provider": search.get("selected_provider"),
             "attempted_providers": search.get("attempted_providers", []),
@@ -648,8 +649,10 @@ def nexus_web_research(payload: NexusWebSearchRequest) -> dict:
             "search": search,
             "items": items,
             "total_items": search.get("total_items", len(items)),
+            "sources": result.get("sources", []),
+            "answer": result.get("answer", {}),
             "highlights": highlights,
-            "summary": f"{query} に関するWeb調査（MVP）",
+            "summary": str((result.get("answer") or {}).get("answer") or f"{query} に関するWeb調査（MVP）"),
         },
     )
 
