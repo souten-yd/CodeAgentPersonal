@@ -18,6 +18,11 @@ echo "[Runpod] Booting CodeAgent from ${ROOT_DIR}"
 echo "[Runpod] host=${HOST} port=${PORT} primary_port=${PRIMARY_PORT} workspace_root=${WORKSPACE_ROOT}"
 echo "[Runpod] runtime_is_runpod=${IS_RUNPOD_RUNTIME}"
 
+if [[ -z "${NEXUS_SEARXNG_URL:-}" ]]; then
+  export NEXUS_SEARXNG_URL="http://127.0.0.1:8088"
+fi
+echo "[Runpod] NEXUS_SEARXNG_URL=${NEXUS_SEARXNG_URL}"
+
 AUTO_INSTALL_DOCKER="${RUNPOD_AUTO_INSTALL_DOCKER:-true}"
 if [[ "${AUTO_INSTALL_DOCKER}" == "true" ]]; then
   if [[ "${IS_RUNPOD_RUNTIME}" == "true" ]]; then

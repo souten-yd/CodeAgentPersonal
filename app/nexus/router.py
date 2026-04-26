@@ -553,6 +553,12 @@ def nexus_web_status() -> dict:
         },
     )
 
+    status_message = str(active_provider_status.get("message", ""))
+    status_non_fatal = not bool(active_provider_status.get("configured", False))
+    status_provider_errors: dict[str, list[str]] = {}
+    if status_non_fatal:
+        status_provider_errors[active_provider or "unknown"] = [status_message or "provider unavailable"]
+
     return {
         "enable_web": cfg.enable_web,
         "provider": cfg.web_search_provider,
@@ -566,7 +572,10 @@ def nexus_web_status() -> dict:
         "active_provider": active_provider,
         "provider_status": provider_status,
         "provider_status_active": active_provider_status,
-        "message": str(active_provider_status.get("message", "")),
+        "message": status_message,
+        "non_fatal": status_non_fatal,
+        "stub": status_non_fatal,
+        "provider_errors": status_provider_errors,
         "runpod_searxng_autostart_status": os.getenv("RUNPOD_SEARXNG_AUTOSTART_STATUS", ""),
         "runpod_searxng_autostart_hint": os.getenv("RUNPOD_SEARXNG_AUTOSTART_HINT", ""),
     }
