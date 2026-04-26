@@ -449,12 +449,13 @@ html.logo-svg-ready .logo-text{display:none}
 .mob-tabs.echo-mode{overflow-x:hidden;flex-wrap:nowrap}
 .mob-tabs.echo-mode .mob-tab{flex:1 1 calc(100% / 6);width:auto;min-width:0}
 .mob-tabs.chat-task-mode{
-  overflow-x:auto;
+  overflow-x:hidden;
   flex-wrap:nowrap;
 }
-.mob-tabs.chat-task-mode .mob-tab{
-  flex:0 0 auto;
-  min-width:58px;
+.mob-tabs.chat-task-mode .mob-tab:not([style*="display:none"]):not([style*="display: none"]){
+  flex:1 1 0;
+  width:auto;
+  min-width:0;
   text-align:center;
 }
 .mob-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
