@@ -30,13 +30,14 @@ def _call_nexus_api(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
     if operation == "library.search":
         query = str(payload.get("query") or "").strip()
         top_k = int(payload.get("top_k", 10))
-        hits = search_evidence(query=query, top_k=top_k)
+        results, applied_filters = search_evidence(query=query, limit=top_k)
         return {
             "ok": True,
             "query": query,
             "top_k": top_k,
-            "count": len(hits),
-            "hits": hits,
+            "count": len(results),
+            "hits": results,
+            "applied_filters": applied_filters,
         }
 
     if operation == "web.search":
