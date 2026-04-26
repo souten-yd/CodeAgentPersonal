@@ -3604,8 +3604,31 @@ function _prepareSpeakableChunksForSbv2(text, source = 'main') {
 }
 
 function ttsSpeak(text, opts = {}) {
-  if (!tts.enabled) return;
   const context = opts.context || 'main';
+  const isForced = opts.force === true;
+  let enabled = false;
+  let enabledReason = 'unknown_context';
+  if (context === 'echo') {
+    enabled = isForced || !!echo.autoPlayTts;
+    enabledReason = isForced ? 'force' : `echo.autoPlayTts=${!!echo.autoPlayTts}`;
+  } else if (context === 'agent') {
+    enabled = !!agentTts.enabled;
+    enabledReason = `agentTts.enabled=${!!agentTts.enabled}`;
+  } else {
+    enabled = !!tts.enabled;
+    enabledReason = `tts.enabled=${!!tts.enabled}`;
+  }
+  console.info(`[TTS][gate] context=${context} enabled=${enabled} reason=${enabledReason} flags=${JSON.stringify({
+    force: isForced,
+    ttsEnabled: !!tts.enabled,
+    ttsAutoSpeak: !!tts.autoSpeak,
+    agentEnabled: !!agentTts.enabled,
+    agentAutoSpeak: !!agentTts.autoSpeak,
+    echoAutoPlayTts: !!echo.autoPlayTts,
+    echoTtsTranslateAutoplay: !!echo.ttsTranslateAutoplay,
+    echoTtsTextSource: echo.ttsTextSource || 'raw',
+  })}`);
+  if (!enabled) return;
   const defaultEngine = context === 'echo' ? echo.ttsEngine : tts.engine;
   const engine = _normalizeTtsEngine(opts.engine || defaultEngine || null);
   const source = context === 'agent' ? 'agent' : (context === 'echo' ? 'echo' : 'chat');
@@ -10391,7 +10414,7 @@ function _echoCreateSentenceDom(sentence) {
     <div class="ts-meta">
       <span class="ts-flag">${flag}</span>
       <span class="ts-time">${esc(sentence.time || '')}</span>
-      <button class="ts-play" onclick="_echoPlaySentence(${sentence.id})" title="読み上げ">▶</button>
+      <button class="ts-play" onclick="_echoPlaySentence(${sentence.id}, {force:true, trigger:'manual'})" title="読み上げ">▶</button>
     </div>
     <div class="ts-orig"></div>
     <div class="ts-trans"></div>
@@ -10619,9 +10642,18 @@ function _echoAddSentence(ev) {
   _echoUpdateSentenceDom(sentence);
   _updateEchoTtsPreview({rawText: ev.text || '', translatedText: ''});
   _echoUpdateClearBtn();
-  // 自動TTS再生
-  if (echo.autoPlayTts && ev.lang === 'ja') {
-    _echoPlaySentence(sid);
+  const shouldAutoPlayRaw = !!echo.autoPlayTts
+    && !(echo.ttsTextSource === 'translated' && echo.ttsTranslateEnabled && echo.ttsTranslateAutoplay);
+  console.info(`[Echo][autoplay_raw_check] sid=${sid} lang=${ev.lang || ''} should_play=${shouldAutoPlayRaw} flags=${JSON.stringify({
+    autoPlayTts: !!echo.autoPlayTts,
+    ttsTextSource: echo.ttsTextSource || 'raw',
+    ttsTranslateEnabled: !!echo.ttsTranslateEnabled,
+    ttsTranslateAutoplay: !!echo.ttsTranslateAutoplay,
+  })}`);
+  if (shouldAutoPlayRaw) {
+    _echoPlaySentence(sid, {trigger: 'raw_sentence_autoplay'});
+  } else {
+    console.info(`[Echo][autoplay_raw_skip] sid=${sid} reason=waiting_for_translation_or_disabled`);
   }
 }
 
@@ -10632,20 +10664,40 @@ function _echoUpdateTranslation(id, translated) {
   _echoAnimateSentenceField(s, 'displayTranslated', translated || '');
   _echoUpdateSentenceDom(s);
   _updateEchoTtsPreview({rawText: s.text || '', translatedText: s.translated || ''});
+  const hasTranslatedText = !!(s.translated || '').trim();
+  const shouldAutoPlayTranslated = !!echo.ttsTranslateAutoplay
+    && echo.ttsTextSource === 'translated'
+    && hasTranslatedText;
+  console.info(`[Echo][autoplay_translated_check] sid=${id} should_play=${shouldAutoPlayTranslated} flags=${JSON.stringify({
+    ttsTranslateAutoplay: !!echo.ttsTranslateAutoplay,
+    ttsTextSource: echo.ttsTextSource || 'raw',
+    hasTranslatedText,
+  })}`);
+  if (shouldAutoPlayTranslated) {
+    _echoPlaySentence(id, {trigger: 'translated_autoplay'});
+  }
 }
 
-function _echoPlaySentence(sid) {
+function _echoPlaySentence(sid, opts = {}) {
   const s = echo.sentences.find(x => x.id === sid);
   if (!s) return;
+  const trigger = opts.trigger || 'unknown';
   const canUseTranslated = !!echo.ttsUseTranslation
     && echo.ttsTextSource === 'translated'
     && !!(s.translated || '').trim();
   const speechText = canUseTranslated ? s.translated : s.text;
+  console.info(`[Echo][play_sentence] sid=${sid} trigger=${trigger} canUseTranslated=${canUseTranslated} flags=${JSON.stringify({
+    autoPlayTts: !!echo.autoPlayTts,
+    ttsTranslateAutoplay: !!echo.ttsTranslateAutoplay,
+    ttsTextSource: echo.ttsTextSource || 'raw',
+    force: opts.force === true,
+  })}`);
   _updateEchoTtsPreview({rawText: s.text || '', translatedText: s.translated || ''});
   // Echoモード用TTSエンジンで再生（グローバルtts.engineを書き換えない）
   // すでに Echo で翻訳済みテキストを選んだ場合は再翻訳しない。
   ttsSpeak(speechText, {
     context: 'echo',
+    force: opts.force === true,
     engine: echo.ttsEngine,
     skipTranslate: canUseTranslated || !echo.ttsUseTranslation,
     rawText: s.text || '',
