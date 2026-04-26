@@ -42,6 +42,14 @@ def _env_bool(name: str, *, default: bool) -> bool:
     return raw in {"1", "true", "yes", "on", "enabled"}
 
 
+def _is_runpod_runtime() -> bool:
+    has_runpod_env = any(
+        (os.environ.get(name) or "").strip()
+        for name in ("RUNPOD_POD_ID", "RUNPOD_API_KEY")
+    )
+    return has_runpod_env and Path("/workspace").exists()
+
+
 
 def _env_csv(name: str, *, default: tuple[str, ...]) -> tuple[str, ...]:
     raw = (os.environ.get(name) or "").strip()
@@ -63,8 +71,21 @@ def _env_int(name: str, *, default: int, minimum: int) -> int:
 
 def load_runtime_config() -> NexusRuntimeConfig:
     """環境変数から Nexus 実行時設定をロードする。"""
-    provider = (os.environ.get("NEXUS_WEB_SEARCH_PROVIDER") or "searxng").strip().lower() or "searxng"
-    searxng_url = (os.environ.get("NEXUS_SEARXNG_URL") or "http://searxng:8080").strip() or "http://searxng:8080"
+    is_runpod = _is_runpod_runtime()
+    # Runpod 時の既定値を明示しつつ、非 Runpod との後方互換を維持する。
+    default_provider = "searxng"
+    default_searxng_url = "http://127.0.0.1:8088" if is_runpod else "http://searxng:8080"
+    default_search_free_only = True
+    default_search_paid_providers_enabled = False
+
+    provider = (
+        (os.environ.get("NEXUS_WEB_SEARCH_PROVIDER") or default_provider).strip().lower()
+        or default_provider
+    )
+    searxng_url = (
+        (os.environ.get("NEXUS_SEARXNG_URL") or default_searxng_url).strip()
+        or default_searxng_url
+    )
     return NexusRuntimeConfig(
         enable_web=_env_bool("NEXUS_ENABLE_WEB", default=True),
         enable_news=_env_bool("NEXUS_ENABLE_NEWS", default=True),
@@ -75,8 +96,11 @@ def load_runtime_config() -> NexusRuntimeConfig:
             "NEXUS_SEARCH_FALLBACK_PROVIDERS",
             default=("searxng",),
         ),
-        search_free_only=_env_bool("NEXUS_SEARCH_FREE_ONLY", default=True),
-        search_paid_providers_enabled=_env_bool("NEXUS_SEARCH_PAID_PROVIDERS_ENABLED", default=False),
+        search_free_only=_env_bool("NEXUS_SEARCH_FREE_ONLY", default=default_search_free_only),
+        search_paid_providers_enabled=_env_bool(
+            "NEXUS_SEARCH_PAID_PROVIDERS_ENABLED",
+            default=default_search_paid_providers_enabled,
+        ),
         search_provider_cooldown_sec=_env_int(
             "NEXUS_SEARCH_PROVIDER_COOLDOWN_SEC",
             default=3600,
