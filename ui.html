@@ -3274,6 +3274,7 @@ _migrateEchoTtsTranslateSettings();
 
 // ── TTS (Text-to-Speech) ──
 let audioUnlocked = false;
+let preferNativeAudioBar = localStorage.getItem('tts_native_bar_default') === 'true';
 let ttsAudioQueue = [];
 let isTtsPlaying = false;
 
@@ -3627,6 +3628,14 @@ let _lastAudioBlockedSystemNoticeAt = 0;
 let _lastTtsNoticeMessage = '';
 let _lastTtsNoticeAt = 0;
 
+function _markNativeAudioBarDefault(reason = 'autoplay_blocked') {
+  if (!preferNativeAudioBar) {
+    preferNativeAudioBar = true;
+    localStorage.setItem('tts_native_bar_default', 'true');
+  }
+  console.info(`[TTS][native_bar_default] reason=${reason}`);
+}
+
 function getTtsPlayer() {
   return document.getElementById('tts-player');
 }
@@ -3658,6 +3667,7 @@ function hideAudioUnlockButton() {
 function showFloatingTtsPlayer(reason = '状態: 自動再生がブロックされました') {
   const wrap = document.getElementById('tts-player-bar') || document.getElementById('tts-player-wrap');
   if (!wrap) return;
+  _markNativeAudioBarDefault('fallback');
   const msgEl = document.getElementById('tts-floating-message');
   if (msgEl) msgEl.textContent = reason;
 }
@@ -3738,6 +3748,7 @@ async function enableAudioFromUserGesture() {
   console.info('[Audio][enable_click]');
   audioUnlocked = true;
   tts._autoplayUnlocked = true;
+  _markNativeAudioBarDefault('user_unlock');
   tts._autoplayBlockedNoticeShown = false;
   setAudioStatus(`Ready | Queue: ${ttsAudioQueue.length}`);
   hideAudioUnlockButton();
@@ -4691,6 +4702,9 @@ function playNextTtsAudio() {
     return;
   }
   if (!audioUnlocked) {
+    if (preferNativeAudioBar) {
+      console.info('[TTS][native_bar_default] waiting_user_gesture');
+    }
     setAudioStatus(`Locked | Queue: ${ttsAudioQueue.length}`);
     showAudioUnlockButton();
     showFloatingTtsPlayer();
