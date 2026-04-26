@@ -83,6 +83,17 @@ def build_library_evidence(
     for row in search_results:
         chunk = row.get("chunk") or {}
         document = row.get("document") or {}
+        if not chunk:
+            chunk = {
+                "chunk_id": row.get("chunk_id"),
+                "document_id": row.get("document_id"),
+                "title": row.get("title"),
+                "section_path": row.get("section_path"),
+                "text": row.get("snippet"),
+                "page_start": row.get("page_start"),
+                "page_end": row.get("page_end"),
+                "citation_label": row.get("citation_label"),
+            }
         source_url = str(document.get("path") or "")
         if not source_url:
             source_url = f"nexus://document/{chunk.get('document_id', 'unknown')}"
