@@ -454,13 +454,19 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     _ensure_compat_migrations(conn)
 
 
+def _connect_db() -> sqlite3.Connection:
+    conn = sqlite3.connect(NEXUS_PATHS.db_path)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def initialize_storage() -> Path:
     """`CA_DATA_DIR/nexus/nexus.db` と必要ディレクトリを初期化する。"""
     ensure_dir(NEXUS_PATHS.ca_data_dir)
     for directory in REQUIRED_DIRS:
         ensure_dir(directory)
 
-    with sqlite3.connect(NEXUS_PATHS.db_path) as conn:
+    with _connect_db() as conn:
         conn.execute("PRAGMA journal_mode=WAL;")
         _ensure_schema(conn)
         conn.commit()
@@ -472,8 +478,7 @@ def initialize_storage() -> Path:
 def get_conn() -> Iterator[sqlite3.Connection]:
     """Nexus DB接続。"""
     initialize_storage()
-    conn = sqlite3.connect(NEXUS_PATHS.db_path)
-    conn.row_factory = sqlite3.Row
+    conn = _connect_db()
     conn.execute("PRAGMA foreign_keys=ON;")
     try:
         yield conn
