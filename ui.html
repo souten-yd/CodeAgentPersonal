@@ -1439,6 +1439,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
                 <button class="settings-btn primary" id="nexus-web-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusWebScoutMvp()">Run Web Scout</button>
               </div>
             </div>
+            <div id="nexus-web-status" class="nexus-result-meta" style="margin-top:8px">状態: 読み込み待ち</div>
             <div class="nexus-phase-note">/nexus/web/search と /nexus/web/research を連続実行し、query plan + highlights を統合表示するMVP。</div>
           </div>
           <div class="nexus-card">
@@ -7654,6 +7655,19 @@ function setNexusWebResult(payload, isErr = false) {
   const searchQueries = payload?.generated_queries || payload?.queries || [];
   const highlights = payload?.highlights || [];
   const trace = payload?.trace || {};
+  const provider = payload?.provider || payload?.selected_provider || payload?.search?.selected_provider || payload?.search?.provider || 'unknown';
+  const engine = payload?.engine || searchItems?.[0]?.engine || searchItems?.[0]?.provider || provider || 'unknown';
+  const isStub = Boolean(
+    payload?.is_stub
+    ?? payload?.search?.is_stub
+    ?? (searchItems.length ? searchItems.every((item) => Boolean(item?.is_stub)) : false)
+  );
+  const fallbackUsed = Boolean(payload?.fallback_used ?? payload?.search?.fallback_used);
+  const providerErrors = payload?.provider_errors || payload?.search?.provider_errors || {};
+  const genericErrors = payload?.errors || payload?.search?.errors || [];
+  const providerErrorText = Object.entries(providerErrors)
+    .map(([key, errs]) => `${key}: ${(Array.isArray(errs) ? errs : [errs]).filter(Boolean).join(' / ')}`)
+    .filter(Boolean);
   const userInputText = [trace?.input_query || payload?.query || '-', trace?.scope ? `scope:${trace.scope}` : '', trace?.language ? `language:${trace.language}` : '', trace?.depth ? `depth:${trace.depth}` : '']
     .filter(Boolean)
     .join(' ');
@@ -7663,6 +7677,9 @@ function setNexusWebResult(payload, isErr = false) {
       <div style="font-size:11px;color:var(--text2);font-weight:700">Research Summary</div>
       <div style="font-size:11px;color:var(--text3)">${esc(payload?.summary || 'summary unavailable')}</div>
       <div class="nexus-result-meta">queries: ${searchQueries.length} / hits: ${searchItems.length}</div>
+      <div class="nexus-result-meta">provider: ${esc(String(provider))} / engine: ${esc(String(engine))} / is_stub: ${isStub ? 'true' : 'false'} / fallback_used: ${fallbackUsed ? 'true' : 'false'}</div>
+      ${providerErrorText.length ? `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:10px;color:var(--amber)">provider_errors (${providerErrorText.length})</summary>${providerErrorText.map((line) => `<div class="nexus-result-meta">${esc(line)}</div>`).join('')}</details>` : ''}
+      ${Array.isArray(genericErrors) && genericErrors.length ? `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:10px;color:var(--amber)">errors (${genericErrors.length})</summary>${genericErrors.map((line) => `<div class="nexus-result-meta">${esc(String(line))}</div>`).join('')}</details>` : ''}
     </div>
     <div class="nexus-result-item">
       <div style="font-size:11px;color:var(--text2);font-weight:700">Trace: Input → Actual Queries → Results</div>
@@ -7677,6 +7694,55 @@ function setNexusWebResult(payload, isErr = false) {
       ${(highlights.length ? highlights.map((h) => `<div style="font-size:11px;color:var(--text3)">• ${esc(h)}</div>`).join('') : '<div class="nexus-empty">highlights なし</div>')}
     </div>
   `;
+}
+
+function formatNexusWebStatus(status = {}, runtimeMeta = {}) {
+  const labels = [];
+  const activeProvider = String(status?.active_provider || status?.provider || runtimeMeta?.provider || '').toLowerCase();
+  const isStub = Boolean(runtimeMeta?.is_stub);
+  const fallbackUsed = Boolean(runtimeMeta?.fallback_used);
+  const providerEnabled = status?.provider_status?.enabled !== false;
+  const braveKeySet = status?.brave_search_api_key_set !== false;
+  const searxngMessage = String(status?.provider_status?.message || status?.message || '');
+  const searxngUnavailable = activeProvider === 'searxng' && /疎通確認に失敗|想定外レスポンス|接続/i.test(searxngMessage);
+
+  labels.push(isStub ? 'スタブ中' : '実検索中');
+  if (searxngUnavailable) labels.push('SearXNG接続不可');
+  if (!braveKeySet) labels.push('Brave APIキー未設定');
+  if (!providerEnabled || (status?.free_only && !status?.paid_providers_enabled)) labels.push('有料provider無効');
+  if (fallbackUsed) labels.push('fallback使用中');
+  return labels;
+}
+
+function setNexusWebStatus(status = {}, runtimeMeta = {}, isErr = false) {
+  const el = document.getElementById('nexus-web-status');
+  if (!el) return;
+  if (isErr) {
+    el.style.color = 'var(--red)';
+    el.textContent = `状態: ${runtimeMeta?.message || '取得失敗'}`;
+    return;
+  }
+  const labels = formatNexusWebStatus(status, runtimeMeta);
+  const provider = runtimeMeta?.provider || status?.active_provider || status?.provider || '-';
+  const engine = runtimeMeta?.engine || '-';
+  const extra = [];
+  if (status?.message) extra.push(status.message);
+  if (runtimeMeta?.message) extra.push(runtimeMeta.message);
+  el.style.color = 'var(--text2)';
+  el.textContent = `状態: ${labels.join(' / ')} | provider:${provider} | engine:${engine}${extra.length ? ` | ${extra.join(' | ')}` : ''}`;
+}
+
+async function refreshNexusWebStatus(runtimeMeta = {}) {
+  try {
+    const r = await fetch(API + '/nexus/web/status');
+    const d = await r.json();
+    if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
+    setNexusWebStatus(d, runtimeMeta, false);
+    return d;
+  } catch (e) {
+    setNexusWebStatus({}, { message: `Web status failed: ${e.message}` }, true);
+    return null;
+  }
 }
 
 function nexusCitationLabel(item, idx) {
@@ -7830,6 +7896,7 @@ async function runNexusWebScoutMvp() {
   const maxQueries = depth === 'deep' ? 6 : 3;
   const maxResultsPerQuery = depth === 'deep' ? 8 : 4;
   if (btn) btn.disabled = true;
+  const preStatus = await refreshNexusWebStatus();
   setNexusWebResult('実行中...');
   try {
     const payload = { query: topic, mode: depth, depth, scope, language, max_queries: maxQueries, max_results_per_query: maxResultsPerQuery };
@@ -7851,6 +7918,12 @@ async function runNexusWebScoutMvp() {
       search: searchData?.result?.search || {},
       highlights: researchData?.result?.highlights || [],
       summary: researchData?.result?.summary || `${topic} に関する Web Scout summary`,
+      provider: researchData?.result?.selected_provider || searchData?.result?.selected_provider || researchData?.result?.provider || searchData?.result?.provider || '',
+      engine: (searchData?.result?.search?.items?.[0]?.engine || researchData?.result?.search?.items?.[0]?.engine || ''),
+      is_stub: Boolean(researchData?.result?.search?.is_stub ?? searchData?.result?.search?.is_stub),
+      fallback_used: Boolean(researchData?.result?.fallback_used ?? searchData?.result?.fallback_used),
+      provider_errors: researchData?.result?.provider_errors || searchData?.result?.provider_errors || {},
+      errors: researchData?.result?.errors || searchData?.result?.errors || [],
       trace: {
         input_query: topic,
         scope,
@@ -7859,6 +7932,13 @@ async function runNexusWebScoutMvp() {
       },
     };
     setNexusWebResult(merged, false);
+    setNexusWebStatus(preStatus || {}, {
+      provider: merged.provider,
+      engine: merged.engine,
+      is_stub: merged.is_stub,
+      fallback_used: merged.fallback_used,
+      message: researchData?.result?.message || searchData?.result?.message || '',
+    });
   } catch (e) {
     setNexusWebResult('Web Scout MVP failed: ' + e.message, true);
   } finally {
@@ -8110,6 +8190,7 @@ function startNexusPolling() {
   refreshNexusDashboardSummary();
   refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
   refreshNexusJobs();
+  refreshNexusWebStatus();
   renderNexusTimeline();
   nexusJobsPollTimer = setInterval(refreshNexusJobs, NEXUS_POLL_MS);
   nexusDashboardPollTimer = setInterval(refreshNexusDashboardSummary, 5000);
