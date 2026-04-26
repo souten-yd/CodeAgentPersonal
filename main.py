@@ -54,6 +54,7 @@ from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_models_dir,
 )
 from app.nexus.router import router as nexus_router
+from app.nexus.web_scout import plan_web_queries, run_web_search
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -3405,17 +3406,13 @@ def sanitize_query(query: str) -> tuple[str, list[str]]:
 
 def web_search(query: str, num_results: int = 0) -> str:
     """
-    DuckDuckGo で検索する。送信前にクエリを無害化する。
+    Web検索を実行する。送信前にクエリを無害化する。
     結果はLLMに渡すのみ、ローカル保存なし。
     """
     global _search_enabled
     if not _search_enabled:
         return "SEARCH_DISABLED: Web search is currently disabled. The user must enable it from the UI."
     try:
-        import urllib.request
-        import urllib.parse
-        import html as html_mod
-
         # クエリ無害化（機密情報を除去）
         # num_results=0 はグローバル設定を使用
         n = num_results if num_results > 0 else _search_num_results
@@ -3425,44 +3422,49 @@ def web_search(query: str, num_results: int = 0) -> str:
         if removed:
             print(f"[SEARCH][SANITIZED] original_len={len(query)} removed={removed}")
 
-        results = []
-
-        # Instant Answer API（サマリーのみ）
-        ia_url = "https://api.duckduckgo.com/?q=" + urllib.parse.quote(safe_query) + "&format=json&no_html=1&skip_disambig=1"
-        req = urllib.request.Request(ia_url, headers={"User-Agent": "CodeAgent/1.0"})
-        with urllib.request.urlopen(req, timeout=6) as resp:
-            data = json.loads(resp.read().decode())
-
-        if data.get("AbstractText"):
-            # サマリーは200文字に制限
-            results.append(f"[Summary] {data['AbstractText'][:200]}")
-
-        # HTML検索（先頭100KBだけ読む）
-        search_url = "https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(safe_query)
-        req2 = urllib.request.Request(search_url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        })
-        with urllib.request.urlopen(req2, timeout=8) as resp:
-            body = resp.read(102400).decode("utf-8", errors="ignore")  # 100KBで打ち切り
-
-        snippets = re.findall(
-            r'class="result__title"[^>]*>.*?<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>.*?'
-            r'class="result__snippet"[^>]*>(.*?)</div>',
-            body, re.DOTALL
+        planned_queries = plan_web_queries(topic=safe_query, max_queries=1, mode="quick")
+        if not planned_queries:
+            planned_queries = [safe_query]
+        search_output = run_web_search(
+            planned_queries,
+            mode="quick",
+            max_results_per_query=n,
         )
-        # 件数を n 件・各150文字に絞る
-        for url, title, snippet in snippets[:n]:
-            title_clean = html_mod.unescape(re.sub(r"<[^>]+>", "", title)).strip()[:80]
-            snippet_clean = html_mod.unescape(re.sub(r"<[^>]+>", "", snippet)).strip()[:150]
-            if title_clean and snippet_clean:
-                results.append(f"[{title_clean}] {snippet_clean}")
+
+        selected_provider = str(search_output.get("selected_provider") or search_output.get("provider") or "unknown")
+        fallback_used = bool(search_output.get("fallback_used", False))
+        items = search_output.get("items") or []
+        is_stub = bool(search_output.get("non_fatal", False)) or all(bool(row.get("is_stub")) for row in items) if items else bool(search_output.get("non_fatal", False))
+        meta_line = (
+            f"meta: selected_provider={selected_provider} "
+            f"fallback_used={str(fallback_used).lower()} "
+            f"is_stub={str(is_stub).lower()}"
+        )
+
+        if not items:
+            return f"No results found for: {safe_query}"
+
+        results: list[str] = []
+        for row in items[:n]:
+            title = str(row.get("title") or "").strip()
+            snippet = str(row.get("snippet") or "").strip()
+            url = str(row.get("url") or "").strip()
+            if title and snippet:
+                line = f"[{title[:80]}] {snippet[:150]}"
+                if url and url != "about:blank":
+                    line += f" ({url[:140]})"
+                results.append(line)
+            elif title:
+                results.append(f"[{title[:80]}]")
+            elif snippet:
+                results.append(snippet[:150])
 
         if not results:
             return f"No results found for: {safe_query}"
 
         # 合計文字数を件数に応じて調整
-        max_chars = 600 + n * 200
-        body_text = f"Search: {safe_query}\n" + "\n".join(results)
+        max_chars = 700 + n * 220
+        body_text = f"{meta_line}\nSearch: {safe_query}\n" + "\n".join(results)
         return body_text[:max_chars]
 
     except Exception as e:
