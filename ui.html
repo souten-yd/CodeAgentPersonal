@@ -7044,7 +7044,8 @@ let nexusSavedEvidence = [];
 let nexusEvidenceRows = [];
 let nexusReportRows = [];
 let nexusSelectedReportId = null;
-let nexusMaxUploadBytes = 20 * 1024 * 1024;
+let nexusMaxUploadMb = 200;
+let nexusMaxUploadBytes = nexusMaxUploadMb * 1024 * 1024;
 const nexusAllowedUploadExt = new Set(['.pdf', '.txt', '.md', '.csv', '.html']);
 let nexusDropDragDepth = 0;
 
@@ -7247,7 +7248,8 @@ async function refreshNexusDashboardSummary() {
     document.getElementById('nexus-metric-chunks').textContent = d.chunks ?? 0;
     document.getElementById('nexus-metric-reports').textContent = d.reports ?? 0;
     document.getElementById('nexus-metric-active-jobs').textContent = d.active_jobs ?? 0;
-    nexusMaxUploadBytes = Number(d?.limits?.max_upload_bytes || nexusMaxUploadBytes || (20 * 1024 * 1024));
+    nexusMaxUploadMb = Number(d?.limits?.max_upload_mb || nexusMaxUploadMb || 200);
+    nexusMaxUploadBytes = Number(d?.limits?.max_upload_bytes || (nexusMaxUploadMb * 1024 * 1024));
   } catch (e) {
     addLog('err', 'nexus', 'summary load failed: ' + e.message);
   }
@@ -7268,7 +7270,7 @@ function validateNexusUploadFiles(files = []) {
     if (Number(file?.size || 0) > nexusMaxUploadBytes) {
       return {
         ok: false,
-        message: `サイズ超過: ${file?.name || '(unknown)'} (最大 ${formatBytes(nexusMaxUploadBytes)})`,
+        message: `サイズ超過: ${file?.name || '(unknown)'}（最大 ${nexusMaxUploadMb} MB）`,
       };
     }
   }
