@@ -2198,9 +2198,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <select id="echo-tts-engine"
             style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
             onchange="saveEchoSettings()">
-            <option value="webspeech">Web Speech API（ブラウザ内蔵）</option>
-            <option value="edgetts">Edge TTS（クラウド）</option>
-            <option value="voicevox">VOICEVOX</option>
             <option value="qwen3tts" selected>Qwen3 TTS（高品質・ローカル）</option>
             <option value="style_bert_vits2">Style-Bert-VITS2</option>
           </select>
@@ -3338,7 +3335,7 @@ const agentTts = {
   })(),
 };
 
-const _SUPPORTED_TTS_ENGINES = new Set(['webspeech', 'edgetts', 'qwen3tts', 'style_bert_vits2', 'voicevox']);
+const _SUPPORTED_TTS_ENGINES = new Set(['qwen3tts', 'style_bert_vits2']);
 const _TTS_ENGINE_COMPAT_ALIASES = {
   qwen3_tts: 'qwen3tts',
   stylebertvits2: 'style_bert_vits2',
@@ -3671,7 +3668,6 @@ function ttsStop() {
   tts._audio = null;
   clearTtsBlockedState();
   hideFloatingTtsPlayer();
-  if (tts._utt && window.speechSynthesis) window.speechSynthesis.cancel();
   tts._autoplayBlockedNoticeShown = false;
   _clearQwen3CloneStatusTimer();
   const cloneStatusEl = document.getElementById('qwen3-clone-test-status');
@@ -3910,9 +3906,7 @@ async function _ttsPlayNext() {
   try {
     // 翻訳TTS処理（有効な場合）
     sentence = skipTranslate ? sentence : await _ttsMaybeTranslate(sentence, context, playEngine);
-    if (playEngine === 'webspeech') {
-      await _ttsPlayWebSpeech(sentence);
-    } else {
+    {
       const blob = await _ttsFetchAudio(sentence, playEngine, context, {rawText, translatedText});
       const result = await enqueueTtsAudioBlob(blob, `tts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, {
         context,
@@ -4039,23 +4033,6 @@ async function _ttsPlayStyleBertVits2Batch(queueItem = {}) {
   if (result?.reason === 'blocked') return;
 }
 
-function _ttsPlayWebSpeech(text) {
-  return new Promise((resolve) => {
-    if (!window.speechSynthesis) { resolve(); return; }
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = tts.speed;
-    if (tts.voice) {
-      const v = window.speechSynthesis.getVoices().find(v => v.name === tts.voice);
-      if (v) u.voice = v;
-    }
-    u.onend = resolve;
-    u.onerror = resolve;
-    tts._utt = u;
-    window.speechSynthesis.speak(u);
-  });
-}
-
 async function _ttsFetchAudio(text, engine = tts.engine, context = 'main', opts = {}) {
   engine = _normalizeTtsEngine(engine);
   if (engine === 'qwen3tts') {
@@ -4152,7 +4129,6 @@ function _getUserFacingApiErrorMessage(err, fallback = '処理に失敗しまし
 }
 
 function _buildTtsRequestBodyByEngine({text, engine, context = 'main', opts = {}}) {
-  if (engine === 'edgetts') return _buildEdgeTtsRequestBody({text, engine, opts});
   if (engine === 'qwen3tts') return _buildQwen3TtsRequestBody({text, engine, context, opts});
   if (engine === 'style_bert_vits2') return _buildStyleBertVits2RequestBody({text, engine, context, opts});
   return _buildDefaultTtsRequestBody({text, engine});
@@ -4160,13 +4136,6 @@ function _buildTtsRequestBodyByEngine({text, engine, context = 'main', opts = {}
 
 function _buildDefaultTtsRequestBody({text, engine}) {
   return {text, engine, speed: tts.speed};
-}
-
-function _buildEdgeTtsRequestBody({text, engine, opts = {}}) {
-  const body = _buildDefaultTtsRequestBody({text, engine});
-  body.voice = tts.voice || 'ja-JP-NanamiNeural';
-  _applyReservedTtsOptions(body, opts, {allowSpeed: true});
-  return body;
 }
 
 function _buildQwen3TtsRequestBody({text, engine, context, opts = {}}) {
@@ -5018,8 +4987,6 @@ async function onTtsEngineChange() {
   tts.engine = engine;
   const note       = document.getElementById('tts-engine-note');
   const loadRow    = document.getElementById('tts-engine-load-row');
-  const vvNote     = document.getElementById('tts-voicevox-note');
-  const vvUrlRow   = document.getElementById('tts-voicevox-url-row');
   const voiceRow   = document.getElementById('tts-voice-row');
   const qwen3Row   = document.getElementById('tts-qwen3-row');
   const deviceRow  = document.getElementById('tts-device-row');
@@ -5027,20 +4994,11 @@ async function onTtsEngineChange() {
 
   // デフォルトで全行非表示にしてから必要なものだけ表示
   loadRow.style.display   = 'none';
-  if (vvNote) vvNote.style.display = 'none';
-  if (vvUrlRow) vvUrlRow.style.display = 'none';
   qwen3Row.style.display  = 'none';
   deviceRow.style.display = 'none';
   voiceRow.style.display  = '';
 
-  if (engine === 'webspeech') {
-    note.textContent = 'ブラウザ内蔵の音声合成を使用します。追加インストール不要。';
-    _ttsPopulateWebSpeechVoices();
-  } else if (engine === 'edgetts') {
-    note.textContent = 'pip install edge-tts が必要です。インターネット接続が必要。';
-    await _ttsLoadVoicesFromServer('edgetts');
-    voiceRow.style.display = '';
-  } else if (engine === 'qwen3tts') {
+  if (engine === 'qwen3tts') {
     note.textContent = 'Qwen/Qwen3-TTS をローカルで実行します。pip install transformers torch torchaudio soundfile が必要（初回ダウンロード約2GB）。';
     voiceRow.style.display = 'none';
     const q3row = document.getElementById('tts-qwen3-load-row');
@@ -5055,7 +5013,7 @@ async function onTtsEngineChange() {
     note.textContent = 'Style-Bert-VITS2 をローカルモデルで実行します。Echo TTS 側でモデルを選択してください。';
     voiceRow.style.display = 'none';
   }
-  // qwen3 ロード行: edgetts/webspeech 時は非表示
+  // qwen3 ロード行: qwen3 以外では非表示
   if (engine !== 'qwen3tts') {
     const q3row = document.getElementById('tts-qwen3-load-row');
     if (q3row) q3row.style.display = 'none';
@@ -5084,19 +5042,6 @@ function _updateEchoQwen3UiVisibility() {
 
 function _isEchoStyleBertVits2Selected() {
   return (document.getElementById('echo-tts-engine')?.value || echo.ttsEngine) === 'style_bert_vits2';
-}
-
-function _ttsPopulateWebSpeechVoices() {
-  const sel = document.getElementById('tts-voice-sel');
-  const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
-  sel.innerHTML = '<option value="">（デフォルト）</option>';
-  voices.forEach(v => {
-    const opt = document.createElement('option');
-    opt.value = v.name;
-    opt.textContent = `${v.name} (${v.lang})`;
-    if (v.name === tts.voice) opt.selected = true;
-    sel.appendChild(opt);
-  });
 }
 
 async function _ttsLoadVoicesFromServer(engine) {
@@ -5419,7 +5364,7 @@ function _ttsSyncUnloadBtn(engine) {
     const loaded = (engine === 'qwen3tts' && s.qwen3tts_loaded);
     unloadBtn.style.display = loaded ? '' : 'none';
     loadBtn.style.display   = loaded ? 'none' : '';
-    const status = document.getElementById('tts-voicevox-status');
+    const status = document.getElementById('tts-qwen3-status');
     if (!status) return;
     if (engine === 'qwen3tts') {
       if (s.qwen3tts_loaded) status.textContent = `ロード済み: ${(s.qwen3tts_model_id || '').split('/').pop()}（${s.qwen3tts_actual_device || s.qwen3tts_device || 'cpu'}）`;
@@ -5432,7 +5377,7 @@ function _ttsSyncUnloadBtn(engine) {
 async function loadTtsEngine() {
   const engine = _normalizeTtsEngine(tts.engine);
   const btn    = document.getElementById('tts-engine-load-btn');
-  const status = document.getElementById('tts-voicevox-status');
+  const status = document.getElementById('tts-qwen3-status');
   btn.disabled = true;
   status.textContent = '接続中...';
   const reqBody = { engine };
@@ -6470,13 +6415,6 @@ async function toggleRefRecording() {
     _refRecorder.stop();
     if (btn) { btn.textContent = '🔴 録音'; btn.style.background = 'var(--bg2)'; }
   }
-}
-
-// Web Speech API: voices は非同期ロードされるので onvoiceschanged でも更新
-if (window.speechSynthesis) {
-  window.speechSynthesis.onvoiceschanged = () => {
-    if (tts.engine === 'webspeech') _ttsPopulateWebSpeechVoices();
-  };
 }
 
 // ── iOS Safari キーボード対応 ──

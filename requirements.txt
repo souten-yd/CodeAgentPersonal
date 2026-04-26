@@ -6,9 +6,6 @@ requests>=2.31
 pydantic>=2.6
 psutil>=5.9
 faster-whisper>=1.0
-edge-tts>=6.1
-# voicevox_core requires platform-specific manual install:
-# pip install voicevox_core --find-links "https://github.com/VOICEVOX/voicevox_core/releases/expanded_assets/0.15.0/"
 # Qwen3-TTS dependency set is isolated to avoid conflicts with core FastAPI/WebUI stack.
 # Install torch/torchaudio/torchvision from requirements-tts.txt (cu128 index),
 # then install requirements-tts-qwen.txt.
