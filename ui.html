@@ -634,7 +634,6 @@ html.logo-svg-ready .logo-text{display:none}
 .agent-session-left{display:flex;align-items:center;gap:8px;min-width:0}
 .agent-stop-btn{padding:6px 10px;border-radius:6px;border:1px solid rgba(255,68,102,.35);background:rgba(255,68,102,.08);color:var(--red);font-size:11px;font-weight:700;cursor:pointer}
 .agent-stop-btn:disabled{opacity:.45;cursor:not-allowed}
-.tts-ready-indicator{margin-left:auto;font-size:10px;color:var(--text3);font-family:var(--font-mono);letter-spacing:.04em}
 .tts-player-wrap{display:none;position:fixed;right:14px;bottom:14px;z-index:80;align-items:center;gap:8px;min-width:min(360px,calc(100vw - 28px));max-width:min(420px,calc(100vw - 28px));flex-wrap:wrap;padding:10px 12px;border:1px solid var(--accent-border);border-radius:10px;background:rgba(20,24,34,.96);box-shadow:0 10px 30px rgba(0,0,0,.35)}
 .tts-player-wrap.visible{display:flex}
 .audio-mini-btn{min-width:34px;min-height:30px;padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px;cursor:pointer;line-height:1}
@@ -1224,7 +1223,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <span>Task</span><span id="chat-task-toggle-label">OFF</span>
           </button>
         </div>
-        <span class="tts-ready-indicator" id="chat-tts-indicator">🔊</span>
       </div>
     </div>
     <div class="messages" id="messages">
@@ -1257,7 +1255,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <span id="agent-session-label" style="font-size:11px;color:var(--text2);letter-spacing:.04em">Agent session: -</span>
           <button id="agent-stop-btn" class="agent-stop-btn" type="button" onclick="handleAgentStopClick()" disabled>Stop</button>
         </div>
-        <span class="tts-ready-indicator" id="agent-tts-indicator">🔊</span>
       </div>
     </div>
     <div class="messages" id="agent-messages">
@@ -1323,7 +1320,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <span id="echo-sentence-count" class="echo-output-count" title="ASR出力の確定回数（「出力まとめ回数」と同じ定義で1回=1カウント）">出力回数: 0</span>
       </div>
       <div class="echo-bottom-row">
-        <span class="tts-ready-indicator" id="echo-tts-indicator">🔊</span>
         <span class="echo-duration echo-toolbar-elapsed" id="echo-duration">00:00</span>
       </div>
     </div>
