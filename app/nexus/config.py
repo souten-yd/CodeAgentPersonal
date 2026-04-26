@@ -43,11 +43,22 @@ def _env_bool(name: str, *, default: bool) -> bool:
 
 
 def _is_runpod_runtime() -> bool:
+    # main.py の _is_runpod_runtime() と判定ロジックを必ず同期すること。
+    # 判定条件:
+    # 1) CODEAGENT_RUNTIME=runpod/rp の明示指定時は Runpod 扱い（ただし /workspace が存在する場合のみ）
+    # 2) CODEAGENT_RUNTIME=local/default/docker の明示指定時は非 Runpod
+    # 3) それ以外は RUNPOD_POD_ID or RUNPOD_API_KEY があり、かつ /workspace がある場合のみ Runpod
+    has_workspace = Path("/workspace").exists()
     has_runpod_env = any(
         (os.environ.get(name) or "").strip()
         for name in ("RUNPOD_POD_ID", "RUNPOD_API_KEY")
     )
-    return has_runpod_env and Path("/workspace").exists()
+    forced = (os.environ.get("CODEAGENT_RUNTIME") or "").strip().lower()
+    if forced in {"runpod", "rp"}:
+        return has_workspace
+    if forced in {"local", "default", "docker"}:
+        return False
+    return has_runpod_env and has_workspace
 
 
 
