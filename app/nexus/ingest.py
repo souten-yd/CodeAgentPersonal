@@ -77,8 +77,18 @@ def _chunk_text(text: str) -> list[str]:
 
 
 def _extract_and_index(document_id: str, path: Path, filename: str, job_id: str) -> None:
-    update_job(job_id, status="running", message="extracting")
-    append_job_event(job_id, "progress", {"label": "extracting", "document_id": document_id})
+    update_job(job_id, status="running", progress=0.05, message="extracting")
+    append_job_event(
+        job_id,
+        "progress",
+        {
+            "status": "running",
+            "progress": 0.05,
+            "message": "extracting",
+            "label": "extracting",
+            "document_id": document_id,
+        },
+    )
 
     try:
         pages = extract_pages(path)
@@ -87,15 +97,36 @@ def _extract_and_index(document_id: str, path: Path, filename: str, job_id: str)
         update_job(
             job_id,
             status="completed",
+            progress=1.0,
             message="dependency_missing",
             error=message,
             document_count=1,
         )
-        append_job_event(job_id, "dependency_missing", {"document_id": document_id, "error": message})
+        append_job_event(
+            job_id,
+            "dependency_missing",
+            {
+                "status": "completed",
+                "progress": 1.0,
+                "message": "dependency_missing",
+                "document_id": document_id,
+                "error": message,
+            },
+        )
         return
     except Exception as exc:
-        update_job(job_id, status="failed", error=str(exc), message="extract_failed")
-        append_job_event(job_id, "job_failed", {"document_id": document_id, "error": str(exc)})
+        update_job(job_id, status="failed", progress=1.0, error=str(exc), message="extract_failed")
+        append_job_event(
+            job_id,
+            "job_failed",
+            {
+                "status": "failed",
+                "progress": 1.0,
+                "message": "extract_failed",
+                "document_id": document_id,
+                "error": str(exc),
+            },
+        )
         return
 
     artifacts_dir = NEXUS_DIR / "extracted" / document_id
@@ -119,7 +150,22 @@ def _extract_and_index(document_id: str, path: Path, filename: str, job_id: str)
 
     inserted = 0
     chunk_index = 0
-    for page in pages:
+    total_pages = max(1, len(pages))
+    for page_idx, page in enumerate(pages, start=1):
+        page_progress = 0.3 + (0.65 * page_idx / total_pages)
+        update_job(job_id, progress=page_progress, message=f"indexing_page_{page_idx}")
+        append_job_event(
+            job_id,
+            "progress",
+            {
+                "status": "running",
+                "progress": page_progress,
+                "message": f"indexing_page_{page_idx}",
+                "document_id": document_id,
+                "page": page_idx,
+                "total_pages": total_pages,
+            },
+        )
         for content in _chunk_text(page.text):
             chunk_id = f"{document_id}:{chunk_index}"
             citation_label = f"{filename} p.{page.page_no}"
@@ -138,12 +184,14 @@ def _extract_and_index(document_id: str, path: Path, filename: str, job_id: str)
             chunk_index += 1
             inserted += 1
 
-    update_job(job_id, status="completed", message="extracted", document_count=1)
+    update_job(job_id, status="completed", progress=1.0, message="extracted", document_count=1)
     append_job_event(
         job_id,
         "job_completed",
         {
             "status": "completed",
+            "progress": 1.0,
+            "message": "extracted",
             "document_id": document_id,
             "chunks": inserted,
             "extracted_text_path": str(extracted_text_path),
@@ -206,7 +254,17 @@ async def accept_upload(*, file: UploadFile, project: str = "default") -> dict:
 
     job_id = str(uuid.uuid4())
     create_job(job_id, title="nexus_extract", message="queued", document_count=1)
-    append_job_event(job_id, "queued", {"document_id": document_id, "path": str(stored_path)})
+    append_job_event(
+        job_id,
+        "queued",
+        {
+            "status": "queued",
+            "progress": 0.0,
+            "message": "queued",
+            "document_id": document_id,
+            "path": str(stored_path),
+        },
+    )
 
     worker = threading.Thread(
         target=_extract_and_index,
