@@ -136,6 +136,9 @@ def _ingest_source_document(*, job_id: str, project: str, source: dict) -> str:
         )
         conn.execute("DELETE FROM nexus_source_chunks WHERE source_id = ?", (source_id,))
         for idx, _ in enumerate(chunks):
+            chunk_id = f"{document_id}:{idx}".strip()
+            if not document_id or not chunk_id:
+                continue
             conn.execute(
                 """
                 INSERT INTO nexus_source_chunks(id, source_id, document_id, chunk_id, page_start, page_end,
@@ -146,7 +149,7 @@ def _ingest_source_document(*, job_id: str, project: str, source: dict) -> str:
                     str(uuid.uuid4()),
                     source_id,
                     document_id,
-                    f"{document_id}:{idx}",
+                    chunk_id,
                     1,
                     1,
                     "/",
@@ -172,6 +175,8 @@ def register_or_update_sources(
             url = str(source.get("url") or "").strip()
             if not url:
                 continue
+            raw = str(source.get("document_id") or source.get("linked_document_id") or "").strip()
+            linked_document_id = raw or None
 
             existing = conn.execute(
                 "SELECT source_id, linked_document_id FROM nexus_sources WHERE job_id = ? AND url = ?",
@@ -181,7 +186,6 @@ def register_or_update_sources(
             domain = urlparse(url).netloc.lower()
             if existing is None:
                 source_id = str(source.get("source_id") or uuid.uuid4())
-                linked_document_id = str(source.get("document_id") or "")
                 conn.execute(
                     """
                     INSERT INTO nexus_sources(
@@ -219,7 +223,9 @@ def register_or_update_sources(
                 )
             else:
                 source_id = str(existing["source_id"])
-                linked_document_id = str(source.get("document_id") or existing["linked_document_id"] or "")
+                if linked_document_id is None:
+                    existing_raw = str(existing["linked_document_id"] or "").strip()
+                    linked_document_id = existing_raw or None
                 conn.execute(
                     """
                     UPDATE nexus_sources
@@ -250,7 +256,14 @@ def register_or_update_sources(
                     ),
                 )
 
-            saved_rows.append({**source, "source_id": source_id, "domain": domain, "linked_document_id": linked_document_id})
+            saved_rows.append(
+                {
+                    **source,
+                    "source_id": source_id,
+                    "domain": domain,
+                    "linked_document_id": linked_document_id or "",
+                }
+            )
 
         conn.commit()
 
