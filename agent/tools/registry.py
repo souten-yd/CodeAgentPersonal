@@ -75,6 +75,9 @@ def create_default_registry() -> ToolRegistry:
     registry.register("get_error_trace", _wrap_dict_tool("get_error_trace", builtin.get_error_trace))
 
     registry.register("nexus_search_library", _wrap_dict_tool("nexus_search_library", nexus_tools.nexus_search_library))
+    # NOTE: Public agent-facing web search entrypoint must stay `nexus_web_search` only.
+    # `run_web_search` is an internal lower-level function and should never be registered
+    # directly as a tool name, to avoid bypassing Nexus API/domain normalization.
     registry.register("nexus_web_search", _wrap_dict_tool("nexus_web_search", nexus_tools.nexus_web_search))
     registry.register("nexus_build_report", _wrap_dict_tool("nexus_build_report", nexus_tools.nexus_build_report))
     registry.register(
