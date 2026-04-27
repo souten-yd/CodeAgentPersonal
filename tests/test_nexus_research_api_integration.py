@@ -399,6 +399,86 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
         self.assertTrue(markdown_path.exists())
         self.assertEqual(markdown_path.name, "document.md")
 
+    def test_web_collect_marks_skipped_size_limit_when_max_download_mb_is_1(self) -> None:
+        manual_url = "https://example.com/too-large.pdf"
+
+        def _mock_safe_download(url: str, **kwargs: object) -> dict:
+            self.assertEqual(url, manual_url)
+            self.assertEqual(kwargs.get("max_bytes"), 1 * 1024 * 1024)
+            raise ValueError("content too large: 2097152 bytes")
+
+        with patch("app.nexus.research_api.safe_download", side_effect=_mock_safe_download), patch(
+            "app.nexus.research_api.register_or_update_sources", side_effect=lambda **kwargs: kwargs["sources"]
+        ):
+            response = self.client.post(
+                "/nexus/web/collect",
+                json={"job_id": "collect_size_limit_1mb", "project": "default", "manual_urls": [manual_url], "max_download_mb": 1},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload.get("collected_count"), 1)
+        sources = payload.get("sources", [])
+        self.assertEqual(len(sources), 1)
+        source = sources[0]
+        self.assertEqual(source["url"], manual_url)
+        self.assertEqual(source["status"], "skipped_size_limit")
+        self.assertIn("content too large", source["error"])
+
+    def test_web_collect_accepts_pseudo_pdf_between_20mb_and_30mb(self) -> None:
+        manual_url = "https://example.com/large-allowed.pdf"
+        pseudo_pdf_size = 25 * 1024 * 1024
+        original_path = self._artifact_root / "allowed-original.pdf"
+        text_path = self._artifact_root / "allowed-text.txt"
+        markdown_path = self._artifact_root / "allowed-document.md"
+
+        def _mock_safe_download(url: str, **kwargs: object) -> dict:
+            self.assertEqual(url, manual_url)
+            self.assertEqual(kwargs.get("max_bytes"), 30 * 1024 * 1024)
+            return {
+                "url": url,
+                "final_url": url,
+                "status_code": 200,
+                "content_type": "application/pdf",
+                "filename": "large-allowed.pdf",
+                "extension": ".pdf",
+                "bytes": b"%PDF-1.4 pseudo",
+                "size": pseudo_pdf_size,
+            }
+
+        def _mock_save_download_artifacts(**_: object) -> dict:
+            original_path.write_bytes(b"%PDF-1.4 pseudo")
+            text_path.write_text("pseudo pdf text", encoding="utf-8")
+            markdown_path.write_text("# pseudo pdf", encoding="utf-8")
+            return {
+                "original": str(original_path),
+                "extracted_txt": str(text_path),
+                "extracted_md": str(markdown_path),
+                "status": "downloaded",
+                "error": "",
+            }
+
+        with patch("app.nexus.research_api.safe_download", side_effect=_mock_safe_download), patch(
+            "app.nexus.research_api.save_download_artifacts", side_effect=_mock_save_download_artifacts
+        ), patch("app.nexus.research_api.register_or_update_sources", side_effect=lambda **kwargs: kwargs["sources"]):
+            response = self.client.post(
+                "/nexus/web/collect",
+                json={"job_id": "collect_size_limit_30mb", "project": "default", "manual_urls": [manual_url], "max_download_mb": 30},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload.get("collected_count"), 1)
+        sources = payload.get("sources", [])
+        self.assertEqual(len(sources), 1)
+        source = sources[0]
+        self.assertEqual(source["url"], manual_url)
+        self.assertEqual(source["status"], "downloaded")
+        self.assertEqual(source["content_type"], "application/pdf")
+        self.assertEqual(source["local_original_path"], str(original_path))
+        self.assertEqual(source["local_text_path"], str(text_path))
+        self.assertEqual(source["local_markdown_path"], str(markdown_path))
+
 
 if __name__ == "__main__":
     unittest.main()

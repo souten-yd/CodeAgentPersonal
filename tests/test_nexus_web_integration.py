@@ -96,6 +96,10 @@ class NexusWebIntegrationTests(unittest.TestCase):
 
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.headers.get("content-type"), "application/zip")
+        content_disposition = str(r.headers.get("content-disposition") or "")
+        self.assertIn("attachment;", content_disposition)
+        self.assertIn('.zip"', content_disposition)
+        self.assertTrue(r.content.startswith(b"PK\x03\x04"))
 
     def test_web_research_returns_job_id_immediately(self) -> None:
         fake_async_result = {
