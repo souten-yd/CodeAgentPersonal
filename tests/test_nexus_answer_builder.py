@@ -37,6 +37,11 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
         self.assertEqual(payload["llm_model"], "local-llm")
         self.assertIsNone(payload["llm_error"])
+        self.assertEqual(payload["generation"]["mode"], "llm")
+        self.assertTrue(payload["generation"]["llm_enabled"])
+        self.assertEqual(payload["generation"]["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
+        self.assertEqual(payload["generation"]["llm_model"], "local-llm")
+        self.assertIsNone(payload["generation"]["error"])
 
     def test_build_answer_payload_falls_back_to_template_summary_when_llm_fails(self) -> None:
         references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
@@ -63,6 +68,11 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
         self.assertEqual(payload["llm_model"], "local-llm")
         self.assertEqual(payload["llm_error"], "timeout")
+        self.assertEqual(payload["generation"]["mode"], "template_fallback")
+        self.assertTrue(payload["generation"]["llm_enabled"])
+        self.assertEqual(payload["generation"]["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
+        self.assertEqual(payload["generation"]["llm_model"], "local-llm")
+        self.assertEqual(payload["generation"]["error"], "timeout")
 
     def test_build_answer_payload_persists_llm_metadata_in_answer_json(self) -> None:
         references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
@@ -110,6 +120,11 @@ class NexusAnswerBuilderTests(unittest.TestCase):
             self.assertEqual(saved_payload["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
             self.assertEqual(saved_payload["llm_model"], "local-llm")
             self.assertEqual(saved_payload["llm_error"], "llm unavailable")
+            self.assertEqual(saved_payload["generation"]["mode"], "template_fallback")
+            self.assertTrue(saved_payload["generation"]["llm_enabled"])
+            self.assertEqual(saved_payload["generation"]["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
+            self.assertEqual(saved_payload["generation"]["llm_model"], "local-llm")
+            self.assertEqual(saved_payload["generation"]["error"], "llm unavailable")
 
     def test_build_answer_payload_keeps_references_consistent_between_json_and_markdown(self) -> None:
         references = [

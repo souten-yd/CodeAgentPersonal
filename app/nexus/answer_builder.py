@@ -249,6 +249,14 @@ def build_answer_payload(
         evidence_chunks=normalized_chunks,
     )
 
+    generation = {
+        "mode": generation_mode,
+        "llm_enabled": llm_enabled,
+        "llm_endpoint": llm_endpoint,
+        "llm_model": llm_model,
+        "error": llm_error,
+    }
+
     payload = {
         "question": question,
         "answer": final_summary,
@@ -256,6 +264,8 @@ def build_answer_payload(
         "evidence_json": evidence_json,
         "references": normalized_references,
         "citation_verification": citation_verification,
+        "generation": generation,
+        # Backward compatibility: duplicated top-level keys during migration window.
         "generation_mode": generation_mode,
         "llm_enabled": llm_enabled,
         "llm_endpoint": llm_endpoint,

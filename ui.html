@@ -643,6 +643,10 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-deep-panel{display:flex;flex-direction:column;gap:8px}
 .nexus-deep-timeline{max-height:200px;overflow:auto}
 .nexus-deep-answer{min-height:120px}
+.nexus-citation-warnings{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.nexus-citation-warning{border:1px solid var(--border);border-radius:6px;padding:7px;background:var(--bg1);font-size:10px;color:var(--text2);line-height:1.45}
+.nexus-citation-warning.unsupported{border-color:rgba(255,68,102,.38);background:rgba(255,68,102,.09)}
+.nexus-citation-warning.weak{border-color:rgba(255,170,0,.38);background:rgba(255,170,0,.1)}
 .nexus-ref-list{display:flex;flex-direction:column;gap:8px;max-height:420px;overflow:auto}
 .nexus-ref-card{border:1px solid var(--border);border-radius:6px;background:var(--bg1);padding:8px;display:flex;flex-direction:column;gap:6px}
 .nexus-ref-title{font-size:11px;color:var(--text2);font-weight:700}
@@ -1553,6 +1557,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <div id="nexus-deep-answer" class="nexus-detail-panel nexus-deep-answer">
                 <div class="nexus-empty">回答はここに表示されます</div>
               </div>
+              <div id="nexus-deep-citation-warnings" class="nexus-citation-warnings"></div>
             </div>
             <div class="nexus-card">
               <div class="nexus-card-title">References</div>
@@ -8140,11 +8145,38 @@ function renderNexusDeepAnswer(answer = {}) {
   const el = document.getElementById('nexus-deep-answer');
   if (!el) return;
   const md = String(answer?.answer_markdown || '').trim();
+  renderNexusDeepCitationWarnings(answer);
   if (!md) {
     el.innerHTML = '<div class="nexus-empty">回答はまだ生成されていません</div>';
     return;
   }
   el.innerHTML = `<div class="md">${renderMd(md)}</div>`;
+}
+
+function renderNexusDeepCitationWarnings(answer = {}) {
+  const root = document.getElementById('nexus-deep-citation-warnings');
+  if (!root) return;
+  const warnings = Array.isArray(answer?.citation_verification?.warnings) ? answer.citation_verification.warnings : [];
+  if (!warnings.length) {
+    root.innerHTML = '';
+    return;
+  }
+  root.innerHTML = warnings
+    .map((item, idx) => {
+      const status = String(item?.status || '').trim().toLowerCase();
+      const isUnsupported = status === 'unsupported';
+      const isWeak = status === 'weak';
+      const className = isUnsupported ? 'unsupported' : (isWeak ? 'weak' : '');
+      const label = isUnsupported ? 'Unsupported' : (isWeak ? 'Weak' : (status || 'Warning'));
+      const sentenceIndex = Number(item?.sentence_index);
+      const reason = String(item?.reason || '').trim() || '-';
+      const sentence = String(item?.sentence || '').trim() || '(sentence unavailable)';
+      return `<div class="nexus-citation-warning ${className}">
+        <div><strong>${esc(label)}</strong> · #${Number.isFinite(sentenceIndex) ? sentenceIndex : idx + 1} · reason: ${esc(reason)}</div>
+        <div>${esc(sentence)}</div>
+      </div>`;
+    })
+    .join('');
 }
 
 function renderNexusDeepViewer(payload = {}) {

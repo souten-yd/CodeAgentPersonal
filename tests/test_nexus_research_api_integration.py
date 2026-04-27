@@ -293,6 +293,7 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
             "evidence.json",
             "sources.json",
             "source_chunks.json",
+            "events.json",
             "queries.json",
             "job.json",
         }
