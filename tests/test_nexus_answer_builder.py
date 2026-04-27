@@ -95,6 +95,64 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertIn("[S1]", payload["answer_markdown"])
         self.assertNotIn("article#1", payload["answer_markdown"])
 
+    def test_citation_verification_ok_when_all_labels_match(self) -> None:
+        references = [{"citation_label": "src-a", "title": "Source A", "source_id": "src-a"}]
+
+        payload = build_answer_payload(
+            question="質問",
+            summary="これは結論です src-a",
+            references=references,
+        )
+
+        self.assertEqual(
+            payload["citation_verification"],
+            {
+                "ok": True,
+                "missing_in_references": [],
+                "unused_references": [],
+                "invalid_labels": [],
+            },
+        )
+
+    def test_citation_verification_detects_unknown_label_in_answer(self) -> None:
+        references = [{"citation_label": "src-a", "title": "Source A", "source_id": "src-a"}]
+
+        payload = build_answer_payload(
+            question="質問",
+            summary="結論 [S1] [S9]",
+            references=references,
+        )
+
+        self.assertFalse(payload["citation_verification"]["ok"])
+        self.assertEqual(payload["citation_verification"]["missing_in_references"], ["[S9]"])
+        self.assertEqual(payload["citation_verification"]["unused_references"], [])
+
+    def test_citation_verification_detects_unused_reference_label(self) -> None:
+        references = [
+            {"citation_label": "r1", "title": "Source 1", "source_id": "src-1"},
+            {"citation_label": "r2", "title": "Source 2", "source_id": "src-2"},
+        ]
+        chunks = [
+            {"text": "fact1", "source_id": "src-1", "citation_label": "r1"},
+            {"text": "fact2", "source_id": "src-2", "citation_label": "r2"},
+        ]
+
+        with patch.dict(os.environ, {"NEXUS_ENABLE_ANSWER_LLM": "true"}, clear=False), patch(
+            "app.nexus.answer_builder._generate_answer_with_llm",
+            return_value="結論 [S1]",
+        ):
+            payload = build_answer_payload(
+                question="質問",
+                summary="fallback",
+                references=references,
+                evidence_chunks=chunks,
+            )
+
+        self.assertFalse(payload["citation_verification"]["ok"])
+        self.assertEqual(payload["citation_verification"]["missing_in_references"], [])
+        self.assertEqual(payload["citation_verification"]["unused_references"], ["[S2]"])
+        self.assertEqual(payload["citation_verification"]["invalid_labels"], [])
+
 
 if __name__ == "__main__":
     unittest.main()
