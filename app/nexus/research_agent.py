@@ -59,13 +59,6 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _resolve_max_download_mb(requested_max_download_mb: int | None) -> int:
-    if requested_max_download_mb is not None:
-        return max(1, requested_max_download_mb)
-    runtime_cfg = load_runtime_config()
-    return max(1, runtime_cfg.max_download_mb)
-
-
 
 def _load_source_chunks(source_ids: list[str]) -> list[dict]:
     normalized = [s for s in source_ids if s]
@@ -182,7 +175,8 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
     effective_job_id = job_id or f"research_{uuid.uuid4().hex}"
     max_sources = payload.max_sources if payload.max_sources is not None else 50
     max_downloads = payload.max_downloads if payload.max_downloads is not None else runtime_cfg.max_downloads
-    max_download_mb = _resolve_max_download_mb(payload.max_download_mb)
+    requested_max_download_mb = payload.max_download_mb if payload.max_download_mb is not None else runtime_cfg.max_download_mb
+    max_download_mb = min(500, max(1, requested_max_download_mb))
     max_download_bytes = max_download_mb * 1024 * 1024
     max_total_download_mb = (
         payload.max_total_download_mb
