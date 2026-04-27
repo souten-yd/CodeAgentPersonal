@@ -39,7 +39,7 @@ from agent.loop import AgentLoop
 from agent.memory import HybridMemoryStore, MemoryStore
 from agent.planner import Planner
 from agent.session import AgentSession
-from agent.tools.registry import ToolRegistry
+from agent.tools.registry import ToolRegistry, create_default_registry
 from agent.types import Action, Evaluation, Plan, ToolResult
 from app.tts.engine_registry import EngineRegistry, TTSEngineRuntime
 from app.tts.qwen3_tts_runtime import Qwen3TTSRuntime
@@ -3432,6 +3432,7 @@ def _run_nexus_search_for_context(
     max_queries: int = 1,
     scope: str | list[str] | None = None,
     language: str | None = None,
+    invoked_tool: str = "nexus_web_search",
 ) -> dict:
     """
     Chat/Task 共通のNexus Web検索ヘルパー。
@@ -3479,6 +3480,7 @@ def _run_nexus_search_for_context(
 
     requested_depth = (depth or mode or "quick").strip() or "quick"
     capped = max(1, min(int(num_results or _search_num_results or 5), 20))
+    query_plan: list[str] = []
     try:
         query_plan = plan_web_queries(
             safe_query,
@@ -3498,6 +3500,15 @@ def _run_nexus_search_for_context(
         )
     except Exception as e:
         error_text = f"Search error: {e}"
+        print(json.dumps({
+            "event": "agent_nexus_web_search",
+            "called": True,
+            "invoked_tool": invoked_tool,
+            "queries": query_plan or [safe_query],
+            "provider": "unknown",
+            "total_items": 0,
+            "provider_errors": {"exception": str(e)},
+        }, ensure_ascii=False))
         return {
             "ok": False,
             "query": safe_query,
@@ -3515,6 +3526,17 @@ def _run_nexus_search_for_context(
 
     items = search_output.get("items") or []
     selected_provider = str(search_output.get("selected_provider") or search_output.get("provider") or "unknown")
+    provider_errors = search_output.get("provider_errors") or {}
+    total_items = int(search_output.get("total_items") or len(items))
+    print(json.dumps({
+        "event": "agent_nexus_web_search",
+        "called": True,
+        "invoked_tool": invoked_tool,
+        "queries": query_plan or [safe_query],
+        "provider": selected_provider,
+        "total_items": total_items,
+        "provider_errors": provider_errors,
+    }, ensure_ascii=False))
     fallback_used = bool(search_output.get("fallback_used", False))
     non_fatal = bool(search_output.get("non_fatal", False))
     stub_only = bool(items) and all(bool(row.get("is_stub")) for row in items)
@@ -3536,7 +3558,7 @@ def _run_nexus_search_for_context(
         "non_fatal": non_fatal,
         "message": str(search_output.get("message") or ""),
         "selected_provider": selected_provider,
-        "total_items": int(search_output.get("total_items") or len(items)),
+        "total_items": total_items,
     }
     return {
         "ok": True,
@@ -3594,6 +3616,7 @@ def web_search(query: str, num_results: int = 0) -> str:
         mode="quick",
         depth="quick",
         max_queries=1,
+        invoked_tool="web_search",
     )
     return str(result.get("context_text") or result.get("message") or "No results found.")
 
@@ -3617,6 +3640,7 @@ def nexus_web_search(
         max_queries=max_queries,
         scope=scope,
         language=language,
+        invoked_tool="nexus_web_search",
     )
     return str(result.get("context_text") or result.get("message") or "No results found.")
 
@@ -6874,6 +6898,7 @@ TASK_V2_SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 - thought は内部用の短文（最大900文字）にし、外部に見せるべき内容は action / args / output にのみ含める。
 - ツール実行結果がERRORの場合、同じaction+同じ引数を繰り返さない。必ずエラー内容を読んで引数や手順を変更する。
 - 1ステップ1アクション。action に複数ツール名を列挙しない。
+- 最新情報・外部調査・ニュース・価格・仕様確認のように時点依存の情報が必要な場合、最初に nexus_web_search を実行して根拠を取得する。
 
 【出力形式】（このフォーマット厳守）
 {"thought":"考えていること","action":"ツール名","args":{ツールの引数}}
@@ -6921,7 +6946,7 @@ TASK_V2_SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 6. HTTPサーバー起動は run_python ではなく run_server を使う（run_pythonはサーバー系タイムアウトする）
 7. 要件が曖昧な場合は clarify でユーザーに確認
 7.5. ツール結果の解釈は出力テキストに厳密に従うこと。出力に書かれていない .venv / Docker Compose / Runpod 設定不備を推測で断定しない。
-7.6. 最新情報・外部調査・ニュース・価格・仕様確認が必要な場合は、必ず nexus_web_search を使って確認する（web_searchは互換エイリアス）。
+7.6. 最新情報・外部調査・ニュース・価格・仕様確認が必要な場合は、必ず nexus_web_search を優先して使う。web_search を使う場合も互換エイリアスとして内部では nexus_web_search 相当の検索として扱う。
 9. 【Gitワークフロー】タスク開始時に git_checkout_branch でfeatureブランチを作成し、
    完了後に git_commit でコミットすること。失敗時は git_reset で即座に復元できる。
 8. 【タイムアウト対策】"ERROR: timeout (Xs)" が返ってきた場合:
@@ -7120,6 +7145,7 @@ class AgentProjectState:
     loopCount: int = 0
     lastActions: list[str] = field(default_factory=list)
     session: AgentSession | None = None
+    tool_registry_logged: bool = False
 
 
 @dataclass
@@ -7144,6 +7170,27 @@ def _get_or_create_agent_project_state(project_key: str) -> AgentProjectState:
         state = AgentProjectState()
         agent_state.projects[project_key] = state
     return state
+
+
+def _log_agent_registry_tools(project: str, *, reason: str) -> None:
+    try:
+        default_tools = sorted(create_default_registry().list_tools())
+    except Exception as exc:
+        print(json.dumps({
+            "event": "agent_tool_registry_snapshot_error",
+            "project": project,
+            "reason": reason,
+            "error": str(exc),
+        }, ensure_ascii=False))
+        return
+    print(json.dumps({
+        "event": "agent_tool_registry_snapshot",
+        "project": project,
+        "reason": reason,
+        "tool_count": len(default_tools),
+        "tools": default_tools,
+        "has_nexus_web_search": "nexus_web_search" in default_tools,
+    }, ensure_ascii=False))
 
 
 def _execute_agent_session_queue(
@@ -13637,6 +13684,7 @@ async def agent_start(req: Request):
         project_state.currentTask = task or None
         project_state.lastActions = []
         project_state.session = AgentSession(project_key=project)
+        project_state.tool_registry_logged = False
 
         ingest_meta = {
             "turn_id": None,
@@ -13668,6 +13716,11 @@ async def agent_start(req: Request):
                 "queued_count": len(project_state.session.execution_queue),
                 "loaded_turns": loaded,
             }
+        should_log_registry = not project_state.tool_registry_logged
+        project_state.tool_registry_logged = True
+
+    if should_log_registry:
+        _log_agent_registry_tools(project, reason="/agent/start")
 
     return {"status": "started", "project": project, "mode": "session_bootstrap", "ingest": ingest_meta}
 
@@ -13706,6 +13759,11 @@ async def agent_turn(req: Request):
         if project_state.session is None:
             project_state.session = AgentSession(project_key=project)
         ingest_meta = project_state.session.ingest_user_turn(message)
+        should_log_registry = not project_state.tool_registry_logged
+        project_state.tool_registry_logged = True
+
+    if should_log_registry:
+        _log_agent_registry_tools(project, reason="/agent/turn:first")
 
     chat_result = execute_chat_with_optional_web_search(
         message=message,
