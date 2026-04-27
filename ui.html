@@ -8137,14 +8137,43 @@ const NEXUS_DEEP_STORAGE = {
   topic: 'nexus_deep_topic',
   depth: 'nexus_deep_depth',
   scope: 'nexus_deep_scope',
+  maxDownloadMb: 'nexus.deepResearch.maxDownloadMb',
+  maxTotalDownloadMb: 'nexus.deepResearch.maxTotalDownloadMb',
+  maxDownloads: 'nexus.deepResearch.maxDownloads',
+  timeoutSec: 'nexus.deepResearch.timeoutSec',
+  preferPdf: 'nexus.deepResearch.preferPdf',
+  officialFirst: 'nexus.deepResearch.officialFirst',
+  continueOnError: 'nexus.deepResearch.continueOnError',
+};
+
+const NEXUS_DEEP_LEGACY_STORAGE = {
   maxDownloadMb: 'nexus_deep_max_download_mb',
   maxTotalDownloadMb: 'nexus_deep_max_total_download_mb',
   maxDownloads: 'nexus_deep_max_downloads',
-  downloadTimeoutSec: 'nexus_deep_download_timeout_sec',
-  continueOnDownloadError: 'nexus_deep_continue_on_download_error',
+  timeoutSec: 'nexus_deep_download_timeout_sec',
   preferPdf: 'nexus_deep_prefer_pdf',
   officialFirst: 'nexus_deep_official_first',
+  continueOnError: 'nexus_deep_continue_on_download_error',
 };
+
+const NEXUS_DEEP_MIGRATION_DONE_KEY = 'nexus.deepResearch.migrationDone.v1';
+
+function migrateNexusDeepResearchStorageOnce() {
+  if (localStorage.getItem(NEXUS_DEEP_MIGRATION_DONE_KEY) === 'true') return;
+
+  Object.keys(NEXUS_DEEP_LEGACY_STORAGE).forEach((key) => {
+    const nextKey = NEXUS_DEEP_STORAGE[key];
+    const legacyKey = NEXUS_DEEP_LEGACY_STORAGE[key];
+    if (!nextKey || !legacyKey) return;
+    if (localStorage.getItem(nextKey) !== null) return;
+    const legacyValue = localStorage.getItem(legacyKey);
+    if (legacyValue !== null) {
+      localStorage.setItem(nextKey, legacyValue);
+    }
+  });
+
+  localStorage.setItem(NEXUS_DEEP_MIGRATION_DONE_KEY, 'true');
+}
 
 function clampInt(value, min, max) {
   const num = parseInt(String(value ?? '').trim(), 10);
@@ -8153,6 +8182,7 @@ function clampInt(value, min, max) {
 }
 
 function loadNexusDeepResearchForm() {
+  migrateNexusDeepResearchStorageOnce();
   const topicEl = document.getElementById('nexus-deep-topic');
   const depthEl = document.getElementById('nexus-deep-depth');
   const scopeEl = document.getElementById('nexus-deep-scope');
@@ -8170,9 +8200,9 @@ function loadNexusDeepResearchForm() {
   if (maxDownloadMbEl) maxDownloadMbEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.maxDownloadMb) || '';
   if (maxTotalDownloadMbEl) maxTotalDownloadMbEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.maxTotalDownloadMb) || '';
   if (maxDownloadsEl) maxDownloadsEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.maxDownloads) || '';
-  if (downloadTimeoutSecEl) downloadTimeoutSecEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.downloadTimeoutSec) || '';
+  if (downloadTimeoutSecEl) downloadTimeoutSecEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.timeoutSec) || '';
   if (continueOnDownloadErrorEl) {
-    const raw = localStorage.getItem(NEXUS_DEEP_STORAGE.continueOnDownloadError);
+    const raw = localStorage.getItem(NEXUS_DEEP_STORAGE.continueOnError);
     continueOnDownloadErrorEl.checked = raw === null ? true : raw === 'true';
   }
   if (preferPdfEl) {
@@ -8192,8 +8222,8 @@ function saveNexusDeepResearchForm(values) {
   localStorage.setItem(NEXUS_DEEP_STORAGE.maxDownloadMb, values.maxDownloadMb == null ? '' : String(values.maxDownloadMb));
   localStorage.setItem(NEXUS_DEEP_STORAGE.maxTotalDownloadMb, values.maxTotalDownloadMb == null ? '' : String(values.maxTotalDownloadMb));
   localStorage.setItem(NEXUS_DEEP_STORAGE.maxDownloads, values.maxDownloads == null ? '' : String(values.maxDownloads));
-  localStorage.setItem(NEXUS_DEEP_STORAGE.downloadTimeoutSec, values.downloadTimeoutSec == null ? '' : String(values.downloadTimeoutSec));
-  localStorage.setItem(NEXUS_DEEP_STORAGE.continueOnDownloadError, values.continueOnDownloadError ? 'true' : 'false');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.timeoutSec, values.downloadTimeoutSec == null ? '' : String(values.downloadTimeoutSec));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.continueOnError, values.continueOnDownloadError ? 'true' : 'false');
   localStorage.setItem(NEXUS_DEEP_STORAGE.preferPdf, values.preferPdf ? 'true' : 'false');
   localStorage.setItem(NEXUS_DEEP_STORAGE.officialFirst, values.officialFirst ? 'true' : 'false');
 }
