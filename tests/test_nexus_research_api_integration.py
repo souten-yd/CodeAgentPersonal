@@ -1,5 +1,6 @@
 import os
 import json
+import io
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -15,7 +16,7 @@ from fastapi.testclient import TestClient
 from app.nexus.db import get_conn, insert_chunk, insert_document, update_document_artifact_paths
 from app.nexus.downloader import save_download_artifacts
 from app.nexus.export import create_research_bundle
-from app.nexus.jobs import create_job
+from app.nexus.jobs import append_job_event, create_job, update_job
 from app.nexus.research_api import ResearchRunRequest, run_research
 from app.nexus.router import nexus_router
 
@@ -30,6 +31,123 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self._tmpdir.cleanup()
+
+    def _mock_seed_async_research_job(self, payload: ResearchRunRequest) -> dict:
+        query = payload.query.strip()
+        job_id = f"research_api_poll_{uuid.uuid4().hex[:10]}"
+        now = datetime.now(timezone.utc).isoformat()
+        create_job(job_id, title=query, status="queued", message="queued")
+        append_job_event(job_id, "job.status", {"status": "queued", "message": "queued", "updated_at": now})
+        update_job(job_id, status="running", message="running")
+        append_job_event(job_id, "job.status", {"status": "running", "message": "running", "updated_at": now})
+        update_job(job_id, status="completed", progress=1.0, message="completed")
+        append_job_event(job_id, "job.status", {"status": "completed", "message": "completed", "updated_at": now})
+
+        status_map = {
+            "downloaded": ["downloaded"],
+            "degraded": ["degraded"],
+            "skipped": ["skipped"],
+        }
+        expected_statuses = status_map.get(query, ["downloaded", "degraded", "skipped"])
+        source_ids: list[str] = []
+        with get_conn() as conn:
+            for idx, source_status in enumerate(expected_statuses, start=1):
+                source_id = f"src_{source_status}_{uuid.uuid4().hex[:8]}"
+                source_ids.append(source_id)
+                body = f"<html><body>{query} {source_status}</body></html>".encode("utf-8")
+                download_result = {
+                    "url": f"https://example.com/{query}/{idx}",
+                    "final_url": f"https://example.com/{query}/{idx}",
+                    "status_code": 200,
+                    "content_type": "text/html",
+                    "filename": "mock.html",
+                    "extension": ".html",
+                    "bytes": body,
+                    "size": len(body),
+                }
+                artifacts = save_download_artifacts(job_id, source_id, download_result)
+                document_id = f"doc_{source_id}"
+                insert_document(
+                    document_id=document_id,
+                    project=payload.project,
+                    filename=f"{source_status}-source.html",
+                    size=len(body),
+                    content_type="text/html",
+                    path=artifacts["original"],
+                    sha256=sha256(body).hexdigest(),
+                    created_at=now,
+                )
+                update_document_artifact_paths(
+                    document_id=document_id,
+                    extracted_text_path=artifacts["extracted_txt"],
+                    markdown_path=artifacts["extracted_md"],
+                    updated_at=now,
+                )
+                conn.execute(
+                    """
+                    INSERT INTO nexus_sources(
+                        source_id, job_id, project, source_type, url, final_url, title, publisher, domain,
+                        language, content_type, local_original_path, local_text_path, local_markdown_path,
+                        local_screenshot_path, linked_document_id, status, source_score, source_score_breakdown,
+                        error, retrieved_at, created_at, updated_at
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        source_id,
+                        job_id,
+                        payload.project,
+                        "web",
+                        download_result["url"],
+                        download_result["final_url"],
+                        f"{source_status} source",
+                        "",
+                        "example.com",
+                        "ja",
+                        "text/html",
+                        artifacts["original"],
+                        artifacts["extracted_txt"],
+                        artifacts["extracted_md"],
+                        "",
+                        document_id,
+                        source_status,
+                        0.7,
+                        "{}",
+                        "" if source_status != "degraded" else "partial extraction",
+                        now,
+                        now,
+                        now,
+                    ),
+                )
+            conn.execute(
+                """
+                INSERT INTO nexus_research_answers(
+                    answer_id, job_id, project, question, answer_markdown,
+                    evidence_json, answer_json, source_ids_json, created_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    job_id,
+                    payload.project,
+                    query,
+                    f"# Answer\n{query} result\n",
+                    "[]",
+                    json.dumps(
+                        {
+                            "question": query,
+                            "answer_markdown": f"# Answer\n{query} result\n",
+                            "references": [],
+                            "citation_verification": {"ok": True, "warnings": []},
+                            "generation": {"mode": payload.mode},
+                        },
+                        ensure_ascii=False,
+                    ),
+                    json.dumps(source_ids, ensure_ascii=False),
+                    now,
+                ),
+            )
+            conn.commit()
+        return {"job_id": job_id, "job": {"job_id": job_id, "status": "completed", "message": "completed"}}
 
     def test_get_research_job_answer_prefers_persisted_answer_json(self) -> None:
         job_id = f"job_answer_json_{uuid.uuid4().hex[:8]}"
@@ -566,6 +684,75 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
         self.assertEqual(source["url"], manual_url)
         self.assertEqual(source["status"], "skipped_size_limit")
         self.assertIn("content too large", source["error"])
+
+    def test_research_run_polling_sources_answer_bundle_contract(self) -> None:
+        scenarios = [
+            ("downloaded", {"downloaded"}),
+            ("degraded", {"degraded"}),
+            ("skipped", {"skipped"}),
+        ]
+        required_root_files = {
+            "answer.md",
+            "answer.json",
+            "evidence.json",
+            "sources.json",
+            "source_chunks.json",
+            "queries.json",
+            "job.json",
+            "events.json",
+        }
+
+        with patch("app.nexus.router.run_research_async", side_effect=self._mock_seed_async_research_job):
+            for query, expected_statuses in scenarios:
+                run_response = self.client.post(
+                    "/nexus/research/run",
+                    json={"query": query, "project": "default", "mode": "standard", "depth": "shallow", "scope": ["web"]},
+                )
+                self.assertEqual(run_response.status_code, 200)
+                job_id = run_response.json().get("job_id")
+                self.assertTrue(job_id)
+
+                after = -1
+                observed_states: list[str] = []
+                for _ in range(3):
+                    events_response = self.client.get(f"/nexus/research/jobs/{job_id}/events?after={after}")
+                    self.assertEqual(events_response.status_code, 200)
+                    events = events_response.json().get("events", [])
+                    for event in events:
+                        if event.get("status"):
+                            observed_states.append(str(event["status"]))
+                        after = max(after, int(event.get("seq", -1)))
+                self.assertTrue("queued" in observed_states)
+                self.assertTrue("running" in observed_states)
+                self.assertTrue(any(state in {"completed", "degraded", "failed"} for state in observed_states))
+
+                sources_response = self.client.get(f"/nexus/research/jobs/{job_id}/sources")
+                self.assertEqual(sources_response.status_code, 200)
+                sources = sources_response.json().get("sources", [])
+                self.assertGreaterEqual(len(sources), 1)
+                statuses = {str(source.get("status") or "") for source in sources}
+                self.assertTrue(expected_statuses.issubset(statuses))
+
+                answer_response = self.client.get(f"/nexus/research/jobs/{job_id}/answer")
+                self.assertEqual(answer_response.status_code, 200)
+                answer = answer_response.json().get("answer", {})
+                self.assertIn("answer_markdown", answer)
+                self.assertIn("generation", answer)
+                self.assertIn("citation_verification", answer)
+                self.assertIn("warnings", answer.get("citation_verification", {}))
+
+                bundle_zip_response = self.client.get(f"/nexus/research/jobs/{job_id}/bundle.zip")
+                self.assertEqual(bundle_zip_response.status_code, 200)
+                with zipfile.ZipFile(io.BytesIO(bundle_zip_response.content)) as zf:
+                    names = set(zf.namelist())
+                self.assertTrue(required_root_files.issubset(names))
+                for source in sources:
+                    source_id = source["source_id"]
+                    root = f"downloads/{source_id}"
+                    self.assertIn(f"{root}/original.html", names)
+                    self.assertIn(f"{root}/text.txt", names)
+                    self.assertIn(f"{root}/document.md", names)
+                    self.assertIn(f"{root}/metadata.json", names)
 
     def test_web_collect_accepts_pseudo_pdf_between_20mb_and_30mb(self) -> None:
         manual_url = "https://example.com/large-allowed.pdf"
