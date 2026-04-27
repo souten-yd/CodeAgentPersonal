@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 import tempfile
+from typing import Any
 import zipfile
 
 from fastapi import APIRouter, HTTPException
@@ -14,6 +15,7 @@ from app.nexus.db import NEXUS_DIR, get_conn
 from app.nexus.evidence import list_evidence_items
 from app.nexus.jobs import get_job, get_job_events
 from app.nexus.report import get_latest_report
+from app.nexus.web_scout import plan_web_queries
 
 
 _BUNDLE_DIR = Path(tempfile.gettempdir()) / "codeagent_nexus_bundles"
@@ -168,6 +170,80 @@ def _zip_write_if_exists(zf: zipfile.ZipFile, src_path: str, dst_path: str) -> N
         zf.write(path, dst_path)
 
 
+def _list_source_chunks(job_id: str) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT sc.id, sc.source_id, sc.document_id, sc.chunk_id, sc.page_start, sc.page_end,
+                   sc.section_path, sc.citation_label, sc.created_at,
+                   c.title AS chunk_title, c.text AS chunk_text
+            FROM nexus_source_chunks sc
+            JOIN nexus_sources s ON s.source_id = sc.source_id
+            LEFT JOIN nexus_chunks c ON c.chunk_id = sc.chunk_id
+            WHERE s.job_id = ?
+            ORDER BY sc.created_at ASC, sc.id ASC
+            """,
+            (job_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _extract_saved_queries(events: list[Any]) -> list[str]:
+    candidate_keys = (
+        "queries",
+        "generated_queries",
+        "planned_queries",
+        "executed_queries",
+        "search_queries",
+    )
+    recovered: list[str] = []
+    seen: set[str] = set()
+    for event in events:
+        data = event.data if hasattr(event, "data") else {}
+        if not isinstance(data, dict):
+            continue
+        for key in candidate_keys:
+            raw = data.get(key)
+            if not isinstance(raw, list):
+                continue
+            for item in raw:
+                query = str(item or "").strip()
+                if query and query not in seen:
+                    seen.add(query)
+                    recovered.append(query)
+        effective_plan = data.get("effective_query_plan")
+        if isinstance(effective_plan, dict):
+            raw_queries = effective_plan.get("queries")
+            if isinstance(raw_queries, list):
+                for item in raw_queries:
+                    query = str(item or "").strip()
+                    if query and query not in seen:
+                        seen.add(query)
+                        recovered.append(query)
+    return recovered
+
+
+def _build_queries_payload(job: Any, answer: dict, events: list[Any]) -> dict:
+    saved = _extract_saved_queries(events)
+    if saved:
+        return {"planned_queries": saved, "executed_queries": saved, "reconstructed": False}
+
+    question = str(answer.get("question") or "")
+    if not question and hasattr(job, "title"):
+        question = str(job.title or "")
+    question = question.strip()
+    if not question:
+        return {"planned_queries": [], "executed_queries": [], "reconstructed": True}
+
+    reconstructed = plan_web_queries(question, mode="standard")
+    return {
+        "planned_queries": reconstructed,
+        "executed_queries": reconstructed,
+        "reconstructed": True,
+        "reconstruction_source": "answer.question_or_job.title",
+    }
+
+
 def create_research_bundle(job_id: str) -> Path:
     if not job_id:
         raise ValueError("job_id is required")
@@ -179,6 +255,9 @@ def create_research_bundle(job_id: str) -> Path:
     answer = _latest_research_answer(job_id)
     sources = _list_job_sources(job_id)
     evidence = list_evidence_items(job_id)
+    source_chunks = _list_source_chunks(job_id)
+    events = get_job_events(job_id)
+    queries = _build_queries_payload(job, answer, events)
     report = get_latest_report(job_id)
     report_md = Path(str((report or {}).get("markdown_path") or (report or {}).get("report_md_path") or ""))
 
@@ -190,6 +269,8 @@ def create_research_bundle(job_id: str) -> Path:
         zf.writestr("answer.json", json.dumps(answer, ensure_ascii=False, indent=2))
         zf.writestr("evidence.json", json.dumps(evidence, ensure_ascii=False, indent=2))
         zf.writestr("sources.json", json.dumps(sources, ensure_ascii=False, indent=2))
+        zf.writestr("source_chunks.json", json.dumps(source_chunks, ensure_ascii=False, indent=2))
+        zf.writestr("queries.json", json.dumps(queries, ensure_ascii=False, indent=2))
 
         csv_buf = io.StringIO()
         writer = csv.DictWriter(
@@ -228,12 +309,17 @@ def create_research_bundle(job_id: str) -> Path:
             if not source_id:
                 continue
             source_root = f"downloads/{source_id}"
+            zf.writestr(f"{source_root}/metadata.json", json.dumps(source, ensure_ascii=False, indent=2))
             zf.writestr(f"{source_root}/metadata/source.json", json.dumps(source, ensure_ascii=False, indent=2))
 
             original_path = str(source.get("local_original_path") or "").strip()
             if original_path:
-                original_name = Path(original_path).name or "original.bin"
+                original_suffix = Path(original_path).suffix or ".bin"
+                original_name = Path(original_path).name or f"original{original_suffix}"
+                _zip_write_if_exists(zf, original_path, f"{source_root}/original{original_suffix}")
                 _zip_write_if_exists(zf, original_path, f"{source_root}/original/{original_name}")
+            _zip_write_if_exists(zf, str(source.get("local_text_path") or ""), f"{source_root}/text.txt")
+            _zip_write_if_exists(zf, str(source.get("local_markdown_path") or ""), f"{source_root}/document.md")
             _zip_write_if_exists(zf, str(source.get("local_text_path") or ""), f"{source_root}/extracted/content.txt")
             _zip_write_if_exists(zf, str(source.get("local_markdown_path") or ""), f"{source_root}/extracted/content.md")
             _zip_write_if_exists(
