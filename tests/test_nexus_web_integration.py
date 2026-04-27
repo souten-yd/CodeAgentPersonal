@@ -84,7 +84,16 @@ class NexusWebIntegrationTests(unittest.TestCase):
             "generated_queries": ["test"],
             "effective_query_plan": {"queries": ["test"]},
         }
-        with patch("app.nexus.router.run_web_search", return_value=fake_search):
+        with patch(
+            "app.nexus.router.execute_nexus_web_search",
+            return_value={
+                "ok": True,
+                "job_id": "job-web-1",
+                "queries": ["test"],
+                "saved_evidence": 1,
+                "search": fake_search,
+            },
+        ):
             r = self.client.post("/nexus/web/search", json={"query": "test"})
 
         self.assertEqual(r.status_code, 200)

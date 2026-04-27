@@ -27,7 +27,8 @@ from app.nexus.news import (
 )
 from app.nexus.report import nexus_report_router
 from app.nexus.search import search_evidence
-from app.nexus.web_scout import get_last_web_search_status, plan_web_queries, run_web_search
+from app.nexus.web_scout import get_last_web_search_status
+from app.nexus.web_service import execute_nexus_web_search
 from app.nexus.research_api import (
     CollectRequest,
     ResearchRunRequest,
@@ -493,23 +494,17 @@ def nexus_web_search(payload: NexusWebSearchRequest) -> dict:
     query = payload.query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="query must not be empty")
-    requested_depth = (payload.depth or payload.mode or "standard").strip() or "standard"
-    queries = plan_web_queries(
+    service_result = execute_nexus_web_search(
         query,
         mode=payload.mode,
-        depth=requested_depth,
+        depth=payload.depth,
         max_queries=payload.max_queries,
-        scope=payload.scope,
-        language=payload.language,
-    )
-    search = run_web_search(
-        queries,
-        mode=payload.mode,
-        depth=requested_depth,
         max_results_per_query=payload.max_results_per_query,
         scope=payload.scope,
         language=payload.language,
     )
+    queries = service_result.get("queries", [])
+    search = dict(service_result.get("search") or {})
     items = _with_item_provider_engine(search)
     search["items"] = items
     search["total_items"] = int(search.get("total_items") or len(items))
@@ -517,6 +512,7 @@ def nexus_web_search(payload: NexusWebSearchRequest) -> dict:
         "web.search",
         payload.model_dump(),
         {
+            "job_id": service_result.get("job_id"),
             "queries": queries,
             "generated_queries": search.get("generated_queries", queries),
             "effective_query_plan": search.get("effective_query_plan", {}),
@@ -529,6 +525,7 @@ def nexus_web_search(payload: NexusWebSearchRequest) -> dict:
             "configured": bool(search.get("configured", False)),
             "non_fatal": bool(search.get("non_fatal", False)),
             "message": search.get("message", ""),
+            "saved_evidence": service_result.get("saved_evidence", 0),
             "search": search,
             "items": items,
             "total_items": search.get("total_items", len(items)),
