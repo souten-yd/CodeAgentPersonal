@@ -33,9 +33,15 @@ class NexusWebIntegrationTests(unittest.TestCase):
         self.assertIn("non_fatal", data)
         self.assertIn("stub", data)
         self.assertIn("provider_errors", data)
+        self.assertIn("last_provider_errors", data)
+        self.assertIn("last_search_at", data)
+        self.assertIn("last_non_fatal", data)
+        self.assertIn("last_message", data)
         self.assertTrue(data["non_fatal"])
         self.assertTrue(data["stub"])
         self.assertIn("searxng", data["provider_errors"])
+        self.assertEqual(data["last_provider_errors"], {})
+        self.assertIsNone(data["last_search_at"])
 
     def test_summary_limits_include_download_related_keys(self) -> None:
         response = self.client.get("/nexus/summary")
