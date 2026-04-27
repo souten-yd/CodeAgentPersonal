@@ -110,9 +110,21 @@ def evaluate_sentence_citations(*, answer_text: str, evidence_chunks: list[dict]
             }
             for idx, sentence in enumerate(split_answer_sentences(answer_text), start=1)
         ]
+        warnings = [
+            {
+                "sentence_index": result["sentence_index"],
+                "sentence": result["sentence"],
+                "citations": result["citations"],
+                "status": result["status"],
+                "reason": "evidence_missing",
+                "best_score": result["best_score"],
+            }
+            for result in sentence_results
+            if result["status"] in {"weak", "unsupported"}
+        ]
         return {
             "sentence_results": sentence_results,
-            "warnings": [],
+            "warnings": warnings,
         }
 
     chunks_by_label: dict[str, list[dict]] = {}
@@ -167,13 +179,15 @@ def evaluate_sentence_citations(*, answer_text: str, evidence_chunks: list[dict]
         }
         sentence_results.append(result)
 
-        if status == "unsupported":
+        if status in {"weak", "unsupported"}:
             warnings.append(
                 {
                     "sentence_index": idx,
                     "sentence": sentence,
                     "citations": sentence_labels,
+                    "status": status,
                     "reason": reason,
+                    "best_score": round(best_score, 4),
                 }
             )
 
