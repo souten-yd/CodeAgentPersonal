@@ -3685,6 +3685,41 @@ function _ttsSplitSentences(text) {
   return result.filter(s => s.length > 0);
 }
 
+function _isAutoSpeakEnabled(sourceMode = 'chat') {
+  if (sourceMode === 'agent') {
+    return !!(agentTts.enabled && agentTts.autoSpeak);
+  }
+  if (sourceMode === 'echo') {
+    return !!echo.autoPlayTts;
+  }
+  return !!(tts.enabled && tts.autoSpeak);
+}
+
+function _logTtsError(err, sourceMode = 'chat', prefix = 'TTS failed') {
+  const message = err?.message || String(err || 'unknown error');
+  addLog('err', 'tts', `[${sourceMode}] ${prefix}: ${message}`);
+}
+
+const _lastPlayedTtsBySource = new Map();
+function playTTS(text, sourceMode = 'chat', extraOpts = {}) {
+  const speechText = String(text || '').trim();
+  if (!speechText) return false;
+  if (!_isAutoSpeakEnabled(sourceMode)) return false;
+  const last = _lastPlayedTtsBySource.get(sourceMode);
+  const now = Date.now();
+  if (last && last.text === speechText && (now - last.at) < 2500) return false;
+  _lastPlayedTtsBySource.set(sourceMode, {text: speechText, at: now});
+  try {
+    const context = sourceMode === 'agent' ? 'agent' : (sourceMode === 'echo' ? 'echo' : 'main');
+    const engine = sourceMode === 'echo' ? echo.ttsEngine : tts.engine;
+    ttsSpeak(speechText, {context, engine, ...extraOpts});
+    return true;
+  } catch (e) {
+    _logTtsError(e, sourceMode, 'playTTS exception');
+    return false;
+  }
+}
+
 function _ttsPreviewText(text, limit = 80) {
   const v = String(text || '').replace(/\s+/g, ' ').trim();
   return v.length > limit ? `${v.slice(0, limit)}…` : v;
@@ -4016,6 +4051,7 @@ async function _ttsPlayNext() {
       await _ttsPlayStyleBertVits2Batch(queueItem);
     } catch(e) {
       console.warn('[TTS][SBV2 batch] playback error:', e);
+      _logTtsError(e, context, 'SBV2 batch playback error');
       if (e?.name === 'TTSNoSpeakableTextError') {
         _showTtsNoticeOnce('読み上げ可能なテキストがありません');
       } else if (e?.name === 'NotSupportedError') {
@@ -4050,6 +4086,7 @@ async function _ttsPlayNext() {
       if (result?.reason === 'blocked') return;
     }
   } catch(e) {
+    _logTtsError(e, context, 'ttsPlayNext error');
     if (e?.name === 'TTSNoSpeakableTextError') {
       _showTtsNoticeOnce('読み上げ可能なテキストがありません');
     } else if (e?.name === 'NotSupportedError') {
@@ -4628,6 +4665,7 @@ async function runQwen3CloneTestGenerate(target = 'jp') {
     _setQwen3CloneTestStatus(`生成完了 / ${target === 'us' ? '英語' : '日本語'}音声`);
   } catch(e) {
     _setQwen3CloneTestStatus(`再生エラー: ${e.message || e}`, true);
+    _logTtsError(e, 'echo', 'Qwen3 clone test generate failed');
     console.warn('[Qwen3 clone test] failed:', e);
   } finally {
     _qwen3CloneTestBusy = false;
@@ -4742,6 +4780,7 @@ async function runSbv2TestGenerate() {
     _setSbv2TestStatus('生成完了');
   } catch (e) {
     _setSbv2TestStatus(`生成失敗: ${e.message || e}`, true);
+    _logTtsError(e, 'echo', 'SBV2 test generate failed');
   } finally {
     _sbv2TestBusy = false;
     _syncRecordingControlsWithTts();
@@ -4980,10 +5019,12 @@ async function tryPlayTtsQueue({userGesture = false} = {}) {
   };
   player.onerror = () => {
     console.warn(`[TTS][play_error] id=${id} reason=audio_error`);
+    _logTtsError(new Error('audio playback error'), item?.meta?.source || item?.meta?.context || 'chat', 'audio element error');
     done({ok: false, reason: 'audio_error'});
   };
   player.onabort = () => {
     console.warn(`[TTS][play_error] id=${id} reason=abort`);
+    _logTtsError(new Error('audio playback aborted'), item?.meta?.source || item?.meta?.context || 'chat', 'audio element abort');
     done({ok: false, reason: 'abort'});
   };
 
@@ -5018,6 +5059,7 @@ async function tryPlayTtsQueue({userGesture = false} = {}) {
       }
       if (userGesture) console.warn(`[TTS][manual_play_failed] id=${id} name=${e?.name || 'play_error'}`);
       else console.warn(`[TTS][play_error] id=${id} reason=${e?.name || 'play_error'}`);
+      _logTtsError(e, item?.meta?.source || item?.meta?.context || 'chat', 'audio play() failed');
       if (typeof resolve === 'function') resolve({ok: false, reason: e?.name || 'play_error'});
       tryPlayTtsQueue({userGesture: false});
     });
@@ -5549,6 +5591,7 @@ async function loadTtsEngine() {
           btn.style.display = 'none';
         } else if (ev.type === 'error') {
           if (loadMsgEl) { loadMsgEl.remove(); loadMsgEl = null; }
+          _logTtsError(new Error(ev.detail || 'load stream error'), 'chat', 'TTS load stream error');
           addMsg('error', 'TTS ロードに失敗: ' + (ev.detail || '不明なエラー'));
           status.textContent = 'エラー';
         }
@@ -5556,6 +5599,7 @@ async function loadTtsEngine() {
     }
   } catch(e) {
     if (loadMsgEl) loadMsgEl.remove();
+    _logTtsError(e, 'chat', 'TTS load failed');
     addMsg('error', 'TTS ロードに失敗: ' + e.message);
     status.textContent = 'エラー';
   } finally {
@@ -5615,12 +5659,14 @@ async function loadQwen3Tts(context) {
         } else if (ev.type === 'error') {
           const detail = ev.detail || '不明なエラー';
           if (status) status.textContent = 'エラー: ' + detail;
+          _logTtsError(new Error(detail), context === 'echo' ? 'echo' : 'chat', 'Qwen3 TTS load stream error');
           addMsg('error', 'Qwen3 TTS ロードエラー: ' + detail);
         }
       }
     }
   } catch(e) {
     if (status) status.textContent = 'エラー';
+    _logTtsError(e, context === 'echo' ? 'echo' : 'chat', 'Qwen3 TTS load failed');
     addMsg('error', 'Qwen3 TTS ロードに失敗: ' + e.message);
   } finally {
     if (btn) btn.disabled = false;
@@ -9190,9 +9236,6 @@ function addAgentConversationMsg(role, text, record = true) {
   d.className = 'msg ' + role;
   const labels = {user:'Boss', assistant:'Agent', system:'System', error:'Error'};
   d.innerHTML = `<div class="msg-role">${labels[role]||role}</div><div class="msg-bubble">${esc(String(text||''))}</div>`;
-  if (role === 'assistant' && agentTts.enabled && agentTts.autoSpeak) {
-    ttsSpeak(String(text || ''), {context: 'agent', engine: tts.engine});
-  }
   w.appendChild(d);
   w.scrollTop = w.scrollHeight;
   if (record) addAgentHistoryItem('conversation', {role, text: String(text || '')});
@@ -9424,12 +9467,53 @@ async function decideAgentTask(taskId, decision) {
   }
 }
 
+function _extractTextFromAgentTerminalEvent(ev) {
+  if (!ev || typeof ev !== 'object') return '';
+  const data = (ev.data && typeof ev.data === 'object') ? ev.data : ev;
+  const candidates = [
+    data.final_text,
+    data.reply,
+    data.summary,
+    data.message,
+    data.result,
+    data.output,
+    data.text,
+    data.completed_text,
+  ];
+  for (const v of candidates) {
+    const s = String(v || '').trim();
+    if (s) return s;
+  }
+  return '';
+}
+
+function _extractAgentTerminalSpeechText(payload) {
+  const terminalTypes = new Set(['done', 'completed', 'summary']);
+  const eventLists = [
+    payload?.events,
+    payload?.conversation?.events,
+    payload?.execution?.events,
+    payload?.job?.events,
+    payload?.sse_events,
+  ];
+  for (const list of eventLists) {
+    if (!Array.isArray(list) || !list.length) continue;
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const ev = list[i];
+      if (!terminalTypes.has(String(ev?.type || '').toLowerCase())) continue;
+      const text = _extractTextFromAgentTerminalEvent(ev);
+      if (text) return text;
+    }
+  }
+  return '';
+}
+
 async function sendAgentMessage(msg) {
   const text = String(msg || '').trim();
   if (!text || busy || mode !== 'agent') return;
   if (!agentSessionActive) await startAgentSession();
   if (!agentSessionActive) return;
-  if (agentTts.enabled && agentTts.autoSpeak && !ttsManualUnlocked) {
+  if (_isAutoSpeakEnabled('agent') && !ttsManualUnlocked) {
     await enableAudioFromUserGesture();
   }
   setBusy(true);
@@ -9450,6 +9534,7 @@ async function sendAgentMessage(msg) {
     if (runningNode?.parentNode) runningNode.parentNode.removeChild(runningNode);
     const reply = data?.conversation?.reply || data.reply || data.result || data.message || '(no response)';
     addAgentConversationMsg('assistant', reply);
+    playTTS(reply, 'agent');
     const loopLogs = Array.isArray(data?.conversation?.logs) ? data.conversation.logs : [];
     loopLogs.forEach((item, idx) => {
       addLog('info', 'agent-raw', `step=${idx + 1} raw_model_output=${String(item?.raw_model_output || '').slice(0, 500)}`);
@@ -9460,6 +9545,8 @@ async function sendAgentMessage(msg) {
     });
     const executed = data?.execution?.executed || [];
     if (executed.length) addAgentExecutionCard(executed);
+    const terminalText = _extractAgentTerminalSpeechText(data);
+    if (terminalText) playTTS(terminalText, 'agent');
     await refreshAgentTasks(data?.execution?.status || 'running');
   } catch (e) {
     if (runningNode?.parentNode) runningNode.parentNode.removeChild(runningNode);
@@ -13132,6 +13219,7 @@ async function sendMessage(msg) {
         const out = chatResult.result || '(no output)';
         addMsg('assistant', out);
         addToHistory('assistant', out);
+        playTTS(out, 'chat');
         if (chatSteps.length) { addStepsBlock(chatSteps); renderStepsToOutput(chatSteps); }
       }
     } catch(e) {
@@ -13487,6 +13575,7 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
     : `${totalTasks}タスク中${doneCount}件完了`;
   addMsg(doneCount===totalTasks?'assistant':'error', summaryText);
   addToHistory('assistant', summaryText);
+  if (doneCount === totalTasks) playTTS(summaryText, 'chat');
   detectHtml({tasks: taskResults.map(t=>({steps: t.steps||[]}))});
 }
 
@@ -13691,8 +13780,6 @@ function addMsg(role, text) {
     : '';
   d.innerHTML = `<div class="msg-role">${labels[role]||role}</div>${bubble}${toggle}${editBtn}`;
   if (isMd) d.querySelector('.msg-bubble').dataset.raw = text;
-  // 自動読み上げ
-  if (role === 'assistant' && tts.enabled && tts.autoSpeak) ttsSpeak(text);
   w.appendChild(d); scrollMsgs(); return d;
 }
 
