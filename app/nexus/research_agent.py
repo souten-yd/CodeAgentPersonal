@@ -84,7 +84,8 @@ def _record_state(job_id: str, state: str, *, message: str, progress: float) -> 
         "state_transition",
         {
             "state": state,
-            "status": state,
+            "status": "running",
+            "phase": state,
             "message": message,
             "progress": progress,
             "updated_at": _now_iso(),

@@ -25,6 +25,17 @@ def _normalize_mode(mode: str | None) -> str:
     return "standard"
 
 
+def _evidence_title(item: Any) -> str:
+    metadata = getattr(item, "metadata_json", {}) or {}
+    title = (
+        getattr(item, "title", None)
+        or metadata.get("title")
+        or getattr(item, "quote", None)
+        or "(no title)"
+    )
+    return str(title)
+
+
 def list_watchlists(*, project: str = "default", include_inactive: bool = True) -> list[dict[str, Any]]:
     where = "WHERE project = ?"
     params: list[Any] = [project]
@@ -240,10 +251,7 @@ def run_news_mvp(
     evidence_items = build_web_evidence(search_output, note="news_mvp")
     saved_count = save_evidence_items(job_id, evidence_items)
 
-    headlines = [
-        (item.metadata.get("title") or item.quote or "(no title)")
-        for item in evidence_items[:5]
-    ]
+    headlines = [_evidence_title(item) for item in evidence_items[:5]]
 
     template = {
         "topic": query_seed,

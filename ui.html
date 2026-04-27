@@ -8029,6 +8029,27 @@ function saveNexusAllEvidence(jobId, mode) {
   updateNexusJobBanner(`Evidenceをまとめて保存: ${items.length}件 (${mode})`);
 }
 
+async function buildNexusRequestFailureMessage(resp, method, path) {
+  const safeMethod = String(method || 'GET').toUpperCase();
+  const safePath = String(path || resp?.url || '').trim();
+  let detail = '';
+  try {
+    const bodyText = await resp.text();
+    if (bodyText) {
+      try {
+        const parsed = JSON.parse(bodyText);
+        detail = String(parsed?.detail || parsed?.message || bodyText).trim();
+      } catch (_err) {
+        detail = String(bodyText).trim();
+      }
+    }
+  } catch (_err) {
+    detail = '';
+  }
+  if (!detail) detail = `HTTP ${resp?.status || 'unknown'}`;
+  return `Nexus request failed: ${safeMethod} ${safePath} returned ${resp?.status || 'unknown'}: ${detail}`;
+}
+
 async function runNexusNewsMvp() {
   const topic = (document.getElementById('nexus-news-topic')?.value || '').trim();
   const btn = document.getElementById('nexus-news-run-btn');
@@ -8039,20 +8060,22 @@ async function runNexusNewsMvp() {
   if (btn) btn.disabled = true;
   setNexusNewsResult('実行中...');
   try {
-    let r = await fetch(API + '/nexus/news/search', {
+    let endpointPath = '/nexus/news/search';
+    let r = await fetch(API + endpointPath, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ topic, max_results_per_query: 5 }),
     });
     if (r.status === 404) {
-      r = await fetch(API + '/nexus/news/mvp', {
+      endpointPath = '/nexus/news/mvp';
+      r = await fetch(API + endpointPath, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ topic, max_results_per_query: 5 }),
       });
     }
-    const d = await r.json();
-    if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
+    if (!r.ok) throw new Error(await buildNexusRequestFailureMessage(r, 'POST', endpointPath));
+    const d = await r.json().catch(() => ({}));
     const payload = d?.result || d;
     setNexusNewsResult(payload);
     if (payload?.job_id) refreshNexusJobs();
@@ -8073,20 +8096,22 @@ async function runNexusMarketMvp() {
   if (btn) btn.disabled = true;
   setNexusMarketResult('実行中...');
   try {
-    let r = await fetch(API + '/nexus/market/research', {
+    let endpointPath = '/nexus/market/research';
+    let r = await fetch(API + endpointPath, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ symbol_or_theme: symbolOrTheme, max_results_per_query: 5 }),
     });
     if (r.status === 404) {
-      r = await fetch(API + '/nexus/market/mvp', {
+      endpointPath = '/nexus/market/mvp';
+      r = await fetch(API + endpointPath, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ symbol_or_theme: symbolOrTheme, max_results_per_query: 5 }),
       });
     }
-    const d = await r.json();
-    if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
+    if (!r.ok) throw new Error(await buildNexusRequestFailureMessage(r, 'POST', endpointPath));
+    const d = await r.json().catch(() => ({}));
     const payload = d?.result || d;
     setNexusMarketResult(payload);
     if (payload?.job_id) refreshNexusJobs();

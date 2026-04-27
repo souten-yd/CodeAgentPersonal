@@ -19,6 +19,17 @@ def _normalize_mode(mode: str | None) -> str:
     return "standard"
 
 
+def _evidence_title(item: Any) -> str:
+    metadata = getattr(item, "metadata_json", {}) or {}
+    title = (
+        getattr(item, "title", None)
+        or metadata.get("title")
+        or getattr(item, "quote", None)
+        or "(no title)"
+    )
+    return str(title)
+
+
 def run_market_mvp(
     symbol_or_theme: str,
     *,
@@ -61,10 +72,7 @@ def run_market_mvp(
     evidence_items = build_web_evidence(search_output, note="market_mvp")
     saved_count = save_evidence_items(job_id, evidence_items)
 
-    catalysts = [
-        (item.metadata.get("title") or item.quote or "(no title)")
-        for item in evidence_items[:5]
-    ]
+    catalysts = [_evidence_title(item) for item in evidence_items[:5]]
 
     template = {
         "symbol_or_theme": seed,

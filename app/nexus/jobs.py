@@ -2,17 +2,29 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 from app.nexus.db import get_conn
 from app.nexus.schemas import JobStatus, NexusJob, NexusJobEvent
 
 
 ACTIVE_STATUSES: tuple[JobStatus, ...] = ("queued", "running")
+_VALID_JOB_STATUSES = {"queued", "running", "completed", "failed", "degraded"}
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_event_status(value: Any) -> JobStatus | None:
+    if value is None:
+        return None
+    raw = str(value).strip().lower()
+    if not raw:
+        return None
+    if raw in _VALID_JOB_STATUSES:
+        return cast(JobStatus, raw)
+    return "running"
 
 
 def _row_to_job(row: Any) -> NexusJob:
@@ -124,14 +136,22 @@ def list_active_jobs(limit: int = 100) -> list[NexusJob]:
 
 def append_job_event(job_id: str, event_type: str, data: dict[str, Any]) -> NexusJobEvent:
     now = _now_iso()
+    raw_status = data.get("status")
+    normalized_status = _normalize_event_status(raw_status)
+    should_preserve_original = (
+        raw_status is not None and str(raw_status).strip().lower() not in _VALID_JOB_STATUSES
+    )
     normalized_data = {
-        "status": data.get("status"),
+        "status": normalized_status,
         "progress": data.get("progress"),
         "message": data.get("message"),
         "error": data.get("error"),
         "updated_at": data.get("updated_at") or now,
         **data,
     }
+    normalized_data["status"] = normalized_status
+    if should_preserve_original:
+        normalized_data["original_status"] = raw_status
     encoded = json.dumps(normalized_data, ensure_ascii=False)
     with get_conn() as conn:
         job_row = conn.execute("SELECT 1 FROM nexus_jobs WHERE job_id = ?", (job_id,)).fetchone()
@@ -166,7 +186,7 @@ def append_job_event(job_id: str, event_type: str, data: dict[str, Any]) -> Nexu
         type=event_type,
         data=normalized_data,
         ts=datetime.fromisoformat(now),
-        status=normalized_data.get("status"),
+        status=normalized_status,
         progress=normalized_data.get("progress"),
         message=normalized_data.get("message"),
         updated_at=updated_at,
@@ -188,6 +208,11 @@ def get_job_events(job_id: str, after: int = -1) -> list[NexusJobEvent]:
     events: list[NexusJobEvent] = []
     for row in rows:
         payload = json.loads(row["data"]) if row["data"] else {}
+        raw_status = payload.get("status")
+        normalized_status = _normalize_event_status(raw_status)
+        if raw_status is not None and str(raw_status).strip().lower() not in _VALID_JOB_STATUSES:
+            payload["original_status"] = raw_status
+            payload["status"] = normalized_status
         ts = datetime.fromisoformat(row["ts"]) if row["ts"] else None
         updated_raw = payload.get("updated_at")
         updated_at = None
@@ -204,7 +229,7 @@ def get_job_events(job_id: str, after: int = -1) -> list[NexusJobEvent]:
                 type=row["type"],
                 data=payload,
                 ts=ts,
-                status=payload.get("status"),
+                status=normalized_status,
                 progress=payload.get("progress"),
                 message=payload.get("message"),
                 updated_at=updated_at,
