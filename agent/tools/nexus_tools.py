@@ -16,7 +16,7 @@ from app.nexus.market import run_market_mvp
 from app.nexus.news import run_news_mvp
 from app.nexus.report import build_report, get_latest_report, save_report_record
 from app.nexus.search import search_evidence
-from app.nexus.web_service import execute_nexus_web_search
+from app.nexus.web_service import execute_web_search_service
 
 
 # --- Single Nexus API call layer -------------------------------------------------
@@ -48,8 +48,8 @@ def _call_nexus_api(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
         scope = payload.get("scope")
         max_queries = int(payload.get("max_queries", 4))
         max_results_per_query = int(payload.get("max_results_per_query", 5))
-        result = execute_nexus_web_search(
-            topic,
+        result = execute_web_search_service(
+            topic=topic,
             mode=mode,
             depth=depth,
             max_queries=max_queries,

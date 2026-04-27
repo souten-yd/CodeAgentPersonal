@@ -28,7 +28,7 @@ from app.nexus.news import (
 from app.nexus.report import nexus_report_router
 from app.nexus.search import search_evidence
 from app.nexus.web_scout import get_last_web_search_status
-from app.nexus.web_service import execute_nexus_web_search
+from app.nexus.web_service import execute_web_search_service
 from app.nexus.research_api import (
     CollectRequest,
     ResearchRunRequest,
@@ -494,8 +494,8 @@ def nexus_web_search(payload: NexusWebSearchRequest) -> dict:
     query = payload.query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="query must not be empty")
-    service_result = execute_nexus_web_search(
-        query,
+    service_result = execute_web_search_service(
+        query=query,
         mode=payload.mode,
         depth=payload.depth,
         max_queries=payload.max_queries,
