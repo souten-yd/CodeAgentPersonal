@@ -643,6 +643,9 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-deep-panel{display:flex;flex-direction:column;gap:8px}
 .nexus-deep-timeline{max-height:200px;overflow:auto}
 .nexus-deep-answer{min-height:120px}
+.nexus-answer-section{display:flex;flex-direction:column;gap:6px}
+.nexus-answer-subtitle{font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.04em;text-transform:uppercase}
+.nexus-answer-json{margin:0;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-family:var(--font-mono);font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:6px;background:var(--bg2);padding:8px}
 .nexus-citation-warnings{margin-top:8px;display:flex;flex-direction:column;gap:6px}
 .nexus-citation-warning{border:1px solid var(--border);border-radius:6px;padding:7px;background:var(--bg1);font-size:10px;color:var(--text2);line-height:1.45}
 .nexus-citation-warning.unsupported{border-color:rgba(255,68,102,.38);background:rgba(255,68,102,.09)}
@@ -1553,7 +1556,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               </div>
             </div>
             <div class="nexus-card">
-              <div class="nexus-card-title">回答 (Markdown)</div>
+              <div class="nexus-card-title">回答</div>
               <div id="nexus-deep-answer" class="nexus-detail-panel nexus-deep-answer">
                 <div class="nexus-empty">回答はここに表示されます</div>
               </div>
@@ -8145,23 +8148,37 @@ function renderNexusDeepAnswer(answer = {}) {
   const el = document.getElementById('nexus-deep-answer');
   if (!el) return;
   const md = String(answer?.answer_markdown || '').trim();
-  renderNexusDeepCitationWarnings(answer);
-  if (!md) {
-    el.innerHTML = '<div class="nexus-empty">回答はまだ生成されていません</div>';
-    return;
-  }
-  el.innerHTML = `<div class="md">${renderMd(md)}</div>`;
+  const generation = answer?.generation;
+  const hasGeneration = generation !== undefined && generation !== null && (
+    typeof generation !== 'string' || generation.trim() !== ''
+  );
+  const verification = (answer?.citation_verification && typeof answer.citation_verification === 'object')
+    ? answer.citation_verification
+    : {};
+  const warningsHtml = renderNexusDeepCitationWarnings(answer, { shouldMount: false });
+  el.innerHTML = `
+    <div class="nexus-answer-section">
+      <div class="nexus-answer-subtitle">Markdown</div>
+      ${md ? `<div class="md">${renderMd(md)}</div>` : '<div class="nexus-empty">回答はまだ生成されていません</div>'}
+    </div>
+    <div class="nexus-answer-section">
+      <div class="nexus-answer-subtitle">Generation</div>
+      <pre class="nexus-answer-json">${esc(hasGeneration ? JSON.stringify(generation, null, 2) : 'generation unavailable')}</pre>
+    </div>
+    <div class="nexus-answer-section">
+      <div class="nexus-answer-subtitle">Citation verification</div>
+      ${warningsHtml || '<div class="nexus-empty">warnings はありません</div>'}
+      <pre class="nexus-answer-json">${esc(JSON.stringify(verification, null, 2) || '{}')}</pre>
+    </div>`;
+  renderNexusDeepCitationWarnings(answer, { shouldMount: true, forceEmpty: true });
 }
 
-function renderNexusDeepCitationWarnings(answer = {}) {
+function renderNexusDeepCitationWarnings(answer = {}, options = {}) {
   const root = document.getElementById('nexus-deep-citation-warnings');
-  if (!root) return;
+  const shouldMount = options?.shouldMount !== false;
+  const forceEmpty = options?.forceEmpty === true;
   const warnings = Array.isArray(answer?.citation_verification?.warnings) ? answer.citation_verification.warnings : [];
-  if (!warnings.length) {
-    root.innerHTML = '';
-    return;
-  }
-  root.innerHTML = warnings
+  const html = warnings
     .map((item, idx) => {
       const status = String(item?.status || '').trim().toLowerCase();
       const isUnsupported = status === 'unsupported';
@@ -8177,6 +8194,13 @@ function renderNexusDeepCitationWarnings(answer = {}) {
       </div>`;
     })
     .join('');
+  if (!shouldMount) return html;
+  if (!root) return;
+  if (forceEmpty || !warnings.length) {
+    root.innerHTML = '';
+    return;
+  }
+  root.innerHTML = html;
 }
 
 function renderNexusDeepViewer(payload = {}) {
@@ -8406,25 +8430,6 @@ function normalizeNexusDeepAnswerPayload(answerPayload = {}) {
   };
 }
 
-function mergeNexusDeepAnswerWarnings(previousAnswer = {}, nextAnswer = {}) {
-  const prevWarnings = Array.isArray(previousAnswer?.citation_verification?.warnings)
-    ? previousAnswer.citation_verification.warnings
-    : [];
-  const nextWarnings = Array.isArray(nextAnswer?.citation_verification?.warnings)
-    ? nextAnswer.citation_verification.warnings
-    : [];
-  if (nextWarnings.length || !prevWarnings.length) return nextAnswer;
-  const merged = { ...nextAnswer };
-  const nextVerification = (nextAnswer?.citation_verification && typeof nextAnswer.citation_verification === 'object')
-    ? nextAnswer.citation_verification
-    : {};
-  merged.citation_verification = {
-    ...nextVerification,
-    warnings: prevWarnings,
-  };
-  return merged;
-}
-
 async function refreshNexusDeepAnswer(jobId) {
   const id = String(jobId || '').trim();
   if (!id) {
@@ -8440,7 +8445,10 @@ async function refreshNexusDeepAnswer(jobId) {
   const data = await resp.json();
   if (!resp.ok) throw new Error(data?.detail || JSON.stringify(data));
   const normalized = normalizeNexusDeepAnswerPayload(data?.answer || {});
-  nexusDeepResearchAnswer = mergeNexusDeepAnswerWarnings(nexusDeepResearchAnswer, normalized.answer);
+  const fetchedAnswer = (normalized.answer && typeof normalized.answer === 'object') ? normalized.answer : {};
+  if (Object.keys(fetchedAnswer).length || !Object.keys(nexusDeepResearchAnswer || {}).length) {
+    nexusDeepResearchAnswer = fetchedAnswer;
+  }
   nexusDeepResearchReferences = normalized.references;
   nexusDeepResearchEvidence = normalized.evidence;
   renderNexusDeepAnswer(nexusDeepResearchAnswer);
