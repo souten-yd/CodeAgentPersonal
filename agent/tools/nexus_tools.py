@@ -16,7 +16,7 @@ from app.nexus.market import run_market_mvp
 from app.nexus.news import run_news_mvp
 from app.nexus.report import build_report, get_latest_report, save_report_record
 from app.nexus.search import search_evidence
-from app.nexus.web_scout import build_web_evidence, plan_web_queries, run_web_search
+from app.nexus.web_service import execute_nexus_web_search
 
 
 # --- Single Nexus API call layer -------------------------------------------------
@@ -48,28 +48,19 @@ def _call_nexus_api(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
         scope = payload.get("scope")
         max_queries = int(payload.get("max_queries", 4))
         max_results_per_query = int(payload.get("max_results_per_query", 5))
-        queries = plan_web_queries(
+        result = execute_nexus_web_search(
             topic,
             mode=mode,
             depth=depth,
             max_queries=max_queries,
-            scope=scope,
-            language=language,
-        )
-        search_output = run_web_search(
-            queries,
-            mode=mode,
-            depth=depth,
             max_results_per_query=max_results_per_query,
             scope=scope,
             language=language,
         )
-
-        job_id = str(uuid.uuid4())
-        create_job(job_id, title=f"nexus_web_search:{topic}", message="tool_invocation")
-
-        evidence_items = build_web_evidence(search_output, note="nexus_web_search")
-        saved = save_evidence_items(job_id, evidence_items)
+        queries = result.get("queries", [])
+        search_output = result.get("search", {})
+        job_id = result.get("job_id")
+        saved = result.get("saved_evidence", 0)
         return {
             "ok": True,
             "job_id": job_id,
@@ -194,7 +185,7 @@ def nexus_web_search(
     language: str | None = None,
     scope: str | list[str] | None = None,
 ) -> dict[str, Any]:
-    """Web検索を実行し、検索結果をNexus Evidenceとして保存してjob_idを返却する。返却されたjob_idはnexus_build_report / nexus_export_bundleに接続可能。"""
+    """Web検索を実行し、検索結果をNexus Evidenceとして保存し、job_idを返す。返却されたjob_idは nexus_build_report / nexus_export_bundle に利用できる。"""
     return _call_nexus_api(
         "web.search",
         {
