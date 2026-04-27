@@ -3550,6 +3550,38 @@ def _run_nexus_search_for_context(
         "stub_only_non_fatal": stub_only_non_fatal,
     }
 
+
+_TASK_SEARCH_PREFETCH_PATTERNS = (
+    r"\b(search|web|lookup|latest|recent|news|current|today|update)\b",
+    r"(調べて|検索|最新|ニュース|アップデート|確認して|確認したい|情報収集)",
+)
+
+
+def _should_prefetch_web_for_task(text: str, search_enabled: bool | str | int | None) -> bool:
+    """
+    タスク実行前のWeb検索プリフェッチ要否判定。
+    - 検索トグルONなら常に True
+    - それ以外はキーワード一致で True
+    """
+    if _resolve_effective_search_enabled(search_enabled):
+        return True
+    haystack = str(text or "").strip().lower()
+    if not haystack:
+        return False
+    return any(re.search(pat, haystack, re.IGNORECASE) for pat in _TASK_SEARCH_PREFETCH_PATTERNS)
+
+
+def _build_task_prefetch_context_block(search_result: dict, *, max_items: int = 5) -> str:
+    items = search_result.get("items") or []
+    if not items:
+        return ""
+    lines = _format_web_search_items(items, limit=max_items)
+    if not lines:
+        return ""
+    query = str(search_result.get("query") or "").strip()
+    header = f"【事前Web検索結果】query={query}" if query else "【事前Web検索結果】"
+    return header + "\n" + "\n".join(f"- {line}" for line in lines)
+
 def web_search(query: str, num_results: int = 0) -> str:
     """
     旧互換のWeb検索入口。
@@ -8759,6 +8791,29 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
             user_content = user_content + mem_note
     except Exception:
         pass
+
+    if _should_prefetch_web_for_task(task_detail, search_enabled):
+        prefetch_result = _run_nexus_search_for_context(
+            task_detail,
+            num_results=_search_num_results,
+            mode="quick",
+            depth="quick",
+            max_queries=1,
+        )
+        prefetch_block = _build_task_prefetch_context_block(prefetch_result, max_items=_search_num_results)
+        if prefetch_block:
+            user_content = f"{user_content}\n\n{prefetch_block}"
+        if on_step:
+            event_payload = prefetch_result.get("event_payload") or {}
+            on_step({
+                "type": "search_prefetch",
+                "query": prefetch_result.get("query", ""),
+                "ok": bool(prefetch_result.get("ok", False)),
+                "items": prefetch_result.get("items", []),
+                "provider_errors": event_payload.get("provider_errors", {}),
+                "non_fatal": bool(event_payload.get("non_fatal", False)),
+                "message": event_payload.get("message") or prefetch_result.get("message", ""),
+            })
 
     # Chat形式: 過去の会話履歴を先に並べる
     history_msgs = []
@@ -14286,6 +14341,30 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             user_content = user_content + mem_note
     except Exception:
         pass
+
+    if _should_prefetch_web_for_task(task_detail, search_enabled):
+        prefetch_result = _run_nexus_search_for_context(
+            task_detail,
+            num_results=_search_num_results,
+            mode="quick",
+            depth="quick",
+            max_queries=1,
+        )
+        prefetch_block = _build_task_prefetch_context_block(prefetch_result, max_items=_search_num_results)
+        if prefetch_block:
+            user_content = f"{user_content}\n\n{prefetch_block}"
+        event_payload = prefetch_result.get("event_payload") or {}
+        yield {
+            "type": "search_prefetch",
+            "task_id": task_id,
+            "title": task_title,
+            "query": prefetch_result.get("query", ""),
+            "ok": bool(prefetch_result.get("ok", False)),
+            "items": prefetch_result.get("items", []),
+            "provider_errors": event_payload.get("provider_errors", {}),
+            "non_fatal": bool(event_payload.get("non_fatal", False)),
+            "message": event_payload.get("message") or prefetch_result.get("message", ""),
+        }
 
     messages = [
         {"role": "system", "content": project_prompt},
