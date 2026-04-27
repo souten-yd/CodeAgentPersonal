@@ -250,6 +250,13 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
         self.assertEqual(text_response.status_code, 200)
         self.assertIn("keyword_html", text_response.text)
 
+        evidence_response = self.client.get(f"/nexus/research/jobs/{job_id}/evidence")
+        self.assertEqual(evidence_response.status_code, 200)
+        evidence_items = evidence_response.json().get("evidence", [])
+        self.assertGreaterEqual(len(evidence_items), 1)
+        self.assertTrue(all("source_id" in item for item in evidence_items))
+        self.assertTrue(all(isinstance(item.get("source_id"), str) for item in evidence_items))
+
         bundle_response = self.client.get(f"/nexus/research/jobs/{job_id}/bundle")
         self.assertEqual(bundle_response.status_code, 200)
         bundle = bundle_response.json()

@@ -17,6 +17,7 @@ class EvidenceItem:
     chunk_id: str
     url: str
     retrieved_at: str
+    source_id: str = ""
     title: str = ""
     publisher: str = ""
     published_date: str = ""
@@ -58,16 +59,17 @@ def save_evidence_items(job_id: str, items: list[EvidenceItem]) -> int:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO nexus_evidence (
-                    evidence_id, job_id, source_type, document_id, chunk_id, title,
+                    evidence_id, job_id, source_id, source_type, document_id, chunk_id, title,
                     citation_label, source_url, publisher, published_date,
                     retrieved_at, note, quote, relevance, credibility, freshness,
                     evidence_level, metadata_json, metadata,
                     url, relevance_score, credibility_score, freshness_score, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.evidence_id,
                     job_id,
+                    item.source_id,
                     item.source_type,
                     item.document_id,
                     item.chunk_id,
@@ -161,6 +163,7 @@ def list_evidence_items(job_id: str) -> list[dict]:
         rows = conn.execute(
             """
             SELECT evidence_id, job_id, source_type, document_id, chunk_id, source_url,
+                   source_id,
                    title, publisher, published_date, citation_label, retrieved_at,
                    note, quote, relevance, credibility, freshness, evidence_level,
                    metadata_json, metadata, url,
@@ -173,33 +176,36 @@ def list_evidence_items(job_id: str) -> list[dict]:
             (job_id,),
         ).fetchall()
 
-    return [
-        {
-            "evidence_id": row["evidence_id"],
-            "job_id": row["job_id"],
-            "source_type": row["source_type"],
-            "document_id": row["document_id"],
-            "chunk_id": row["chunk_id"],
-            "url": row["url"] or row["source_url"],
-            "source_url": row["source_url"] or row["url"],
-            "title": row["title"],
-            "publisher": row["publisher"],
-            "published_date": row["published_date"],
-            "citation_label": row["citation_label"],
-            "retrieved_at": row["retrieved_at"],
-            "relevance_score": float(row["relevance_score"] or row["relevance"] or 0.0),
-            "credibility_score": float(row["credibility_score"] or row["credibility"] or 0.0),
-            "freshness_score": float(row["freshness_score"] or row["freshness"] or 0.0),
-            "evidence_level": str(row["evidence_level"] or ""),
-            "note": row["note"],
-            "quote": row["quote"],
-            "metadata_json": json.loads(row["metadata_json"] or row["metadata"] or "{}"),
-            "metadata": json.loads(row["metadata_json"] or row["metadata"] or "{}"),
-            "source_id": json.loads(row["metadata_json"] or row["metadata"] or "{}").get("source_id", ""),
-            "created_at": row["created_at"],
-        }
-        for row in rows
-    ]
+    items: list[dict] = []
+    for row in rows:
+        metadata = json.loads(row["metadata_json"] or row["metadata"] or "{}")
+        items.append(
+            {
+                "evidence_id": row["evidence_id"],
+                "job_id": row["job_id"],
+                "source_type": row["source_type"],
+                "document_id": row["document_id"],
+                "chunk_id": row["chunk_id"],
+                "url": row["url"] or row["source_url"],
+                "source_url": row["source_url"] or row["url"],
+                "title": row["title"],
+                "publisher": row["publisher"],
+                "published_date": row["published_date"],
+                "citation_label": row["citation_label"],
+                "retrieved_at": row["retrieved_at"],
+                "relevance_score": float(row["relevance_score"] or row["relevance"] or 0.0),
+                "credibility_score": float(row["credibility_score"] or row["credibility"] or 0.0),
+                "freshness_score": float(row["freshness_score"] or row["freshness"] or 0.0),
+                "evidence_level": str(row["evidence_level"] or ""),
+                "note": row["note"],
+                "quote": row["quote"],
+                "metadata_json": metadata,
+                "metadata": metadata,
+                "source_id": str(row["source_id"] or metadata.get("source_id") or ""),
+                "created_at": row["created_at"],
+            }
+        )
+    return items
 
 
 def list_evidence_table_items(

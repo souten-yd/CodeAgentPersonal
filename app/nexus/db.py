@@ -102,6 +102,7 @@ SCHEMA_SQL: tuple[str, ...] = (
         evidence_id TEXT PRIMARY KEY,
         project TEXT NOT NULL DEFAULT 'default',
         job_id TEXT NOT NULL,
+        source_id TEXT NOT NULL DEFAULT '',
         source_type TEXT NOT NULL DEFAULT '',
         document_id TEXT NOT NULL DEFAULT '',
         chunk_id TEXT NOT NULL,
@@ -363,6 +364,7 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
             "nexus_evidence",
             (
                 "project TEXT NOT NULL DEFAULT 'default'",
+                "source_id TEXT NOT NULL DEFAULT ''",
                 "document_id TEXT NOT NULL DEFAULT ''",
                 "title TEXT NOT NULL DEFAULT ''",
                 "source_type TEXT NOT NULL DEFAULT ''",
@@ -472,9 +474,10 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
         UPDATE nexus_evidence
-        SET project = 'default', source_type = '', document_id = '', title = '',
+        SET project = 'default', source_id = '', source_type = '', document_id = '', title = '',
             publisher = '', published_date = '', section_path = '/'
         WHERE project IS NULL OR project = ''
+           OR source_id IS NULL
            OR source_type IS NULL
            OR document_id IS NULL
            OR title IS NULL
@@ -496,6 +499,14 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE nexus_evidence SET relevance = relevance_score WHERE relevance IS NULL")
     conn.execute("UPDATE nexus_evidence SET credibility = credibility_score WHERE credibility IS NULL")
     conn.execute("UPDATE nexus_evidence SET freshness = freshness_score WHERE freshness IS NULL")
+    conn.execute(
+        """
+        UPDATE nexus_evidence
+        SET source_id = COALESCE(NULLIF(json_extract(metadata_json, '$.source_id'), ''), '')
+        WHERE source_id = ''
+          AND COALESCE(NULLIF(json_extract(metadata_json, '$.source_id'), ''), '') != ''
+        """
+    )
     conn.execute("UPDATE nexus_reports SET project = 'default' WHERE project IS NULL OR project = ''")
     conn.execute("UPDATE nexus_reports SET summary = '' WHERE summary IS NULL")
     conn.execute("UPDATE nexus_reports SET metadata = '{}' WHERE metadata IS NULL OR metadata = ''")
@@ -550,7 +561,7 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
 
     evidence_rows = conn.execute(
         """
-        SELECT evidence_id, source_type, publisher, published_date, metadata_json,
+        SELECT evidence_id, source_id, source_type, publisher, published_date, metadata_json,
                metadata, source_url, url, relevance, credibility, freshness,
                relevance_score, credibility_score, freshness_score, evidence_level
         FROM nexus_evidence
@@ -561,6 +572,7 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
         metadata = _loads_json(row["metadata"])
         if not metadata_json:
             metadata_json = metadata
+        source_id = row["source_id"] if row["source_id"] not in (None, "") else metadata_json.get("source_id", "")
         source_type = row["source_type"] if row["source_type"] not in (None, "") else metadata_json.get("source_type", metadata_json.get("source", ""))
         publisher = row["publisher"] if row["publisher"] not in (None, "") else metadata_json.get("publisher", "")
         published_date = row["published_date"] if row["published_date"] not in (None, "") else metadata_json.get("published_date", metadata_json.get("published_at", ""))
@@ -578,7 +590,7 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             UPDATE nexus_evidence
-            SET source_type = ?, publisher = ?, published_date = ?,
+            SET source_id = ?, source_type = ?, publisher = ?, published_date = ?,
                 source_url = ?, url = ?,
                 relevance = ?, relevance_score = ?,
                 credibility = ?, credibility_score = ?,
@@ -588,6 +600,7 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
             WHERE evidence_id = ?
             """,
             (
+                str(source_id or ""),
                 str(source_type or ""),
                 str(publisher or ""),
                 str(published_date or ""),
