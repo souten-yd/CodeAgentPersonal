@@ -7489,6 +7489,64 @@ async function refreshNexusDashboardSummary() {
     document.getElementById('nexus-metric-active-jobs').textContent = d.active_jobs ?? 0;
     nexusMaxUploadMb = Number(d?.limits?.max_upload_mb || nexusMaxUploadMb || 200);
     nexusMaxUploadBytes = Number(d?.limits?.max_upload_bytes || (nexusMaxUploadMb * 1024 * 1024));
+
+    const deepLimitEntries = [
+      {
+        inputId: 'nexus-deep-max-download-mb',
+        storageKey: NEXUS_DEEP_STORAGE.maxDownloadMb,
+        summaryValue: d?.limits?.max_download_mb,
+        min: 1,
+        max: 500,
+      },
+      {
+        inputId: 'nexus-deep-max-total-download-mb',
+        storageKey: NEXUS_DEEP_STORAGE.maxTotalDownloadMb,
+        summaryValue: d?.limits?.max_total_download_mb,
+        min: 1,
+        max: 2048,
+      },
+      {
+        inputId: 'nexus-deep-max-downloads',
+        storageKey: NEXUS_DEEP_STORAGE.maxDownloads,
+        summaryValue: d?.limits?.max_downloads,
+        min: 1,
+        max: 200,
+      },
+      {
+        inputId: 'nexus-deep-download-timeout-sec',
+        storageKey: NEXUS_DEEP_STORAGE.timeoutSec,
+        summaryValue: d?.limits?.download_timeout_sec,
+        min: 1,
+        max: 600,
+      },
+    ];
+
+    let appliedDeepLimitFallback = false;
+    deepLimitEntries.forEach(({ inputId, storageKey, summaryValue, min, max }) => {
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      const saved = localStorage.getItem(storageKey);
+      if (saved !== null && String(saved).trim() !== '') return;
+      const fallback = clampInt(summaryValue, min, max);
+      if (fallback == null) return;
+      input.value = String(fallback);
+      appliedDeepLimitFallback = true;
+    });
+
+    if (appliedDeepLimitFallback) {
+      saveNexusDeepResearchForm({
+        topic: (document.getElementById('nexus-deep-topic')?.value || '').trim(),
+        depth: (document.getElementById('nexus-deep-depth')?.value || 'standard').trim().toLowerCase(),
+        scope: (document.getElementById('nexus-deep-scope')?.value || 'web').trim().toLowerCase(),
+        maxDownloadMb: clampInt(document.getElementById('nexus-deep-max-download-mb')?.value, 1, 500),
+        maxTotalDownloadMb: clampInt(document.getElementById('nexus-deep-max-total-download-mb')?.value, 1, 2048),
+        maxDownloads: clampInt(document.getElementById('nexus-deep-max-downloads')?.value, 1, 200),
+        downloadTimeoutSec: clampInt(document.getElementById('nexus-deep-download-timeout-sec')?.value, 1, 600),
+        continueOnDownloadError: document.getElementById('nexus-deep-continue-on-download-error')?.checked !== false,
+        preferPdf: document.getElementById('nexus-deep-prefer-pdf')?.checked !== false,
+        officialFirst: document.getElementById('nexus-deep-official-first')?.checked !== false,
+      });
+    }
   } catch (e) {
     addLog('err', 'nexus', 'summary load failed: ' + e.message);
   }
