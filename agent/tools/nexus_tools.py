@@ -194,7 +194,7 @@ def nexus_web_search(
     language: str | None = None,
     scope: str | list[str] | None = None,
 ) -> dict[str, Any]:
-    """Run web search and store resulting evidence."""
+    """Web検索を実行し、検索結果をNexus Evidenceとして保存してjob_idを返却する。返却されたjob_idはnexus_build_report / nexus_export_bundleに接続可能。"""
     return _call_nexus_api(
         "web.search",
         {
