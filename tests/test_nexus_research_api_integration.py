@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from fastapi.testclient import TestClient
 from app.nexus.db import get_conn, insert_chunk, insert_document, update_document_artifact_paths
 from app.nexus.downloader import save_download_artifacts
 from app.nexus.export import create_research_bundle
+from app.nexus.jobs import create_job
 from app.nexus.research_api import ResearchRunRequest, run_research
 from app.nexus.router import nexus_router
 
@@ -28,6 +30,128 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self._tmpdir.cleanup()
+
+    def test_get_research_job_answer_prefers_persisted_answer_json(self) -> None:
+        job_id = f"job_answer_json_{uuid.uuid4().hex[:8]}"
+        now = datetime.now(timezone.utc).isoformat()
+        create_job(job_id, title="test", status="completed")
+        persisted_payload = {
+            "question": "Q",
+            "answer": "A [S1]",
+            "references": [{"citation_label": "[S1]", "title": "T", "source_id": "src-1"}],
+            "citation_verification": {
+                "ok": False,
+                "warnings": [{"sentence_index": 1, "reason": "low_semantic_overlap"}],
+            },
+            "generation": {"mode": "llm"},
+        }
+        with get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO nexus_research_answers(
+                    answer_id, job_id, project, question, answer_markdown,
+                    evidence_json, answer_json, source_ids_json, created_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    job_id,
+                    "default",
+                    "Q",
+                    "# Answer\nA [S1]\n",
+                    "[]",
+                    json.dumps(persisted_payload, ensure_ascii=False),
+                    '["src-1"]',
+                    now,
+                ),
+            )
+            conn.commit()
+
+        response = self.client.get(f"/nexus/research/jobs/{job_id}/answer")
+        self.assertEqual(response.status_code, 200)
+        answer = response.json().get("answer", {})
+        self.assertEqual(answer.get("generation", {}).get("mode"), "llm")
+        self.assertEqual(answer.get("citation_verification", {}).get("warnings", [{}])[0].get("reason"), "low_semantic_overlap")
+        self.assertEqual(answer.get("references", [{}])[0].get("citation_label"), "[S1]")
+
+    def test_get_research_job_answer_reconstructs_legacy_rows_without_answer_json(self) -> None:
+        job_id = f"job_answer_legacy_{uuid.uuid4().hex[:8]}"
+        now = datetime.now(timezone.utc).isoformat()
+        create_job(job_id, title="test", status="completed")
+        source_id = f"src_{uuid.uuid4().hex[:6]}"
+        document_id = f"doc_{uuid.uuid4().hex[:8]}"
+        insert_document(
+            document_id=document_id,
+            project="default",
+            filename="legacy.html",
+            size=1,
+            content_type="text/html",
+            path="",
+            sha256="legacy-sha",
+            created_at=now,
+        )
+        with get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO nexus_sources(
+                    source_id, job_id, project, source_type, url, final_url, title, publisher, domain,
+                    language, content_type, local_original_path, local_text_path, local_markdown_path,
+                    local_screenshot_path, linked_document_id, status, source_score, source_score_breakdown,
+                    error, retrieved_at, created_at, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    source_id,
+                    job_id,
+                    "default",
+                    "web",
+                    "https://example.com",
+                    "https://example.com",
+                    "Legacy source",
+                    "",
+                    "example.com",
+                    "ja",
+                    "text/html",
+                    "",
+                    "",
+                    "",
+                    "",
+                    document_id,
+                    "ingested",
+                    0.9,
+                    "{}",
+                    "",
+                    now,
+                    now,
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO nexus_research_answers(
+                    answer_id, job_id, project, question, answer_markdown,
+                    evidence_json, answer_json, source_ids_json, created_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    job_id,
+                    "default",
+                    "Q",
+                    "# Answer\nA [S1]\n",
+                    json.dumps([{"citation_label": "[S1]", "source_id": source_id}], ensure_ascii=False),
+                    "{}",
+                    json.dumps([source_id], ensure_ascii=False),
+                    now,
+                ),
+            )
+            conn.commit()
+
+        response = self.client.get(f"/nexus/research/jobs/{job_id}/answer")
+        self.assertEqual(response.status_code, 200)
+        answer = response.json().get("answer", {})
+        self.assertEqual(answer.get("references", [{}])[0].get("source_id"), source_id)
+        self.assertEqual(answer.get("references", [{}])[0].get("title"), "Legacy source")
 
     def _mock_register_or_update_sources(self, *, job_id: str, project: str, sources: list[dict]) -> list[dict]:
         now = datetime.now(timezone.utc).isoformat()

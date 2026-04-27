@@ -155,6 +155,7 @@ def _save_answer_row(
     answer_markdown: str,
     evidence_json: list[dict],
     references: list[dict],
+    answer_payload: dict,
 ) -> str:
     answer_id = str(uuid.uuid4())
     created_at = _now_iso()
@@ -171,8 +172,8 @@ def _save_answer_row(
             """
             INSERT INTO nexus_research_answers(
                 answer_id, job_id, project, question,
-                answer_markdown, evidence_json, source_ids_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                answer_markdown, evidence_json, answer_json, source_ids_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 answer_id,
@@ -181,6 +182,7 @@ def _save_answer_row(
                 question,
                 answer_markdown,
                 json.dumps(evidence_json, ensure_ascii=False),
+                json.dumps(answer_payload, ensure_ascii=False),
                 json.dumps(source_ids, ensure_ascii=False),
                 created_at,
             ),
@@ -282,6 +284,7 @@ def build_answer_payload(
             answer_markdown=answer_markdown,
             evidence_json=evidence_json,
             references=normalized_references,
+            answer_payload=payload,
         )
         payload.update(paths)
         payload["answer_id"] = answer_id

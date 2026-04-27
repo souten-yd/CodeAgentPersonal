@@ -200,6 +200,7 @@ SCHEMA_SQL: tuple[str, ...] = (
         question TEXT NOT NULL DEFAULT '',
         answer_markdown TEXT NOT NULL DEFAULT '',
         evidence_json TEXT NOT NULL DEFAULT '[]',
+        answer_json TEXT NOT NULL DEFAULT '{}',
         source_ids_json TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
         FOREIGN KEY(job_id) REFERENCES nexus_jobs(job_id) ON DELETE CASCADE
@@ -305,6 +306,7 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
             question TEXT NOT NULL DEFAULT '',
             answer_markdown TEXT NOT NULL DEFAULT '',
             evidence_json TEXT NOT NULL DEFAULT '[]',
+            answer_json TEXT NOT NULL DEFAULT '{}',
             source_ids_json TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL,
             FOREIGN KEY(job_id) REFERENCES nexus_jobs(job_id) ON DELETE CASCADE
@@ -432,6 +434,7 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
                 "question TEXT NOT NULL DEFAULT ''",
                 "answer_markdown TEXT NOT NULL DEFAULT ''",
                 "evidence_json TEXT NOT NULL DEFAULT '[]'",
+                "answer_json TEXT NOT NULL DEFAULT '{}'",
                 "source_ids_json TEXT NOT NULL DEFAULT '[]'",
                 "created_at TEXT NOT NULL DEFAULT ''",
             ),
@@ -509,6 +512,7 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
         "UPDATE nexus_sources SET source_score_breakdown = '{}' WHERE source_score_breakdown IS NULL OR source_score_breakdown = ''"
     )
     conn.execute("UPDATE nexus_evidence SET freshness = freshness_score WHERE freshness IS NULL")
+    conn.execute("UPDATE nexus_research_answers SET answer_json = '{}' WHERE answer_json IS NULL OR answer_json = ''")
     conn.execute(
         """
         UPDATE nexus_evidence

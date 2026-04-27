@@ -8406,6 +8406,25 @@ function normalizeNexusDeepAnswerPayload(answerPayload = {}) {
   };
 }
 
+function mergeNexusDeepAnswerWarnings(previousAnswer = {}, nextAnswer = {}) {
+  const prevWarnings = Array.isArray(previousAnswer?.citation_verification?.warnings)
+    ? previousAnswer.citation_verification.warnings
+    : [];
+  const nextWarnings = Array.isArray(nextAnswer?.citation_verification?.warnings)
+    ? nextAnswer.citation_verification.warnings
+    : [];
+  if (nextWarnings.length || !prevWarnings.length) return nextAnswer;
+  const merged = { ...nextAnswer };
+  const nextVerification = (nextAnswer?.citation_verification && typeof nextAnswer.citation_verification === 'object')
+    ? nextAnswer.citation_verification
+    : {};
+  merged.citation_verification = {
+    ...nextVerification,
+    warnings: prevWarnings,
+  };
+  return merged;
+}
+
 async function refreshNexusDeepAnswer(jobId) {
   const id = String(jobId || '').trim();
   if (!id) {
@@ -8421,7 +8440,7 @@ async function refreshNexusDeepAnswer(jobId) {
   const data = await resp.json();
   if (!resp.ok) throw new Error(data?.detail || JSON.stringify(data));
   const normalized = normalizeNexusDeepAnswerPayload(data?.answer || {});
-  nexusDeepResearchAnswer = normalized.answer;
+  nexusDeepResearchAnswer = mergeNexusDeepAnswerWarnings(nexusDeepResearchAnswer, normalized.answer);
   nexusDeepResearchReferences = normalized.references;
   nexusDeepResearchEvidence = normalized.evidence;
   renderNexusDeepAnswer(nexusDeepResearchAnswer);
