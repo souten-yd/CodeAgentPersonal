@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.nexus.db import get_conn
 from app.nexus.config import load_runtime_config
-from app.nexus.evidence import build_library_evidence, list_evidence_table_items
+from app.nexus.evidence import build_library_evidence, search_evidence_items
 from app.nexus.export import nexus_export_router
 from app.nexus.ingest import accept_upload
 from app.nexus.jobs import list_active_jobs
@@ -436,13 +436,15 @@ def nexus_job_events(job_id: str, after: int = Query(-1)) -> dict:
 
 @nexus_router.get("/evidence")
 def nexus_list_evidence(
-    job_id: str = Query(..., min_length=1),
+    project: str = Query("default"),
+    job_id: str | None = Query(default=None),
     source_type: str | None = Query(default=None),
     filter: str | None = Query(default=None),
     limit: int = Query(50, ge=1, le=200),
 ) -> dict:
     """UI テーブルへ直接バインド可能な Evidence 一覧。"""
-    return list_evidence_table_items(
+    return search_evidence_items(
+        project=project,
         job_id=job_id,
         source_type=source_type,
         filter_text=filter,
