@@ -650,8 +650,11 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-status-badge{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.02em;border:1px solid var(--border);background:var(--bg3);color:var(--text3)}
 .nexus-status-badge.downloaded{border-color:rgba(0,255,157,.34);background:rgba(0,255,157,.12);color:var(--green)}
 .nexus-status-badge.degraded{border-color:rgba(255,170,0,.38);background:rgba(255,170,0,.11);color:var(--amber)}
+.nexus-status-badge.skipped{border-color:rgba(136,136,255,.3);background:rgba(136,136,255,.11);color:var(--blue)}
 .nexus-status-badge.skipped_size_limit,.nexus-status-badge.skipped_download_limit{border-color:rgba(136,136,255,.3);background:rgba(136,136,255,.11);color:var(--blue)}
 .nexus-status-badge.failed{border-color:rgba(255,68,102,.38);background:rgba(255,68,102,.11);color:var(--red)}
+.nexus-deep-sources-table td{vertical-align:top}
+.nexus-table-cell-url{max-width:340px;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:768px){
   .nexus-topbar{flex-direction:column;align-items:stretch}
   .nexus-subtabs{padding-bottom:2px}
@@ -1544,6 +1547,12 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <div class="nexus-card-title">References</div>
               <div id="nexus-deep-references" class="nexus-ref-list">
                 <div class="nexus-empty">Reference cards are shown after research starts.</div>
+              </div>
+            </div>
+            <div class="nexus-card">
+              <div class="nexus-card-title">Sources</div>
+              <div id="nexus-deep-sources-table" class="nexus-table-wrap">
+                <div class="nexus-empty" style="padding:10px">Sources テーブルは research 開始後に更新されます。</div>
               </div>
             </div>
           </div>
@@ -7279,6 +7288,7 @@ function switchNexusTab(name) {
   }
   if (target === 'deep-research' && !nexusDeepResearchEvents.length) {
     renderNexusDeepTimeline([]);
+    renderNexusDeepSourcesTable(nexusDeepResearchSources);
   }
   if (target === 'evidence') runNexusEvidenceMvp();
   if (target === 'report') runNexusReportMvp();
@@ -7300,6 +7310,7 @@ let nexusDeepResearchJobId = '';
 let nexusDeepResearchAfterSeq = -1;
 let nexusDeepResearchEvents = [];
 let nexusDeepResearchStubMode = false;
+let nexusDeepResearchSources = [];
 let nexusMaxUploadMb = 200;
 let nexusMaxUploadBytes = nexusMaxUploadMb * 1024 * 1024;
 const nexusAllowedUploadExt = new Set(['.pdf', '.txt', '.md', '.csv', '.html']);
@@ -8178,6 +8189,72 @@ function renderNexusDeepReferences(sources = [], evidence = []) {
   }).join('');
 }
 
+function renderNexusDeepSourcesTable(sources = []) {
+  const root = document.getElementById('nexus-deep-sources-table');
+  if (!root) return;
+  if (!Array.isArray(sources) || !sources.length) {
+    root.innerHTML = '<div class="nexus-empty" style="padding:10px">Sources はまだありません</div>';
+    return;
+  }
+  const statusToBadge = (statusRaw) => {
+    const status = String(statusRaw || '').trim().toLowerCase();
+    if (status === 'downloaded') return { label: 'Downloaded', className: 'downloaded' };
+    if (status === 'degraded') return { label: 'Degraded', className: 'degraded' };
+    if (status === 'failed') return { label: 'Failed', className: 'failed' };
+    if (status.startsWith('skipped')) return { label: 'Skipped', className: 'skipped' };
+    return { label: status || '-', className: '' };
+  };
+  root.innerHTML = `
+    <table class="nexus-table nexus-deep-sources-table">
+      <thead>
+        <tr>
+          <th>title</th>
+          <th>url</th>
+          <th>source_score</th>
+          <th>status</th>
+          <th>error</th>
+          <th>content_type</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${sources.map((source) => {
+          const badge = statusToBadge(source?.status);
+          const title = String(source?.title || source?.citation_label || source?.source_id || '-');
+          const url = String(source?.final_url || source?.url || '-');
+          const score = source?.source_score ?? '-';
+          const error = String(source?.error || '-');
+          const contentType = String(source?.content_type || '-');
+          const statusBadge = `<span class="nexus-status-badge${badge.className ? ` ${badge.className}` : ''}">${esc(badge.label)}</span>`;
+          return `<tr>
+            <td title="${esc(title)}">${esc(title)}</td>
+            <td class="nexus-table-cell-url" title="${esc(url)}">${esc(url)}</td>
+            <td>${esc(String(score))}</td>
+            <td>${statusBadge}</td>
+            <td title="${esc(error)}">${esc(error)}</td>
+            <td>${esc(contentType)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function refreshNexusDeepSources(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) {
+    nexusDeepResearchSources = [];
+    renderNexusDeepSourcesTable([]);
+    return [];
+  }
+  const resp = await fetch(API + '/nexus/research/jobs/' + encodeURIComponent(id) + '/sources');
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data?.detail || JSON.stringify(data));
+  const sources = Array.isArray(data?.sources) ? data.sources : [];
+  nexusDeepResearchSources = sources;
+  renderNexusDeepSourcesTable(sources);
+  return sources;
+}
+
 function openNexusDeepSourceText(sourceIdEnc) {
   const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
   if (!sourceId) return;
@@ -8421,10 +8498,12 @@ async function runNexusDeepResearch() {
   nexusDeepResearchAfterSeq = -1;
   nexusDeepResearchEvents = [];
   nexusDeepResearchStubMode = false;
+  nexusDeepResearchSources = [];
   if (bundleBtn) bundleBtn.disabled = true;
   renderNexusDeepTimeline([]);
   renderNexusDeepAnswer({});
   renderNexusDeepReferences([], []);
+  renderNexusDeepSourcesTable([]);
   if (btn) btn.disabled = true;
   try {
     const webStatus = await refreshNexusWebStatus();
@@ -8467,6 +8546,11 @@ async function runNexusDeepResearch() {
     if (bundleBtn) bundleBtn.disabled = !nexusDeepResearchJobId;
     renderNexusDeepAnswer(runData?.answer || {});
     renderNexusDeepReferences(runData?.sources || [], runData?.answer?.evidence || []);
+    try {
+      await refreshNexusDeepSources(nexusDeepResearchJobId);
+    } catch (e) {
+      console.warn('deep sources refresh failed', e);
+    }
 
     if (!nexusDeepResearchJobId) {
       setNexusDeepStatus('job_id が返されませんでした', true, nexusDeepResearchStubMode);
@@ -8489,6 +8573,11 @@ async function runNexusDeepResearch() {
       renderNexusDeepTimeline(nexusDeepResearchEvents);
       renderNexusDeepAnswer(bundle?.answer || runData?.answer || {});
       renderNexusDeepReferences(bundle?.sources || runData?.sources || [], bundle?.evidence || []);
+      try {
+        await refreshNexusDeepSources(nexusDeepResearchJobId);
+      } catch (e) {
+        console.warn('deep sources refresh failed', e);
+      }
 
       const st = String(bundle?.job?.status || '').toLowerCase();
       const msg = String(bundle?.job?.message || '');
