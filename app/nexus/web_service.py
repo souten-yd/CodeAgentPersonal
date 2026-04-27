@@ -5,7 +5,7 @@ from typing import Any
 
 from app.nexus.evidence import save_evidence_items
 from app.nexus.jobs import create_job
-from app.nexus.web_scout import build_web_evidence, plan_web_queries, run_web_search
+from app.nexus.web_scout import build_web_evidence, plan_web_queries, run_web_search as _run_web_search
 
 
 def execute_nexus_web_search(
@@ -32,7 +32,7 @@ def execute_nexus_web_search(
         scope=scope,
         language=language,
     )
-    search_output = run_web_search(
+    search_output = _run_web_search(
         queries,
         mode=mode,
         depth=requested_depth,
