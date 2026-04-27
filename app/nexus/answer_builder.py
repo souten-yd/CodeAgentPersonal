@@ -10,7 +10,7 @@ import uuid
 from app.nexus.config import NEXUS_PATHS
 from app.nexus.citation_mapper import normalize_reference_labels, replace_citation_labels
 from app.nexus.db import transaction
-from app.nexus.citation_verifier import verify_citation_labels
+from app.nexus.citation_verifier import CitationSupportVerifier, verify_citation_labels
 from app.nexus.utils import ensure_dir
 
 
@@ -199,6 +199,7 @@ def build_answer_payload(
     evidence_chunks: list[dict] | None = None,
     job_id: str | None = None,
     project: str = "default",
+    citation_support_verifier: CitationSupportVerifier | None = None,
 ) -> dict:
     normalized = normalize_reference_labels(
         references=references,
@@ -249,6 +250,7 @@ def build_answer_payload(
         answer_text=final_summary,
         references=normalized_references,
         evidence_chunks=normalized_chunks,
+        verifier=citation_support_verifier,
     )
 
     generation = {
