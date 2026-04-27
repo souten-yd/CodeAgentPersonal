@@ -207,15 +207,53 @@ def get_research_job_answer(job_id: str) -> dict:
             """,
             (job_id,),
         ).fetchone()
+        source_rows = conn.execute(
+            """
+            SELECT source_id, title, source_type, source_score, status, url, final_url, error
+            FROM nexus_sources
+            WHERE job_id = ?
+            ORDER BY created_at ASC, source_id ASC
+            """,
+            (job_id,),
+        ).fetchall()
 
     if row is None:
         return {"job_id": job_id, "answer": {}}
+
+    source_index: dict[str, dict] = {}
+    for source_row in source_rows:
+        source = _normalize_source_row(dict(source_row))
+        source_id = str(source.get("source_id") or "").strip()
+        if not source_id:
+            continue
+        source_index[source_id] = source
+
+    evidence = json.loads(row["evidence_json"] or "[]")
+    base_references = evidence if isinstance(evidence, list) else []
+    references: list[dict] = []
+    for idx, item in enumerate(base_references, start=1):
+        ref = dict(item) if isinstance(item, dict) else {}
+        source_id = str(ref.get("source_id") or "").strip()
+        source = source_index.get(source_id, {})
+        references.append(
+            {
+                "citation_label": str(ref.get("citation_label") or f"[S{idx}]"),
+                "title": str(ref.get("title") or source.get("title") or ""),
+                "source_type": str(ref.get("source_type") or source.get("source_type") or ""),
+                "source_score": ref.get("source_score", source.get("source_score")),
+                "status": str(ref.get("status") or source.get("status") or ""),
+                "url": str(ref.get("url") or source.get("final_url") or source.get("url") or ""),
+                "error": str(ref.get("error") or source.get("error") or ""),
+                "source_id": source_id,
+            }
+        )
 
     answer = {
         "answer_id": row["answer_id"],
         "question": row["question"],
         "answer_markdown": row["answer_markdown"],
-        "evidence": json.loads(row["evidence_json"] or "[]"),
+        "evidence": evidence if isinstance(evidence, list) else [],
+        "references": references,
         "source_ids": json.loads(row["source_ids_json"] or "[]"),
         "created_at": row["created_at"],
     }
