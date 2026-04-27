@@ -45,6 +45,24 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertIn("[S1]", payload["answer"])
         self.assertIn("## References", payload["answer_markdown"])
 
+    def test_build_answer_payload_normalizes_non_standard_labels(self) -> None:
+        references = [{"citation_label": "article#1", "title": "Source 1", "source_id": "src-1"}]
+        evidence = [{"citation_label": "article#1", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "article#1"}]
+
+        payload = build_answer_payload(
+            question="質問",
+            summary="article#1 の根拠です",
+            references=references,
+            evidence=evidence,
+            evidence_chunks=chunks,
+        )
+
+        self.assertEqual(payload["references"][0]["citation_label"], "[S1]")
+        self.assertEqual(payload["evidence_json"][0]["citation_label"], "[S1]")
+        self.assertIn("[S1]", payload["answer_markdown"])
+        self.assertNotIn("article#1", payload["answer_markdown"])
+
 
 if __name__ == "__main__":
     unittest.main()

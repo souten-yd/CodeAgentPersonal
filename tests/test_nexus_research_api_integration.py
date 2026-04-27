@@ -243,6 +243,8 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
         answer = payload.get("answer", {})
         self.assertIn("references", answer)
         self.assertGreaterEqual(len(answer["references"]), 1)
+        self.assertTrue(all(str(ref.get("citation_label", "")).startswith("[S") for ref in answer["references"]))
+        self.assertTrue(all(str(item.get("citation_label", "")).startswith("[S") for item in answer["evidence_json"]))
 
         text_response = self.client.get(f"/nexus/sources/{html_source['source_id']}/text")
         self.assertEqual(text_response.status_code, 200)

@@ -23,8 +23,15 @@ class NexusResearchAgentTests(unittest.TestCase):
                 "final_url": "https://example.com/article",
             }
         ]
-        source_chunks = [{"source_id": "src-1", "quote": "quoted evidence", "citation_label": "[S1]"}]
-        references = [{"citation_label": "[S1]", "title": "Article", "url": "https://example.com/article"}]
+        source_chunks = [{"source_id": "src-1", "quote": "quoted evidence", "citation_label": "article#1"}]
+        references = [
+            {
+                "citation_label": "article#1",
+                "title": "Article",
+                "url": "https://example.com/article",
+                "source_id": "src-1",
+            }
+        ]
 
         with patch("app.nexus.research_agent._record_state", return_value=None), patch(
             "app.nexus.research_agent.update_job", return_value=None
@@ -46,7 +53,8 @@ class NexusResearchAgentTests(unittest.TestCase):
 
         self.assertEqual(result["answer"]["answer"], "ok")
         kwargs = mocked_build_answer.call_args.kwargs
-        self.assertEqual(kwargs["evidence_chunks"], source_chunks)
+        self.assertEqual(kwargs["references"][0]["citation_label"], "[S1]")
+        self.assertEqual(kwargs["evidence_chunks"][0]["citation_label"], "[S1]")
 
 
 if __name__ == "__main__":

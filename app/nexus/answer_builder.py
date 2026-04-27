@@ -8,6 +8,7 @@ from urllib import error, request
 import uuid
 
 from app.nexus.config import NEXUS_PATHS
+from app.nexus.citation_mapper import normalize_reference_labels, replace_citation_labels
 from app.nexus.db import transaction
 from app.nexus.utils import ensure_dir
 
@@ -188,40 +189,49 @@ def build_answer_payload(
     job_id: str | None = None,
     project: str = "default",
 ) -> dict:
+    normalized = normalize_reference_labels(
+        references=references,
+        evidence_json=evidence,
+        evidence_chunks=evidence_chunks,
+    )
+    normalized_references = normalized["references"]
+    normalized_evidence_json = normalized["evidence_json"]
+    normalized_chunks = normalized["evidence_chunks"]
+
     summary_text = (summary or "").strip() or f"{question} に関する調査結果を整理しました。"
-    if references:
-        citation_tokens = " ".join(f"[S{idx}]" for idx, _ in enumerate(references, start=1))
-        if not any(f"[S{idx}]" in summary_text for idx, _ in enumerate(references, start=1)):
+    if normalized_references:
+        citation_tokens = " ".join(f"[S{idx}]" for idx, _ in enumerate(normalized_references, start=1))
+        if not any(f"[S{idx}]" in summary_text for idx, _ in enumerate(normalized_references, start=1)):
             summary_text = f"{summary_text} {citation_tokens}".strip()
     else:
         summary_text = f"{summary_text} 未確認のため断定は避けます。".strip()
-    evidence_json = evidence if evidence is not None else references
-    chunks_for_llm = evidence_chunks if evidence_chunks is not None else []
+    evidence_json = normalized_evidence_json if evidence is not None else normalized_references
+    chunks_for_llm = normalized_chunks
 
     llm_answer: str | None = None
     if chunks_for_llm:
         try:
             llm_answer = _generate_answer_with_llm(
                 question=question,
-                references=references,
+                references=normalized_references,
                 evidence_chunks=chunks_for_llm,
             )
         except Exception:  # noqa: BLE001
             llm_answer = None
 
-    final_summary = llm_answer or summary_text
+    final_summary = replace_citation_labels(llm_answer or summary_text, normalized["label_map"])
 
     answer_markdown = _build_answer_markdown(
         question=question,
         summary=final_summary,
-        references=references,
+        references=normalized_references,
     )
     payload = {
         "question": question,
         "answer": final_summary,
         "answer_markdown": answer_markdown,
         "evidence_json": evidence_json,
-        "references": references,
+        "references": normalized_references,
     }
 
     if job_id:
@@ -232,7 +242,7 @@ def build_answer_payload(
             question=question,
             answer_markdown=answer_markdown,
             evidence_json=evidence_json,
-            references=references,
+            references=normalized_references,
         )
         payload.update(paths)
         payload["answer_id"] = answer_id
