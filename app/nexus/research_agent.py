@@ -119,6 +119,7 @@ def _build_evidence_from_sources(job_id: str, sources: list[dict]) -> list[Evide
             seen_chunk_keys.add(dedupe_key)
             evidence.append(
                 EvidenceItem(
+                    source_id=source_id,
                     source_type=str(row["source_type"] or "web"),
                     document_id=linked_document_id,
                     chunk_id=chunk_id,
@@ -140,6 +141,7 @@ def _build_evidence_from_sources(job_id: str, sources: list[dict]) -> list[Evide
                 continue
             evidence.append(
                 EvidenceItem(
+                    source_id=source_id,
                     source_type=str(source.get("source_type") or "web"),
                     document_id=str(source.get("linked_document_id") or ""),
                     chunk_id=f"{source_id}:fallback",
