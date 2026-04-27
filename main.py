@@ -3423,6 +3423,26 @@ def _format_web_search_items(items: list[dict], *, limit: int) -> list[str]:
     return lines
 
 
+def _format_provider_errors_for_context(provider_errors: dict | None, *, prefix: str = "provider_errors") -> str:
+    if not isinstance(provider_errors, dict) or not provider_errors:
+        return ""
+    segments: list[str] = []
+    for provider, errors in provider_errors.items():
+        normalized_errors: list[str] = []
+        if isinstance(errors, list):
+            normalized_errors = [str(err).strip() for err in errors if str(err).strip()]
+        elif errors is not None:
+            text = str(errors).strip()
+            if text:
+                normalized_errors = [text]
+        if not normalized_errors:
+            continue
+        segments.append(f"{provider}: {', '.join(normalized_errors[:2])}")
+    if not segments:
+        return ""
+    return f"{prefix}: " + " | ".join(segments)
+
+
 def _run_nexus_search_for_context(
     query: str,
     *,
@@ -3542,13 +3562,18 @@ def _run_nexus_search_for_context(
     stub_only = bool(items) and all(bool(row.get("is_stub")) for row in items)
     stub_only_non_fatal = non_fatal and stub_only
     result_lines = _format_web_search_items(items, limit=capped)
+    provider_errors_line = _format_provider_errors_for_context(provider_errors)
     meta_line = (
         f"meta: selected_provider={selected_provider} "
         f"fallback_used={str(fallback_used).lower()} "
         f"is_stub={str((non_fatal or stub_only)).lower()}"
     )
     if result_lines:
-        context_text = f"{meta_line}\nWeb検索結果:\n" + "\n".join(result_lines)
+        context_parts = [meta_line]
+        if provider_errors_line:
+            context_parts.append(provider_errors_line)
+        context_parts.append("Web検索結果:\n" + "\n".join(result_lines))
+        context_text = "\n".join(context_parts)
     else:
         context_text = f"No results found for: {safe_query}"
 
@@ -3602,7 +3627,12 @@ def _build_task_prefetch_context_block(search_result: dict, *, max_items: int = 
         return ""
     query = str(search_result.get("query") or "").strip()
     header = f"【事前Web検索結果】query={query}" if query else "【事前Web検索結果】"
-    return header + "\n" + "\n".join(f"- {line}" for line in lines)
+    provider_errors_line = _format_provider_errors_for_context(search_result.get("provider_errors"), prefix="provider_errors")
+    body_lines = [header]
+    if provider_errors_line:
+        body_lines.append(provider_errors_line)
+    body_lines.extend(f"- {line}" for line in lines)
+    return "\n".join(body_lines)
 
 def web_search(query: str, num_results: int = 0) -> str:
     """

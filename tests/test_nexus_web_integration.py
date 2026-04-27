@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from agent.tools.registry import create_default_registry
 from app.nexus.export import nexus_export_router
 from app.nexus.router import nexus_router
+from app.nexus.web_scout import run_web_search
 
 
 class NexusWebIntegrationTests(unittest.TestCase):
@@ -135,6 +136,23 @@ class AgentRegistryTests(unittest.TestCase):
     def test_registry_contains_nexus_web_search(self) -> None:
         registry = create_default_registry()
         self.assertIn("nexus_web_search", registry.list_tools())
+
+
+class WebScoutRunSearchTests(unittest.TestCase):
+    def test_run_web_search_returns_non_fatal_with_provider_errors_on_provider_failure(self) -> None:
+        env = {
+            "NEXUS_ENABLE_WEB": "true",
+            "NEXUS_WEB_SEARCH_PROVIDER": "searxng",
+            "NEXUS_SEARCH_FALLBACK_PROVIDERS": "searxng",
+            "NEXUS_SEARXNG_URL": "http://127.0.0.1:65535",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            result = run_web_search(["integration test query"], mode="quick", depth="quick", max_results_per_query=2)
+
+        self.assertTrue(result.get("non_fatal"))
+        self.assertIn("provider_errors", result)
+        self.assertIn("searxng", result.get("provider_errors", {}))
+        self.assertGreaterEqual(len(result.get("provider_errors", {}).get("searxng", [])), 1)
 
 
 if __name__ == "__main__":
