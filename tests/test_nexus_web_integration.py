@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -69,6 +70,16 @@ class NexusWebIntegrationTests(unittest.TestCase):
         result = r.json()["result"]
         self.assertTrue(result["non_fatal"])
         self.assertEqual(result["provider_errors"], {"searxng": ["connection refused"]})
+
+    def test_research_bundle_endpoint_returns_zip_file(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".zip") as tmp:
+            tmp.write(b"PK\x03\x04")
+            tmp.flush()
+            with patch("app.nexus.export.create_research_bundle", return_value=tmp.name):
+                r = self.client.get("/nexus/research/jobs/job-test/bundle")
+
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.headers.get("content-type"), "application/zip")
 
 
 class AgentRegistryTests(unittest.TestCase):
