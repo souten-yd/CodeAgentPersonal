@@ -143,7 +143,7 @@ def _latest_research_answer(job_id: str) -> dict:
     with get_conn() as conn:
         row = conn.execute(
             """
-            SELECT answer_id, question, answer_markdown, evidence_json, source_ids_json, created_at
+            SELECT answer_id, question, answer_markdown, evidence_json, answer_json, source_ids_json, created_at
             FROM nexus_research_answers
             WHERE job_id = ?
             ORDER BY created_at DESC
@@ -151,17 +151,80 @@ def _latest_research_answer(job_id: str) -> dict:
             """,
             (job_id,),
         ).fetchone()
+        source_rows = conn.execute(
+            """
+            SELECT source_id, title, source_type, source_score, status, url, final_url, error
+            FROM nexus_sources
+            WHERE job_id = ?
+            ORDER BY created_at ASC, source_id ASC
+            """,
+            (job_id,),
+        ).fetchall()
     if row is None:
         return {}
 
-    return {
+    answer_json_raw = str(row["answer_json"] or "").strip()
+    if answer_json_raw:
+        try:
+            parsed_answer_json = json.loads(answer_json_raw)
+        except (TypeError, ValueError):
+            parsed_answer_json = {}
+        if isinstance(parsed_answer_json, dict) and parsed_answer_json:
+            answer = dict(parsed_answer_json)
+            answer.setdefault("answer_id", row["answer_id"])
+            answer.setdefault("question", row["question"])
+            answer.setdefault("answer_markdown", row["answer_markdown"])
+            answer.setdefault("evidence", json.loads(row["evidence_json"] or "[]"))
+            answer.setdefault("source_ids", json.loads(row["source_ids_json"] or "[]"))
+            answer.setdefault("created_at", row["created_at"])
+            return answer
+
+    source_index: dict[str, dict] = {}
+    for source_row in source_rows:
+        source = _normalize_source_row(dict(source_row))
+        source_id = str(source.get("source_id") or "").strip()
+        if not source_id:
+            continue
+        source_index[source_id] = source
+
+    evidence = json.loads(row["evidence_json"] or "[]")
+    base_references = evidence if isinstance(evidence, list) else []
+    references: list[dict] = []
+    for idx, item in enumerate(base_references, start=1):
+        ref = dict(item) if isinstance(item, dict) else {}
+        source_id = str(ref.get("source_id") or "").strip()
+        source = source_index.get(source_id, {})
+        references.append(
+            {
+                "citation_label": str(ref.get("citation_label") or f"[S{idx}]"),
+                "title": str(ref.get("title") or source.get("title") or ""),
+                "source_type": str(ref.get("source_type") or source.get("source_type") or ""),
+                "source_score": ref.get("source_score", source.get("source_score")),
+                "status": str(ref.get("status") or source.get("status") or ""),
+                "url": str(ref.get("url") or source.get("final_url") or source.get("url") or ""),
+                "error": str(ref.get("error") or source.get("error") or ""),
+                "source_id": source_id,
+            }
+        )
+
+    answer = {
         "answer_id": row["answer_id"],
         "question": row["question"],
         "answer_markdown": row["answer_markdown"],
-        "evidence": json.loads(row["evidence_json"] or "[]"),
+        "evidence": evidence if isinstance(evidence, list) else [],
+        "references": references,
+        "citation_verification": {},
+        "generation": {
+            "mode": "legacy_reconstructed",
+            "llm_enabled": None,
+            "llm_endpoint": None,
+            "llm_model": None,
+            "error": None,
+        },
         "source_ids": json.loads(row["source_ids_json"] or "[]"),
         "created_at": row["created_at"],
     }
+    return answer
 
 
 def _zip_write_if_exists(zf: zipfile.ZipFile, src_path: str, dst_path: str) -> None:
@@ -244,6 +307,23 @@ def _build_queries_payload(job: Any, answer: dict, events: list[Any]) -> dict:
     }
 
 
+def _ensure_bundle_answer_shape(answer: dict) -> dict:
+    payload = dict(answer) if isinstance(answer, dict) else {}
+    payload.setdefault("references", [])
+    payload.setdefault("citation_verification", {})
+
+    generation = payload.get("generation")
+    if not isinstance(generation, dict):
+        generation = {}
+    generation.setdefault("mode", payload.get("generation_mode"))
+    generation.setdefault("llm_enabled", payload.get("llm_enabled"))
+    generation.setdefault("llm_endpoint", payload.get("llm_endpoint"))
+    generation.setdefault("llm_model", payload.get("llm_model"))
+    generation.setdefault("error", payload.get("llm_error"))
+    payload["generation"] = generation
+    return payload
+
+
 def create_research_bundle(job_id: str) -> Path:
     if not job_id:
         raise ValueError("job_id is required")
@@ -252,7 +332,7 @@ def create_research_bundle(job_id: str) -> Path:
     if not job:
         raise ValueError("job not found")
 
-    answer = _latest_research_answer(job_id)
+    answer = _ensure_bundle_answer_shape(_latest_research_answer(job_id))
     sources = _list_job_sources(job_id)
     evidence = list_evidence_items(job_id)
     source_chunks = _list_source_chunks(job_id)
@@ -268,6 +348,11 @@ def create_research_bundle(job_id: str) -> Path:
         if answer_markdown:
             zf.writestr("answer.md", answer_markdown + "\n")
         zf.writestr("answer.json", json.dumps(answer, ensure_ascii=False, indent=2))
+        zf.writestr("references.json", json.dumps(answer.get("references") or [], ensure_ascii=False, indent=2))
+        zf.writestr(
+            "citation_verification.json",
+            json.dumps(answer.get("citation_verification") or {}, ensure_ascii=False, indent=2),
+        )
         zf.writestr("evidence.json", json.dumps(evidence, ensure_ascii=False, indent=2))
         zf.writestr("sources.json", json.dumps(sources, ensure_ascii=False, indent=2))
         zf.writestr("source_chunks.json", json.dumps(source_chunks, ensure_ascii=False, indent=2))
