@@ -81,6 +81,29 @@ class NexusWebIntegrationTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.headers.get("content-type"), "application/zip")
 
+    def test_web_research_returns_job_id_immediately(self) -> None:
+        fake_async_result = {
+            "job_id": "research_job_123",
+            "job": {
+                "job_id": "research_job_123",
+                "status": "queued",
+                "message": "research queued",
+            },
+        }
+        with patch("app.nexus.router.run_research_async", return_value=fake_async_result) as mocked:
+            r = self.client.post(
+                "/nexus/web/research",
+                json={"query": "test immediate", "mode": "standard"},
+            )
+
+        self.assertEqual(r.status_code, 200)
+        payload = r.json()
+        self.assertEqual(payload["operation"], "web.research")
+        self.assertEqual(payload["result"]["job_id"], "research_job_123")
+        self.assertEqual(payload["result"]["job"]["status"], "queued")
+        self.assertIn("summary", payload["result"])
+        mocked.assert_called_once()
+
 
 class AgentRegistryTests(unittest.TestCase):
     def test_registry_contains_nexus_web_search(self) -> None:
