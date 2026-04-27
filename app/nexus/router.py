@@ -222,6 +222,10 @@ def nexus_summary(project: str = Query("default")) -> dict:
         "limits": {
             "max_upload_mb": cfg.max_upload_mb,
             "max_upload_bytes": cfg.max_upload_mb * 1024 * 1024,
+            "max_download_mb": cfg.max_download_mb,
+            "max_total_download_mb": cfg.max_total_download_mb,
+            "max_downloads": cfg.max_downloads,
+            "download_timeout_sec": cfg.download_timeout_sec,
         },
     }
 
