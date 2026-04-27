@@ -15,7 +15,7 @@ from app.nexus.config import load_runtime_config
 from app.nexus.evidence import build_library_evidence, list_evidence_table_items
 from app.nexus.export import nexus_export_router
 from app.nexus.ingest import accept_upload
-from app.nexus.jobs import get_job, get_job_events, list_active_jobs
+from app.nexus.jobs import list_active_jobs
 from app.nexus.market import run_market_mvp
 from app.nexus.news import (
     create_watchlist,
@@ -28,7 +28,23 @@ from app.nexus.news import (
 from app.nexus.report import nexus_report_router
 from app.nexus.search import search_evidence
 from app.nexus.web_scout import plan_web_queries, run_web_search
-from app.nexus.research_agent import ResearchAgentInput, run_research_job
+from app.nexus.research_api import (
+    CollectRequest,
+    ResearchRunRequest,
+    collect_web_sources,
+    get_research_job,
+    get_research_job_answer,
+    get_research_job_bundle,
+    get_research_job_events,
+    get_research_job_evidence,
+    get_research_job_sources,
+    get_source,
+    get_source_chunks,
+    get_source_markdown,
+    get_source_original,
+    get_source_text,
+    run_research,
+)
 
 
 nexus_router = APIRouter()
@@ -405,20 +421,12 @@ def nexus_active_jobs(limit: int = Query(50, ge=1, le=500)) -> dict:
 
 @nexus_router.get("/jobs/{job_id}")
 def nexus_job_status(job_id: str) -> dict:
-    job = get_job(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="job not found")
-    return {"job": job.model_dump(mode="json")}
+    return {"job": get_research_job(job_id)["job"]}
 
 
 @nexus_router.get("/jobs/{job_id}/events")
 def nexus_job_events(job_id: str, after: int = Query(-1)) -> dict:
-    job = get_job(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="job not found")
-
-    events = [event.model_dump(mode="json") for event in get_job_events(job_id, after=after)]
-    return {"job_id": job_id, "events": events}
+    return get_research_job_events(job_id, after=after)
 
 
 @nexus_router.get("/evidence")
@@ -606,55 +614,85 @@ def nexus_web_status() -> dict:
 
 @nexus_router.post("/web/research")
 def nexus_web_research(payload: NexusWebSearchRequest) -> dict:
-    query = payload.query.strip()
-    if not query:
-        raise HTTPException(status_code=400, detail="query must not be empty")
-
-    try:
-        result = run_research_job(
-            ResearchAgentInput(
-                query=query,
-                mode=payload.mode,
-                depth=payload.depth,
-                max_queries=payload.max_queries,
-                max_results_per_query=payload.max_results_per_query,
-                scope=payload.scope,
-                language=payload.language,
-            )
+    delegated = run_research(
+        ResearchRunRequest(
+            query=payload.query,
+            mode=payload.mode,
+            depth=payload.depth,
+            max_queries=payload.max_queries,
+            max_results_per_query=payload.max_results_per_query,
+            scope=payload.scope,
+            language=payload.language,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    search = dict(result.get("search") or {})
-    items = _with_item_provider_engine(search)
-    search["items"] = items
-    search["total_items"] = int(search.get("total_items") or len(items))
-    highlights = [str(item.get("title") or item.get("snippet") or "") for item in items[:5]]
-
-    return _as_canonical_payload(
-        "web.research",
-        payload.model_dump(),
-        {
-            "job_id": result.get("job_id"),
-            "queries": result.get("queries", []),
-            "provider": search.get("provider"),
-            "selected_provider": search.get("selected_provider"),
-            "attempted_providers": search.get("attempted_providers", []),
-            "fallback_used": bool(search.get("fallback_used", False)),
-            "skipped_providers": search.get("skipped_providers", {}),
-            "provider_errors": search.get("provider_errors", {}),
-            "configured": bool(search.get("configured", False)),
-            "non_fatal": bool(search.get("non_fatal", False)),
-            "message": search.get("message", ""),
-            "search": search,
-            "items": items,
-            "total_items": search.get("total_items", len(items)),
-            "sources": result.get("sources", []),
-            "answer": result.get("answer", {}),
-            "highlights": highlights,
-            "summary": str((result.get("answer") or {}).get("answer") or f"{query} に関するWeb調査（MVP）"),
-        },
     )
+    answer = delegated.get("answer") or {}
+    summary = str(answer.get("answer") or f"{payload.query.strip()} に関するWeb調査（MVP）")
+    return _as_canonical_payload("web.research", payload.model_dump(), {**delegated, "summary": summary})
+
+
+@nexus_router.post("/research/run")
+def nexus_research_run(payload: ResearchRunRequest) -> dict:
+    return run_research(payload)
+
+
+@nexus_router.get("/research/jobs/{job_id}")
+def nexus_research_job(job_id: str) -> dict:
+    return get_research_job(job_id)
+
+
+@nexus_router.get("/research/jobs/{job_id}/events")
+def nexus_research_job_events(job_id: str, after: int = Query(-1)) -> dict:
+    return get_research_job_events(job_id, after=after)
+
+
+@nexus_router.get("/research/jobs/{job_id}/answer")
+def nexus_research_job_answer(job_id: str) -> dict:
+    return get_research_job_answer(job_id)
+
+
+@nexus_router.get("/research/jobs/{job_id}/sources")
+def nexus_research_job_sources(job_id: str) -> dict:
+    return get_research_job_sources(job_id)
+
+
+@nexus_router.get("/research/jobs/{job_id}/evidence")
+def nexus_research_job_evidence(job_id: str) -> dict:
+    return get_research_job_evidence(job_id)
+
+
+@nexus_router.get("/research/jobs/{job_id}/bundle")
+def nexus_research_job_bundle(job_id: str, after: int = Query(-1)) -> dict:
+    return get_research_job_bundle(job_id, after=after)
+
+
+@nexus_router.get("/sources/{source_id}")
+def nexus_source(source_id: str) -> dict:
+    return get_source(source_id)
+
+
+@nexus_router.get("/sources/{source_id}/text")
+def nexus_source_text(source_id: str) -> FileResponse:
+    return get_source_text(source_id)
+
+
+@nexus_router.get("/sources/{source_id}/markdown")
+def nexus_source_markdown(source_id: str) -> FileResponse:
+    return get_source_markdown(source_id)
+
+
+@nexus_router.get("/sources/{source_id}/original")
+def nexus_source_original(source_id: str) -> FileResponse:
+    return get_source_original(source_id)
+
+
+@nexus_router.get("/sources/{source_id}/chunks")
+def nexus_source_chunks(source_id: str) -> dict:
+    return get_source_chunks(source_id)
+
+
+@nexus_router.post("/web/collect")
+def nexus_web_collect(payload: CollectRequest) -> dict:
+    return collect_web_sources(payload)
 
 
 @nexus_router.post("/news/search")
