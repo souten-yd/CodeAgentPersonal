@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import os
 import uuid
 
 from app.nexus.answer_builder import build_answer_payload
 from app.nexus.citation_mapper import build_citation_map, normalize_reference_labels
-from app.nexus.downloader import safe_download, save_download_artifacts
+from app.nexus.downloader import DEFAULT_MAX_BYTES, safe_download, save_download_artifacts
 from app.nexus.evidence import EvidenceItem, save_evidence_items
 from app.nexus.jobs import append_job_event, create_job, update_job
 from app.nexus.source_collector import collect_source_candidates, rank_source_candidates
@@ -43,6 +44,7 @@ class ResearchAgentInput:
     max_results_per_query: int | None = None
     max_sources: int | None = None
     max_downloads: int | None = None
+    max_download_mb: int | None = None
     max_total_download_mb: int | None = None
     scope: str | list[str] | None = None
     language: str | None = None
@@ -56,6 +58,19 @@ class ResearchAgentInput:
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+
+def _resolve_max_download_mb(requested_max_download_mb: int | None) -> int:
+    if requested_max_download_mb is not None:
+        return max(1, requested_max_download_mb)
+
+    raw_env_value = (os.environ.get("NEXUS_MAX_DOWNLOAD_MB") or "").strip()
+    if raw_env_value:
+        try:
+            return max(1, int(raw_env_value))
+        except ValueError:
+            pass
+
+    return max(1, DEFAULT_MAX_BYTES // (1024 * 1024))
 
 
 
@@ -173,6 +188,8 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
     effective_job_id = job_id or f"research_{uuid.uuid4().hex}"
     max_sources = payload.max_sources if payload.max_sources is not None else 50
     max_downloads = payload.max_downloads if payload.max_downloads is not None else 20
+    max_download_mb = _resolve_max_download_mb(payload.max_download_mb)
+    max_download_bytes = max_download_mb * 1024 * 1024
     max_total_download_mb = payload.max_total_download_mb if payload.max_total_download_mb is not None else 100
     max_total_download_bytes = max_total_download_mb * 1024 * 1024
     download_timeout_sec = payload.download_timeout_sec if payload.download_timeout_sec is not None else 8
@@ -265,6 +282,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             try:
                 download_result = safe_download(
                     url,
+                    max_bytes=max_download_bytes,
                     connect_timeout_sec=download_timeout_sec,
                     read_timeout_sec=download_timeout_sec,
                 )
