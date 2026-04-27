@@ -647,6 +647,7 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-ref-card{border:1px solid var(--border);border-radius:6px;background:var(--bg1);padding:8px;display:flex;flex-direction:column;gap:6px}
 .nexus-ref-title{font-size:11px;color:var(--text2);font-weight:700}
 .nexus-ref-meta{font-size:10px;color:var(--text3);font-family:var(--font-mono)}
+.nexus-ref-meta mark{background:rgba(255,214,10,.35);color:var(--text)}
 .nexus-status-badge{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.02em;border:1px solid var(--border);background:var(--bg3);color:var(--text3)}
 .nexus-status-badge.downloaded{border-color:rgba(0,255,157,.34);background:rgba(0,255,157,.12);color:var(--green)}
 .nexus-status-badge.degraded{border-color:rgba(255,170,0,.38);background:rgba(255,170,0,.11);color:var(--amber)}
@@ -655,6 +656,16 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-status-badge.failed{border-color:rgba(255,68,102,.38);background:rgba(255,68,102,.11);color:var(--red)}
 .nexus-deep-sources-table td{vertical-align:top}
 .nexus-table-cell-url{max-width:340px;overflow:hidden;text-overflow:ellipsis}
+.nexus-deep-viewer{min-height:160px;max-height:360px;overflow:auto}
+.nexus-viewer-header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.nexus-viewer-mode{font-size:10px;color:var(--text2);font-family:var(--font-mono)}
+.nexus-viewer-content{font-size:11px;color:var(--text2);line-height:1.5}
+.nexus-viewer-pre{margin:0;white-space:pre-wrap;word-break:break-word;font-family:var(--font-mono);font-size:10px;color:var(--text3)}
+.nexus-chunk-list{display:flex;flex-direction:column;gap:6px}
+.nexus-chunk-item{border:1px solid var(--border);border-radius:6px;background:var(--bg2);padding:7px;cursor:pointer}
+.nexus-chunk-item.active{border-color:var(--accent-border);box-shadow:0 0 0 1px var(--accent-border) inset}
+.nexus-chunk-head{font-size:10px;color:var(--text2);font-family:var(--font-mono);font-weight:700}
+.nexus-chunk-body{margin-top:4px;font-size:10px;color:var(--text3);white-space:pre-wrap;word-break:break-word}
 @media(max-width:768px){
   .nexus-topbar{flex-direction:column;align-items:stretch}
   .nexus-subtabs{padding-bottom:2px}
@@ -1547,6 +1558,12 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <div class="nexus-card-title">References</div>
               <div id="nexus-deep-references" class="nexus-ref-list">
                 <div class="nexus-empty">Reference cards are shown after research starts.</div>
+              </div>
+            </div>
+            <div class="nexus-card">
+              <div class="nexus-card-title">Reference Viewer</div>
+              <div id="nexus-deep-viewer" class="nexus-detail-panel nexus-deep-viewer">
+                <div class="nexus-empty">Reference Card の「全文表示 / Markdown表示 / 該当箇所 / 元URL」で内容を表示します。</div>
               </div>
             </div>
             <div class="nexus-card">
@@ -7313,6 +7330,7 @@ let nexusDeepResearchStubMode = false;
 let nexusDeepResearchSources = [];
 let nexusDeepResearchAnswer = {};
 let nexusDeepResearchEvidence = [];
+let nexusDeepResearchReferences = [];
 let nexusMaxUploadMb = 200;
 let nexusMaxUploadBytes = nexusMaxUploadMb * 1024 * 1024;
 const nexusAllowedUploadExt = new Set(['.pdf', '.txt', '.md', '.csv', '.html']);
@@ -8129,13 +8147,80 @@ function renderNexusDeepAnswer(answer = {}) {
   el.innerHTML = `<div class="md">${renderMd(md)}</div>`;
 }
 
-function renderNexusDeepReferences(sources = [], evidence = []) {
+function renderNexusDeepViewer(payload = {}) {
+  const root = document.getElementById('nexus-deep-viewer');
+  if (!root) return;
+  const mode = String(payload?.mode || '').trim();
+  const sourceId = String(payload?.sourceId || '-');
+  const title = String(payload?.title || '');
+  if (!mode) {
+    root.innerHTML = '<div class="nexus-empty">Reference Card の操作を選ぶとここに表示されます</div>';
+    return;
+  }
+  const head = `<div class="nexus-viewer-header"><div class="nexus-viewer-mode">source_id: ${esc(sourceId)}</div><div class="nexus-viewer-mode">mode: ${esc(mode)}</div></div>`;
+  if (mode === 'url') {
+    const url = String(payload?.url || '');
+    root.innerHTML = `${head}<div class="nexus-viewer-content">${url
+      ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`
+      : '<span class="nexus-empty">url unavailable</span>'}</div>`;
+    return;
+  }
+  if (mode === 'chunks') {
+    const chunks = Array.isArray(payload?.chunks) ? payload.chunks : [];
+    const selectedIndex = Number(payload?.selectedChunkIndex ?? -1);
+    if (!chunks.length) {
+      root.innerHTML = `${head}<div class="nexus-empty">chunk/page 情報がありません</div>`;
+      return;
+    }
+    root.innerHTML = `${head}
+      <div class="nexus-viewer-content">
+        <div class="nexus-chunk-list">
+          ${chunks.map((chunk, idx) => {
+            const page = [chunk?.page_start, chunk?.page_end].filter((v) => v !== null && v !== undefined).join('-') || '-';
+            const chunkId = chunk?.chunk_id || chunk?.citation_label || `chunk-${idx + 1}`;
+            const text = String(chunk?.chunk_text || chunk?.text || chunk?.quote || '').slice(0, 380);
+            return `<div class="nexus-chunk-item${idx === selectedIndex ? ' active' : ''}" onclick="selectNexusDeepViewerChunk(${idx})">
+              <div class="nexus-chunk-head">#${idx + 1} page:${esc(page)} / chunk:${esc(chunkId)}</div>
+              <div class="nexus-chunk-body">${esc(text || '(text unavailable)')}</div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    return;
+  }
+  const rawText = String(payload?.content || '');
+  const activeChunk = payload?.activeChunk && typeof payload.activeChunk === 'object' ? payload.activeChunk : null;
+  const activeLabel = String(activeChunk?.chunk_id || activeChunk?.citation_label || '').trim();
+  const activeNeedle = String(activeChunk?.chunk_text || activeChunk?.text || activeChunk?.quote || '').trim();
+  let highlighted = esc(rawText);
+  if (activeNeedle && activeNeedle.length >= 6) {
+    const needleEsc = esc(activeNeedle.slice(0, 180));
+    if (needleEsc) highlighted = highlighted.split(needleEsc).join(`<mark>${needleEsc}</mark>`);
+  } else if (activeLabel) {
+    const labelEsc = esc(activeLabel);
+    highlighted = highlighted.split(labelEsc).join(`<mark>${labelEsc}</mark>`);
+  }
+  const activeChunkMeta = activeChunk
+    ? `<div class="nexus-ref-meta">highlight: ${esc(activeLabel || '(chunk)')}</div>`
+    : '';
+  const body = mode === 'markdown'
+    ? `<div class="md">${renderMd(rawText)}</div><div class="nexus-ref-meta">一致箇所プレビュー（chunk選択時）</div><pre class="nexus-viewer-pre">${highlighted}</pre>`
+    : `<pre class="nexus-viewer-pre">${highlighted}</pre>`;
+  root.innerHTML = `${head}<div class="nexus-ref-meta">${esc(title || '')}</div>${activeChunkMeta}<div class="nexus-viewer-content">${body}</div>`;
+}
+
+function renderNexusDeepReferences(references = [], sources = [], evidence = []) {
   const root = document.getElementById('nexus-deep-references');
   if (!root) return;
-  if (!sources.length) {
+  if (!references.length) {
     root.innerHTML = '<div class="nexus-empty">References はまだありません</div>';
     return;
   }
+  const sourceMap = {};
+  (Array.isArray(sources) ? sources : []).forEach((row) => {
+    const sourceId = String(row?.source_id || '').trim();
+    if (sourceId) sourceMap[sourceId] = row;
+  });
   const evidenceMap = {};
   const statusBadgeLabel = {
     downloaded: 'Downloaded',
@@ -8150,18 +8235,19 @@ function renderNexusDeepReferences(sources = [], evidence = []) {
     if (!evidenceMap[sid]) evidenceMap[sid] = [];
     evidenceMap[sid].push(row);
   });
-  root.innerHTML = sources.map((source, idx) => {
-    const sourceId = String(source?.source_id || '');
-    const citationLabel = String(source?.citation_label || `[S${idx + 1}]`);
+  root.innerHTML = references.map((reference, idx) => {
+    const sourceId = String(reference?.source_id || '');
+    const source = sourceMap[sourceId] || {};
+    const citationLabel = String(reference?.citation_label || `[S${idx + 1}]`);
     const localPath = String(source?.local_markdown_path || source?.local_text_path || source?.local_original_path || '');
-    const url = String(source?.final_url || source?.url || '');
+    const url = String(reference?.url || source?.final_url || source?.url || '');
     const status = String(source?.status || '-').trim() || '-';
     const statusClass = statusBadgeLabel[status] ? ` ${status}` : '';
     const statusBadge = statusBadgeLabel[status]
       ? `<span class="nexus-status-badge${statusClass}">${statusBadgeLabel[status]}</span>`
       : `<span class="nexus-status-badge">${esc(status)}</span>`;
-    const sourceScore = source?.source_score ?? '-';
-    const sourceError = String(source?.error || '-');
+    const sourceScore = reference?.source_score ?? source?.source_score ?? '-';
+    const sourceError = String(reference?.error || source?.error || '-');
     const refs = evidenceMap[sourceId] || [];
     const firstQuote = String(refs?.[0]?.quote || refs?.[0]?.chunk_text || '').trim();
     const hint = refs.slice(0, 2).map((row) => {
@@ -8172,21 +8258,20 @@ function renderNexusDeepReferences(sources = [], evidence = []) {
     const sourceIdEnc = encodeURIComponent(sourceId);
     const urlEnc = encodeURIComponent(url);
     return `<div class="nexus-ref-card">
-      <div class="nexus-ref-title">${citationLabel} ${esc(source?.title || sourceId || '(untitled source)')}</div>
-      <div class="nexus-ref-meta">source_id: ${esc(sourceId || '-')} / type: ${esc(source?.source_type || '-')} / status: ${statusBadge}</div>
+      <div class="nexus-ref-title">${citationLabel} ${esc(reference?.title || source?.title || sourceId || '(untitled source)')}</div>
+      <div class="nexus-ref-meta">source_id: ${esc(sourceId || '-')} / type: ${esc(reference?.source_type || source?.source_type || '-')} / status: ${statusBadge}</div>
       <div class="nexus-ref-meta">source_score: ${esc(String(sourceScore))} / error: ${esc(sourceError)}</div>
       <div class="nexus-ref-meta">${esc(url || '(url unavailable)')}</div>
       <div class="nexus-ref-meta">local: ${esc(localPath || '-')}</div>
       <div class="nexus-ref-meta">quote: ${esc(firstQuote || '引用断片はまだありません')}</div>
       <div class="nexus-ref-meta">chunk/page: ${esc(hint || 'bundle evidence/chunk 情報を確認してください')}</div>
       <div class="nexus-doc-actions">
-        <button onclick="openNexusDeepSourceText('${sourceIdEnc}')">全文表示</button>
-        <button onclick="openNexusDeepSourceMarkdown('${sourceIdEnc}')">Markdown表示</button>
-        <button onclick="openNexusDeepSourceChunks('${sourceIdEnc}', this)">該当箇所</button>
-        <button ${url ? '' : 'disabled'} onclick="openNexusDeepSourceUrl('${urlEnc}')">元URL</button>
+        <button onclick="viewNexusDeepSourceText('${sourceIdEnc}')">全文表示</button>
+        <button onclick="viewNexusDeepSourceMarkdown('${sourceIdEnc}')">Markdown表示</button>
+        <button onclick="viewNexusDeepSourceChunks('${sourceIdEnc}', this)">該当箇所</button>
+        <button ${url ? '' : 'disabled'} onclick="showNexusDeepReferenceUrl('${urlEnc}','${sourceIdEnc}')">元URL</button>
         <button onclick="downloadNexusDeepSourceOriginal('${sourceIdEnc}')">ダウンロード</button>
       </div>
-      <div class="nexus-ref-meta" id="nexus-deep-chunks-${sourceIdEnc}" style="display:none"></div>
     </div>`;
   }).join('');
 }
@@ -8254,7 +8339,7 @@ async function refreshNexusDeepSources(jobId) {
   const sources = Array.isArray(data?.sources) ? data.sources : [];
   nexusDeepResearchSources = sources;
   renderNexusDeepSourcesTable(sources);
-  renderNexusDeepReferences(sources, nexusDeepResearchEvidence);
+  renderNexusDeepReferences(nexusDeepResearchReferences, sources, nexusDeepResearchEvidence);
   return sources;
 }
 
@@ -8278,10 +8363,13 @@ async function refreshNexusDeepEvents(jobId) {
 
 function normalizeNexusDeepAnswerPayload(answerPayload = {}) {
   const answer = (answerPayload && typeof answerPayload === 'object') ? answerPayload : {};
+  const directReferences = Array.isArray(answer?.references) ? answer.references : [];
   const directEvidence = Array.isArray(answer?.evidence) ? answer.evidence : [];
   const dbEvidence = Array.isArray(answer?.evidence_json) ? answer.evidence_json : [];
+  const fallbackReferences = directEvidence.length ? directEvidence : dbEvidence;
   return {
     answer,
+    references: directReferences.length ? directReferences : fallbackReferences,
     evidence: directEvidence.length ? directEvidence : dbEvidence,
   };
 }
@@ -8290,9 +8378,11 @@ async function refreshNexusDeepAnswer(jobId) {
   const id = String(jobId || '').trim();
   if (!id) {
     nexusDeepResearchAnswer = {};
+    nexusDeepResearchReferences = [];
     nexusDeepResearchEvidence = [];
     renderNexusDeepAnswer({});
-    renderNexusDeepReferences(nexusDeepResearchSources, []);
+    renderNexusDeepReferences([], nexusDeepResearchSources, []);
+    renderNexusDeepViewer({});
     return {};
   }
   const resp = await fetch(API + '/nexus/research/jobs/' + encodeURIComponent(id) + '/answer');
@@ -8300,9 +8390,10 @@ async function refreshNexusDeepAnswer(jobId) {
   if (!resp.ok) throw new Error(data?.detail || JSON.stringify(data));
   const normalized = normalizeNexusDeepAnswerPayload(data?.answer || {});
   nexusDeepResearchAnswer = normalized.answer;
+  nexusDeepResearchReferences = normalized.references;
   nexusDeepResearchEvidence = normalized.evidence;
   renderNexusDeepAnswer(nexusDeepResearchAnswer);
-  renderNexusDeepReferences(nexusDeepResearchSources, nexusDeepResearchEvidence);
+  renderNexusDeepReferences(nexusDeepResearchReferences, nexusDeepResearchSources, nexusDeepResearchEvidence);
   return nexusDeepResearchAnswer;
 }
 
@@ -8334,54 +8425,108 @@ async function pollNexusDeepResearch(jobId, maxTicks = 50) {
   }
 }
 
-function openNexusDeepSourceText(sourceIdEnc) {
+async function viewNexusDeepSourceText(sourceIdEnc) {
   const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
   if (!sourceId) return;
-  window.open(API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/text', '_blank', 'noopener');
+  try {
+    const r = await fetch(API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/text');
+    const body = await r.text();
+    if (!r.ok) throw new Error(body || 'text 読み込み失敗');
+    window.__nexusDeepViewerLastTextMode = 'text';
+    window.__nexusDeepViewerLastBody = body;
+    renderNexusDeepViewer({ mode: 'text', sourceId, content: body, title: '全文表示' });
+  } catch (e) {
+    renderNexusDeepViewer({ mode: 'text', sourceId, content: '読み込み失敗: ' + e.message, title: '全文表示' });
+  }
 }
 
-function openNexusDeepSourceMarkdown(sourceIdEnc) {
+async function viewNexusDeepSourceMarkdown(sourceIdEnc) {
   const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
   if (!sourceId) return;
-  window.open(API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/markdown', '_blank', 'noopener');
+  try {
+    const r = await fetch(API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/markdown');
+    const body = await r.text();
+    if (!r.ok) throw new Error(body || 'markdown 読み込み失敗');
+    window.__nexusDeepViewerLastTextMode = 'markdown';
+    window.__nexusDeepViewerLastBody = body;
+    renderNexusDeepViewer({ mode: 'markdown', sourceId, content: body, title: 'Markdown表示' });
+  } catch (e) {
+    renderNexusDeepViewer({ mode: 'markdown', sourceId, content: '読み込み失敗: ' + e.message, title: 'Markdown表示' });
+  }
 }
 
 function downloadNexusDeepSourceOriginal(sourceIdEnc) {
   const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
   if (!sourceId) return;
-  window.open(API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/original', '_blank', 'noopener');
+  const link = document.createElement('a');
+  link.href = API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/original';
+  link.rel = 'noopener';
+  link.target = '_self';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
-function openNexusDeepSourceUrl(urlEnc) {
+function showNexusDeepReferenceUrl(urlEnc, sourceIdEnc) {
   const url = decodeURIComponent(String(urlEnc || ''));
-  if (!url) return;
-  window.open(url, '_blank', 'noopener');
+  const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
+  renderNexusDeepViewer({ mode: 'url', sourceId, url, title: '元URL' });
 }
 
-async function openNexusDeepSourceChunks(sourceIdEnc, btn = null) {
+async function viewNexusDeepSourceChunks(sourceIdEnc, btn = null) {
   const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
   if (!sourceId) return;
-  const panel = document.getElementById('nexus-deep-chunks-' + encodeURIComponent(sourceId));
-  if (!panel) return;
   if (btn) btn.disabled = true;
   try {
     const r = await fetch(API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/chunks');
     const d = await r.json();
     if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
     const chunks = Array.isArray(d?.chunks) ? d.chunks : [];
-    const text = chunks.slice(0, 6).map((chunk, idx) => {
-      const page = [chunk?.page_start, chunk?.page_end].filter((v) => v !== null && v !== undefined).join('-') || '-';
-      const chunkId = chunk?.chunk_id || chunk?.citation_label || `chunk-${idx + 1}`;
-      return `#${idx + 1} page:${page} / chunk:${chunkId}`;
-    }).join(' | ');
-    panel.style.display = '';
-    panel.textContent = text || 'chunk/page 情報がありません';
+    window.__nexusDeepViewer = { mode: 'chunks', sourceId, chunks, selectedChunkIndex: chunks.length ? 0 : -1 };
+    renderNexusDeepViewer(window.__nexusDeepViewer);
+    if (chunks.length) selectNexusDeepViewerChunk(0);
   } catch (e) {
-    panel.style.display = '';
-    panel.textContent = 'chunk 読み込み失敗: ' + e.message;
+    renderNexusDeepViewer({ mode: 'chunks', sourceId, chunks: [], title: 'chunk 読み込み失敗: ' + e.message });
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+function selectNexusDeepViewerChunk(index) {
+  const state = window.__nexusDeepViewer && typeof window.__nexusDeepViewer === 'object' ? window.__nexusDeepViewer : null;
+  if (!state || state.mode !== 'chunks') return;
+  const chunks = Array.isArray(state.chunks) ? state.chunks : [];
+  if (!chunks.length) return;
+  const selectedIndex = Math.max(0, Math.min(Number(index || 0), chunks.length - 1));
+  state.selectedChunkIndex = selectedIndex;
+  renderNexusDeepViewer(state);
+  const selectedChunk = chunks[selectedIndex];
+  const selectedMode = String(window.__nexusDeepViewerLastTextMode || 'text');
+  const endpoint = selectedMode === 'markdown' ? '/markdown' : '/text';
+  fetch(API + '/nexus/sources/' + encodeURIComponent(String(state.sourceId || '')) + endpoint)
+    .then((r) => r.text().then((body) => ({ ok: r.ok, body })))
+    .then((response) => {
+      if (!response.ok) throw new Error(response.body || '読み込み失敗');
+      window.__nexusDeepViewerLastBody = String(response.body || '');
+    renderNexusDeepViewer({
+      mode: selectedMode,
+      sourceId: String(state.sourceId || ''),
+      content: window.__nexusDeepViewerLastBody,
+      title: selectedMode === 'markdown' ? 'Markdown表示' : '全文表示',
+      activeChunk: selectedChunk,
+    });
+    window.__nexusDeepViewer = state;
+    })
+    .catch((err) => {
+    renderNexusDeepViewer({
+      mode: selectedMode,
+      sourceId: String(state.sourceId || ''),
+      content: `読み込み失敗: ${err.message}`,
+      title: selectedMode === 'markdown' ? 'Markdown表示' : '全文表示',
+      activeChunk: selectedChunk,
+    });
+    window.__nexusDeepViewer = state;
+  });
 }
 
 function downloadNexusDeepBundle() {
@@ -8579,11 +8724,13 @@ async function runNexusDeepResearch() {
   nexusDeepResearchStubMode = false;
   nexusDeepResearchSources = [];
   nexusDeepResearchAnswer = {};
+  nexusDeepResearchReferences = [];
   nexusDeepResearchEvidence = [];
   if (bundleBtn) bundleBtn.disabled = true;
   renderNexusDeepTimeline([]);
   renderNexusDeepAnswer({});
-  renderNexusDeepReferences([], []);
+  renderNexusDeepReferences([], [], []);
+  renderNexusDeepViewer({});
   renderNexusDeepSourcesTable([]);
   if (btn) btn.disabled = true;
   try {
@@ -8628,10 +8775,11 @@ async function runNexusDeepResearch() {
     nexusDeepResearchSources = Array.isArray(runData?.sources) ? runData.sources : [];
     const initialAnswer = normalizeNexusDeepAnswerPayload(runData?.answer || {});
     nexusDeepResearchAnswer = initialAnswer.answer;
+    nexusDeepResearchReferences = initialAnswer.references;
     nexusDeepResearchEvidence = initialAnswer.evidence;
     renderNexusDeepSourcesTable(nexusDeepResearchSources);
     renderNexusDeepAnswer(nexusDeepResearchAnswer);
-    renderNexusDeepReferences(nexusDeepResearchSources, nexusDeepResearchEvidence);
+    renderNexusDeepReferences(nexusDeepResearchReferences, nexusDeepResearchSources, nexusDeepResearchEvidence);
 
     if (!nexusDeepResearchJobId) {
       setNexusDeepStatus('job_id が返されませんでした', true, nexusDeepResearchStubMode);

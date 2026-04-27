@@ -248,6 +248,23 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
         self.assertTrue(all(str(ref.get("citation_label", "")).startswith("[S") for ref in answer["references"]))
         self.assertTrue(all(str(item.get("citation_label", "")).startswith("[S") for item in answer["evidence_json"]))
 
+        job_answer_response = self.client.get(f"/nexus/research/jobs/{job_id}/answer")
+        self.assertEqual(job_answer_response.status_code, 200)
+        job_answer = job_answer_response.json().get("answer", {})
+        self.assertIn("references", job_answer)
+        self.assertGreaterEqual(len(job_answer["references"]), 1)
+        required_reference_keys = {
+            "citation_label",
+            "title",
+            "source_type",
+            "source_score",
+            "status",
+            "url",
+            "error",
+            "source_id",
+        }
+        self.assertTrue(required_reference_keys.issubset(set(job_answer["references"][0].keys())))
+
         text_response = self.client.get(f"/nexus/sources/{html_source['source_id']}/text")
         self.assertEqual(text_response.status_code, 200)
         self.assertIn("keyword_html", text_response.text)
