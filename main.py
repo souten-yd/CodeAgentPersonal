@@ -6940,7 +6940,7 @@ TASK_V2_SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 - run_npm: {"command": "test"}  ← npm コマンドをDockerで実行（test/install/run build等）/ タイムアウト時: {"command":"install","timeout":300} (max 600s)
 - run_node: {"script": "console.log(require('./script.js'))"}  ← JSコードをNode.jsで実行・テスト / タイムアウト時: {"script":"...","timeout":60} (max 300s)
 - setup_venv: {"requirements": ["flask","numpy"]}  ← Pythonプロジェクトで.venv構築＋requirements.txt生成（実行はユーザーが行う）
-- nexus_web_search: {"topic": "検索クエリ", "max_results_per_query": 5, "mode": "standard", "depth": "standard", "scope": ["news"], "language": "ja"}
+- nexus_web_search: {"topic": "検索クエリ", "max_results_per_query": 5, "mode": "standard", "depth": "standard", "scope": ["news"], "language": "ja"}  ← Web検索を実行し、検索結果をNexus Evidenceとして保存してjob_idを返却。返却されたjob_idは nexus_build_report / nexus_export_bundle に接続可能
 - clarify: {"question": "質問", "options": ["選択肢1", "選択肢2"]}
 - git_status: {"project": "..."}  ← プロジェクトのgit変更一覧（M=変更 A=追加 ?=未追跡）。タスク開始前に実行推奨
 - git_diff: {"path": "foo.py", "project": "..."}  ← 差分確認。pathを省略すると全体差分

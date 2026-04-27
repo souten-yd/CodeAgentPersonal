@@ -156,7 +156,7 @@ Agentモードでは、ToolRegistryに登録されたツールを使って作業
 | ツール | 用途 |
 |---|---|
 | `nexus_search_library` | Nexusライブラリ内の文書を検索します |
-| `nexus_web_search` | NexusのWeb検索機能を使います |
+| `nexus_web_search` | Web検索を実行し、検索結果をNexus Evidenceとして保存して`job_id`を返却します。返却された`job_id`は`nexus_build_report` / `nexus_export_bundle`に接続可能です |
 | `nexus_build_report` | Evidenceや検索結果からレポートを生成します |
 | `nexus_build_report_legacy` | 旧形式のNexusレポート生成を実行します |
 | `nexus_upload_document` | Nexusへ文書をアップロードします |
