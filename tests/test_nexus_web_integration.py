@@ -85,7 +85,7 @@ class NexusWebIntegrationTests(unittest.TestCase):
             "effective_query_plan": {"queries": ["test"]},
         }
         with patch(
-            "app.nexus.router.execute_nexus_web_search",
+            "app.nexus.router.execute_web_search_service",
             return_value={
                 "ok": True,
                 "job_id": "job-web-1",
@@ -126,7 +126,7 @@ class NexusWebIntegrationTests(unittest.TestCase):
             "effective_query_plan": {"queries": ["ai chips"]},
         }
         with patch(
-            "app.nexus.router.execute_nexus_web_search",
+            "app.nexus.router.execute_web_search_service",
             return_value={
                 "ok": True,
                 "job_id": "job-web-shape-1",
@@ -260,7 +260,7 @@ class NexusToolsWebSearchTests(unittest.TestCase):
             "provider_errors": {},
         }
         with patch(
-            "agent.tools.nexus_tools.execute_nexus_web_search",
+            "agent.tools.nexus_tools.execute_web_search_service",
             return_value={
                 "ok": True,
                 "job_id": "job-fixed-id",
@@ -307,13 +307,13 @@ class NexusToolsWebSearchTests(unittest.TestCase):
             "search": provider_failure_stub,
         }
 
-        with patch("agent.tools.nexus_tools.execute_nexus_web_search", return_value=shared_service_result):
+        with patch("agent.tools.nexus_tools.execute_web_search_service", return_value=shared_service_result):
             tool_result = nexus_web_search(topic="fallback", max_queries=1, max_results_per_query=2)
 
         app = FastAPI()
         app.include_router(nexus_router, prefix="/nexus")
         api_client = TestClient(app)
-        with patch("app.nexus.router.execute_nexus_web_search", return_value=shared_service_result):
+        with patch("app.nexus.router.execute_web_search_service", return_value=shared_service_result):
             api_response = api_client.post("/nexus/web/search", json={"query": "fallback", "max_queries": 1})
 
         self.assertEqual(api_response.status_code, 200)
