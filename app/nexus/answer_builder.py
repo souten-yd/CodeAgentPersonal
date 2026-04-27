@@ -246,6 +246,7 @@ def build_answer_payload(
     citation_verification = verify_citation_labels(
         answer_text=final_summary,
         references=normalized_references,
+        evidence_chunks=normalized_chunks,
     )
 
     payload = {
