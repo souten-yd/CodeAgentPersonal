@@ -199,7 +199,7 @@ def get_research_job_answer(job_id: str) -> dict:
     with get_conn() as conn:
         row = conn.execute(
             """
-            SELECT answer_id, question, answer_markdown, evidence_json, source_ids_json, created_at
+            SELECT answer_id, question, answer_markdown, evidence_json, answer_json, source_ids_json, created_at
             FROM nexus_research_answers
             WHERE job_id = ?
             ORDER BY created_at DESC
@@ -219,6 +219,20 @@ def get_research_job_answer(job_id: str) -> dict:
 
     if row is None:
         return {"job_id": job_id, "answer": {}}
+
+    answer_json_raw = str(row["answer_json"] or "").strip()
+    if answer_json_raw:
+        try:
+            parsed_answer_json = json.loads(answer_json_raw)
+        except (TypeError, ValueError):
+            parsed_answer_json = {}
+        if isinstance(parsed_answer_json, dict) and parsed_answer_json:
+            answer = dict(parsed_answer_json)
+            answer.setdefault("answer_id", row["answer_id"])
+            answer.setdefault("question", row["question"])
+            answer.setdefault("answer_markdown", row["answer_markdown"])
+            answer.setdefault("created_at", row["created_at"])
+            return {"job_id": job_id, "answer": answer}
 
     source_index: dict[str, dict] = {}
     for source_row in source_rows:
