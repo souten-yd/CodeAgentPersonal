@@ -62,6 +62,62 @@ async def verify_nexus_tabs(page) -> None:
     )
 
 
+async def verify_reference_card_actions(page) -> None:
+  await page.click("#btn-nexus")
+  await page.click("#nexus-btn-web-scout")
+
+  await page.evaluate(
+    """
+    () => {
+      window.__openedUrls = [];
+      const realFetch = window.fetch.bind(window);
+      window.open = (url) => {
+        window.__openedUrls.push(String(url || ''));
+        return null;
+      };
+      window.fetch = async (input, init) => {
+        const url = String(typeof input === 'string' ? input : (input?.url || ''));
+        if (url.includes('/nexus/sources/src-1/chunks')) {
+          return {
+            ok: true,
+            json: async () => ({
+              chunks: [{ page_start: 2, page_end: 3, chunk_id: 'doc-1:0', citation_label: '[S1]' }],
+            }),
+          };
+        }
+        return realFetch(input, init);
+      };
+      renderNexusDeepReferences(
+        [{
+          source_id: 'src-1',
+          citation_label: '[S1]',
+          title: 'Mock Source',
+          source_type: 'web',
+          status: 'downloaded',
+          final_url: 'https://example.com/report',
+          local_text_path: '/tmp/mock.txt',
+        }],
+        [{ source_id: 'src-1', quote: 'mock quote', chunk_id: 'doc-1:0', page_start: 2, page_end: 3 }],
+      );
+    }
+    """
+  )
+
+  ref_card = page.locator("#nexus-deep-references .nexus-ref-card").first
+  await ref_card.get_by_role("button", name="全文表示").click()
+  await ref_card.get_by_role("button", name="該当箇所").click()
+  await page.wait_for_function(
+    "() => (document.querySelector('#nexus-deep-chunks-src-1')?.textContent || '').includes('chunk:doc-1:0')"
+  )
+  await ref_card.get_by_role("button", name="元URL").click()
+  await ref_card.get_by_role("button", name="ダウンロード").click()
+
+  opened_urls = await page.evaluate("() => window.__openedUrls || []")
+  assert any("/nexus/sources/src-1/text" in url for url in opened_urls), opened_urls
+  assert any("https://example.com/report" in url for url in opened_urls), opened_urls
+  assert any("/nexus/sources/src-1/original" in url for url in opened_urls), opened_urls
+
+
 async def verify_mobile_mode_switches(browser) -> None:
   page = await browser.new_page(viewport={"width": 390, "height": 844})
   errors: list[str] = []
@@ -118,6 +174,7 @@ async def main() -> None:
 
     await verify_mode_switches(page)
     await verify_nexus_tabs(page)
+    await verify_reference_card_actions(page)
 
     if errors:
       raise AssertionError("\n".join(errors))
