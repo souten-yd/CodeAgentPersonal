@@ -25,9 +25,16 @@ class ResearchRunRequest(BaseModel):
     depth: str | None = None
     max_queries: int | None = Field(default=None, ge=1, le=20)
     max_results_per_query: int | None = Field(default=None, ge=1, le=20)
+    max_sources: int | None = Field(default=None, ge=1, le=200)
+    max_downloads: int | None = Field(default=None, ge=1, le=200)
+    max_total_download_mb: int | None = Field(default=None, ge=1, le=2048)
     scope: str | list[str] | None = None
     language: str | None = None
     manual_urls: list[str] | None = None
+    prefer_pdf: bool = True
+    official_first: bool = True
+    download_timeout_sec: int | None = Field(default=None, ge=1, le=600)
+    continue_on_download_error: bool = True
 
 
 class CollectRequest(BaseModel):
@@ -73,9 +80,16 @@ def run_research(payload: ResearchRunRequest) -> dict:
                 depth=payload.depth,
                 max_queries=payload.max_queries,
                 max_results_per_query=payload.max_results_per_query,
+                max_sources=payload.max_sources,
+                max_downloads=payload.max_downloads,
+                max_total_download_mb=payload.max_total_download_mb,
                 scope=payload.scope,
                 language=payload.language,
                 manual_urls=payload.manual_urls,
+                prefer_pdf=payload.prefer_pdf,
+                official_first=payload.official_first,
+                download_timeout_sec=payload.download_timeout_sec,
+                continue_on_download_error=payload.continue_on_download_error,
             )
         )
     except ValueError as exc:
@@ -103,9 +117,16 @@ def run_research_async(payload: ResearchRunRequest) -> dict:
         depth=payload.depth,
         max_queries=payload.max_queries,
         max_results_per_query=payload.max_results_per_query,
+        max_sources=payload.max_sources,
+        max_downloads=payload.max_downloads,
+        max_total_download_mb=payload.max_total_download_mb,
         scope=payload.scope,
         language=payload.language,
         manual_urls=payload.manual_urls,
+        prefer_pdf=payload.prefer_pdf,
+        official_first=payload.official_first,
+        download_timeout_sec=payload.download_timeout_sec,
+        continue_on_download_error=payload.continue_on_download_error,
     )
     job_id = f"research_{uuid.uuid4().hex}"
     existing = get_job(job_id)
