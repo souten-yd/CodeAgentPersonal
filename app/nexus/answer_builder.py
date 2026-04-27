@@ -39,6 +39,14 @@ def _llm_answer_enabled() -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
+def _llm_endpoint() -> str:
+    return str(os.environ.get("NEXUS_ANSWER_LLM_ENDPOINT", "http://127.0.0.1:8000/v1/chat/completions")).strip()
+
+
+def _llm_model() -> str:
+    return str(os.environ.get("NEXUS_ANSWER_LLM_MODEL", "local-llm")).strip() or "local-llm"
+
+
 def _generate_answer_with_llm(
     *,
     question: str,
@@ -49,8 +57,8 @@ def _generate_answer_with_llm(
     if not _llm_answer_enabled():
         raise RuntimeError("answer llm is disabled")
 
-    endpoint = str(os.environ.get("NEXUS_ANSWER_LLM_ENDPOINT", "http://127.0.0.1:8000/v1/chat/completions")).strip()
-    model = str(os.environ.get("NEXUS_ANSWER_LLM_MODEL", "local-llm")).strip() or "local-llm"
+    endpoint = _llm_endpoint()
+    model = _llm_model()
     timeout_value = float(timeout_sec or os.environ.get("NEXUS_ANSWER_LLM_TIMEOUT_SEC", "20"))
 
     reference_lines = []
@@ -210,6 +218,11 @@ def build_answer_payload(
     chunks_for_llm = normalized_chunks
 
     llm_answer: str | None = None
+    generation_mode = "template_fallback"
+    llm_enabled = _llm_answer_enabled()
+    llm_endpoint = _llm_endpoint()
+    llm_model = _llm_model()
+    llm_error: str | None = None
     if chunks_for_llm:
         try:
             llm_answer = _generate_answer_with_llm(
@@ -217,8 +230,11 @@ def build_answer_payload(
                 references=normalized_references,
                 evidence_chunks=chunks_for_llm,
             )
-        except Exception:  # noqa: BLE001
+            generation_mode = "llm"
+        except Exception as exc:  # noqa: BLE001
             llm_answer = None
+            generation_mode = "template_fallback"
+            llm_error = str(exc)
 
     final_summary = replace_citation_labels(llm_answer or summary_text, normalized["label_map"])
 
@@ -239,6 +255,11 @@ def build_answer_payload(
         "evidence_json": evidence_json,
         "references": normalized_references,
         "citation_verification": citation_verification,
+        "generation_mode": generation_mode,
+        "llm_enabled": llm_enabled,
+        "llm_endpoint": llm_endpoint,
+        "llm_model": llm_model,
+        "llm_error": llm_error,
     }
 
     if job_id:

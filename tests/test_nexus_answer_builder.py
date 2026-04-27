@@ -1,8 +1,12 @@
 import os
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from app.nexus.answer_builder import build_answer_payload
+from app.nexus.config import NexusPaths
 
 
 class NexusAnswerBuilderTests(unittest.TestCase):
@@ -28,6 +32,11 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         mocked.assert_called_once()
         self.assertEqual(payload["references"][0]["citation_label"], "[S1]")
         self.assertIn("- [S1] Source 1 (https://example.com/1)", payload["answer_markdown"])
+        self.assertEqual(payload["generation_mode"], "llm")
+        self.assertTrue(payload["llm_enabled"])
+        self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
+        self.assertEqual(payload["llm_model"], "local-llm")
+        self.assertIsNone(payload["llm_error"])
 
     def test_build_answer_payload_falls_back_to_template_summary_when_llm_fails(self) -> None:
         references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
@@ -49,6 +58,58 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertIn("[S1]", payload["answer"])
         self.assertNotIn("legacy-label", payload["answer"])
         self.assertIn("## References", payload["answer_markdown"])
+        self.assertEqual(payload["generation_mode"], "template_fallback")
+        self.assertTrue(payload["llm_enabled"])
+        self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
+        self.assertEqual(payload["llm_model"], "local-llm")
+        self.assertEqual(payload["llm_error"], "timeout")
+
+    def test_build_answer_payload_persists_llm_metadata_in_answer_json(self) -> None:
+        references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "legacy-label"}]
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ca_data_dir = Path(tmp_dir) / "ca_data"
+            nexus_dir = ca_data_dir / "nexus"
+            paths = NexusPaths(
+                ca_data_dir=ca_data_dir,
+                nexus_dir=nexus_dir,
+                db_path=nexus_dir / "nexus.db",
+                uploads_dir=nexus_dir / "uploads",
+                extracted_dir=nexus_dir / "extracted",
+                reports_dir=nexus_dir / "reports",
+                exports_dir=nexus_dir / "exports",
+            )
+            with patch(
+                "app.nexus.answer_builder.NEXUS_PATHS",
+                paths,
+            ), patch(
+                "app.nexus.answer_builder._save_answer_row",
+                return_value="answer-id-123",
+            ), patch.dict(
+                os.environ,
+                {"NEXUS_ENABLE_ANSWER_LLM": "true"},
+                clear=False,
+            ), patch(
+                "app.nexus.answer_builder._generate_answer_with_llm",
+                side_effect=RuntimeError("llm unavailable"),
+            ):
+                payload = build_answer_payload(
+                    question="質問",
+                    summary="fallback summary legacy-label",
+                    references=references,
+                    evidence_chunks=chunks,
+                    job_id="job_1",
+                )
+
+            answer_json_path = Path(payload["answer_json_path"])
+            self.assertTrue(answer_json_path.exists())
+            saved_payload = json.loads(answer_json_path.read_text(encoding="utf-8"))
+            self.assertEqual(saved_payload["generation_mode"], "template_fallback")
+            self.assertTrue(saved_payload["llm_enabled"])
+            self.assertEqual(saved_payload["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
+            self.assertEqual(saved_payload["llm_model"], "local-llm")
+            self.assertEqual(saved_payload["llm_error"], "llm unavailable")
 
     def test_build_answer_payload_keeps_references_consistent_between_json_and_markdown(self) -> None:
         references = [
