@@ -1633,17 +1633,20 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div class="nexus-lib-grid">
           <div class="nexus-card">
             <div class="nexus-card-title">Evidence MVP (Phase 1)</div>
-            <div style="display:grid;grid-template-columns:minmax(140px,1fr) minmax(160px,1.2fr) auto;gap:8px">
-              <input id="nexus-evidence-type" type="text" placeholder="type (例: web/library)">
+            <div style="display:grid;grid-template-columns:minmax(180px,1.1fr) minmax(160px,1fr) auto;gap:8px">
+              <input id="nexus-evidence-source-type" type="text" placeholder="source_type (news / market / web / library / 空欄で全件)">
               <input id="nexus-evidence-filter" type="text" placeholder="filter (citation/url/snippet)">
               <button class="settings-btn primary" id="nexus-evidence-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusEvidenceMvp()">Run MVP</button>
             </div>
-            <div style="font-size:10px;color:var(--text3)">`nexus_evidence` を type/filter で最小検索して score で並べるMVPプレースホルダ。</div>
+            <div style="display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:8px;margin-top:8px">
+              <input id="nexus-evidence-job-id-adv" type="text" placeholder="advanced: job_id (必要時のみ)">
+            </div>
+            <div style="font-size:10px;color:var(--text3)">`/nexus/evidence` を source_type/filter(+advanced job_id) で検索し一覧表示します。</div>
           </div>
           <div class="nexus-card">
             <div class="nexus-card-title">Evidence Result</div>
             <div id="nexus-evidence-result" class="nexus-result-panel" style="min-height:100px">
-              <div class="nexus-empty">未実行: 入力受付 + 一覧表示（type/filter/score）</div>
+              <div class="nexus-empty">未実行: 入力受付 + 一覧表示（title/source_type/job_id/citation_label/url/quote/created_at）</div>
             </div>
           </div>
         </div>
@@ -7968,16 +7971,38 @@ function nexusCitationLabel(item, idx) {
   return item.citation_label || item.citation || `[web-${idx + 1}]`;
 }
 
+function normalizeNexusEvidenceKeyPart(value) {
+  return String(value || '').trim();
+}
+
+function buildNexusSavedEvidenceKey(jobId, item, idx) {
+  const evidenceId = normalizeNexusEvidenceKeyPart(item?.evidence_id);
+  if (evidenceId) return `eid:${evidenceId}`;
+  const normalizedJobId = normalizeNexusEvidenceKeyPart(jobId || item?.job_id || '');
+  const normalizedUrl = normalizeNexusEvidenceKeyPart(item?.url || item?.source_url || '');
+  const normalizedCitation = normalizeNexusEvidenceKeyPart(nexusCitationLabel(item || {}, idx));
+  if (!normalizedJobId && !normalizedUrl && !normalizedCitation) return '';
+  return `tuple:${normalizedJobId}::${normalizedUrl}::${normalizedCitation}`;
+}
+
+function hasNexusSavedEvidence(jobId, item, idx) {
+  const key = buildNexusSavedEvidenceKey(jobId, item, idx);
+  if (!key) return false;
+  return nexusSavedEvidence.some((row) => row?.dedupe_key === key);
+}
+
 function renderNexusSearchResultPanel(container, payload, mode = 'news') {
   const items = payload?.search?.items || [];
   const jobId = payload?.job_id || '';
   const summary = payload?.digest?.summary || payload?.snapshot?.summary || '';
+  const hasServerSavedEvidence = Number(payload?.saved_evidence || 0) > 0;
   const itemsHtml = items.length
     ? items.map((item, idx) => {
       const citation = nexusCitationLabel(item, idx);
       const pStart = item.page_start ?? item.page ?? '-';
       const pEnd = item.page_end ?? item.page ?? '-';
       const snippet = item.snippet || item.quote || '(snippetなし)';
+      const isSaved = hasServerSavedEvidence || hasNexusSavedEvidence(jobId, item, idx);
       const openSourceButton = item.url
         ? `<button onclick="window.open('${esc(item.url)}','_blank','noopener')">Open Source</button>`
         : '';
@@ -7986,7 +8011,7 @@ function renderNexusSearchResultPanel(container, payload, mode = 'news') {
         <div class="nexus-result-meta">citation_label: ${esc(citation)} / page_start: ${esc(String(pStart))} / page_end: ${esc(String(pEnd))}</div>
         <div style="font-size:11px;color:var(--text3)">${esc(snippet)}</div>
         <div class="nexus-doc-actions">
-          <button onclick="saveSingleNexusEvidence('${esc(jobId)}','${esc(mode)}',${idx}, this)">Evidence保存</button>
+          <button ${isSaved ? 'disabled' : ''} onclick="saveSingleNexusEvidence('${esc(jobId)}','${esc(mode)}',${idx}, this)">${isSaved ? '保存済み' : 'Evidence保存'}</button>
           ${openSourceButton}
         </div>
       </div>`;
@@ -8009,9 +8034,20 @@ function saveSingleNexusEvidence(jobId, mode, idx, btn) {
   const payload = root?._payloadCache?.[mode];
   const item = payload?.search?.items?.[idx];
   if (!item) return;
+  const dedupeKey = buildNexusSavedEvidenceKey(jobId, item, idx);
+  if (dedupeKey && nexusSavedEvidence.some((row) => row?.dedupe_key === dedupeKey)) {
+    if (btn) {
+      btn.textContent = '保存済み';
+      btn.disabled = true;
+    }
+    return;
+  }
   nexusSavedEvidence.push({
+    dedupe_key: dedupeKey,
+    evidence_id: item.evidence_id || '',
     job_id: jobId,
     mode,
+    url: item.url || item.source_url || '',
     citation_label: nexusCitationLabel(item, idx),
     page_start: item.page_start ?? item.page ?? null,
     page_end: item.page_end ?? item.page ?? null,
@@ -8030,8 +8066,10 @@ function saveNexusAllEvidence(jobId, mode) {
   const root = document.getElementById(mode === 'news' ? 'nexus-news-result' : 'nexus-market-result');
   const payload = root?._payloadCache?.[mode];
   const items = payload?.search?.items || [];
+  const before = nexusSavedEvidence.length;
   items.forEach((_, idx) => saveSingleNexusEvidence(jobId, mode, idx, null));
-  updateNexusJobBanner(`Evidenceをまとめて保存: ${items.length}件 (${mode})`);
+  const saved = Math.max(0, nexusSavedEvidence.length - before);
+  updateNexusJobBanner(`Evidenceをまとめて保存: ${saved}件 (${mode})`);
 }
 
 async function buildNexusRequestFailureMessage(resp, method, path) {
@@ -9047,19 +9085,30 @@ function renderNexusEvidenceRows(rows = []) {
       <table class="nexus-table">
         <thead>
           <tr>
-            <th>type</th>
-            <th>filter</th>
-            <th>score</th>
+            <th>title</th>
+            <th>source_type</th>
+            <th>job_id</th>
+            <th>citation_label</th>
+            <th>url</th>
+            <th>quote snippet</th>
+            <th>created_at</th>
           </tr>
         </thead>
         <tbody>
-          ${rows.map((row) => `
+          ${rows.map((row) => {
+            const quoteSnippet = String(row.quote || row.snippet || row.note || '');
+            return `
             <tr>
-              <td>${esc(row.type || '-')}</td>
-              <td title="${esc(row.filter_text || '-')}">${esc((row.filter_text || '-').slice(0, 120))}</td>
-              <td class="nexus-score">${nexusEvidenceScore(row).toFixed(3)}</td>
+              <td title="${esc(row.title || '-')}">${esc((row.title || '-').slice(0, 120))}</td>
+              <td>${esc(row.source_type || '-')}</td>
+              <td>${esc(row.job_id || '-')}</td>
+              <td>${esc(row.citation_label || '-')}</td>
+              <td title="${esc(row.url || '-')}">${esc((row.url || '-').slice(0, 120))}</td>
+              <td title="${esc(quoteSnippet || '-')}">${esc((quoteSnippet || '-').slice(0, 120))}</td>
+              <td>${esc(row.created_at || '-')}</td>
             </tr>
-          `).join('')}
+          `;
+          }).join('')}
         </tbody>
       </table>
     </div>
@@ -9067,30 +9116,26 @@ function renderNexusEvidenceRows(rows = []) {
 }
 
 async function runNexusEvidenceMvp() {
-  const type = (document.getElementById('nexus-evidence-type')?.value || '').trim().toLowerCase();
+  const sourceType = (document.getElementById('nexus-evidence-source-type')?.value || '').trim().toLowerCase();
   const filter = (document.getElementById('nexus-evidence-filter')?.value || '').trim().toLowerCase();
+  const advancedJobId = (document.getElementById('nexus-evidence-job-id-adv')?.value || '').trim();
   const btn = document.getElementById('nexus-evidence-run-btn');
   const root = document.getElementById('nexus-evidence-result');
   if (btn) btn.disabled = true;
   if (root) root.innerHTML = '<div class="nexus-job">実行中...</div>';
   try {
-    const query = '?project=' + encodeURIComponent(currentProject) + '&limit=200';
-    let r = await fetchNexusCanonicalWithAlias('/nexus/evidence' + query, '/nexus/library/evidence' + query);
-    if (!r.ok) {
-      r = await fetch(API + '/nexus/search', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ query: filter || type || 'evidence', top_k: 50, as_evidence: true }),
-      });
-    }
+    const params = new URLSearchParams();
+    params.set('project', 'default');
+    params.set('source_type', sourceType);
+    params.set('filter', filter);
+    params.set('limit', '50');
+    if (advancedJobId) params.set('job_id', advancedJobId);
+    const query = '?' + params.toString();
+    const r = await fetchNexusCanonicalWithAlias('/nexus/evidence' + query, '/nexus/library/evidence' + query);
     const d = await r.json();
     if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
     const rowsRaw = Array.isArray(d?.evidence) ? d.evidence : (Array.isArray(d?.items) ? d.items : []);
-    const normalized = rowsRaw.map((row) => {
-      const kind = String(row?.type || row?.source_type || row?.evidence_level || row?.mode || '').trim() || 'unknown';
-      const filterText = String(row?.citation_label || row?.source_url || row?.snippet || row?.summary || '');
-      return { ...row, type: kind, filter_text: filterText };
-    }).filter((row) => (!type || row.type.toLowerCase().includes(type)) && (!filter || row.filter_text.toLowerCase().includes(filter)));
+    const normalized = rowsRaw.map((row) => ({ ...row }));
     normalized.sort((a, b) => nexusEvidenceScore(b) - nexusEvidenceScore(a));
     nexusEvidenceRows = normalized;
     renderNexusEvidenceRows(normalized);
