@@ -101,6 +101,137 @@ def create_nexus_bundle(job_id: str, report: dict) -> Path:
     return zip_path
 
 
+def _list_job_sources(job_id: str) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT source_id, job_id, project, source_type, url, final_url, title, publisher,
+                   domain, language, content_type, local_original_path, local_text_path,
+                   local_markdown_path, local_screenshot_path, linked_document_id, status,
+                   error, retrieved_at, created_at, updated_at
+            FROM nexus_sources
+            WHERE job_id = ?
+            ORDER BY created_at ASC, source_id ASC
+            """,
+            (job_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _latest_research_answer(job_id: str) -> dict:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT answer_id, question, answer_markdown, evidence_json, source_ids_json, created_at
+            FROM nexus_research_answers
+            WHERE job_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (job_id,),
+        ).fetchone()
+    if row is None:
+        return {}
+
+    return {
+        "answer_id": row["answer_id"],
+        "question": row["question"],
+        "answer_markdown": row["answer_markdown"],
+        "evidence": json.loads(row["evidence_json"] or "[]"),
+        "source_ids": json.loads(row["source_ids_json"] or "[]"),
+        "created_at": row["created_at"],
+    }
+
+
+def _zip_write_if_exists(zf: zipfile.ZipFile, src_path: str, dst_path: str) -> None:
+    path = Path(str(src_path or "").strip())
+    if path.exists() and path.is_file():
+        zf.write(path, dst_path)
+
+
+def create_research_bundle(job_id: str) -> Path:
+    if not job_id:
+        raise ValueError("job_id is required")
+
+    job = get_job(job_id)
+    if not job:
+        raise ValueError("job not found")
+
+    answer = _latest_research_answer(job_id)
+    sources = _list_job_sources(job_id)
+    evidence = list_evidence_items(job_id)
+    report = get_latest_report(job_id)
+    report_md = Path(str((report or {}).get("markdown_path") or (report or {}).get("report_md_path") or ""))
+
+    zip_path = _BUNDLE_DIR / f"nexus_research_bundle_{job_id}.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        answer_markdown = str(answer.get("answer_markdown") or "").strip()
+        if answer_markdown:
+            zf.writestr("answer.md", answer_markdown + "\n")
+        zf.writestr("answer.json", json.dumps(answer, ensure_ascii=False, indent=2))
+        zf.writestr("evidence.json", json.dumps(evidence, ensure_ascii=False, indent=2))
+        zf.writestr("sources.json", json.dumps(sources, ensure_ascii=False, indent=2))
+
+        csv_buf = io.StringIO()
+        writer = csv.DictWriter(
+            csv_buf,
+            fieldnames=[
+                "source_id",
+                "source_type",
+                "url",
+                "final_url",
+                "title",
+                "publisher",
+                "domain",
+                "status",
+                "retrieved_at",
+            ],
+        )
+        writer.writeheader()
+        for source in sources:
+            writer.writerow(
+                {
+                    "source_id": source.get("source_id", ""),
+                    "source_type": source.get("source_type", ""),
+                    "url": source.get("url", ""),
+                    "final_url": source.get("final_url", ""),
+                    "title": source.get("title", ""),
+                    "publisher": source.get("publisher", ""),
+                    "domain": source.get("domain", ""),
+                    "status": source.get("status", ""),
+                    "retrieved_at": source.get("retrieved_at", ""),
+                }
+            )
+        zf.writestr("sources.csv", csv_buf.getvalue())
+
+        for source in sources:
+            source_id = str(source.get("source_id") or "").strip()
+            if not source_id:
+                continue
+            source_root = f"downloads/{source_id}"
+            zf.writestr(f"{source_root}/metadata/source.json", json.dumps(source, ensure_ascii=False, indent=2))
+
+            original_path = str(source.get("local_original_path") or "").strip()
+            if original_path:
+                original_name = Path(original_path).name or "original.bin"
+                _zip_write_if_exists(zf, original_path, f"{source_root}/original/{original_name}")
+            _zip_write_if_exists(zf, str(source.get("local_text_path") or ""), f"{source_root}/extracted/content.txt")
+            _zip_write_if_exists(zf, str(source.get("local_markdown_path") or ""), f"{source_root}/extracted/content.md")
+            _zip_write_if_exists(
+                zf,
+                str(source.get("local_screenshot_path") or ""),
+                f"{source_root}/metadata/screenshot{Path(str(source.get('local_screenshot_path') or '')).suffix or '.png'}",
+            )
+
+        job_payload = job.model_dump(mode="json") if hasattr(job, "model_dump") else job
+        zf.writestr("job.json", json.dumps(job_payload, ensure_ascii=False, indent=2))
+
+        if report_md.exists():
+            zf.write(report_md, "report.md")
+
+    return zip_path
+
+
 @nexus_export_router.get("/download/bundle/{job_id}")
 def download_nexus_bundle(job_id: str) -> FileResponse:
     if not job_id:
@@ -112,6 +243,20 @@ def download_nexus_bundle(job_id: str) -> FileResponse:
 
     try:
         zip_path = create_nexus_bundle(job_id, report=report)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return FileResponse(
+        path=zip_path,
+        media_type="application/zip",
+        filename=zip_path.name,
+    )
+
+
+@nexus_export_router.get("/research/jobs/{job_id}/bundle")
+def download_research_bundle(job_id: str) -> FileResponse:
+    try:
+        zip_path = Path(create_research_bundle(job_id))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -34,7 +34,6 @@ from app.nexus.research_api import (
     collect_web_sources,
     get_research_job,
     get_research_job_answer,
-    get_research_job_bundle,
     get_research_job_events,
     get_research_job_evidence,
     get_research_job_sources,
@@ -658,11 +657,6 @@ def nexus_research_job_sources(job_id: str) -> dict:
 @nexus_router.get("/research/jobs/{job_id}/evidence")
 def nexus_research_job_evidence(job_id: str) -> dict:
     return get_research_job_evidence(job_id)
-
-
-@nexus_router.get("/research/jobs/{job_id}/bundle")
-def nexus_research_job_bundle(job_id: str, after: int = Query(-1)) -> dict:
-    return get_research_job_bundle(job_id, after=after)
 
 
 @nexus_router.get("/sources/{source_id}")
