@@ -257,6 +257,7 @@ def create_research_bundle(job_id: str) -> Path:
     evidence = list_evidence_items(job_id)
     source_chunks = _list_source_chunks(job_id)
     events = get_job_events(job_id)
+    events_payload = [event.model_dump(mode="json") if hasattr(event, "model_dump") else event for event in events]
     queries = _build_queries_payload(job, answer, events)
     report = get_latest_report(job_id)
     report_md = Path(str((report or {}).get("markdown_path") or (report or {}).get("report_md_path") or ""))
@@ -270,6 +271,7 @@ def create_research_bundle(job_id: str) -> Path:
         zf.writestr("evidence.json", json.dumps(evidence, ensure_ascii=False, indent=2))
         zf.writestr("sources.json", json.dumps(sources, ensure_ascii=False, indent=2))
         zf.writestr("source_chunks.json", json.dumps(source_chunks, ensure_ascii=False, indent=2))
+        zf.writestr("events.json", json.dumps(events_payload, ensure_ascii=False, indent=2))
         zf.writestr("queries.json", json.dumps(queries, ensure_ascii=False, indent=2))
 
         csv_buf = io.StringIO()
