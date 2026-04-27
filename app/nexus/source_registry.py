@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from hashlib import sha256
+import json
 from pathlib import Path
 import uuid
 from urllib.parse import urlparse
@@ -187,8 +188,8 @@ def register_or_update_sources(
                         source_id, job_id, project, source_type, url, final_url, title,
                         publisher, language, domain, content_type,
                         local_original_path, local_text_path, local_markdown_path, local_screenshot_path,
-                        linked_document_id, status, error, retrieved_at, created_at, updated_at
-                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        linked_document_id, status, source_score, source_score_breakdown, error, retrieved_at, created_at, updated_at
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         source_id,
@@ -208,6 +209,8 @@ def register_or_update_sources(
                         str(source.get("local_screenshot_path") or ""),
                         linked_document_id,
                         str(source.get("status") or "queued"),
+                        float(source.get("source_score") or 0.0),
+                        json.dumps(source.get("source_score_breakdown") or {}, ensure_ascii=False, sort_keys=True),
                         str(source.get("error") or ""),
                         str(source.get("retrieved_at") or now),
                         now,
@@ -222,7 +225,8 @@ def register_or_update_sources(
                     UPDATE nexus_sources
                     SET final_url = ?, title = ?, publisher = ?, language = ?, content_type = ?,
                         local_original_path = ?, local_text_path = ?, local_markdown_path = ?, local_screenshot_path = ?,
-                        linked_document_id = ?, status = ?, error = ?, retrieved_at = ?, updated_at = ?
+                        linked_document_id = ?, status = ?, source_score = ?, source_score_breakdown = ?,
+                        error = ?, retrieved_at = ?, updated_at = ?
                     WHERE source_id = ?
                     """,
                     (
@@ -237,6 +241,8 @@ def register_or_update_sources(
                         str(source.get("local_screenshot_path") or ""),
                         linked_document_id,
                         str(source.get("status") or "queued"),
+                        float(source.get("source_score") or 0.0),
+                        json.dumps(source.get("source_score_breakdown") or {}, ensure_ascii=False, sort_keys=True),
                         str(source.get("error") or ""),
                         str(source.get("retrieved_at") or now),
                         now,

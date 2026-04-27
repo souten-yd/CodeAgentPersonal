@@ -14,7 +14,7 @@ from app.nexus.downloader import safe_download, save_download_artifacts
 from app.nexus.evidence import list_evidence_items
 from app.nexus.jobs import create_job, get_job, get_job_events, update_job
 from app.nexus.research_agent import ResearchAgentInput, run_research_job
-from app.nexus.source_collector import collect_source_candidates
+from app.nexus.source_collector import collect_source_candidates, rank_source_candidates
 from app.nexus.source_registry import register_or_update_sources
 
 
@@ -39,6 +39,24 @@ class CollectRequest(BaseModel):
 
 def _source_not_found() -> HTTPException:
     return HTTPException(status_code=404, detail="source not found")
+
+
+def _normalize_source_row(row: dict) -> dict:
+    normalized = dict(row)
+    try:
+        normalized["source_score"] = float(normalized.get("source_score") or 0.0)
+    except (TypeError, ValueError):
+        normalized["source_score"] = 0.0
+    raw_breakdown = normalized.get("source_score_breakdown")
+    if isinstance(raw_breakdown, str):
+        try:
+            parsed = json.loads(raw_breakdown)
+        except (TypeError, ValueError):
+            parsed = {}
+        normalized["source_score_breakdown"] = parsed if isinstance(parsed, dict) else {}
+    elif not isinstance(raw_breakdown, dict):
+        normalized["source_score_breakdown"] = {}
+    return normalized
 
 
 def run_research(payload: ResearchRunRequest) -> dict:
@@ -126,6 +144,7 @@ def get_research_job_sources(job_id: str) -> dict:
             SELECT source_id, job_id, project, source_type, url, final_url, title, publisher,
                    domain, language, content_type, local_original_path, local_text_path,
                    local_markdown_path, local_screenshot_path, linked_document_id, status,
+                   source_score, source_score_breakdown,
                    error, retrieved_at, created_at, updated_at
             FROM nexus_sources
             WHERE job_id = ?
@@ -134,7 +153,7 @@ def get_research_job_sources(job_id: str) -> dict:
             (job_id,),
         ).fetchall()
 
-    sources = [dict(row) for row in rows]
+    sources = [_normalize_source_row(dict(row)) for row in rows]
     return {"job_id": job_id, "sources": sources}
 
 
@@ -198,8 +217,13 @@ def collect_web_sources(payload: CollectRequest) -> dict:
         search_items=payload.search_items,
         manual_urls=payload.manual_urls,
     )
+    ranked_candidates = rank_source_candidates(
+        candidates,
+        prefer_pdf=True,
+        official_first=True,
+    )
     downloadable_sources: list[dict] = []
-    for candidate in candidates:
+    for candidate in ranked_candidates:
         source_id = str(candidate.get("source_id") or uuid.uuid4())
         source = {
             **candidate,
@@ -253,6 +277,7 @@ def get_source(source_id: str) -> dict:
             SELECT source_id, job_id, project, source_type, url, final_url, title, publisher,
                    domain, language, content_type, local_original_path, local_text_path,
                    local_markdown_path, local_screenshot_path, linked_document_id, status,
+                   source_score, source_score_breakdown,
                    error, retrieved_at, created_at, updated_at
             FROM nexus_sources
             WHERE source_id = ?
@@ -261,7 +286,7 @@ def get_source(source_id: str) -> dict:
         ).fetchone()
     if row is None:
         raise _source_not_found()
-    return {"source_id": source_id, "source": dict(row)}
+    return {"source_id": source_id, "source": _normalize_source_row(dict(row))}
 
 
 def _source_file_response(source_id: str, key: str, filename_suffix: str) -> FileResponse:

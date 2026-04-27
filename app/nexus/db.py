@@ -182,6 +182,8 @@ SCHEMA_SQL: tuple[str, ...] = (
         local_screenshot_path TEXT NOT NULL DEFAULT '',
         linked_document_id TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT '',
+        source_score REAL NOT NULL DEFAULT 0.0,
+        source_score_breakdown TEXT NOT NULL DEFAULT '{}',
         error TEXT NOT NULL DEFAULT '',
         retrieved_at TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
@@ -283,6 +285,8 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
             local_screenshot_path TEXT NOT NULL DEFAULT '',
             linked_document_id TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL DEFAULT '',
+            source_score REAL NOT NULL DEFAULT 0.0,
+            source_score_breakdown TEXT NOT NULL DEFAULT '{}',
             error TEXT NOT NULL DEFAULT '',
             retrieved_at TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
@@ -412,6 +416,8 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
                 "local_screenshot_path TEXT NOT NULL DEFAULT ''",
                 "linked_document_id TEXT NOT NULL DEFAULT ''",
                 "status TEXT NOT NULL DEFAULT ''",
+                "source_score REAL NOT NULL DEFAULT 0.0",
+                "source_score_breakdown TEXT NOT NULL DEFAULT '{}'",
                 "error TEXT NOT NULL DEFAULT ''",
                 "retrieved_at TEXT NOT NULL DEFAULT ''",
                 "created_at TEXT NOT NULL DEFAULT ''",
@@ -498,6 +504,10 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE nexus_evidence SET freshness_score = freshness WHERE freshness_score IS NULL")
     conn.execute("UPDATE nexus_evidence SET relevance = relevance_score WHERE relevance IS NULL")
     conn.execute("UPDATE nexus_evidence SET credibility = credibility_score WHERE credibility IS NULL")
+    conn.execute("UPDATE nexus_sources SET source_score = 0.0 WHERE source_score IS NULL")
+    conn.execute(
+        "UPDATE nexus_sources SET source_score_breakdown = '{}' WHERE source_score_breakdown IS NULL OR source_score_breakdown = ''"
+    )
     conn.execute("UPDATE nexus_evidence SET freshness = freshness_score WHERE freshness IS NULL")
     conn.execute(
         """

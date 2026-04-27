@@ -21,6 +21,24 @@ _BUNDLE_DIR.mkdir(parents=True, exist_ok=True)
 nexus_export_router = APIRouter()
 
 
+def _normalize_source_row(row: dict) -> dict:
+    normalized = dict(row)
+    try:
+        normalized["source_score"] = float(normalized.get("source_score") or 0.0)
+    except (TypeError, ValueError):
+        normalized["source_score"] = 0.0
+    raw_breakdown = normalized.get("source_score_breakdown")
+    if isinstance(raw_breakdown, str):
+        try:
+            parsed = json.loads(raw_breakdown)
+        except (TypeError, ValueError):
+            parsed = {}
+        normalized["source_score_breakdown"] = parsed if isinstance(parsed, dict) else {}
+    elif not isinstance(raw_breakdown, dict):
+        normalized["source_score_breakdown"] = {}
+    return normalized
+
+
 def _collect_document_ids(job_id: str, evidence: list[dict]) -> list[str]:
     ids: set[str] = set()
     for item in evidence:
@@ -108,6 +126,7 @@ def _list_job_sources(job_id: str) -> list[dict]:
             SELECT source_id, job_id, project, source_type, url, final_url, title, publisher,
                    domain, language, content_type, local_original_path, local_text_path,
                    local_markdown_path, local_screenshot_path, linked_document_id, status,
+                   source_score, source_score_breakdown,
                    error, retrieved_at, created_at, updated_at
             FROM nexus_sources
             WHERE job_id = ?
@@ -115,7 +134,7 @@ def _list_job_sources(job_id: str) -> list[dict]:
             """,
             (job_id,),
         ).fetchall()
-    return [dict(row) for row in rows]
+    return [_normalize_source_row(dict(row)) for row in rows]
 
 
 def _latest_research_answer(job_id: str) -> dict:
