@@ -3404,31 +3404,166 @@ def sanitize_query(query: str) -> tuple[str, list[str]]:
 
     return cleaned, removed
 
+
+def _format_web_search_items(items: list[dict], *, limit: int) -> list[str]:
+    lines: list[str] = []
+    for row in (items or [])[:limit]:
+        title = str(row.get("title") or "").strip()
+        snippet = str(row.get("snippet") or "").strip()
+        url = str(row.get("url") or "").strip()
+        if title and snippet:
+            line = f"[{title[:80]}] {snippet[:150]}"
+            if url and url != "about:blank":
+                line += f" ({url[:140]})"
+            lines.append(line)
+        elif title:
+            lines.append(f"[{title[:80]}]")
+        elif snippet:
+            lines.append(snippet[:150])
+    return lines
+
+
+def _run_nexus_search_for_context(
+    query: str,
+    *,
+    num_results: int,
+    mode: str = "quick",
+    depth: str = "quick",
+    max_queries: int = 1,
+    scope: str | list[str] | None = None,
+    language: str | None = None,
+) -> dict:
+    """
+    Chat/Task 共通のNexus Web検索ヘルパー。
+    - plan_web_queries + run_web_search を内部実行
+    - items と UI 向けイベントpayloadを構造化して返す
+    """
+    global _search_enabled
+
+    empty_payload = {
+        "provider_errors": {},
+        "skipped_providers": {},
+        "non_fatal": False,
+        "message": "",
+        "selected_provider": "unknown",
+        "total_items": 0,
+    }
+
+    if not _search_enabled:
+        return {
+            "ok": False,
+            "query": query,
+            "message": "SEARCH_DISABLED: Web search is currently disabled. The user must enable it from the UI.",
+            "items": [],
+            "context_text": "SEARCH_DISABLED: Web search is currently disabled. The user must enable it from the UI.",
+            "event_payload": empty_payload,
+            "search_output": {},
+            "stub_only_non_fatal": False,
+        }
+
+    safe_query, removed = sanitize_query(query)
+    if not safe_query:
+        blocked = "SEARCH_BLOCKED: Query contained only sensitive data and was not sent."
+        return {
+            "ok": False,
+            "query": "",
+            "message": blocked,
+            "items": [],
+            "context_text": blocked,
+            "event_payload": empty_payload,
+            "search_output": {},
+            "stub_only_non_fatal": False,
+        }
+    if removed:
+        print(f"[SEARCH][SANITIZED] original_len={len(query)} removed={removed}")
+
+    requested_depth = (depth or mode or "quick").strip() or "quick"
+    capped = max(1, min(int(num_results or _search_num_results or 5), 20))
+    try:
+        query_plan = plan_web_queries(
+            safe_query,
+            mode=mode,
+            depth=requested_depth,
+            max_queries=max_queries,
+            scope=scope,
+            language=language,
+        )
+        search_output = run_web_search(
+            query_plan,
+            mode=mode,
+            depth=requested_depth,
+            max_results_per_query=capped,
+            scope=scope,
+            language=language,
+        )
+    except Exception as e:
+        error_text = f"Search error: {e}"
+        return {
+            "ok": False,
+            "query": safe_query,
+            "message": error_text,
+            "items": [],
+            "context_text": error_text,
+            "event_payload": {
+                **empty_payload,
+                "message": error_text,
+                "non_fatal": True,
+            },
+            "search_output": {},
+            "stub_only_non_fatal": False,
+        }
+
+    items = search_output.get("items") or []
+    selected_provider = str(search_output.get("selected_provider") or search_output.get("provider") or "unknown")
+    fallback_used = bool(search_output.get("fallback_used", False))
+    non_fatal = bool(search_output.get("non_fatal", False))
+    stub_only = bool(items) and all(bool(row.get("is_stub")) for row in items)
+    stub_only_non_fatal = non_fatal and stub_only
+    result_lines = _format_web_search_items(items, limit=capped)
+    meta_line = (
+        f"meta: selected_provider={selected_provider} "
+        f"fallback_used={str(fallback_used).lower()} "
+        f"is_stub={str((non_fatal or stub_only)).lower()}"
+    )
+    if result_lines:
+        context_text = f"{meta_line}\nWeb検索結果:\n" + "\n".join(result_lines)
+    else:
+        context_text = f"No results found for: {safe_query}"
+
+    event_payload = {
+        "provider_errors": search_output.get("provider_errors") or {},
+        "skipped_providers": search_output.get("skipped_providers") or {},
+        "non_fatal": non_fatal,
+        "message": str(search_output.get("message") or ""),
+        "selected_provider": selected_provider,
+        "total_items": int(search_output.get("total_items") or len(items)),
+    }
+    return {
+        "ok": True,
+        "query": safe_query,
+        "message": str(search_output.get("message") or ""),
+        "items": items,
+        "formatted_items": result_lines,
+        "context_text": context_text[: (700 + capped * 220)],
+        "event_payload": event_payload,
+        "search_output": search_output,
+        "stub_only_non_fatal": stub_only_non_fatal,
+    }
+
 def web_search(query: str, num_results: int = 0) -> str:
     """
     旧互換のWeb検索入口。
     実装は nexus_web_search() 経由で app.nexus.web_scout.run_web_search に統一委譲する。
     """
-    global _search_enabled
-    if not _search_enabled:
-        return "SEARCH_DISABLED: Web search is currently disabled. The user must enable it from the UI."
-    try:
-        n = num_results if num_results > 0 else _search_num_results
-        safe_query, removed = sanitize_query(query)
-        if not safe_query:
-            return "SEARCH_BLOCKED: Query contained only sensitive data and was not sent."
-        if removed:
-            print(f"[SEARCH][SANITIZED] original_len={len(query)} removed={removed}")
-
-        return nexus_web_search(
-            topic=safe_query,
-            max_results_per_query=n,
-            mode="quick",
-            depth="quick",
-            max_queries=1,
-        )
-    except Exception as e:
-        return f"Search error: {e}"
+    n = num_results if num_results > 0 else _search_num_results
+    result = _run_nexus_search_for_context(
+        query,
+        num_results=n,
+        mode="quick",
+        depth="quick",
+        max_queries=1,
+    )
+    return str(result.get("context_text") or result.get("message") or "No results found.")
 
 
 def nexus_web_search(
@@ -3441,71 +3576,17 @@ def nexus_web_search(
     max_queries: int = 4,
 ) -> str:
     """Task/Agent向けのNexus WebSearchツール名。内部実装は run_web_search に統一する。"""
-    global _search_enabled
-    if not _search_enabled:
-        return "SEARCH_DISABLED: Web search is currently disabled. The user must enable it from the UI."
-
-    safe_topic, removed = sanitize_query(topic)
-    if not safe_topic:
-        return "SEARCH_BLOCKED: Query contained only sensitive data and was not sent."
-    if removed:
-        print(f"[SEARCH][SANITIZED] original_len={len(topic)} removed={removed}")
-
     requested_depth = (depth or mode or "standard").strip() or "standard"
-    query_plan = plan_web_queries(
-        safe_topic,
+    result = _run_nexus_search_for_context(
+        topic,
+        num_results=max_results_per_query,
         mode=mode,
         depth=requested_depth,
         max_queries=max_queries,
         scope=scope,
         language=language,
     )
-    capped = max(1, min(int(max_results_per_query or _search_num_results or 5), 20))
-    search_output = run_web_search(
-        query_plan,
-        mode=mode,
-        depth=requested_depth,
-        max_results_per_query=capped,
-        scope=scope,
-        language=language,
-    )
-
-    selected_provider = str(search_output.get("selected_provider") or search_output.get("provider") or "unknown")
-    fallback_used = bool(search_output.get("fallback_used", False))
-    items = search_output.get("items") or []
-    is_stub = bool(search_output.get("non_fatal", False)) or (
-        all(bool(row.get("is_stub")) for row in items) if items else bool(search_output.get("non_fatal", False))
-    )
-    meta_line = (
-        f"meta: selected_provider={selected_provider} "
-        f"fallback_used={str(fallback_used).lower()} "
-        f"is_stub={str(is_stub).lower()}"
-    )
-
-    if not items:
-        return f"No results found for: {safe_topic}"
-
-    results: list[str] = []
-    for row in items[:capped]:
-        title = str(row.get("title") or "").strip()
-        snippet = str(row.get("snippet") or "").strip()
-        url = str(row.get("url") or "").strip()
-        if title and snippet:
-            line = f"[{title[:80]}] {snippet[:150]}"
-            if url and url != "about:blank":
-                line += f" ({url[:140]})"
-            results.append(line)
-        elif title:
-            results.append(f"[{title[:80]}]")
-        elif snippet:
-            results.append(snippet[:150])
-
-    if not results:
-        return f"No results found for: {safe_topic}"
-
-    max_chars = 700 + capped * 220
-    body_text = f"{meta_line}\nSearch: {safe_topic}\n" + "\n".join(results)
-    return body_text[:max_chars]
+    return str(result.get("context_text") or result.get("message") or "No results found.")
 
 
 # =========================
@@ -7173,6 +7254,7 @@ Rules:
     steps = []
     agent_debug_logs: list[dict] = []
     searches_used = 0
+    last_stub_only_non_fatal = False
     safe_max_steps = max(2, min(int(max_steps or 6), 8))
 
     for step in range(safe_max_steps):
@@ -7221,6 +7303,8 @@ Rules:
 
         if action == "final":
             out = str(validated_obj.get("content", "") or "").strip()
+            if last_stub_only_non_fatal:
+                out = f"{out}\n\n[注記] 検索provider失敗（stub）"
             debug_item["tool_result_summary"] = "final_response"
             agent_debug_logs.append(debug_item)
             return {"status": "done", "output": out, "usage": usage, "steps": steps, "logs": agent_debug_logs}
@@ -7246,9 +7330,17 @@ Rules:
                 "action": "web_search",
                 "input": {"query": query, "num_results": num_results},
             })
-        result = web_search(query=query, num_results=num_results)
+        search_result = _run_nexus_search_for_context(
+            query,
+            num_results=num_results,
+            mode="quick",
+            depth="quick",
+            max_queries=1,
+        )
+        result_text = str(search_result.get("context_text") or search_result.get("message") or "")
+        last_stub_only_non_fatal = bool(search_result.get("stub_only_non_fatal", False))
         searches_used += 1
-        preview = str(result)[:400]
+        preview = result_text[:400]
         debug_item["tool_result_summary"] = preview
         agent_debug_logs.append(debug_item)
         steps.append({"step": step + 1, "type": "tool", "action": "web_search", "input": {"query": query, "num_results": num_results}})
@@ -7258,12 +7350,14 @@ Rules:
                 "step_num": step + 1,
                 "action": "web_search",
                 "result_preview": preview,
+                "payload": search_result.get("event_payload") or {},
             })
         messages.append({"role": "assistant", "content": _sanitize_special_tokens(raw_reply)})
+        stub_notice = "\n\n[注記] 検索provider失敗（stub）" if last_stub_only_non_fatal else ""
         messages.append({
             "role": "user",
             "content": (
-                f"tool result:\n{result}\n\n"
+                f"tool result:\n{result_text}{stub_notice}\n\n"
                 "次はJSONオブジェクトのみで返答してください。"
                 "追加検索が必要なら action=tool、不要なら action=final を返してください。"
             ),
