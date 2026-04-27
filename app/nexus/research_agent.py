@@ -41,9 +41,16 @@ class ResearchAgentInput:
     depth: str | None = None
     max_queries: int | None = None
     max_results_per_query: int | None = None
+    max_sources: int | None = None
+    max_downloads: int | None = None
+    max_total_download_mb: int | None = None
     scope: str | list[str] | None = None
     language: str | None = None
     manual_urls: list[str] | None = None
+    prefer_pdf: bool = True
+    official_first: bool = True
+    download_timeout_sec: int | None = None
+    continue_on_download_error: bool = True
 
 
 def _now_iso() -> str:
@@ -164,6 +171,11 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         raise ValueError("query must not be empty")
 
     effective_job_id = job_id or f"research_{uuid.uuid4().hex}"
+    max_sources = payload.max_sources if payload.max_sources is not None else 50
+    max_downloads = payload.max_downloads if payload.max_downloads is not None else 20
+    max_total_download_mb = payload.max_total_download_mb if payload.max_total_download_mb is not None else 100
+    max_total_download_bytes = max_total_download_mb * 1024 * 1024
+    download_timeout_sec = payload.download_timeout_sec if payload.download_timeout_sec is not None else 8
     if not job_id:
         create_job(effective_job_id, title=query, message="research queued", status="queued")
 
@@ -194,11 +206,27 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         candidates = collect_source_candidates(search_items=items, manual_urls=payload.manual_urls)
         ranked_candidates = rank_source_candidates(
             candidates,
-            prefer_pdf=True,
-            official_first=True,
+            prefer_pdf=payload.prefer_pdf,
+            official_first=payload.official_first,
         )
+        if len(ranked_candidates) > max_sources:
+            append_job_event(
+                effective_job_id,
+                "constraint_applied",
+                {
+                    "status": "running",
+                    "progress": 0.45,
+                    "message": f"candidate limit reached: max_sources={max_sources}",
+                    "reason": "max_sources_exceeded",
+                    "max_sources": max_sources,
+                    "candidate_count": len(ranked_candidates),
+                },
+            )
+            ranked_candidates = ranked_candidates[:max_sources]
         _record_state(effective_job_id, "downloading", message="downloading source content", progress=0.55)
         downloadable_sources: list[dict] = []
+        download_count = 0
+        total_downloaded_bytes = 0
         for candidate in ranked_candidates:
             source_id = str(candidate.get("source_id") or uuid.uuid4())
             source = {
@@ -217,13 +245,58 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 source["error"] = "url is missing"
                 downloadable_sources.append(source)
                 continue
+            if download_count >= max_downloads:
+                append_job_event(
+                    effective_job_id,
+                    "constraint_applied",
+                    {
+                        "status": "running",
+                        "progress": 0.6,
+                        "message": f"download count limit reached: max_downloads={max_downloads}",
+                        "reason": "max_downloads_exceeded",
+                        "max_downloads": max_downloads,
+                        "processed_downloads": download_count,
+                    },
+                )
+                source["status"] = "skipped"
+                source["error"] = f"max_downloads exceeded ({max_downloads})"
+                downloadable_sources.append(source)
+                continue
             try:
-                download_result = safe_download(url)
+                download_result = safe_download(
+                    url,
+                    connect_timeout_sec=download_timeout_sec,
+                    read_timeout_sec=download_timeout_sec,
+                )
+                download_size = int(download_result.get("size") or 0)
+                if total_downloaded_bytes + download_size > max_total_download_bytes:
+                    append_job_event(
+                        effective_job_id,
+                        "constraint_applied",
+                        {
+                            "status": "running",
+                            "progress": 0.62,
+                            "message": (
+                                "total download size limit reached: "
+                                f"max_total_download_mb={max_total_download_mb}"
+                            ),
+                            "reason": "max_total_download_mb_exceeded",
+                            "max_total_download_mb": max_total_download_mb,
+                            "total_downloaded_bytes": total_downloaded_bytes,
+                            "next_download_bytes": download_size,
+                        },
+                    )
+                    source["status"] = "skipped"
+                    source["error"] = f"max_total_download_mb exceeded ({max_total_download_mb})"
+                    downloadable_sources.append(source)
+                    continue
                 saved = save_download_artifacts(
                     job_id=effective_job_id,
                     source_id=source_id,
                     download_result=download_result,
                 )
+                download_count += 1
+                total_downloaded_bytes += download_size
                 source["final_url"] = str(download_result.get("final_url") or url)
                 source["content_type"] = str(download_result.get("content_type") or "")
                 source["local_original_path"] = str(saved.get("original") or "")
@@ -233,7 +306,24 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 source["error"] = str(saved.get("error") or "")
             except Exception as exc:  # noqa: BLE001
                 source["error"] = str(exc)
-                source["status"] = "degraded"
+                if payload.continue_on_download_error:
+                    source["status"] = "degraded"
+                    append_job_event(
+                        effective_job_id,
+                        "download_error",
+                        {
+                            "status": "running",
+                            "progress": 0.6,
+                            "message": f"download degraded: {exc}",
+                            "reason": "download_error_continue",
+                            "source_id": source_id,
+                            "url": url,
+                        },
+                    )
+                else:
+                    source["status"] = "failed"
+                    downloadable_sources.append(source)
+                    raise ValueError(f"download failed and continue_on_download_error=false: {exc}") from exc
             downloadable_sources.append(source)
 
         registered_sources = register_or_update_sources(
