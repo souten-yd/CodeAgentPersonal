@@ -61,5 +61,32 @@ class ChatTaskWebInjectionTests(unittest.TestCase):
         self.assertIn("AI Regulation Update", context)
 
 
+class ChatToolActionNameTests(unittest.TestCase):
+    def test_validate_agent_action_payload_accepts_nexus_web_search(self) -> None:
+        payload, error = main._validate_agent_action_payload(
+            {
+                "action": "tool",
+                "tool": "nexus_web_search",
+                "arguments": {"topic": "ai regulation", "max_results_per_query": 3},
+            }
+        )
+
+        self.assertIsNone(error)
+        assert payload is not None
+        self.assertEqual(payload["tool"], "nexus_web_search")
+
+    def test_validate_agent_action_payload_rejects_legacy_web_search_name(self) -> None:
+        payload, error = main._validate_agent_action_payload(
+            {
+                "action": "tool",
+                "tool": "web_search",
+                "arguments": {"topic": "ai regulation", "max_results_per_query": 3},
+            }
+        )
+
+        self.assertIsNone(payload)
+        self.assertEqual(error, "tool_not_allowed:web_search")
+
+
 if __name__ == "__main__":
     unittest.main()
