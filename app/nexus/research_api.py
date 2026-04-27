@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 import threading
 import uuid
@@ -10,8 +9,9 @@ from fastapi import HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from app.nexus.config import load_runtime_config
 from app.nexus.db import get_conn
-from app.nexus.downloader import DEFAULT_MAX_BYTES, safe_download, save_download_artifacts
+from app.nexus.downloader import safe_download, save_download_artifacts
 from app.nexus.evidence import list_evidence_items
 from app.nexus.jobs import create_job, get_job, get_job_events, update_job
 from app.nexus.research_agent import ResearchAgentInput, run_research_job
@@ -50,15 +50,8 @@ class CollectRequest(BaseModel):
 def _resolve_max_download_mb(requested_max_download_mb: int | None) -> int:
     if requested_max_download_mb is not None:
         return max(1, requested_max_download_mb)
-
-    raw_env_value = (os.environ.get("NEXUS_MAX_DOWNLOAD_MB") or "").strip()
-    if raw_env_value:
-        try:
-            return max(1, int(raw_env_value))
-        except ValueError:
-            pass
-
-    return max(1, DEFAULT_MAX_BYTES // (1024 * 1024))
+    runtime_cfg = load_runtime_config()
+    return max(1, runtime_cfg.max_download_mb)
 
 
 def _source_not_found() -> HTTPException:

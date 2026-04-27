@@ -33,6 +33,10 @@ class NexusRuntimeConfig:
     search_provider_cooldown_sec: int
     brave_search_api_key: str
     max_upload_mb: int
+    max_download_mb: int
+    max_total_download_mb: int
+    max_downloads: int
+    download_timeout_sec: int
 
 
 def _env_bool(name: str, *, default: bool) -> bool:
@@ -119,6 +123,10 @@ def load_runtime_config() -> NexusRuntimeConfig:
         ),
         brave_search_api_key=(os.environ.get("BRAVE_SEARCH_API_KEY") or "").strip(),
         max_upload_mb=_env_int("NEXUS_MAX_UPLOAD_MB", default=200, minimum=1),
+        max_download_mb=_env_int("NEXUS_MAX_DOWNLOAD_MB", default=20, minimum=1),
+        max_total_download_mb=_env_int("NEXUS_MAX_TOTAL_DOWNLOAD_MB", default=100, minimum=1),
+        max_downloads=_env_int("NEXUS_MAX_DOWNLOADS", default=20, minimum=1),
+        download_timeout_sec=_env_int("NEXUS_DOWNLOAD_TIMEOUT_SEC", default=15, minimum=1),
     )
 
 
