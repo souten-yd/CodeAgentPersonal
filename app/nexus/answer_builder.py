@@ -10,6 +10,7 @@ import uuid
 from app.nexus.config import NEXUS_PATHS
 from app.nexus.citation_mapper import normalize_reference_labels, replace_citation_labels
 from app.nexus.db import transaction
+from app.nexus.citation_verifier import verify_citation_labels
 from app.nexus.utils import ensure_dir
 
 
@@ -226,12 +227,18 @@ def build_answer_payload(
         summary=final_summary,
         references=normalized_references,
     )
+    citation_verification = verify_citation_labels(
+        answer_text=final_summary,
+        references=normalized_references,
+    )
+
     payload = {
         "question": question,
         "answer": final_summary,
         "answer_markdown": answer_markdown,
         "evidence_json": evidence_json,
         "references": normalized_references,
+        "citation_verification": citation_verification,
     }
 
     if job_id:
