@@ -55,6 +55,7 @@ from app.tts.style_bert_vits2_paths import (
 )
 from app.nexus.router import router as nexus_router
 from app.nexus.web_scout import plan_web_queries, run_web_search
+from app.nexus.web_service import execute_nexus_web_search
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -3443,7 +3444,7 @@ def _format_provider_errors_for_context(provider_errors: dict | None, *, prefix:
     return f"{prefix}: " + " | ".join(segments)
 
 
-def _run_nexus_search_for_context(
+def _run_lightweight_prefetch_nexus_search_for_context(
     query: str,
     *,
     num_results: int,
@@ -3452,10 +3453,9 @@ def _run_nexus_search_for_context(
     max_queries: int = 1,
     scope: str | list[str] | None = None,
     language: str | None = None,
-    invoked_tool: str = "nexus_web_search",
 ) -> dict:
     """
-    Chat/Task 共通のNexus Web検索ヘルパー。
+    Evidence未保存の軽量 prefetch 用 Nexus Web検索ヘルパー。
     - plan_web_queries + run_web_search を内部実行
     - items と UI 向けイベントpayloadを構造化して返す
     """
@@ -3521,9 +3521,9 @@ def _run_nexus_search_for_context(
     except Exception as e:
         error_text = f"Search error: {e}"
         print(json.dumps({
-            "event": "agent_nexus_web_search",
+            "event": "agent_lightweight_prefetch_web_search",
             "called": True,
-            "invoked_tool": invoked_tool,
+            "invoked_path": "lightweight_prefetch",
             "queries": query_plan or [safe_query],
             "provider": "unknown",
             "total_items": 0,
@@ -3549,9 +3549,9 @@ def _run_nexus_search_for_context(
     provider_errors = search_output.get("provider_errors") or {}
     total_items = int(search_output.get("total_items") or len(items))
     print(json.dumps({
-        "event": "agent_nexus_web_search",
+        "event": "agent_lightweight_prefetch_web_search",
         "called": True,
-        "invoked_tool": invoked_tool,
+        "invoked_path": "lightweight_prefetch",
         "queries": query_plan or [safe_query],
         "provider": selected_provider,
         "total_items": total_items,
@@ -3594,7 +3594,82 @@ def _run_nexus_search_for_context(
         "context_text": context_text[: (700 + capped * 220)],
         "event_payload": event_payload,
         "search_output": search_output,
+        "lightweight_prefetch_search_output": search_output,
         "stub_only_non_fatal": stub_only_non_fatal,
+    }
+
+
+def _run_nexus_web_search_tool_with_evidence(
+    topic: str,
+    *,
+    max_results_per_query: int = 5,
+    mode: str = "standard",
+    depth: str | None = None,
+    language: str | None = None,
+    scope: str | list[str] | None = None,
+    max_queries: int = 4,
+) -> dict:
+    """正式ツール経路: execute_nexus_web_search を使い Evidence 保存付きで実行する。"""
+    requested_depth = (depth or mode or "standard").strip() or "standard"
+    safe_topic, removed = sanitize_query(topic)
+    if removed:
+        print(f"[SEARCH][SANITIZED] original_len={len(topic)} removed={removed}")
+    if not safe_topic:
+        return {
+            "ok": False,
+            "job_id": "",
+            "query": "",
+            "message": "SEARCH_BLOCKED: Query contained only sensitive data and was not sent.",
+            "items": [],
+            "saved_evidence": 0,
+            "event_payload": {},
+        }
+    service_result = execute_nexus_web_search(
+        safe_topic,
+        mode=mode,
+        depth=requested_depth,
+        max_queries=max_queries,
+        max_results_per_query=max_results_per_query,
+        scope=scope,
+        language=language,
+    )
+    search_output = dict(service_result.get("search") or {})
+    items = search_output.get("items") or []
+    result_lines = _format_web_search_items(items, limit=max(1, min(int(max_results_per_query or 5), 20)))
+    provider = str(search_output.get("selected_provider") or search_output.get("provider") or "unknown")
+    provider_errors = search_output.get("provider_errors") or {}
+    total_items = int(search_output.get("total_items") or len(items))
+    print(json.dumps({
+        "event": "agent_nexus_web_search",
+        "called": True,
+        "invoked_tool": "nexus_web_search",
+        "queries": service_result.get("queries") or [safe_topic],
+        "provider": provider,
+        "total_items": total_items,
+        "provider_errors": provider_errors,
+        "saved_evidence": int(service_result.get("saved_evidence") or 0),
+        "job_id": str(service_result.get("job_id") or ""),
+    }, ensure_ascii=False))
+    message = str(search_output.get("message") or "")
+    return {
+        "ok": True,
+        "job_id": str(service_result.get("job_id") or ""),
+        "query": safe_topic,
+        "queries": service_result.get("queries") or [safe_topic],
+        "items": items,
+        "formatted_items": result_lines,
+        "saved_evidence": int(service_result.get("saved_evidence") or 0),
+        "message": message,
+        "event_payload": {
+            "provider_errors": provider_errors,
+            "non_fatal": bool(search_output.get("non_fatal", False)),
+            "message": message,
+            "selected_provider": provider,
+            "total_items": total_items,
+            "saved_evidence": int(service_result.get("saved_evidence") or 0),
+            "job_id": str(service_result.get("job_id") or ""),
+        },
+        "tool_search_output": search_output,
     }
 
 
@@ -3644,19 +3719,25 @@ def nexus_web_search(
     scope: str | list[str] | None = None,
     max_queries: int = 4,
 ) -> str:
-    """Task/Agent向けのNexus WebSearchツール名。内部実装は run_web_search に統一する。"""
-    requested_depth = (depth or mode or "standard").strip() or "standard"
-    result = _run_nexus_search_for_context(
+    """Task/Agent向けの正式 Nexus WebSearch ツール（Evidence保存あり）。"""
+    result = _run_nexus_web_search_tool_with_evidence(
         topic,
-        num_results=max_results_per_query,
+        max_results_per_query=max_results_per_query,
         mode=mode,
-        depth=requested_depth,
+        depth=depth,
         max_queries=max_queries,
         scope=scope,
         language=language,
-        invoked_tool="nexus_web_search",
     )
-    return str(result.get("context_text") or result.get("message") or "No results found.")
+    if not result.get("ok"):
+        return str(result.get("message") or "No results found.")
+    lines = result.get("formatted_items") or []
+    message = str(result.get("message") or "")
+    job_id = str(result.get("job_id") or "")
+    saved_evidence = int(result.get("saved_evidence") or 0)
+    header = f"job_id={job_id} saved_evidence={saved_evidence}"
+    body = "\n".join(f"- {line}" for line in lines) if lines else (message or "No results found.")
+    return f"{header}\n{body}"
 
 
 # =========================
@@ -7423,15 +7504,16 @@ Rules:
                 "action": "nexus_web_search",
                 "input": {"topic": query, "max_results_per_query": num_results},
             })
-        search_result = _run_nexus_search_for_context(
+        search_result = _run_nexus_web_search_tool_with_evidence(
             query,
-            num_results=num_results,
+            max_results_per_query=num_results,
             mode="quick",
             depth="quick",
             max_queries=1,
         )
-        result_text = str(search_result.get("context_text") or search_result.get("message") or "")
-        last_stub_only_non_fatal = bool(search_result.get("stub_only_non_fatal", False))
+        result_lines = search_result.get("formatted_items") or []
+        result_text = "\n".join(f"- {line}" for line in result_lines) if result_lines else str(search_result.get("message") or "")
+        last_stub_only_non_fatal = bool(search_result.get("event_payload", {}).get("non_fatal", False)) and not bool(search_result.get("items"))
         searches_used += 1
         preview = result_text[:400]
         debug_item["tool_result_summary"] = preview
@@ -8853,7 +8935,7 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
         pass
 
     if _should_prefetch_web_for_task(task_detail, search_enabled):
-        prefetch_result = _run_nexus_search_for_context(
+        prefetch_result = _run_lightweight_prefetch_nexus_search_for_context(
             task_detail,
             num_results=_search_num_results,
             mode="quick",
@@ -8866,7 +8948,7 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
         if on_step:
             event_payload = prefetch_result.get("event_payload") or {}
             on_step({
-                "type": "search_prefetch",
+                "type": "lightweight_search_prefetch",
                 "query": prefetch_result.get("query", ""),
                 "ok": bool(prefetch_result.get("ok", False)),
                 "items": prefetch_result.get("items", []),
@@ -14413,7 +14495,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
         pass
 
     if _should_prefetch_web_for_task(task_detail, search_enabled):
-        prefetch_result = _run_nexus_search_for_context(
+        prefetch_result = _run_lightweight_prefetch_nexus_search_for_context(
             task_detail,
             num_results=_search_num_results,
             mode="quick",
@@ -14425,7 +14507,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
             user_content = f"{user_content}\n\n{prefetch_block}"
         event_payload = prefetch_result.get("event_payload") or {}
         yield {
-            "type": "search_prefetch",
+            "type": "lightweight_search_prefetch",
             "task_id": task_id,
             "title": task_title,
             "query": prefetch_result.get("query", ""),
