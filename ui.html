@@ -8382,6 +8382,12 @@ function renderNexusDeepSourcesTable(sources = []) {
   `;
 }
 
+
+function nexusApi(path) {
+  const suffix = String(path || '');
+  return suffix.startsWith('/nexus/') ? suffix : `/nexus/${suffix.replace(/^\/+/, '')}`;
+}
+
 async function refreshNexusDeepSources(jobId) {
   const id = String(jobId || '').trim();
   if (!id) {
@@ -8389,7 +8395,7 @@ async function refreshNexusDeepSources(jobId) {
     renderNexusDeepSourcesTable([]);
     return [];
   }
-  const resp = await fetch(API + '/nexus/research/jobs/' + encodeURIComponent(id) + '/sources');
+  const resp = await fetch(nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/sources'));
   const data = await resp.json();
   if (!resp.ok) throw new Error(data?.detail || JSON.stringify(data));
   const sources = Array.isArray(data?.sources) ? data.sources : [];
@@ -8403,7 +8409,7 @@ async function refreshNexusDeepEvents(jobId) {
   const id = String(jobId || '').trim();
   if (!id) return [];
   const resp = await fetch(
-    API + '/nexus/research/jobs/' + encodeURIComponent(id) + '/events?after=' + encodeURIComponent(String(nexusDeepResearchAfterSeq))
+    nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/events?after=' + encodeURIComponent(String(nexusDeepResearchAfterSeq)))
   );
   const data = await resp.json();
   if (!resp.ok) throw new Error(data?.detail || JSON.stringify(data));
@@ -8441,7 +8447,7 @@ async function refreshNexusDeepAnswer(jobId) {
     renderNexusDeepViewer({});
     return {};
   }
-  const resp = await fetch(API + '/nexus/research/jobs/' + encodeURIComponent(id) + '/answer');
+  const resp = await fetch(nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/answer'));
   const data = await resp.json();
   if (!resp.ok) throw new Error(data?.detail || JSON.stringify(data));
   const normalized = normalizeNexusDeepAnswerPayload(data?.answer || {});
@@ -8590,7 +8596,7 @@ function selectNexusDeepViewerChunk(index) {
 
 function downloadNexusDeepBundle() {
   if (!nexusDeepResearchJobId) return;
-  window.open(API + '/nexus/research/jobs/' + encodeURIComponent(nexusDeepResearchJobId) + '/bundle.zip', '_blank', 'noopener');
+  window.open(nexusApi('/nexus/research/jobs/' + encodeURIComponent(nexusDeepResearchJobId) + '/bundle.zip'), '_blank', 'noopener');
 }
 
 function nexusDepthToConfig(depth) {
@@ -8821,7 +8827,7 @@ async function runNexusDeepResearch() {
       prefer_pdf: preferPdf,
       official_first: officialFirst,
     };
-    const runRes = await fetch(API + '/nexus/research/run', {
+    const runRes = await fetch(nexusApi('/nexus/research/run'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload),
