@@ -180,7 +180,7 @@ SCHEMA_SQL: tuple[str, ...] = (
         local_text_path TEXT NOT NULL DEFAULT '',
         local_markdown_path TEXT NOT NULL DEFAULT '',
         local_screenshot_path TEXT NOT NULL DEFAULT '',
-        linked_document_id TEXT NOT NULL DEFAULT '',
+        linked_document_id TEXT DEFAULT NULL,
         status TEXT NOT NULL DEFAULT '',
         source_score REAL NOT NULL DEFAULT 0.0,
         source_score_breakdown TEXT NOT NULL DEFAULT '{}',
@@ -284,7 +284,7 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
             local_text_path TEXT NOT NULL DEFAULT '',
             local_markdown_path TEXT NOT NULL DEFAULT '',
             local_screenshot_path TEXT NOT NULL DEFAULT '',
-            linked_document_id TEXT NOT NULL DEFAULT '',
+            linked_document_id TEXT DEFAULT NULL,
             status TEXT NOT NULL DEFAULT '',
             source_score REAL NOT NULL DEFAULT 0.0,
             source_score_breakdown TEXT NOT NULL DEFAULT '{}',
@@ -297,6 +297,72 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
         )
         """
     )
+
+    source_columns = conn.execute("PRAGMA table_info(nexus_sources)").fetchall()
+    linked_document_col = next((row for row in source_columns if str(row["name"]) == "linked_document_id"), None)
+    if linked_document_col is not None:
+        default_value = linked_document_col["dflt_value"]
+        normalized_default = str(default_value).strip().upper() if default_value is not None else None
+        needs_sources_rebuild = bool(linked_document_col["notnull"]) or normalized_default not in (None, "NULL")
+        if needs_sources_rebuild:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS nexus_sources_new (
+                    source_id TEXT PRIMARY KEY,
+                    job_id TEXT NOT NULL,
+                    project TEXT NOT NULL DEFAULT 'default',
+                    source_type TEXT NOT NULL DEFAULT '',
+                    url TEXT NOT NULL DEFAULT '',
+                    final_url TEXT NOT NULL DEFAULT '',
+                    title TEXT NOT NULL DEFAULT '',
+                    publisher TEXT NOT NULL DEFAULT '',
+                    domain TEXT NOT NULL DEFAULT '',
+                    language TEXT NOT NULL DEFAULT '',
+                    content_type TEXT NOT NULL DEFAULT '',
+                    local_original_path TEXT NOT NULL DEFAULT '',
+                    local_text_path TEXT NOT NULL DEFAULT '',
+                    local_markdown_path TEXT NOT NULL DEFAULT '',
+                    local_screenshot_path TEXT NOT NULL DEFAULT '',
+                    linked_document_id TEXT DEFAULT NULL,
+                    status TEXT NOT NULL DEFAULT '',
+                    source_score REAL NOT NULL DEFAULT 0.0,
+                    source_score_breakdown TEXT NOT NULL DEFAULT '{}',
+                    error TEXT NOT NULL DEFAULT '',
+                    retrieved_at TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(job_id) REFERENCES nexus_jobs(job_id) ON DELETE CASCADE,
+                    FOREIGN KEY(linked_document_id) REFERENCES nexus_documents(id) ON DELETE SET NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO nexus_sources_new(
+                    source_id, job_id, project, source_type, url, final_url, title,
+                    publisher, domain, language, content_type,
+                    local_original_path, local_text_path, local_markdown_path, local_screenshot_path,
+                    linked_document_id, status, source_score, source_score_breakdown,
+                    error, retrieved_at, created_at, updated_at
+                )
+                SELECT
+                    source_id, job_id, project, source_type, url, final_url, title,
+                    publisher, domain, language, content_type,
+                    local_original_path, local_text_path, local_markdown_path, local_screenshot_path,
+                    NULLIF(linked_document_id, '') AS linked_document_id,
+                    status, source_score, source_score_breakdown,
+                    error, retrieved_at, created_at, updated_at
+                FROM nexus_sources
+                """
+            )
+            conn.execute("ALTER TABLE nexus_sources RENAME TO nexus_sources_old")
+            conn.execute("ALTER TABLE nexus_sources_new RENAME TO nexus_sources")
+            conn.execute("DROP TABLE nexus_sources_old")
+            conn.execute("DROP INDEX IF EXISTS idx_sources_job_id")
+            conn.execute("DROP INDEX IF EXISTS idx_sources_linked_document_id")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sources_job_id ON nexus_sources(job_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sources_linked_document_id ON nexus_sources(linked_document_id)")
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS nexus_research_answers (
@@ -416,7 +482,7 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
                 "local_text_path TEXT NOT NULL DEFAULT ''",
                 "local_markdown_path TEXT NOT NULL DEFAULT ''",
                 "local_screenshot_path TEXT NOT NULL DEFAULT ''",
-                "linked_document_id TEXT NOT NULL DEFAULT ''",
+                "linked_document_id TEXT DEFAULT NULL",
                 "status TEXT NOT NULL DEFAULT ''",
                 "source_score REAL NOT NULL DEFAULT 0.0",
                 "source_score_breakdown TEXT NOT NULL DEFAULT '{}'",
