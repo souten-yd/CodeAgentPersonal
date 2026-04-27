@@ -15,7 +15,7 @@ from urllib.parse import urljoin, urlparse
 from app.nexus.config import NEXUS_PATHS
 from app.nexus.extractors import build_artifacts, extract_pages
 
-DEFAULT_MAX_BYTES = 5 * 1024 * 1024
+DEFAULT_MAX_BYTES = 20 * 1024 * 1024
 DEFAULT_CONNECT_TIMEOUT_SEC = 5
 DEFAULT_READ_TIMEOUT_SEC = 8
 MAX_REDIRECTS = 3

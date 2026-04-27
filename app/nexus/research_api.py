@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import threading
 import uuid
@@ -10,7 +11,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.nexus.db import get_conn
-from app.nexus.downloader import safe_download, save_download_artifacts
+from app.nexus.downloader import DEFAULT_MAX_BYTES, safe_download, save_download_artifacts
 from app.nexus.evidence import list_evidence_items
 from app.nexus.jobs import create_job, get_job, get_job_events, update_job
 from app.nexus.research_agent import ResearchAgentInput, run_research_job
@@ -27,6 +28,7 @@ class ResearchRunRequest(BaseModel):
     max_results_per_query: int | None = Field(default=None, ge=1, le=20)
     max_sources: int | None = Field(default=None, ge=1, le=200)
     max_downloads: int | None = Field(default=None, ge=1, le=200)
+    max_download_mb: int | None = Field(default=None, ge=1, le=2048)
     max_total_download_mb: int | None = Field(default=None, ge=1, le=2048)
     scope: str | list[str] | None = None
     language: str | None = None
@@ -42,6 +44,21 @@ class CollectRequest(BaseModel):
     project: str = Field(default="default")
     search_items: list[dict] = Field(default_factory=list)
     manual_urls: list[str] = Field(default_factory=list)
+    max_download_mb: int | None = Field(default=None, ge=1, le=2048)
+
+
+def _resolve_max_download_mb(requested_max_download_mb: int | None) -> int:
+    if requested_max_download_mb is not None:
+        return max(1, requested_max_download_mb)
+
+    raw_env_value = (os.environ.get("NEXUS_MAX_DOWNLOAD_MB") or "").strip()
+    if raw_env_value:
+        try:
+            return max(1, int(raw_env_value))
+        except ValueError:
+            pass
+
+    return max(1, DEFAULT_MAX_BYTES // (1024 * 1024))
 
 
 def _source_not_found() -> HTTPException:
@@ -82,6 +99,7 @@ def run_research(payload: ResearchRunRequest) -> dict:
                 max_results_per_query=payload.max_results_per_query,
                 max_sources=payload.max_sources,
                 max_downloads=payload.max_downloads,
+                max_download_mb=payload.max_download_mb,
                 max_total_download_mb=payload.max_total_download_mb,
                 scope=payload.scope,
                 language=payload.language,
@@ -119,6 +137,7 @@ def run_research_async(payload: ResearchRunRequest) -> dict:
         max_results_per_query=payload.max_results_per_query,
         max_sources=payload.max_sources,
         max_downloads=payload.max_downloads,
+        max_download_mb=payload.max_download_mb,
         max_total_download_mb=payload.max_total_download_mb,
         scope=payload.scope,
         language=payload.language,
@@ -243,6 +262,8 @@ def collect_web_sources(payload: CollectRequest) -> dict:
         prefer_pdf=True,
         official_first=True,
     )
+    max_download_mb = _resolve_max_download_mb(payload.max_download_mb)
+    max_download_bytes = max_download_mb * 1024 * 1024
     downloadable_sources: list[dict] = []
     for candidate in ranked_candidates:
         source_id = str(candidate.get("source_id") or uuid.uuid4())
@@ -263,7 +284,7 @@ def collect_web_sources(payload: CollectRequest) -> dict:
             downloadable_sources.append(source)
             continue
         try:
-            download_result = safe_download(url)
+            download_result = safe_download(url, max_bytes=max_download_bytes)
             saved = save_download_artifacts(
                 job_id=payload.job_id,
                 source_id=source_id,
