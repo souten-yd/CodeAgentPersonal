@@ -3634,22 +3634,6 @@ def _build_task_prefetch_context_block(search_result: dict, *, max_items: int = 
     body_lines.extend(f"- {line}" for line in lines)
     return "\n".join(body_lines)
 
-def web_search(query: str, num_results: int = 0) -> str:
-    """
-    旧互換のWeb検索入口。
-    実装は nexus_web_search() 経由で app.nexus.web_scout.run_web_search に統一委譲する。
-    """
-    n = num_results if num_results > 0 else _search_num_results
-    result = _run_nexus_search_for_context(
-        query,
-        num_results=n,
-        mode="quick",
-        depth="quick",
-        max_queries=1,
-        invoked_tool="web_search",
-    )
-    return str(result.get("context_text") or result.get("message") or "No results found.")
-
 
 def nexus_web_search(
     topic: str,
@@ -6957,7 +6941,6 @@ TASK_V2_SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 - run_node: {"script": "console.log(require('./script.js'))"}  ← JSコードをNode.jsで実行・テスト / タイムアウト時: {"script":"...","timeout":60} (max 300s)
 - setup_venv: {"requirements": ["flask","numpy"]}  ← Pythonプロジェクトで.venv構築＋requirements.txt生成（実行はユーザーが行う）
 - nexus_web_search: {"topic": "検索クエリ", "max_results_per_query": 5, "mode": "standard", "depth": "standard", "scope": ["news"], "language": "ja"}
-- web_search: {"query": "検索クエリ", "num_results": 5}  ← 互換用エイリアス（内部はNexus WebSearch委譲）
 - clarify: {"question": "質問", "options": ["選択肢1", "選択肢2"]}
 - git_status: {"project": "..."}  ← プロジェクトのgit変更一覧（M=変更 A=追加 ?=未追跡）。タスク開始前に実行推奨
 - git_diff: {"path": "foo.py", "project": "..."}  ← 差分確認。pathを省略すると全体差分
@@ -6976,7 +6959,7 @@ TASK_V2_SYSTEM_PROMPT = """あなたはコード編集・実行AIです。
 6. HTTPサーバー起動は run_python ではなく run_server を使う（run_pythonはサーバー系タイムアウトする）
 7. 要件が曖昧な場合は clarify でユーザーに確認
 7.5. ツール結果の解釈は出力テキストに厳密に従うこと。出力に書かれていない .venv / Docker Compose / Runpod 設定不備を推測で断定しない。
-7.6. 最新情報・外部調査・ニュース・価格・仕様確認が必要な場合は、必ず nexus_web_search を優先して使う。web_search を使う場合も互換エイリアスとして内部では nexus_web_search 相当の検索として扱う。
+7.6. 最新情報・外部調査・ニュース・価格・仕様確認が必要な場合は、必ず nexus_web_search を使って根拠を取得する。
 9. 【Gitワークフロー】タスク開始時に git_checkout_branch でfeatureブランチを作成し、
    完了後に git_commit でコミットすること。失敗時は git_reset で即座に復元できる。
 8. 【タイムアウト対策】"ERROR: timeout (Xs)" が返ってきた場合:
@@ -7100,7 +7083,6 @@ TOOLS = {
     "setup_venv": setup_venv,
     "stop_server": stop_server,
     "nexus_web_search": nexus_web_search,
-    "web_search": web_search,
     # Git ツール
     "git_status": git_status,
     "git_diff": git_diff,
@@ -7663,8 +7645,7 @@ def execute_task_stream_v2(task_detail: str, context: str = "", max_steps: int =
 
     active_tools = dict(TOOLS)
     if not search_enabled:
-        # search_enabled=false の場合は web_search ツール自体を公開しない（既存挙動を維持）。
-        active_tools.pop("web_search", None)
+        # search_enabled=false の場合は nexus_web_search ツールを公開しない。
         active_tools.pop("nexus_web_search", None)
     active_tools.update(_load_skill_functions())
     import functools as _ft3
@@ -8913,8 +8894,7 @@ def execute_task(task_detail: str, context: str = "", max_steps: int = 15, proje
         for sname, sfn in k_skill().items():
             active_tools.setdefault(sname, sfn)  # 既存ツールは上書きしない
     if not search_enabled:
-        # search_enabled=false の場合は web_search ツール自体を公開しない（既存挙動を維持）。
-        active_tools.pop("web_search", None)
+        # search_enabled=false の場合は nexus_web_search ツールを公開しない。
         active_tools.pop("nexus_web_search", None)
     # project引数を持つツールに現在のprojectを自動バインド
     _project_tools = ("read_file", "write_file", "edit_file", "get_outline",
@@ -14462,8 +14442,7 @@ def execute_task_stream(task_detail: str, context: str = "", max_steps: int = 15
     # スキルをTOOLSに動的追加（ホットリロード対応）
     active_tools = dict(TOOLS)
     if not search_enabled:
-        # search_enabled=false の場合は web_search ツール自体を公開しない（既存挙動を維持）。
-        active_tools.pop("web_search", None)
+        # search_enabled=false の場合は nexus_web_search ツールを公開しない。
         active_tools.pop("nexus_web_search", None)
     skill_fns = _load_skill_functions()
     active_tools.update(skill_fns)
