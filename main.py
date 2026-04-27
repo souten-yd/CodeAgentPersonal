@@ -6379,23 +6379,23 @@ def _validate_agent_action_payload(action_obj: dict) -> tuple[dict | None, str |
     if action == "tool":
         tool = str(action_obj.get("tool", "") or "").strip()
         args = action_obj.get("arguments", {})
-        if tool != "web_search":
+        if tool != "nexus_web_search":
             return None, f"tool_not_allowed:{tool}"
         if not isinstance(args, dict):
             return None, "tool_arguments_not_object"
-        query = str(args.get("query", "") or "").strip()
-        if not query:
-            return None, "web_search_query_empty"
-        num_results_raw = args.get("num_results", 3)
+        topic = str(args.get("topic", "") or "").strip()
+        if not topic:
+            return None, "nexus_web_search_topic_empty"
+        max_results_raw = args.get("max_results_per_query", 3)
         try:
-            num_results = int(num_results_raw)
+            max_results = int(max_results_raw)
         except Exception:
-            return None, "web_search_num_results_invalid"
-        num_results = max(1, min(num_results, 10))
+            return None, "nexus_web_search_max_results_invalid"
+        max_results = max(1, min(max_results, 10))
         return {
             "action": "tool",
-            "tool": "web_search",
-            "arguments": {"query": query, "num_results": num_results},
+            "tool": "nexus_web_search",
+            "arguments": {"topic": topic, "max_results_per_query": max_results},
         }, None
     return None, f"unknown_action:{action}"
 
@@ -7248,11 +7248,13 @@ def _execute_agent_session_queue(
             s for s in steps
             if isinstance(s, dict)
             and s.get("type") == "tool_call"
-            and s.get("action") == "web_search"
+            and s.get("action") == "nexus_web_search"
         ]
-        web_search_event_type = "agent_web_search_used" if web_search_calls else "agent_web_search_not_used"
+        web_search_event_type = "agent_nexus_web_search_used" if web_search_calls else "agent_nexus_web_search_not_used"
         web_search_event = {
             "type": web_search_event_type,
+            # backward compatibility for consumers still expecting old event names.
+            "legacy_type": "agent_web_search_used" if web_search_calls else "agent_web_search_not_used",
             "task_id": queued_task.id,
             "count": len(web_search_calls),
         }
@@ -7299,7 +7301,7 @@ def execute_chat_with_optional_web_search(
     """
     chatモード専用の軽量実行。
     - search_enabled=False: 1回の通常チャット応答
-    - search_enabled=True: web_searchのみを使える最小ループ（タスク実行ツールは使わない）
+    - search_enabled=True: nexus_web_searchのみを使える最小ループ（タスク実行ツールは使わない）
     """
     history_msgs = []
     for h in (chat_history or [])[-8:]:
@@ -7319,21 +7321,21 @@ def execute_chat_with_optional_web_search(
         return {"status": "done", "output": chat_reply, "usage": usage, "steps": []}
 
     CHAT_SEARCH_PROMPT = """You are CodeAgent in agent mode.
-Return valid JSON object only. No markdown. No pseudo tags like <|tool_call> or call:web_search.
+Return valid JSON object only. No markdown. No pseudo tags like <|tool_call> or call:nexus_web_search.
 
 Allowed response formats (strict):
 1) Tool call:
-{"action":"tool","tool":"web_search","arguments":{"query":"横浜 有名な公園","num_results":3}}
+{"action":"tool","tool":"nexus_web_search","arguments":{"topic":"横浜 有名な公園","max_results_per_query":3}}
 2) Final answer:
 {"action":"final","content":"回答本文"}
 
 Rules:
 - Do not output any text before/after JSON.
-- Only web_search is allowed as tool.
-- web_search schema:
-  - name: web_search
-  - arguments.query: string (required)
-  - arguments.num_results: number (optional, default 3)
+- Only nexus_web_search is allowed as tool.
+- nexus_web_search schema:
+  - name: nexus_web_search
+  - arguments.topic: string (required)
+  - arguments.max_results_per_query: number (optional, default 3)
 - If no tool is needed, return final immediately.
 - At most 2 tool calls, and then return final.
 """
@@ -7401,7 +7403,7 @@ Rules:
             return {"status": "done", "output": out, "usage": usage, "steps": steps, "logs": agent_debug_logs}
 
         if searches_used >= 2:
-            debug_item["parse_error"] = "web_search_limit_reached"
+            debug_item["parse_error"] = "nexus_web_search_limit_reached"
             agent_debug_logs.append(debug_item)
             messages.append({"role": "assistant", "content": _sanitize_special_tokens(raw_reply)})
             messages.append({
@@ -7411,15 +7413,15 @@ Rules:
             continue
 
         tool_input = validated_obj.get("arguments", {}) or {}
-        query = str(tool_input.get("query", "") or "").strip()
-        num_results = int(tool_input.get("num_results", 3) or 3)
+        query = str(tool_input.get("topic", "") or "").strip()
+        num_results = int(tool_input.get("max_results_per_query", 3) or 3)
 
         if on_event:
             on_event({
                 "type": "tool_call",
                 "step_num": step + 1,
-                "action": "web_search",
-                "input": {"query": query, "num_results": num_results},
+                "action": "nexus_web_search",
+                "input": {"topic": query, "max_results_per_query": num_results},
             })
         search_result = _run_nexus_search_for_context(
             query,
@@ -7434,12 +7436,12 @@ Rules:
         preview = result_text[:400]
         debug_item["tool_result_summary"] = preview
         agent_debug_logs.append(debug_item)
-        steps.append({"step": step + 1, "type": "tool", "action": "web_search", "input": {"query": query, "num_results": num_results}})
+        steps.append({"step": step + 1, "type": "tool", "action": "nexus_web_search", "input": {"topic": query, "max_results_per_query": num_results}})
         if on_event:
             on_event({
                 "type": "tool_result",
                 "step_num": step + 1,
-                "action": "web_search",
+                "action": "nexus_web_search",
                 "result_preview": preview,
                 "payload": search_result.get("event_payload") or {},
             })

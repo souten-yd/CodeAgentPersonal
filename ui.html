@@ -9263,7 +9263,8 @@ function addAgentExecutionCard(executed = [], record = true) {
   executed.forEach((item) => {
     const ev = item?.search_event;
     if (!ev || !ev.type) return;
-    const level = ev.type === 'agent_web_search_used' ? 'ok' : 'info';
+    // backward compatibility: old backend may still emit agent_web_search_used/not_used.
+    const level = (ev.type === 'agent_nexus_web_search_used' || ev.type === 'agent_web_search_used') ? 'ok' : 'info';
     addLog(level, 'agent-search', `${ev.type} task=${item.task_id || '-'} count=${Number(ev.count || 0)}`);
   });
   if (record) addAgentHistoryItem('execution', {executed});
@@ -9524,7 +9525,7 @@ async function sendAgentMessage(msg) {
   if (agentMsgWrap) {
     runningNode = document.createElement('div');
     runningNode.className = 'msg system';
-    runningNode.innerHTML = `<div class="msg-role">System</div><div class="msg-bubble">web_search を実行中...</div>`;
+    runningNode.innerHTML = `<div class="msg-role">System</div><div class="msg-bubble">nexus_web_search を実行中...</div>`;
     agentMsgWrap.appendChild(runningNode);
     agentMsgWrap.scrollTop = agentMsgWrap.scrollHeight;
   }
@@ -13185,15 +13186,15 @@ async function sendMessage(msg) {
               setCard(progEl, {action: `🤔 考え中... ${ev.step_num||''}/${ev.max_steps||''}`});
             } else if (ev.type === 'tool_call') {
               chatSteps.push(ev);
-              const isWebSearch = (ev.action||'') === 'web_search';
+              const isWebSearch = (ev.action||'') === 'nexus_web_search';
               const actionText = isWebSearch
-                ? `🔎 Web検索中... ${(ev.input?.query || ev.thought || '').slice(0, 80)}`
+                ? `🔎 Nexus Web検索中... ${(ev.input?.topic || ev.thought || '').slice(0, 80)}`
                 : `${ev.action}: ${(ev.thought||'')}`;
               setCard(progEl, {action: actionText});
             } else if (ev.type === 'tool_result') {
               attachToolResult(chatSteps, ev);
-              const resultAction = (ev.action||'') === 'web_search'
-                ? '✓ Web検索 完了 → 次のアクションを生成中...'
+              const resultAction = (ev.action||'') === 'nexus_web_search'
+                ? '✓ Nexus Web検索 完了 → 次のアクションを生成中...'
                 : `✓ ${ev.action||'tool'} 完了 → 次のアクションを生成中...`;
               setCard(progEl, {action: resultAction});
             } else if (ev.type === 'progress') {
@@ -13423,10 +13424,10 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
       } else if (ev.type === 'tool_result') {
         attachToolResult(allSteps, ev);
         // ツール実行完了 → LLMが次のアクションを生成中
-        if ((ev.action||'') === 'web_search') {
+        if ((ev.action||'') === 'nexus_web_search') {
           const preview = (ev.result_preview||'').slice(0, 120);
           const status = preview.startsWith('Search error') || preview.startsWith('SEARCH_') ? '⚠' : '✓';
-          setCard(progCard, {action: `${status} Web検索 完了 → 次のアクションを生成中...`});
+          setCard(progCard, {action: `${status} Nexus Web検索 完了 → 次のアクションを生成中...`});
           if (preview) addLog(status === '✓' ? 'ok' : 'warn', 'search', `result: ${preview}`);
         } else if ((ev.action||'') === 'read_file') {
           const size = Number(ev.result_size);
@@ -13441,9 +13442,9 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
         const _ptok = ev.prompt_tokens||0;
         const _ctok = ev.completion_tokens||0;
         const _ctxStr = _ptok > 0 ? `${(_ptok+_ctok).toLocaleString()}/${(_current_n_ctx_ui||0).toLocaleString()}` : `--/${(_current_n_ctx_ui||'?').toLocaleString()}`;
-        const isWebSearch = (ev.action||'') === 'web_search';
+        const isWebSearch = (ev.action||'') === 'nexus_web_search';
         const actionText = isWebSearch
-          ? `🔎 Web検索中... query: ${(ev.input?.query || ev.thought || '').slice(0, 120)}`
+          ? `🔎 Nexus Web検索中... topic: ${(ev.input?.topic || ev.thought || '').slice(0, 120)}`
           : (ev.action||'') + ': ' + (ev.thought||'');
         setCard(progCard, {
           action:  actionText,
@@ -13452,7 +13453,7 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
           stepNum: ev.step_num ? `${ev.step_num}/${ev.max_steps||'?'}` : '-/-',
         });
         if (isWebSearch) {
-          addLog('info','search', `web_search query: ${(ev.input?.query || ev.thought || '').slice(0, 200)}`);
+          addLog('info','search', `nexus_web_search topic: ${(ev.input?.topic || ev.thought || '').slice(0, 200)}`);
         } else {
           addLog('info','tool', `${ev.action||''}: ${(ev.thought||'')}`);
         }
@@ -13834,13 +13835,13 @@ function addStepsBlock(steps) {
   const toolSteps = steps.filter(s=>s.type==='tool_call');
   if (!toolSteps.length) return;
   const d = document.createElement('div'); d.className = 'msg assistant';
-  const icons = {read_file:'📄',write_file:'✏️',patch_function:'🔧',run_python:'▶',run_file:'▶',list_files:'📁',web_search:'🔎'};
+  const icons = {read_file:'📄',write_file:'✏️',patch_function:'🔧',run_python:'▶',run_file:'▶',list_files:'📁',nexus_web_search:'🔎'};
   const items = toolSteps.map(s=>`<div class="step-item">
     <span>${icons[s.action]||'◆'}</span>
     <div style="flex:1;min-width:0">
       <span class="step-action">${s.action}</span>
       ${s.thought?`<div class="step-thought">${esc(s.thought)}</div>`:''}
-      ${s.action==='web_search' && s.input?.query ? `<div class="step-thought">query: ${esc(s.input.query)}</div>` : ''}
+      ${s.action==='nexus_web_search' && s.input?.topic ? `<div class="step-thought">topic: ${esc(s.input.topic)}</div>` : ''}
       ${s.result_preview?`<div class="step-result">${esc(s.result_preview)}</div>`:''}
       ${
         s.action === 'read_file' && s.result_excerpt
