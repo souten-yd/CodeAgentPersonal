@@ -1483,6 +1483,21 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
                   <option value="market">scope: Market</option>
                 </select>
               </div>
+              <div class="nexus-form-grid cols-2">
+                <input id="nexus-deep-max-download-mb" class="nexus-input" type="number" min="1" max="500" step="1" placeholder="max_download_mb (1-500)">
+                <input id="nexus-deep-max-total-download-mb" class="nexus-input" type="number" min="1" max="2048" step="1" placeholder="max_total_download_mb (1-2048)">
+              </div>
+              <div class="nexus-form-grid cols-2">
+                <input id="nexus-deep-max-downloads" class="nexus-input" type="number" min="1" max="200" step="1" placeholder="max_downloads (1-200)">
+                <input id="nexus-deep-download-timeout-sec" class="nexus-input" type="number" min="1" max="600" step="1" placeholder="download_timeout_sec (1-600)">
+              </div>
+              <div class="nexus-form-grid cols-2">
+                <label class="nexus-check"><input id="nexus-deep-continue-on-download-error" type="checkbox" checked> continue_on_download_error</label>
+                <label class="nexus-check"><input id="nexus-deep-prefer-pdf" type="checkbox" checked> prefer_pdf</label>
+              </div>
+              <div class="nexus-form-grid cols-2">
+                <label class="nexus-check"><input id="nexus-deep-official-first" type="checkbox" checked> official_first</label>
+              </div>
               <div class="nexus-actions">
                 <button class="settings-btn primary" id="nexus-deep-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusDeepResearch()">Start Research</button>
                 <button class="settings-btn" id="nexus-deep-bundle-btn" style="padding:5px 12px;font-size:11px" onclick="downloadNexusDeepBundle()" disabled>Download Bundle</button>
@@ -6714,6 +6729,8 @@ addEventListener('load', async () => {
   await refreshSystemSummary();
   loadProjects();
   initCtxSlider();
+  loadNexusDeepResearchForm();
+  bindNexusDeepResearchFormPersistence();
   refreshModelDb();
   refreshModelRoles();
   refreshSkills();
@@ -8116,10 +8133,146 @@ function nexusDepthToConfig(depth) {
   return { maxQueries: 4, maxResultsPerQuery: 6 };
 }
 
+const NEXUS_DEEP_STORAGE = {
+  topic: 'nexus_deep_topic',
+  depth: 'nexus_deep_depth',
+  scope: 'nexus_deep_scope',
+  maxDownloadMb: 'nexus_deep_max_download_mb',
+  maxTotalDownloadMb: 'nexus_deep_max_total_download_mb',
+  maxDownloads: 'nexus_deep_max_downloads',
+  downloadTimeoutSec: 'nexus_deep_download_timeout_sec',
+  continueOnDownloadError: 'nexus_deep_continue_on_download_error',
+  preferPdf: 'nexus_deep_prefer_pdf',
+  officialFirst: 'nexus_deep_official_first',
+};
+
+function clampInt(value, min, max) {
+  const num = parseInt(String(value ?? '').trim(), 10);
+  if (!Number.isFinite(num)) return null;
+  return Math.min(max, Math.max(min, num));
+}
+
+function loadNexusDeepResearchForm() {
+  const topicEl = document.getElementById('nexus-deep-topic');
+  const depthEl = document.getElementById('nexus-deep-depth');
+  const scopeEl = document.getElementById('nexus-deep-scope');
+  const maxDownloadMbEl = document.getElementById('nexus-deep-max-download-mb');
+  const maxTotalDownloadMbEl = document.getElementById('nexus-deep-max-total-download-mb');
+  const maxDownloadsEl = document.getElementById('nexus-deep-max-downloads');
+  const downloadTimeoutSecEl = document.getElementById('nexus-deep-download-timeout-sec');
+  const continueOnDownloadErrorEl = document.getElementById('nexus-deep-continue-on-download-error');
+  const preferPdfEl = document.getElementById('nexus-deep-prefer-pdf');
+  const officialFirstEl = document.getElementById('nexus-deep-official-first');
+
+  if (topicEl) topicEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.topic) || '';
+  if (depthEl) depthEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.depth) || 'standard';
+  if (scopeEl) scopeEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.scope) || 'web';
+  if (maxDownloadMbEl) maxDownloadMbEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.maxDownloadMb) || '';
+  if (maxTotalDownloadMbEl) maxTotalDownloadMbEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.maxTotalDownloadMb) || '';
+  if (maxDownloadsEl) maxDownloadsEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.maxDownloads) || '';
+  if (downloadTimeoutSecEl) downloadTimeoutSecEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.downloadTimeoutSec) || '';
+  if (continueOnDownloadErrorEl) {
+    const raw = localStorage.getItem(NEXUS_DEEP_STORAGE.continueOnDownloadError);
+    continueOnDownloadErrorEl.checked = raw === null ? true : raw === 'true';
+  }
+  if (preferPdfEl) {
+    const raw = localStorage.getItem(NEXUS_DEEP_STORAGE.preferPdf);
+    preferPdfEl.checked = raw === null ? true : raw === 'true';
+  }
+  if (officialFirstEl) {
+    const raw = localStorage.getItem(NEXUS_DEEP_STORAGE.officialFirst);
+    officialFirstEl.checked = raw === null ? true : raw === 'true';
+  }
+}
+
+function saveNexusDeepResearchForm(values) {
+  localStorage.setItem(NEXUS_DEEP_STORAGE.topic, values.topic || '');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.depth, values.depth || 'standard');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.scope, values.scope || 'web');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.maxDownloadMb, values.maxDownloadMb == null ? '' : String(values.maxDownloadMb));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.maxTotalDownloadMb, values.maxTotalDownloadMb == null ? '' : String(values.maxTotalDownloadMb));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.maxDownloads, values.maxDownloads == null ? '' : String(values.maxDownloads));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.downloadTimeoutSec, values.downloadTimeoutSec == null ? '' : String(values.downloadTimeoutSec));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.continueOnDownloadError, values.continueOnDownloadError ? 'true' : 'false');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.preferPdf, values.preferPdf ? 'true' : 'false');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.officialFirst, values.officialFirst ? 'true' : 'false');
+}
+
+function bindNexusDeepResearchFormPersistence() {
+  if (window.__nexusDeepPersistenceBound) return;
+  window.__nexusDeepPersistenceBound = true;
+  const ids = [
+    'nexus-deep-topic',
+    'nexus-deep-depth',
+    'nexus-deep-scope',
+    'nexus-deep-max-download-mb',
+    'nexus-deep-max-total-download-mb',
+    'nexus-deep-max-downloads',
+    'nexus-deep-download-timeout-sec',
+    'nexus-deep-continue-on-download-error',
+    'nexus-deep-prefer-pdf',
+    'nexus-deep-official-first',
+  ];
+  const persist = () => {
+    const maxDownloadMb = clampInt(document.getElementById('nexus-deep-max-download-mb')?.value, 1, 500);
+    const maxTotalDownloadMb = clampInt(document.getElementById('nexus-deep-max-total-download-mb')?.value, 1, 2048);
+    const maxDownloads = clampInt(document.getElementById('nexus-deep-max-downloads')?.value, 1, 200);
+    const downloadTimeoutSec = clampInt(document.getElementById('nexus-deep-download-timeout-sec')?.value, 1, 600);
+    saveNexusDeepResearchForm({
+      topic: (document.getElementById('nexus-deep-topic')?.value || '').trim(),
+      depth: (document.getElementById('nexus-deep-depth')?.value || 'standard').trim().toLowerCase(),
+      scope: (document.getElementById('nexus-deep-scope')?.value || 'web').trim().toLowerCase(),
+      maxDownloadMb,
+      maxTotalDownloadMb,
+      maxDownloads,
+      downloadTimeoutSec,
+      continueOnDownloadError: document.getElementById('nexus-deep-continue-on-download-error')?.checked !== false,
+      preferPdf: document.getElementById('nexus-deep-prefer-pdf')?.checked !== false,
+      officialFirst: document.getElementById('nexus-deep-official-first')?.checked !== false,
+    });
+  };
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', persist);
+    if (id === 'nexus-deep-topic') el.addEventListener('blur', persist);
+  });
+}
+
 async function runNexusDeepResearch() {
   const topic = (document.getElementById('nexus-deep-topic')?.value || '').trim();
   const depth = (document.getElementById('nexus-deep-depth')?.value || 'standard').trim().toLowerCase();
   const scope = (document.getElementById('nexus-deep-scope')?.value || 'web').trim().toLowerCase();
+  const maxDownloadMbEl = document.getElementById('nexus-deep-max-download-mb');
+  const maxTotalDownloadMbEl = document.getElementById('nexus-deep-max-total-download-mb');
+  const maxDownloadsEl = document.getElementById('nexus-deep-max-downloads');
+  const downloadTimeoutSecEl = document.getElementById('nexus-deep-download-timeout-sec');
+  const continueOnDownloadError = document.getElementById('nexus-deep-continue-on-download-error')?.checked !== false;
+  const preferPdf = document.getElementById('nexus-deep-prefer-pdf')?.checked !== false;
+  const officialFirst = document.getElementById('nexus-deep-official-first')?.checked !== false;
+
+  const maxDownloadMb = clampInt(maxDownloadMbEl?.value, 1, 500);
+  const maxTotalDownloadMb = clampInt(maxTotalDownloadMbEl?.value, 1, 2048);
+  const maxDownloads = clampInt(maxDownloadsEl?.value, 1, 200);
+  const downloadTimeoutSec = clampInt(downloadTimeoutSecEl?.value, 1, 600);
+  if (maxDownloadMbEl) maxDownloadMbEl.value = maxDownloadMb == null ? '' : String(maxDownloadMb);
+  if (maxTotalDownloadMbEl) maxTotalDownloadMbEl.value = maxTotalDownloadMb == null ? '' : String(maxTotalDownloadMb);
+  if (maxDownloadsEl) maxDownloadsEl.value = maxDownloads == null ? '' : String(maxDownloads);
+  if (downloadTimeoutSecEl) downloadTimeoutSecEl.value = downloadTimeoutSec == null ? '' : String(downloadTimeoutSec);
+
+  saveNexusDeepResearchForm({
+    topic,
+    depth,
+    scope,
+    maxDownloadMb,
+    maxTotalDownloadMb,
+    maxDownloads,
+    downloadTimeoutSec,
+    continueOnDownloadError,
+    preferPdf,
+    officialFirst,
+  });
+
   const btn = document.getElementById('nexus-deep-run-btn');
   const bundleBtn = document.getElementById('nexus-deep-bundle-btn');
   if (!topic) {
@@ -8156,6 +8309,13 @@ async function runNexusDeepResearch() {
       scope: [scope],
       max_queries: conf.maxQueries,
       max_results_per_query: conf.maxResultsPerQuery,
+      max_download_mb: maxDownloadMb,
+      max_total_download_mb: maxTotalDownloadMb,
+      max_downloads: maxDownloads,
+      download_timeout_sec: downloadTimeoutSec,
+      continue_on_download_error: continueOnDownloadError,
+      prefer_pdf: preferPdf,
+      official_first: officialFirst,
     };
     const runRes = await fetch(API + '/nexus/research/run', {
       method: 'POST',
