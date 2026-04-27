@@ -7311,6 +7311,8 @@ let nexusDeepResearchAfterSeq = -1;
 let nexusDeepResearchEvents = [];
 let nexusDeepResearchStubMode = false;
 let nexusDeepResearchSources = [];
+let nexusDeepResearchAnswer = {};
+let nexusDeepResearchEvidence = [];
 let nexusMaxUploadMb = 200;
 let nexusMaxUploadBytes = nexusMaxUploadMb * 1024 * 1024;
 const nexusAllowedUploadExt = new Set(['.pdf', '.txt', '.md', '.csv', '.html']);
@@ -8252,7 +8254,84 @@ async function refreshNexusDeepSources(jobId) {
   const sources = Array.isArray(data?.sources) ? data.sources : [];
   nexusDeepResearchSources = sources;
   renderNexusDeepSourcesTable(sources);
+  renderNexusDeepReferences(sources, nexusDeepResearchEvidence);
   return sources;
+}
+
+async function refreshNexusDeepEvents(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return [];
+  const resp = await fetch(
+    API + '/nexus/research/jobs/' + encodeURIComponent(id) + '/events?after=' + encodeURIComponent(String(nexusDeepResearchAfterSeq))
+  );
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data?.detail || JSON.stringify(data));
+  const events = Array.isArray(data?.events) ? data.events : [];
+  events.forEach((ev) => {
+    const seq = Number(ev?.seq ?? -1);
+    if (seq > nexusDeepResearchAfterSeq) nexusDeepResearchAfterSeq = seq;
+    nexusDeepResearchEvents.unshift(ev);
+  });
+  renderNexusDeepTimeline(nexusDeepResearchEvents);
+  return events;
+}
+
+function normalizeNexusDeepAnswerPayload(answerPayload = {}) {
+  const answer = (answerPayload && typeof answerPayload === 'object') ? answerPayload : {};
+  const directEvidence = Array.isArray(answer?.evidence) ? answer.evidence : [];
+  const dbEvidence = Array.isArray(answer?.evidence_json) ? answer.evidence_json : [];
+  return {
+    answer,
+    evidence: directEvidence.length ? directEvidence : dbEvidence,
+  };
+}
+
+async function refreshNexusDeepAnswer(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) {
+    nexusDeepResearchAnswer = {};
+    nexusDeepResearchEvidence = [];
+    renderNexusDeepAnswer({});
+    renderNexusDeepReferences(nexusDeepResearchSources, []);
+    return {};
+  }
+  const resp = await fetch(API + '/nexus/research/jobs/' + encodeURIComponent(id) + '/answer');
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data?.detail || JSON.stringify(data));
+  const normalized = normalizeNexusDeepAnswerPayload(data?.answer || {});
+  nexusDeepResearchAnswer = normalized.answer;
+  nexusDeepResearchEvidence = normalized.evidence;
+  renderNexusDeepAnswer(nexusDeepResearchAnswer);
+  renderNexusDeepReferences(nexusDeepResearchSources, nexusDeepResearchEvidence);
+  return nexusDeepResearchAnswer;
+}
+
+function getNexusDeepTerminalState() {
+  const latestState = String(nexusDeepResearchEvents?.[0]?.data?.state || '').toLowerCase();
+  if (latestState === 'completed' || latestState === 'failed' || latestState === 'degraded') return latestState;
+  return '';
+}
+
+async function pollNexusDeepResearch(jobId, maxTicks = 50) {
+  const id = String(jobId || '').trim();
+  if (!id) return;
+  for (let i = 0; i < maxTicks; i += 1) {
+    if (String(nexusDeepResearchJobId || '') !== id) break;
+    await Promise.all([
+      refreshNexusDeepEvents(id),
+      refreshNexusDeepSources(id),
+      refreshNexusDeepAnswer(id),
+    ]);
+    const state = getNexusDeepTerminalState();
+    const latestMsg = String(nexusDeepResearchEvents?.[0]?.data?.message || '');
+    setNexusDeepStatus(
+      `job:${id} / state:${state || '-'}${latestMsg ? ` / ${latestMsg}` : ''}`,
+      state === 'failed',
+      nexusDeepResearchStubMode,
+    );
+    if (state) break;
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
 }
 
 function openNexusDeepSourceText(sourceIdEnc) {
@@ -8499,6 +8578,8 @@ async function runNexusDeepResearch() {
   nexusDeepResearchEvents = [];
   nexusDeepResearchStubMode = false;
   nexusDeepResearchSources = [];
+  nexusDeepResearchAnswer = {};
+  nexusDeepResearchEvidence = [];
   if (bundleBtn) bundleBtn.disabled = true;
   renderNexusDeepTimeline([]);
   renderNexusDeepAnswer({});
@@ -8544,47 +8625,20 @@ async function runNexusDeepResearch() {
 
     nexusDeepResearchJobId = String(runData?.job_id || '');
     if (bundleBtn) bundleBtn.disabled = !nexusDeepResearchJobId;
-    renderNexusDeepAnswer(runData?.answer || {});
-    renderNexusDeepReferences(runData?.sources || [], runData?.answer?.evidence || []);
-    try {
-      await refreshNexusDeepSources(nexusDeepResearchJobId);
-    } catch (e) {
-      console.warn('deep sources refresh failed', e);
-    }
+    nexusDeepResearchSources = Array.isArray(runData?.sources) ? runData.sources : [];
+    const initialAnswer = normalizeNexusDeepAnswerPayload(runData?.answer || {});
+    nexusDeepResearchAnswer = initialAnswer.answer;
+    nexusDeepResearchEvidence = initialAnswer.evidence;
+    renderNexusDeepSourcesTable(nexusDeepResearchSources);
+    renderNexusDeepAnswer(nexusDeepResearchAnswer);
+    renderNexusDeepReferences(nexusDeepResearchSources, nexusDeepResearchEvidence);
 
     if (!nexusDeepResearchJobId) {
       setNexusDeepStatus('job_id が返されませんでした', true, nexusDeepResearchStubMode);
       return;
     }
 
-    const terminal = new Set(['completed', 'failed', 'degraded']);
-    for (let i = 0; i < 50; i += 1) {
-      const bundleRes = await fetch(
-        API + '/nexus/research/jobs/' + encodeURIComponent(nexusDeepResearchJobId) + '/bundle?after=' + encodeURIComponent(String(nexusDeepResearchAfterSeq))
-      );
-      const bundle = await bundleRes.json();
-      if (!bundleRes.ok) throw new Error(bundle?.detail || JSON.stringify(bundle));
-      const events = Array.isArray(bundle?.events) ? bundle.events : [];
-      events.forEach((ev) => {
-        const seq = Number(ev?.seq ?? -1);
-        if (seq > nexusDeepResearchAfterSeq) nexusDeepResearchAfterSeq = seq;
-        nexusDeepResearchEvents.unshift(ev);
-      });
-      renderNexusDeepTimeline(nexusDeepResearchEvents);
-      renderNexusDeepAnswer(bundle?.answer || runData?.answer || {});
-      renderNexusDeepReferences(bundle?.sources || runData?.sources || [], bundle?.evidence || []);
-      try {
-        await refreshNexusDeepSources(nexusDeepResearchJobId);
-      } catch (e) {
-        console.warn('deep sources refresh failed', e);
-      }
-
-      const st = String(bundle?.job?.status || '').toLowerCase();
-      const msg = String(bundle?.job?.message || '');
-      setNexusDeepStatus(`job:${nexusDeepResearchJobId} / status:${st || '-'}${msg ? ` / ${msg}` : ''}`, st === 'failed', nexusDeepResearchStubMode);
-      if (terminal.has(st)) break;
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-    }
+    await pollNexusDeepResearch(nexusDeepResearchJobId, 50);
   } catch (e) {
     setNexusDeepStatus('Deep Research failed: ' + e.message, true, nexusDeepResearchStubMode);
   } finally {
