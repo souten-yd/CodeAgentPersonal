@@ -6,12 +6,14 @@ from hashlib import sha256
 from pathlib import Path
 from unittest.mock import patch
 import uuid
+import zipfile
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.nexus.db import get_conn, insert_chunk, insert_document, update_document_artifact_paths
 from app.nexus.downloader import save_download_artifacts
+from app.nexus.export import create_research_bundle
 from app.nexus.research_api import ResearchRunRequest, run_research
 from app.nexus.router import nexus_router
 
@@ -264,6 +266,29 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
         self.assertIn("answer", bundle)
         self.assertIn("sources", bundle)
         self.assertIn("evidence", bundle)
+
+        bundle_zip_path = create_research_bundle(job_id)
+        with zipfile.ZipFile(bundle_zip_path) as zf:
+            names = set(zf.namelist())
+        required_root_files = {
+            "answer.md",
+            "answer.json",
+            "evidence.json",
+            "sources.json",
+            "source_chunks.json",
+            "queries.json",
+            "job.json",
+        }
+        self.assertTrue(required_root_files.issubset(names))
+        for source in sources:
+            source_id = source["source_id"]
+            root = f"downloads/{source_id}"
+            self.assertIn(f"{root}/metadata.json", names)
+            self.assertIn(f"{root}/text.txt", names)
+            self.assertIn(f"{root}/document.md", names)
+            original_path = Path(str(source.get("local_original_path") or ""))
+            suffix = original_path.suffix or ".bin"
+            self.assertIn(f"{root}/original{suffix}", names)
 
     def test_web_search_returns_non_fatal_when_brave_and_searxng_are_unset(self) -> None:
         env = {
