@@ -45,6 +45,10 @@ class CollectRequest(BaseModel):
     search_items: list[dict] = Field(default_factory=list)
     manual_urls: list[str] = Field(default_factory=list)
     max_download_mb: int | None = Field(default=None, ge=1, le=2048)
+    max_total_download_mb: int | None = Field(default=None, ge=1, le=2048)
+    max_downloads: int | None = Field(default=None, ge=1, le=200)
+    download_timeout_sec: int | None = Field(default=None, ge=1, le=600)
+    continue_on_download_error: bool = True
 
 
 def _resolve_max_download_mb(requested_max_download_mb: int | None) -> int:
@@ -255,9 +259,24 @@ def collect_web_sources(payload: CollectRequest) -> dict:
         prefer_pdf=True,
         official_first=True,
     )
+    runtime_cfg = load_runtime_config()
     max_download_mb = _resolve_max_download_mb(payload.max_download_mb)
+    max_downloads = payload.max_downloads if payload.max_downloads is not None else runtime_cfg.max_downloads
+    max_total_download_mb = (
+        payload.max_total_download_mb
+        if payload.max_total_download_mb is not None
+        else runtime_cfg.max_total_download_mb
+    )
+    download_timeout_sec = (
+        payload.download_timeout_sec
+        if payload.download_timeout_sec is not None
+        else runtime_cfg.download_timeout_sec
+    )
     max_download_bytes = max_download_mb * 1024 * 1024
+    max_total_download_bytes = max_total_download_mb * 1024 * 1024
     downloadable_sources: list[dict] = []
+    download_count = 0
+    total_downloaded_bytes = 0
     for candidate in ranked_candidates:
         source_id = str(candidate.get("source_id") or uuid.uuid4())
         source = {
@@ -276,13 +295,31 @@ def collect_web_sources(payload: CollectRequest) -> dict:
             source["error"] = "url is missing"
             downloadable_sources.append(source)
             continue
+        if download_count >= max_downloads:
+            source["status"] = "skipped_download_limit"
+            source["error"] = f"max_downloads exceeded ({max_downloads})"
+            downloadable_sources.append(source)
+            continue
         try:
-            download_result = safe_download(url, max_bytes=max_download_bytes)
+            download_result = safe_download(
+                url,
+                max_bytes=max_download_bytes,
+                connect_timeout_sec=download_timeout_sec,
+                read_timeout_sec=download_timeout_sec,
+            )
+            download_size = int(download_result.get("size") or 0)
+            if total_downloaded_bytes + download_size > max_total_download_bytes:
+                source["status"] = "skipped_size_limit"
+                source["error"] = f"max_total_download_mb exceeded ({max_total_download_mb})"
+                downloadable_sources.append(source)
+                continue
             saved = save_download_artifacts(
                 job_id=payload.job_id,
                 source_id=source_id,
                 download_result=download_result,
             )
+            download_count += 1
+            total_downloaded_bytes += download_size
             source["final_url"] = str(download_result.get("final_url") or url)
             source["content_type"] = str(download_result.get("content_type") or "")
             source["local_original_path"] = str(saved.get("original") or "")
@@ -291,8 +328,18 @@ def collect_web_sources(payload: CollectRequest) -> dict:
             source["status"] = str(saved.get("status") or "downloaded")
             source["error"] = str(saved.get("error") or "")
         except Exception as exc:  # noqa: BLE001
-            source["error"] = str(exc)
-            source["status"] = "degraded"
+            error_message = str(exc)
+            source["error"] = error_message
+            if "content too large" in error_message:
+                source["status"] = "skipped_size_limit"
+                downloadable_sources.append(source)
+                continue
+            if payload.continue_on_download_error:
+                source["status"] = "degraded"
+            else:
+                source["status"] = "failed"
+                downloadable_sources.append(source)
+                raise ValueError(f"download failed and continue_on_download_error=false: {exc}") from exc
         downloadable_sources.append(source)
 
     sources = register_or_update_sources(job_id=payload.job_id, project=payload.project, sources=downloadable_sources)
