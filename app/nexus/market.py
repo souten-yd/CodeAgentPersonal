@@ -33,6 +33,7 @@ def _evidence_title(item: Any) -> str:
 def run_market_mvp(
     symbol_or_theme: str,
     *,
+    project: str = "default",
     mode: str = "standard",
     max_results_per_query: int | None = None,
 ) -> dict[str, Any]:
@@ -70,7 +71,14 @@ def run_market_mvp(
         max_results_per_query=max_results_per_query,
     )
     evidence_items = build_web_evidence(search_output, note="market_mvp")
-    saved_count = save_evidence_items(job_id, evidence_items)
+    for item in evidence_items:
+        item.source_type = "market"
+        metadata = dict(item.metadata_json or {})
+        metadata["source_type"] = "market"
+        metadata["symbol_or_theme"] = seed
+        metadata["job_kind"] = "market_mvp"
+        item.metadata_json = metadata
+    saved_count = save_evidence_items(job_id, evidence_items, project=project)
 
     catalysts = [_evidence_title(item) for item in evidence_items[:5]]
 

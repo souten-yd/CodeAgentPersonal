@@ -38,7 +38,11 @@ def _now_iso() -> str:
 
 
 
-def save_evidence_items(job_id: str, items: list[EvidenceItem]) -> int:
+def save_evidence_items(
+    job_id: str,
+    items: list[EvidenceItem],
+    project: str = "default",
+) -> int:
     """Save evidence rows for a report job.
 
     retrieved_at and url are mandatory and validated for every item.
@@ -50,6 +54,7 @@ def save_evidence_items(job_id: str, items: list[EvidenceItem]) -> int:
         return 0
 
     created_at = _now_iso()
+    normalized_project = (project or "default").strip() or "default"
     with transaction() as conn:
         for item in items:
             if not item.retrieved_at:
@@ -59,15 +64,16 @@ def save_evidence_items(job_id: str, items: list[EvidenceItem]) -> int:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO nexus_evidence (
-                    evidence_id, job_id, source_id, source_type, document_id, chunk_id, title,
+                    evidence_id, project, job_id, source_id, source_type, document_id, chunk_id, title,
                     citation_label, source_url, publisher, published_date,
                     retrieved_at, note, quote, relevance, credibility, freshness,
                     evidence_level, metadata_json, metadata,
                     url, relevance_score, credibility_score, freshness_score, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.evidence_id,
+                    normalized_project,
                     job_id,
                     item.source_id,
                     item.source_type,
