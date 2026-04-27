@@ -14,6 +14,13 @@ _BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 _SEARXNG_ENDPOINT_PATH = "/search"
 _QUOTA_ERROR_KEYWORDS = ("quota", "billing", "payment", "plan", "subscription", "rate limit")
 _TEMPORARILY_DISABLED_PROVIDERS: dict[str, float] = {}
+_LAST_WEB_SEARCH_STATUS: dict[str, Any] = {
+    "last_provider_errors": {},
+    "last_selected_provider": None,
+    "last_non_fatal": None,
+    "last_message": "",
+    "last_search_at": None,
+}
 
 _SEARCH_MODE_SETTINGS: dict[str, dict[str, int]] = {
     "quick": {"max_queries": 2, "max_results_per_query": 3},
@@ -25,6 +32,22 @@ _SEARCH_MODE_SETTINGS: dict[str, dict[str, int]] = {
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _store_last_web_search_status(search_output: dict[str, Any]) -> None:
+    _LAST_WEB_SEARCH_STATUS.update(
+        {
+            "last_provider_errors": dict(search_output.get("provider_errors") or {}),
+            "last_selected_provider": search_output.get("selected_provider"),
+            "last_non_fatal": bool(search_output.get("non_fatal", False)),
+            "last_message": str(search_output.get("message") or ""),
+            "last_search_at": _now_iso(),
+        }
+    )
+
+
+def get_last_web_search_status() -> dict[str, Any]:
+    return dict(_LAST_WEB_SEARCH_STATUS)
 
 
 def _normalize_mode(mode: str | None) -> str:
@@ -395,7 +418,7 @@ def run_web_search(
 
     if not normalized_queries:
         selected_provider = (cfg.web_search_provider or "").strip().lower() or "unknown"
-        return {
+        response = {
             "provider": selected_provider,
             "selected_provider": selected_provider,
             "attempted_providers": [],
@@ -411,10 +434,12 @@ def run_web_search(
             "total_items": 0,
             "message": "query が空です。",
         }
+        _store_last_web_search_status(response)
+        return response
 
     if not cfg.enable_web:
         message = "NEXUS_ENABLE_WEB=false のため、Web検索は無効です。"
-        return {
+        response = {
             "provider": cfg.web_search_provider,
             "selected_provider": (cfg.web_search_provider or "").strip().lower() or "unknown",
             "attempted_providers": [],
@@ -430,6 +455,8 @@ def run_web_search(
             "message": message,
             "non_fatal": True,
         }
+        _store_last_web_search_status(response)
+        return response
 
     ordered_providers: list[str] = []
     for provider in [cfg.web_search_provider, *cfg.search_fallback_providers]:
@@ -506,6 +533,7 @@ def run_web_search(
             }
             if errors:
                 response["errors"] = errors
+            _store_last_web_search_status(response)
             return response
 
         provider_errors[provider] = errors or ["結果が空のため、次の provider にフォールバックしました。"]
@@ -516,7 +544,7 @@ def run_web_search(
     selected_provider = attempted_providers[-1] if attempted_providers else (ordered_providers[0] if ordered_providers else cfg.web_search_provider)
     primary_provider = ordered_providers[0] if ordered_providers else cfg.web_search_provider
     stub_items = _build_stub_items(normalized_queries, reason=message)
-    return {
+    response = {
         "provider": primary_provider,
         "selected_provider": selected_provider,
         "attempted_providers": attempted_providers,
@@ -532,6 +560,8 @@ def run_web_search(
         "provider_errors": provider_errors,
         "skipped_providers": skip_reasons,
     }
+    _store_last_web_search_status(response)
+    return response
 
 
 def normalize_search_rows(search_output: dict[str, Any]) -> list[dict[str, Any]]:

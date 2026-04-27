@@ -27,7 +27,7 @@ from app.nexus.news import (
 )
 from app.nexus.report import nexus_report_router
 from app.nexus.search import search_evidence
-from app.nexus.web_scout import plan_web_queries, run_web_search
+from app.nexus.web_scout import get_last_web_search_status, plan_web_queries, run_web_search
 from app.nexus.research_api import (
     CollectRequest,
     ResearchRunRequest,
@@ -539,6 +539,7 @@ def nexus_web_search(payload: NexusWebSearchRequest) -> dict:
 @nexus_router.get("/web/status")
 def nexus_web_status() -> dict:
     cfg = load_runtime_config()
+    last_search_status = get_last_web_search_status()
     providers: list[str] = []
     for provider_name in [cfg.web_search_provider, *cfg.search_fallback_providers]:
         normalized = (provider_name or "").strip().lower()
@@ -611,6 +612,11 @@ def nexus_web_status() -> dict:
         "non_fatal": status_non_fatal,
         "stub": status_non_fatal,
         "provider_errors": status_provider_errors,
+        "last_provider_errors": last_search_status.get("last_provider_errors") or {},
+        "last_selected_provider": last_search_status.get("last_selected_provider"),
+        "last_non_fatal": last_search_status.get("last_non_fatal"),
+        "last_message": last_search_status.get("last_message", ""),
+        "last_search_at": last_search_status.get("last_search_at"),
         "runpod_searxng_autostart_status": runpod_searxng_autostart_status,
         "runpod_searxng_autostart_hint": runpod_searxng_autostart_hint,
     }

@@ -7845,7 +7845,7 @@ function formatNexusWebStatus(status = {}, runtimeMeta = {}) {
 
   const labels = [];
   const activeProvider = String(status?.active_provider || status?.provider || runtimeMeta?.provider || '').toLowerCase();
-  const isStub = Boolean(runtimeMeta?.is_stub);
+  const isStub = Boolean(runtimeMeta?.is_stub ?? runtimeMeta?.non_fatal ?? status?.last_non_fatal ?? status?.non_fatal);
   const fallbackUsed = Boolean(runtimeMeta?.fallback_used);
   const providerStatus = status?.provider_status;
   const activeFromDict = providerStatus && typeof providerStatus === 'object' && !Array.isArray(providerStatus)
@@ -7857,7 +7857,7 @@ function formatNexusWebStatus(status = {}, runtimeMeta = {}) {
   const searxngMessage = String(active?.message || status?.message || '');
   const searxngUnavailable = activeProvider === 'searxng' && /疎通確認に失敗|想定外レスポンス|接続/i.test(searxngMessage);
 
-  labels.push(isStub ? 'スタブ中' : '実検索中');
+  labels.push(isStub ? 'スタブ応答中' : '実検索利用可能');
   if (searxngUnavailable) labels.push('SearXNG接続不可');
   if (!braveKeySet) labels.push('Brave APIキー未設定');
   if (!providerEnabled || (status?.free_only && !status?.paid_providers_enabled)) labels.push('有料provider無効');
@@ -7884,11 +7884,19 @@ function setNexusWebStatus(status = {}, runtimeMeta = {}, isErr = false) {
   const active = status?.provider_status_active || activeFromDict || providerStatus || {};
   const engine = runtimeMeta?.engine || '-';
   const extra = [];
+  const lastProviderErrors = status?.last_provider_errors || {};
+  const lastProviderErrorText = Object.entries(lastProviderErrors)
+    .map(([key, errs]) => `${key}: ${(Array.isArray(errs) ? errs : [errs]).filter(Boolean).join(' / ')}`)
+    .filter(Boolean);
+  const nonFatalState = Boolean(runtimeMeta?.is_stub ?? runtimeMeta?.non_fatal ?? status?.last_non_fatal ?? status?.non_fatal);
   if (status?.searxng_state_message) extra.push(status.searxng_state_message);
   if (active?.message) extra.push(active.message);
   if (status?.message && status.message !== active?.message) extra.push(status.message);
+  if (status?.last_search_at) extra.push(`last_search_at:${status.last_search_at}`);
+  if (status?.last_message) extra.push(`last_message:${status.last_message}`);
+  if (lastProviderErrorText.length) extra.push(`last_provider_errors:${lastProviderErrorText.join(' | ')}`);
   if (runtimeMeta?.message) extra.push(runtimeMeta.message);
-  el.style.color = 'var(--text2)';
+  el.style.color = nonFatalState ? 'var(--amber)' : 'var(--text2)';
   el.textContent = `状態: ${labels.join(' / ')} | provider:${provider} | engine:${engine}${searxngState ? ` | searxng_state:${searxngState}` : ''}${extra.length ? ` | ${extra.join(' | ')}` : ''}`;
 }
 
