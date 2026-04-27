@@ -69,6 +69,7 @@ def execute_web_search_service(
         update_job(
             job_id,
             status="failed",
+            message="nexus_web_search failed",
             error=str(exc),
         )
         raise
