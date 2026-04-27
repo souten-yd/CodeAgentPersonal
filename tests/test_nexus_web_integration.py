@@ -173,6 +173,8 @@ class NexusWebIntegrationTests(unittest.TestCase):
         ) as mocked_search, patch("app.nexus.web_service.create_job") as mocked_create_job, patch(
             "app.nexus.web_service.build_web_evidence", return_value=fake_evidence_items
         ) as mocked_build, patch("app.nexus.web_service.save_evidence_items", return_value=2) as mocked_save, patch(
+            "app.nexus.web_service.update_job"
+        ) as mocked_update_job, patch(
             "app.nexus.web_service.uuid.uuid4", return_value="job-web-stub-id"
         ):
             response = self.client.post("/nexus/web/search", json={"query": "fallback", "max_queries": 1})
@@ -190,6 +192,13 @@ class NexusWebIntegrationTests(unittest.TestCase):
         )
         mocked_build.assert_called_once_with(provider_failure_stub, note="nexus_web_search")
         mocked_save.assert_called_once_with("job-web-stub-id", fake_evidence_items)
+        mocked_update_job.assert_called_once_with(
+            "job-web-stub-id",
+            status="completed",
+            progress=1.0,
+            message="nexus_web_search completed",
+            document_count=2,
+        )
 
     def test_research_bundle_endpoint_returns_zip_file(self) -> None:
         export_app = FastAPI()
