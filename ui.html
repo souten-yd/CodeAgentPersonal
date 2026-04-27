@@ -8388,6 +8388,26 @@ function nexusApi(path) {
   return suffix.startsWith('/nexus/') ? suffix : `/nexus/${suffix.replace(/^\/+/, '')}`;
 }
 
+async function parseNexusApiResponse(resp) {
+  const bodyText = await resp.text();
+  const contentType = String(resp.headers?.get('content-type') || '').toLowerCase();
+  const isJson = contentType.includes('application/json');
+  if (!isJson) return { bodyText, data: null };
+  try {
+    const data = JSON.parse(bodyText || '{}');
+    return { bodyText, data };
+  } catch (_err) {
+    return { bodyText, data: null };
+  }
+}
+
+function buildNexusApiErrorMessage(endpoint, resp, parsed) {
+  const detail = parsed?.data?.detail;
+  const fallback = String(parsed?.bodyText || '').trim();
+  const message = String(detail || fallback || `HTTP ${resp.status}`).trim();
+  return `${endpoint} [status:${resp.status}] ${message}`;
+}
+
 async function refreshNexusDeepSources(jobId) {
   const id = String(jobId || '').trim();
   if (!id) {
@@ -8395,9 +8415,11 @@ async function refreshNexusDeepSources(jobId) {
     renderNexusDeepSourcesTable([]);
     return [];
   }
-  const resp = await fetch(nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/sources'));
-  const data = await resp.json();
-  if (!resp.ok) throw new Error(data?.detail || JSON.stringify(data));
+  const endpoint = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/sources');
+  const resp = await fetch(endpoint);
+  const parsed = await parseNexusApiResponse(resp);
+  if (!resp.ok) throw new Error(buildNexusApiErrorMessage(endpoint, resp, parsed));
+  const data = parsed?.data || {};
   const sources = Array.isArray(data?.sources) ? data.sources : [];
   nexusDeepResearchSources = sources;
   renderNexusDeepSourcesTable(sources);
@@ -8408,11 +8430,11 @@ async function refreshNexusDeepSources(jobId) {
 async function refreshNexusDeepEvents(jobId) {
   const id = String(jobId || '').trim();
   if (!id) return [];
-  const resp = await fetch(
-    nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/events?after=' + encodeURIComponent(String(nexusDeepResearchAfterSeq)))
-  );
-  const data = await resp.json();
-  if (!resp.ok) throw new Error(data?.detail || JSON.stringify(data));
+  const endpoint = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/events?after=' + encodeURIComponent(String(nexusDeepResearchAfterSeq)));
+  const resp = await fetch(endpoint);
+  const parsed = await parseNexusApiResponse(resp);
+  if (!resp.ok) throw new Error(buildNexusApiErrorMessage(endpoint, resp, parsed));
+  const data = parsed?.data || {};
   const events = Array.isArray(data?.events) ? data.events : [];
   events.forEach((ev) => {
     const seq = Number(ev?.seq ?? -1);
@@ -8447,9 +8469,11 @@ async function refreshNexusDeepAnswer(jobId) {
     renderNexusDeepViewer({});
     return {};
   }
-  const resp = await fetch(nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/answer'));
-  const data = await resp.json();
-  if (!resp.ok) throw new Error(data?.detail || JSON.stringify(data));
+  const endpoint = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/answer');
+  const resp = await fetch(endpoint);
+  const parsed = await parseNexusApiResponse(resp);
+  if (!resp.ok) throw new Error(buildNexusApiErrorMessage(endpoint, resp, parsed));
+  const data = parsed?.data || {};
   const normalized = normalizeNexusDeepAnswerPayload(data?.answer || {});
   const fetchedAnswer = (normalized.answer && typeof normalized.answer === 'object') ? normalized.answer : {};
   if (Object.keys(fetchedAnswer).length || !Object.keys(nexusDeepResearchAnswer || {}).length) {
@@ -8827,13 +8851,15 @@ async function runNexusDeepResearch() {
       prefer_pdf: preferPdf,
       official_first: officialFirst,
     };
-    const runRes = await fetch(nexusApi('/nexus/research/run'), {
+    const runEndpoint = nexusApi('/nexus/research/run');
+    const runRes = await fetch(runEndpoint, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload),
     });
-    const runData = await runRes.json();
-    if (!runRes.ok) throw new Error(runData?.detail || JSON.stringify(runData));
+    const runParsed = await parseNexusApiResponse(runRes);
+    if (!runRes.ok) throw new Error(buildNexusApiErrorMessage(runEndpoint, runRes, runParsed));
+    const runData = runParsed?.data || {};
 
     nexusDeepResearchJobId = String(runData?.job_id || '');
     if (bundleBtn) bundleBtn.disabled = !nexusDeepResearchJobId;
