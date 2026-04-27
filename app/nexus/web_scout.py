@@ -381,7 +381,7 @@ def _run_brave_search(
     return items, errors, had_connection_failure, should_cooldown
 
 
-def run_web_search(
+def _run_web_search(
     queries: list[str],
     *,
     mode: str = "standard",
@@ -562,6 +562,30 @@ def run_web_search(
     }
     _store_last_web_search_status(response)
     return response
+
+
+def run_web_search(
+    queries: list[str],
+    *,
+    mode: str = "standard",
+    depth: str | None = None,
+    max_results_per_query: int | None = None,
+    scope: str | list[str] | None = None,
+    language: str | None = None,
+    country: str = "US",
+    search_lang: str | None = None,
+) -> dict[str, Any]:
+    """内部用途の互換レイヤー（公開ツールではない）。実体は `_run_web_search(...)` を呼び出す。"""
+    return _run_web_search(
+        queries,
+        mode=mode,
+        depth=depth,
+        max_results_per_query=max_results_per_query,
+        scope=scope,
+        language=language,
+        country=country,
+        search_lang=search_lang,
+    )
 
 
 def normalize_search_rows(search_output: dict[str, Any]) -> list[dict[str, Any]]:
