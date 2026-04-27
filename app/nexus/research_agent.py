@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
 import uuid
 
 from app.nexus.answer_builder import build_answer_payload
@@ -58,6 +59,52 @@ class ResearchAgentInput:
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+
+
+def _extract_http_status(exc: Exception) -> int | None:
+    candidates: list[Exception | BaseException] = [exc]
+    seen: set[int] = set()
+    while candidates:
+        current = candidates.pop(0)
+        marker = id(current)
+        if marker in seen:
+            continue
+        seen.add(marker)
+
+        code = getattr(current, "code", None)
+        if isinstance(code, int):
+            return code
+        status = getattr(current, "status", None)
+        if isinstance(status, int):
+            return status
+
+        message = str(current)
+        match = re.search(r"\bhttp\s+(\d{3})\b", message, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+
+        cause = getattr(current, "__cause__", None)
+        context = getattr(current, "__context__", None)
+        if cause is not None:
+            candidates.append(cause)
+        if context is not None:
+            candidates.append(context)
+    return None
+
+
+def _is_body_shortage_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    keywords = (
+        "本文不足",
+        "body shortage",
+        "insufficient body",
+        "empty body",
+        "empty content",
+        "no content",
+        "no evidence",
+        "evidence not found",
+    )
+    return any(keyword in text for keyword in keywords)
 
 
 def _load_source_chunks(source_ids: list[str]) -> list[dict]:
@@ -174,6 +221,12 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
 
     runtime_cfg = load_runtime_config()
     effective_job_id = job_id or f"research_{uuid.uuid4().hex}"
+    queries: list[dict] = []
+    search: dict = {}
+    registered_sources: list[dict] = []
+    downloadable_sources: list[dict] = []
+    answer_payload: dict = {}
+    download_error_count = 0
     max_sources = payload.max_sources if payload.max_sources is not None else 50
     max_downloads = payload.max_downloads if payload.max_downloads is not None else runtime_cfg.max_downloads
     requested_max_download_mb = payload.max_download_mb if payload.max_download_mb is not None else runtime_cfg.max_download_mb
@@ -238,7 +291,6 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             )
             ranked_candidates = ranked_candidates[:max_sources]
         _record_state(effective_job_id, "downloading", message="downloading source content", progress=0.55)
-        downloadable_sources: list[dict] = []
         download_count = 0
         total_downloaded_bytes = 0
         for candidate in ranked_candidates:
@@ -333,6 +385,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     continue
                 if payload.continue_on_download_error:
                     source["status"] = "degraded"
+                    download_error_count += 1
                     append_job_event(
                         effective_job_id,
                         "download_error",
@@ -343,6 +396,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                             "reason": "download_error_continue",
                             "source_id": source_id,
                             "url": url,
+                            "http_status": _extract_http_status(exc),
                         },
                     )
                 else:
@@ -389,8 +443,27 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         )
 
         _record_state(effective_job_id, "reporting", message="finalizing report", progress=0.95)
-        update_job(effective_job_id, status="completed", progress=1.0, message="research completed")
-        _record_state(effective_job_id, "completed", message="job completed", progress=1.0)
+        if download_error_count > 0:
+            update_job(
+                effective_job_id,
+                status="degraded",
+                progress=1.0,
+                message="research completed with degraded downloads",
+            )
+            append_job_event(
+                effective_job_id,
+                "completed_degraded",
+                {
+                    "status": "degraded",
+                    "progress": 1.0,
+                    "message": "research completed with degraded downloads",
+                    "download_error_count": download_error_count,
+                },
+            )
+            _record_state(effective_job_id, "completed", message="job completed (degraded)", progress=1.0)
+        else:
+            update_job(effective_job_id, status="completed", progress=1.0, message="research completed")
+            _record_state(effective_job_id, "completed", message="job completed", progress=1.0)
 
         return {
             "job_id": effective_job_id,
@@ -400,6 +473,43 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             "answer": answer_payload,
         }
     except Exception as exc:  # noqa: BLE001
+        all_sources_degraded = bool(downloadable_sources) and not any(
+            str(source.get("status") or "") in {"downloaded", "ingested"} for source in downloadable_sources
+        )
+        if (
+            payload.continue_on_download_error
+            and download_error_count > 0
+            and all_sources_degraded
+            and _is_body_shortage_error(exc)
+        ):
+            update_job(
+                effective_job_id,
+                status="degraded",
+                progress=1.0,
+                message="research completed with degraded downloads",
+                error=str(exc),
+            )
+            append_job_event(
+                effective_job_id,
+                "completed_degraded",
+                {
+                    "status": "degraded",
+                    "progress": 1.0,
+                    "message": "research completed with degraded downloads",
+                    "reason": "download_only_body_shortage",
+                    "download_error_count": download_error_count,
+                    "error": str(exc),
+                },
+            )
+            _record_state(effective_job_id, "completed", message="job completed (degraded)", progress=1.0)
+            return {
+                "job_id": effective_job_id,
+                "queries": queries,
+                "search": search,
+                "sources": registered_sources or downloadable_sources,
+                "answer": answer_payload,
+            }
+
         update_job(effective_job_id, status="failed", progress=1.0, message="research failed", error=str(exc))
         _record_state(effective_job_id, "failed", message=str(exc), progress=1.0)
         raise
