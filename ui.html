@@ -8143,7 +8143,7 @@ async function openNexusDeepSourceChunks(sourceIdEnc, btn = null) {
 
 function downloadNexusDeepBundle() {
   if (!nexusDeepResearchJobId) return;
-  window.open(API + '/nexus/research/jobs/' + encodeURIComponent(nexusDeepResearchJobId) + '/bundle', '_blank', 'noopener');
+  window.open(API + '/nexus/research/jobs/' + encodeURIComponent(nexusDeepResearchJobId) + '/bundle.zip', '_blank', 'noopener');
 }
 
 function nexusDepthToConfig(depth) {

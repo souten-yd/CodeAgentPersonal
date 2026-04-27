@@ -92,7 +92,7 @@ class NexusWebIntegrationTests(unittest.TestCase):
             tmp.write(b"PK\x03\x04")
             tmp.flush()
             with patch("app.nexus.export.create_research_bundle", return_value=tmp.name):
-                r = export_client.get("/nexus/research/jobs/job-test/bundle")
+                r = export_client.get("/nexus/research/jobs/job-test/bundle.zip")
 
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.headers.get("content-type"), "application/zip")
