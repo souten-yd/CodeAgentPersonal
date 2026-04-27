@@ -622,9 +622,18 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-input,.nexus-select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px}
 .nexus-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .nexus-phase-note{font-size:10px;color:var(--text3);line-height:1.5}
+.nexus-deep-grid{display:grid;grid-template-columns:minmax(260px,.9fr) minmax(340px,1.4fr);gap:10px}
+.nexus-deep-panel{display:flex;flex-direction:column;gap:8px}
+.nexus-deep-timeline{max-height:200px;overflow:auto}
+.nexus-deep-answer{min-height:120px}
+.nexus-ref-list{display:flex;flex-direction:column;gap:8px;max-height:420px;overflow:auto}
+.nexus-ref-card{border:1px solid var(--border);border-radius:6px;background:var(--bg1);padding:8px;display:flex;flex-direction:column;gap:6px}
+.nexus-ref-title{font-size:11px;color:var(--text2);font-weight:700}
+.nexus-ref-meta{font-size:10px;color:var(--text3);font-family:var(--font-mono)}
 @media(max-width:768px){
   .nexus-topbar{flex-direction:column;align-items:stretch}
   .nexus-subtabs{padding-bottom:2px}
+  .nexus-deep-grid{grid-template-columns:1fr}
 }
 .chat-topbar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0}
 .chat-control-row{display:flex;align-items:center;gap:10px;width:100%;min-width:0}
@@ -1337,6 +1346,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <button class="nexus-subtab" id="nexus-btn-news" onclick="switchNexusTab('news')">News</button>
         <button class="nexus-subtab" id="nexus-btn-market" onclick="switchNexusTab('market')">Market</button>
         <button class="nexus-subtab" id="nexus-btn-web-scout" onclick="switchNexusTab('web-scout')">Web Scout</button>
+        <button class="nexus-subtab" id="nexus-btn-deep-research" onclick="switchNexusTab('deep-research')">Deep Research</button>
         <button class="nexus-subtab" id="nexus-btn-compare" onclick="switchNexusTab('compare')">Compare</button>
         <button class="nexus-subtab" id="nexus-btn-formula" onclick="switchNexusTab('formula')">Formula</button>
         <button class="nexus-subtab" id="nexus-btn-evidence" onclick="switchNexusTab('evidence')">Evidence</button>
@@ -1446,6 +1456,58 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div class="nexus-card-title">Web Scout Result</div>
             <div id="nexus-web-result" class="nexus-result-panel" style="min-height:120px">
               <div class="nexus-empty">未実行: topic/depth/scope/language を入力して Web Scout を実行してください</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-deep-research">
+        <div class="nexus-deep-grid">
+          <div class="nexus-card nexus-deep-panel">
+            <div class="nexus-card-title">Deep Research</div>
+            <div class="nexus-form-grid">
+              <input id="nexus-deep-topic" class="nexus-input" type="text" placeholder="調査テーマ (例: 2026年のAI推論半導体サプライチェーン)">
+              <div class="nexus-form-grid cols-2">
+                <select id="nexus-deep-depth" class="nexus-select">
+                  <option value="quick">depth: Quick</option>
+                  <option value="standard" selected>depth: Standard</option>
+                  <option value="deep">depth: Deep</option>
+                  <option value="exhaustive">depth: Exhaustive</option>
+                </select>
+                <select id="nexus-deep-scope" class="nexus-select">
+                  <option value="library">scope: Library</option>
+                  <option value="web" selected>scope: Web</option>
+                  <option value="official">scope: Official</option>
+                  <option value="pdf">scope: PDF</option>
+                  <option value="news">scope: News</option>
+                  <option value="academic">scope: Academic</option>
+                  <option value="market">scope: Market</option>
+                </select>
+              </div>
+              <div class="nexus-actions">
+                <button class="settings-btn primary" id="nexus-deep-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusDeepResearch()">Start Research</button>
+                <button class="settings-btn" id="nexus-deep-bundle-btn" style="padding:5px 12px;font-size:11px" onclick="downloadNexusDeepBundle()" disabled>Download Bundle</button>
+              </div>
+              <div id="nexus-deep-status" class="nexus-result-meta">状態: 未実行</div>
+            </div>
+          </div>
+          <div class="nexus-deep-panel">
+            <div class="nexus-card">
+              <div class="nexus-card-title">状態タイムライン (job events)</div>
+              <div id="nexus-deep-timeline" class="nexus-timeline nexus-deep-timeline">
+                <div class="nexus-empty">No timeline events</div>
+              </div>
+            </div>
+            <div class="nexus-card">
+              <div class="nexus-card-title">回答 (Markdown)</div>
+              <div id="nexus-deep-answer" class="nexus-detail-panel nexus-deep-answer">
+                <div class="nexus-empty">回答はここに表示されます</div>
+              </div>
+            </div>
+            <div class="nexus-card">
+              <div class="nexus-card-title">References</div>
+              <div id="nexus-deep-references" class="nexus-ref-list">
+                <div class="nexus-empty">Reference cards are shown after research starts.</div>
+              </div>
             </div>
           </div>
         </div>
@@ -7030,7 +7092,7 @@ function bindModeAndNexusTapHandlers() {
   ['chat','agent','echo','nexus'].forEach((name) => {
     _bindTapClick(document.getElementById('btn-' + name), () => setMode(name));
   });
-  ['dashboard','library','news','market','web-scout','compare','formula','evidence','report'].forEach((name) => {
+  ['dashboard','library','news','market','web-scout','deep-research','compare','formula','evidence','report'].forEach((name) => {
     _bindTapClick(document.getElementById('nexus-btn-' + name), () => switchNexusTab(name));
   });
 }
@@ -7164,7 +7226,7 @@ function setMode(m) {
 }
 
 function switchNexusTab(name) {
-  const tabs = ['dashboard','library','news','market','web-scout','compare','formula','evidence','report'];
+  const tabs = ['dashboard','library','news','market','web-scout','deep-research','compare','formula','evidence','report'];
   const target = tabs.includes(name) ? name : 'dashboard';
   window._nexusTab = target;
   tabs.forEach(tab => {
@@ -7175,6 +7237,9 @@ function switchNexusTab(name) {
   if (target === 'library') {
     refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
     refreshNexusJobs();
+  }
+  if (target === 'deep-research' && !nexusDeepResearchEvents.length) {
+    renderNexusDeepTimeline([]);
   }
   if (target === 'evidence') runNexusEvidenceMvp();
   if (target === 'report') runNexusReportMvp();
@@ -7192,6 +7257,10 @@ let nexusSavedEvidence = [];
 let nexusEvidenceRows = [];
 let nexusReportRows = [];
 let nexusSelectedReportId = null;
+let nexusDeepResearchJobId = '';
+let nexusDeepResearchAfterSeq = -1;
+let nexusDeepResearchEvents = [];
+let nexusDeepResearchStubMode = false;
 let nexusMaxUploadMb = 200;
 let nexusMaxUploadBytes = nexusMaxUploadMb * 1024 * 1024;
 const nexusAllowedUploadExt = new Set(['.pdf', '.txt', '.md', '.csv', '.html']);
@@ -7896,6 +7965,237 @@ async function runNexusWebScoutMvp() {
     });
   } catch (e) {
     setNexusWebResult('Web Scout MVP failed: ' + e.message, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function setNexusDeepStatus(message, isErr = false, isStub = false) {
+  const el = document.getElementById('nexus-deep-status');
+  if (!el) return;
+  const prefix = isStub ? '[非致命 stub] ' : '';
+  el.style.color = isErr ? 'var(--red)' : (isStub ? 'var(--amber)' : 'var(--text2)');
+  el.textContent = `状態: ${prefix}${message || '-'}`;
+}
+
+function renderNexusDeepTimeline(events = []) {
+  const el = document.getElementById('nexus-deep-timeline');
+  if (!el) return;
+  if (!events.length) {
+    el.innerHTML = '<div class="nexus-empty">No timeline events</div>';
+    return;
+  }
+  el.innerHTML = events.slice(0, 150).map((ev) => {
+    const ts = String(ev?.created_at || ev?.timestamp || '').replace('T', ' ').slice(0, 19) || '-';
+    const seq = Number(ev?.seq ?? -1);
+    const label = ev?.data?.label || ev?.type || 'event';
+    return `<div class="nexus-tl-item">
+      <div class="nexus-tl-head">#${Number.isFinite(seq) ? seq : '-'} · ${esc(ts)}</div>
+      <div class="nexus-tl-body">${esc(String(label))}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderNexusDeepAnswer(answer = {}) {
+  const el = document.getElementById('nexus-deep-answer');
+  if (!el) return;
+  const md = String(answer?.answer_markdown || '').trim();
+  if (!md) {
+    el.innerHTML = '<div class="nexus-empty">回答はまだ生成されていません</div>';
+    return;
+  }
+  el.innerHTML = `<div class="md">${renderMd(md)}</div>`;
+}
+
+function renderNexusDeepReferences(sources = [], evidence = []) {
+  const root = document.getElementById('nexus-deep-references');
+  if (!root) return;
+  if (!sources.length) {
+    root.innerHTML = '<div class="nexus-empty">References はまだありません</div>';
+    return;
+  }
+  const evidenceMap = {};
+  (Array.isArray(evidence) ? evidence : []).forEach((row) => {
+    const sid = String(row?.source_id || '').trim();
+    if (!sid) return;
+    if (!evidenceMap[sid]) evidenceMap[sid] = [];
+    evidenceMap[sid].push(row);
+  });
+  root.innerHTML = sources.map((source, idx) => {
+    const sourceId = String(source?.source_id || '');
+    const url = String(source?.final_url || source?.url || '');
+    const refs = evidenceMap[sourceId] || [];
+    const hint = refs.slice(0, 2).map((row) => {
+      const page = row?.page_start ?? row?.page_end;
+      const chunk = row?.chunk_id || row?.citation_label || '';
+      return [page !== undefined && page !== null ? `page:${page}` : '', chunk ? `chunk:${chunk}` : ''].filter(Boolean).join(' / ');
+    }).filter(Boolean).join(' | ');
+    const sourceIdEnc = encodeURIComponent(sourceId);
+    const urlEnc = encodeURIComponent(url);
+    return `<div class="nexus-ref-card">
+      <div class="nexus-ref-title">${idx + 1}. ${esc(source?.title || sourceId || '(untitled source)')}</div>
+      <div class="nexus-ref-meta">source_id: ${esc(sourceId || '-')} / type: ${esc(source?.source_type || '-')} / status: ${esc(source?.status || '-')}</div>
+      <div class="nexus-ref-meta">${esc(url || '(url unavailable)')}</div>
+      <div class="nexus-ref-meta">chunk/page: ${esc(hint || 'bundle evidence/chunk 情報を確認してください')}</div>
+      <div class="nexus-doc-actions">
+        <button onclick="openNexusDeepSourceText('${sourceIdEnc}')">全文 text</button>
+        <button onclick="openNexusDeepSourceMarkdown('${sourceIdEnc}')">全文 markdown</button>
+        <button onclick="openNexusDeepSourceChunks('${sourceIdEnc}', this)">chunk/page</button>
+        <button ${url ? '' : 'disabled'} onclick="openNexusDeepSourceUrl('${urlEnc}')">元URL</button>
+        <button onclick="downloadNexusDeepSourceOriginal('${sourceIdEnc}')">original</button>
+      </div>
+      <div class="nexus-ref-meta" id="nexus-deep-chunks-${sourceIdEnc}" style="display:none"></div>
+    </div>`;
+  }).join('');
+}
+
+function openNexusDeepSourceText(sourceIdEnc) {
+  const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
+  if (!sourceId) return;
+  window.open(API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/text', '_blank', 'noopener');
+}
+
+function openNexusDeepSourceMarkdown(sourceIdEnc) {
+  const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
+  if (!sourceId) return;
+  window.open(API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/markdown', '_blank', 'noopener');
+}
+
+function downloadNexusDeepSourceOriginal(sourceIdEnc) {
+  const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
+  if (!sourceId) return;
+  window.open(API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/original', '_blank', 'noopener');
+}
+
+function openNexusDeepSourceUrl(urlEnc) {
+  const url = decodeURIComponent(String(urlEnc || ''));
+  if (!url) return;
+  window.open(url, '_blank', 'noopener');
+}
+
+async function openNexusDeepSourceChunks(sourceIdEnc, btn = null) {
+  const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
+  if (!sourceId) return;
+  const panel = document.getElementById('nexus-deep-chunks-' + encodeURIComponent(sourceId));
+  if (!panel) return;
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch(API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/chunks');
+    const d = await r.json();
+    if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
+    const chunks = Array.isArray(d?.chunks) ? d.chunks : [];
+    const text = chunks.slice(0, 6).map((chunk, idx) => {
+      const page = [chunk?.page_start, chunk?.page_end].filter((v) => v !== null && v !== undefined).join('-') || '-';
+      const chunkId = chunk?.chunk_id || chunk?.citation_label || `chunk-${idx + 1}`;
+      return `#${idx + 1} page:${page} / chunk:${chunkId}`;
+    }).join(' | ');
+    panel.style.display = '';
+    panel.textContent = text || 'chunk/page 情報がありません';
+  } catch (e) {
+    panel.style.display = '';
+    panel.textContent = 'chunk 読み込み失敗: ' + e.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function downloadNexusDeepBundle() {
+  if (!nexusDeepResearchJobId) return;
+  window.open(API + '/nexus/research/jobs/' + encodeURIComponent(nexusDeepResearchJobId) + '/bundle', '_blank', 'noopener');
+}
+
+function nexusDepthToConfig(depth) {
+  const key = String(depth || 'standard').toLowerCase();
+  if (key === 'quick') return { maxQueries: 2, maxResultsPerQuery: 3 };
+  if (key === 'deep') return { maxQueries: 6, maxResultsPerQuery: 8 };
+  if (key === 'exhaustive') return { maxQueries: 10, maxResultsPerQuery: 10 };
+  return { maxQueries: 4, maxResultsPerQuery: 6 };
+}
+
+async function runNexusDeepResearch() {
+  const topic = (document.getElementById('nexus-deep-topic')?.value || '').trim();
+  const depth = (document.getElementById('nexus-deep-depth')?.value || 'standard').trim().toLowerCase();
+  const scope = (document.getElementById('nexus-deep-scope')?.value || 'web').trim().toLowerCase();
+  const btn = document.getElementById('nexus-deep-run-btn');
+  const bundleBtn = document.getElementById('nexus-deep-bundle-btn');
+  if (!topic) {
+    setNexusDeepStatus('調査テーマを入力してください', true);
+    return;
+  }
+  nexusDeepResearchJobId = '';
+  nexusDeepResearchAfterSeq = -1;
+  nexusDeepResearchEvents = [];
+  nexusDeepResearchStubMode = false;
+  if (bundleBtn) bundleBtn.disabled = true;
+  renderNexusDeepTimeline([]);
+  renderNexusDeepAnswer({});
+  renderNexusDeepReferences([], []);
+  if (btn) btn.disabled = true;
+  try {
+    const webStatus = await refreshNexusWebStatus();
+    const braveUnset = webStatus?.brave_search_api_key_set === false;
+    const searxngState = String(webStatus?.searxng_state || '').toLowerCase();
+    const searxngUnavailable = !searxngState || searxngState !== 'connected';
+    nexusDeepResearchStubMode = braveUnset && searxngUnavailable;
+    if (nexusDeepResearchStubMode) {
+      setNexusDeepStatus('Brave/SearXNG 未設定のため stub で継続します（UIは継続）', false, true);
+    } else {
+      setNexusDeepStatus('research job を起動中...');
+    }
+
+    const conf = nexusDepthToConfig(depth);
+    const payload = {
+      query: topic,
+      project: currentProject || 'default',
+      mode: depth,
+      depth,
+      scope: [scope],
+      max_queries: conf.maxQueries,
+      max_results_per_query: conf.maxResultsPerQuery,
+    };
+    const runRes = await fetch(API + '/nexus/research/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const runData = await runRes.json();
+    if (!runRes.ok) throw new Error(runData?.detail || JSON.stringify(runData));
+
+    nexusDeepResearchJobId = String(runData?.job_id || '');
+    if (bundleBtn) bundleBtn.disabled = !nexusDeepResearchJobId;
+    renderNexusDeepAnswer(runData?.answer || {});
+    renderNexusDeepReferences(runData?.sources || [], runData?.answer?.evidence || []);
+
+    if (!nexusDeepResearchJobId) {
+      setNexusDeepStatus('job_id が返されませんでした', true, nexusDeepResearchStubMode);
+      return;
+    }
+
+    const terminal = new Set(['completed', 'failed', 'degraded']);
+    for (let i = 0; i < 50; i += 1) {
+      const bundleRes = await fetch(
+        API + '/nexus/research/jobs/' + encodeURIComponent(nexusDeepResearchJobId) + '/bundle?after=' + encodeURIComponent(String(nexusDeepResearchAfterSeq))
+      );
+      const bundle = await bundleRes.json();
+      if (!bundleRes.ok) throw new Error(bundle?.detail || JSON.stringify(bundle));
+      const events = Array.isArray(bundle?.events) ? bundle.events : [];
+      events.forEach((ev) => {
+        const seq = Number(ev?.seq ?? -1);
+        if (seq > nexusDeepResearchAfterSeq) nexusDeepResearchAfterSeq = seq;
+        nexusDeepResearchEvents.unshift(ev);
+      });
+      renderNexusDeepTimeline(nexusDeepResearchEvents);
+      renderNexusDeepAnswer(bundle?.answer || runData?.answer || {});
+      renderNexusDeepReferences(bundle?.sources || runData?.sources || [], bundle?.evidence || []);
+
+      const st = String(bundle?.job?.status || '').toLowerCase();
+      const msg = String(bundle?.job?.message || '');
+      setNexusDeepStatus(`job:${nexusDeepResearchJobId} / status:${st || '-'}${msg ? ` / ${msg}` : ''}`, st === 'failed', nexusDeepResearchStubMode);
+      if (terminal.has(st)) break;
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+  } catch (e) {
+    setNexusDeepStatus('Deep Research failed: ' + e.message, true, nexusDeepResearchStubMode);
   } finally {
     if (btn) btn.disabled = false;
   }
