@@ -165,15 +165,11 @@ class NexusAnswerBuilderTests(unittest.TestCase):
             references=references,
         )
 
-        self.assertEqual(
-            payload["citation_verification"],
-            {
-                "ok": True,
-                "missing_in_references": [],
-                "unused_references": [],
-                "invalid_labels": [],
-            },
-        )
+        self.assertTrue(payload["citation_verification"]["ok"])
+        self.assertEqual(payload["citation_verification"]["missing_in_references"], [])
+        self.assertEqual(payload["citation_verification"]["unused_references"], [])
+        self.assertEqual(payload["citation_verification"]["invalid_labels"], [])
+        self.assertEqual(payload["citation_verification"]["warnings"], [])
 
     def test_citation_verification_detects_unknown_label_in_answer(self) -> None:
         references = [{"citation_label": "src-a", "title": "Source A", "source_id": "src-a"}]
@@ -187,6 +183,34 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertFalse(payload["citation_verification"]["ok"])
         self.assertEqual(payload["citation_verification"]["missing_in_references"], ["[S9]"])
         self.assertEqual(payload["citation_verification"]["unused_references"], [])
+
+    def test_citation_verification_sentence_status_regression(self) -> None:
+        references = [
+            {"citation_label": "r1", "title": "Source 1", "source_id": "src-1"},
+            {"citation_label": "r2", "title": "Source 2", "source_id": "src-2"},
+            {"citation_label": "r3", "title": "Source 3", "source_id": "src-3"},
+        ]
+        chunks = [
+            {"citation_label": "r1", "source_id": "src-1", "chunk_id": "c1", "quote": "東京の人口は約1400万人です。"},
+            {"citation_label": "r2", "source_id": "src-2", "chunk_id": "c2", "quote": "電気自動車の販売は前年比で増加した。"},
+            {"citation_label": "r3", "source_id": "src-3", "chunk_id": "c3", "quote": "全く関係のない証拠文です。"},
+        ]
+
+        payload = build_answer_payload(
+            question="質問",
+            summary=(
+                "東京の人口は約1400万人です。[S1] "
+                "電気自動車市場については増加傾向です。[S2] "
+                "火星に海があると断定できます。[S3]"
+            ),
+            references=references,
+            evidence_chunks=chunks,
+        )
+
+        sentence_results = payload["citation_verification"]["sentence_results"]
+        self.assertEqual([row["status"] for row in sentence_results], ["supported", "weak", "unsupported"])
+        self.assertEqual(payload["citation_verification"]["warnings"][0]["sentence_index"], 3)
+        self.assertEqual(payload["citation_verification"]["warnings"][0]["reason"], "low_semantic_overlap")
 
     def test_citation_verification_detects_unused_reference_label(self) -> None:
         references = [
