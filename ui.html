@@ -604,6 +604,23 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-tl-item{border-left:2px solid var(--accent-border);padding-left:8px}
 .nexus-tl-head{font-size:10px;color:var(--text2);font-family:var(--font-mono)}
 .nexus-tl-body{font-size:10px;color:var(--text3);line-height:1.4}
+.nexus-tl-item.state-planning{border-left-color:rgba(136,136,255,.65)}
+.nexus-tl-item.state-searching{border-left-color:rgba(0,200,255,.72)}
+.nexus-tl-item.state-collecting_sources{border-left-color:rgba(0,255,157,.6)}
+.nexus-tl-item.state-downloading{border-left-color:rgba(120,220,140,.62)}
+.nexus-tl-item.state-retrieving_evidence{border-left-color:rgba(255,170,0,.68)}
+.nexus-tl-item.state-answering{border-left-color:rgba(202,140,255,.65)}
+.nexus-tl-item.state-completed{border-left-color:rgba(0,255,157,.9)}
+.nexus-tl-item.state-unknown{border-left-color:var(--accent-border)}
+.nexus-tl-state{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;border:1px solid var(--border);background:var(--bg3);font-size:10px;font-weight:700;letter-spacing:.01em}
+.nexus-tl-state.state-planning{border-color:rgba(136,136,255,.35);background:rgba(136,136,255,.12);color:var(--blue)}
+.nexus-tl-state.state-searching{border-color:rgba(0,200,255,.38);background:rgba(0,200,255,.12);color:#6fdfff}
+.nexus-tl-state.state-collecting_sources{border-color:rgba(0,255,157,.34);background:rgba(0,255,157,.12);color:var(--green)}
+.nexus-tl-state.state-downloading{border-color:rgba(120,220,140,.34);background:rgba(120,220,140,.12);color:#7ee4a1}
+.nexus-tl-state.state-retrieving_evidence{border-color:rgba(255,170,0,.38);background:rgba(255,170,0,.11);color:var(--amber)}
+.nexus-tl-state.state-answering{border-color:rgba(202,140,255,.38);background:rgba(202,140,255,.11);color:#d2a8ff}
+.nexus-tl-state.state-completed{border-color:rgba(0,255,157,.44);background:rgba(0,255,157,.15);color:var(--green)}
+.nexus-tl-state.state-unknown{color:var(--text3)}
 .nexus-result-panel{display:flex;flex-direction:column;gap:9px}
 .nexus-result-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 .nexus-result-item{border:1px solid var(--border);border-radius:6px;background:var(--bg1);padding:8px;display:flex;flex-direction:column;gap:5px}
@@ -8058,6 +8075,16 @@ function setNexusDeepStatus(message, isErr = false, isStub = false) {
   el.textContent = `状態: ${prefix}${message || '-'}`;
 }
 
+const NEXUS_TIMELINE_STATE_META = {
+  planning: { label: 'planning', className: 'state-planning' },
+  searching: { label: 'searching', className: 'state-searching' },
+  collecting_sources: { label: 'collecting_sources', className: 'state-collecting_sources' },
+  downloading: { label: 'downloading', className: 'state-downloading' },
+  retrieving_evidence: { label: 'retrieving_evidence', className: 'state-retrieving_evidence' },
+  answering: { label: 'answering', className: 'state-answering' },
+  completed: { label: 'completed', className: 'state-completed' },
+};
+
 function renderNexusDeepTimeline(events = []) {
   const el = document.getElementById('nexus-deep-timeline');
   if (!el) return;
@@ -8068,10 +8095,12 @@ function renderNexusDeepTimeline(events = []) {
   el.innerHTML = events.slice(0, 150).map((ev) => {
     const ts = String(ev?.created_at || ev?.timestamp || '').replace('T', ' ').slice(0, 19) || '-';
     const seq = Number(ev?.seq ?? -1);
-    const label = ev?.data?.label || ev?.type || 'event';
-    return `<div class="nexus-tl-item">
+    const state = String(ev?.data?.state || '').trim();
+    const stateMeta = NEXUS_TIMELINE_STATE_META[state] || { label: state || '-', className: 'state-unknown' };
+    const label = ev?.data?.state || ev?.data?.label || ev?.type || 'event';
+    return `<div class="nexus-tl-item ${esc(stateMeta.className)}">
       <div class="nexus-tl-head">#${Number.isFinite(seq) ? seq : '-'} · ${esc(ts)}</div>
-      <div class="nexus-tl-body">${esc(String(label))}</div>
+      <div class="nexus-tl-body"><span class="nexus-tl-state ${esc(stateMeta.className)}">${esc(stateMeta.label)}</span> ${esc(String(label))}</div>
     </div>`;
   }).join('');
 }
