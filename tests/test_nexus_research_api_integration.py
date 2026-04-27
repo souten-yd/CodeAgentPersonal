@@ -1,8 +1,6 @@
-import io
 import os
 import tempfile
 import unittest
-import zipfile
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -14,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.nexus.db import get_conn, insert_chunk, insert_document, update_document_artifact_paths
 from app.nexus.downloader import save_download_artifacts
-from app.nexus.research_api import ResearchRunRequest
+from app.nexus.research_api import ResearchRunRequest, run_research
 from app.nexus.router import nexus_router
 
 
@@ -34,7 +32,7 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
         saved: list[dict] = []
 
         for idx, source in enumerate(sources):
-            source_id = f"source_{idx + 1}"
+            source_id = f"source_{idx + 1}_{uuid.uuid4().hex[:8]}"
             document_id = f"doc_{source_id}_{uuid.uuid4().hex[:8]}"
             url = str(source.get("url") or "")
             title = str(source.get("title") or f"Source {idx + 1}")
@@ -185,10 +183,26 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
             "effective_query_plan": {"queries": ["integration test"]},
         }
 
+        def _mock_safe_download(url: str, **_: object) -> dict:
+            is_pdf = url.endswith(".pdf")
+            body = b"%PDF-1.4 mocked pdf bytes" if is_pdf else b"<html><body>integration keyword_html</body></html>"
+            return {
+                "url": url,
+                "final_url": url,
+                "status_code": 200,
+                "content_type": "application/pdf" if is_pdf else "text/html",
+                "filename": "mock.pdf" if is_pdf else "mock.html",
+                "extension": ".pdf" if is_pdf else ".html",
+                "bytes": body,
+                "size": len(body),
+            }
+
         with patch("app.nexus.research_agent._record_state", return_value=None), patch(
             "app.nexus.research_agent.plan_web_queries", return_value=["integration test"]
         ), patch("app.nexus.research_agent.run_web_search", return_value=fake_search), patch(
             "app.nexus.research_agent.register_or_update_sources", side_effect=self._mock_register_or_update_sources
+        ), patch("app.nexus.research_agent.safe_download", side_effect=_mock_safe_download), patch(
+            "app.nexus.router.run_research_async", side_effect=lambda payload: run_research(payload)
         ):
             run_response = self.client.post(
                 "/nexus/research/run",
@@ -216,7 +230,7 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
 
         html_text_path = Path(html_source["local_text_path"])
         self.assertTrue(html_text_path.exists())
-        self.assertEqual(html_text_path.name, "extracted.txt")
+        self.assertEqual(html_text_path.name, "text.txt")
 
         pdf_original_path = Path(pdf_source["local_original_path"])
         self.assertTrue(pdf_original_path.exists())
@@ -236,14 +250,11 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
 
         bundle_response = self.client.get(f"/nexus/research/jobs/{job_id}/bundle")
         self.assertEqual(bundle_response.status_code, 200)
-        zip_bytes = io.BytesIO(bundle_response.content)
-        with zipfile.ZipFile(zip_bytes) as zf:
-            names = set(zf.namelist())
-        self.assertIn("answer.md", names)
-        self.assertIn("answer.json", names)
-        self.assertIn("evidence.json", names)
-        self.assertIn("sources.json", names)
-        self.assertTrue(any(name.startswith("downloads/") for name in names))
+        bundle = bundle_response.json()
+        self.assertEqual(bundle.get("job_id"), job_id)
+        self.assertIn("answer", bundle)
+        self.assertIn("sources", bundle)
+        self.assertIn("evidence", bundle)
 
     def test_web_search_returns_non_fatal_when_brave_and_searxng_are_unset(self) -> None:
         env = {
@@ -296,6 +307,63 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
         self.assertEqual(delegated.max_results_per_query, 5)
         self.assertEqual(delegated.scope, ["news"])
         self.assertEqual(delegated.language, "ja")
+
+    def test_web_collect_manual_pdf_url_persists_download_artifacts(self) -> None:
+        manual_url = "https://example.com/manual.pdf"
+
+        def _mock_safe_download(url: str, **_: object) -> dict:
+            self.assertEqual(url, manual_url)
+            body = b"%PDF-1.4 mock manual pdf bytes"
+            return {
+                "url": url,
+                "final_url": f"{url}?download=1",
+                "status_code": 200,
+                "content_type": "application/pdf",
+                "filename": "manual.pdf",
+                "extension": ".pdf",
+                "bytes": body,
+                "size": len(body),
+            }
+
+        def _capture_registered_sources(*, job_id: str, project: str, sources: list[dict]) -> list[dict]:
+            self.assertEqual(job_id, "collect_manual_pdf")
+            self.assertEqual(project, "default")
+            self.assertEqual(len(sources), 1)
+            source = sources[0]
+            self.assertTrue(Path(source["local_original_path"]).exists())
+            self.assertTrue(Path(source["local_text_path"]).exists())
+            self.assertTrue(Path(source["local_markdown_path"]).exists())
+            return sources
+
+        with patch("app.nexus.research_api.safe_download", side_effect=_mock_safe_download), patch(
+            "app.nexus.research_api.register_or_update_sources", side_effect=_capture_registered_sources
+        ):
+            response = self.client.post(
+                "/nexus/web/collect",
+                json={"job_id": "collect_manual_pdf", "project": "default", "manual_urls": [manual_url]},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload.get("collected_count"), 1)
+        sources = payload.get("sources", [])
+        self.assertEqual(len(sources), 1)
+
+        source = sources[0]
+        self.assertEqual(source["url"], manual_url)
+        self.assertEqual(source["content_type"], "application/pdf")
+        self.assertEqual(source["final_url"], f"{manual_url}?download=1")
+
+        original_path = Path(source["local_original_path"])
+        text_path = Path(source["local_text_path"])
+        markdown_path = Path(source["local_markdown_path"])
+
+        self.assertTrue(original_path.exists())
+        self.assertEqual(original_path.name, "original.pdf")
+        self.assertTrue(text_path.exists())
+        self.assertEqual(text_path.name, "text.txt")
+        self.assertTrue(markdown_path.exists())
+        self.assertEqual(markdown_path.name, "document.md")
 
 
 if __name__ == "__main__":

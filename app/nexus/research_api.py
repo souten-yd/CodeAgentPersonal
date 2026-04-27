@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.nexus.db import get_conn
+from app.nexus.downloader import safe_download, save_download_artifacts
 from app.nexus.evidence import list_evidence_items
 from app.nexus.jobs import create_job, get_job, get_job_events, update_job
 from app.nexus.research_agent import ResearchAgentInput, run_research_job
@@ -197,7 +198,45 @@ def collect_web_sources(payload: CollectRequest) -> dict:
         search_items=payload.search_items,
         manual_urls=payload.manual_urls,
     )
-    sources = register_or_update_sources(job_id=payload.job_id, project=payload.project, sources=candidates)
+    downloadable_sources: list[dict] = []
+    for candidate in candidates:
+        source_id = str(candidate.get("source_id") or uuid.uuid4())
+        source = {
+            **candidate,
+            "source_id": source_id,
+            "final_url": str(candidate.get("url") or ""),
+            "content_type": "",
+            "local_original_path": "",
+            "local_text_path": "",
+            "local_markdown_path": "",
+            "status": "download_failed",
+            "error": "",
+        }
+        url = str(candidate.get("url") or "").strip()
+        if not url:
+            source["error"] = "url is missing"
+            downloadable_sources.append(source)
+            continue
+        try:
+            download_result = safe_download(url)
+            saved = save_download_artifacts(
+                job_id=payload.job_id,
+                source_id=source_id,
+                download_result=download_result,
+            )
+            source["final_url"] = str(download_result.get("final_url") or url)
+            source["content_type"] = str(download_result.get("content_type") or "")
+            source["local_original_path"] = str(saved.get("original") or "")
+            source["local_text_path"] = str(saved.get("extracted_txt") or "")
+            source["local_markdown_path"] = str(saved.get("extracted_md") or "")
+            source["status"] = str(saved.get("status") or "downloaded")
+            source["error"] = str(saved.get("error") or "")
+        except Exception as exc:  # noqa: BLE001
+            source["error"] = str(exc)
+            source["status"] = "degraded"
+        downloadable_sources.append(source)
+
+    sources = register_or_update_sources(job_id=payload.job_id, project=payload.project, sources=downloadable_sources)
     update_job(payload.job_id, status="completed", message="source collection completed", progress=1.0)
 
     return {
