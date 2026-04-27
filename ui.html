@@ -7175,6 +7175,11 @@ function toggleAgentTts(nextState = null) {
   localStorage.setItem('agent_tts_enabled', next ? 'true' : 'false');
   localStorage.setItem('agent_tts_auto_speak', next ? 'true' : 'false');
   syncAgentTtsToggle();
+  if (agentTts.enabled && !ttsManualUnlocked) {
+    enableAudioFromUserGesture().catch((e) => {
+      console.warn('[Agent][TTS] audio unlock failed:', e);
+    });
+  }
 }
 
 function toggleChatTaskMode() {
@@ -9534,6 +9539,72 @@ function _extractAgentTerminalSpeechText(payload) {
   return '';
 }
 
+function _extractAgentSpeakText(data) {
+  const directReply = String(data?.conversation?.reply || '').trim();
+  if (directReply) return directReply;
+  const events = Array.isArray(data?.execution?.events) ? data.execution.events : [];
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const ev = events[i];
+    if (String(ev?.type || '').toLowerCase() !== 'done') continue;
+    const txt = String(ev?.data?.final_text || ev?.final_text || '').trim();
+    if (txt) return txt;
+  }
+  const executionFinalText = String(data?.execution?.final_text || '').trim();
+  if (executionFinalText) return executionFinalText;
+  return String(data?.reply || '').trim();
+}
+
+function _agentAudioBase64ToBlob(audioBase64) {
+  const raw = String(audioBase64 || '').trim();
+  if (!raw) return null;
+  let mime = 'audio/wav';
+  let base64Data = raw;
+  const match = raw.match(/^data:([^;]+);base64,(.+)$/i);
+  if (match) {
+    mime = match[1] || mime;
+    base64Data = match[2] || '';
+  }
+  if (!base64Data) return null;
+  const binary = atob(base64Data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], {type: mime});
+}
+
+let _lastAgentTtsKey = '';
+async function _maybeSpeakAgentTurn(data) {
+  if (!_isAutoSpeakEnabled('agent')) return;
+  const speechText = _extractAgentSpeakText(data);
+  const sessionId = String(data?.session_id || data?.conversation?.session_id || '').trim();
+  const turnId = String(data?.turn_id || data?.conversation?.turn_id || data?.execution?.turn_id || '').trim();
+  const responseId = String(data?.response_id || data?.conversation?.response_id || '').trim();
+  const textSig = `${speechText.length}:${speechText.slice(0, 120)}`;
+  const key = `${sessionId}:${turnId}:${responseId}:${textSig}`;
+  if (key && key === _lastAgentTtsKey) return;
+  if (!speechText) return;
+  _lastAgentTtsKey = key;
+
+  const audioBase64 = data?.conversation?.audio_base64 || data?.turn?.audio_base64 || data?.audio_base64 || '';
+  if (audioBase64) {
+    try {
+      const blob = _agentAudioBase64ToBlob(audioBase64);
+      if (blob && blob.size > 0) {
+        await enqueueTtsAudioBlob(blob, `agent-server-audio-${Date.now()}`, {
+          context: 'agent',
+          source: 'agent',
+          engine: tts.engine,
+          kind: 'agent_server_audio',
+          textPreview: speechText.slice(0, 60),
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn('[Agent][TTS] audio_base64 playback failed, fallback to text:', e);
+    }
+  }
+  playTTS(speechText, 'agent');
+}
+
 async function sendAgentMessage(msg) {
   const text = String(msg || '').trim();
   if (!text || busy || mode !== 'agent') return;
@@ -9558,9 +9629,8 @@ async function sendAgentMessage(msg) {
     const payload = {message: text, project: currentProject, search_enabled: searchEnabled};
     const data = await _agentApi('/agent/turn', payload);
     if (runningNode?.parentNode) runningNode.parentNode.removeChild(runningNode);
-    const reply = data?.conversation?.reply || data.reply || data.result || data.message || '(no response)';
+    const reply = _extractAgentSpeakText(data) || data?.result || data?.message || '(no response)';
     addAgentConversationMsg('assistant', reply);
-    playTTS(reply, 'agent');
     const loopLogs = Array.isArray(data?.conversation?.logs) ? data.conversation.logs : [];
     loopLogs.forEach((item, idx) => {
       addLog('info', 'agent-raw', `step=${idx + 1} raw_model_output=${String(item?.raw_model_output || '').slice(0, 500)}`);
@@ -9571,8 +9641,7 @@ async function sendAgentMessage(msg) {
     });
     const executed = data?.execution?.executed || [];
     if (executed.length) addAgentExecutionCard(executed);
-    const terminalText = _extractAgentTerminalSpeechText(data);
-    if (terminalText) playTTS(terminalText, 'agent');
+    await _maybeSpeakAgentTurn(data);
     await refreshAgentTasks(data?.execution?.status || 'running');
   } catch (e) {
     if (runningNode?.parentNode) runningNode.parentNode.removeChild(runningNode);
