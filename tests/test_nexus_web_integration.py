@@ -101,6 +101,96 @@ class NexusWebIntegrationTests(unittest.TestCase):
         self.assertTrue(result["non_fatal"])
         self.assertEqual(result["provider_errors"], {"searxng": ["connection refused"]})
 
+    def test_web_search_response_includes_job_id_and_saved_evidence(self) -> None:
+        fake_search = {
+            "provider": "searxng",
+            "selected_provider": "searxng",
+            "attempted_providers": ["searxng"],
+            "provider_errors": {},
+            "configured": True,
+            "non_fatal": False,
+            "message": "",
+            "items": [
+                {
+                    "provider": "searxng",
+                    "query": "ai chips",
+                    "rank": 1,
+                    "title": "AI Chips Overview",
+                    "url": "https://example.com/ai-chips",
+                    "snippet": "Market summary",
+                    "engine": "searxng",
+                }
+            ],
+            "total_items": 1,
+            "generated_queries": ["ai chips"],
+            "effective_query_plan": {"queries": ["ai chips"]},
+        }
+        with patch(
+            "app.nexus.router.execute_nexus_web_search",
+            return_value={
+                "ok": True,
+                "job_id": "job-web-shape-1",
+                "queries": ["ai chips"],
+                "saved_evidence": 1,
+                "search": fake_search,
+            },
+        ):
+            response = self.client.post("/nexus/web/search", json={"query": "ai chips"})
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()["result"]
+        self.assertEqual(result["job_id"], "job-web-shape-1")
+        self.assertEqual(result["saved_evidence"], 1)
+        self.assertIn("job_id", result)
+        self.assertIn("saved_evidence", result)
+
+    def test_web_search_provider_non_fatal_stub_still_builds_and_saves_evidence(self) -> None:
+        provider_failure_stub = {
+            "provider": "searxng",
+            "selected_provider": "searxng",
+            "attempted_providers": ["searxng"],
+            "provider_errors": {"searxng": ["connection refused"]},
+            "non_fatal": True,
+            "message": "stub",
+            "items": [
+                {
+                    "provider": "stub",
+                    "query": "fallback",
+                    "rank": 1,
+                    "title": "[stub] fallback",
+                    "url": "",
+                    "snippet": "stub",
+                    "engine": "stub",
+                    "is_stub": True,
+                }
+            ],
+            "total_items": 1,
+        }
+        fake_evidence_items = [object(), object()]
+
+        with patch("app.nexus.web_service.plan_web_queries", return_value=["fallback"]) as mocked_plan, patch(
+            "app.nexus.web_service._run_web_search", return_value=provider_failure_stub
+        ) as mocked_search, patch("app.nexus.web_service.create_job") as mocked_create_job, patch(
+            "app.nexus.web_service.build_web_evidence", return_value=fake_evidence_items
+        ) as mocked_build, patch("app.nexus.web_service.save_evidence_items", return_value=2) as mocked_save, patch(
+            "app.nexus.web_service.uuid.uuid4", return_value="job-web-stub-id"
+        ):
+            response = self.client.post("/nexus/web/search", json={"query": "fallback", "max_queries": 1})
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()["result"]
+        self.assertTrue(result["non_fatal"])
+        self.assertEqual(result["saved_evidence"], 2)
+        mocked_plan.assert_called_once()
+        mocked_search.assert_called_once()
+        mocked_create_job.assert_called_once_with(
+            "job-web-stub-id",
+            title="nexus_web_search:fallback",
+            message="tool_invocation",
+        )
+        mocked_build.assert_called_once_with(provider_failure_stub, note="nexus_web_search")
+        mocked_save.assert_called_once_with("job-web-stub-id", fake_evidence_items)
+
     def test_research_bundle_endpoint_returns_zip_file(self) -> None:
         export_app = FastAPI()
         export_app.include_router(nexus_export_router, prefix="/nexus")
@@ -153,7 +243,7 @@ class AgentRegistryTests(unittest.TestCase):
 
 
 class NexusToolsWebSearchTests(unittest.TestCase):
-    def test_nexus_web_search_returns_job_id_and_saved_evidence(self) -> None:
+    def test_nexus_web_search_response_has_core_keys(self) -> None:
         fake_search_output = {
             "provider": "searxng",
             "non_fatal": False,
@@ -169,40 +259,25 @@ class NexusToolsWebSearchTests(unittest.TestCase):
             ],
             "provider_errors": {},
         }
-        fake_evidence_items = [object()]
-
-        with patch("agent.tools.nexus_tools.plan_web_queries", return_value=["ai chips"]) as mocked_plan, patch(
-            "agent.tools.nexus_tools.run_web_search", return_value=fake_search_output
-        ) as mocked_search, patch("agent.tools.nexus_tools.create_job") as mocked_create_job, patch(
-            "agent.tools.nexus_tools.build_web_evidence", return_value=fake_evidence_items
-        ) as mocked_build, patch("agent.tools.nexus_tools.save_evidence_items", return_value=1) as mocked_save, patch(
-            "agent.tools.nexus_tools.uuid.uuid4", return_value="job-fixed-id"
+        with patch(
+            "agent.tools.nexus_tools.execute_nexus_web_search",
+            return_value={
+                "ok": True,
+                "job_id": "job-fixed-id",
+                "queries": ["ai chips"],
+                "saved_evidence": 1,
+                "search": fake_search_output,
+            },
         ):
             result = nexus_web_search(topic="ai chips", mode="quick", depth="quick", max_queries=1, max_results_per_query=3)
 
         self.assertEqual(result["job_id"], "job-fixed-id")
         self.assertEqual(result["saved_evidence"], 1)
-        mocked_plan.assert_called_once_with(
-            "ai chips",
-            mode="quick",
-            depth="quick",
-            max_queries=1,
-            scope=None,
-            language=None,
-        )
-        mocked_search.assert_called_once_with(
-            ["ai chips"],
-            mode="quick",
-            depth="quick",
-            max_results_per_query=3,
-            scope=None,
-            language=None,
-        )
-        mocked_create_job.assert_called_once_with("job-fixed-id", title="nexus_web_search:ai chips", message="tool_invocation")
-        mocked_build.assert_called_once_with(fake_search_output, note="nexus_web_search")
-        mocked_save.assert_called_once_with("job-fixed-id", fake_evidence_items)
+        self.assertEqual(result["queries"], ["ai chips"])
+        self.assertIn("search", result)
+        self.assertFalse(result["search"]["non_fatal"])
 
-    def test_nexus_web_search_persists_stub_evidence_when_provider_non_fatal(self) -> None:
+    def test_nexus_web_search_matches_api_common_keys(self) -> None:
         provider_failure_stub = {
             "provider": "searxng",
             "selected_provider": "searxng",
@@ -224,23 +299,32 @@ class NexusToolsWebSearchTests(unittest.TestCase):
             ],
             "total_items": 1,
         }
-        fake_evidence_items = [object(), object()]
+        shared_service_result = {
+            "ok": True,
+            "job_id": "job-shape-match-1",
+            "queries": ["fallback"],
+            "saved_evidence": 2,
+            "search": provider_failure_stub,
+        }
 
-        with patch("agent.tools.nexus_tools.plan_web_queries", return_value=["fallback"]) as mocked_plan, patch(
-            "agent.tools.nexus_tools.run_web_search", return_value=provider_failure_stub
-        ) as mocked_search, patch("agent.tools.nexus_tools.create_job"), patch(
-            "agent.tools.nexus_tools.build_web_evidence", return_value=fake_evidence_items
-        ) as mocked_build, patch("agent.tools.nexus_tools.save_evidence_items", return_value=2) as mocked_save, patch(
-            "agent.tools.nexus_tools.uuid.uuid4", return_value="job-stub-id"
-        ):
-            result = nexus_web_search(topic="fallback", max_queries=1, max_results_per_query=2)
+        with patch("agent.tools.nexus_tools.execute_nexus_web_search", return_value=shared_service_result):
+            tool_result = nexus_web_search(topic="fallback", max_queries=1, max_results_per_query=2)
 
-        self.assertTrue(result["search"]["non_fatal"])
-        self.assertEqual(result["saved_evidence"], 2)
-        mocked_plan.assert_called_once()
-        mocked_search.assert_called_once()
-        mocked_build.assert_called_once_with(provider_failure_stub, note="nexus_web_search")
-        mocked_save.assert_called_once_with("job-stub-id", fake_evidence_items)
+        app = FastAPI()
+        app.include_router(nexus_router, prefix="/nexus")
+        api_client = TestClient(app)
+        with patch("app.nexus.router.execute_nexus_web_search", return_value=shared_service_result):
+            api_response = api_client.post("/nexus/web/search", json={"query": "fallback", "max_queries": 1})
+
+        self.assertEqual(api_response.status_code, 200)
+        api_result = api_response.json()["result"]
+
+        self.assertEqual(tool_result["job_id"], api_result["job_id"])
+        self.assertEqual(tool_result["queries"], api_result["queries"])
+        self.assertEqual(tool_result["saved_evidence"], api_result["saved_evidence"])
+        self.assertEqual(tool_result["search"]["non_fatal"], api_result["search"]["non_fatal"])
+        self.assertEqual(tool_result["search"]["provider_errors"], api_result["search"]["provider_errors"])
+        self.assertEqual(tool_result["search"]["items"], api_result["search"]["items"])
 
 
 class WebScoutRunSearchTests(unittest.TestCase):
