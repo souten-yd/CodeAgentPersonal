@@ -1,846 +1,1274 @@
 # CodeAgent Personal
 
-ローカルLLMを使ったAIコードエージェントプラットフォーム。マルチモデルオーケストレーション・Dockerサンドボックス・パーマネントメモリを備え、コードの計画・実装・テスト・実行をエージェントが自律的に行います。
+CodeAgent Personal は、ローカルLLM、llama.cpp、FastAPI、Web UI、Docker/venv実行環境を組み合わせた、個人向けの自律型コードエージェント基盤です。
+
+チャット、タスク実行、エージェントループ、モデル管理、永続メモリ、SKILL拡張、音声入出力、文書検索・レポート生成を統合し、ローカルPCやRunpod上で開発作業を支援します。
+
+単なるチャットUIではなく、LLMがプロジェクト内のファイルを読み、編集し、コマンドを実行し、テスト結果を見て再試行するための開発支援プラットフォームです。
 
 ---
 
-## 主な機能
+## 1. 概要
 
-### エージェントコア
+CodeAgent Personal は、以下の機能を統合したローカルファーストのAI開発環境です。
 
-| 機能 | 説明 |
-|---|---|
-| **マルチモデルオーケストレーション** | タスクの種類に応じてRouter LLM (1.2B) が最適なモデルへ自動ルーティング |
-| **4段階フォールバック** | 失敗時: 同一再試行 → 別アプローチ → 3案生成 → プランナーLLM自動選択 |
-| **プランナーLLM** | 複数失敗時に小型モデル(GPT-OSS-20B)が最適案を自動選択して再実行 |
-| **V-model検証** | 全タスク完了後に Unit → Integration → 要件確認の3フェーズ自動テスト |
-| **スキップ禁止フォールバック** | スキップ・ユーザー委任は提案・選択されない（常にエージェントが解決） |
-| **ハルシネーション防止** | ツール呼び出し実行を強化。LLMが既実行ツールを再呼び出しする幻覚リトライを検出・遮断 |
-| **Gitスナップショット自動化** | タスク開始前・完了後にバックエンドが自動コミット。job_id/task_id/stageをタグ付け。古いスナップショットは自動アーカイブ（最新100件保持） |
-
-### パーマネントメモリ（cross-project共有）
-
-| 機能 | 説明 |
-|---|---|
-| **自動知識蓄積** | 全ジョブ完了後にログを解析してエラー解決策・環境知識・ワークフローをDB保存 |
-| **タスク実行時参照** | 各タスク開始前にメモリを検索し、関連知識をコンテキストに注入 |
-| **リトライ改善** | Stage 1/2再試行時に過去の類似エラーと解決策を自動注入して忘却を防止 |
-| **使用回数ブースト** | よく参照されたメモリエントリが検索結果で上位表示（対数スケール） |
-| **手動管理** | Memoryタブから追加・編集・削除・キーワード検索が可能 |
-| **カテゴリ分類** | `error_solution` / `env_knowledge` / `workflow` / `general` |
-
-メモリDB: `./ca_data/memory.db`（全プロジェクト共有 SQLite）
-
-### SKILLシステム
-
-| 機能 | 説明 |
-|---|---|
-| **SKILL自動生成** | Stage 3失敗時にエラーを解析して不足ツールをPython関数としてSKILL化 |
-| **ポストジョブ提案** | ジョブ完了後に実行ログを解析して不足SKILLをUIに提案 |
-| **使用回数ソート** | プロンプトへのSKILL注入を使用回数降順でソート（実績のあるSKILLを優先） |
-| **SKILL.md形式** | OpenClaw互換。ローカル既定:`<CODEAGENT_CA_DATA_DIR>/skills/スキル名/SKILL.md`（通常 `./ca_data/skills/...`） / Runpod既定:`/workspace/ca_data/skills/スキル名/SKILL.md` |
-| **ホットリロード** | 10秒キャッシュでSKILLを自動更新。再起動不要 |
-| **自動生成ON/OFF** | 設定パネルのトグルで制御（デフォルト: ON） |
-
-### 実行サンドボックス（環境別）
-
-| コンテナ | イメージ | 用途 |
-|---|---|---|
-| `claude_sandbox` | `python:3.11-slim` | Python実行・仮想環境 |
-| `codeagent_browser` | `mcr.microsoft.com/playwright/python:v1.49.0-jammy` | ブラウザ自動化（Playwright） |
-| `node:20-slim` | `node:20-slim` | Node.js/npm実行 |
-
-**Playwright自動回復**: コンテナイメージ不一致を検出した場合に自動再作成。`playwright`モジュールが見つからない場合もリトライ。
-
-### エージェントツール一覧
-
-**ファイル操作**
-- `read_file` / `write_file` / `edit_file` — ファイル読み書き・部分編集
-- `patch_function` — 関数単位の差し替え（AST解析）
-- `get_outline` — コード構造のAST解析
-- `list_files` — プロジェクトファイル一覧
-- `search_in_files` — プロジェクト内全文検索
-- `make_dir` / `move_path` / `delete_path` — ディレクトリ作成・移動/改名・削除
-
-**コード実行**
-- `run_python` — Runpodではプロジェクト `.venv` 優先、その他環境では `claude_sandbox` (Docker)
-- `run_node` / `run_npm` — Node.js/npm
-- `run_file` — Runpodでは `.venv` 優先、その他環境では Docker
-- `setup_venv` — Python仮想環境 `.venv` 構築
-- `run_shell` — プロジェクトディレクトリで任意コマンド実行（pytest/ruff/mypy等）
-
-**サーバー・ブラウザ**
-- `run_server` — HTTPサーバー起動（port 8888）
-- `run_browser` — Playwright（Chromium headless）
-- `stop_server` — サーバー停止
-
-**ユーティリティ**
-- `web_search` — DuckDuckGo検索（設定でON/OFF）。チャットモードでも利用可能
-- `clarify` — ユーザーへの確認・選択肢提示
-
-**カスタムSKILL** — 既定のスキル保存先（ローカル:`<CODEAGENT_CA_DATA_DIR>/skills` / Runpod:`/workspace/ca_data/skills`）に追加したSKILL.mdが自動でツールとして利用可能（`CODEAGENT_SKILLS_DIR`で上書き可）
-
-### UI
-
-| 機能 | 説明 |
-|---|---|
-| **リアルタイムSSE** | Server-Sent Eventsによるストリーミング表示（TPS/token数表示） |
-| **7タブパネル** | Output / Preview / Log / Skills / Memory / Git / Models |
-| **音声入力（β）** | チャット入力欄の🎙ボタンで録音→サーバー側Whisperで文字起こし（日本語/英語） |
-| **リソースメーター** | ヘッダーで CPU / RAM / GPU / VRAM 使用率を定期更新表示（`/system/summary` で軽量集約ポーリング） |
-| **ファイルブラウザ** | プロジェクトファイルをリアルタイム表示・iframe preview |
-| **設定パネル** | ⚙ボタンから: Steps・Auto Select・SKILL自動生成・Ensemble実行モード(parallel/serial)・VRAM監視・ストリーミング・コンテキスト長・検索件数・LLM URL |
-| **GGUF検索/ダウンロード** | Modelsタブから Hugging Face のGGUFを検索し、RAM/VRAM適合目安（DL可否・完全オフロード可否）を確認して直接DL |
-| **VLM Visionトグル** | VLMモデルごとに画像認識(vision)をON/OFF可能。OFF時はmulti用途の自動割り当て対象から除外 |
-| **機能モード切替** | Modelsモーダルで `Model Orchestration` / `Ensemble(beta)` を切替可能（初期値: Model Orchestration） |
-| **Coderオーケストレーション** | 軽量→高品質の3段コーダーを設定し、失敗時/品質未達時に段階昇格して再実行 |
-| **VRAMガード** | `nvidia-smi/rocm-smi` で空きVRAMを監視し、必要時は `parallel → serial` へ自動切替（設定でON/OFF） |
-| **Web検索状態表示** | 設定パネルとタスク進捗カードで検索クエリ・状態をリアルタイム表示 |
-| **待機UIの統一** | チャット/タスク両モードで統一されたウェイティングカードUI |
-| **Echo モード（同時通訳）** | マイク音声をリアルタイムで ASR → LLM翻訳 → TTS 読み上げ。全画面表示。録音・文字起こし・議事録を `ca_data/EchoVault/` に自動保存。ボイスクローン（参照音声指定）対応 |
-| **モバイル対応** | iPhone対応。タブバーはスクロール可能。Safe area対応 |
-| **プロジェクト管理** | 複数プロジェクトを切り替え・作成 |
-| **プロジェクトDL** | プロジェクト一覧の`DL`ボタンからPLフォルダをzipでダウンロード |
-| **ジョブ履歴** | 実行中ジョブへの自動再接続。SQLite永続化 |
-| **Markdownレンダリング** | marked.jsによる出力のMarkdown表示 |
+- ローカルLLM / llama.cpp / GGUFモデルの利用
+- FastAPIバックエンドによるAPI提供
+- Web UIによるチャット、タスク、モデル、メモリ、SKILL管理
+- AgentLoopによる計画、実行、評価、再試行
+- プロジェクトファイルの読み書き、パッチ適用、検索、コマンド実行
+- SQLiteによる永続メモリ
+- SKILL.md によるツール拡張
+- Nexusによる文書投入、検索、Web調査、レポート生成
+- Echoによる音声入力、ASR、翻訳、TTS連携
+- Qwen3-TTS / Style-Bert-VITS2 などのTTS実行環境連携
+- Windowsローカル / Linux / Runpod での運用
 
 ---
 
-## 機能評価と推奨度
+## 2. このプロジェクトで出来ること
 
-### ✅ 有効・推奨機能
-
-| 機能 | 状態 | 備考 |
-|---|---|---|
-| エージェントタスク実行 | ✅ 安定 | 4段階フォールバック + ハルシネーション防止実装済み |
-| パーマネントメモリ | ✅ 安定 | `ca_data/memory.db` 共有 |
-| SKILLシステム | ✅ 安定 | 自動生成・提案・ポストジョブ分析 |
-| Playwright ブラウザ | ✅ 安定 | コンテナ自動修復実装済み |
-| マルチモデル切り替え | ✅ 安定 | Router LLMで自動ルーティング |
-| V-model検証 | ✅ 動作 | 全タスク完了時のみ実行 |
-| Web検索 (DuckDuckGo) | ✅ 動作 | 設定パネルでON/OFF。チャット/タスク両モードで利用可 |
-| Gitスナップショット自動化 | ✅ 安定 | タスク前後にバックエンドが自動コミット |
-| チャットモードWeb検索 | ✅ 動作 | エージェントループ経由で`web_search`ツールを利用 |
-| GitHubリポジトリ連携 | ✅ 動作 | `ca_data/`をGitHubへバックアップ |
-| システムサマリーAPI | ✅ 安定 | `/system/summary` で軽量集約ポーリング |
-| Echo モード（同時通訳） | ✅ 動作 | faster-whisper(ASR) + LLM翻訳 + Qwen3-TTS / Style-Bert-VITS2。EchoVault自動保存 |
-
-### ⚠️ 限定的・条件付き機能
-
-| 機能 | 状態 | 備考 |
-|---|---|---|
-| `run_file` | ⚠️ 制限あり | Runpodは`.venv`優先、非RunpodはDocker実行（環境差に注意） |
-| `clarify` ツール | ⚠️ 実験的 | エージェントからの質問機能。応答タイムアウト600秒 |
-| `patch_function` | ⚠️ 限定 | Python AST依存。構文エラーがあるファイルでは失敗 |
-| LLMストリーミング | ⚠️ モデル依存 | 一部モデルで特殊トークンが出力される場合あり |
-| V-model Unit Test | ⚠️ 精度可変 | LLMがテストコードを生成するため、テスト品質はモデル依存 |
-
-### ❌ 廃止済み機能
-
-| 機能 | 状態 | 理由 |
-|---|---|---|
-| LLM登録UI（複数エンドポイント管理） | ❌ 廃止 | 設定パネルの「LLM URL」テキスト入力に統合 |
-| スキップ・手動実装フォールバック | ❌ 廃止 | 常にエージェントが解決する方針に変更 |
-| UIからのGit操作（commit/checkout/reset） | ❌ 廃止 | バックエンドの自動スナップショットフローに移行 |
-
----
-
-## 必要環境
-
-| 項目 | 要件 |
+| 分類 | 出来ること |
 |---|---|
-| OS | Windows 10/11 |
-| Python | 3.11+ |
-| Docker | Desktop 最新版 |
-| llama.cpp | llama-server バイナリ |
-| GPU | VRAM 16GB+ 推奨 |
-| RAM | 32GB+ 推奨 |
+| Chat | ローカルLLMと会話し、必要に応じてプロジェクト文脈やWeb検索を利用できます |
+| Task | ユーザーの指示をもとに、ファイル編集、コマンド実行、検証を含む開発タスクを実行できます |
+| Agent | Planner / Executor / Evaluator を使った自律的な実装ループを実行できます |
+| Models | GGUFモデルの管理、llama-server起動、ロール割当、VRAM確認を行えます |
+| Memory | エラー解決策、環境知識、ワークフローをSQLiteに永続化できます |
+| SKILL | `SKILL.md` によるツール拡張や、自動生成されたスキルの利用ができます |
+| Nexus | 文書アップロード、検索、Web調査、Evidence管理、レポート生成を行えます |
+| Echo | 音声入力、ASR、LLM翻訳、TTS読み上げ、録音保存を行えます |
+| TTS | Qwen3-TTS / Style-Bert-VITS2 などの音声生成ランタイムと連携できます |
+| Sandbox | Docker、venv、Runpod環境を使ってコードを実行できます |
+| Git | タスク実行前後のスナップショットや変更履歴確認に利用できます |
 
 ---
 
-## セットアップ
+## 3. 主要な利用モード
 
-### 1. llama-server インストール
+### 3.1 Chat
 
-```bat
-DLllama.bat
+通常のチャットモードです。
+
+用途:
+
+- 技術相談
+- 実装方針の相談
+- コード説明
+- 軽い修正案の作成
+- Web検索を含む調査
+
+### 3.2 Task
+
+具体的な開発タスクを実行するモードです。
+
+用途:
+
+- バグ修正
+- ファイル追加
+- UI修正
+- API追加
+- テスト実行
+- ログ解析
+- 実装修正
+
+### 3.3 Agent
+
+より自律的に動くコードエージェントモードです。
+
+Agentは、以下の流れで作業します。
+
+1. ユーザー指示を読む
+2. 必要なプロジェクト文脈を集める
+3. 実行計画を立てる
+4. ツールを使ってファイル確認・編集・コマンド実行を行う
+5. 実行結果を評価する
+6. 失敗時はエラー情報をもとに再試行する
+7. 必要に応じてユーザーへ確認する
+
+### 3.4 Echo
+
+音声入力と音声出力を扱うモードです。
+
+用途:
+
+- 音声入力
+- 音声認識
+- リアルタイム翻訳
+- TTS読み上げ
+- 参照音声を使った音声生成
+- 録音・文字起こし保存
+
+### 3.5 Nexus
+
+文書検索・調査支援モードです。
+
+用途:
+
+- PDFや文書のアップロード
+- テキスト抽出
+- ライブラリ検索
+- Web調査
+- Evidence整理
+- レポート生成
+- 成果物ダウンロード
+
+---
+
+## 4. 内部アーキテクチャ
+
+| コンポーネント | 役割 |
+|---|---|
+| FastAPI backend | API、SSE、ジョブ管理、モデル管理、ツール呼び出しを担当します |
+| Web UI | Chat / Task / Agent / Echo / Nexus / Models / Skills / Memory などの操作画面を提供します |
+| AgentLoop | 計画、実行、評価、再試行を統合するエージェント中核です |
+| Planner | 次に行うべき作業やアクションを計画します |
+| Executor | ツール呼び出し、ファイル操作、コマンド実行を行います |
+| Evaluator | 実行結果を評価し、成功・失敗・再試行の判断を行います |
+| ToolRegistry | Agentから呼び出せるツールを登録・管理します |
+| MemoryStore | SQLiteによる永続メモリを管理します |
+| SKILL system | `SKILL.md` ベースで追加ツールや手順を管理します |
+| ModelManager | llama-server、モデルDB、モデルロード、ロール割当を管理します |
+| Nexus | 文書投入、検索、Web調査、Evidence、レポート生成を担当します |
+| TTS runtimes | Qwen3-TTS / Style-Bert-VITS2 などの音声生成を担当します |
+| EchoVault | Echo関連の録音、文字起こし、成果物を保存します |
+
+---
+
+## 5. Agentツール一覧
+
+Agentモードでは、ToolRegistryに登録されたツールを使って作業します。
+
+### 5.1 基本ツール
+
+| ツール | 用途 |
+|---|---|
+| `read_file` | ファイルを読み込みます |
+| `write_file` | ファイルを書き込みます |
+| `apply_patch` | Git patch形式で変更を適用します |
+| `search_code` | プロジェクト内のコードやテキストを検索します |
+| `run_command` | プロジェクト内で任意コマンドを実行します |
+| `run_tests` | テストコマンドを実行します |
+| `get_error_trace` | 直近の失敗情報やエラートレースを取得します |
+
+### 5.2 Nexus連携ツール
+
+| ツール | 用途 |
+|---|---|
+| `nexus_search_library` | Nexusライブラリ内の文書を検索します |
+| `nexus_web_search` | NexusのWeb検索機能を使います |
+| `nexus_build_report` | Evidenceや検索結果からレポートを生成します |
+| `nexus_build_report_legacy` | 旧形式のNexusレポート生成を実行します |
+| `nexus_upload_document` | Nexusへ文書をアップロードします |
+| `nexus_news_scan` | ニュース調査を実行します |
+| `nexus_market_research` | マーケット調査を実行します |
+| `nexus_export_bundle` | Nexus成果物をバンドル出力します |
+
+---
+
+## 6. 機能詳細
+
+## 6.1 チャット機能
+
+Chatでは、ローカルLLMと通常の会話ができます。
+
+主な機能:
+
+- OpenAI互換の `/v1/chat/completions` エンドポイントを持つLLMサーバーと接続
+- llama.cpp / llama-server との連携
+- ストリーミング表示
+- Markdown表示
+- Web検索設定が有効な場合の検索利用
+- プロジェクト文脈を使った相談
+
+---
+
+## 6.2 タスク実行機能
+
+Taskでは、指定したプロジェクトに対して開発タスクを実行します。
+
+主な機能:
+
+- ファイル読み取り
+- ファイル書き込み
+- パッチ適用
+- コード検索
+- コマンド実行
+- テスト実行
+- エラー解析
+- 再試行
+- 実行ログ表示
+- プレビュー表示
+
+---
+
+## 6.3 Agent機能
+
+Agentは、Planner / Executor / Evaluator を使って自律的に作業します。
+
+基本フロー:
+
+```text
+User Request
+  ↓
+Context Builder
+  ↓
+Planner
+  ↓
+Tool Action
+  ↓
+Executor
+  ↓
+Evaluator
+  ↓
+Retry / Finish / Clarify
 ```
 
-バックエンド (Vulkan / HIP / CUDA) を選択。GPUドライバに合わせてください。
+想定用途:
 
-### 2. モデルのダウンロード
+- UI修正
+- API追加
+- バグ修正
+- ログからの原因特定
+- テスト失敗の修正
+- 小規模なリファクタリング
+- READMEや仕様書の整備
 
-GGUF形式モデルを用意し、`start.bat` 内のモデルパスを編集。
+---
 
-UIからのDLにも対応:
-- Modelsタブでキーワード検索（downloads順 / 最新更新順）
-- NVIDIAだけでなく **AMD Radeon (ROCm環境)** でも検索自体は可能（検索はHF API呼び出し）。VRAM取得は `rocm-smi` を優先対応
-- LLMルートフォルダへ直接ダウンロード
-- カタログからのダウンロード成功後はバックグラウンドでベンチマークを自動実行し、結果をモデルDBへ反映
-- **Runpod(Ubuntu)** では既定保存先 `/workspace/LLMs`
-- それ以外では既定保存先 `C:\LLMs`（必要に応じて任意フォルダへ変更可）
+## 6.4 モデル管理
+
+CodeAgent Personal は、llama.cpp の `llama-server` を利用してローカルLLMを呼び出します。
+
+主な機能:
+
+- llama-server の自動検出
+- `LLAMA_SERVER_PATH` による明示指定
+- 起動時のモデルDB確認
+- モデルの自動ロード要求
+- OpenAI互換APIへの接続
+- Planner / Executor / Chat / Light などの用途別LLM URL
+- GGUFモデル管理
+- VRAM使用量確認
+- VLM / Vision用途のモデル管理
+
+主なLLM URL:
+
+| 変数 | 用途 |
+|---|---|
+| `LLM_URL` | 既定のLLM API URL |
+| `CODEAGENT_LLM_PLANNER` | Planner用LLM |
+| `CODEAGENT_LLM_EXECUTOR` | Executor用LLM |
+| `CODEAGENT_LLM_CHAT` | Chat用LLM |
+| `CODEAGENT_LLM_LIGHT` | 軽量処理用LLM |
+| `CODEAGENT_LLM_MODE` | LLM実行モード |
+
+既定では、ローカルの以下に接続します。
+
+```text
+http://127.0.0.1:8080/v1/chat/completions
+```
+
+---
+
+## 6.5 Memory
+
+Memoryは、タスクやエラーから得た知識を永続化する仕組みです。
+
+保存先:
+
+```text
+ca_data/memory.db
+```
+
+想定されるメモリ種別:
+
+| 種別 | 内容 |
+|---|---|
+| `error_solution` | エラーと解決策 |
+| `env_knowledge` | 環境固有の知識 |
+| `workflow` | 作業手順 |
+| `general` | その他の知識 |
+
+用途:
+
+- 過去のエラー解決策を再利用
+- 環境固有の注意点を保持
+- タスク実行時に関連メモリを文脈として利用
+- UIから検索・編集・削除
+
+---
+
+## 6.6 SKILL
+
+SKILLは、`SKILL.md` によってCodeAgentの能力を拡張する仕組みです。
+
+保存先:
+
+```text
+ca_data/skills/
+```
+
+Runpod既定:
+
+```text
+/workspace/ca_data/skills/
+```
+
+環境変数で上書きできます。
+
+```text
+CODEAGENT_SKILLS_DIR=/path/to/skills
+```
+
+基本構成:
+
+```text
+ca_data/skills/
+└─ sample_skill/
+   └─ SKILL.md
+```
+
+`SKILL.md` の例:
+
+```md
+# Sample Skill
+
+## Purpose
+
+このスキルは、特定のログ形式を解析するための手順を提供します。
+
+## When to use
+
+- サーバーログを解析するとき
+- エラー原因を分類するとき
+
+## Steps
+
+1. ログ全体を読む
+2. ERROR / WARN / Traceback を抽出する
+3. 発生時刻順に整理する
+4. 原因候補と修正案を提示する
+```
+
+---
+
+## 6.7 Nexus
+
+Nexusは、文書投入、検索、Web調査、レポート生成を扱う調査支援機能です。
+
+主な機能:
+
+- 文書アップロード
+- テキスト抽出
+- チャンク化
+- ライブラリ検索
+- Evidence生成
+- Web検索
+- ニュース調査
+- マーケット調査
+- レポート生成
+- バンドル出力
+- 成果物ダウンロード
+
+Nexusの永続化先:
+
+```text
+ca_data/nexus/
+├─ nexus.db
+├─ uploads/
+├─ extracted/
+├─ reports/
+└─ exports/
+```
+
+### Nexusの基本フロー
+
+```text
+Upload
+  ↓
+Extract
+  ↓
+Search
+  ↓
+Evidence
+  ↓
+Report
+  ↓
+Download / Export
+```
+
+---
+
+## 6.8 Echo / ASR / TTS
+
+Echoは、音声を扱うモードです。
+
+主な機能:
+
+- マイク録音
+- 音声認識
+- LLM翻訳
+- TTS読み上げ
+- 録音・文字起こし保存
+- 参照音声アップロード
+- TTSエンジン切替
+
+Echo関連データ保存先:
+
+```text
+ca_data/EchoVault/
+```
+
+アップロード音声の既定上限:
+
+```text
+ECHO_UPLOAD_MAX_BYTES=104857600
+```
+
+対応候補フォーマット:
+
+```text
+wav, mp3, m4a, webm, ogg, flac
+```
+
+---
+
+## 6.9 TTS
+
+TTSは、複数の音声生成ランタイムを扱います。
+
+確認されている主な連携:
+
+- Qwen3-TTS
+- Style-Bert-VITS2
+
+Style-Bert-VITS2 のモデル保存先は、Runpodでは以下が既定です。
+
+```text
+/workspace/ca_data/tts/style_bert_vits2/models
+```
+
+環境変数で指定できます。
+
+```text
+CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR=/path/to/models
+```
+
+TTS機能はモデルサイズ、依存ライブラリ、GPU環境の影響を強く受けるため、環境ごとの検証が必要です。
+
+---
+
+## 7. ディレクトリ構成
+
+主要構成は以下です。
+
+```text
+CodeAgentPersonal/
+├─ main.py                         # FastAPI backend
+├─ agent/                          # AgentLoop, Planner, Executor, Evaluator, Tools
+│  ├─ loop.py
+│  ├─ planner.py
+│  ├─ executor.py
+│  ├─ evaluator.py
+│  ├─ memory.py
+│  └─ tools/
+│     ├─ builtin.py
+│     ├─ nexus_tools.py
+│     └─ registry.py
+├─ app/
+│  ├─ nexus/                       # Nexus document/search/report features
+│  └─ tts/                         # TTS runtimes
+├─ ui/                             # Web UI
+├─ assets/                         # UI assets
+├─ scripts/
+│  ├─ start_codeagent.py           # Cross-platform launcher
+│  ├─ runpod_start.sh              # Runpod startup script
+│  └─ setup_llama_runpod.sh        # Runpod llama.cpp setup
+├─ ca_data/                        # Persistent data
+│  ├─ memory.db
+│  ├─ model_db.db
+│  ├─ skills/
+│  ├─ workspace/
+│  ├─ EchoVault/
+│  └─ nexus/
+├─ .codeagent/                     # Credentials and local private data
+├─ start.bat                       # Windows launcher
+├─ requirements.txt
+└─ README.md
+```
+
+---
+
+## 8. 必要環境
+
+| 項目 | 推奨 / 必須 |
+|---|---|
+| OS | Windows 10/11, Linux, Runpod |
+| Python | 3.11推奨 |
+| FastAPI | `requirements.txt` から導入 |
+| llama.cpp | `llama-server` が必要 |
+| Docker | サンドボックス実行や一部機能で使用 |
+| Git | patch適用、履歴管理、開発作業に必要 |
+| RAM | 32GB以上推奨 |
+| VRAM | 16GB以上推奨 |
+| GPU | NVIDIA CUDA / AMD Vulkan / CPU fallback など環境に応じて利用 |
+| Node.js | Node系プロジェクトやUIビルドで必要になる場合あり |
+
+最小依存は `requirements.txt` に定義されています。
+
+```text
+fastapi
+python-multipart
+uvicorn
+websockets
+requests
+pydantic
+psutil
+faster-whisper
+```
+
+TTS関連は依存衝突を避けるため、別requirementsに分離されている場合があります。
+
+---
+
+## 9. セットアップ
+
+## 9.1 Windows ローカル
+
+### 1. リポジトリを取得
+
+```bat
+git clone https://github.com/souten-yd/CodeAgentPersonal.git
+cd CodeAgentPersonal
+```
+
+### 2. llama-server を準備
+
+`llama-server` を配置するか、環境変数で指定します。
+
+```bat
+set LLAMA_SERVER_PATH=C:\path\to\llama-server.exe
+```
+
+未指定の場合、ランチャーは以下を探索します。
+
+```text
+./llama/llama-server.exe
+./llama/llama-server
+./llama/bin/llama-server
+```
 
 ### 3. 起動
-
-Windows:
 
 ```bat
 start.bat
 ```
 
-ローカル初回起動時は、ランチャーが自動でリポジトリ直下に `venv_sys/`（システム用Python仮想環境）を作成し、`requirements.txt` の依存導入を試行します（`requirements.txt` が無い場合は最小構成を自動生成）。  
-2回目以降は `venv_sys/` の存在を確認して再利用し、その `python` で `uvicorn main:app` を起動します（毎回再作成しません）。
+`start.bat` は `scripts/start_codeagent.py` を呼び出す薄いラッパーです。
 
-`CODEAGENT_SYS_VENV_DIR` を指定すると、`venv_sys` の配置先を変更できます。ローカルで Docker 実行する各ツール（`run_python`/`run_file`/`run_server`/`run_browser`/`run_npm`/`run_node`）はこの system venv を read-only マウントして起動します。
+初回起動時、ローカル環境では `venv_sys/` が作成され、`requirements.txt` の依存がインストールされます。
 
-Runpod / Linux (自動起動コマンドにもそのまま利用可):
+### 4. ブラウザで開く
+
+```text
+http://localhost:8000
+```
+
+LAN内の別端末からアクセスする場合は、起動ログに表示されるLAN IPを使用します。
+
+---
+
+## 9.2 Linux / Runpod
+
+### 通常起動
 
 ```bash
 python scripts/start_codeagent.py
 ```
 
-Runpodで「起動後に `docker.io` を自動導入」したい場合は、以下の起動スクリプトを使ってください（既定で有効）。
+### Runpod用起動
 
 ```bash
 bash scripts/runpod_start.sh
 ```
 
-- `RUNPOD_AUTO_INSTALL_DOCKER=true` (既定): `docker` が見つからない場合に `apt-get install docker.io` を実行
-- `RUNPOD_AUTO_INSTALL_DOCKER=false`: Docker自動導入を無効化
-- `RUNPOD_AUTO_SETUP_LLAMA=true` (既定): `llama-server` 不在時に `scripts/setup_llama_runpod.sh` で `ai-dock/llama.cpp-cuda` の **latest prebuilt** を取得し `/workspace/llama` へ配置
-- `RUNPOD_AUTO_SETUP_LLAMA=false`: llama.cpp セットアップをスキップ
-- `RUNPOD_BOOTSTRAP_VENV=/workspace/.venvs/codeagent-bootstrap` (既定): Runpod起動時に利用する専用venv
-- `RUNPOD_BOOTSTRAP_PYTHON` (既定: `python3.11` 優先、なければ `python3`): 起動時venv作成に使うPython実行ファイルを明示
-- `CODEAGENT_RUNTIME=runpod` : Runpod判定を明示したい場合の強制フラグ（`/workspace` が存在する場合のみ有効）
-- 既定のRunpod判定は `RUNPOD_POD_ID` / `RUNPOD_API_KEY` **かつ** `/workspace` 存在で判定
-- Runpodでは `CODEAGENT_CA_DATA_DIR=/workspace/ca_data` が既定（`ca_data` をworkspaceへ永続保持）
-- プロジェクトフォルダは既定で `CODEAGENT_WORK_DIR=/workspace/ca_data/workspace` を使用（`/workspace`配下で保持）
-- スキル保存先は既定で `CODEAGENT_SKILLS_DIR=<CODEAGENT_CA_DATA_DIR>/skills`（Runpod既定は `/workspace/ca_data/skills`）
-- Runpod環境の `run_python` / `run_file` はプロジェクト配下 `.venv` を利用（`setup_venv` で作成）
+Runpodでは、既定で以下のような永続パスを使用します。
 
-> `start.bat` は Python ランチャー (`scripts/start_codeagent.py`) を呼ぶ薄いラッパーです。  
-> 起動ロジックを Python に共通化したため、Runpod の起動コマンドへ同じランチャーを指定できます。
+```text
+/workspace/ca_data
+/workspace/ca_data/workspace
+/workspace/ca_data/skills
+/workspace/LLMs
+/workspace/llama
+```
 
-`http://localhost:8000` を開いてください。
+Runpodでの主な既定値:
+
+| 項目 | 既定値 |
+|---|---|
+| `CODEAGENT_CA_DATA_DIR` | `/workspace/ca_data` |
+| `CODEAGENT_WORK_DIR` | `/workspace/ca_data/workspace` |
+| `CODEAGENT_SKILLS_DIR` | `/workspace/ca_data/skills` |
+| llama root | `/workspace/llama` |
+| FastAPI port | `8000` |
+| llama-server port | `8080` |
 
 ---
 
-## Nexus
+## 10. 起動コマンド
 
-Nexus は、ドキュメント投入から検索・レポート生成・成果物ダウンロードまでを一連で扱う調査支援ワークフローです。
+### Windows
 
-### 起動手順
+```bat
+start.bat
+```
 
-1. CodeAgent 本体を起動（Windows: `start.bat` / Linux・Runpod: `python scripts/start_codeagent.py`）。
-2. 必要に応じて下記 Nexus 環境変数を設定（`.env` または実行環境の `export` / `set`）。
-3. UI を開き、Nexus 画面で `Upload → Job → Search → Report → Download` の順で操作。
+### Linux / Runpod
 
-### 主要 API（実装状況）
+```bash
+python scripts/start_codeagent.py
+```
 
-| API | 状態 | 用途 |
+### オプション付き起動
+
+```bash
+python scripts/start_codeagent.py --host 0.0.0.0 --port 8000 --primary-port 8080
+```
+
+| オプション | 既定値 | 説明 |
 |---|---|---|
-| `POST /nexus/upload` | ✅ Implemented | ファイルをアップロードし、抽出ジョブを開始（レスポンスに `job_id` を含む） |
-| `GET /nexus/jobs/{job_id}` | ✅ Implemented | ジョブ状態（`queued/running/completed/failed`）を取得 |
-| `POST /nexus/search` | ✅ Implemented | ライブラリ内チャンクを検索（必要に応じて evidence 形式も返却） |
-| `POST /nexus/report/build` | ✅ Implemented | `job_id` に紐づく証跡からレポートを生成 |
-| `GET /nexus/download/bundle/{job_id}` | ✅ Implemented | レポート・証跡・関連ドキュメントをZIPでダウンロード |
-| `GET /nexus/download/report/{report_id}` | ✅ Implemented | 生成済みレポート（Markdown）をダウンロード |
-| `GET /nexus/download/evidence/{job_id}` | ✅ Implemented | 証跡JSONをダウンロード |
-| `GET /nexus/download/document/{document_id}` | ✅ Implemented | 元ドキュメントファイルをダウンロード |
-| `POST /nexus/job` | 🟡 Planned | 将来API（現行は未実装）。ジョブ状態確認は `GET /nexus/jobs/{job_id}` を利用 |
-| `POST /nexus/report` | 🟡 Planned | 将来API（現行は未実装）。レポート生成は `POST /nexus/report/build` を利用 |
-| `GET /nexus/download/{job_id}` | 🟡 Planned | 将来API（現行は未実装）。ダウンロードは `/nexus/download/*` 系を利用 |
+| `--host` | `0.0.0.0` | FastAPIのホスト |
+| `--port` | `8000` | FastAPIのポート |
+| `--primary-port` | `8080` | llama-serverのポート |
+| `--api-timeout` | `120` | FastAPI起動待ち秒数 |
+| `--llm-timeout` | `180` | LLM起動待ち秒数 |
 
-### UI 操作手順（Upload→Job→Search→Report→Download）
+---
 
-1. **Upload**: 対象ファイルをアップロード（既定上限は `NEXUS_MAX_UPLOAD_MB=200` MB）。
-2. **Job**: Upload で返る `job_id` を使って `GET /nexus/jobs/{job_id}` を確認し、ステータスが `running/completed` になるまで待機。
-3. **Search**: 必要なクエリを実行。Web 検索は `NEXUS_ENABLE_WEB` とプロバイダ設定に従って動作。
-4. **Report**: 収集結果をもとに要約・引用付きのレポートを生成。
-5. **Download**: 完成した成果物を `Download` から取得。
+## 11. 基本的な使い方
 
-### 推奨 Web 検索設定（Nexus）
+## 11.1 Chatを使う
 
-- **推奨プロバイダ:** `NEXUS_WEB_SEARCH_PROVIDER=searxng`
-- **推奨方針:** DuckDuckGo を直接呼ぶのではなく、**SearXNG の内部エンジンとして DuckDuckGo を利用**する構成を推奨。
-- **MCP 連携は必須ではありません。** まずは **SearXNG HTTP API を直接利用**するシンプル構成（`/search`）から始めるのが推奨です。
+1. Web UIを開く
+2. Chat入力欄に質問を入力
+3. 必要に応じてモデルや検索設定を変更
+4. 回答を確認
 
-### Runpod専用: WebSearch（SearXNG）
+用途例:
 
-- **Runpod では `docker-compose` / Docker daemon 前提にしない**運用を推奨します。
-- Nexus の Web 検索は、Runpod では **ローカル HTTP (`127.0.0.1`) の SearXNG** を優先設定してください。
-
-#### Runpod標準値（未設定時のみ適用）
-
-```bash
-AUTO_START_SEARXNG=true
-NEXUS_WEB_SEARCH_PROVIDER=searxng
-NEXUS_SEARXNG_URL=http://127.0.0.1:8088
-NEXUS_SEARCH_FREE_ONLY=true
-NEXUS_SEARCH_PAID_PROVIDERS_ENABLED=false
-SEARXNG_PORT=8088
-SEARXNG_BIND_ADDRESS=127.0.0.1
+```text
+このエラーの原因を説明して
+この関数をリファクタリングして
+この設計の問題点を教えて
 ```
 
-#### 起動例（Runpod）
+---
 
-```bash
-export AUTO_START_SEARXNG="${AUTO_START_SEARXNG:-true}"
-export NEXUS_WEB_SEARCH_PROVIDER="${NEXUS_WEB_SEARCH_PROVIDER:-searxng}"
-export NEXUS_SEARXNG_URL="${NEXUS_SEARXNG_URL:-http://127.0.0.1:8088}"
-export NEXUS_SEARCH_FREE_ONLY="${NEXUS_SEARCH_FREE_ONLY:-true}"
-export NEXUS_SEARCH_PAID_PROVIDERS_ENABLED="${NEXUS_SEARCH_PAID_PROVIDERS_ENABLED:-false}"
-export SEARXNG_PORT="${SEARXNG_PORT:-8088}"
-export SEARXNG_BIND_ADDRESS="${SEARXNG_BIND_ADDRESS:-127.0.0.1}"
-bash scripts/runpod_start.sh
+## 11.2 Task / Agentを使う
+
+1. プロジェクトを選択
+2. 入力欄に実行したいタスクを書く
+3. TaskまたはAgentを実行
+4. Output / Log / Preview / Git / Memory を確認
+5. 失敗時はログを見て再実行、またはAgentに修正を依頼
+
+タスク例:
+
+```text
+Echo画面の録音ボタンが再度押さないと録音待機に戻らない問題を修正してください。
+原因を特定し、必要なUI状態管理とAPI処理を修正してください。
 ```
 
-#### 確認コマンド
+---
+
+## 11.3 Modelsを使う
+
+1. Models画面を開く
+2. GGUFモデルを検索
+3. モデルをダウンロードまたは既存パスを登録
+4. ロールを割り当てる
+5. 必要に応じてモデルをロード
+
+主なロール:
+
+| ロール | 用途 |
+|---|---|
+| `plan` | 計画作成 |
+| `chat` | 通常会話 |
+| `search` | 検索・調査 |
+| `verify` | 検証 |
+| `code` | コーディング |
+| `complex` | 複雑な実装 |
+| `reason` | 推論 |
+| `multi` | VLM / 画像認識 |
+| `translate` | 翻訳 |
+
+---
+
+## 11.4 Memoryを使う
+
+Memory画面では、永続メモリを確認・編集できます。
+
+用途:
+
+- 過去のエラー解決策の確認
+- 環境固有の注意点の保存
+- よく使う作業手順の保存
+- 不要なメモリの削除
+
+---
+
+## 11.5 SKILLを追加する
+
+1. `ca_data/skills/` にスキル用ディレクトリを作成
+2. `SKILL.md` を作成
+3. CodeAgentを起動またはホットリロードを待つ
+4. Agentが必要に応じて参照
+
+例:
+
+```text
+ca_data/skills/log_analysis/SKILL.md
+```
+
+---
+
+## 11.6 Echoを使う
+
+1. Echo画面を開く
+2. マイク入力を開始
+3. 音声認識結果を確認
+4. 翻訳または応答生成
+5. TTS読み上げ
+6. EchoVaultに保存された録音や文字起こしを確認
+
+---
+
+## 11.7 Nexusを使う
+
+1. Nexus画面を開く
+2. 文書をUpload
+3. Job状態を確認
+4. Searchで検索
+5. Evidenceを確認
+6. Reportを生成
+7. BundleまたはReportをDownload
+
+---
+
+## 12. 主要API
+
+FastAPI backend は `main.py` と `app/nexus/` 以下でAPIを提供します。
+
+以下は主要APIです。細かい内部APIは実装を確認してください。
+
+---
+
+## 12.1 System / Health
+
+| Method | Path | 用途 |
+|---|---|---|
+| `GET` | `/health` | FastAPIの疎通確認 |
+| `GET` | `/system/summary` | CPU / RAM / GPU / VRAM などのシステム概要取得 |
+
+---
+
+## 12.2 Models
+
+| Method | Path | 用途 |
+|---|---|---|
+| `GET` | `/models/db/status` | モデルDBの状態確認 |
+| `POST` | `/model/auto-load` | 既定モデルの自動ロード要求 |
+| `GET` | `/models/...` | モデル一覧、検索、設定取得系 |
+| `POST` | `/models/...` | モデル登録、更新、ダウンロード系 |
+
+実際のモデルAPIは変更される可能性があるため、`main.py` の route 定義を確認してください。
+
+---
+
+## 12.3 Nexus
+
+Nexusは `app.include_router(nexus_router, prefix="/nexus")` で `/nexus` 以下に登録されています。
+
+### Health / Summary
+
+| Method | Path | 用途 |
+|---|---|---|
+| `GET` | `/nexus/health` | Nexus疎通確認 |
+| `GET` | `/nexus/summary` | Nexusサマリー取得 |
+| `GET` | `/nexus/dashboard/summary` | Dashboard用サマリー取得 |
+
+### Documents
+
+| Method | Path | 用途 |
+|---|---|---|
+| `GET` | `/nexus/documents` | 文書一覧取得 |
+| `GET` | `/nexus/library/documents` | ライブラリ文書一覧取得 |
+| `GET` | `/nexus/documents/{document_id}` | 文書詳細取得 |
+| `DELETE` | `/nexus/documents/{document_id}` | 文書削除 |
+| `DELETE` | `/nexus/library/documents/{document_id}` | ライブラリ文書削除 |
+| `GET` | `/nexus/library/documents/{document_id}/download` | 元文書ダウンロード |
+| `GET` | `/nexus/library/documents/{document_id}/download/text` | 抽出テキストダウンロード |
+| `GET` | `/nexus/library/documents/{document_id}/download/markdown` | 抽出Markdownダウンロード |
+
+### Jobs / Evidence
+
+| Method | Path | 用途 |
+|---|---|---|
+| `GET` | `/nexus/jobs/active` | アクティブジョブ一覧 |
+| `GET` | `/nexus/jobs/{job_id}` | ジョブ状態取得 |
+| `GET` | `/nexus/jobs/{job_id}/events` | ジョブイベント取得 |
+| `GET` | `/nexus/evidence` | Evidence一覧取得 |
+
+### Upload / Search
+
+| Method | Path | 用途 |
+|---|---|---|
+| `POST` | `/nexus/upload` | 文書アップロード |
+| `POST` | `/nexus/search` | Nexusライブラリ検索 |
+| `POST` | `/nexus/ask` | 検索結果をもとに簡易回答 |
+
+### Web Search / Research
+
+| Method | Path | 用途 |
+|---|---|---|
+| `POST` | `/nexus/web/search` | Web検索 |
+| `GET` | `/nexus/web/status` | Web検索プロバイダ状態 |
+| `POST` | `/nexus/web/research` | Web調査ジョブ開始 |
+| `POST` | `/nexus/web/collect` | Webソース収集 |
+
+### Research Jobs
+
+| Method | Path | 用途 |
+|---|---|---|
+| `POST` | `/nexus/research/run` | Researchジョブ開始 |
+| `GET` | `/nexus/research/jobs/{job_id}` | Researchジョブ状態 |
+| `GET` | `/nexus/research/jobs/{job_id}/events` | Researchイベント |
+| `GET` | `/nexus/research/jobs/{job_id}/answer` | Research回答取得 |
+| `GET` | `/nexus/research/jobs/{job_id}/sources` | ソース一覧取得 |
+| `GET` | `/nexus/research/jobs/{job_id}/evidence` | Evidence取得 |
+| `GET` | `/nexus/research/jobs/{job_id}/bundle` | Research結果バンドル取得 |
+
+### Sources
+
+| Method | Path | 用途 |
+|---|---|---|
+| `GET` | `/nexus/sources/{source_id}` | ソース詳細取得 |
+| `GET` | `/nexus/sources/{source_id}/text` | ソース本文取得 |
+| `GET` | `/nexus/sources/{source_id}/markdown` | Markdown取得 |
+| `GET` | `/nexus/sources/{source_id}/original` | 元ソース取得 |
+| `GET` | `/nexus/sources/{source_id}/chunks` | チャンク取得 |
+
+### News / Market
+
+| Method | Path | 用途 |
+|---|---|---|
+| `POST` | `/nexus/news/search` | ニュース検索 |
+| `POST` | `/nexus/news/scan` | ニューススキャン |
+| `POST` | `/nexus/news/mvp` | ニュースMVP調査 |
+| `POST` | `/nexus/market/research` | マーケット調査 |
+| `POST` | `/nexus/market/compare` | マーケット比較 |
+| `POST` | `/nexus/market/mvp` | マーケットMVP調査 |
+| `GET` | `/nexus/news/watchlists` | Watchlist一覧 |
+| `GET` | `/nexus/news/watchlists/{watchlist_id}` | Watchlist詳細 |
+
+---
+
+## 12.4 Echo / TTS
+
+Echo / TTS APIは `main.py` と `app/tts/` の実装を参照してください。
+
+主な用途:
+
+| 分類 | 用途 |
+|---|---|
+| Echo状態取得 | 録音・認識・TTS状態の取得 |
+| 音声アップロード | 参照音声や入力音声のアップロード |
+| ASR | 音声認識 |
+| TTS | 音声生成 |
+| Style-Bert-VITS2 | モデル一覧、音声生成、インポート |
+| Qwen3-TTS | Qwen3-TTSランタイムによる音声生成 |
+
+---
+
+## 13. 環境変数
+
+## 13.1 Core
+
+| 変数名 | 既定値 | 用途 |
+|---|---|---|
+| `LLM_URL` | `http://localhost:8080/v1/chat/completions` | 既定LLM URL |
+| `CODEAGENT_LLM_PLANNER` | `LLM_URL` | Planner用LLM |
+| `CODEAGENT_LLM_EXECUTOR` | `LLM_URL` | Executor用LLM |
+| `CODEAGENT_LLM_CHAT` | `LLM_URL` | Chat用LLM |
+| `CODEAGENT_LLM_LIGHT` | `LLM_URL` | 軽量処理用LLM |
+| `CODEAGENT_LLM_MODE` | `single` または launcher指定値 | LLM実行モード |
+| `LLAMA_SERVER_PATH` | 自動検出 | llama-serverのパス |
+| `LLAMA_ROOT_DIR` | ローカル `./llama` / Runpod `/workspace/llama` | llama.cpp配置先 |
+| `CODEAGENT_RUNTIME` | 自動判定 | `runpod`, `local`, `docker` などの実行環境指定 |
+| `CODEAGENT_CA_DATA_DIR` | ローカル `./ca_data` / Runpod `/workspace/ca_data` | 永続データ保存先 |
+| `CODEAGENT_WORK_DIR` | `ca_data/workspace` | プロジェクト作業ディレクトリ |
+| `CODEAGENT_SKILLS_DIR` | `ca_data/skills` | SKILL保存先 |
+| `CODEAGENT_MODEL_DB_PATH` | `ca_data/model_db.db` | モデルDBパス |
+| `CODEAGENT_SYS_VENV_DIR` | `venv_sys` | ローカル起動用system venv |
+| `CODEAGENT_TEST_CMD` | 自動推定 | `run_tests` の既定コマンド |
+
+---
+
+## 13.2 Runpod
+
+| 変数名 | 既定値 | 用途 |
+|---|---|---|
+| `RUNPOD_POD_ID` | Runpod側で設定 | Runpod判定 |
+| `RUNPOD_API_KEY` | Runpod側で設定 | Runpod判定 |
+| `RUNPOD_AUTO_SETUP_LLAMA` | `true` | llama-serverがない場合に自動セットアップ |
+| `RUNPOD_AUTO_INSTALL_DOCKER` | `true` 想定 | Docker自動導入 |
+| `RUNPOD_BOOTSTRAP_VENV` | `/workspace/.venvs/codeagent-bootstrap` 想定 | Runpod起動用venv |
+| `RUNPOD_BOOTSTRAP_PYTHON` | `python3.11` 優先 | 起動venv作成に使うPython |
+
+---
+
+## 13.3 Nexus
+
+| 変数名 | 既定値 | 用途 |
+|---|---|---|
+| `NEXUS_ENABLE_WEB` | `true` | Web検索有効化 |
+| `NEXUS_ENABLE_NEWS` | `true` | ニュース機能有効化 |
+| `NEXUS_ENABLE_MARKET` | `true` | マーケット機能有効化 |
+| `NEXUS_WEB_SEARCH_PROVIDER` | `searxng` | Web検索プロバイダ |
+| `NEXUS_SEARXNG_URL` | Runpod: `http://127.0.0.1:8088` / 非Runpod: `http://searxng:8080` | SearXNG URL |
+| `NEXUS_SEARCH_FALLBACK_PROVIDERS` | `searxng` | 検索フォールバック |
+| `NEXUS_SEARCH_FREE_ONLY` | `true` | 無料プロバイダのみ許可 |
+| `NEXUS_SEARCH_PAID_PROVIDERS_ENABLED` | `false` | 有料/クォータ制プロバイダ許可 |
+| `NEXUS_SEARCH_PROVIDER_COOLDOWN_SEC` | `3600` | プロバイダ再試行クールダウン |
+| `BRAVE_SEARCH_API_KEY` | 空 | Brave Search利用時のAPIキー |
+| `NEXUS_MAX_UPLOAD_MB` | `200` | 最大アップロードサイズ |
+| `NEXUS_MAX_DOWNLOAD_MB` | `20` | 1ファイル最大ダウンロードサイズ |
+| `NEXUS_MAX_TOTAL_DOWNLOAD_MB` | `100` | 合計最大ダウンロードサイズ |
+| `NEXUS_MAX_DOWNLOADS` | `20` | 最大ダウンロード数 |
+| `NEXUS_DOWNLOAD_TIMEOUT_SEC` | `15` | ダウンロードタイムアウト |
+
+---
+
+## 13.4 Echo / TTS
+
+| 変数名 | 既定値 | 用途 |
+|---|---|---|
+| `ECHO_UPLOAD_MAX_BYTES` | `104857600` | Echo音声アップロード上限 |
+| `CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR` | Runpod: `/workspace/ca_data/tts/style_bert_vits2/models` | Style-Bert-VITS2モデル保存先 |
+
+TTS関連は依存とモデルサイズの影響が大きいため、実行環境ごとの設定確認が必要です。
+
+---
+
+## 14. データ保存先
+
+| パス | 内容 |
+|---|---|
+| `ca_data/memory.db` | 永続メモリ |
+| `ca_data/model_db.db` | モデルDB |
+| `ca_data/skills/` | SKILL |
+| `ca_data/workspace/` | プロジェクト作業領域 |
+| `ca_data/EchoVault/` | Echoの録音・文字起こし・成果物 |
+| `ca_data/nexus/nexus.db` | Nexus DB |
+| `ca_data/nexus/uploads/` | Nexusアップロード文書 |
+| `ca_data/nexus/extracted/` | Nexus抽出テキスト |
+| `ca_data/nexus/reports/` | Nexusレポート |
+| `ca_data/nexus/exports/` | Nexusエクスポート |
+| `.codeagent/.credentials` | GitHubトークン等の機密情報 |
+| `venv_sys/` | ローカル起動用system venv |
+
+### Git管理の注意
+
+以下は通常Gitに含めないでください。
+
+```text
+ca_data/
+.codeagent/
+venv_sys/
+.venv/
+__pycache__/
+*.db
+```
+
+Runpod運用では `/workspace/ca_data` を永続化対象にしてください。
+
+---
+
+## 15. 開発者向け情報
+
+## 15.1 Backend起動
 
 ```bash
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+通常はランチャー経由を推奨します。
+
+```bash
+python scripts/start_codeagent.py
+```
+
+---
+
+## 15.2 UIを変更する
+
+主に以下を確認します。
+
+```text
+ui/
+ui.html
+assets/
+```
+
+起動時に `scripts/start_codeagent.py` が `ui.html` を `ui/index.html` にコピーする処理を持つため、UI更新時はコピー処理も考慮してください。
+
+---
+
+## 15.3 Agentツールを追加する
+
+主な場所:
+
+```text
+agent/tools/builtin.py
+agent/tools/nexus_tools.py
+agent/tools/registry.py
+```
+
+追加手順:
+
+1. `builtin.py` または専用ファイルに関数を追加
+2. 戻り値を dict 形式にする
+3. `registry.py` で `registry.register()` する
+4. Agentが呼び出せるようにプロンプト・ツール定義を更新する
+
+---
+
+## 15.4 Nexus APIを追加する
+
+主な場所:
+
+```text
+app/nexus/router.py
+app/nexus/
+```
+
+追加手順:
+
+1. `router.py` にエンドポイント追加
+2. 必要な処理を `app/nexus/` 以下の責務別モジュールに分離
+3. UI側から呼び出し
+4. READMEのAPI一覧を更新
+
+---
+
+## 15.5 TTSランタイムを追加する
+
+主な場所:
+
+```text
+app/tts/
+```
+
+確認対象:
+
+- `engine_registry`
+- `qwen3_tts_runtime`
+- `style_bert_vits2_runtime`
+- `style_bert_vits2_manager`
+- `style_bert_vits2_paths`
+
+追加時は依存衝突を避けるため、TTSごとにvenv分離する構成も検討してください。
+
+---
+
+## 16. トラブルシューティング
+
+## 16.1 FastAPIが起動しない
+
+確認:
+
+```bash
+python -m uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+確認ポイント:
+
+- Python 3.11を使っているか
+- `requirements.txt` が入っているか
+- ポート8000が使用中ではないか
+- `main.py` import時にTTS依存で落ちていないか
+
+---
+
+## 16.2 llama-serverに接続できない
+
+確認:
+
+```text
+http://127.0.0.1:8080/health
+```
+
+確認ポイント:
+
+- `LLAMA_SERVER_PATH` が正しいか
+- llama-serverが存在するか
+- モデルがロードできているか
+- ポート8080が空いているか
+- GPUメモリ不足になっていないか
+
+---
+
+## 16.3 モデルがロードできない
+
+確認ポイント:
+
+- GGUFファイルが壊れていないか
+- VRAMが足りているか
+- `--n-gpu-layers` が過大ではないか
+- Vulkan / CUDA / HIP のバックエンドが環境に合っているか
+- context size が大きすぎないか
+
+---
+
+## 16.4 Dockerが使えない
+
+確認:
+
+```bash
+docker ps
+```
+
+確認ポイント:
+
+- Docker Desktopが起動しているか
+- Linuxではdocker daemonが起動しているか
+- Runpodイメージにdockerが入っているか
+- 権限があるか
+
+---
+
+## 16.5 SKILLが反映されない
+
+確認ポイント:
+
+- `CODEAGENT_SKILLS_DIR` が正しいか
+- `SKILL.md` の配置が正しいか
+- ファイル名が `SKILL.md` になっているか
+- キャッシュやホットリロード待ちではないか
+
+---
+
+## 16.6 Memoryが効かない
+
+確認ポイント:
+
+- `ca_data/memory.db` が存在するか
+- `CODEAGENT_CA_DATA_DIR` が想定通りか
+- Runpodで `/workspace/ca_data` が永続化されているか
+- DBが破損していないか
+
+---
+
+## 16.7 Nexus検索が失敗する
+
+確認:
+
+```bash
+curl http://127.0.0.1:8000/nexus/health
 curl http://127.0.0.1:8000/nexus/web/status
 ```
 
-#### SearXNG 未起動時の挙動
+確認ポイント:
 
-- SearXNG に接続できない場合でも、Nexus 全体は **non-fatal（致命エラー化しない）** で継続します。
-- Web 検索結果は **stub 応答**または **fallback provider**（設定済みの場合）へ切り替わります。
-- UI では `/nexus/web/status` の状態に基づき、**接続不可（unavailable）** と判別できる表示になります。
-
-### 必須/重要環境変数
-
-| 変数名 | 役割 | 例 | 備考 |
-|---|---|---|---|
-| `NEXUS_MAX_UPLOAD_MB` | アップロード可能な最大サイズ（MB） | `200` | UI Upload 上限に反映 |
-| `NEXUS_ENABLE_WEB` | Web 検索機能の有効/無効 | `true` | `false` なら Web 検索をスキップ |
-| `NEXUS_WEB_SEARCH_PROVIDER` | プライマリ Web 検索プロバイダ | `searxng` | **推奨値は `searxng`** |
-| `NEXUS_SEARXNG_URL` | SearXNG ベース URL | `http://searxng:8080` | `/search` にアクセスできる URL。Runpod既定: `http://127.0.0.1:8088` / 非Runpod既定: `http://searxng:8080` |
-| `NEXUS_SEARCH_FALLBACK_PROVIDERS` | フォールバック候補（CSV） | `searxng,brave` | 先頭から順に評価 |
-| `NEXUS_SEARCH_FREE_ONLY` | 無料系 provider のみ許可 | `true` | `true` なら有償系を抑制 |
-| `NEXUS_SEARCH_PAID_PROVIDERS_ENABLED` | 有償 provider 許可フラグ | `false` | `false` なら Brave 等を抑制 |
-| `NEXUS_SEARCH_PROVIDER_COOLDOWN_SEC` | provider 再試行クールダウン秒 | `3600` | 最小 60 秒 |
-| `BRAVE_SEARCH_API_KEY` | Brave Search API キー | `BSA...` | Brave 利用時のみ必須 |
-| `NEXUS_ENABLE_NEWS` | ニュース検索の有効/無効 | `true` | `false` なら News 系処理を無効化 |
-| `NEXUS_ENABLE_MARKET` | マーケット情報検索の有効/無効 | `true` | `false` なら Market 系処理を無効化 |
-
-### 構成例
-
-#### 1) 無料優先（推奨・Runpod向け）
-
-```bash
-NEXUS_ENABLE_WEB=true
-NEXUS_WEB_SEARCH_PROVIDER=searxng
-NEXUS_SEARXNG_URL=http://127.0.0.1:8088
-NEXUS_SEARCH_FALLBACK_PROVIDERS=searxng
-NEXUS_SEARCH_FREE_ONLY=true
-NEXUS_SEARCH_PAID_PROVIDERS_ENABLED=false
-NEXUS_SEARCH_PROVIDER_COOLDOWN_SEC=3600
-```
-
-#### 2) 無料優先（推奨・通常環境向け）
-
-```bash
-NEXUS_ENABLE_WEB=true
-NEXUS_WEB_SEARCH_PROVIDER=searxng
-NEXUS_SEARXNG_URL=http://searxng:8080
-NEXUS_SEARCH_FALLBACK_PROVIDERS=searxng
-NEXUS_SEARCH_FREE_ONLY=true
-NEXUS_SEARCH_PAID_PROVIDERS_ENABLED=false
-NEXUS_SEARCH_PROVIDER_COOLDOWN_SEC=3600
-```
-
-#### 3) Brave 有効化（API キーあり）
-
-```bash
-NEXUS_ENABLE_WEB=true
-NEXUS_WEB_SEARCH_PROVIDER=brave
-NEXUS_SEARCH_FALLBACK_PROVIDERS=brave,searxng
-NEXUS_SEARCH_FREE_ONLY=false
-NEXUS_SEARCH_PAID_PROVIDERS_ENABLED=true
-NEXUS_SEARCH_PROVIDER_COOLDOWN_SEC=3600
-BRAVE_SEARCH_API_KEY=YOUR_BRAVE_KEY
-```
-
-#### 4) SearXNG + Brave フォールバック
-
-```bash
-NEXUS_ENABLE_WEB=true
-NEXUS_WEB_SEARCH_PROVIDER=searxng
-NEXUS_SEARXNG_URL=http://searxng:8080
-NEXUS_SEARCH_FALLBACK_PROVIDERS=searxng,brave
-NEXUS_SEARCH_FREE_ONLY=false
-NEXUS_SEARCH_PAID_PROVIDERS_ENABLED=true
-NEXUS_SEARCH_PROVIDER_COOLDOWN_SEC=3600
-BRAVE_SEARCH_API_KEY=YOUR_BRAVE_KEY
-```
-
-### `/nexus/web/status` で確認できる状態
-
-- **selected provider / active provider 判定**（`provider`, `active_provider`, `provider_status.kind`）
-- **fallback 設定**（`fallback_providers`）
-- **stub になり得る構成の判定補助**（`configured`, `provider_status.configured`, `message`）
-- **errors / 未設定の原因確認**（`provider_status.message`, `message`）
-
-#### 運用手順: `searxng_url` の確認
-
-1. ステータス API を実行:
-
-   ```bash
-   curl http://127.0.0.1:8000/nexus/web/status
-   ```
-
-2. レスポンス JSON の `searxng_url` を確認し、実行環境の既定値と一致しているかを確認:
-   - Runpod: `http://127.0.0.1:8088`
-   - 非Runpod: `http://searxng:8080`
-
-### Brave API キー未設定時の挙動
-
-- `BRAVE_SEARCH_API_KEY` が未設定でも Nexus 全体は**非致命（起動・ジョブ継続）**で動作します。
-- Brave を使う設定時は、実行結果が**スタブ応答**へフォールバックする場合があります。
-- そのため、Upload / Job / Report / Download の基本フローは継続可能です（Web 検索結果の品質のみ制限）。
-
-### 著作権配慮（運用ポリシー）
-
-- 取得した記事・Web ページは**全文転載を避ける**こと。
-- レポートには要点要約・短い引用・出典 URL を優先し、原文の大量複製を行わないこと。
-- 配布物（Report/Download）にも同方針を適用し、権利者の利用条件に従って運用してください。
+- `NEXUS_ENABLE_WEB=true` か
+- `NEXUS_WEB_SEARCH_PROVIDER` が正しいか
+- SearXNGが起動しているか
+- `NEXUS_SEARXNG_URL` が正しいか
+- Braveを使う場合は `BRAVE_SEARCH_API_KEY` が設定されているか
 
 ---
 
-## ポート要件
+## 16.8 Echoで録音できない
 
-**ユーザーが外部に公開する必要があるポートは 8000 番のみです。**
+確認ポイント:
 
-| ポート | 用途 | 公開要否 |
-|---|---|---|
-| **8000** | CodeAgent Web UI + API | ✅ 外部公開（Runpod HTTP ポートに設定） |
-| 8888 | `run_server` ツール（Docker内） | ❌ Docker内部のみ（公開不要） |
-
-Runpod では **HTTP Service のポートを 8000** に設定するだけで利用できます。
-
-### 依存が不足する場合（`fastapi` 未導入など）
-
-```bash
-python -m pip install -r requirements.txt
-python scripts/check_environment.py
-```
-
-企業/クラウド環境でPyPIへの直接アクセスが制限される場合は、ミラーを指定してください。
-
-```bash
-PIP_INDEX_URL=https://<your-mirror>/simple python -m pip install -r requirements.txt
-```
-
-### Qwen3-TTS 依存（コア依存と分離）
-
-`requirements.txt` には Qwen3-TTS 依存を直接固定していません。  
-既存 FastAPI/WebUI との衝突を避けるため、TTS は次の2段階で導入します。
-
-```bash
-# GPU環境（CUDA 12.8, Docker / ローカル共通）
-# 1) torch/torchaudio/torchvision を cu128 index から固定導入
-python -m pip install -r requirements-tts.txt --index-url https://download.pytorch.org/whl/cu128
-# 2) Qwen3-TTS 関連（qwen-tts, transformers 等）を分離導入
-python -m pip install -r requirements-tts-qwen.txt
-```
-
-補足:
-- Dockerビルド時は cu128 index で `requirements-tts.txt` を導入後、`requirements-tts-qwen.txt` を導入します。
-- `pip check` を build 中に実行し、依存破綻があれば build を失敗させます。
-- 結果は `/app/qwen3_tts_install_status.json` に保存します。
-- `GET /tts/status` の `qwen3tts_install_status` / `qwen3tts_missing_requirements` で不足理由を確認できます。
-- モデル未ダウンロード状態の導入確認は `python scripts/check_qwen_tts.py`（import-only）で実施できます。
-
-厳密に要件を検証したい場合は `--strict` を付けます。
-
-```bash
-python scripts/check_environment.py --expect-python 3.11 --strict
-```
-
-### UI syntax / smoke checks (latest UI)
-
-```bash
-# 1) ui.html の inline script を抽出して node --check
-python scripts/check_ui_inline_script_syntax.py
-
-# 2) ブラウザスモーク (desktop + mobile viewport)
-python scripts/smoke_ui_modes_playwright.py
-```
-
-上記2つで、`setMode` / `switchNexusTab` の定義、Chat/Agent/Echo/Nexus切替、
-Nexusサブタブ切替、pageerror / console error の有無を確認できます。
-
-#### Ui3 回帰チェックリスト（追補）
-
-1. **構文エラー確認（必須）**
-   - `python scripts/smoke_ui_modes_playwright.py` 実行後、ブラウザコンソールログを確認し、`SyntaxError` が **0件** であることを明示的に確認する。
-   - 併せて、`setMode is not defined` / `toggleVoiceInput is not defined` が **1件も出ていないこと** を必須確認項目とする。
-
-2. **モード切替確認（必須）**
-   - UI 上部のモードボタンを **Chat → Agent → Echo → Nexus** の順に押す。
-   - 各押下ごとに、以下をチェックする。
-     - 対応タブ（画面）が即時表示される。
-     - 前モードの表示崩れ・操作不能が残らない。
-     - コンソールに新規エラー（特に `ReferenceError` / `TypeError`）が出ない。
-
-3. **iPhone 幅 UI 確認（390x844）**
-   - DevTools などで viewport を **390x844**（iPhone幅）に設定して確認する。
-   - 以下3点が満たされることを確認する。
-     - TTSボトムバーが常時表示される。
-     - Echo 画面下部の余白が1行ぶんに収まる（過剰な空きがない）。
-     - 録音時間表示の左側に不要な空行・空白帯がない。
-
-4. **連続録音シナリオ確認（必須）**
-   - 次の順序で操作する:  
-     **録音開始 → 無音停止 → ASR完了 → 自動送信 → TTS再生 → 録音自動復帰 → 再押下で停止**
-   - 期待結果（固定文言）:  
-     **「無音で自動停止した録音がASR完了後に自動送信され、TTS再生後は録音待機へ自動復帰し、ユーザーの再押下で確実に停止できること。」**
+- ブラウザのマイク権限
+- iPhone Safari / Chrome の録音制約
+- HTTPSが必要な環境ではないか
+- 音声フォーマットが対応しているか
+- `ECHO_UPLOAD_MAX_BYTES` を超えていないか
 
 ---
 
-## Docker自動プッシュ（GitHub Actions）
+## 16.9 TTSモデルがロードできない
 
-Runpodで `docker pull` してすぐ使えるように、GitHub ActionsでDocker Hubへ自動プッシュできます。
+確認ポイント:
 
-### 1) 事前準備（GitHub Secrets）
-
-リポジトリの **Settings → Secrets and variables → Actions** で以下を登録:
-
-- `DOCKERHUB_USERNAME` : Docker Hubユーザー名
-- `DOCKERHUB_TOKEN` : Docker Hub Access Token（PasswordではなくToken推奨）
-
-### 2) 自動プッシュ条件
-
-`.github/workflows/docker-publish.yml` により次のタイミングでビルド & push されます。
-
-- `main` ブランチへの push
-- `v*` 形式タグ（例: `v1.0.0`）の push
-- 手動実行（`workflow_dispatch`）
-
-イメージ名: `docker.io/<DOCKERHUB_USERNAME>/codeagent-personal`
-
-### 3) Runpodでの使い方（ダウンロード〜起動）
-
-RunpodのPod作成時、Container Imageに以下を指定:
-
-```
-docker.io/<DOCKERHUB_USERNAME>/codeagent-personal:latest
-```
-
-起動コマンド例:
-
-```bash
-python scripts/start_codeagent.py --host 0.0.0.0 --port 8000
-```
-
-必要なら `PORT` / `PRIMARY_PORT` を環境変数で上書きしてください。
-
-### 4) ローカル確認コマンド
-
-```bash
-docker build -t codeagent-personal:local .
-docker run --rm -p 8000:8000 codeagent-personal:local
-```
-
-## 対応モデル
-
-| モデルキー | モデル名 | VRAM | 速度 | 用途 |
-|---|---|---|---|---|
-| `basic` | GPT-OSS-20B | 11.5GB | 154 tok/s | 常駐・汎用・プランナー |
-| `router` | LFM2.5-1.2B | 1.6GB | 291 tok/s | タスク分類 |
-| `gpt_oss` | GPT-OSS-20B | 11.8GB | 154 tok/s | 汎用推論 |
-| `gemma` | Gemma-3-12B | 8GB | 60 tok/s | バランス型 |
-| `mistral` | Mistral-Small-3.2-24B | 11.2GB | 37 tok/s | JSON安定・検証 |
-| `qwen35` | Qwen3.5-35B-A3B | 19.7GB | 28 tok/s | 高品質コード生成 |
-| `coder` | Qwen3-Coder-Next | 32.2GB | 13 tok/s | 最高品質 (SWE-bench 70.6%) |
+- モデルファイルが存在するか
+- TTS用依存が入っているか
+- GPU/CPU設定が正しいか
+- Transformersやtorchのバージョンが合っているか
+- Qwen3-TTSとStyle-Bert-VITS2の依存が衝突していないか
 
 ---
 
-## アーキテクチャ
+## 17. 実装状況
 
-```
-CodeAgentPersonal/
-├── main.py            # FastAPI バックエンド
-│   ├── ModelManager   — 動的モデル切り替え / ロール別モデル選択
-│   ├── ToolSet        — ファイル・実行・ブラウザ・検索ツール
-│   ├── JobRunner      — Task実行 / フォールバック / 検証 / メモリ抽出 / ハルシネーション防止
-│   ├── MemoryDB       — パーマネントメモリ管理
-│   ├── SkillSystem    — SKILL.md管理・ツールロード・類似マージ
-│   ├── VerifyEngine   — V-model 3フェーズ検証
-│   ├── SnapshotManager — タスク前後のGit自動スナップショット管理
-│   └── RepoManager    — GitHubリポジトリ連携・ca_dataシンク
-├── ui.html            # フロントエンド SPA
-│   ├── Chat / Task    — 会話（エージェントループ統合）・要件/計画・実行UI
-│   ├── Output / Preview / Log
-│   ├── Skills / Memory / Git / Models
-│   └── Settings modal — 全設定を一元管理
-├── ca_data/           # 実データの保存先
-│   ├── memory.db      # パーマネントメモリ（スナップショット履歴テーブル含む）
-│   ├── model_db.db    # モデルDB（設定永続化含む）
-│   ├── skills/        # カスタムSKILL格納フォルダ
-│   │   └── スキル名/SKILL.md
-│   ├── EchoVault/     # Echo モードの録音・文字起こし・議事録
-│   └── workspace/     # プロジェクトファイル格納
-│       └── プロジェクト名/
-├── .codeagent/        # センシティブデータ保存先（gitignore済み）
-│   └── .credentials   # GitHubトークン等の資格情報（APIで非公開）
-├── benchmark_mem.py   # VRAM/RAM計測ツール
-├── start.bat          # Windows起動スクリプト
-└── DLllama.bat        # llama.cppバイナリ自動ダウンロード
-```
-
-※ 旧バージョンの `./workspace` / `./skills` / `./memory.db` / `./model_db.db` が存在する場合は、起動時に `ca_data/` 配下へ自動移行されます。
+| 機能 | 状態 | 備考 |
+|---|---|---|
+| Chat | Stable | 基本会話機能 |
+| Task | Experimental | ファイル編集・実行・検証を含む |
+| Agent | Experimental | Planner / Executor / Evaluator ベース |
+| Models | Experimental | GGUF/llama-server管理 |
+| Memory | Stable | SQLite永続化 |
+| SKILL | Experimental | `SKILL.md` ベース |
+| Nexus | Experimental | 文書検索、Web調査、Evidence、Report |
+| Echo | Experimental | ASR/TTS連携 |
+| Qwen3-TTS | Experimental | 依存・GPU環境に注意 |
+| Style-Bert-VITS2 | Experimental | モデル配置と依存に注意 |
+| Runpod support | Experimental | `/workspace/ca_data` 永続化推奨 |
 
 ---
 
-## 主要 API エンドポイント
+## 18. 推奨運用
 
-### ジョブ・チャット
+### ローカル開発
 
-| メソッド | パス | 説明 |
-|---|---|---|
-| `POST` | `/jobs/submit` | ジョブ投入（バックグラウンド実行） |
-| `GET` | `/jobs/{id}/poll` | ジョブイベントポーリング |
-| `POST` | `/chat` | チャット（エージェントループ経由、web_search対応） |
-| `POST` | `/plan` | タスクプランのみ生成 |
+- Windowsでは `start.bat` を使う
+- `venv_sys/` は自動作成に任せる
+- モデルは `C:\LLMs` や `./llama/models` など分かりやすい場所に置く
+- `ca_data/` はバックアップ対象にする
 
-### メモリ・スキル・プロジェクト
+### Runpod運用
 
-| メソッド | パス | 説明 |
-|---|---|---|
-| `GET` | `/memory` | メモリ一覧・検索 (`?q=キーワード`) |
-| `POST` | `/memory` | メモリ手動追加 |
-| `PUT` | `/memory/{id}` | メモリ更新 |
-| `DELETE` | `/memory/{id}` | メモリ削除 |
-| `POST` | `/memory/analyze/{job_id}` | ジョブからメモリ手動抽出 |
-| `GET` | `/skills` | SKILL一覧 |
-| `POST` | `/skills` | SKILL保存 |
-| `DELETE` | `/skills/{name}` | SKILL削除 |
-| `GET` | `/projects` | プロジェクト一覧 |
+- `/workspace/ca_data` を永続化する
+- モデルは `/workspace/LLMs` に置く
+- llama.cpp は `/workspace/llama` に配置する
+- 起動は `scripts/runpod_start.sh` を使う
+- TTSモデルも `/workspace/ca_data/tts/` 以下に置く
 
-### システム・ヘルス
+### Agent利用
 
-| メソッド | パス | 説明 |
-|---|---|---|
-| `GET` | `/system/summary` | ヘルス・モデル・CPU/RAM/GPU/VRAMを一括取得（軽量集約ポーリング用） |
-| `GET` | `/system/usage` | CPU/GPU利用率、RAM/VRAM使用率の現在値 |
-| `GET` | `/system/usage/debug` | VRAM/GPU診断情報（詳細デバッグ用） |
-| `GET` | `/health` | ヘルスチェック（LLM・サンドボックス状態） |
-
-### Web検索・ストリーミング
-
-| メソッド | パス | 説明 |
-|---|---|---|
-| `POST` | `/search/enable` | Web検索有効化 |
-| `POST` | `/search/disable` | Web検索無効化 |
-| `GET` | `/search/status` | Web検索の有効/無効状態取得 |
-| `POST` | `/search/num` | 検索件数設定 |
-| `POST` | `/streaming/enable` | LLMストリーミング有効化 |
-| `POST` | `/streaming/disable` | LLMストリーミング無効化 |
-| `GET` | `/streaming/status` | ストリーミング状態取得 |
-
-### モデル管理
-
-| メソッド | パス | 説明 |
-|---|---|---|
-| `GET` | `/models/roles` | モデルロール割り当て取得 |
-| `POST` | `/models/roles` | モデルロール割り当て更新（plan/chat/search/verify/code/complex等） |
-| `GET` | `/models/orchestration` | オーケストレーションポリシー取得 |
-| `POST` | `/models/orchestration` | オーケストレーションポリシー更新 |
-| `GET` | `/models/hardware` | GPU/ハードウェア情報取得 |
-| `POST` | `/models/db/benchmark/{mid}` | モデルのパフォーマンスベンチマーク実行 |
-| `POST` | `/models/db/toggle/{mid}` | モデルの有効/無効切り替え |
-| `POST` | `/models/db/toggle_vlm/{mid}` | VLMビジョンモードのON/OFF切り替え |
-| `POST` | `/models/db/scan` | GGUFモデルスキャン |
-| `GET` | `/models/db/scan/status` | スキャン進捗取得 |
-| `POST` | `/model/auto-load` | 最適パラメータでモデルを自動ロード |
-| `GET` | `/llm/props` | 現在のLLMプロパティ取得 |
-| `GET` | `/llm/ctx` | コンテキストウィンドウ取得 |
-| `POST` | `/llm/ctx` | コンテキストウィンドウ設定 |
-
-### Ensemble設定
-
-| メソッド | パス | 説明 |
-|---|---|---|
-| `GET` | `/ensemble/settings` | Ensemble実行モード設定取得 |
-| `POST` | `/ensemble/settings` | Ensemble設定更新（parallel/serial） |
-| `GET` | `/ensemble/vram` | Ensembleモード用リソース状態取得 |
-
-### GitHubリポジトリ連携
-
-| メソッド | パス | 説明 |
-|---|---|---|
-| `GET` | `/repo/config` | リポジトリ設定取得（トークンは非公開） |
-| `POST` | `/repo/config` | GitHubトークン・リポジトリ設定保存 |
-| `POST` | `/repo/init` | GitHubリポジトリを初期化してリモートを設定 |
-| `POST` | `/repo/sync` | `ca_data/` をGitHubへコミット＆プッシュ |
-| `GET` | `/repo/test-connection` | GitHubトークンの有効性とレート制限確認 |
-| `GET` | `/repo/status` | 現在のリポジトリ状態取得 |
-
-### Echo モード（同時通訳）
-
-| メソッド | パス | 説明 |
-|---|---|---|
-| `WS` | `/echo/stream` | リアルタイム同時通訳 WebSocket ストリーム（ASR→翻訳→TTS） |
-| `GET` | `/echo/sessions` | EchoVault セッション一覧取得 |
-| `GET` | `/echo/sessions/{filename}` | EchoVault セッションファイルダウンロード |
-| `DELETE` | `/echo/sessions/{filename}` | EchoVault セッション削除 |
-| `POST` | `/echo/voice-ref` | ボイスクローン用参照音声の登録（base64） |
-| `GET` | `/echo/voice-ref` | 現在の参照音声情報取得 |
-| `DELETE` | `/echo/voice-ref` | 参照音声クリア |
-
-### TTS（音声合成）
-
-| メソッド | パス | 説明 |
-|---|---|---|
-| `GET` | `/tts/status` | TTS エンジン状態（Qwen3-TTS / Style-Bert-VITS2） |
-| `GET` | `/tts/voices` | 利用可能な音声一覧（エンジン別） |
-| `POST` | `/tts/load` | TTS エンジンのロード（`engine`: `qwen3tts` / `style_bert_vits2`） |
-| `POST` | `/tts/unload` | TTS エンジンのアンロード |
-| `POST` | `/tts/synthesize` | テキスト→音声（WAV）。`ref_audio_base64` でボイスクローン対応 |
-
-### MCP・音声入力
-
-| メソッド | パス | 説明 |
-|---|---|---|
-| `POST` | `/mcp` | MCP JSON-RPC エンドポイント（OpenClaw等からツール呼び出し） |
-| `GET` | `/mcp/info` | MCPサーバー情報と公開ツール一覧 |
-| `GET` | `/voice/status` | 音声認識モデルのロード状態 |
-| `POST` | `/voice/load` | 音声認識モデルをオンデマンドでRAMへロード（CPU） |
-| `POST` | `/voice/unload` | 音声認識モデルをアンロード（RAM解放） |
-| `POST` | `/voice/transcribe` | 音声→テキスト（日本語/英語） |
-
-※ `/projects` で作成・参照される実体ディレクトリは `./ca_data/workspace/{project}/` です。
-
-### Echo モード — リアルタイム同時通訳
-
-UI 上部の **Echo** ボタンで Echo モード（全画面）に切り替えます。
-
-1. **● Start** ボタンを押してマイク録音開始
-2. 発話が自動で文字起こし（faster-whisper）→ LLM 翻訳 → TTS 読み上げ
-3. セッション終了後、録音(.webm)・文字起こし・議事録が `ca_data/EchoVault/` に保存
-4. **📁 Files** ボタンでセッション一覧を確認・ダウンロード可能
-
-**TTS エンジン設定**（Settings パネル、対応は2系統のみ）:
-
-| エンジン | 特徴 | 追加準備 |
-|---|---|---|
-| Qwen3-TTS | ローカル高品質多言語 TTS + ボイスクローン対応 | `requirements-tts.txt`（cu128 torch系） + `requirements-tts-qwen.txt` を導入（上記手順） |
-
-**新タブ構成（Echo）**:
-- **ASR** タブ: 音声認識モデル・デバイス・プリロード設定
-- **TTS** タブ: Echo の TTS エンジン設定、Qwen3 モデルロード、Voice Clone（Qwen3専用）
-- **認識後に自動読み上げ**: 初期値は **OFF**（`echo_autoplay_tts=false`）
-
-**Voice Clone（Qwen3-TTS 専用）操作手順**:
-1. Echo の **TTS** タブで TTS エンジンを **Qwen3 TTS** に設定
-2. 同タブの **Voice Clone（Qwen3専用）** で参照音声を登録（🎙 録音 / 📁 ファイル / 🖥 PC音声）
-3. 必要に応じて **参照テキスト（任意）** を入力
-4. 読み上げ実行時、参照音声がある場合はボイスクローン合成、未設定時は通常合成
-5. エラー時は「参照音声あり/なし」の状態に応じたメッセージが表示されます（例: 参照音声の再登録案内）
-
-**WebSocket 依存**: Echo モードは WebSocket を使用します。`requirements.txt` に `websockets>=12.0` が含まれており、`pip install -r requirements.txt` で自動インストールされます。
-
-### 音声入力（Whisper CPU/RAM）
-
-- 依存: `faster-whisper`（例: `pip install faster-whisper`）
-- モデル選定方針（優先順）: **日本語精度 > 速度 > 軽量**
-  - 推奨デフォルト: `small`（多言語、日本語精度と速度のバランス）
-  - 軽量高速優先: `base` / `tiny`
-- `device="cpu"` / `compute_type="int8"` でGPU非依存、RAM運用。
-- 常時ロードせず、`/voice/load` と `/voice/unload` および `auto_unload=true` でオンデマンド運用。
+- 1回の指示は具体的に書く
+- 期待する修正範囲を書く
+- テスト方法がある場合は明記する
+- 大規模変更は段階的に依頼する
+- 仕様不足がある場合はAgentに選択肢付きで質問させる
 
 ---
 
-## GitHub Actions + Runpod テスト運用
+## 19. ライセンス
 
-`python:3.11-slim` 想定に合わせ、CI の Python は **3.11固定** です。
+ライセンスファイルが存在する場合は、その内容に従ってください。
 
-### GitHub Actionsで使う環境変数（Repository Variables）
+ライセンスが未設定の場合、このリポジトリの利用・再配布条件は明示されていません。公開・配布・商用利用を行う前にライセンスを設定してください。
 
-`Settings > Secrets and variables > Actions > Variables` で以下を設定できます。
+---
 
-- `CI_PIP_PACKAGES` (任意): 追加インストールするPython依存（**空白区切り**）。未設定時は `fastapi uvicorn requests pydantic psutil nvidia-ml-py`。
-- `RUNPOD_SMOKE_ENABLED` (任意): `true` のときだけ `runpod-smoke` を実行。未設定/`false` ではジョブをスキップ（self-hosted runner待ちの長時間ペンディング防止）。
+## 20. 関連メモ
 
-> このworkflowでは必須のSecretはありません（外部APIキー未使用）。
+このREADMEは、CodeAgent Personalを「使う人」と「開発する人」の両方が参照できるように、概要、機能、起動方法、API、環境変数、保存先、開発者向け情報を一体化したものです。
 
-### DockerイメージをレジストリへPushする場合の変数一覧
-
-現状のworkflowは **build + runまで** で、Pushは行いません。
-Pushを追加する場合は、`Settings > Secrets and variables > Actions` で以下を設定してください。
-
-**Repository Variables (推奨)**
-- `DOCKER_IMAGE_NAME`: 例 `codeagent-smoke`
-- `DOCKER_IMAGE_TAG`: 例 `latest` / `${{ github.sha }}`
-- `DOCKER_REGISTRY`: 例 `ghcr.io` / `docker.io`
-- `DOCKER_NAMESPACE`: 例 `<github-user-or-org>`
-
-**Repository Secrets (必須)**
-- `DOCKER_USERNAME`: レジストリログインユーザー名
-- `DOCKER_PASSWORD`: レジストリアクセストークン（Docker Hub token / GHCR PAT）
-
-**GHCR利用時の補足**
-- `GITHUB_TOKEN` でPushする構成も可能ですが、workflowに `packages: write` 権限が必要です。
-- PAT利用時は `write:packages` 権限を付与してください。
-
-### 追加したもの
-
-- Workflow: `.github/workflows/runpod-test.yml`
-  - `docker-smoke`: `python:3.11-slim` ベースのDockerイメージをビルドし、コンテナ内で環境スモークテスト
-  - `windows-smoke`: GitHub Hosted Runner (`windows-latest`) で Python 3.11 の起動確認と依存 import
-  - `runpod-smoke`: `RUNPOD_SMOKE_ENABLED=true` の場合のみ実行。Runpod 上の self-hosted runner (`self-hosted, linux, x64, nvidia, runpod`) で NVIDIA/CUDA/依存チェック
-- Dockerfile: `.github/docker/smoke.Dockerfile`
-- Runpod セットアップスクリプト: `scripts/setup_runpod_ubuntu.sh`
-
-- ランチャー (`scripts/start_codeagent.py`) は Runpod で `llama-server` が見つからない場合、`scripts/setup_llama_runpod.sh` を実行して `ai-dock/llama.cpp-cuda` の **latest prebuilt** を取得し、`LLAMA_SERVER_PATH` を自動設定します。
-- `scripts/setup_llama_runpod.sh` は **手動運用向け** の prebuilt 導入スクリプトです（CIや特殊環境向け）。
-- CUDA対応の本番イメージはルートの `Dockerfile` に統一しました（builderでllama.cppをビルドしruntimeへ `llama-server`/`llama-cli` と共有ライブラリをコピー）。
-- 環境確認スクリプト: `scripts/check_environment.py`
-
-
-### DockerコンテナでのGitHub Actions実行
-
-`docker-smoke` ジョブは、`.github/docker/smoke.Dockerfile` を使ってコンテナを作成し、以下を行います。
-
-1. `python:3.11-slim` からイメージをビルド
-2. `CI_PIP_PACKAGES` で指定した依存をインストール
-3. `scripts/check_environment.py --expect-python 3.11` をコンテナ内で実行
-
-これにより、ローカルDocker想定 (`python:3.11-slim`) と同じ前提でCI検証できます。
-
-### Runpod 側の前提
-
-1. Ubuntu 系イメージで Pod を作成（NVIDIA GPU）
-2. GitHub Actions self-hosted runner を導入し、以下ラベルを付与
-   - `self-hosted`
-   - `linux`
-   - `x64`
-   - `nvidia`
-   - `runpod`
-3. 依存導入
-
-```bash
-bash scripts/setup_runpod_ubuntu.sh
-```
-
-3.5. llama.cpp の導入
-
-```bash
-# 通常は不要（ランチャーが latest prebuilt を自動導入）
-python scripts/start_codeagent.py
-
-# 明示的に再取得する場合のみ:
-# bash scripts/setup_llama_runpod.sh --refresh-prebuilt
-```
-
-4. ローカル確認
-
-```bash
-python3.11 scripts/check_environment.py --expect-python 3.11
-```
-
-### 補足
-
-- Windows/NVIDIA は GitHub Hosted Runner だと GPU が保証されないため、`windows-smoke` は「Python/依存/最小動作」の確認を主目的にしています。
-- Runpod smoke は CUDA 運用を前提とし、`nvidia-smi` と llama.cpp の CUDA ビルド可否を重視します。
+APIや環境変数は実装変更に追従して更新してください。特に `main.py`、`agent/tools/registry.py`、`app/nexus/router.py`、`app/tts/` を変更した場合は、このREADMEも更新してください。
