@@ -9,6 +9,7 @@ from app.nexus.citation_mapper import build_citation_map
 from app.nexus.jobs import append_job_event, create_job, update_job
 from app.nexus.source_collector import collect_source_candidates
 from app.nexus.source_registry import register_or_update_sources
+from app.nexus.db import get_conn
 from app.nexus.web_scout import plan_web_queries, run_web_search
 
 
@@ -47,6 +48,26 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+
+
+def _load_source_chunks(source_ids: list[str]) -> list[dict]:
+    normalized = [s for s in source_ids if s]
+    if not normalized:
+        return []
+    placeholders = ",".join("?" for _ in normalized)
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT sc.source_id, sc.chunk_id, sc.page_start, sc.page_end, sc.citation_label,
+                   c.title AS title, c.text AS quote
+            FROM nexus_source_chunks sc
+            LEFT JOIN nexus_chunks c ON c.chunk_id = sc.chunk_id
+            WHERE sc.source_id IN ({placeholders})
+            ORDER BY sc.created_at ASC, sc.id ASC
+            """,
+            tuple(normalized),
+        ).fetchall()
+    return [dict(row) for row in rows]
 def _record_state(job_id: str, state: str, *, message: str, progress: float) -> None:
     append_job_event(
         job_id,
@@ -97,11 +118,19 @@ def run_research_job(payload: ResearchAgentInput) -> dict:
         registered_sources = register_or_update_sources(job_id=job_id, project=payload.project, sources=candidates)
 
         _record_state(job_id, "retrieving_evidence", message="mapping citations", progress=0.7)
-        references = build_citation_map(registered_sources)
+        source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
+        references = build_citation_map(registered_sources, source_chunks)
 
         _record_state(job_id, "answering", message="building answer", progress=0.85)
         summary = f"{query} に関する調査結果を {len(references)} 件のソースから整理しました。"
-        answer_payload = build_answer_payload(question=query, summary=summary, references=references)
+        answer_payload = build_answer_payload(
+            question=query,
+            summary=summary,
+            references=references,
+            evidence=registered_sources,
+            job_id=job_id,
+            project=payload.project,
+        )
 
         _record_state(job_id, "reporting", message="finalizing report", progress=0.95)
         update_job(job_id, status="completed", progress=1.0, message="research completed")
