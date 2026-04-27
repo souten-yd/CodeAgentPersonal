@@ -253,6 +253,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             summary=summary,
             references=references,
             evidence=registered_sources,
+            evidence_chunks=source_chunks,
             job_id=effective_job_id,
             project=payload.project,
         )
