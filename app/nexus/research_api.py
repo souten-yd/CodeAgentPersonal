@@ -287,7 +287,7 @@ def collect_web_sources(payload: CollectRequest) -> dict:
             "local_original_path": "",
             "local_text_path": "",
             "local_markdown_path": "",
-            "status": "download_failed",
+            "status": "failed",
             "error": "",
         }
         url = str(candidate.get("url") or "").strip()
@@ -309,7 +309,7 @@ def collect_web_sources(payload: CollectRequest) -> dict:
             )
             download_size = int(download_result.get("size") or 0)
             if total_downloaded_bytes + download_size > max_total_download_bytes:
-                source["status"] = "skipped_size_limit"
+                source["status"] = "skipped_download_limit"
                 source["error"] = f"max_total_download_mb exceeded ({max_total_download_mb})"
                 downloadable_sources.append(source)
                 continue
@@ -325,7 +325,8 @@ def collect_web_sources(payload: CollectRequest) -> dict:
             source["local_original_path"] = str(saved.get("original") or "")
             source["local_text_path"] = str(saved.get("extracted_txt") or "")
             source["local_markdown_path"] = str(saved.get("extracted_md") or "")
-            source["status"] = str(saved.get("status") or "downloaded")
+            saved_status = str(saved.get("status") or "downloaded")
+            source["status"] = "degraded" if saved_status == "degraded" else "downloaded"
             source["error"] = str(saved.get("error") or "")
         except Exception as exc:  # noqa: BLE001
             error_message = str(exc)
