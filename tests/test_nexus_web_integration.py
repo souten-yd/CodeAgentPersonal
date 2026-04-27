@@ -37,6 +37,18 @@ class NexusWebIntegrationTests(unittest.TestCase):
         self.assertTrue(data["stub"])
         self.assertIn("searxng", data["provider_errors"])
 
+    def test_summary_limits_include_download_related_keys(self) -> None:
+        response = self.client.get("/nexus/summary")
+
+        self.assertEqual(response.status_code, 200)
+        limits = response.json()["limits"]
+        self.assertIn("max_upload_mb", limits)
+        self.assertIn("max_upload_bytes", limits)
+        self.assertIn("max_download_mb", limits)
+        self.assertIn("max_total_download_mb", limits)
+        self.assertIn("max_downloads", limits)
+        self.assertIn("download_timeout_sec", limits)
+
     def test_web_search_returns_provider_error_payload(self) -> None:
         fake_search = {
             "provider": "searxng",
