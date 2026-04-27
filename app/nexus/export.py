@@ -358,7 +358,7 @@ def download_nexus_bundle(job_id: str) -> FileResponse:
     )
 
 
-@nexus_export_router.get("/research/jobs/{job_id}/bundle")
+@nexus_export_router.get("/research/jobs/{job_id}/bundle.zip")
 def download_research_bundle(job_id: str) -> FileResponse:
     try:
         zip_path = Path(create_research_bundle(job_id))
