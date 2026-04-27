@@ -43,7 +43,6 @@ from app.nexus.research_api import (
     get_source_markdown,
     get_source_original,
     get_source_text,
-    run_research,
     run_research_async,
 )
 
@@ -615,7 +614,7 @@ def nexus_web_status() -> dict:
 
 @nexus_router.post("/web/research")
 def nexus_web_research(payload: NexusWebSearchRequest) -> dict:
-    delegated = run_research(
+    delegated = run_research_async(
         ResearchRunRequest(
             query=payload.query,
             mode=payload.mode,
@@ -626,8 +625,7 @@ def nexus_web_research(payload: NexusWebSearchRequest) -> dict:
             language=payload.language,
         )
     )
-    answer = delegated.get("answer") or {}
-    summary = str(answer.get("answer") or f"{payload.query.strip()} に関するWeb調査（MVP）")
+    summary = f"{payload.query.strip()} に関するWeb調査（MVP）"
     return _as_canonical_payload("web.research", payload.model_dump(), {**delegated, "summary": summary})
 
 

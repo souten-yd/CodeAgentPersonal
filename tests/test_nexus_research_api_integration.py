@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from app.nexus.db import get_conn, insert_chunk, insert_document, update_document_artifact_paths
 from app.nexus.downloader import save_download_artifacts
+from app.nexus.research_api import ResearchRunRequest
 from app.nexus.router import nexus_router
 
 
@@ -259,6 +260,42 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
         result = response.json().get("result", {})
         self.assertTrue(result.get("non_fatal"))
         self.assertIsInstance(result.get("provider_errors"), dict)
+
+    def test_web_research_returns_immediate_job_payload(self) -> None:
+        async_payload = {
+            "job_id": "research_abc123",
+            "job": {"job_id": "research_abc123", "status": "queued", "message": "research queued"},
+        }
+        with patch("app.nexus.router.run_research_async", return_value=async_payload) as mocked:
+            response = self.client.post(
+                "/nexus/web/research",
+                json={
+                    "query": "ai chips",
+                    "mode": "deep",
+                    "depth": "high",
+                    "max_queries": 3,
+                    "max_results_per_query": 5,
+                    "scope": ["news"],
+                    "language": "ja",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["result"]["job_id"], "research_abc123")
+        self.assertEqual(payload["result"]["job"]["status"], "queued")
+        self.assertIn("summary", payload["result"])
+
+        mocked.assert_called_once()
+        delegated = mocked.call_args.args[0]
+        self.assertIsInstance(delegated, ResearchRunRequest)
+        self.assertEqual(delegated.query, "ai chips")
+        self.assertEqual(delegated.mode, "deep")
+        self.assertEqual(delegated.depth, "high")
+        self.assertEqual(delegated.max_queries, 3)
+        self.assertEqual(delegated.max_results_per_query, 5)
+        self.assertEqual(delegated.scope, ["news"])
+        self.assertEqual(delegated.language, "ja")
 
 
 if __name__ == "__main__":
