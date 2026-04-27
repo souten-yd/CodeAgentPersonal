@@ -4,7 +4,7 @@ import uuid
 from typing import Any
 
 from app.nexus.evidence import save_evidence_items
-from app.nexus.jobs import create_job
+from app.nexus.jobs import create_job, update_job
 from app.nexus.web_scout import build_web_evidence, plan_web_queries, run_web_search
 
 # Backward-compatible alias used by existing tests.
@@ -34,7 +34,7 @@ def execute_web_search_service(
 
     # Fixed execution order:
     # 1) plan_web_queries -> 2) run_web_search -> 3) create_job
-    # 4) build_web_evidence -> 5) save_evidence_items
+    # 4) build_web_evidence -> 5) save_evidence_items -> 6) update_job(completed)
     queries = plan_web_queries(
         normalized_query,
         mode=mode,
@@ -55,8 +55,23 @@ def execute_web_search_service(
     job_id = str(uuid.uuid4())
     create_job(job_id, title=f"nexus_web_search:{normalized_query}", message="tool_invocation")
 
-    evidence_items = build_web_evidence(search_output, note="nexus_web_search")
-    saved_evidence = save_evidence_items(job_id, evidence_items)
+    try:
+        evidence_items = build_web_evidence(search_output, note="nexus_web_search")
+        saved_evidence = save_evidence_items(job_id, evidence_items)
+        update_job(
+            job_id,
+            status="completed",
+            progress=1.0,
+            message="nexus_web_search completed",
+            document_count=saved_evidence,
+        )
+    except Exception as exc:
+        update_job(
+            job_id,
+            status="failed",
+            error=str(exc),
+        )
+        raise
 
     return {
         "ok": True,

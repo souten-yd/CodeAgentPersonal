@@ -3455,7 +3455,7 @@ def _run_lightweight_prefetch_nexus_search_for_context(
     language: str | None = None,
 ) -> dict:
     """
-    Evidence未保存の軽量 prefetch 用 Nexus Web検索ヘルパー。
+    Nexus Evidence保存を行わない lightweight prefetch 用 Nexus Web検索ヘルパー。
     - plan_web_queries + run_web_search を内部実行
     - items と UI 向けイベントpayloadを構造化して返す
     """
