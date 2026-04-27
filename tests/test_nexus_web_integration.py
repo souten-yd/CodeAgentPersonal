@@ -200,6 +200,45 @@ class NexusWebIntegrationTests(unittest.TestCase):
             document_count=2,
         )
 
+    def test_web_search_updates_job_failed_with_failure_message_on_exception(self) -> None:
+        provider_failure_stub = {
+            "provider": "searxng",
+            "selected_provider": "searxng",
+            "attempted_providers": ["searxng"],
+            "provider_errors": {},
+            "non_fatal": False,
+            "message": "",
+            "items": [],
+            "total_items": 0,
+        }
+
+        with patch("app.nexus.web_service.plan_web_queries", return_value=["failing query"]) as mocked_plan, patch(
+            "app.nexus.web_service._run_web_search", return_value=provider_failure_stub
+        ) as mocked_search, patch("app.nexus.web_service.create_job") as mocked_create_job, patch(
+            "app.nexus.web_service.build_web_evidence", side_effect=RuntimeError("boom")
+        ) as mocked_build, patch(
+            "app.nexus.web_service.update_job"
+        ) as mocked_update_job, patch(
+            "app.nexus.web_service.uuid.uuid4", return_value="job-web-failed-id"
+        ):
+            with self.assertRaises(RuntimeError):
+                self.client.post("/nexus/web/search", json={"query": "failing query", "max_queries": 1})
+
+        mocked_plan.assert_called_once()
+        mocked_search.assert_called_once()
+        mocked_create_job.assert_called_once_with(
+            "job-web-failed-id",
+            title="nexus_web_search:failing query",
+            message="tool_invocation",
+        )
+        mocked_build.assert_called_once_with(provider_failure_stub, note="nexus_web_search")
+        mocked_update_job.assert_called_once_with(
+            "job-web-failed-id",
+            status="failed",
+            message="nexus_web_search failed",
+            error="boom",
+        )
+
     def test_research_bundle_endpoint_returns_zip_file(self) -> None:
         export_app = FastAPI()
         export_app.include_router(nexus_export_router, prefix="/nexus")

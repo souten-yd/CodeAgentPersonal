@@ -3459,6 +3459,7 @@ def _run_lightweight_prefetch_nexus_search_for_context(
     - plan_web_queries + run_web_search を内部実行
     - items と UI 向けイベントpayloadを構造化して返す
     """
+    # これはNexus Evidence保存を行わない lightweight prefetch であり、nexus_web_search とは別用途。
     global _search_enabled
 
     empty_payload = {
