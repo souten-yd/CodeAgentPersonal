@@ -9,7 +9,7 @@ from app.nexus.citation_mapper import build_citation_map, normalize_reference_la
 from app.nexus.downloader import safe_download, save_download_artifacts
 from app.nexus.evidence import EvidenceItem, save_evidence_items
 from app.nexus.jobs import append_job_event, create_job, update_job
-from app.nexus.source_collector import collect_source_candidates
+from app.nexus.source_collector import collect_source_candidates, rank_source_candidates
 from app.nexus.source_registry import register_or_update_sources
 from app.nexus.db import get_conn
 from app.nexus.web_scout import plan_web_queries, run_web_search
@@ -192,9 +192,14 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
 
         _record_state(effective_job_id, "collecting_sources", message="normalizing source candidates", progress=0.4)
         candidates = collect_source_candidates(search_items=items, manual_urls=payload.manual_urls)
+        ranked_candidates = rank_source_candidates(
+            candidates,
+            prefer_pdf=True,
+            official_first=True,
+        )
         _record_state(effective_job_id, "downloading", message="downloading source content", progress=0.55)
         downloadable_sources: list[dict] = []
-        for candidate in candidates:
+        for candidate in ranked_candidates:
             source_id = str(candidate.get("source_id") or uuid.uuid4())
             source = {
                 **candidate,
