@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import uuid
 
 from app.nexus.answer_builder import build_answer_payload
-from app.nexus.citation_mapper import build_citation_map
+from app.nexus.citation_mapper import build_citation_map, normalize_reference_labels
 from app.nexus.downloader import safe_download, save_download_artifacts
 from app.nexus.evidence import EvidenceItem, save_evidence_items
 from app.nexus.jobs import append_job_event, create_job, update_job
@@ -241,6 +241,14 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         _record_state(effective_job_id, "retrieving_evidence", message="mapping citations", progress=0.7)
         source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
         references = build_citation_map(registered_sources, source_chunks)
+        normalized = normalize_reference_labels(
+            references=references,
+            evidence_json=registered_sources,
+            evidence_chunks=source_chunks,
+        )
+        references = normalized["references"]
+        registered_sources = normalized["evidence_json"]
+        source_chunks = normalized["evidence_chunks"]
 
         _record_state(effective_job_id, "answering", message="building answer", progress=0.85)
         if references:

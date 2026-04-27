@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import re
 
 
 def _normalize_int(value: object) -> int | None:
@@ -80,3 +81,89 @@ def build_citation_map(
             }
         )
     return mapped
+
+
+def _normalize_key(item: dict) -> tuple[str, str]:
+    source_id = str(item.get("source_id") or item.get("id") or "").strip()
+    chunk_id = str(item.get("chunk_id") or "").strip()
+    return source_id, chunk_id
+
+
+def _build_label_indexes(references: list[dict]) -> tuple[dict[tuple[str, str], str], dict[str, str]]:
+    by_key: dict[tuple[str, str], str] = {}
+    by_old_label: dict[str, str] = {}
+    for idx, reference in enumerate(references, start=1):
+        label = f"[S{idx}]"
+        source_id, chunk_id = _normalize_key(reference)
+        old_label = str(reference.get("citation_label") or "").strip()
+        if old_label:
+            by_old_label[old_label] = label
+        if source_id or chunk_id:
+            by_key[(source_id, chunk_id)] = label
+            if source_id:
+                by_key.setdefault((source_id, ""), label)
+            if chunk_id:
+                by_key.setdefault(("", chunk_id), label)
+    return by_key, by_old_label
+
+
+def _normalize_items(
+    items: list[dict] | None,
+    *,
+    by_key: dict[tuple[str, str], str],
+    by_old_label: dict[str, str],
+) -> list[dict]:
+    normalized: list[dict] = []
+    for item in items or []:
+        row = dict(item)
+        source_id, chunk_id = _normalize_key(row)
+        current_label = str(row.get("citation_label") or "").strip()
+        next_label = (
+            by_key.get((source_id, chunk_id))
+            or by_key.get((source_id, ""))
+            or by_key.get(("", chunk_id))
+            or by_old_label.get(current_label)
+            or current_label
+        )
+        if next_label:
+            row["citation_label"] = next_label
+        normalized.append(row)
+    return normalized
+
+
+def replace_citation_labels(text: str, label_map: dict[str, str]) -> str:
+    normalized = str(text or "")
+    for old, new in sorted(label_map.items(), key=lambda pair: len(pair[0]), reverse=True):
+        if not old or old == new:
+            continue
+        normalized = re.sub(re.escape(old), new, normalized)
+    return normalized
+
+
+def normalize_reference_labels(
+    *,
+    references: list[dict],
+    evidence_json: list[dict] | None = None,
+    evidence_chunks: list[dict] | None = None,
+) -> dict:
+    normalized_references: list[dict] = []
+    by_old_label: dict[str, str] = {}
+
+    for idx, reference in enumerate(references, start=1):
+        row = dict(reference)
+        new_label = f"[S{idx}]"
+        old_label = str(row.get("citation_label") or "").strip()
+        if old_label:
+            by_old_label[old_label] = new_label
+        row["citation_label"] = new_label
+        normalized_references.append(row)
+
+    by_key, _ = _build_label_indexes(normalized_references)
+    normalized_evidence_json = _normalize_items(evidence_json, by_key=by_key, by_old_label=by_old_label)
+    normalized_evidence_chunks = _normalize_items(evidence_chunks, by_key=by_key, by_old_label=by_old_label)
+    return {
+        "references": normalized_references,
+        "evidence_json": normalized_evidence_json,
+        "evidence_chunks": normalized_evidence_chunks,
+        "label_map": by_old_label,
+    }
