@@ -195,6 +195,7 @@ def list_evidence_items(job_id: str) -> list[dict]:
             "quote": row["quote"],
             "metadata_json": json.loads(row["metadata_json"] or row["metadata"] or "{}"),
             "metadata": json.loads(row["metadata_json"] or row["metadata"] or "{}"),
+            "source_id": json.loads(row["metadata_json"] or row["metadata"] or "{}").get("source_id", ""),
             "created_at": row["created_at"],
         }
         for row in rows

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import threading
+import uuid
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
@@ -68,6 +70,38 @@ def run_research(payload: ResearchRunRequest) -> dict:
         "answer": result.get("answer", {}),
         "sources": result.get("sources", []),
     }
+
+
+def run_research_async(payload: ResearchRunRequest) -> dict:
+    query = payload.query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query must not be empty")
+
+    agent_input = ResearchAgentInput(
+        query=query,
+        project=payload.project,
+        mode=payload.mode,
+        depth=payload.depth,
+        max_queries=payload.max_queries,
+        max_results_per_query=payload.max_results_per_query,
+        scope=payload.scope,
+        language=payload.language,
+        manual_urls=payload.manual_urls,
+    )
+    job_id = f"research_{uuid.uuid4().hex}"
+    existing = get_job(job_id)
+    if existing is None:
+        create_job(job_id, title=query, message="research queued", status="queued")
+
+    def _worker() -> None:
+        try:
+            run_research_job(agent_input, job_id=job_id)
+        except Exception as exc:  # noqa: BLE001
+            update_job(job_id, status="failed", progress=1.0, message="research failed", error=str(exc))
+
+    thread = threading.Thread(target=_worker, name=f"nexus-research-{job_id}", daemon=True)
+    thread.start()
+    return {"job_id": job_id, "job": get_research_job(job_id).get("job")}
 
 
 def get_research_job(job_id: str) -> dict:

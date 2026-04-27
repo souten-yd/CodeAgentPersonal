@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -605,26 +606,28 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
             ),
         )
 
-    # FTS再構成（title/section_path/text を索引）
-    conn.execute("DROP TABLE IF EXISTS nexus_chunks_fts")
-    conn.execute(
-        """
-        CREATE VIRTUAL TABLE nexus_chunks_fts USING fts5(
-            chunk_id UNINDEXED,
-            document_id UNINDEXED,
-            title,
-            section_path,
-            text
+def rebuild_chunks_fts() -> None:
+    with _connect_db() as conn:
+        conn.execute("DROP TABLE IF EXISTS nexus_chunks_fts")
+        conn.execute(
+            """
+            CREATE VIRTUAL TABLE nexus_chunks_fts USING fts5(
+                chunk_id UNINDEXED,
+                document_id UNINDEXED,
+                title,
+                section_path,
+                text
+            )
+            """
         )
-        """
-    )
-    conn.execute(
-        """
-        INSERT INTO nexus_chunks_fts(chunk_id, document_id, title, section_path, text)
-        SELECT chunk_id, document_id, title, section_path, text
-        FROM nexus_chunks
-        """
-    )
+        conn.execute(
+            """
+            INSERT INTO nexus_chunks_fts(chunk_id, document_id, title, section_path, text)
+            SELECT chunk_id, document_id, title, section_path, text
+            FROM nexus_chunks
+            """
+        )
+        conn.commit()
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
@@ -640,16 +643,27 @@ def _connect_db() -> sqlite3.Connection:
     return conn
 
 
+_INIT_LOCK = threading.Lock()
+_INITIALIZED = False
+
+
 def initialize_storage() -> Path:
     """`CA_DATA_DIR/nexus/nexus.db` と必要ディレクトリを初期化する。"""
-    ensure_dir(NEXUS_PATHS.ca_data_dir)
-    for directory in REQUIRED_DIRS:
-        ensure_dir(directory)
+    global _INITIALIZED
+    if _INITIALIZED:
+        return NEXUS_PATHS.db_path
+    with _INIT_LOCK:
+        if _INITIALIZED:
+            return NEXUS_PATHS.db_path
+        ensure_dir(NEXUS_PATHS.ca_data_dir)
+        for directory in REQUIRED_DIRS:
+            ensure_dir(directory)
 
-    with _connect_db() as conn:
-        conn.execute("PRAGMA journal_mode=WAL;")
-        _ensure_schema(conn)
-        conn.commit()
+        with _connect_db() as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            _ensure_schema(conn)
+            conn.commit()
+        _INITIALIZED = True
 
     return NEXUS_PATHS.db_path
 
@@ -657,7 +671,6 @@ def initialize_storage() -> Path:
 @contextmanager
 def get_conn() -> Iterator[sqlite3.Connection]:
     """Nexus DB接続。"""
-    initialize_storage()
     conn = _connect_db()
     conn.execute("PRAGMA foreign_keys=ON;")
     try:
