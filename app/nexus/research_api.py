@@ -28,7 +28,7 @@ class ResearchRunRequest(BaseModel):
     max_results_per_query: int | None = Field(default=None, ge=1, le=20)
     max_sources: int | None = Field(default=None, ge=1, le=200)
     max_downloads: int | None = Field(default=None, ge=1, le=200)
-    max_download_mb: int | None = Field(default=None, ge=1, le=2048)
+    max_download_mb: int | None = Field(default=None, ge=1, le=500)
     max_total_download_mb: int | None = Field(default=None, ge=1, le=2048)
     scope: str | list[str] | None = None
     language: str | None = None
