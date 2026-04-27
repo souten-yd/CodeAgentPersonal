@@ -271,12 +271,17 @@ async def verify_chat_search_and_agent_web_tool_tts(page) -> None:
       const toolLogLines = Array.from(document.querySelectorAll('#log-output .log-line .lmsg')).map((el) => el.textContent || '');
       const hasNexusTool = toolLogLines.some((line) => line.includes('selected_tool=nexus_web_search'));
       const agentTtsCalls = (window.__mockTtsCalls || []).filter((c) => c.sourceMode === 'agent');
-      return { hasNexusTool, ttsCount: agentTtsCalls.length };
+      const spokenTexts = agentTtsCalls.map((c) => String(c.text || ''));
+      const spokeFinalAnswer = spokenTexts.includes('agent final answer');
+      const spokeToolLog = spokenTexts.some((text) => text.includes('selected_tool=nexus_web_search'));
+      return { hasNexusTool, ttsCount: agentTtsCalls.length, spokeFinalAnswer, spokeToolLog };
     }
     """
   )
   assert agent_on_checks.get("hasNexusTool"), agent_on_checks
   assert agent_on_checks.get("ttsCount") == 1, agent_on_checks
+  assert agent_on_checks.get("spokeFinalAnswer"), agent_on_checks
+  assert not agent_on_checks.get("spokeToolLog"), agent_on_checks
 
   await page.evaluate("() => { window.__mockTtsCalls = []; window.toggleAgentTts(false); }")
   await page.fill("#agent-input", "run again with tts off")
