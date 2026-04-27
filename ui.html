@@ -8023,8 +8023,11 @@ function renderNexusDeepReferences(sources = [], evidence = []) {
   });
   root.innerHTML = sources.map((source, idx) => {
     const sourceId = String(source?.source_id || '');
+    const citationLabel = String(source?.citation_label || `[S${idx + 1}]`);
+    const localPath = String(source?.local_markdown_path || source?.local_text_path || source?.local_original_path || '');
     const url = String(source?.final_url || source?.url || '');
     const refs = evidenceMap[sourceId] || [];
+    const firstQuote = String(refs?.[0]?.quote || refs?.[0]?.chunk_text || '').trim();
     const hint = refs.slice(0, 2).map((row) => {
       const page = row?.page_start ?? row?.page_end;
       const chunk = row?.chunk_id || row?.citation_label || '';
@@ -8033,16 +8036,17 @@ function renderNexusDeepReferences(sources = [], evidence = []) {
     const sourceIdEnc = encodeURIComponent(sourceId);
     const urlEnc = encodeURIComponent(url);
     return `<div class="nexus-ref-card">
-      <div class="nexus-ref-title">${idx + 1}. ${esc(source?.title || sourceId || '(untitled source)')}</div>
+      <div class="nexus-ref-title">${citationLabel} ${esc(source?.title || sourceId || '(untitled source)')}</div>
       <div class="nexus-ref-meta">source_id: ${esc(sourceId || '-')} / type: ${esc(source?.source_type || '-')} / status: ${esc(source?.status || '-')}</div>
       <div class="nexus-ref-meta">${esc(url || '(url unavailable)')}</div>
+      <div class="nexus-ref-meta">local: ${esc(localPath || '-')}</div>
+      <div class="nexus-ref-meta">quote: ${esc(firstQuote || '引用断片はまだありません')}</div>
       <div class="nexus-ref-meta">chunk/page: ${esc(hint || 'bundle evidence/chunk 情報を確認してください')}</div>
       <div class="nexus-doc-actions">
-        <button onclick="openNexusDeepSourceText('${sourceIdEnc}')">全文 text</button>
-        <button onclick="openNexusDeepSourceMarkdown('${sourceIdEnc}')">全文 markdown</button>
-        <button onclick="openNexusDeepSourceChunks('${sourceIdEnc}', this)">chunk/page</button>
+        <button onclick="openNexusDeepSourceText('${sourceIdEnc}')">全文表示</button>
+        <button onclick="openNexusDeepSourceChunks('${sourceIdEnc}', this)">該当箇所</button>
         <button ${url ? '' : 'disabled'} onclick="openNexusDeepSourceUrl('${urlEnc}')">元URL</button>
-        <button onclick="downloadNexusDeepSourceOriginal('${sourceIdEnc}')">original</button>
+        <button onclick="downloadNexusDeepSourceOriginal('${sourceIdEnc}')">ダウンロード</button>
       </div>
       <div class="nexus-ref-meta" id="nexus-deep-chunks-${sourceIdEnc}" style="display:none"></div>
     </div>`;

@@ -1,5 +1,3 @@
-"""Nexus package exports."""
+"""Nexus package."""
 
-from app.nexus.router import nexus_router
-
-__all__ = ["nexus_router"]
+__all__: list[str] = []

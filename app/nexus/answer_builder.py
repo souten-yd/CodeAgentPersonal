@@ -16,8 +16,8 @@ def _now_iso() -> str:
 
 def _build_answer_markdown(*, question: str, summary: str, references: list[dict]) -> str:
     markdown_lines = [f"# Answer", "", f"## Question", question, "", "## Answer", summary, "", "## References"]
-    for ref in references:
-        label = str(ref.get("citation_label") or "[?]")
+    for idx, ref in enumerate(references, start=1):
+        label = str(ref.get("citation_label") or f"[S{idx}]")
         title = str(ref.get("title") or ref.get("url") or "(untitled)")
         url = str(ref.get("url") or "")
         local_path = str(ref.get("local_path") or "")
@@ -97,6 +97,12 @@ def build_answer_payload(
     project: str = "default",
 ) -> dict:
     summary_text = (summary or "").strip() or f"{question} に関する調査結果を整理しました。"
+    if references:
+        citation_tokens = " ".join(f"[S{idx}]" for idx, _ in enumerate(references, start=1))
+        if not any(f"[S{idx}]" in summary_text for idx, _ in enumerate(references, start=1)):
+            summary_text = f"{summary_text} {citation_tokens}".strip()
+    else:
+        summary_text = f"{summary_text} 未確認のため断定は避けます。".strip()
     evidence_json = evidence if evidence is not None else references
 
     answer_markdown = _build_answer_markdown(

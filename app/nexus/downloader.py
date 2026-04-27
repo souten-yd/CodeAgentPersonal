@@ -12,12 +12,15 @@ from urllib import error as urllib_error
 from urllib import request
 from urllib.parse import urljoin, urlparse
 
+from app.nexus.config import NEXUS_PATHS
+from app.nexus.extractors import build_artifacts, extract_pages
+
 DEFAULT_MAX_BYTES = 5 * 1024 * 1024
 DEFAULT_CONNECT_TIMEOUT_SEC = 5
 DEFAULT_READ_TIMEOUT_SEC = 8
 MAX_REDIRECTS = 3
 
-DOWNLOAD_ROOT = Path("ca_data/nexus/research_jobs")
+DOWNLOAD_ROOT = NEXUS_PATHS.nexus_dir / "research_jobs"
 
 ALLOWED_CONTENT_TYPES: dict[str, tuple[str, ...]] = {
     "text/html": (".html", ".htm"),
@@ -140,6 +143,9 @@ def _read_with_limit(resp, max_bytes: int) -> bytes:
 def _extract_text_for_analysis(content_type: str, raw_bytes: bytes) -> tuple[str, str]:
     mime = content_type.split(";", 1)[0].strip().lower()
 
+    if mime == "application/pdf":
+        return "", ""
+
     if mime == "text/html":
         decoded = raw_bytes.decode("utf-8", errors="replace")
         parser = _ScriptStyleStrippingParser()
@@ -244,15 +250,30 @@ def save_download_artifacts(job_id: str, source_id: str, download_result: dict) 
 
     ext = str(download_result.get("extension") or "")
     original_path = base_dir / f"original{ext}"
-    text_path = base_dir / "extracted.txt"
-    markdown_path = base_dir / "extracted.md"
+    text_path = base_dir / "text.txt"
+    markdown_path = base_dir / "document.md"
     metadata_path = base_dir / "metadata.json"
 
     raw = bytes(download_result.get("bytes") or b"")
     content_type = str(download_result.get("content_type") or "")
-    extracted_text, extracted_markdown = _extract_text_for_analysis(content_type, raw)
-
+    extracted_text = ""
+    extracted_markdown = ""
+    status = "downloaded"
+    error = ""
     original_path.write_bytes(raw)
+    try:
+        mime = content_type.split(";", 1)[0].strip().lower()
+        if mime == "application/pdf":
+            pages = extract_pages(original_path)
+            artifacts = build_artifacts(pages)
+            extracted_text = artifacts.text
+            extracted_markdown = artifacts.markdown
+        else:
+            extracted_text, extracted_markdown = _extract_text_for_analysis(content_type, raw)
+    except Exception as exc:  # noqa: BLE001
+        status = "degraded"
+        error = str(exc)
+
     text_path.write_text(extracted_text, encoding="utf-8")
     markdown_path.write_text(extracted_markdown, encoding="utf-8")
 
@@ -263,6 +284,8 @@ def save_download_artifacts(job_id: str, source_id: str, download_result: dict) 
         "content_type": content_type,
         "size": int(download_result.get("size") or len(raw)),
         "filename": download_result.get("filename"),
+        "status": status,
+        "error": error,
     }
     metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -272,4 +295,6 @@ def save_download_artifacts(job_id: str, source_id: str, download_result: dict) 
         "extracted_txt": str(text_path),
         "extracted_md": str(markdown_path),
         "metadata": str(metadata_path),
+        "status": status,
+        "error": error,
     }
