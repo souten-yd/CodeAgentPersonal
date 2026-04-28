@@ -8872,6 +8872,7 @@ class TaskContinueRequest(BaseModel):
     execution_mode: str = "plan_only"
     use_nexus: bool = True
     project_path: str = ""
+    project_name: str = ""
 
 # =========================
 # タスク分解プロンプト
@@ -10263,41 +10264,47 @@ _phase1_planning_runner = TaskPlanningRunner(
 )
 
 
-@app.post("/api/task/plan")
-def api_task_plan(req: TaskPlanRequest):
-    user_input = (req.input or "").strip()
-    if not user_input:
-        raise HTTPException(status_code=400, detail="input is empty")
-    api_warnings: list[str] = []
-    project_path = (req.project_path or "").strip()
+def _resolve_project_path_for_phase_planning(project_path: str, project_name: str) -> tuple[str, list[str]]:
+    warnings: list[str] = []
     resolved_project_path = ""
-    if project_path:
-        raw_candidate = os.path.expanduser(project_path)
-        candidate = raw_candidate if os.path.isabs(raw_candidate) else os.path.join(WORK_DIR, raw_candidate)
+    raw_project_path = (project_path or "").strip()
+    raw_project_name = (project_name or "").strip()
+    if raw_project_path:
+        expanded = os.path.expanduser(raw_project_path)
+        candidate = expanded if os.path.isabs(expanded) else os.path.join(WORK_DIR, expanded)
         candidate = os.path.abspath(candidate)
         if os.path.isdir(candidate):
             resolved_project_path = candidate
         else:
-            api_warnings.append(f"project_path does not exist or is not a directory: {project_path}. Fallback resolution was used.")
+            warnings.append(f"project_path does not exist or is not a directory: {raw_project_path}. Fallback resolution was used.")
 
-    project_name = (req.project_name or "").strip()
-    if not resolved_project_path and project_name:
-        safe_project_name = os.path.basename(project_name)
+    if not resolved_project_path and raw_project_name:
+        safe_project_name = os.path.basename(raw_project_name).strip()
         if safe_project_name:
             candidate = os.path.abspath(os.path.join(WORK_DIR, safe_project_name))
             if os.path.isdir(candidate):
                 resolved_project_path = candidate
             else:
-                api_warnings.append(f"project_name was not found under WORK_DIR: {safe_project_name}. Fallback resolution was used.")
+                warnings.append(f"project_name was not found under WORK_DIR: {safe_project_name}. Fallback resolution was used.")
 
     if not resolved_project_path:
         resolved_project_path = os.path.abspath(os.path.join(WORK_DIR, "default"))
         os.makedirs(resolved_project_path, exist_ok=True)
-        api_warnings.append("project_path was not specified or was invalid. WORK_DIR/default was used.")
+        warnings.append("project_path was not specified or was invalid. WORK_DIR/default was used.")
+    return resolved_project_path, warnings
+
+
+@app.post("/api/task/plan")
+def api_task_plan(req: TaskPlanRequest):
+    user_input = (req.input or "").strip()
+    if not user_input:
+        raise HTTPException(status_code=400, detail="input is empty")
+    resolved_project_path, api_warnings = _resolve_project_path_for_phase_planning(req.project_path, req.project_name)
     try:
         result = _phase1_planning_runner.run(
             user_input=user_input,
             project_path=resolved_project_path,
+            project_name=(req.project_name or "").strip(),
             planning_mode=(req.planning_mode or "standard").strip().lower(),
             requirement_mode=(req.requirement_mode or "ask_when_needed").strip(),
             execution_mode=(req.execution_mode or "plan_only").strip(),
@@ -10371,14 +10378,25 @@ def api_task_continue(req: TaskContinueRequest):
     if not requirement_id:
         raise HTTPException(status_code=400, detail="requirement_id is empty")
     try:
+        req_data = _phase1_planning_runner.storage.load_requirement(requirement_id)
+        saved_project_path = str(req_data.get("resolved_project_path") or req_data.get("project_path") or "").strip()
+        saved_project_name = str(req_data.get("project_name") or "").strip()
+        continue_project_path = (req.project_path or "").strip() or saved_project_path
+        continue_project_name = (req.project_name or "").strip() or saved_project_name
+        resolved_project_path, api_warnings = _resolve_project_path_for_phase_planning(continue_project_path, continue_project_name)
         result = _phase1_planning_runner.continue_from_requirement(
             requirement_id=requirement_id,
             planning_mode=(req.planning_mode or "standard").strip().lower(),
             requirement_mode=(req.requirement_mode or "ask_when_needed").strip(),
             execution_mode=(req.execution_mode or "plan_only").strip(),
             use_nexus=bool(req.use_nexus),
-            project_path=(req.project_path or "").strip(),
+            project_path=resolved_project_path,
+            project_name=continue_project_name,
+            resolved_project_path=resolved_project_path,
         )
+        result_warnings = result.get("warnings") if isinstance(result.get("warnings"), list) else []
+        result["warnings"] = list(dict.fromkeys([*api_warnings, *[str(x) for x in result_warnings if str(x).strip()]]))
+        result["resolved_project_path"] = resolved_project_path
         return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="requirement not found")
