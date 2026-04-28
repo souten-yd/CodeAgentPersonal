@@ -11,6 +11,114 @@ from app.nexus.config import NexusPaths
 
 
 class NexusAnswerBuilderTests(unittest.TestCase):
+    def test_search_model_from_orchestrator_is_preferred(self) -> None:
+        references = [{"citation_label": "s1", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "s1"}]
+        with patch.dict(os.environ, {"NEXUS_ENABLE_ANSWER_LLM": "true"}, clear=True), patch(
+            "app.nexus.answer_builder._load_search_role_assignment",
+            return_value={"role": "SEARCH", "model": "search-role-model", "enabled": True, "endpoint": ""},
+        ), patch(
+            "app.nexus.answer_builder._probe_llm_endpoint_detail",
+            return_value={"endpoint": "http://127.0.0.1:8080/v1/chat/completions", "reachable": True, "checks": [], "error": ""},
+        ), patch(
+            "app.nexus.answer_builder._generate_answer_with_llm",
+            return_value="ok [S1]",
+        ):
+            payload = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
+        self.assertEqual(payload["llm_model"], "search-role-model")
+        self.assertEqual(payload["generation"]["model_role"], "SEARCH")
+        self.assertEqual(payload["generation"]["model_source"], "model_orchestrator")
+        self.assertEqual(payload["generation"]["selected_reason"], "search_role_model")
+
+    def test_deep_research_model_env_takes_priority_over_search_role(self) -> None:
+        with patch.dict(os.environ, {"DEEP_RESEARCH_LLM_MODEL": "deep-model"}, clear=True), patch(
+            "app.nexus.answer_builder._load_search_role_assignment",
+            return_value={"role": "SEARCH", "model": "search-role-model", "enabled": True, "endpoint": ""},
+        ), patch(
+            "app.nexus.answer_builder._probe_llm_endpoint_detail",
+            return_value={"endpoint": "http://127.0.0.1:8080/v1/chat/completions", "reachable": True, "checks": [], "error": ""},
+        ):
+            payload = build_answer_payload(question="質問", summary="fallback", references=[], evidence_chunks=[])
+        self.assertEqual(payload["llm_model"], "deep-model")
+
+    def test_search_model_empty_falls_back_to_models_api(self) -> None:
+        with patch.dict(os.environ, {}, clear=True), patch(
+            "app.nexus.answer_builder._load_search_role_assignment",
+            return_value={"role": "SEARCH", "model": "", "enabled": True, "error": "search_role_model_missing"},
+        ), patch(
+            "app.nexus.answer_builder._probe_llm_endpoint_detail",
+            return_value={"endpoint": "http://127.0.0.1:8080/v1/chat/completions", "reachable": True, "checks": [], "error": ""},
+        ), patch(
+            "app.nexus.answer_builder._discover_model_from_models_api",
+            return_value="remote-model-1",
+        ):
+            payload = build_answer_payload(question="質問", summary="fallback", references=[], evidence_chunks=[])
+        self.assertEqual(payload["llm_model"], "remote-model-1")
+        self.assertIn("fallback_to_models_api", payload["selected_reason"])
+
+    def test_search_endpoint_is_in_endpoint_candidates(self) -> None:
+        with patch.dict(os.environ, {}, clear=True), patch(
+            "app.nexus.answer_builder._load_search_role_assignment",
+            return_value={"role": "SEARCH", "model": "search-role-model", "enabled": True, "endpoint": "http://127.0.0.1:19090/v1"},
+        ), patch(
+            "app.nexus.answer_builder._probe_llm_endpoint_detail",
+            side_effect=[
+                {"endpoint": "http://127.0.0.1:19090/v1/chat/completions", "reachable": True, "checks": [], "error": ""},
+            ],
+        ):
+            payload = build_answer_payload(question="質問", summary="fallback", references=[], evidence_chunks=[])
+        self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:19090/v1/chat/completions")
+
+    def test_http_400_error_body_is_in_llm_error(self) -> None:
+        references = [{"citation_label": "s1", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "s1"}]
+        with patch.dict(os.environ, {"NEXUS_ENABLE_ANSWER_LLM": "true"}, clear=True), patch(
+            "app.nexus.answer_builder._probe_llm_endpoint_detail",
+            return_value={"endpoint": "http://127.0.0.1:8080/v1/chat/completions", "reachable": True, "checks": [], "error": ""},
+        ), patch(
+            "app.nexus.answer_builder._generate_answer_with_llm",
+            side_effect=RuntimeError("answer llm http_error: status=400 body={\"error\":\"bad request\"}"),
+        ):
+            payload = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
+        self.assertIn("status=400", payload["llm_error"])
+        self.assertIn("body=", payload["llm_error"])
+        self.assertIn("request failed", payload["generation"]["notice"])
+
+    def test_generate_answer_payload_contains_max_tokens_and_stream_false(self) -> None:
+        from app.nexus import answer_builder as target
+
+        captured: dict = {}
+
+        class _Resp:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return json.dumps({"choices": [{"message": {"content": "ok [S1]"}}]}).encode("utf-8")
+
+        def _fake_urlopen(req, timeout=0):  # noqa: ANN001, ARG001
+            captured["payload"] = json.loads(req.data.decode("utf-8"))
+            return _Resp()
+
+        with patch.dict(os.environ, {"NEXUS_ANSWER_LLM_MAX_TOKENS": "1024"}, clear=True), patch(
+            "app.nexus.answer_builder.request.urlopen",
+            side_effect=_fake_urlopen,
+        ):
+            text = target._generate_answer_with_llm(
+                question="質問",
+                references=[{"citation_label": "[S1]", "title": "src"}],
+                evidence_chunks=[{"citation_label": "[S1]", "source_id": "src", "quote": "fact"}],
+                llm_settings={"enabled": True, "endpoint": "http://127.0.0.1:8080/v1/chat/completions", "model": "m"},
+            )
+        self.assertEqual(text, "ok [S1]")
+        self.assertEqual(captured["payload"]["max_tokens"], 1024)
+        self.assertFalse(captured["payload"]["stream"])
+
     def test_resolve_settings_selects_8080_when_8000_probe_fails(self) -> None:
         references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
         chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "legacy-label"}]
