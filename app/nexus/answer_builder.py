@@ -10,6 +10,13 @@ from urllib import error, request
 import uuid
 
 from app.nexus.config import NEXUS_PATHS
+from app.nexus.context_compressor import (
+    build_context_budget,
+    choose_profile_name,
+    compress_global_evidence,
+    estimate_tokens,
+    stronger_profile,
+)
 from app.nexus.citation_mapper import normalize_reference_labels, replace_citation_labels
 from app.nexus.db import transaction
 from app.nexus.citation_verifier import CitationSupportVerifier, verify_citation_labels
@@ -185,7 +192,7 @@ def _load_search_role_assignment() -> dict:
         if not model_key:
             return {"role": "SEARCH", "error": "role_model_search_empty"}
         model_row = conn.execute(
-            "SELECT model_key, enabled, llm_url, name FROM models WHERE model_key = ? LIMIT 1",
+            "SELECT model_key, enabled, llm_url, name, ctx_size FROM models WHERE model_key = ? LIMIT 1",
             (model_key,),
         ).fetchone()
         if model_row is None:
@@ -198,6 +205,7 @@ def _load_search_role_assignment() -> dict:
             "enabled": int(model_row["enabled"] or 0) != 0,
             "endpoint": str(model_row["llm_url"] or "").strip(),
             "base_url": str(model_row["llm_url"] or "").strip(),
+            "ctx_size": int(model_row["ctx_size"] or 0),
         }
     except Exception as exc:  # noqa: BLE001
         return {"role": "SEARCH", "error": f"search_role_lookup_failed:{exc}"}
@@ -335,6 +343,63 @@ def _resolve_answer_llm_settings() -> dict:
         "explicit_enabled": explicit_enabled,
         "search_assignment": search_assignment,
     }
+
+
+def _looks_like_context_overflow_error(message: str) -> bool:
+    text = str(message or "").lower()
+    markers = (
+        "exceed_context_size_error",
+        "exceeds the available context size",
+        "n_prompt_tokens",
+        "n_ctx",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _first_positive_int(*values: object) -> int | None:
+    for value in values:
+        try:
+            parsed = int(str(value).strip())
+        except Exception:  # noqa: BLE001
+            continue
+        if parsed > 0:
+            return parsed
+    return None
+
+
+def _fetch_context_tokens_from_models_api(endpoint: str, model_name: str, timeout_sec: float = 1.5) -> int | None:
+    if not endpoint:
+        return None
+    base = endpoint.replace("/v1/chat/completions", "").rstrip("/")
+    models_url = f"{base}/v1/models"
+    req = request.Request(models_url, method="GET")
+    try:
+        with request.urlopen(req, timeout=timeout_sec) as resp:
+            parsed = json.loads(resp.read().decode("utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    data = parsed.get("data") if isinstance(parsed, dict) else None
+    if not isinstance(data, list):
+        return None
+
+    selected: dict | None = None
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("id") or "").strip() == model_name:
+            selected = row
+            break
+    if selected is None and data and isinstance(data[0], dict):
+        selected = data[0]
+    if not selected:
+        return None
+
+    context_fields = (
+        selected.get("context_length"),
+        selected.get("max_context_tokens"),
+        (selected.get("metadata") or {}).get("context_length") if isinstance(selected.get("metadata"), dict) else None,
+    )
+    return _first_positive_int(*context_fields)
 
 
 def _generate_answer_with_llm(
@@ -520,14 +585,62 @@ def build_answer_payload(
     else:
         summary_text = f"{summary_text} 未確認のため断定は避けます。".strip()
     evidence_json = normalized_evidence_json if evidence is not None else normalized_references
-    chunks_for_llm = normalized_chunks
+    chunks_for_llm_input = normalized_chunks
+    refs_for_llm_input = normalized_references
+
+    llm_settings = _resolve_answer_llm_settings()
+    llm_endpoint = str(llm_settings.get("endpoint") or "").strip()
+    llm_model = str(llm_settings.get("model") or "local-llm").strip() or "local-llm"
+    model_ctx = _first_positive_int(
+        _fetch_context_tokens_from_models_api(llm_endpoint, llm_model),
+        (llm_settings.get("search_assignment") or {}).get("ctx_size")
+        if isinstance(llm_settings.get("search_assignment"), dict)
+        else None,
+        os.environ.get("NEXUS_ANSWER_LLM_MAX_CONTEXT_TOKENS", "").strip(),
+        os.environ.get("DEFAULT_LLM_CTX_SIZE", "").strip(),
+        16384,
+    ) or 16384
+    preferred_profile = choose_profile_name(model_ctx)
+
+    instruction_tokens_estimate = estimate_tokens(
+        "あなたは調査回答アシスタントです。必ず根拠に基づいて日本語で回答してください。"
+        "Evidence 以外を根拠に断定しないこと。"
+        "重要主張ごとに [S1] 形式のcitationを必ず付与すること。"
+    )
+    question_tokens_estimate = estimate_tokens(question)
+    source_metadata_tokens_estimate = estimate_tokens(
+        "\n".join(
+            f"{ref.get('citation_label', '')} {ref.get('title', '')} {ref.get('url', '')}"
+            for ref in normalized_references[:120]
+        )
+    )
+    context_budget = build_context_budget(
+        max_context_tokens=model_ctx,
+        instruction_tokens_estimate=instruction_tokens_estimate,
+        question_tokens_estimate=question_tokens_estimate,
+        source_metadata_tokens_estimate=source_metadata_tokens_estimate,
+        preferred_profile=preferred_profile,
+    )
+    compressed = compress_global_evidence(
+        question,
+        refs_for_llm_input,
+        chunks_for_llm_input,
+        context_budget,
+    )
+    refs_for_llm = compressed["references"]
+    chunks_for_llm = compressed["chunks"]
+    compression_stats = dict(compressed["stats"])
+    estimated_prompt_tokens = estimate_tokens(
+        question
+        + "\\n"
+        + "\\n".join(str(chunk.get("quote") or chunk.get("text") or "") for chunk in chunks_for_llm)
+        + "\\n"
+        + "\\n".join(str(ref.get("title") or "") for ref in refs_for_llm)
+    )
 
     llm_answer: str | None = None
     generation_mode = "template_fallback"
-    llm_settings = _resolve_answer_llm_settings()
     llm_enabled = bool(llm_settings.get("enabled"))
-    llm_endpoint = str(llm_settings.get("endpoint") or "").strip()
-    llm_model = str(llm_settings.get("model") or "local-llm").strip() or "local-llm"
     llm_reachable = bool(llm_settings.get("reachable"))
     llm_model_role = str(llm_settings.get("model_role") or "SEARCH")
     llm_model_source = str(llm_settings.get("model_source") or "fallback")
@@ -535,11 +648,13 @@ def build_answer_payload(
     llm_selected_reason = str(llm_settings.get("selected_reason") or "").strip()
     llm_probe_status = llm_settings.get("probe_status") if isinstance(llm_settings.get("probe_status"), list) else []
     llm_error: str | None = None
+    retry_count = 0
+    retry_applied_profile = ""
     if chunks_for_llm:
         try:
             llm_answer = _generate_answer_with_llm(
                 question=question,
-                references=normalized_references,
+                references=refs_for_llm,
                 evidence_chunks=chunks_for_llm,
                 llm_settings=llm_settings,
             )
@@ -548,6 +663,47 @@ def build_answer_payload(
             llm_answer = None
             generation_mode = "template_fallback"
             llm_error = str(exc)
+            if _looks_like_context_overflow_error(llm_error):
+                retry_count = 1
+                retry_profile = stronger_profile(context_budget.compression_profile)
+                retry_applied_profile = retry_profile
+                retry_budget = build_context_budget(
+                    max_context_tokens=model_ctx,
+                    instruction_tokens_estimate=instruction_tokens_estimate,
+                    question_tokens_estimate=question_tokens_estimate,
+                    source_metadata_tokens_estimate=source_metadata_tokens_estimate,
+                    preferred_profile=retry_profile,
+                )
+                retry_compressed = compress_global_evidence(
+                    question,
+                    refs_for_llm_input,
+                    chunks_for_llm_input,
+                    retry_budget,
+                )
+                retry_refs = retry_compressed["references"]
+                retry_chunks = retry_compressed["chunks"]
+                try:
+                    llm_answer = _generate_answer_with_llm(
+                        question=question,
+                        references=retry_refs,
+                        evidence_chunks=retry_chunks,
+                        llm_settings=llm_settings,
+                    )
+                    generation_mode = "llm_answer"
+                    llm_error = None
+                    context_budget = retry_budget
+                    refs_for_llm = retry_refs
+                    chunks_for_llm = retry_chunks
+                    compression_stats = dict(retry_compressed["stats"])
+                    estimated_prompt_tokens = estimate_tokens(
+                        question
+                        + "\\n"
+                        + "\\n".join(str(chunk.get("quote") or chunk.get("text") or "") for chunk in chunks_for_llm)
+                    )
+                except Exception as retry_exc:  # noqa: BLE001
+                    llm_answer = None
+                    llm_error = str(retry_exc)
+                    generation_mode = "template_fallback"
 
     final_summary = replace_citation_labels(llm_answer or summary_text, normalized["label_map"])
 
@@ -574,6 +730,20 @@ def build_answer_payload(
         "probe_error": llm_probe_error,
         "selected_reason": llm_selected_reason,
         "probe_status": llm_probe_status,
+        "max_context_tokens": context_budget.max_context_tokens,
+        "compression_profile": context_budget.compression_profile,
+        "auto_budget": context_budget.auto_budget,
+        "evidence_budget_tokens": context_budget.max_evidence_tokens,
+        "estimated_prompt_tokens": estimated_prompt_tokens,
+        "compression": compression_stats,
+        "retry_count": retry_count,
+        "retry_profile": retry_applied_profile,
+        "context_budget": {
+            "max_context_tokens": context_budget.max_context_tokens,
+            "reserved_output_tokens": context_budget.reserved_output_tokens,
+            "safety_tokens": context_budget.safety_tokens,
+            "max_evidence_tokens": context_budget.max_evidence_tokens,
+        },
         "error": llm_error,
         "notice": (
             "Answer LLM is disabled. Deep Research generated a template fallback answer."
@@ -582,12 +752,16 @@ def build_answer_payload(
                 "Answer LLM endpoint is unreachable. Deep Research generated a template fallback answer."
                 if not llm_reachable
                 else (
-                    "Answer LLM request failed. Deep Research generated a template fallback answer."
+                    (
+                        "Answer LLM request exceeded context size. Evidence was compressed and retried, but generation still failed."
+                        if llm_error and retry_count > 0 and _looks_like_context_overflow_error(llm_error)
+                        else "Answer LLM request failed. Deep Research generated a template fallback answer."
+                    )
                     if llm_error
                     else (
-                        "No evidence chunks were available. Deep Research generated a template fallback answer."
-                        if not chunks_for_llm
-                        else ""
+                        ("Evidence was compressed to fit the model context." if retry_count > 0 else "")
+                        if chunks_for_llm
+                        else "No evidence chunks were available. Deep Research generated a template fallback answer."
                     )
                 )
             )
