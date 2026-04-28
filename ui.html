@@ -343,10 +343,16 @@ html.logo-svg-ready .logo-text{display:none}
   padding:5px 10px;border:1px solid var(--border);border-radius:var(--r);
   background:var(--bg2);color:var(--text2);font-size:11px;font-weight:700;
   letter-spacing:.04em;cursor:pointer;transition:all .15s;user-select:none;
+  flex-shrink:0;white-space:nowrap;
 }
 .chat-task-toggle:hover{border-color:var(--border2);color:var(--text)}
 .chat-task-toggle.on{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
-.phase1-plan-panel{display:flex;flex-wrap:wrap;gap:8px;padding-top:8px}
+.phase1-plan-toggle{flex-shrink:0}
+.phase1-plan-panel{
+  display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;padding:8px;
+  border:1px solid var(--border);border-radius:8px;background:var(--bg);
+}
+.phase1-plan-panel.collapsed{display:none !important}
 .phase1-plan-panel .sel{min-width:132px;flex:1 1 150px;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text)}
 .phase1-plan-note{width:100%;font-size:10px;color:var(--amber);line-height:1.4}
 .phase1-plan-btn{padding:7px 12px;font-size:11px;font-weight:700;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:6px;cursor:pointer}
@@ -691,7 +697,7 @@ html.logo-svg-ready .logo-text{display:none}
 }
 .chat-topbar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0}
 .chat-control-row{display:flex;align-items:center;gap:10px;width:100%;min-width:0}
-.chat-control-left{display:flex;align-items:center;gap:10px;min-width:0}
+.chat-control-left{display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap}
 .agent-session-row{display:flex;align-items:center;gap:10px;width:100%;min-width:0}
 .agent-session-left{display:flex;align-items:center;gap:8px;min-width:0}
 .agent-stop-btn{padding:6px 10px;border-radius:6px;border:1px solid rgba(255,68,102,.35);background:rgba(255,68,102,.08);color:var(--red);font-size:11px;font-weight:700;cursor:pointer}
@@ -1157,6 +1163,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   .echo-status-right{display:flex;width:100%;gap:8px;align-items:center}
   .chat-control-row,
   .agent-session-row{flex-wrap:wrap}
+  .phase1-plan-panel{flex-direction:column;align-items:stretch}
+  .phase1-plan-panel .sel,
+  .phase1-plan-panel .phase1-plan-btn{width:100%;min-width:0}
   .tts-floating-player{left:8px;right:8px;top:calc(82px + env(safe-area-inset-top))}
 }
 /* EchoVault 折り畳みパネル */
@@ -1286,9 +1295,12 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <button class="chat-task-toggle" id="chat-tts-toggle" onclick="toggleChatTtsUnified()" title="Chat TTS 自動読み上げのON/OFF">
             <span id="chat-tts-toggle-label">TTS OFF</span>
           </button>
+          <button class="chat-task-toggle phase1-plan-toggle" id="phase1-plan-toggle" onclick="togglePhase1PlanPanel()" aria-expanded="false" title="Plan only設定を開閉">
+            <span>Plan設定</span>
+          </button>
         </div>
       </div>
-      <div class="phase1-plan-panel">
+      <div class="phase1-plan-panel collapsed" id="phase1-plan-panel" aria-hidden="true">
         <select id="phase1-planning-mode" class="sel">
           <option value="fast">Fast</option>
           <option value="standard" selected>Standard</option>
@@ -1305,7 +1317,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <option value="plan_and_execute">Plan and execute</option>
         </select>
         <button class="phase1-plan-btn" onclick="generatePlanOnlyFromInput()">Generate Plan</button>
-        <div class="phase1-plan-note">Phase 1では安全のため、実装は行わずPlan生成のみ実行します。</div>
+        <div class="phase1-plan-note">
+          <div>Phase 1では安全のため、実装は行わずPlan生成のみ実行します。</div>
+          <div>Requirement Modeの質問フローはPhase 2で有効化されます。</div>
+        </div>
       </div>
     </div>
     <div class="messages" id="messages">
@@ -3196,6 +3211,8 @@ const API = window.location.origin;
 let mode = 'chat';
 const CHAT_TASK_TOGGLE_KEY = 'chat_task_enabled';
 let isTaskEnabled = localStorage.getItem(CHAT_TASK_TOGGLE_KEY) === 'true';
+const PHASE1_PLAN_DRAWER_KEY = 'phase1_plan_drawer_open';
+let isPhase1PlanOpen = localStorage.getItem(PHASE1_PLAN_DRAWER_KEY) === 'true';
 let busy = false;
 let maxSteps = 20;
 let autoSelectOption = true; // プランナーLLMによる自動選択
@@ -7169,6 +7186,28 @@ function syncChatTaskToggle() {
   const label = document.getElementById('chat-task-toggle-label');
   toggle?.classList.toggle('on', !!isTaskEnabled);
   if (label) label.textContent = isTaskEnabled ? 'ON' : 'OFF';
+  syncPhase1PlanPanel();
+}
+
+function syncPhase1PlanPanel() {
+  const toggle = document.getElementById('phase1-plan-toggle');
+  const panel = document.getElementById('phase1-plan-panel');
+  if (!toggle || !panel) return;
+  const isChatMode = mode === 'chat';
+  toggle.style.display = isChatMode ? '' : 'none';
+  const canShowPanel = isChatMode && (isTaskEnabled || isPhase1PlanOpen);
+  panel.style.display = canShowPanel ? 'flex' : 'none';
+  panel.classList.toggle('collapsed', !isPhase1PlanOpen);
+  panel.setAttribute('aria-hidden', isPhase1PlanOpen ? 'false' : 'true');
+  toggle.classList.toggle('on', isPhase1PlanOpen);
+  toggle.setAttribute('aria-expanded', isPhase1PlanOpen ? 'true' : 'false');
+}
+
+function togglePhase1PlanPanel(nextState = null) {
+  const next = typeof nextState === 'boolean' ? nextState : !isPhase1PlanOpen;
+  isPhase1PlanOpen = !!next;
+  localStorage.setItem(PHASE1_PLAN_DRAWER_KEY, isPhase1PlanOpen ? 'true' : 'false');
+  syncPhase1PlanPanel();
 }
 
 function syncChatTtsToggle() {
