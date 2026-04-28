@@ -5,6 +5,7 @@ import ipaddress
 import json
 import mimetypes
 import re
+import ssl
 import socket
 from html.parser import HTMLParser
 from pathlib import Path
@@ -165,12 +166,26 @@ def _resolve_redirect_location(current_url: str, location: str) -> str:
     return resolved
 
 
-def _build_opener_no_auto_redirect() -> request.OpenerDirector:
+def _build_ssl_context() -> ssl.SSLContext:
+    certifi_path = ""
+    try:
+        import certifi  # type: ignore
+
+        certifi_path = str(certifi.where() or "").strip()
+    except Exception:  # noqa: BLE001
+        certifi_path = ""
+
+    if certifi_path:
+        return ssl.create_default_context(cafile=certifi_path)
+    return ssl.create_default_context()
+
+
+def _build_opener_no_auto_redirect(*, ssl_context: ssl.SSLContext) -> request.OpenerDirector:
     class _NoRedirect(request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             return None
 
-    return request.build_opener(_NoRedirect)
+    return request.build_opener(_NoRedirect, request.HTTPSHandler(context=ssl_context))
 
 
 def safe_download(
@@ -183,7 +198,7 @@ def safe_download(
 ) -> dict:
     """安全制約を適用して URL を取得する。"""
     current_url = url
-    opener = _build_opener_no_auto_redirect()
+    opener = _build_opener_no_auto_redirect(ssl_context=_build_ssl_context())
 
     for _ in range(max_redirects + 1):
         _validate_public_http_url(current_url)

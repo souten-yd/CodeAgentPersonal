@@ -35,16 +35,102 @@ def _build_answer_markdown(*, question: str, summary: str, references: list[dict
 
 
 def _llm_answer_enabled() -> bool:
-    value = str(os.environ.get("NEXUS_ENABLE_ANSWER_LLM", "")).strip().lower()
-    return value in {"1", "true", "yes", "on"}
+    settings = _resolve_answer_llm_settings()
+    return bool(settings.get("enabled"))
 
 
 def _llm_endpoint() -> str:
-    return str(os.environ.get("NEXUS_ANSWER_LLM_ENDPOINT", "http://127.0.0.1:8000/v1/chat/completions")).strip()
+    settings = _resolve_answer_llm_settings()
+    return str(settings.get("endpoint") or "").strip()
 
 
 def _llm_model() -> str:
-    return str(os.environ.get("NEXUS_ANSWER_LLM_MODEL", "local-llm")).strip() or "local-llm"
+    settings = _resolve_answer_llm_settings()
+    return str(settings.get("model") or "local-llm").strip() or "local-llm"
+
+
+def _env_truthy(name: str) -> bool | None:
+    raw = str(os.environ.get(name, "")).strip().lower()
+    if not raw:
+        return None
+    return raw in {"1", "true", "yes", "on", "enabled"}
+
+
+def _normalize_chat_completions_endpoint(raw_url: str) -> str:
+    value = raw_url.strip()
+    if not value:
+        return ""
+    if value.endswith("/v1/chat/completions"):
+        return value
+    if value.endswith("/v1"):
+        return value + "/chat/completions"
+    return value.rstrip("/") + "/v1/chat/completions"
+
+
+def _build_endpoint_candidates() -> list[str]:
+    openai_base = str(os.environ.get("OPENAI_BASE_URL", "")).strip()
+    candidates = [
+        str(os.environ.get("DEEP_RESEARCH_LLM_ENDPOINT", "")).strip(),
+        str(os.environ.get("ANSWER_LLM_ENDPOINT", "")).strip(),
+        str(os.environ.get("NEXUS_ANSWER_LLM_ENDPOINT", "")).strip(),
+        _normalize_chat_completions_endpoint(openai_base) if openai_base else "",
+        str(os.environ.get("LOCAL_LLM_ENDPOINT", "")).strip(),
+        str(os.environ.get("CODEAGENT_LLM_CHAT", "")).strip(),
+        str(os.environ.get("LLM_URL", "")).strip(),
+        "http://127.0.0.1:8080/v1/chat/completions",
+    ]
+    deduped: list[str] = []
+    for candidate in candidates:
+        normalized = _normalize_chat_completions_endpoint(candidate)
+        if normalized and normalized not in deduped:
+            deduped.append(normalized)
+    return deduped
+
+
+def _probe_llm_endpoint(endpoint: str, timeout_sec: float = 1.5) -> bool:
+    if not endpoint:
+        return False
+    base = endpoint.replace("/v1/chat/completions", "").rstrip("/")
+    models_url = f"{base}/v1/models"
+    req = request.Request(models_url, method="GET")
+    try:
+        with request.urlopen(req, timeout=timeout_sec) as resp:
+            status = int(getattr(resp, "status", 0))
+            return 200 <= status < 500
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _resolve_answer_llm_settings() -> dict:
+    endpoint_candidates = _build_endpoint_candidates()
+    endpoint = endpoint_candidates[0] if endpoint_candidates else ""
+    model = str(
+        os.environ.get("DEEP_RESEARCH_LLM_MODEL")
+        or os.environ.get("ANSWER_LLM_MODEL")
+        or os.environ.get("NEXUS_ANSWER_LLM_MODEL")
+        or os.environ.get("LLM_MODEL")
+        or "local-llm"
+    ).strip() or "local-llm"
+
+    explicit_enabled = (
+        _env_truthy("DEEP_RESEARCH_LLM_ENABLED")
+        if _env_truthy("DEEP_RESEARCH_LLM_ENABLED") is not None
+        else (
+            _env_truthy("ANSWER_LLM_ENABLED")
+            if _env_truthy("ANSWER_LLM_ENABLED") is not None
+            else (
+                _env_truthy("NEXUS_ENABLE_ANSWER_LLM")
+                if _env_truthy("NEXUS_ENABLE_ANSWER_LLM") is not None
+                else _env_truthy("LLM_ENABLED")
+            )
+        )
+    )
+    if explicit_enabled is not None:
+        enabled = explicit_enabled and bool(endpoint)
+    else:
+        enabled = bool(endpoint) and _probe_llm_endpoint(endpoint)
+
+    return {"enabled": enabled, "endpoint": endpoint, "model": model}
 
 
 def _generate_answer_with_llm(
@@ -53,12 +139,14 @@ def _generate_answer_with_llm(
     references: list[dict],
     evidence_chunks: list[dict],
     timeout_sec: float | None = None,
+    llm_settings: dict | None = None,
 ) -> str:
-    if not _llm_answer_enabled():
+    llm_settings = llm_settings or _resolve_answer_llm_settings()
+    if not bool(llm_settings.get("enabled")):
         raise RuntimeError("answer llm is disabled")
 
-    endpoint = _llm_endpoint()
-    model = _llm_model()
+    endpoint = str(llm_settings.get("endpoint") or "").strip()
+    model = str(llm_settings.get("model") or "").strip() or "local-llm"
     timeout_value = float(timeout_sec or os.environ.get("NEXUS_ANSWER_LLM_TIMEOUT_SEC", "20"))
 
     reference_lines = []
@@ -222,9 +310,10 @@ def build_answer_payload(
 
     llm_answer: str | None = None
     generation_mode = "template_fallback"
-    llm_enabled = _llm_answer_enabled()
-    llm_endpoint = _llm_endpoint()
-    llm_model = _llm_model()
+    llm_settings = _resolve_answer_llm_settings()
+    llm_enabled = bool(llm_settings.get("enabled"))
+    llm_endpoint = str(llm_settings.get("endpoint") or "").strip()
+    llm_model = str(llm_settings.get("model") or "local-llm").strip() or "local-llm"
     llm_error: str | None = None
     if chunks_for_llm:
         try:
@@ -232,8 +321,9 @@ def build_answer_payload(
                 question=question,
                 references=normalized_references,
                 evidence_chunks=chunks_for_llm,
+                llm_settings=llm_settings,
             )
-            generation_mode = "llm"
+            generation_mode = "llm_answer"
         except Exception as exc:  # noqa: BLE001
             llm_answer = None
             generation_mode = "template_fallback"
@@ -259,6 +349,13 @@ def build_answer_payload(
         "llm_endpoint": llm_endpoint,
         "llm_model": llm_model,
         "error": llm_error,
+        "notice": (
+            "Answer LLM is disabled. Deep Research generated a template fallback answer. "
+            "Citation quality may be weak because no LLM synthesis was performed. "
+            "Check DEEP_RESEARCH_LLM_ENABLED and endpoint settings."
+            if generation_mode == "template_fallback"
+            else ""
+        ),
     }
 
     payload = {

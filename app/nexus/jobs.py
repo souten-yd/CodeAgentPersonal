@@ -64,6 +64,25 @@ def create_job(
     return _row_to_job(row)
 
 
+def ensure_job_exists(
+    job_id: str,
+    *,
+    title: str | None = None,
+    message: str | None = None,
+    status: JobStatus = "queued",
+) -> NexusJob:
+    existing = get_job(job_id)
+    if existing is not None:
+        return existing
+    try:
+        return create_job(job_id, title=title, message=message, status=status)
+    except Exception:  # noqa: BLE001
+        fallback = get_job(job_id)
+        if fallback is None:
+            raise
+        return fallback
+
+
 def update_job(
     job_id: str,
     *,
@@ -156,7 +175,15 @@ def append_job_event(job_id: str, event_type: str, data: dict[str, Any]) -> Nexu
     with get_conn() as conn:
         job_row = conn.execute("SELECT 1 FROM nexus_jobs WHERE job_id = ?", (job_id,)).fetchone()
         if job_row is None:
-            raise ValueError(f"job not found: {job_id}")
+            created_at = _now_iso()
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO nexus_jobs(
+                    job_id, status, title, message, error, document_count, created_at, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (job_id, "running", "auto_recovered_job", "auto-created for event", "", 0, created_at, created_at),
+            )
 
         next_seq_row = conn.execute(
             "SELECT COALESCE(MAX(seq), -1) + 1 AS next_seq FROM nexus_job_events WHERE job_id = ?",

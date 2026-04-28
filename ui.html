@@ -654,9 +654,9 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-deep-answer{min-height:120px}
 .nexus-answer-section{display:flex;flex-direction:column;gap:6px}
 .nexus-answer-subtitle{font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.04em;text-transform:uppercase}
-.nexus-answer-json{margin:0;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-family:var(--font-mono);font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:6px;background:var(--bg2);padding:8px}
+.nexus-answer-json{margin:0;max-height:220px;max-width:100%;overflow:auto;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;font-family:var(--font-mono);font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:6px;background:var(--bg2);padding:8px}
 .nexus-citation-warnings{margin-top:8px;display:flex;flex-direction:column;gap:6px}
-.nexus-citation-warning{border:1px solid var(--border);border-radius:6px;padding:7px;background:var(--bg1);font-size:10px;color:var(--text2);line-height:1.45}
+.nexus-citation-warning{border:1px solid var(--border);border-radius:6px;padding:7px;background:var(--bg1);font-size:10px;color:var(--text2);line-height:1.45;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
 .nexus-citation-warning.unsupported{border-color:rgba(255,68,102,.38);background:rgba(255,68,102,.09)}
 .nexus-citation-warning.weak{border-color:rgba(255,170,0,.38);background:rgba(255,170,0,.1)}
 .nexus-ref-list{display:flex;flex-direction:column;gap:8px;max-height:420px;overflow:auto}
@@ -670,13 +670,15 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-status-badge.skipped{border-color:rgba(136,136,255,.3);background:rgba(136,136,255,.11);color:var(--blue)}
 .nexus-status-badge.skipped_size_limit,.nexus-status-badge.skipped_download_limit{border-color:rgba(136,136,255,.3);background:rgba(136,136,255,.11);color:var(--blue)}
 .nexus-status-badge.failed{border-color:rgba(255,68,102,.38);background:rgba(255,68,102,.11);color:var(--red)}
-.nexus-deep-sources-table td{vertical-align:top}
-.nexus-table-cell-url{max-width:340px;overflow:hidden;text-overflow:ellipsis}
+.nexus-deep-sources-table td{vertical-align:top;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
+.nexus-deep-sources-table th,.nexus-deep-sources-table td{white-space:normal}
+.nexus-table-cell-url{max-width:340px;overflow-wrap:anywhere;word-break:break-word;white-space:normal}
+.nexus-generation-notice{margin:8px 0 0 0;padding:8px;border:1px solid rgba(255,170,0,.38);background:rgba(255,170,0,.09);border-radius:6px;font-size:10px;line-height:1.5;color:var(--text2);overflow-wrap:anywhere;word-break:break-word}
 .nexus-deep-viewer{min-height:160px;max-height:360px;overflow:auto}
 .nexus-viewer-header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 .nexus-viewer-mode{font-size:10px;color:var(--text2);font-family:var(--font-mono)}
 .nexus-viewer-content{font-size:11px;color:var(--text2);line-height:1.5}
-.nexus-viewer-pre{margin:0;white-space:pre-wrap;word-break:break-word;font-family:var(--font-mono);font-size:10px;color:var(--text3)}
+.nexus-viewer-pre{margin:0;max-width:100%;overflow:auto;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;font-family:var(--font-mono);font-size:10px;color:var(--text3)}
 .nexus-chunk-list{display:flex;flex-direction:column;gap:6px}
 .nexus-chunk-item{border:1px solid var(--border);border-radius:6px;background:var(--bg2);padding:7px;cursor:pointer}
 .nexus-chunk-item.active{border-color:var(--accent-border);box-shadow:0 0 0 1px var(--accent-border) inset}
@@ -8299,9 +8301,11 @@ function renderNexusDeepAnswer(answer = {}) {
   if (!el) return;
   const md = String(answer?.answer_markdown || '').trim();
   const generation = answer?.generation;
+  const generationMode = String(generation?.mode || answer?.generation_mode || '').trim();
   const hasGeneration = generation !== undefined && generation !== null && (
     typeof generation !== 'string' || generation.trim() !== ''
   );
+  const generationNotice = String(generation?.notice || '').trim();
   const verification = (answer?.citation_verification && typeof answer.citation_verification === 'object')
     ? answer.citation_verification
     : {};
@@ -8314,6 +8318,11 @@ function renderNexusDeepAnswer(answer = {}) {
     <div class="nexus-answer-section">
       <div class="nexus-answer-subtitle">Generation</div>
       <pre class="nexus-answer-json">${esc(hasGeneration ? JSON.stringify(generation, null, 2) : 'generation unavailable')}</pre>
+      ${(generationMode === 'template_fallback' || generationNotice)
+        ? `<div class="nexus-generation-notice">${
+          esc(generationNotice || 'Answer LLM is disabled. Deep Research generated a template fallback answer. Citation quality may be weak because no LLM synthesis was performed. Check DEEP_RESEARCH_LLM_ENABLED and endpoint settings.')
+        }</div>`
+        : ''}
     </div>
     <div class="nexus-answer-section">
       <div class="nexus-answer-subtitle">Citation verification</div>
