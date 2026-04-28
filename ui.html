@@ -13829,10 +13829,56 @@ function renderClarificationCard(result, context = {}) {
   });
 }
 
+
+function _phase1ReviewBadgeClass(severity) {
+  const s = String(severity || '').toLowerCase();
+  if (s === 'critical') return 'var(--red)';
+  if (s === 'high') return 'var(--amber)';
+  if (s === 'warning') return 'var(--blue)';
+  return 'var(--text3)';
+}
+
+function _renderPhase1ReviewSection(reviewResult) {
+  if (!reviewResult || typeof reviewResult !== 'object') return '';
+  const findings = Array.isArray(reviewResult.findings) ? reviewResult.findings.slice(0, 5) : [];
+  const needsConfirm = !!reviewResult.requires_user_confirmation;
+  const dangerBanner = needsConfirm
+    ? `<div style="margin-bottom:8px;padding:8px 10px;border:1px solid rgba(255,68,102,.35);background:rgba(255,68,102,.1);border-radius:6px;color:var(--red);font-size:11px;font-weight:700">⚠ このPlanは実装前に確認が必要です（Phase 5で承認操作を有効化予定）</div>`
+    : '';
+  const findingHtml = findings.length
+    ? findings.map((f) => {
+        const color = _phase1ReviewBadgeClass(f?.severity);
+        return `<div style="padding:7px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);margin-top:6px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:10px;padding:1px 6px;border:1px solid ${color};border-radius:10px;color:${color}">${esc(String(f?.severity || 'info'))}</span>
+            <span style="font-size:10px;color:var(--text3)">${esc(String(f?.category || 'other'))}</span>
+          </div>
+          <div style="font-size:11px;color:var(--text);font-weight:700;margin-top:3px">${esc(String(f?.title || '-'))}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">${esc(String(f?.detail || ''))}</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">recommendation: ${esc(String(f?.recommendation || '-'))}</div>
+        </div>`;
+      }).join('')
+    : `<div style="font-size:11px;color:var(--text3)">No findings</div>`;
+
+  return `<div class="phase1-warning-box" style="border-color:var(--border)">
+    ${dangerBanner}
+    <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:4px">Plan Review</div>
+    <div style="font-size:11px;color:var(--text2);line-height:1.5">
+      • Overall risk: <b>${esc(String(reviewResult.overall_risk || '-'))}</b><br>
+      • Requires user confirmation: <b>${esc(String(!!reviewResult.requires_user_confirmation))}</b><br>
+      • Destructive change detected: <b>${esc(String(!!reviewResult.destructive_change_detected))}</b><br>
+      • Recommended next action: <b>${esc(String(reviewResult.recommended_next_action || '-'))}</b>
+    </div>
+    <div style="margin-top:6px;font-size:11px;font-weight:700;color:var(--text2)">Findings (top 5)</div>
+    ${findingHtml}
+  </div>`;
+}
+
 function renderPhase1PlanCard(result, planMarkdown = '') {
   const requirement = result?.requirement || {};
   const plan = result?.plan || {};
   const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
+  const reviewResult = result?.review_result || null;
   const planSteps = Array.isArray(plan.implementation_steps) ? plan.implementation_steps : [];
   const cardId = 'phase1-plan-card-' + Date.now();
   const markdownHtml = _renderPhase1Markdown(planMarkdown);
@@ -13858,6 +13904,7 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
       <div class="plan-card-header"><span>${esc(result?.message || 'Plan generated')}</span></div>
       <div class="plan-section">
         ${warningsHtml}
+        ${_renderPhase1ReviewSection(reviewResult)}
         ${_renderNexusContextSummary(result?.nexus_context, { title: "Nexus Context", compact: true })}
         <div class="phase1-tabs">
           <button class="phase1-tab-btn active" data-tab="requirements" onclick="_switchPhase1CardTab('${cardId}','requirements')">Requirements</button>
