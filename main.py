@@ -10337,6 +10337,23 @@ def api_get_plan_markdown(plan_id: str):
         raise HTTPException(status_code=404, detail="plan markdown not found")
 
 
+@app.get("/api/reviews/{review_id}")
+def api_get_review(review_id: str):
+    try:
+        return _phase1_planning_runner.storage.load_review(review_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="review not found")
+
+
+@app.get("/api/reviews/{review_id}/markdown")
+def api_get_review_markdown(review_id: str):
+    try:
+        markdown = _phase1_planning_runner.storage.read_review_markdown(review_id)
+        return {"review_id": review_id, "markdown": markdown}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="review markdown not found")
+
+
 @app.get("/api/requirements/{requirement_id}")
 def api_get_requirement(requirement_id: str):
     try:

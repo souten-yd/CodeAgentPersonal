@@ -7,6 +7,7 @@ from typing import Callable
 from agent.agent_prompts import PLAN_GENERATION_PROMPT, REQUIREMENT_ANALYSIS_PROMPT
 from agent.clarification_manager import ClarificationManager
 from agent.nexus_context_builder import NexusContextBuilder
+from agent.plan_reviewer import PlanReviewer
 from agent.plan_storage import PlanStorage
 from agent.planner_phase1 import PlannerPhase1
 from agent.requirement_analyzer import RequirementAnalyzer
@@ -51,6 +52,7 @@ class TaskPlanningRunner:
         self.storage = PlanStorage(ca_data_dir)
         self.planner = PlannerPhase1(llm_json_fn=llm_json_fn)
         self.requirement_analyzer = RequirementAnalyzer(llm_json_fn=llm_json_fn)
+        self.plan_reviewer = PlanReviewer()
         self.clarification_manager = ClarificationManager()
         self.nexus_builder = NexusContextBuilder(
             memory_search_fn=memory_search_fn,
@@ -250,22 +252,52 @@ class TaskPlanningRunner:
         )
         warnings.extend(self.planner.get_last_warnings())
 
+        review_result = self.plan_reviewer.review(
+            requirement=requirement,
+            plan=plan,
+            nexus_context=nexus_context if isinstance(nexus_context, dict) else {},
+            repository_context=repository_context,
+        )
+        plan.destructive_change_detected = bool(review_result.destructive_change_detected)
+        plan.requires_user_confirmation = bool(review_result.requires_user_confirmation)
+        if review_result.overall_risk == "critical":
+            plan.status = "rejected" if review_result.recommended_next_action == "reject_plan" else "needs_revision"
+        elif review_result.requires_user_confirmation:
+            plan.status = "needs_confirmation"
+        else:
+            plan.status = "planned"
+
         _req_json, req_md = self.storage.save_requirement(requirement)
-        _plan_json, plan_md = self.storage.save_plan(plan, user_input=requirement.user_input, interpreted_goal=requirement.interpreted_goal)
+        _plan_json, plan_md = self.storage.save_plan(
+            plan,
+            user_input=requirement.user_input,
+            interpreted_goal=requirement.interpreted_goal,
+            review_result=review_result,
+        )
+        _review_json, _review_md = self.storage.save_review(review_result)
+
+        warnings.extend([str(x) for x in (review_result.warnings or []) if str(x).strip()])
         warnings = _dedup_warnings(warnings)
+
+        message = "Plan generated. No implementation was executed in Phase 4."
+        if plan.status == "needs_confirmation":
+            message = "Plan requires user confirmation before execution."
+        elif plan.status in {"needs_revision", "rejected"}:
+            message = "Plan review detected critical issues. Revision is required before execution."
 
         return {
             "task_id": task_id or requirement.source_task_id,
             "requirement_id": requirement.requirement_id,
             "plan_id": plan.plan_id,
-            "status": "planned",
-            "message": "Plan generated. No implementation was executed in Phase 2.",
+            "status": plan.status,
+            "message": message,
             "planning_mode": planning_mode if planning_mode in {"fast", "standard", "deep_nexus"} else "standard",
             "requirement_mode": requirement_mode,
             "execution_mode": execution_mode,
             "effective_execution_mode": "plan_only",
             "requirement": requirement.model_dump(),
             "plan": plan.model_dump(),
+            "review_result": review_result.model_dump(),
             "nexus_context": nexus_context,
             "repository_context": repository_context,
             "requirement_markdown_path": str(req_md),
