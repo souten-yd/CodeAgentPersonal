@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import logging
 import os
 from pathlib import Path
 from urllib import error, request
@@ -12,6 +13,8 @@ from app.nexus.citation_mapper import normalize_reference_labels, replace_citati
 from app.nexus.db import transaction
 from app.nexus.citation_verifier import CitationSupportVerifier, verify_citation_labels
 from app.nexus.utils import ensure_dir
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -87,23 +90,73 @@ def _build_endpoint_candidates() -> list[str]:
     return deduped
 
 
-def _probe_llm_endpoint(endpoint: str, timeout_sec: float = 1.5) -> bool:
+def _probe_llm_endpoint_detail(endpoint: str, timeout_sec: float = 1.5) -> dict:
     if not endpoint:
-        return False
+        return {
+            "endpoint": "",
+            "reachable": False,
+            "checks": [],
+            "error": "empty endpoint",
+        }
     base = endpoint.replace("/v1/chat/completions", "").rstrip("/")
-    models_url = f"{base}/v1/models"
-    req = request.Request(models_url, method="GET")
-    try:
-        with request.urlopen(req, timeout=timeout_sec) as resp:
-            status = int(getattr(resp, "status", 0))
-            return 200 <= status < 500
-    except Exception:  # noqa: BLE001
-        return False
+    probe_urls = [f"{base}/v1/models", f"{base}/health"]
+    checks: list[dict] = []
+
+    def _is_success(status: int) -> bool:
+        return 200 <= status < 300 or status in {401, 403}
+
+    for probe_url in probe_urls:
+        req = request.Request(probe_url, method="GET")
+        status = 0
+        err_text = ""
+        try:
+            with request.urlopen(req, timeout=timeout_sec) as resp:
+                status = int(getattr(resp, "status", 0))
+        except error.HTTPError as exc:
+            status = int(getattr(exc, "code", 0) or 0)
+            err_text = f"http_error:{status}"
+        except Exception as exc:  # noqa: BLE001
+            err_text = str(exc)
+
+        check = {
+            "url": probe_url,
+            "status": status,
+            "ok": _is_success(status),
+            "error": err_text,
+        }
+        checks.append(check)
+        logger.info("answer llm probe url=%s status=%s ok=%s error=%s", probe_url, status, check["ok"], err_text)
+        if check["ok"]:
+            return {
+                "endpoint": endpoint,
+                "reachable": True,
+                "checks": checks,
+                "error": "",
+            }
+
+    last_error = ""
+    for check in checks:
+        if check.get("error"):
+            last_error = str(check.get("error"))
+            break
+    if not last_error and checks:
+        last_error = f"http_status:{checks[-1].get('status')}"
+    return {
+        "endpoint": endpoint,
+        "reachable": False,
+        "checks": checks,
+        "error": last_error,
+    }
+
+
+def _probe_llm_endpoint(endpoint: str, timeout_sec: float = 1.5) -> bool:
+    return bool(_probe_llm_endpoint_detail(endpoint=endpoint, timeout_sec=timeout_sec).get("reachable"))
 
 
 def _resolve_answer_llm_settings() -> dict:
     endpoint_candidates = _build_endpoint_candidates()
-    endpoint = endpoint_candidates[0] if endpoint_candidates else ""
+    explicit_endpoint = str(os.environ.get("DEEP_RESEARCH_LLM_ENDPOINT", "")).strip()
+    explicit_endpoint = _normalize_chat_completions_endpoint(explicit_endpoint) if explicit_endpoint else ""
     model = str(
         os.environ.get("DEEP_RESEARCH_LLM_MODEL")
         or os.environ.get("ANSWER_LLM_MODEL")
@@ -126,11 +179,58 @@ def _resolve_answer_llm_settings() -> dict:
         )
     )
     if explicit_enabled is not None:
-        enabled = explicit_enabled and bool(endpoint)
+        enabled = explicit_enabled and bool(endpoint_candidates)
     else:
-        enabled = bool(endpoint) and _probe_llm_endpoint(endpoint)
+        enabled = False
 
-    return {"enabled": enabled, "endpoint": endpoint, "model": model}
+    selected_endpoint = endpoint_candidates[0] if endpoint_candidates else ""
+    selected_reason = "no_candidates"
+    probe_status: list[dict] = []
+    first_reachable: dict | None = None
+    for idx, candidate in enumerate(endpoint_candidates):
+        detail = _probe_llm_endpoint_detail(candidate)
+        detail["index"] = idx
+        probe_status.append(detail)
+        if first_reachable is None and bool(detail.get("reachable")):
+            first_reachable = detail
+            selected_endpoint = str(detail.get("endpoint") or candidate)
+            selected_reason = "first_reachable_candidate"
+            break
+
+    if first_reachable is None and endpoint_candidates:
+        selected_endpoint = endpoint_candidates[0]
+        selected_reason = "all_candidates_unreachable"
+    elif first_reachable is not None and explicit_endpoint:
+        if selected_endpoint == explicit_endpoint:
+            selected_reason = "explicit_endpoint_reachable"
+        else:
+            selected_reason = "explicit_endpoint_unreachable_fallback_candidate"
+
+    llm_reachable = bool(first_reachable and first_reachable.get("reachable"))
+    probe_error = ""
+    if first_reachable is None and probe_status:
+        probe_error = "all endpoint probes failed"
+        logger.warning(
+            "answer llm probes failed candidates=%s details=%s",
+            endpoint_candidates,
+            probe_status,
+        )
+    elif first_reachable is not None:
+        probe_error = str(first_reachable.get("error") or "")
+
+    if explicit_enabled is None:
+        enabled = bool(selected_endpoint) and llm_reachable
+
+    return {
+        "enabled": enabled,
+        "endpoint": selected_endpoint,
+        "model": model,
+        "reachable": llm_reachable,
+        "probe_error": probe_error,
+        "selected_reason": selected_reason,
+        "probe_status": probe_status,
+        "explicit_enabled": explicit_enabled,
+    }
 
 
 def _generate_answer_with_llm(
@@ -314,6 +414,10 @@ def build_answer_payload(
     llm_enabled = bool(llm_settings.get("enabled"))
     llm_endpoint = str(llm_settings.get("endpoint") or "").strip()
     llm_model = str(llm_settings.get("model") or "local-llm").strip() or "local-llm"
+    llm_reachable = bool(llm_settings.get("reachable"))
+    llm_probe_error = str(llm_settings.get("probe_error") or "").strip()
+    llm_selected_reason = str(llm_settings.get("selected_reason") or "").strip()
+    llm_probe_status = llm_settings.get("probe_status") if isinstance(llm_settings.get("probe_status"), list) else []
     llm_error: str | None = None
     if chunks_for_llm:
         try:
@@ -348,6 +452,10 @@ def build_answer_payload(
         "llm_enabled": llm_enabled,
         "llm_endpoint": llm_endpoint,
         "llm_model": llm_model,
+        "llm_reachable": llm_reachable,
+        "probe_error": llm_probe_error,
+        "selected_reason": llm_selected_reason,
+        "probe_status": llm_probe_status,
         "error": llm_error,
         "notice": (
             "Answer LLM is disabled. Deep Research generated a template fallback answer. "
@@ -371,6 +479,10 @@ def build_answer_payload(
         "llm_enabled": llm_enabled,
         "llm_endpoint": llm_endpoint,
         "llm_model": llm_model,
+        "llm_reachable": llm_reachable,
+        "probe_error": llm_probe_error,
+        "selected_reason": llm_selected_reason,
+        "probe_status": llm_probe_status,
         "llm_error": llm_error,
     }
 

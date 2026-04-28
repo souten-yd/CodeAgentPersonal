@@ -2,14 +2,65 @@ import os
 import json
 import tempfile
 import unittest
+from urllib.error import HTTPError
 from pathlib import Path
 from unittest.mock import patch
 
-from app.nexus.answer_builder import build_answer_payload
+from app.nexus.answer_builder import _probe_llm_endpoint_detail, build_answer_payload
 from app.nexus.config import NexusPaths
 
 
 class NexusAnswerBuilderTests(unittest.TestCase):
+    def test_resolve_settings_selects_8080_when_8000_probe_fails(self) -> None:
+        references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "legacy-label"}]
+
+        def _fake_probe(endpoint: str, timeout_sec: float = 1.5) -> dict:
+            if "8000" in endpoint:
+                return {"endpoint": endpoint, "reachable": False, "checks": [], "error": "connection refused"}
+            if "8080" in endpoint:
+                return {"endpoint": endpoint, "reachable": True, "checks": [], "error": ""}
+            return {"endpoint": endpoint, "reachable": False, "checks": [], "error": "unreachable"}
+
+        with patch.dict(
+            os.environ,
+            {"OPENAI_BASE_URL": "http://127.0.0.1:8000/v1", "CODEAGENT_LLM_CHAT": "http://127.0.0.1:8080/v1/chat/completions"},
+            clear=True,
+        ), patch(
+            "app.nexus.answer_builder._probe_llm_endpoint_detail",
+            side_effect=_fake_probe,
+        ), patch(
+            "app.nexus.answer_builder._generate_answer_with_llm",
+            return_value="shared endpoint works [S1]",
+        ):
+            payload = build_answer_payload(
+                question="質問",
+                summary="fallback summary legacy-label",
+                references=references,
+                evidence_chunks=chunks,
+            )
+
+        self.assertTrue(payload["llm_enabled"])
+        self.assertTrue(payload["llm_reachable"])
+        self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:8080/v1/chat/completions")
+
+    def test_probe_llm_endpoint_detail_treats_404_as_failure(self) -> None:
+        with patch(
+            "app.nexus.answer_builder.request.urlopen",
+            side_effect=HTTPError(
+                url="http://127.0.0.1:8080/v1/models",
+                code=404,
+                msg="Not Found",
+                hdrs=None,
+                fp=None,
+            ),
+        ):
+            detail = _probe_llm_endpoint_detail("http://127.0.0.1:8080/v1/chat/completions", timeout_sec=0.1)
+
+        self.assertFalse(detail["reachable"])
+        self.assertTrue(detail["checks"])
+        self.assertIn(detail["checks"][0]["status"], [404])
+
     def test_build_answer_payload_uses_llm_with_evidence_chunks_and_preserves_s_label(self) -> None:
         references = [{"citation_label": "article#1", "title": "Source 1", "url": "https://example.com/1", "source_id": "src-1"}]
         chunks = [{"quote": "fact", "source_id": "src-1", "citation_label": "article#1"}]
@@ -75,6 +126,42 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertEqual(payload["generation"]["error"], "timeout")
         self.assertIn("template fallback answer", payload["generation"]["notice"])
 
+    def test_build_answer_payload_explicit_enabled_true_with_unreachable_endpoint_keeps_probe_state(self) -> None:
+        references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "legacy-label"}]
+
+        with patch.dict(
+            os.environ,
+            {
+                "DEEP_RESEARCH_LLM_ENABLED": "true",
+                "DEEP_RESEARCH_LLM_ENDPOINT": "http://127.0.0.1:9999/v1/chat/completions",
+            },
+            clear=True,
+        ), patch(
+            "app.nexus.answer_builder._probe_llm_endpoint_detail",
+            return_value={
+                "endpoint": "http://127.0.0.1:9999/v1/chat/completions",
+                "reachable": False,
+                "checks": [{"url": "http://127.0.0.1:9999/v1/models", "status": 0, "ok": False, "error": "refused"}],
+                "error": "connection refused",
+            },
+        ), patch(
+            "app.nexus.answer_builder._generate_answer_with_llm",
+            side_effect=RuntimeError("answer llm unavailable: refused"),
+        ):
+            payload = build_answer_payload(
+                question="質問",
+                summary="fallback summary legacy-label",
+                references=references,
+                evidence_chunks=chunks,
+            )
+
+        self.assertEqual(payload["generation_mode"], "template_fallback")
+        self.assertTrue(payload["llm_enabled"])
+        self.assertFalse(payload["llm_reachable"])
+        self.assertEqual(payload["probe_error"], "all endpoint probes failed")
+        self.assertIn("unavailable", payload["llm_error"])
+
     def test_build_answer_payload_resolves_llm_endpoint_from_shared_chat_setting(self) -> None:
         references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
         chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "legacy-label"}]
@@ -84,8 +171,13 @@ class NexusAnswerBuilderTests(unittest.TestCase):
             {"CODEAGENT_LLM_CHAT": "http://127.0.0.1:18080/v1/chat/completions"},
             clear=True,
         ), patch(
-            "app.nexus.answer_builder._probe_llm_endpoint",
-            return_value=True,
+            "app.nexus.answer_builder._probe_llm_endpoint_detail",
+            return_value={
+                "endpoint": "http://127.0.0.1:18080/v1/chat/completions",
+                "reachable": True,
+                "checks": [],
+                "error": "",
+            },
         ), patch(
             "app.nexus.answer_builder._generate_answer_with_llm",
             return_value="shared endpoint works [S1]",
