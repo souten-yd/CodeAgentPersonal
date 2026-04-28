@@ -228,6 +228,7 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
             response = self.client.get(f"/nexus/research/jobs/{job_id}/debug")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(bool(response.json().get("health", {}).get("is_stalled")))
+        self.assertEqual(response.json().get("health", {}).get("stalled_reason"), "LLM回答生成heartbeat停止")
 
     def test_debug_terminal_job_is_not_stalled(self) -> None:
         job_id = f"job_done_{uuid.uuid4().hex[:8]}"
@@ -235,6 +236,49 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
         response = self.client.get(f"/nexus/research/jobs/{job_id}/debug")
         self.assertEqual(response.status_code, 200)
         self.assertFalse(bool(response.json().get("health", {}).get("is_stalled")))
+
+    def test_debug_download_phase_stalled_reason_when_active_downloads_exist(self) -> None:
+        job_id = f"job_dl_stalled_{uuid.uuid4().hex[:8]}"
+        now = datetime.now(timezone.utc).isoformat()
+        create_job(job_id, title="debug", status="running")
+        with get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO nexus_job_events(job_id, seq, type, data, ts)
+                VALUES(?, ?, ?, ?, ?)
+                """,
+                (
+                    job_id,
+                    0,
+                    "heartbeat",
+                    json.dumps(
+                        {"status": "running", "phase": "downloading", "message": "old", "updated_at": "2000-01-01T00:00:00+00:00"},
+                        ensure_ascii=False,
+                    ),
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO nexus_job_events(job_id, seq, type, data, ts)
+                VALUES(?, ?, ?, ?, ?)
+                """,
+                (
+                    job_id,
+                    1,
+                    "download_progress",
+                    json.dumps({"phase": "downloading", "active": 2, "completed": 1, "total": 3}, ensure_ascii=False),
+                    now,
+                ),
+            )
+            conn.commit()
+        with patch.dict(os.environ, {"NEXUS_STALLED_AFTER_SEC": "1"}, clear=False):
+            response = self.client.get(f"/nexus/research/jobs/{job_id}/debug")
+        self.assertEqual(response.status_code, 200)
+        health = response.json().get("health", {})
+        self.assertTrue(bool(health.get("is_stalled")))
+        self.assertEqual(health.get("stalled_reason"), "一部URLの応答待ち")
+        self.assertEqual(health.get("download_active"), 2)
 
     def test_get_research_job_answer_reconstructs_legacy_rows_without_answer_json(self) -> None:
         job_id = f"job_answer_legacy_{uuid.uuid4().hex[:8]}"

@@ -791,12 +791,12 @@ def build_answer_payload(
                         if isinstance(continuation_raw, dict)
                         else {"text": str(continuation_raw or ""), "finish_reason": "stop"}
                     )
-                    llm_answer = str(continuation.get("text") or "").strip()
-                    output_truncated = str(continuation.get("finish_reason") or "") == "length"
-                    output_incomplete = _looks_incomplete_answer(llm_answer, str(continuation.get("finish_reason") or ""))
+                    llm_answer = str(llm_result.get("text") or "").strip()
+                    output_truncated = str(llm_result.get("finish_reason") or "") == "length"
+                    output_incomplete = _looks_incomplete_answer(llm_answer, str(llm_result.get("finish_reason") or ""))
                 except Exception as cont_exc:  # noqa: BLE001
                     continuation_error = str(cont_exc)
-            generation_mode = "llm_answer"
+            generation_mode = "llm_answer_truncated" if (output_incomplete or output_truncated) else "llm_answer"
         except Exception as exc:  # noqa: BLE001
             llm_answer = None
             generation_mode = "template_fallback"
@@ -835,7 +835,7 @@ def build_answer_payload(
                         else {"text": str(retry_raw_result or ""), "finish_reason": "stop"}
                     )
                     llm_answer = str(llm_result.get("text") or "").strip()
-                    generation_mode = "llm_answer"
+                    generation_mode = "llm_answer_truncated" if (output_incomplete or output_truncated) else "llm_answer"
                     llm_error = None
                     context_budget = retry_budget
                     refs_for_llm = retry_refs

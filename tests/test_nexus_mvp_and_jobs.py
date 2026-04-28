@@ -148,6 +148,10 @@ class NexusMvpAndJobsTests(unittest.TestCase):
     def test_append_job_heartbeat_persists_event_and_updates_job_timestamp(self) -> None:
         job_id = f"job_hb_{uuid.uuid4().hex[:8]}"
         create_job(job_id, title="hb", status="queued")
+        before_updated_at = None
+        with get_conn() as conn:
+            row = conn.execute("SELECT updated_at FROM nexus_jobs WHERE job_id = ?", (job_id,)).fetchone()
+            before_updated_at = str(row["updated_at"] or "") if row else ""
         event = append_job_heartbeat(
             job_id,
             "answer_llm_generating",
@@ -163,6 +167,7 @@ class NexusMvpAndJobsTests(unittest.TestCase):
         assert job is not None
         self.assertEqual(job.status, "running")
         self.assertEqual(job.message, "heartbeat")
+        self.assertNotEqual(str(job.updated_at), before_updated_at)
 
 
 if __name__ == "__main__":

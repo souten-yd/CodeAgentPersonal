@@ -237,6 +237,40 @@ class NexusResearchParallelDownloadTests(unittest.TestCase):
         self.assertIn("degraded", statuses)
         self.assertEqual(errors, 1)
 
+    def test_download_progress_emits_multiple_times(self) -> None:
+        candidates = [{"url": f"https://example.com/{i}"} for i in range(3)]
+        captured_events: list[str] = []
+
+        def _slow_download(url: str, **_: dict) -> dict:
+            time.sleep(0.08)
+            return {"final_url": url, "content_type": "text/html", "size": 12, "bytes": b"ok", "extension": ".html"}
+
+        def _capture_event(_job_id: str, event_type: str, _payload: dict) -> None:
+            captured_events.append(event_type)
+
+        with patch("app.nexus.research_agent.safe_download", side_effect=_slow_download), patch(
+            "app.nexus.research_agent.save_download_artifacts",
+            return_value={"status": "downloaded", "original": "o", "extracted_txt": "t", "extracted_md": "m"},
+        ), patch("app.nexus.research_agent.append_job_event", side_effect=_capture_event), patch(
+            "app.nexus.research_agent.append_job_heartbeat", return_value=None
+        ):
+            _download_sources_parallel(
+                job_id="job-progress",
+                candidates=candidates,
+                max_downloads=3,
+                max_download_bytes=1024,
+                max_total_download_bytes=10_000,
+                download_timeout_sec=1,
+                continue_on_download_error=True,
+                concurrency=2,
+                pdf_extract_concurrency=1,
+                download_progress_interval_sec=1,
+                download_stalled_after_sec=60,
+            )
+
+        progress_count = sum(1 for ev in captured_events if ev == "download_progress")
+        self.assertGreaterEqual(progress_count, 2)
+
     def test_max_downloads_and_total_size_limit_mark_skipped(self) -> None:
         candidates = [{"url": f"https://example.com/{i}"} for i in range(4)]
 

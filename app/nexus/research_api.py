@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.nexus.config import load_runtime_config
 from app.nexus.db import get_conn
+from app.nexus.downloader import safe_download, save_download_artifacts
 from app.nexus.evidence import list_evidence_items
 from app.nexus.jobs import create_job, get_job, get_job_events, update_job
 from app.nexus.research_agent import ResearchAgentInput, _download_sources_parallel, run_research_job
@@ -337,42 +338,78 @@ def _build_research_job_health(job: dict, events: list[dict]) -> dict:
     last_heartbeat_at = str((last_heartbeat or {}).get("updated_at") or (last_heartbeat or {}).get("ts") or "")
     now = datetime.now(timezone.utc)
     sec_since_hb = None
+    sec_since_event = None
     if last_heartbeat_at:
         try:
             iso = last_heartbeat_at.replace("Z", "+00:00")
             sec_since_hb = max(0.0, (now - datetime.fromisoformat(iso)).total_seconds())
         except ValueError:
             sec_since_hb = None
-    stalled_after = float(str(os.environ.get("NEXUS_DOWNLOAD_STALLED_AFTER_SEC", os.environ.get("NEXUS_STALLED_AFTER_SEC", "60"))).strip() or "60")
-    io_phases = {"download", "download_started", "downloading"}
+    if last_event_at:
+        try:
+            iso = last_event_at.replace("Z", "+00:00")
+            sec_since_event = max(0.0, (now - datetime.fromisoformat(iso)).total_seconds())
+        except ValueError:
+            sec_since_event = None
+    stalled_after = float(
+        str(
+            os.environ.get(
+                "NEXUS_STALLED_AFTER_SEC",
+                os.environ.get("NEXUS_DOWNLOAD_STALLED_AFTER_SEC", "60"),
+            )
+        ).strip()
+        or "60"
+    )
     inferred_phase = str((last_heartbeat or {}).get("data", {}).get("phase") or phase or "").strip()
+    current_message = str((last_heartbeat or {}).get("data", {}).get("message") or job.get("message") or "").strip()
     is_active = status == "running" and bool(last_heartbeat_at)
     is_terminal = status in {"completed", "degraded", "failed"}
     progress_events = [ev for ev in events if str(ev.get("type") or "") == "download_progress"]
     last_progress = progress_events[-1] if progress_events else {}
     progress_data = (last_progress.get("data") or {}) if isinstance(last_progress, dict) else {}
     active_downloads = int(progress_data.get("active") or 0)
+    completed_downloads = int(progress_data.get("completed") or 0)
+    total_downloads = int(progress_data.get("total") or 0)
+    degraded_downloads = int(progress_data.get("degraded") or 0)
+    failed_downloads = int(progress_data.get("failed") or 0)
+    skipped_downloads = int(progress_data.get("skipped") or 0)
+    latest_download_progress = progress_data if isinstance(progress_data, dict) else {}
     is_stalled = bool(
-        is_active and sec_since_hb is not None and sec_since_hb > stalled_after and not is_terminal and active_downloads > 0
+        status == "running"
+        and not is_terminal
+        and sec_since_hb is not None
+        and sec_since_hb > stalled_after
     )
     stalled_reason = ""
     suggested_action = ""
     if is_stalled:
-        if inferred_phase in io_phases:
-            stalled_reason = "可能性: 一部URLの応答待ち"
-            suggested_action = "警告のみ。しばらく待機して heartbeat を確認してください。"
+        if inferred_phase == "downloading" and active_downloads > 0:
+            stalled_reason = "一部URLの応答待ち"
+            suggested_action = "ネットワーク到達性・対象URL応答を確認し、数十秒待って heartbeat を再確認してください。"
+        elif inferred_phase == "answer_llm_generating":
+            stalled_reason = "LLM回答生成heartbeat停止"
+            suggested_action = "LLM endpoint / timeout / llama-server logを確認"
         else:
             stalled_reason = "heartbeat 更新停止"
             suggested_action = "サーバーログとジョブ状態を確認してください。"
     return {
         "phase": inferred_phase or phase,
+        "current_phase": inferred_phase or phase,
+        "current_message": current_message,
         "last_event_type": last_event_type,
         "last_event_at": last_event_at,
+        "seconds_since_last_event": sec_since_event,
         "last_heartbeat_at": last_heartbeat_at,
         "seconds_since_last_heartbeat": sec_since_hb,
         "is_active": is_active,
-        "is_stalled": bool(is_stalled and inferred_phase not in io_phases),
+        "is_stalled": is_stalled,
+        "latest_download_progress": latest_download_progress,
+        "download_completed": completed_downloads,
+        "download_total": total_downloads,
         "download_active": active_downloads,
+        "download_degraded": degraded_downloads,
+        "download_failed": failed_downloads,
+        "download_skipped": skipped_downloads,
         "stalled_reason": stalled_reason,
         "suggested_action": suggested_action,
     }
