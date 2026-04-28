@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
+import threading
+import time
 from datetime import datetime, timezone
 from typing import Any, cast
 
@@ -9,6 +12,7 @@ from app.nexus.db import get_conn
 from app.nexus.schemas import JobStatus, NexusJob, NexusJobEvent
 
 logger = logging.getLogger(__name__)
+_EVENT_APPEND_LOCK = threading.RLock()
 
 
 ACTIVE_STATUSES: tuple[JobStatus, ...] = ("queued", "running")
@@ -175,44 +179,62 @@ def append_job_event(job_id: str, event_type: str, data: dict[str, Any]) -> Nexu
     if should_preserve_original:
         normalized_data["original_status"] = raw_status
     auto_recovery_info: dict[str, Any] | None = None
-    with get_conn() as conn:
-        job_row = conn.execute("SELECT 1 FROM nexus_jobs WHERE job_id = ?", (job_id,)).fetchone()
-        if job_row is None:
-            created_at = _now_iso()
-            auto_recovery_info = {
-                "reason": "missing_parent_job_auto_recovered",
-                "job_id": job_id,
-                "event_type": event_type,
-                "created_at": created_at,
-            }
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO nexus_jobs(
-                    job_id, status, title, message, error, document_count, created_at, updated_at
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (job_id, "running", "auto_recovered_job", "auto-created for event", "", 0, created_at, created_at),
-            )
-            logger.warning("append_job_event auto-recovered missing parent job: %s", auto_recovery_info)
+    with _EVENT_APPEND_LOCK:
+        for attempt in range(3):
+            try:
+                with get_conn() as conn:
+                    conn.execute("BEGIN IMMEDIATE")
+                    job_row = conn.execute("SELECT 1 FROM nexus_jobs WHERE job_id = ?", (job_id,)).fetchone()
+                    if job_row is None:
+                        created_at = _now_iso()
+                        auto_recovery_info = {
+                            "reason": "missing_parent_job_auto_recovered",
+                            "job_id": job_id,
+                            "event_type": event_type,
+                            "created_at": created_at,
+                        }
+                        conn.execute(
+                            """
+                            INSERT OR IGNORE INTO nexus_jobs(
+                                job_id, status, title, message, error, document_count, created_at, updated_at
+                            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                job_id,
+                                "running",
+                                "auto_recovered_job",
+                                "auto-created for event",
+                                "",
+                                0,
+                                created_at,
+                                created_at,
+                            ),
+                        )
+                        logger.warning("append_job_event auto-recovered missing parent job: %s", auto_recovery_info)
 
-        if auto_recovery_info is not None:
-            normalized_data["auto_recovery_warning"] = auto_recovery_info
-        encoded = json.dumps(normalized_data, ensure_ascii=False)
+                    if auto_recovery_info is not None:
+                        normalized_data["auto_recovery_warning"] = auto_recovery_info
+                    encoded = json.dumps(normalized_data, ensure_ascii=False)
 
-        next_seq_row = conn.execute(
-            "SELECT COALESCE(MAX(seq), -1) + 1 AS next_seq FROM nexus_job_events WHERE job_id = ?",
-            (job_id,),
-        ).fetchone()
-        seq = int(next_seq_row["next_seq"]) if next_seq_row is not None else 0
+                    next_seq_row = conn.execute(
+                        "SELECT COALESCE(MAX(seq), -1) + 1 AS next_seq FROM nexus_job_events WHERE job_id = ?",
+                        (job_id,),
+                    ).fetchone()
+                    seq = int(next_seq_row["next_seq"]) if next_seq_row is not None else 0
 
-        conn.execute(
-            """
-            INSERT INTO nexus_job_events(job_id, seq, type, data, ts)
-            VALUES(?, ?, ?, ?, ?)
-            """,
-            (job_id, seq, event_type, encoded, now),
-        )
-        conn.commit()
+                    conn.execute(
+                        """
+                        INSERT INTO nexus_job_events(job_id, seq, type, data, ts)
+                        VALUES(?, ?, ?, ?, ?)
+                        """,
+                        (job_id, seq, event_type, encoded, now),
+                    )
+                    conn.commit()
+                    break
+            except sqlite3.IntegrityError as exc:
+                if "nexus_job_events.job_id" not in str(exc) or "seq" not in str(exc) or attempt >= 2:
+                    raise
+                time.sleep(0.01 * (attempt + 1))
 
     updated_raw = normalized_data.get("updated_at")
     updated_at = datetime.fromisoformat(now)

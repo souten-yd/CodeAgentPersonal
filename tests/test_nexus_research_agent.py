@@ -9,6 +9,49 @@ from app.nexus.research_agent import ResearchAgentInput, _download_sources_paral
 
 
 class NexusResearchAgentTests(unittest.TestCase):
+    def test_download_parallel_event_does_not_fail_job_on_parallel_events(self) -> None:
+        job_id = f"job-parallel-{uuid.uuid4().hex[:8]}"
+        create_job(job_id, title="parallel", status="running", message="running")
+        candidates = [{"url": f"https://example.com/{i}", "title": f"t-{i}"} for i in range(8)]
+
+        def _fake_download(url: str, **_: dict) -> dict:
+            time.sleep(0.01)
+            return {"final_url": url, "content_type": "text/html", "size": 10, "bytes": b"ok", "extension": ".html"}
+
+        with patch("app.nexus.research_agent.safe_download", side_effect=_fake_download), patch(
+            "app.nexus.research_agent.save_download_artifacts",
+            return_value={"status": "downloaded", "original": "o", "extracted_txt": "t", "extracted_md": "m"},
+        ):
+            sources, errors = _download_sources_parallel(
+                job_id=job_id,
+                candidates=candidates,
+                max_downloads=8,
+                max_download_bytes=2048,
+                max_total_download_bytes=100_000,
+                download_timeout_sec=2,
+                continue_on_download_error=True,
+                concurrency=4,
+                pdf_extract_concurrency=1,
+                download_progress_interval_sec=1,
+                download_stalled_after_sec=30,
+            )
+
+        self.assertEqual(errors, 0)
+        self.assertTrue(all(str(s.get("status")) in {"downloaded", "degraded"} for s in sources))
+        with get_conn() as conn:
+            statuses = conn.execute("SELECT status FROM nexus_jobs WHERE job_id = ?", (job_id,)).fetchone()
+            started_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM nexus_job_events WHERE job_id = ? AND type = 'download_source_started'",
+                (job_id,),
+            ).fetchone()
+            progress_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM nexus_job_events WHERE job_id = ? AND type = 'download_progress'",
+                (job_id,),
+            ).fetchone()
+        self.assertNotEqual(str((statuses or {})["status"]), "failed")
+        self.assertGreater(int((started_count or {})["c"]), 0)
+        self.assertGreater(int((progress_count or {})["c"]), 0)
+
     def test_run_research_job_marks_source_degraded_on_403_when_continue_enabled(self) -> None:
         job_id = f"job-continue-403-{uuid.uuid4().hex[:8]}"
         create_job(job_id, title="test", status="queued", message="queued")

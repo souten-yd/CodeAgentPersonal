@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 import uuid
 from datetime import datetime, timezone
@@ -17,6 +18,45 @@ def _now_iso() -> str:
 
 
 class NexusMvpAndJobsTests(unittest.TestCase):
+    def test_append_job_event_concurrent_assigns_unique_seq(self) -> None:
+        job_id = f"job_concurrent_{uuid.uuid4().hex[:8]}"
+        create_job(job_id, title="concurrent", status="running")
+
+        def _append(idx: int) -> int:
+            event = append_job_event(job_id, "download_progress", {"status": "running", "message": f"m-{idx}"})
+            return event.seq
+
+        with ThreadPoolExecutor(max_workers=16) as executor:
+            seqs = list(executor.map(_append, range(50)))
+
+        self.assertEqual(len(seqs), 50)
+        self.assertEqual(len(set(seqs)), 50)
+        self.assertEqual(sorted(seqs), list(range(50)))
+        with get_conn() as conn:
+            cnt = conn.execute("SELECT COUNT(*) AS c FROM nexus_job_events WHERE job_id = ?", (job_id,)).fetchone()
+        self.assertEqual(int((cnt or {})["c"]), 50)
+
+    def test_append_job_heartbeat_concurrent_keeps_running_status(self) -> None:
+        job_id = f"job_hb_concurrent_{uuid.uuid4().hex[:8]}"
+        create_job(job_id, title="hb-concurrent", status="running")
+
+        def _heartbeat(idx: int) -> None:
+            append_job_heartbeat(job_id, "downloading", f"hb-{idx}", 0.2)
+
+        with ThreadPoolExecutor(max_workers=12) as executor:
+            list(executor.map(_heartbeat, range(30)))
+
+        job = get_job(job_id)
+        self.assertIsNotNone(job)
+        assert job is not None
+        self.assertEqual(job.status, "running")
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS c FROM nexus_job_events WHERE job_id = ? AND type = 'heartbeat'",
+                (job_id,),
+            ).fetchone()
+        self.assertEqual(int((row or {})["c"]), 30)
+
     def test_news_mvp_headlines_use_title_then_quote_without_metadata_attr(self) -> None:
         evidence_items = [
             EvidenceItem(
