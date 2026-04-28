@@ -63,6 +63,7 @@ class TaskPlanningRunner:
         *,
         user_input: str,
         project_path: str,
+        project_name: str = "",
         planning_mode: str = "standard",
         requirement_mode: str = "ask_when_needed",
         execution_mode: str = "plan_only",
@@ -87,6 +88,9 @@ class TaskPlanningRunner:
             nexus_context=nexus_context,
             repository_context=repository_context,
         )
+        requirement.project_name = (project_name or "").strip()
+        requirement.project_path = (project_path or "").strip()
+        requirement.resolved_project_path = (project_path or "").strip()
         warnings.extend(self.requirement_analyzer.get_last_warnings())
 
         clarification = self.clarification_manager.generate(requirement, requirement_mode, allow_derive=True)
@@ -160,6 +164,8 @@ class TaskPlanningRunner:
         execution_mode: str,
         use_nexus: bool,
         project_path: str | None = None,
+        project_name: str = "",
+        resolved_project_path: str = "",
         task_id: str | None = None,
         nexus_context: dict | None = None,
         repository_context: str | None = None,
@@ -168,6 +174,19 @@ class TaskPlanningRunner:
         req_data = self.storage.load_requirement(requirement_id)
         requirement = RequirementDefinition(**req_data)
         warnings = list(warnings or [])
+        project_path = (project_path or "").strip()
+        project_name = (project_name or "").strip()
+        resolved_project_path = (resolved_project_path or "").strip()
+
+        if not project_path:
+            project_path = (requirement.resolved_project_path or requirement.project_path or "").strip()
+        if not project_name:
+            project_name = (requirement.project_name or "").strip()
+        if not resolved_project_path:
+            resolved_project_path = project_path
+        requirement.project_name = project_name
+        requirement.project_path = project_path
+        requirement.resolved_project_path = resolved_project_path
 
         clarification = self.clarification_manager.generate(requirement, requirement_mode, allow_derive=False)
         unresolved_required = self.clarification_manager.unresolved_required_questions(requirement)
@@ -185,6 +204,7 @@ class TaskPlanningRunner:
                 "questions": [q.model_dump() for q in clarification.questions],
                 "clarification": clarification.model_dump(),
                 "requirement": requirement.model_dump(),
+                "resolved_project_path": resolved_project_path,
                 "warnings": _dedup_warnings(warnings),
             }
 
@@ -227,6 +247,7 @@ class TaskPlanningRunner:
             "repository_context": repository_context,
             "requirement_markdown_path": str(req_md),
             "plan_markdown_path": str(plan_md),
+            "resolved_project_path": resolved_project_path,
             "warnings": warnings,
         }
 
