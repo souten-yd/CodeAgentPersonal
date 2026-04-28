@@ -361,6 +361,11 @@ html.logo-svg-ready .logo-text{display:none}
 .phase1-tab-btn.active{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
 .phase1-tab-body{display:none}
 .phase1-tab-body.active{display:block}
+.phase1-warning-box{margin:8px 0;padding:8px 10px;border:1px solid rgba(255,197,102,.35);background:rgba(255,197,102,.08);border-radius:6px}
+.phase1-md-view{max-height:340px;overflow:auto;border:1px solid var(--border);border-radius:6px;background:var(--bg2);padding:8px;max-width:100%}
+.phase1-md-view,.phase1-md-view *{word-break:break-word;overflow-wrap:anywhere}
+.phase1-md-view pre,.phase1-md-view code{max-width:100%}
+.phase1-md-view pre{overflow-x:auto}
 .mode-wrap{display:flex;background:var(--bg2);border:1px solid var(--border);border-radius:6px;overflow:hidden}
 .hdr-right .mode-wrap{flex-shrink:0}
 .mode-btn{padding:5px 12px;font-size:12px;font-weight:600;font-family:var(--font-ui);letter-spacing:.04em;cursor:pointer;border:none;background:transparent;color:var(--text2);transition:all .15s}
@@ -13543,11 +13548,24 @@ function _switchPhase1CardTab(cardId, tabName) {
   });
 }
 
-function renderPhase1PlanCard(result) {
+function _renderPhase1Markdown(markdownText) {
+  const raw = String(markdownText || '').trim();
+  if (!raw) return '';
+  if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+    try {
+      return marked.parse(raw);
+    } catch (_) {}
+  }
+  return `<pre style="margin:0;white-space:pre-wrap;overflow-x:auto">${esc(raw)}</pre>`;
+}
+
+function renderPhase1PlanCard(result, planMarkdown = '') {
   const requirement = result?.requirement || {};
   const plan = result?.plan || {};
+  const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
   const planSteps = Array.isArray(plan.implementation_steps) ? plan.implementation_steps : [];
   const cardId = 'phase1-plan-card-' + Date.now();
+  const markdownHtml = _renderPhase1Markdown(planMarkdown);
   const stepHtml = planSteps.length
     ? planSteps.map((s, i) => `
       <div style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);margin-bottom:6px">
@@ -13558,11 +13576,18 @@ function renderPhase1PlanCard(result) {
     ).join('')
     : '<div style="font-size:11px;color:var(--text3)">No implementation steps</div>';
 
+  const warningsHtml = warnings.length
+    ? `<div class="phase1-warning-box"><div style="font-size:11px;font-weight:700;color:var(--amber);margin-bottom:4px">Warnings</div>${warnings.map(w=>`<div style="font-size:11px;color:var(--text2);line-height:1.5">• ${esc(String(w))}</div>`).join('')}</div>`
+    : '';
+  const markdownSectionHtml = markdownHtml
+    ? `<div class="plan-section-title">Plan Markdown (rendered)</div><div class="phase1-md-view md">${markdownHtml}</div>`
+    : `<div style="font-size:11px;color:var(--text3)">Plan Markdownを取得できなかったため、構造化Planを表示しています。</div>`;
   const html = `
     <div class="msg-role">Phase 1 Plan Only</div>
     <div class="plan-card" id="${cardId}">
       <div class="plan-card-header"><span>${esc(result?.message || 'Plan generated')}</span></div>
       <div class="plan-section">
+        ${warningsHtml}
         <div class="phase1-tabs">
           <button class="phase1-tab-btn active" data-tab="requirements" onclick="_switchPhase1CardTab('${cardId}','requirements')">Requirements</button>
           <button class="phase1-tab-btn" data-tab="plan" onclick="_switchPhase1CardTab('${cardId}','plan')">Plan</button>
@@ -13578,7 +13603,8 @@ function renderPhase1PlanCard(result) {
           <div class="plan-section-title">要件明確度スコア</div><div class="plan-approach-text">${esc(String(requirement.requirement_completeness_score ?? '-'))}</div>
         </div>
         <div class="phase1-tab-body" data-tab="plan">
-          <div class="plan-section-title">Plan Markdown</div><div class="plan-approach-text">${esc(result?.plan_markdown_path || '-')}</div>
+          ${markdownSectionHtml}
+          <div style="font-size:10px;color:var(--text3);margin-top:6px;word-break:break-all">path: ${esc(result?.plan_markdown_path || '-')}</div>
           <div class="plan-section-title">実装案</div>${_phase1List(plan.architecture_options)}
           <div class="plan-section-title">採用案</div><div class="plan-approach-text">${esc(plan.selected_architecture || '-')}</div>
           <div class="plan-section-title">実装ステップ</div>${stepHtml}
@@ -13615,7 +13641,8 @@ async function generatePlanOnlyFromInput() {
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         input: text,
-        project_path: '/workspace/CodeAgentPersonal',
+        project_path: '',
+        project_name: currentProject || 'default',
         planning_mode: planningMode,
         requirement_mode: requirementMode,
         execution_mode: executionMode,
@@ -13624,7 +13651,18 @@ async function generatePlanOnlyFromInput() {
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
-    renderPhase1PlanCard(d);
+    let planMarkdown = '';
+    try {
+      const rm = await fetch(API + `/api/plans/${encodeURIComponent(d.plan_id)}/markdown`);
+      const dm = await rm.json();
+      if (!rm.ok) throw new Error(dm.detail || `HTTP ${rm.status}`);
+      planMarkdown = String(dm.markdown || '');
+    } catch (mdErr) {
+      addLog('warn', 'plan-only', `Plan markdown fetch warning: ${mdErr.message || String(mdErr)}`);
+    }
+    renderPhase1PlanCard(d, planMarkdown);
+    const ws = Array.isArray(d?.warnings) ? d.warnings : [];
+    ws.forEach((w) => addLog('warn', 'plan-only', String(w)));
     addLog('ok', 'plan-only', `Generated plan_id=${d.plan_id} requirement_id=${d.requirement_id}`);
   } catch (e) {
     addMsg('error', 'Phase1 plan generation failed: ' + (e.message || String(e)));

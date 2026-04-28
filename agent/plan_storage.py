@@ -59,6 +59,12 @@ class PlanStorage:
             raise FileNotFoundError(str(path))
         return path.read_text(encoding="utf-8")
 
+    def read_requirement_markdown(self, requirement_id: str) -> str:
+        path = self.requirement_markdown_path(requirement_id)
+        if not path.exists():
+            raise FileNotFoundError(str(path))
+        return path.read_text(encoding="utf-8")
+
     def _requirement_to_markdown(self, req: RequirementDefinition) -> str:
         return "\n".join([
             f"# Requirement Definition: {req.requirement_id}",
