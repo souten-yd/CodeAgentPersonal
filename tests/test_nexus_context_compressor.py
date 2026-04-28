@@ -1,7 +1,10 @@
+import os
 import unittest
+from unittest.mock import patch
 
 from app.nexus.context_compressor import (
     build_context_budget,
+    choose_profile_name,
     compress_global_evidence,
     compress_large_source,
 )
@@ -66,6 +69,49 @@ class NexusContextCompressorTests(unittest.TestCase):
         out = compress_global_evidence("same", references, chunks, budget)
         self.assertGreaterEqual(out["stats"]["dropped_count"], 1)
         self.assertLessEqual(out["stats"]["chunks_used"], 1)
+
+    def test_profile_budget_scaling_for_24k(self) -> None:
+        budget16 = build_context_budget(
+            max_context_tokens=16384,
+            instruction_tokens_estimate=300,
+            question_tokens_estimate=100,
+            source_metadata_tokens_estimate=200,
+            preferred_profile=choose_profile_name(16384),
+        )
+        budget24 = build_context_budget(
+            max_context_tokens=24576,
+            instruction_tokens_estimate=300,
+            question_tokens_estimate=100,
+            source_metadata_tokens_estimate=200,
+            preferred_profile=choose_profile_name(24576),
+        )
+        self.assertEqual(budget24.compression_profile, "high_24k")
+        self.assertGreater(budget24.max_evidence_chars, budget16.max_evidence_chars)
+        self.assertGreater(budget24.max_source_tokens, budget16.max_source_tokens)
+        self.assertGreater(budget24.max_evidence_tokens, budget16.max_evidence_tokens)
+
+    def test_empty_compression_uses_minimal_short_chunks_not_raw_fallback(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "NEXUS_ANSWER_LLM_MAX_EVIDENCE_CHARS": "230",
+                "NEXUS_ANSWER_LLM_MAX_CHARS_PER_CHUNK": "1400",
+            },
+            clear=False,
+        ):
+            budget = build_context_budget(
+                max_context_tokens=16384,
+                instruction_tokens_estimate=300,
+                question_tokens_estimate=100,
+                source_metadata_tokens_estimate=200,
+                preferred_profile="compact_8k",
+            )
+        references = [{"source_id": "s1", "source_type": "web", "title": "A", "url": "https://a"}]
+        chunks = [{"source_id": "s1", "chunk_id": f"c{i}", "citation_label": "[S1]", "quote": ("x" * 6000)} for i in range(5)]
+        out = compress_global_evidence("irrelevant", references, chunks, budget)
+        self.assertTrue(out["chunks"])
+        self.assertTrue(out["stats"]["compression_empty_fallback_used"])
+        self.assertTrue(all(len(c.get("quote", "")) <= 220 for c in out["chunks"]))
 
 
 if __name__ == "__main__":

@@ -627,8 +627,8 @@ def build_answer_payload(
         chunks_for_llm_input,
         context_budget,
     )
-    refs_for_llm = compressed["references"] or refs_for_llm_input
-    chunks_for_llm = compressed["chunks"] or chunks_for_llm_input
+    refs_for_llm = compressed["references"]
+    chunks_for_llm = compressed["chunks"]
     compression_stats = dict(compressed["stats"])
     estimated_prompt_tokens = estimate_tokens(
         question
@@ -680,8 +680,8 @@ def build_answer_payload(
                     chunks_for_llm_input,
                     retry_budget,
                 )
-                retry_refs = retry_compressed["references"] or refs_for_llm
-                retry_chunks = retry_compressed["chunks"] or chunks_for_llm
+                retry_refs = retry_compressed["references"]
+                retry_chunks = retry_compressed["chunks"]
                 try:
                     llm_answer = _generate_answer_with_llm(
                         question=question,
@@ -759,11 +759,7 @@ def build_answer_payload(
                     )
                     if llm_error
                     else (
-                        (
-                            "Evidence was compressed to fit the model context."
-                            if compression_stats.get("evidence_truncated")
-                            else ""
-                        )
+                        ("Evidence was compressed to fit the model context." if retry_count > 0 else "")
                         if chunks_for_llm
                         else "No evidence chunks were available. Deep Research generated a template fallback answer."
                     )

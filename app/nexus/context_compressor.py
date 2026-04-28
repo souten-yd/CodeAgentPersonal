@@ -16,13 +16,43 @@ class CompressionProfile:
     max_evidence_tokens: int
     max_evidence_chunks: int
     max_chars_per_chunk: int
+    max_evidence_chars: int
+    max_source_tokens: int
 
 
 PROFILES: dict[str, CompressionProfile] = {
-    "compact_8k": CompressionProfile("compact_8k", max_evidence_tokens=4500, max_evidence_chunks=10, max_chars_per_chunk=800),
-    "standard_16k": CompressionProfile("standard_16k", max_evidence_tokens=10500, max_evidence_chunks=20, max_chars_per_chunk=1200),
-    "high_24k": CompressionProfile("high_24k", max_evidence_tokens=16500, max_evidence_chunks=32, max_chars_per_chunk=1400),
-    "extended_32k": CompressionProfile("extended_32k", max_evidence_tokens=23000, max_evidence_chunks=48, max_chars_per_chunk=1600),
+    "compact_8k": CompressionProfile(
+        "compact_8k",
+        max_evidence_tokens=4500,
+        max_evidence_chunks=10,
+        max_chars_per_chunk=800,
+        max_evidence_chars=9000,
+        max_source_tokens=1800,
+    ),
+    "standard_16k": CompressionProfile(
+        "standard_16k",
+        max_evidence_tokens=10500,
+        max_evidence_chunks=20,
+        max_chars_per_chunk=1200,
+        max_evidence_chars=16000,
+        max_source_tokens=3000,
+    ),
+    "high_24k": CompressionProfile(
+        "high_24k",
+        max_evidence_tokens=16500,
+        max_evidence_chunks=32,
+        max_chars_per_chunk=1400,
+        max_evidence_chars=28000,
+        max_source_tokens=5600,
+    ),
+    "extended_32k": CompressionProfile(
+        "extended_32k",
+        max_evidence_tokens=23000,
+        max_evidence_chunks=48,
+        max_chars_per_chunk=1600,
+        max_evidence_chars=42000,
+        max_source_tokens=7600,
+    ),
 }
 
 
@@ -122,7 +152,7 @@ def build_context_budget(
     if auto_budget:
         max_evidence_tokens = min(max_evidence_tokens, available)
 
-    env_chars = str(os.environ.get("NEXUS_ANSWER_LLM_MAX_EVIDENCE_CHARS", "16000")).strip()
+    env_chars = str(os.environ.get("NEXUS_ANSWER_LLM_MAX_EVIDENCE_CHARS", "")).strip()
     env_chunks = str(os.environ.get("NEXUS_ANSWER_LLM_MAX_EVIDENCE_CHUNKS", "")).strip()
     env_chunk_chars = str(os.environ.get("NEXUS_ANSWER_LLM_MAX_CHARS_PER_CHUNK", "")).strip()
     env_source_tok = str(os.environ.get("NEXUS_ANSWER_LLM_MAX_SOURCE_TOKENS", "")).strip()
@@ -133,10 +163,10 @@ def build_context_budget(
         reserved_output_tokens=reserved,
         safety_tokens=safety,
         max_evidence_tokens=max(500, max_evidence_tokens),
-        max_evidence_chars=max(1000, int(env_chars) if env_chars.isdigit() else 16000),
+        max_evidence_chars=max(1000, int(env_chars) if env_chars.isdigit() else profile.max_evidence_chars),
         max_evidence_chunks=max(1, int(env_chunks) if env_chunks.isdigit() else profile.max_evidence_chunks),
         max_chars_per_chunk=max(200, int(env_chunk_chars) if env_chunk_chars.isdigit() else profile.max_chars_per_chunk),
-        max_source_tokens=max(300, int(env_source_tok) if env_source_tok.isdigit() else min(profile.max_evidence_tokens, 3000)),
+        max_source_tokens=max(300, int(env_source_tok) if env_source_tok.isdigit() else profile.max_source_tokens),
         max_chunks_per_source=max(1, int(env_chunks_per_source) if env_chunks_per_source.isdigit() else 5),
         auto_budget=auto_budget,
         compression_profile=profile.name,
@@ -262,6 +292,7 @@ def compress_global_evidence(query: str, references: list[dict], evidence_chunks
     used_titles: set[str] = set()
     dropped: list[dict] = []
     bucket_seen: set[str] = set()
+    compression_empty_fallback_used = False
 
     # diversity first pass
     diverse_first: list[dict] = []
@@ -329,6 +360,37 @@ def compress_global_evidence(query: str, references: list[dict], evidence_chunks
         if used_tokens >= budget.max_evidence_tokens or len(selected_chunks) >= budget.max_evidence_chunks:
             break
 
+    if not selected_chunks and evidence_chunks:
+        # 圧縮結果が空なら、巨大入力へ戻さず最小短縮セットを作る。
+        mini_refs_by_source: dict[str, dict] = {}
+        for raw in evidence_chunks:
+            if len(selected_chunks) >= min(3, budget.max_evidence_chunks):
+                break
+            source_id = str(raw.get("source_id") or "")
+            mini_quote = str(raw.get("quote") or raw.get("text") or "").strip()[: min(220, budget.max_chars_per_chunk)]
+            if not mini_quote:
+                continue
+            tok = estimate_tokens(mini_quote)
+            if used_tokens + tok > budget.max_evidence_tokens or used_chars + len(mini_quote) > budget.max_evidence_chars:
+                continue
+            mini = dict(raw)
+            mini["quote"] = mini_quote
+            selected_chunks.append(mini)
+            used_tokens += tok
+            used_chars += len(mini_quote)
+            if source_id and source_id not in mini_refs_by_source:
+                mini_refs_by_source[source_id] = dict(source_map.get(source_id, {"source_id": source_id, "source_type": str(raw.get("source_type") or "web")}))
+        if selected_chunks:
+            compression_empty_fallback_used = True
+            selected_refs = list(mini_refs_by_source.values())
+
+    selected_source_types = sorted(
+        {
+            str(ref.get("source_type") or "").strip().lower()
+            for ref in selected_refs
+            if str(ref.get("source_type") or "").strip()
+        }
+    )
     stats = {
         "sources_input": len(grouped),
         "sources_used": len(selected_refs),
@@ -341,6 +403,11 @@ def compress_global_evidence(query: str, references: list[dict], evidence_chunks
         "global_budget_applied": True,
         "dropped_count": len(dropped),
         "dropped": dropped[:200],
+        "max_evidence_chars": budget.max_evidence_chars,
+        "max_source_tokens": budget.max_source_tokens,
+        "max_chars_per_chunk": budget.max_chars_per_chunk,
+        "compression_empty_fallback_used": compression_empty_fallback_used,
+        "selected_source_types": selected_source_types,
     }
     return {
         "references": selected_refs,

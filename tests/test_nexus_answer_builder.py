@@ -523,6 +523,7 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertEqual(mocked.call_count, 2)
         self.assertEqual(payload["generation"]["retry_count"], 1)
         self.assertEqual(payload["generation"]["mode"], "llm_answer")
+        self.assertIn(payload["generation"]["notice"], ("", "Evidence was compressed to fit the model context."))
 
     def test_context_overflow_retry_failure_sets_notice(self) -> None:
         references = [{"citation_label": "r1", "title": "Source 1", "source_id": "src-1", "source_type": "web"}]
@@ -540,6 +541,74 @@ class NexusAnswerBuilderTests(unittest.TestCase):
             payload = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
         self.assertEqual(payload["generation"]["mode"], "template_fallback")
         self.assertIn("exceeded context size", payload["generation"]["notice"])
+
+    def test_high_24k_profile_uses_more_evidence_than_16k(self) -> None:
+        references = [
+            {"citation_label": f"r{i}", "title": f"Source {i}", "source_id": f"src-{i}", "source_type": "web"}
+            for i in range(1, 5)
+        ]
+        chunks = [
+            {
+                "source_id": f"src-{(i % 4) + 1}",
+                "chunk_id": f"c{i}",
+                "citation_label": f"r{(i % 4) + 1}",
+                "quote": "fact " * 500,
+                "source_type": "web",
+            }
+            for i in range(140)
+        ]
+
+        with patch.dict(
+            os.environ,
+            {
+                "NEXUS_ENABLE_ANSWER_LLM": "true",
+                "NEXUS_ANSWER_LLM_MAX_EVIDENCE_TOKENS": "",
+                "NEXUS_ANSWER_LLM_MAX_EVIDENCE_CHARS": "",
+                "NEXUS_ANSWER_LLM_MAX_SOURCE_TOKENS": "",
+            },
+            clear=True,
+        ), patch(
+            "app.nexus.answer_builder._probe_llm_endpoint_detail",
+            return_value={"endpoint": "http://127.0.0.1:8080/v1/chat/completions", "reachable": True, "checks": [], "error": ""},
+        ), patch(
+            "app.nexus.answer_builder._fetch_context_tokens_from_models_api",
+            return_value=16384,
+        ), patch(
+            "app.nexus.answer_builder._generate_answer_with_llm",
+            return_value="ok [S1]",
+        ):
+            p16 = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
+
+        with patch.dict(
+            os.environ,
+            {
+                "NEXUS_ENABLE_ANSWER_LLM": "true",
+                "NEXUS_ANSWER_LLM_MAX_EVIDENCE_TOKENS": "",
+                "NEXUS_ANSWER_LLM_MAX_EVIDENCE_CHARS": "",
+                "NEXUS_ANSWER_LLM_MAX_SOURCE_TOKENS": "",
+            },
+            clear=True,
+        ), patch(
+            "app.nexus.answer_builder._probe_llm_endpoint_detail",
+            return_value={"endpoint": "http://127.0.0.1:8080/v1/chat/completions", "reachable": True, "checks": [], "error": ""},
+        ), patch(
+            "app.nexus.answer_builder._fetch_context_tokens_from_models_api",
+            return_value=24576,
+        ), patch(
+            "app.nexus.answer_builder._generate_answer_with_llm",
+            return_value="ok [S1]",
+        ):
+            p24 = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
+
+        self.assertEqual(p24["generation"]["compression_profile"], "high_24k")
+        self.assertGreaterEqual(
+            p24["generation"]["compression"]["chunks_used"],
+            p16["generation"]["compression"]["chunks_used"],
+        )
+        self.assertGreater(
+            p24["generation"]["compression"]["max_evidence_chars"],
+            p16["generation"]["compression"]["max_evidence_chars"],
+        )
 
 
 if __name__ == "__main__":
