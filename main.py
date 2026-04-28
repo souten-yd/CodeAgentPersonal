@@ -41,6 +41,7 @@ from agent.planner import Planner
 from agent.session import AgentSession
 from agent.tools.registry import ToolRegistry, create_default_registry
 from agent.types import Action, Evaluation, Plan, ToolResult
+from agent.task_planning_runner import TaskPlanningRunner
 from app.tts.engine_registry import EngineRegistry, TTSEngineRuntime
 from app.tts.qwen3_tts_runtime import Qwen3TTSRuntime
 from app.tts.style_bert_vits2_runtime import StyleBertVITS2Runtime
@@ -8796,6 +8797,15 @@ class TaskStreamRequest(BaseModel):
     search_enabled: bool | None = None
     llm_url: str = ""
 
+
+class TaskPlanRequest(BaseModel):
+    input: str
+    project_path: str = ""
+    planning_mode: str = "standard"
+    requirement_mode: str = "ask_when_needed"
+    execution_mode: str = "plan_only"
+    use_nexus: bool = True
+
 # =========================
 # タスク分解プロンプト
 # =========================
@@ -10147,6 +10157,80 @@ def llm_test(req: LLMTestRequest):
         "chat_error": chat_error,
         "models": models
     }
+
+
+def _phase1_llm_json(prompt: str, user_content: str) -> dict | None:
+    try:
+        reply, _usage = call_llm_chat(
+            [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": user_content},
+            ],
+            llm_url=LLM_URL_PLANNER,
+            max_output_tokens=16384,
+        )
+        return extract_json(reply, parser=_model_manager.current_parser)
+    except Exception as exc:
+        print(f"[PHASE1][LLM] warn: {exc}")
+        return None
+
+
+_phase1_planning_runner = TaskPlanningRunner(
+    ca_data_dir=CA_DATA_DIR,
+    llm_json_fn=_phase1_llm_json,
+    memory_search_fn=memory_search,
+    active_skills_fn=_active_skills,
+    warning_logger=lambda msg: print(f"[PHASE1][NEXUS] {msg}"),
+)
+
+
+@app.post("/api/task/plan")
+def api_task_plan(req: TaskPlanRequest):
+    user_input = (req.input or "").strip()
+    if not user_input:
+        raise HTTPException(status_code=400, detail="input is empty")
+    project_path = (req.project_path or "").strip()
+    if not project_path:
+        project_path = os.path.join(WORK_DIR, "default")
+    try:
+        result = _phase1_planning_runner.run(
+            user_input=user_input,
+            project_path=project_path,
+            planning_mode=(req.planning_mode or "standard").strip().lower(),
+            requirement_mode=(req.requirement_mode or "ask_when_needed").strip(),
+            execution_mode=(req.execution_mode or "plan_only").strip(),
+            use_nexus=bool(req.use_nexus),
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"plan generation failed: {exc}") from exc
+
+
+@app.get("/api/plans/{plan_id}")
+def api_get_plan(plan_id: str):
+    try:
+        return _phase1_planning_runner.storage.load_plan(plan_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="plan not found")
+
+
+@app.get("/api/plans/{plan_id}/markdown")
+def api_get_plan_markdown(plan_id: str):
+    try:
+        markdown = _phase1_planning_runner.storage.read_plan_markdown(plan_id)
+        return {"plan_id": plan_id, "markdown": markdown}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="plan markdown not found")
+
+
+@app.get("/api/requirements/{requirement_id}")
+def api_get_requirement(requirement_id: str):
+    try:
+        return _phase1_planning_runner.storage.load_requirement(requirement_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="requirement not found")
 
 @app.post("/plan")
 def plan_only(req: ChatRequest):

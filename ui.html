@@ -346,6 +346,15 @@ html.logo-svg-ready .logo-text{display:none}
 }
 .chat-task-toggle:hover{border-color:var(--border2);color:var(--text)}
 .chat-task-toggle.on{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
+.phase1-plan-panel{display:flex;flex-wrap:wrap;gap:8px;padding-top:8px}
+.phase1-plan-panel .sel{min-width:132px;flex:1 1 150px;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text)}
+.phase1-plan-note{width:100%;font-size:10px;color:var(--amber);line-height:1.4}
+.phase1-plan-btn{padding:7px 12px;font-size:11px;font-weight:700;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:6px;cursor:pointer}
+.phase1-tabs{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+.phase1-tab-btn{padding:4px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:5px;cursor:pointer}
+.phase1-tab-btn.active{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
+.phase1-tab-body{display:none}
+.phase1-tab-body.active{display:block}
 .mode-wrap{display:flex;background:var(--bg2);border:1px solid var(--border);border-radius:6px;overflow:hidden}
 .hdr-right .mode-wrap{flex-shrink:0}
 .mode-btn{padding:5px 12px;font-size:12px;font-weight:600;font-family:var(--font-ui);letter-spacing:.04em;cursor:pointer;border:none;background:transparent;color:var(--text2);transition:all .15s}
@@ -1276,6 +1285,25 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <span id="chat-tts-toggle-label">TTS OFF</span>
           </button>
         </div>
+      </div>
+      <div class="phase1-plan-panel">
+        <select id="phase1-planning-mode" class="sel">
+          <option value="fast">Fast</option>
+          <option value="standard" selected>Standard</option>
+          <option value="deep_nexus">Deep / Nexus</option>
+        </select>
+        <select id="phase1-requirement-mode" class="sel">
+          <option value="auto">Auto</option>
+          <option value="ask_when_needed" selected>Ask when needed</option>
+          <option value="full_requirement_session">Full requirement session</option>
+        </select>
+        <select id="phase1-execution-mode" class="sel">
+          <option value="plan_only" selected>Plan only</option>
+          <option value="plan_then_ask">Plan then ask</option>
+          <option value="plan_and_execute">Plan and execute</option>
+        </select>
+        <button class="phase1-plan-btn" onclick="generatePlanOnlyFromInput()">Generate Plan</button>
+        <div class="phase1-plan-note">Phase 1では安全のため、実装は行わずPlan生成のみ実行します。</div>
       </div>
     </div>
     <div class="messages" id="messages">
@@ -13396,6 +13424,115 @@ function handleModelSwitchEvent(ev, progCard) {
   } else if (ev.type === 'model_error') {
     setCard(progCard, { label: '✗ Model switch failed', pct: -1 });
     addLog('err', 'model', ev.message || 'error');
+  }
+}
+
+function _phase1List(items) {
+  const arr = Array.isArray(items) ? items : [];
+  if (!arr.length) return '<div style=\"font-size:11px;color:var(--text3)\">-</div>';
+  return `<ul style=\"margin:0;padding-left:18px\">${arr.map(x=>`<li style=\"font-size:12px;line-height:1.5\">${esc(String(x))}</li>`).join('')}</ul>`;
+}
+
+function _switchPhase1CardTab(cardId, tabName) {
+  const card = document.getElementById(cardId);
+  if (!card) return;
+  card.querySelectorAll('.phase1-tab-btn').forEach((el) => {
+    el.classList.toggle('active', el.dataset.tab === tabName);
+  });
+  card.querySelectorAll('.phase1-tab-body').forEach((el) => {
+    el.classList.toggle('active', el.dataset.tab === tabName);
+  });
+}
+
+function renderPhase1PlanCard(result) {
+  const requirement = result?.requirement || {};
+  const plan = result?.plan || {};
+  const planSteps = Array.isArray(plan.implementation_steps) ? plan.implementation_steps : [];
+  const cardId = 'phase1-plan-card-' + Date.now();
+  const stepHtml = planSteps.length
+    ? planSteps.map((s, i) => `
+      <div style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);margin-bottom:6px">
+        <div style="font-size:12px;font-weight:700;color:var(--text)">${i+1}. ${esc(s.title || `Step ${i+1}`)}</div>
+        <div style="font-size:11px;color:var(--text2);white-space:pre-wrap">${esc(s.description || '')}</div>
+        <div style="font-size:10px;color:var(--text3)">action=${esc(s.action_type || '-')} risk=${esc(s.risk_level || '-')}</div>
+      </div>`
+    ).join('')
+    : '<div style="font-size:11px;color:var(--text3)">No implementation steps</div>';
+
+  const html = `
+    <div class="msg-role">Phase 1 Plan Only</div>
+    <div class="plan-card" id="${cardId}">
+      <div class="plan-card-header"><span>${esc(result?.message || 'Plan generated')}</span></div>
+      <div class="plan-section">
+        <div class="phase1-tabs">
+          <button class="phase1-tab-btn active" data-tab="requirements" onclick="_switchPhase1CardTab('${cardId}','requirements')">Requirements</button>
+          <button class="phase1-tab-btn" data-tab="plan" onclick="_switchPhase1CardTab('${cardId}','plan')">Plan</button>
+        </div>
+        <div class="phase1-tab-body active" data-tab="requirements">
+          <div class="plan-section-title">解釈した目的</div><div class="plan-approach-text">${esc(requirement.interpreted_goal || '-')}</div>
+          <div class="plan-section-title">ユーザー意図</div><div class="plan-approach-text">${esc(requirement.user_intent || '-')}</div>
+          <div class="plan-section-title">機能要件</div>${_phase1List(requirement.functional_requirements)}
+          <div class="plan-section-title">非機能要件</div>${_phase1List(requirement.non_functional_requirements)}
+          <div class="plan-section-title">制約</div>${_phase1List(requirement.constraints)}
+          <div class="plan-section-title">仮定</div>${_phase1List(requirement.assumptions)}
+          <div class="plan-section-title">完了条件</div>${_phase1List(requirement.done_definition)}
+          <div class="plan-section-title">要件明確度スコア</div><div class="plan-approach-text">${esc(String(requirement.requirement_completeness_score ?? '-'))}</div>
+        </div>
+        <div class="phase1-tab-body" data-tab="plan">
+          <div class="plan-section-title">Plan Markdown</div><div class="plan-approach-text">${esc(result?.plan_markdown_path || '-')}</div>
+          <div class="plan-section-title">実装案</div>${_phase1List(plan.architecture_options)}
+          <div class="plan-section-title">採用案</div><div class="plan-approach-text">${esc(plan.selected_architecture || '-')}</div>
+          <div class="plan-section-title">実装ステップ</div>${stepHtml}
+          <div class="plan-section-title">対象ファイル</div>${_phase1List(plan.target_files)}
+          <div class="plan-section-title">リスク</div>${_phase1List(plan.risks)}
+          <div class="plan-section-title">テスト計画</div>${_phase1List(plan.test_plan)}
+          <div class="plan-section-title">ロールバック方針</div>${_phase1List(plan.rollback_plan)}
+        </div>
+      </div>
+    </div>`;
+  const w = messages();
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.innerHTML = html;
+  w.appendChild(div);
+  scrollMsgs();
+}
+
+async function generatePlanOnlyFromInput() {
+  const input = document.getElementById('input');
+  const text = (input?.value || '').trim();
+  if (!text || busy) return;
+  const planningMode = document.getElementById('phase1-planning-mode')?.value || 'standard';
+  const requirementMode = document.getElementById('phase1-requirement-mode')?.value || 'ask_when_needed';
+  const executionMode = document.getElementById('phase1-execution-mode')?.value || 'plan_only';
+  addMsg('user', text);
+  addToHistory('user', text);
+  if (input) { input.value = ''; input.style.height = 'auto'; }
+  setBusy(true);
+  const progEl = addProgressCard('Generating Phase 1 plan...');
+  try {
+    const r = await fetch(API + '/api/task/plan', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        input: text,
+        project_path: '/workspace/CodeAgentPersonal',
+        planning_mode: planningMode,
+        requirement_mode: requirementMode,
+        execution_mode: executionMode,
+        use_nexus: true,
+      })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    renderPhase1PlanCard(d);
+    addLog('ok', 'plan-only', `Generated plan_id=${d.plan_id} requirement_id=${d.requirement_id}`);
+  } catch (e) {
+    addMsg('error', 'Phase1 plan generation failed: ' + (e.message || String(e)));
+    addLog('err', 'plan-only', e.message || String(e));
+  } finally {
+    progEl.remove();
+    setBusy(false);
   }
 }
 
