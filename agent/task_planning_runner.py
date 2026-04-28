@@ -56,6 +56,7 @@ class TaskPlanningRunner:
             memory_search_fn=memory_search_fn,
             active_skills_fn=active_skills_fn,
             warning_logger=warning_logger,
+            ca_data_dir=ca_data_dir,
         )
 
     def run(
@@ -71,12 +72,23 @@ class TaskPlanningRunner:
     ) -> dict:
         task_id = f"task_{uuid.uuid4().hex[:12]}"
         warnings: list[str] = []
+        project_path = (project_path or "").strip()
+        project_name = (project_name or "").strip()
+        resolved_project_path = project_path
+
         repository_context = _build_repository_context(project_path)
         if repository_context.startswith("Project path not found:"):
             warnings.append("Project path was not found. Repository context fallback was used.")
         elif repository_context.startswith("Repository scan warning:"):
             warnings.append("Repository scan failed partially. Repository context fallback was used.")
-        nexus_context = self.nexus_builder.build(user_input, use_nexus=use_nexus)
+
+        nexus_context = self.nexus_builder.build(
+            user_input,
+            use_nexus=use_nexus,
+            project_path=project_path,
+            project_name=project_name,
+            resolved_project_path=resolved_project_path,
+        )
         warnings.extend([str(x) for x in (nexus_context.get("warnings") or []) if str(x).strip()])
 
         requirement = self.requirement_analyzer.analyze(
@@ -88,9 +100,9 @@ class TaskPlanningRunner:
             nexus_context=nexus_context,
             repository_context=repository_context,
         )
-        requirement.project_name = (project_name or "").strip()
-        requirement.project_path = (project_path or "").strip()
-        requirement.resolved_project_path = (project_path or "").strip()
+        requirement.project_name = project_name
+        requirement.project_path = project_path
+        requirement.resolved_project_path = resolved_project_path
         warnings.extend(self.requirement_analyzer.get_last_warnings())
 
         clarification = self.clarification_manager.generate(requirement, requirement_mode, allow_derive=True)
@@ -124,6 +136,8 @@ class TaskPlanningRunner:
             execution_mode=execution_mode,
             use_nexus=use_nexus,
             project_path=project_path,
+            project_name=project_name,
+            resolved_project_path=resolved_project_path,
             task_id=task_id,
             nexus_context=nexus_context,
             repository_context=repository_context,
@@ -191,6 +205,17 @@ class TaskPlanningRunner:
         clarification = self.clarification_manager.generate(requirement, requirement_mode, allow_derive=False)
         unresolved_required = self.clarification_manager.unresolved_required_questions(requirement)
         self.storage.save_requirement(requirement)
+
+        if nexus_context is None:
+            nexus_context = self.nexus_builder.build(
+                requirement.user_input,
+                use_nexus=use_nexus,
+                project_path=project_path,
+                project_name=project_name,
+                resolved_project_path=resolved_project_path,
+            )
+            warnings.extend([str(x) for x in (nexus_context.get("warnings") or []) if str(x).strip()])
+
         if unresolved_required:
             return {
                 "task_id": task_id or requirement.source_task_id,
@@ -204,6 +229,7 @@ class TaskPlanningRunner:
                 "questions": [q.model_dump() for q in clarification.questions],
                 "clarification": clarification.model_dump(),
                 "requirement": requirement.model_dump(),
+                "nexus_context": nexus_context,
                 "resolved_project_path": resolved_project_path,
                 "warnings": _dedup_warnings(warnings),
             }
@@ -214,9 +240,6 @@ class TaskPlanningRunner:
                 warnings.append("Project path was not found. Repository context fallback was used.")
             elif repository_context.startswith("Repository scan warning:"):
                 warnings.append("Repository scan failed partially. Repository context fallback was used.")
-        if nexus_context is None:
-            nexus_context = self.nexus_builder.build(requirement.user_input, use_nexus=use_nexus)
-            warnings.extend([str(x) for x in (nexus_context.get("warnings") or []) if str(x).strip()])
 
         plan = self.planner.build_plan(
             requirement=requirement,

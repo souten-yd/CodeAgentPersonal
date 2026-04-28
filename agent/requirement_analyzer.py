@@ -27,11 +27,12 @@ class RequirementAnalyzer:
         existing_requirement: RequirementDefinition | None = None,
     ) -> RequirementDefinition:
         warnings: list[str] = []
+        nexus_text = _format_nexus_context(nexus_context)
         context_input = "\n\n".join([
             f"User Input:\n{user_input}",
             f"Requirement Mode: {requirement_mode}",
             f"Planning Mode: {planning_mode}",
-            f"Nexus Context: {nexus_context}",
+            f"Nexus Context:\n{nexus_text}",
             f"Repository Context: {repository_context}",
         ])
         raw_payload = self.llm_json_fn(prompt, context_input)
@@ -132,3 +133,22 @@ def _merge_non_functional(raw_value) -> list[str]:
         if not any(item.split("（")[0] in x for x in merged):
             merged.append(item)
     return merged
+
+
+def _format_nexus_context(nexus_context: dict) -> str:
+    if not isinstance(nexus_context, dict):
+        return str(nexus_context)
+    compact = str(nexus_context.get("compact_text") or "").strip()
+    if compact:
+        return compact[:8000]
+    summary = str(nexus_context.get("summary") or "")
+    items = nexus_context.get("items") if isinstance(nexus_context.get("items"), list) else []
+    lines = [summary] if summary else []
+    for item in items[:4]:
+        if isinstance(item, dict):
+            title = str(item.get("title") or item.get("name") or "")
+            s = str(item.get("summary") or item.get("description") or item.get("content") or "")
+            lines.append(f"- {title}: {s[:200]}")
+        else:
+            lines.append(f"- {str(item)[:200]}")
+    return "\n".join([x for x in lines if x]).strip()[:8000]
