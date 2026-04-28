@@ -8,7 +8,7 @@ import uuid
 from urllib.parse import urlparse
 
 from app.nexus.db import get_conn, insert_chunk, insert_document, update_document_artifact_paths
-from app.nexus.jobs import append_job_event, update_job
+from app.nexus.jobs import append_job_event, ensure_job_exists, update_job
 
 _MIN_CHUNK_SIZE = 800
 _MAX_CHUNK_SIZE = 1200
@@ -169,6 +169,7 @@ def register_or_update_sources(
     sources: list[dict],
 ) -> list[dict]:
     now = _now_iso()
+    ensure_job_exists(job_id, title="research source registry", message="registering sources", status="running")
     saved_rows: list[dict] = []
     with get_conn() as conn:
         for source in sources:

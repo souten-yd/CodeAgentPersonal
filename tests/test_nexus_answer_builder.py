@@ -15,7 +15,7 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         chunks = [{"quote": "fact", "source_id": "src-1", "citation_label": "article#1"}]
         llm_text = "結論です article#1\n\n## 追加確認が必要な点\n- なし"
 
-        with patch.dict(os.environ, {"NEXUS_ENABLE_ANSWER_LLM": "true"}, clear=False), patch(
+        with patch.dict(os.environ, {"NEXUS_ENABLE_ANSWER_LLM": "true"}, clear=True), patch(
             "app.nexus.answer_builder._generate_answer_with_llm",
             return_value=llm_text,
         ) as mocked:
@@ -32,14 +32,14 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         mocked.assert_called_once()
         self.assertEqual(payload["references"][0]["citation_label"], "[S1]")
         self.assertIn("- [S1] Source 1 (https://example.com/1)", payload["answer_markdown"])
-        self.assertEqual(payload["generation_mode"], "llm")
+        self.assertEqual(payload["generation_mode"], "llm_answer")
         self.assertTrue(payload["llm_enabled"])
-        self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
+        self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:8080/v1/chat/completions")
         self.assertEqual(payload["llm_model"], "local-llm")
         self.assertIsNone(payload["llm_error"])
-        self.assertEqual(payload["generation"]["mode"], "llm")
+        self.assertEqual(payload["generation"]["mode"], "llm_answer")
         self.assertTrue(payload["generation"]["llm_enabled"])
-        self.assertEqual(payload["generation"]["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
+        self.assertEqual(payload["generation"]["llm_endpoint"], "http://127.0.0.1:8080/v1/chat/completions")
         self.assertEqual(payload["generation"]["llm_model"], "local-llm")
         self.assertIsNone(payload["generation"]["error"])
 
@@ -48,7 +48,7 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "legacy-label"}]
         fallback_summary = "fallback summary legacy-label"
 
-        with patch.dict(os.environ, {"NEXUS_ENABLE_ANSWER_LLM": "true"}, clear=False), patch(
+        with patch.dict(os.environ, {"NEXUS_ENABLE_ANSWER_LLM": "true"}, clear=True), patch(
             "app.nexus.answer_builder._generate_answer_with_llm",
             side_effect=TimeoutError("timeout"),
         ):
@@ -65,14 +65,41 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertIn("## References", payload["answer_markdown"])
         self.assertEqual(payload["generation_mode"], "template_fallback")
         self.assertTrue(payload["llm_enabled"])
-        self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
+        self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:8080/v1/chat/completions")
         self.assertEqual(payload["llm_model"], "local-llm")
         self.assertEqual(payload["llm_error"], "timeout")
         self.assertEqual(payload["generation"]["mode"], "template_fallback")
         self.assertTrue(payload["generation"]["llm_enabled"])
-        self.assertEqual(payload["generation"]["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
+        self.assertEqual(payload["generation"]["llm_endpoint"], "http://127.0.0.1:8080/v1/chat/completions")
         self.assertEqual(payload["generation"]["llm_model"], "local-llm")
         self.assertEqual(payload["generation"]["error"], "timeout")
+        self.assertIn("template fallback answer", payload["generation"]["notice"])
+
+    def test_build_answer_payload_resolves_llm_endpoint_from_shared_chat_setting(self) -> None:
+        references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "legacy-label"}]
+
+        with patch.dict(
+            os.environ,
+            {"CODEAGENT_LLM_CHAT": "http://127.0.0.1:18080/v1/chat/completions"},
+            clear=True,
+        ), patch(
+            "app.nexus.answer_builder._probe_llm_endpoint",
+            return_value=True,
+        ), patch(
+            "app.nexus.answer_builder._generate_answer_with_llm",
+            return_value="shared endpoint works [S1]",
+        ):
+            payload = build_answer_payload(
+                question="質問",
+                summary="fallback summary legacy-label",
+                references=references,
+                evidence_chunks=chunks,
+            )
+
+        self.assertTrue(payload["llm_enabled"])
+        self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:18080/v1/chat/completions")
+        self.assertEqual(payload["generation_mode"], "llm_answer")
 
     def test_build_answer_payload_persists_llm_metadata_in_answer_json(self) -> None:
         references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
@@ -99,7 +126,7 @@ class NexusAnswerBuilderTests(unittest.TestCase):
             ), patch.dict(
                 os.environ,
                 {"NEXUS_ENABLE_ANSWER_LLM": "true"},
-                clear=False,
+                clear=True,
             ), patch(
                 "app.nexus.answer_builder._generate_answer_with_llm",
                 side_effect=RuntimeError("llm unavailable"),
@@ -117,12 +144,12 @@ class NexusAnswerBuilderTests(unittest.TestCase):
             saved_payload = json.loads(answer_json_path.read_text(encoding="utf-8"))
             self.assertEqual(saved_payload["generation_mode"], "template_fallback")
             self.assertTrue(saved_payload["llm_enabled"])
-            self.assertEqual(saved_payload["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
+            self.assertEqual(saved_payload["llm_endpoint"], "http://127.0.0.1:8080/v1/chat/completions")
             self.assertEqual(saved_payload["llm_model"], "local-llm")
             self.assertEqual(saved_payload["llm_error"], "llm unavailable")
             self.assertEqual(saved_payload["generation"]["mode"], "template_fallback")
             self.assertTrue(saved_payload["generation"]["llm_enabled"])
-            self.assertEqual(saved_payload["generation"]["llm_endpoint"], "http://127.0.0.1:8000/v1/chat/completions")
+            self.assertEqual(saved_payload["generation"]["llm_endpoint"], "http://127.0.0.1:8080/v1/chat/completions")
             self.assertEqual(saved_payload["generation"]["llm_model"], "local-llm")
             self.assertEqual(saved_payload["generation"]["error"], "llm unavailable")
 
@@ -180,11 +207,11 @@ class NexusAnswerBuilderTests(unittest.TestCase):
             references=references,
         )
 
-        self.assertTrue(payload["citation_verification"]["ok"])
+        self.assertFalse(payload["citation_verification"]["ok"])
         self.assertEqual(payload["citation_verification"]["missing_in_references"], [])
         self.assertEqual(payload["citation_verification"]["unused_references"], [])
         self.assertEqual(payload["citation_verification"]["invalid_labels"], [])
-        self.assertEqual(payload["citation_verification"]["warnings"], [])
+        self.assertEqual(payload["citation_verification"]["warnings"][0]["reason"], "evidence_missing")
 
     def test_citation_verification_detects_unknown_label_in_answer(self) -> None:
         references = [{"citation_label": "src-a", "title": "Source A", "source_id": "src-a"}]
@@ -224,8 +251,9 @@ class NexusAnswerBuilderTests(unittest.TestCase):
 
         sentence_results = payload["citation_verification"]["sentence_results"]
         self.assertEqual([row["status"] for row in sentence_results], ["supported", "weak", "unsupported"])
-        self.assertEqual(payload["citation_verification"]["warnings"][0]["sentence_index"], 3)
-        self.assertEqual(payload["citation_verification"]["warnings"][0]["reason"], "low_semantic_overlap")
+        self.assertEqual(payload["citation_verification"]["warnings"][0]["sentence_index"], 2)
+        self.assertEqual(payload["citation_verification"]["warnings"][1]["sentence_index"], 3)
+        self.assertEqual(payload["citation_verification"]["warnings"][1]["reason"], "low_semantic_overlap")
 
     def test_citation_verification_detects_unused_reference_label(self) -> None:
         references = [
@@ -237,7 +265,7 @@ class NexusAnswerBuilderTests(unittest.TestCase):
             {"text": "fact2", "source_id": "src-2", "citation_label": "r2"},
         ]
 
-        with patch.dict(os.environ, {"NEXUS_ENABLE_ANSWER_LLM": "true"}, clear=False), patch(
+        with patch.dict(os.environ, {"NEXUS_ENABLE_ANSWER_LLM": "true"}, clear=True), patch(
             "app.nexus.answer_builder._generate_answer_with_llm",
             return_value="結論 [S1]",
         ):

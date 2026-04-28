@@ -10,7 +10,7 @@ from app.nexus.citation_mapper import build_citation_map, normalize_reference_la
 from app.nexus.config import load_runtime_config
 from app.nexus.downloader import safe_download, save_download_artifacts
 from app.nexus.evidence import EvidenceItem, save_evidence_items
-from app.nexus.jobs import append_job_event, create_job, update_job
+from app.nexus.jobs import append_job_event, create_job, ensure_job_exists, update_job
 from app.nexus.source_collector import collect_source_candidates, rank_source_candidates
 from app.nexus.source_registry import register_or_update_sources
 from app.nexus.db import get_conn
@@ -243,6 +243,8 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
     )
     if not job_id:
         create_job(effective_job_id, title=query, message="research queued", status="queued")
+    else:
+        ensure_job_exists(effective_job_id, title=query, message="research queued", status="queued")
 
     try:
         _record_state(effective_job_id, "planning", message="query planning", progress=0.1)
