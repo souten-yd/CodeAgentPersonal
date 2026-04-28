@@ -2952,7 +2952,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <input type="range" id="ctx-slider" min="512" max="65535" step="1" value="16384"
             style="flex:1;accent-color:var(--accent);cursor:pointer"
             oninput="updateCtxLabel(this.value)" onchange="applyCtxLen(this.value)">
-          <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">8192</span>
+          <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">16384</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px">
           <span>512</span><span id="ctx-max-label">max: 65535</span><span id="ctx-slider-max">65535</span>
@@ -6699,7 +6699,7 @@ async function loadSettingsFromDb() {
     if (snl) snl.textContent = snum;
 
     // Ctx size
-    const ctx = parseInt(d.ctx_size) || 8192;
+    const ctx = parseInt(d.ctx_size) || 16384;
     const cs = document.getElementById('ctx-slider');
     const cl = document.getElementById('ctx-label');
     if (cs) cs.value = ctx;
@@ -8306,6 +8306,20 @@ function renderNexusDeepAnswer(answer = {}) {
     typeof generation !== 'string' || generation.trim() !== ''
   );
   const generationNotice = String(generation?.notice || '').trim();
+  const compression = (generation?.compression && typeof generation.compression === 'object') ? generation.compression : {};
+  const compressionHtml = generation
+    ? `<div class="nexus-answer-subtitle" style="margin-top:8px">Evidence Compression</div>
+       <div style="font-size:10px;color:var(--text3);display:flex;flex-wrap:wrap;gap:10px">
+         <span>ctx: <b style="color:var(--text2)">${esc(String(generation?.max_context_tokens || '-'))}</b></span>
+         <span>profile: <b style="color:var(--text2)">${esc(String(generation?.compression_profile || '-'))}</b></span>
+         <span>budget: <b style="color:var(--text2)">${esc(String(generation?.evidence_budget_tokens || '-'))}</b></span>
+         <span>est_prompt: <b style="color:var(--text2)">${esc(String(generation?.estimated_prompt_tokens || '-'))}</b></span>
+         <span>chunks: <b style="color:var(--text2)">${esc(String(compression?.chunks_input ?? '-'))} / ${esc(String(compression?.chunks_used ?? '-'))}</b></span>
+         <span>sources: <b style="color:var(--text2)">${esc(String(compression?.sources_input ?? '-'))} / ${esc(String(compression?.sources_used ?? '-'))}</b></span>
+         <span>retry: <b style="color:var(--text2)">${esc(String(generation?.retry_count ?? 0))}</b></span>
+         <span>truncated: <b style="color:var(--text2)">${esc(String(Boolean(compression?.evidence_truncated)))}</b></span>
+       </div>`
+    : '';
   const verification = (answer?.citation_verification && typeof answer.citation_verification === 'object')
     ? answer.citation_verification
     : {};
@@ -8318,6 +8332,7 @@ function renderNexusDeepAnswer(answer = {}) {
     <div class="nexus-answer-section">
       <div class="nexus-answer-subtitle">Generation</div>
       <pre class="nexus-answer-json">${esc(hasGeneration ? JSON.stringify(generation, null, 2) : 'generation unavailable')}</pre>
+      ${compressionHtml}
       ${(generationMode === 'template_fallback' || generationNotice)
         ? `<div class="nexus-generation-notice">${
           esc(generationNotice || 'Answer LLM is disabled. Deep Research generated a template fallback answer. Citation quality may be weak because no LLM synthesis was performed. Check DEEP_RESEARCH_LLM_ENABLED and endpoint settings.')
@@ -10179,6 +10194,9 @@ async function refreshModelRoles() {
         .filter(m => role !== 'multi' || (!!Number(m.is_vlm ?? 0) && Number(m.vlm_enabled ?? 1) !== 0))
         .map(m => `<option value="${esc(m.model_key)}" ${m.model_key===selectedKey?'selected':''}>${esc(formatModelShortName(m.name || m.model_key))}</option>`)
         .join('');
+      const roleCtx = Number(modelMap[selectedKey]?.ctx_size || 0) > 0
+        ? Number(modelMap[selectedKey]?.ctx_size || 0)
+        : 16384;
       return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg)">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:5px">
           <span style="font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--text2);text-transform:uppercase">${esc(role)}</span>
@@ -10188,7 +10206,7 @@ async function refreshModelRoles() {
           style="width:100%;padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-ui)">
           ${options}
         </select>
-        <div style="font-size:9px;color:var(--text3);margin-top:4px">${esc(modelMap[selectedKey]?.name || plannerKey || 'unassigned')}</div>
+        <div style="font-size:9px;color:var(--text3);margin-top:4px">${esc(modelMap[selectedKey]?.name || plannerKey || 'unassigned')} · ctx ${Number(roleCtx).toLocaleString()}</div>
       </div>`;
     }).join('');
   } catch(e) {
@@ -10259,7 +10277,10 @@ function renderModelCard(m) {
     const ram = ramMb > 0 ? `${(ramMb/1024).toFixed(1)}GB` : '-';
     const tps = activeTps > 0 ? `${activeTps} tok/s` : (modelTps > 0 ? `${modelTps} tok/s` : '-');
     const load = loadSec > 0 ? `${Number(loadSec).toFixed(1).replace(/\.0$/, '')}s` : '-';
-    const benchCtx = Number(activeProfile.ctx_size || m?.ctx_size || 4096);
+    const benchCtx = Number(activeProfile.ctx_size || m?.ctx_size || 16384);
+    const ctxWarning = (Number(m?.ctx_size || 0) >= 24576 && Number(vramMb) > 0 && Number(vramMb) < 8192)
+      ? '<span style="color:var(--amber)">High context may require more VRAM</span>'
+      : '';
     const size = Number(m?.file_size_mb) > 0 ? `${(Number(m.file_size_mb)/1024).toFixed(1)}GB` : '';
     const enabledBorder = enabled ? 'var(--border)' : 'rgba(255,68,102,.25)';
     const enabledBg = enabled ? 'var(--bg2)' : 'rgba(255,68,102,.04)';
@@ -10297,11 +10318,13 @@ function renderModelCard(m) {
       </div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--text3);margin-bottom:2px">
         <span>Mode: <b style="color:var(--text2)">${esc(asText(mode).toUpperCase())}</b></span>
+        <span>Model ctx: <b style="color:var(--text2)">${Number(m?.ctx_size||0) > 0 ? Number(m?.ctx_size).toLocaleString() : 'default 16384'}</b></span>
         <span>Bench ctx: <b style="color:var(--text2)">${benchCtx}</b></span>
         <span>VRAM: <b style="color:var(--text2)">${vram}</b></span>
         <span>RAM: <b style="color:var(--text2)">${ram}</b></span>
         <span>Speed: <b style="color:${activeTps>0 || modelTps>0?'var(--accent)':'var(--text3)'}">${tps}</b></span>
         <span>Load: <b style="color:var(--text2)">${load}</b></span>
+        ${ctxWarning}
         ${m?.is_vlm ? `<span>Vision: <b style="color:${vlmEnabled?'var(--amber)':'var(--text3)'}">${vlmEnabled?'Enabled':'Disabled'}</b></span>` : ''}
       </div>
       ${m?.has_mmproj ? `<div style="display:flex;justify-content:flex-end;margin:4px 0 0">
@@ -10325,7 +10348,7 @@ function renderModelCard(m) {
         <button onclick="saveModelDb('${esc(asText(m?.id))}')" style="font-size:10px;padding:4px 10px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">Save</button>
       </div>
       <div class="model-edit-grid2">
-        <input id="ctx-${esc(asText(m?.id))}" type="number" min="512" max="32768" value="${esc(asText(m?.ctx_size||4096))}"
+        <input id="ctx-${esc(asText(m?.id))}" type="number" min="512" max="32768" value="${esc(asText(m?.ctx_size||16384))}"
           style="padding:4px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
         <input id="gpu-${esc(asText(m?.id))}" type="number" min="0" max="999" value="${esc(asText(m?.gpu_layers||999))}"
           style="padding:4px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
@@ -10521,7 +10544,7 @@ async function saveModelDb(mid) {
     model_key: (document.getElementById(`key-${mid}`)?.value || '').trim(),
     parser: (document.getElementById(`parser-${mid}`)?.value || 'json').trim() || 'json',
     auto_roles: (document.getElementById(`roles-${mid}`)?.value || '').trim(),
-    ctx_size: Number(document.getElementById(`ctx-${mid}`)?.value || 4096),
+    ctx_size: Number(document.getElementById(`ctx-${mid}`)?.value || 16384),
     gpu_layers: Number(document.getElementById(`gpu-${mid}`)?.value || 999),
     enabled: document.getElementById(`enabled-${mid}`)?.checked ? 1 : 0
   };
@@ -14574,7 +14597,7 @@ async function applySearchNum(val) {
 }
 
 // ── CONTEXT LENGTH SLIDER ──
-let _current_n_ctx_ui = 8192; // UIが知っているn_ctx（統計表示用）
+let _current_n_ctx_ui = 16384; // UIが知っているn_ctx（統計表示用）
 
 async function initCtxSlider() {
   try {
@@ -14586,7 +14609,7 @@ async function initCtxSlider() {
     // サーバー側の現在値も取得
     const cr = await fetch(API+'/llm/ctx');
     const cd = await cr.json();
-    const curCtx = Math.max(512, Math.min(maxCtx, (cd.n_ctx || 8192)));
+    const curCtx = Math.max(512, Math.min(maxCtx, (cd.n_ctx || 16384)));
 
     const slider = document.getElementById('ctx-slider');
     const label = document.getElementById('ctx-label');

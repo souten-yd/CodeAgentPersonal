@@ -382,7 +382,7 @@ def _runtime_spec_from_row(row: dict) -> dict:
     auto_roles = [x.strip() for x in str(row.get("auto_roles", "")).split(",") if x.strip()]
     if int(row.get("vlm_enabled", 1) or 1) == 0 and "multi" in auto_roles:
         auto_roles = [r for r in auto_roles if r != "multi"]
-    ctx = int(row.get("ctx_size", 4096) or 4096)
+    ctx = int(row.get("ctx_size", _default_llm_ctx_size()) or _default_llm_ctx_size())
     if ctx < 16384 and any(role in auto_roles for role in ("plan", "search")):
         ctx = 16384
     inferred_parser = _infer_parser_name(
@@ -1013,7 +1013,7 @@ class ModelManager:
         旧コードの min(fail_ngl, ...) は「最低失敗値」を追跡するため
         Phase 3 探索範囲が崩壊する（例: [1,2]）バグがあった。
         """
-        ctx = int(spec.get("ctx", 4096) or 4096)
+        ctx = int(spec.get("ctx", _default_llm_ctx_size()) or _default_llm_ctx_size())
         predicted_ngl = self._predict_ngl_with_kv(spec, eff_ck, eff_cv)
 
         # GGUF から総レイヤー数を取得（Phase 3 上限として使用）
@@ -1319,7 +1319,7 @@ class ModelManager:
             predicted_ngl  = floor((free_vram - overhead) / vram_per_layer) × safety
         """
         file_size_mb = int(spec.get("file_size_mb", 0) or 0)
-        ctx = int(spec.get("ctx", 4096) or 4096)
+        ctx = int(spec.get("ctx", _default_llm_ctx_size()) or _default_llm_ctx_size())
         model_path = spec.get("path", "")
         if not model_path or file_size_mb <= 0:
             return -1
@@ -4067,7 +4067,7 @@ def _get_model_db(create_if_missing: bool = True):
             load_sec REAL DEFAULT -1,
             tok_per_sec REAL DEFAULT -1,
             llm_url TEXT DEFAULT '',
-            ctx_size INTEGER DEFAULT 4096,
+            ctx_size INTEGER DEFAULT 16384,
             gpu_layers INTEGER DEFAULT 999,
             threads INTEGER DEFAULT 8,
             parser TEXT DEFAULT 'json',
@@ -4197,7 +4197,7 @@ def model_db_add(info: dict) -> str:
                 info.get("load_sec", -1),
                 info.get("tok_per_sec", -1),
                 info.get("llm_url", ""),
-                info.get("ctx_size", 4096),
+                info.get("ctx_size", _default_llm_ctx_size()),
                 info.get("gpu_layers", 999),
                 info.get("threads", 8),
                 info.get("parser", "json"),
@@ -4303,7 +4303,7 @@ def benchmark_model_record(model: dict, use_vlm: bool = False) -> dict:
     )
 
     path = model["path"]
-    ctx = model.get("ctx_size", 4096)
+    ctx = model.get("ctx_size", _default_llm_ctx_size())
     ngl = model.get("gpu_layers", 999)
     mmproj_path = model.get("mmproj_path", "") if use_vlm else ""
     if not os.path.exists(path):
@@ -4367,6 +4367,14 @@ def _default_llm_root_folder() -> str:
     return os.path.join(os.path.expanduser("~"), "LLMs")
 
 
+def _default_llm_ctx_size() -> int:
+    for key in ("LLAMA_CTX_SIZE", "DEFAULT_LLM_CTX_SIZE", "NEXUS_ANSWER_LLM_MAX_CONTEXT_TOKENS"):
+        raw = str(os.environ.get(key, "")).strip()
+        if raw.isdigit():
+            return max(512, min(65535, int(raw)))
+    return 16384
+
+
 # デフォルト設定定義
 SETTINGS_DEFAULTS = {
     "llm_root_folder":    _default_llm_root_folder(),  # モデルのルートフォルダ
@@ -4376,7 +4384,7 @@ SETTINGS_DEFAULTS = {
     "search_enabled":     "false",
     "search_num":         "5",
     "streaming_enabled":  "true",
-    "ctx_size":           "8192",
+    "ctx_size":           str(_default_llm_ctx_size()),
     "summary_max_tokens": "200",
     "read_file_inject_max_chars": "16000",
     "llm_url":            "",
@@ -5463,7 +5471,9 @@ def _infer_quantization_from_name(name: str) -> str:
     return ""
 
 
-def _infer_ctx_size_from_name(name: str, default_ctx: int = 8192) -> int:
+def _infer_ctx_size_from_name(name: str, default_ctx: int | None = None) -> int:
+    if default_ctx is None:
+        default_ctx = _default_llm_ctx_size()
     text = (name or "").lower()
     # 例: 32k / 128k / ctx4096
     mk = re.search(r"(\d{1,4})k(?:[^a-z0-9]|$)", text)
@@ -5662,7 +5672,7 @@ def _calc_safe_gpu_layers(spec: dict, force_gpu_layers: int = -1) -> dict:
     代わりにKVキャッシュ量子化でVRAMを節約しGPU上に保持する。
     """
     file_size_mb = int(spec.get("file_size_mb", 0) or 0)
-    ctx = int(spec.get("ctx", 4096) or 4096)
+    ctx = int(spec.get("ctx", _default_llm_ctx_size()) or _default_llm_ctx_size())
     model_path = spec.get("path", "")
     user_ck = (spec.get("cache_type_k") or "").strip()
     user_cv = (spec.get("cache_type_v") or "").strip()
@@ -5752,9 +5762,9 @@ def _disk_free_mb(path: str) -> int:
         return -1
 
 
-def _estimate_fit(file_size_mb: int, hw: dict, quantization: str = "", ctx_size: int = 8192, gpu_layers: int = -1, disk_free_mb: int = -1) -> dict:
+def _estimate_fit(file_size_mb: int, hw: dict, quantization: str = "", ctx_size: int | None = None, gpu_layers: int = -1, disk_free_mb: int = -1) -> dict:
     q = (quantization or "").upper()
-    ctx = int(ctx_size or 8192)
+    ctx = int(ctx_size or _default_llm_ctx_size())
     gl = int(gpu_layers or -1)
     if gl <= 0:
         gl = _infer_gpu_layers_for_estimate(file_size_mb, q)
@@ -6044,7 +6054,7 @@ def model_db_scan_folder(folder: str) -> list:
             "quantization": _guess_quantization(full_path),
             "file_size_mb": _get_file_size_mb(full_path),
             "vram_mb": -1, "ram_mb": -1, "load_sec": -1, "tok_per_sec": -1,
-            "llm_url": "", "ctx_size": 8192, "gpu_layers": 999, "notes": "scanned",
+            "llm_url": "", "ctx_size": _default_llm_ctx_size(), "gpu_layers": 999, "notes": "scanned",
         }))
     return results
 
@@ -15170,7 +15180,7 @@ def llm_props():
 # コンテキスト長設定
 # =========================
 
-_current_n_ctx: int = 8192             # コンテキストウィンドウ長
+_current_n_ctx: int = _default_llm_ctx_size()             # コンテキストウィンドウ長
 # モデル別推奨コンテキスト長の目安:
 # Qwen3-Coder-Next  : 16384〜32768 (Q3_K_Sでは16384を推奨)
 # Mistral-Small-3.2 : 16384〜32768
@@ -16072,7 +16082,7 @@ def search_gguf_models_api(
             if size_bytes <= 0:
                 size_bytes = int(fallback_sizes.get(name) or 0)
             quant = _infer_quantization_from_name(name)
-            ctx_size = _infer_ctx_size_from_name(name, default_ctx=8192)
+            ctx_size = _infer_ctx_size_from_name(name, default_ctx=_default_llm_ctx_size())
             gpu_layers = _infer_gpu_layers_for_estimate(int(size_bytes / (1024 * 1024)) if size_bytes > 0 else -1, quant)
             size_mb = int(size_bytes / (1024 * 1024)) if size_bytes > 0 else -1
             fit = _estimate_fit(
@@ -16165,7 +16175,7 @@ def _run_gguf_download_job(job_id: str, model_id: str, safe_rel: str, folder: st
         "name": model_name, "path": target, "is_vlm": _detect_vlm(target, model_name),
         "has_mmproj": False, "mmproj_path": "", "quantization": _guess_quantization(target),
         "file_size_mb": int(file_size / (1024 * 1024)), "vram_mb": -1, "ram_mb": -1, "load_sec": -1, "tok_per_sec": -1,
-        "llm_url": "", "ctx_size": 8192, "gpu_layers": 999, "notes": "downloaded",
+        "llm_url": "", "ctx_size": _default_llm_ctx_size(), "gpu_layers": 999, "notes": "downloaded",
     })
     if existing:
         model_db_update(existing["id"], record)
@@ -16521,6 +16531,7 @@ def get_model_role_assignments_api():
                 "enabled": int(m.get("enabled", 1) or 1),
                 "vlm_enabled": int(m.get("vlm_enabled", 1) or 1),
                 "is_vlm": int(m.get("is_vlm", 0) or 0),
+                "ctx_size": int(m.get("ctx_size") or 0),
                 "auto_roles": [x.strip() for x in str(m.get("auto_roles", "")).split(",") if x.strip()],
             }
             for m in models

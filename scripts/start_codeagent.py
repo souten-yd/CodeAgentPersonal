@@ -306,6 +306,9 @@ def main() -> int:
     env["CODEAGENT_LLM_CHAT"] = f"http://127.0.0.1:{args.primary_port}/v1/chat/completions"
     env["CODEAGENT_LLM_LIGHT"] = f"http://127.0.0.1:{args.primary_port}/v1/chat/completions"
     env["CODEAGENT_LLM_MODE"] = mode_num
+    env.setdefault("DEFAULT_LLM_CTX_SIZE", "16384")
+    env.setdefault("LLAMA_CTX_SIZE", env.get("DEFAULT_LLM_CTX_SIZE", "16384"))
+    env.setdefault("NEXUS_ANSWER_LLM_MAX_CONTEXT_TOKENS", env.get("DEFAULT_LLM_CTX_SIZE", "16384"))
     if runpod:
         env.setdefault("CODEAGENT_CA_DATA_DIR", "/workspace/ca_data")
         env.setdefault("CODEAGENT_WORK_DIR", "/workspace/ca_data/workspace")
