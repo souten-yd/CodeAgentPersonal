@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import threading
+import uuid
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
@@ -355,15 +356,17 @@ def _build_research_job_health(job: dict, events: list[dict]) -> dict:
         str(
             os.environ.get(
                 "NEXUS_STALLED_AFTER_SEC",
-                os.environ.get("NEXUS_DOWNLOAD_STALLED_AFTER_SEC", "60"),
+                os.environ.get("NEXUS_DOWNLOAD_STALLED_AFTER_SEC", "120"),
             )
         ).strip()
-        or "60"
+        or "120"
     )
     inferred_phase = str((last_heartbeat or {}).get("data", {}).get("phase") or phase or "").strip()
+    if inferred_phase == "download":
+        inferred_phase = "downloading"
     current_message = str((last_heartbeat or {}).get("data", {}).get("message") or job.get("message") or "").strip()
     is_active = status == "running" and bool(last_heartbeat_at)
-    is_terminal = status in {"completed", "degraded", "failed"}
+    is_terminal = status in {"completed", "degraded", "failed", "cancelled"}
     progress_events = [ev for ev in events if str(ev.get("type") or "") == "download_progress"]
     last_progress = progress_events[-1] if progress_events else {}
     progress_data = (last_progress.get("data") or {}) if isinstance(last_progress, dict) else {}
@@ -389,8 +392,14 @@ def _build_research_job_health(job: dict, events: list[dict]) -> dict:
         elif inferred_phase == "answer_llm_generating":
             stalled_reason = "LLM回答生成heartbeat停止"
             suggested_action = "LLM endpoint / timeout / llama-server logを確認"
+        elif inferred_phase == "evidence_compression":
+            stalled_reason = "Evidence圧縮処理のheartbeat停止"
+            suggested_action = "圧縮対象サイズ・サーバー負荷を確認してください。"
+        elif inferred_phase == "source_ingest":
+            stalled_reason = "Source登録処理のheartbeat停止"
+            suggested_action = "DB書き込みとストレージ状態を確認してください。"
         else:
-            stalled_reason = "heartbeat 更新停止"
+            stalled_reason = "heartbeat更新停止"
             suggested_action = "サーバーログとジョブ状態を確認してください。"
     return {
         "phase": inferred_phase or phase,

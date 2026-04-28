@@ -8368,7 +8368,10 @@ function setNexusDeepStatus(message, isErr = false, isStub = false) {
 
 const NEXUS_TIMELINE_STATE_META = {
   planning: { label: 'planning', className: 'state-planning' },
+  web_search: { label: 'web_search', className: 'state-searching' },
+  source_collection: { label: 'source_collection', className: 'state-collecting_sources' },
   searching: { label: 'searching', className: 'state-searching' },
+  download: { label: 'downloading', className: 'state-downloading' },
   downloading: { label: 'downloading', className: 'state-downloading' },
   source_ingest: { label: 'source_ingest', className: 'state-collecting_sources' },
   evidence_retrieval: { label: 'evidence_retrieval', className: 'state-retrieving_evidence' },

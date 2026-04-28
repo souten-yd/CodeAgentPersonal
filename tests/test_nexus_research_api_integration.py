@@ -201,6 +201,7 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
         health = response.json().get("health", {})
         self.assertTrue(str(health.get("last_heartbeat_at") or "").strip())
         self.assertFalse(bool(health.get("is_stalled")))
+        self.assertIn("latest_download_progress", health)
 
     def test_debug_marks_running_job_stalled_when_heartbeat_old(self) -> None:
         job_id = f"job_stalled_{uuid.uuid4().hex[:8]}"
@@ -230,12 +231,31 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
         self.assertTrue(bool(response.json().get("health", {}).get("is_stalled")))
         self.assertEqual(response.json().get("health", {}).get("stalled_reason"), "LLM回答生成heartbeat停止")
 
+    def test_debug_route_returns_health_payload(self) -> None:
+        job_id = f"job_debug_health_{uuid.uuid4().hex[:8]}"
+        create_job(job_id, title="debug", status="running")
+        append_job_heartbeat(job_id, "source_ingest", "ingesting", 0.66, {"phase": "source_ingest"})
+        response = self.client.get(f"/nexus/research/jobs/{job_id}/debug")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload.get("job_id"), job_id)
+        self.assertIn("health", payload)
+        self.assertEqual(payload.get("health", {}).get("current_phase"), "source_ingest")
+
     def test_debug_terminal_job_is_not_stalled(self) -> None:
         job_id = f"job_done_{uuid.uuid4().hex[:8]}"
         create_job(job_id, title="debug", status="completed")
         response = self.client.get(f"/nexus/research/jobs/{job_id}/debug")
         self.assertEqual(response.status_code, 200)
         self.assertFalse(bool(response.json().get("health", {}).get("is_stalled")))
+
+    def test_debug_degraded_and_failed_jobs_are_not_stalled(self) -> None:
+        for status in ("degraded", "failed"):
+            job_id = f"job_{status}_{uuid.uuid4().hex[:8]}"
+            create_job(job_id, title="debug", status=status)
+            response = self.client.get(f"/nexus/research/jobs/{job_id}/debug")
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse(bool(response.json().get("health", {}).get("is_stalled")))
 
     def test_debug_download_phase_stalled_reason_when_active_downloads_exist(self) -> None:
         job_id = f"job_dl_stalled_{uuid.uuid4().hex[:8]}"

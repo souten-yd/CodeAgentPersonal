@@ -800,9 +800,9 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         else:
             failed_message = "answer llm request failed, fallback used"
             failed_event = "answer_llm_request_failed"
-            if generation_mode == "llm_answer_truncated":
+            if generation_mode in {"llm_answer_truncated", "llm_answer"}:
                 failed_event = "answer_llm_request_degraded"
-                failed_message = "answer llm request degraded (truncated)"
+                failed_message = "answer llm request degraded"
             _emit_phase(
                 effective_job_id,
                 failed_event,

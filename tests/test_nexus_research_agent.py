@@ -297,6 +297,78 @@ class NexusResearchParallelDownloadTests(unittest.TestCase):
         skipped = [row for row in sources if str(row.get("status")) == "skipped_download_limit"]
         self.assertGreaterEqual(len(skipped), 2)
 
+    def test_download_phase_events_are_normalized_to_downloading(self) -> None:
+        candidates = [{"url": "https://example.com/1"}]
+        captured_payloads: list[dict] = []
+
+        def _capture_event(_job_id: str, _event_type: str, payload: dict) -> None:
+            captured_payloads.append(payload)
+
+        with patch(
+            "app.nexus.research_agent.safe_download",
+            return_value={"final_url": "https://example.com/1", "content_type": "text/html", "size": 10, "bytes": b"ok", "extension": ".html"},
+        ), patch(
+            "app.nexus.research_agent.save_download_artifacts",
+            return_value={"status": "downloaded", "original": "o", "extracted_txt": "t", "extracted_md": "m"},
+        ), patch("app.nexus.research_agent.append_job_event", side_effect=_capture_event), patch(
+            "app.nexus.research_agent.append_job_heartbeat", return_value=None
+        ):
+            _download_sources_parallel(
+                job_id="job-phase",
+                candidates=candidates,
+                max_downloads=1,
+                max_download_bytes=2048,
+                max_total_download_bytes=10_000,
+                download_timeout_sec=1,
+                continue_on_download_error=True,
+                concurrency=1,
+                pdf_extract_concurrency=1,
+                download_progress_interval_sec=1,
+                download_stalled_after_sec=60,
+            )
+
+        phases = [str(p.get("phase") or "") for p in captured_payloads if isinstance(p, dict)]
+        self.assertIn("downloading", phases)
+        self.assertNotIn("download", phases)
+
+    def test_answer_generation_mode_llm_answer_emits_finished_event_with_incomplete_details(self) -> None:
+        fake_search = {"items": [{"title": "result", "url": "https://example.com/article", "snippet": "snippet"}]}
+        registered_sources = [{"source_id": "src-1", "title": "Article", "url": "https://example.com/article"}]
+        captured: list[tuple[str, dict]] = []
+
+        def _capture_event(_job_id: str, event_type: str, payload: dict) -> None:
+            captured.append((event_type, payload))
+
+        with patch("app.nexus.research_agent.plan_web_queries", return_value=["q"]), patch(
+            "app.nexus.research_agent.run_web_search", return_value=fake_search
+        ), patch("app.nexus.research_agent.collect_source_candidates", return_value=fake_search["items"]), patch(
+            "app.nexus.research_agent.rank_source_candidates", return_value=fake_search["items"]
+        ), patch(
+            "app.nexus.research_agent.safe_download",
+            return_value={"final_url": "https://example.com/article", "content_type": "text/html", "size": 10, "bytes": b"ok", "extension": ".html"},
+        ), patch(
+            "app.nexus.research_agent.save_download_artifacts", return_value={"status": "downloaded", "original": "o", "extracted_txt": "t", "extracted_md": "m"}
+        ), patch(
+            "app.nexus.research_agent.register_or_update_sources", return_value=registered_sources
+        ), patch("app.nexus.research_agent._build_evidence_from_sources", return_value=[]), patch(
+            "app.nexus.research_agent.save_evidence_items", return_value=None
+        ), patch("app.nexus.research_agent._load_source_chunks", return_value=[]), patch(
+            "app.nexus.research_agent.build_citation_map", return_value=[]
+        ), patch(
+            "app.nexus.research_agent.build_answer_payload",
+            return_value={
+                "generation": {"mode": "llm_answer", "finish_reason": "stop", "output_incomplete": True, "output_truncated": False},
+                "output_incomplete": True,
+                "output_truncated": False,
+            },
+        ), patch("app.nexus.research_agent.append_job_event", side_effect=_capture_event):
+            run_research_job(ResearchAgentInput(query="test"), job_id="job-answer-mode")
+
+        finished = [item for item in captured if item[0] == "answer_llm_request_finished"]
+        self.assertTrue(finished)
+        details = finished[-1][1].get("details") if isinstance(finished[-1][1], dict) else {}
+        self.assertTrue(bool((details or {}).get("output_incomplete")))
+
 
 if __name__ == "__main__":
     unittest.main()
