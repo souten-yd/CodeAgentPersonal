@@ -3215,6 +3215,28 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
 <script>
 const API = window.location.origin;
+function _clipForError(text, max = 140) {
+  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  return raw.length > max ? raw.slice(0, max) + '…' : raw;
+}
+async function _readJsonResponse(res, label = 'request') {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    const contentType = res.headers?.get('content-type') || 'unknown';
+    throw new Error(`${label} returned non-JSON (status=${res.status}, type=${contentType}): ${_clipForError(text)}`);
+  }
+}
+async function _fetchJson(url, options = {}, label = 'request') {
+  const response = await fetch(url, options);
+  const data = await _readJsonResponse(response, label);
+  if (!response.ok) {
+    throw new Error(data?.detail || `${label} failed (${response.status})`);
+  }
+  return {response, data};
+}
 const DEFAULT_CTX_SIZE = 16384;
 let _settingsDefaultCtxSize = DEFAULT_CTX_SIZE;
 
@@ -6943,9 +6965,7 @@ async function refreshSystemSummary() {
   const usageEl = document.getElementById('sys-usage');
   const usageRow = document.getElementById('sys-usage-row');
   try {
-    const r = await fetch(API + '/system/summary', {signal: AbortSignal.timeout(7000)});
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || 'failed');
+    const {data: d} = await _fetchJson(API + '/system/summary', {signal: AbortSignal.timeout(7000)}, '/system/summary');
 
     const md = d.model || {};
     const health = d.health || {};
@@ -6992,8 +7012,12 @@ async function refreshSystemSummary() {
         fetch(API + '/system/usage', {signal: AbortSignal.timeout(7000)}),
         fetch(API + '/health', {signal: AbortSignal.timeout(5000)}),
       ]);
-      const usageData = usageRes.status === 'fulfilled' && usageRes.value.ok ? await usageRes.value.json() : null;
-      const healthData = healthRes.status === 'fulfilled' && healthRes.value.ok ? await healthRes.value.json() : null;
+      const usageData = usageRes.status === 'fulfilled' && usageRes.value.ok
+        ? await _readJsonResponse(usageRes.value, '/system/usage')
+        : null;
+      const healthData = healthRes.status === 'fulfilled' && healthRes.value.ok
+        ? await _readJsonResponse(healthRes.value, '/health')
+        : null;
 
       const llmOk = healthData?.llm === 'ok';
       currentLlmState = llmOk ? 'LLM ready' : 'LLM unstable';
@@ -7050,7 +7074,11 @@ function scheduleSystemSummaryPoll(delayMs) {
       scheduleSystemSummaryPoll(30000);
       return;
     }
-    await refreshSystemSummary();
+    try {
+      await refreshSystemSummary();
+    } catch (e) {
+      addLog('warn', 'sys', `system summary poll failed: ${e?.message || e}`);
+    }
     scheduleSystemSummaryPoll(_getSystemSummaryPollIntervalMs());
   }, Math.max(0, Number(delayMs) || 0));
 }
@@ -10196,15 +10224,12 @@ async function refreshModelDb(prefetchedModels = null, prefetchedStat = null) {
     let stat = prefetchedStat;
     let models = prefetchedModels;
     if (!stat || !Array.isArray(models)) {
-      const [rstat, rlist] = await Promise.all([
-        fetch(API+'/models/db/status'),
-        fetch(API+'/models/db')
+      const [{data: statData}, {data: listData}] = await Promise.all([
+        _fetchJson(API+'/models/db/status', {}, '/models/db/status'),
+        _fetchJson(API+'/models/db', {}, '/models/db')
       ]);
-      if (!rstat.ok) throw new Error('failed to load model db status');
-      if (!rlist.ok) throw new Error('failed to load model db list');
-      stat = await rstat.json();
-      const data = await rlist.json();
-      models = data.models;
+      stat = statData;
+      models = listData.models;
     }
     _allModels = Array.isArray(models) ? models : [];
     updateModelDbStats(_allModels, stat);
@@ -11004,9 +11029,11 @@ async function searchGgufModels() {
   const el = document.getElementById('gguf-search-result');
   if (el) el.innerHTML = '<div style="font-size:11px;color:var(--text3)">Searching...</div>';
   try {
-    const r = await fetch(API+`/models/gguf/search?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}&limit=20`);
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || 'search failed');
+    const {data: d} = await _fetchJson(
+      API+`/models/gguf/search?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}&limit=20`,
+      {},
+      '/models/gguf/search'
+    );
     renderGgufSearchResults(d);
     addLog('ok', 'models', `GGUF search: ${q}`);
   } catch (e) {
@@ -11262,8 +11289,11 @@ async function deleteProject(name) {
 // ── HISTORY LOADING ──
 async function loadHistory(project) {
   try {
-    const r = await fetch(API+'/projects/'+encodeURIComponent(project)+'/history');
-    const d = await r.json();
+    const {data: d} = await _fetchJson(
+      API+'/projects/'+encodeURIComponent(project)+'/history',
+      {},
+      '/projects/history'
+    );
     if (!d.sessions?.length) return;
     for (const s of d.sessions) renderHistorySession(s);
     addLog('ok','history',`Loaded ${d.sessions.length} sessions for ${project}`);
@@ -14886,13 +14916,11 @@ let _current_n_ctx_ui = DEFAULT_CTX_SIZE; // UIが知っているn_ctx（統計�
 async function initCtxSlider() {
   try {
     // llama-serverの最大コンテキスト長を取得
-    const r = await fetch(API+'/llm/props');
-    const d = await r.json();
+    const {data: d} = await _fetchJson(API+'/llm/props', {}, '/llm/props');
     const maxCtx = Math.min(65535, (d.n_ctx || 65535));
 
     // サーバー側の現在値も取得
-    const cr = await fetch(API+'/llm/ctx');
-    const cd = await cr.json();
+    const {data: cd} = await _fetchJson(API+'/llm/ctx', {}, '/llm/ctx');
     const curCtx = Math.max(512, Math.min(maxCtx, normalizeCtxSize(cd.n_ctx, _settingsDefaultCtxSize)));
 
     const slider = document.getElementById('ctx-slider');
