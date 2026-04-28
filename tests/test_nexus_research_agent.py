@@ -1,10 +1,11 @@
+import time
 import unittest
 import uuid
 from unittest.mock import patch
 
 from app.nexus.db import get_conn
 from app.nexus.jobs import create_job
-from app.nexus.research_agent import ResearchAgentInput, run_research_job
+from app.nexus.research_agent import ResearchAgentInput, _download_sources_parallel, run_research_job
 
 
 class NexusResearchAgentTests(unittest.TestCase):
@@ -153,6 +154,114 @@ class NexusResearchAgentTests(unittest.TestCase):
         self.assertTrue(constraint_events)
         self.assertEqual(constraint_events[0]["max_download_mb"], 7)
         self.assertEqual(constraint_events[0]["max_download_bytes"], 7 * 1024 * 1024)
+
+
+class NexusResearchParallelDownloadTests(unittest.TestCase):
+    def test_parallel_download_is_faster_than_serial(self) -> None:
+        candidates = [{"url": f"https://example.com/{i}", "title": f"t{i}"} for i in range(5)]
+
+        def _slow_download(url: str, **_: dict) -> dict:
+            time.sleep(0.2)
+            return {"final_url": url, "content_type": "text/html", "size": 16, "bytes": b"ok", "extension": ".html"}
+
+        with patch("app.nexus.research_agent.safe_download", side_effect=_slow_download), patch(
+            "app.nexus.research_agent.save_download_artifacts",
+            return_value={"status": "downloaded", "original": "o", "extracted_txt": "t", "extracted_md": "m"},
+        ), patch("app.nexus.research_agent.append_job_event", return_value=None), patch(
+            "app.nexus.research_agent.append_job_heartbeat", return_value=None
+        ):
+            start = time.monotonic()
+            _download_sources_parallel(
+                job_id="job-parallel",
+                candidates=candidates,
+                max_downloads=5,
+                max_download_bytes=1024,
+                max_total_download_bytes=10_000,
+                download_timeout_sec=3,
+                continue_on_download_error=True,
+                concurrency=5,
+                pdf_extract_concurrency=1,
+                download_progress_interval_sec=1,
+                download_stalled_after_sec=60,
+            )
+            elapsed_parallel = time.monotonic() - start
+
+            start = time.monotonic()
+            _download_sources_parallel(
+                job_id="job-serial",
+                candidates=candidates,
+                max_downloads=5,
+                max_download_bytes=1024,
+                max_total_download_bytes=10_000,
+                download_timeout_sec=3,
+                continue_on_download_error=True,
+                concurrency=1,
+                pdf_extract_concurrency=1,
+                download_progress_interval_sec=1,
+                download_stalled_after_sec=60,
+            )
+            elapsed_serial = time.monotonic() - start
+
+        self.assertLess(elapsed_parallel, elapsed_serial)
+
+    def test_timeout_does_not_stop_others_when_continue_true(self) -> None:
+        candidates = [{"url": "https://example.com/ok"}, {"url": "https://example.com/timeout"}]
+
+        def _download(url: str, **_: dict) -> dict:
+            if "timeout" in url:
+                raise ValueError("download failed: timeout")
+            return {"final_url": url, "content_type": "text/html", "size": 12, "bytes": b"ok", "extension": ".html"}
+
+        with patch("app.nexus.research_agent.safe_download", side_effect=_download), patch(
+            "app.nexus.research_agent.save_download_artifacts",
+            return_value={"status": "downloaded", "original": "o", "extracted_txt": "t", "extracted_md": "m"},
+        ), patch("app.nexus.research_agent.append_job_event", return_value=None), patch(
+            "app.nexus.research_agent.append_job_heartbeat", return_value=None
+        ):
+            sources, errors = _download_sources_parallel(
+                job_id="job-timeout",
+                candidates=candidates,
+                max_downloads=2,
+                max_download_bytes=1024,
+                max_total_download_bytes=10_000,
+                download_timeout_sec=1,
+                continue_on_download_error=True,
+                concurrency=2,
+                pdf_extract_concurrency=1,
+                download_progress_interval_sec=1,
+                download_stalled_after_sec=60,
+            )
+
+        statuses = {str(row.get("status")) for row in sources}
+        self.assertIn("downloaded", statuses)
+        self.assertIn("degraded", statuses)
+        self.assertEqual(errors, 1)
+
+    def test_max_downloads_and_total_size_limit_mark_skipped(self) -> None:
+        candidates = [{"url": f"https://example.com/{i}"} for i in range(4)]
+
+        with patch("app.nexus.research_agent.safe_download", return_value={"final_url": "https://example.com", "content_type": "text/html", "size": 600, "bytes": b"x", "extension": ".html"}), patch(
+            "app.nexus.research_agent.save_download_artifacts",
+            return_value={"status": "downloaded", "original": "o", "extracted_txt": "t", "extracted_md": "m"},
+        ), patch("app.nexus.research_agent.append_job_event", return_value=None), patch(
+            "app.nexus.research_agent.append_job_heartbeat", return_value=None
+        ):
+            sources, _ = _download_sources_parallel(
+                job_id="job-limits",
+                candidates=candidates,
+                max_downloads=3,
+                max_download_bytes=2048,
+                max_total_download_bytes=1000,
+                download_timeout_sec=1,
+                continue_on_download_error=True,
+                concurrency=3,
+                pdf_extract_concurrency=1,
+                download_progress_interval_sec=1,
+                download_stalled_after_sec=60,
+            )
+
+        skipped = [row for row in sources if str(row.get("status")) == "skipped_download_limit"]
+        self.assertGreaterEqual(len(skipped), 2)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
+import threading
+import time
 import uuid
+from typing import Any
 
 from app.nexus.answer_builder import build_answer_payload
 from app.nexus.citation_mapper import build_citation_map, normalize_reference_labels
@@ -239,6 +243,323 @@ def _build_evidence_from_sources(job_id: str, sources: list[dict]) -> list[Evide
     return evidence
 
 
+
+
+def _download_progress_payload(*, stats: dict[str, Any], now_iso: str, status: str = "running") -> dict[str, Any]:
+    total = max(0, int(stats.get("total", 0)))
+    completed = max(0, int(stats.get("completed", 0)))
+    progress = (completed / total) if total > 0 else 1.0
+    skipped = max(0, int(stats.get("skipped", 0)))
+    return {
+        "phase": "downloading",
+        "status": status,
+        "progress": progress,
+        "total": total,
+        "queued": max(0, total - completed - int(stats.get("active", 0))),
+        "active": max(0, int(stats.get("active", 0))),
+        "completed": completed,
+        "downloaded": max(0, int(stats.get("downloaded", 0))),
+        "degraded": max(0, int(stats.get("degraded", 0))),
+        "failed": max(0, int(stats.get("failed", 0))),
+        "skipped": skipped,
+        "total_downloaded_bytes": max(0, int(stats.get("total_downloaded_bytes", 0))),
+        "max_total_download_bytes": max(0, int(stats.get("max_total_download_bytes", 0))),
+        "updated_at": now_iso,
+        "heartbeat_at": now_iso,
+    }
+
+
+def _download_sources_parallel(
+    *,
+    job_id: str,
+    candidates: list[dict],
+    max_downloads: int,
+    max_download_bytes: int,
+    max_total_download_bytes: int,
+    download_timeout_sec: int,
+    continue_on_download_error: bool,
+    concurrency: int,
+    pdf_extract_concurrency: int,
+    download_progress_interval_sec: int,
+    download_stalled_after_sec: int,
+) -> tuple[list[dict], int]:
+    selected = list(candidates[: max(0, max_downloads)])
+    skipped_candidates = list(candidates[max(0, max_downloads) :])
+    sources: list[dict] = []
+    for candidate in selected:
+        source_id = str(candidate.get("source_id") or uuid.uuid4())
+        sources.append(
+            {
+                **candidate,
+                "source_id": source_id,
+                "final_url": str(candidate.get("url") or ""),
+                "status": "queued",
+                "error": "",
+                "started_at": "",
+                "finished_at": "",
+                "elapsed_sec": 0.0,
+                "size": 0,
+                "content_type": "",
+                "local_text_path": "",
+                "local_markdown_path": "",
+                "local_original_path": "",
+            }
+        )
+    for candidate in skipped_candidates:
+        source_id = str(candidate.get("source_id") or uuid.uuid4())
+        sources.append(
+            {
+                **candidate,
+                "source_id": source_id,
+                "final_url": str(candidate.get("url") or ""),
+                "status": "skipped_download_limit",
+                "error": f"max_downloads exceeded ({max_downloads})",
+                "started_at": "",
+                "finished_at": _now_iso(),
+                "elapsed_sec": 0.0,
+                "size": 0,
+                "content_type": "",
+                "local_text_path": "",
+                "local_markdown_path": "",
+                "local_original_path": "",
+            }
+        )
+
+    append_job_event(
+        job_id,
+        "download_started",
+        {
+            "status": "running",
+            "phase": "downloading",
+            "message": "download started",
+            "updated_at": _now_iso(),
+            "total": len(sources),
+            "selected": len(selected),
+            "skipped_by_max_downloads": len(skipped_candidates),
+        },
+    )
+
+    lock = threading.Lock()
+    pdf_semaphore = threading.Semaphore(max(1, pdf_extract_concurrency))
+    stats: dict[str, Any] = {
+        "total": len(sources),
+        "active": 0,
+        "completed": len(skipped_candidates),
+        "downloaded": 0,
+        "degraded": 0,
+        "failed": 0,
+        "skipped": len(skipped_candidates),
+        "total_downloaded_bytes": 0,
+        "max_total_download_bytes": int(max_total_download_bytes),
+    }
+    download_error_count = 0
+    fatal_errors: list[Exception] = []
+    last_completion_at = time.monotonic()
+    last_progress_emit_at = 0.0
+
+    def _emit_progress(force: bool = False) -> None:
+        nonlocal last_progress_emit_at
+        now_monotonic = time.monotonic()
+        if not force and (now_monotonic - last_progress_emit_at) < max(1, download_progress_interval_sec):
+            return
+        now_iso = _now_iso()
+        payload = _download_progress_payload(stats=stats, now_iso=now_iso)
+        append_job_event(job_id, "download_progress", payload)
+        append_job_heartbeat(job_id, "downloading", "download progress", payload["progress"], payload)
+        if (
+            stats.get("active", 0) > 0
+            and (now_monotonic - last_completion_at) >= max(1, download_stalled_after_sec)
+        ):
+            append_job_event(
+                job_id,
+                "download_stalled_warning",
+                {
+                    "status": "running",
+                    "phase": "downloading",
+                    "message": "一部URLの応答待ち",
+                    "active": stats.get("active", 0),
+                    "completed": stats.get("completed", 0),
+                    "stalled_after_sec": download_stalled_after_sec,
+                    "updated_at": now_iso,
+                },
+            )
+        last_progress_emit_at = now_monotonic
+
+    def _worker(source: dict) -> dict:
+        started = time.monotonic()
+        source["started_at"] = _now_iso()
+        source["status"] = "downloading"
+        append_job_event(
+            job_id,
+            "download_source_started",
+            {
+                "status": "running",
+                "phase": "downloading",
+                "source_id": source.get("source_id"),
+                "url": source.get("url"),
+                "title": source.get("title"),
+                "domain": source.get("domain"),
+                "updated_at": source["started_at"],
+            },
+        )
+        url = str(source.get("url") or "").strip()
+        if not url:
+            source["status"] = "failed"
+            source["error"] = "url is missing"
+            source["finished_at"] = _now_iso()
+            source["elapsed_sec"] = round(max(0.0, time.monotonic() - started), 3)
+            return source
+        try:
+            download_result = safe_download(
+                url,
+                max_bytes=max_download_bytes,
+                connect_timeout_sec=download_timeout_sec,
+                read_timeout_sec=download_timeout_sec,
+            )
+            download_size = int(download_result.get("size") or 0)
+            with lock:
+                if stats["total_downloaded_bytes"] + download_size > max_total_download_bytes:
+                    source["status"] = "skipped_download_limit"
+                    source["error"] = "max_total_download_mb exceeded"
+                    stats["skipped"] += 1
+                else:
+                    stats["total_downloaded_bytes"] += download_size
+            if source["status"] == "skipped_download_limit":
+                source["size"] = download_size
+                source["content_type"] = str(download_result.get("content_type") or "")
+                source["final_url"] = str(download_result.get("final_url") or url)
+                return source
+
+            source["status"] = "extracting"
+            saved = save_download_artifacts(
+                job_id=job_id,
+                source_id=str(source.get("source_id") or ""),
+                download_result=download_result,
+                pdf_extract_semaphore=pdf_semaphore,
+            )
+            source["final_url"] = str(download_result.get("final_url") or url)
+            source["content_type"] = str(download_result.get("content_type") or "")
+            source["size"] = download_size
+            source["local_original_path"] = str(saved.get("original") or "")
+            source["local_text_path"] = str(saved.get("extracted_txt") or "")
+            source["local_markdown_path"] = str(saved.get("extracted_md") or "")
+            source["error"] = str(saved.get("error") or "")
+            saved_status = str(saved.get("status") or "downloaded")
+            source["status"] = "degraded" if saved_status == "degraded" else "downloaded"
+            return source
+        except Exception as exc:  # noqa: BLE001
+            message = str(exc)
+            source["error"] = message
+            if "timeout" in message.lower():
+                source["status"] = "degraded"
+                source["error"] = "download failed: timeout"
+            elif "content too large" in message.lower():
+                source["status"] = "skipped_size_limit"
+            elif continue_on_download_error:
+                source["status"] = "degraded"
+            else:
+                source["status"] = "failed"
+                raise
+            return source
+        finally:
+            source["finished_at"] = _now_iso()
+            source["elapsed_sec"] = round(max(0.0, time.monotonic() - started), 3)
+
+    futures: dict[Future, dict] = {}
+    with ThreadPoolExecutor(max_workers=max(1, concurrency), thread_name_prefix="nexus-dl") as executor:
+        for source in sources:
+            if str(source.get("status")) == "skipped_download_limit":
+                continue
+            with lock:
+                stats["active"] += 1
+            futures[executor.submit(_worker, source)] = source
+
+        while futures:
+            done, _pending = wait(tuple(futures.keys()), timeout=max(1, download_progress_interval_sec), return_when=FIRST_COMPLETED)
+            if not done:
+                _emit_progress()
+                continue
+
+            for fut in done:
+                source = futures.pop(fut)
+                try:
+                    result = fut.result()
+                except Exception as exc:  # noqa: BLE001
+                    with lock:
+                        stats["active"] = max(0, stats["active"] - 1)
+                        stats["completed"] += 1
+                        stats["failed"] += 1
+                    source["status"] = "failed"
+                    source["error"] = str(exc)
+                    source["finished_at"] = source.get("finished_at") or _now_iso()
+                    source["elapsed_sec"] = float(source.get("elapsed_sec") or 0.0)
+                    append_job_event(
+                        job_id,
+                        "download_source_failed",
+                        {
+                            "status": "running",
+                            "phase": "downloading",
+                            "source_id": source.get("source_id"),
+                            "url": source.get("url"),
+                            "error": source.get("error"),
+                            "updated_at": _now_iso(),
+                        },
+                    )
+                    fatal_errors.append(exc)
+                    continue
+
+                status = str(result.get("status") or "")
+                with lock:
+                    stats["active"] = max(0, stats["active"] - 1)
+                    stats["completed"] += 1
+                    if status == "downloaded":
+                        stats["downloaded"] += 1
+                    elif status == "degraded":
+                        stats["degraded"] += 1
+                        download_error_count += 1
+                    elif status == "failed":
+                        stats["failed"] += 1
+                        download_error_count += 1
+                    elif status in {"skipped_download_limit", "skipped_size_limit"}:
+                        stats["skipped"] += 1
+                    else:
+                        stats["degraded"] += 1
+                        download_error_count += 1
+                    last_completion_at = time.monotonic()
+
+                event_name = "download_source_finished" if status in {"downloaded", "degraded", "skipped_download_limit", "skipped_size_limit"} else "download_source_failed"
+                append_job_event(
+                    job_id,
+                    event_name,
+                    {
+                        "status": "running",
+                        "phase": "downloading",
+                        "source_id": result.get("source_id"),
+                        "url": result.get("url"),
+                        "title": result.get("title"),
+                        "domain": result.get("domain"),
+                        "source_status": status,
+                        "error": result.get("error"),
+                        "elapsed_sec": result.get("elapsed_sec"),
+                        "size": result.get("size"),
+                        "updated_at": result.get("finished_at") or _now_iso(),
+                    },
+                )
+            _emit_progress()
+
+    _emit_progress(force=True)
+    append_job_event(
+        job_id,
+        "download_finished",
+        {
+            **_download_progress_payload(stats=stats, now_iso=_now_iso(), status="running"),
+            "message": "download finished",
+        },
+    )
+    if fatal_errors and not continue_on_download_error:
+        raise ValueError(f"download failed and continue_on_download_error=false: {fatal_errors[0]}")
+    return sources, download_error_count
+
 def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) -> dict:
     query = payload.query.strip()
     if not query:
@@ -355,134 +676,26 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             progress=0.55,
             details={"total_candidates": len(ranked_candidates)},
         )
-        download_count = 0
-        total_downloaded_bytes = 0
-        for candidate in ranked_candidates:
-            source_id = str(candidate.get("source_id") or uuid.uuid4())
-            source = {
-                **candidate,
-                "source_id": source_id,
-                "final_url": str(candidate.get("url") or ""),
-                "content_type": "",
-                "local_original_path": "",
-                "local_text_path": "",
-                "local_markdown_path": "",
-                "status": "failed",
-                "error": "",
-            }
-            url = str(candidate.get("url") or "").strip()
-            if not url:
-                source["error"] = "url is missing"
-                downloadable_sources.append(source)
-                continue
-            if download_count >= max_downloads:
-                append_job_event(
-                    effective_job_id,
-                    "constraint_applied",
-                    {
-                        "status": "running",
-                        "progress": 0.6,
-                        "message": f"download count limit reached: max_downloads={max_downloads}",
-                        "reason": "max_downloads_exceeded",
-                        "max_download_mb": max_download_mb,
-                        "max_download_bytes": max_download_bytes,
-                        "max_downloads": max_downloads,
-                        "processed_downloads": download_count,
-                    },
-                )
-                source["status"] = "skipped_download_limit"
-                source["error"] = f"max_downloads exceeded ({max_downloads})"
-                downloadable_sources.append(source)
-                continue
-            try:
-                download_result = safe_download(
-                    url,
-                    max_bytes=max_download_bytes,
-                    connect_timeout_sec=download_timeout_sec,
-                    read_timeout_sec=download_timeout_sec,
-                )
-                download_size = int(download_result.get("size") or 0)
-                if total_downloaded_bytes + download_size > max_total_download_bytes:
-                    append_job_event(
-                        effective_job_id,
-                        "constraint_applied",
-                        {
-                            "status": "running",
-                            "progress": 0.62,
-                            "message": (
-                                "total download size limit reached: "
-                                f"max_total_download_mb={max_total_download_mb}"
-                            ),
-                            "reason": "max_total_download_mb_exceeded",
-                            "max_download_mb": max_download_mb,
-                            "max_download_bytes": max_download_bytes,
-                            "max_total_download_mb": max_total_download_mb,
-                            "total_downloaded_bytes": total_downloaded_bytes,
-                            "next_download_bytes": download_size,
-                        },
-                    )
-                    source["status"] = "skipped_download_limit"
-                    source["error"] = f"max_total_download_mb exceeded ({max_total_download_mb})"
-                    downloadable_sources.append(source)
-                    continue
-                saved = save_download_artifacts(
-                    job_id=effective_job_id,
-                    source_id=source_id,
-                    download_result=download_result,
-                )
-                download_count += 1
-                total_downloaded_bytes += download_size
-                source["final_url"] = str(download_result.get("final_url") or url)
-                source["content_type"] = str(download_result.get("content_type") or "")
-                source["local_original_path"] = str(saved.get("original") or "")
-                source["local_text_path"] = str(saved.get("extracted_txt") or "")
-                source["local_markdown_path"] = str(saved.get("extracted_md") or "")
-                saved_status = str(saved.get("status") or "downloaded")
-                source["status"] = "degraded" if saved_status == "degraded" else "downloaded"
-                source["error"] = str(saved.get("error") or "")
-                _emit_phase(
-                    effective_job_id,
-                    "download_progress",
-                    phase="download",
-                    message="download progress",
-                    progress=0.6,
-                    details={"download_count": download_count, "total_bytes": total_downloaded_bytes},
-                )
-            except Exception as exc:  # noqa: BLE001
-                error_message = str(exc)
-                source["error"] = error_message
-                if "content too large" in error_message:
-                    source["status"] = "skipped_size_limit"
-                    downloadable_sources.append(source)
-                    continue
-                if payload.continue_on_download_error:
-                    source["status"] = "degraded"
-                    download_error_count += 1
-                    append_job_event(
-                        effective_job_id,
-                        "download_error",
-                        {
-                            "status": "running",
-                            "progress": 0.6,
-                            "message": f"download degraded: {exc}",
-                            "reason": "download_error_continue",
-                            "source_id": source_id,
-                            "url": url,
-                            "http_status": _extract_http_status(exc),
-                        },
-                    )
-                else:
-                    source["status"] = "failed"
-                    downloadable_sources.append(source)
-                    raise ValueError(f"download failed and continue_on_download_error=false: {exc}") from exc
-            downloadable_sources.append(source)
+        downloadable_sources, download_error_count = _download_sources_parallel(
+            job_id=effective_job_id,
+            candidates=ranked_candidates,
+            max_downloads=max_downloads,
+            max_download_bytes=max_download_bytes,
+            max_total_download_bytes=max_total_download_bytes,
+            download_timeout_sec=download_timeout_sec,
+            continue_on_download_error=payload.continue_on_download_error,
+            concurrency=runtime_cfg.download_concurrency,
+            pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
+            download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
+            download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
+        )
         _emit_phase(
             effective_job_id,
             "download_finished",
             phase="download",
             message="download finished",
             progress=0.65,
-            details={"download_count": download_count, "download_errors": download_error_count},
+            details={"download_count": sum(1 for s in downloadable_sources if str(s.get("status")) in {"downloaded", "ingested"}), "download_errors": download_error_count},
         )
 
         _emit_phase(effective_job_id, "source_ingest_started", phase="source_ingest", message="source ingest started", progress=0.66)

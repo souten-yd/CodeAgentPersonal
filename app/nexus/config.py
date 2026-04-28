@@ -37,6 +37,10 @@ class NexusRuntimeConfig:
     max_total_download_mb: int
     max_downloads: int
     download_timeout_sec: int
+    download_concurrency: int
+    pdf_extract_concurrency: int
+    download_progress_interval_sec: int
+    download_stalled_after_sec: int
 
 
 def _env_bool(name: str, *, default: bool) -> bool:
@@ -125,8 +129,12 @@ def load_runtime_config() -> NexusRuntimeConfig:
         max_upload_mb=_env_int("NEXUS_MAX_UPLOAD_MB", default=200, minimum=1),
         max_download_mb=_env_int("NEXUS_MAX_DOWNLOAD_MB", default=20, minimum=1),
         max_total_download_mb=_env_int("NEXUS_MAX_TOTAL_DOWNLOAD_MB", default=100, minimum=1),
-        max_downloads=_env_int("NEXUS_MAX_DOWNLOADS", default=20, minimum=1),
-        download_timeout_sec=_env_int("NEXUS_DOWNLOAD_TIMEOUT_SEC", default=15, minimum=1),
+        max_downloads=_env_int("NEXUS_MAX_DOWNLOADS", default=12, minimum=1),
+        download_timeout_sec=_env_int("NEXUS_DOWNLOAD_TIMEOUT_SEC", default=12, minimum=1),
+        download_concurrency=_env_int("NEXUS_DOWNLOAD_CONCURRENCY", default=4, minimum=1),
+        pdf_extract_concurrency=_env_int("NEXUS_PDF_EXTRACT_CONCURRENCY", default=2, minimum=1),
+        download_progress_interval_sec=_env_int("NEXUS_DOWNLOAD_PROGRESS_INTERVAL_SEC", default=2, minimum=1),
+        download_stalled_after_sec=_env_int("NEXUS_DOWNLOAD_STALLED_AFTER_SEC", default=60, minimum=1),
     )
 
 
