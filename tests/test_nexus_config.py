@@ -40,6 +40,24 @@ class NexusConfigRuntimeTests(unittest.TestCase):
         self.assertEqual(cfg.download_progress_interval_sec, 1)
         self.assertEqual(cfg.download_stalled_after_sec, 1)
 
+    def test_parallel_download_config_loads_env_values(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "NEXUS_DOWNLOAD_CONCURRENCY": "7",
+                "NEXUS_PDF_EXTRACT_CONCURRENCY": "3",
+                "NEXUS_DOWNLOAD_PROGRESS_INTERVAL_SEC": "4",
+                "NEXUS_DOWNLOAD_STALLED_AFTER_SEC": "91",
+            },
+            clear=False,
+        ):
+            cfg = load_runtime_config()
+
+        self.assertEqual(cfg.download_concurrency, 7)
+        self.assertEqual(cfg.pdf_extract_concurrency, 3)
+        self.assertEqual(cfg.download_progress_interval_sec, 4)
+        self.assertEqual(cfg.download_stalled_after_sec, 91)
+
 
 if __name__ == "__main__":
     unittest.main()

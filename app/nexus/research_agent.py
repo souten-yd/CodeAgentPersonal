@@ -670,9 +670,9 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         _record_state(effective_job_id, "downloading", message="downloading source content", progress=0.55)
         _emit_phase(
             effective_job_id,
-            "download_started",
-            phase="download",
-            message="download started",
+            "download_phase_started",
+            phase="downloading",
+            message="download phase started",
             progress=0.55,
             details={"total_candidates": len(ranked_candidates)},
         )
@@ -691,9 +691,9 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         )
         _emit_phase(
             effective_job_id,
-            "download_finished",
-            phase="download",
-            message="download finished",
+            "download_phase_finished",
+            phase="downloading",
+            message="download phase finished",
             progress=0.65,
             details={"download_count": sum(1 for s in downloadable_sources if str(s.get("status")) in {"downloaded", "ingested"}), "download_errors": download_error_count},
         )
@@ -755,7 +755,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         _emit_phase(
             effective_job_id,
             "answer_llm_request_started",
-            phase="answer_llm_request",
+            phase="answer_llm_generating",
             message="answer llm request started",
             progress=0.84,
         )
@@ -773,22 +773,43 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             job_id=effective_job_id,
             project=payload.project,
         )
-        if answer_payload.get("generation_mode") == "llm_answer":
+        generation = answer_payload.get("generation") or {}
+        generation_mode = (
+            answer_payload.get("generation_mode")
+            or generation.get("mode")
+            or ""
+        )
+        llm_event_details = {
+            "generation_mode": generation_mode,
+            "finish_reason": generation.get("finish_reason"),
+            "output_incomplete": generation.get("output_incomplete", answer_payload.get("output_incomplete")),
+            "output_truncated": generation.get("output_truncated", answer_payload.get("output_truncated")),
+            "error": generation.get("error", answer_payload.get("llm_error")),
+            "elapsed_sec": generation.get("elapsed_sec"),
+            "response_length_chars": generation.get("response_length_chars"),
+        }
+        if generation_mode in {"llm_answer", "llm_answer_truncated"} and not generation.get("error"):
             _emit_phase(
                 effective_job_id,
                 "answer_llm_request_finished",
-                phase="answer_llm_request",
+                phase="answer_llm_generating",
                 message="answer llm request finished",
                 progress=0.9,
+                details=llm_event_details,
             )
         else:
+            failed_message = "answer llm request failed, fallback used"
+            failed_event = "answer_llm_request_failed"
+            if generation_mode == "llm_answer_truncated":
+                failed_event = "answer_llm_request_degraded"
+                failed_message = "answer llm request degraded (truncated)"
             _emit_phase(
                 effective_job_id,
-                "answer_llm_request_failed",
-                phase="answer_llm_request",
-                message="answer llm request failed, fallback used",
+                failed_event,
+                phase="answer_llm_generating",
+                message=failed_message,
                 progress=0.9,
-                details={"error": answer_payload.get("llm_error")},
+                details=llm_event_details,
             )
         _emit_phase(effective_job_id, "answer_validation_started", phase="answer_validation", message="answer validation started", progress=0.9)
         _emit_phase(effective_job_id, "answer_validation_finished", phase="answer_validation", message="answer validation finished", progress=0.92)

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.nexus.evidence import EvidenceItem, save_evidence_items
-from app.nexus.jobs import create_job
+from app.nexus.jobs import append_job_heartbeat, create_job
 from app.nexus.router import nexus_router
 
 
@@ -133,6 +133,17 @@ class NexusRouterEvidenceTests(unittest.TestCase):
         self.assertEqual(payload["total"], 1)
         self.assertEqual(payload["items"][0]["job_id"], target_job_id)
         self.assertEqual(payload["items"][0]["title"], "Target job evidence")
+
+    def test_debug_endpoint_returns_health(self) -> None:
+        job_id = f"job-debug-{uuid.uuid4().hex[:8]}"
+        create_job(job_id, title="debug", status="running", message="running")
+        append_job_heartbeat(job_id, "downloading", "progress", 0.4, {"active": 1})
+        response = self.client.get(f"/nexus/research/jobs/{job_id}/debug")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload.get("job_id"), job_id)
+        self.assertIn("health", payload)
+        self.assertIn("is_stalled", payload.get("health", {}))
 
 
 if __name__ == "__main__":

@@ -8369,10 +8369,13 @@ function setNexusDeepStatus(message, isErr = false, isStub = false) {
 const NEXUS_TIMELINE_STATE_META = {
   planning: { label: 'planning', className: 'state-planning' },
   searching: { label: 'searching', className: 'state-searching' },
-  collecting_sources: { label: 'collecting_sources', className: 'state-collecting_sources' },
   downloading: { label: 'downloading', className: 'state-downloading' },
-  retrieving_evidence: { label: 'retrieving_evidence', className: 'state-retrieving_evidence' },
-  answering: { label: 'answering', className: 'state-answering' },
+  source_ingest: { label: 'source_ingest', className: 'state-collecting_sources' },
+  evidence_retrieval: { label: 'evidence_retrieval', className: 'state-retrieving_evidence' },
+  evidence_compression: { label: 'evidence_compression', className: 'state-retrieving_evidence' },
+  answer_llm_generating: { label: 'answer_llm_generating', className: 'state-answering' },
+  answer_validation: { label: 'answer_validation', className: 'state-answering' },
+  answer_save: { label: 'answer_save', className: 'state-answering' },
   completed: { label: 'completed', className: 'state-completed' },
 };
 
@@ -8821,7 +8824,7 @@ function getLatestNexusDeepActiveSource() {
 
 function formatNexusDeepProgressStatus() {
   const h = (nexusDeepResearchHealth && typeof nexusDeepResearchHealth === 'object') ? nexusDeepResearchHealth : {};
-  const phase = String(h.phase || '-');
+  const phase = String(h.current_phase || h.phase || '-');
   const hbAgo = Number(h.seconds_since_last_heartbeat);
   const hbText = Number.isFinite(hbAgo) ? `${hbAgo.toFixed(1)}秒前` : '-';
   const generation = nexusDeepResearchAnswer?.generation || {};
@@ -8829,22 +8832,33 @@ function formatNexusDeepProgressStatus() {
   const chunksUsed = generation?.compression?.chunks_used ?? '-';
   const promptTokens = generation?.estimated_prompt_tokens ?? generation?.prompt_tokens ?? '-';
   const maxTokens = generation?.max_tokens ?? generation?.context_budget?.reserved_output_tokens ?? '-';
-  const msg = String(h.message || '').trim();
+  const msg = String(h.current_message || h.message || '').trim();
   const elapsed = Number(generation?.elapsed_sec || 0);
-  const dl = getLatestNexusDeepDownloadProgress();
+  const dl = (h.latest_download_progress && typeof h.latest_download_progress === 'object')
+    ? h.latest_download_progress
+    : getLatestNexusDeepDownloadProgress();
   const activeSource = getLatestNexusDeepActiveSource();
-  const total = Number(dl.total || 0);
-  const completed = Number(dl.completed || 0);
-  const active = Number(dl.active || 0);
-  const degraded = Number(dl.degraded || 0);
-  const failed = Number(dl.failed || 0);
+  const total = Number(h.download_total ?? dl.total ?? 0);
+  const completed = Number(h.download_completed ?? dl.completed ?? 0);
+  const active = Number(h.download_active ?? dl.active ?? 0);
+  const degraded = Number(h.download_degraded ?? dl.degraded ?? 0);
+  const failed = Number(h.download_failed ?? dl.failed ?? 0);
+  const skipped = Number(h.download_skipped ?? dl.skipped ?? 0);
   const totalMb = Number(dl.total_downloaded_bytes || 0) / (1024 * 1024);
   const srcTitle = String(activeSource.title || activeSource.domain || activeSource.url || '').trim();
+  const generationMode = String(generation?.mode || nexusDeepResearchAnswer?.generation_mode || '-').trim() || '-';
+  const outputIncomplete = Boolean(nexusDeepResearchAnswer?.output_incomplete ?? generation?.output_incomplete);
+  const outputTruncated = Boolean(nexusDeepResearchAnswer?.output_truncated ?? generation?.output_truncated);
+  const secSinceEvent = Number(h.seconds_since_last_event);
+  const eventText = Number.isFinite(secSinceEvent) ? `${secSinceEvent.toFixed(1)}秒前` : '-';
   const downloadSummary = total > 0
-    ? ` / ダウンロード中 ${completed}/${total} 件完了、${active}件処理中、${degraded}件degraded、${failed}件failed、${totalMb.toFixed(1)}MB`
+    ? ` / ダウンロード中 ${completed}/${total} 件完了、${active}件処理中、${degraded}件degraded、${failed}件failed、${skipped}件skipped、${totalMb.toFixed(1)}MB`
     : '';
   const activeSummary = srcTitle ? ` / 処理中:${srcTitle}` : '';
-  return `phase:${phase} / progress:${Math.round(Number(h.progress || 0) * 100)}% / ${msg || '-'}${downloadSummary}${activeSummary} / 経過${elapsed || '-'}秒 / 最終heartbeat ${hbText} / sources:${nexusDeepResearchSources.length} / chunks:${chunksIn}/${chunksUsed} / prompt:${promptTokens} / max:${maxTokens}`;
+  const outWarn = (outputIncomplete || outputTruncated)
+    ? ` / ⚠ output_incomplete=${String(outputIncomplete)} output_truncated=${String(outputTruncated)}`
+    : '';
+  return `phase:${phase} / progress:${Math.round(Number(h.progress || 0) * 100)}% / ${msg || '-'}${downloadSummary}${activeSummary} / generation:${generationMode}${outWarn} / 経過${elapsed || '-'}秒 / 最終heartbeat ${hbText} / 最終event ${eventText} / sources:${nexusDeepResearchSources.length} / chunks:${chunksIn}/${chunksUsed} / prompt:${promptTokens} / max:${maxTokens}`;
 }
 
 async function refreshNexusDeepBundle(jobId) {
@@ -8885,7 +8899,8 @@ async function pollNexusDeepResearch(jobId, maxTicks = 50) {
     await refreshNexusDeepBundle(id);
     const state = getNexusDeepTerminalState();
     const stalled = nexusDeepResearchHealth?.is_stalled === true;
-    const stallMsg = stalled ? ' / サーバー側の進捗更新が停滞しています。一部URLの応答待ちの可能性があります。' : '';
+    const stallReason = String(nexusDeepResearchHealth?.stalled_reason || 'heartbeat停止').trim();
+    const stallMsg = stalled ? ` / 警告: 120秒以上heartbeatがありません。サーバー側処理停止の可能性があります。（${stallReason}）` : '';
     setNexusDeepStatus(`job:${id} / state:${state || '-'} / ${formatNexusDeepProgressStatus()}${stallMsg}`, state === 'failed' || stalled, nexusDeepResearchStubMode);
     if (state) break;
     await new Promise((resolve) => setTimeout(resolve, 1200));
