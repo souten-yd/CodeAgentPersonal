@@ -4392,9 +4392,6 @@ def _parse_ctx_size_or_none(value) -> int | None:
 
 
 def _resolve_default_ctx_size() -> int:
-    settings_ctx = _parse_ctx_size_or_none(globals().get("settings_get", lambda *_: "")("ctx_size"))
-    if settings_ctx is not None:
-        return settings_ctx
     for key in ("LLAMA_CTX_SIZE", "DEFAULT_LLM_CTX_SIZE", "NEXUS_ANSWER_LLM_MAX_CONTEXT_TOKENS"):
         env_ctx = _parse_ctx_size_or_none(os.environ.get(key, ""))
         if env_ctx is not None:
@@ -4499,13 +4496,18 @@ def settings_get(key: str) -> str:
             return SETTINGS_DEFAULTS.get(key, "")
         try:
             row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-            return row["value"] if row else SETTINGS_DEFAULTS.get(key, "")
+            value = row["value"] if row else SETTINGS_DEFAULTS.get(key, "")
+            if key == "ctx_size":
+                return str(_resolve_ctx_size(value))
+            return value
         finally:
             conn.close()
 
 def settings_set(key: str, value: str):
     """1件保存（upsert）"""
     key = _canonicalize_setting_key(str(key))
+    if key == "ctx_size":
+        value = str(_resolve_ctx_size(value))
     if key == "sbv2_jp_extra_non_japanese_policy":
         value = _normalize_non_japanese_policy_value(str(value))
     now = datetime.now().isoformat()
@@ -16831,6 +16833,8 @@ def get_setting_api(key: str):
 @app.put("/settings/{key}")
 def set_setting_api(key: str, req: dict):
     value = req.get("value", "")
+    if _canonicalize_setting_key(str(key)) == "ctx_size":
+        value = str(_resolve_ctx_size(value))
     settings_set(key, value)
     return {"ok": True, "key": key, "value": value}
 
