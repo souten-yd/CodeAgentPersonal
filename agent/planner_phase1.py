@@ -10,6 +10,10 @@ from agent.requirement_schema import RequirementCategoryScores, RequirementDefin
 class PlannerPhase1:
     def __init__(self, llm_json_fn: Callable[[str, str], dict | None]) -> None:
         self.llm_json_fn = llm_json_fn
+        self._last_warnings: list[str] = []
+
+    def get_last_warnings(self) -> list[str]:
+        return list(self._last_warnings)
 
     def build_requirement(
         self,
@@ -18,7 +22,18 @@ class PlannerPhase1:
         user_input: str,
         prompt: str,
     ) -> RequirementDefinition:
-        payload = self.llm_json_fn(prompt, user_input) or {}
+        warnings: list[str] = []
+        raw_payload = self.llm_json_fn(prompt, user_input)
+        if raw_payload is None:
+            warnings.append("Requirement analysis LLM output could not be parsed. Fallback requirement was generated.")
+            payload: dict = {}
+        elif not isinstance(raw_payload, dict):
+            warnings.append("Requirement analysis LLM output was not a JSON object. Fallback requirement was generated.")
+            payload = {}
+        else:
+            payload = raw_payload
+            if not payload:
+                warnings.append("Requirement analysis LLM output was empty. Fallback requirement was generated.")
         requirement_id = f"req_{uuid.uuid4().hex[:12]}"
         category_scores = payload.get("category_scores") or {}
         req = RequirementDefinition(
@@ -53,8 +68,11 @@ class PlannerPhase1:
         )
         if not req.functional_requirements:
             req.functional_requirements = ["ユーザー入力に沿った実装計画を作成する"]
+            warnings.append("Requirement payload did not include functional_requirements. Fallback requirement item was generated.")
         if not req.done_definition:
             req.done_definition = ["実装前の計画が合意可能な品質で提示されること"]
+            warnings.append("Requirement payload did not include done_definition. Fallback done_definition was generated.")
+        self._last_warnings = warnings
         return req
 
     def build_plan(
@@ -66,6 +84,7 @@ class PlannerPhase1:
         nexus_context: dict,
         repository_context: str,
     ) -> Plan:
+        warnings: list[str] = []
         planner_input = "\n\n".join([
             f"User Input:\n{requirement.user_input}",
             f"Requirement Summary:\nGoal={requirement.interpreted_goal}\nFunctional={requirement.functional_requirements}\nNonFunctional={requirement.non_functional_requirements}\nConstraints={requirement.constraints}",
@@ -73,7 +92,17 @@ class PlannerPhase1:
             f"Repository Context:\n{repository_context}",
             f"Planning Mode: {planning_mode or 'standard'}",
         ])
-        payload = self.llm_json_fn(prompt, planner_input) or {}
+        raw_payload = self.llm_json_fn(prompt, planner_input)
+        if raw_payload is None:
+            warnings.append("Plan generation LLM output could not be parsed. Fallback plan was generated.")
+            payload: dict = {}
+        elif not isinstance(raw_payload, dict):
+            warnings.append("Plan generation LLM output was not a JSON object. Fallback plan was generated.")
+            payload = {}
+        else:
+            payload = raw_payload
+            if not payload:
+                warnings.append("Plan generation LLM output was empty. Fallback plan was generated.")
         plan_id = f"plan_{uuid.uuid4().hex[:12]}"
         raw_steps = payload.get("implementation_steps") if isinstance(payload.get("implementation_steps"), list) else []
         steps: list[ImplementationStep] = []
@@ -105,6 +134,7 @@ class PlannerPhase1:
                     rollback="変更未実施のため不要",
                 )
             ]
+            warnings.append("Plan generation LLM output did not include implementation_steps. Fallback inspection step was generated.")
 
         selected_arch = str(payload.get("selected_architecture", "Incremental additive changes"))
         mode = planning_mode if planning_mode in {"fast", "standard", "deep_nexus"} else "standard"
@@ -136,8 +166,11 @@ class PlannerPhase1:
         )
         if not plan.test_plan:
             plan.test_plan = ["APIレスポンス構造の確認", "保存ファイル(JSON/Markdown)の存在確認"]
+            warnings.append("Plan payload did not include test_plan. Fallback test plan was generated.")
         if not plan.rollback_plan:
             plan.rollback_plan = ["追加ファイルを削除し、変更をrevertする"]
+            warnings.append("Plan payload did not include rollback_plan. Fallback rollback plan was generated.")
+        self._last_warnings = warnings
         return plan
 
 

@@ -64,14 +64,21 @@ class TaskPlanningRunner:
         use_nexus: bool = True,
     ) -> dict:
         task_id = f"task_{uuid.uuid4().hex[:12]}"
+        warnings: list[str] = []
         repository_context = _build_repository_context(project_path)
+        if repository_context.startswith("Project path not found:"):
+            warnings.append("Project path was not found. Repository context fallback was used.")
+        elif repository_context.startswith("Repository scan warning:"):
+            warnings.append("Repository scan failed partially. Repository context fallback was used.")
         nexus_context = self.nexus_builder.build(user_input, use_nexus=use_nexus)
+        warnings.extend([str(x) for x in (nexus_context.get("warnings") or []) if str(x).strip()])
 
         requirement = self.planner.build_requirement(
             source_task_id=task_id,
             user_input=user_input,
             prompt=REQUIREMENT_ANALYSIS_PROMPT,
         )
+        warnings.extend(self.planner.get_last_warnings())
 
         plan = self.planner.build_plan(
             requirement=requirement,
@@ -80,9 +87,11 @@ class TaskPlanningRunner:
             nexus_context=nexus_context,
             repository_context=repository_context,
         )
+        warnings.extend(self.planner.get_last_warnings())
 
         _req_json, req_md = self.storage.save_requirement(requirement)
         _plan_json, plan_md = self.storage.save_plan(plan, user_input=user_input, interpreted_goal=requirement.interpreted_goal)
+        warnings = list(dict.fromkeys([w.strip() for w in warnings if isinstance(w, str) and w.strip()]))
 
         return {
             "task_id": task_id,
@@ -100,4 +109,5 @@ class TaskPlanningRunner:
             "repository_context": repository_context,
             "requirement_markdown_path": str(req_md),
             "plan_markdown_path": str(plan_md),
+            "warnings": warnings,
         }

@@ -8845,6 +8845,7 @@ class TaskStreamRequest(BaseModel):
 class TaskPlanRequest(BaseModel):
     input: str
     project_path: str = ""
+    project_name: str = ""
     planning_mode: str = "standard"
     requirement_mode: str = "ask_when_needed"
     execution_mode: str = "plan_only"
@@ -10245,18 +10246,44 @@ def api_task_plan(req: TaskPlanRequest):
     user_input = (req.input or "").strip()
     if not user_input:
         raise HTTPException(status_code=400, detail="input is empty")
+    api_warnings: list[str] = []
     project_path = (req.project_path or "").strip()
-    if not project_path:
-        project_path = os.path.join(WORK_DIR, "default")
+    resolved_project_path = ""
+    if project_path:
+        raw_candidate = os.path.expanduser(project_path)
+        candidate = raw_candidate if os.path.isabs(raw_candidate) else os.path.join(WORK_DIR, raw_candidate)
+        candidate = os.path.abspath(candidate)
+        if os.path.isdir(candidate):
+            resolved_project_path = candidate
+        else:
+            api_warnings.append(f"project_path does not exist or is not a directory: {project_path}. Fallback resolution was used.")
+
+    project_name = (req.project_name or "").strip()
+    if not resolved_project_path and project_name:
+        safe_project_name = os.path.basename(project_name)
+        if safe_project_name:
+            candidate = os.path.abspath(os.path.join(WORK_DIR, safe_project_name))
+            if os.path.isdir(candidate):
+                resolved_project_path = candidate
+            else:
+                api_warnings.append(f"project_name was not found under WORK_DIR: {safe_project_name}. Fallback resolution was used.")
+
+    if not resolved_project_path:
+        resolved_project_path = os.path.abspath(os.path.join(WORK_DIR, "default"))
+        os.makedirs(resolved_project_path, exist_ok=True)
+        api_warnings.append("project_path was not specified or was invalid. WORK_DIR/default was used.")
     try:
         result = _phase1_planning_runner.run(
             user_input=user_input,
-            project_path=project_path,
+            project_path=resolved_project_path,
             planning_mode=(req.planning_mode or "standard").strip().lower(),
             requirement_mode=(req.requirement_mode or "ask_when_needed").strip(),
             execution_mode=(req.execution_mode or "plan_only").strip(),
             use_nexus=bool(req.use_nexus),
         )
+        result_warnings = result.get("warnings") if isinstance(result.get("warnings"), list) else []
+        result["warnings"] = list(dict.fromkeys([*api_warnings, *[str(x) for x in result_warnings if str(x).strip()]]))
+        result["resolved_project_path"] = resolved_project_path
         return result
     except HTTPException:
         raise
@@ -10287,6 +10314,15 @@ def api_get_requirement(requirement_id: str):
         return _phase1_planning_runner.storage.load_requirement(requirement_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="requirement not found")
+
+
+@app.get("/api/requirements/{requirement_id}/markdown")
+def api_get_requirement_markdown(requirement_id: str):
+    try:
+        markdown = _phase1_planning_runner.storage.read_requirement_markdown(requirement_id)
+        return {"requirement_id": requirement_id, "markdown": markdown}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="requirement markdown not found")
 
 @app.post("/plan")
 def plan_only(req: ChatRequest):
