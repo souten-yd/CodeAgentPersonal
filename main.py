@@ -10175,11 +10175,23 @@ def _phase1_llm_json(prompt: str, user_content: str) -> dict | None:
         return None
 
 
+def _phase1_active_skills_safe() -> list:
+    try:
+        for fn_name in ("_active_skills", "active_skills", "get_active_skills"):
+            fn = globals().get(fn_name)
+            if callable(fn):
+                result = fn()
+                return result if isinstance(result, list) else []
+    except Exception as exc:
+        print(f"[Phase1Planning] active skills unavailable: {exc}")
+    return []
+
+
 _phase1_planning_runner = TaskPlanningRunner(
     ca_data_dir=CA_DATA_DIR,
     llm_json_fn=_phase1_llm_json,
     memory_search_fn=memory_search,
-    active_skills_fn=_active_skills,
+    active_skills_fn=_phase1_active_skills_safe,
     warning_logger=lambda msg: print(f"[PHASE1][NEXUS] {msg}"),
 )
 
