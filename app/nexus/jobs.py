@@ -234,6 +234,33 @@ def append_job_event(job_id: str, event_type: str, data: dict[str, Any]) -> Nexu
     )
 
 
+def append_job_heartbeat(
+    job_id: str,
+    phase: str,
+    message: str,
+    progress: float | None = None,
+    details: dict[str, Any] | None = None,
+) -> NexusJobEvent:
+    now = _now_iso()
+    payload: dict[str, Any] = {
+        "status": "running",
+        "phase": str(phase or "").strip() or "running",
+        "message": str(message or "").strip() or "running",
+        "progress": progress,
+        "heartbeat_at": now,
+        "updated_at": now,
+        "details": details or {},
+    }
+    event = append_job_event(job_id, "heartbeat", payload)
+    update_job(
+        job_id,
+        status="running",
+        progress=progress,
+        message=payload["message"],
+    )
+    return event
+
+
 def get_job_events(job_id: str, after: int = -1) -> list[NexusJobEvent]:
     with get_conn() as conn:
         rows = conn.execute(

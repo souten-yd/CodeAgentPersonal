@@ -6,6 +6,8 @@ import logging
 import os
 from pathlib import Path
 import sqlite3
+import threading
+import time
 from urllib import error, request
 import uuid
 
@@ -21,6 +23,7 @@ from app.nexus.citation_mapper import normalize_reference_labels, replace_citati
 from app.nexus.db import transaction
 from app.nexus.citation_verifier import CitationSupportVerifier, verify_citation_labels
 from app.nexus.utils import ensure_dir
+from app.nexus.jobs import append_job_event, append_job_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -409,15 +412,17 @@ def _generate_answer_with_llm(
     evidence_chunks: list[dict],
     timeout_sec: float | None = None,
     llm_settings: dict | None = None,
-) -> str:
+    heartbeat_callback: callable | None = None,
+) -> dict:
     llm_settings = llm_settings or _resolve_answer_llm_settings()
     if not bool(llm_settings.get("enabled")):
         raise RuntimeError("answer llm is disabled")
 
     endpoint = str(llm_settings.get("endpoint") or "").strip()
     model = str(llm_settings.get("model") or "").strip() or "local-llm"
-    timeout_value = float(timeout_sec or os.environ.get("NEXUS_ANSWER_LLM_TIMEOUT_SEC", "20"))
+    timeout_value = float(timeout_sec or os.environ.get("NEXUS_ANSWER_LLM_TIMEOUT_SEC", "180"))
     max_tokens = int(str(os.environ.get("NEXUS_ANSWER_LLM_MAX_TOKENS", "1024")).strip() or "1024")
+    started = time.time()
 
     reference_lines = []
     for idx, ref in enumerate(references, start=1):
@@ -470,6 +475,23 @@ def _generate_answer_with_llm(
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = request.Request(endpoint, data=body, method="POST")
     req.add_header("Content-Type", "application/json")
+    if callable(heartbeat_callback):
+        try:
+            heartbeat_callback(
+                "answer_llm_heartbeat",
+                "LLM generating answer",
+                None,
+                {
+                    "phase": "answer_llm_generating",
+                    "elapsed_sec": round(time.time() - started, 3),
+                    "timeout_sec": timeout_value,
+                    "endpoint": endpoint,
+                    "model": model,
+                    "max_tokens": max_tokens,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("heartbeat callback failed before llm request", exc_info=True)
 
     try:
         with request.urlopen(req, timeout=timeout_value) as resp:
@@ -495,11 +517,55 @@ def _generate_answer_with_llm(
     text = str(content or "").strip()
     if not text:
         raise ValueError("llm returned empty answer")
-    return text
+    choice0 = choices[0] if isinstance(choices[0], dict) else {}
+    finish_reason = str(choice0.get("finish_reason") or "").strip()
+    usage = parsed.get("usage") if isinstance(parsed.get("usage"), dict) else {}
+    prompt_tokens = int(usage.get("prompt_tokens") or 0) if usage else 0
+    completion_tokens = int(usage.get("completion_tokens") or 0) if usage else 0
+    total_tokens = int(usage.get("total_tokens") or (prompt_tokens + completion_tokens))
+    return {
+        "text": text,
+        "finish_reason": finish_reason,
+        "usage": usage,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "response_length_chars": len(text),
+        "elapsed_sec": round(time.time() - started, 3),
+        "timeout_sec": timeout_value,
+        "endpoint": endpoint,
+        "model": model,
+        "max_tokens": max_tokens,
+    }
 
 
 def _job_answer_dir(job_id: str) -> Path:
     return ensure_dir(NEXUS_PATHS.nexus_dir / "research_jobs" / job_id)
+
+
+def _looks_incomplete_answer(text: str, finish_reason: str) -> bool:
+    body = str(text or "").strip()
+    if str(finish_reason or "").strip().lower() not in {"", "stop"}:
+        return True
+    if "## 追加確認が必要な点" not in body:
+        return True
+    if len(body) < 220:
+        return True
+    has_refs = "## References" in body or "[S1]" in body
+    answer_section = body.split("## References")[0] if "## References" in body else body
+    if has_refs and len(answer_section.strip()) < 140:
+        return True
+    tail = body[-3:]
+    if tail and tail[-1] in {"、", "。", ":", "：", "・", "-", "(", "（"}:
+        return True
+    return False
+
+
+def _build_incomplete_warning() -> str:
+    return (
+        "\n\n> ⚠️ **警告**: LLM応答が不完全の可能性があります。"
+        " ネットワークまたは推論途中停止の影響で途中切れが発生した可能性があります。\n"
+    )
 
 
 def _write_answer_files(*, job_id: str, answer_markdown: str, answer_json: dict) -> dict:
@@ -640,6 +706,7 @@ def build_answer_payload(
     )
 
     llm_answer: str | None = None
+    llm_result: dict = {}
     generation_mode = "template_fallback"
     llm_enabled = bool(llm_settings.get("enabled"))
     llm_reachable = bool(llm_settings.get("reachable"))
@@ -649,21 +716,92 @@ def build_answer_payload(
     llm_selected_reason = str(llm_settings.get("selected_reason") or "").strip()
     llm_probe_status = llm_settings.get("probe_status") if isinstance(llm_settings.get("probe_status"), list) else []
     llm_error: str | None = None
+    output_incomplete = False
+    output_truncated = False
+    continuation_used = False
+    continuation_error: str | None = None
     retry_count = 0
     retry_applied_profile = ""
     if chunks_for_llm:
+        hb_interval_sec = float(os.environ.get("NEXUS_HEARTBEAT_INTERVAL_SEC", "5") or "5")
+        stop_hb = threading.Event()
+
+        def _hb_emit(event_type: str, message: str, progress: float | None, details: dict | None = None) -> None:
+            if not job_id:
+                return
+            append_job_event(
+                job_id,
+                event_type,
+                {
+                    "status": "running",
+                    "phase": "answer_llm_generating",
+                    "message": message,
+                    "progress": progress,
+                    "updated_at": _now_iso(),
+                    "details": details or {},
+                },
+            )
+
+        def _hb_worker() -> None:
+            started_at = time.time()
+            while not stop_hb.wait(max(0.05, hb_interval_sec)):
+                try:
+                    elapsed = round(time.time() - started_at, 3)
+                    details = {
+                        "phase": "answer_llm_generating",
+                        "elapsed_sec": elapsed,
+                        "timeout_sec": float(os.environ.get("NEXUS_ANSWER_LLM_TIMEOUT_SEC", "180") or "180"),
+                        "endpoint": llm_endpoint,
+                        "model": llm_model,
+                        "max_tokens": int(str(os.environ.get("NEXUS_ANSWER_LLM_MAX_TOKENS", "1024")).strip() or "1024"),
+                        "estimated_prompt_tokens": estimated_prompt_tokens,
+                        "compression_profile": context_budget.compression_profile,
+                    }
+                    append_job_heartbeat(job_id, "answer_llm_generating", "LLM回答生成中...", 0.88, details)
+                    _hb_emit("answer_llm_heartbeat", "LLM回答生成中...", 0.88, details)
+                except Exception:  # noqa: BLE001
+                    logger.warning("answer llm heartbeat worker failed", exc_info=True)
+
+        hb_thread = threading.Thread(target=_hb_worker, name=f"answer-hb-{job_id or 'na'}", daemon=True)
+        hb_thread.start()
         try:
-            llm_answer = _generate_answer_with_llm(
+            raw_llm_result = _generate_answer_with_llm(
                 question=question,
                 references=refs_for_llm,
                 evidence_chunks=chunks_for_llm,
                 llm_settings=llm_settings,
+                heartbeat_callback=_hb_emit,
             )
+            llm_result = raw_llm_result if isinstance(raw_llm_result, dict) else {"text": str(raw_llm_result or ""), "finish_reason": "stop"}
+            llm_answer = str(llm_result.get("text") or "").strip()
+            output_truncated = str(llm_result.get("finish_reason") or "") == "length"
+            output_incomplete = _looks_incomplete_answer(llm_answer, str(llm_result.get("finish_reason") or ""))
+            if output_incomplete:
+                continuation_used = True
+                try:
+                    continuation_raw = _generate_answer_with_llm(
+                        question=f"{question}\n\n前回の回答を補完し、完全な最終版を返してください。",
+                        references=refs_for_llm,
+                        evidence_chunks=chunks_for_llm,
+                        llm_settings=llm_settings,
+                        heartbeat_callback=_hb_emit,
+                    )
+                    llm_result = (
+                        continuation_raw
+                        if isinstance(continuation_raw, dict)
+                        else {"text": str(continuation_raw or ""), "finish_reason": "stop"}
+                    )
+                    llm_answer = str(continuation.get("text") or "").strip()
+                    output_truncated = str(continuation.get("finish_reason") or "") == "length"
+                    output_incomplete = _looks_incomplete_answer(llm_answer, str(continuation.get("finish_reason") or ""))
+                except Exception as cont_exc:  # noqa: BLE001
+                    continuation_error = str(cont_exc)
             generation_mode = "llm_answer"
         except Exception as exc:  # noqa: BLE001
             llm_answer = None
             generation_mode = "template_fallback"
             llm_error = str(exc)
+            output_incomplete = True
             if _looks_like_context_overflow_error(llm_error):
                 retry_count = 1
                 retry_profile = stronger_profile(context_budget.compression_profile)
@@ -684,12 +822,19 @@ def build_answer_payload(
                 retry_refs = retry_compressed["references"]
                 retry_chunks = retry_compressed["chunks"]
                 try:
-                    llm_answer = _generate_answer_with_llm(
+                    retry_raw_result = _generate_answer_with_llm(
                         question=question,
                         references=retry_refs,
                         evidence_chunks=retry_chunks,
                         llm_settings=llm_settings,
+                        heartbeat_callback=_hb_emit,
                     )
+                    llm_result = (
+                        retry_raw_result
+                        if isinstance(retry_raw_result, dict)
+                        else {"text": str(retry_raw_result or ""), "finish_reason": "stop"}
+                    )
+                    llm_answer = str(llm_result.get("text") or "").strip()
                     generation_mode = "llm_answer"
                     llm_error = None
                     context_budget = retry_budget
@@ -705,8 +850,14 @@ def build_answer_payload(
                     llm_answer = None
                     llm_error = str(retry_exc)
                     generation_mode = "template_fallback"
+                    output_incomplete = True
+        finally:
+            stop_hb.set()
+            hb_thread.join(timeout=1.0)
 
     final_summary = replace_citation_labels(llm_answer or summary_text, normalized["label_map"])
+    if output_incomplete and llm_answer:
+        final_summary = (final_summary.rstrip() + _build_incomplete_warning()).strip()
 
     answer_markdown = _build_answer_markdown(
         question=question,
@@ -739,6 +890,17 @@ def build_answer_payload(
         "compression": compression_stats,
         "retry_count": retry_count,
         "retry_profile": retry_applied_profile,
+        "finish_reason": llm_result.get("finish_reason"),
+        "usage": llm_result.get("usage") if isinstance(llm_result.get("usage"), dict) else {},
+        "prompt_tokens": llm_result.get("prompt_tokens", 0),
+        "completion_tokens": llm_result.get("completion_tokens", 0),
+        "total_tokens": llm_result.get("total_tokens", 0),
+        "response_length_chars": llm_result.get("response_length_chars", 0),
+        "elapsed_sec": llm_result.get("elapsed_sec", 0.0),
+        "output_truncated": output_truncated,
+        "output_incomplete": output_incomplete,
+        "continuation_used": continuation_used,
+        "continuation_error": continuation_error,
         "context_budget": {
             "max_context_tokens": context_budget.max_context_tokens,
             "reserved_output_tokens": context_budget.reserved_output_tokens,
@@ -789,6 +951,8 @@ def build_answer_payload(
         "selected_reason": llm_selected_reason,
         "probe_status": llm_probe_status,
         "llm_error": llm_error,
+        "output_incomplete": output_incomplete,
+        "output_truncated": output_truncated,
     }
 
     if job_id:

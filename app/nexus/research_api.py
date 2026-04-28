@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import threading
 import uuid
@@ -228,6 +230,32 @@ def get_research_job_answer(job_id: str) -> dict:
             parsed_answer_json = {}
         if isinstance(parsed_answer_json, dict) and parsed_answer_json:
             answer = dict(parsed_answer_json)
+            parsed_refs = answer.get("references")
+            if isinstance(parsed_refs, list):
+                source_index: dict[str, dict] = {}
+                for source_row in source_rows:
+                    source = _normalize_source_row(dict(source_row))
+                    source_id = str(source.get("source_id") or "").strip()
+                    if source_id:
+                        source_index[source_id] = source
+                enriched_refs: list[dict] = []
+                for idx, item in enumerate(parsed_refs, start=1):
+                    ref = dict(item) if isinstance(item, dict) else {}
+                    source_id = str(ref.get("source_id") or "").strip()
+                    source = source_index.get(source_id, {})
+                    enriched_refs.append(
+                        {
+                            "citation_label": str(ref.get("citation_label") or f"[S{idx}]"),
+                            "title": str(ref.get("title") or source.get("title") or ""),
+                            "source_type": str(ref.get("source_type") or source.get("source_type") or ""),
+                            "source_score": ref.get("source_score", source.get("source_score")),
+                            "status": str(ref.get("status") or source.get("status") or ""),
+                            "url": str(ref.get("url") or source.get("final_url") or source.get("url") or ""),
+                            "error": str(ref.get("error") or source.get("error") or ""),
+                            "source_id": source_id,
+                        }
+                    )
+                answer["references"] = enriched_refs
             answer.setdefault("answer_id", row["answer_id"])
             answer.setdefault("question", row["question"])
             answer.setdefault("answer_markdown", row["answer_markdown"])
@@ -285,13 +313,83 @@ def get_research_job_bundle(job_id: str, after: int = -1) -> dict:
     answer = get_research_job_answer(job_id).get("answer", {})
     sources = get_research_job_sources(job_id).get("sources", [])
     evidence = get_research_job_evidence(job_id).get("evidence", [])
+    health = _build_research_job_health(base.get("job", {}), events)
     return {
         "job_id": job_id,
         "job": base.get("job", {}),
+        "health": health,
         "events": events,
         "answer": answer,
         "sources": sources,
         "evidence": evidence,
+    }
+
+
+def _build_research_job_health(job: dict, events: list[dict]) -> dict:
+    status = str(job.get("status") or "").lower()
+    phase = str(job.get("message") or "").strip()
+    last_event = events[-1] if events else {}
+    last_event_type = str(last_event.get("type") or "")
+    last_event_at = str(last_event.get("updated_at") or last_event.get("ts") or "")
+    last_heartbeat = None
+    for ev in reversed(events):
+        if str(ev.get("type") or "") == "heartbeat":
+            last_heartbeat = ev
+            break
+    last_heartbeat_at = str((last_heartbeat or {}).get("updated_at") or (last_heartbeat or {}).get("ts") or "")
+    now = datetime.now(timezone.utc)
+    sec_since_hb = None
+    if last_heartbeat_at:
+        try:
+            iso = last_heartbeat_at.replace("Z", "+00:00")
+            sec_since_hb = max(0.0, (now - datetime.fromisoformat(iso)).total_seconds())
+        except ValueError:
+            sec_since_hb = None
+    stalled_after = float(str(os.environ.get("NEXUS_STALLED_AFTER_SEC", "120")).strip() or "120")
+    io_phases = {"download", "download_started", "downloading"}
+    inferred_phase = str((last_heartbeat or {}).get("data", {}).get("phase") or phase or "").strip()
+    is_active = status == "running" and bool(last_heartbeat_at)
+    is_terminal = status in {"completed", "degraded", "failed"}
+    is_stalled = bool(is_active and sec_since_hb is not None and sec_since_hb > stalled_after and not is_terminal)
+    stalled_reason = ""
+    suggested_action = ""
+    if is_stalled:
+        if inferred_phase in io_phases:
+            stalled_reason = "可能性: 外部I/O待機"
+            suggested_action = "警告のみ。しばらく待機して heartbeat を確認してください。"
+        else:
+            stalled_reason = "heartbeat 更新停止"
+            suggested_action = "サーバーログとジョブ状態を確認してください。"
+    return {
+        "phase": inferred_phase or phase,
+        "last_event_type": last_event_type,
+        "last_event_at": last_event_at,
+        "last_heartbeat_at": last_heartbeat_at,
+        "seconds_since_last_heartbeat": sec_since_hb,
+        "is_active": is_active,
+        "is_stalled": bool(is_stalled and inferred_phase not in io_phases),
+        "stalled_reason": stalled_reason,
+        "suggested_action": suggested_action,
+    }
+
+
+def get_research_job_debug(job_id: str) -> dict:
+    base = get_research_job(job_id)
+    events = get_research_job_events(job_id, after=-1).get("events", [])
+    answer = get_research_job_answer(job_id).get("answer", {})
+    sources = get_research_job_sources(job_id).get("sources", [])
+    health = _build_research_job_health(base.get("job", {}), events)
+    source_total = len(sources)
+    source_ingested = sum(1 for row in sources if str(row.get("status") or "") in {"downloaded", "ingested"})
+    source_degraded = sum(1 for row in sources if str(row.get("status") or "") in {"degraded", "failed"})
+    return {
+        "job_id": job_id,
+        "job": base.get("job", {}),
+        "health": health,
+        "latest_events": events[-20:],
+        "answer_exists": bool(answer),
+        "answer_incomplete": bool(answer.get("output_incomplete") or answer.get("generation", {}).get("output_incomplete")),
+        "source_counts": {"total": source_total, "ingested": source_ingested, "degraded": source_degraded},
     }
 
 

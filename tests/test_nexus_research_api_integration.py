@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from app.nexus.db import get_conn, insert_chunk, insert_document, update_document_artifact_paths
 from app.nexus.downloader import save_download_artifacts
 from app.nexus.export import create_research_bundle
-from app.nexus.jobs import append_job_event, create_job, update_job
+from app.nexus.jobs import append_job_event, append_job_heartbeat, create_job, update_job
 from app.nexus.research_api import ResearchRunRequest, run_research
 from app.nexus.router import nexus_router
 
@@ -191,6 +191,50 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
         self.assertEqual(answer.get("generation", {}).get("mode"), "llm")
         self.assertEqual(answer.get("citation_verification", {}).get("warnings", [{}])[0].get("reason"), "low_semantic_overlap")
         self.assertEqual(answer.get("references", [{}])[0].get("citation_label"), "[S1]")
+
+    def test_debug_returns_last_heartbeat_and_stalled_status(self) -> None:
+        job_id = f"job_debug_{uuid.uuid4().hex[:8]}"
+        create_job(job_id, title="debug", status="running")
+        append_job_heartbeat(job_id, "answer_llm_generating", "running", 0.8, {"x": 1})
+        response = self.client.get(f"/nexus/research/jobs/{job_id}/debug")
+        self.assertEqual(response.status_code, 200)
+        health = response.json().get("health", {})
+        self.assertTrue(str(health.get("last_heartbeat_at") or "").strip())
+        self.assertFalse(bool(health.get("is_stalled")))
+
+    def test_debug_marks_running_job_stalled_when_heartbeat_old(self) -> None:
+        job_id = f"job_stalled_{uuid.uuid4().hex[:8]}"
+        now = datetime.now(timezone.utc).isoformat()
+        create_job(job_id, title="debug", status="running")
+        with get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO nexus_job_events(job_id, seq, type, data, ts)
+                VALUES(?, ?, ?, ?, ?)
+                """,
+                (
+                    job_id,
+                    0,
+                    "heartbeat",
+                    json.dumps(
+                        {"status": "running", "phase": "answer_llm_generating", "message": "old", "updated_at": "2000-01-01T00:00:00+00:00"},
+                        ensure_ascii=False,
+                    ),
+                    now,
+                ),
+            )
+            conn.commit()
+        with patch.dict(os.environ, {"NEXUS_STALLED_AFTER_SEC": "1"}, clear=False):
+            response = self.client.get(f"/nexus/research/jobs/{job_id}/debug")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(bool(response.json().get("health", {}).get("is_stalled")))
+
+    def test_debug_terminal_job_is_not_stalled(self) -> None:
+        job_id = f"job_done_{uuid.uuid4().hex[:8]}"
+        create_job(job_id, title="debug", status="completed")
+        response = self.client.get(f"/nexus/research/jobs/{job_id}/debug")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(bool(response.json().get("health", {}).get("is_stalled")))
 
     def test_get_research_job_answer_reconstructs_legacy_rows_without_answer_json(self) -> None:
         job_id = f"job_answer_legacy_{uuid.uuid4().hex[:8]}"
