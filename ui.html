@@ -8766,6 +8766,36 @@ function normalizeNexusDeepAnswerPayload(answerPayload = {}) {
   };
 }
 
+
+async function refreshNexusDeepDebug(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return {};
+  const endpoint = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/debug');
+  try {
+    const resp = await fetch(endpoint);
+    const parsed = await parseNexusApiResponse(resp);
+    if (!resp.ok) throw new Error(buildNexusApiErrorMessage(endpoint, resp, parsed));
+    const data = parsed?.data || {};
+    const health = (data?.health && typeof data.health === 'object') ? data.health : {};
+    if (Object.keys(health).length) {
+      nexusDeepResearchHealth = { ...nexusDeepResearchHealth, ...health };
+    }
+    const generation = (data?.answer?.generation && typeof data.answer.generation === 'object') ? data.answer.generation : {};
+    if (Object.keys(generation).length) {
+      nexusDeepResearchAnswer = {
+        ...nexusDeepResearchAnswer,
+        generation: { ...(nexusDeepResearchAnswer?.generation || {}), ...generation },
+        output_incomplete: data?.answer?.output_incomplete ?? nexusDeepResearchAnswer?.output_incomplete,
+        output_truncated: data?.answer?.output_truncated ?? nexusDeepResearchAnswer?.output_truncated,
+        finish_reason: data?.answer?.finish_reason ?? nexusDeepResearchAnswer?.finish_reason,
+      };
+    }
+    return data;
+  } catch (err) {
+    console.warn('[NexusDeep] refresh debug failed', { url: endpoint, name: err?.name, message: err?.message });
+    return {};
+  }
+}
 async function refreshNexusDeepAnswer(jobId) {
   const id = String(jobId || '').trim();
   if (!id) {
@@ -8912,6 +8942,7 @@ async function pollNexusDeepResearch(jobId, maxTicks = 300) {
   for (let i = 0; i < maxTicks; i += 1) {
     if (String(nexusDeepResearchJobId || '') !== id) break;
     await refreshNexusDeepBundle(id);
+    await refreshNexusDeepDebug(id);
     const state = getNexusDeepTerminalState();
     const health = nexusDeepResearchHealth && typeof nexusDeepResearchHealth === 'object' ? nexusDeepResearchHealth : {};
     const stalled = health.is_stalled === true;
