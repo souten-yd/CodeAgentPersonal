@@ -8383,6 +8383,7 @@ const NEXUS_TIMELINE_STATE_META = {
 };
 
 function renderNexusDeepTimeline(events = []) {
+  const importantTypes = new Set(['download_progress','download_source_failed','download_stalled_warning','answer_llm_request_started','answer_llm_request_finished','answer_llm_request_degraded','answer_llm_request_failed']);
   const el = document.getElementById('nexus-deep-timeline');
   if (!el) return;
   if (!events.length) {
@@ -8394,10 +8395,12 @@ function renderNexusDeepTimeline(events = []) {
     const seq = Number(ev?.seq ?? -1);
     const state = String(ev?.data?.state || '').trim();
     const stateMeta = NEXUS_TIMELINE_STATE_META[state] || { label: state || '-', className: 'state-unknown' };
-    const label = ev?.data?.state || ev?.data?.label || ev?.type || 'event';
+    const type = String(ev?.type || '').trim();
+    const label = ev?.data?.state || ev?.data?.label || type || 'event';
+    const importantBadge = importantTypes.has(type) ? '<span class="nexus-status-badge degraded">event</span> ' : '';
     return `<div class="nexus-tl-item ${esc(stateMeta.className)}">
       <div class="nexus-tl-head">#${Number.isFinite(seq) ? seq : '-'} · ${esc(ts)}</div>
-      <div class="nexus-tl-body"><span class="nexus-tl-state ${esc(stateMeta.className)}">${esc(stateMeta.label)}</span> ${esc(String(label))}</div>
+      <div class="nexus-tl-body">${importantBadge}<span class="nexus-tl-state ${esc(stateMeta.className)}">${esc(stateMeta.label)}</span> ${esc(String(label))}</div>
     </div>`;
   }).join('');
 }
@@ -8441,11 +8444,15 @@ function renderNexusDeepAnswer(answer = {}) {
       <div class="nexus-answer-subtitle">Generation</div>
       <pre class="nexus-answer-json">${esc(hasGeneration ? JSON.stringify(generation, null, 2) : 'generation unavailable')}</pre>
       ${compressionHtml}
-      ${(outputIncomplete || outputTruncated)
-        ? `<div class="nexus-generation-notice" style="border-color:rgba(255,170,0,.4);color:var(--amber)">
-            ⚠ output_incomplete=${esc(String(outputIncomplete))} / output_truncated=${esc(String(outputTruncated))}
-          </div>`
-        : ''}
+      ${(() => {
+        const finishReason = String(generation?.finish_reason || answer?.finish_reason || '').trim();
+        const generationError = String(generation?.error || answer?.error || '').trim();
+        const hasWarning = outputIncomplete || outputTruncated || (finishReason && finishReason !== 'stop') || Boolean(generationError);
+        if (!hasWarning) return '';
+        return `<div class="nexus-generation-notice" style="border-color:rgba(255,170,0,.4);color:var(--amber)">
+            ⚠ 回答生成が途中終了した可能性があります。output_incomplete=${esc(String(outputIncomplete))} / output_truncated=${esc(String(outputTruncated))} / finish_reason=${esc(finishReason || '-')} / error=${esc(generationError || '-')}。max_tokensまたはtimeoutを増やしてください。
+          </div>`;
+      })()}
       ${(generationMode === 'template_fallback' || generationNotice)
         ? `<div class="nexus-generation-notice">${
           esc(generationNotice || 'Answer LLM is disabled. Deep Research generated a template fallback answer. Citation quality may be weak because no LLM synthesis was performed. Check DEEP_RESEARCH_LLM_ENABLED and endpoint settings.')
@@ -8858,10 +8865,15 @@ function formatNexusDeepProgressStatus() {
     ? ` / ダウンロード中 ${completed}/${total} 件完了、${active}件処理中、${degraded}件degraded、${failed}件failed、${skipped}件skipped、${totalMb.toFixed(1)}MB`
     : '';
   const activeSummary = srcTitle ? ` / 処理中:${srcTitle}` : '';
-  const outWarn = (outputIncomplete || outputTruncated)
-    ? ` / ⚠ output_incomplete=${String(outputIncomplete)} output_truncated=${String(outputTruncated)}`
+  const finishReason = String(generation?.finish_reason || nexusDeepResearchAnswer?.finish_reason || '').trim();
+  const generationError = String(generation?.error || nexusDeepResearchAnswer?.error || '').trim();
+  const outputWarn = outputIncomplete || outputTruncated || (finishReason && finishReason !== 'stop') || Boolean(generationError);
+  const outWarn = outputWarn
+    ? ` / ⚠ 回答生成が途中終了した可能性があります（finish_reason=${finishReason || '-'} / error=${generationError || '-' }）。max_tokensまたはtimeoutを増やしてください。`
     : '';
-  return `phase:${phase} / progress:${Math.round(Number(h.progress || 0) * 100)}% / ${msg || '-'}${downloadSummary}${activeSummary} / generation:${generationMode}${outWarn} / 経過${elapsed || '-'}秒 / 最終heartbeat ${hbText} / 最終event ${eventText} / sources:${nexusDeepResearchSources.length} / chunks:${chunksIn}/${chunksUsed} / prompt:${promptTokens} / max:${maxTokens}`;
+  const stallReason = String(h.stalled_reason || '-').trim();
+  const suggestedAction = String(h.suggested_action || '-').trim();
+  return `phase:${phase} / progress:${Math.round(Number(h.progress || 0) * 100)}% / ${msg || '-'}${downloadSummary}${activeSummary} / generation:${generationMode}${outWarn} / 経過${elapsed || '-'}秒 / 最終heartbeat ${hbText} / 最終event ${eventText} / stalled:${String(Boolean(h.is_stalled))} / reason:${stallReason} / action:${suggestedAction} / sources:${nexusDeepResearchSources.length} / chunks:${chunksIn}/${chunksUsed} / prompt:${promptTokens} / max:${maxTokens}`;
 }
 
 async function refreshNexusDeepBundle(jobId) {
@@ -8894,16 +8906,20 @@ async function refreshNexusDeepBundle(jobId) {
   return data;
 }
 
-async function pollNexusDeepResearch(jobId, maxTicks = 50) {
+async function pollNexusDeepResearch(jobId, maxTicks = 300) {
   const id = String(jobId || '').trim();
   if (!id) return;
   for (let i = 0; i < maxTicks; i += 1) {
     if (String(nexusDeepResearchJobId || '') !== id) break;
     await refreshNexusDeepBundle(id);
     const state = getNexusDeepTerminalState();
-    const stalled = nexusDeepResearchHealth?.is_stalled === true;
-    const stallReason = String(nexusDeepResearchHealth?.stalled_reason || 'heartbeat停止').trim();
-    const stallMsg = stalled ? ` / 警告: 120秒以上heartbeatがありません。サーバー側処理停止の可能性があります。（${stallReason}）` : '';
+    const health = nexusDeepResearchHealth && typeof nexusDeepResearchHealth === 'object' ? nexusDeepResearchHealth : {};
+    const stalled = health.is_stalled === true;
+    const stallReason = String(health.stalled_reason || 'heartbeat停止').trim();
+    const suggestedAction = String(health.suggested_action || '').trim();
+    const stallMsg = stalled
+      ? ` / 警告: heartbeatが120秒以上更新されていません。サーバー処理停止の可能性があります。（${stallReason}${suggestedAction ? ` / ${suggestedAction}` : ''}）`
+      : '';
     setNexusDeepStatus(`job:${id} / state:${state || '-'} / ${formatNexusDeepProgressStatus()}${stallMsg}`, state === 'failed' || stalled, nexusDeepResearchStubMode);
     if (state) break;
     await new Promise((resolve) => setTimeout(resolve, 1200));
