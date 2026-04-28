@@ -8851,6 +8851,26 @@ class TaskPlanRequest(BaseModel):
     execution_mode: str = "plan_only"
     use_nexus: bool = True
 
+
+class RequirementAnswerItem(BaseModel):
+    question_id: str
+    answer: str | list[str] | bool | None = None
+
+
+class RequirementAnswerRequest(BaseModel):
+    requirement_id: str
+    answers: list[RequirementAnswerItem] = []
+    skip_with_defaults: bool = False
+
+
+class TaskContinueRequest(BaseModel):
+    requirement_id: str
+    planning_mode: str = "standard"
+    requirement_mode: str = "ask_when_needed"
+    execution_mode: str = "plan_only"
+    use_nexus: bool = True
+    project_path: str = ""
+
 # =========================
 # タスク分解プロンプト
 # =========================
@@ -10323,6 +10343,48 @@ def api_get_requirement_markdown(requirement_id: str):
         return {"requirement_id": requirement_id, "markdown": markdown}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="requirement markdown not found")
+
+
+@app.post("/api/requirements/answer")
+def api_answer_requirement(req: RequirementAnswerRequest):
+    requirement_id = (req.requirement_id or "").strip()
+    if not requirement_id:
+        raise HTTPException(status_code=400, detail="requirement_id is empty")
+    try:
+        if req.skip_with_defaults:
+            return _phase1_planning_runner.skip_requirement_questions(requirement_id=requirement_id)
+        payload = [item.model_dump() for item in (req.answers or [])]
+        return _phase1_planning_runner.answer_requirement_questions(requirement_id=requirement_id, answers=payload)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="requirement not found")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"requirement answer failed: {exc}") from exc
+
+
+@app.post("/api/task/continue")
+def api_task_continue(req: TaskContinueRequest):
+    requirement_id = (req.requirement_id or "").strip()
+    if not requirement_id:
+        raise HTTPException(status_code=400, detail="requirement_id is empty")
+    try:
+        result = _phase1_planning_runner.continue_from_requirement(
+            requirement_id=requirement_id,
+            planning_mode=(req.planning_mode or "standard").strip().lower(),
+            requirement_mode=(req.requirement_mode or "ask_when_needed").strip(),
+            execution_mode=(req.execution_mode or "plan_only").strip(),
+            use_nexus=bool(req.use_nexus),
+            project_path=(req.project_path or "").strip(),
+        )
+        return result
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="requirement not found")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"task continue failed: {exc}") from exc
+
 
 @app.post("/plan")
 def plan_only(req: ChatRequest):
