@@ -131,6 +131,20 @@ class NexusMvpAndJobsTests(unittest.TestCase):
         self.assertEqual(event.data.get("original_status"), "planning")
         self.assertEqual(event.data.get("phase"), "planning")
 
+    def test_append_job_event_auto_recovers_missing_parent_with_warning_info(self) -> None:
+        job_id = f"job_missing_{uuid.uuid4().hex[:8]}"
+        event = append_job_event(
+            job_id,
+            "ingest.started",
+            {"message": "start"},
+        )
+        warning = event.data.get("auto_recovery_warning")
+        self.assertIsInstance(warning, dict)
+        self.assertEqual(warning.get("reason"), "missing_parent_job_auto_recovered")
+        self.assertEqual(warning.get("job_id"), job_id)
+        self.assertEqual(warning.get("event_type"), "ingest.started")
+        self.assertTrue(str(warning.get("created_at") or "").strip())
+
 
 if __name__ == "__main__":
     unittest.main()

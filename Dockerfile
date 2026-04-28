@@ -16,6 +16,7 @@ RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.lis
         curl \
         jq \
         tar \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
@@ -66,6 +67,7 @@ RUN apt-get update -o Acquire::Retries=3 \
         gnupg \
         sox \
         libsox-fmt-all \
+    && update-ca-certificates \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -348,6 +350,7 @@ RUN apt-get update -o Acquire::Retries=3 \
         gnupg \
         sox \
         libsox-fmt-all \
+    && update-ca-certificates \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
