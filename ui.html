@@ -7522,6 +7522,7 @@ let nexusDeepResearchSources = [];
 let nexusDeepResearchAnswer = {};
 let nexusDeepResearchEvidence = [];
 let nexusDeepResearchReferences = [];
+let nexusDeepResearchHealth = {};
 let nexusMaxUploadMb = 200;
 let nexusMaxUploadBytes = nexusMaxUploadMb * 1024 * 1024;
 const nexusAllowedUploadExt = new Set(['.pdf', '.txt', '.md', '.csv', '.html']);
@@ -8405,6 +8406,8 @@ function renderNexusDeepAnswer(answer = {}) {
     typeof generation !== 'string' || generation.trim() !== ''
   );
   const generationNotice = String(generation?.notice || '').trim();
+  const outputIncomplete = Boolean(answer?.output_incomplete ?? generation?.output_incomplete);
+  const outputTruncated = Boolean(answer?.output_truncated ?? generation?.output_truncated);
   const compression = (generation?.compression && typeof generation.compression === 'object') ? generation.compression : {};
   const compressionHtml = generation
     ? `<div class="nexus-answer-subtitle" style="margin-top:8px">Evidence Compression</div>
@@ -8432,6 +8435,11 @@ function renderNexusDeepAnswer(answer = {}) {
       <div class="nexus-answer-subtitle">Generation</div>
       <pre class="nexus-answer-json">${esc(hasGeneration ? JSON.stringify(generation, null, 2) : 'generation unavailable')}</pre>
       ${compressionHtml}
+      ${(outputIncomplete || outputTruncated)
+        ? `<div class="nexus-generation-notice" style="border-color:rgba(255,170,0,.4);color:var(--amber)">
+            ⚠ output_incomplete=${esc(String(outputIncomplete))} / output_truncated=${esc(String(outputTruncated))}
+          </div>`
+        : ''}
       ${(generationMode === 'template_fallback' || generationNotice)
         ? `<div class="nexus-generation-notice">${
           esc(generationNotice || 'Answer LLM is disabled. Deep Research generated a template fallback answer. Citation quality may be weak because no LLM synthesis was performed. Check DEEP_RESEARCH_LLM_ENABLED and endpoint settings.')
@@ -8781,7 +8789,54 @@ async function refreshNexusDeepAnswer(jobId) {
 function getNexusDeepTerminalState() {
   const latestState = String(nexusDeepResearchEvents?.[0]?.data?.state || '').toLowerCase();
   if (latestState === 'completed' || latestState === 'failed' || latestState === 'degraded') return latestState;
+  const jobState = String(nexusDeepResearchHealth?.job_status || '').toLowerCase();
+  if (jobState === 'completed' || jobState === 'failed' || jobState === 'degraded') return jobState;
   return '';
+}
+
+function formatNexusDeepProgressStatus() {
+  const h = (nexusDeepResearchHealth && typeof nexusDeepResearchHealth === 'object') ? nexusDeepResearchHealth : {};
+  const phase = String(h.phase || '-');
+  const hbAgo = Number(h.seconds_since_last_heartbeat);
+  const hbText = Number.isFinite(hbAgo) ? `${hbAgo.toFixed(1)}秒前` : '-';
+  const generation = nexusDeepResearchAnswer?.generation || {};
+  const chunksIn = generation?.compression?.chunks_input ?? '-';
+  const chunksUsed = generation?.compression?.chunks_used ?? '-';
+  const promptTokens = generation?.estimated_prompt_tokens ?? generation?.prompt_tokens ?? '-';
+  const maxTokens = generation?.max_tokens ?? generation?.context_budget?.reserved_output_tokens ?? '-';
+  const msg = String(h.message || '').trim();
+  const elapsed = Number(generation?.elapsed_sec || 0);
+  return `phase:${phase} / progress:${Math.round(Number(h.progress || 0) * 100)}% / ${msg || '-'} / 経過${elapsed || '-'}秒 / 最終heartbeat ${hbText} / sources:${nexusDeepResearchSources.length} / chunks:${chunksIn}/${chunksUsed} / prompt:${promptTokens} / max:${maxTokens}`;
+}
+
+async function refreshNexusDeepBundle(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return null;
+  const endpoint = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/bundle');
+  const resp = await fetch(endpoint);
+  const parsed = await parseNexusApiResponse(resp);
+  if (!resp.ok) throw new Error(buildNexusApiErrorMessage(endpoint, resp, parsed));
+  const data = parsed?.data || {};
+  const events = Array.isArray(data?.events) ? data.events : [];
+  nexusDeepResearchEvents = events.slice().reverse();
+  nexusDeepResearchSources = Array.isArray(data?.sources) ? data.sources : [];
+  const normalized = normalizeNexusDeepAnswerPayload(data?.answer || {});
+  nexusDeepResearchAnswer = normalized.answer || {};
+  nexusDeepResearchReferences = normalized.references || [];
+  nexusDeepResearchEvidence = normalized.evidence || [];
+  const health = (data?.health && typeof data.health === 'object') ? data.health : {};
+  const job = (data?.job && typeof data.job === 'object') ? data.job : {};
+  nexusDeepResearchHealth = {
+    ...health,
+    job_status: String(job?.status || ''),
+    progress: Number(job?.progress || 0),
+    message: String(job?.message || ''),
+  };
+  renderNexusDeepTimeline(nexusDeepResearchEvents);
+  renderNexusDeepSourcesTable(nexusDeepResearchSources);
+  renderNexusDeepAnswer(nexusDeepResearchAnswer);
+  renderNexusDeepReferences(nexusDeepResearchReferences, nexusDeepResearchSources, nexusDeepResearchEvidence);
+  return data;
 }
 
 async function pollNexusDeepResearch(jobId, maxTicks = 50) {
@@ -8789,18 +8844,11 @@ async function pollNexusDeepResearch(jobId, maxTicks = 50) {
   if (!id) return;
   for (let i = 0; i < maxTicks; i += 1) {
     if (String(nexusDeepResearchJobId || '') !== id) break;
-    await Promise.all([
-      refreshNexusDeepEvents(id),
-      refreshNexusDeepSources(id),
-      refreshNexusDeepAnswer(id),
-    ]);
+    await refreshNexusDeepBundle(id);
     const state = getNexusDeepTerminalState();
-    const latestMsg = String(nexusDeepResearchEvents?.[0]?.data?.message || '');
-    setNexusDeepStatus(
-      `job:${id} / state:${state || '-'}${latestMsg ? ` / ${latestMsg}` : ''}`,
-      state === 'failed',
-      nexusDeepResearchStubMode,
-    );
+    const stalled = nexusDeepResearchHealth?.is_stalled === true;
+    const stallMsg = stalled ? ' / サーバー側の進捗更新が120秒以上ありません。処理停止の可能性があります。' : '';
+    setNexusDeepStatus(`job:${id} / state:${state || '-'} / ${formatNexusDeepProgressStatus()}${stallMsg}`, state === 'failed' || stalled, nexusDeepResearchStubMode);
     if (state) break;
     await new Promise((resolve) => setTimeout(resolve, 1200));
   }
@@ -9113,6 +9161,7 @@ async function runNexusDeepResearch() {
   nexusDeepResearchAnswer = {};
   nexusDeepResearchReferences = [];
   nexusDeepResearchEvidence = [];
+  nexusDeepResearchHealth = {};
   if (bundleBtn) bundleBtn.disabled = true;
   renderNexusDeepTimeline([]);
   renderNexusDeepAnswer({});

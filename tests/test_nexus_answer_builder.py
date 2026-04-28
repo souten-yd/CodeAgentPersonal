@@ -1,6 +1,7 @@
 import os
 import json
 import tempfile
+import time
 import unittest
 from urllib.error import HTTPError
 from pathlib import Path
@@ -11,6 +12,41 @@ from app.nexus.config import NexusPaths
 
 
 class NexusAnswerBuilderTests(unittest.TestCase):
+    def test_generate_answer_payload_contains_max_tokens_and_stream_false(self) -> None:
+        from app.nexus import answer_builder as target
+
+        captured: dict = {}
+
+        class _Resp:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return json.dumps({"choices": [{"message": {"content": "ok [S1]"}, "finish_reason": "stop"}]}).encode("utf-8")
+
+        def _fake_urlopen(req, timeout=0):  # noqa: ANN001, ARG001
+            captured["payload"] = json.loads(req.data.decode("utf-8"))
+            return _Resp()
+
+        with patch.dict(os.environ, {"NEXUS_ANSWER_LLM_MAX_TOKENS": "1024"}, clear=True), patch(
+            "app.nexus.answer_builder.request.urlopen",
+            side_effect=_fake_urlopen,
+        ):
+            result = target._generate_answer_with_llm(
+                question="質問",
+                references=[{"citation_label": "[S1]", "title": "src"}],
+                evidence_chunks=[{"citation_label": "[S1]", "source_id": "src", "quote": "fact"}],
+                llm_settings={"enabled": True, "endpoint": "http://127.0.0.1:8080/v1/chat/completions", "model": "m"},
+            )
+        self.assertEqual(result["text"], "ok [S1]")
+        self.assertEqual(captured["payload"]["max_tokens"], 1024)
+        self.assertFalse(captured["payload"]["stream"])
+
     def test_search_model_from_orchestrator_is_preferred(self) -> None:
         references = [{"citation_label": "s1", "title": "Source 1", "source_id": "src-1"}]
         chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "s1"}]
@@ -84,40 +120,58 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertIn("body=", payload["llm_error"])
         self.assertIn("request failed", payload["generation"]["notice"])
 
-    def test_generate_answer_payload_contains_max_tokens_and_stream_false(self) -> None:
-        from app.nexus import answer_builder as target
+    def test_heartbeat_events_emitted_during_llm_generation_and_stop_on_success(self) -> None:
+        references = [{"citation_label": "s1", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"quote": "fact", "source_id": "src-1", "citation_label": "s1"}]
 
-        captured: dict = {}
+        def _slow_generate(**kwargs):  # noqa: ANN003
+            time.sleep(0.12)
+            return {
+                "text": "結論 [S1]\n\n## 追加確認が必要な点\n- なし",
+                "finish_reason": "stop",
+                "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "total_tokens": 30,
+                "response_length_chars": 30,
+                "elapsed_sec": 0.12,
+                "max_tokens": 1024,
+            }
 
-        class _Resp:
-            status = 200
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, tb):
-                return False
-
-            def read(self):
-                return json.dumps({"choices": [{"message": {"content": "ok [S1]"}}]}).encode("utf-8")
-
-        def _fake_urlopen(req, timeout=0):  # noqa: ANN001, ARG001
-            captured["payload"] = json.loads(req.data.decode("utf-8"))
-            return _Resp()
-
-        with patch.dict(os.environ, {"NEXUS_ANSWER_LLM_MAX_TOKENS": "1024"}, clear=True), patch(
-            "app.nexus.answer_builder.request.urlopen",
-            side_effect=_fake_urlopen,
+        with patch.dict(os.environ, {"NEXUS_HEARTBEAT_INTERVAL_SEC": "0.05"}, clear=True), patch(
+            "app.nexus.answer_builder._generate_answer_with_llm", side_effect=_slow_generate
+        ), patch("app.nexus.answer_builder.append_job_heartbeat") as mocked_hb, patch(
+            "app.nexus.answer_builder._save_answer_row", return_value="aid"
         ):
-            text = target._generate_answer_with_llm(
+            payload = build_answer_payload(
                 question="質問",
-                references=[{"citation_label": "[S1]", "title": "src"}],
-                evidence_chunks=[{"citation_label": "[S1]", "source_id": "src", "quote": "fact"}],
-                llm_settings={"enabled": True, "endpoint": "http://127.0.0.1:8080/v1/chat/completions", "model": "m"},
+                summary="fallback",
+                references=references,
+                evidence_chunks=chunks,
+                job_id="job-hb-success",
             )
-        self.assertEqual(text, "ok [S1]")
-        self.assertEqual(captured["payload"]["max_tokens"], 1024)
-        self.assertFalse(captured["payload"]["stream"])
+        self.assertEqual(payload["generation_mode"], "llm_answer")
+        self.assertGreaterEqual(mocked_hb.call_count, 1)
+
+    def test_heartbeat_worker_stops_on_llm_exception(self) -> None:
+        references = [{"citation_label": "s1", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"quote": "fact", "source_id": "src-1", "citation_label": "s1"}]
+        with patch.dict(os.environ, {"NEXUS_HEARTBEAT_INTERVAL_SEC": "0.05"}, clear=True), patch(
+            "app.nexus.answer_builder._generate_answer_with_llm", side_effect=TimeoutError("timeout")
+        ), patch("app.nexus.answer_builder.append_job_heartbeat") as mocked_hb, patch(
+            "app.nexus.answer_builder._save_answer_row", return_value="aid"
+        ):
+            payload = build_answer_payload(
+                question="質問",
+                summary="fallback",
+                references=references,
+                evidence_chunks=chunks,
+                job_id="job-hb-fail",
+            )
+        call_count = mocked_hb.call_count
+        time.sleep(0.15)
+        self.assertEqual(call_count, mocked_hb.call_count)
+        self.assertTrue(payload["output_incomplete"])
 
     def test_resolve_settings_selects_8080_when_8000_probe_fails(self) -> None:
         references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
@@ -188,7 +242,7 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertIn("[S1]", payload["answer"])
         self.assertNotIn("article#1", payload["answer"])
         self.assertIn(payload["answer"], payload["answer_markdown"])
-        mocked.assert_called_once()
+        self.assertGreaterEqual(mocked.call_count, 1)
         self.assertEqual(payload["references"][0]["citation_label"], "[S1]")
         self.assertIn("- [S1] Source 1 (https://example.com/1)", payload["answer_markdown"])
         self.assertEqual(payload["generation_mode"], "llm_answer")

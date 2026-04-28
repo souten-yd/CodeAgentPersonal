@@ -10,7 +10,7 @@ from app.nexus.citation_mapper import build_citation_map, normalize_reference_la
 from app.nexus.config import load_runtime_config
 from app.nexus.downloader import safe_download, save_download_artifacts
 from app.nexus.evidence import EvidenceItem, save_evidence_items
-from app.nexus.jobs import append_job_event, create_job, ensure_job_exists, update_job
+from app.nexus.jobs import append_job_event, append_job_heartbeat, create_job, ensure_job_exists, update_job
 from app.nexus.source_collector import collect_source_candidates, rank_source_candidates
 from app.nexus.source_registry import register_or_update_sources
 from app.nexus.db import get_conn
@@ -138,6 +138,31 @@ def _record_state(job_id: str, state: str, *, message: str, progress: float) -> 
             "updated_at": _now_iso(),
         },
     )
+    append_job_heartbeat(job_id, state, message, progress, {"state": state})
+
+
+def _emit_phase(
+    job_id: str,
+    event_type: str,
+    *,
+    phase: str,
+    message: str,
+    progress: float | None = None,
+    details: dict | None = None,
+    status: str = "running",
+) -> None:
+    payload = {
+        "status": status,
+        "phase": phase,
+        "message": message,
+        "progress": progress,
+        "updated_at": _now_iso(),
+    }
+    if details:
+        payload["details"] = details
+    append_job_event(job_id, event_type, payload)
+    if status == "running":
+        append_job_heartbeat(job_id, phase, message, progress, details or {})
 
 
 def _build_evidence_from_sources(job_id: str, sources: list[dict]) -> list[EvidenceItem]:
@@ -247,6 +272,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         ensure_job_exists(effective_job_id, title=query, message="research queued", status="queued")
 
     try:
+        _emit_phase(effective_job_id, "planning_started", phase="planning", message="planning started", progress=0.05)
         _record_state(effective_job_id, "planning", message="query planning", progress=0.1)
         queries = plan_web_queries(
             query,
@@ -256,8 +282,17 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             scope=payload.scope,
             language=payload.language,
         )
+        _emit_phase(
+            effective_job_id,
+            "planning_finished",
+            phase="planning",
+            message="planning finished",
+            progress=0.2,
+            details={"queries": len(queries)},
+        )
         update_job(effective_job_id, status="running", progress=0.2, message="searching web")
 
+        _emit_phase(effective_job_id, "web_search_started", phase="web_search", message="web search started", progress=0.22)
         _record_state(effective_job_id, "searching", message="running web search", progress=0.25)
         search = run_web_search(
             queries,
@@ -268,7 +303,18 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             language=payload.language,
         )
         items = list(search.get("items") or [])
+        _emit_phase(
+            effective_job_id,
+            "web_search_finished",
+            phase="web_search",
+            message="web search finished",
+            progress=0.35,
+            details={"result_count": len(items)},
+        )
 
+        _emit_phase(
+            effective_job_id, "source_collection_started", phase="source_collection", message="source collection started", progress=0.36
+        )
         _record_state(effective_job_id, "collecting_sources", message="normalizing source candidates", progress=0.4)
         candidates = collect_source_candidates(search_items=items, manual_urls=payload.manual_urls)
         ranked_candidates = rank_source_candidates(
@@ -292,7 +338,23 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 },
             )
             ranked_candidates = ranked_candidates[:max_sources]
+        _emit_phase(
+            effective_job_id,
+            "source_collection_finished",
+            phase="source_collection",
+            message="source collection finished",
+            progress=0.5,
+            details={"candidate_count": len(ranked_candidates)},
+        )
         _record_state(effective_job_id, "downloading", message="downloading source content", progress=0.55)
+        _emit_phase(
+            effective_job_id,
+            "download_started",
+            phase="download",
+            message="download started",
+            progress=0.55,
+            details={"total_candidates": len(ranked_candidates)},
+        )
         download_count = 0
         total_downloaded_bytes = 0
         for candidate in ranked_candidates:
@@ -378,6 +440,14 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 saved_status = str(saved.get("status") or "downloaded")
                 source["status"] = "degraded" if saved_status == "degraded" else "downloaded"
                 source["error"] = str(saved.get("error") or "")
+                _emit_phase(
+                    effective_job_id,
+                    "download_progress",
+                    phase="download",
+                    message="download progress",
+                    progress=0.6,
+                    details={"download_count": download_count, "total_bytes": total_downloaded_bytes},
+                )
             except Exception as exc:  # noqa: BLE001
                 error_message = str(exc)
                 source["error"] = error_message
@@ -406,7 +476,16 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     downloadable_sources.append(source)
                     raise ValueError(f"download failed and continue_on_download_error=false: {exc}") from exc
             downloadable_sources.append(source)
+        _emit_phase(
+            effective_job_id,
+            "download_finished",
+            phase="download",
+            message="download finished",
+            progress=0.65,
+            details={"download_count": download_count, "download_errors": download_error_count},
+        )
 
+        _emit_phase(effective_job_id, "source_ingest_started", phase="source_ingest", message="source ingest started", progress=0.66)
         registered_sources = register_or_update_sources(
             job_id=effective_job_id,
             project=payload.project,
@@ -415,7 +494,16 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
 
         evidence_items = _build_evidence_from_sources(effective_job_id, registered_sources)
         save_evidence_items(effective_job_id, evidence_items)
+        _emit_phase(
+            effective_job_id,
+            "source_ingest_finished",
+            phase="source_ingest",
+            message="source ingest finished",
+            progress=0.69,
+            details={"source_count": len(registered_sources)},
+        )
 
+        _emit_phase(effective_job_id, "evidence_retrieval_started", phase="evidence_retrieval", message="evidence retrieval started", progress=0.7)
         _record_state(effective_job_id, "retrieving_evidence", message="mapping citations", progress=0.7)
         source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
         references = build_citation_map(registered_sources, source_chunks)
@@ -427,8 +515,37 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         references = normalized["references"]
         registered_sources = normalized["evidence_json"]
         source_chunks = normalized["evidence_chunks"]
+        _emit_phase(
+            effective_job_id,
+            "evidence_retrieval_finished",
+            phase="evidence_retrieval",
+            message="evidence retrieval finished",
+            progress=0.77,
+            details={"chunk_count": len(source_chunks)},
+        )
+        _emit_phase(
+            effective_job_id,
+            "evidence_compression_started",
+            phase="evidence_compression",
+            message="evidence compression started",
+            progress=0.79,
+        )
+        _emit_phase(
+            effective_job_id,
+            "evidence_compression_finished",
+            phase="evidence_compression",
+            message="evidence compression finished",
+            progress=0.82,
+        )
 
         _record_state(effective_job_id, "answering", message="building answer", progress=0.85)
+        _emit_phase(
+            effective_job_id,
+            "answer_llm_request_started",
+            phase="answer_llm_request",
+            message="answer llm request started",
+            progress=0.84,
+        )
         if references:
             labels = [f"[S{i + 1}]" for i in range(len(references))]
             summary = f"{query} に関する調査結果です。確認済みソース: {' '.join(labels)}"
@@ -443,6 +560,27 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             job_id=effective_job_id,
             project=payload.project,
         )
+        if answer_payload.get("generation_mode") == "llm_answer":
+            _emit_phase(
+                effective_job_id,
+                "answer_llm_request_finished",
+                phase="answer_llm_request",
+                message="answer llm request finished",
+                progress=0.9,
+            )
+        else:
+            _emit_phase(
+                effective_job_id,
+                "answer_llm_request_failed",
+                phase="answer_llm_request",
+                message="answer llm request failed, fallback used",
+                progress=0.9,
+                details={"error": answer_payload.get("llm_error")},
+            )
+        _emit_phase(effective_job_id, "answer_validation_started", phase="answer_validation", message="answer validation started", progress=0.9)
+        _emit_phase(effective_job_id, "answer_validation_finished", phase="answer_validation", message="answer validation finished", progress=0.92)
+        _emit_phase(effective_job_id, "answer_save_started", phase="answer_save", message="answer save started", progress=0.93)
+        _emit_phase(effective_job_id, "answer_save_finished", phase="answer_save", message="answer save finished", progress=0.94)
 
         _record_state(effective_job_id, "reporting", message="finalizing report", progress=0.95)
         if download_error_count > 0:
@@ -454,7 +592,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             )
             append_job_event(
                 effective_job_id,
-                "completed_degraded",
+                "job_degraded",
                 {
                     "status": "degraded",
                     "progress": 1.0,
@@ -462,9 +600,25 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     "download_error_count": download_error_count,
                 },
             )
+            _emit_phase(
+                effective_job_id,
+                "job_completed",
+                phase="completed",
+                message="job completed (degraded)",
+                progress=1.0,
+                status="degraded",
+            )
             _record_state(effective_job_id, "completed", message="job completed (degraded)", progress=1.0)
         else:
             update_job(effective_job_id, status="completed", progress=1.0, message="research completed")
+            _emit_phase(
+                effective_job_id,
+                "job_completed",
+                phase="completed",
+                message="job completed",
+                progress=1.0,
+                status="completed",
+            )
             _record_state(effective_job_id, "completed", message="job completed", progress=1.0)
 
         return {
@@ -493,7 +647,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             )
             append_job_event(
                 effective_job_id,
-                "completed_degraded",
+                "job_degraded",
                 {
                     "status": "degraded",
                     "progress": 1.0,
@@ -502,6 +656,14 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     "download_error_count": download_error_count,
                     "error": str(exc),
                 },
+            )
+            _emit_phase(
+                effective_job_id,
+                "job_completed",
+                phase="completed",
+                message="job completed (degraded)",
+                progress=1.0,
+                status="degraded",
             )
             _record_state(effective_job_id, "completed", message="job completed (degraded)", progress=1.0)
             return {
@@ -513,5 +675,14 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             }
 
         update_job(effective_job_id, status="failed", progress=1.0, message="research failed", error=str(exc))
+        _emit_phase(
+            effective_job_id,
+            "job_failed",
+            phase="failed",
+            message=str(exc),
+            progress=1.0,
+            status="failed",
+            details={"error": str(exc)},
+        )
         _record_state(effective_job_id, "failed", message=str(exc), progress=1.0)
         raise

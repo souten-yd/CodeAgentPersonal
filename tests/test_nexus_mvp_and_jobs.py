@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from app.nexus.db import get_conn
 from app.nexus.evidence import EvidenceItem
-from app.nexus.jobs import append_job_event, create_job, get_job_events
+from app.nexus.jobs import append_job_event, append_job_heartbeat, create_job, get_job, get_job_events
 from app.nexus.market import run_market_mvp
 from app.nexus.news import run_news_mvp
 
@@ -144,6 +144,25 @@ class NexusMvpAndJobsTests(unittest.TestCase):
         self.assertEqual(warning.get("job_id"), job_id)
         self.assertEqual(warning.get("event_type"), "ingest.started")
         self.assertTrue(str(warning.get("created_at") or "").strip())
+
+    def test_append_job_heartbeat_persists_event_and_updates_job_timestamp(self) -> None:
+        job_id = f"job_hb_{uuid.uuid4().hex[:8]}"
+        create_job(job_id, title="hb", status="queued")
+        event = append_job_heartbeat(
+            job_id,
+            "answer_llm_generating",
+            "heartbeat",
+            0.85,
+            {"elapsed_sec": 3.2},
+        )
+        self.assertEqual(event.type, "heartbeat")
+        self.assertEqual(event.data.get("phase"), "answer_llm_generating")
+        self.assertIn("heartbeat_at", event.data)
+        job = get_job(job_id)
+        self.assertIsNotNone(job)
+        assert job is not None
+        self.assertEqual(job.status, "running")
+        self.assertEqual(job.message, "heartbeat")
 
 
 if __name__ == "__main__":
