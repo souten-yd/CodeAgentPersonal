@@ -596,6 +596,7 @@ def build_answer_payload(
         (llm_settings.get("search_assignment") or {}).get("ctx_size")
         if isinstance(llm_settings.get("search_assignment"), dict)
         else None,
+        os.environ.get("LLAMA_CTX_SIZE", "").strip(),
         os.environ.get("NEXUS_ANSWER_LLM_MAX_CONTEXT_TOKENS", "").strip(),
         os.environ.get("DEFAULT_LLM_CTX_SIZE", "").strip(),
         16384,

@@ -382,9 +382,9 @@ def _runtime_spec_from_row(row: dict) -> dict:
     auto_roles = [x.strip() for x in str(row.get("auto_roles", "")).split(",") if x.strip()]
     if int(row.get("vlm_enabled", 1) or 1) == 0 and "multi" in auto_roles:
         auto_roles = [r for r in auto_roles if r != "multi"]
-    ctx = int(row.get("ctx_size", _default_llm_ctx_size()) or _default_llm_ctx_size())
-    if ctx < 16384 and any(role in auto_roles for role in ("plan", "search")):
-        ctx = 16384
+    ctx = _resolve_ctx_size(row.get("ctx_size"))
+    if ctx < _resolve_default_ctx_size() and any(role in auto_roles for role in ("plan", "search")):
+        ctx = _resolve_default_ctx_size()
     inferred_parser = _infer_parser_name(
         row.get("name", ""),
         row.get("model_key", ""),
@@ -4126,6 +4126,10 @@ def _get_model_db(create_if_missing: bool = True):
             updated_at TEXT NOT NULL
         )
     """)
+    try:
+        conn.execute("UPDATE models SET ctx_size=? WHERE ctx_size IS NULL OR ctx_size<=0", (_resolve_default_ctx_size(),))
+    except Exception:
+        pass
     conn.commit()
     return conn
 
@@ -4197,7 +4201,7 @@ def model_db_add(info: dict) -> str:
                 info.get("load_sec", -1),
                 info.get("tok_per_sec", -1),
                 info.get("llm_url", ""),
-                info.get("ctx_size", _default_llm_ctx_size()),
+                _resolve_ctx_size(info.get("ctx_size")),
                 info.get("gpu_layers", 999),
                 info.get("threads", 8),
                 info.get("parser", "json"),
@@ -4243,6 +4247,8 @@ def model_db_update(mid: str, updates: dict):
                "cache_type_v", "extra_args", "auto_roles", "benchmark_profiles", "has_mmproj", "mmproj_path", "quantization", "file_size_mb",
                "notes", "benchmarked_at", "proven_ngl", "ngl_ctx_profiles"}
     sets = {k: v for k, v in updates.items() if k in allowed}
+    if "ctx_size" in sets:
+        sets["ctx_size"] = _resolve_ctx_size(sets.get("ctx_size"))
     if not sets:
         return
     with _model_db_lock:
@@ -4303,7 +4309,7 @@ def benchmark_model_record(model: dict, use_vlm: bool = False) -> dict:
     )
 
     path = model["path"]
-    ctx = model.get("ctx_size", _default_llm_ctx_size())
+    ctx = _resolve_ctx_size(model.get("ctx_size"))
     ngl = model.get("gpu_layers", 999)
     mmproj_path = model.get("mmproj_path", "") if use_vlm else ""
     if not os.path.exists(path):
@@ -4373,6 +4379,32 @@ def _default_llm_ctx_size() -> int:
         if raw.isdigit():
             return max(512, min(65535, int(raw)))
     return 16384
+
+
+def _parse_ctx_size_or_none(value) -> int | None:
+    try:
+        parsed = int(str(value).strip())
+    except Exception:
+        return None
+    if parsed <= 0:
+        return None
+    return max(512, min(65535, parsed))
+
+
+def _resolve_default_ctx_size() -> int:
+    settings_ctx = _parse_ctx_size_or_none(globals().get("settings_get", lambda *_: "")("ctx_size"))
+    if settings_ctx is not None:
+        return settings_ctx
+    for key in ("LLAMA_CTX_SIZE", "DEFAULT_LLM_CTX_SIZE", "NEXUS_ANSWER_LLM_MAX_CONTEXT_TOKENS"):
+        env_ctx = _parse_ctx_size_or_none(os.environ.get(key, ""))
+        if env_ctx is not None:
+            return env_ctx
+    return 16384
+
+
+def _resolve_ctx_size(value=None) -> int:
+    parsed = _parse_ctx_size_or_none(value)
+    return parsed if parsed is not None else _resolve_default_ctx_size()
 
 
 # デフォルト設定定義
@@ -4451,6 +4483,8 @@ def _canonicalize_settings_map(data: dict) -> dict:
     for raw_key, raw_value in (data or {}).items():
         key = _canonicalize_setting_key(str(raw_key))
         value = raw_value
+        if key == "ctx_size":
+            value = str(_resolve_ctx_size(raw_value))
         if key == "sbv2_jp_extra_non_japanese_policy":
             value = _normalize_non_japanese_policy_value(str(raw_value))
         out[key] = value
@@ -5473,7 +5507,7 @@ def _infer_quantization_from_name(name: str) -> str:
 
 def _infer_ctx_size_from_name(name: str, default_ctx: int | None = None) -> int:
     if default_ctx is None:
-        default_ctx = _default_llm_ctx_size()
+        default_ctx = _resolve_default_ctx_size()
     text = (name or "").lower()
     # 例: 32k / 128k / ctx4096
     mk = re.search(r"(\d{1,4})k(?:[^a-z0-9]|$)", text)
@@ -6054,7 +6088,7 @@ def model_db_scan_folder(folder: str) -> list:
             "quantization": _guess_quantization(full_path),
             "file_size_mb": _get_file_size_mb(full_path),
             "vram_mb": -1, "ram_mb": -1, "load_sec": -1, "tok_per_sec": -1,
-            "llm_url": "", "ctx_size": _default_llm_ctx_size(), "gpu_layers": 999, "notes": "scanned",
+            "llm_url": "", "ctx_size": _resolve_default_ctx_size(), "gpu_layers": 999, "notes": "scanned",
         }))
     return results
 
@@ -15991,18 +16025,25 @@ def mcp_info():
 @app.get("/models/db")
 def list_models_db_api():
     models = model_db_list()
+    for model in models:
+        model["ctx_size"] = _resolve_ctx_size(model.get("ctx_size"))
     return {"models": models, "count": len(models)}
 
 @app.post("/models/db")
 def add_model_db_api(req: dict):
     if not req.get("name") or not req.get("path"):
         raise HTTPException(400, "name and path required")
+    req = dict(req or {})
+    req["ctx_size"] = _resolve_ctx_size(req.get("ctx_size"))
     mid = model_db_add(req)
     schedule_default_model_load(reason="model_add")
     return {"ok": True, "id": mid}
 
 @app.put("/models/db/{mid}")
 def update_model_db_api(mid: str, req: dict):
+    req = dict(req or {})
+    if "ctx_size" in req:
+        req["ctx_size"] = _resolve_ctx_size(req.get("ctx_size"))
     model_db_update(mid, req)
     return {"ok": True}
 
@@ -16139,7 +16180,7 @@ def _get_gguf_dl_job(job_id: str) -> dict | None:
         return dict(row) if row else None
 
 
-def _run_gguf_download_job(job_id: str, model_id: str, safe_rel: str, folder: str):
+def _run_gguf_download_job(job_id: str, model_id: str, safe_rel: str, folder: str, requested_ctx_size: int | None = None):
     target = os.path.join(folder, safe_rel)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     tmp_target = target + ".part"
@@ -16175,7 +16216,7 @@ def _run_gguf_download_job(job_id: str, model_id: str, safe_rel: str, folder: st
         "name": model_name, "path": target, "is_vlm": _detect_vlm(target, model_name),
         "has_mmproj": False, "mmproj_path": "", "quantization": _guess_quantization(target),
         "file_size_mb": int(file_size / (1024 * 1024)), "vram_mb": -1, "ram_mb": -1, "load_sec": -1, "tok_per_sec": -1,
-        "llm_url": "", "ctx_size": _default_llm_ctx_size(), "gpu_layers": 999, "notes": "downloaded",
+        "llm_url": "", "ctx_size": _resolve_ctx_size(requested_ctx_size), "gpu_layers": 999, "notes": "downloaded",
     })
     if existing:
         model_db_update(existing["id"], record)
@@ -16243,12 +16284,13 @@ def download_gguf_api(req: dict):
         raise HTTPException(400, "invalid filename")
 
     folder = (req.get("folder") or settings_get("llm_root_folder") or _default_llm_root_folder()).strip()
+    requested_ctx_size = _resolve_ctx_size(req.get("ctx_size"))
     if not folder:
         folder = _default_llm_root_folder()
     os.makedirs(folder, exist_ok=True)
     job_id = str(uuid.uuid4())[:8]
     _set_gguf_dl_job(job_id, model_id=model_id, filename=safe_rel, folder=folder, started_at=datetime.now().isoformat(), running=True, done=False)
-    threading.Thread(target=_run_gguf_download_job, args=(job_id, model_id, safe_rel, folder), daemon=True).start()
+    threading.Thread(target=_run_gguf_download_job, args=(job_id, model_id, safe_rel, folder, requested_ctx_size), daemon=True).start()
     return {
         "ok": True,
         "job_id": job_id,
@@ -16531,7 +16573,7 @@ def get_model_role_assignments_api():
                 "enabled": int(m.get("enabled", 1) or 1),
                 "vlm_enabled": int(m.get("vlm_enabled", 1) or 1),
                 "is_vlm": int(m.get("is_vlm", 0) or 0),
-                "ctx_size": int(m.get("ctx_size") or 0),
+                "ctx_size": _resolve_ctx_size(m.get("ctx_size")),
                 "auto_roles": [x.strip() for x in str(m.get("auto_roles", "")).split(",") if x.strip()],
             }
             for m in models
@@ -16648,10 +16690,7 @@ def save_settings_api(req: dict):
     """複数設定を一括保存"""
     req = {k: v for k, v in req.items() if k not in ("max_output_tokens", "llm_port")}
     if "ctx_size" in req:
-        try:
-            req["ctx_size"] = str(max(512, min(65535, int(req["ctx_size"]))))
-        except Exception:
-            req.pop("ctx_size", None)
+        req["ctx_size"] = str(_resolve_ctx_size(req.get("ctx_size")))
     if "summary_max_tokens" in req:
         try:
             v = int(req["summary_max_tokens"])
