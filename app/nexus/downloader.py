@@ -7,6 +7,7 @@ import mimetypes
 import re
 import ssl
 import socket
+import threading
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib import error as urllib_error
@@ -255,7 +256,13 @@ def safe_download(
     raise ValueError("too many redirects")
 
 
-def save_download_artifacts(job_id: str, source_id: str, download_result: dict) -> dict[str, str]:
+def save_download_artifacts(
+    job_id: str,
+    source_id: str,
+    download_result: dict,
+    *,
+    pdf_extract_semaphore: threading.Semaphore | None = None,
+) -> dict[str, str]:
     """固定パスに original/extracted/metadata を保存する。"""
     safe_job = _sanitize_filename(job_id)
     safe_source = _sanitize_filename(source_id)
@@ -279,8 +286,13 @@ def save_download_artifacts(job_id: str, source_id: str, download_result: dict) 
     try:
         mime = content_type.split(";", 1)[0].strip().lower()
         if mime == "application/pdf":
-            pages = extract_pages(original_path)
-            artifacts = build_artifacts(pages)
+            if pdf_extract_semaphore is None:
+                pages = extract_pages(original_path)
+                artifacts = build_artifacts(pages)
+            else:
+                with pdf_extract_semaphore:
+                    pages = extract_pages(original_path)
+                    artifacts = build_artifacts(pages)
             extracted_text = artifacts.text
             extracted_markdown = artifacts.markdown
         else:

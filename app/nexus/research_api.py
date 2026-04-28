@@ -5,7 +5,6 @@ import json
 import os
 from pathlib import Path
 import threading
-import uuid
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
@@ -13,10 +12,9 @@ from pydantic import BaseModel, Field
 
 from app.nexus.config import load_runtime_config
 from app.nexus.db import get_conn
-from app.nexus.downloader import safe_download, save_download_artifacts
 from app.nexus.evidence import list_evidence_items
 from app.nexus.jobs import create_job, get_job, get_job_events, update_job
-from app.nexus.research_agent import ResearchAgentInput, run_research_job
+from app.nexus.research_agent import ResearchAgentInput, _download_sources_parallel, run_research_job
 from app.nexus.source_collector import collect_source_candidates, rank_source_candidates
 from app.nexus.source_registry import register_or_update_sources
 
@@ -345,17 +343,23 @@ def _build_research_job_health(job: dict, events: list[dict]) -> dict:
             sec_since_hb = max(0.0, (now - datetime.fromisoformat(iso)).total_seconds())
         except ValueError:
             sec_since_hb = None
-    stalled_after = float(str(os.environ.get("NEXUS_STALLED_AFTER_SEC", "120")).strip() or "120")
+    stalled_after = float(str(os.environ.get("NEXUS_DOWNLOAD_STALLED_AFTER_SEC", os.environ.get("NEXUS_STALLED_AFTER_SEC", "60"))).strip() or "60")
     io_phases = {"download", "download_started", "downloading"}
     inferred_phase = str((last_heartbeat or {}).get("data", {}).get("phase") or phase or "").strip()
     is_active = status == "running" and bool(last_heartbeat_at)
     is_terminal = status in {"completed", "degraded", "failed"}
-    is_stalled = bool(is_active and sec_since_hb is not None and sec_since_hb > stalled_after and not is_terminal)
+    progress_events = [ev for ev in events if str(ev.get("type") or "") == "download_progress"]
+    last_progress = progress_events[-1] if progress_events else {}
+    progress_data = (last_progress.get("data") or {}) if isinstance(last_progress, dict) else {}
+    active_downloads = int(progress_data.get("active") or 0)
+    is_stalled = bool(
+        is_active and sec_since_hb is not None and sec_since_hb > stalled_after and not is_terminal and active_downloads > 0
+    )
     stalled_reason = ""
     suggested_action = ""
     if is_stalled:
         if inferred_phase in io_phases:
-            stalled_reason = "可能性: 外部I/O待機"
+            stalled_reason = "可能性: 一部URLの応答待ち"
             suggested_action = "警告のみ。しばらく待機して heartbeat を確認してください。"
         else:
             stalled_reason = "heartbeat 更新停止"
@@ -368,6 +372,7 @@ def _build_research_job_health(job: dict, events: list[dict]) -> dict:
         "seconds_since_last_heartbeat": sec_since_hb,
         "is_active": is_active,
         "is_stalled": bool(is_stalled and inferred_phase not in io_phases),
+        "download_active": active_downloads,
         "stalled_reason": stalled_reason,
         "suggested_action": suggested_action,
     }
@@ -424,77 +429,23 @@ def collect_web_sources(payload: CollectRequest) -> dict:
     )
     max_download_bytes = max_download_mb * 1024 * 1024
     max_total_download_bytes = max_total_download_mb * 1024 * 1024
-    downloadable_sources: list[dict] = []
-    download_count = 0
-    total_downloaded_bytes = 0
-    for candidate in ranked_candidates:
-        source_id = str(candidate.get("source_id") or uuid.uuid4())
-        source = {
-            **candidate,
-            "source_id": source_id,
-            "final_url": str(candidate.get("url") or ""),
-            "content_type": "",
-            "local_original_path": "",
-            "local_text_path": "",
-            "local_markdown_path": "",
-            "status": "failed",
-            "error": "",
-        }
-        url = str(candidate.get("url") or "").strip()
-        if not url:
-            source["error"] = "url is missing"
-            downloadable_sources.append(source)
-            continue
-        if download_count >= max_downloads:
-            source["status"] = "skipped_download_limit"
-            source["error"] = f"max_downloads exceeded ({max_downloads})"
-            downloadable_sources.append(source)
-            continue
-        try:
-            download_result = safe_download(
-                url,
-                max_bytes=max_download_bytes,
-                connect_timeout_sec=download_timeout_sec,
-                read_timeout_sec=download_timeout_sec,
-            )
-            download_size = int(download_result.get("size") or 0)
-            if total_downloaded_bytes + download_size > max_total_download_bytes:
-                source["status"] = "skipped_download_limit"
-                source["error"] = f"max_total_download_mb exceeded ({max_total_download_mb})"
-                downloadable_sources.append(source)
-                continue
-            saved = save_download_artifacts(
-                job_id=payload.job_id,
-                source_id=source_id,
-                download_result=download_result,
-            )
-            download_count += 1
-            total_downloaded_bytes += download_size
-            source["final_url"] = str(download_result.get("final_url") or url)
-            source["content_type"] = str(download_result.get("content_type") or "")
-            source["local_original_path"] = str(saved.get("original") or "")
-            source["local_text_path"] = str(saved.get("extracted_txt") or "")
-            source["local_markdown_path"] = str(saved.get("extracted_md") or "")
-            saved_status = str(saved.get("status") or "downloaded")
-            source["status"] = "degraded" if saved_status == "degraded" else "downloaded"
-            source["error"] = str(saved.get("error") or "")
-        except Exception as exc:  # noqa: BLE001
-            error_message = str(exc)
-            source["error"] = error_message
-            if "content too large" in error_message:
-                source["status"] = "skipped_size_limit"
-                downloadable_sources.append(source)
-                continue
-            if payload.continue_on_download_error:
-                source["status"] = "degraded"
-            else:
-                source["status"] = "failed"
-                downloadable_sources.append(source)
-                raise ValueError(f"download failed and continue_on_download_error=false: {exc}") from exc
-        downloadable_sources.append(source)
+    downloadable_sources, download_error_count = _download_sources_parallel(
+        job_id=payload.job_id,
+        candidates=ranked_candidates,
+        max_downloads=max_downloads,
+        max_download_bytes=max_download_bytes,
+        max_total_download_bytes=max_total_download_bytes,
+        download_timeout_sec=download_timeout_sec,
+        continue_on_download_error=payload.continue_on_download_error,
+        concurrency=runtime_cfg.download_concurrency,
+        pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
+        download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
+        download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
+    )
 
     sources = register_or_update_sources(job_id=payload.job_id, project=payload.project, sources=downloadable_sources)
-    update_job(payload.job_id, status="completed", message="source collection completed", progress=1.0)
+    final_status = "degraded" if download_error_count > 0 else "completed"
+    update_job(payload.job_id, status=final_status, message="source collection completed", progress=1.0)
 
     return {
         "job_id": payload.job_id,

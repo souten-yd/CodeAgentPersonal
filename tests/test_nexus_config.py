@@ -22,6 +22,24 @@ class NexusConfigRuntimeTests(unittest.TestCase):
 
         self.assertEqual(cfg.searxng_url, "http://127.0.0.1:8088")
 
+    def test_parallel_download_config_defaults_and_minimums(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "NEXUS_DOWNLOAD_CONCURRENCY": "0",
+                "NEXUS_PDF_EXTRACT_CONCURRENCY": "-1",
+                "NEXUS_DOWNLOAD_PROGRESS_INTERVAL_SEC": "0",
+                "NEXUS_DOWNLOAD_STALLED_AFTER_SEC": "0",
+            },
+            clear=False,
+        ):
+            cfg = load_runtime_config()
+
+        self.assertEqual(cfg.download_concurrency, 1)
+        self.assertEqual(cfg.pdf_extract_concurrency, 1)
+        self.assertEqual(cfg.download_progress_interval_sec, 1)
+        self.assertEqual(cfg.download_stalled_after_sec, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

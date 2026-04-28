@@ -6,7 +6,7 @@ def test_ui_uses_heartbeat_and_stalled_message() -> None:
     assert '/nexus/research/jobs/' in html
     assert '/bundle' in html
     assert 'seconds_since_last_heartbeat' in html
-    assert 'サーバー側の進捗更新が120秒以上ありません。処理停止の可能性があります。' in html
+    assert 'サーバー側の進捗更新が停滞しています。一部URLの応答待ちの可能性があります。' in html
 
 
 def test_ui_shows_incomplete_warning() -> None:
