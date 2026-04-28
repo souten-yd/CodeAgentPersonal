@@ -13559,6 +13559,178 @@ function _renderPhase1Markdown(markdownText) {
   return `<pre style="margin:0;white-space:pre-wrap;overflow-x:auto">${esc(raw)}</pre>`;
 }
 
+
+function _phase2ImportanceStyle(importance) {
+  const map = {
+    required: 'background:rgba(255,68,102,.12);color:var(--red);border:1px solid rgba(255,68,102,.35);',
+    recommended: 'background:rgba(255,170,0,.10);color:var(--amber);border:1px solid rgba(255,170,0,.30);',
+    optional: 'background:rgba(68,136,255,.10);color:var(--blue);border:1px solid rgba(68,136,255,.30);'
+  };
+  return map[String(importance || '').toLowerCase()] || map.optional;
+}
+
+function _phase2QuestionControl(q) {
+  const qid = esc(String(q.question_id || ''));
+  const options = Array.isArray(q.options) ? q.options : [];
+  const type = String(q.type || 'single_choice');
+  if (type === 'multiple_choice') {
+    return `<div style="display:flex;flex-direction:column;gap:4px">${options.map((opt, i)=>`
+      <label style="font-size:12px;color:var(--text2)"><input type="checkbox" data-qid="${qid}" data-qtype="multiple_choice" value="${esc(String(opt))}" ${i===0 && String(opt)==='おまかせ' ? 'checked' : ''}/> ${esc(String(opt))}</label>`).join('')}</div>`;
+  }
+  if (type === 'yes_no') {
+    return `<div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${['Yes','No','おまかせ'].map((opt)=>`<label style="font-size:12px;color:var(--text2)"><input type="radio" name="q_${qid}" data-qid="${qid}" data-qtype="yes_no" value="${esc(opt)}" ${String(q.default||'')===opt ? 'checked' : ''}/> ${esc(opt)}</label>`).join('')}
+    </div>`;
+  }
+  if (type === 'free_text') {
+    const defaultValue = q.default == null ? '' : String(Array.isArray(q.default) ? q.default.join(', ') : q.default);
+    return `<input data-qid="${qid}" data-qtype="free_text" value="${esc(defaultValue)}" placeholder="回答を入力（おまかせ可）" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px"/>`;
+  }
+  return `<select data-qid="${qid}" data-qtype="single_choice" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px">${options.map((opt)=>`<option value="${esc(String(opt))}" ${String(q.default||'')===String(opt)?'selected':''}>${esc(String(opt))}</option>`).join('')}</select>`;
+}
+
+function _collectClarificationAnswers(card) {
+  const rows = card.querySelectorAll('[data-question-row="1"]');
+  const answers = [];
+  rows.forEach((row) => {
+    const qid = row.getAttribute('data-qid');
+    const qtype = row.getAttribute('data-qtype');
+    if (!qid || !qtype) return;
+    let answer = null;
+    if (qtype === 'multiple_choice') {
+      answer = Array.from(row.querySelectorAll('input[type="checkbox"][data-qid]:checked')).map((el) => el.value);
+      if (!answer.length) answer = ['おまかせ'];
+    } else if (qtype === 'yes_no') {
+      const checked = row.querySelector(`input[type="radio"][name="q_${qid}"]:checked`);
+      answer = checked ? checked.value : 'おまかせ';
+    } else if (qtype === 'free_text') {
+      const input = row.querySelector('input[data-qid]');
+      answer = (input?.value || '').trim() || 'おまかせ';
+    } else {
+      const sel = row.querySelector('select[data-qid]');
+      answer = sel?.value || 'おまかせ';
+    }
+    answers.push({ question_id: qid, answer });
+  });
+  return answers;
+}
+
+function renderClarificationCard(result, context = {}) {
+  const questions = Array.isArray(result?.questions) ? result.questions : [];
+  const cardId = 'phase2-clar-card-' + Date.now();
+  const qHtml = questions.length
+    ? questions.map((q) => `
+      <div data-question-row="1" data-qid="${esc(String(q.question_id||''))}" data-qtype="${esc(String(q.type||'single_choice'))}" style="border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg2);margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+          <div style="font-size:13px;color:var(--text);font-weight:700">${esc(String(q.question||''))}</div>
+          <span style="font-size:10px;padding:2px 8px;border-radius:12px;${_phase2ImportanceStyle(q.importance)}">${esc(String(q.importance||'optional'))}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin:6px 0">理由: ${esc(String(q.reason||'-'))}</div>
+        ${_phase2QuestionControl(q)}
+      </div>
+    `).join('')
+    : '<div style="font-size:11px;color:var(--text3)">質問はありません。</div>';
+
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.innerHTML = `
+    <div class="msg-role" style="color:var(--amber)">Clarification Required</div>
+    <div class="plan-card" id="${cardId}">
+      <div class="plan-card-header"><span>${esc(result?.message || 'Clarification required before planning')}</span></div>
+      <div class="plan-section">
+        <div class="plan-section-title">Questions</div>
+        ${qHtml}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <button class="phase1-plan-btn" data-action="submit">回答してPlan生成</button>
+          <button class="phase1-tab-btn" data-action="skip">おまかせで進める</button>
+        </div>
+      </div>
+    </div>`;
+  const w = messages();
+  w.appendChild(div);
+  scrollMsgs();
+
+  const card = div.querySelector(`#${cardId}`);
+  const submitBtn = card?.querySelector('[data-action="submit"]');
+  const skipBtn = card?.querySelector('[data-action="skip"]');
+  const baseReq = result?.requirement_id;
+
+  const runContinue = async () => {
+    const rc = await fetch(API + '/api/task/continue', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        requirement_id: baseReq,
+        planning_mode: context.planningMode || 'standard',
+        requirement_mode: context.requirementMode || 'ask_when_needed',
+        execution_mode: context.executionMode || 'plan_only',
+        use_nexus: true,
+      })
+    });
+    const dc = await rc.json();
+    if (!rc.ok) throw new Error(dc.detail || `HTTP ${rc.status}`);
+    if (dc.status === 'waiting_for_clarification') {
+      renderClarificationCard(dc, context);
+      return;
+    }
+    let planMarkdown = '';
+    try {
+      const rm = await fetch(API + `/api/plans/${encodeURIComponent(dc.plan_id)}/markdown`);
+      const dm = await rm.json();
+      if (!rm.ok) throw new Error(dm.detail || `HTTP ${rm.status}`);
+      planMarkdown = String(dm.markdown || '');
+    } catch (mdErr) {
+      addLog('warn', 'plan-only', `Plan markdown fetch warning: ${mdErr.message || String(mdErr)}`);
+    }
+    renderPhase1PlanCard(dc, planMarkdown);
+  };
+
+  submitBtn?.addEventListener('click', async () => {
+    if (busy) return;
+    const progEl = addProgressCard('Applying clarification answers...');
+    setBusy(true);
+    try {
+      const answers = _collectClarificationAnswers(card);
+      const ra = await fetch(API + '/api/requirements/answer', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ requirement_id: baseReq, answers })
+      });
+      const da = await ra.json();
+      if (!ra.ok) throw new Error(da.detail || `HTTP ${ra.status}`);
+      await runContinue();
+    } catch (e) {
+      addMsg('error', 'Clarification failed: ' + (e.message || String(e)));
+      addLog('err', 'plan-only', e.message || String(e));
+    } finally {
+      progEl.remove();
+      setBusy(false);
+    }
+  });
+
+  skipBtn?.addEventListener('click', async () => {
+    if (busy) return;
+    const progEl = addProgressCard('Applying default assumptions...');
+    setBusy(true);
+    try {
+      const ra = await fetch(API + '/api/requirements/answer', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ requirement_id: baseReq, skip_with_defaults: true, answers: [] })
+      });
+      const da = await ra.json();
+      if (!ra.ok) throw new Error(da.detail || `HTTP ${ra.status}`);
+      await runContinue();
+    } catch (e) {
+      addMsg('error', 'Clarification skip failed: ' + (e.message || String(e)));
+      addLog('err', 'plan-only', e.message || String(e));
+    } finally {
+      progEl.remove();
+      setBusy(false);
+    }
+  });
+}
+
 function renderPhase1PlanCard(result, planMarkdown = '') {
   const requirement = result?.requirement || {};
   const plan = result?.plan || {};
@@ -13651,6 +13823,15 @@ async function generatePlanOnlyFromInput() {
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    const ws = Array.isArray(d?.warnings) ? d.warnings : [];
+    ws.forEach((w) => addLog('warn', 'plan-only', String(w)));
+
+    if (d.status === 'waiting_for_clarification') {
+      renderClarificationCard(d, { planningMode, requirementMode, executionMode });
+      addLog('ok', 'plan-only', `Clarification required requirement_id=${d.requirement_id}`);
+      return;
+    }
+
     let planMarkdown = '';
     try {
       const rm = await fetch(API + `/api/plans/${encodeURIComponent(d.plan_id)}/markdown`);
@@ -13661,8 +13842,6 @@ async function generatePlanOnlyFromInput() {
       addLog('warn', 'plan-only', `Plan markdown fetch warning: ${mdErr.message || String(mdErr)}`);
     }
     renderPhase1PlanCard(d, planMarkdown);
-    const ws = Array.isArray(d?.warnings) ? d.warnings : [];
-    ws.forEach((w) => addLog('warn', 'plan-only', String(w)));
     addLog('ok', 'plan-only', `Generated plan_id=${d.plan_id} requirement_id=${d.requirement_id}`);
   } catch (e) {
     addMsg('error', 'Phase1 plan generation failed: ' + (e.message || String(e)));

@@ -5,9 +5,12 @@ from pathlib import Path
 from typing import Callable
 
 from agent.agent_prompts import PLAN_GENERATION_PROMPT, REQUIREMENT_ANALYSIS_PROMPT
+from agent.clarification_manager import ClarificationManager
 from agent.nexus_context_builder import NexusContextBuilder
 from agent.plan_storage import PlanStorage
 from agent.planner_phase1 import PlannerPhase1
+from agent.requirement_analyzer import RequirementAnalyzer
+from agent.requirement_schema import RequirementDefinition
 
 
 def _build_repository_context(project_path: str, max_files: int = 30) -> str:
@@ -47,6 +50,8 @@ class TaskPlanningRunner:
     ) -> None:
         self.storage = PlanStorage(ca_data_dir)
         self.planner = PlannerPhase1(llm_json_fn=llm_json_fn)
+        self.requirement_analyzer = RequirementAnalyzer(llm_json_fn=llm_json_fn)
+        self.clarification_manager = ClarificationManager()
         self.nexus_builder = NexusContextBuilder(
             memory_search_fn=memory_search_fn,
             active_skills_fn=active_skills_fn,
@@ -73,12 +78,125 @@ class TaskPlanningRunner:
         nexus_context = self.nexus_builder.build(user_input, use_nexus=use_nexus)
         warnings.extend([str(x) for x in (nexus_context.get("warnings") or []) if str(x).strip()])
 
-        requirement = self.planner.build_requirement(
+        requirement = self.requirement_analyzer.analyze(
             source_task_id=task_id,
             user_input=user_input,
+            requirement_mode=requirement_mode,
+            planning_mode=planning_mode,
             prompt=REQUIREMENT_ANALYSIS_PROMPT,
+            nexus_context=nexus_context,
+            repository_context=repository_context,
         )
-        warnings.extend(self.planner.get_last_warnings())
+        warnings.extend(self.requirement_analyzer.get_last_warnings())
+
+        clarification = self.clarification_manager.generate(requirement, requirement_mode, allow_derive=True)
+        _req_json, req_md = self.storage.save_requirement(requirement)
+
+        unresolved_required = self.clarification_manager.unresolved_required_questions(requirement)
+        if unresolved_required:
+            warnings = _dedup_warnings(warnings)
+            return {
+                "task_id": task_id,
+                "requirement_id": requirement.requirement_id,
+                "status": "waiting_for_clarification",
+                "message": "Clarification required before planning.",
+                "planning_mode": planning_mode if planning_mode in {"fast", "standard", "deep_nexus"} else "standard",
+                "requirement_mode": requirement_mode,
+                "execution_mode": execution_mode,
+                "effective_execution_mode": "plan_only",
+                "questions": [q.model_dump() for q in clarification.questions],
+                "clarification": clarification.model_dump(),
+                "requirement": requirement.model_dump(),
+                "nexus_context": nexus_context,
+                "repository_context": repository_context,
+                "requirement_markdown_path": str(req_md),
+                "warnings": warnings,
+            }
+
+        return self.continue_from_requirement(
+            requirement_id=requirement.requirement_id,
+            planning_mode=planning_mode,
+            requirement_mode=requirement_mode,
+            execution_mode=execution_mode,
+            use_nexus=use_nexus,
+            project_path=project_path,
+            task_id=task_id,
+            nexus_context=nexus_context,
+            repository_context=repository_context,
+            warnings=warnings,
+        )
+
+    def answer_requirement_questions(self, *, requirement_id: str, answers: list[dict]) -> dict:
+        req_data = self.storage.load_requirement(requirement_id)
+        requirement = RequirementDefinition(**req_data)
+        requirement = self.clarification_manager.apply_answers(requirement, answers)
+        self.storage.save_requirement(requirement)
+        remaining = [q.model_dump() for q in requirement.open_questions]
+        return {
+            "requirement_id": requirement.requirement_id,
+            "status": "answered" if not remaining else "waiting_for_clarification",
+            "requirement": requirement.model_dump(),
+            "remaining_questions": remaining,
+        }
+
+    def skip_requirement_questions(self, *, requirement_id: str) -> dict:
+        req_data = self.storage.load_requirement(requirement_id)
+        requirement = RequirementDefinition(**req_data)
+        requirement = self.clarification_manager.skip_with_defaults(requirement)
+        self.storage.save_requirement(requirement)
+        return {
+            "requirement_id": requirement.requirement_id,
+            "status": "answered",
+            "requirement": requirement.model_dump(),
+            "remaining_questions": [],
+        }
+
+    def continue_from_requirement(
+        self,
+        *,
+        requirement_id: str,
+        planning_mode: str,
+        requirement_mode: str,
+        execution_mode: str,
+        use_nexus: bool,
+        project_path: str | None = None,
+        task_id: str | None = None,
+        nexus_context: dict | None = None,
+        repository_context: str | None = None,
+        warnings: list[str] | None = None,
+    ) -> dict:
+        req_data = self.storage.load_requirement(requirement_id)
+        requirement = RequirementDefinition(**req_data)
+        warnings = list(warnings or [])
+
+        clarification = self.clarification_manager.generate(requirement, requirement_mode, allow_derive=False)
+        unresolved_required = self.clarification_manager.unresolved_required_questions(requirement)
+        self.storage.save_requirement(requirement)
+        if unresolved_required:
+            return {
+                "task_id": task_id or requirement.source_task_id,
+                "requirement_id": requirement.requirement_id,
+                "status": "waiting_for_clarification",
+                "message": "Clarification required before planning.",
+                "planning_mode": planning_mode if planning_mode in {"fast", "standard", "deep_nexus"} else "standard",
+                "requirement_mode": requirement_mode,
+                "execution_mode": execution_mode,
+                "effective_execution_mode": "plan_only",
+                "questions": [q.model_dump() for q in clarification.questions],
+                "clarification": clarification.model_dump(),
+                "requirement": requirement.model_dump(),
+                "warnings": _dedup_warnings(warnings),
+            }
+
+        if repository_context is None:
+            repository_context = _build_repository_context(project_path or "")
+            if repository_context.startswith("Project path not found:"):
+                warnings.append("Project path was not found. Repository context fallback was used.")
+            elif repository_context.startswith("Repository scan warning:"):
+                warnings.append("Repository scan failed partially. Repository context fallback was used.")
+        if nexus_context is None:
+            nexus_context = self.nexus_builder.build(requirement.user_input, use_nexus=use_nexus)
+            warnings.extend([str(x) for x in (nexus_context.get("warnings") or []) if str(x).strip()])
 
         plan = self.planner.build_plan(
             requirement=requirement,
@@ -90,15 +208,15 @@ class TaskPlanningRunner:
         warnings.extend(self.planner.get_last_warnings())
 
         _req_json, req_md = self.storage.save_requirement(requirement)
-        _plan_json, plan_md = self.storage.save_plan(plan, user_input=user_input, interpreted_goal=requirement.interpreted_goal)
-        warnings = list(dict.fromkeys([w.strip() for w in warnings if isinstance(w, str) and w.strip()]))
+        _plan_json, plan_md = self.storage.save_plan(plan, user_input=requirement.user_input, interpreted_goal=requirement.interpreted_goal)
+        warnings = _dedup_warnings(warnings)
 
         return {
-            "task_id": task_id,
+            "task_id": task_id or requirement.source_task_id,
             "requirement_id": requirement.requirement_id,
             "plan_id": plan.plan_id,
             "status": "planned",
-            "message": "Plan generated. No implementation was executed in Phase 1.",
+            "message": "Plan generated. No implementation was executed in Phase 2.",
             "planning_mode": planning_mode if planning_mode in {"fast", "standard", "deep_nexus"} else "standard",
             "requirement_mode": requirement_mode,
             "execution_mode": execution_mode,
@@ -111,3 +229,7 @@ class TaskPlanningRunner:
             "plan_markdown_path": str(plan_md),
             "warnings": warnings,
         }
+
+
+def _dedup_warnings(warnings: list[str]) -> list[str]:
+    return list(dict.fromkeys([w.strip() for w in warnings if isinstance(w, str) and w.strip()]))
