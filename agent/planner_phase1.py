@@ -85,10 +85,11 @@ class PlannerPhase1:
         repository_context: str,
     ) -> Plan:
         warnings: list[str] = []
+        nexus_text = _format_nexus_context(nexus_context)
         planner_input = "\n\n".join([
             f"User Input:\n{requirement.user_input}",
             f"Requirement Summary:\nGoal={requirement.interpreted_goal}\nFunctional={requirement.functional_requirements}\nNonFunctional={requirement.non_functional_requirements}\nConstraints={requirement.constraints}",
-            f"Nexus Context:\n{nexus_context}",
+            f"Nexus Context:\n{nexus_text}",
             f"Repository Context:\n{repository_context}",
             f"Planning Mode: {planning_mode or 'standard'}",
         ])
@@ -190,3 +191,23 @@ def _safe_action_type(value: str) -> str:
 def _safe_risk_level(value: str) -> str:
     allowed = {"low", "medium", "high"}
     return value if value in allowed else "low"
+
+
+def _format_nexus_context(nexus_context: dict) -> str:
+    if not isinstance(nexus_context, dict):
+        return str(nexus_context)
+    compact = str(nexus_context.get("compact_text") or "").strip()
+    if compact:
+        return compact[:9000]
+    summary = str(nexus_context.get("summary") or "")
+    items = nexus_context.get("items") if isinstance(nexus_context.get("items"), list) else []
+    lines = [summary] if summary else []
+    for item in items[:5]:
+        if isinstance(item, dict):
+            title = str(item.get("title") or item.get("name") or "")
+            reason = str(item.get("reason") or "")
+            s = str(item.get("summary") or item.get("description") or item.get("content") or "")
+            lines.append(f"- {title} ({reason}): {s[:220]}")
+        else:
+            lines.append(f"- {str(item)[:220]}")
+    return "\n".join([x for x in lines if x]).strip()[:9000]
