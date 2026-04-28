@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import sqlite3
 from urllib import error, request
 import uuid
 
@@ -72,10 +73,15 @@ def _normalize_chat_completions_endpoint(raw_url: str) -> str:
 
 def _build_endpoint_candidates() -> list[str]:
     openai_base = str(os.environ.get("OPENAI_BASE_URL", "")).strip()
+    search_assignment = _load_search_role_assignment()
+    search_endpoint = _normalize_chat_completions_endpoint(
+        str(search_assignment.get("endpoint") or search_assignment.get("base_url") or "").strip()
+    )
     candidates = [
         str(os.environ.get("DEEP_RESEARCH_LLM_ENDPOINT", "")).strip(),
         str(os.environ.get("ANSWER_LLM_ENDPOINT", "")).strip(),
         str(os.environ.get("NEXUS_ANSWER_LLM_ENDPOINT", "")).strip(),
+        search_endpoint,
         _normalize_chat_completions_endpoint(openai_base) if openai_base else "",
         str(os.environ.get("LOCAL_LLM_ENDPOINT", "")).strip(),
         str(os.environ.get("CODEAGENT_LLM_CHAT", "")).strip(),
@@ -153,17 +159,106 @@ def _probe_llm_endpoint(endpoint: str, timeout_sec: float = 1.5) -> bool:
     return bool(_probe_llm_endpoint_detail(endpoint=endpoint, timeout_sec=timeout_sec).get("reachable"))
 
 
+def _default_model_db_path() -> Path:
+    configured = str(os.environ.get("CODEAGENT_MODEL_DB_PATH", "")).strip()
+    if configured:
+        return Path(configured)
+    ca_data_dir = str(os.environ.get("CODEAGENT_CA_DATA_DIR", "")).strip()
+    if ca_data_dir:
+        return Path(ca_data_dir) / "model_db.db"
+    repo_root = Path(__file__).resolve().parents[2]
+    return repo_root / "ca_data" / "model_db.db"
+
+
+def _load_search_role_assignment() -> dict:
+    db_path = _default_model_db_path()
+    if not db_path.exists():
+        return {}
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        role_row = conn.execute("SELECT value FROM settings WHERE key = ?", ("role_model_search",)).fetchone()
+        if role_row is None:
+            return {"role": "SEARCH", "error": "role_model_search_unset"}
+        model_key = str(role_row["value"] or "").strip()
+        if not model_key:
+            return {"role": "SEARCH", "error": "role_model_search_empty"}
+        model_row = conn.execute(
+            "SELECT model_key, enabled, llm_url, name FROM models WHERE model_key = ? LIMIT 1",
+            (model_key,),
+        ).fetchone()
+        if model_row is None:
+            return {"role": "SEARCH", "model_key": model_key, "error": "search_model_not_found"}
+        return {
+            "role": "SEARCH",
+            "model_key": str(model_row["model_key"] or "").strip(),
+            "model": str(model_row["model_key"] or "").strip(),
+            "name": str(model_row["name"] or "").strip(),
+            "enabled": int(model_row["enabled"] or 0) != 0,
+            "endpoint": str(model_row["llm_url"] or "").strip(),
+            "base_url": str(model_row["llm_url"] or "").strip(),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"role": "SEARCH", "error": f"search_role_lookup_failed:{exc}"}
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _discover_model_from_models_api(endpoint: str, timeout_sec: float = 1.5) -> str:
+    if not endpoint:
+        return ""
+    base = endpoint.replace("/v1/chat/completions", "").rstrip("/")
+    models_url = f"{base}/v1/models"
+    req = request.Request(models_url, method="GET")
+    try:
+        with request.urlopen(req, timeout=timeout_sec) as resp:
+            parsed = json.loads(resp.read().decode("utf-8"))
+    except Exception:  # noqa: BLE001
+        return ""
+    data = parsed.get("data") if isinstance(parsed, dict) else None
+    if not isinstance(data, list) or not data:
+        return ""
+    first = data[0] if isinstance(data[0], dict) else {}
+    return str(first.get("id") or "").strip()
+
+
+def _resolve_model_name(*, endpoint: str, search_assignment: dict) -> tuple[str, str, str]:
+    explicit_model = str(os.environ.get("DEEP_RESEARCH_LLM_MODEL", "")).strip()
+    if explicit_model:
+        return explicit_model, "explicit", "deep_research_llm_model"
+    answer_model = str(os.environ.get("ANSWER_LLM_MODEL", "")).strip()
+    if answer_model:
+        return answer_model, "explicit", "answer_llm_model"
+    nexus_answer_model = str(os.environ.get("NEXUS_ANSWER_LLM_MODEL", "")).strip()
+    if nexus_answer_model:
+        return nexus_answer_model, "explicit", "nexus_answer_llm_model"
+
+    search_model = str(search_assignment.get("model") or "").strip()
+    search_enabled = bool(search_assignment.get("enabled"))
+    if search_model and search_enabled:
+        return search_model, "model_orchestrator", "search_role_model"
+    if str(search_assignment.get("error") or "").strip():
+        search_reason = str(search_assignment.get("error") or "").strip()
+    else:
+        search_reason = "search_role_model_missing_or_disabled"
+
+    llm_model = str(os.environ.get("LLM_MODEL", "")).strip()
+    if llm_model:
+        return llm_model, "fallback", f"{search_reason}_fallback_to_llm_model"
+
+    first_model = _discover_model_from_models_api(endpoint)
+    if first_model:
+        return first_model, "fallback", f"{search_reason}_fallback_to_models_api"
+    return "local-llm", "fallback", f"{search_reason}_fallback_to_local_llm"
+
+
 def _resolve_answer_llm_settings() -> dict:
     endpoint_candidates = _build_endpoint_candidates()
     explicit_endpoint = str(os.environ.get("DEEP_RESEARCH_LLM_ENDPOINT", "")).strip()
     explicit_endpoint = _normalize_chat_completions_endpoint(explicit_endpoint) if explicit_endpoint else ""
-    model = str(
-        os.environ.get("DEEP_RESEARCH_LLM_MODEL")
-        or os.environ.get("ANSWER_LLM_MODEL")
-        or os.environ.get("NEXUS_ANSWER_LLM_MODEL")
-        or os.environ.get("LLM_MODEL")
-        or "local-llm"
-    ).strip() or "local-llm"
+    search_assignment = _load_search_role_assignment()
 
     explicit_enabled = (
         _env_truthy("DEEP_RESEARCH_LLM_ENABLED")
@@ -221,15 +316,24 @@ def _resolve_answer_llm_settings() -> dict:
     if explicit_enabled is None:
         enabled = bool(selected_endpoint) and llm_reachable
 
+    model, model_source, model_reason = _resolve_model_name(
+        endpoint=selected_endpoint,
+        search_assignment=search_assignment,
+    )
+    selected_reason = model_reason if model_source != "model_orchestrator" else "search_role_model"
+
     return {
         "enabled": enabled,
         "endpoint": selected_endpoint,
         "model": model,
+        "model_role": "SEARCH",
+        "model_source": model_source,
         "reachable": llm_reachable,
         "probe_error": probe_error,
         "selected_reason": selected_reason,
         "probe_status": probe_status,
         "explicit_enabled": explicit_enabled,
+        "search_assignment": search_assignment,
     }
 
 
@@ -248,6 +352,7 @@ def _generate_answer_with_llm(
     endpoint = str(llm_settings.get("endpoint") or "").strip()
     model = str(llm_settings.get("model") or "").strip() or "local-llm"
     timeout_value = float(timeout_sec or os.environ.get("NEXUS_ANSWER_LLM_TIMEOUT_SEC", "20"))
+    max_tokens = int(str(os.environ.get("NEXUS_ANSWER_LLM_MAX_TOKENS", "1024")).strip() or "1024")
 
     reference_lines = []
     for idx, ref in enumerate(references, start=1):
@@ -294,6 +399,8 @@ def _generate_answer_with_llm(
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.2,
+        "max_tokens": max_tokens,
+        "stream": False,
     }
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = request.Request(endpoint, data=body, method="POST")
@@ -304,6 +411,13 @@ def _generate_answer_with_llm(
             raw = resp.read().decode("utf-8")
     except TimeoutError as exc:
         raise TimeoutError("answer llm timeout") from exc
+    except error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode("utf-8")
+        except Exception:  # noqa: BLE001
+            body = ""
+        raise RuntimeError(f"answer llm http_error: status={exc.code} body={body}") from exc
     except error.URLError as exc:
         raise RuntimeError(f"answer llm unavailable: {exc}") from exc
 
@@ -415,6 +529,8 @@ def build_answer_payload(
     llm_endpoint = str(llm_settings.get("endpoint") or "").strip()
     llm_model = str(llm_settings.get("model") or "local-llm").strip() or "local-llm"
     llm_reachable = bool(llm_settings.get("reachable"))
+    llm_model_role = str(llm_settings.get("model_role") or "SEARCH")
+    llm_model_source = str(llm_settings.get("model_source") or "fallback")
     llm_probe_error = str(llm_settings.get("probe_error") or "").strip()
     llm_selected_reason = str(llm_settings.get("selected_reason") or "").strip()
     llm_probe_status = llm_settings.get("probe_status") if isinstance(llm_settings.get("probe_status"), list) else []
@@ -452,17 +568,29 @@ def build_answer_payload(
         "llm_enabled": llm_enabled,
         "llm_endpoint": llm_endpoint,
         "llm_model": llm_model,
+        "model_role": llm_model_role,
+        "model_source": llm_model_source,
         "llm_reachable": llm_reachable,
         "probe_error": llm_probe_error,
         "selected_reason": llm_selected_reason,
         "probe_status": llm_probe_status,
         "error": llm_error,
         "notice": (
-            "Answer LLM is disabled. Deep Research generated a template fallback answer. "
-            "Citation quality may be weak because no LLM synthesis was performed. "
-            "Check DEEP_RESEARCH_LLM_ENABLED and endpoint settings."
-            if generation_mode == "template_fallback"
-            else ""
+            "Answer LLM is disabled. Deep Research generated a template fallback answer."
+            if not llm_enabled
+            else (
+                "Answer LLM endpoint is unreachable. Deep Research generated a template fallback answer."
+                if not llm_reachable
+                else (
+                    "Answer LLM request failed. Deep Research generated a template fallback answer."
+                    if llm_error
+                    else (
+                        "No evidence chunks were available. Deep Research generated a template fallback answer."
+                        if not chunks_for_llm
+                        else ""
+                    )
+                )
+            )
         ),
     }
 
@@ -480,6 +608,8 @@ def build_answer_payload(
         "llm_endpoint": llm_endpoint,
         "llm_model": llm_model,
         "llm_reachable": llm_reachable,
+        "model_role": llm_model_role,
+        "model_source": llm_model_source,
         "probe_error": llm_probe_error,
         "selected_reason": llm_selected_reason,
         "probe_status": llm_probe_status,
