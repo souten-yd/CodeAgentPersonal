@@ -49,7 +49,12 @@ backup_invalid_sbv2_path() {
   local path="$1"
   local ts
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
-  local backup="${path}.broken-${ts}"
+  local backup="${path}.broken-${ts}-$$"
+  local suffix=0
+  while [ -e "$backup" ] || [ -L "$backup" ]; do
+    suffix=$((suffix + 1))
+    backup="${path}.broken-${ts}-$$-${suffix}"
+  done
   echo "[Style-Bert-VITS2] moving invalid koharune-ami path to: ${backup}" >&2
   mv "$path" "$backup"
 }
@@ -108,6 +113,12 @@ if ! validate_sbv2_model_dir "${SBV2_WORKSPACE_MODEL_PATH}" "final workspace koh
   echo "[Style-Bert-VITS2] FATAL: final workspace koharune-ami is invalid after repair." >&2
   exit 1
 fi
+
+FINAL_LINK_TARGET="$(readlink "${SBV2_WORKSPACE_MODEL_PATH}" 2>/dev/null || echo "(not a symlink)")"
+echo "[Style-Bert-VITS2] final workspace model path: ${SBV2_WORKSPACE_MODEL_PATH}"
+echo "[Style-Bert-VITS2] final workspace model readlink: ${FINAL_LINK_TARGET}"
+echo "[Style-Bert-VITS2] bundled model path: ${SBV2_BUNDLED_MODEL_PATH}"
+echo "[Style-Bert-VITS2] validate success: workspace koharune-ami is ready"
 
 if [ "${AUTO_START_SEARXNG}" = "true" ]; then
   bash /app/scripts/start_searxng.sh || echo "[SearXNG][WARN] start_searxng.sh failed; continuing FastAPI startup."
