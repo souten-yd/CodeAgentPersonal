@@ -2423,8 +2423,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <select id="echo-tts-engine"
             style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
             onchange="saveEchoSettings()">
-            <option value="qwen3tts" selected>Qwen3 TTS（高品質・ローカル）</option>
-            <option value="style_bert_vits2">Style-Bert-VITS2</option>
+            <option value="style_bert_vits2" selected>Style-Bert-VITS2</option>
           </select>
         </div>
         <div style="margin-bottom:8px">
@@ -3571,7 +3570,7 @@ let isTtsPlaying = false;
 const tts = {
   enabled:      localStorage.getItem('tts_enabled')    === 'true',
   autoSpeak:    localStorage.getItem('tts_auto_speak') === 'true',
-  engine:       localStorage.getItem('tts_engine')     || 'qwen3tts',
+  engine:       'style_bert_vits2',
   voice:        localStorage.getItem('tts_voice')      || '',
   speed:        parseFloat(localStorage.getItem('tts_speed') || '1.0'),
   qwen3model:   localStorage.getItem('tts_qwen3model') || 'Qwen/Qwen3-TTS-12Hz-1.7B-Base',
@@ -3603,9 +3602,8 @@ const agentTts = {
   })(),
 };
 
-const _SUPPORTED_TTS_ENGINES = new Set(['qwen3tts', 'style_bert_vits2']);
+const _SUPPORTED_TTS_ENGINES = new Set(['style_bert_vits2']);
 const _TTS_ENGINE_COMPAT_ALIASES = {
-  qwen3_tts: 'qwen3tts',
   stylebertvits2: 'style_bert_vits2',
   'style-bert-vits2': 'style_bert_vits2',
 };
@@ -3620,7 +3618,7 @@ const _QWEN3_TTS_ALLOWED_MODEL_IDS = new Set([
 ]);
 function _normalizeTtsEngine(engine) {
   const normalized = _TTS_ENGINE_COMPAT_ALIASES[String(engine || '').trim().toLowerCase()] || engine;
-  return _SUPPORTED_TTS_ENGINES.has(normalized) ? normalized : 'qwen3tts';
+  return _SUPPORTED_TTS_ENGINES.has(normalized) ? normalized : 'style_bert_vits2';
 }
 function _normalizeQwen3ModelId(modelId) {
   return _QWEN3_TTS_ALLOWED_MODEL_IDS.has(modelId) ? modelId : 'Qwen/Qwen3-TTS-12Hz-1.7B-Base';
@@ -3662,7 +3660,7 @@ const echo = {
     }
     return autoPlayTtsStored === 'true';
   })(),
-  ttsEngine:      localStorage.getItem('echo_tts_engine')  || 'qwen3tts',
+  ttsEngine:      'style_bert_vits2',
   ttsOutputDeviceId: localStorage.getItem('echo_tts_output_device_id') || 'default',
   styleBertVits2Model: localStorage.getItem('echo_style_bert_vits2_model')
                     || localStorage.getItem('echo_stylebertvits2_model')
@@ -5810,7 +5808,7 @@ async function loadQwen3Tts(context) {
 
 function saveEchoSettings() {
   echo.autoPlayTts = document.getElementById('echo-autoplay-tts')?.checked || false;
-  echo.ttsEngine   = _normalizeTtsEngine(document.getElementById('echo-tts-engine')?.value || 'qwen3tts');
+  echo.ttsEngine   = 'style_bert_vits2';
   echo.ttsOutputDeviceId = document.getElementById('echo-tts-output-device')?.value || echo.ttsOutputDeviceId || 'default';
   // Chat/Task 側のTTSエンジンも Echo 設定を参照する
   tts.engine = echo.ttsEngine;

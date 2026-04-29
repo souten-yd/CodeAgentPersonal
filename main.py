@@ -12673,16 +12673,8 @@ def _build_tts_engine_registry() -> EngineRegistry:
     registry = EngineRegistry(
         _engines={},
         _aliases={
-            "qwen3tts": "qwen3_tts",
-            "qwen3_tts": "qwen3_tts",
             "stylebertvits2": "style_bert_vits2",
             "style-bert-vits2": "style_bert_vits2",
-            "voicevox": "qwen3_tts",
-            "edgetts": "qwen3_tts",
-            "edge_tts": "qwen3_tts",
-            "webspeech": "qwen3_tts",
-            "web_speech": "qwen3_tts",
-            "browser_tts": "qwen3_tts",
         },
     )
     registry.register(
@@ -12737,12 +12729,10 @@ _tts_engine_registry = _build_tts_engine_registry()
 
 @app.get("/tts/status")
 def tts_status_api():
-    qwen_snapshot = _qwen3tts_status_snapshot()
     response = {
         "jtalk_exists": _tts_jtalk_exists(),
         "tts_startup_health": _tts_startup_health_snapshot,
     }
-    response.update(qwen_snapshot)
     response["engine_registry"] = _tts_engine_registry.collect_status()
     return response
 
