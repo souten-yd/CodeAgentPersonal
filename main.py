@@ -53,6 +53,10 @@ from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_base_dir,
     resolve_style_bert_vits2_models_dir,
 )
+
+_STYLE_BERT_VITS2_BASE_DIR = resolve_style_bert_vits2_base_dir()
+_STYLE_BERT_VITS2_MODELS_DIR = resolve_style_bert_vits2_models_dir()
+os.makedirs(_STYLE_BERT_VITS2_MODELS_DIR, exist_ok=True)
 from app.nexus.router import router as nexus_router
 from app.nexus.web_scout import plan_web_queries, run_web_search
 from app.nexus.web_service import execute_nexus_web_search
@@ -12102,15 +12106,9 @@ def _ref_audio_dir() -> str:
 
 
 def _build_tts_engine_registry() -> EngineRegistry:
-    registry = EngineRegistry(
-        _engines={},
-        _aliases={
-            "stylebertvits2": "style_bert_vits2",
-            "style-bert-vits2": "style_bert_vits2",
-        },
-    )
+    registry = EngineRegistry(_engines={}, _aliases={"stylebertvits2": "style_bert_vits2", "style-bert-vits2": "style_bert_vits2"})
     registry.register(
-        StyleBertVITS2Runtime(models_dir=_STYLE_BERT_VITS2_MODELS_DIR),
+        StyleBertVITS2Runtime(),
         aliases=["stylebertvits2", "style-bert-vits2"],
     )
     return registry
@@ -12226,8 +12224,6 @@ async def tts_translate_text_api(req: dict = {}):
 
 _REF_AUDIO_ALLOWED_EXT = {".wav", ".mp3", ".flac", ".ogg", ".webm"}
 
-_STYLE_BERT_VITS2_BASE_DIR = resolve_style_bert_vits2_base_dir()
-_STYLE_BERT_VITS2_MODELS_DIR = resolve_style_bert_vits2_models_dir()
 _STYLE_BERT_VITS2_DEFAULT_REPO_DIR = "/app/Style-Bert-VITS2"
 _STYLE_BERT_VITS2_DEFAULT_VENV_DIR = "/app/Style-Bert-VITS2/.venv"
 _STYLE_BERT_VITS2_DEFAULT_INIT_FLAG = os.path.join(_STYLE_BERT_VITS2_BASE_DIR, ".initialized")
