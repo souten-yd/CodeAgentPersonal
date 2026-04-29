@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.nexus.db import get_conn
 from app.nexus.config import load_runtime_config
-from app.nexus.evidence import build_library_evidence, search_evidence_items
+from app.nexus.evidence import EvidenceItem, build_library_evidence, save_evidence_items, search_evidence_items
 from app.nexus.export import nexus_export_router
 from app.nexus.ingest import accept_upload
 from app.nexus.jobs import list_active_jobs
@@ -99,6 +99,27 @@ class NexusWebSearchRequest(BaseModel):
     max_results_per_query: int | None = Field(default=None, ge=1, le=20)
     scope: str | list[str] | None = None
     language: str | None = None
+
+
+class NexusSourceSearchRequest(BaseModel):
+    query: str = Field(min_length=1)
+    scope: str = Field(default="current_research_job")
+    job_id: str | None = None
+    source_ids: list[str] = Field(default_factory=list)
+    source_types: list[str] = Field(default_factory=list)
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class NexusEvidenceAddFromChunksRequest(BaseModel):
+    job_id: str = Field(min_length=1)
+    chunk_ids: list[str] = Field(default_factory=list)
+    source_id: str | None = None
+
+
+class NexusResearchFollowupRequest(BaseModel):
+    question: str = Field(min_length=1)
+    use_existing_sources_only: bool = True
+    limit: int = Field(default=20, ge=1, le=100)
 
 
 def _as_canonical_payload(operation: str, request: dict, result: dict) -> dict:
@@ -703,6 +724,107 @@ def nexus_source_original(source_id: str) -> FileResponse:
 def nexus_source_chunks(source_id: str) -> dict:
     return get_source_chunks(source_id)
 
+
+def _search_chunks(payload: NexusSourceSearchRequest) -> list[dict]:
+    scope = (payload.scope or "current_research_job").strip().lower()
+    where = ["fts.text MATCH ?"]
+    params: list[object] = [payload.query.strip()]
+    if payload.source_types:
+        where.append("LOWER(s.source_type) IN ({})".format(",".join("?" for _ in payload.source_types)))
+        params.extend([t.lower() for t in payload.source_types])
+    if payload.source_ids:
+        where.append("s.source_id IN ({})".format(",".join("?" for _ in payload.source_ids)))
+        params.extend(payload.source_ids)
+    if scope == "current_research_job":
+        if not payload.job_id:
+            raise HTTPException(status_code=400, detail="job_id is required for current_research_job")
+        where.append("s.job_id = ?")
+        params.append(payload.job_id)
+    elif scope == "selected_sources":
+        if not payload.source_ids:
+            raise HTTPException(status_code=400, detail="source_ids is required for selected_sources")
+    elif scope == "evidence":
+        where.append("EXISTS (SELECT 1 FROM nexus_evidence ev WHERE ev.chunk_id = sc.chunk_id)")
+    elif scope == "library":
+        where.append("s.linked_document_id IS NOT NULL")
+    elif scope != "all_collected_sources":
+        raise HTTPException(status_code=400, detail="unsupported scope")
+    params.append(payload.limit)
+    sql = f"""
+        SELECT s.source_id, sc.document_id, sc.chunk_id, s.title,
+               COALESCE(s.final_url, s.url, '') AS url, s.source_type,
+               sc.page_start, sc.page_end,
+               snippet(nexus_chunks_fts, 1, '<b>', '</b>', ' … ', 24) AS snippet,
+               COALESCE(sc.citation_label, '[S]') AS citation_label,
+               bm25(nexus_chunks_fts) AS score
+        FROM nexus_chunks_fts fts
+        JOIN nexus_source_chunks sc ON sc.chunk_id = fts.chunk_id
+        JOIN nexus_sources s ON s.source_id = sc.source_id
+        WHERE {' AND '.join(where)}
+        ORDER BY score
+        LIMIT ?
+    """
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(sql, tuple(params)).fetchall()]
+
+
+@nexus_router.post("/sources/search")
+def nexus_sources_search(payload: NexusSourceSearchRequest) -> dict:
+    return {"query": payload.query, "scope": payload.scope, "results": _search_chunks(payload)}
+
+
+@nexus_router.post("/evidence/add-from-chunks")
+def nexus_evidence_add_from_chunks(payload: NexusEvidenceAddFromChunksRequest) -> dict:
+    if not payload.chunk_ids:
+        return {"job_id": payload.job_id, "added": 0}
+    q_marks = ",".join("?" for _ in payload.chunk_ids)
+    sql = f"""
+        SELECT sc.chunk_id, sc.document_id, sc.source_id, sc.citation_label, sc.page_start, sc.page_end,
+               c.text, c.title AS chunk_title, s.source_type, s.title, COALESCE(s.final_url, s.url, '') AS url,
+               COALESCE(s.retrieved_at, s.created_at, '') AS retrieved_at
+        FROM nexus_source_chunks sc
+        LEFT JOIN nexus_chunks c ON c.chunk_id = sc.chunk_id
+        LEFT JOIN nexus_sources s ON s.source_id = sc.source_id
+        WHERE sc.chunk_id IN ({q_marks})
+    """
+    with get_conn() as conn:
+        rows = [dict(r) for r in conn.execute(sql, tuple(payload.chunk_ids)).fetchall()]
+    items = [
+        EvidenceItem(
+            source_type=str(r.get("source_type") or "research"),
+            document_id=str(r.get("document_id") or ""),
+            chunk_id=str(r.get("chunk_id") or ""),
+            url=str(r.get("url") or f"nexus://chunk/{r.get('chunk_id')}"),
+            retrieved_at=str(r.get("retrieved_at") or ""),
+            source_id=str(r.get("source_id") or ""),
+            title=str(r.get("title") or r.get("chunk_title") or ""),
+            citation_label=str(r.get("citation_label") or ""),
+            quote=str(r.get("text") or ""),
+            note="added_from_chunks",
+            metadata_json={"page_start": r.get("page_start"), "page_end": r.get("page_end")},
+        )
+        for r in rows
+    ]
+    added = save_evidence_items(payload.job_id, items)
+    return {"job_id": payload.job_id, "added": added}
+
+
+@nexus_router.post("/research/jobs/{job_id}/followup")
+def nexus_research_followup(job_id: str, payload: NexusResearchFollowupRequest) -> dict:
+    results = _search_chunks(
+        NexusSourceSearchRequest(
+            query=payload.question,
+            scope="current_research_job",
+            job_id=job_id,
+            limit=payload.limit,
+        )
+    )
+    top = results[: min(5, len(results))]
+    answer = "該当箇所が見つかりませんでした。"
+    if top:
+        bullets = [f"- {r.get('citation_label','[S]')} {r.get('title','')} / {r.get('snippet','')}" for r in top]
+        answer = "収集済みソースのみを検索した結果:\n" + "\n".join(bullets)
+    return {"job_id": job_id, "question": payload.question, "use_existing_sources_only": True, "answer": answer, "results": results}
 
 @nexus_router.post("/web/collect")
 def nexus_web_collect(payload: CollectRequest) -> dict:
