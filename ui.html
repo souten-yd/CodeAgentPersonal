@@ -7040,9 +7040,26 @@ function _setEchoTabVisibility(isEcho) {
 }
 
 function _updateMobTabs(m) {
+  const mobTabs = document.querySelector('.mob-tabs');
+  const isEcho = (m === 'echo');
+  const isAgent = (m === 'agent');
+  const isNexus = (m === 'nexus');
+  const isChatTask = !isEcho && !isAgent && !isNexus;
+
+  mobTabs?.classList.toggle('echo-mode', isEcho);
+  mobTabs?.classList.toggle('chat-task-mode', isChatTask);
+
   const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS];
   allMob.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
-  const showIds = m === 'agent' ? _AGENT_MOB_TAB_IDS : (m === 'echo' ? _ECHO_MOB_TAB_IDS : (m === 'nexus' ? _NEXUS_MOB_TAB_IDS : _CHAT_MOB_TAB_IDS));
+
+  const showIds = isAgent
+    ? _AGENT_MOB_TAB_IDS
+    : isEcho
+      ? _ECHO_MOB_TAB_IDS
+      : isNexus
+        ? _NEXUS_MOB_TAB_IDS
+        : _CHAT_MOB_TAB_IDS;
+
   showIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = ''; });
 }
 
