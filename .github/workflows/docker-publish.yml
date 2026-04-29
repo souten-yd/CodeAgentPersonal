@@ -73,16 +73,14 @@ jobs:
             type=sha,format=short
 
       - name: Build and push
-        # If GitHub-hosted runner capacity can no longer handle full builds,
-        # split the image. In that case, keep Style-Bert-VITS2 bundled while
-        # moving Qwen3-TTS components to on-demand download/install after
-        # Runpod startup. For now, do not split.
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           platforms: linux/amd64
+          no-cache: true
+          pull: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
