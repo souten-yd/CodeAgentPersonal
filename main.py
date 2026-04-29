@@ -13483,9 +13483,8 @@ def tts_synthesize_api(req: dict):
     req["request_id"] = request_id
     normalized_key = _tts_engine_registry.resolve_engine_key(engine, req.get("engine_key"))
     if normalized_key == "style_bert_vits2":
-        model = str(req.get("model", "")).strip()
-        if not model:
-            raise HTTPException(status_code=400, detail="model required when engine=style_bert_vits2")
+        model = str(req.get("model", "")).strip() or "koharune-ami"
+        req["model"] = model
         ensure_model_exists(model, _STYLE_BERT_VITS2_MODELS_DIR)
         batch_items = _build_tts_batch_items_from_text(req, text)
         if len(batch_items) >= 2:
@@ -13674,7 +13673,7 @@ def _run_tts_synthesize_batch(req: dict):
 
     normalized_key = _tts_engine_registry.resolve_engine_key(engine, req.get("engine_key"))
     if normalized_key == "style_bert_vits2" and not model:
-        raise HTTPException(status_code=400, detail="model required when engine=style_bert_vits2")
+        model = "koharune-ami"
     if normalized_key == "style_bert_vits2":
         ensure_model_exists(model, _STYLE_BERT_VITS2_MODELS_DIR)
 

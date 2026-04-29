@@ -2420,11 +2420,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🔊 Echo TTS 設定</div>
         <div style="margin-bottom:8px">
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS エンジン</div>
-          <select id="echo-tts-engine"
-            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
-            onchange="saveEchoSettings()">
-            <option value="style_bert_vits2" selected>Style-Bert-VITS2</option>
-          </select>
+          <input id="echo-tts-engine" type="hidden" value="style_bert_vits2">
+          <div style="font-size:10px;color:var(--text3);line-height:1.4">TTS: Style-Bert-VITS2 固定</div>
         </div>
         <div style="margin-bottom:8px">
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS再生デバイス（Echo）</div>
@@ -3574,7 +3571,7 @@ const tts = {
   voice:        localStorage.getItem('tts_voice')      || '',
   speed:        parseFloat(localStorage.getItem('tts_speed') || '1.0'),
   qwen3model:   localStorage.getItem('tts_qwen3model') || 'Qwen/Qwen3-TTS-12Hz-1.7B-Base',
-  styleBertVits2Model: localStorage.getItem('tts_style_bert_vits2_model')
+  styleBertVits2Model: localStorage.getItem('tts_style_bert_vits2_model') || 'koharune-ami'
                     || localStorage.getItem('tts_stylebertvits2_model')
                     || localStorage.getItem('tts_style-bert-vits2_model')
                     || '',
@@ -3631,6 +3628,9 @@ if (!tts.styleBertVits2Model) {
                          || localStorage.getItem('echo_style-bert-vits2_model')
                          || '';
 }
+tts.engine = 'style_bert_vits2';
+echo.ttsEngine = 'style_bert_vits2';
+localStorage.setItem('echo_tts_engine', 'style_bert_vits2');
 localStorage.setItem('tts_engine', tts.engine);
 
 // ── TALK MODE (EchoVault) グローバル状態 ──
@@ -3662,7 +3662,7 @@ const echo = {
   })(),
   ttsEngine:      'style_bert_vits2',
   ttsOutputDeviceId: localStorage.getItem('echo_tts_output_device_id') || 'default',
-  styleBertVits2Model: localStorage.getItem('echo_style_bert_vits2_model')
+  styleBertVits2Model: localStorage.getItem('echo_style_bert_vits2_model') || 'koharune-ami'
                     || localStorage.getItem('echo_stylebertvits2_model')
                     || localStorage.getItem('echo_style-bert-vits2_model')
                     || '',
@@ -3759,10 +3759,10 @@ const echo = {
   _isStoppingOrSaving: false,
   _connState: 'disconnected',
 };
-echo.ttsEngine = _normalizeTtsEngine(echo.ttsEngine);
+echo.ttsEngine = 'style_bert_vits2';
 localStorage.setItem('echo_tts_engine', echo.ttsEngine);
-// Chat/Task のTTSは Echo TTS 設定を既定値として使う
-tts.engine = echo.ttsEngine;
+// Chat/Task のTTSは Style-Bert-VITS2 固定
+tts.engine = 'style_bert_vits2';
 localStorage.setItem('tts_engine', tts.engine);
 
 // 旧表示モードの互換変換
