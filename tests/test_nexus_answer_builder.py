@@ -47,6 +47,34 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertEqual(captured["payload"]["max_tokens"], 1024)
         self.assertFalse(captured["payload"]["stream"])
 
+    def test_generate_answer_payload_uses_3072_when_max_tokens_env_unset(self) -> None:
+        from app.nexus import answer_builder as target
+
+        captured: dict = {}
+
+        class _Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return json.dumps({"choices": [{"message": {"content": "ok [S1]"}, "finish_reason": "stop"}]}).encode("utf-8")
+
+        def _fake_urlopen(req, timeout=0):  # noqa: ANN001, ARG001
+            captured["payload"] = json.loads(req.data.decode("utf-8"))
+            return _Resp()
+
+        with patch.dict(os.environ, {}, clear=True), patch("app.nexus.answer_builder.request.urlopen", side_effect=_fake_urlopen):
+            target._generate_answer_with_llm(
+                question="質問",
+                references=[{"citation_label": "[S1]", "title": "src"}],
+                evidence_chunks=[{"citation_label": "[S1]", "source_id": "src", "quote": "fact"}],
+                llm_settings={"enabled": True, "endpoint": "http://127.0.0.1:8080/v1/chat/completions", "model": "m"},
+            )
+        self.assertEqual(captured["payload"]["max_tokens"], 3072)
+
     def test_search_model_from_orchestrator_is_preferred(self) -> None:
         references = [{"citation_label": "s1", "title": "Source 1", "source_id": "src-1"}]
         chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "s1"}]
@@ -287,6 +315,53 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertEqual(payload["generation"]["llm_model"], "local-llm")
         self.assertEqual(payload["generation"]["error"], "timeout")
         self.assertIn("template fallback answer", payload["generation"]["notice"])
+
+    def test_build_answer_payload_continuation_merges_and_tracks_lengths(self) -> None:
+        references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "legacy-label"}]
+        calls = [
+            {
+                "text": "途中の回答 [S1]",
+                "finish_reason": "length",
+                "usage": {"prompt_tokens": 11, "completion_tokens": 1024, "total_tokens": 1035},
+                "prompt_tokens": 11,
+                "completion_tokens": 1024,
+                "total_tokens": 1035,
+                "response_length_chars": 10,
+            },
+            {
+                "text": "補完回答です。\n\n## 追加確認が必要な点\n- なし",
+                "finish_reason": "stop",
+                "usage": {"prompt_tokens": 12, "completion_tokens": 200, "total_tokens": 212},
+                "response_length_chars": 30,
+            },
+        ]
+        with patch("app.nexus.answer_builder._generate_answer_with_llm", side_effect=calls):
+            payload = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
+        generation = payload["generation"]
+        self.assertTrue(generation["continuation_used"])
+        self.assertEqual(generation["continuation_finish_reason"], "stop")
+        self.assertIn("途中の回答", payload["answer"])
+        self.assertIn("補完回答", payload["answer"])
+        self.assertEqual(generation["initial_response_length_chars"], 10)
+        self.assertEqual(generation["continuation_response_length_chars"], 30)
+        self.assertEqual(generation["final_response_length_chars"], len("途中の回答 [S1]\n\n補完回答です。\n\n## 追加確認が必要な点\n- なし"))
+
+    def test_build_answer_payload_continuation_length_keeps_incomplete_warning(self) -> None:
+        references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "legacy-label"}]
+        with patch(
+            "app.nexus.answer_builder._generate_answer_with_llm",
+            side_effect=[
+                {"text": "短い回答 [S1]", "finish_reason": "length", "response_length_chars": 9},
+                {"text": "さらに途中", "finish_reason": "length", "response_length_chars": 6},
+            ],
+        ):
+            payload = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
+        self.assertEqual(payload["generation"]["mode"], "llm_answer_truncated")
+        self.assertEqual(payload["generation"]["continuation_finish_reason"], "length")
+        self.assertTrue(payload["output_incomplete"])
+        self.assertIn("⚠️ **警告**", payload["answer_markdown"])
 
     def test_build_answer_payload_explicit_enabled_true_with_unreachable_endpoint_keeps_probe_state(self) -> None:
         references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]

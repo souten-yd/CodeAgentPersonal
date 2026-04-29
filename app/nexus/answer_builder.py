@@ -421,7 +421,7 @@ def _generate_answer_with_llm(
     endpoint = str(llm_settings.get("endpoint") or "").strip()
     model = str(llm_settings.get("model") or "").strip() or "local-llm"
     timeout_value = float(timeout_sec or os.environ.get("NEXUS_ANSWER_LLM_TIMEOUT_SEC", "180"))
-    max_tokens = int(str(os.environ.get("NEXUS_ANSWER_LLM_MAX_TOKENS", "1024")).strip() or "1024")
+    max_tokens = int(str(os.environ.get("NEXUS_ANSWER_LLM_MAX_TOKENS", "3072")).strip() or "3072")
     started = time.time()
 
     reference_lines = []
@@ -547,13 +547,7 @@ def _looks_incomplete_answer(text: str, finish_reason: str) -> bool:
     body = str(text or "").strip()
     if str(finish_reason or "").strip().lower() not in {"", "stop"}:
         return True
-    if "## 追加確認が必要な点" not in body:
-        return True
-    if len(body) < 220:
-        return True
-    has_refs = "## References" in body or "[S1]" in body
-    answer_section = body.split("## References")[0] if "## References" in body else body
-    if has_refs and len(answer_section.strip()) < 140:
+    if len(body) < 10:
         return True
     tail = body[-3:]
     if tail and tail[-1] in {"、", "。", ":", "：", "・", "-", "(", "（"}:
@@ -681,11 +675,13 @@ def build_answer_payload(
             for ref in normalized_references[:120]
         )
     )
+    max_tokens = int(str(os.environ.get("NEXUS_ANSWER_LLM_MAX_TOKENS", "3072")).strip() or "3072")
     context_budget = build_context_budget(
         max_context_tokens=model_ctx,
         instruction_tokens_estimate=instruction_tokens_estimate,
         question_tokens_estimate=question_tokens_estimate,
         source_metadata_tokens_estimate=source_metadata_tokens_estimate,
+        max_output_tokens=max_tokens,
         preferred_profile=preferred_profile,
     )
     compressed = compress_global_evidence(
@@ -753,7 +749,7 @@ def build_answer_payload(
                         "timeout_sec": float(os.environ.get("NEXUS_ANSWER_LLM_TIMEOUT_SEC", "180") or "180"),
                         "endpoint": llm_endpoint,
                         "model": llm_model,
-                        "max_tokens": int(str(os.environ.get("NEXUS_ANSWER_LLM_MAX_TOKENS", "1024")).strip() or "1024"),
+                        "max_tokens": max_tokens,
                         "estimated_prompt_tokens": estimated_prompt_tokens,
                         "compression_profile": context_budget.compression_profile,
                     }
@@ -774,9 +770,12 @@ def build_answer_payload(
             )
             llm_result = raw_llm_result if isinstance(raw_llm_result, dict) else {"text": str(raw_llm_result or ""), "finish_reason": "stop"}
             llm_answer = str(llm_result.get("text") or "").strip()
+            initial_result = dict(llm_result)
+            initial_answer_text = llm_answer
+            continuation_result: dict = {}
             output_truncated = str(llm_result.get("finish_reason") or "") == "length"
-            output_incomplete = _looks_incomplete_answer(llm_answer, str(llm_result.get("finish_reason") or ""))
-            if output_incomplete:
+            output_incomplete = _looks_incomplete_answer(initial_answer_text, str(llm_result.get("finish_reason") or ""))
+            if output_truncated:
                 continuation_used = True
                 try:
                     continuation_raw = _generate_answer_with_llm(
@@ -786,13 +785,19 @@ def build_answer_payload(
                         llm_settings=llm_settings,
                         heartbeat_callback=_hb_emit,
                     )
-                    llm_result = (
+                    continuation_result = (
                         continuation_raw
                         if isinstance(continuation_raw, dict)
                         else {"text": str(continuation_raw or ""), "finish_reason": "stop"}
                     )
-                    llm_answer = str(llm_result.get("text") or "").strip()
-                    output_truncated = str(llm_result.get("finish_reason") or "") == "length"
+                    continuation_text = str(continuation_result.get("text") or "").strip()
+                    llm_answer = f"{initial_answer_text}\n\n{continuation_text}".strip() if continuation_text else initial_answer_text
+                    llm_result = dict(initial_result)
+                    llm_result["text"] = llm_answer
+                    llm_result["response_length_chars"] = len(llm_answer)
+                    llm_result["finish_reason"] = continuation_result.get("finish_reason")
+                    llm_result["continuation_result"] = continuation_result
+                    output_truncated = str(continuation_result.get("finish_reason") or "") == "length"
                     output_incomplete = _looks_incomplete_answer(llm_answer, str(llm_result.get("finish_reason") or ""))
                 except Exception as cont_exc:  # noqa: BLE001
                     continuation_error = str(cont_exc)
@@ -811,6 +816,7 @@ def build_answer_payload(
                     instruction_tokens_estimate=instruction_tokens_estimate,
                     question_tokens_estimate=question_tokens_estimate,
                     source_metadata_tokens_estimate=source_metadata_tokens_estimate,
+                    max_output_tokens=max_tokens,
                     preferred_profile=retry_profile,
                 )
                 retry_compressed = compress_global_evidence(
@@ -835,6 +841,8 @@ def build_answer_payload(
                         else {"text": str(retry_raw_result or ""), "finish_reason": "stop"}
                     )
                     llm_answer = str(llm_result.get("text") or "").strip()
+                    output_truncated = str(llm_result.get("finish_reason") or "") == "length"
+                    output_incomplete = _looks_incomplete_answer(llm_answer, str(llm_result.get("finish_reason") or ""))
                     generation_mode = "llm_answer_truncated" if (output_incomplete or output_truncated) else "llm_answer"
                     llm_error = None
                     context_budget = retry_budget
@@ -895,12 +903,30 @@ def build_answer_payload(
         "prompt_tokens": llm_result.get("prompt_tokens", 0),
         "completion_tokens": llm_result.get("completion_tokens", 0),
         "total_tokens": llm_result.get("total_tokens", 0),
-        "response_length_chars": llm_result.get("response_length_chars", 0),
+        "initial_response_length_chars": initial_result.get("response_length_chars", 0) if isinstance(locals().get("initial_result"), dict) else llm_result.get("response_length_chars", 0),
+        "continuation_response_length_chars": (
+            llm_result.get("continuation_result", {}).get("response_length_chars", 0)
+            if isinstance(llm_result.get("continuation_result"), dict)
+            else 0
+        ),
+        "final_response_length_chars": len(llm_answer or ""),
+        "response_length_chars": len(llm_answer or ""),
         "elapsed_sec": llm_result.get("elapsed_sec", 0.0),
         "output_truncated": output_truncated,
         "output_incomplete": output_incomplete,
         "continuation_used": continuation_used,
         "continuation_error": continuation_error,
+        "continuation_finish_reason": (
+            llm_result.get("continuation_result", {}).get("finish_reason")
+            if isinstance(llm_result.get("continuation_result"), dict)
+            else None
+        ),
+        "continuation_usage": (
+            llm_result.get("continuation_result", {}).get("usage", {})
+            if isinstance(llm_result.get("continuation_result"), dict)
+            else {}
+        ),
+        "max_tokens": max_tokens,
         "context_budget": {
             "max_context_tokens": context_budget.max_context_tokens,
             "reserved_output_tokens": context_budget.reserved_output_tokens,
