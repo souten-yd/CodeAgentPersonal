@@ -31,7 +31,7 @@ class EngineRegistry:
     _aliases: dict[str, str]
 
     def resolve_engine_key(self, raw_engine: str | None = None, raw_engine_key: str | None = None) -> str:
-        key = (raw_engine_key or raw_engine or "qwen3_tts").strip().lower()
+        key = (raw_engine_key or raw_engine or "style_bert_vits2").strip().lower()
         key = self._aliases.get(key, key)
         return key
 

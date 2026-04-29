@@ -83,7 +83,7 @@ def _validate_model_assets(model_path: Path, config_path: Path, style_vec_path: 
 def _resolve_model_paths(model_id: str) -> tuple[str, str, str]:
     model = (model_id or "").strip()
     if not model:
-        raise ValueError("model required when engine=style_bert_vits2")
+        model = "koharune-ami"
     if model.startswith(".") or model.lower() in _STYLE_BERT_VITS2_IGNORED_MODEL_DIRS:
         raise ValueError(f"invalid Style-Bert-VITS2 model selection: {model!r}")
 
@@ -1091,7 +1091,7 @@ while True:
 
         model = str(req.get("model", "")).strip()
         if not model:
-            raise ValueError("model required when engine=style_bert_vits2")
+            model = "koharune-ami"
 
         payload = self._build_payload(req, model=model, text=text, request_id=request_id)
         self._log_sbv2_input(

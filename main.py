@@ -43,7 +43,6 @@ from agent.tools.registry import ToolRegistry, create_default_registry
 from agent.types import Action, Evaluation, Plan, ToolResult
 from agent.task_planning_runner import TaskPlanningRunner
 from app.tts.engine_registry import EngineRegistry, TTSEngineRuntime
-from app.tts.qwen3_tts_runtime import Qwen3TTSRuntime
 from app.tts.style_bert_vits2_runtime import StyleBertVITS2Runtime
 from app.tts.style_bert_vits2_manager import (
     StyleBertVITS2Error,
@@ -12755,7 +12754,7 @@ def tts_debug_api(limit: int = 20):
 
 
 @app.get("/tts/voices")
-async def tts_voices_api(engine: str = "qwen3_tts"):
+async def tts_voices_api(engine: str = "style_bert_vits2"):
     try:
         runtime = _tts_engine_registry.get(raw_engine=engine)
     except KeyError:
@@ -12765,7 +12764,7 @@ async def tts_voices_api(engine: str = "qwen3_tts"):
 
 @app.post("/tts/load")
 def tts_load_api(req: dict = {}):
-    engine = str(req.get("engine", "qwen3_tts"))
+    engine = str(req.get("engine", "style_bert_vits2"))
     engine_key = _tts_engine_registry.resolve_engine_key(engine, req.get("engine_key"))
 
     def _sse(payload: dict) -> str:
@@ -12798,7 +12797,7 @@ def tts_load_api(req: dict = {}):
 
 @app.post("/tts/unload")
 def tts_unload_api(req: dict = {}):
-    engine = str(req.get("engine", "qwen3_tts"))
+    engine = str(req.get("engine", "style_bert_vits2"))
     try:
         runtime = _tts_engine_registry.get(raw_engine=engine, raw_engine_key=req.get("engine_key"))
     except KeyError:
@@ -13172,7 +13171,7 @@ def _style_bert_vits2_runtime_importable() -> tuple[bool, str]:
 
 @app.get("/api/tts/engines")
 def api_tts_engines():
-    return {"engines": ["qwen3_tts", "style_bert_vits2"]}
+    return {"engines": ["style_bert_vits2"]}
 
 
 @app.post("/api/tts/style-bert-vits2/prepare")
@@ -13479,7 +13478,7 @@ def tts_ref_audio_delete(filename: str):
 def tts_synthesize_api(req: dict):
     from fastapi.responses import Response as FastAPIResponse
     request_id = str(req.get("request_id") or uuid.uuid4().hex[:8])
-    engine = str(req.get("engine", "qwen3_tts"))
+    engine = str(req.get("engine", "style_bert_vits2"))
     text = str(req.get("text", "")).strip()
     if not text:
         raise HTTPException(status_code=400, detail="text required")
@@ -13671,7 +13670,7 @@ def _merge_wav_bytes(wav_chunks: list[bytes]) -> bytes:
 
 
 def _run_tts_synthesize_batch(req: dict):
-    engine = str(req.get("engine", "qwen3_tts"))
+    engine = str(req.get("engine", "style_bert_vits2"))
     model = str(req.get("model", "")).strip()
     device = str(req.get("device", "")).strip()
     output_format = str(req.get("output", "json") or "json").strip().lower()
