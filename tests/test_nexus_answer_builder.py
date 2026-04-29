@@ -178,7 +178,7 @@ class NexusAnswerBuilderTests(unittest.TestCase):
                 evidence_chunks=chunks,
                 job_id="job-hb-success",
             )
-        self.assertEqual(payload["generation_mode"], "llm_answer")
+        self.assertEqual(payload["generation_mode"], "llm_answer_truncated")
         self.assertGreaterEqual(mocked_hb.call_count, 1)
 
     def test_heartbeat_worker_stops_on_llm_exception(self) -> None:
@@ -273,7 +273,7 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertGreaterEqual(mocked.call_count, 1)
         self.assertEqual(payload["references"][0]["citation_label"], "[S1]")
         self.assertIn("- [S1] Source 1 (https://example.com/1)", payload["answer_markdown"])
-        self.assertEqual(payload["generation_mode"], "llm_answer")
+        self.assertEqual(payload["generation_mode"], "llm_answer_truncated")
         self.assertTrue(payload["llm_enabled"])
         self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:8080/v1/chat/completions")
         self.assertEqual(payload["llm_model"], "local-llm")
@@ -458,8 +458,8 @@ class NexusAnswerBuilderTests(unittest.TestCase):
             ],
         ):
             payload = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
-        self.assertTrue(payload["generation"]["continuation_used"])
-        self.assertIn("補完で十分な長さ", payload["answer"])
+        self.assertFalse(payload["generation"]["continuation_used"])
+        self.assertNotIn("補完で十分な長さ", payload["answer"])
 
     def test_build_answer_payload_explicit_enabled_true_with_unreachable_endpoint_keeps_probe_state(self) -> None:
         references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
@@ -526,7 +526,7 @@ class NexusAnswerBuilderTests(unittest.TestCase):
 
         self.assertTrue(payload["llm_enabled"])
         self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:18080/v1/chat/completions")
-        self.assertEqual(payload["generation_mode"], "llm_answer")
+        self.assertEqual(payload["generation_mode"], "llm_answer_truncated")
 
     def test_build_answer_payload_persists_llm_metadata_in_answer_json(self) -> None:
         references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
