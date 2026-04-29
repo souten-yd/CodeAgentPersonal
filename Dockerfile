@@ -134,6 +134,7 @@ RUN set -eux; \
       '/opt/venv/lib/python3.11/dist-packages' \
       > "${site_packages}/_runpod_opt_venv.pth"; \
     /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir --upgrade pip wheel "setuptools<82"; \
+    /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir huggingface_hub safetensors soundfile; \
     /opt/style-bert-vits2-venv/bin/python -c "import torch, torchaudio, av; print(torch.__version__, torchaudio.__version__, av.__version__)"; \
     /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir -e . --no-deps; \
     /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir \
@@ -152,6 +153,30 @@ RUN set -eux; \
       num2words \
       pypinyin; \
     /opt/style-bert-vits2-venv/bin/python -c "import pyopenjtalk; pyopenjtalk.g2p('辞書ウォームアップ')"
+
+RUN set -eux; \
+    mkdir -p \
+      /app/Style-Bert-VITS2/bert/deberta-v2-large-japanese-char-wwm \
+      /app/Style-Bert-VITS2/bert/deberta-v2-large-japanese-char-wwm-onnx \
+      /opt/style-bert-vits2-models; \
+    /opt/style-bert-vits2-venv/bin/python - <<'PY'
+from huggingface_hub import hf_hub_download
+from pathlib import Path
+
+hf_hub_download(repo_id="ku-nlp/deberta-v2-large-japanese-char-wwm", filename="pytorch_model.bin", local_dir="/app/Style-Bert-VITS2/bert/deberta-v2-large-japanese-char-wwm", local_dir_use_symlinks=False)
+hf_hub_download(repo_id="tsukumijima/deberta-v2-large-japanese-char-wwm-onnx", filename="model_fp16.onnx", local_dir="/app/Style-Bert-VITS2/bert/deberta-v2-large-japanese-char-wwm-onnx", local_dir_use_symlinks=False)
+for fn in ["koharune-ami/config.json", "koharune-ami/style_vectors.npy", "koharune-ami/koharune-ami.safetensors"]:
+    hf_hub_download(repo_id="litagin/sbv2_koharune_ami", filename=fn, local_dir="/opt/style-bert-vits2-models", local_dir_use_symlinks=False)
+PY
+
+RUN set -eux; \
+    test -x /opt/style-bert-vits2-venv/bin/python; \
+    test -f /app/Style-Bert-VITS2/bert/deberta-v2-large-japanese-char-wwm/pytorch_model.bin; \
+    test -f /app/Style-Bert-VITS2/bert/deberta-v2-large-japanese-char-wwm-onnx/model_fp16.onnx; \
+    test -f /opt/style-bert-vits2-models/koharune-ami/config.json; \
+    test -f /opt/style-bert-vits2-models/koharune-ami/style_vectors.npy; \
+    test -f /opt/style-bert-vits2-models/koharune-ami/koharune-ami.safetensors; \
+    /opt/style-bert-vits2-venv/bin/python -c "from style_bert_vits2.tts_model import TTSModel"
 
 ########################################
 # Runtime stage: Python + codeAgent + llama.cpp
@@ -224,6 +249,10 @@ ENV PATH=/opt/venv/bin:${PATH}
 COPY . /app
 COPY --from=py_build /opt/venv /opt/venv
 COPY --from=style_bert_vits2_build /app/Style-Bert-VITS2 /app/Style-Bert-VITS2
+COPY --from=style_bert_vits2_build /opt/style-bert-vits2-venv /opt/style-bert-vits2-venv
+COPY --from=style_bert_vits2_build /opt/hf_cache /opt/hf_cache
+COPY --from=style_bert_vits2_build /opt/cache /opt/cache
+COPY --from=style_bert_vits2_build /opt/style-bert-vits2-models /opt/style-bert-vits2-models
 
 # Build SearXNG editable runtime inside isolated venv for Runpod single-container startup.
 RUN set -eux; \
