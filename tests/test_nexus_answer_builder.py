@@ -278,7 +278,40 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:8080/v1/chat/completions")
         self.assertEqual(payload["llm_model"], "local-llm")
         self.assertIsNone(payload["llm_error"])
-        self.assertEqual(payload["generation"]["mode"], "llm_answer")
+
+    def test_continuation_result_is_combined_and_final_metadata_saved(self) -> None:
+        references = [{"citation_label": "s1", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"quote": "fact", "source_id": "src-1", "citation_label": "s1"}]
+        initial = {
+            "text": "短い回答 [S1]",
+            "finish_reason": "length",
+            "usage": {"prompt_tokens": 9, "completion_tokens": 20, "total_tokens": 29},
+            "prompt_tokens": 9,
+            "completion_tokens": 20,
+            "total_tokens": 29,
+            "response_length_chars": len("短い回答 [S1]"),
+        }
+        continuation = {
+            "text": "補完回答 [S1]",
+            "finish_reason": "stop",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 30, "total_tokens": 40},
+            "prompt_tokens": 10,
+            "completion_tokens": 30,
+            "total_tokens": 40,
+            "response_length_chars": len("補完回答 [S1]"),
+        }
+        with patch.dict(os.environ, {"NEXUS_ENABLE_ANSWER_LLM": "true"}, clear=True), patch(
+            "app.nexus.answer_builder._generate_answer_with_llm",
+            side_effect=[initial, continuation],
+        ):
+            payload = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
+        expected = "短い回答 [S1]\n\n補完回答 [S1]"
+        self.assertIn(expected, payload["answer"])
+        self.assertEqual(payload["generation"]["final_response_length_chars"], len(expected))
+        self.assertTrue(payload["generation"]["continuation_used"])
+        self.assertEqual(payload["generation"]["initial_finish_reason"], "length")
+        self.assertEqual(payload["generation"]["continuation_finish_reason"], "stop")
+        self.assertTrue(payload["generation"]["final_output_incomplete"])
         self.assertTrue(payload["generation"]["llm_enabled"])
         self.assertEqual(payload["generation"]["llm_endpoint"], "http://127.0.0.1:8080/v1/chat/completions")
         self.assertEqual(payload["generation"]["llm_model"], "local-llm")

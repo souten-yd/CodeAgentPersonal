@@ -584,6 +584,13 @@ def _build_incomplete_warning() -> str:
     )
 
 
+def _build_truncated_after_continuation_warning() -> str:
+    return (
+        "> ⚠️ **警告**: 継続生成後も出力上限で途中終了しました。"
+        " 必要に応じて追加の再生成を実行してください。\n\n"
+    )
+
+
 def _write_answer_files(*, job_id: str, answer_markdown: str, answer_json: dict) -> dict:
     out_dir = _job_answer_dir(job_id)
     md_path = out_dir / "answer.md"
@@ -736,6 +743,8 @@ def build_answer_payload(
     llm_error: str | None = None
     output_incomplete = False
     output_truncated = False
+    final_answer_text = ""
+    final_finish_reason = ""
     continuation_used = False
     continuation_error: str | None = None
     retry_count = 0
@@ -768,7 +777,6 @@ def build_answer_payload(
                         "compression_profile": context_budget.compression_profile,
                     }
                     _hb_emit("heartbeat", "LLM回答生成中...", 0.88, details)
-                    _hb_emit("answer_llm_heartbeat", "LLM回答生成中...", 0.88, details)
                 except Exception:  # noqa: BLE001
                     logger.warning("answer llm heartbeat worker failed", exc_info=True)
 
@@ -807,7 +815,8 @@ def build_answer_payload(
                         else {"text": str(continuation_raw or ""), "finish_reason": "stop"}
                     )
                     continuation_text = str(continuation_result.get("text") or "").strip()
-                    llm_answer = f"{initial_answer_text}\n\n{continuation_text}".strip() if continuation_text else initial_answer_text
+                    final_answer_text = f"{initial_answer_text}\n\n{continuation_text}".strip() if continuation_text else initial_answer_text
+                    llm_answer = final_answer_text
                     llm_result = dict(initial_result)
                     llm_result["text"] = llm_answer
                     llm_result["response_length_chars"] = len(llm_answer)
@@ -816,14 +825,28 @@ def build_answer_payload(
                     continuation_finish_reason = str(continuation_result.get("finish_reason") or "")
                     output_truncated = continuation_finish_reason == "length"
                     output_incomplete = _looks_incomplete_answer(
-                        llm_answer,
-                        str(llm_result.get("finish_reason") or ""),
+                        final_answer_text,
+                        initial_finish_reason,
                         continuation_finish_reason=continuation_finish_reason,
                     )
                 except Exception as cont_exc:  # noqa: BLE001
                     continuation_error = str(cont_exc)
             else:
                 output_incomplete = _looks_incomplete_answer(initial_answer_text, initial_finish_reason)
+            if not final_answer_text:
+                final_answer_text = initial_answer_text
+            final_finish_reason = (
+                str(continuation_result.get("finish_reason") or "").strip()
+                if continuation_used
+                else initial_finish_reason
+            )
+            output_incomplete = _looks_incomplete_answer(
+                final_answer_text,
+                initial_finish_reason,
+                continuation_finish_reason=str(continuation_result.get("finish_reason") or ""),
+            )
+            output_truncated = final_finish_reason.lower() == "length"
+            llm_answer = final_answer_text
             generation_mode = "llm_answer_truncated" if (output_incomplete or output_truncated) else "llm_answer"
         except Exception as exc:  # noqa: BLE001
             llm_answer = None
@@ -864,8 +887,9 @@ def build_answer_payload(
                         else {"text": str(retry_raw_result or ""), "finish_reason": "stop"}
                     )
                     llm_answer = str(llm_result.get("text") or "").strip()
-                    output_truncated = str(llm_result.get("finish_reason") or "") == "length"
-                    output_incomplete = _looks_incomplete_answer(llm_answer, str(llm_result.get("finish_reason") or ""))
+                    final_finish_reason = str(llm_result.get("finish_reason") or "")
+                    output_truncated = final_finish_reason == "length"
+                    output_incomplete = _looks_incomplete_answer(llm_answer, final_finish_reason)
                     generation_mode = "llm_answer_truncated" if (output_incomplete or output_truncated) else "llm_answer"
                     llm_error = None
                     context_budget = retry_budget
@@ -886,9 +910,17 @@ def build_answer_payload(
             stop_hb.set()
             hb_thread.join(timeout=1.0)
 
-    final_summary = replace_citation_labels(llm_answer or summary_text, normalized["label_map"])
+    final_answer_text = llm_answer or summary_text
+    final_summary = replace_citation_labels(final_answer_text, normalized["label_map"])
+    continuation_result = llm_result.get("continuation_result", {}) if isinstance(llm_result.get("continuation_result"), dict) else {}
+    continuation_finish_reason = str(continuation_result.get("finish_reason") or "").strip()
+    if continuation_finish_reason.lower() == "length":
+        output_truncated = True
+        output_incomplete = True
     if output_incomplete and llm_answer:
         final_summary = (final_summary.rstrip() + _build_incomplete_warning()).strip()
+    if continuation_finish_reason.lower() == "length":
+        final_summary = _build_truncated_after_continuation_warning() + final_summary
 
     answer_markdown = _build_answer_markdown(
         question=question,
@@ -902,8 +934,8 @@ def build_answer_payload(
         verifier=citation_support_verifier,
     )
 
-    continuation_result = llm_result.get("continuation_result", {}) if isinstance(llm_result.get("continuation_result"), dict) else {}
     initial_usage = initial_result.get("usage", {}) if isinstance(locals().get("initial_result"), dict) else {}
+    final_finish_reason = final_finish_reason or str(llm_result.get("finish_reason") or "")
     generation = {
         "mode": generation_mode,
         "llm_enabled": llm_enabled,
@@ -934,7 +966,7 @@ def build_answer_payload(
         "initial_completion_tokens": initial_result.get("completion_tokens", 0) if isinstance(locals().get("initial_result"), dict) else 0,
         "initial_response_length_chars": initial_result.get("response_length_chars", 0) if isinstance(locals().get("initial_result"), dict) else llm_result.get("response_length_chars", 0),
         "continuation_response_length_chars": continuation_result.get("response_length_chars", 0),
-        "final_response_length_chars": len(llm_answer or ""),
+        "final_response_length_chars": len(final_answer_text or ""),
         "response_length_chars": len(llm_answer or ""),
         "elapsed_sec": llm_result.get("elapsed_sec", 0.0),
         "output_truncated": output_truncated,
@@ -945,7 +977,7 @@ def build_answer_payload(
         "continuation_usage": continuation_result.get("usage", {}) if isinstance(continuation_result.get("usage"), dict) else {},
         "continuation_prompt_tokens": continuation_result.get("prompt_tokens", 0),
         "continuation_completion_tokens": continuation_result.get("completion_tokens", 0),
-        "final_finish_reason": llm_result.get("finish_reason"),
+        "final_finish_reason": final_finish_reason,
         "final_output_incomplete": output_incomplete,
         "final_output_truncated": output_truncated,
         "max_tokens": max_tokens,
@@ -978,6 +1010,8 @@ def build_answer_payload(
             )
         ),
     }
+    if continuation_finish_reason.lower() == "length":
+        generation["notice"] = "継続生成後も出力上限で途中終了しました"
 
     payload = {
         "question": question,
