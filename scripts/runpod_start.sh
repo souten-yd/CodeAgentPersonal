@@ -93,7 +93,6 @@ fi
 }
 
 
-# Install Qwen3-TTS runtime dependencies if missing (optional)
 
 # Re-pin core framework versions in case optional deps caused downgrades
 "${PYTHON_BIN}" -m pip install --upgrade "pydantic>=2.6" "fastapi>=0.110" 2>/dev/null || true
