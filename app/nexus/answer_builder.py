@@ -758,7 +758,7 @@ def build_answer_payload(
         def _hb_emit(event_type: str, message: str, progress: float | None, details: dict | None = None) -> None:
             if not job_id:
                 return
-            if event_type == "heartbeat":
+            if event_type in {"heartbeat", "answer_llm_heartbeat"}:
                 append_job_heartbeat(job_id, "answer_llm_generating", message, progress, details or {})
                 return
             append_job_event(job_id, event_type, {"status": "running", "phase": "answer_llm_generating", "message": message, "progress": progress, "updated_at": _now_iso(), "details": details or {}})
@@ -801,7 +801,7 @@ def build_answer_payload(
             initial_output_incomplete = _looks_incomplete_answer(initial_answer_text, initial_finish_reason)
             output_truncated = initial_finish_reason == "length"
             output_incomplete = initial_output_incomplete
-            if output_truncated or initial_output_incomplete:
+            if output_truncated:
                 continuation_used = True
                 try:
                     continuation_raw = _generate_answer_with_llm(
