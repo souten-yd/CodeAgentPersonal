@@ -346,6 +346,14 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertEqual(generation["initial_response_length_chars"], 10)
         self.assertEqual(generation["continuation_response_length_chars"], 30)
         self.assertEqual(generation["final_response_length_chars"], len("途中の回答 [S1]\n\n補完回答です。\n\n## 追加確認が必要な点\n- なし"))
+        self.assertEqual(generation["initial_finish_reason"], "length")
+        self.assertEqual(generation["initial_prompt_tokens"], 11)
+        self.assertEqual(generation["initial_completion_tokens"], 1024)
+        self.assertEqual(generation["continuation_prompt_tokens"], 0)
+        self.assertEqual(generation["continuation_completion_tokens"], 0)
+        self.assertEqual(generation["final_finish_reason"], "stop")
+        self.assertTrue(generation["final_output_incomplete"])
+        self.assertFalse(generation["final_output_truncated"])
 
     def test_build_answer_payload_continuation_length_keeps_incomplete_warning(self) -> None:
         references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
@@ -362,6 +370,21 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertEqual(payload["generation"]["continuation_finish_reason"], "length")
         self.assertTrue(payload["output_incomplete"])
         self.assertIn("⚠️ **警告**", payload["answer_markdown"])
+        self.assertTrue(payload["generation"]["final_output_truncated"])
+
+    def test_build_answer_payload_continuation_runs_when_initial_incomplete(self) -> None:
+        references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "legacy-label"}]
+        with patch(
+            "app.nexus.answer_builder._generate_answer_with_llm",
+            side_effect=[
+                {"text": "短い回答 [S1]", "finish_reason": "stop", "response_length_chars": 9},
+                {"text": "補完で十分な長さの回答です [S1]\n\n## 追加確認が必要な点\n- なし", "finish_reason": "stop", "response_length_chars": 40},
+            ],
+        ):
+            payload = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
+        self.assertTrue(payload["generation"]["continuation_used"])
+        self.assertIn("補完で十分な長さ", payload["answer"])
 
     def test_build_answer_payload_explicit_enabled_true_with_unreachable_endpoint_keeps_probe_state(self) -> None:
         references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
@@ -651,7 +674,7 @@ class NexusAnswerBuilderTests(unittest.TestCase):
             payload = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
         self.assertEqual(mocked.call_count, 2)
         self.assertEqual(payload["generation"]["retry_count"], 1)
-        self.assertEqual(payload["generation"]["mode"], "llm_answer")
+        self.assertEqual(payload["generation"]["mode"], "llm_answer_truncated")
         self.assertIn(payload["generation"]["notice"], ("", "Evidence was compressed to fit the model context."))
 
     def test_context_overflow_retry_failure_sets_notice(self) -> None:
