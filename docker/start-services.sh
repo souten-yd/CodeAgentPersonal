@@ -22,6 +22,19 @@ SBV2_MODEL_NAME="koharune-ami"
 SBV2_WORKSPACE_MODEL_PATH="${SBV2_WORKSPACE_MODELS_DIR}/${SBV2_MODEL_NAME}"
 SBV2_BUNDLED_MODEL_PATH="${SBV2_BUNDLED_MODELS_DIR}/${SBV2_MODEL_NAME}"
 
+has_sbv2_weight_file() {
+  local dir="$1"
+  local weight
+  for weight in     "$dir"/*.safetensors     "$dir"/*.pth     "$dir"/*.pt     "$dir"/*.onnx
+  do
+    if [ -f "$weight" ]; then
+      echo "$weight"
+      return 0
+    fi
+  done
+  return 1
+}
+
 validate_sbv2_model_dir() {
   local dir="$1"
   local name="$2"
@@ -38,10 +51,13 @@ validate_sbv2_model_dir() {
     echo "[Style-Bert-VITS2] ${name} missing style_vectors.npy: $dir/style_vectors.npy" >&2
     return 1
   fi
-  if ! find "$dir" -maxdepth 1 -type f \( -name '*.safetensors' -o -name '*.pth' -o -name '*.pt' -o -name '*.onnx' \) | grep -q .; then
+  local weight_file
+  weight_file="$(has_sbv2_weight_file "$dir" || true)"
+  if [ -z "$weight_file" ]; then
     echo "[Style-Bert-VITS2] ${name} missing weight file in: $dir" >&2
     return 1
   fi
+  echo "[Style-Bert-VITS2] ${name} detected weight file: ${weight_file}"
   return 0
 }
 
