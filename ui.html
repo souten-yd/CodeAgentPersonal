@@ -1264,26 +1264,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 </div>
 <audio id="tts-audio" playsinline preload="auto" style="display:none"></audio>
 
-<div class="mob-tabs">
-  <!-- Chat/Task モード用タブ -->
-  <button class="mob-tab wide active" id="mob-chat" onclick="mobSwitch('chat')">Chat</button>
-  <button class="mob-tab wide" id="mob-files" onclick="mobSwitch('files')">Files</button>
-  <button class="mob-tab" id="mob-log" onclick="mobSwitch('log')">Log</button>
-  <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skill</button>
-  <button class="mob-tab wide" id="mob-memory" onclick="mobSwitch('memory')">Memory</button>
-  <button class="mob-tab" id="mob-models" onclick="mobSwitch('models')">Models</button>
-  <!-- Agent モード用タブ (デフォルト非表示) -->
-  <button class="mob-tab wide" id="mob-agent-chat" onclick="mobSwitch('agent_chat')" style="display:none">Agent Chat</button>
-  <button class="mob-tab wide" id="mob-agent-tasks" onclick="mobSwitch('agent_tasks')" style="display:none">Agent Tasks</button>
-  <!-- Echo モード用タブ (デフォルト非表示) -->
-  <button class="mob-tab" id="mob-echo" onclick="mobSwitch('echo')" style="display:none">Echo</button>
-  <button class="mob-tab" id="mob-vault" onclick="mobSwitch('vault')" style="display:none">Vault</button>
-  <button class="mob-tab" id="mob-log-echo" onclick="mobSwitch('log')" style="display:none">Log</button>
-  <button class="mob-tab" id="mob-models-echo" onclick="mobSwitch('models')" style="display:none">Models</button>
-  <button class="mob-tab" id="mob-asr" onclick="mobSwitch('asr')" style="display:none">ASR</button>
-  <button class="mob-tab" id="mob-tts" onclick="mobSwitch('tts')" style="display:none">TTS</button>
-  <button class="mob-tab wide" id="mob-nexus" onclick="mobSwitch('nexus')" style="display:none">Nexus</button>
-</div>
+<div class="mob-tabs" id="mode-subtabs"></div>
 
 <div class="app-body">
   <!-- CHAT -->
@@ -6979,14 +6960,35 @@ function formatModelShortName(name) {
 const _CHAT_PANEL_TAB_IDS = ['tab-btn-files','tab-btn-log','tab-btn-skills','tab-btn-memory','tab-btn-models'];
 // Echo モード用パネルタブID
 const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault','tab-btn-log-echo','tab-btn-models-echo','tab-btn-asr','tab-btn-tts'];
-// Chat/Task モード用モバイルタブID
-const _CHAT_MOB_TAB_IDS = ['mob-chat','mob-files','mob-log','mob-skills','mob-memory','mob-models'];
-// Agent モード用モバイルタブID
-const _AGENT_MOB_TAB_IDS = ['mob-agent-chat','mob-agent-tasks'];
-// Echo モード用モバイルタブID
-const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-echo','mob-asr','mob-tts'];
-// Nexus モード用モバイルタブID（単一ビューのためタブ不要）
-const _NEXUS_MOB_TAB_IDS = ['mob-nexus'];
+const MODE_SUBTABS = {
+  chat: [
+    { id: 'mob-chat', label: 'Chat', view: 'chat', wide: true },
+    { id: 'mob-files', label: 'Files', view: 'files', wide: true },
+    { id: 'mob-log', label: 'Log', view: 'log' },
+    { id: 'mob-skills', label: 'Skill', view: 'skills' },
+    { id: 'mob-memory', label: 'Memory', view: 'memory', wide: true },
+    { id: 'mob-models', label: 'Models', view: 'models' },
+  ],
+  agent: [
+    { id: 'mob-agent-chat', label: 'Agent Chat', view: 'agent_chat', wide: true },
+    { id: 'mob-agent-tasks', label: 'Agent Tasks', view: 'agent_tasks', wide: true },
+  ],
+  echo: [
+    { id: 'mob-echo', label: 'Echo', view: 'echo' },
+    { id: 'mob-vault', label: 'Vault', view: 'vault' },
+    { id: 'mob-log-echo', label: 'Log', view: 'log' },
+    { id: 'mob-models-echo', label: 'Models', view: 'models' },
+    { id: 'mob-asr', label: 'ASR', view: 'asr' },
+    { id: 'mob-tts', label: 'TTS', view: 'tts' },
+  ],
+  nexus: [
+    { id: 'mob-nexus', label: 'Nexus', view: 'nexus', wide: true },
+  ],
+};
+const _CHAT_MOB_TAB_IDS = MODE_SUBTABS.chat.map((tab) => tab.id);
+const _AGENT_MOB_TAB_IDS = MODE_SUBTABS.agent.map((tab) => tab.id);
+const _ECHO_MOB_TAB_IDS = MODE_SUBTABS.echo.map((tab) => tab.id);
+const _NEXUS_MOB_TAB_IDS = MODE_SUBTABS.nexus.map((tab) => tab.id);
 
 let agentSessionActive = false;
 let agentSessionId = '';
@@ -7043,18 +7045,30 @@ function _setEchoTabVisibility(isEcho) {
 }
 
 function _updateMobTabs(m) {
-  const mobTabs = document.querySelector('.mob-tabs');
+  const mobTabs = document.getElementById('mode-subtabs');
   const isEcho = (m === 'echo');
-  const isAgent = (m === 'agent');
-  const isNexus = (m === 'nexus');
-  const isChatTask = !isEcho && !isAgent && !isNexus;
+  const isChatTask = (m === 'chat');
   mobTabs?.classList.toggle('echo-mode', isEcho);
   mobTabs?.classList.toggle('chat-task-mode', isChatTask);
+}
 
-  _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isChatTask ? '' : 'none'; });
-  _AGENT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isAgent ? '' : 'none'; });
-  _ECHO_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
-  _NEXUS_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isNexus ? '' : 'none'; });
+function renderModeSubTabs(m, activeView = null) {
+  const mobTabs = document.getElementById('mode-subtabs');
+  if (!mobTabs) return;
+  const tabs = MODE_SUBTABS[m] || [];
+  mobTabs.innerHTML = '';
+  tabs.forEach((tab) => {
+    const btn = document.createElement('button');
+    btn.id = tab.id;
+    btn.className = `mob-tab${tab.wide ? ' wide' : ''}`;
+    btn.textContent = tab.label;
+    btn.dataset.view = tab.view;
+    btn.onclick = () => mobSwitch(tab.view);
+    mobTabs.appendChild(btn);
+  });
+  _updateMobTabs(m);
+  const target = activeView || tabs[0]?.view;
+  if (target) mobSwitch(target);
 }
 
 function _setPanelTabActiveButton(name) {
@@ -7192,7 +7206,7 @@ function setMode(m) {
   const nexusCol = document.getElementById('nexus-col');
   const resizer = document.getElementById('panel-resizer');
   const appBody  = document.querySelector('.app-body');
-  _updateMobTabs(m);
+  renderModeSubTabs(m);
 
   if (prevMode === 'agent' && m !== 'agent') stopAgentSession(false);
   if (prevMode === 'nexus' && m !== 'nexus') stopNexusPolling();
@@ -10011,7 +10025,7 @@ function mobSwitch(name) {
   const nc = document.getElementById('nexus-col');
 
   if (name === 'chat') {
-    setMode('chat');
+    if (mode !== 'chat') { setMode('chat'); return; }
     cc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden');
     ec?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
@@ -10034,7 +10048,7 @@ function mobSwitch(name) {
     ec?.classList.add('mob-hidden');
     nc?.classList.add('mob-hidden');
   } else if (name === 'echo') {
-    setMode('echo');
+    if (mode !== 'echo') { setMode('echo'); return; }
     ec?.classList.remove('mob-hidden');
     cc?.classList.add('mob-hidden');
     pc?.classList.add('mob-hidden');

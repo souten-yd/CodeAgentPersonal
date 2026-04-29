@@ -64,6 +64,38 @@ async def verify_nexus_tabs(page) -> None:
       tab,
     )
 
+async def verify_mode_specific_subtabs(page) -> None:
+  await page.click("#btn-chat")
+  await page.wait_for_function(
+    "() => (document.querySelector('#mode-subtabs')?.textContent || '').includes('Files')"
+  )
+  chat_text = await page.locator("#mode-subtabs").inner_text()
+
+  await page.click("#btn-agent")
+  await page.wait_for_function(
+    "() => (document.querySelector('#mode-subtabs')?.textContent || '').includes('Agent Tasks')"
+  )
+  agent_text = await page.locator("#mode-subtabs").inner_text()
+
+  await page.click("#btn-echo")
+  await page.wait_for_function(
+    "() => (document.querySelector('#mode-subtabs')?.textContent || '').includes('TTS')"
+  )
+  echo_text = await page.locator("#mode-subtabs").inner_text()
+
+  await page.click("#btn-nexus")
+  await page.wait_for_function(
+    "() => (document.querySelector('#mode-subtabs')?.textContent || '').includes('Nexus')"
+  )
+  nexus_text = await page.locator("#mode-subtabs").inner_text()
+
+  assert chat_text != agent_text
+  assert chat_text != echo_text
+  assert chat_text != nexus_text
+  assert agent_text != echo_text
+  assert agent_text != nexus_text
+  assert echo_text != nexus_text
+
 
 async def verify_reference_card_actions(page) -> None:
   await page.click("#btn-nexus")
@@ -152,6 +184,8 @@ async def verify_mobile_mode_switches(browser) -> None:
   await page.wait_for_function(
     "() => document.getElementById('mob-nexus')?.classList.contains('active')"
   )
+  subtabs_text = await page.locator("#mode-subtabs").inner_text()
+  assert "Nexus" in subtabs_text and "TTS" not in subtabs_text and "Agent Chat" not in subtabs_text, subtabs_text
 
   if errors:
     raise AssertionError("\n".join(errors))
@@ -317,6 +351,7 @@ async def main() -> None:
     assert switch_tab_type == "function", f"window.switchNexusTab is {switch_tab_type}"
 
     await verify_mode_switches(page)
+    await verify_mode_specific_subtabs(page)
     await verify_nexus_tabs(page)
     await verify_reference_card_actions(page)
     await verify_chat_search_and_agent_web_tool_tts(page)
