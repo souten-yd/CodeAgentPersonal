@@ -4617,7 +4617,7 @@ function _syncQwen3CloneTestUi(state = null) {
   const isQwen3 = _isEchoQwen3Selected();
   row.style.display = isQwen3 ? '' : 'none';
   if (!isQwen3) return;
-    : (document.getElementById('tsasr-qwen3-load-btn')?.style.display === 'none');
+  const loaded = state?.loaded ?? (document.getElementById('tsasr-qwen3-load-btn')?.style.display === 'none');
   const fieldset = document.getElementById('qwen3-clone-test-fieldset');
   const note = document.getElementById('qwen3-clone-test-unloaded-note');
   const generateBtns = _qwen3CloneGenerateButtons();
@@ -5191,37 +5191,21 @@ async function onTtsEngineChange() {
   if (!document.getElementById('tts-engine-note')) return;
   const engine = _normalizeTtsEngine(tts.engine);
   tts.engine = engine;
-  const note       = document.getElementById('tts-engine-note');
-  const loadRow    = document.getElementById('tts-engine-load-row');
-  const voiceRow   = document.getElementById('tts-voice-row');
-  const qwen3Row   = document.getElementById('tts-qwen3-row');
-  const deviceRow  = document.getElementById('tts-device-row');
-  const unloadBtn  = document.getElementById('tts-unload-btn');
+  const note = document.getElementById('tts-engine-note');
+  const voiceRow = document.getElementById('tts-voice-row');
+  const qwen3Row = document.getElementById('tts-qwen3-row');
+  const deviceRow = document.getElementById('tts-device-row');
+  const q3row = document.getElementById('tts-qwen3-load-row');
 
-  // デフォルトで全行非表示にしてから必要なものだけ表示
-  loadRow.style.display   = 'none';
-  qwen3Row.style.display  = 'none';
-  deviceRow.style.display = 'none';
-  voiceRow.style.display  = '';
+  if (qwen3Row) qwen3Row.style.display = 'none';
+  if (deviceRow) deviceRow.style.display = 'none';
+  if (voiceRow) voiceRow.style.display = 'none';
+  if (q3row) q3row.style.display = 'none';
 
-    voiceRow.style.display = 'none';
-    const q3row = document.getElementById('tts-qwen3-load-row');
-    if (q3row) q3row.style.display = '';
-    // ステータス確認
-    try {
-      const st = await fetch(API + '/tts/status').then(r => r.json());
-      const statusEl = document.getElementById('tts-qwen3-status');
-    } catch(e) {}
-  } else if (engine === 'style_bert_vits2') {
+  if (note) {
     note.textContent = 'Style-Bert-VITS2 をローカルモデルで実行します。Echo TTS 側でモデルを選択してください。';
-    voiceRow.style.display = 'none';
-  }
-  // qwen3 ロード行: qwen3 以外では非表示
-    const q3row = document.getElementById('tts-qwen3-load-row');
-    if (q3row) q3row.style.display = 'none';
   }
 
-  // アンロードボタンの表示制御（ロード状態に基づく）
   _ttsSyncUnloadBtn(engine);
 }
 
@@ -5559,28 +5543,26 @@ async function uploadStyleBertVits2ModelZip(input, context = 'echo') {
 
 function _ttsSyncUnloadBtn(engine) {
   const unloadBtn = document.getElementById('tts-unload-btn');
-  const loadBtn   = document.getElementById('tts-engine-load-btn');
+  const loadBtn = document.getElementById('tts-engine-load-btn');
   if (!unloadBtn || !loadBtn) return;
-  fetch(API + '/tts/status').then(r => r.json()).then(s => {
+  fetch(API + '/tts/status').then(r => r.json()).then((s) => {
+    const loaded = !!s?.loaded;
     unloadBtn.style.display = loaded ? '' : 'none';
-    loadBtn.style.display   = loaded ? 'none' : '';
+    loadBtn.style.display = loaded ? 'none' : '';
     const status = document.getElementById('tts-qwen3-status');
     if (!status) return;
-      else                             status.textContent = '未ロード';
-    }
+    status.textContent = loaded ? '✓ ロード済み' : '未ロード';
   }).catch(() => {});
 }
 
 async function loadTtsEngine() {
+
   const engine = _normalizeTtsEngine(tts.engine);
   const btn    = document.getElementById('tts-engine-load-btn');
   const status = document.getElementById('tts-qwen3-status');
   btn.disabled = true;
   status.textContent = '接続中...';
   const reqBody = { engine };
-    reqBody.model_id = tts.qwen3model;
-    reqBody.device   = tts.ttsDevice;
-  }
   let loadMsgEl = addMsg('system', 'TTS エンジンをロード中です...');
   try {
     const resp = await fetch(API + '/tts/load', {
@@ -5603,9 +5585,7 @@ async function loadTtsEngine() {
           loadMsgEl = addMsg('system', ev.message);
         } else if (ev.type === 'done') {
           if (loadMsgEl) { loadMsgEl.remove(); loadMsgEl = null; }
-            const mid = (ev.model_id || tts.qwen3model || '').split('/').pop();
-            status.textContent = `✓ ロード済み: ${mid}（${ev.device || 'cpu'}）`;
-          }
+            status.textContent = `✓ ロード済み`;
           document.getElementById('tts-unload-btn').style.display = '';
           btn.style.display = 'none';
         } else if (ev.type === 'error') {

@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+import os
 
 from playwright.async_api import async_playwright
+from check_ui_inline_script_syntax import main as check_ui_syntax_main
 
 
 ROOT = Path(__file__).resolve().parents[1]
 UI_FILE_URL = ROOT.joinpath("ui.html").resolve().as_uri()
+UI_TARGET_URL = os.environ.get("UI_TEST_URL", "").strip() or UI_FILE_URL
 
 NEXUS_TABS = [
   "dashboard",
@@ -124,7 +127,7 @@ async def verify_mobile_mode_switches(browser) -> None:
   page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
   page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
 
-  await page.goto(UI_FILE_URL)
+  await page.goto(UI_TARGET_URL)
   await page.wait_for_load_state("domcontentloaded")
 
   await page.click("#btn-chat")
@@ -294,6 +297,10 @@ async def verify_chat_search_and_agent_web_tool_tts(page) -> None:
 
 
 async def main() -> None:
+  syntax_rc = check_ui_syntax_main()
+  if syntax_rc != 0:
+    raise AssertionError(f"ui inline script syntax check failed: rc={syntax_rc}")
+
   async with async_playwright() as p:
     browser = await p.chromium.launch()
     page = await browser.new_page(viewport={"width": 1440, "height": 900})
@@ -301,7 +308,7 @@ async def main() -> None:
     page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
     page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
 
-    await page.goto(UI_FILE_URL)
+    await page.goto(UI_TARGET_URL)
     await page.wait_for_load_state("domcontentloaded")
 
     set_mode_type = await page.evaluate("() => typeof window.setMode")
