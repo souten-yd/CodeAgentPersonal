@@ -65,36 +65,34 @@ async def verify_nexus_tabs(page) -> None:
     )
 
 async def verify_mode_specific_subtabs(page) -> None:
+  async def is_visible(tab_id: str) -> bool:
+    return await page.evaluate(
+      "(id) => { const el = document.getElementById(id); return !!el && getComputedStyle(el).display !== 'none'; }",
+      tab_id,
+    )
+
   await page.click("#btn-chat")
-  await page.wait_for_function(
-    "() => (document.querySelector('#mode-subtabs')?.textContent || '').includes('Files')"
-  )
-  chat_text = await page.locator("#mode-subtabs").inner_text()
+  for tab_id in ["mob-chat", "mob-files", "mob-log", "mob-skills", "mob-memory", "mob-models"]:
+    assert await is_visible(tab_id), f"{tab_id} should be visible in chat mode"
+  for tab_id in ["mob-agent-chat", "mob-agent-tasks", "mob-echo", "mob-vault", "mob-log-echo", "mob-models-echo", "mob-asr", "mob-tts", "mob-nexus"]:
+    assert not await is_visible(tab_id), f"{tab_id} should be hidden in chat mode"
 
   await page.click("#btn-agent")
-  await page.wait_for_function(
-    "() => (document.querySelector('#mode-subtabs')?.textContent || '').includes('Agent Tasks')"
-  )
-  agent_text = await page.locator("#mode-subtabs").inner_text()
+  for tab_id in ["mob-agent-chat", "mob-agent-tasks"]:
+    assert await is_visible(tab_id), f"{tab_id} should be visible in agent mode"
+  for tab_id in ["mob-chat", "mob-files", "mob-log", "mob-skills", "mob-memory", "mob-models", "mob-echo", "mob-vault", "mob-log-echo", "mob-models-echo", "mob-asr", "mob-tts", "mob-nexus"]:
+    assert not await is_visible(tab_id), f"{tab_id} should be hidden in agent mode"
 
   await page.click("#btn-echo")
-  await page.wait_for_function(
-    "() => (document.querySelector('#mode-subtabs')?.textContent || '').includes('TTS')"
-  )
-  echo_text = await page.locator("#mode-subtabs").inner_text()
+  for tab_id in ["mob-echo", "mob-vault", "mob-log-echo", "mob-models-echo", "mob-asr", "mob-tts"]:
+    assert await is_visible(tab_id), f"{tab_id} should be visible in echo mode"
+  for tab_id in ["mob-chat", "mob-files", "mob-log", "mob-skills", "mob-memory", "mob-models", "mob-agent-chat", "mob-agent-tasks", "mob-nexus"]:
+    assert not await is_visible(tab_id), f"{tab_id} should be hidden in echo mode"
 
   await page.click("#btn-nexus")
-  await page.wait_for_function(
-    "() => (document.querySelector('#mode-subtabs')?.textContent || '').includes('Nexus')"
-  )
-  nexus_text = await page.locator("#mode-subtabs").inner_text()
-
-  assert chat_text != agent_text
-  assert chat_text != echo_text
-  assert chat_text != nexus_text
-  assert agent_text != echo_text
-  assert agent_text != nexus_text
-  assert echo_text != nexus_text
+  assert await is_visible("mob-nexus"), "mob-nexus should be visible in nexus mode"
+  for tab_id in ["mob-chat", "mob-files", "mob-log", "mob-skills", "mob-memory", "mob-models", "mob-agent-chat", "mob-agent-tasks", "mob-echo", "mob-vault", "mob-log-echo", "mob-models-echo", "mob-asr", "mob-tts"]:
+    assert not await is_visible(tab_id), f"{tab_id} should be hidden in nexus mode"
 
 
 async def verify_reference_card_actions(page) -> None:
@@ -184,8 +182,10 @@ async def verify_mobile_mode_switches(browser) -> None:
   await page.wait_for_function(
     "() => document.getElementById('mob-nexus')?.classList.contains('active')"
   )
-  subtabs_text = await page.locator("#mode-subtabs").inner_text()
-  assert "Nexus" in subtabs_text and "TTS" not in subtabs_text and "Agent Chat" not in subtabs_text, subtabs_text
+  nexus_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-nexus')).display !== 'none'")
+  echo_tts_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-tts')).display !== 'none'")
+  agent_chat_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-agent-chat')).display !== 'none'")
+  assert nexus_visible and not echo_tts_visible and not agent_chat_visible
 
   if errors:
     raise AssertionError("\n".join(errors))
