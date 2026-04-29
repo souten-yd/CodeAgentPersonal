@@ -7046,11 +7046,15 @@ function _updateMobTabs(m) {
   const isNexus = (m === 'nexus');
   const isChatTask = !isEcho && !isAgent && !isNexus;
 
+  // static .mob-tabs layout is kept; only mode-specific class toggles are updated.
   mobTabs?.classList.toggle('echo-mode', isEcho);
   mobTabs?.classList.toggle('chat-task-mode', isChatTask);
 
   const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS];
-  allMob.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+  allMob.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
 
   const showIds = isAgent
     ? _AGENT_MOB_TAB_IDS
@@ -7060,7 +7064,10 @@ function _updateMobTabs(m) {
         ? _NEXUS_MOB_TAB_IDS
         : _CHAT_MOB_TAB_IDS;
 
-  showIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = ''; });
+  showIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = '';
+  });
 }
 
 function _setPanelTabActiveButton(name) {
