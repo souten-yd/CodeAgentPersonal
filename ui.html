@@ -3606,7 +3606,7 @@ const _styleBertVits2ModelMeta = new Map();
 const _QWEN3_TTS_ALLOWED_MODEL_IDS = new Set([
 ]);
 function _normalizeTtsEngine(engine) {
-  const normalized = _TTS_ENGINE_COMPAT_ALIASES[String(engine || '').trim().toLowerCase()] || engine;
+  const normalized = String(engine || '').trim().toLowerCase();
   return _SUPPORTED_TTS_ENGINES.has(normalized) ? normalized : 'style_bert_vits2';
 }
 function _normalizeQwen3ModelId() { return ''; }
@@ -5122,8 +5122,6 @@ function saveTtsSettings() {
   tts.engine     = _normalizeTtsEngine(document.getElementById('tts-engine-sel')?.value || tts.engine);
   tts.voice      = document.getElementById('tts-voice-sel')?.value || tts.voice;
   tts.speed      = parseFloat(document.getElementById('tts-speed-slider')?.value || `${tts.speed || 1.0}`);
-  const q3sel    = document.getElementById('tts-qwen3-model-sel');
-  if (q3sel) tts.qwen3model = q3sel.value;
   const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
   if (styleSel) tts.styleBertVits2Model = styleSel.value || tts.styleBertVits2Model || '';
   const devRadio = document.querySelector('input[name="tts-device"]:checked');
@@ -5131,7 +5129,6 @@ function saveTtsSettings() {
   localStorage.setItem('tts_engine',     tts.engine);
   localStorage.setItem('tts_voice',      tts.voice);
   localStorage.setItem('tts_speed',      tts.speed);
-  localStorage.setItem('tts_qwen3model', tts.qwen3model);
   localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model || '');
 }
 
@@ -6220,7 +6217,6 @@ function refreshTtsTab() {
   _updateEchoQwen3UiVisibility();
   const savedQwen3Model = localStorage.getItem('tsasr_qwen3model') || localStorage.getItem('tts_qwen3model') || tts.qwen3model;
   tts.qwen3model = _normalizeQwen3ModelId(savedQwen3Model);
-  localStorage.setItem('tts_qwen3model', tts.qwen3model);
   localStorage.setItem('tsasr_qwen3model', tts.qwen3model);
   const tsasrQ3Sel = document.getElementById('tsasr-qwen3-model-sel');
   const mainQ3Sel = document.getElementById('tts-qwen3-model-sel');
