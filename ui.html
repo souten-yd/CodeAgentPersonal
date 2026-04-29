@@ -1436,14 +1436,11 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="nexus-subtabs">
         <button class="nexus-subtab active" id="nexus-btn-dashboard" onclick="switchNexusTab('dashboard')">Dashboard</button>
         <button class="nexus-subtab" id="nexus-btn-library" onclick="switchNexusTab('library')">Library</button>
-        <button class="nexus-subtab" id="nexus-btn-news" onclick="switchNexusTab('news')">News</button>
-        <button class="nexus-subtab" id="nexus-btn-market" onclick="switchNexusTab('market')">Market</button>
-        <button class="nexus-subtab" id="nexus-btn-web-scout" onclick="switchNexusTab('web-scout')">Web Scout</button>
-        <button class="nexus-subtab" id="nexus-btn-deep-research" onclick="switchNexusTab('deep-research')">Deep Research</button>
-        <button class="nexus-subtab" id="nexus-btn-compare" onclick="switchNexusTab('compare')">Compare</button>
-        <button class="nexus-subtab" id="nexus-btn-formula" onclick="switchNexusTab('formula')">Formula</button>
+        <button class="nexus-subtab" id="nexus-btn-research" onclick="switchNexusTab('research')">Research</button>
+        <button class="nexus-subtab" id="nexus-btn-sources" onclick="switchNexusTab('sources')">Sources</button>
         <button class="nexus-subtab" id="nexus-btn-evidence" onclick="switchNexusTab('evidence')">Evidence</button>
-        <button class="nexus-subtab" id="nexus-btn-report" onclick="switchNexusTab('report')">Report</button>
+        <button class="nexus-subtab" id="nexus-btn-reports" onclick="switchNexusTab('reports')">Reports</button>
+        <button class="nexus-subtab" id="nexus-btn-settings" onclick="switchNexusTab('settings')">Settings</button>
       </div>
     </div>
     <div class="nexus-body">
@@ -1559,6 +1556,16 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div class="nexus-card-title">Deep Research</div>
             <div class="nexus-form-grid">
               <input id="nexus-deep-topic" class="nexus-input" type="text" placeholder="調査テーマ (例: 2026年のAI推論半導体サプライチェーン)">
+              <select id="nexus-research-type" class="nexus-select">
+                <option value="general">General Research</option>
+                <option value="source_search">Source Search</option>
+                <option value="news_scan">News Scan</option>
+                <option value="market_research">Market Research</option>
+                <option value="standards_legal">Standards / Legal</option>
+                <option value="technical_research">Technical Research</option>
+                <option value="compare_sources">Compare Sources</option>
+                <option value="formula_check">Formula Check</option>
+              </select>
               <div class="nexus-form-grid cols-2">
                 <select id="nexus-deep-depth" class="nexus-select">
                   <option value="quick">depth: Quick</option>
@@ -1629,6 +1636,19 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <div id="nexus-deep-sources-table" class="nexus-table-wrap">
                 <div class="nexus-empty" style="padding:10px">Sources テーブルは research 開始後に更新されます。</div>
               </div>
+            </div>
+            <div class="nexus-card">
+              <div class="nexus-card-title">Search in Collected Sources</div>
+              <div class="nexus-form-grid cols-2">
+                <input id="nexus-collected-query" class="nexus-input" type="text" placeholder="query">
+                <select id="nexus-collected-scope" class="nexus-select"><option value="current_research_job">current_research_job</option><option value="all_collected_sources">all_collected_sources</option><option value="library">library</option><option value="evidence">evidence</option></select>
+              </div>
+              <div class="nexus-form-grid cols-2">
+                <input id="nexus-collected-types" class="nexus-input" type="text" placeholder="source_types (csv: pdf,html)">
+                <input id="nexus-collected-limit" class="nexus-input" type="number" value="20" min="1" max="100" placeholder="limit">
+              </div>
+              <div class="nexus-actions"><button class="settings-btn primary" onclick="searchInCollectedSources()">Search</button></div>
+              <div id="nexus-collected-results" class="nexus-result-panel"><div class="nexus-empty">検索結果はここに表示されます。</div></div>
             </div>
           </div>
         </div>
@@ -1724,6 +1744,15 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             </div>
           </div>
         </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-sources">
+        <div class="nexus-card">
+          <div class="nexus-card-title">Sources Workspace</div>
+          <div class="nexus-empty">Search in Sources / Source List / Source Viewer / Selected Sources / Actions は Research 内検索と連携します。</div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-settings">
+        <div class="nexus-card"><div class="nexus-card-title">Nexus Settings</div><div class="nexus-empty">Nexus専用設定は今後ここに統合します。</div></div>
       </div>
     </div>
   </div>
@@ -7482,24 +7511,30 @@ function setMode(m) {
 }
 
 function switchNexusTab(name) {
-  const tabs = ['dashboard','library','news','market','web-scout','deep-research','compare','formula','evidence','report'];
+  const tabs = ['dashboard','library','research','sources','evidence','reports','settings'];
   const target = tabs.includes(name) ? name : 'dashboard';
   window._nexusTab = target;
+  const panelMap = { research:'deep-research', reports:'report' };
   tabs.forEach(tab => {
-    document.getElementById('nexus-tab-' + tab)?.classList.toggle('active', tab === target);
+    const panelId = panelMap[tab] || tab;
+    document.getElementById('nexus-tab-' + panelId)?.classList.toggle('active', tab === target);
     document.getElementById('nexus-btn-' + tab)?.classList.toggle('active', tab === target);
+  });
+  ['news','market','web-scout','compare','formula'].forEach(old => {
+    document.getElementById('nexus-tab-' + old)?.classList.remove('active');
+    document.getElementById('nexus-btn-' + old)?.classList.remove('active');
   });
   if (target === 'dashboard') refreshNexusDashboardSummary();
   if (target === 'library') {
     refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
     refreshNexusJobs();
   }
-  if (target === 'deep-research' && !nexusDeepResearchEvents.length) {
+  if (target === 'research' && !nexusDeepResearchEvents.length) {
     renderNexusDeepTimeline([]);
     renderNexusDeepSourcesTable(nexusDeepResearchSources);
   }
   if (target === 'evidence') runNexusEvidenceMvp();
-  if (target === 'report') runNexusReportMvp();
+  if (target === 'reports') runNexusReportMvp();
 }
 
 
@@ -9234,6 +9269,7 @@ async function runNexusDeepResearch() {
   const topic = (document.getElementById('nexus-deep-topic')?.value || '').trim();
   const depth = (document.getElementById('nexus-deep-depth')?.value || 'standard').trim().toLowerCase();
   const scope = (document.getElementById('nexus-deep-scope')?.value || 'web').trim().toLowerCase();
+  const researchType = (document.getElementById('nexus-research-type')?.value || 'general').trim().toLowerCase();
   const maxDownloadMbEl = document.getElementById('nexus-deep-max-download-mb');
   const maxTotalDownloadMbEl = document.getElementById('nexus-deep-max-total-download-mb');
   const maxDownloadsEl = document.getElementById('nexus-deep-max-downloads');
@@ -9298,13 +9334,16 @@ async function runNexusDeepResearch() {
       setNexusDeepStatus('research job を起動中...');
     }
 
+    const typeToScope = { news_scan:'news', market_research:'market', compare_sources:'official', formula_check:'official', source_search:'library' };
+    const effectiveScope = typeToScope[researchType] || scope;
     const conf = nexusDepthToConfig(depth);
     const payload = {
       query: topic,
       project: currentProject || 'default',
       mode: depth,
       depth,
-      scope: [scope],
+      scope: [effectiveScope],
+      research_type: researchType,
       max_queries: conf.maxQueries,
       max_results_per_query: conf.maxResultsPerQuery,
       max_download_mb: maxDownloadMb,
@@ -9347,6 +9386,28 @@ async function runNexusDeepResearch() {
     setNexusDeepStatus(formatNexusDeepErrorMessage(err), true, nexusDeepResearchStubMode);
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+async function searchInCollectedSources() {
+  const query = (document.getElementById('nexus-collected-query')?.value || '').trim();
+  const root = document.getElementById('nexus-collected-results');
+  if (!root) return;
+  if (!query) { root.innerHTML = '<div class="nexus-empty">query を入力してください。</div>'; return; }
+  const sourceTypesRaw = (document.getElementById('nexus-collected-types')?.value || '').trim();
+  const sourceTypes = sourceTypesRaw ? sourceTypesRaw.split(',').map(v=>v.trim()).filter(Boolean) : [];
+  const scope = (document.getElementById('nexus-collected-scope')?.value || 'current_research_job').trim();
+  const limit = Number(document.getElementById('nexus-collected-limit')?.value || 20);
+  const payload = { query, scope, job_id: nexusDeepResearchJobId || null, source_types: sourceTypes, limit };
+  try {
+    const res = await fetch(nexusApi('/nexus/sources/search'), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const parsed = await parseNexusApiResponse(res);
+    if (!res.ok) throw new Error(buildNexusApiErrorMessage('/nexus/sources/search', res, parsed));
+    const rows = parsed?.data?.results || [];
+    if (!rows.length) { root.innerHTML = '<div class="nexus-empty">ヒットなし。</div>'; return; }
+    root.innerHTML = rows.map(r => `<div class="nexus-result-item"><div><b>${esc(r.citation_label || '[S]')}</b> ${esc(r.title||'')}</div><div class="nexus-result-meta">${esc(r.source_type||'')} / p.${esc(String(r.page_start||'-'))}-${esc(String(r.page_end||'-'))}</div><div style="font-size:11px">${r.snippet || ''}</div></div>`).join('');
+  } catch (e) {
+    root.innerHTML = `<div class="nexus-empty">検索失敗: ${esc(e.message || String(e))}</div>`;
   }
 }
 
