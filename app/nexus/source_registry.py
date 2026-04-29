@@ -5,7 +5,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import uuid
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from app.nexus.db import get_conn, insert_chunk, insert_document, update_document_artifact_paths
 from app.nexus.jobs import append_job_event, ensure_job_exists, update_job
@@ -16,6 +16,75 @@ _DEFAULT_CHUNK_SIZE = 1000
 _MIN_OVERLAP = 100
 _MAX_OVERLAP = 200
 _DEFAULT_OVERLAP = 150
+
+
+
+_TRACKING_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid"}
+
+
+def canonicalize_source_url(url: str) -> str:
+    raw = str(url or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    scheme = (parsed.scheme or "").lower()
+    host = (parsed.hostname or "").lower()
+    netloc = host
+    if parsed.port:
+        netloc = f"{host}:{parsed.port}"
+    path = parsed.path or "/"
+    if path != "/" and path.endswith("/"):
+        path = path.rstrip("/")
+    kept = []
+    for k, v in parse_qsl(parsed.query, keep_blank_values=True):
+        if k.lower() in _TRACKING_PARAMS:
+            continue
+        kept.append((k, v))
+    kept.sort(key=lambda x: (x[0], x[1]))
+    query = urlencode(kept, doseq=True)
+    return urlunparse((scheme, netloc, path, "", query, ""))
+
+
+def find_reusable_artifact(canonical_url: str = "", content_sha256: str = "") -> dict | None:
+    with get_conn() as conn:
+        if canonical_url:
+            row = conn.execute(
+                "SELECT * FROM nexus_source_artifacts WHERE canonical_url = ? ORDER BY updated_at DESC LIMIT 1",
+                (canonical_url,),
+            ).fetchone()
+            if row is not None:
+                return dict(row)
+        if content_sha256:
+            row = conn.execute(
+                "SELECT * FROM nexus_source_artifacts WHERE content_sha256 = ? ORDER BY updated_at DESC LIMIT 1",
+                (content_sha256,),
+            ).fetchone()
+            if row is not None:
+                return dict(row)
+    return None
+
+
+def upsert_source_artifact(*, source_id: str, canonical_url: str, final_url: str, content_sha256: str, content_type: str, local_original_path: str, local_text_path: str, local_markdown_path: str) -> str:
+    now = _now_iso()
+    existing = find_reusable_artifact(canonical_url=canonical_url, content_sha256=content_sha256)
+    with get_conn() as conn:
+        if existing is not None:
+            artifact_id = str(existing.get("artifact_id") or "")
+            conn.execute("""
+                UPDATE nexus_source_artifacts
+                SET source_id=?, canonical_url=?, final_url=?, content_sha256=?, content_type=?,
+                    local_original_path=?, local_text_path=?, local_markdown_path=?, updated_at=?
+                WHERE artifact_id=?
+            """, (source_id, canonical_url, final_url, content_sha256, content_type, local_original_path, local_text_path, local_markdown_path, now, artifact_id))
+            conn.commit()
+            return artifact_id
+        artifact_id = str(uuid.uuid4())
+        conn.execute("""
+            INSERT INTO nexus_source_artifacts(artifact_id, source_id, canonical_url, final_url, content_sha256, content_type, local_original_path, local_text_path, local_markdown_path, created_at, updated_at)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (artifact_id, source_id, canonical_url, final_url, content_sha256, content_type, local_original_path, local_text_path, local_markdown_path, now, now))
+        conn.commit()
+    return artifact_id
 
 
 def _now_iso() -> str:
@@ -185,6 +254,7 @@ def register_or_update_sources(
             ).fetchone()
 
             domain = urlparse(url).netloc.lower()
+            canonical_url = canonicalize_source_url(url)
             if existing is None:
                 source_id = str(source.get("source_id") or uuid.uuid4())
                 conn.execute(
@@ -193,8 +263,8 @@ def register_or_update_sources(
                         source_id, job_id, project, source_type, url, final_url, title,
                         publisher, language, domain, content_type,
                         local_original_path, local_text_path, local_markdown_path, local_screenshot_path,
-                        linked_document_id, status, source_score, source_score_breakdown, error, retrieved_at, created_at, updated_at
-                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        linked_document_id, status, source_score, source_score_breakdown, error, retrieved_at, canonical_url, content_sha256, is_duplicate, duplicate_of_source_id, created_at, updated_at
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         source_id,
@@ -218,6 +288,10 @@ def register_or_update_sources(
                         json.dumps(source.get("source_score_breakdown") or {}, ensure_ascii=False, sort_keys=True),
                         str(source.get("error") or ""),
                         str(source.get("retrieved_at") or now),
+                        canonical_url,
+                        str(source.get("content_sha256") or ""),
+                        int(source.get("is_duplicate") or 0),
+                        str(source.get("duplicate_of_source_id") or ""),
                         now,
                         now,
                     ),
@@ -233,7 +307,7 @@ def register_or_update_sources(
                     SET final_url = ?, title = ?, publisher = ?, language = ?, content_type = ?,
                         local_original_path = ?, local_text_path = ?, local_markdown_path = ?, local_screenshot_path = ?,
                         linked_document_id = ?, status = ?, source_score = ?, source_score_breakdown = ?,
-                        error = ?, retrieved_at = ?, updated_at = ?
+                        error = ?, retrieved_at = ?, canonical_url = ?, content_sha256 = ?, is_duplicate = ?, duplicate_of_source_id = ?, updated_at = ?
                     WHERE source_id = ?
                     """,
                     (
@@ -252,6 +326,10 @@ def register_or_update_sources(
                         json.dumps(source.get("source_score_breakdown") or {}, ensure_ascii=False, sort_keys=True),
                         str(source.get("error") or ""),
                         str(source.get("retrieved_at") or now),
+                        canonical_url,
+                        str(source.get("content_sha256") or ""),
+                        int(source.get("is_duplicate") or 0),
+                        str(source.get("duplicate_of_source_id") or ""),
                         now,
                         source_id,
                     ),

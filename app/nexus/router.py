@@ -108,6 +108,7 @@ class NexusSourceSearchRequest(BaseModel):
     source_ids: list[str] = Field(default_factory=list)
     source_types: list[str] = Field(default_factory=list)
     limit: int = Field(default=20, ge=1, le=100)
+    collapse_duplicates: bool = False
 
 
 class NexusEvidenceAddFromChunksRequest(BaseModel):
@@ -120,6 +121,7 @@ class NexusResearchFollowupRequest(BaseModel):
     question: str = Field(min_length=1)
     use_existing_sources_only: bool = True
     limit: int = Field(default=20, ge=1, le=100)
+    collapse_duplicates: bool = False
 
 
 def _as_canonical_payload(operation: str, request: dict, result: dict) -> dict:
@@ -770,7 +772,14 @@ def _search_chunks(payload: NexusSourceSearchRequest) -> list[dict]:
 
 @nexus_router.post("/sources/search")
 def nexus_sources_search(payload: NexusSourceSearchRequest) -> dict:
-    return {"query": payload.query, "scope": payload.scope, "results": _search_chunks(payload)}
+    results = _search_chunks(payload)
+    if payload.collapse_duplicates:
+        deduped = {}
+        for row in results:
+            key = str(row.get("source_id") or "")
+            deduped.setdefault(key, row)
+        results = list(deduped.values())
+    return {"query": payload.query, "scope": payload.scope, "collapse_duplicates": payload.collapse_duplicates, "results": results}
 
 
 @nexus_router.post("/evidence/add-from-chunks")

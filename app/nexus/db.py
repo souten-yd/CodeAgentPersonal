@@ -186,10 +186,30 @@ SCHEMA_SQL: tuple[str, ...] = (
         source_score_breakdown TEXT NOT NULL DEFAULT '{}',
         error TEXT NOT NULL DEFAULT '',
         retrieved_at TEXT NOT NULL DEFAULT '',
+        canonical_url TEXT NOT NULL DEFAULT '',
+        content_sha256 TEXT NOT NULL DEFAULT '',
+        is_duplicate INTEGER NOT NULL DEFAULT 0,
+        duplicate_of_source_id TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY(job_id) REFERENCES nexus_jobs(job_id) ON DELETE CASCADE,
         FOREIGN KEY(linked_document_id) REFERENCES nexus_documents(id) ON DELETE SET NULL
+    )
+    """,
+    
+    """
+    CREATE TABLE IF NOT EXISTS nexus_source_artifacts (
+        artifact_id TEXT PRIMARY KEY,
+        source_id TEXT NOT NULL DEFAULT '',
+        canonical_url TEXT NOT NULL DEFAULT '',
+        final_url TEXT NOT NULL DEFAULT '',
+        content_sha256 TEXT NOT NULL DEFAULT '',
+        content_type TEXT NOT NULL DEFAULT '',
+        local_original_path TEXT NOT NULL DEFAULT '',
+        local_text_path TEXT NOT NULL DEFAULT '',
+        local_markdown_path TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
     )
     """,
     """
@@ -231,6 +251,10 @@ SCHEMA_SQL: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_watchlists_project ON nexus_watchlists(project)",
     "CREATE INDEX IF NOT EXISTS idx_sources_job_id ON nexus_sources(job_id)",
     "CREATE INDEX IF NOT EXISTS idx_sources_linked_document_id ON nexus_sources(linked_document_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sources_canonical_url ON nexus_sources(canonical_url)",
+    "CREATE INDEX IF NOT EXISTS idx_sources_content_sha256 ON nexus_sources(content_sha256)",
+    "CREATE INDEX IF NOT EXISTS idx_artifacts_canonical_url ON nexus_source_artifacts(canonical_url)",
+    "CREATE INDEX IF NOT EXISTS idx_artifacts_content_sha256 ON nexus_source_artifacts(content_sha256)",
     "CREATE INDEX IF NOT EXISTS idx_research_answers_job_id ON nexus_research_answers(job_id)",
     "CREATE INDEX IF NOT EXISTS idx_source_chunks_source_id ON nexus_source_chunks(source_id)",
     "CREATE INDEX IF NOT EXISTS idx_source_chunks_chunk_id ON nexus_source_chunks(chunk_id)",
@@ -297,6 +321,27 @@ def _ensure_compat_migrations(conn: sqlite3.Connection) -> None:
         )
         """
     )
+
+    _add_column_if_missing(conn, "nexus_sources", "canonical_url TEXT NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "nexus_sources", "content_sha256 TEXT NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "nexus_sources", "is_duplicate INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "nexus_sources", "duplicate_of_source_id TEXT NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "nexus_source_artifacts", "source_id TEXT NOT NULL DEFAULT ''")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS nexus_source_artifacts (
+            artifact_id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL DEFAULT '',
+            canonical_url TEXT NOT NULL DEFAULT '',
+            final_url TEXT NOT NULL DEFAULT '',
+            content_sha256 TEXT NOT NULL DEFAULT '',
+            content_type TEXT NOT NULL DEFAULT '',
+            local_original_path TEXT NOT NULL DEFAULT '',
+            local_text_path TEXT NOT NULL DEFAULT '',
+            local_markdown_path TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
 
     source_columns = conn.execute("PRAGMA table_info(nexus_sources)").fetchall()
     linked_document_col = next((row for row in source_columns if str(row["name"]) == "linked_document_id"), None)
