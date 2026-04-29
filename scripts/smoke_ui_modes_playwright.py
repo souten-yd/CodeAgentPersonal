@@ -6,6 +6,7 @@ from pathlib import Path
 import os
 
 from playwright.async_api import async_playwright
+from check_ui_inline_script_syntax import main as check_ui_syntax_main
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -296,6 +297,10 @@ async def verify_chat_search_and_agent_web_tool_tts(page) -> None:
 
 
 async def main() -> None:
+  syntax_rc = check_ui_syntax_main()
+  if syntax_rc != 0:
+    raise AssertionError(f"ui inline script syntax check failed: rc={syntax_rc}")
+
   async with async_playwright() as p:
     browser = await p.chromium.launch()
     page = await browser.new_page(viewport={"width": 1440, "height": 900})
