@@ -16715,7 +16715,7 @@ def root():
     """ルートアクセスをUIのindex.htmlに直接返す"""
     index = os.path.join(UI_DIR, "index.html")
     if os.path.exists(index):
-        return FileResponse(index, media_type="text/html")
+        return FileResponse(index, media_type="text/html", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
     return RedirectResponse("/ui/")
 
 @app.get("/ui")

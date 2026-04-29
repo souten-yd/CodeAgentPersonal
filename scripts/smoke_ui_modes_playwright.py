@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+import os
 
 from playwright.async_api import async_playwright
 
 
 ROOT = Path(__file__).resolve().parents[1]
 UI_FILE_URL = ROOT.joinpath("ui.html").resolve().as_uri()
+UI_TARGET_URL = os.environ.get("UI_TEST_URL", "").strip() or UI_FILE_URL
 
 NEXUS_TABS = [
   "dashboard",
@@ -124,7 +126,7 @@ async def verify_mobile_mode_switches(browser) -> None:
   page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
   page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
 
-  await page.goto(UI_FILE_URL)
+  await page.goto(UI_TARGET_URL)
   await page.wait_for_load_state("domcontentloaded")
 
   await page.click("#btn-chat")
@@ -301,7 +303,7 @@ async def main() -> None:
     page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
     page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
 
-    await page.goto(UI_FILE_URL)
+    await page.goto(UI_TARGET_URL)
     await page.wait_for_load_state("domcontentloaded")
 
     set_mode_type = await page.evaluate("() => typeof window.setMode")
