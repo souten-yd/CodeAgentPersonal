@@ -32,8 +32,11 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _build_answer_markdown(*, question: str, summary: str, references: list[dict]) -> str:
-    markdown_lines = [f"# Answer", "", f"## Question", question, "", "## Answer", summary, "", "## References"]
+def _build_answer_markdown(*, question: str, summary: str, references: list[dict], top_warning: str = "") -> str:
+    markdown_lines = [f"# Answer", ""]
+    if top_warning.strip():
+        markdown_lines.extend([top_warning.strip(), ""])
+    markdown_lines.extend(["## Question", question, "", "## Answer", summary, "", "## References"])
     for idx, ref in enumerate(references, start=1):
         label = str(ref.get("citation_label") or f"[S{idx}]")
         title = str(ref.get("title") or ref.get("url") or "(untitled)")
@@ -559,8 +562,7 @@ def _looks_incomplete_answer(
         return True
     min_len = 220 if deep_research_strict else 120
     if len(body) < min_len:
-        if not deep_research_strict or len(body) < 40:
-            return True
+        return True
     if len(body) < 40:
         return True
     answer_body = body
@@ -569,7 +571,7 @@ def _looks_incomplete_answer(
     has_citation = "[s" in body.lower() or "## references" in body.lower() or "citation" in body.lower()
     if deep_research_strict and len(body) >= 220 and has_citation and len(answer_body) < 140:
         return True
-    if deep_research_strict and len(body) >= 220 and "## 追加確認が必要な点" not in body:
+    if deep_research_strict and "## 追加確認が必要な点" not in body:
         return True
     tail = body[-6:]
     if tail and tail[-1] in {"、", "。", ":", "：", "・", "-", "(", "（", "/", "#"}:
@@ -914,18 +916,20 @@ def build_answer_payload(
     final_summary = replace_citation_labels(final_answer_text, normalized["label_map"])
     continuation_result = llm_result.get("continuation_result", {}) if isinstance(llm_result.get("continuation_result"), dict) else {}
     continuation_finish_reason = str(continuation_result.get("finish_reason") or "").strip()
+    top_warning = ""
     if continuation_finish_reason.lower() == "length":
         output_truncated = True
         output_incomplete = True
     if output_incomplete and llm_answer:
         final_summary = (final_summary.rstrip() + _build_incomplete_warning()).strip()
     if continuation_finish_reason.lower() == "length":
-        final_summary = _build_truncated_after_continuation_warning() + final_summary
+        top_warning = _build_truncated_after_continuation_warning().strip()
 
     answer_markdown = _build_answer_markdown(
         question=question,
         summary=final_summary,
         references=normalized_references,
+        top_warning=top_warning,
     )
     citation_verification = verify_citation_labels(
         answer_text=final_summary,

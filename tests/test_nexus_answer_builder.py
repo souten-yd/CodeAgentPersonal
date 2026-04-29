@@ -317,6 +317,48 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertEqual(payload["generation"]["llm_model"], "local-llm")
         self.assertIsNone(payload["generation"]["error"])
 
+    def test_continuation_length_adds_top_warning_and_final_truncation_flags(self) -> None:
+        references = [{"citation_label": "s1", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"quote": "fact", "source_id": "src-1", "citation_label": "s1"}]
+        initial = {
+            "text": "A" * 260 + "\n\n## 追加確認が必要な点\n- なし [S1]",
+            "finish_reason": "length",
+            "usage": {"prompt_tokens": 9, "completion_tokens": 20, "total_tokens": 29},
+            "prompt_tokens": 9,
+            "completion_tokens": 20,
+            "total_tokens": 29,
+            "response_length_chars": 280,
+        }
+        continuation = {
+            "text": "B" * 80 + " [S1]",
+            "finish_reason": "length",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 30, "total_tokens": 40},
+            "prompt_tokens": 10,
+            "completion_tokens": 30,
+            "total_tokens": 40,
+            "response_length_chars": 85,
+        }
+        with patch.dict(
+            os.environ,
+            {"NEXUS_ENABLE_ANSWER_LLM": "true"},
+            clear=True,
+        ), patch(
+            "app.nexus.answer_builder._generate_answer_with_llm",
+            side_effect=[initial, continuation],
+        ):
+            payload = build_answer_payload(
+                question="質問",
+                summary="fallback",
+                references=references,
+                evidence_chunks=chunks,
+            )
+        self.assertTrue(payload["generation"]["final_output_truncated"])
+        self.assertTrue(payload["generation"]["final_output_incomplete"])
+        self.assertEqual(payload["generation"]["notice"], "継続生成後も出力上限で途中終了しました")
+        answer_md = payload["answer_markdown"]
+        self.assertIn("継続生成後も出力上限で途中終了しました", answer_md)
+        self.assertIn("## Question", answer_md)
+
     def test_build_answer_payload_falls_back_to_template_summary_when_llm_fails(self) -> None:
         references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
         chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "legacy-label"}]
