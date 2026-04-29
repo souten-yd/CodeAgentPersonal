@@ -3609,10 +3609,10 @@ function _normalizeTtsEngine(engine) {
   const normalized = _TTS_ENGINE_COMPAT_ALIASES[String(engine || '').trim().toLowerCase()] || engine;
   return _SUPPORTED_TTS_ENGINES.has(normalized) ? normalized : 'style_bert_vits2';
 }
-function _normalizeQwen3ModelId(modelId) {
-}
+function _normalizeQwen3ModelId() { return ''; }
+function _isEchoQwen3Selected() { return false; }
+async function loadQwen3Tts() { return; }
 tts.engine = _normalizeTtsEngine(tts.engine);
-tts.qwen3model = _normalizeQwen3ModelId(tts.qwen3model);
 if (!tts.styleBertVits2Model) {
   tts.styleBertVits2Model = localStorage.getItem('echo_style_bert_vits2_model')
                          || localStorage.getItem('echo_stylebertvits2_model')
@@ -4329,96 +4329,26 @@ async function _ttsPlayStyleBertVits2Batch(queueItem = {}) {
 
 async function _ttsFetchAudio(text, engine = tts.engine, context = 'main', opts = {}) {
   engine = _normalizeTtsEngine(engine);
-    await _ensureQwen3ReferenceState();
-  }
+
   if (engine === 'style_bert_vits2') {
+    await _ensureStyleBertVits2ModelState?.();
     const prepared = await _ensureStyleBertVits2Prepared({context});
     if (!prepared) throw new Error('Style-Bert-VITS2 の初期セットアップに失敗しました。');
   }
-  const body = _buildTtsRequestBodyByEngine({ text, engine, context, opts });
+
+  const requestBody = _buildTtsRequestBodyByEngine({text, engine, context, opts});
   const resp = await fetch(API + '/tts/synthesize', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body),
+    body: JSON.stringify(requestBody),
   });
+
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    const detail = _getUserFacingApiErrorMessage(err, '音声合成に失敗しました。');
-    const statusCode = Number(err?.status_code || err?.detail?.status_code || resp.status || 0);
-    const isNoSpeakable = statusCode === 422 && /読み上げ可能なテキストがありません/.test(detail);
-    if (isNoSpeakable) {
-      console.info('[TTS][no_speakable_text] status=422');
-      const ex = new Error(detail);
-      ex.name = 'TTSNoSpeakableTextError';
-      throw ex;
-    }
-    if (resp.status >= 500 || resp.status === 0) {
-      console.warn(`[TTS][network_error] status=${resp.status} detail=${JSON.stringify(detail)}`);
-      const ex = new Error('TTS接続エラー');
-      ex.name = 'TTSNetworkError';
-      throw ex;
-    }
-    const message = _formatQwen3SynthesisError(detail, body);
-    console.warn(`[TTS][model_error] status=${resp.status} detail=${JSON.stringify(message)}`);
-    const ex = new Error(message || 'TTS生成エラー');
-    ex.name = 'TTSModelError';
-    throw ex;
+    const detail = await resp.text().catch(() => '');
+    throw new Error(detail || `TTS failed: ${resp.status}`);
   }
-  if (engine === 'style_bert_vits2') {
-    console.info(`[Style-Bert-VITS2][input] final_text=${JSON.stringify(_ttsPreviewText(text, 120))} looks_japanese=${_ttsLooksSpeakable(text)}`);
-  }
-  return await _ttsReadValidatedAudioBlob(resp, {route: '/tts/synthesize', engine});
-}
 
-async function _ttsFetchBatchAudio(body = {}, opts = {}) {
-  const resp = await fetch(API + '/tts/synthesize-batch', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    const fallback = opts.fallbackMessage || 'バッチ音声合成に失敗しました。';
-    throw new Error(_getUserFacingApiErrorMessage(err, fallback));
-  }
-  return await _ttsReadValidatedAudioBlob(resp, {route: '/tts/synthesize-batch', engine: body?.engine || 'unknown'});
-}
-
-async function _ttsReadValidatedAudioBlob(resp, meta = {}) {
-  const ct = String(resp.headers.get('Content-Type') || '').toLowerCase();
-  if (!ct.startsWith('audio/')) {
-    const text = await resp.text().catch(() => '');
-    console.warn(`[TTS][response_not_audio] route=${meta.route || 'unknown'} engine=${meta.engine || 'unknown'} content_type=${ct || 'none'} body_preview=${JSON.stringify(String(text || '').slice(0, 120))}`);
-    const ex = new Error('TTSレスポンスが音声形式ではありません');
-    ex.name = 'TTSModelError';
-    throw ex;
-  }
-  const blob = await resp.blob();
-  if (!blob || blob.size <= 0) {
-    console.warn(`[TTS][empty_blob] route=${meta.route || 'unknown'} engine=${meta.engine || 'unknown'} content_type=${ct || blob?.type || 'none'} blob_size=${blob?.size || 0}`);
-    const ex = new Error('TTS音声が空です');
-    ex.name = 'TTSModelError';
-    throw ex;
-  }
-  if (!String(blob.type || ct).toLowerCase().startsWith('audio/')) {
-    console.warn(`[TTS][not_supported] route=${meta.route || 'unknown'} engine=${meta.engine || 'unknown'} content_type=${ct || 'none'} blob_type=${blob.type || 'none'} blob_size=${blob.size}`);
-    const ex = new Error('音声形式エラー');
-    ex.name = 'NotSupportedError';
-    throw ex;
-  }
-  return blob;
-}
-
-function _getUserFacingApiErrorMessage(err, fallback = '処理に失敗しました。') {
-  if (!err || typeof err !== 'object') return fallback;
-  const userMessage = typeof err.user_message === 'string' ? err.user_message.trim() : '';
-  if (userMessage) return userMessage;
-  const detail = typeof err.detail === 'string' ? err.detail.trim() : '';
-  if (!detail && err.detail && typeof err.detail === 'object' && typeof err.detail.error === 'string') {
-    return err.detail.error;
-  }
-  if (!detail) return fallback;
-  return detail.length > 200 ? fallback : detail;
+  return await resp.blob();
 }
 
 function _buildTtsRequestBodyByEngine({text, engine, context = 'main', opts = {}}) {
@@ -4428,16 +4358,6 @@ function _buildTtsRequestBodyByEngine({text, engine, context = 'main', opts = {}
 
 function _buildDefaultTtsRequestBody({text, engine}) {
   return {text, engine, speed: tts.speed};
-}
-
-function _buildQwen3TtsRequestBody({text, engine, context, opts = {}}) {
-  const body = _buildDefaultTtsRequestBody({text, engine});
-  const explicitLanguage = (opts.language || '').trim();
-  const langDetected = _ttsDetectLang(text) === 'ja' ? 'Japanese' : 'English';
-  body.language = explicitLanguage || langDetected;
-  Object.assign(body, _buildQwen3ReferenceParams(context));
-  _applyReservedTtsOptions(body, opts, {allowSpeed: true, allowLanguage: true});
-  return body;
 }
 
 function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
@@ -4539,9 +4459,6 @@ function _buildQwen3ReferenceParams(context = 'echo') {
   if (echo.voiceRefAudio) params.ref_audio_base64 = echo.voiceRefAudio;
   if (refText) params.ref_text = refText;
   return params;
-}
-
-function _isEchoQwen3Selected() {
 }
 
 function _setQwen3CloneTestStatus(msg = '待機中', isError = false) {
@@ -5706,64 +5623,6 @@ async function loadTtsEngine() {
     status.textContent = 'エラー';
   } finally {
     btn.disabled = false;
-  }
-}
-
-async function loadQwen3Tts(context) {
-  // context: 'main'(TTSタブ) or 'echo'(Echoタブ) or 'tts'(Echo TTSタブ)
-                 : context === 'tts' ? 'tsasr-qwen3-load-btn' : 'tts-qwen3-load-btn';
-                 : context === 'tts' ? 'tsasr-qwen3-status' : 'tts-qwen3-status';
-  const btn    = document.getElementById(btnId);
-  const status = document.getElementById(statusId);
-  const { model_id: modelId, device } = _buildQwen3LoadParams(context);
-  _syncTtsDeviceState(device);
-  if (btn) btn.disabled = true;
-  if (status) status.textContent = 'ロード中...';
-  try {
-    const resp = await fetch(API + '/tts/load', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-    });
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    while (true) {
-      const {value, done} = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, {stream: true});
-      const lines = buf.split('\n'); buf = lines.pop();
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        let ev; try { ev = JSON.parse(line.slice(6)); } catch { continue; }
-        if (ev.type === 'loading') {
-          if (status) status.textContent = '読込中...';
-        } else if (ev.type === 'done') {
-          if (ev.device) _syncTtsDeviceState(ev.device);
-          if (ev.model_id) {
-            tts.qwen3model = ev.model_id;
-            localStorage.setItem('tts_qwen3model', ev.model_id);
-            localStorage.setItem('tsasr_qwen3model', ev.model_id);
-            const mainSel = document.getElementById('tts-qwen3-model-sel');
-            const tsasrSel = document.getElementById('tsasr-qwen3-model-sel');
-            if (mainSel) mainSel.value = ev.model_id;
-            if (tsasrSel) tsasrSel.value = ev.model_id;
-          }
-          if (status) status.textContent = `✓ ロード済み (${(ev.model_id||'').split('/').pop()||''}, ${ev.device||'cpu'})`;
-          if (ev.note) addMsg('system', ev.note);
-          if (context === 'tts') {
-            document.getElementById('tsasr-qwen3-load-btn')?.setAttribute('style','display:none');
-            document.getElementById('tsasr-qwen3-unload-btn')?.removeAttribute('style');
-          }
-        } else if (ev.type === 'error') {
-          const detail = ev.detail || '不明なエラー';
-          if (status) status.textContent = 'エラー: ' + detail;
-        }
-      }
-    }
-  } catch(e) {
-    if (status) status.textContent = 'エラー';
-  } finally {
-    if (btn) btn.disabled = false;
   }
 }
 
