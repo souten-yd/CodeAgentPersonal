@@ -1603,6 +1603,14 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
                 <button class="settings-btn" id="nexus-deep-bundle-btn" style="padding:5px 12px;font-size:11px" onclick="downloadNexusDeepBundle()" disabled>Download Bundle</button>
               </div>
               <div id="nexus-deep-status" class="nexus-result-meta">状態: 未実行</div>
+              <div class="nexus-card" style="margin-top:10px">
+                <div class="nexus-card-title">Current Run</div>
+                <div id="nexus-deep-current-run" class="nexus-result-panel"><div class="nexus-empty">No current run</div></div>
+              </div>
+              <div class="nexus-card" style="margin-top:10px">
+                <div class="nexus-card-title">Previous Runs</div>
+                <div id="nexus-deep-previous-runs" class="nexus-result-panel"><div class="nexus-empty">No previous runs</div></div>
+              </div>
             </div>
           </div>
           <div class="nexus-deep-panel">
@@ -7558,6 +7566,9 @@ let nexusDeepResearchAnswer = {};
 let nexusDeepResearchEvidence = [];
 let nexusDeepResearchReferences = [];
 let nexusDeepResearchHealth = {};
+let nexusDeepResearchPollTimer = null;
+let nexusDeepResearchCurrentRunMeta = null;
+let nexusDeepResearchPreviousRuns = [];
 let nexusMaxUploadMb = 200;
 let nexusMaxUploadBytes = nexusMaxUploadMb * 1024 * 1024;
 const nexusAllowedUploadExt = new Set(['.pdf', '.txt', '.md', '.csv', '.html']);
@@ -8755,6 +8766,104 @@ function formatNexusDeepErrorMessage(err) {
   return `Deep Research failed: ${err?.name || 'Error'}: ${err?.message || String(err)}`;
 }
 
+function stopNexusDeepResearchPolling() {
+  if (nexusDeepResearchPollTimer) {
+    clearTimeout(nexusDeepResearchPollTimer);
+    nexusDeepResearchPollTimer = null;
+  }
+}
+
+function renderNexusDeepCurrentRun() {
+  const root = document.getElementById('nexus-deep-current-run');
+  if (!root) return;
+  const row = nexusDeepResearchCurrentRunMeta;
+  if (!row) {
+    root.innerHTML = '<div class="nexus-empty">No current run</div>';
+    return;
+  }
+  root.innerHTML = `<div><b>${esc(row.job_id || '-')}</b></div><div class="nexus-result-meta">query: ${esc(row.query || '-')} / status: ${esc(row.status || '-')} / created_at: ${esc(row.created_at || '-')}</div>`;
+}
+
+function renderNexusDeepPreviousRuns() {
+  const root = document.getElementById('nexus-deep-previous-runs');
+  if (!root) return;
+  if (!Array.isArray(nexusDeepResearchPreviousRuns) || !nexusDeepResearchPreviousRuns.length) {
+    root.innerHTML = '<div class="nexus-empty">No previous runs</div>';
+    return;
+  }
+  root.innerHTML = nexusDeepResearchPreviousRuns.map((row) => {
+    const id = String(row?.job_id || '');
+    const idEnc = encodeURIComponent(id);
+    return `<div class="nexus-result-item"><div><b>${esc(id || '-')}</b></div><div class="nexus-result-meta">query: ${esc(row?.query || '-')} / status: ${esc(row?.status || '-')} / created_at: ${esc(row?.created_at || '-')}</div><div class="nexus-doc-actions"><button onclick="showNexusDeepPreviousRun('${idEnc}')">再表示</button><button onclick="downloadNexusDeepBundleByJobId('${idEnc}')">bundle download</button></div></div>`;
+  }).join('');
+}
+
+function pushNexusDeepPreviousRun(meta = null) {
+  if (!meta || !meta.job_id) return;
+  if (nexusDeepResearchPreviousRuns.some((row) => row.job_id === meta.job_id)) return;
+  nexusDeepResearchPreviousRuns.unshift(meta);
+  if (nexusDeepResearchPreviousRuns.length > 20) nexusDeepResearchPreviousRuns = nexusDeepResearchPreviousRuns.slice(0, 20);
+  renderNexusDeepPreviousRuns();
+}
+
+function resetNexusDeepResearchView(options = {}) {
+  const keepQuery = options?.keepQuery === true;
+  stopNexusDeepResearchPolling();
+  if (!keepQuery) {
+    const topicEl = document.getElementById('nexus-deep-topic');
+    if (topicEl) topicEl.value = '';
+  }
+  nexusDeepResearchJobId = '';
+  nexusDeepResearchAfterSeq = -1;
+  nexusDeepResearchEvents = [];
+  nexusDeepResearchStubMode = false;
+  nexusDeepResearchSources = [];
+  nexusDeepResearchAnswer = {};
+  nexusDeepResearchReferences = [];
+  nexusDeepResearchEvidence = [];
+  nexusDeepResearchHealth = {};
+  window.__nexusDeepViewer = null;
+  window.__nexusDeepViewerLastBody = '';
+  window.__nexusDeepViewerLastTextMode = '';
+  const bundleBtn = document.getElementById('nexus-deep-bundle-btn');
+  if (bundleBtn) bundleBtn.disabled = true;
+  const collected = document.getElementById('nexus-collected-results');
+  if (collected) collected.innerHTML = '<div class="nexus-empty">検索結果はここに表示されます。</div>';
+  const followup = document.getElementById('nexus-deep-followup-answer');
+  if (followup) followup.innerHTML = '<div class="nexus-empty">Follow-up answer はここに表示されます。</div>';
+  renderNexusDeepTimeline([]);
+  renderNexusDeepSourcesTable([]);
+  renderNexusDeepAnswer({});
+  renderNexusDeepReferences([], [], []);
+  renderNexusDeepViewer({});
+  setNexusDeepStatus('未実行');
+}
+
+function setNexusDeepCurrentJob(jobMeta = null) {
+  nexusDeepResearchCurrentRunMeta = jobMeta && jobMeta.job_id ? { ...jobMeta } : null;
+  nexusDeepResearchJobId = String(jobMeta?.job_id || '');
+  renderNexusDeepCurrentRun();
+}
+
+function updateNexusDeepCurrentStatus(status) {
+  if (!nexusDeepResearchCurrentRunMeta) return;
+  nexusDeepResearchCurrentRunMeta.status = status || nexusDeepResearchCurrentRunMeta.status || '-';
+  renderNexusDeepCurrentRun();
+}
+
+function downloadNexusDeepBundleByJobId(jobIdEnc) {
+  const id = decodeURIComponent(String(jobIdEnc || ''));
+  if (!id) return;
+  const url = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/bundle.zip');
+  window.open(url, '_blank', 'noopener');
+}
+
+async function showNexusDeepPreviousRun(jobIdEnc) {
+  const id = decodeURIComponent(String(jobIdEnc || ''));
+  if (!id) return;
+  await refreshNexusDeepBundle(id);
+}
+
 async function refreshNexusDeepSources(jobId) {
   const id = String(jobId || '').trim();
   if (!id) {
@@ -8955,14 +9064,16 @@ function formatNexusDeepProgressStatus() {
   return `phase:${phase} / progress:${Math.round(Number(h.progress || 0) * 100)}% / ${msg || '-'}${downloadSummary}${activeSummary} / generation:${generationMode}${outWarn} / 経過${elapsed || '-'}秒 / 最終heartbeat ${hbText} / 最終event ${eventText} / stalled:${String(Boolean(h.is_stalled))} / reason:${stallReason} / action:${suggestedAction} / sources:${nexusDeepResearchSources.length} / chunks:${chunksIn}/${chunksUsed} / prompt:${promptTokens} / max:${maxTokens}`;
 }
 
-async function refreshNexusDeepBundle(jobId) {
+async function refreshNexusDeepBundle(jobId, options = {}) {
   const id = String(jobId || '').trim();
   if (!id) return null;
+  const onlyIfCurrent = options?.onlyIfCurrent === true;
   const endpoint = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/bundle');
   const resp = await fetch(endpoint);
   const parsed = await parseNexusApiResponse(resp);
   if (!resp.ok) throw new Error(buildNexusApiErrorMessage(endpoint, resp, parsed));
   const data = parsed?.data || {};
+  if (onlyIfCurrent && String(nexusDeepResearchJobId || '') !== id) return null;
   const events = Array.isArray(data?.events) ? data.events : [];
   nexusDeepResearchEvents = events.slice().reverse();
   nexusDeepResearchSources = Array.isArray(data?.sources) ? data.sources : [];
@@ -8988,10 +9099,16 @@ async function refreshNexusDeepBundle(jobId) {
 async function pollNexusDeepResearch(jobId, maxTicks = 300) {
   const id = String(jobId || '').trim();
   if (!id) return;
-  for (let i = 0; i < maxTicks; i += 1) {
-    if (String(nexusDeepResearchJobId || '') !== id) break;
-    await refreshNexusDeepBundle(id);
-    await refreshNexusDeepDebug(id);
+  stopNexusDeepResearchPolling();
+  let tick = 0;
+  const runTick = async () => {
+    if (String(nexusDeepResearchJobId || '') !== id) return;
+    tick += 1;
+    const requestJobId = id;
+    await refreshNexusDeepBundle(requestJobId, { onlyIfCurrent: true });
+    if (String(nexusDeepResearchJobId || '') !== requestJobId) return;
+    await refreshNexusDeepDebug(requestJobId);
+    if (String(nexusDeepResearchJobId || '') !== requestJobId) return;
     const state = getNexusDeepTerminalState();
     const health = nexusDeepResearchHealth && typeof nexusDeepResearchHealth === 'object' ? nexusDeepResearchHealth : {};
     const stalled = health.is_stalled === true;
@@ -9001,9 +9118,14 @@ async function pollNexusDeepResearch(jobId, maxTicks = 300) {
       ? ` / 警告: heartbeatが120秒以上更新されていません。サーバー処理停止の可能性があります。（${stallReason}${suggestedAction ? ` / ${suggestedAction}` : ''}）`
       : '';
     setNexusDeepStatus(`job:${id} / state:${state || '-'} / ${formatNexusDeepProgressStatus()}${stallMsg}`, state === 'failed' || stalled, nexusDeepResearchStubMode);
-    if (state) break;
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-  }
+    updateNexusDeepCurrentStatus(state || 'running');
+    if (state || tick >= maxTicks) {
+      stopNexusDeepResearchPolling();
+      return;
+    }
+    nexusDeepResearchPollTimer = setTimeout(runTick, 1200);
+  };
+  await runTick();
 }
 
 async function viewNexusDeepSourceText(sourceIdEnc) {
@@ -9306,21 +9428,12 @@ async function runNexusDeepResearch() {
     setNexusDeepStatus('調査テーマを入力してください', true);
     return;
   }
-  nexusDeepResearchJobId = '';
-  nexusDeepResearchAfterSeq = -1;
-  nexusDeepResearchEvents = [];
-  nexusDeepResearchStubMode = false;
-  nexusDeepResearchSources = [];
-  nexusDeepResearchAnswer = {};
-  nexusDeepResearchReferences = [];
-  nexusDeepResearchEvidence = [];
-  nexusDeepResearchHealth = {};
-  if (bundleBtn) bundleBtn.disabled = true;
-  renderNexusDeepTimeline([]);
-  renderNexusDeepAnswer({});
-  renderNexusDeepReferences([], [], []);
-  renderNexusDeepViewer({});
-  renderNexusDeepSourcesTable([]);
+  if (nexusDeepResearchCurrentRunMeta?.job_id) {
+    pushNexusDeepPreviousRun({ ...nexusDeepResearchCurrentRunMeta });
+  }
+  resetNexusDeepResearchView({ keepQuery: true });
+  renderNexusDeepPreviousRuns();
+  setNexusDeepCurrentJob(null);
   if (btn) btn.disabled = true;
   try {
     const webStatus = await refreshNexusWebStatus();
@@ -9364,7 +9477,9 @@ async function runNexusDeepResearch() {
     if (!runRes.ok) throw new Error(buildNexusApiErrorMessage(runEndpoint, runRes, runParsed));
     const runData = runParsed?.data || {};
 
-    nexusDeepResearchJobId = String(runData?.job_id || '');
+    const newJobId = String(runData?.job_id || '');
+    const createdAt = String(runData?.created_at || new Date().toISOString()).replace('T', ' ').slice(0, 19);
+    setNexusDeepCurrentJob({ job_id: newJobId, query: topic, status: String(runData?.status || 'queued'), created_at: createdAt });
     if (bundleBtn) bundleBtn.disabled = !nexusDeepResearchJobId;
     nexusDeepResearchSources = Array.isArray(runData?.sources) ? runData.sources : [];
     const initialAnswer = normalizeNexusDeepAnswerPayload(runData?.answer || {});
@@ -9380,6 +9495,7 @@ async function runNexusDeepResearch() {
       return;
     }
 
+    stopNexusDeepResearchPolling();
     await pollNexusDeepResearch(nexusDeepResearchJobId, 50);
   } catch (err) {
     console.error('[NexusDeep] run failed', { url: nexusApi('/nexus/research/run'), name: err?.name, message: err?.message, stack: err?.stack, err });
