@@ -40,11 +40,12 @@ class NexusMvpAndJobsTests(unittest.TestCase):
         job_id = f"job_hb_concurrent_{uuid.uuid4().hex[:8]}"
         create_job(job_id, title="hb-concurrent", status="running")
 
-        def _heartbeat(idx: int) -> None:
-            append_job_heartbeat(job_id, "downloading", f"hb-{idx}", 0.2)
+        def _heartbeat(idx: int) -> int:
+            event = append_job_heartbeat(job_id, "downloading", f"hb-{idx}", 0.2)
+            return event.seq
 
         with ThreadPoolExecutor(max_workers=12) as executor:
-            list(executor.map(_heartbeat, range(30)))
+            seqs = list(executor.map(_heartbeat, range(50)))
 
         job = get_job(job_id)
         self.assertIsNotNone(job)
@@ -55,7 +56,9 @@ class NexusMvpAndJobsTests(unittest.TestCase):
                 "SELECT COUNT(*) AS c FROM nexus_job_events WHERE job_id = ? AND type = 'heartbeat'",
                 (job_id,),
             ).fetchone()
-        self.assertEqual(int((row or {})["c"]), 30)
+        self.assertEqual(len(seqs), 50)
+        self.assertEqual(len(set(seqs)), 50)
+        self.assertEqual(int((row or {})["c"]), 50)
 
     def test_news_mvp_headlines_use_title_then_quote_without_metadata_attr(self) -> None:
         evidence_items = [
