@@ -10,4 +10,3 @@ psutil>=5.9
 faster-whisper>=1.0
 # Qwen3-TTS dependency set is isolated to avoid conflicts with core FastAPI/WebUI stack.
 # Install torch/torchaudio/torchvision from requirements-tts.txt (cu128 index),
-# then install requirements-tts-qwen.txt.
