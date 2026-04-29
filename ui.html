@@ -8448,9 +8448,13 @@ function renderNexusDeepAnswer(answer = {}) {
         const finishReason = String(generation?.finish_reason || answer?.finish_reason || '').trim();
         const generationError = String(generation?.error || answer?.error || '').trim();
         const hasWarning = outputIncomplete || outputTruncated || (finishReason && finishReason !== 'stop') || Boolean(generationError);
-        if (!hasWarning) return '';
+        const selectedReason = String(generation?.selected_reason || answer?.selected_reason || '').trim();
+        const hasRoleWarning = selectedReason.includes('role_model_search_unset_fallback_to_models_api');
+        if (!hasWarning && !hasRoleWarning) return '';
+        const incompleteWarning = hasWarning ? `⚠ 回答生成が途中終了した可能性があります。output_incomplete=${esc(String(outputIncomplete))} / output_truncated=${esc(String(outputTruncated))} / finish_reason=${esc(finishReason || '-')} / error=${esc(generationError || '-')}。max_tokensまたはtimeoutを増やしてください。` : '';
+        const roleWarning = hasRoleWarning ? `⚠ SEARCHロールモデル未設定のためfallback modelを使用しました（selected_reason=${esc(selectedReason)}）。role_model_search を設定してください。` : '';
         return `<div class="nexus-generation-notice" style="border-color:rgba(255,170,0,.4);color:var(--amber)">
-            ⚠ 回答生成が途中終了した可能性があります。output_incomplete=${esc(String(outputIncomplete))} / output_truncated=${esc(String(outputTruncated))} / finish_reason=${esc(finishReason || '-')} / error=${esc(generationError || '-')}。max_tokensまたはtimeoutを増やしてください。
+            ${incompleteWarning}${incompleteWarning && roleWarning ? '<br>' : ''}${roleWarning}
           </div>`;
       })()}
       ${(generationMode === 'template_fallback' || generationNotice)

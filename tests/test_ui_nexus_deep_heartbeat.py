@@ -39,3 +39,4 @@ def test_ui_shows_incomplete_output_warning() -> None:
     assert 'output_truncated' in html
     assert 'finish_reason' in html
     assert 'max_tokensまたはtimeoutを増やしてください。' in html
+    assert 'role_model_search を設定してください。' in html

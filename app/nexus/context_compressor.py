@@ -129,6 +129,7 @@ def build_context_budget(
     instruction_tokens_estimate: int,
     question_tokens_estimate: int,
     source_metadata_tokens_estimate: int,
+    max_output_tokens: int | None = None,
     preferred_profile: str | None = None,
 ) -> ContextBudget:
     ctx = max(2048, int(max_context_tokens or 16384))
@@ -136,7 +137,8 @@ def build_context_budget(
 
     env_reserved = str(os.environ.get("NEXUS_ANSWER_LLM_RESERVED_OUTPUT_TOKENS", "")).strip()
     env_safety = str(os.environ.get("NEXUS_ANSWER_LLM_CONTEXT_SAFETY_TOKENS", "")).strip()
-    reserved_default = 2048 if ctx >= 24576 else 1536
+    output_tokens = max(256, int(max_output_tokens or 0))
+    reserved_default = min(output_tokens + 512, max(512, ctx // 3))
     safety_default = 1800 if ctx >= 24576 else 1200
     reserved = int(env_reserved) if env_reserved.isdigit() else reserved_default
     safety = int(env_safety) if env_safety.isdigit() else safety_default
