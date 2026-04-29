@@ -8443,9 +8443,19 @@ function renderNexusDeepAnswer(answer = {}) {
     <div class="nexus-answer-section">
       <div class="nexus-answer-subtitle">Generation</div>
       <pre class="nexus-answer-json">${esc(hasGeneration ? JSON.stringify(generation, null, 2) : 'generation unavailable')}</pre>
+      ${generation ? `<div style="font-size:10px;color:var(--text3);display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">
+        <span>max_tokens: <b style="color:var(--text2)">${esc(String(generation?.max_tokens ?? '-'))}</b></span>
+        <span>initial_len: <b style="color:var(--text2)">${esc(String(generation?.initial_response_length_chars ?? '-'))}</b></span>
+        <span>continuation_len: <b style="color:var(--text2)">${esc(String(generation?.continuation_response_length_chars ?? '-'))}</b></span>
+        <span>final_len: <b style="color:var(--text2)">${esc(String(generation?.final_response_length_chars ?? '-'))}</b></span>
+        <span>output_incomplete: <b style="color:var(--text2)">${esc(String(Boolean(generation?.final_output_incomplete ?? outputIncomplete)))}</b></span>
+        <span>output_truncated: <b style="color:var(--text2)">${esc(String(Boolean(generation?.final_output_truncated ?? outputTruncated)))}</b></span>
+        <span>finish: <b style="color:var(--text2)">${esc(String(generation?.finish_reason || '-'))}</b></span>
+        <span>final_finish: <b style="color:var(--text2)">${esc(String(generation?.final_finish_reason || '-'))}</b></span>
+      </div>` : ''}
       ${compressionHtml}
       ${(() => {
-        const finishReason = String(generation?.finish_reason || answer?.finish_reason || '').trim();
+        const finishReason = String(generation?.final_finish_reason || generation?.finish_reason || answer?.finish_reason || '').trim();
         const generationError = String(generation?.error || answer?.error || '').trim();
         const hasWarning = outputIncomplete || outputTruncated || (finishReason && finishReason !== 'stop') || Boolean(generationError);
         const selectedReason = String(generation?.selected_reason || answer?.selected_reason || '').trim();
@@ -8899,7 +8909,7 @@ function formatNexusDeepProgressStatus() {
     ? ` / ダウンロード中 ${completed}/${total} 件完了、${active}件処理中、${degraded}件degraded、${failed}件failed、${skipped}件skipped、${totalMb.toFixed(1)}MB`
     : '';
   const activeSummary = srcTitle ? ` / 処理中:${srcTitle}` : '';
-  const finishReason = String(generation?.finish_reason || nexusDeepResearchAnswer?.finish_reason || '').trim();
+  const finishReason = String(generation?.final_finish_reason || generation?.finish_reason || nexusDeepResearchAnswer?.finish_reason || '').trim();
   const generationError = String(generation?.error || nexusDeepResearchAnswer?.error || '').trim();
   const outputWarn = outputIncomplete || outputTruncated || (finishReason && finishReason !== 'stop') || Boolean(generationError);
   const outWarn = outputWarn

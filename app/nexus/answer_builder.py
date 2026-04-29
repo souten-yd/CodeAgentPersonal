@@ -543,14 +543,36 @@ def _job_answer_dir(job_id: str) -> Path:
     return ensure_dir(NEXUS_PATHS.nexus_dir / "research_jobs" / job_id)
 
 
-def _looks_incomplete_answer(text: str, finish_reason: str) -> bool:
+def _looks_incomplete_answer(
+    text: str,
+    finish_reason: str,
+    *,
+    continuation_finish_reason: str = "",
+    deep_research_strict: bool = True,
+) -> bool:
     body = str(text or "").strip()
-    if str(finish_reason or "").strip().lower() not in {"", "stop"}:
+    finish = str(finish_reason or "").strip().lower()
+    cont_finish = str(continuation_finish_reason or "").strip().lower()
+    if finish == "length" or cont_finish == "length":
         return True
-    if len(body) < 10:
+    if finish not in {"", "stop"}:
         return True
-    tail = body[-3:]
-    if tail and tail[-1] in {"、", "。", ":", "：", "・", "-", "(", "（"}:
+    min_len = 220 if deep_research_strict else 120
+    if len(body) < min_len:
+        if not deep_research_strict or len(body) < 40:
+            return True
+    if len(body) < 40:
+        return True
+    answer_body = body
+    if "## answer" in body.lower():
+        answer_body = body.lower().split("## answer",1)[1].split("## references",1)[0].strip()
+    has_citation = "[s" in body.lower() or "## references" in body.lower() or "citation" in body.lower()
+    if deep_research_strict and len(body) >= 220 and has_citation and len(answer_body) < 140:
+        return True
+    if deep_research_strict and len(body) >= 220 and "## 追加確認が必要な点" not in body:
+        return True
+    tail = body[-6:]
+    if tail and tail[-1] in {"、", "。", ":", "：", "・", "-", "(", "（", "/", "#"}:
         return True
     return False
 
@@ -725,18 +747,10 @@ def build_answer_payload(
         def _hb_emit(event_type: str, message: str, progress: float | None, details: dict | None = None) -> None:
             if not job_id:
                 return
-            append_job_event(
-                job_id,
-                event_type,
-                {
-                    "status": "running",
-                    "phase": "answer_llm_generating",
-                    "message": message,
-                    "progress": progress,
-                    "updated_at": _now_iso(),
-                    "details": details or {},
-                },
-            )
+            if event_type == "heartbeat":
+                append_job_heartbeat(job_id, "answer_llm_generating", message, progress, details or {})
+                return
+            append_job_event(job_id, event_type, {"status": "running", "phase": "answer_llm_generating", "message": message, "progress": progress, "updated_at": _now_iso(), "details": details or {}})
 
         def _hb_worker() -> None:
             started_at = time.time()
@@ -753,7 +767,7 @@ def build_answer_payload(
                         "estimated_prompt_tokens": estimated_prompt_tokens,
                         "compression_profile": context_budget.compression_profile,
                     }
-                    append_job_heartbeat(job_id, "answer_llm_generating", "LLM回答生成中...", 0.88, details)
+                    _hb_emit("heartbeat", "LLM回答生成中...", 0.88, details)
                     _hb_emit("answer_llm_heartbeat", "LLM回答生成中...", 0.88, details)
                 except Exception:  # noqa: BLE001
                     logger.warning("answer llm heartbeat worker failed", exc_info=True)
@@ -773,9 +787,11 @@ def build_answer_payload(
             initial_result = dict(llm_result)
             initial_answer_text = llm_answer
             continuation_result: dict = {}
-            output_truncated = str(llm_result.get("finish_reason") or "") == "length"
-            output_incomplete = _looks_incomplete_answer(initial_answer_text, str(llm_result.get("finish_reason") or ""))
-            if output_truncated:
+            initial_finish_reason = str(llm_result.get("finish_reason") or "")
+            initial_output_incomplete = _looks_incomplete_answer(initial_answer_text, initial_finish_reason)
+            output_truncated = initial_finish_reason == "length"
+            output_incomplete = initial_output_incomplete
+            if output_truncated or initial_output_incomplete:
                 continuation_used = True
                 try:
                     continuation_raw = _generate_answer_with_llm(
@@ -797,10 +813,17 @@ def build_answer_payload(
                     llm_result["response_length_chars"] = len(llm_answer)
                     llm_result["finish_reason"] = continuation_result.get("finish_reason")
                     llm_result["continuation_result"] = continuation_result
-                    output_truncated = str(continuation_result.get("finish_reason") or "") == "length"
-                    output_incomplete = _looks_incomplete_answer(llm_answer, str(llm_result.get("finish_reason") or ""))
+                    continuation_finish_reason = str(continuation_result.get("finish_reason") or "")
+                    output_truncated = continuation_finish_reason == "length"
+                    output_incomplete = _looks_incomplete_answer(
+                        llm_answer,
+                        str(llm_result.get("finish_reason") or ""),
+                        continuation_finish_reason=continuation_finish_reason,
+                    )
                 except Exception as cont_exc:  # noqa: BLE001
                     continuation_error = str(cont_exc)
+            else:
+                output_incomplete = _looks_incomplete_answer(initial_answer_text, initial_finish_reason)
             generation_mode = "llm_answer_truncated" if (output_incomplete or output_truncated) else "llm_answer"
         except Exception as exc:  # noqa: BLE001
             llm_answer = None
@@ -879,6 +902,8 @@ def build_answer_payload(
         verifier=citation_support_verifier,
     )
 
+    continuation_result = llm_result.get("continuation_result", {}) if isinstance(llm_result.get("continuation_result"), dict) else {}
+    initial_usage = initial_result.get("usage", {}) if isinstance(locals().get("initial_result"), dict) else {}
     generation = {
         "mode": generation_mode,
         "llm_enabled": llm_enabled,
@@ -899,16 +924,16 @@ def build_answer_payload(
         "retry_count": retry_count,
         "retry_profile": retry_applied_profile,
         "finish_reason": llm_result.get("finish_reason"),
+        "initial_finish_reason": initial_result.get("finish_reason") if isinstance(locals().get("initial_result"), dict) else llm_result.get("finish_reason"),
         "usage": llm_result.get("usage") if isinstance(llm_result.get("usage"), dict) else {},
         "prompt_tokens": llm_result.get("prompt_tokens", 0),
         "completion_tokens": llm_result.get("completion_tokens", 0),
         "total_tokens": llm_result.get("total_tokens", 0),
+        "initial_usage": initial_usage if isinstance(initial_usage, dict) else {},
+        "initial_prompt_tokens": initial_result.get("prompt_tokens", 0) if isinstance(locals().get("initial_result"), dict) else 0,
+        "initial_completion_tokens": initial_result.get("completion_tokens", 0) if isinstance(locals().get("initial_result"), dict) else 0,
         "initial_response_length_chars": initial_result.get("response_length_chars", 0) if isinstance(locals().get("initial_result"), dict) else llm_result.get("response_length_chars", 0),
-        "continuation_response_length_chars": (
-            llm_result.get("continuation_result", {}).get("response_length_chars", 0)
-            if isinstance(llm_result.get("continuation_result"), dict)
-            else 0
-        ),
+        "continuation_response_length_chars": continuation_result.get("response_length_chars", 0),
         "final_response_length_chars": len(llm_answer or ""),
         "response_length_chars": len(llm_answer or ""),
         "elapsed_sec": llm_result.get("elapsed_sec", 0.0),
@@ -916,16 +941,13 @@ def build_answer_payload(
         "output_incomplete": output_incomplete,
         "continuation_used": continuation_used,
         "continuation_error": continuation_error,
-        "continuation_finish_reason": (
-            llm_result.get("continuation_result", {}).get("finish_reason")
-            if isinstance(llm_result.get("continuation_result"), dict)
-            else None
-        ),
-        "continuation_usage": (
-            llm_result.get("continuation_result", {}).get("usage", {})
-            if isinstance(llm_result.get("continuation_result"), dict)
-            else {}
-        ),
+        "continuation_finish_reason": continuation_result.get("finish_reason"),
+        "continuation_usage": continuation_result.get("usage", {}) if isinstance(continuation_result.get("usage"), dict) else {},
+        "continuation_prompt_tokens": continuation_result.get("prompt_tokens", 0),
+        "continuation_completion_tokens": continuation_result.get("completion_tokens", 0),
+        "final_finish_reason": llm_result.get("finish_reason"),
+        "final_output_incomplete": output_incomplete,
+        "final_output_truncated": output_truncated,
         "max_tokens": max_tokens,
         "context_budget": {
             "max_context_tokens": context_budget.max_context_tokens,
