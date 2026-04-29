@@ -7048,10 +7048,22 @@ function _updateMobTabs(m) {
   mobTabs?.classList.toggle('echo-mode', isEcho);
   mobTabs?.classList.toggle('chat-task-mode', isChatTask);
 
-  _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isChatTask ? '' : 'none'; });
-  _AGENT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isAgent ? '' : 'none'; });
-  _ECHO_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
-  _NEXUS_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isNexus ? '' : 'none'; });
+  const toggleMob = (ids, visible) => ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (visible) {
+      el.style.display = '';
+      el.classList.remove('mob-hidden');
+    } else {
+      el.style.display = 'none';
+      el.classList.add('mob-hidden');
+    }
+  });
+
+  toggleMob(_CHAT_MOB_TAB_IDS, isChatTask);
+  toggleMob(_AGENT_MOB_TAB_IDS, isAgent);
+  toggleMob(_ECHO_MOB_TAB_IDS, isEcho);
+  toggleMob(_NEXUS_MOB_TAB_IDS, isNexus);
 }
 
 function _setPanelTabActiveButton(name) {
