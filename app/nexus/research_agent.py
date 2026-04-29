@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
+from hashlib import sha256
 from datetime import datetime, timezone
 import re
 import threading
@@ -16,7 +17,12 @@ from app.nexus.downloader import safe_download, save_download_artifacts
 from app.nexus.evidence import EvidenceItem, save_evidence_items
 from app.nexus.jobs import append_job_event, append_job_heartbeat, create_job, ensure_job_exists, update_job
 from app.nexus.source_collector import collect_source_candidates, rank_source_candidates
-from app.nexus.source_registry import register_or_update_sources
+from app.nexus.source_registry import (
+    canonicalize_source_url,
+    find_reusable_artifact,
+    register_or_update_sources,
+    upsert_source_artifact,
+)
 from app.nexus.db import get_conn
 from app.nexus.web_scout import plan_web_queries, run_web_search
 
@@ -409,6 +415,26 @@ def _download_sources_parallel(
             source["finished_at"] = _now_iso()
             source["elapsed_sec"] = round(max(0.0, time.monotonic() - started), 3)
             return source
+        canonical_url = canonicalize_source_url(url)
+        source["canonical_url"] = canonical_url
+        reusable = find_reusable_artifact(canonical_url=canonical_url)
+        if reusable:
+            op = str(reusable.get("local_original_path") or "")
+            tp = str(reusable.get("local_text_path") or "")
+            mp = str(reusable.get("local_markdown_path") or "")
+            if op and tp and mp:
+                from pathlib import Path
+                if Path(op).exists() and Path(tp).exists() and Path(mp).exists():
+                    source["status"] = "reused"
+                    source["is_duplicate"] = 1
+                    source["duplicate_of_source_id"] = str(reusable.get("source_id") or "")
+                    source["local_original_path"] = op
+                    source["local_text_path"] = tp
+                    source["local_markdown_path"] = mp
+                    source["content_sha256"] = str(reusable.get("content_sha256") or "")
+                    source["content_type"] = str(reusable.get("content_type") or "")
+                    source["final_url"] = str(reusable.get("final_url") or url)
+                    return source
         try:
             download_result = safe_download(
                 url,
@@ -444,8 +470,31 @@ def _download_sources_parallel(
             source["local_text_path"] = str(saved.get("extracted_txt") or "")
             source["local_markdown_path"] = str(saved.get("extracted_md") or "")
             source["error"] = str(saved.get("error") or "")
+            digest = sha256(bytes(download_result.get("bytes") or b"")).hexdigest()
+            source["content_sha256"] = digest
+            source["canonical_url"] = canonical_url
+            dup_artifact = find_reusable_artifact(content_sha256=digest)
+            if dup_artifact and str(dup_artifact.get("local_original_path") or "") != source.get("local_original_path", ""):
+                source["status"] = "duplicate"
+                source["is_duplicate"] = 1
+                source["duplicate_of_source_id"] = str(dup_artifact.get("source_id") or "")
+                source["local_original_path"] = str(dup_artifact.get("local_original_path") or source.get("local_original_path") or "")
+                source["local_text_path"] = str(dup_artifact.get("local_text_path") or source.get("local_text_path") or "")
+                source["local_markdown_path"] = str(dup_artifact.get("local_markdown_path") or source.get("local_markdown_path") or "")
+            else:
+                upsert_source_artifact(
+                    source_id=str(source.get("source_id") or ""),
+                    canonical_url=canonical_url,
+                    final_url=str(download_result.get("final_url") or url),
+                    content_sha256=digest,
+                    content_type=str(download_result.get("content_type") or ""),
+                    local_original_path=str(source.get("local_original_path") or ""),
+                    local_text_path=str(source.get("local_text_path") or ""),
+                    local_markdown_path=str(source.get("local_markdown_path") or ""),
+                )
             saved_status = str(saved.get("status") or "downloaded")
-            source["status"] = "degraded" if saved_status == "degraded" else "downloaded"
+            if source.get("status") not in {"duplicate"}:
+                source["status"] = "degraded" if saved_status == "degraded" else "downloaded"
             return source
         except Exception as exc:  # noqa: BLE001
             message = str(exc)

@@ -391,6 +391,7 @@ def create_research_bundle(job_id: str) -> Path:
             )
         zf.writestr("sources.csv", csv_buf.getvalue())
 
+        added_artifacts: set[str] = set()
         for source in sources:
             source_id = str(source.get("source_id") or "").strip()
             if not source_id:
@@ -400,11 +401,15 @@ def create_research_bundle(job_id: str) -> Path:
             zf.writestr(f"{source_root}/metadata/source.json", json.dumps(source, ensure_ascii=False, indent=2))
 
             original_path = str(source.get("local_original_path") or "").strip()
-            if original_path:
+            is_dup = int(source.get("is_duplicate") or 0) == 1 or str(source.get("status") or "") in {"reused", "duplicate"}
+            if is_dup:
+                zf.writestr(f"{source_root}/REUSED_FROM.txt", str(source.get("duplicate_of_source_id") or ""))
+            if original_path and original_path not in added_artifacts:
                 original_suffix = Path(original_path).suffix or ".bin"
                 original_name = Path(original_path).name or f"original{original_suffix}"
-                _zip_write_if_exists(zf, original_path, f"{source_root}/original{original_suffix}")
-                _zip_write_if_exists(zf, original_path, f"{source_root}/original/{original_name}")
+                _zip_write_if_exists(zf, original_path, f"artifacts/{Path(original_path).stem}/original{original_suffix}")
+                _zip_write_if_exists(zf, original_path, f"downloads/{source_id}/original/{original_name}")
+                added_artifacts.add(original_path)
             _zip_write_if_exists(zf, str(source.get("local_text_path") or ""), f"{source_root}/text.txt")
             _zip_write_if_exists(zf, str(source.get("local_markdown_path") or ""), f"{source_root}/document.md")
             _zip_write_if_exists(zf, str(source.get("local_text_path") or ""), f"{source_root}/extracted/content.txt")
