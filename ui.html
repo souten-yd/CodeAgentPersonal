@@ -7045,29 +7045,13 @@ function _updateMobTabs(m) {
   const isAgent = (m === 'agent');
   const isNexus = (m === 'nexus');
   const isChatTask = !isEcho && !isAgent && !isNexus;
-
-  // static .mob-tabs layout is kept; only mode-specific class toggles are updated.
   mobTabs?.classList.toggle('echo-mode', isEcho);
   mobTabs?.classList.toggle('chat-task-mode', isChatTask);
 
-  const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS];
-  allMob.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
-  });
-
-  const showIds = isAgent
-    ? _AGENT_MOB_TAB_IDS
-    : isEcho
-      ? _ECHO_MOB_TAB_IDS
-      : isNexus
-        ? _NEXUS_MOB_TAB_IDS
-        : _CHAT_MOB_TAB_IDS;
-
-  showIds.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = '';
-  });
+  _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isChatTask ? '' : 'none'; });
+  _AGENT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isAgent ? '' : 'none'; });
+  _ECHO_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
+  _NEXUS_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isNexus ? '' : 'none'; });
 }
 
 function _setPanelTabActiveButton(name) {
@@ -10024,7 +10008,7 @@ function mobSwitch(name) {
   const nc = document.getElementById('nexus-col');
 
   if (name === 'chat') {
-    if (mode !== 'chat') { setMode('chat'); return; }
+    setMode('chat');
     cc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden');
     ec?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
@@ -10047,7 +10031,7 @@ function mobSwitch(name) {
     ec?.classList.add('mob-hidden');
     nc?.classList.add('mob-hidden');
   } else if (name === 'echo') {
-    if (mode !== 'echo') { setMode('echo'); return; }
+    setMode('echo');
     ec?.classList.remove('mob-hidden');
     cc?.classList.add('mob-hidden');
     pc?.classList.add('mob-hidden');
