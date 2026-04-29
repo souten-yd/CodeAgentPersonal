@@ -61,6 +61,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
+RUN mkdir -p \
+    /opt/cache \
+    /opt/hf_cache \
+    /opt/hf_cache/hub \
+    /opt/hf_cache/transformers \
+    /opt/style-bert-vits2-models
+
 RUN apt-get update -o Acquire::Retries=3 \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -113,6 +120,15 @@ FROM py_build AS style_bert_vits2_build
 
 ARG STYLE_BERT_VITS2_REPO_URL="https://github.com/litagin02/Style-Bert-VITS2.git"
 ARG STYLE_BERT_VITS2_REF="master"
+
+RUN mkdir -p \
+    /opt/cache \
+    /opt/hf_cache \
+    /opt/hf_cache/hub \
+    /opt/hf_cache/transformers \
+    /opt/style-bert-vits2-models \
+    /app/Style-Bert-VITS2/bert/deberta-v2-large-japanese-char-wwm \
+    /app/Style-Bert-VITS2/bert/deberta-v2-large-japanese-char-wwm-onnx
 
 RUN apt-get update -o Acquire::Retries=3 \
     && apt-get install -y --no-install-recommends \
@@ -171,6 +187,10 @@ PY
 
 RUN set -eux; \
     test -x /opt/style-bert-vits2-venv/bin/python; \
+    test -d /opt/cache; \
+    test -d /opt/hf_cache; \
+    test -d /opt/hf_cache/hub; \
+    test -d /opt/style-bert-vits2-models; \
     test -f /app/Style-Bert-VITS2/bert/deberta-v2-large-japanese-char-wwm/pytorch_model.bin; \
     test -f /app/Style-Bert-VITS2/bert/deberta-v2-large-japanese-char-wwm-onnx/model_fp16.onnx; \
     test -f /opt/style-bert-vits2-models/koharune-ami/config.json; \
