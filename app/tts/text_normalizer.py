@@ -35,7 +35,7 @@ _MARKDOWN_BULLET_PATTERN = re.compile(r"(?m)^\s*[-*]\s+")
 _SPACE_BEFORE_PUNCT_PATTERN = re.compile(r"\s+([、。！？：；，．・ー」』）)\]])")
 _SPACE_AFTER_OPENING_PUNCT_PATTERN = re.compile(r"([「『（(])\s+")
 _NUMBER_UNIT_PATTERN = re.compile(
-    r"(?P<number>\d+(?:[.,]\d+)?)\s*(?P<unit>tb|gb|mb|kb|vram|ghz|mhz|khz|v|kv|a|ma|w|kw|mw|km|kg|cm|mm|m|g|mg|ml|l|℃|°C|%|円|¥|\$)(?=$|[^A-Za-z])",
+    r"(?P<number>\d+(?:[.,]\d+)?)\s*(?P<unit>vram|ghz|mhz|khz|tb|gb|mb|kb|kv|ma|kw|mw|km|kg|cm|mm|mg|ml|°C|v|a|w|m|g|l|℃|%|円|¥|\$)(?=$|[^A-Za-z])",
     re.IGNORECASE,
 )
 _CURRENCY_PREFIX_PATTERN = re.compile(r"(?P<currency>[$¥])\s*(?P<number>\d+(?:[.,]\d+)?)")

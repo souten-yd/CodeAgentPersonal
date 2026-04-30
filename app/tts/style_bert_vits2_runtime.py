@@ -483,7 +483,6 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "normalization_enabled": normalization_enabled,
             "route": str(req.get("route") or "tts/synthesize"),
             "caller": str(req.get("caller") or "manual"),
-            "use_translation": bool(req.get("use_translation", False)),
             "text_source": str(req.get("text_source") or "raw"),
             "raw_text": str(req.get("raw_text") or text),
             "translated_text": str(req.get("translated_text") or ""),
@@ -564,6 +563,10 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             or req.get("translation_target_language")
             or ""
         )
+        text_source = str(route_info.get("text_source") or req.get("text_source") or source).strip().lower()
+        if text_source == "prepared":
+            needs_translation = False
+            translation_target_language = ""
         if needs_translation and not translated_available:
             preview_warnings.append("translation required but translated_text is empty")
         translation_warning = str(req.get("translation_warning") or "").strip()

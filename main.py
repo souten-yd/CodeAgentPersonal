@@ -16935,6 +16935,9 @@ def _apply_tts_language_routing(req: dict, *, model_version: str | None) -> dict
 
     skip_routing = bool(req.get("skip_tts_language_routing")) or bool(req.get("text_prepared_for_tts"))
     if skip_routing:
+        route["needs_translation"] = False
+        route["translation_target_language"] = None
+        route["text_source"] = "prepared"
         req["translated_text"] = str(req.get("translated_text") or "")
         req["final_text"] = original_text
         req["text"] = original_text
