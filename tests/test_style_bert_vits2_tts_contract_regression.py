@@ -1,4 +1,5 @@
 import importlib.util
+import ast
 from pathlib import Path
 
 from app.tts.language_router import resolve_tts_language_route
@@ -170,6 +171,11 @@ def test_apply_tts_language_routing_skip_prepared_text(monkeypatch):
     main._apply_tts_language_routing(req, model_version="global")
     assert called["v"] is False
     assert req["text_source"] == "prepared"
+    assert req["needs_translation"] is False
+    assert req["translation_target_language"] is None
+    assert req["route_info"]["needs_translation"] is False
+    assert req["route_info"]["translation_target_language"] is None
+    assert req["route_info"]["text_source"] == "prepared"
 
 
 def test_build_payload_jp_extra_forces_jp_language_without_nameerror(tmp_path, monkeypatch):
@@ -187,6 +193,7 @@ def test_build_payload_jp_extra_forces_jp_language_without_nameerror(tmp_path, m
     payload = rt._build_payload({"language": "en", "tts_language": "en"}, model="sample-jp-extra", text="hello", request_id="t1")
     assert payload["is_jp_extra"] is True
     assert payload["effective_language"] == "JP"
+    assert "use_translation" not in payload
 
 
 def test_build_payload_global_respects_route_tts_language(tmp_path, monkeypatch):
@@ -221,3 +228,35 @@ def test_preview_uses_same_language_resolution(tmp_path, monkeypatch):
     rt = runtime.StyleBertVITS2Runtime()
     preview = rt.build_normalization_preview({"model": "sample-global", "route_info": {"tts_language": "en"}, "raw_text": "hello"})
     assert preview["effective_language"] == "EN"
+
+
+def test_preview_prepared_text_forces_needs_translation_false(tmp_path, monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    model_dir = tmp_path / "sample-global"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text('{"version":"2.0"}', encoding="utf-8")
+    (model_dir / "style_vectors.npy").write_bytes(b"dummy")
+    (model_dir / "model.safetensors").write_bytes(b"dummy")
+
+    monkeypatch.setattr(runtime, "_resolve_model_paths", lambda _m: (str(model_dir / "model.safetensors"), str(model_dir / "config.json"), str(model_dir / "style_vectors.npy")))
+
+    rt = runtime.StyleBertVITS2Runtime()
+    preview = rt.build_normalization_preview({
+        "model": "sample-global",
+        "text_source": "prepared",
+        "raw_text": "already prepared",
+        "route_info": {"needs_translation": True, "translation_target_language": "ja", "text_source": "prepared"},
+    })
+    assert preview["needs_translation"] is False
+    assert preview["translation_target_language"] == ""
+
+
+def test_main_has_no_legacy_echo_do_translate_three_positional_args():
+    tree = ast.parse((ROOT / "main.py").read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Name) or node.func.id != "_echo_do_translate":
+            continue
+        assert len(node.args) < 3, f"legacy positional call remains at line {getattr(node, 'lineno', '?')}"
