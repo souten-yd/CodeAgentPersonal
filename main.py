@@ -16966,6 +16966,7 @@ def system_env():
             "runpod": False,
             "os": {},
             "gpu": {},
+            "style_bert_vits2_device": os.environ.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE", ""),
         }
 
 @app.get("/system/summary")
