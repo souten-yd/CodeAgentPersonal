@@ -412,13 +412,18 @@ def main() -> int:
         benchmarked_total = int(status.get("benchmarked", 0) or 0)
 
         require_benchmark = startup_requires_benchmark(runpod, os_profile)
-        benchmark_gate_ok = (benchmarked_total > 0) if require_benchmark else True
+        is_windows_local = bool(os_profile.get("is_windows")) and not runpod
+        allow_unbenchmarked_request = runpod or is_windows_local
+        should_request_autoload = db_exists and db_total > 0 and (benchmarked_total > 0 or allow_unbenchmarked_request or not require_benchmark)
 
-        if db_exists and db_total > 0 and benchmark_gate_ok:
-            print(
-                f"[ModelDB] Found {db_total} model(s), benchmarked={benchmarked_total}. "
-                "Requesting default LLM load..."
-            )
+        if should_request_autoload:
+            if benchmarked_total <= 0 and (runpod or is_windows_local):
+                print("[ModelDB] model_db has models but no benchmarked models. Requesting auto-load; server will decide if unbenchmarked load is allowed.")
+            else:
+                print(
+                    f"[ModelDB] Found {db_total} model(s), benchmarked={benchmarked_total}. "
+                    "Requesting default LLM load..."
+                )
             post_json(f"http://127.0.0.1:{args.port}/model/auto-load", {"reason": "launcher_py"})
             llm_ok = wait_http_200(f"http://127.0.0.1:{args.primary_port}/health", args.llm_timeout, "LLM")
             if not llm_ok:
