@@ -3894,12 +3894,6 @@ function ttsStop() {
   clearTtsBlockedState();
   hideFloatingTtsPlayer();
   tts._autoplayBlockedNoticeShown = false;
-  const cloneStatusEl = document.getElementById('qwen3-clone-test-status');
-  if (cloneStatusEl) _setQwen3CloneTestStatus('停止');
-  const generateBtns = _qwen3CloneGenerateButtons();
-  generateBtns.forEach((btn) => btn.dataset.busy = 'false');
-  const playBtn = document.getElementById('qwen3-clone-test-play-btn');
-  if (playBtn && _isEchoQwen3Selected()) playBtn.disabled = !_qwen3CloneTestAudioBlob;
   _setSbv2TestPlayToggle(false);
   _syncSbv2TestUi();
   _syncRecordingControlsWithTts();
@@ -4534,107 +4528,6 @@ function _syncRecordingControlsWithTts() {
   }
 }
 
-
-async function runQwen3CloneTestGenerate(target = 'jp') {
-  if (!_isEchoQwen3Selected()) {
-    _setQwen3CloneTestStatus('Qwen3 TTS選択時のみ利用可能', true);
-    return;
-  }
-  const generateBtns = _qwen3CloneGenerateButtons();
-  const playBtn = document.getElementById('qwen3-clone-test-play-btn');
-  if (generateBtns.some((btn) => btn?.dataset.busy === 'true')) return;
-  const input = document.getElementById('qwen3-clone-test-text');
-  const requireRef = !!document.getElementById('qwen3-clone-require-ref-text')?.checked;
-  const text = input?.value?.trim() || '';
-  if (!text) {
-    _setQwen3CloneTestStatus('テスト文を入力してください', true);
-    input?.focus();
-    return;
-  }
-  if (requireRef) {
-    _setQwen3CloneTestStatus('参照テキストが必須です', true);
-    document.getElementById('qwen3-ref-text-input')?.focus();
-    return;
-  }
-  generateBtns.forEach((btn) => { btn.dataset.busy = 'true'; btn.disabled = true; });
-  _qwen3CloneTestBusy = true;
-  _syncRecordingControlsWithTts();
-  if (playBtn) playBtn.disabled = true;
-  try {
-    ttsStop();
-    _qwen3CloneTestAudioBlob = null;
-    _setQwen3CloneTestStatus(`生成中... (${target === 'us' ? 'US' : 'JP'})`);
-    const srcLang = _ttsDetectLang(text);
-    let playText = text;
-    let reqLanguage = 'Japanese';
-    const translateByTarget = async (srcText, sourceLang, targetLang) => {
-      const resp = await fetch(API + '/tts/translate-text', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({text: srcText, src_lang: sourceLang})
-      });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.detail || `翻訳失敗 (${sourceLang}→${targetLang})`);
-      }
-      const data = await resp.json().catch(() => ({}));
-      const translated = (data.translated || '').trim();
-      if (!translated) throw new Error(`翻訳結果が空です (${sourceLang}→${targetLang})`);
-      return translated;
-    };
-    if (target === 'jp') {
-      reqLanguage = 'Japanese';
-      if (srcLang === 'en') {
-        playText = await translateByTarget(text, 'en', 'ja');
-      }
-    } else if (target === 'us') {
-      reqLanguage = 'English';
-      if (srcLang === 'ja') {
-        playText = await translateByTarget(text, 'ja', 'en');
-      }
-    }
-    const blob = await _ttsFetchAudio(playText, 'style_bert_vits2', 'echo', {language: reqLanguage});
-    if (!blob || blob.size <= 0) throw new Error('音声データが空です');
-    _qwen3CloneTestAudioBlob = blob;
-    if (playBtn) playBtn.disabled = false;
-    _setQwen3CloneTestStatus(`生成完了 / ${target === 'us' ? '英語' : '日本語'}音声`);
-  } catch(e) {
-    _setQwen3CloneTestStatus(`再生エラー: ${e.message || e}`, true);
-    _logTtsError(e, 'echo', 'Qwen3 clone test generate failed');
-    console.warn('[Qwen3 clone test] failed:', e);
-  } finally {
-    _qwen3CloneTestBusy = false;
-    _syncRecordingControlsWithTts();
-    generateBtns.forEach((btn) => { btn.dataset.busy = 'false'; btn.disabled = false; });
-  }
-}
-
-async function _playQwen3CloneTestBlob() {
-  if (!_qwen3CloneTestAudioBlob) return {ok: false, reason: 'no_audio'};
-  _trackQwen3ClonePlaybackProgress();
-  const result = await enqueueTtsAudioBlob(_qwen3CloneTestAudioBlob, `qwen3-clone-${Date.now()}`, {
-    context: 'echo',
-    source: 'echo',
-    engine: 'style_bert_vits2',
-    kind: 'clone_test',
-  });
-  return result;
-}
-
-async function toggleQwen3CloneTestPlayback() {
-  if (tts._playing) {
-    ttsStop();
-    _setQwen3CloneTestStatus('停止');
-    return;
-  }
-  if (!_qwen3CloneTestAudioBlob) {
-    _setQwen3CloneTestStatus('先に生成ボタンを押してください', true);
-    return;
-  }
-  const result = await _playQwen3CloneTestBlob();
-  if (result?.ok === false) _setQwen3CloneTestStatus('再生できませんでした。再度お試しください。', true);
-  else _setQwen3CloneTestStatus('✓ 再生完了');
-}
 
 function _setSbv2TestStatus(msg = '待機中', isError = false) {
   const el = document.getElementById('sbv2-test-status');
@@ -11505,57 +11398,6 @@ function _setMicState(recording=false, disabled=false, target='chat'){
     btn.title = 'TTS生成/再生中は録音を開始できません。';
   } else {
     btn.title = recording ? '録音停止' : (target === 'agent' ? '音声入力 (Agent)' : '音声入力 (日本語/英語)');
-  }
-}
-let cloneTestVoiceRecorder = null;
-let cloneTestVoiceRecording = false;
-let cloneTestVoiceChunks = [];
-
-function _setCloneTestMicState(recording=false, disabled=false){
-  const btn = document.getElementById('qwen3-clone-test-asr-btn');
-  if (!btn) return;
-  btn.disabled = !!disabled;
-  btn.textContent = recording ? '■ 停止' : '🎙 ASR入力';
-  btn.style.borderColor = recording ? 'var(--red)' : 'var(--border)';
-  btn.style.color = recording ? 'var(--red)' : 'var(--text2)';
-}
-
-async function toggleCloneTestVoiceInput(){
-  if (!cloneTestVoiceRecording && _isRecordingBlockedByTts()) {
-    _setQwen3CloneTestStatus('TTS生成/再生中は録音できません。', true);
-    return;
-  }
-  if (cloneTestVoiceRecording && cloneTestVoiceRecorder) {
-    cloneTestVoiceRecording = false;
-    _setCloneTestMicState(false, true);
-    cloneTestVoiceRecorder.stop();
-    return;
-  }
-  if (!navigator.mediaDevices?.getUserMedia) {
-    _setQwen3CloneTestStatus('このブラウザは音声録音に対応していません。', true);
-    return;
-  }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-    cloneTestVoiceRecorder = new MediaRecorder(stream, {mimeType});
-    cloneTestVoiceChunks = [];
-    cloneTestVoiceRecorder.ondataavailable = (e) => { if (e.data?.size > 0) cloneTestVoiceChunks.push(e.data); };
-    cloneTestVoiceRecorder.onstop = async () => {
-      stream.getTracks().forEach(t => t.stop());
-      const blob = new Blob(cloneTestVoiceChunks, {type: mimeType});
-      cloneTestVoiceRecorder = null;
-      cloneTestVoiceChunks = [];
-      await transcribeVoiceBlob(blob, {targetInputId: 'qwen3-clone-test-text', statusFn: _setQwen3CloneTestStatus, replace: false, skipChatError: true, skipMainMicState: true});
-      _setCloneTestMicState(false, false);
-    };
-    cloneTestVoiceRecorder.start();
-    cloneTestVoiceRecording = true;
-    _setCloneTestMicState(true, false);
-    _setQwen3CloneTestStatus('録音中... もう一度押すと停止します');
-  } catch (e) {
-    _setQwen3CloneTestStatus('マイク起動に失敗: ' + (e.message || String(e)), true);
-    _setCloneTestMicState(false, false);
   }
 }
 
