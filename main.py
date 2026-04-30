@@ -11951,6 +11951,7 @@ def echo_import_audio_transcript(req: dict):
     transcript_text = str(payload.get("transcript_text", "")).strip()
     if not transcript_text:
         raise HTTPException(status_code=400, detail="transcript_text required")
+    raw_segments = payload.get("segments", [])
 
     audio_b64 = str(payload.get("audio_base64", "")).strip()
     audio_format = str(payload.get("audio_format", "webm")).strip().lower() or "webm"
@@ -11986,10 +11987,97 @@ def echo_import_audio_transcript(req: dict):
         with open(audio_path, "wb") as af:
             af.write(audio_bytes)
 
+    def _detect_language_light(text: str) -> str:
+        t = str(text or "").strip()
+        if not t:
+            return "auto"
+        if any(("぀" <= c <= "ヿ") or ("一" <= c <= "鿿") for c in t):
+            return "ja"
+        ascii_letters = sum(1 for c in t if ("a" <= c.lower() <= "z"))
+        return "en" if ascii_letters > 0 else "auto"
+
+    def _split_sentence_chunks(text: str, lang: str, max_chars_ja: int = 100, max_chars_en: int = 160) -> list[str]:
+        src = str(text or "").strip()
+        if not src:
+            return []
+        sep = r"(?<=[。！？\n])" if lang == "ja" else r"(?<=[.!?\n])"
+        chunks = [c.strip() for c in re.split(sep, src) if c and c.strip()]
+        max_chars = max_chars_ja if lang == "ja" else max_chars_en
+        out: list[str] = []
+        for chunk in chunks:
+            if len(chunk) <= max_chars:
+                out.append(chunk)
+                continue
+            parts = re.split(r"(、|,)", chunk) if lang == "ja" else re.split(r"(\s+)", chunk)
+            buf = ""
+            for p in parts:
+                if not p:
+                    continue
+                if len(buf) + len(p) > max_chars and buf:
+                    out.append(buf.strip())
+                    buf = p
+                else:
+                    buf += p
+            if buf.strip():
+                out.append(buf.strip())
+        return [x for x in out if x]
+
+    def _normalize_segments(raw: list, fallback_text: str, lang_hint: str) -> list[dict]:
+        normalized: list[dict] = []
+        if isinstance(raw, list) and raw:
+            for i, seg in enumerate(raw):
+                txt = str((seg or {}).get("text", "")).strip()
+                if not txt:
+                    continue
+                st = float((seg or {}).get("start", 0.0) or 0.0)
+                ed = float((seg or {}).get("end", st) or st)
+                detected = _detect_language_light(txt) if lang_hint == "auto" else lang_hint
+                for piece in _split_sentence_chunks(txt, detected):
+                    normalized.append({"start": st, "end": ed, "source_text": piece, "detected_language": detected})
+        if not normalized:
+            detected = _detect_language_light(fallback_text) if lang_hint == "auto" else lang_hint
+            for piece in _split_sentence_chunks(fallback_text, detected):
+                normalized.append({"start": 0.0, "end": 0.0, "source_text": piece, "detected_language": detected})
+        for i, seg in enumerate(normalized):
+            seg["index"] = i
+        return normalized
+
+    def _translate_segment_pair(seg: dict) -> dict:
+        source = str(seg.get("source_text", "")).strip()
+        detected = str(seg.get("detected_language", "auto") or "auto")
+        if detected not in {"ja", "en"}:
+            detected = _detect_language_light(source)
+        out = dict(seg)
+        out["warnings"] = []
+        out["translation_used"] = True
+        out["llm_polished"] = True
+        out["speaker"] = None
+        out["confidence"] = None
+        try:
+            if detected == "ja":
+                out["japanese_text"] = source
+                out["english_text"] = _echo_do_translate(source, source_language="ja", target_language="en")
+            else:
+                out["english_text"] = source
+                out["japanese_text"] = _echo_do_translate(source, source_language="en", target_language="ja")
+        except Exception:
+            out["llm_polished"] = False
+            out["warnings"].append("translation_failed")
+            if detected == "ja":
+                out["japanese_text"] = source
+                out["english_text"] = "[translation failed]"
+            else:
+                out["english_text"] = source
+                out["japanese_text"] = "[translation failed]"
+        out["detected_language"] = detected
+        return out
+
+    segments = [_translate_segment_pair(s) for s in _normalize_segments(raw_segments, transcript_text, language)]
     title = _title_from_filename(transcript_filename)
-    lang_flag = "🇯🇵" if language == "ja" else ("🇺🇸" if language == "en" else "🌐")
-    safe_text = transcript_text.replace("|", "｜")
-    lines = ["| # | 言語 | 原文 | 翻訳 |", "|---|------|------|------|", f"| 1 | {lang_flag} | {safe_text} |  |"]
+    lines = ["| # | 言語 | 原文 |", "|---|------|------|"]
+    for s in segments:
+        lflag = "🇯🇵" if s.get("detected_language") == "ja" else "🇺🇸"
+        lines.append(f"| {int(s.get('index',0))+1} | {lflag} | {str(s.get('source_text','')).replace('|','｜')} |")
     with open(transcript_path, "w", encoding="utf-8") as f:
         f.write(f"# 文字起こし — {title}\n\n")
         f.write(f"**日付:** {started_at.strftime('%Y-%m-%d %H:%M')}  \n")
@@ -11999,6 +12087,24 @@ def echo_import_audio_transcript(req: dict):
         f.write(f"**ASRプロファイル:** {asr_profile}  \n")
         f.write(f"**言語:** {language}\n\n")
         f.write("\n".join(lines) + "\n")
+
+    base_path = os.path.join(ECHOVAULT_DIR, base)
+    with open(base_path + "_transcript_raw.txt", "w", encoding="utf-8") as f:
+        f.write(transcript_text + "\n")
+    with open(base_path + "_transcript_segments.json", "w", encoding="utf-8") as f:
+        json.dump(segments, f, ensure_ascii=False, indent=2)
+    with open(base_path + "_transcript_ja.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(str(s.get("japanese_text", "")).strip() for s in segments if str(s.get("japanese_text", "")).strip()) + "\n")
+    with open(base_path + "_transcript_en.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(str(s.get("english_text", "")).strip() for s in segments if str(s.get("english_text", "")).strip()) + "\n")
+    minutes_md = ["# Minutes", "", "## 日本語", ""]
+    ja_lines = [str(s.get("japanese_text", "")).strip() for s in segments if str(s.get("japanese_text", "")).strip()]
+    en_lines = [str(s.get("english_text", "")).strip() for s in segments if str(s.get("english_text", "")).strip()]
+    minutes_md.extend([f"{i+1}. {t}" for i, t in enumerate(ja_lines)])
+    minutes_md.extend(["", "## English", ""])
+    minutes_md.extend([f"{i+1}. {t}" for i, t in enumerate(en_lines)])
+    with open(base_path + "_minutes_bilingual.md", "w", encoding="utf-8") as f:
+        f.write("\n".join(minutes_md).rstrip() + "\n")
 
     return {
         "ok": True,

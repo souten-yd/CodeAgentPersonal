@@ -12579,6 +12579,7 @@ async function echoUploadSessionAudio(input) {
     let done = false;
     let transcriptText = '';
     let detectedLang = lang;
+    let asrSegments = [];
 
     while (!done) {
       const {value, done: streamDone} = await reader.read();
@@ -12600,11 +12601,14 @@ async function echoUploadSessionAudio(input) {
         } else if (ev.type === 'result') {
           transcriptText = String(ev.text || '').trim();
           detectedLang = ev.language || detectedLang;
+          asrSegments = Array.isArray(ev.segments) ? ev.segments : [];
         }
       }
     }
     if (!transcriptText) throw new Error('音声認識結果が空でした。');
 
+    _echoUploadSetStatus('segmenting...', 'info');
+    _echoUploadSetStatus('translating...', 'info');
     _echoUploadSetStatus('文字起こしをVaultへ保存中です...', 'info');
     const saveResp = await fetch(API + '/echo/import-audio-transcript', {
       method: 'POST',
@@ -12617,6 +12621,7 @@ async function echoUploadSessionAudio(input) {
         audio_format: audioFormat,
         audio_base64: b64,
         original_filename: file.name,
+        segments: asrSegments,
       }),
     });
     const saveData = await saveResp.json().catch(() => ({}));
@@ -12624,7 +12629,7 @@ async function echoUploadSessionAudio(input) {
 
     let minutesFailed = false;
     if (autoMinutes && saveData.transcript_filename) {
-      _echoUploadSetStatus('議事録を生成中です...', 'info');
+      _echoUploadSetStatus('building minutes...', 'info');
       const minutesResp = await fetch(API + '/echo/generate-minutes', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -12639,7 +12644,7 @@ async function echoUploadSessionAudio(input) {
 
     await refreshEchoVault();
     if (!minutesFailed) {
-      _echoUploadSetStatus(`保存完了: ${saveData.transcript_filename || 'transcript'}`, 'ok');
+      _echoUploadSetStatus(`done: ${saveData.transcript_filename || 'transcript'}`, 'ok');
     }
   } catch (e) {
     const msg = String(e?.message || e || 'unknown error');
