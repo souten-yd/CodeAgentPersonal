@@ -16,6 +16,20 @@ else
   AUTO_START_SEARXNG="${AUTO_START_SEARXNG:-false}"
 fi
 
+ASR_MODEL_PATH="${CODEAGENT_ASR_MODEL_PATH:-/opt/asr_models/large-v3-turbo}"
+
+if [ ! -d "${ASR_MODEL_PATH}" ]; then
+  echo "[ASR] FATAL: missing bundled ASR model directory: ${ASR_MODEL_PATH}" >&2
+  exit 1
+fi
+
+if [ ! -f "${ASR_MODEL_PATH}/model.bin" ] && ! find "${ASR_MODEL_PATH}" -maxdepth 3 -type f -name "model.bin" | grep -q .; then
+  echo "[ASR] FATAL: missing faster-whisper model.bin under: ${ASR_MODEL_PATH}" >&2
+  exit 1
+fi
+
+echo "[ASR] bundled faster-whisper model ready: ${ASR_MODEL_PATH}"
+
 SBV2_WORKSPACE_MODELS_DIR="${CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR:-/workspace/ca_data/tts/style_bert_vits2/models}"
 SBV2_BUNDLED_MODELS_DIR="/opt/style-bert-vits2-models"
 SBV2_MODEL_NAME="koharune-ami"

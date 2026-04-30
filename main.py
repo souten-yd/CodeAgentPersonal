@@ -9676,7 +9676,7 @@ except Exception:
 
 _voice_lock = threading.Lock()
 _voice_model = None
-_voice_model_name = "large-v3-turbo"
+_voice_model_name = os.environ.get("CODEAGENT_ASR_DEFAULT_MODEL", "large-v3-turbo")
 _voice_device = "cpu"
 _voice_compute_type = "int8"
 
@@ -9703,14 +9703,20 @@ _VOICE_MODEL_CANDIDATES = [
 ]
 
 def _voice_model_dir() -> str:
-    if IS_RUNPOD_RUNTIME:
-        # RunPod: LLMモデル(/workspace/LLMs)と同階層の /workspace/ASRModels に保存
-        root = "/workspace/ASRModels"
-    else:
-        # ローカル: プロジェクト直下の models/ASRModels に保存
-        root = os.path.join(BASE_DIR, "models", "ASRModels")
+    root = os.environ.get("CODEAGENT_ASR_MODEL_CACHE", "/opt/asr_models").strip() or "/opt/asr_models"
     os.makedirs(root, exist_ok=True)
     return root
+
+
+def _resolve_asr_model_ref(model_name: str | None = None) -> str:
+    env_path = os.environ.get("CODEAGENT_ASR_MODEL_PATH", "").strip()
+    if env_path and os.path.isdir(env_path):
+        return env_path
+    return str(model_name or os.environ.get("CODEAGENT_ASR_DEFAULT_MODEL", "large-v3-turbo")).strip() or "large-v3-turbo"
+
+
+def _asr_local_files_only() -> bool:
+    return (os.environ.get("CODEAGENT_ASR_LOCAL_FILES_ONLY", "0").strip().lower() in {"1", "true", "yes", "on"})
 
 
 def _voice_model_exists(model_name: str) -> bool:
@@ -9739,11 +9745,14 @@ def voice_load(model_name: str = "small", device: str | None = None) -> dict:
     with _voice_lock:
         if _voice_model is not None and _voice_model_name == model_name and (device is None or _voice_device == device):
             return {"loaded": True, "model": _voice_model_name, "device": _voice_device, "compute_type": _voice_compute_type}
+        model_ref = _resolve_asr_model_ref(model_name)
+        print(f"[ASR] loading model from: {model_ref}")
         _voice_model = WhisperModel(
-            model_name,
+            model_ref,
             device=_voice_device,
             compute_type=_voice_compute_type,
             download_root=_voice_model_dir(),
+            local_files_only=_asr_local_files_only(),
         )
         _voice_model_name = model_name
         return {"loaded": True, "model": _voice_model_name, "device": _voice_device, "compute_type": _voice_compute_type}
@@ -10772,11 +10781,14 @@ def _echo_voice_transcribe(
         filter_cfg = _resolve_asr_post_filter_config(asr_post_filter)
         with _echo_voice_lock:
             if _echo_voice_model is None or _echo_voice_model_name != model_name:
+                model_ref = _resolve_asr_model_ref(model_name)
+                print(f"[ASR][Echo] loading model from: {model_ref}")
                 _echo_voice_model = WhisperModel(
-                    model_name,
+                    model_ref,
                     device=_voice_device,
                     compute_type=_voice_compute_type,
                     download_root=_voice_model_dir(),
+                    local_files_only=_asr_local_files_only(),
                 )
                 _echo_voice_model_name = model_name
             lang_arg = None if language == "auto" else language
