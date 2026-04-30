@@ -11134,16 +11134,21 @@ def _echo_normalize_lang(lang: str | None, text: str = "") -> str:
 
 
 def _echo_detect_language_light(text: str, hint: str = "auto") -> str:
+    t = str(text or "").strip()
     h = str(hint or "auto").strip().lower()
+    if t and any(("぀" <= c <= "ヿ") or ("一" <= c <= "鿿") for c in t):
+        return "ja"
+    if t:
+        ascii_letters = sum(1 for c in t if ("a" <= c.lower() <= "z"))
+        if ascii_letters > 0:
+            return "en"
     if h in {"ja", "en"}:
         return h
-    t = str(text or "").strip()
     if not t:
         return "ja"
     if any(("぀" <= c <= "ヿ") or ("一" <= c <= "鿿") for c in t):
         return "ja"
-    ascii_letters = sum(1 for c in t if ("a" <= c.lower() <= "z"))
-    if ascii_letters > 0:
+    if any(("a" <= c.lower() <= "z") for c in t):
         return "en"
     return "ja"
 
@@ -11181,7 +11186,14 @@ def _echo_translate_opposite_language(text: str, source_language: str) -> dict:
         "translation_failed": False,
         "warnings": [],
     }
-    translated = _echo_do_translate(source_text, source_language=src, target_language=target) if source_text else ""
+    translated = ""
+    try:
+        translated = _echo_do_translate(source_text, source_language=src, target_language=target) if source_text else ""
+    except Exception:
+        out["translation_failed"] = True
+        out["warnings"].append("translation_failed")
+        out["translated_text"] = "[translation failed]"
+        return out
     failed = _echo_translation_failed(source_text, translated, target)
     if failed:
         out["translation_failed"] = True
