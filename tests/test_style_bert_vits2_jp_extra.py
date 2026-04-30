@@ -43,3 +43,41 @@ def test_effective_language_keeps_selection_for_global_model():
     assert is_jp_extra is False
     assert normalized == "EN"
     assert effective == "EN"
+
+
+def test_build_normalization_preview_includes_requested_fields_for_jp_extra(tmp_path, monkeypatch):
+    model_id = "sample-jp-extra"
+    model_dir = tmp_path / model_id
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text(
+        json.dumps({"version": "2.0-jp-extra", "spk2id": {"A": 0}, "style2id": {"Neutral": 0}}),
+        encoding="utf-8",
+    )
+    (model_dir / "style_vectors.npy").write_bytes(b"dummy")
+    (model_dir / "model.safetensors").write_bytes(b"dummy")
+
+    rt = runtime.StyleBertVITS2Runtime()
+    monkeypatch.setattr(runtime, "_resolve_model_paths", lambda _m: (str(model_dir / "model.safetensors"), str(model_dir / "config.json"), str(model_dir / "style_vectors.npy")))
+    monkeypatch.setattr(runtime, "_resolve_sbv2_jp_extra_normalization_settings", lambda _req: {})
+
+    preview = rt.build_normalization_preview(
+        {
+            "model": model_id,
+            "language": "JP",
+            "raw_text": "Hello!! https://example.com です。",
+            "translated_text": "ハロー！！ https://example.com です。",
+            "use_translation": True,
+            "text_source": "translated",
+            "needs_translation": True,
+            "translation_target_language": "ja",
+            "route_info": {"source_language": "en", "output_language": "ja", "tts_language": "ja", "model_kind": "jp_extra"},
+        }
+    )
+    assert preview["original_text"]
+    assert preview["after_translation"]
+    assert preview["after_tts_normalization"]
+    assert preview["final_text_sent_to_style_bert_vits2"]
+    assert preview["is_jp_extra"] is True
+    assert preview["needs_translation"] is True
+    assert isinstance(preview["normalization_operations"], list)
+    assert "warnings" in preview
