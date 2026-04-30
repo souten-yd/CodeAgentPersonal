@@ -75,3 +75,51 @@ def test_llm_failure_does_not_raise_and_records_warning(monkeypatch):
     assert "UnknownWord" in result["normalized_text"]
     assert any("english llm katakanaize failed" in w for w in result["warnings"])
     assert any(op.get("type") == "warning" and op.get("category") == "english_katakanaize" for op in result["operations"])
+
+
+def test_no_notation_kept_readable():
+    out = _normalize("No.1を確認します。")
+    assert "ナンバー1" in out
+
+
+def test_version_not_broken_by_period_normalization():
+    out = _normalize("v1.2を使います。")
+    assert "バージョン" in out
+    assert "v1。2" not in out
+
+
+def test_decimal_gb_not_broken():
+    out = _normalize("3.5GBのVRAMです。")
+    assert "ギガバイト" in out
+    assert "3。5" not in out
+
+
+def test_decimal_khz_not_broken():
+    out = _normalize("10.5kHzで動作します。")
+    assert "キロヘルツ" in out
+    assert "10。5" not in out
+
+
+def test_voltage_unit_readable():
+    out = _normalize("1080Vです。")
+    assert "ボルト" in out
+
+
+def test_current_unit_readable():
+    out = _normalize("1000Aです。")
+    assert "アンペア" in out
+
+
+def test_power_unit_readable():
+    out = _normalize("500kWです。")
+    assert "キロワット" in out
+
+
+def test_period_kept_between_sentences():
+    out = _normalize("これはテストです。次です。")
+    assert out == "これはテストです。次です。"
+
+
+def test_url_and_emoji_removal_do_not_join_sentences():
+    out = _normalize("前です。https://example.com😊後です。")
+    assert "前です。後です。" in out.replace(" ", "")
