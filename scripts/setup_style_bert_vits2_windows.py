@@ -54,6 +54,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-model-download", action="store_true", help="Skip initial model downloads")
     parser.add_argument("--skip-repo-clone", action="store_true", help="Skip cloning Style-Bert-VITS2 repo")
     parser.add_argument("--cpu-only", action="store_true", help="Do not install DirectML packages")
+    parser.add_argument("--smoke-infer", action="store_true", help="Run DirectML Style-Bert-VITS2 inference smoke test")
     return parser.parse_args()
 
 
@@ -150,8 +151,20 @@ def main() -> int:
                 python_exe,
                 "litagin/sbv2_koharune_ami",
                 f"koharune-ami/{fn}",
-                koharune_dir,
+                models_dir,
             )
+        nested_koharune_dir = koharune_dir / "koharune-ami"
+        if nested_koharune_dir.is_dir():
+            print(f"[INFO] Flattening nested koharune directory: {nested_koharune_dir}")
+            for child in nested_koharune_dir.iterdir():
+                target = koharune_dir / child.name
+                if target.exists():
+                    if target.is_file():
+                        target.unlink()
+                    else:
+                        shutil.rmtree(target)
+                shutil.move(str(child), str(target))
+            shutil.rmtree(nested_koharune_dir, ignore_errors=True)
 
     smoke = (
         "import torch\n"
@@ -172,6 +185,33 @@ def main() -> int:
             "print(y.cpu())\n"
         )
         _run([str(python_exe), "-c", dml_smoke], cwd=sbv2_repo)
+        if args.smoke_infer:
+            dml_infer_smoke = (
+                "import traceback\n"
+                "import torch_directml\n"
+                "from style_bert_vits2.tts_model import TTSModel\n"
+                "from style_bert_vits2.constants import Languages\n"
+                "from pathlib import Path\n"
+                f"model_dir = Path({str(koharune_dir)!r})\n"
+                "try:\n"
+                "    device = torch_directml.device()\n"
+                "    model = TTSModel(\n"
+                "        model_path=model_dir / 'koharune-ami.safetensors',\n"
+                "        config_path=model_dir / 'config.json',\n"
+                "        style_vec_path=model_dir / 'style_vectors.npy',\n"
+                "        device=device,\n"
+                "    )\n"
+                "    result = model.infer(text='こんにちは。', language=Languages.JP, style='Neutral')\n"
+                "    if result is None:\n"
+                "        raise RuntimeError('infer returned None')\n"
+                "    print('[OK] DirectML inference ready')\n"
+                "except Exception as e:\n"
+                "    print('[ERROR] torch_directml import succeeded, but SBV2 DirectML inference failed')\n"
+                "    print(f'[ERROR] {type(e).__name__}: {e}')\n"
+                "    traceback.print_exc()\n"
+                "    raise\n"
+            )
+            _run([str(python_exe), "-c", dml_infer_smoke], cwd=sbv2_repo)
 
     assert (koharune_dir / "config.json").exists()
     assert (koharune_dir / "style_vectors.npy").exists()

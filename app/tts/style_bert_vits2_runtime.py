@@ -433,11 +433,18 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         self._ensure_worker_started()
         model = str(req.get("model", "")).strip()
         if not self._is_prepare_target_model(model):
+            requested_device = str(req.get("device", "")).strip().lower() or "auto"
+            effective_device = _pick_device(req)
+            directml_attempted = effective_device in {"directml", "dml"}
             return {
                 "status": "ready",
                 "engine_key": self.engine_key,
                 "preloaded": False,
                 "reason": "no_valid_model_selected",
+                "requested_device": requested_device,
+                "effective_device": "directml" if effective_device in {"directml", "dml"} else effective_device,
+                "fallback_reason": "",
+                "directml_attempted": bool(directml_attempted),
             }
         warmup_started = time.perf_counter()
         preload_payload = self._build_payload(req, model=model, text="事前ロードです。", request_id="prepare")
@@ -448,6 +455,10 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "engine_key": self.engine_key,
             "preloaded": bool(result.get("ok")),
             "device": str(result.get("device") or preload_payload.get("device") or "cpu"),
+            "requested_device": str(result.get("requested_device") or preload_payload.get("device") or "cpu"),
+            "effective_device": str(result.get("effective_device") or result.get("device") or "cpu"),
+            "fallback_reason": str(result.get("fallback_reason") or ""),
+            "directml_attempted": bool(result.get("directml_attempted")),
             "warmup_elapsed_ms": warmup_elapsed_ms,
             "cache_hit": bool(result.get("cache_hit")),
         }
@@ -1358,6 +1369,7 @@ while True:
         elif not koharune_ami_ready:
             detail = "koharune-ami model files are missing"
             reason = "style_bert_vits2_koharune_ami_missing"
+        setup_hint = "Run setup_style_bert_vits2_windows.bat" if os.name == "nt" else ""
         return {
             "available": available,
             "loaded": available,
@@ -1371,7 +1383,7 @@ while True:
             "directml_available": _directml_available(),
             "torch_directml_available": _directml_available(),
             "koharune_ami_ready": koharune_ami_ready,
-            "setup_hint": "setup_style_bert_vits2_windows.bat" if os.name == "nt" else "",
+            "setup_hint": setup_hint,
             "detail": detail,
             "reason": reason,
             "worker_running": any(proc and proc.poll() is None for proc in self._worker_procs),
