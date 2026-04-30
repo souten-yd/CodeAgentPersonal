@@ -508,6 +508,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             effective_language = "JP"
         normalization_settings = _resolve_sbv2_jp_extra_normalization_settings(req)
         normalization_result = None
+        preview_warnings: list[str] = []
         normalized_text = original_text
         normalization_enabled = bool(
             is_jp_extra and _to_optional_bool(normalization_settings.get("sbv2_jp_extra_text_normalization"), True)
@@ -541,7 +542,26 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
                 _ = model_path, style_vec_path
             except Exception:
                 # preview should stay available even if model metadata lookup fails
-                pass
+                preview_warnings.append("model metadata lookup failed")
+
+        route_info = req.get("route_info") if isinstance(req.get("route_info"), dict) else {}
+        model_kind = str(route_info.get("model_kind") or req.get("model_kind") or ("jp_extra" if is_jp_extra else "global"))
+        source_language = str(route_info.get("source_language") or req.get("source_language") or "auto")
+        output_language = str(route_info.get("output_language") or req.get("output_language") or requested_language or "JP")
+        tts_language = str(route_info.get("tts_language") or req.get("tts_language") or effective_language)
+        needs_translation = bool(route_info.get("needs_translation", req.get("needs_translation", use_translation)))
+        translation_target_language = str(
+            route_info.get("translation_target_language")
+            or req.get("translation_target_language")
+            or ""
+        )
+        if needs_translation and not translated_available:
+            preview_warnings.append("translation required but translated_text is empty")
+        translation_warning = str(req.get("translation_warning") or "").strip()
+        if translation_warning:
+            preview_warnings.append(translation_warning)
+        if normalization_result and isinstance(normalization_result.get("warnings"), list):
+            preview_warnings.extend(str(x) for x in normalization_result.get("warnings") if str(x).strip())
 
         operations = normalization_result.get("operations") if normalization_result else []
         operation_labels: list[str] = []
@@ -568,11 +588,21 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "is_jp_extra": is_jp_extra,
             "normalization_enabled": normalization_enabled,
             "original_text": original_text,
+            "after_translation": translated_text if translated_available else "",
             "normalized_text": normalized_text,
+            "after_tts_normalization": normalized_text,
             "final_preview": final_text,
+            "final_text_sent_to_style_bert_vits2": final_text,
             "looks_japanese": bool(looks_japanese_final),
+            "model_kind": model_kind,
+            "source_language": source_language,
+            "output_language": output_language,
+            "tts_language": tts_language,
+            "needs_translation": needs_translation,
+            "translation_target_language": translation_target_language,
             "normalization_operations": operation_labels,
             "normalization_operation_details": operations or [],
+            "warnings": list(dict.fromkeys(preview_warnings)),
         }
 
     @staticmethod

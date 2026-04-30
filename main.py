@@ -16905,6 +16905,7 @@ def _apply_tts_language_routing(req: dict, *, model_version: str | None) -> dict
     original_text = str(req.get("text") or "")
     translated_text = ""
     final_text = original_text
+    translation_warning = ""
     req["route_info"] = route
     req["original_text"] = original_text
 
@@ -16917,6 +16918,7 @@ def _apply_tts_language_routing(req: dict, *, model_version: str | None) -> dict
             if translated_text.strip():
                 final_text = translated_text
         except Exception as e:
+            translation_warning = f"translation failed: {e}"
             _style_bert_vits2_logger.warning("[TTS][language_route] translation failed route=%s err=%s", route, e)
             if route.get("model_kind") == "global":
                 final_text = original_text
@@ -16930,6 +16932,7 @@ def _apply_tts_language_routing(req: dict, *, model_version: str | None) -> dict
     req["translation_target_language"] = route.get("translation_target_language")
     req["use_translation"] = bool(route.get("needs_translation"))
     req["text_source"] = "translated" if translated_text else "raw"
+    req["translation_warning"] = translation_warning
 
     _style_bert_vits2_logger.info(
         "[TTS][language_route] model_kind=%s needs_translation=%s target=%s route=%s",
@@ -16939,4 +16942,3 @@ def _apply_tts_language_routing(req: dict, *, model_version: str | None) -> dict
         route,
     )
     return route
-

@@ -2574,13 +2574,18 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS入力プレビュー</div>
             <div id="echo-tts-preview-source" style="font-size:10px;color:var(--text3)">TTS text source: raw</div>
             <div id="echo-tts-preview-use-translation" style="font-size:10px;color:var(--text3)">Translation route: auto</div>
+            <div id="echo-tts-preview-model-kind" style="font-size:10px;color:var(--text3)">Model kind: -</div>
             <div id="echo-tts-preview-language" style="font-size:10px;color:var(--text3)">Language: JP</div>
             <div id="echo-tts-preview-effective-language" style="font-size:10px;color:var(--text3)">Effective language: JP</div>
+            <div id="echo-tts-preview-route" style="font-size:10px;color:var(--text3)">source/output/tts: - / - / -</div>
+            <div id="echo-tts-preview-needs-translation" style="font-size:10px;color:var(--text3)">needs_translation: false (target: -)</div>
             <div id="echo-tts-preview-original-text" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Original text preview: -</div>
+            <div id="echo-tts-preview-after-translation" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">After translation: -</div>
             <div id="echo-tts-preview-normalized-text" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Normalized text preview: -</div>
             <div id="echo-tts-preview-final-text" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Final text preview: -</div>
             <div id="echo-tts-preview-looks-japanese" style="font-size:10px;color:var(--text3);margin-top:3px">Looks Japanese: no</div>
             <div id="echo-tts-preview-operations" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Operations: -</div>
+            <div id="echo-tts-preview-warnings" style="font-size:10px;color:var(--amber);margin-top:3px;word-break:break-word">Warnings: -</div>
           </div>
           <div id="tsasr-sbv2-test-row" style="margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">
             <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:6px">🧪 Style-Bert-VITS2 Test</div>
@@ -4986,23 +4991,33 @@ async function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
   const selectedLanguage = _normalizeEchoSbv2Language(echo.ttsSbv2Language);
   const sourceEl = document.getElementById('echo-tts-preview-source');
   const useTranslationEl = document.getElementById('echo-tts-preview-use-translation');
+  const modelKindEl = document.getElementById('echo-tts-preview-model-kind');
   const langEl = document.getElementById('echo-tts-preview-language');
   const effEl = document.getElementById('echo-tts-preview-effective-language');
+  const routeEl = document.getElementById('echo-tts-preview-route');
+  const needsTranslationEl = document.getElementById('echo-tts-preview-needs-translation');
   const orgEl = document.getElementById('echo-tts-preview-original-text');
+  const afterTranslationEl = document.getElementById('echo-tts-preview-after-translation');
   const normEl = document.getElementById('echo-tts-preview-normalized-text');
   const finalEl = document.getElementById('echo-tts-preview-final-text');
   const jpEl = document.getElementById('echo-tts-preview-looks-japanese');
   const opsEl = document.getElementById('echo-tts-preview-operations');
+  const warningsEl = document.getElementById('echo-tts-preview-warnings');
   const fmtPreview = (value) => String(value || '').replace(/\n/g, '\\n').slice(0, 160) || '-';
   if (sourceEl) sourceEl.textContent = `TTS text source: ...`;
   if (useTranslationEl) useTranslationEl.textContent = `Translation route: auto`;
+  if (modelKindEl) modelKindEl.textContent = `Model kind: ...`;
   if (langEl) langEl.textContent = `Language: ${selectedLanguage === 'auto' ? 'Auto' : selectedLanguage}`;
   if (effEl) effEl.textContent = `Effective language: ...`;
+  if (routeEl) routeEl.textContent = `source/output/tts: ... / ... / ...`;
+  if (needsTranslationEl) needsTranslationEl.textContent = `needs_translation: ... (target: ...)`;
   if (orgEl) orgEl.textContent = `Original text preview: ...`;
+  if (afterTranslationEl) afterTranslationEl.textContent = `After translation: ...`;
   if (normEl) normEl.textContent = `Normalized text preview: ...`;
   if (finalEl) finalEl.textContent = `Final text preview: ...`;
   if (jpEl) jpEl.textContent = `Looks Japanese: ...`;
   if (opsEl) opsEl.textContent = `Operations: ...`;
+  if (warningsEl) warningsEl.textContent = `Warnings: ...`;
   try {
     const resp = await fetch(API + '/api/tts/style-bert-vits2/preview-normalization', {
       method: 'POST',
@@ -5028,22 +5043,33 @@ async function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
         : '';
     if (sourceEl) sourceEl.textContent = `TTS text source: ${source}${sourceNote}`;
     if (useTranslationEl) useTranslationEl.textContent = `Translation route: auto`;
+    if (modelKindEl) modelKindEl.textContent = `Model kind: ${String(data.model_kind || '-')}, JP-Extra: ${data.is_jp_extra ? 'true' : 'false'}`;
     if (effEl) effEl.textContent = `Effective language: ${String(data.effective_language || 'JP')}`;
+    if (routeEl) routeEl.textContent = `source/output/tts: ${String(data.source_language || 'auto')} / ${String(data.output_language || '-')} / ${String(data.tts_language || '-')}`;
+    if (needsTranslationEl) needsTranslationEl.textContent = `needs_translation: ${data.needs_translation ? 'true' : 'false'} (target: ${String(data.translation_target_language || '-')})`;
     if (orgEl) orgEl.textContent = `Original text preview: ${fmtPreview(data.original_text)}`;
+    if (afterTranslationEl) {
+      const at = String(data.after_translation || '').trim();
+      afterTranslationEl.textContent = `After translation: ${at ? fmtPreview(at) : 'same/empty'}`;
+    }
     if (normEl) normEl.textContent = `Normalized text preview: ${fmtPreview(data.normalized_text)}`;
     if (finalEl) finalEl.textContent = `Final text preview: ${fmtPreview(data.final_preview)}`;
     if (jpEl) jpEl.textContent = `Looks Japanese: ${data.looks_japanese ? 'yes' : 'no'}`;
     const ops = Array.isArray(data.normalization_operations) ? data.normalization_operations : [];
     if (opsEl) opsEl.textContent = `Operations: ${ops.length ? ops.join(', ') : '-'}`;
+    const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+    if (warningsEl) warningsEl.textContent = `Warnings: ${warnings.length ? warnings.map((w) => String(w)).join(' | ') : '-'}`;
   } catch (e) {
     if (previewSeq !== _echoTtsPreviewSeq) return;
     if (sourceEl) sourceEl.textContent = `TTS text source: raw`;
     if (effEl) effEl.textContent = `Effective language: ${_effectiveEchoSbv2Language()}`;
     if (orgEl) orgEl.textContent = `Original text preview: ${fmtPreview(rawText)}`;
+    if (afterTranslationEl) afterTranslationEl.textContent = `After translation: -`;
     if (normEl) normEl.textContent = `Normalized text preview: -`;
     if (finalEl) finalEl.textContent = `Final text preview: ${fmtPreview(rawText)}`;
     if (jpEl) jpEl.textContent = `Looks Japanese: -`;
     if (opsEl) opsEl.textContent = `Operations: preview API unavailable`;
+    if (warningsEl) warningsEl.textContent = `Warnings: preview API unavailable`;
   }
 }
 
