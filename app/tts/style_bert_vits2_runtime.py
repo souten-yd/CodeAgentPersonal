@@ -26,16 +26,33 @@ _TEXT_LOG_INFO_LIMIT = 500
 _TEXT_LOG_DEBUG_LIMIT = 50000
 
 
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
 def _repo_dir() -> str:
-    return os.environ.get("CODEAGENT_STYLE_BERT_VITS2_REPO_DIR", _STYLE_BERT_VITS2_DEFAULT_REPO_DIR)
+    env = os.environ.get("CODEAGENT_STYLE_BERT_VITS2_REPO_DIR", "").strip()
+    if env:
+        return env
+    if os.name == "nt":
+        return str(_project_root() / "third_party" / "Style-Bert-VITS2")
+    return _STYLE_BERT_VITS2_DEFAULT_REPO_DIR
 
 
 def _venv_dir() -> str:
-    return os.environ.get("CODEAGENT_STYLE_BERT_VITS2_VENV_DIR", _STYLE_BERT_VITS2_DEFAULT_VENV_DIR)
+    env = os.environ.get("CODEAGENT_STYLE_BERT_VITS2_VENV_DIR", "").strip()
+    if env:
+        return env
+    if os.name == "nt":
+        return str(_project_root() / "tts_envs" / "style_bert_vits2")
+    return _STYLE_BERT_VITS2_DEFAULT_VENV_DIR
 
 
 def _python_path() -> str:
-    return os.path.join(_venv_dir(), "bin", "python")
+    venv = Path(_venv_dir())
+    if os.name == "nt":
+        return str(venv / "Scripts" / "python.exe")
+    return str(venv / "bin" / "python")
 
 
 def _models_dir() -> str:
@@ -117,7 +134,7 @@ def _resolve_model_paths(model_id: str) -> tuple[str, str, str]:
 
 
 def _pick_device(req: dict) -> str:
-    valid_devices = {"cpu", "cuda", "mps"}
+    valid_devices = {"cpu", "cuda", "mps", "directml", "dml"}
     auto_values = {"", "auto"}
     disabled_markers = {"", "-1", "none", "void"}
 
@@ -144,7 +161,21 @@ def _pick_device(req: dict) -> str:
             if has_cuda_visibility or has_cuda_dir or torch_cuda_available:
                 return "cuda"
 
+    if requested in {"directml", "dml"}:
+        return "directml"
+    if requested == "auto" and os.name == "nt":
+        return "directml"
     return "cpu"
+
+
+def _directml_available() -> bool:
+    try:
+        import torch_directml
+
+        _ = torch_directml.device()
+        return True
+    except Exception:
+        return False
 
 
 def _to_optional_float(v, default: float | None = None) -> float | None:
@@ -703,7 +734,11 @@ def synth(req: dict) -> dict:
     model_path = Path(req["model_path"])
     config_path = Path(req["config_path"])
     style_vec_path = Path(req["style_vec_path"])
-    device = str(req.get("device", "cpu") or "cpu").strip().lower()
+    requested_device = str(req.get("device", "cpu") or "cpu").strip().lower()
+    device = requested_device
+    effective_device = requested_device
+    fallback_reason = ""
+    directml_attempted = False
     if device == "auto":
         try:
             import torch
@@ -711,18 +746,44 @@ def synth(req: dict) -> dict:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         except Exception:
             device = "cpu"
-    if device not in {"cpu", "cuda", "mps"}:
+    if device in {"directml", "dml"}:
+        directml_attempted = True
+        try:
+            import torch_directml
+
+            device = torch_directml.device()
+            effective_device = "directml"
+        except Exception as e:
+            device = "cpu"
+            effective_device = "cpu"
+            fallback_reason = f"directml_unavailable:{type(e).__name__}:{e}"
+    elif device not in {"cpu", "cuda", "mps"}:
         device = "cpu"
-    signature = (str(model_path), str(config_path), str(style_vec_path), str(device))
+        effective_device = "cpu"
+    signature = (str(model_path), str(config_path), str(style_vec_path), str(effective_device))
     cache_hit = loaded_model is not None and loaded_signature == signature
 
     if loaded_model is None or loaded_signature != signature:
-        loaded_model = TTSModel(
-            model_path=model_path,
-            config_path=config_path,
-            style_vec_path=style_vec_path,
-            device=device,
-        )
+        try:
+            loaded_model = TTSModel(
+                model_path=model_path,
+                config_path=config_path,
+                style_vec_path=style_vec_path,
+                device=device,
+            )
+        except Exception as e:
+            if requested_device in {"directml", "dml"}:
+                fallback_reason = f"directml_model_load_failed:{type(e).__name__}:{e}"
+                device = "cpu"
+                effective_device = "cpu"
+                loaded_model = TTSModel(
+                    model_path=model_path,
+                    config_path=config_path,
+                    style_vec_path=style_vec_path,
+                    device="cpu",
+                )
+            else:
+                raise
         loaded_signature = signature
     load_elapsed_ms = int((time.perf_counter() - load_started) * 1000)
 
@@ -833,7 +894,11 @@ def synth(req: dict) -> dict:
         "total_elapsed_ms": total_elapsed_ms,
         "sample_rate": int(sample_rate),
         "output_bytes": len(wav_bytes),
-        "device": str(device),
+        "device": str(effective_device),
+        "requested_device": str(requested_device),
+        "effective_device": str(effective_device),
+        "fallback_reason": str(fallback_reason),
+        "directml_attempted": bool(directml_attempted),
         "model_name": str(req.get("model_name", "")),
         "text_length": len(text_value),
     }
@@ -1231,6 +1296,10 @@ while True:
             "total_elapsed_ms": int(output.get("total_elapsed_ms") or 0),
             "cache_hit": bool(output.get("cache_hit")),
             "device": str(output.get("device") or payload.get("device") or "cpu"),
+            "requested_device": str(output.get("requested_device") or payload.get("device") or "cpu"),
+            "effective_device": str(output.get("effective_device") or output.get("device") or "cpu"),
+            "fallback_reason": str(output.get("fallback_reason") or ""),
+            "directml_attempted": bool(output.get("directml_attempted")),
             "model_name": str(output.get("model_name") or model),
             "text_length": int(output.get("text_length") or len(text)),
         }
@@ -1266,24 +1335,44 @@ while True:
         py = _python_path()
         repo = _repo_dir()
         models = _models_dir()
+        device_env = str(os.environ.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "")).strip().lower() or "auto"
+        koharune_dir = Path(models) / "koharune-ami"
+        koharune_ami_ready = all(
+            (koharune_dir / fn).is_file() for fn in ("config.json", "style_vectors.npy", "koharune-ami.safetensors")
+        )
         has_python = os.path.isfile(py) and os.access(py, os.X_OK)
         has_repo = os.path.isdir(repo)
         has_models = os.path.isdir(models)
-        available = has_python and has_repo and has_models
+        available = has_python and has_repo and has_models and koharune_ami_ready
         detail = ""
+        reason = ""
         if not has_repo:
             detail = f"repo not found: {repo}"
+            reason = "style_bert_vits2_repo_missing"
         elif not has_python:
             detail = f"python not found/executable: {py}"
+            reason = "style_bert_vits2_windows_venv_missing" if os.name == "nt" else "style_bert_vits2_venv_missing"
         elif not has_models:
             detail = f"models dir not found: {models}"
+            reason = "style_bert_vits2_models_missing"
+        elif not koharune_ami_ready:
+            detail = "koharune-ami model files are missing"
+            reason = "style_bert_vits2_koharune_ami_missing"
         return {
             "available": available,
             "loaded": available,
             "engine_key": self.engine_key,
             "repo_dir": repo,
+            "venv_dir": _venv_dir(),
+            "python_path": py,
             "venv_python": py,
             "models_dir": models,
+            "device_env": device_env,
+            "directml_available": _directml_available(),
+            "torch_directml_available": _directml_available(),
+            "koharune_ami_ready": koharune_ami_ready,
+            "setup_hint": "setup_style_bert_vits2_windows.bat" if os.name == "nt" else "",
             "detail": detail,
+            "reason": reason,
             "worker_running": any(proc and proc.poll() is None for proc in self._worker_procs),
         }
