@@ -43,7 +43,8 @@ from agent.tools.registry import ToolRegistry, create_default_registry
 from agent.types import Action, Evaluation, Plan, ToolResult
 from agent.task_planning_runner import TaskPlanningRunner
 from app.tts.engine_registry import EngineRegistry, TTSEngineRuntime
-from app.tts.style_bert_vits2_runtime import StyleBertVITS2Runtime
+from app.tts.style_bert_vits2_runtime import StyleBertVITS2Runtime, _read_model_version
+from app.tts.language_router import resolve_tts_language_route
 from app.tts.style_bert_vits2_manager import (
     StyleBertVITS2Error,
     ensure_model_exists,
@@ -13031,7 +13032,20 @@ def tts_synthesize_api(req: dict):
         model = str(req.get("model", "")).strip() or "koharune-ami"
         req["model"] = model
         ensure_model_exists(model, _STYLE_BERT_VITS2_MODELS_DIR)
-        batch_items = _build_tts_batch_items_from_text(req, text)
+        model_config_path = os.path.join(_STYLE_BERT_VITS2_MODELS_DIR, model, "config.json")
+        model_version = _read_model_version(model_config_path)
+        route = _apply_tts_language_routing(req, model_version=model_version)
+        _style_bert_vits2_logger.info(
+            "[TTS][synthesize:%s] original_text=%r translated_text=%r final_text=%r route=%s needs_translation=%s translation_target_language=%s",
+            request_id,
+            req.get("original_text", ""),
+            req.get("translated_text", ""),
+            req.get("final_text", ""),
+            route,
+            req.get("needs_translation"),
+            req.get("translation_target_language"),
+        )
+        batch_items = _build_tts_batch_items_from_text(req, req.get("text", text))
         if len(batch_items) >= 2:
             batch_req = dict(req)
             batch_req["output"] = "zip"
@@ -16885,3 +16899,44 @@ app.mount("/workspace", StaticFiles(directory=WORK_DIR, html=True), name="worksp
 app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
 if os.path.isdir(ASSETS_DIR):
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR, html=False), name="assets")
+
+def _apply_tts_language_routing(req: dict, *, model_version: str | None) -> dict:
+    route = resolve_tts_language_route(req, model_version)
+    original_text = str(req.get("text") or "")
+    translated_text = ""
+    final_text = original_text
+    req["route_info"] = route
+    req["original_text"] = original_text
+
+    if route.get("needs_translation") and route.get("translation_target_language") in {"ja", "en"}:
+        src = str(route.get("source_language") or "auto")
+        if src not in {"ja", "en"}:
+            src = "en" if route.get("translation_target_language") == "ja" else "ja"
+        try:
+            translated_text = _echo_do_translate(original_text, src)
+            if translated_text.strip():
+                final_text = translated_text
+        except Exception as e:
+            _style_bert_vits2_logger.warning("[TTS][language_route] translation failed route=%s err=%s", route, e)
+            if route.get("model_kind") == "global":
+                final_text = original_text
+            else:
+                final_text = original_text
+
+    req["translated_text"] = translated_text
+    req["final_text"] = final_text
+    req["text"] = final_text
+    req["needs_translation"] = bool(route.get("needs_translation"))
+    req["translation_target_language"] = route.get("translation_target_language")
+    req["use_translation"] = bool(route.get("needs_translation"))
+    req["text_source"] = "translated" if translated_text else "raw"
+
+    _style_bert_vits2_logger.info(
+        "[TTS][language_route] model_kind=%s needs_translation=%s target=%s route=%s",
+        route.get("model_kind"),
+        route.get("needs_translation"),
+        route.get("translation_target_language"),
+        route,
+    )
+    return route
+
