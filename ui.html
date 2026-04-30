@@ -5163,6 +5163,16 @@ function _updateEchoSbv2LanguageNote() {
     if (asrLangUnifiedSel) asrLangUnifiedSel.value = 'auto';
     if (asrLangSel) asrLangSel.value = 'auto';
   }
+  if (isForced) {
+    echo.outputLanguage = 'ja';
+    echo.ttsLanguage = 'ja';
+    echo.asrLang = 'auto';
+    echo.asrLanguage = 'auto';
+    if (outputSel) outputSel.value = 'ja';
+    if (ttsLangSel) ttsLangSel.value = 'ja';
+    if (asrLangUnifiedSel) asrLangUnifiedSel.value = 'auto';
+    if (asrLangSel) asrLangSel.value = 'auto';
+  }
 }
 
 async function refreshStyleBertVits2Models(context = 'echo') {
