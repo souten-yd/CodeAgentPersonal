@@ -14,6 +14,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# Ensure project root is importable when this script is executed directly:
+#   python scripts/start_codeagent.py
+# This is required for Windows start.bat, where sys.path otherwise points to ./scripts.
+_BASE_DIR_FOR_IMPORT = Path(__file__).resolve().parent.parent
+if str(_BASE_DIR_FOR_IMPORT) not in sys.path:
+    sys.path.insert(0, str(_BASE_DIR_FOR_IMPORT))
+
 from app.env_detection import detect_gpu_profile, detect_os_profile, detect_runpod
 
 AUTO_MODE_KEY = "auto"

@@ -6,6 +6,7 @@ REM Windows launcher wrapper
 REM Core startup logic is implemented in Python for Runpod/Linux reuse.
 
 set SCRIPT_DIR=%~dp0
+cd /d "%SCRIPT_DIR%"
 set PY_LAUNCHER=%SCRIPT_DIR%scripts\start_codeagent.py
 
 if not exist "%PY_LAUNCHER%" (
