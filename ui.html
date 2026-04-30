@@ -3516,7 +3516,6 @@ const agentTts = {
 const _SUPPORTED_TTS_ENGINES = new Set(['style_bert_vits2']);
 const DEFAULT_STYLE_BERT_VITS2_MODEL = 'koharune-ami';
 const _TTS_ENGINE_COMPAT_ALIASES = {
-  qwen3_tts: 'qwen3tts',
   stylebertvits2: 'style_bert_vits2',
   'style-bert-vits2': 'style_bert_vits2',
 };
@@ -3526,8 +3525,7 @@ const _styleBertVits2PrepareState = {
 };
 const _styleBertVits2ModelMeta = new Map();
 function _normalizeTtsEngine(engine) {
-  const normalized = _TTS_ENGINE_COMPAT_ALIASES[String(engine || '').trim().toLowerCase()] || engine;
-  return _SUPPORTED_TTS_ENGINES.has(normalized) ? normalized : 'style_bert_vits2';
+  return 'style_bert_vits2';
 }
 function _normalizeStyleBertVits2Model(model) {
   const value = String(model || '').trim();
@@ -4353,22 +4351,16 @@ function _getUserFacingApiErrorMessage(err, fallback = '処理に失敗しまし
 }
 
 function _buildTtsRequestBodyByEngine({text, engine, context = 'main', opts = {}}) {
-  if (engine === 'style_bert_vits2') return _buildStyleBertVits2RequestBody({text, engine, context, opts});
-  return _buildDefaultTtsRequestBody({text, engine});
+  return _buildStyleBertVits2RequestBody({
+    text,
+    engine: 'style_bert_vits2',
+    context,
+    opts,
+  });
 }
 
 function _buildDefaultTtsRequestBody({text, engine}) {
   return {text, engine, speed: tts.speed};
-}
-
-function _buildQwen3TtsRequestBody({text, engine, context, opts = {}}) {
-  const body = _buildDefaultTtsRequestBody({text, engine});
-  const explicitLanguage = (opts.language || '').trim();
-  const langDetected = _ttsDetectLang(text) === 'ja' ? 'Japanese' : 'English';
-  body.language = explicitLanguage || langDetected;
-  Object.assign(body, _buildQwen3ReferenceParams(context));
-  _applyReservedTtsOptions(body, opts, {allowSpeed: true, allowLanguage: true});
-  return body;
 }
 
 function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
@@ -4448,122 +4440,6 @@ function _validateStyleBertVits2RequestBodyOrThrow(body = {}) {
   throw new Error(`Style-Bert-VITS2 requires ${missing.join(', ')}`);
 }
 
-async function _ensureQwen3ReferenceState() {
-  if (echo.voiceRefAudio || echo._voiceRefSyncDone) return;
-  if (echo._voiceRefSyncPromise) {
-    await echo._voiceRefSyncPromise;
-    return;
-  }
-  echo._voiceRefSyncPromise = _syncQwen3ReferenceState()
-    .catch(() => {})
-    .finally(() => {
-      echo._voiceRefSyncDone = true;
-      echo._voiceRefSyncPromise = null;
-    });
-  await echo._voiceRefSyncPromise;
-}
-
-
-
-
-
-let _sbv2TestAudioBlob = null;
-let _sbv2TestBusy = false;
-let _sbv2TestVoiceRecorder = null;
-let _sbv2TestVoiceRecording = false;
-let _sbv2TestVoiceChunks = [];
-
-
-function _isRecordingBlockedByTts() {
-  return !!(tts._playing || _sbv2TestBusy || ttsAudioQueue.length > 0);
-}
-
-function _isEchoRecordingBlockedByTts() {
-  // Echo は TTS再生中でも常時録音を継続可能にする
-  return false;
-}
-
-async function _echoRefreshAudioDeviceSelectors() {
-  const inSel = document.getElementById('echo-asr-input-device');
-  const outSel = document.getElementById('echo-tts-output-device');
-  const inNote = document.getElementById('echo-asr-input-device-note');
-  const outNote = document.getElementById('echo-tts-output-device-note');
-  if (!inSel && !outSel) return;
-  const fallbackIn = [{id: 'default', label: 'システム既定'}];
-  const fallbackOut = [{id: 'default', label: 'システム既定（iPhoneはOS側で切替）'}];
-  if (!navigator.mediaDevices?.enumerateDevices) {
-    if (inSel) {
-      inSel.innerHTML = fallbackIn.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
-      inSel.value = echo.asrInputDeviceId || 'default';
-    }
-    if (outSel) {
-      outSel.innerHTML = fallbackOut.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
-      outSel.value = echo.ttsOutputDeviceId || 'default';
-    }
-    if (inNote) inNote.textContent = 'このブラウザは入力デバイス一覧取得に未対応です。';
-    if (outNote) outNote.textContent = 'このブラウザは出力デバイス一覧取得に未対応です。';
-    return;
-  }
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const ins = devices.filter((d) => d.kind === 'audioinput');
-    const outs = devices.filter((d) => d.kind === 'audiooutput');
-    if (inSel) {
-      const inputOpts = [
-        {id: 'default', label: 'システム既定'},
-        ...ins.map((d, idx) => ({id: d.deviceId, label: d.label || `マイク ${idx + 1}`})),
-      ];
-      inSel.innerHTML = inputOpts.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
-      inSel.value = inputOpts.some((x) => x.id === echo.asrInputDeviceId) ? echo.asrInputDeviceId : 'default';
-    }
-    if (outSel) {
-      const outputOpts = [
-        {id: 'default', label: 'システム既定（iPhoneはOS側で切替）'},
-        ...outs.map((d, idx) => ({id: d.deviceId, label: d.label || `出力 ${idx + 1}`})),
-      ];
-      outSel.innerHTML = outputOpts.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
-      outSel.value = outputOpts.some((x) => x.id === echo.ttsOutputDeviceId) ? echo.ttsOutputDeviceId : 'default';
-    }
-    if (inNote) inNote.textContent = ins.length ? '接続済みマイク/イヤホンを選択できます。' : 'マイク一覧を取得するには一度録音許可が必要な場合があります。';
-    if (outNote) {
-      outNote.textContent = outs.length
-        ? '対応ブラウザではTTS出力先を選択できます。iPhone/SafariではOS側切替を利用してください。'
-        : '出力先の列挙不可。iPhone/SafariではOS側の出力切替を利用してください。';
-    }
-  } catch (e) {
-    if (inNote) inNote.textContent = `入力デバイス一覧取得に失敗: ${e.message || String(e)}`;
-    if (outNote) outNote.textContent = `出力デバイス一覧取得に失敗: ${e.message || String(e)}`;
-  }
-}
-
-function _syncRecordingControlsWithTts() {
-  const blocked = _isRecordingBlockedByTts();
-  const reason = blocked ? 'TTS生成/再生中は録音を開始できません。' : '';
-  _setMicState(voiceRecording, blocked || voiceRecording, voiceTarget || 'chat');
-  const cloneBtn = document.getElementById('qwen3-clone-test-asr-btn');
-  if (cloneBtn && !cloneTestVoiceRecording) {
-    cloneBtn.disabled = blocked;
-    cloneBtn.title = reason;
-  }
-  const sbv2Btn = document.getElementById('sbv2-test-asr-btn');
-  if (sbv2Btn && !_sbv2TestVoiceRecording) {
-    sbv2Btn.disabled = blocked || _sbv2TestBusy;
-    sbv2Btn.title = reason;
-  }
-  const echoBtn = document.getElementById('echo-record-btn');
-  if (echoBtn && !echo.recording) {
-    const echoBlocked = _isEchoRecordingBlockedByTts();
-    echoBtn.disabled = echoBlocked;
-    echoBtn.title = echoBlocked ? reason : '';
-  }
-  if (blocked && voiceRecording && voiceRecorder) {
-    voiceRecording = false;
-    _stopVoiceLevelMonitoring(voiceTarget);
-    _setMicState(false, true, voiceTarget || 'chat');
-    voiceRecorder.stop();
-  }
-}
-
 
 
 async function runQwen3CloneTestGenerate(target = 'jp') {
@@ -4582,11 +4458,7 @@ async function runQwen3CloneTestGenerate(target = 'jp') {
     input?.focus();
     return;
   }
-  const refParams = _buildQwen3ReferenceParams('echo');
-  if (!refParams.ref_audio_base64) {
-    _setQwen3CloneTestStatus('参照音声なし: 通常合成モードで再生します');
-  }
-  if (requireRef && !refParams.ref_text) {
+  if (requireRef) {
     _setQwen3CloneTestStatus('参照テキストが必須です', true);
     document.getElementById('qwen3-ref-text-input')?.focus();
     return;
@@ -4628,7 +4500,7 @@ async function runQwen3CloneTestGenerate(target = 'jp') {
         playText = await translateByTarget(text, 'ja', 'en');
       }
     }
-    const blob = await _ttsFetchAudio(playText, 'qwen3tts', 'echo', {language: reqLanguage});
+    const blob = await _ttsFetchAudio(playText, 'style_bert_vits2', 'echo', {language: reqLanguage});
     if (!blob || blob.size <= 0) throw new Error('音声データが空です');
     _qwen3CloneTestAudioBlob = blob;
     if (playBtn) playBtn.disabled = false;
@@ -4650,7 +4522,7 @@ async function _playQwen3CloneTestBlob() {
   const result = await enqueueTtsAudioBlob(_qwen3CloneTestAudioBlob, `qwen3-clone-${Date.now()}`, {
     context: 'echo',
     source: 'echo',
-    engine: 'qwen3tts',
+    engine: 'style_bert_vits2',
     kind: 'clone_test',
   });
   return result;
