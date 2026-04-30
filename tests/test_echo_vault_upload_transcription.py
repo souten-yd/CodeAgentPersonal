@@ -20,16 +20,22 @@ class EchoVaultUploadTranscriptionTests(unittest.TestCase):
 
             self.assertTrue(out["ok"])
             base = out["session"]
+            self.assertEqual(out["transcript_raw_filename"], f"{base}_transcript_raw.txt")
+            self.assertEqual(out["transcript_segments_filename"], f"{base}_transcript_segments.json")
+            self.assertEqual(out["transcript_ja_filename"], f"{base}_transcript_ja.txt")
+            self.assertEqual(out["transcript_en_filename"], f"{base}_transcript_en.txt")
+            self.assertEqual(out["minutes_bilingual_filename"], f"{base}_minutes_bilingual.md")
             seg_path = Path(td) / f"{base}_transcript_segments.json"
             self.assertTrue(seg_path.exists())
             segs = json.loads(seg_path.read_text(encoding="utf-8"))
             self.assertEqual(len(segs), 3)
-            self.assertTrue(all("start" in s and "end" in s and "source_text" in s for s in segs))
-            self.assertTrue(all("japanese_text" in s and "english_text" in s for s in segs))
+            self.assertTrue(all("index" in s and "start" in s and "end" in s and "source_text" in s for s in segs))
+            self.assertTrue(all("detected_language" in s and "japanese_text" in s and "english_text" in s and "warnings" in s for s in segs))
 
             minutes = (Path(td) / f"{base}_minutes_bilingual.md").read_text(encoding="utf-8")
             self.assertLess(minutes.index("## 日本語"), minutes.index("## English"))
             self.assertNotIn(" / ", minutes)
+            self.assertNotIn(" | ", minutes)
 
     def test_long_english_without_punctuation_is_split_by_max_chars(self):
         text = " ".join(["word"] * 120)
@@ -44,6 +50,48 @@ class EchoVaultUploadTranscriptionTests(unittest.TestCase):
             segs = json.loads(seg_path.read_text(encoding="utf-8"))
             self.assertGreater(len(segs), 1)
             self.assertTrue(all(len(s["source_text"]) <= 170 for s in segs))
+
+    def test_translation_failure_warning_is_recorded(self):
+        with tempfile.TemporaryDirectory() as td:
+            with patch.object(main, "ECHOVAULT_DIR", td), patch.object(main, "_echo_do_translate", return_value="[翻訳エラー: timeout]"):
+                out = main.echo_import_audio_transcript({
+                    "transcript_text": "今日は検証です。",
+                    "language": "ja",
+                })
+            segs = json.loads((Path(td) / out["transcript_segments_filename"]).read_text(encoding="utf-8"))
+            self.assertIn("translation_failed", segs[0]["warnings"])
+            self.assertEqual(out["translation_warning_count"], 1)
+
+    def test_mixed_language_segments_are_detected_per_piece(self):
+        with tempfile.TemporaryDirectory() as td:
+            with patch.object(main, "ECHOVAULT_DIR", td), patch.object(main, "_echo_do_translate", side_effect=lambda t, **_: f"T:{t}"):
+                out = main.echo_import_audio_transcript({
+                    "transcript_text": "fallback",
+                    "language": "ja",
+                    "segments": [
+                        {"start": 0, "end": 4, "text": "今日は晴れです。"},
+                        {"start": 4, "end": 8, "text": "Next we review the roadmap."},
+                    ],
+                })
+            segs = json.loads((Path(td) / out["transcript_segments_filename"]).read_text(encoding="utf-8"))
+            langs = [s["detected_language"] for s in segs]
+            self.assertIn("ja", langs)
+            self.assertIn("en", langs)
+
+    def test_segment_times_are_distributed_when_split(self):
+        with tempfile.TemporaryDirectory() as td:
+            with patch.object(main, "ECHOVAULT_DIR", td), patch.object(main, "_echo_do_translate", side_effect=lambda t, **_: f"EN:{t}"):
+                out = main.echo_import_audio_transcript({
+                    "transcript_text": "A. B. C.",
+                    "language": "en",
+                    "segments": [{"start": 0.0, "end": 12.0, "text": "A. B. C."}],
+                })
+            segs = json.loads((Path(td) / out["transcript_segments_filename"]).read_text(encoding="utf-8"))
+            self.assertEqual(len(segs), 3)
+            self.assertAlmostEqual(segs[0]["start"], 0.0, places=2)
+            self.assertGreater(segs[1]["start"], segs[0]["start"])
+            self.assertGreater(segs[2]["start"], segs[1]["start"])
+            self.assertAlmostEqual(segs[-1]["end"], 12.0, places=2)
 
 
 if __name__ == "__main__":

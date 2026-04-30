@@ -12628,7 +12628,8 @@ async function echoUploadSessionAudio(input) {
     if (!saveResp.ok) throw new Error(saveData.detail || '文字起こし保存に失敗しました。');
 
     let minutesFailed = false;
-    if (autoMinutes && saveData.transcript_filename) {
+    const hasBilingualMinutes = !!saveData.minutes_bilingual_filename;
+    if (autoMinutes && saveData.transcript_filename && !hasBilingualMinutes) {
       _echoUploadSetStatus('building minutes...', 'info');
       const minutesResp = await fetch(API + '/echo/generate-minutes', {
         method: 'POST',
@@ -12644,7 +12645,15 @@ async function echoUploadSessionAudio(input) {
 
     await refreshEchoVault();
     if (!minutesFailed) {
-      _echoUploadSetStatus(`done: ${saveData.transcript_filename || 'transcript'}`, 'ok');
+      const artifacts = [
+        saveData.transcript_segments_filename && `Segments JSON: ${saveData.transcript_segments_filename}`,
+        saveData.transcript_ja_filename && `Japanese transcript: ${saveData.transcript_ja_filename}`,
+        saveData.transcript_en_filename && `English transcript: ${saveData.transcript_en_filename}`,
+        saveData.minutes_bilingual_filename && `Bilingual minutes: ${saveData.minutes_bilingual_filename}`,
+      ].filter(Boolean).join(' / ');
+      const suffix = artifacts ? ` (${artifacts})` : '';
+      const status = hasBilingualMinutes ? 'done: bilingual minutes generated' : `done: ${saveData.transcript_filename || 'transcript'}`;
+      _echoUploadSetStatus(`${status}${suffix}`, 'ok');
     }
   } catch (e) {
     const msg = String(e?.message || e || 'unknown error');

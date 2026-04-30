@@ -12031,16 +12031,57 @@ def echo_import_audio_transcript(req: dict):
                     continue
                 st = float((seg or {}).get("start", 0.0) or 0.0)
                 ed = float((seg or {}).get("end", st) or st)
-                detected = _detect_language_light(txt) if lang_hint == "auto" else lang_hint
-                for piece in _split_sentence_chunks(txt, detected):
-                    normalized.append({"start": st, "end": ed, "source_text": piece, "detected_language": detected})
+                pieces = _split_sentence_chunks(txt, _detect_language_light(txt) if lang_hint == "auto" else lang_hint)
+                if not pieces:
+                    continue
+                duration = max(0.0, ed - st)
+                total_chars = max(sum(max(len(p), 1) for p in pieces), 1)
+                cursor = st
+                for idx, piece in enumerate(pieces):
+                    detected = _detect_language_light(piece)
+                    if detected not in {"ja", "en"}:
+                        detected = lang_hint if lang_hint in {"ja", "en"} else _detect_language_light(txt)
+                    if detected not in {"ja", "en"}:
+                        detected = "en"
+                    if duration > 0:
+                        if idx == len(pieces) - 1:
+                            p_start, p_end = cursor, ed
+                        else:
+                            ratio = max(len(piece), 1) / total_chars
+                            span = duration * ratio
+                            p_start, p_end = cursor, min(ed, cursor + span)
+                        cursor = p_end
+                    else:
+                        p_start, p_end = st, ed
+                    normalized.append({"start": p_start, "end": p_end, "source_text": piece, "detected_language": detected})
         if not normalized:
-            detected = _detect_language_light(fallback_text) if lang_hint == "auto" else lang_hint
-            for piece in _split_sentence_chunks(fallback_text, detected):
+            fallback_detected = _detect_language_light(fallback_text)
+            for piece in _split_sentence_chunks(fallback_text, fallback_detected if fallback_detected in {"ja", "en"} else "en"):
+                detected = _detect_language_light(piece)
+                if detected not in {"ja", "en"}:
+                    detected = lang_hint if lang_hint in {"ja", "en"} else "en"
                 normalized.append({"start": 0.0, "end": 0.0, "source_text": piece, "detected_language": detected})
         for i, seg in enumerate(normalized):
             seg["index"] = i
         return normalized
+
+    def _translate_result_failed(source: str, translated: str, target_language: str) -> bool:
+        tr = str(translated or "").strip()
+        if not tr:
+            return True
+        lower = tr.lower()
+        if tr.startswith("[翻訳エラー:") or "translation error" in lower:
+            return True
+        src = str(source or "").strip()
+        if src and tr == src:
+            if target_language == "en":
+                if any(("぀" <= c <= "ヿ") or ("一" <= c <= "鿿") for c in tr):
+                    return True
+            if target_language == "ja":
+                alpha = sum(1 for c in tr if ("a" <= c.lower() <= "z"))
+                if alpha >= max(5, len(tr) // 3):
+                    return True
+        return False
 
     def _translate_segment_pair(seg: dict) -> dict:
         source = str(seg.get("source_text", "")).strip()
@@ -12056,11 +12097,26 @@ def echo_import_audio_transcript(req: dict):
         try:
             if detected == "ja":
                 out["japanese_text"] = source
-                out["english_text"] = _echo_do_translate(source, source_language="ja", target_language="en")
+                translated = _echo_do_translate(source, source_language="ja", target_language="en")
+                if _translate_result_failed(source, translated, "en"):
+                    out["translation_used"] = False
+                    out["llm_polished"] = False
+                    out["warnings"].append("translation_failed")
+                    out["english_text"] = "[translation failed]"
+                else:
+                    out["english_text"] = translated
             else:
                 out["english_text"] = source
-                out["japanese_text"] = _echo_do_translate(source, source_language="en", target_language="ja")
+                translated = _echo_do_translate(source, source_language="en", target_language="ja")
+                if _translate_result_failed(source, translated, "ja"):
+                    out["translation_used"] = False
+                    out["llm_polished"] = False
+                    out["warnings"].append("translation_failed")
+                    out["japanese_text"] = "[translation failed]"
+                else:
+                    out["japanese_text"] = translated
         except Exception:
+            out["translation_used"] = False
             out["llm_polished"] = False
             out["warnings"].append("translation_failed")
             if detected == "ja":
@@ -12106,10 +12162,20 @@ def echo_import_audio_transcript(req: dict):
     with open(base_path + "_minutes_bilingual.md", "w", encoding="utf-8") as f:
         f.write("\n".join(minutes_md).rstrip() + "\n")
 
+    translation_warning_count = sum(1 for s in segments if "translation_failed" in (s.get("warnings") or []))
+    segment_count = len(segments)
+
     return {
         "ok": True,
         "session": base,
         "transcript_filename": transcript_filename,
+        "transcript_raw_filename": f"{base}_transcript_raw.txt",
+        "transcript_segments_filename": f"{base}_transcript_segments.json",
+        "transcript_ja_filename": f"{base}_transcript_ja.txt",
+        "transcript_en_filename": f"{base}_transcript_en.txt",
+        "minutes_bilingual_filename": f"{base}_minutes_bilingual.md",
+        "segment_count": segment_count,
+        "translation_warning_count": translation_warning_count,
         "audio_filename": audio_filename,
         "audio_size": audio_size,
     }
