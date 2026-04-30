@@ -11810,21 +11810,6 @@ function _echoUpdateTranslation(id, translated, meta = {}) {
 }
 
 
-async function _echoTranslateToTarget(text, sourceLang, targetLang) {
-  const clean = String(text || '').trim();
-  if (!clean) return clean;
-  if (!['ja','en'].includes(sourceLang) || !['ja','en'].includes(targetLang) || sourceLang === targetLang) return clean;
-  try {
-    const r = await fetch(API + '/tts/translate-text', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({text: clean, src_lang: sourceLang})
-    });
-    const d = await r.json();
-    return String(d.translated || clean).trim() || clean;
-  } catch (_) {
-    return clean;
-  }
-}
 function _echoSanitizeEnglishTtsText(text) {
   return String(text || '')
     .replace(/[\u{1F300}-\u{1FAFF}\uFE0F]/gu, ' ')
@@ -11861,30 +11846,14 @@ async function _echoPrepareSpeechText(sentence) {
   const translated = String(sentence?.translated || '').trim();
   const detected = sentence?.detected_language || _echoInferLanguage(raw, (echo.asrLanguage || 'auto'));
   const output = sentence?.output_language || ((echo.outputLanguage || 'same') === 'same' ? detected : (echo.outputLanguage || detected));
-  let ttsText = translated && sentence?.translation_used ? translated : raw;
-  let translationUsed = !!sentence?.translation_used;
-
-  if (output !== detected) {
-    const converted = await _echoTranslateToTarget(ttsText, detected, output);
-    if (converted && converted !== ttsText) {
-      ttsText = converted;
-      translationUsed = true;
-    }
-  }
+  let ttsText = String(sentence?.tts_text || '').trim() || (translated && sentence?.translation_used ? translated : raw);
+  const translationUsed = !!sentence?.translation_used;
 
   if (output === 'ja') {
     ttsText = await _echoNormalizeJapaneseTtsText(ttsText);
   }
 
   if (output === 'en') {
-    const hasJapanese = /[぀-ヿ㐀-鿿]/.test(ttsText);
-    if (hasJapanese) {
-      const converted = await _echoTranslateToTarget(ttsText, 'ja', 'en');
-      if (converted) {
-        ttsText = converted;
-        translationUsed = true;
-      }
-    }
     ttsText = _echoSanitizeEnglishTtsText(ttsText);
   }
 
