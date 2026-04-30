@@ -7,7 +7,10 @@ from typing import Any
 from .katakanaizer import katakanaize_english_segments_with_llm
 
 _JP_TEXT_PATTERN = re.compile(r"[ぁ-ゟ゠-ヿ㐀-䶿一-鿿々〆〤ｦ-ﾟ]")
-_URL_PATTERN = re.compile(r"https?://[^\s]+|www\.[^\s]+", re.IGNORECASE)
+_URL_PATTERN = re.compile(
+    r"https?://[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+|www\.[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+",
+    re.IGNORECASE,
+)
 _EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
 _EMOJI_TOKEN_PATTERN = re.compile(
     "(?:"
@@ -25,19 +28,19 @@ _ASCII_WORD_PATTERN = re.compile(r"\b[A-Za-z][A-Za-z0-9_\-]*\b")
 _EN_SEGMENT_PATTERN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]*(?:[-_][A-Za-z0-9]+)*(?![A-Za-z0-9])")
 _CONTROL_PATTERN = re.compile(r"[\x00-\x08\x0B-\x1F\x7F]")
 _MULTISPACE_PATTERN = re.compile(r"[ \t\u3000]+")
-_JP_PUNCT_ASCII_MAP = str.maketrans({",": "、", ".": "。", "!": "！", "?": "？"})
+_JP_PUNCT_ASCII_MAP = str.maketrans({",": "、", "!": "！", "?": "？"})
 _MARKDOWN_CODE_FENCE_PATTERN = re.compile(r"```+")
 _MARKDOWN_HEADING_PATTERN = re.compile(r"(?m)^\s*#{1,6}\s*")
 _MARKDOWN_BULLET_PATTERN = re.compile(r"(?m)^\s*[-*]\s+")
 _SPACE_BEFORE_PUNCT_PATTERN = re.compile(r"\s+([、。！？：；，．・ー」』）)\]])")
 _SPACE_AFTER_OPENING_PUNCT_PATTERN = re.compile(r"([「『（(])\s+")
 _NUMBER_UNIT_PATTERN = re.compile(
-    r"(?P<number>\d+(?:[.,]\d+)?)\s*(?P<unit>tb|gb|mb|kb|vram|ghz|mhz|khz|km|kg|cm|mm|m|g|mg|ml|l|℃|°C|%|円|¥|\$)\b",
+    r"(?P<number>\d+(?:[.,]\d+)?)\s*(?P<unit>tb|gb|mb|kb|vram|ghz|mhz|khz|v|kv|a|ma|w|kw|mw|km|kg|cm|mm|m|g|mg|ml|l|℃|°C|%|円|¥|\$)(?=$|[^A-Za-z])",
     re.IGNORECASE,
 )
 _CURRENCY_PREFIX_PATTERN = re.compile(r"(?P<currency>[$¥])\s*(?P<number>\d+(?:[.,]\d+)?)")
-_NO_PATTERN = re.compile(r"\bNo\.\s*(?P<number>\d+)\b", re.IGNORECASE)
-_VERSION_PATTERN = re.compile(r"\bv(?P<version>\d+(?:\.\d+)+)\b", re.IGNORECASE)
+_NO_PATTERN = re.compile(r"(?<![A-Za-z0-9])No\.\s*(?P<number>\d+)(?![A-Za-z0-9])", re.IGNORECASE)
+_VERSION_PATTERN = re.compile(r"(?<![A-Za-z0-9])v(?P<version>\d+(?:\.\d+)+)(?![A-Za-z0-9])", re.IGNORECASE)
 
 _DEFAULT_ENGLISH_DICT = {
     "ai": "エーアイ",
@@ -72,6 +75,13 @@ _UNIT_READABLE_MAP = {
     "ghz": "ギガヘルツ",
     "mhz": "メガヘルツ",
     "khz": "キロヘルツ",
+    "v": "ボルト",
+    "kv": "キロボルト",
+    "a": "アンペア",
+    "ma": "ミリアンペア",
+    "w": "ワット",
+    "kw": "キロワット",
+    "mw": "メガワット",
     "km": "キロメートル",
     "kg": "キログラム",
     "cm": "センチメートル",
@@ -101,6 +111,10 @@ _SYMBOL_REPLACEMENTS = {
 
 def _normalize_punctuation_for_jp_extra(text: str) -> str:
     current = text.translate(_JP_PUNCT_ASCII_MAP)
+    # keep dot in decimals/version/No. while converting sentence punctuation
+    current = re.sub(r"(?<![0-9A-Za-z])\.(?![0-9A-Za-z])", "。", current)
+    current = re.sub(r"(?<![0-9A-Za-z])\.(?=\s|$)", "。", current)
+    current = re.sub(r"(?<=\s)\.(?![0-9A-Za-z])", "。", current)
     # collapse repeated punctuation to natural pauses
     current = re.sub(r"。{2,}", "。", current)
     current = re.sub(r"、{2,}", "、", current)
@@ -178,7 +192,7 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
         warnings.append(f"unknown url policy: {url_policy}. fallback=skip")
         url_policy = "skip"
     if url_policy == "skip":
-        current = _EMAIL_PATTERN.sub(" ", _URL_PATTERN.sub(" ", current))
+        current = _EMAIL_PATTERN.sub(" 。 ", _URL_PATTERN.sub(" 。 ", current))
     else:
         current = _EMAIL_PATTERN.sub(" メールアドレス ", _URL_PATTERN.sub(" URL ", current))
     current = _MULTISPACE_PATTERN.sub(" ", current).strip()
@@ -206,18 +220,13 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
         def _remove_emoji(m: re.Match[str]) -> str:
             token = m.group(0)
             _append_operation(operations, "emoji_removed", token, "", "emoji_policy_skip")
-            return ""
+            return " "
 
         current = _EMOJI_TOKEN_PATTERN.sub(_remove_emoji, current)
     current = _MULTISPACE_PATTERN.sub(" ", current).strip()
     _append_operation(operations, "emoji_policy", before, current, emoji_policy)
 
-    # 4.5) JP-Extra punctuation normalization/retention
-    before = current
-    current = _normalize_punctuation_for_jp_extra(current)
-    _append_operation(operations, "jp_punctuation_normalization", before, current)
-
-    # 5) symbol policy
+    # 4.5) symbol policy
     before = current
     symbol_policy = str(
         settings.get("sbv2_jp_extra_symbol_policy")
@@ -242,13 +251,13 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
     current = current.strip()
     _append_operation(operations, "symbol_policy", before, current, symbol_policy)
 
-    # 6) notation rules (No. / version)
+    # 5) notation rules (No. / version)
     before = current
     current = _NO_PATTERN.sub(lambda m: f"ナンバー{m.group('number')}", current)
     current = _VERSION_PATTERN.sub(lambda m: f"バージョン{m.group('version')}", current)
     _append_operation(operations, "notation_rules", before, current, {"no": "ナンバー", "version": "バージョン"})
 
-    # 7) number + unit readability
+    # 6) number + unit readability
     before = current
 
     def _replace_unit(m: re.Match[str]) -> str:
@@ -271,7 +280,12 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
     current = current.strip()
     _append_operation(operations, "number_unit_readability", before, current)
 
-    # 8) english dictionary replacement + strategy
+    # 6.5) JP-Extra punctuation normalization/retention
+    before = current
+    current = _normalize_punctuation_for_jp_extra(current)
+    _append_operation(operations, "jp_punctuation_normalization", before, current)
+
+    # 7) english dictionary replacement + strategy
     before = current
     english_policy = str(
         settings.get("sbv2_jp_extra_english_to_katakana")
