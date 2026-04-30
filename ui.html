@@ -2444,149 +2444,55 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <!-- TTS 設定 -->
       <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px">
         <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🔊 Echo TTS 設定</div>
-        <div style="margin-bottom:8px">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS エンジン</div>
-          <div style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text2)">
-            TTS: Style-Bert-VITS2 固定
-          </div>
-        </div>
-        <div style="margin-bottom:8px">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS再生デバイス（Echo）</div>
-          <select id="echo-tts-output-device"
-            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
-            onchange="saveEchoSettings()">
-            <option value="default">システム既定（iPhoneはOS側で切替）</option>
-          </select>
-          <div id="echo-tts-output-device-note" style="font-size:10px;color:var(--text3);margin-top:4px;line-height:1.5">
-            iPhone/Safari はブラウザから直接出力先を指定できない場合があります。
-          </div>
-        </div>
-        <!-- デバイス選択 -->
-        <div style="margin-bottom:8px" id="tsasr-device-row">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">デバイス</div>
-          <div style="display:flex;gap:14px">
-            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
-              <input type="radio" name="tsasr-device" value="cpu" style="accent-color:var(--accent)"> CPU
-            </label>
-            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
-              <input type="radio" name="tsasr-device" value="cuda" checked style="accent-color:var(--accent)"> GPU (CUDA)
-            </label>
-          </div>
-        </div>
-        <!-- Style-Bert-VITS2（Style-Bert-VITS2選択時のみ） -->
         <div id="tsasr-style-bert-vits2-row" style="margin-bottom:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:6px">Style-Bert-VITS2 モデル</div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
-            <select id="tsasr-style-bert-vits2-model-sel"
-              style="flex:1;min-width:180px;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
-              onchange="saveEchoSettings()">
-              <option value="">（モデルなし）</option>
-            </select>
-            <button onclick="refreshStyleBertVits2Models('echo')" id="tsasr-style-bert-vits2-refresh-btn"
-              style="padding:4px 10px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">再読込</button>
-          </div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            <button onclick="runStyleBertVits2InitialSetup('echo')" id="tsasr-style-bert-vits2-setup-btn"
-              style="padding:4px 10px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">初期設定</button>
-            <label style="cursor:pointer;font-size:10px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;color:var(--text2)">
-              ZIPアップロード
-              <input type="file" id="tsasr-style-bert-vits2-zip" accept=".zip,application/zip" style="display:none" onchange="uploadStyleBertVits2ModelZip(this, 'echo')">
-            </label>
-            <span id="tsasr-style-bert-vits2-status" style="font-size:10px;color:var(--text3)">モデルを選択してください</span>
-          </div>
-          <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:8px">
             <div>
-              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo ASR language</div>
-              <select id="echo-asr-lang-unified"
-                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
-                onchange="saveEchoSettings()">
-                <option value="auto">Auto Japanese/English</option>
-                <option value="ja">Japanese</option>
-                <option value="en">English</option>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo ASR Language</div>
+              <select id="echo-asr-lang-unified" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="saveEchoSettings()">
+                <option value="auto">Auto</option><option value="ja">Japanese</option><option value="en">English</option>
               </select>
             </div>
             <div>
-              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo output language</div>
-              <select id="echo-output-language"
-                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
-                onchange="saveEchoSettings()">
-                <option value="same">Same as input</option>
-                <option value="ja">Translate to Japanese</option>
-                <option value="en">Translate to English</option>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo Output Language</div>
+              <select id="echo-output-language" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="saveEchoSettings()">
+                <option value="same">Same as ASR</option><option value="ja">Japanese</option><option value="en">English</option>
               </select>
             </div>
             <div>
-              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo TTS language</div>
-              <select id="echo-tts-language"
-                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
-                onchange="saveEchoSettings()">
-                <option value="auto">Auto by output language</option>
-                <option value="ja">Japanese voice</option>
-                <option value="en">English voice</option>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo TTS Language</div>
+              <select id="echo-tts-language" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="saveEchoSettings()">
+                <option value="auto">Auto</option><option value="ja">Japanese</option><option value="en">English</option>
               </select>
             </div>
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS Model</div>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <select id="tsasr-style-bert-vits2-model-sel" style="flex:1;min-width:120px;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="saveEchoSettings()"><option value="">（モデルなし）</option></select>
+                <button onclick="refreshStyleBertVits2Models('echo')" id="tsasr-style-bert-vits2-refresh-btn" style="padding:4px 10px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">再読込</button>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">
+                <button onclick="runStyleBertVits2InitialSetup('echo')" id="tsasr-style-bert-vits2-setup-btn" style="padding:4px 10px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">初期設定</button>
+                <label style="cursor:pointer;font-size:10px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;color:var(--text2)">ZIPアップロード<input type="file" id="tsasr-style-bert-vits2-zip" accept=".zip,application/zip" style="display:none" onchange="uploadStyleBertVits2ModelZip(this, 'echo')"></label>
+              </div>
+              <span id="tsasr-style-bert-vits2-status" style="display:block;margin-top:6px;font-size:10px;color:var(--text3)">モデルを選択してください</span>
+            </div>
+            <div><div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Speaker</div><input id="echo-tts-sbv2-speaker" type="text" placeholder="Default" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="saveEchoSettings()"></div>
+            <div><div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Style</div><input id="echo-tts-sbv2-style" type="text" placeholder="Neutral" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="saveEchoSettings()"></div>
+            <div><div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Speed / Length</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><input id="echo-tts-sbv2-speed" type="number" step="0.01" min="0.5" max="2.0" value="1.0" placeholder="speed" onchange="saveEchoSettings()"><input id="echo-tts-sbv2-length" type="number" step="0.01" min="0.2" max="3.0" value="1.0" placeholder="length" onchange="saveEchoSettings()"></div></div>
           </div>
-          <div id="echo-sbv2-jp-extra-note" style="display:none;margin-top:8px;padding:6px 8px;border:1px solid rgba(255,170,0,.3);border-radius:4px;background:rgba(255,170,0,.08);font-size:10px;color:var(--amber)">JP-Extra model: Japanese TTS only. Non-Japanese text will be translated/read-normalized automatically.</div>
-          <details style="margin-top:8px">
-            <summary style="cursor:pointer;font-size:11px;color:var(--text2);font-weight:700">Advanced parameters</summary>
-            <div style="margin-top:6px;padding:6px;border:1px solid var(--border);border-radius:6px;background:rgba(64,178,255,.06);font-size:10px;color:var(--text3);line-height:1.5">
-              💡 各パラメータは右側の説明で効果を確認できます（推奨初期値つき）。
+          <div id="echo-sbv2-jp-extra-note" style="display:none;margin-top:8px;padding:6px 8px;border:1px solid rgba(255,170,0,.3);border-radius:4px;background:rgba(255,170,0,.08);font-size:10px;color:var(--amber)">JP-Extra model: Echo TTS language is fixed to Japanese. Non-Japanese text is translated/normalized automatically.</div>
+          <details style="margin-top:8px"><summary style="cursor:pointer;font-size:11px;color:var(--text2);font-weight:700">Advanced parameters</summary>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:6px;margin-top:6px">
+              <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Style Weight</div><input id="echo-tts-sbv2-style-weight" type="number" step="0.01" min="0" max="20" value="1.0" onchange="saveEchoSettings()"></div>
+              <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">SDP Ratio</div><input id="echo-tts-sbv2-sdp-ratio" type="number" step="0.01" min="0" max="1" value="0.2" onchange="saveEchoSettings()"></div>
+              <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Noise</div><input id="echo-tts-sbv2-noise" type="number" step="0.01" min="0" max="2" value="0.6" onchange="saveEchoSettings()"></div>
+              <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Noise W</div><input id="echo-tts-sbv2-noise-w" type="number" step="0.01" min="0" max="2" value="0.8" onchange="saveEchoSettings()"></div>
+              <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Split Interval</div><input id="echo-tts-sbv2-split-interval" type="number" step="0.01" min="0" max="5" value="0.5" onchange="saveEchoSettings()"></div>
+              <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Assist Text</div><input id="echo-tts-sbv2-assist-text" type="text" placeholder="optional" onchange="saveEchoSettings()"></div>
+              <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Assist Text Weight</div><input id="echo-tts-sbv2-assist-text-weight" type="number" step="0.01" min="0" max="1" value="0" onchange="saveEchoSettings()"></div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px">
-              <div title="話速（長さ）調整。1.0が標準、低いほど速く・高いほど遅くなります。推奨初期値: 1.0">
-                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">length (初期値: 1.0)</div>
-                <input id="echo-tts-sbv2-length" type="number" step="0.01" min="0.2" max="3.0" value="1.0" placeholder="length" onchange="saveEchoSettings()">
-              </div>
-              <div title="韻律のランダム性の比率。高いほど揺らぎが増えます。推奨初期値: 0.2">
-                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">sdp_ratio (初期値: 0.2)</div>
-                <input id="echo-tts-sbv2-sdp-ratio" type="number" step="0.01" min="0" max="1" value="0.2" placeholder="sdp_ratio" onchange="saveEchoSettings()">
-              </div>
-              <div title="音声生成ノイズ量。高いほどランダム性が増えます。推奨初期値: 0.6">
-                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">noise (初期値: 0.6)</div>
-                <input id="echo-tts-sbv2-noise" type="number" step="0.01" min="0" max="2" value="0.6" placeholder="noise" onchange="saveEchoSettings()">
-              </div>
-              <div title="発音タイミング側のノイズ量。高いほど抑揚・タイミングが揺れます。推奨初期値: 0.8">
-                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">noise_w (初期値: 0.8)</div>
-                <input id="echo-tts-sbv2-noise-w" type="number" step="0.01" min="0" max="2" value="0.8" placeholder="noise_w" onchange="saveEchoSettings()">
-              </div>
-              <div title="スタイルの効き具合。高いほどスタイル反映を強くします。推奨初期値: 1.0">
-                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">style_weight (初期値: 1.0)</div>
-                <input id="echo-tts-sbv2-style-weight" type="number" step="0.01" min="0" max="20" value="1.0" placeholder="style_weight" onchange="saveEchoSettings()">
-              </div>
-              <div title="line_split有効時の文間ポーズ秒数。推奨初期値: 0.5">
-                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">split_interval (初期値: 0.5)</div>
-                <input id="echo-tts-sbv2-split-interval" type="number" step="0.01" min="0" max="5" value="0.5" placeholder="split_interval" onchange="saveEchoSettings()">
-              </div>
-              <div title="声の高さ倍率。1.0が標準です。推奨初期値: 1.0">
-                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">pitch_scale (初期値: 1.0)</div>
-                <input id="echo-tts-sbv2-pitch-scale" type="number" step="0.01" min="0.5" max="2.0" value="1.0" placeholder="pitch_scale" onchange="saveEchoSettings()">
-              </div>
-              <div title="抑揚の強さ。1.0が標準です。推奨初期値: 1.0">
-                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">intonation_scale (初期値: 1.0)</div>
-                <input id="echo-tts-sbv2-intonation-scale" type="number" step="0.01" min="0.5" max="2.0" value="1.0" placeholder="intonation_scale" onchange="saveEchoSettings()">
-              </div>
-            </div>
-            <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:var(--text2)">
-              <input type="checkbox" id="echo-tts-sbv2-line-split" onchange="saveEchoSettings()"> line_split
-            </label>
+            <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:var(--text2)"><input type="checkbox" id="echo-tts-sbv2-line-split" onchange="saveEchoSettings()">Line Split</label>
           </details>
-          <div style="margin-top:8px;padding:6px;border:1px dashed var(--border);border-radius:4px;background:var(--bg)">
-            <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS入力プレビュー</div>
-            <div id="echo-tts-preview-source" style="font-size:10px;color:var(--text3)">TTS text source: raw</div>
-            <div id="echo-tts-preview-use-translation" style="font-size:10px;color:var(--text3)">Translation route: auto</div>
-            <div id="echo-tts-preview-model-kind" style="font-size:10px;color:var(--text3)">Model kind: -</div>
-            <div id="echo-tts-preview-language" style="font-size:10px;color:var(--text3)">Language: JP</div>
-            <div id="echo-tts-preview-effective-language" style="font-size:10px;color:var(--text3)">Effective language: JP</div>
-            <div id="echo-tts-preview-route" style="font-size:10px;color:var(--text3)">source/output/tts: - / - / -</div>
-            <div id="echo-tts-preview-needs-translation" style="font-size:10px;color:var(--text3)">needs_translation: false (target: -)</div>
-            <div id="echo-tts-preview-original-text" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Original text preview: -</div>
-            <div id="echo-tts-preview-after-translation" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">After translation: -</div>
-            <div id="echo-tts-preview-normalized-text" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Normalized text preview: -</div>
-            <div id="echo-tts-preview-final-text" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Final text preview: -</div>
-            <div id="echo-tts-preview-looks-japanese" style="font-size:10px;color:var(--text3);margin-top:3px">Looks Japanese: no</div>
-            <div id="echo-tts-preview-operations" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Operations: -</div>
-            <div id="echo-tts-preview-warnings" style="font-size:10px;color:var(--amber);margin-top:3px;word-break:break-word">Warnings: -</div>
-          </div>
           <div id="tsasr-sbv2-test-row" style="margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">
             <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:6px">🧪 Style-Bert-VITS2 Test</div>
             <div style="margin-bottom:6px">
