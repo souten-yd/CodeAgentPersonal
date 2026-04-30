@@ -56,6 +56,7 @@ from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_models_dir,
     resolve_style_bert_vits2_python_path,
     resolve_style_bert_vits2_repo_dir,
+    resolve_style_bert_vits2_site_packages_dir,
     resolve_style_bert_vits2_venv_dir,
 )
 
@@ -12974,25 +12975,13 @@ def _style_bert_vits2_python_path() -> str:
     return resolve_style_bert_vits2_python_path()
 
 
-def _style_bert_vits2_site_packages_dir() -> str | None:
-    lib_dir = os.path.join(_STYLE_BERT_VITS2_VENV_DIR, "lib")
-    if not os.path.isdir(lib_dir):
-        return None
-    for name in sorted(os.listdir(lib_dir)):
-        if not name.startswith("python"):
-            continue
-        candidate = os.path.join(lib_dir, name, "site-packages")
-        if os.path.isdir(candidate):
-            return candidate
-    return None
+def _style_bert_vits2_site_packages_dir() -> str:
+    return resolve_style_bert_vits2_site_packages_dir()
 
 
 def _style_bert_vits2_pth_file() -> str:
     site_packages = _style_bert_vits2_site_packages_dir()
-    if site_packages:
-        return os.path.join(site_packages, "_runpod_opt_venv.pth")
-    # site-packages を見つけられない場合も、状態表示のため想定パスを返す
-    return os.path.join(_STYLE_BERT_VITS2_VENV_DIR, "lib", "python*", "site-packages", "_runpod_opt_venv.pth")
+    return os.path.join(site_packages, "_runpod_opt_venv.pth")
 
 
 def _style_bert_vits2_validate_prerequisites() -> tuple[bool, str]:
@@ -13010,8 +12999,10 @@ def _style_bert_vits2_validate_prerequisites() -> tuple[bool, str]:
 
 def _style_bert_vits2_ensure_pth_file() -> tuple[bool, str]:
     site_packages = _style_bert_vits2_site_packages_dir()
-    if not site_packages:
-        return False, f"site-packages directory not found under: {_STYLE_BERT_VITS2_VENV_DIR}"
+    if not os.path.isdir(site_packages):
+        return False, f"site-packages directory not found: {site_packages}"
+    if os.name == "nt":
+        return True, "windows_self_contained_venv"
     pth_file = os.path.join(site_packages, "_runpod_opt_venv.pth")
     runpod_candidates: list[str] = []
     opt_venv_lib_dir = "/opt/venv/lib"
@@ -13058,18 +13049,22 @@ def _style_bert_vits2_ensure_pth_file() -> tuple[bool, str]:
 
 def _style_bert_vits2_prepare_status() -> dict:
     python_path = _style_bert_vits2_python_path()
+    site_packages = _style_bert_vits2_site_packages_dir()
     pth_file = _style_bert_vits2_pth_file()
     return {
         "repo_exists": os.path.isdir(_STYLE_BERT_VITS2_REPO_DIR),
         "venv_exists": os.path.isdir(_STYLE_BERT_VITS2_VENV_DIR),
         "python_exists": os.path.isfile(python_path),
         "python_executable": os.path.isfile(python_path) and os.access(python_path, os.X_OK),
+        "site_packages": site_packages,
+        "site_packages_exists": os.path.isdir(site_packages),
         "pth_exists": os.path.isfile(pth_file),
         "init_flag_exists": os.path.isfile(_STYLE_BERT_VITS2_INIT_FLAG),
         "models": _style_bert_vits2_list_models(),
         "repo_dir": _STYLE_BERT_VITS2_REPO_DIR,
         "venv_dir": _STYLE_BERT_VITS2_VENV_DIR,
         "python_path": python_path,
+        "site_packages": site_packages,
         "pth_file": pth_file,
         "init_flag_file": _STYLE_BERT_VITS2_INIT_FLAG,
         "models_dir": _STYLE_BERT_VITS2_MODELS_DIR,
@@ -13140,10 +13135,22 @@ def api_style_bert_vits2_prepare(req: dict = {}):
 
         ok, pth_error = _style_bert_vits2_ensure_pth_file()
         if not ok:
-            raise StyleBertVITS2Error(
-                status_code=500,
-                user_message="初期準備失敗: 実行環境を確認してください。",
-                log_detail=f"pth ensure failed: {pth_error}",
+            setup_hint = "Run setup_style_bert_vits2_windows.bat" if os.name == "nt" else ""
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "ok": False,
+                    "available": False,
+                    "reason": "style_bert_vits2_site_packages_missing",
+                    "message": "Style-Bert-VITS2 の実行環境が未構築です。",
+                    "detail": pth_error,
+                    "setup_hint": setup_hint,
+                    "repo_dir": _STYLE_BERT_VITS2_REPO_DIR,
+                    "venv_dir": _STYLE_BERT_VITS2_VENV_DIR,
+                    "python_path": _style_bert_vits2_python_path(),
+                    "site_packages": _style_bert_vits2_site_packages_dir(),
+                    "models_dir": _STYLE_BERT_VITS2_MODELS_DIR,
+                },
             )
 
         status = _style_bert_vits2_prepare_status()

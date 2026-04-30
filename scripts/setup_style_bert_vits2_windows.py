@@ -234,6 +234,15 @@ def main() -> int:
     assert (koharune_dir / "koharune-ami.safetensors").exists()
     assert (sbv2_repo / "bert" / "deberta-v2-large-japanese-char-wwm" / "pytorch_model.bin").exists()
     assert (sbv2_repo / "bert" / "deberta-v2-large-japanese-char-wwm-onnx" / "model_fp16.onnx").exists()
+    site_packages = sbv2_venv / "Lib" / "site-packages"
+    assert site_packages.exists(), f"site-packages missing: {site_packages}"
+    _run(
+        [
+            str(python_exe),
+            "-c",
+            "import site, json; print(json.dumps(site.getsitepackages(), ensure_ascii=False, indent=2))",
+        ]
+    )
 
     print("[OK] Style-Bert-VITS2 Windows setup completed.")
     return 0

@@ -17,6 +17,7 @@ from .style_bert_vits2_paths import (
     resolve_style_bert_vits2_models_dir,
     resolve_style_bert_vits2_python_path,
     resolve_style_bert_vits2_repo_dir,
+    resolve_style_bert_vits2_site_packages_dir,
     resolve_style_bert_vits2_venv_dir,
 )
 from .text_normalizer import looks_japanese, normalize_text_for_sbv2_jp_extra
@@ -45,6 +46,10 @@ def _python_path() -> str:
 
 def _models_dir() -> str:
     return resolve_style_bert_vits2_models_dir()
+
+
+def _site_packages_dir() -> str:
+    return resolve_style_bert_vits2_site_packages_dir()
 
 
 def _worker_count() -> int:
@@ -1332,6 +1337,7 @@ while True:
 
     def status(self) -> dict:
         py = _python_path()
+        site_packages = _site_packages_dir()
         repo = _repo_dir()
         models = _models_dir()
         device_env = str(os.environ.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "")).strip().lower() or "auto"
@@ -1340,9 +1346,10 @@ while True:
             (koharune_dir / fn).is_file() for fn in ("config.json", "style_vectors.npy", "koharune-ami.safetensors")
         )
         has_python = os.path.isfile(py) and os.access(py, os.X_OK)
+        has_site_packages = os.path.isdir(site_packages)
         has_repo = os.path.isdir(repo)
         has_models = os.path.isdir(models)
-        available = has_python and has_repo and has_models and koharune_ami_ready
+        available = has_python and has_site_packages and has_repo and has_models and koharune_ami_ready
         detail = ""
         reason = ""
         if not has_repo:
@@ -1351,6 +1358,9 @@ while True:
         elif not has_python:
             detail = f"python not found/executable: {py}"
             reason = "style_bert_vits2_windows_venv_missing" if os.name == "nt" else "style_bert_vits2_venv_missing"
+        elif not has_site_packages:
+            detail = f"site-packages not found: {site_packages}"
+            reason = "style_bert_vits2_site_packages_missing"
         elif not has_models:
             detail = f"models dir not found: {models}"
             reason = "style_bert_vits2_models_missing"
@@ -1365,6 +1375,9 @@ while True:
             "repo_dir": repo,
             "venv_dir": _venv_dir(),
             "python_path": py,
+            "site_packages": site_packages,
+            "python_exists": has_python,
+            "site_packages_exists": has_site_packages,
             "venv_python": py,
             "models_dir": models,
             "device_env": device_env,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 _STYLE_BERT_VITS2_DEFAULT_BASE_DIR = "/workspace/ca_data/tts/style_bert_vits2"
@@ -60,3 +62,39 @@ def resolve_style_bert_vits2_models_dir() -> str:
     if models_dir:
         return models_dir
     return os.path.join(resolve_style_bert_vits2_base_dir(), "models")
+
+
+def resolve_style_bert_vits2_site_packages_dir() -> str:
+    venv_dir = Path(resolve_style_bert_vits2_venv_dir())
+    python_path = Path(resolve_style_bert_vits2_python_path())
+    if python_path.exists():
+        try:
+            code = "import site, json; print(json.dumps(site.getsitepackages()))"
+            completed = subprocess.run(
+                [str(python_path), "-c", code],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            if completed.returncode == 0:
+                import json
+
+                for p in json.loads(completed.stdout.strip() or "[]"):
+                    pp = Path(p)
+                    if pp.exists() and pp.is_dir() and pp.name == "site-packages":
+                        return str(pp)
+        except Exception:
+            pass
+
+    win_site = venv_dir / "Lib" / "site-packages"
+    if os.name == "nt" and win_site.exists():
+        return str(win_site)
+
+    for candidate in sorted((venv_dir / "lib").glob("python*/site-packages")):
+        if candidate.exists() and candidate.is_dir():
+            return str(candidate)
+
+    if os.name == "nt":
+        return str(win_site)
+    return str(venv_dir / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages")
