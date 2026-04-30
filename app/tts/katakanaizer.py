@@ -45,7 +45,13 @@ def _extract_json_object(content: str) -> dict[str, str]:
 
 
 _URL_PATTERN = re.compile(r"https?://|www\.", re.IGNORECASE)
-_KATAKANA_VALID_PATTERN = re.compile(r"[ァ-ヶー]")
+_KATAKANA_ALLOWED_PATTERN = re.compile(r"^[ァ-ヶーぁ-ゖー・0-9０-９]+$")
+_DESCRIPTION_MARKERS = (
+    "読みは",
+    "読みです",
+    "と読みます",
+    "です",
+)
 
 
 def _is_valid_katakana_reading(token: str, value: str) -> bool:
@@ -56,10 +62,14 @@ def _is_valid_katakana_reading(token: str, value: str) -> bool:
         return False
     if _URL_PATTERN.search(text):
         return False
+    if re.search(r"[A-Za-z]", text):
+        return False
     lower = text.lower()
     if any(marker in lower for marker in ("{", "}", "\"", "description", "explanation", "segments")):
         return False
-    if not _KATAKANA_VALID_PATTERN.search(text):
+    if any(marker in text for marker in _DESCRIPTION_MARKERS):
+        return False
+    if not _KATAKANA_ALLOWED_PATTERN.fullmatch(text):
         return False
     if len(text) > max(24, len(token) * 4):
         return False
@@ -171,7 +181,8 @@ def katakanaize_english_segments_with_llm(
                 _logger.info("[SBV2][normalize][persistent_cache_saved] token=%s", token)
             else:
                 value = dictionary.get(token.lower(), token)
-                _KATAKANA_CACHE[token] = value
+                if value != token:
+                    _KATAKANA_CACHE[token] = value
             result[token] = value
             if value != token:
                 converted_count += 1
@@ -190,7 +201,8 @@ def katakanaize_english_segments_with_llm(
         for token in pending:
             fallback = dictionary.get(token.lower(), token)
             result[token] = fallback
-            _KATAKANA_CACHE[token] = fallback
+            if fallback != token:
+                _KATAKANA_CACHE[token] = fallback
         if raise_on_failure:
             raise RuntimeError(f"katakana llm failed: {exc}") from exc
 
