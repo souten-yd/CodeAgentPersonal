@@ -54,6 +54,9 @@ from app.env_detection import detect_gpu_profile, detect_os_profile, detect_runp
 from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_base_dir,
     resolve_style_bert_vits2_models_dir,
+    resolve_style_bert_vits2_python_path,
+    resolve_style_bert_vits2_repo_dir,
+    resolve_style_bert_vits2_venv_dir,
 )
 
 _STYLE_BERT_VITS2_BASE_DIR = resolve_style_bert_vits2_base_dir()
@@ -12758,23 +12761,15 @@ async def tts_translate_text_api(req: dict = {}):
 
 _REF_AUDIO_ALLOWED_EXT = {".wav", ".mp3", ".flac", ".ogg", ".webm"}
 
-_STYLE_BERT_VITS2_DEFAULT_REPO_DIR = "/app/Style-Bert-VITS2"
-_STYLE_BERT_VITS2_DEFAULT_VENV_DIR = "/app/Style-Bert-VITS2/.venv"
 _STYLE_BERT_VITS2_DEFAULT_INIT_FLAG = os.path.join(_STYLE_BERT_VITS2_BASE_DIR, ".initialized")
-_STYLE_BERT_VITS2_LEGACY_MODELS_DIR = "/app/Style-Bert-VITS2/model_assets"
+_STYLE_BERT_VITS2_LEGACY_MODELS_DIR = os.path.join(resolve_style_bert_vits2_repo_dir(), "model_assets")
 _STYLE_BERT_VITS2_MODELS_DIR_ENV = "CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR"
 _STYLE_BERT_VITS2_UPSTREAM_MODELS_DIR_ENVS = (
     "STYLE_BERT_VITS2_MODELS_DIR",
     "STYLE_BERT_VITS2_MODEL_ASSETS_DIR",
 )
-_STYLE_BERT_VITS2_REPO_DIR = os.environ.get(
-    "CODEAGENT_STYLE_BERT_VITS2_REPO_DIR",
-    _STYLE_BERT_VITS2_DEFAULT_REPO_DIR,
-)
-_STYLE_BERT_VITS2_VENV_DIR = os.environ.get(
-    "CODEAGENT_STYLE_BERT_VITS2_VENV_DIR",
-    _STYLE_BERT_VITS2_DEFAULT_VENV_DIR,
-)
+_STYLE_BERT_VITS2_REPO_DIR = resolve_style_bert_vits2_repo_dir()
+_STYLE_BERT_VITS2_VENV_DIR = resolve_style_bert_vits2_venv_dir()
 _STYLE_BERT_VITS2_INIT_FLAG = os.environ.get(
     "CODEAGENT_STYLE_BERT_VITS2_INIT_FLAG",
     _STYLE_BERT_VITS2_DEFAULT_INIT_FLAG,
@@ -12956,7 +12951,7 @@ def _style_bert_vits2_migrate_legacy_models_if_needed(prepare_id: str) -> tuple[
 
 
 def _style_bert_vits2_python_path() -> str:
-    return os.path.join(_STYLE_BERT_VITS2_VENV_DIR, "bin", "python")
+    return resolve_style_bert_vits2_python_path()
 
 
 def _style_bert_vits2_site_packages_dir() -> str | None:
@@ -13106,10 +13101,21 @@ def api_style_bert_vits2_prepare(req: dict = {}):
         )
         ok, validation_error = _style_bert_vits2_validate_prerequisites()
         if not ok:
-            raise StyleBertVITS2Error(
-                status_code=500,
-                user_message="初期準備失敗: 実行環境を確認してください。",
-                log_detail=f"prerequisite check failed: {validation_error}",
+            setup_hint = "Run setup_style_bert_vits2_windows.bat" if os.name == "nt" else ""
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "ok": False,
+                    "available": False,
+                    "reason": "style_bert_vits2_prepare_failed",
+                    "message": "初期準備失敗: 実行環境を確認してください。",
+                    "detail": validation_error,
+                    "setup_hint": setup_hint,
+                    "repo_dir": _STYLE_BERT_VITS2_REPO_DIR,
+                    "venv_dir": _STYLE_BERT_VITS2_VENV_DIR,
+                    "python_path": _style_bert_vits2_python_path(),
+                    "models_dir": _STYLE_BERT_VITS2_MODELS_DIR,
+                },
             )
 
         ok, pth_error = _style_bert_vits2_ensure_pth_file()
@@ -13309,9 +13315,23 @@ async def _handle_style_bert_vits2_error(_request: Request, exc: StyleBertVITS2E
     _style_bert_vits2_logger.error("[Style-Bert-VITS2] %s", exc.log_detail, exc_info=True)
     inspected_dirs = f"検査先: {_STYLE_BERT_VITS2_MODELS_DIR}（legacy: {_STYLE_BERT_VITS2_LEGACY_MODELS_DIR}）"
     user_message = exc.user_message if inspected_dirs in exc.user_message else f"{exc.user_message} {inspected_dirs}"
+    setup_hint = "Run setup_style_bert_vits2_windows.bat" if os.name == "nt" else ""
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": user_message, "user_message": user_message},
+        content={
+            "ok": False,
+            "available": False,
+            "reason": "style_bert_vits2_prepare_failed",
+            "detail": user_message,
+            "user_message": user_message,
+            "message": exc.user_message,
+            "log_detail": exc.log_detail,
+            "setup_hint": setup_hint,
+            "repo_dir": _STYLE_BERT_VITS2_REPO_DIR,
+            "venv_dir": _STYLE_BERT_VITS2_VENV_DIR,
+            "python_path": _style_bert_vits2_python_path(),
+            "models_dir": _STYLE_BERT_VITS2_MODELS_DIR,
+        },
     )
 
 

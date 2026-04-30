@@ -47,6 +47,19 @@ def _download_hf_file(python_exe: Path, repo_id: str, filename: str, local_dir: 
     _run([str(python_exe), "-c", script])
 
 
+def _install_openjtalk_dependency(pip_exe: Path) -> None:
+    if os.name == "nt":
+        print("[SBV2] Windows detected: installing pyopenjtalk-plus instead of building pyopenjtalk from source.")
+        _run([str(pip_exe), "install", "pyopenjtalk-plus"])
+        return
+
+    try:
+        _run([str(pip_exe), "install", "pyopenjtalk"])
+    except subprocess.CalledProcessError:
+        print("[SBV2][WARN] pyopenjtalk install failed; trying pyopenjtalk-plus.")
+        _run([str(pip_exe), "install", "pyopenjtalk-plus"])
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Setup Style-Bert-VITS2 dedicated Windows venv with DirectML")
     parser.add_argument("--with-directml", action="store_true", help="Install DirectML dependencies")
@@ -96,7 +109,9 @@ def main() -> int:
     _run([str(python_exe), "-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools<82"])
 
     if with_directml:
-        _run([str(pip_exe), "install", "torch-directml", "onnxruntime-directml"])
+        _run([str(pip_exe), "install", "torch-directml", "onnxruntime", "onnxruntime-directml"])
+    else:
+        _run([str(pip_exe), "install", "onnxruntime"])
 
     _run([str(python_exe), "-m", "pip", "install", "-e", ".", "--no-deps"], cwd=sbv2_repo)
 
@@ -128,10 +143,7 @@ def main() -> int:
         ]
     )
 
-    try:
-        _run([str(pip_exe), "install", "pyopenjtalk"])
-    except subprocess.CalledProcessError:
-        _run([str(pip_exe), "install", "pyopenjtalk-plus"])
+    _install_openjtalk_dependency(pip_exe)
 
     if not args.skip_model_download:
         _download_hf_file(
@@ -170,7 +182,11 @@ def main() -> int:
         "import torch\n"
         "from style_bert_vits2.tts_model import TTSModel\n"
         "import style_bert_vits2\n"
-        "import pyopenjtalk\n"
+        "try:\n"
+        "    import pyopenjtalk\n"
+        "    print('pyopenjtalk_import_ok')\n"
+        "except Exception as e:\n"
+        "    print(f'pyopenjtalk_import_warn:{type(e).__name__}:{e}')\n"
         "print('imports_ok')\n"
     )
     _run([str(python_exe), "-c", smoke], cwd=sbv2_repo)
