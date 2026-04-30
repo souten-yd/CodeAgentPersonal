@@ -236,7 +236,7 @@ def _sanitize_preview_text(value: str | None, *, limit: int) -> str:
 
 def _normalize_non_japanese_policy(value: str | None) -> str:
     raw = str(value or "").strip().lower()
-    if raw in {"normalize_then_block", "normalize_then_warn", "normalize_then_allow"}:
+    if raw in {"normalize_then_block", "normalize_then_warn", "normalize_then_allow", "translate_or_katakanaize"}:
         return raw
     if raw == "block":
         return "normalize_then_block"
@@ -253,11 +253,21 @@ _SBV2_JP_EXTRA_NORMALIZATION_DEFAULTS = {
     "sbv2_jp_extra_emoji_policy": "skip",
     "sbv2_jp_extra_symbol_policy": "readable",
     "sbv2_jp_extra_url_policy": "skip",
-    "sbv2_jp_extra_non_japanese_policy": "normalize_then_block",
+    "sbv2_jp_extra_non_japanese_policy": "translate_or_katakanaize",
 }
 
 
 def _resolve_sbv2_jp_extra_normalization_settings(req: dict) -> dict:
+    is_jp_extra_model = _is_jp_extra_model(req.get("model") or "")
+    if is_jp_extra_model:
+        resolved = dict(_SBV2_JP_EXTRA_NORMALIZATION_DEFAULTS)
+        resolved["sbv2_jp_extra_english_policy"] = resolved["sbv2_jp_extra_english_to_katakana"]
+        resolved["emoji_policy"] = "remove"
+        resolved["symbol_policy"] = "replace"
+        resolved["url_email_policy"] = "remove"
+        resolved["sbv2_jp_extra_url_email_policy"] = "remove"
+        return resolved
+
     settings = req.get("settings") or {}
     resolved = {}
     for key, default_value in _SBV2_JP_EXTRA_NORMALIZATION_DEFAULTS.items():
