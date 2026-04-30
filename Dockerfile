@@ -189,6 +189,7 @@ RUN set -eux; \
       "numpy<2" \
       "numba>=0.59" \
       "llvmlite>=0.42" \
+      "accelerate>=0.26" \
       pyworld-prebuilt \
       loguru \
       pyopenjtalk-dict \
@@ -233,8 +234,9 @@ RUN set -eux; \
     /opt/style-bert-vits2-venv/bin/python - <<'PY'
 import numba
 import llvmlite
+import accelerate
 from style_bert_vits2.tts_model import TTSModel
-print("SBV2 deps OK", numba.__version__, llvmlite.__version__)
+print("SBV2 deps OK", numba.__version__, llvmlite.__version__, accelerate.__version__)
 PY
 
 ########################################
