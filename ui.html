@@ -4955,13 +4955,11 @@ async function onTtsEngineChange() {
   const note       = document.getElementById('tts-engine-note');
   const loadRow    = document.getElementById('tts-engine-load-row');
   const voiceRow   = document.getElementById('tts-voice-row');
-  const qwen3Row   = document.getElementById('tts-qwen3-row');
   const deviceRow  = document.getElementById('tts-device-row');
   const unloadBtn  = document.getElementById('tts-unload-btn');
 
   // デフォルトで全行非表示にしてから必要なものだけ表示
   loadRow.style.display   = 'none';
-  qwen3Row.style.display  = 'none';
   deviceRow.style.display = 'none';
   voiceRow.style.display  = '';
 
