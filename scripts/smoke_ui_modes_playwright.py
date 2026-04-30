@@ -193,6 +193,20 @@ async def verify_mobile_mode_switches(browser) -> None:
   await page.close()
 
 
+
+async def verify_echo_tts_minimal_ui(page) -> None:
+  await page.click("#btn-echo")
+  await page.click("#tab-btn-tts")
+  await page.wait_for_selector("#tab-tts")
+  must_exist = ["Echo ASR Language", "Echo Output Language", "Echo TTS Language", "TTS Model", "Speaker", "Style", "Speed / Length"]
+  for label in must_exist:
+    assert await page.locator(f"text={label}").count() > 0, f"missing: {label}"
+  forbidden = ["TTS エンジン", "Use TTS Translation", "Extra Text Process Options", "JP Extra"]
+  for label in forbidden:
+    assert await page.locator(f"text={label}").count() == 0, f"forbidden visible: {label}"
+  await page.locator("#tab-tts details summary", has_text="Advanced parameters").click()
+  assert await page.locator("#echo-tts-sbv2-style-weight").is_visible()
+
 async def verify_chat_search_and_agent_web_tool_tts(page) -> None:
   await page.evaluate(
     """
