@@ -12193,6 +12193,11 @@ def _build_tts_engine_registry() -> EngineRegistry:
 
 
 _tts_engine_registry = _build_tts_engine_registry()
+_tts_startup_health_snapshot = {
+    "ok": True,
+    "engine": "style_bert_vits2",
+    "message": "Style-Bert-VITS2 only mode",
+}
 
 
 @app.get("/tts/status")

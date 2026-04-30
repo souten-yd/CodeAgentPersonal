@@ -187,6 +187,8 @@ RUN set -eux; \
     /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir -e . --no-deps; \
     /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir \
       "numpy<2" \
+      "numba>=0.59" \
+      "llvmlite>=0.42" \
       pyworld-prebuilt \
       loguru \
       pyopenjtalk-dict \
@@ -228,7 +230,12 @@ RUN set -eux; \
     test -f /opt/style-bert-vits2-models/koharune-ami/config.json; \
     test -f /opt/style-bert-vits2-models/koharune-ami/style_vectors.npy; \
     test -f /opt/style-bert-vits2-models/koharune-ami/koharune-ami.safetensors; \
-    /opt/style-bert-vits2-venv/bin/python -c "from style_bert_vits2.tts_model import TTSModel"
+    /opt/style-bert-vits2-venv/bin/python - <<'PY'
+import numba
+import llvmlite
+from style_bert_vits2.tts_model import TTSModel
+print("SBV2 deps OK", numba.__version__, llvmlite.__version__)
+PY
 
 ########################################
 # Runtime stage: Python + codeAgent + llama.cpp
