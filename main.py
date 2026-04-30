@@ -93,7 +93,11 @@ async def lifespan(app):
     if _seed_model_catalog: _seed_model_catalog()
     _schedule_model_load = globals().get("schedule_default_model_load")
     _should_startup_autoload = globals().get("_should_startup_autoload_llm")
-    if _schedule_model_load:
+    _fastapi_startup_autoload = os.environ.get(
+        "CODEAGENT_FASTAPI_STARTUP_AUTOLOAD_LLM",
+        "false",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if _fastapi_startup_autoload and _schedule_model_load:
         should_autoload = True
         reason = "ok"
         if _should_startup_autoload:
@@ -102,6 +106,8 @@ async def lifespan(app):
             _schedule_model_load(reason="startup")
         else:
             print(f"[Startup] skip default model auto-load: {reason}")
+    else:
+        print("[Startup] FastAPI startup auto-load disabled; launcher or UI will request model load.")
     _log_tts_startup_health = globals().get("_log_tts_startup_health")
     if _log_tts_startup_health: _log_tts_startup_health()
     _load_echo_voice_ref = globals().get("_load_persisted_echo_voice_ref")
@@ -760,6 +766,15 @@ def schedule_default_model_load(reason: str = "", force: bool = False) -> tuple[
     key = _choose_default_startup_model()
     if not key:
         return False, "no_startup_model"
+    with _model_manager._load_guard_lock:
+        if _model_manager._load_in_progress:
+            active_key = _model_manager._loading_model_key or key
+            return False, {"reason": "already_loading", "model_key": active_key}
+        _model_manager._sync_current_model()
+        if _model_manager.current_key == key and _model_health_ok(_model_manager.llm_port):
+            return False, {"reason": "already_running", "model_key": key}
+        _model_manager._load_in_progress = True
+        _model_manager._loading_model_key = key
 
     import threading as _t
 
@@ -769,6 +784,10 @@ def schedule_default_model_load(reason: str = "", force: bool = False) -> tuple[
             _model_manager.ensure_model(key)
         except Exception as e:
             print(f"[ModelManager] auto-load error ({reason or 'unspecified'}): {e}")
+        finally:
+            with _model_manager._load_guard_lock:
+                _model_manager._load_in_progress = False
+                _model_manager._loading_model_key = ""
 
     _t.Thread(target=_worker, daemon=True).start()
     return True, {"model_key": key, "reason": reason or "ok"}
@@ -912,6 +931,9 @@ class ModelManager:
         self._last_start_cmd = ""
         self._last_startup_hints: list[str] = []
         self._startup_log_fd = None
+        self._load_guard_lock = _mm_thread.Lock()
+        self._load_in_progress = False
+        self._loading_model_key = ""
         if not self.has_llama_server():
             print(f"[ModelManager] WARNING: llama-server not found: {self.llama_path}")
         # 起動時に実際に動いているモデルを検出してcurrent_keyを同期

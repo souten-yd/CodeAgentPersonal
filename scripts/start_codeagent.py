@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import platform
@@ -178,7 +179,16 @@ def request_json(url: str, timeout: float = 2.0) -> dict | None:
     try:
         with urllib.request.urlopen(url, timeout=timeout) as res:
             return json.loads(res.read().decode("utf-8"))
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
+    except (
+        urllib.error.URLError,
+        urllib.error.HTTPError,
+        TimeoutError,
+        json.JSONDecodeError,
+        ConnectionError,
+        ConnectionResetError,
+        OSError,
+        http.client.RemoteDisconnected,
+    ):
         return None
 
 
@@ -186,7 +196,15 @@ def request_status(url: str, timeout: float = 2.0) -> int | None:
     try:
         with urllib.request.urlopen(url, timeout=timeout) as res:
             return res.status
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError):
+    except (
+        urllib.error.URLError,
+        urllib.error.HTTPError,
+        TimeoutError,
+        ConnectionError,
+        ConnectionResetError,
+        OSError,
+        http.client.RemoteDisconnected,
+    ):
         return None
 
 
@@ -204,8 +222,33 @@ def post_json(url: str, payload: dict, timeout: float = 5.0) -> int | None:
         return None
 
 
+def post_json_response(url: str, payload: dict, timeout: float = 5.0) -> dict | None:
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            body = res.read().decode("utf-8")
+            return json.loads(body) if body else {"status": res.status}
+    except (
+        urllib.error.URLError,
+        urllib.error.HTTPError,
+        TimeoutError,
+        json.JSONDecodeError,
+        ConnectionError,
+        ConnectionResetError,
+        OSError,
+        http.client.RemoteDisconnected,
+    ):
+        return None
+
+
 def wait_http_200(url: str, timeout_sec: int, label: str, proc: subprocess.Popen | None = None) -> bool:
     waited = 0
+    reset_like_count = 0
     while waited < timeout_sec:
         if proc is not None and proc.poll() is not None:
             print(f"[ERROR] {label} process exited early with code {proc.returncode}")
@@ -214,9 +257,12 @@ def wait_http_200(url: str, timeout_sec: int, label: str, proc: subprocess.Popen
         if status == 200:
             print(f"[OK] {label} ready")
             return True
+        if status is None:
+            reset_like_count += 1
         time.sleep(2)
         waited += 2
-        print(f"  {label} loading... {waited}s")
+        extra = f" (unreachable={reset_like_count})" if reset_like_count else ""
+        print(f"  {label} loading... {waited}s{extra}")
     return False
 
 
@@ -424,8 +470,18 @@ def main() -> int:
                     f"[ModelDB] Found {db_total} model(s), benchmarked={benchmarked_total}. "
                     "Requesting default LLM load..."
                 )
-            post_json(f"http://127.0.0.1:{args.port}/model/auto-load", {"reason": "launcher_py"})
-            llm_ok = wait_http_200(f"http://127.0.0.1:{args.primary_port}/health", args.llm_timeout, "LLM")
+            autoload_result = post_json_response(
+                f"http://127.0.0.1:{args.port}/model/auto-load",
+                {"reason": "launcher_py"},
+            )
+            print(f"[ModelDB] auto-load response: {autoload_result}")
+            should_wait_llm = True
+            if autoload_result and autoload_result.get("reason") == "no_existing_enabled_model_files":
+                should_wait_llm = False
+                print("[ModelDB] auto-load skipped: no model files. Skipping LLM wait.")
+            llm_ok = True
+            if should_wait_llm:
+                llm_ok = wait_http_200(f"http://127.0.0.1:{args.primary_port}/health", args.llm_timeout, "LLM")
             if not llm_ok:
                 print(f"[WARN] LLM is still not ready after {args.llm_timeout}s.")
             else:
