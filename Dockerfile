@@ -335,6 +335,24 @@ RUN ln -sf /app/llama/bin/llama-server /usr/local/bin/llama-server \
     && ln -sf /app/llama/bin/llama-cli /app/llama/llama-cli \
     && ldconfig
 
+RUN set -eux; \
+    mkdir -p /models; \
+    python - <<'PY'
+from huggingface_hub import hf_hub_download
+from pathlib import Path
+
+dst = hf_hub_download(
+    repo_id="unsloth/gemma-4-E4B-it-GGUF",
+    filename="gemma-4-E4B-it-Q4_K_M.gguf",
+    local_dir="/models",
+    local_dir_use_symlinks=False,
+)
+print(f"[LLM] bundled GGUF downloaded: {dst}")
+p = Path("/models/gemma-4-E4B-it-Q4_K_M.gguf")
+if not p.exists() or p.stat().st_size < 100 * 1024 * 1024:
+    raise RuntimeError(f"GGUF download failed or too small: {p}")
+PY
+
 COPY docker/start-services.sh /usr/local/bin/start-services.sh
 RUN chmod +x /usr/local/bin/start-services.sh
 

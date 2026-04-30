@@ -30,6 +30,13 @@ fi
 
 echo "[ASR] bundled faster-whisper model ready: ${ASR_MODEL_PATH}"
 
+BUNDLED_GEMMA_MODEL="/models/gemma-4-E4B-it-Q4_K_M.gguf"
+if [ ! -f "${BUNDLED_GEMMA_MODEL}" ]; then
+  echo "[LLM] WARN: bundled Gemma GGUF not found: ${BUNDLED_GEMMA_MODEL}" >&2
+else
+  echo "[LLM] bundled Gemma GGUF ready: ${BUNDLED_GEMMA_MODEL}"
+fi
+
 SBV2_WORKSPACE_MODELS_DIR="${CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR:-/workspace/ca_data/tts/style_bert_vits2/models}"
 SBV2_BUNDLED_MODELS_DIR="/opt/style-bert-vits2-models"
 SBV2_MODEL_NAME="koharune-ami"

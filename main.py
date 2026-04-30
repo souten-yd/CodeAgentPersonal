@@ -4163,7 +4163,72 @@ def model_db_find_by_path(path: str) -> dict | None:
 
 
 def seed_default_model_catalog():
-    return
+    gemma_download_url = "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf"
+    gemma_repo_url = "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF"
+    gemma_path = "/models/gemma-4-E4B-it-Q4_K_M.gguf"
+    model_key = "gemma_4_e4b_it_q4_k_m"
+
+    default_info = {
+        "model_key": model_key,
+        "name": "Gemma 4 E4B IT Q4_K_M",
+        "path": gemma_path,
+        "enabled": 1,
+        "is_vlm": 0,
+        "vlm_enabled": 0,
+        "has_mmproj": 0,
+        "parser": "json",
+        "auto_roles": "chat,translate,reason",
+        "ctx_size": _resolve_default_ctx_size(),
+        "gpu_layers": 999,
+        "threads": 8,
+        "description": "Bundled Unsloth Gemma 4 E4B IT GGUF Q4_K_M model for initial setup and benchmarking.",
+        "benchmark_profiles": "{}",
+        "notes": (
+            f"filename=gemma-4-E4B-it-Q4_K_M.gguf; "
+            f"download_url={gemma_download_url}; repo_url={gemma_repo_url}"
+        ),
+        "llm_url": "",
+        "quantization": "Q4_K_M",
+    }
+    default_info["ctx_size"] = 16384 if int(default_info["ctx_size"] or 0) >= 16384 else 8192
+
+    rows = model_db_list()
+    existing = None
+    for row in rows:
+        if str(row.get("model_key", "")).strip() == model_key:
+            existing = row
+            break
+    if existing is None:
+        model_db_add(default_info)
+        return
+
+    patch = {}
+    cur_path = str(existing.get("path") or "").strip()
+    if (not cur_path) or (not os.path.exists(cur_path)):
+        patch["path"] = gemma_path
+
+    notes = str(existing.get("notes") or "")
+    if ("download_url=" not in notes) or ("/blob/main/" in notes):
+        patch["notes"] = default_info["notes"]
+
+    if not str(existing.get("description") or "").strip():
+        patch["description"] = default_info["description"]
+    if not str(existing.get("auto_roles") or "").strip():
+        patch["auto_roles"] = default_info["auto_roles"]
+    if not str(existing.get("parser") or "").strip():
+        patch["parser"] = default_info["parser"]
+    if int(existing.get("ctx_size") or 0) <= 0:
+        patch["ctx_size"] = default_info["ctx_size"]
+    if int(existing.get("gpu_layers") or 0) <= 0:
+        patch["gpu_layers"] = default_info["gpu_layers"]
+    if int(existing.get("threads") or 0) <= 0:
+        patch["threads"] = default_info["threads"]
+    if not str(existing.get("benchmark_profiles") or "").strip():
+        patch["benchmark_profiles"] = "{}"
+    if not str(existing.get("name") or "").strip():
+        patch["name"] = default_info["name"]
+    if patch:
+        model_db_update(str(existing.get("id") or ""), patch)
 
 
 def model_db_add(info: dict) -> str:
