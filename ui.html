@@ -2448,7 +2448,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </div>
         </div>
         <!-- Style-Bert-VITS2（Style-Bert-VITS2選択時のみ） -->
-        <div id="tsasr-style-bert-vits2-row" style="display:none;margin-bottom:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
+        <div id="tsasr-style-bert-vits2-row" style="margin-bottom:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:6px">Style-Bert-VITS2 モデル</div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
             <select id="tsasr-style-bert-vits2-model-sel"
@@ -3515,6 +3515,7 @@ const agentTts = {
 };
 
 const _SUPPORTED_TTS_ENGINES = new Set(['style_bert_vits2']);
+const DEFAULT_STYLE_BERT_VITS2_MODEL = 'koharune-ami';
 const _TTS_ENGINE_COMPAT_ALIASES = {
   qwen3_tts: 'qwen3tts',
   stylebertvits2: 'style_bert_vits2',
@@ -3536,6 +3537,10 @@ function _normalizeTtsEngine(engine) {
 function _normalizeQwen3ModelId(modelId) {
   return _QWEN3_TTS_ALLOWED_MODEL_IDS.has(modelId) ? modelId : 'Qwen/Qwen3-TTS-12Hz-1.7B-Base';
 }
+function _normalizeStyleBertVits2Model(model) {
+  const value = String(model || '').trim();
+  return value || DEFAULT_STYLE_BERT_VITS2_MODEL;
+}
 tts.engine = _normalizeTtsEngine(tts.engine);
 tts.qwen3model = _normalizeQwen3ModelId(tts.qwen3model);
 try {
@@ -3550,6 +3555,8 @@ if (!tts.styleBertVits2Model) {
                          || localStorage.getItem('echo_style-bert-vits2_model')
                          || '';
 }
+tts.styleBertVits2Model = _normalizeStyleBertVits2Model(tts.styleBertVits2Model);
+localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model);
 localStorage.setItem('tts_engine', tts.engine);
 
 // ── TALK MODE (EchoVault) グローバル状態 ──
@@ -4372,8 +4379,8 @@ function _buildQwen3TtsRequestBody({text, engine, context, opts = {}}) {
 
 function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
   const modelId = context === 'echo'
-    ? (echo.styleBertVits2Model || tts.styleBertVits2Model || '')
-    : (tts.styleBertVits2Model || echo.styleBertVits2Model || '');
+    ? _normalizeStyleBertVits2Model(echo.styleBertVits2Model || tts.styleBertVits2Model)
+    : _normalizeStyleBertVits2Model(tts.styleBertVits2Model || echo.styleBertVits2Model);
   const selectedDevice = context === 'echo'
     ? (echo.ttsDevice || tts.ttsDevice || localStorage.getItem('tsasr_tts_device') || localStorage.getItem('tts_device') || 'cpu')
     : (tts.ttsDevice || echo.ttsDevice || localStorage.getItem('tts_device') || localStorage.getItem('tsasr_tts_device') || 'cpu');
@@ -4872,7 +4879,7 @@ function downloadSbv2TestAudio() {
     return;
   }
   try {
-    const model = (echo.styleBertVits2Model || 'style-bert-vits2').replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 40);
+    const model = _normalizeStyleBertVits2Model(echo.styleBertVits2Model).replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 40);
     const ts = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, 'Z');
     const filename = `sbv2-sample-${model}-${ts}.wav`;
     const url = URL.createObjectURL(_sbv2TestAudioBlob);
@@ -5146,14 +5153,14 @@ function saveTtsSettings() {
   const q3sel    = document.getElementById('tts-qwen3-model-sel');
   if (q3sel) tts.qwen3model = q3sel.value;
   const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
-  if (styleSel) tts.styleBertVits2Model = styleSel.value || tts.styleBertVits2Model || '';
+  if (styleSel) tts.styleBertVits2Model = _normalizeStyleBertVits2Model(styleSel.value || tts.styleBertVits2Model);
   const devRadio = document.querySelector('input[name="tts-device"]:checked');
   if (devRadio) _syncTtsDeviceState(devRadio.value);
   localStorage.setItem('tts_engine',     tts.engine);
   localStorage.setItem('tts_voice',      tts.voice);
   localStorage.setItem('tts_speed',      tts.speed);
   localStorage.setItem('tts_qwen3model', tts.qwen3model);
-  localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model || '');
+  localStorage.setItem('tts_style_bert_vits2_model', _normalizeStyleBertVits2Model(tts.styleBertVits2Model));
 }
 
 function _syncTtsDeviceState(device) {
@@ -5252,7 +5259,6 @@ async function onTtsEngineChange() {
 
 function _updateEchoQwen3UiVisibility() {
   const isQwen3 = _isEchoQwen3Selected();
-  const isStyleBert = _isEchoStyleBertVits2Selected();
   const qwen3ModelRow = document.getElementById('tsasr-qwen3-model-row');
   const qwen3RefRow = document.getElementById('tsasr-qwen3-ref-row');
   const deviceRow = document.getElementById('tsasr-device-row');
@@ -5262,7 +5268,7 @@ function _updateEchoQwen3UiVisibility() {
   if (qwen3RefRow) qwen3RefRow.style.display = isQwen3 ? '' : 'none';
   if (deviceRow) deviceRow.style.display = isQwen3 ? '' : 'none';
   if (qwen3LoadRow) qwen3LoadRow.style.display = isQwen3 ? '' : 'none';
-  if (styleBertRow) styleBertRow.style.display = isStyleBert ? '' : 'none';
+  if (styleBertRow) styleBertRow.style.display = '';
   _syncQwen3CloneTestUi();
   _syncSbv2TestUi();
 }
@@ -5301,14 +5307,11 @@ function _setStyleBertModelOptions(models = []) {
     const sel = document.getElementById(selId);
     if (!sel) return;
     const current = context === 'echo'
-      ? (echo.styleBertVits2Model || tts.styleBertVits2Model || '')
-      : (tts.styleBertVits2Model || echo.styleBertVits2Model || '');
+      ? _normalizeStyleBertVits2Model(echo.styleBertVits2Model || tts.styleBertVits2Model)
+      : _normalizeStyleBertVits2Model(tts.styleBertVits2Model || echo.styleBertVits2Model);
     sel.innerHTML = '';
-    if (!models.length) {
-      sel.innerHTML = '<option value="">（モデルなし）</option>';
-      return;
-    }
-    models.forEach(modelId => {
+    const resolvedModels = Array.from(new Set([DEFAULT_STYLE_BERT_VITS2_MODEL, ...models.filter(Boolean)]));
+    resolvedModels.forEach(modelId => {
       const meta = _styleBertVits2ModelMeta.get(modelId) || {};
       const isJpExtra = !!meta.is_jp_extra;
       const opt = document.createElement('option');
@@ -5317,14 +5320,55 @@ function _setStyleBertModelOptions(models = []) {
       if (modelId === current) opt.selected = true;
       sel.appendChild(opt);
     });
-    if (!models.includes(current)) sel.value = models[0];
+    if (!resolvedModels.includes(current)) sel.value = DEFAULT_STYLE_BERT_VITS2_MODEL;
     if (context === 'echo') {
-      echo.styleBertVits2Model = sel.value;
-      tts.styleBertVits2Model = sel.value;
-      localStorage.setItem('echo_style_bert_vits2_model', sel.value);
-      localStorage.setItem('tts_style_bert_vits2_model', sel.value);
+      echo.styleBertVits2Model = _normalizeStyleBertVits2Model(sel.value);
+      tts.styleBertVits2Model = echo.styleBertVits2Model;
+      localStorage.setItem('echo_style_bert_vits2_model', echo.styleBertVits2Model);
+      localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model);
     }
   });
+}
+
+let _styleBertVits2AutoLoadPromise = null;
+async function ensureStyleBertVits2LoadedForEcho() {
+  if (_styleBertVits2AutoLoadPromise) return _styleBertVits2AutoLoadPromise;
+  _styleBertVits2AutoLoadPromise = (async () => {
+    const model = _normalizeStyleBertVits2Model(echo.styleBertVits2Model || tts.styleBertVits2Model);
+    try {
+      _setStyleBertVits2Status('モデル読み込み状態を確認中...');
+      const statusResp = await fetch(API + '/tts/status');
+      const status = await statusResp.json().catch(() => ({}));
+      const loadedEngine = status?.engine || status?.current_engine || status?.tts_engine || '';
+      const loadedModel = status?.model || status?.model_id || status?.tts_model || status?.style_bert_vits2_model || '';
+      const isLoaded = status?.loaded === true || status?.is_loaded === true || status?.style_bert_vits2_loaded === true;
+      if (String(loadedEngine) === 'style_bert_vits2' && isLoaded && (!loadedModel || String(loadedModel) === model)) {
+        _setStyleBertVits2Status('Style-Bert-VITS2 読み込み済み');
+        return true;
+      }
+      _setStyleBertVits2Status(`${model} をロード中...`);
+      const resp = await fetch(API + '/tts/load', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({engine: 'style_bert_vits2', model, model_id: model}),
+      });
+      if (!resp.ok) {
+        const detail = await resp.text().catch(() => '');
+        console.warn('[Echo TTS] Style-Bert-VITS2 auto-load failed:', detail);
+        _setStyleBertVits2Status('Style-Bert-VITS2 自動ロード失敗');
+        return false;
+      }
+      _setStyleBertVits2Status('Style-Bert-VITS2 読み込み済み');
+      return true;
+    } catch (e) {
+      console.warn('[Echo TTS] Style-Bert-VITS2 auto-load error:', e);
+      _setStyleBertVits2Status('Style-Bert-VITS2 自動ロード失敗');
+      return false;
+    } finally {
+      _styleBertVits2AutoLoadPromise = null;
+    }
+  })();
+  return _styleBertVits2AutoLoadPromise;
 }
 
 function _normalizeEchoSbv2Language(value) {
@@ -5733,7 +5777,7 @@ function saveEchoSettings() {
   tts.engine = echo.ttsEngine;
   const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
   if (styleSel) {
-    echo.styleBertVits2Model = styleSel.value || '';
+    echo.styleBertVits2Model = _normalizeStyleBertVits2Model(styleSel.value);
     tts.styleBertVits2Model = echo.styleBertVits2Model;
   }
   echo.ttsSbv2Language = _normalizeEchoSbv2Language(document.getElementById('echo-tts-sbv2-language')?.value || echo.ttsSbv2Language || 'JP');
@@ -5838,8 +5882,8 @@ function saveEchoSettings() {
   localStorage.setItem('echo_tts_engine',   echo.ttsEngine);
   localStorage.setItem('echo_tts_output_device_id', echo.ttsOutputDeviceId || 'default');
   localStorage.setItem('tts_engine', tts.engine);
-  localStorage.setItem('echo_style_bert_vits2_model', echo.styleBertVits2Model || '');
-  localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model || echo.styleBertVits2Model || '');
+  localStorage.setItem('echo_style_bert_vits2_model', _normalizeStyleBertVits2Model(echo.styleBertVits2Model));
+  localStorage.setItem('tts_style_bert_vits2_model', _normalizeStyleBertVits2Model(tts.styleBertVits2Model || echo.styleBertVits2Model));
   localStorage.setItem('echo_tts_sbv2_language', `${echo.ttsSbv2Language}`);
   localStorage.setItem('echo_tts_use_translation', echo.ttsUseTranslation ? 'true' : 'false');
   localStorage.setItem('echo_tts_text_source', echo.ttsTextSource || 'raw');
@@ -6345,7 +6389,7 @@ function refreshTtsTab() {
   const mainQ3Sel = document.getElementById('tts-qwen3-model-sel');
   if (tsasrQ3Sel) tsasrQ3Sel.value = tts.qwen3model;
   if (mainQ3Sel) mainQ3Sel.value = tts.qwen3model;
-  const savedStyleBertModel = localStorage.getItem('echo_style_bert_vits2_model')
+  const savedStyleBertModel = _normalizeStyleBertVits2Model(localStorage.getItem('echo_style_bert_vits2_model')
     || localStorage.getItem('tts_style_bert_vits2_model')
     || localStorage.getItem('echo_stylebertvits2_model')
     || localStorage.getItem('tts_stylebertvits2_model')
@@ -6353,12 +6397,14 @@ function refreshTtsTab() {
     || localStorage.getItem('tts_style-bert-vits2_model')
     || echo.styleBertVits2Model
     || tts.styleBertVits2Model
-    || '';
+    || '');
   echo.styleBertVits2Model = savedStyleBertModel;
   tts.styleBertVits2Model = savedStyleBertModel;
   localStorage.setItem('echo_style_bert_vits2_model', savedStyleBertModel);
   localStorage.setItem('tts_style_bert_vits2_model', savedStyleBertModel);
-  refreshStyleBertVits2Models('echo');
+  refreshStyleBertVits2Models('echo').finally(() => {
+    setTimeout(() => { ensureStyleBertVits2LoadedForEcho().catch((e) => console.warn(e)); }, 0);
+  });
   fetch(API + '/tts/status').then(r => r.json()).then(s => {
     const statusEl  = document.getElementById('tsasr-qwen3-status');
     const loadBtn   = document.getElementById('tsasr-qwen3-load-btn');
