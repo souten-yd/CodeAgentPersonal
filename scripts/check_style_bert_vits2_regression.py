@@ -63,6 +63,9 @@ def _check_static_guards() -> dict:
         "protocol_error_to_500": "worker_protocol_error" in main_src,
         "ui_engine_fixed": "return 'style_bert_vits2';" in ui_src,
         "main_tts_api_forces_engine": 'engine = "style_bert_vits2"' in main_src,
+        "ui_has_no_use_tts_translation_label": "Use TTS Translation" not in ui_src,
+        "ui_has_no_echo_tts_use_translation_id": "echo-tts-use-translation" not in ui_src,
+        "ui_has_no_echo_tts_preview_use_translation_id": "echo-tts-preview-use-translation" not in ui_src,
     }
 
 

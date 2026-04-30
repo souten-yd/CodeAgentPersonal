@@ -4896,7 +4896,7 @@ async function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
   const previewSeq = ++_echoTtsPreviewSeq;
   const selectedLanguage = _normalizeEchoSbv2Language(echo.ttsSbv2Language);
   const sourceEl = document.getElementById('echo-tts-preview-source');
-  const useTranslationEl = document.getElementById('echo-tts-preview-use-translation');
+  const translationRouteEl = document.getElementById('echo-tts-preview-translation-route');
   const modelKindEl = document.getElementById('echo-tts-preview-model-kind');
   const langEl = document.getElementById('echo-tts-preview-language');
   const effEl = document.getElementById('echo-tts-preview-effective-language');
@@ -4911,7 +4911,7 @@ async function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
   const warningsEl = document.getElementById('echo-tts-preview-warnings');
   const fmtPreview = (value) => String(value || '').replace(/\n/g, '\\n').slice(0, 160) || '-';
   if (sourceEl) sourceEl.textContent = `TTS text source: ...`;
-  if (useTranslationEl) useTranslationEl.textContent = `Translation route: auto`;
+  if (translationRouteEl) translationRouteEl.textContent = `Translation route: auto`;
   if (modelKindEl) modelKindEl.textContent = `Model kind: ...`;
   if (langEl) langEl.textContent = `Language: ${selectedLanguage === 'auto' ? 'Auto' : selectedLanguage}`;
   if (effEl) effEl.textContent = `Effective language: ...`;
@@ -4948,7 +4948,10 @@ async function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
         ? ' (translated選択だが翻訳結果が空のため raw を使用)'
         : '';
     if (sourceEl) sourceEl.textContent = `TTS text source: ${source}${sourceNote}`;
-    if (useTranslationEl) useTranslationEl.textContent = `Translation route: auto`;
+    const translationRouteText = data.needs_translation
+      ? `Translation: needed -> ${String(data.translation_target_language || '-')}`
+      : 'Translation route: auto';
+    if (translationRouteEl) translationRouteEl.textContent = translationRouteText;
     if (modelKindEl) modelKindEl.textContent = `Model kind: ${String(data.model_kind || '-')}, JP-Extra: ${data.is_jp_extra ? 'true' : 'false'}`;
     if (effEl) effEl.textContent = `Effective language: ${String(data.effective_language || 'JP')}`;
     if (routeEl) routeEl.textContent = `source/output/tts: ${String(data.source_language || 'auto')} / ${String(data.output_language || '-')} / ${String(data.tts_language || '-')}`;

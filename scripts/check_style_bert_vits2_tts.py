@@ -36,6 +36,8 @@ def main() -> int:
         and "fetch(API + '/tts/synthesize'" in ui_text,
         "ui_has_no_tts_engine_label": "TTS Engine" not in ui_text,
         "ui_has_no_use_tts_translation_label": "Use TTS Translation" not in ui_text,
+        "ui_has_no_echo_tts_use_translation_id": "echo-tts-use-translation" not in ui_text,
+        "ui_has_no_echo_tts_preview_use_translation_id": "echo-tts-preview-use-translation" not in ui_text,
         "ui_has_no_extra_text_process_options": "Extra Text Process Options" not in ui_text,
         "ui_has_no_jp_extra_text_process_options": "JP Extra Text Process Options" not in ui_text,
         "ui_has_no_jp_extra_non_japanese_policy": "JP Extra Non Japanese Policy" not in ui_text,

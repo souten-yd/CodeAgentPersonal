@@ -5,8 +5,11 @@ import asyncio
 from pathlib import Path
 import os
 
-from playwright.async_api import async_playwright
 from check_ui_inline_script_syntax import main as check_ui_syntax_main
+try:
+  from playwright.async_api import async_playwright
+except Exception:  # pragma: no cover - optional dependency
+  async_playwright = None
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -211,6 +214,8 @@ async def verify_echo_tts_minimal_ui(page) -> None:
   ]
   for label in forbidden:
     assert await page.locator(f"text={label}").count() == 0, f"forbidden visible: {label}"
+  for forbidden_id in ["echo-tts-use-translation", "echo-tts-preview-use-translation"]:
+    assert await page.locator(f"#{forbidden_id}").count() == 0, f"forbidden id exists: {forbidden_id}"
   await page.locator("#tab-tts details summary", has_text="Advanced parameters").click()
   assert await page.locator("#echo-tts-sbv2-style-weight").is_visible()
 
@@ -352,6 +357,9 @@ async def verify_chat_search_and_agent_web_tool_tts(page) -> None:
 
 
 async def main() -> None:
+  if async_playwright is None:
+    print("SKIP: playwright is not installed")
+    return
   syntax_rc = check_ui_syntax_main()
   if syntax_rc != 0:
     raise AssertionError(f"ui inline script syntax check failed: rc={syntax_rc}")

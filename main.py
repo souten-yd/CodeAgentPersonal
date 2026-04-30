@@ -13172,7 +13172,6 @@ def _build_tts_batch_items_from_text(req: dict, text: str) -> list[dict]:
         "speed",
         "caller",
         "route",
-        "use_translation",
         "text_source",
         "raw_text",
         "translated_text",
