@@ -78,7 +78,7 @@ def test_preview_returns_all_required_text_stages(tmp_path, monkeypatch):
 
     rt = runtime.StyleBertVITS2Runtime()
     monkeypatch.setattr(runtime, "_resolve_model_paths", lambda _m: (str(model_dir / "model.safetensors"), str(model_dir / "config.json"), str(model_dir / "style_vectors.npy")))
-    monkeypatch.setattr(runtime, "_resolve_sbv2_jp_extra_normalization_settings", lambda _req: {})
+    monkeypatch.setattr(runtime, "_resolve_sbv2_jp_extra_normalization_settings", lambda _req, *, is_jp_extra: {})
 
     preview = rt.build_normalization_preview({
         "model": model_id,
@@ -96,3 +96,54 @@ def test_preview_returns_all_required_text_stages(tmp_path, monkeypatch):
     assert preview["after_translation"]
     assert preview["after_tts_normalization"]
     assert preview["final_text_sent_to_style_bert_vits2"]
+
+
+def test_build_payload_jp_extra_forces_jp_language_without_nameerror(tmp_path, monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    model_dir = tmp_path / "sample-jp-extra"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text('{"version":"2.0-jp-extra"}', encoding="utf-8")
+    (model_dir / "style_vectors.npy").write_bytes(b"dummy")
+    (model_dir / "model.safetensors").write_bytes(b"dummy")
+
+    monkeypatch.setattr(runtime, "_resolve_model_paths", lambda _m: (str(model_dir / "model.safetensors"), str(model_dir / "config.json"), str(model_dir / "style_vectors.npy")))
+
+    rt = runtime.StyleBertVITS2Runtime()
+    payload = rt._build_payload({"language": "en", "tts_language": "en"}, model="sample-jp-extra", text="hello", request_id="t1")
+    assert payload["is_jp_extra"] is True
+    assert payload["effective_language"] == "JP"
+
+
+def test_build_payload_global_respects_route_tts_language(tmp_path, monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    model_dir = tmp_path / "sample-global"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text('{"version":"2.0"}', encoding="utf-8")
+    (model_dir / "style_vectors.npy").write_bytes(b"dummy")
+    (model_dir / "model.safetensors").write_bytes(b"dummy")
+
+    monkeypatch.setattr(runtime, "_resolve_model_paths", lambda _m: (str(model_dir / "model.safetensors"), str(model_dir / "config.json"), str(model_dir / "style_vectors.npy")))
+
+    rt = runtime.StyleBertVITS2Runtime()
+    payload_en = rt._build_payload({"route_info": {"tts_language": "en"}}, model="sample-global", text="hello", request_id="t2")
+    payload_ja = rt._build_payload({"route_info": {"tts_language": "ja"}}, model="sample-global", text="こんにちは", request_id="t3")
+    assert payload_en["effective_language"] == "EN"
+    assert payload_ja["effective_language"] == "JP"
+
+
+def test_preview_uses_same_language_resolution(tmp_path, monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    model_dir = tmp_path / "sample-global"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text('{"version":"2.0"}', encoding="utf-8")
+    (model_dir / "style_vectors.npy").write_bytes(b"dummy")
+    (model_dir / "model.safetensors").write_bytes(b"dummy")
+
+    monkeypatch.setattr(runtime, "_resolve_model_paths", lambda _m: (str(model_dir / "model.safetensors"), str(model_dir / "config.json"), str(model_dir / "style_vectors.npy")))
+
+    rt = runtime.StyleBertVITS2Runtime()
+    preview = rt.build_normalization_preview({"model": "sample-global", "route_info": {"tts_language": "en"}, "raw_text": "hello"})
+    assert preview["effective_language"] == "EN"

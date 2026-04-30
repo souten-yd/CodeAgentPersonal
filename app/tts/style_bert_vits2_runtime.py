@@ -227,6 +227,24 @@ def _decide_effective_language(requested_language: str | None, model_version: st
     return "JP", "JP", False
 
 
+def _resolve_requested_language(req: dict) -> str | None:
+    route_info = req.get("route_info") if isinstance(req.get("route_info"), dict) else {}
+    settings = req.get("settings") if isinstance(req.get("settings"), dict) else {}
+    candidates = [
+        route_info.get("tts_language"),
+        req.get("tts_language"),
+        req.get("echo_tts_language"),
+        req.get("language"),
+        settings.get("echo_tts_language"),
+        settings.get("echo_tts_sbv2_language"),
+    ]
+    for candidate in candidates:
+        value = str(candidate or "").strip()
+        if value:
+            return value
+    return None
+
+
 def _sanitize_preview_text(value: str | None, *, limit: int) -> str:
     text = str(value or "").replace("\n", "\\n")
     if len(text) > limit:
@@ -257,9 +275,8 @@ _SBV2_JP_EXTRA_NORMALIZATION_DEFAULTS = {
 }
 
 
-def _resolve_sbv2_jp_extra_normalization_settings(req: dict) -> dict:
-    is_jp_extra_model = _is_jp_extra_model(req.get("model") or "")
-    if is_jp_extra_model:
+def _resolve_sbv2_jp_extra_normalization_settings(req: dict, *, is_jp_extra: bool) -> dict:
+    if is_jp_extra:
         resolved = dict(_SBV2_JP_EXTRA_NORMALIZATION_DEFAULTS)
         resolved["sbv2_jp_extra_english_policy"] = resolved["sbv2_jp_extra_english_to_katakana"]
         resolved["emoji_policy"] = "remove"
@@ -419,13 +436,11 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
     def _build_payload(self, req: dict, *, model: str, text: str, request_id: str | None = None) -> dict:
         model_path, config_path, style_vec_path = _resolve_model_paths(model)
         model_version = _read_model_version(config_path)
-        requested_language = str(req.get("language", "")).strip() or str(
-            (req.get("settings") or {}).get("echo_tts_sbv2_language", "")
-        ).strip() or None
+        requested_language = _resolve_requested_language(req)
         effective_language, normalized_language, is_jp_extra = _decide_effective_language(requested_language, model_version)
         normalization_result = None
         normalized_text = text
-        normalization_settings = _resolve_sbv2_jp_extra_normalization_settings(req)
+        normalization_settings = _resolve_sbv2_jp_extra_normalization_settings(req, is_jp_extra=is_jp_extra)
         normalization_enabled = bool(
             is_jp_extra and _to_optional_bool(normalization_settings.get("sbv2_jp_extra_text_normalization"), True)
         )
@@ -496,17 +511,12 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             source_reason = "fallback_raw_translation_empty"
 
         original_text = translated_text if source == "translated" else raw_text
-        requested_language = str(req.get("language", "")).strip() or str(
-            (req.get("settings") or {}).get("echo_tts_sbv2_language", "")
-        ).strip() or None
+        requested_language = _resolve_requested_language(req)
         model = str(req.get("model", "")).strip()
         model_version = ""
         is_jp_extra = False
-        normalized_language = _normalize_sbv2_language(requested_language, model_version=model_version)
-        effective_language = "JP" if normalized_language == "auto" else normalized_language
-        if effective_language not in {"JP", "EN", "ZH"}:
-            effective_language = "JP"
-        normalization_settings = _resolve_sbv2_jp_extra_normalization_settings(req)
+        effective_language, normalized_language, is_jp_extra = _decide_effective_language(requested_language, model_version)
+        normalization_settings = _resolve_sbv2_jp_extra_normalization_settings(req, is_jp_extra=is_jp_extra)
         normalization_result = None
         preview_warnings: list[str] = []
         normalized_text = original_text
@@ -523,6 +533,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
                 effective_language, normalized_language, is_jp_extra = _decide_effective_language(
                     requested_language, model_version
                 )
+                normalization_settings = _resolve_sbv2_jp_extra_normalization_settings(req, is_jp_extra=is_jp_extra)
                 normalization_enabled = bool(
                     is_jp_extra
                     and _to_optional_bool(normalization_settings.get("sbv2_jp_extra_text_normalization"), True)
