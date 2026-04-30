@@ -11642,12 +11642,10 @@ function _echoGetSentenceTexts(sentence) {
   const hasDisplayText = Object.prototype.hasOwnProperty.call(sentence, 'displayText');
   const hasDisplayTranslated = Object.prototype.hasOwnProperty.call(sentence, 'displayTranslated');
   const orig = hasDisplayText ? (sentence.displayText ?? '') : (sentence.text || '');
-  const translated = echo.ttsTranslateEnabled
-    ? (hasDisplayTranslated ? (sentence.displayTranslated ?? '') : (sentence.translated ?? ''))
-    : '';
+  const translated = hasDisplayTranslated ? (sentence.displayTranslated ?? '') : (sentence.translated ?? '');
   const origLang = sentence.lang === 'ja' ? 'ja' : 'en';
-  const jaText = origLang === 'ja' ? orig : translated;
-  const enText = origLang === 'en' ? orig : translated;
+  const jaText = (sentence.japanese_text ?? '') || (origLang === 'ja' ? orig : translated);
+  const enText = (sentence.english_text ?? '') || (origLang === 'en' ? orig : translated);
   return {orig, translated, origLang, jaText, enText};
 }
 
@@ -11754,7 +11752,7 @@ function _echoAddSentence(ev) {
   const time  = new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
   const sid   = ev.id;
   const flow = _echoResolveLanguageFlow(ev);
-  const sentence = {id: sid, text: ev.text, displayText: '', lang: flow.detectedLang, translated: '', displayTranslated: '', time, detected_language: flow.detectedLang, output_language: flow.target, translation_used: flow.translationUsed, tts_language: flow.ttsLanguage};
+  const sentence = {id: sid, text: ev.text, displayText: '', lang: flow.detectedLang, translated: '', displayTranslated: '', time, detected_language: flow.detectedLang, output_language: flow.target, translation_used: flow.translationUsed, tts_language: flow.ttsLanguage, japanese_text: ev.japanese_text || '', english_text: ev.english_text || ''};
   echo.sentences.push(sentence);
   _echoUpdateSentenceCount();
   if (echo.displayStyle === 'sentence') {
@@ -11793,8 +11791,12 @@ function _echoUpdateTranslation(id, translated, meta = {}) {
   if (meta.detected_language) s.detected_language = meta.detected_language;
   if (meta.output_language) s.output_language = meta.output_language;
   if (typeof meta.translation_used === 'boolean') s.translation_used = meta.translation_used;
+  if (typeof meta.translation_failed === 'boolean') s.translation_failed = meta.translation_failed;
+  if (Array.isArray(meta.warnings)) s.warnings = meta.warnings.slice();
   if (meta.tts_language) s.tts_language = meta.tts_language;
   if (meta.tts_text) s.tts_text = meta.tts_text;
+  if (typeof meta.japanese_text === 'string') s.japanese_text = meta.japanese_text;
+  if (typeof meta.english_text === 'string') s.english_text = meta.english_text;
   _echoAnimateSentenceField(s, 'displayTranslated', translated || '');
   _echoUpdateSentenceDom(s);
   _updateEchoTtsPreview({rawText: s.text || '', translatedText: s.translated || ''});
@@ -11849,7 +11851,11 @@ async function _echoPrepareSpeechText(sentence) {
   const translated = String(sentence?.translated || '').trim();
   const detected = sentence?.detected_language || _echoInferLanguage(raw, (echo.asrLanguage || 'auto'));
   const output = sentence?.output_language || ((echo.outputLanguage || 'same') === 'same' ? detected : (echo.outputLanguage || detected));
-  let ttsText = String(sentence?.tts_text || '').trim() || (translated && sentence?.translation_used ? translated : raw);
+  const preferred = (echo.ttsLanguage || 'auto') === 'auto' ? output : (echo.ttsLanguage || output);
+  let ttsText = preferred === 'ja'
+    ? String(sentence?.japanese_text || '').trim()
+    : String(sentence?.english_text || '').trim();
+  if (!ttsText) ttsText = String(sentence?.tts_text || '').trim() || (translated && sentence?.translation_used ? translated : raw);
   const translationUsed = !!sentence?.translation_used;
 
   if (output === 'ja') {
@@ -11862,7 +11868,7 @@ async function _echoPrepareSpeechText(sentence) {
 
   sentence.translation_used = translationUsed;
   sentence.tts_text = ttsText;
-  sentence.tts_language = (echo.ttsLanguage || 'auto') === 'auto' ? output : (echo.ttsLanguage || output);
+  sentence.tts_language = preferred;
   return {ttsText, detected, output, ttsLanguage: sentence.tts_language};
 }
 async function _echoPlaySentence(sid, opts = {}) {
@@ -11911,11 +11917,7 @@ function _echoHandleEvent(ev) {
   if (ev.type === 'sentence') {
     _echoAddSentence(ev);
   } else if (ev.type === 'translation') {
-    if (echo.ttsTranslateEnabled) {
-      _echoUpdateTranslation(ev.id, ev.translated, ev);
-    } else {
-      _echoUpdateTranslation(ev.id, '', ev);
-    }
+    _echoUpdateTranslation(ev.id, ev.translated, ev);
   } else if (ev.type === 'status') {
     const stateMap = {
       recording: '● 録音中',
