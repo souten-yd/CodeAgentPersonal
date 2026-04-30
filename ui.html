@@ -2507,6 +2507,16 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </div>
           <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo ASR language</div>
+              <select id="echo-asr-lang-unified"
+                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+                onchange="saveEchoSettings()">
+                <option value="auto">Auto Japanese/English</option>
+                <option value="ja">Japanese</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+            <div>
               <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo output language</div>
               <select id="echo-output-language"
                 style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
@@ -2686,68 +2696,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
       </div>
 
-      <!-- TTS 翻訳設定 -->
-      <div>
-        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🌐 TTS 翻訳設定</div>
-        <div style="font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.6">
-          EN テキスト → 日本語に翻訳して読み上げ、日本語テキスト → 英語に翻訳して読み上げ（デフォルト）。<br>
-          翻訳 LLM: Modelsタブの <code style="background:var(--bg3);padding:1px 4px;border-radius:2px">translate</code> ロール設定を使用します。
-        </div>
-        <!-- 翻訳TTS有効 -->
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div style="font-size:11px;font-weight:700;color:var(--text2)">翻訳TTS 有効</div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="tts-translate-enable"
-              style="width:14px;height:14px;accent-color:var(--accent)"
-              onchange="saveTtsTranslateSettings()">
-            <span style="font-size:11px;color:var(--text2)" id="tts-translate-enable-label">OFF</span>
-          </label>
-        </div>
-        <!-- 言語モード -->
-        <div style="margin-bottom:8px" id="tts-translate-mode-row">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">再生言語モード</div>
-          <select id="tts-translate-mode"
-            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
-            onchange="saveTtsTranslateSettings()">
-            <option value="auto" selected>自動（EN→JP / JP→EN）</option>
-            <option value="ja">日本語のみ（EN→JP、JP→そのまま）</option>
-            <option value="en">英語のみ（JP→EN、EN→そのまま）</option>
-            <option value="off">翻訳なし（原文そのまま）</option>
-          </select>
-        </div>
-        <!-- 翻訳方向（新設定） -->
-        <div style="margin-bottom:8px">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">翻訳方向</div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div style="font-size:11px;color:var(--text2)">EN → JA を翻訳</div>
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-              <input type="checkbox" id="tts-translate-en2ja-enable"
-                style="width:14px;height:14px;accent-color:var(--accent)"
-                onchange="saveTtsTranslateSettings()">
-              <span style="font-size:11px;color:var(--text2)" id="tts-translate-en2ja-enable-label">OFF</span>
-            </label>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <div style="font-size:11px;color:var(--text2)">JA → EN を翻訳</div>
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-              <input type="checkbox" id="tts-translate-ja2en-enable"
-                style="width:14px;height:14px;accent-color:var(--accent)"
-                onchange="saveTtsTranslateSettings()">
-              <span style="font-size:11px;color:var(--text2)" id="tts-translate-ja2en-enable-label">OFF</span>
-            </label>
-          </div>
-        </div>
-        <!-- 自動再生 -->
-        <div style="display:flex;align-items:center;justify-content:space-between">
-          <div style="font-size:11px;font-weight:700;color:var(--text2)">TTS 自動再生</div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="tts-translate-autoplay"
-              style="width:14px;height:14px;accent-color:var(--accent)"
-              onchange="saveTtsTranslateSettings()">
-            <span style="font-size:11px;color:var(--text2)" id="tts-translate-autoplay-label">OFF</span>
-          </label>
-        </div>
-      </div>
     </div>
 
     </div>
@@ -5452,8 +5400,12 @@ function saveEchoSettings() {
   echo.groupOverflowMode = document.getElementById('echo-group-overflow-mode')?.value || echo.groupOverflowMode || 'rolling';
   echo.parallelMaxSentences = Math.max(1, parseInt(document.getElementById('echo-parallel-max-sentences')?.value || `${echo.parallelMaxSentences || 20}`, 10) || 20);
   echo.textRevealSeconds = Math.max(0, _numOr(document.getElementById('echo-text-reveal-seconds')?.value, echo.textRevealSeconds ?? 1.5));
-  echo.asrLang     = document.getElementById('echo-asr-lang')?.value || 'auto';
+  echo.asrLang     = document.getElementById('echo-asr-lang-unified')?.value || document.getElementById('echo-asr-lang')?.value || 'auto';
   echo.asrLanguage = echo.asrLang || 'auto';
+  const asrLangControl = document.getElementById('echo-asr-lang');
+  if (asrLangControl) asrLangControl.value = echo.asrLang;
+  const asrLangUnifiedControl = document.getElementById('echo-asr-lang-unified');
+  if (asrLangUnifiedControl) asrLangUnifiedControl.value = echo.asrLang;
   echo.outputLanguage = document.getElementById('echo-output-language')?.value || echo.outputLanguage || 'same';
   echo.ttsLanguage = document.getElementById('echo-tts-language')?.value || echo.ttsLanguage || 'auto';
   echo.asrInputDeviceId = document.getElementById('echo-asr-input-device')?.value || echo.asrInputDeviceId || 'default';
@@ -5821,6 +5773,8 @@ function _echoInitSettingsUI() {
   if (overflowModeInput) overflowModeInput.disabled = !['lang_serial', 'lang_parallel'].includes(echo.displayStyle || 'lang_serial');
   const asrLangSel = document.getElementById('echo-asr-lang');
   if (asrLangSel) asrLangSel.value = echo.asrLang;
+  const asrLangUnifiedSel = document.getElementById('echo-asr-lang-unified');
+  if (asrLangUnifiedSel) asrLangUnifiedSel.value = echo.asrLang;
   const echoOutputLanguageSel = document.getElementById('echo-output-language');
   if (echoOutputLanguageSel) echoOutputLanguageSel.value = echo.outputLanguage || 'same';
   const echoTtsLanguageSel = document.getElementById('echo-tts-language');
