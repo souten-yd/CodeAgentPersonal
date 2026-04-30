@@ -2528,6 +2528,38 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               </select>
             </div>
           </div>
+          <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo ASR language</div>
+              <select id="echo-asr-lang-unified"
+                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+                onchange="saveEchoSettings()">
+                <option value="auto">Auto Japanese/English</option>
+                <option value="ja">Japanese</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo output language</div>
+              <select id="echo-output-language"
+                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+                onchange="saveEchoSettings()">
+                <option value="same">Same as input</option>
+                <option value="ja">Translate to Japanese</option>
+                <option value="en">Translate to English</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo TTS language</div>
+              <select id="echo-tts-language"
+                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+                onchange="saveEchoSettings()">
+                <option value="auto">Auto by output language</option>
+                <option value="ja">Japanese voice</option>
+                <option value="en">English voice</option>
+              </select>
+            </div>
+          </div>
           <div style="margin-top:8px">
             <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">JP-Extra non-Japanese policy</div>
             <select id="echo-tts-sbv2-non-japanese-policy"
