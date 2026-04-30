@@ -1272,3 +1272,12 @@ curl http://127.0.0.1:8000/nexus/web/status
 このREADMEは、CodeAgent Personalを「使う人」と「開発する人」の両方が参照できるように、概要、機能、起動方法、API、環境変数、保存先、開発者向け情報を一体化したものです。
 
 APIや環境変数は実装変更に追従して更新してください。特に `main.py`、`agent/tools/registry.py`、`app/nexus/router.py`、`app/tts/` を変更した場合は、このREADMEも更新してください。
+
+### TTS回帰テスト（軽量）
+
+- `python scripts/check_style_bert_vits2_tts.py`
+- `python scripts/check_style_bert_vits2_regression.py`
+- `pytest -q tests/test_style_bert_vits2_tts_contract_regression.py tests/test_tts_language_router.py tests/test_text_normalizer_jp_extra.py`
+- UIスモーク（Playwright）: `python scripts/smoke_ui_modes_playwright.py`
+
+> モデル未配置環境では、モデル実体が必要なケースは `pytest` の `tmp_path` + `monkeypatch` で代替できるようにしてあります。
