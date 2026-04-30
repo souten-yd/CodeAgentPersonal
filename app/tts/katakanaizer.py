@@ -6,12 +6,15 @@ import os
 import re
 from typing import Iterable
 
+from .katakana_cache import KatakanaPersistentCache
+
 import requests
 
 _logger = logging.getLogger("style_bert_vits2")
 
 _JSON_BLOCK_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
 _KATAKANA_CACHE: dict[str, str] = {}
+_PERSISTENT_CACHE = KatakanaPersistentCache()
 _DEFAULT_TIMEOUT_SEC = 4.0
 _DEFAULT_ENDPOINT = "http://127.0.0.1:8000/v1/chat/completions"
 _DEFAULT_MODEL = "local-llm"
@@ -38,6 +41,29 @@ def _extract_json_object(content: str) -> dict[str, str]:
         return {str(k): str(v) for k, v in parsed.items()} if isinstance(parsed, dict) else {}
     except Exception:
         return {}
+
+
+
+_URL_PATTERN = re.compile(r"https?://|www\.", re.IGNORECASE)
+_KATAKANA_VALID_PATTERN = re.compile(r"[ァ-ヶー]")
+
+
+def _is_valid_katakana_reading(token: str, value: str) -> bool:
+    text = _normalize_segment(value)
+    if not text:
+        return False
+    if len(text) > 64:
+        return False
+    if _URL_PATTERN.search(text):
+        return False
+    lower = text.lower()
+    if any(marker in lower for marker in ("{", "}", "\"", "description", "explanation", "segments")):
+        return False
+    if not _KATAKANA_VALID_PATTERN.search(text):
+        return False
+    if len(text) > max(24, len(token) * 4):
+        return False
+    return True
 
 
 def _endpoint() -> str:
@@ -71,14 +97,21 @@ def katakanaize_english_segments_with_llm(
     pending: list[str] = []
 
     for token in normalized_segments:
-        cached = _KATAKANA_CACHE.get(token)
-        if cached:
-            result[token] = cached
-            continue
         dict_value = dictionary.get(token.lower())
         if dict_value:
             result[token] = dict_value
             _KATAKANA_CACHE[token] = dict_value
+            continue
+        persistent_value = _PERSISTENT_CACHE.get(token)
+        if persistent_value:
+            _logger.info("[SBV2][normalize][persistent_cache_hit] token=%s", token)
+            result[token] = persistent_value
+            _KATAKANA_CACHE[token] = persistent_value
+            continue
+        cached = _KATAKANA_CACHE.get(token)
+        if cached:
+            _logger.info("[SBV2][normalize][memory_cache_hit] token=%s", token)
+            result[token] = cached
             continue
         pending.append(token)
 
@@ -90,6 +123,7 @@ def katakanaize_english_segments_with_llm(
     endpoint = _endpoint()
 
     try:
+        _logger.info("[SBV2][normalize][llm_request_count] count=%d", len(pending))
         _logger.info("[SBV2][normalize][katakana_llm_start] pending=%d", len(pending))
         response = requests.post(
             endpoint,
@@ -129,11 +163,16 @@ def katakanaize_english_segments_with_llm(
             raise ValueError("llm returned empty/non-json mapping")
         converted_count = 0
         for token in pending:
-            value = _normalize_segment(converted.get(token))
-            if not value:
+            raw_value = _normalize_segment(converted.get(token))
+            if _is_valid_katakana_reading(token, raw_value):
+                value = raw_value
+                _KATAKANA_CACHE[token] = value
+                _PERSISTENT_CACHE.set(token, value, created_by="llm")
+                _logger.info("[SBV2][normalize][persistent_cache_saved] token=%s", token)
+            else:
                 value = dictionary.get(token.lower(), token)
+                _KATAKANA_CACHE[token] = value
             result[token] = value
-            _KATAKANA_CACHE[token] = value
             if value != token:
                 converted_count += 1
         _logger.info(
