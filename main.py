@@ -12031,7 +12031,9 @@ def echo_import_audio_transcript(req: dict):
                     continue
                 st = float((seg or {}).get("start", 0.0) or 0.0)
                 ed = float((seg or {}).get("end", st) or st)
-                pieces = _split_sentence_chunks(txt, _detect_language_light(txt) if lang_hint == "auto" else lang_hint)
+                segment_lang = _detect_language_light(txt)
+                split_lang = segment_lang if segment_lang in {"ja", "en"} else (lang_hint if lang_hint in {"ja", "en"} else "en")
+                pieces = _split_sentence_chunks(txt, split_lang)
                 if not pieces:
                     continue
                 duration = max(0.0, ed - st)

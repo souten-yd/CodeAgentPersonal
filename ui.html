@@ -12488,7 +12488,7 @@ function _echoInitScrollListener() {
 const ECHO_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 const ECHO_UPLOAD_ALLOWED_EXTS = new Set(['wav', 'mp3', 'm4a', 'webm', 'ogg', 'flac']);
 
-function _echoUploadSetStatus(msg = '', tone = 'info', showRetry = false, transcriptFilename = '') {
+function _echoUploadSetStatus(msg = '', tone = 'info', showRetry = false, transcriptFilename = '', artifacts = []) {
   const el = document.getElementById('echo-upload-status');
   if (!el) return;
   if (!msg) {
@@ -12501,7 +12501,18 @@ function _echoUploadSetStatus(msg = '', tone = 'info', showRetry = false, transc
   const retryBtn = showRetry && transcriptFilename
     ? `<button onclick="_echoVaultGenerateMinutes(decodeURIComponent('${encodeURIComponent(transcriptFilename)}'))" style="margin-left:8px;font-size:10px;padding:3px 7px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">議事録を再試行</button>`
     : '';
-  el.innerHTML = `<span>${safe}</span>${retryBtn}`;
+  const artifactLinks = Array.isArray(artifacts) && artifacts.length
+    ? `<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:8px 12px">${
+      artifacts.map((a) => {
+        const name = String(a?.name || '').trim();
+        const filename = String(a?.filename || '').trim();
+        if (!name || !filename) return '';
+        const href = `${API}/echo/sessions/${encodeURIComponent(filename)}`;
+        return `<a href="${href}" download="${esc(filename)}" style="font-size:11px;color:var(--accent)">${esc(name)}</a>`;
+      }).filter(Boolean).join('')
+    }</div>`
+    : '';
+  el.innerHTML = `<span>${safe}</span>${retryBtn}${artifactLinks}`;
   if (tone === 'error') {
     el.style.borderColor = 'var(--red)';
     el.style.background = 'rgba(255,77,109,.12)';
@@ -12646,14 +12657,13 @@ async function echoUploadSessionAudio(input) {
     await refreshEchoVault();
     if (!minutesFailed) {
       const artifacts = [
-        saveData.transcript_segments_filename && `Segments JSON: ${saveData.transcript_segments_filename}`,
-        saveData.transcript_ja_filename && `Japanese transcript: ${saveData.transcript_ja_filename}`,
-        saveData.transcript_en_filename && `English transcript: ${saveData.transcript_en_filename}`,
-        saveData.minutes_bilingual_filename && `Bilingual minutes: ${saveData.minutes_bilingual_filename}`,
-      ].filter(Boolean).join(' / ');
-      const suffix = artifacts ? ` (${artifacts})` : '';
+        saveData.transcript_segments_filename && {name: 'Segments JSON', filename: saveData.transcript_segments_filename},
+        saveData.transcript_ja_filename && {name: 'Japanese transcript', filename: saveData.transcript_ja_filename},
+        saveData.transcript_en_filename && {name: 'English transcript', filename: saveData.transcript_en_filename},
+        saveData.minutes_bilingual_filename && {name: 'Bilingual minutes', filename: saveData.minutes_bilingual_filename},
+      ].filter(Boolean);
       const status = hasBilingualMinutes ? 'done: bilingual minutes generated' : `done: ${saveData.transcript_filename || 'transcript'}`;
-      _echoUploadSetStatus(`${status}${suffix}`, 'ok');
+      _echoUploadSetStatus(status, 'ok', false, '', artifacts);
     }
   } catch (e) {
     const msg = String(e?.message || e || 'unknown error');
