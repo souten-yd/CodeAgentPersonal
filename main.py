@@ -10955,9 +10955,18 @@ def _echo_resolve_target_language(detected_lang: str, output_language: str) -> s
         return detected_lang if detected_lang in {"ja", "en"} else "ja"
     return output
 
-def _echo_do_translate(text: str, src_lang: str, llm_url: str = "") -> str:
-    """LLM を使い text を翻訳する。src_lang: 'ja'→英訳, 'en'→和訳。"""
-    target = "English" if src_lang == "ja" else "日本語"
+def _echo_do_translate(
+    text: str,
+    source_language: str | None = None,
+    target_language: str | None = None,
+    llm_url: str = "",
+) -> str:
+    """LLM を使い text を翻訳する。target_language を優先し、未指定時は source_language から反転推定する。"""
+    src = str(source_language or "").strip().lower()
+    tgt = str(target_language or "").strip().lower()
+    if tgt not in {"ja", "en"}:
+        tgt = "en" if src == "ja" else "ja"
+    target = "English" if tgt == "en" else "日本語"
     prompt = (
         f"Translate the following text to {target}. "
         "Output only the translation, no explanation.\n\n"
@@ -10980,6 +10989,11 @@ def _echo_do_translate(text: str, src_lang: str, llm_url: str = "") -> str:
         return (content or "").strip()
     except Exception as e:
         return f"[翻訳エラー: {e}]"
+
+
+def _translate_text_for_tts(text: str, *, source_language: str | None, target_language: str) -> str:
+    """TTS 用翻訳の薄いラッパ。翻訳方向は必ず target_language に従う。"""
+    return _echo_do_translate(text, source_language=source_language, target_language=target_language)
 
 
 def _echo_guess_title_from_sentences(sentences: list[dict]) -> str:
@@ -11628,7 +11642,12 @@ async def echo_stream_ws(websocket: WebSocket):
                                 src_lang=lang_det,
                                 source_chars=len(text),
                             )
-                            transl = await _asyncio.to_thread(_echo_do_translate, text, lang_det)
+                            transl = await _asyncio.to_thread(
+                                _echo_do_translate,
+                                text,
+                                lang_det,
+                                target_lang,
+                            )
                             tr_end = time.perf_counter()
                             _echo_debug_append(
                                 session_id=session_id,
@@ -12358,10 +12377,16 @@ async def tts_translate_text_api(req: dict = {}):
     if src_lang == "auto":
         src_lang = "ja" if any('\u3040' <= c <= '\u9fff' for c in text) else "en"
     try:
-        translated = await _asyncio_mod.to_thread(_echo_do_translate, text, src_lang)
+        target_lang = str(req.get("target_lang", "")).strip().lower()
+        translated = await _asyncio_mod.to_thread(
+            _echo_do_translate,
+            text,
+            src_lang,
+            target_lang if target_lang in {"ja", "en"} else None,
+        )
     except Exception as e:
         return {"error": str(e), "translated": text, "target_lang": "en" if src_lang == "ja" else "ja"}
-    target_lang = "en" if src_lang == "ja" else "ja"
+    target_lang = target_lang if target_lang in {"ja", "en"} else ("en" if src_lang == "ja" else "ja")
     text_preview = text.replace("\n", "\\n")[:500]
     translated_preview = str(translated or "").replace("\n", "\\n")[:500]
     _style_bert_vits2_logger.info(
@@ -16909,12 +16934,28 @@ def _apply_tts_language_routing(req: dict, *, model_version: str | None) -> dict
     req["route_info"] = route
     req["original_text"] = original_text
 
+    skip_routing = bool(req.get("skip_tts_language_routing")) or bool(req.get("text_prepared_for_tts"))
+    if skip_routing:
+        req["translated_text"] = str(req.get("translated_text") or "")
+        req["final_text"] = original_text
+        req["text"] = original_text
+        req["needs_translation"] = False
+        req["translation_target_language"] = None
+        req["text_source"] = "prepared"
+        req["translation_warning"] = ""
+        return route
+
     if route.get("needs_translation") and route.get("translation_target_language") in {"ja", "en"}:
         src = str(route.get("source_language") or "auto")
+        target = str(route.get("translation_target_language"))
         if src not in {"ja", "en"}:
-            src = "en" if route.get("translation_target_language") == "ja" else "ja"
+            src = "en" if target == "ja" else "ja"
         try:
-            translated_text = _echo_do_translate(original_text, src)
+            translated_text = _translate_text_for_tts(
+                original_text,
+                source_language=src,
+                target_language=target,
+            )
             if translated_text.strip():
                 final_text = translated_text
         except Exception as e:
@@ -16930,7 +16971,6 @@ def _apply_tts_language_routing(req: dict, *, model_version: str | None) -> dict
     req["text"] = final_text
     req["needs_translation"] = bool(route.get("needs_translation"))
     req["translation_target_language"] = route.get("translation_target_language")
-    req["use_translation"] = bool(route.get("needs_translation"))
     req["text_source"] = "translated" if translated_text else "raw"
     req["translation_warning"] = translation_warning
 

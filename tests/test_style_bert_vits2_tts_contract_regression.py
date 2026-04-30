@@ -98,6 +98,49 @@ def test_preview_returns_all_required_text_stages(tmp_path, monkeypatch):
     assert preview["final_text_sent_to_style_bert_vits2"]
 
 
+def test_apply_tts_language_routing_uses_translation_target_language(monkeypatch):
+    calls = []
+
+    def _fake_translate(text, *, source_language, target_language):
+        calls.append((text, source_language, target_language))
+        return f"{text}:{target_language}"
+
+    monkeypatch.setattr(main, "_translate_text_for_tts", _fake_translate)
+
+    req_jp_extra = {"text": "hello", "echo_output_language": "en", "echo_tts_language": "en"}
+    main._apply_tts_language_routing(req_jp_extra, model_version="2.0-jp-extra")
+    assert calls[-1][2] == "ja"
+
+    req_global_ja_to_en = {"text": "こんにちは", "echo_output_language": "ja", "echo_tts_language": "en"}
+    main._apply_tts_language_routing(req_global_ja_to_en, model_version="global")
+    assert calls[-1][2] == "en"
+
+    req_global_en_to_ja = {"text": "hello", "echo_output_language": "en", "echo_tts_language": "ja"}
+    main._apply_tts_language_routing(req_global_en_to_ja, model_version="global")
+    assert calls[-1][2] == "ja"
+
+
+def test_apply_tts_language_routing_skip_prepared_text(monkeypatch):
+    called = {"v": False}
+
+    def _fake_translate(*args, **kwargs):
+        called["v"] = True
+        return "x"
+
+    monkeypatch.setattr(main, "_translate_text_for_tts", _fake_translate)
+    req = {
+        "text": "prepared",
+        "text_prepared_for_tts": True,
+        "skip_tts_language_routing": True,
+        "prepared_tts_language": "ja",
+        "echo_output_language": "en",
+        "echo_tts_language": "ja",
+    }
+    main._apply_tts_language_routing(req, model_version="global")
+    assert called["v"] is False
+    assert req["text_source"] == "prepared"
+
+
 def test_build_payload_jp_extra_forces_jp_language_without_nameerror(tmp_path, monkeypatch):
     from app.tts import style_bert_vits2_runtime as runtime
 
