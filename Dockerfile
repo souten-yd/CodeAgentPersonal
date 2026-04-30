@@ -182,18 +182,21 @@ RUN set -eux; \
       '/opt/venv/lib/python3.11/dist-packages' \
       > "${site_packages}/_runpod_opt_venv.pth"; \
     /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir --upgrade pip wheel "setuptools<82"; \
-    /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir huggingface_hub safetensors soundfile; \
+    /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir huggingface_hub; \
     /opt/style-bert-vits2-venv/bin/python -c "import torch, torchaudio, av; print(torch.__version__, torchaudio.__version__, av.__version__)"; \
     /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir -e . --no-deps; \
     /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir \
       "numpy<2" \
       "numba>=0.59" \
       "llvmlite>=0.42" \
-      "accelerate>=0.26" \
+      "transformers==4.57.3" \
+      "accelerate>=0.33" \
+      "safetensors>=0.4" \
+      "sentencepiece>=0.2" \
+      "soundfile>=0.12" \
       pyworld-prebuilt \
       loguru \
       pyopenjtalk-dict \
-      transformers \
       cmudict \
       cn2an \
       g2p_en \
@@ -232,11 +235,25 @@ RUN set -eux; \
     test -f /opt/style-bert-vits2-models/koharune-ami/style_vectors.npy; \
     test -f /opt/style-bert-vits2-models/koharune-ami/koharune-ami.safetensors; \
     /opt/style-bert-vits2-venv/bin/python - <<'PY'
+import torch
+import transformers
+import accelerate
+import safetensors
+import sentencepiece
+import soundfile
 import numba
 import llvmlite
-import accelerate
 from style_bert_vits2.tts_model import TTSModel
-print("SBV2 deps OK", numba.__version__, llvmlite.__version__, accelerate.__version__)
+
+print("SBV2 deps OK")
+print("torch", torch.__version__, torch.__file__)
+print("transformers", transformers.__version__, transformers.__file__)
+print("accelerate", accelerate.__version__, accelerate.__file__)
+print("safetensors", safetensors.__version__, safetensors.__file__)
+print("sentencepiece", sentencepiece.__version__, sentencepiece.__file__)
+print("soundfile", soundfile.__version__, soundfile.__file__)
+print("numba", numba.__version__)
+print("llvmlite", llvmlite.__version__)
 PY
 
 ########################################
