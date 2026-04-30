@@ -27,6 +27,8 @@ def test_ui_removed_legacy_tts_controls():
     ]
     for label in forbidden:
         assert label not in UI_HTML
+    assert "echo-tts-use-translation" not in UI_HTML
+    assert "echo-tts-preview-use-translation" not in UI_HTML
 
 
 def test_ui_payload_always_uses_style_bert_vits2():
@@ -85,7 +87,6 @@ def test_preview_returns_all_required_text_stages(tmp_path, monkeypatch):
         "language": "JP",
         "raw_text": "Hello!! https://example.com です。",
         "translated_text": "ハロー！！ https://example.com です。",
-        "use_translation": True,
         "text_source": "translated",
         "needs_translation": True,
         "translation_target_language": "ja",
@@ -96,6 +97,36 @@ def test_preview_returns_all_required_text_stages(tmp_path, monkeypatch):
     assert preview["after_translation"]
     assert preview["after_tts_normalization"]
     assert preview["final_text_sent_to_style_bert_vits2"]
+    assert "use_translation" not in preview
+    assert preview["needs_translation"] is True
+    assert preview["translation_target_language"] == "ja"
+
+
+def test_preview_ignores_legacy_use_translation_payload(tmp_path, monkeypatch):
+    model_id = "sample-jp-extra"
+    model_dir = tmp_path / model_id
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text('{"version":"2.0-jp-extra","spk2id":{"A":0},"style2id":{"Neutral":0}}', encoding="utf-8")
+    (model_dir / "style_vectors.npy").write_bytes(b"dummy")
+    (model_dir / "model.safetensors").write_bytes(b"dummy")
+
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    rt = runtime.StyleBertVITS2Runtime()
+    monkeypatch.setattr(runtime, "_resolve_model_paths", lambda _m: (str(model_dir / "model.safetensors"), str(model_dir / "config.json"), str(model_dir / "style_vectors.npy")))
+    monkeypatch.setattr(runtime, "_resolve_sbv2_jp_extra_normalization_settings", lambda _req, *, is_jp_extra: {})
+
+    preview = rt.build_normalization_preview({
+        "model": model_id,
+        "raw_text": "hello",
+        "translated_text": "こんにちは",
+        "text_source": "translated",
+        "use_translation": False,
+        "needs_translation": True,
+        "translation_target_language": "ja",
+    })
+    assert preview["text_source"] == "translated"
+    assert preview["needs_translation"] is True
 
 
 def test_apply_tts_language_routing_uses_translation_target_language(monkeypatch):

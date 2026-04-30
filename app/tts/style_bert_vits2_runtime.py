@@ -496,17 +496,15 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         selected_source = str(req.get("text_source") or "raw").strip().lower()
         if selected_source not in {"raw", "translated"}:
             selected_source = "raw"
-        use_translation = bool(req.get("use_translation", False))
+        # `use_translation` is a deprecated legacy payload field and is ignored for routing decisions.
         raw_text = str(req.get("raw_text") or req.get("text") or "")
         translated_text = str(req.get("translated_text") or "")
         translated_available = bool(translated_text.strip())
 
         source = "raw"
         source_reason = "selected"
-        if selected_source == "translated" and use_translation and translated_available:
+        if selected_source == "translated" and translated_available:
             source = "translated"
-        elif selected_source == "translated" and not use_translation:
-            source_reason = "fallback_raw_translation_disabled"
         elif selected_source == "translated" and not translated_available:
             source_reason = "fallback_raw_translation_empty"
 
@@ -560,7 +558,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         source_language = str(route_info.get("source_language") or req.get("source_language") or "auto")
         output_language = str(route_info.get("output_language") or req.get("output_language") or requested_language or "JP")
         tts_language = str(route_info.get("tts_language") or req.get("tts_language") or effective_language)
-        needs_translation = bool(route_info.get("needs_translation", req.get("needs_translation", use_translation)))
+        needs_translation = bool(route_info.get("needs_translation", req.get("needs_translation", False)))
         translation_target_language = str(
             route_info.get("translation_target_language")
             or req.get("translation_target_language")
@@ -590,7 +588,6 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "text_source": source,
             "selected_text_source": selected_source,
             "source_reason": source_reason,
-            "use_translation": use_translation,
             "translation_available": translated_available,
             "requested_language": requested_language or "JP",
             "normalized_language": normalized_language,
