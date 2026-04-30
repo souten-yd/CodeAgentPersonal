@@ -52,6 +52,7 @@ def katakanaize_english_segments_with_llm(
     *,
     english_dict: dict[str, str] | None = None,
     timeout_sec: float | None = None,
+    raise_on_failure: bool = False,
 ) -> dict[str, str]:
     normalized_segments: list[str] = []
     seen: set[str] = set()
@@ -151,5 +152,7 @@ def katakanaize_english_segments_with_llm(
             fallback = dictionary.get(token.lower(), token)
             result[token] = fallback
             _KATAKANA_CACHE[token] = fallback
+        if raise_on_failure:
+            raise RuntimeError(f"katakana llm failed: {exc}") from exc
 
     return result

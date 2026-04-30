@@ -1,3 +1,4 @@
+from app.tts import text_normalizer
 from app.tts.text_normalizer import normalize_text_for_sbv2_jp_extra
 
 
@@ -39,3 +40,38 @@ def test_markdown_cleanup_heading_and_bullets():
     assert "見出し" in out
     assert "・項目1" in out
     assert "・項目2" in out
+
+
+def test_dictionary_katakana_python_fastapi():
+    out = _normalize("PythonでFastAPIを使います。")
+    assert "パイソン" in out
+    assert "ファストエーピーアイ" in out
+
+
+def test_dictionary_katakana_runpod_style_bert_vits2():
+    out = _normalize("RunPod上でStyle-Bert-VITS2をロードします。")
+    assert "ランポッド" in out
+    assert "スタイルバートブイツーツー" in out
+
+
+def test_dictionary_katakana_gpu_vram():
+    out = _normalize("GPUとVRAMを確認します。")
+    assert "ジーピーユー" in out
+    assert "ブイラム" in out
+
+
+def test_dictionary_katakana_github_docker():
+    out = _normalize("GitHubからDockerで起動します。")
+    assert "ギットハブ" in out
+    assert "ドッカー" in out
+
+
+def test_llm_failure_does_not_raise_and_records_warning(monkeypatch):
+    def _boom(*args, **kwargs):
+        raise RuntimeError("llm offline")
+
+    monkeypatch.setattr(text_normalizer, "katakanaize_english_segments_with_llm", _boom)
+    result = normalize_text_for_sbv2_jp_extra("UnknownWordを読みます。", {})
+    assert "UnknownWord" in result["normalized_text"]
+    assert any("english llm katakanaize failed" in w for w in result["warnings"])
+    assert any(op.get("type") == "warning" and op.get("category") == "english_katakanaize" for op in result["operations"])

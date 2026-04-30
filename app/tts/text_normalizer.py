@@ -22,6 +22,7 @@ _EMOJI_TOKEN_PATTERN = re.compile(
     ")"
 )
 _ASCII_WORD_PATTERN = re.compile(r"\b[A-Za-z][A-Za-z0-9_\-]*\b")
+_EN_SEGMENT_PATTERN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]*(?:[-_][A-Za-z0-9]+)*(?![A-Za-z0-9])")
 _CONTROL_PATTERN = re.compile(r"[\x00-\x08\x0B-\x1F\x7F]")
 _MULTISPACE_PATTERN = re.compile(r"[ \t\u3000]+")
 _JP_PUNCT_ASCII_MAP = str.maketrans({",": "、", ".": "。", "!": "！", "?": "？"})
@@ -51,6 +52,10 @@ _DEFAULT_ENGLISH_DICT = {
     "url": "ユーアールエル",
     "docker": "ドッカー",
     "github": "ギットハブ",
+    "python": "パイソン",
+    "fastapi": "ファストエーピーアイ",
+    "runpod": "ランポッド",
+    "pc": "ピーシー",
     "kasanecore": "カサネコア",
     "style-bert-vits2": "スタイルバートブイツーツー",
     "jp-extra": "ジェーピーエクストラ",
@@ -273,37 +278,54 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
         or settings.get("sbv2_jp_extra_english_policy")
         or settings.get("english_to_katakana")
         or settings.get("english_policy")
-        or "rule"
+        or "llm"
     ).strip().lower()
     english_dict_raw = (
         settings.get("sbv2_jp_extra_english_dict")
         or settings.get("english_dict")
         or {}
     )
-    english_dict = {str(k).lower(): str(v) for k, v in english_dict_raw.items()} if isinstance(english_dict_raw, dict) else {}
-    if not english_dict:
-        english_dict = dict(_DEFAULT_ENGLISH_DICT)
+    english_dict = dict(_DEFAULT_ENGLISH_DICT)
+    if isinstance(english_dict_raw, dict):
+        english_dict.update({str(k).lower(): str(v) for k, v in english_dict_raw.items()})
 
-    if english_policy == "rule":
-        def _replace_en_word(m: re.Match[str]) -> str:
-            token = m.group(0)
-            return english_dict.get(token.lower(), token)
+    def _dict_replace(text: str) -> str:
+        return _EN_SEGMENT_PATTERN.sub(lambda m: english_dict.get(m.group(0).lower(), m.group(0)), text)
 
-        current = _ASCII_WORD_PATTERN.sub(_replace_en_word, current)
-    elif english_policy == "llm":
-        segments = [m.group(0) for m in _ASCII_WORD_PATTERN.finditer(current)]
-        llm_map = katakanaize_english_segments_with_llm(segments, english_dict=english_dict)
-        current = _ASCII_WORD_PATTERN.sub(
-            lambda m: llm_map.get(m.group(0), english_dict.get(m.group(0).lower(), m.group(0))),
-            current,
-        )
-    elif english_policy == "skip":
-        current = _ASCII_WORD_PATTERN.sub(" ", current)
+    if english_policy == "skip":
+        current = _EN_SEGMENT_PATTERN.sub(" ", current)
     elif english_policy == "none":
         pass
+    elif english_policy in {"rule", "llm"}:
+        current = _dict_replace(current)
+        unresolved_segments = [
+            m.group(0)
+            for m in _EN_SEGMENT_PATTERN.finditer(current)
+            if not english_dict.get(m.group(0).lower())
+        ]
+        if english_policy == "llm" and unresolved_segments:
+            try:
+                llm_map = katakanaize_english_segments_with_llm(
+                    unresolved_segments,
+                    english_dict=english_dict,
+                    raise_on_failure=True,
+                )
+                current = _EN_SEGMENT_PATTERN.sub(
+                    lambda m: llm_map.get(m.group(0), english_dict.get(m.group(0).lower(), m.group(0))),
+                    current,
+                )
+            except Exception as exc:
+                warnings.append(f"english llm katakanaize failed: {exc}")
+                operations.append({
+                    "type": "warning",
+                    "category": "english_katakanaize",
+                    "level": "warning",
+                    "message": f"english llm katakanaize failed: {exc}",
+                    "value": {"policy": english_policy, "fallback": "dictionary_only"},
+                })
     else:
-        warnings.append(f"unknown english_to_katakana policy: {english_policy}. fallback=rule")
-        current = _ASCII_WORD_PATTERN.sub(lambda m: english_dict.get(m.group(0).lower(), m.group(0)), current)
+        warnings.append(f"unknown english_to_katakana policy: {english_policy}. fallback=llm")
+        current = _dict_replace(current)
     current = _MULTISPACE_PATTERN.sub(" ", current)
     current = _SPACE_BEFORE_PUNCT_PATTERN.sub(r"\1", current)
     current = _SPACE_AFTER_OPENING_PUNCT_PATTERN.sub(r"\1", current)
