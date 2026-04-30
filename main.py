@@ -16991,12 +16991,14 @@ def _get_lightweight_health_status() -> dict:
 
 @app.get("/system/env")
 def system_env():
+    """Runtime environment probe (must not raise HTTP 500)."""
+    style_bert_vits2_device = os.environ.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "")
     try:
         return {
             "runpod": detect_runpod(),
             "os": detect_os_profile(),
             "gpu": detect_gpu_profile(),
-            "style_bert_vits2_device": os.environ.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE", ""),
+            "style_bert_vits2_device": style_bert_vits2_device,
         }
     except Exception as e:
         return {
@@ -17005,7 +17007,7 @@ def system_env():
             "runpod": False,
             "os": {},
             "gpu": {},
-            "style_bert_vits2_device": os.environ.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE", ""),
+            "style_bert_vits2_device": style_bert_vits2_device,
         }
 
 @app.get("/system/summary")
