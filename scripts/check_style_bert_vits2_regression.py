@@ -54,11 +54,15 @@ def _check_send_once_handles_noise() -> dict:
 def _check_static_guards() -> dict:
     runtime_src = (ROOT / "app/tts/style_bert_vits2_runtime.py").read_text(encoding="utf-8")
     main_src = (ROOT / "main.py").read_text(encoding="utf-8")
+
+    ui_src = (ROOT / "ui.html").read_text(encoding="utf-8")
     return {
         "worker_stdout_redirected": "sys.stdout = sys.stderr" in runtime_src,
         "worker_emit_response": "def emit_response" in runtime_src,
         "models_filter_ignores_cache": "_STYLE_BERT_VITS2_IGNORED_MODEL_DIRS" in main_src and '".cache"' in main_src,
         "protocol_error_to_500": "worker_protocol_error" in main_src,
+        "ui_engine_fixed": "return 'style_bert_vits2';" in ui_src,
+        "main_tts_api_forces_engine": 'engine = "style_bert_vits2"' in main_src,
     }
 
 

@@ -1,0 +1,98 @@
+import importlib.util
+from pathlib import Path
+
+from app.tts.language_router import resolve_tts_language_route
+from app.tts.text_normalizer import normalize_text_for_sbv2_jp_extra
+
+ROOT = Path(__file__).resolve().parents[1]
+UI_HTML = (ROOT / "ui.html").read_text(encoding="utf-8")
+
+_SPEC = importlib.util.spec_from_file_location("main_module", ROOT / "main.py")
+main = importlib.util.module_from_spec(_SPEC)
+assert _SPEC and _SPEC.loader
+_SPEC.loader.exec_module(main)
+
+
+def _norm(text: str) -> str:
+    return normalize_text_for_sbv2_jp_extra(text, {})["normalized_text"]
+
+
+def test_ui_removed_legacy_tts_controls():
+    forbidden = [
+        "TTS Engine",
+        "Use TTS Translation",
+        "Extra Text Process Options",
+        "JP Extra Text Process Options",
+        "JP Extra Non Japanese Policy",
+    ]
+    for label in forbidden:
+        assert label not in UI_HTML
+
+
+def test_ui_payload_always_uses_style_bert_vits2():
+    assert "engine: 'style_bert_vits2'" in UI_HTML
+    assert "function _normalizeTtsEngine(engine)" in UI_HTML
+    assert "return 'style_bert_vits2';" in UI_HTML
+
+
+def test_server_forces_style_bert_vits2_engine_even_with_legacy_request():
+    req = {"engine": "qwen_tts", "engine_key": "legacy_engine", "model": "dummy"}
+    out = main.tts_unload_api(req)
+    assert out["engine"] == "style_bert_vits2"
+    assert out["engine_key"] == "style_bert_vits2"
+
+
+def test_jp_extra_text_normalization_regression_items():
+    assert _norm("これはテストです。次に進みます。") == "これはテストです。次に進みます。"
+    assert "😊" not in _norm("了解です😊。次に進みます。")
+    assert "https://example.com" not in _norm("詳細は https://example.com を見てください。次に進みます。")
+    assert "パイソン" in _norm("Python")
+    assert "ファストエーピーアイ" in _norm("FastAPI")
+    assert "ギットハブ" in _norm("GitHub")
+    assert "ランポッド" in _norm("RunPod")
+
+
+def test_language_routing_contracts():
+    jp_extra = resolve_tts_language_route({"text": "hello", "echo_output_language": "en", "echo_tts_language": "en"}, "2.0-jp-extra")
+    assert jp_extra["tts_language"] == "ja"
+    assert jp_extra["needs_translation"] is True
+    assert jp_extra["translation_target_language"] == "ja"
+
+    global_en = resolve_tts_language_route({"text": "hello", "echo_output_language": "en", "echo_tts_language": "en"}, "global")
+    assert global_en["needs_translation"] is False
+
+    global_ja_to_en = resolve_tts_language_route({"text": "こんにちは", "echo_output_language": "ja", "echo_tts_language": "en"}, "global")
+    assert global_ja_to_en["needs_translation"] is True
+    assert global_ja_to_en["translation_target_language"] == "en"
+
+
+def test_preview_returns_all_required_text_stages(tmp_path, monkeypatch):
+    model_id = "sample-jp-extra"
+    model_dir = tmp_path / model_id
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text('{"version":"2.0-jp-extra","spk2id":{"A":0},"style2id":{"Neutral":0}}', encoding="utf-8")
+    (model_dir / "style_vectors.npy").write_bytes(b"dummy")
+    (model_dir / "model.safetensors").write_bytes(b"dummy")
+
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    rt = runtime.StyleBertVITS2Runtime()
+    monkeypatch.setattr(runtime, "_resolve_model_paths", lambda _m: (str(model_dir / "model.safetensors"), str(model_dir / "config.json"), str(model_dir / "style_vectors.npy")))
+    monkeypatch.setattr(runtime, "_resolve_sbv2_jp_extra_normalization_settings", lambda _req: {})
+
+    preview = rt.build_normalization_preview({
+        "model": model_id,
+        "language": "JP",
+        "raw_text": "Hello!! https://example.com です。",
+        "translated_text": "ハロー！！ https://example.com です。",
+        "use_translation": True,
+        "text_source": "translated",
+        "needs_translation": True,
+        "translation_target_language": "ja",
+        "route_info": {"source_language": "en", "output_language": "ja", "tts_language": "ja", "model_kind": "jp_extra"},
+    })
+
+    assert preview["original_text"]
+    assert preview["after_translation"]
+    assert preview["after_tts_normalization"]
+    assert preview["final_text_sent_to_style_bert_vits2"]

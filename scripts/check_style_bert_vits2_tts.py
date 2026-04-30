@@ -34,6 +34,11 @@ def main() -> int:
         "ui_has_message_play_button_handler": "function ttsSpeakMsg(btn)" in ui_text,
         "ui_routes_style_bert_vits2_to_synthesize_api": "engine === 'style_bert_vits2'" in ui_text
         and "fetch(API + '/tts/synthesize'" in ui_text,
+        "ui_has_no_tts_engine_label": "TTS Engine" not in ui_text,
+        "ui_has_no_use_tts_translation_label": "Use TTS Translation" not in ui_text,
+        "ui_has_no_extra_text_process_options": "Extra Text Process Options" not in ui_text,
+        "ui_has_no_jp_extra_text_process_options": "JP Extra Text Process Options" not in ui_text,
+        "ui_has_no_jp_extra_non_japanese_policy": "JP Extra Non Japanese Policy" not in ui_text,
         "result": "unknown",
         "detail": "",
     }

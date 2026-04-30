@@ -201,7 +201,14 @@ async def verify_echo_tts_minimal_ui(page) -> None:
   must_exist = ["Echo ASR Language", "Echo Output Language", "Echo TTS Language", "TTS Model", "Speaker", "Style", "Speed / Length"]
   for label in must_exist:
     assert await page.locator(f"text={label}").count() > 0, f"missing: {label}"
-  forbidden = ["TTS エンジン", "Use TTS Translation", "Extra Text Process Options", "JP Extra"]
+  forbidden = [
+    "TTS Engine",
+    "Use TTS Translation",
+    "Extra Text Process Options",
+    "JP Extra Text Process Options",
+    "JP Extra Non Japanese Policy",
+    "TTS エンジン",
+  ]
   for label in forbidden:
     assert await page.locator(f"text={label}").count() == 0, f"forbidden visible: {label}"
   await page.locator("#tab-tts details summary", has_text="Advanced parameters").click()
