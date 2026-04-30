@@ -2494,18 +2494,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             </label>
             <span id="tsasr-style-bert-vits2-status" style="font-size:10px;color:var(--text3)">モデルを選択してください</span>
           </div>
-          <div style="margin-top:8px;display:flex;align-items:center;justify-content:space-between">
-            <div>
-              <div style="font-size:11px;color:var(--text2);font-weight:700">Use TTS translation</div>
-              <div style="font-size:10px;color:var(--text3);margin-top:2px">OFFの場合、翻訳処理を通さず、入力テキストをそのままTTSへ渡します。</div>
-            </div>
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-              <input type="checkbox" id="echo-tts-use-translation"
-                style="width:14px;height:14px;accent-color:var(--accent)"
-                onchange="saveEchoSettings()">
-              <span style="font-size:11px;color:var(--text2)" id="echo-tts-use-translation-label">OFF</span>
-            </label>
-          </div>
           <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div>
               <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo ASR language</div>
@@ -3612,7 +3600,7 @@ const echo = {
     const normalized = raw.toUpperCase();
     return ['AUTO', 'JP', 'EN', 'ZH'].includes(normalized) ? (normalized === 'AUTO' ? 'auto' : normalized) : 'JP';
   })(),
-  ttsUseTranslation: localStorage.getItem('echo_tts_use_translation') === 'true',
+  ttsUseTranslation: false,
   ttsTextSource: (localStorage.getItem('echo_tts_text_source') || 'raw') === 'translated' ? 'translated' : 'raw',
   sbv2TextNormalization: localStorage.getItem('sbv2_jp_extra_text_normalization') !== 'false',
   sbv2EnglishToKatakana: ['llm', 'rule', 'skip', 'none'].includes((localStorage.getItem('sbv2_jp_extra_english_to_katakana') || '').toLowerCase())
@@ -4350,7 +4338,6 @@ function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
     language,
     caller: context === 'echo' ? 'echo' : 'chat',
     route: '/tts/synthesize',
-    use_translation: !!echo.ttsUseTranslation,
     text_source: echo.ttsTextSource || 'raw',
     raw_text: String(opts.rawText || text || ''),
     translated_text: String(opts.translatedText || ''),
@@ -5102,8 +5089,7 @@ async function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
       body: JSON.stringify({
         model: echo.styleBertVits2Model || '',
         language: echo.ttsSbv2Language || 'JP',
-        use_translation: !!echo.ttsUseTranslation,
-        text_source: echo.ttsTextSource || 'raw',
+            text_source: echo.ttsTextSource || 'raw',
         raw_text: String(rawText || ''),
         translated_text: String(translatedText || ''),
         sbv2_jp_extra_text_normalization: echo.sbv2TextNormalization !== false,
@@ -5367,7 +5353,7 @@ function saveEchoSettings() {
   }
   const requestedTtsLang = (echo.ttsLanguage || 'auto').toLowerCase();
   echo.ttsSbv2Language = requestedTtsLang === 'en' ? 'EN' : 'JP';
-  echo.ttsUseTranslation = !!document.getElementById('echo-tts-use-translation')?.checked;
+  echo.ttsUseTranslation = false;
   echo.ttsTextSource = 'raw';
   echo.sbv2TextNormalization = document.getElementById('echo-tts-sbv2-text-normalization')?.checked !== false;
   echo.sbv2EnglishToKatakana = (document.getElementById('echo-tts-sbv2-english-to-katakana')?.value || echo.sbv2EnglishToKatakana || 'llm').toLowerCase();
@@ -5491,7 +5477,6 @@ function saveEchoSettings() {
   localStorage.setItem('echo_style_bert_vits2_model', _normalizeStyleBertVits2Model(echo.styleBertVits2Model));
   localStorage.setItem('tts_style_bert_vits2_model', _normalizeStyleBertVits2Model(tts.styleBertVits2Model || echo.styleBertVits2Model));
   localStorage.setItem('echo_tts_sbv2_language', `${echo.ttsSbv2Language}`);
-  localStorage.setItem('echo_tts_use_translation', echo.ttsUseTranslation ? 'true' : 'false');
   localStorage.setItem('echo_tts_text_source', echo.ttsTextSource || 'raw');
   localStorage.setItem('sbv2_jp_extra_text_normalization', `${echo.sbv2TextNormalization !== false}`);
   localStorage.setItem('sbv2_jp_extra_english_to_katakana', echo.sbv2EnglishToKatakana || 'llm');
@@ -5550,8 +5535,6 @@ function saveEchoSettings() {
   localStorage.setItem('echo_vad_min_avg_rms', `${echo.vadMinAvgRms}`);
   localStorage.setItem('echo_vad_overlap_enabled', `${echo.vadOverlapEnabled}`);
   localStorage.setItem('echo_vad_overlap_ms', `${echo.vadOverlapMs}`);
-  const useTranslationLabel = document.getElementById('echo-tts-use-translation-label');
-  if (useTranslationLabel) useTranslationLabel.textContent = echo.ttsUseTranslation ? 'ON' : 'OFF';
   _updateEchoSbv2LanguageNote();
   _updateEchoTtsPreview();
 
@@ -5713,10 +5696,6 @@ function _echoInitSettingsUI() {
   if (echoOutSel) echoOutSel.value = echo.ttsOutputDeviceId || 'default';
   const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
   if (styleSel) styleSel.value = echo.styleBertVits2Model || tts.styleBertVits2Model || '';
-  const useTranslationChk = document.getElementById('echo-tts-use-translation');
-  if (useTranslationChk) useTranslationChk.checked = !!echo.ttsUseTranslation;
-  const useTranslationLbl = document.getElementById('echo-tts-use-translation-label');
-  if (useTranslationLbl) useTranslationLbl.textContent = echo.ttsUseTranslation ? 'ON' : 'OFF';
   const textSourceSel = document.getElementById('echo-tts-text-source');
   if (textSourceSel) textSourceSel.value = echo.ttsTextSource || 'raw';
   const textNormChk = document.getElementById('echo-tts-sbv2-text-normalization');
