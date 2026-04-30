@@ -376,12 +376,50 @@ def main() -> int:
         env.setdefault("CODEAGENT_WORK_DIR", "/workspace/ca_data/workspace")
         env.setdefault("CODEAGENT_SKILLS_DIR", "/workspace/ca_data/skills")
         env.setdefault("CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR", "/workspace/ca_data/tts/style_bert_vits2/models")
+    if os.name == "nt" and not runpod:
+        env.setdefault("CODEAGENT_STYLE_BERT_VITS2_REPO_DIR", str(base_dir / "third_party" / "Style-Bert-VITS2"))
+        env.setdefault("CODEAGENT_STYLE_BERT_VITS2_VENV_DIR", str(base_dir / "tts_envs" / "style_bert_vits2"))
+        env.setdefault("CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR", str(base_dir / "ca_data" / "tts" / "style_bert_vits2" / "models"))
+        env.setdefault("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "directml")
+        env.setdefault("CODEAGENT_AUTO_SETUP_STYLE_BERT_VITS2", "false")
     env["CODEAGENT_LOCAL_GPU_VENDOR"] = str(gpu_profile.get("vendor") or "none")
     env["CODEAGENT_LOCAL_GPU_NAME"] = str(gpu_profile.get("name") or "")
     env["CODEAGENT_TTS_RECOMMENDED_DEVICE"] = str(gpu_profile.get("recommended_tts_device") or "cpu")
     env["CODEAGENT_LLAMA_RECOMMENDED_BACKEND"] = str(gpu_profile.get("recommended_llama_backend") or "cpu")
     if not env.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE"):
         env["CODEAGENT_STYLE_BERT_VITS2_DEVICE"] = str(gpu_profile.get("recommended_tts_device") or "cpu")
+
+    auto_setup_sbv2 = str(env.get("CODEAGENT_AUTO_SETUP_STYLE_BERT_VITS2", "")).strip().lower() in {"1", "true", "yes", "on"}
+    if os.name == "nt" and not runpod and auto_setup_sbv2:
+        sbv2_python = Path(env.get("CODEAGENT_STYLE_BERT_VITS2_VENV_DIR", "")) / "Scripts" / "python.exe"
+        sbv2_repo = Path(env.get("CODEAGENT_STYLE_BERT_VITS2_REPO_DIR", ""))
+        sbv2_models = Path(env.get("CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR", ""))
+        koharune_files = [
+            sbv2_models / "koharune-ami" / "config.json",
+            sbv2_models / "koharune-ami" / "style_vectors.npy",
+            sbv2_models / "koharune-ami" / "koharune-ami.safetensors",
+        ]
+        needs_setup = (not sbv2_python.exists()) or (not sbv2_repo.exists()) or any(not p.exists() for p in koharune_files)
+        if not needs_setup and sbv2_python.exists():
+            check = subprocess.run(
+                [str(sbv2_python), "-c", "import style_bert_vits2"],
+                cwd=base_dir,
+                env=env,
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            needs_setup = check.returncode != 0
+        if needs_setup:
+            print("[SBV2] Auto setup is enabled. Running setup_style_bert_vits2_windows.py --with-directml ...")
+            setup = subprocess.run(
+                [sys.executable, str(base_dir / "scripts" / "setup_style_bert_vits2_windows.py"), "--with-directml"],
+                cwd=base_dir,
+                env=env,
+                check=False,
+            )
+            if setup.returncode != 0:
+                print("[SBV2][WARN] Auto setup failed. Run setup_style_bert_vits2_windows.bat manually.")
 
     python_exec = sys.executable
     if not runpod:
