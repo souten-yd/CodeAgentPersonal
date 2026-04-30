@@ -2573,7 +2573,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div style="margin-top:8px;padding:6px;border:1px dashed var(--border);border-radius:4px;background:var(--bg)">
             <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS入力プレビュー</div>
             <div id="echo-tts-preview-source" style="font-size:10px;color:var(--text3)">TTS text source: raw</div>
-            <div id="echo-tts-preview-use-translation" style="font-size:10px;color:var(--text3)">Use translation: OFF</div>
+            <div id="echo-tts-preview-use-translation" style="font-size:10px;color:var(--text3)">Translation route: auto</div>
             <div id="echo-tts-preview-language" style="font-size:10px;color:var(--text3)">Language: JP</div>
             <div id="echo-tts-preview-effective-language" style="font-size:10px;color:var(--text3)">Effective language: JP</div>
             <div id="echo-tts-preview-original-text" style="font-size:10px;color:var(--text3);margin-top:3px;word-break:break-word">Original text preview: -</div>
@@ -4995,7 +4995,7 @@ async function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
   const opsEl = document.getElementById('echo-tts-preview-operations');
   const fmtPreview = (value) => String(value || '').replace(/\n/g, '\\n').slice(0, 160) || '-';
   if (sourceEl) sourceEl.textContent = `TTS text source: ...`;
-  if (useTranslationEl) useTranslationEl.textContent = `Use translation: ${echo.ttsUseTranslation ? 'ON' : 'OFF'}`;
+  if (useTranslationEl) useTranslationEl.textContent = `Translation route: auto`;
   if (langEl) langEl.textContent = `Language: ${selectedLanguage === 'auto' ? 'Auto' : selectedLanguage}`;
   if (effEl) effEl.textContent = `Effective language: ...`;
   if (orgEl) orgEl.textContent = `Original text preview: ...`;
@@ -5027,7 +5027,7 @@ async function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
         ? ' (translated選択だが翻訳結果が空のため raw を使用)'
         : '';
     if (sourceEl) sourceEl.textContent = `TTS text source: ${source}${sourceNote}`;
-    if (useTranslationEl) useTranslationEl.textContent = `Use translation: ${data.use_translation ? 'ON' : 'OFF'}`;
+    if (useTranslationEl) useTranslationEl.textContent = `Translation route: auto`;
     if (effEl) effEl.textContent = `Effective language: ${String(data.effective_language || 'JP')}`;
     if (orgEl) orgEl.textContent = `Original text preview: ${fmtPreview(data.original_text)}`;
     if (normEl) normEl.textContent = `Normalized text preview: ${fmtPreview(data.normalized_text)}`;
