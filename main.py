@@ -681,7 +681,12 @@ def schedule_default_model_load(reason: str = "", force: bool = False) -> tuple[
         return False, "llama_server_not_found"
     if not model_db_exists():
         return False, "no_model_db"
-    models = [m for m in model_db_list() if int(m.get("enabled", 1) or 1) != 0 and m.get("path")]
+    models = [
+        m for m in model_db_list()
+        if int(m.get("enabled", 1) or 1) != 0
+        and m.get("path")
+        and os.path.isfile(str(m.get("path")))
+    ]
     if not models:
         return False, "no_models"
     if not force and _startup_requires_benchmark() and not any(_has_benchmark_profile(m) for m in models):
@@ -4262,6 +4267,13 @@ def seed_default_model_catalog():
     }
     default_info["ctx_size"] = 16384 if int(default_info["ctx_size"] or 0) >= 16384 else 8192
 
+    if not IS_RUNPOD_RUNTIME:
+        print("[ModelDB] skip bundled Gemma seed outside Runpod runtime.")
+        return
+    if not os.path.isfile(gemma_path):
+        print(f"[ModelDB] skip bundled Gemma seed because file is missing: {gemma_path}")
+        return
+
     rows = model_db_list()
     existing = None
     for row in rows:
@@ -4270,11 +4282,12 @@ def seed_default_model_catalog():
             break
     if existing is None:
         model_db_add(default_info)
+        print(f"[ModelDB] seeded bundled Gemma model: {gemma_path}")
         return
 
     patch = {}
     cur_path = str(existing.get("path") or "").strip()
-    if (not cur_path) or (not os.path.exists(cur_path)):
+    if not cur_path:
         patch["path"] = gemma_path
 
     notes = str(existing.get("notes") or "")
@@ -4299,6 +4312,7 @@ def seed_default_model_catalog():
         patch["name"] = default_info["name"]
     if patch:
         model_db_update(str(existing.get("id") or ""), patch)
+        print(f"[ModelDB] seeded bundled Gemma model: {gemma_path}")
 
 
 def model_db_add(info: dict) -> str:
