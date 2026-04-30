@@ -1436,14 +1436,11 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div class="nexus-subtabs">
         <button class="nexus-subtab active" id="nexus-btn-dashboard" onclick="switchNexusTab('dashboard')">Dashboard</button>
         <button class="nexus-subtab" id="nexus-btn-library" onclick="switchNexusTab('library')">Library</button>
-        <button class="nexus-subtab" id="nexus-btn-news" onclick="switchNexusTab('news')">News</button>
-        <button class="nexus-subtab" id="nexus-btn-market" onclick="switchNexusTab('market')">Market</button>
-        <button class="nexus-subtab" id="nexus-btn-web-scout" onclick="switchNexusTab('web-scout')">Web Scout</button>
-        <button class="nexus-subtab" id="nexus-btn-deep-research" onclick="switchNexusTab('deep-research')">Deep Research</button>
-        <button class="nexus-subtab" id="nexus-btn-compare" onclick="switchNexusTab('compare')">Compare</button>
-        <button class="nexus-subtab" id="nexus-btn-formula" onclick="switchNexusTab('formula')">Formula</button>
+        <button class="nexus-subtab" id="nexus-btn-research" onclick="switchNexusTab('research')">Research</button>
+        <button class="nexus-subtab" id="nexus-btn-sources" onclick="switchNexusTab('sources')">Sources</button>
         <button class="nexus-subtab" id="nexus-btn-evidence" onclick="switchNexusTab('evidence')">Evidence</button>
-        <button class="nexus-subtab" id="nexus-btn-report" onclick="switchNexusTab('report')">Report</button>
+        <button class="nexus-subtab" id="nexus-btn-reports" onclick="switchNexusTab('reports')">Reports</button>
+        <button class="nexus-subtab" id="nexus-btn-settings" onclick="switchNexusTab('settings')">Settings</button>
       </div>
     </div>
     <div class="nexus-body">
@@ -1559,6 +1556,16 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div class="nexus-card-title">Deep Research</div>
             <div class="nexus-form-grid">
               <input id="nexus-deep-topic" class="nexus-input" type="text" placeholder="調査テーマ (例: 2026年のAI推論半導体サプライチェーン)">
+              <select id="nexus-research-type" class="nexus-select">
+                <option value="general">General Research</option>
+                <option value="source_search">Source Search</option>
+                <option value="news_scan">News Scan</option>
+                <option value="market_research">Market Research</option>
+                <option value="standards_legal">Standards / Legal</option>
+                <option value="technical_research">Technical Research</option>
+                <option value="compare_sources">Compare Sources</option>
+                <option value="formula_check">Formula Check</option>
+              </select>
               <div class="nexus-form-grid cols-2">
                 <select id="nexus-deep-depth" class="nexus-select">
                   <option value="quick">depth: Quick</option>
@@ -1596,6 +1603,14 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
                 <button class="settings-btn" id="nexus-deep-bundle-btn" style="padding:5px 12px;font-size:11px" onclick="downloadNexusDeepBundle()" disabled>Download Bundle</button>
               </div>
               <div id="nexus-deep-status" class="nexus-result-meta">状態: 未実行</div>
+              <div class="nexus-card" style="margin-top:10px">
+                <div class="nexus-card-title">Current Run</div>
+                <div id="nexus-deep-current-run" class="nexus-result-panel"><div class="nexus-empty">No current run</div></div>
+              </div>
+              <div class="nexus-card" style="margin-top:10px">
+                <div class="nexus-card-title">Previous Runs</div>
+                <div id="nexus-deep-previous-runs" class="nexus-result-panel"><div class="nexus-empty">No previous runs</div></div>
+              </div>
             </div>
           </div>
           <div class="nexus-deep-panel">
@@ -1629,6 +1644,19 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <div id="nexus-deep-sources-table" class="nexus-table-wrap">
                 <div class="nexus-empty" style="padding:10px">Sources テーブルは research 開始後に更新されます。</div>
               </div>
+            </div>
+            <div class="nexus-card">
+              <div class="nexus-card-title">Search in Collected Sources</div>
+              <div class="nexus-form-grid cols-2">
+                <input id="nexus-collected-query" class="nexus-input" type="text" placeholder="query">
+                <select id="nexus-collected-scope" class="nexus-select"><option value="current_research_job">current_research_job</option><option value="all_collected_sources">all_collected_sources</option><option value="library">library</option><option value="evidence">evidence</option></select>
+              </div>
+              <div class="nexus-form-grid cols-2">
+                <input id="nexus-collected-types" class="nexus-input" type="text" placeholder="source_types (csv: pdf,html)">
+                <input id="nexus-collected-limit" class="nexus-input" type="number" value="20" min="1" max="100" placeholder="limit">
+              </div>
+              <div class="nexus-actions"><button class="settings-btn primary" onclick="searchInCollectedSources()">Search</button></div>
+              <div id="nexus-collected-results" class="nexus-result-panel"><div class="nexus-empty">検索結果はここに表示されます。</div></div>
             </div>
           </div>
         </div>
@@ -1724,6 +1752,15 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             </div>
           </div>
         </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-sources">
+        <div class="nexus-card">
+          <div class="nexus-card-title">Sources Workspace</div>
+          <div class="nexus-empty">Search in Sources / Source List / Source Viewer / Selected Sources / Actions は Research 内検索と連携します。</div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-settings">
+        <div class="nexus-card"><div class="nexus-card-title">Nexus Settings</div><div class="nexus-empty">Nexus専用設定は今後ここに統合します。</div></div>
       </div>
     </div>
   </div>
@@ -3236,6 +3273,16 @@ async function _fetchJson(url, options = {}, label = 'request') {
     throw new Error(data?.detail || `${label} failed (${response.status})`);
   }
   return {response, data};
+}
+async function _fetchWithTimeout(url, options = {}, timeoutMs = 7000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(100, Number(timeoutMs) || 7000));
+  try {
+    const merged = {...(options || {}), signal: controller.signal};
+    return await fetch(url, merged);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 const DEFAULT_CTX_SIZE = 16384;
 let _settingsDefaultCtxSize = DEFAULT_CTX_SIZE;
@@ -7472,24 +7519,30 @@ function setMode(m) {
 }
 
 function switchNexusTab(name) {
-  const tabs = ['dashboard','library','news','market','web-scout','deep-research','compare','formula','evidence','report'];
+  const tabs = ['dashboard','library','research','sources','evidence','reports','settings'];
   const target = tabs.includes(name) ? name : 'dashboard';
   window._nexusTab = target;
+  const panelMap = { research:'deep-research', reports:'report' };
   tabs.forEach(tab => {
-    document.getElementById('nexus-tab-' + tab)?.classList.toggle('active', tab === target);
+    const panelId = panelMap[tab] || tab;
+    document.getElementById('nexus-tab-' + panelId)?.classList.toggle('active', tab === target);
     document.getElementById('nexus-btn-' + tab)?.classList.toggle('active', tab === target);
+  });
+  ['news','market','web-scout','compare','formula'].forEach(old => {
+    document.getElementById('nexus-tab-' + old)?.classList.remove('active');
+    document.getElementById('nexus-btn-' + old)?.classList.remove('active');
   });
   if (target === 'dashboard') refreshNexusDashboardSummary();
   if (target === 'library') {
     refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
     refreshNexusJobs();
   }
-  if (target === 'deep-research' && !nexusDeepResearchEvents.length) {
+  if (target === 'research' && !nexusDeepResearchEvents.length) {
     renderNexusDeepTimeline([]);
     renderNexusDeepSourcesTable(nexusDeepResearchSources);
   }
   if (target === 'evidence') runNexusEvidenceMvp();
-  if (target === 'report') runNexusReportMvp();
+  if (target === 'reports') runNexusReportMvp();
 }
 
 
@@ -7512,6 +7565,10 @@ let nexusDeepResearchSources = [];
 let nexusDeepResearchAnswer = {};
 let nexusDeepResearchEvidence = [];
 let nexusDeepResearchReferences = [];
+let nexusDeepResearchHealth = {};
+let nexusDeepResearchPollTimer = null;
+let nexusDeepResearchCurrentRunMeta = null;
+let nexusDeepResearchPreviousRuns = [];
 let nexusMaxUploadMb = 200;
 let nexusMaxUploadBytes = nexusMaxUploadMb * 1024 * 1024;
 const nexusAllowedUploadExt = new Set(['.pdf', '.txt', '.md', '.csv', '.html']);
@@ -8357,15 +8414,22 @@ function setNexusDeepStatus(message, isErr = false, isStub = false) {
 
 const NEXUS_TIMELINE_STATE_META = {
   planning: { label: 'planning', className: 'state-planning' },
+  web_search: { label: 'web_search', className: 'state-searching' },
+  source_collection: { label: 'source_collection', className: 'state-collecting_sources' },
   searching: { label: 'searching', className: 'state-searching' },
-  collecting_sources: { label: 'collecting_sources', className: 'state-collecting_sources' },
+  download: { label: 'downloading', className: 'state-downloading' },
   downloading: { label: 'downloading', className: 'state-downloading' },
-  retrieving_evidence: { label: 'retrieving_evidence', className: 'state-retrieving_evidence' },
-  answering: { label: 'answering', className: 'state-answering' },
+  source_ingest: { label: 'source_ingest', className: 'state-collecting_sources' },
+  evidence_retrieval: { label: 'evidence_retrieval', className: 'state-retrieving_evidence' },
+  evidence_compression: { label: 'evidence_compression', className: 'state-retrieving_evidence' },
+  answer_llm_generating: { label: 'answer_llm_generating', className: 'state-answering' },
+  answer_validation: { label: 'answer_validation', className: 'state-answering' },
+  answer_save: { label: 'answer_save', className: 'state-answering' },
   completed: { label: 'completed', className: 'state-completed' },
 };
 
 function renderNexusDeepTimeline(events = []) {
+  const importantTypes = new Set(['download_progress','download_source_failed','download_stalled_warning','answer_llm_request_started','answer_llm_request_finished','answer_llm_request_degraded','answer_llm_request_failed']);
   const el = document.getElementById('nexus-deep-timeline');
   if (!el) return;
   if (!events.length) {
@@ -8377,10 +8441,12 @@ function renderNexusDeepTimeline(events = []) {
     const seq = Number(ev?.seq ?? -1);
     const state = String(ev?.data?.state || '').trim();
     const stateMeta = NEXUS_TIMELINE_STATE_META[state] || { label: state || '-', className: 'state-unknown' };
-    const label = ev?.data?.state || ev?.data?.label || ev?.type || 'event';
+    const type = String(ev?.type || '').trim();
+    const label = ev?.data?.state || ev?.data?.label || type || 'event';
+    const importantBadge = importantTypes.has(type) ? '<span class="nexus-status-badge degraded">event</span> ' : '';
     return `<div class="nexus-tl-item ${esc(stateMeta.className)}">
       <div class="nexus-tl-head">#${Number.isFinite(seq) ? seq : '-'} · ${esc(ts)}</div>
-      <div class="nexus-tl-body"><span class="nexus-tl-state ${esc(stateMeta.className)}">${esc(stateMeta.label)}</span> ${esc(String(label))}</div>
+      <div class="nexus-tl-body">${importantBadge}<span class="nexus-tl-state ${esc(stateMeta.className)}">${esc(stateMeta.label)}</span> ${esc(String(label))}</div>
     </div>`;
   }).join('');
 }
@@ -8395,6 +8461,8 @@ function renderNexusDeepAnswer(answer = {}) {
     typeof generation !== 'string' || generation.trim() !== ''
   );
   const generationNotice = String(generation?.notice || '').trim();
+  const outputIncomplete = Boolean(answer?.output_incomplete ?? generation?.output_incomplete);
+  const outputTruncated = Boolean(answer?.output_truncated ?? generation?.output_truncated);
   const compression = (generation?.compression && typeof generation.compression === 'object') ? generation.compression : {};
   const compressionHtml = generation
     ? `<div class="nexus-answer-subtitle" style="margin-top:8px">Evidence Compression</div>
@@ -8421,7 +8489,30 @@ function renderNexusDeepAnswer(answer = {}) {
     <div class="nexus-answer-section">
       <div class="nexus-answer-subtitle">Generation</div>
       <pre class="nexus-answer-json">${esc(hasGeneration ? JSON.stringify(generation, null, 2) : 'generation unavailable')}</pre>
+      ${generation ? `<div style="font-size:10px;color:var(--text3);display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">
+        <span>max_tokens: <b style="color:var(--text2)">${esc(String(generation?.max_tokens ?? '-'))}</b></span>
+        <span>initial_len: <b style="color:var(--text2)">${esc(String(generation?.initial_response_length_chars ?? '-'))}</b></span>
+        <span>continuation_len: <b style="color:var(--text2)">${esc(String(generation?.continuation_response_length_chars ?? '-'))}</b></span>
+        <span>final_len: <b style="color:var(--text2)">${esc(String(generation?.final_response_length_chars ?? '-'))}</b></span>
+        <span>output_incomplete: <b style="color:var(--text2)">${esc(String(Boolean(generation?.final_output_incomplete ?? outputIncomplete)))}</b></span>
+        <span>output_truncated: <b style="color:var(--text2)">${esc(String(Boolean(generation?.final_output_truncated ?? outputTruncated)))}</b></span>
+        <span>finish: <b style="color:var(--text2)">${esc(String(generation?.finish_reason || '-'))}</b></span>
+        <span>final_finish: <b style="color:var(--text2)">${esc(String(generation?.final_finish_reason || '-'))}</b></span>
+      </div>` : ''}
       ${compressionHtml}
+      ${(() => {
+        const finishReason = String(generation?.final_finish_reason || generation?.finish_reason || answer?.finish_reason || '').trim();
+        const generationError = String(generation?.error || answer?.error || '').trim();
+        const hasWarning = outputIncomplete || outputTruncated || (finishReason && finishReason !== 'stop') || Boolean(generationError);
+        const selectedReason = String(generation?.selected_reason || answer?.selected_reason || '').trim();
+        const hasRoleWarning = selectedReason.includes('role_model_search_unset_fallback_to_models_api');
+        if (!hasWarning && !hasRoleWarning) return '';
+        const incompleteWarning = hasWarning ? `⚠ 回答生成が途中終了した可能性があります。output_incomplete=${esc(String(outputIncomplete))} / output_truncated=${esc(String(outputTruncated))} / finish_reason=${esc(finishReason || '-')} / error=${esc(generationError || '-')}。max_tokensまたはtimeoutを増やしてください。` : '';
+        const roleWarning = hasRoleWarning ? `⚠ SEARCHロールモデル未設定のためfallback modelを使用しました（selected_reason=${esc(selectedReason)}）。role_model_search を設定してください。` : '';
+        return `<div class="nexus-generation-notice" style="border-color:rgba(255,170,0,.4);color:var(--amber)">
+            ${incompleteWarning}${incompleteWarning && roleWarning ? '<br>' : ''}${roleWarning}
+          </div>`;
+      })()}
       ${(generationMode === 'template_fallback' || generationNotice)
         ? `<div class="nexus-generation-notice">${
           esc(generationNotice || 'Answer LLM is disabled. Deep Research generated a template fallback answer. Citation quality may be weak because no LLM synthesis was performed. Check DEEP_RESEARCH_LLM_ENABLED and endpoint settings.')
@@ -8675,6 +8766,104 @@ function formatNexusDeepErrorMessage(err) {
   return `Deep Research failed: ${err?.name || 'Error'}: ${err?.message || String(err)}`;
 }
 
+function stopNexusDeepResearchPolling() {
+  if (nexusDeepResearchPollTimer) {
+    clearTimeout(nexusDeepResearchPollTimer);
+    nexusDeepResearchPollTimer = null;
+  }
+}
+
+function renderNexusDeepCurrentRun() {
+  const root = document.getElementById('nexus-deep-current-run');
+  if (!root) return;
+  const row = nexusDeepResearchCurrentRunMeta;
+  if (!row) {
+    root.innerHTML = '<div class="nexus-empty">No current run</div>';
+    return;
+  }
+  root.innerHTML = `<div><b>${esc(row.job_id || '-')}</b></div><div class="nexus-result-meta">query: ${esc(row.query || '-')} / status: ${esc(row.status || '-')} / created_at: ${esc(row.created_at || '-')}</div>`;
+}
+
+function renderNexusDeepPreviousRuns() {
+  const root = document.getElementById('nexus-deep-previous-runs');
+  if (!root) return;
+  if (!Array.isArray(nexusDeepResearchPreviousRuns) || !nexusDeepResearchPreviousRuns.length) {
+    root.innerHTML = '<div class="nexus-empty">No previous runs</div>';
+    return;
+  }
+  root.innerHTML = nexusDeepResearchPreviousRuns.map((row) => {
+    const id = String(row?.job_id || '');
+    const idEnc = encodeURIComponent(id);
+    return `<div class="nexus-result-item"><div><b>${esc(id || '-')}</b></div><div class="nexus-result-meta">query: ${esc(row?.query || '-')} / status: ${esc(row?.status || '-')} / created_at: ${esc(row?.created_at || '-')}</div><div class="nexus-doc-actions"><button onclick="showNexusDeepPreviousRun('${idEnc}')">再表示</button><button onclick="downloadNexusDeepBundleByJobId('${idEnc}')">bundle download</button></div></div>`;
+  }).join('');
+}
+
+function pushNexusDeepPreviousRun(meta = null) {
+  if (!meta || !meta.job_id) return;
+  if (nexusDeepResearchPreviousRuns.some((row) => row.job_id === meta.job_id)) return;
+  nexusDeepResearchPreviousRuns.unshift(meta);
+  if (nexusDeepResearchPreviousRuns.length > 20) nexusDeepResearchPreviousRuns = nexusDeepResearchPreviousRuns.slice(0, 20);
+  renderNexusDeepPreviousRuns();
+}
+
+function resetNexusDeepResearchView(options = {}) {
+  const keepQuery = options?.keepQuery === true;
+  stopNexusDeepResearchPolling();
+  if (!keepQuery) {
+    const topicEl = document.getElementById('nexus-deep-topic');
+    if (topicEl) topicEl.value = '';
+  }
+  nexusDeepResearchJobId = '';
+  nexusDeepResearchAfterSeq = -1;
+  nexusDeepResearchEvents = [];
+  nexusDeepResearchStubMode = false;
+  nexusDeepResearchSources = [];
+  nexusDeepResearchAnswer = {};
+  nexusDeepResearchReferences = [];
+  nexusDeepResearchEvidence = [];
+  nexusDeepResearchHealth = {};
+  window.__nexusDeepViewer = null;
+  window.__nexusDeepViewerLastBody = '';
+  window.__nexusDeepViewerLastTextMode = '';
+  const bundleBtn = document.getElementById('nexus-deep-bundle-btn');
+  if (bundleBtn) bundleBtn.disabled = true;
+  const collected = document.getElementById('nexus-collected-results');
+  if (collected) collected.innerHTML = '<div class="nexus-empty">検索結果はここに表示されます。</div>';
+  const followup = document.getElementById('nexus-deep-followup-answer');
+  if (followup) followup.innerHTML = '<div class="nexus-empty">Follow-up answer はここに表示されます。</div>';
+  renderNexusDeepTimeline([]);
+  renderNexusDeepSourcesTable([]);
+  renderNexusDeepAnswer({});
+  renderNexusDeepReferences([], [], []);
+  renderNexusDeepViewer({});
+  setNexusDeepStatus('未実行');
+}
+
+function setNexusDeepCurrentJob(jobMeta = null) {
+  nexusDeepResearchCurrentRunMeta = jobMeta && jobMeta.job_id ? { ...jobMeta } : null;
+  nexusDeepResearchJobId = String(jobMeta?.job_id || '');
+  renderNexusDeepCurrentRun();
+}
+
+function updateNexusDeepCurrentStatus(status) {
+  if (!nexusDeepResearchCurrentRunMeta) return;
+  nexusDeepResearchCurrentRunMeta.status = status || nexusDeepResearchCurrentRunMeta.status || '-';
+  renderNexusDeepCurrentRun();
+}
+
+function downloadNexusDeepBundleByJobId(jobIdEnc) {
+  const id = decodeURIComponent(String(jobIdEnc || ''));
+  if (!id) return;
+  const url = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/bundle.zip');
+  window.open(url, '_blank', 'noopener');
+}
+
+async function showNexusDeepPreviousRun(jobIdEnc) {
+  const id = decodeURIComponent(String(jobIdEnc || ''));
+  if (!id) return;
+  await refreshNexusDeepBundle(id);
+}
+
 async function refreshNexusDeepSources(jobId) {
   const id = String(jobId || '').trim();
   if (!id) {
@@ -8735,6 +8924,36 @@ function normalizeNexusDeepAnswerPayload(answerPayload = {}) {
   };
 }
 
+
+async function refreshNexusDeepDebug(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return {};
+  const endpoint = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/debug');
+  try {
+    const resp = await fetch(endpoint);
+    const parsed = await parseNexusApiResponse(resp);
+    if (!resp.ok) throw new Error(buildNexusApiErrorMessage(endpoint, resp, parsed));
+    const data = parsed?.data || {};
+    const health = (data?.health && typeof data.health === 'object') ? data.health : {};
+    if (Object.keys(health).length) {
+      nexusDeepResearchHealth = { ...nexusDeepResearchHealth, ...health };
+    }
+    const generation = (data?.answer?.generation && typeof data.answer.generation === 'object') ? data.answer.generation : {};
+    if (Object.keys(generation).length) {
+      nexusDeepResearchAnswer = {
+        ...nexusDeepResearchAnswer,
+        generation: { ...(nexusDeepResearchAnswer?.generation || {}), ...generation },
+        output_incomplete: data?.answer?.output_incomplete ?? nexusDeepResearchAnswer?.output_incomplete,
+        output_truncated: data?.answer?.output_truncated ?? nexusDeepResearchAnswer?.output_truncated,
+        finish_reason: data?.answer?.finish_reason ?? nexusDeepResearchAnswer?.finish_reason,
+      };
+    }
+    return data;
+  } catch (err) {
+    console.warn('[NexusDeep] refresh debug failed', { url: endpoint, name: err?.name, message: err?.message });
+    return {};
+  }
+}
 async function refreshNexusDeepAnswer(jobId) {
   const id = String(jobId || '').trim();
   if (!id) {
@@ -8771,29 +8990,142 @@ async function refreshNexusDeepAnswer(jobId) {
 function getNexusDeepTerminalState() {
   const latestState = String(nexusDeepResearchEvents?.[0]?.data?.state || '').toLowerCase();
   if (latestState === 'completed' || latestState === 'failed' || latestState === 'degraded') return latestState;
+  const jobState = String(nexusDeepResearchHealth?.job_status || '').toLowerCase();
+  if (jobState === 'completed' || jobState === 'failed' || jobState === 'degraded') return jobState;
   return '';
 }
 
-async function pollNexusDeepResearch(jobId, maxTicks = 50) {
+
+function getLatestNexusDeepDownloadProgress() {
+  const events = Array.isArray(nexusDeepResearchEvents) ? nexusDeepResearchEvents : [];
+  for (let i = 0; i < events.length; i += 1) {
+    const ev = events[i] || {};
+    if (String(ev.type || '') === 'download_progress') {
+      const data = ev.data && typeof ev.data === 'object' ? ev.data : {};
+      return data;
+    }
+  }
+  return {};
+}
+
+function getLatestNexusDeepActiveSource() {
+  const events = Array.isArray(nexusDeepResearchEvents) ? nexusDeepResearchEvents : [];
+  for (let i = 0; i < events.length; i += 1) {
+    const ev = events[i] || {};
+    if (String(ev.type || '') === 'download_source_started') {
+      const data = ev.data && typeof ev.data === 'object' ? ev.data : {};
+      return data;
+    }
+  }
+  return {};
+}
+
+function formatNexusDeepProgressStatus() {
+  const h = (nexusDeepResearchHealth && typeof nexusDeepResearchHealth === 'object') ? nexusDeepResearchHealth : {};
+  const phase = String(h.current_phase || h.phase || '-');
+  const hbAgo = Number(h.seconds_since_last_heartbeat);
+  const hbText = Number.isFinite(hbAgo) ? `${hbAgo.toFixed(1)}秒前` : '-';
+  const generation = nexusDeepResearchAnswer?.generation || {};
+  const chunksIn = generation?.compression?.chunks_input ?? '-';
+  const chunksUsed = generation?.compression?.chunks_used ?? '-';
+  const promptTokens = generation?.estimated_prompt_tokens ?? generation?.prompt_tokens ?? '-';
+  const maxTokens = generation?.max_tokens ?? generation?.context_budget?.reserved_output_tokens ?? '-';
+  const msg = String(h.current_message || h.message || '').trim();
+  const elapsed = Number(generation?.elapsed_sec || 0);
+  const dl = (h.latest_download_progress && typeof h.latest_download_progress === 'object')
+    ? h.latest_download_progress
+    : getLatestNexusDeepDownloadProgress();
+  const activeSource = getLatestNexusDeepActiveSource();
+  const total = Number(h.download_total ?? dl.total ?? 0);
+  const completed = Number(h.download_completed ?? dl.completed ?? 0);
+  const active = Number(h.download_active ?? dl.active ?? 0);
+  const degraded = Number(h.download_degraded ?? dl.degraded ?? 0);
+  const failed = Number(h.download_failed ?? dl.failed ?? 0);
+  const skipped = Number(h.download_skipped ?? dl.skipped ?? 0);
+  const totalMb = Number(dl.total_downloaded_bytes || 0) / (1024 * 1024);
+  const srcTitle = String(activeSource.title || activeSource.domain || activeSource.url || '').trim();
+  const generationMode = String(generation?.mode || nexusDeepResearchAnswer?.generation_mode || '-').trim() || '-';
+  const outputIncomplete = Boolean(nexusDeepResearchAnswer?.output_incomplete ?? generation?.output_incomplete);
+  const outputTruncated = Boolean(nexusDeepResearchAnswer?.output_truncated ?? generation?.output_truncated);
+  const secSinceEvent = Number(h.seconds_since_last_event);
+  const eventText = Number.isFinite(secSinceEvent) ? `${secSinceEvent.toFixed(1)}秒前` : '-';
+  const downloadSummary = total > 0
+    ? ` / ダウンロード中 ${completed}/${total} 件完了、${active}件処理中、${degraded}件degraded、${failed}件failed、${skipped}件skipped、${totalMb.toFixed(1)}MB`
+    : '';
+  const activeSummary = srcTitle ? ` / 処理中:${srcTitle}` : '';
+  const finishReason = String(generation?.final_finish_reason || generation?.finish_reason || nexusDeepResearchAnswer?.finish_reason || '').trim();
+  const generationError = String(generation?.error || nexusDeepResearchAnswer?.error || '').trim();
+  const outputWarn = outputIncomplete || outputTruncated || (finishReason && finishReason !== 'stop') || Boolean(generationError);
+  const outWarn = outputWarn
+    ? ` / ⚠ 回答生成が途中終了した可能性があります（finish_reason=${finishReason || '-'} / error=${generationError || '-' }）。max_tokensまたはtimeoutを増やしてください。`
+    : '';
+  const stallReason = String(h.stalled_reason || '-').trim();
+  const suggestedAction = String(h.suggested_action || '-').trim();
+  return `phase:${phase} / progress:${Math.round(Number(h.progress || 0) * 100)}% / ${msg || '-'}${downloadSummary}${activeSummary} / generation:${generationMode}${outWarn} / 経過${elapsed || '-'}秒 / 最終heartbeat ${hbText} / 最終event ${eventText} / stalled:${String(Boolean(h.is_stalled))} / reason:${stallReason} / action:${suggestedAction} / sources:${nexusDeepResearchSources.length} / chunks:${chunksIn}/${chunksUsed} / prompt:${promptTokens} / max:${maxTokens}`;
+}
+
+async function refreshNexusDeepBundle(jobId, options = {}) {
+  const id = String(jobId || '').trim();
+  if (!id) return null;
+  const onlyIfCurrent = options?.onlyIfCurrent === true;
+  const endpoint = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/bundle');
+  const resp = await fetch(endpoint);
+  const parsed = await parseNexusApiResponse(resp);
+  if (!resp.ok) throw new Error(buildNexusApiErrorMessage(endpoint, resp, parsed));
+  const data = parsed?.data || {};
+  if (onlyIfCurrent && String(nexusDeepResearchJobId || '') !== id) return null;
+  const events = Array.isArray(data?.events) ? data.events : [];
+  nexusDeepResearchEvents = events.slice().reverse();
+  nexusDeepResearchSources = Array.isArray(data?.sources) ? data.sources : [];
+  const normalized = normalizeNexusDeepAnswerPayload(data?.answer || {});
+  nexusDeepResearchAnswer = normalized.answer || {};
+  nexusDeepResearchReferences = normalized.references || [];
+  nexusDeepResearchEvidence = normalized.evidence || [];
+  const health = (data?.health && typeof data.health === 'object') ? data.health : {};
+  const job = (data?.job && typeof data.job === 'object') ? data.job : {};
+  nexusDeepResearchHealth = {
+    ...health,
+    job_status: String(job?.status || ''),
+    progress: Number(job?.progress || 0),
+    message: String(job?.message || ''),
+  };
+  renderNexusDeepTimeline(nexusDeepResearchEvents);
+  renderNexusDeepSourcesTable(nexusDeepResearchSources);
+  renderNexusDeepAnswer(nexusDeepResearchAnswer);
+  renderNexusDeepReferences(nexusDeepResearchReferences, nexusDeepResearchSources, nexusDeepResearchEvidence);
+  return data;
+}
+
+async function pollNexusDeepResearch(jobId, maxTicks = 300) {
   const id = String(jobId || '').trim();
   if (!id) return;
-  for (let i = 0; i < maxTicks; i += 1) {
-    if (String(nexusDeepResearchJobId || '') !== id) break;
-    await Promise.all([
-      refreshNexusDeepEvents(id),
-      refreshNexusDeepSources(id),
-      refreshNexusDeepAnswer(id),
-    ]);
+  stopNexusDeepResearchPolling();
+  let tick = 0;
+  const runTick = async () => {
+    if (String(nexusDeepResearchJobId || '') !== id) return;
+    tick += 1;
+    const requestJobId = id;
+    await refreshNexusDeepBundle(requestJobId, { onlyIfCurrent: true });
+    if (String(nexusDeepResearchJobId || '') !== requestJobId) return;
+    await refreshNexusDeepDebug(requestJobId);
+    if (String(nexusDeepResearchJobId || '') !== requestJobId) return;
     const state = getNexusDeepTerminalState();
-    const latestMsg = String(nexusDeepResearchEvents?.[0]?.data?.message || '');
-    setNexusDeepStatus(
-      `job:${id} / state:${state || '-'}${latestMsg ? ` / ${latestMsg}` : ''}`,
-      state === 'failed',
-      nexusDeepResearchStubMode,
-    );
-    if (state) break;
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-  }
+    const health = nexusDeepResearchHealth && typeof nexusDeepResearchHealth === 'object' ? nexusDeepResearchHealth : {};
+    const stalled = health.is_stalled === true;
+    const stallReason = String(health.stalled_reason || 'heartbeat停止').trim();
+    const suggestedAction = String(health.suggested_action || '').trim();
+    const stallMsg = stalled
+      ? ` / 警告: heartbeatが120秒以上更新されていません。サーバー処理停止の可能性があります。（${stallReason}${suggestedAction ? ` / ${suggestedAction}` : ''}）`
+      : '';
+    setNexusDeepStatus(`job:${id} / state:${state || '-'} / ${formatNexusDeepProgressStatus()}${stallMsg}`, state === 'failed' || stalled, nexusDeepResearchStubMode);
+    updateNexusDeepCurrentStatus(state || 'running');
+    if (state || tick >= maxTicks) {
+      stopNexusDeepResearchPolling();
+      return;
+    }
+    nexusDeepResearchPollTimer = setTimeout(runTick, 1200);
+  };
+  await runTick();
 }
 
 async function viewNexusDeepSourceText(sourceIdEnc) {
@@ -9059,6 +9391,7 @@ async function runNexusDeepResearch() {
   const topic = (document.getElementById('nexus-deep-topic')?.value || '').trim();
   const depth = (document.getElementById('nexus-deep-depth')?.value || 'standard').trim().toLowerCase();
   const scope = (document.getElementById('nexus-deep-scope')?.value || 'web').trim().toLowerCase();
+  const researchType = (document.getElementById('nexus-research-type')?.value || 'general').trim().toLowerCase();
   const maxDownloadMbEl = document.getElementById('nexus-deep-max-download-mb');
   const maxTotalDownloadMbEl = document.getElementById('nexus-deep-max-total-download-mb');
   const maxDownloadsEl = document.getElementById('nexus-deep-max-downloads');
@@ -9095,20 +9428,12 @@ async function runNexusDeepResearch() {
     setNexusDeepStatus('調査テーマを入力してください', true);
     return;
   }
-  nexusDeepResearchJobId = '';
-  nexusDeepResearchAfterSeq = -1;
-  nexusDeepResearchEvents = [];
-  nexusDeepResearchStubMode = false;
-  nexusDeepResearchSources = [];
-  nexusDeepResearchAnswer = {};
-  nexusDeepResearchReferences = [];
-  nexusDeepResearchEvidence = [];
-  if (bundleBtn) bundleBtn.disabled = true;
-  renderNexusDeepTimeline([]);
-  renderNexusDeepAnswer({});
-  renderNexusDeepReferences([], [], []);
-  renderNexusDeepViewer({});
-  renderNexusDeepSourcesTable([]);
+  if (nexusDeepResearchCurrentRunMeta?.job_id) {
+    pushNexusDeepPreviousRun({ ...nexusDeepResearchCurrentRunMeta });
+  }
+  resetNexusDeepResearchView({ keepQuery: true });
+  renderNexusDeepPreviousRuns();
+  setNexusDeepCurrentJob(null);
   if (btn) btn.disabled = true;
   try {
     const webStatus = await refreshNexusWebStatus();
@@ -9122,13 +9447,16 @@ async function runNexusDeepResearch() {
       setNexusDeepStatus('research job を起動中...');
     }
 
+    const typeToScope = { news_scan:'news', market_research:'market', compare_sources:'official', formula_check:'official', source_search:'library' };
+    const effectiveScope = typeToScope[researchType] || scope;
     const conf = nexusDepthToConfig(depth);
     const payload = {
       query: topic,
       project: currentProject || 'default',
       mode: depth,
       depth,
-      scope: [scope],
+      scope: [effectiveScope],
+      research_type: researchType,
       max_queries: conf.maxQueries,
       max_results_per_query: conf.maxResultsPerQuery,
       max_download_mb: maxDownloadMb,
@@ -9149,7 +9477,9 @@ async function runNexusDeepResearch() {
     if (!runRes.ok) throw new Error(buildNexusApiErrorMessage(runEndpoint, runRes, runParsed));
     const runData = runParsed?.data || {};
 
-    nexusDeepResearchJobId = String(runData?.job_id || '');
+    const newJobId = String(runData?.job_id || '');
+    const createdAt = String(runData?.created_at || new Date().toISOString()).replace('T', ' ').slice(0, 19);
+    setNexusDeepCurrentJob({ job_id: newJobId, query: topic, status: String(runData?.status || 'queued'), created_at: createdAt });
     if (bundleBtn) bundleBtn.disabled = !nexusDeepResearchJobId;
     nexusDeepResearchSources = Array.isArray(runData?.sources) ? runData.sources : [];
     const initialAnswer = normalizeNexusDeepAnswerPayload(runData?.answer || {});
@@ -9165,12 +9495,35 @@ async function runNexusDeepResearch() {
       return;
     }
 
+    stopNexusDeepResearchPolling();
     await pollNexusDeepResearch(nexusDeepResearchJobId, 50);
   } catch (err) {
     console.error('[NexusDeep] run failed', { url: nexusApi('/nexus/research/run'), name: err?.name, message: err?.message, stack: err?.stack, err });
     setNexusDeepStatus(formatNexusDeepErrorMessage(err), true, nexusDeepResearchStubMode);
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+async function searchInCollectedSources() {
+  const query = (document.getElementById('nexus-collected-query')?.value || '').trim();
+  const root = document.getElementById('nexus-collected-results');
+  if (!root) return;
+  if (!query) { root.innerHTML = '<div class="nexus-empty">query を入力してください。</div>'; return; }
+  const sourceTypesRaw = (document.getElementById('nexus-collected-types')?.value || '').trim();
+  const sourceTypes = sourceTypesRaw ? sourceTypesRaw.split(',').map(v=>v.trim()).filter(Boolean) : [];
+  const scope = (document.getElementById('nexus-collected-scope')?.value || 'current_research_job').trim();
+  const limit = Number(document.getElementById('nexus-collected-limit')?.value || 20);
+  const payload = { query, scope, job_id: nexusDeepResearchJobId || null, source_types: sourceTypes, limit };
+  try {
+    const res = await fetch(nexusApi('/nexus/sources/search'), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const parsed = await parseNexusApiResponse(res);
+    if (!res.ok) throw new Error(buildNexusApiErrorMessage('/nexus/sources/search', res, parsed));
+    const rows = parsed?.data?.results || [];
+    if (!rows.length) { root.innerHTML = '<div class="nexus-empty">ヒットなし。</div>'; return; }
+    root.innerHTML = rows.map(r => `<div class="nexus-result-item"><div><b>${esc(r.citation_label || '[S]')}</b> ${esc(r.title||'')}</div><div class="nexus-result-meta">${esc(r.source_type||'')} / p.${esc(String(r.page_start||'-'))}-${esc(String(r.page_end||'-'))}</div><div style="font-size:11px">${r.snippet || ''}</div></div>`).join('');
+  } catch (e) {
+    root.innerHTML = `<div class="nexus-empty">検索失敗: ${esc(e.message || String(e))}</div>`;
   }
 }
 
@@ -10224,10 +10577,14 @@ async function refreshModelDb(prefetchedModels = null, prefetchedStat = null) {
     let stat = prefetchedStat;
     let models = prefetchedModels;
     if (!stat || !Array.isArray(models)) {
-      const [{data: statData}, {data: listData}] = await Promise.all([
-        _fetchJson(API+'/models/db/status', {}, '/models/db/status'),
-        _fetchJson(API+'/models/db', {}, '/models/db')
+      const [statRes, listRes] = await Promise.all([
+        _fetchWithTimeout(API+'/models/db/status', {}, 7000),
+        _fetchWithTimeout(API+'/models/db', {}, 7000)
       ]);
+      const statData = await _readJsonResponse(statRes, '/models/db/status');
+      const listData = await _readJsonResponse(listRes, '/models/db');
+      if (!statRes.ok) throw new Error(statData?.detail || '/models/db/status failed');
+      if (!listRes.ok) throw new Error(listData?.detail || '/models/db failed');
       stat = statData;
       models = listData.models;
     }
@@ -10832,7 +11189,7 @@ async function refreshEnsembleVramStatus() {
   const box = document.getElementById('ensemble-vram-status');
   if (!box) return;
   try {
-    const r = await fetch(API+'/ensemble/vram');
+    const r = await _fetchWithTimeout(API+'/ensemble/vram', {}, 7000);
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'failed to read ensemble vram');
     const free = fmtGbFromMb(d.free_vram_mb);
@@ -10862,7 +11219,7 @@ async function saveEnsembleSettings(applyRecommended = false) {
   const autoSwitch = autoEl.checked !== false;
   try {
     if (applyRecommended) {
-      const rr = await fetch(API+'/ensemble/vram');
+      const rr = await _fetchWithTimeout(API+'/ensemble/vram', {}, 7000);
       const rd = await rr.json();
       if (rr.ok && rd?.recommended_mode) {
         executionMode = rd.recommended_mode;
@@ -13604,12 +13961,12 @@ function _phase2QuestionControl(q) {
   const options = Array.isArray(q.options) ? q.options : [];
   const type = String(q.type || 'single_choice');
   if (type === 'multiple_choice') {
-    return `<div style="display:flex;flex-direction:column;gap:4px">${options.map((opt, i)=>`
-      <label style="font-size:12px;color:var(--text2)"><input type="checkbox" data-qid="${qid}" data-qtype="multiple_choice" value="${esc(String(opt))}" ${i===0 && String(opt)==='おまかせ' ? 'checked' : ''}/> ${esc(String(opt))}</label>`).join('')}</div>`;
+    return `<div style="display:flex;flex-direction:column;gap:6px">${options.map((opt, i)=>`
+      <label style="font-size:12px;color:var(--text2);display:flex;gap:8px;align-items:flex-start;line-height:1.4;padding:2px 0;word-break:break-word"><input type="checkbox" style="margin-top:2px;transform:scale(1.1)" data-qid="${qid}" data-qtype="multiple_choice" value="${esc(String(opt))}" ${i===0 && String(opt)==='おまかせ' ? 'checked' : ''}/> <span>${esc(String(opt))}</span></label>`).join('')}</div>`;
   }
   if (type === 'yes_no') {
     return `<div style="display:flex;gap:8px;flex-wrap:wrap">
-      ${['Yes','No','おまかせ'].map((opt)=>`<label style="font-size:12px;color:var(--text2)"><input type="radio" name="q_${qid}" data-qid="${qid}" data-qtype="yes_no" value="${esc(opt)}" ${String(q.default||'')===opt ? 'checked' : ''}/> ${esc(opt)}</label>`).join('')}
+      ${['Yes','No','おまかせ'].map((opt)=>`<label style="font-size:12px;color:var(--text2);display:flex;gap:7px;align-items:center;padding:2px 4px;line-height:1.4"><input type="radio" style="transform:scale(1.1)" name="q_${qid}" data-qid="${qid}" data-qtype="yes_no" value="${esc(opt)}" ${String(q.default||'')===opt ? 'checked' : ''}/> <span>${esc(opt)}</span></label>`).join('')}
     </div>`;
   }
   if (type === 'free_text') {
@@ -13645,12 +14002,39 @@ function _collectClarificationAnswers(card) {
   return answers;
 }
 
+
+function _renderNexusContextSummary(nexusContext, { title = 'Nexus Context Summary', compact = false } = {}) {
+  const nc = (nexusContext && typeof nexusContext === 'object') ? nexusContext : {};
+  const available = !!nc.available;
+  const summary = String(nc.summary || 'Nexus context is empty.');
+  const sourceCounts = (nc.source_counts && typeof nc.source_counts === 'object') ? nc.source_counts : {};
+  const items = Array.isArray(nc.items) ? nc.items.slice(0, 3) : [];
+  const warnings = Array.isArray(nc.warnings) ? nc.warnings.slice(0, 5) : [];
+  const truncated = !!nc.truncated;
+  const sourceCountText = Object.keys(sourceCounts).length
+    ? Object.entries(sourceCounts).map(([k,v]) => `${esc(String(k))}: ${esc(String(v))}`).join(' / ')
+    : '-';
+
+  return `
+    <details style="margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--bg2);max-width:100%;overflow-wrap:anywhere">
+      <summary style="cursor:pointer;font-size:${compact ? '11px' : '12px'};color:var(--text);font-weight:700;line-height:1.4">${esc(title)}</summary>
+      <div style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.5;word-break:break-word">
+        <div><b>available</b>: ${available ? 'true' : 'false'}</div>
+        <div><b>summary</b>: ${esc(summary)}</div>
+        <div><b>source_counts</b>: ${sourceCountText}</div>
+        ${truncated ? '<div style="color:var(--amber)"><b>truncated</b>: true (context budget reached)</div>' : ''}
+        ${items.length ? `<div style="margin-top:6px"><b>top items</b>${items.map((it)=>`<div style="margin-top:4px">• ${esc(String(it.title || it.name || '-'))} <span style="color:var(--text3)">(${esc(String(it.source_type || it.type || 'other'))})</span><br><span style="color:var(--text3)">${esc(String(it.summary || it.description || '')).slice(0,180)}</span></div>`).join('')}</div>` : ''}
+        ${warnings.length ? `<div style="margin-top:6px"><b>warnings</b>${warnings.map((w)=>`<div>• ${esc(String(w))}</div>`).join('')}</div>` : ''}
+      </div>
+    </details>`;
+}
+
 function renderClarificationCard(result, context = {}) {
   const questions = Array.isArray(result?.questions) ? result.questions : [];
   const cardId = 'phase2-clar-card-' + Date.now();
   const qHtml = questions.length
     ? questions.map((q) => `
-      <div data-question-row="1" data-qid="${esc(String(q.question_id||''))}" data-qtype="${esc(String(q.type||'single_choice'))}" style="border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg2);margin-bottom:8px">
+      <div data-question-row="1" data-qid="${esc(String(q.question_id||''))}" data-qtype="${esc(String(q.type||'single_choice'))}" style="border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg2);margin-bottom:8px;max-width:100%;overflow-wrap:anywhere">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
           <div style="font-size:13px;color:var(--text);font-weight:700">${esc(String(q.question||''))}</div>
           <span style="font-size:10px;padding:2px 8px;border-radius:12px;${_phase2ImportanceStyle(q.importance)}">${esc(String(q.importance||'optional'))}</span>
@@ -13670,6 +14054,7 @@ function renderClarificationCard(result, context = {}) {
       <div class="plan-section">
         <div class="plan-section-title">Questions</div>
         ${qHtml}
+        ${_renderNexusContextSummary(result?.nexus_context, { title: "Nexus Context Summary", compact: true })}
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
           <button class="phase1-plan-btn" data-action="submit">回答してPlan生成</button>
           <button class="phase1-tab-btn" data-action="skip">おまかせで進める</button>
@@ -13684,6 +14069,22 @@ function renderClarificationCard(result, context = {}) {
   const submitBtn = card?.querySelector('[data-action="submit"]');
   const skipBtn = card?.querySelector('[data-action="skip"]');
   const baseReq = result?.requirement_id;
+  const setCardPending = (pending, label = '処理中...') => {
+    [submitBtn, skipBtn].forEach((btn) => {
+      if (!btn) return;
+      btn.disabled = !!pending;
+      if (pending) {
+        btn.dataset._oldLabel = btn.textContent || '';
+        btn.textContent = label;
+      } else if (btn.dataset._oldLabel) {
+        btn.textContent = btn.dataset._oldLabel;
+      }
+    });
+  };
+  const softenCard = () => {
+    if (!card) return;
+    card.style.opacity = '0.62';
+  };
 
   const runContinue = async () => {
     const rc = await fetch(API + '/api/task/continue', {
@@ -13695,11 +14096,16 @@ function renderClarificationCard(result, context = {}) {
         requirement_mode: context.requirementMode || 'ask_when_needed',
         execution_mode: context.executionMode || 'plan_only',
         use_nexus: true,
+        project_path: '',
+        project_name: currentProject || 'default',
       })
     });
     const dc = await rc.json();
     if (!rc.ok) throw new Error(dc.detail || `HTTP ${rc.status}`);
+    const ws = Array.isArray(dc?.warnings) ? dc.warnings : [];
+    ws.forEach((w) => addLog('warn', 'plan-only', String(w)));
     if (dc.status === 'waiting_for_clarification') {
+      softenCard();
       renderClarificationCard(dc, context);
       return;
     }
@@ -13712,11 +14118,13 @@ function renderClarificationCard(result, context = {}) {
     } catch (mdErr) {
       addLog('warn', 'plan-only', `Plan markdown fetch warning: ${mdErr.message || String(mdErr)}`);
     }
+    softenCard();
     renderPhase1PlanCard(dc, planMarkdown);
   };
 
   submitBtn?.addEventListener('click', async () => {
     if (busy) return;
+    setCardPending(true, '回答を送信中...');
     const progEl = addProgressCard('Applying clarification answers...');
     setBusy(true);
     try {
@@ -13734,12 +14142,14 @@ function renderClarificationCard(result, context = {}) {
       addLog('err', 'plan-only', e.message || String(e));
     } finally {
       progEl.remove();
+      setCardPending(false);
       setBusy(false);
     }
   });
 
   skipBtn?.addEventListener('click', async () => {
     if (busy) return;
+    setCardPending(true, '既定値で処理中...');
     const progEl = addProgressCard('Applying default assumptions...');
     setBusy(true);
     try {
@@ -13756,15 +14166,62 @@ function renderClarificationCard(result, context = {}) {
       addLog('err', 'plan-only', e.message || String(e));
     } finally {
       progEl.remove();
+      setCardPending(false);
       setBusy(false);
     }
   });
+}
+
+
+function _phase1ReviewBadgeClass(severity) {
+  const s = String(severity || '').toLowerCase();
+  if (s === 'critical') return 'var(--red)';
+  if (s === 'high') return 'var(--amber)';
+  if (s === 'warning') return 'var(--blue)';
+  return 'var(--text3)';
+}
+
+function _renderPhase1ReviewSection(reviewResult) {
+  if (!reviewResult || typeof reviewResult !== 'object') return '';
+  const findings = Array.isArray(reviewResult.findings) ? reviewResult.findings.slice(0, 5) : [];
+  const needsConfirm = !!reviewResult.requires_user_confirmation;
+  const dangerBanner = needsConfirm
+    ? `<div style="margin-bottom:8px;padding:8px 10px;border:1px solid rgba(255,68,102,.35);background:rgba(255,68,102,.1);border-radius:6px;color:var(--red);font-size:11px;font-weight:700">⚠ このPlanは実装前に確認が必要です（Phase 5で承認操作を有効化予定）</div>`
+    : '';
+  const findingHtml = findings.length
+    ? findings.map((f) => {
+        const color = _phase1ReviewBadgeClass(f?.severity);
+        return `<div style="padding:7px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);margin-top:6px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:10px;padding:1px 6px;border:1px solid ${color};border-radius:10px;color:${color}">${esc(String(f?.severity || 'info'))}</span>
+            <span style="font-size:10px;color:var(--text3)">${esc(String(f?.category || 'other'))}</span>
+          </div>
+          <div style="font-size:11px;color:var(--text);font-weight:700;margin-top:3px">${esc(String(f?.title || '-'))}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">${esc(String(f?.detail || ''))}</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">recommendation: ${esc(String(f?.recommendation || '-'))}</div>
+        </div>`;
+      }).join('')
+    : `<div style="font-size:11px;color:var(--text3)">No findings</div>`;
+
+  return `<div class="phase1-warning-box" style="border-color:var(--border)">
+    ${dangerBanner}
+    <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:4px">Plan Review</div>
+    <div style="font-size:11px;color:var(--text2);line-height:1.5">
+      • Overall risk: <b>${esc(String(reviewResult.overall_risk || '-'))}</b><br>
+      • Requires user confirmation: <b>${esc(String(!!reviewResult.requires_user_confirmation))}</b><br>
+      • Destructive change detected: <b>${esc(String(!!reviewResult.destructive_change_detected))}</b><br>
+      • Recommended next action: <b>${esc(String(reviewResult.recommended_next_action || '-'))}</b>
+    </div>
+    <div style="margin-top:6px;font-size:11px;font-weight:700;color:var(--text2)">Findings (top 5)</div>
+    ${findingHtml}
+  </div>`;
 }
 
 function renderPhase1PlanCard(result, planMarkdown = '') {
   const requirement = result?.requirement || {};
   const plan = result?.plan || {};
   const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
+  const reviewResult = result?.review_result || null;
   const planSteps = Array.isArray(plan.implementation_steps) ? plan.implementation_steps : [];
   const cardId = 'phase1-plan-card-' + Date.now();
   const markdownHtml = _renderPhase1Markdown(planMarkdown);
@@ -13790,6 +14247,8 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
       <div class="plan-card-header"><span>${esc(result?.message || 'Plan generated')}</span></div>
       <div class="plan-section">
         ${warningsHtml}
+        ${_renderPhase1ReviewSection(reviewResult)}
+        ${_renderNexusContextSummary(result?.nexus_context, { title: "Nexus Context", compact: true })}
         <div class="phase1-tabs">
           <button class="phase1-tab-btn active" data-tab="requirements" onclick="_switchPhase1CardTab('${cardId}','requirements')">Requirements</button>
           <button class="phase1-tab-btn" data-tab="plan" onclick="_switchPhase1CardTab('${cardId}','plan')">Plan</button>
@@ -13803,6 +14262,7 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
           <div class="plan-section-title">仮定</div>${_phase1List(requirement.assumptions)}
           <div class="plan-section-title">完了条件</div>${_phase1List(requirement.done_definition)}
           <div class="plan-section-title">要件明確度スコア</div><div class="plan-approach-text">${esc(String(requirement.requirement_completeness_score ?? '-'))}</div>
+          ${_renderNexusContextSummary(result?.nexus_context, { title: "Nexus Context Summary", compact: false })}
         </div>
         <div class="phase1-tab-body" data-tab="plan">
           ${markdownSectionHtml}
