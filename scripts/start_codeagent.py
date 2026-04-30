@@ -28,6 +28,12 @@ AUTO_MODE_NUM = "1"
 DEFAULT_SYS_VENV_NAME = "venv_sys"
 
 
+def startup_requires_benchmark(runpod: bool, os_profile: dict) -> bool:
+    if str(os_profile.get("system", "")).lower().startswith("windows"):
+        return False
+    return bool(runpod)
+
+
 def get_llama_root_dir(base_dir: Path, runpod: bool) -> Path:
     override = os.environ.get("LLAMA_ROOT_DIR", "").strip()
     if override:
@@ -405,7 +411,10 @@ def main() -> int:
         db_total = int(status.get("total", 0) or 0)
         benchmarked_total = int(status.get("benchmarked", 0) or 0)
 
-        if db_exists and db_total > 0 and benchmarked_total > 0:
+        require_benchmark = startup_requires_benchmark(runpod, os_profile)
+        benchmark_gate_ok = (benchmarked_total > 0) if require_benchmark else True
+
+        if db_exists and db_total > 0 and benchmark_gate_ok:
             print(
                 f"[ModelDB] Found {db_total} model(s), benchmarked={benchmarked_total}. "
                 "Requesting default LLM load..."
@@ -431,11 +440,13 @@ def main() -> int:
                     print("[LLM] Warm-up complete.")
                 else:
                     print("[LLM][WARN] Warm-up request did not succeed (non-critical).")
-        elif db_exists and db_total > 0:
+        elif db_exists and db_total > 0 and require_benchmark:
             print(
                 "[WAIT] model_db has models but no benchmarked models. "
                 "Skipping LLM startup wait until UI benchmark completes."
             )
+        elif db_exists and db_total > 0:
+            print("[ModelDB] benchmark is optional on this runtime. Proceeding without benchmark.")
         elif db_exists and db_total <= 0:
             print("[WAIT] model_db is empty. FastAPI is ready; skipping LLM startup wait.")
         elif not db_exists:

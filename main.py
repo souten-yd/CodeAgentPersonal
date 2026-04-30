@@ -627,6 +627,35 @@ def model_db_status_summary() -> dict:
     return {"total": total, "enabled": enabled, "benchmarked": benchmarked}
 
 
+def _has_benchmark_profile(row: dict | None) -> bool:
+    if not isinstance(row, dict):
+        return False
+    for key in ("benchmark_profile", "bench_profile", "benchmark_json"):
+        raw = row.get(key)
+        if isinstance(raw, str) and raw.strip():
+            return True
+        if isinstance(raw, (dict, list)) and raw:
+            return True
+    for key in ("prompt_eval_tps", "eval_tps", "tokens_per_second", "context_size", "n_batch"):
+        val = row.get(key)
+        if isinstance(val, (int, float)) and float(val) > 0:
+            return True
+        if isinstance(val, str) and val.strip():
+            try:
+                if float(val) > 0:
+                    return True
+            except Exception:
+                continue
+    return False
+
+
+def _startup_requires_benchmark() -> bool:
+    # Runpod/Linux は事前ベンチマーク前提、Windows ローカルはそのまま起動を許可する。
+    if os.name == "nt":
+        return False
+    return IS_RUNPOD_RUNTIME
+
+
 def _should_startup_autoload_llm() -> tuple[bool, str]:
     if os.environ.get("CODEAGENT_STARTUP_AUTOLOAD_LLM", "true").strip().lower() == "false":
         return False, "disabled_by_env"
@@ -640,7 +669,7 @@ def _should_startup_autoload_llm() -> tuple[bool, str]:
         return False, "no_models"
     if int(status.get("enabled", 0) or 0) <= 0:
         return False, "no_enabled_models"
-    if int(status.get("benchmarked", 0) or 0) <= 0:
+    if _startup_requires_benchmark() and int(status.get("benchmarked", 0) or 0) <= 0:
         return False, "no_benchmarked_models"
     if not _model_manager.has_llama_server():
         return False, "llama_server_not_found"
@@ -655,7 +684,7 @@ def schedule_default_model_load(reason: str = "", force: bool = False) -> tuple[
     models = [m for m in model_db_list() if int(m.get("enabled", 1) or 1) != 0 and m.get("path")]
     if not models:
         return False, "no_models"
-    if not force and not any(_has_benchmark_profile(m) for m in models):
+    if not force and _startup_requires_benchmark() and not any(_has_benchmark_profile(m) for m in models):
         return False, "no_benchmarked_models"
     if not force and _model_health_ok(_model_manager.llm_port):
         _model_manager._sync_current_model()
