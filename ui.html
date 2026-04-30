@@ -6156,18 +6156,6 @@ function saveTsAsrSettings() {
   }
   if (asrDir) localStorage.setItem('tsasr_asr_dir', asrDir.value);
   if (ttsDir) localStorage.setItem('tsasr_tts_dir', ttsDir.value);
-  const refTextInput = document.getElementById('qwen3-ref-text-input');
-  if (refTextInput) localStorage.setItem('qwen3_ref_text', refTextInput.value || '');
-  const requireRef = document.getElementById('qwen3-clone-require-ref-text');
-  if (requireRef) localStorage.setItem('qwen3_clone_require_ref_text', requireRef.checked ? 'true' : 'false');
-  const cloneTestText = document.getElementById('qwen3-clone-test-text');
-  if (cloneTestText) localStorage.setItem('qwen3_clone_test_text', cloneTestText.value || '');
-  // Qwen3 モデル選択を echo.ttsEngine と同期
-  const q3ModelSel = document.getElementById('tsasr-qwen3-model-sel');
-  if (q3ModelSel) {
-    const mainQ3Sel = document.getElementById('tts-qwen3-model-sel');
-    if (mainQ3Sel) mainQ3Sel.value = q3ModelSel.value;
-  }
   const devRadio = document.querySelector('input[name="tsasr-device"]:checked');
   if (devRadio) _syncTtsDeviceState(devRadio.value);
 }
@@ -6241,10 +6229,6 @@ function refreshAsrTab() {
 
 function refreshTtsTab() {
   _echoInitSettingsUI();
-  const tsasrQ3Sel = document.getElementById('tsasr-qwen3-model-sel');
-  const mainQ3Sel = document.getElementById('tts-qwen3-model-sel');
-  if (tsasrQ3Sel) tsasrQ3Sel.value = tts.qwen3model;
-  if (mainQ3Sel) mainQ3Sel.value = tts.qwen3model;
   const savedStyleBertModel = _normalizeStyleBertVits2Model(localStorage.getItem('echo_style_bert_vits2_model')
     || localStorage.getItem('tts_style_bert_vits2_model')
     || localStorage.getItem('echo_stylebertvits2_model')
@@ -6262,25 +6246,12 @@ function refreshTtsTab() {
     setTimeout(() => { ensureStyleBertVits2LoadedForEcho().catch((e) => console.warn(e)); }, 0);
   });
   fetch(API + '/tts/status').then(r => r.json()).then(s => {
-    const statusEl  = document.getElementById('tsasr-qwen3-status');
-    const loadBtn   = document.getElementById('tsasr-qwen3-load-btn');
-    const unloadBtn = document.getElementById('tsasr-qwen3-unload-btn');
     _syncTtsDeviceState(s.qwen3tts_device || localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
-    if (statusEl) statusEl.textContent = s.qwen3tts_loaded ? `✓ ロード済み (${(s.qwen3tts_model_id||'').split('/').pop()}, ${s.qwen3tts_actual_device||s.qwen3tts_device||'cuda'})` : '未ロード';
-    if (loadBtn)  loadBtn.style.display   = s.qwen3tts_loaded ? 'none' : '';
-    if (unloadBtn) unloadBtn.style.display = s.qwen3tts_loaded ? '' : 'none';
-
   }).catch(() => {});
   const ttsPreload = document.getElementById('tsasr-tts-preload');
   const ttsDir   = document.getElementById('tsasr-tts-dir');
-  const refTextInput = document.getElementById('qwen3-ref-text-input');
   if (ttsPreload) { ttsPreload.checked = localStorage.getItem('tsasr_tts_preload') === 'true'; const lbl = document.getElementById('tsasr-tts-preload-label'); if (lbl) lbl.textContent = ttsPreload.checked ? 'ON' : 'OFF'; }
   if (ttsDir)  ttsDir.value  = localStorage.getItem('tsasr_tts_dir') || '';
-  if (refTextInput) refTextInput.value = localStorage.getItem('qwen3_ref_text') || '';
-  const cloneTestInput = document.getElementById('qwen3-clone-test-text');
-  const requireRef = document.getElementById('qwen3-clone-require-ref-text');
-  if (cloneTestInput) cloneTestInput.value = localStorage.getItem('qwen3_clone_test_text') || '';
-  if (requireRef) requireRef.checked = localStorage.getItem('qwen3_clone_require_ref_text') === 'true';
 
 
   _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
