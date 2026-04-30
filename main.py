@@ -12473,11 +12473,13 @@ def _style_bert_vits2_describe_model(model_id: str) -> dict:
         supported_languages = ["JP"]
     return {
         "model": model_id,
+        "model_id": model_id,
         "display_name": model_id,
         "config_path": config_path,
         "weight_path": weight_path,
         "style_vec_path": style_vec_path,
         "model_version": model_version,
+        "version": model_version,
         "is_jp_extra": is_jp_extra,
         "speakers": speakers,
         "styles": styles,

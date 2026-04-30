@@ -2526,6 +2526,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               </select>
             </div>
           </div>
+          <div id="echo-sbv2-jp-extra-note" style="display:none;margin-top:8px;padding:6px 8px;border:1px solid rgba(255,170,0,.3);border-radius:4px;background:rgba(255,170,0,.08);font-size:10px;color:var(--amber)">JP-Extra model: Japanese TTS only. Non-Japanese text will be translated/read-normalized automatically.</div>
           <details style="margin-top:8px">
             <summary style="cursor:pointer;font-size:11px;color:var(--text2);font-weight:700">Advanced parameters</summary>
             <div style="margin-top:6px;padding:6px;border:1px solid var(--border);border-radius:6px;background:rgba(64,178,255,.06);font-size:10px;color:var(--text3);line-height:1.5">
@@ -5051,9 +5052,18 @@ function _updateEchoSbv2LanguageNote() {
   const ttsLangSel = document.getElementById('echo-tts-language');
   const asrLangUnifiedSel = document.getElementById('echo-asr-lang-unified');
   const asrLangSel = document.getElementById('echo-asr-lang');
+  const jpExtraNote = document.getElementById('echo-sbv2-jp-extra-note');
   const isForced = _isJpExtraModelMeta(_getSelectedSbv2Meta());
-  const requestedTtsLang = (echo.ttsLanguage || 'auto').toLowerCase();
-  echo.ttsSbv2Language = requestedTtsLang === 'en' ? 'EN' : 'JP';
+
+  if (ttsLangSel) {
+    const autoOpt = ttsLangSel.querySelector('option[value="auto"]');
+    const jaOpt = ttsLangSel.querySelector('option[value="ja"]');
+    const enOpt = ttsLangSel.querySelector('option[value="en"]');
+    if (autoOpt) autoOpt.disabled = false;
+    if (jaOpt) jaOpt.disabled = false;
+    if (enOpt) enOpt.disabled = !!isForced;
+  }
+
   if (isForced) {
     echo.outputLanguage = 'ja';
     echo.ttsLanguage = 'ja';
@@ -5064,17 +5074,12 @@ function _updateEchoSbv2LanguageNote() {
     if (ttsLangSel) ttsLangSel.value = 'ja';
     if (asrLangUnifiedSel) asrLangUnifiedSel.value = 'auto';
     if (asrLangSel) asrLangSel.value = 'auto';
+  } else {
+    const requestedTtsLang = (echo.ttsLanguage || 'auto').toLowerCase();
+    echo.ttsSbv2Language = requestedTtsLang === 'en' ? 'EN' : 'JP';
   }
-  if (isForced) {
-    echo.outputLanguage = 'ja';
-    echo.ttsLanguage = 'ja';
-    echo.asrLang = 'auto';
-    echo.asrLanguage = 'auto';
-    if (outputSel) outputSel.value = 'ja';
-    if (ttsLangSel) ttsLangSel.value = 'ja';
-    if (asrLangUnifiedSel) asrLangUnifiedSel.value = 'auto';
-    if (asrLangSel) asrLangSel.value = 'auto';
-  }
+
+  if (jpExtraNote) jpExtraNote.style.display = isForced ? 'block' : 'none';
 }
 
 async function refreshStyleBertVits2Models(context = 'echo') {
