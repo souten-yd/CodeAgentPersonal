@@ -11132,6 +11132,70 @@ def _echo_normalize_lang(lang: str | None, text: str = "") -> str:
         return "ja"
     return "en"
 
+
+def _echo_detect_language_light(text: str, hint: str = "auto") -> str:
+    h = str(hint or "auto").strip().lower()
+    if h in {"ja", "en"}:
+        return h
+    t = str(text or "").strip()
+    if not t:
+        return "ja"
+    if any(("぀" <= c <= "ヿ") or ("一" <= c <= "鿿") for c in t):
+        return "ja"
+    ascii_letters = sum(1 for c in t if ("a" <= c.lower() <= "z"))
+    if ascii_letters > 0:
+        return "en"
+    return "ja"
+
+
+def _echo_translation_failed(source_text: str, translated_text: str, target_language: str) -> bool:
+    tr = str(translated_text or "").strip()
+    if not tr:
+        return True
+    lower = tr.lower()
+    if tr.startswith("[翻訳エラー:") or "translation error" in lower:
+        return True
+    if target_language == "en":
+        ja_chars = sum(1 for c in tr if ("぀" <= c <= "ヿ") or ("一" <= c <= "鿿"))
+        if ja_chars >= max(3, len(tr) // 4):
+            return True
+    if target_language == "ja":
+        alpha = sum(1 for c in tr if ("a" <= c.lower() <= "z"))
+        if alpha >= max(5, len(tr) // 3):
+            return True
+    return False
+
+
+def _echo_translate_opposite_language(text: str, source_language: str) -> dict:
+    source_text = str(text or "").strip()
+    src = _echo_detect_language_light(source_text, source_language)
+    target = "en" if src == "ja" else "ja"
+    out = {
+        "source_language": src,
+        "source_text": source_text,
+        "translated_language": target,
+        "translated_text": "",
+        "japanese_text": source_text if src == "ja" else "",
+        "english_text": source_text if src == "en" else "",
+        "translation_used": False,
+        "translation_failed": False,
+        "warnings": [],
+    }
+    translated = _echo_do_translate(source_text, source_language=src, target_language=target) if source_text else ""
+    failed = _echo_translation_failed(source_text, translated, target)
+    if failed:
+        out["translation_failed"] = True
+        out["warnings"].append("translation_failed")
+        out["translated_text"] = "[translation failed]"
+    else:
+        out["translation_used"] = True
+        out["translated_text"] = str(translated or "").strip()
+    if src == "ja":
+        out["english_text"] = out["translated_text"]
+    else:
+        out["japanese_text"] = out["translated_text"]
+    return out
+
 def _echo_normalize_output_language(value: str | None) -> str:
     raw = str(value or "same").strip().lower()
     return raw if raw in {"same", "ja", "en"} else "same"
@@ -11785,22 +11849,27 @@ async def echo_stream_ws(websocket: WebSocket):
                             await send({"type": "status", "state": "recording"})
                             continue
                         sid = len(session["sentences"])
-                        output_mode = _echo_normalize_output_language(session.get("output_language", "same"))
-                        target_lang = _echo_resolve_target_language(lang_det, output_mode)
+                        translation = await _asyncio.to_thread(
+                            _echo_translate_opposite_language,
+                            text,
+                            lang_det,
+                        )
+                        target_lang = translation.get("translated_language", "ja")
                         resolved_tts_lang = session.get("tts_language", "auto")
                         if resolved_tts_lang not in {"ja", "en"}:
                             resolved_tts_lang = target_lang
-                        translation_used = False
-                        tts_text = text
-                        translated_value = ""
                         session["sentences"].append({
                             "id": sid, "text": text,
-                            "lang": lang_det, "translated": "",
+                            "lang": lang_det, "translated": str(translation.get("translated_text", "")),
                             "detected_language": lang_det,
                             "output_language": target_lang,
                             "tts_language": resolved_tts_lang,
-                            "translation_used": False,
-                            "tts_text": text,
+                            "translation_used": bool(translation.get("translation_used", False)),
+                            "translation_failed": bool(translation.get("translation_failed", False)),
+                            "warnings": list(translation.get("warnings", [])),
+                            "japanese_text": str(translation.get("japanese_text", "")),
+                            "english_text": str(translation.get("english_text", "")),
+                            "tts_text": str(translation.get(f'{"japanese" if resolved_tts_lang=="ja" else "english"}_text', text)),
                         })
                         session["recent_confirmed_text"] = _echo_build_recent_prompt_text(
                             session.get("recent_confirmed_text", ""),
@@ -11814,54 +11883,30 @@ async def echo_stream_ws(websocket: WebSocket):
                             "lang": lang_det,
                             "detected_language": lang_det,
                             "output_language": target_lang,
-                            "translation_used": False,
+                            "translation_used": bool(translation.get("translation_used", False)),
+                            "translation_failed": bool(translation.get("translation_failed", False)),
+                            "warnings": list(translation.get("warnings", [])),
+                            "translated": str(translation.get("translated_text", "")),
+                            "japanese_text": str(translation.get("japanese_text", "")),
+                            "english_text": str(translation.get("english_text", "")),
                             "tts_language": resolved_tts_lang,
-                            "tts_text": text,
+                            "tts_text": str(translation.get(f'{"japanese" if resolved_tts_lang=="ja" else "english"}_text', text)),
                         })
-                        # 翻訳（ASR後に順次実行）: output_language が same の場合は不要
-                        if session.get("translate_enabled", True) and target_lang != lang_det:
-                            tr_start = time.perf_counter()
-                            _echo_debug_append(
-                                session_id=session_id,
-                                seq=seq,
-                                event_type="translate_start",
-                                perf_ms=round(tr_start * 1000, 3),
-                                src_lang=lang_det,
-                                source_chars=len(text),
-                            )
-                            transl = await _asyncio.to_thread(
-                                _echo_do_translate,
-                                text,
-                                lang_det,
-                                target_lang,
-                            )
-                            tr_end = time.perf_counter()
-                            _echo_debug_append(
-                                session_id=session_id,
-                                seq=seq,
-                                event_type="translate_end",
-                                perf_ms=round(tr_end * 1000, 3),
-                                elapsed_ms=round((tr_end - tr_start) * 1000, 3),
-                                result_chars=len(transl or ""),
-                            )
-                            translated_value = transl or ""
-                            translation_used = bool(translated_value)
-                            if translation_used:
-                                tts_text = translated_value
-                            session["sentences"][sid]["translated"] = translated_value
-                            session["sentences"][sid]["translation_used"] = translation_used
-                            session["sentences"][sid]["tts_text"] = tts_text
-                            await send({
-                                "type": "translation",
-                                "id": sid,
-                                "translated": translated_value,
-                                "target_lang": target_lang,
-                                "detected_language": lang_det,
-                                "output_language": target_lang,
-                                "translation_used": translation_used,
-                                "tts_language": resolved_tts_lang,
-                                "tts_text": tts_text,
-                            })
+                        await send({
+                            "type": "translation",
+                            "id": sid,
+                            "translated": str(translation.get("translated_text", "")),
+                            "target_lang": target_lang,
+                            "detected_language": lang_det,
+                            "output_language": target_lang,
+                            "translation_used": bool(translation.get("translation_used", False)),
+                            "translation_failed": bool(translation.get("translation_failed", False)),
+                            "warnings": list(translation.get("warnings", [])),
+                            "japanese_text": str(translation.get("japanese_text", "")),
+                            "english_text": str(translation.get("english_text", "")),
+                            "tts_language": resolved_tts_lang,
+                            "tts_text": str(translation.get(f'{"japanese" if resolved_tts_lang=="ja" else "english"}_text', text)),
+                        })
                     if seq is not None:
                         processed_chunk_seqs.add(seq)
                         await send({"type": "ack", "seq": seq})
@@ -12084,15 +12129,10 @@ def _echo_generate_minutes_from_transcript_file(transcript_filename: str, overwr
         src = str(row.get("text", "")).strip()
         if not src:
             continue
-        lang = str(row.get("lang", "en")).lower()
-        if lang == "ja":
-            ja_lines.append(src)
-            tr = _echo_do_translate(src, source_language="ja", target_language="en")
-            en_lines.append(tr if str(tr).strip() else "[translation failed]")
-        else:
-            en_lines.append(src)
-            tr = _echo_do_translate(src, source_language="en", target_language="ja")
-            ja_lines.append(tr if str(tr).strip() else "[translation failed]")
+        lang = str(row.get("lang", "auto")).lower()
+        pair = _echo_translate_opposite_language(src, lang)
+        ja_lines.append(str(pair.get("japanese_text", "")).strip() or "[translation failed]")
+        en_lines.append(str(pair.get("english_text", "")).strip() or "[translation failed]")
     title = (
         minutes_data.get("title", _extract_title_from_md(transcript_path) or _title_from_filename(transcript_filename))
         if isinstance(minutes_data, dict)
@@ -12197,15 +12237,6 @@ def echo_import_audio_transcript(req: dict):
         with open(audio_path, "wb") as af:
             af.write(audio_bytes)
 
-    def _detect_language_light(text: str) -> str:
-        t = str(text or "").strip()
-        if not t:
-            return "auto"
-        if any(("぀" <= c <= "ヿ") or ("一" <= c <= "鿿") for c in t):
-            return "ja"
-        ascii_letters = sum(1 for c in t if ("a" <= c.lower() <= "z"))
-        return "en" if ascii_letters > 0 else "auto"
-
     def _split_sentence_chunks(text: str, lang: str, max_chars_ja: int = 100, max_chars_en: int = 160) -> list[str]:
         src = str(text or "").strip()
         if not src:
@@ -12241,7 +12272,7 @@ def echo_import_audio_transcript(req: dict):
                     continue
                 st = float((seg or {}).get("start", 0.0) or 0.0)
                 ed = float((seg or {}).get("end", st) or st)
-                segment_lang = _detect_language_light(txt)
+                segment_lang = _echo_detect_language_light(txt, "auto")
                 split_lang = segment_lang if segment_lang in {"ja", "en"} else (lang_hint if lang_hint in {"ja", "en"} else "en")
                 pieces = _split_sentence_chunks(txt, split_lang)
                 if not pieces:
@@ -12250,11 +12281,9 @@ def echo_import_audio_transcript(req: dict):
                 total_chars = max(sum(max(len(p), 1) for p in pieces), 1)
                 cursor = st
                 for idx, piece in enumerate(pieces):
-                    detected = _detect_language_light(piece)
+                    detected = _echo_detect_language_light(piece, "auto")
                     if detected not in {"ja", "en"}:
-                        detected = lang_hint if lang_hint in {"ja", "en"} else _detect_language_light(txt)
-                    if detected not in {"ja", "en"}:
-                        detected = "en"
+                        detected = _echo_detect_language_light(txt, lang_hint)
                     if duration > 0:
                         if idx == len(pieces) - 1:
                             p_start, p_end = cursor, ed
@@ -12267,77 +12296,31 @@ def echo_import_audio_transcript(req: dict):
                         p_start, p_end = st, ed
                     normalized.append({"start": p_start, "end": p_end, "source_text": piece, "detected_language": detected})
         if not normalized:
-            fallback_detected = _detect_language_light(fallback_text)
+            fallback_detected = _echo_detect_language_light(fallback_text, "auto")
             for piece in _split_sentence_chunks(fallback_text, fallback_detected if fallback_detected in {"ja", "en"} else "en"):
-                detected = _detect_language_light(piece)
+                detected = _echo_detect_language_light(piece, "auto")
                 if detected not in {"ja", "en"}:
-                    detected = lang_hint if lang_hint in {"ja", "en"} else "en"
+                    detected = _echo_detect_language_light(piece, lang_hint)
                 normalized.append({"start": 0.0, "end": 0.0, "source_text": piece, "detected_language": detected})
         for i, seg in enumerate(normalized):
             seg["index"] = i
         return normalized
 
-    def _translate_result_failed(source: str, translated: str, target_language: str) -> bool:
-        tr = str(translated or "").strip()
-        if not tr:
-            return True
-        lower = tr.lower()
-        if tr.startswith("[翻訳エラー:") or "translation error" in lower:
-            return True
-        src = str(source or "").strip()
-        if src and tr == src:
-            if target_language == "en":
-                if any(("぀" <= c <= "ヿ") or ("一" <= c <= "鿿") for c in tr):
-                    return True
-            if target_language == "ja":
-                alpha = sum(1 for c in tr if ("a" <= c.lower() <= "z"))
-                if alpha >= max(5, len(tr) // 3):
-                    return True
-        return False
-
     def _translate_segment_pair(seg: dict) -> dict:
         source = str(seg.get("source_text", "")).strip()
         detected = str(seg.get("detected_language", "auto") or "auto")
-        if detected not in {"ja", "en"}:
-            detected = _detect_language_light(source)
         out = dict(seg)
-        out["warnings"] = []
-        out["translation_used"] = True
-        out["llm_polished"] = True
+        tr = _echo_translate_opposite_language(source, detected)
+        out["warnings"] = list(tr.get("warnings", []))
+        out["translation_used"] = bool(tr.get("translation_used", False))
+        out["translation_failed"] = bool(tr.get("translation_failed", False))
+        out["llm_polished"] = not out["translation_failed"]
         out["speaker"] = None
         out["confidence"] = None
-        try:
-            if detected == "ja":
-                out["japanese_text"] = source
-                translated = _echo_do_translate(source, source_language="ja", target_language="en")
-                if _translate_result_failed(source, translated, "en"):
-                    out["translation_used"] = False
-                    out["llm_polished"] = False
-                    out["warnings"].append("translation_failed")
-                    out["english_text"] = "[translation failed]"
-                else:
-                    out["english_text"] = translated
-            else:
-                out["english_text"] = source
-                translated = _echo_do_translate(source, source_language="en", target_language="ja")
-                if _translate_result_failed(source, translated, "ja"):
-                    out["translation_used"] = False
-                    out["llm_polished"] = False
-                    out["warnings"].append("translation_failed")
-                    out["japanese_text"] = "[translation failed]"
-                else:
-                    out["japanese_text"] = translated
-        except Exception:
-            out["translation_used"] = False
-            out["llm_polished"] = False
-            out["warnings"].append("translation_failed")
-            if detected == "ja":
-                out["japanese_text"] = source
-                out["english_text"] = "[translation failed]"
-            else:
-                out["english_text"] = source
-                out["japanese_text"] = "[translation failed]"
-        out["detected_language"] = detected
+        out["detected_language"] = str(tr.get("source_language", detected))
+        out["translated_text"] = str(tr.get("translated_text", ""))
+        out["japanese_text"] = str(tr.get("japanese_text", ""))
+        out["english_text"] = str(tr.get("english_text", ""))
         return out
 
     segments = [_translate_segment_pair(s) for s in _normalize_segments(raw_segments, transcript_text, language)]
