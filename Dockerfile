@@ -57,7 +57,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CODEAGENT_STYLE_BERT_VITS2_REPO_DIR=/app/Style-Bert-VITS2 \
     CODEAGENT_STYLE_BERT_VITS2_VENV_DIR=/opt/style-bert-vits2-venv \
     CODEAGENT_STYLE_BERT_VITS2_BASE_DIR=/workspace/ca_data/tts/style_bert_vits2 \
-    CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR=/workspace/ca_data/tts/style_bert_vits2/models
+    CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR=/workspace/ca_data/tts/style_bert_vits2/models \
+    CODEAGENT_ASR_DEFAULT_MODEL=large-v3-turbo \
+    CODEAGENT_ASR_MODEL_CACHE=/opt/asr_models \
+    CODEAGENT_ASR_MODEL_PATH=/opt/asr_models/large-v3-turbo \
+    CODEAGENT_ASR_LOCAL_FILES_ONLY=1
 
 WORKDIR /app
 
@@ -102,6 +106,34 @@ RUN if [ -f /app/requirements.txt ]; then \
     else \
         python -m pip install --no-cache-dir fastapi 'uvicorn[standard]' pydantic requests python-multipart; \
     fi
+
+
+# Pre-download bundled faster-whisper ASR model into image layer.
+RUN set -eux; \
+    mkdir -p /opt/asr_models/large-v3-turbo; \
+    python - <<'PY'
+from pathlib import Path
+
+model_dir = Path("/opt/asr_models/large-v3-turbo")
+model_dir.mkdir(parents=True, exist_ok=True)
+
+try:
+    from faster_whisper.utils import download_model
+    try:
+        download_model("large-v3-turbo", output_dir=str(model_dir))
+    except TypeError:
+        download_model("large-v3-turbo", cache_dir="/opt/asr_models")
+except Exception:
+    from faster_whisper import WhisperModel
+    WhisperModel(
+        "large-v3-turbo",
+        device="cpu",
+        compute_type="int8",
+        download_root="/opt/asr_models",
+    )
+
+print("[ASR] faster-whisper large-v3-turbo download step completed")
+PY
 
 # Install TTS runtime dependencies (Style-Bert-VITS2 required set).
 RUN set -eux; \
@@ -230,7 +262,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CODEAGENT_STYLE_BERT_VITS2_REPO_DIR=/app/Style-Bert-VITS2 \
     CODEAGENT_STYLE_BERT_VITS2_VENV_DIR=/opt/style-bert-vits2-venv \
     CODEAGENT_STYLE_BERT_VITS2_BASE_DIR=/workspace/ca_data/tts/style_bert_vits2 \
-    CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR=/workspace/ca_data/tts/style_bert_vits2/models
+    CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR=/workspace/ca_data/tts/style_bert_vits2/models \
+    CODEAGENT_ASR_DEFAULT_MODEL=large-v3-turbo \
+    CODEAGENT_ASR_MODEL_CACHE=/opt/asr_models \
+    CODEAGENT_ASR_MODEL_PATH=/opt/asr_models/large-v3-turbo \
+    CODEAGENT_ASR_LOCAL_FILES_ONLY=1
 
 WORKDIR /app
 
@@ -273,6 +309,7 @@ COPY --from=style_bert_vits2_build /opt/style-bert-vits2-venv /opt/style-bert-vi
 COPY --from=style_bert_vits2_build /opt/hf_cache /opt/hf_cache
 COPY --from=style_bert_vits2_build /opt/cache /opt/cache
 COPY --from=style_bert_vits2_build /opt/style-bert-vits2-models /opt/style-bert-vits2-models
+COPY --from=py_build /opt/asr_models /opt/asr_models
 
 # Build SearXNG editable runtime inside isolated venv for Runpod single-container startup.
 RUN set -eux; \

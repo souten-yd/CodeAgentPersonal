@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import os
 from collections import deque
 from typing import Any, Callable
 
@@ -73,7 +74,7 @@ class VoiceIOAdapter(ConversationIO):
         transcribed = self._asr_transcribe(
             audio,
             language=self._language,
-            model_name="large-v3-turbo",
+            model_name=os.environ.get("CODEAGENT_ASR_DEFAULT_MODEL", "large-v3-turbo"),
             audio_format=self._audio_format,
         )
         text = str((transcribed or {}).get("text", "") or "").strip()
