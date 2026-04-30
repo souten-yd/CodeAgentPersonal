@@ -50,6 +50,7 @@ from app.tts.style_bert_vits2_manager import (
     ensure_model_exists,
     import_model_zip,
 )
+from app.env_detection import detect_gpu_profile, detect_os_profile, detect_runpod
 from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_base_dir,
     resolve_style_bert_vits2_models_dir,
@@ -16946,6 +16947,26 @@ def _get_lightweight_health_status() -> dict:
         "llm": "ok" if llm_ok else "unreachable",
         "sandbox": sandbox_status,
     }
+
+
+
+@app.get("/system/env")
+def system_env():
+    try:
+        return {
+            "runpod": detect_runpod(),
+            "os": detect_os_profile(),
+            "gpu": detect_gpu_profile(),
+            "style_bert_vits2_device": os.environ.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE", ""),
+        }
+    except Exception as e:
+        return {
+            "error": "failed_to_detect_environment",
+            "detail": str(e),
+            "runpod": False,
+            "os": {},
+            "gpu": {},
+        }
 
 @app.get("/system/summary")
 def system_summary():

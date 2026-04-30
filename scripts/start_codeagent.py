@@ -14,6 +14,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from app.env_detection import detect_gpu_profile, detect_os_profile, detect_runpod
+
 AUTO_MODE_KEY = "auto"
 AUTO_MODE_NUM = "1"
 DEFAULT_SYS_VENV_NAME = "venv_sys"
@@ -26,10 +28,6 @@ def get_llama_root_dir(base_dir: Path, runpod: bool) -> Path:
     if runpod:
         return Path("/workspace/llama")
     return base_dir / "llama"
-
-
-def detect_runpod() -> bool:
-    return bool(os.environ.get("RUNPOD_POD_ID") or os.environ.get("RUNPOD_API_KEY"))
 
 
 def detect_lan_ip() -> str:
@@ -290,6 +288,8 @@ def main() -> int:
     args = parse_args()
     base_dir = Path(__file__).resolve().parent.parent
     runpod = detect_runpod()
+    os_profile = detect_os_profile()
+    gpu_profile = detect_gpu_profile()
 
     mode_key, mode_num = choose_mode()
 
@@ -308,6 +308,13 @@ def main() -> int:
         env.setdefault("CODEAGENT_WORK_DIR", "/workspace/ca_data/workspace")
         env.setdefault("CODEAGENT_SKILLS_DIR", "/workspace/ca_data/skills")
         env.setdefault("CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR", "/workspace/ca_data/tts/style_bert_vits2/models")
+    env["CODEAGENT_LOCAL_GPU_VENDOR"] = str(gpu_profile.get("vendor") or "none")
+    env["CODEAGENT_LOCAL_GPU_NAME"] = str(gpu_profile.get("name") or "")
+    env["CODEAGENT_TTS_RECOMMENDED_DEVICE"] = str(gpu_profile.get("recommended_tts_device") or "cpu")
+    env["CODEAGENT_LLAMA_RECOMMENDED_BACKEND"] = str(gpu_profile.get("recommended_llama_backend") or "cpu")
+    if not env.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE"):
+        env["CODEAGENT_STYLE_BERT_VITS2_DEVICE"] = str(gpu_profile.get("recommended_tts_device") or "cpu")
+
     python_exec = sys.executable
     if not runpod:
         python_exec, _ = _ensure_local_bootstrap_venv(base_dir, env)
@@ -324,6 +331,15 @@ def main() -> int:
             f" SBV2    : {env.get('CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR', '/workspace/ca_data/tts/style_bert_vits2/models')}"
         )
     print("==============================================")
+    print(f"[Env] OS: {os_profile.get('system') or 'unknown'}")
+    print(f"[Env] Runpod: {'yes' if runpod else 'no'}")
+    print(f"[Env] GPU: {gpu_profile.get('name') or 'none'}")
+    print(f"[Env] GPU vendor: {gpu_profile.get('vendor') or 'none'}")
+    print(f"[Env] TTS recommended device: {gpu_profile.get('recommended_tts_device') or 'cpu'}")
+    backend_candidates = gpu_profile.get("backend_candidates") or []
+    if backend_candidates:
+        print(f"[Env] TTS backend candidates: {', '.join(str(x) for x in backend_candidates)}")
+    print(f"[Env] llama backend recommendation: {gpu_profile.get('recommended_llama_backend') or 'cpu'}")
 
     copy_ui(base_dir)
     llama_path = ensure_llama_server(base_dir, runpod)
