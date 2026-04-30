@@ -1414,9 +1414,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         📝 Minutes OFF
       </button>
       <button id="echo-clear-btn" onclick="echoClearTranscript()" style="display:none;font-size:10px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="会話をクリア">✕ Clear</button>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:10px;color:var(--text3)">
-        <span title="ASRはASRタブの設定を利用">ASR: ASRタブ設定を使用</span>
-      </div>
+
     </div>
     <div class="echo-transcript" id="echo-transcript">
       <div class="echo-empty">「Start」を押して同時通訳・録音を開始...</div>
@@ -2471,19 +2469,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             </label>
             <span id="tsasr-style-bert-vits2-status" style="font-size:10px;color:var(--text3)">モデルを選択してください</span>
           </div>
-          <div style="margin-top:8px">
-            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Style-Bert-VITS2 Language</div>
-            <select id="echo-tts-sbv2-language"
-              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
-              onchange="saveEchoSettings()">
-              <option value="auto">Auto</option>
-              <option value="JP" selected>JP - Japanese</option>
-              <option value="EN">EN - English</option>
-              <option value="ZH">ZH - Chinese</option>
-            </select>
-            <div style="margin-top:4px;font-size:10px;color:var(--text3)">JP-ExtraモデルではJPに自動固定されます。</div>
-            <div id="echo-tts-sbv2-language-note" style="margin-top:2px;font-size:10px;color:var(--amber);display:none">JP-Extra detected: JP forced</div>
-          </div>
           <div style="margin-top:8px;display:flex;align-items:center;justify-content:space-between">
             <div>
               <div style="font-size:11px;color:var(--text2);font-weight:700">Use TTS translation</div>
@@ -2495,38 +2480,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
                 onchange="saveEchoSettings()">
               <span style="font-size:11px;color:var(--text2)" id="echo-tts-use-translation-label">OFF</span>
             </label>
-          </div>
-          <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
-            <div>
-              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo ASR language</div>
-              <select id="echo-asr-lang-unified"
-                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
-                onchange="saveEchoSettings()">
-                <option value="auto">Auto Japanese/English</option>
-                <option value="ja">Japanese</option>
-                <option value="en">English</option>
-              </select>
-            </div>
-            <div>
-              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo output language</div>
-              <select id="echo-output-language"
-                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
-                onchange="saveEchoSettings()">
-                <option value="same">Same as input</option>
-                <option value="ja">Translate to Japanese</option>
-                <option value="en">Translate to English</option>
-              </select>
-            </div>
-            <div>
-              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo TTS language</div>
-              <select id="echo-tts-language"
-                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
-                onchange="saveEchoSettings()">
-                <option value="auto">Auto by output language</option>
-                <option value="ja">Japanese voice</option>
-                <option value="en">English voice</option>
-              </select>
-            </div>
           </div>
           <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div>
@@ -5192,25 +5145,23 @@ async function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
 }
 
 function _updateEchoSbv2LanguageNote() {
-  const note = document.getElementById('echo-tts-sbv2-language-note');
-  const sel = document.getElementById('echo-tts-sbv2-language');
   const outputSel = document.getElementById('echo-output-language');
   const ttsLangSel = document.getElementById('echo-tts-language');
   const asrLangUnifiedSel = document.getElementById('echo-asr-lang-unified');
   const asrLangSel = document.getElementById('echo-asr-lang');
   const isForced = _isJpExtraModelMeta(_getSelectedSbv2Meta());
-  if (note) note.style.display = isForced ? '' : 'none';
-  if (sel) {
-    const options = Array.from(sel.options || []);
-    if (isForced) {
-      sel.value = 'JP';
-      options.forEach((opt) => {
-        const v = String(opt.value || '').toUpperCase();
-        opt.disabled = !(v === 'JP' || v === 'AUTO');
-      });
-    } else {
-      options.forEach((opt) => { opt.disabled = false; });
-    }
+  const requestedTtsLang = (echo.ttsLanguage || 'auto').toLowerCase();
+  echo.ttsSbv2Language = requestedTtsLang === 'en' ? 'EN' : 'JP';
+  if (isForced) {
+    echo.outputLanguage = 'ja';
+    echo.ttsLanguage = 'ja';
+    echo.asrLang = 'auto';
+    echo.asrLanguage = 'auto';
+    echo.ttsSbv2Language = 'JP';
+    if (outputSel) outputSel.value = 'ja';
+    if (ttsLangSel) ttsLangSel.value = 'ja';
+    if (asrLangUnifiedSel) asrLangUnifiedSel.value = 'auto';
+    if (asrLangSel) asrLangSel.value = 'auto';
   }
   if (isForced) {
     echo.outputLanguage = 'ja';
@@ -5412,7 +5363,8 @@ function saveEchoSettings() {
     echo.styleBertVits2Model = _normalizeStyleBertVits2Model(styleSel.value);
     tts.styleBertVits2Model = echo.styleBertVits2Model;
   }
-  echo.ttsSbv2Language = _normalizeEchoSbv2Language(document.getElementById('echo-tts-sbv2-language')?.value || echo.ttsSbv2Language || 'JP');
+  const requestedTtsLang = (echo.ttsLanguage || 'auto').toLowerCase();
+  echo.ttsSbv2Language = requestedTtsLang === 'en' ? 'EN' : 'JP';
   echo.ttsUseTranslation = !!document.getElementById('echo-tts-use-translation')?.checked;
   echo.ttsTextSource = 'raw';
   echo.sbv2TextNormalization = document.getElementById('echo-tts-sbv2-text-normalization')?.checked !== false;
@@ -5458,6 +5410,7 @@ function saveEchoSettings() {
     if (asrUnifiedSel) asrUnifiedSel.value = 'auto';
     const asrSel = document.getElementById('echo-asr-lang');
     if (asrSel) asrSel.value = 'auto';
+    echo.ttsSbv2Language = 'JP';
   }
   echo.asrInputDeviceId = document.getElementById('echo-asr-input-device')?.value || echo.asrInputDeviceId || 'default';
   echo.asrModel    = document.getElementById('echo-asr-model')?.value      || 'large-v3-turbo';
@@ -5762,8 +5715,6 @@ function _echoInitSettingsUI() {
   if (echoOutSel) echoOutSel.value = echo.ttsOutputDeviceId || 'default';
   const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
   if (styleSel) styleSel.value = echo.styleBertVits2Model || tts.styleBertVits2Model || '';
-  const langSel = document.getElementById('echo-tts-sbv2-language');
-  if (langSel) langSel.value = _normalizeEchoSbv2Language(echo.ttsSbv2Language);
   const useTranslationChk = document.getElementById('echo-tts-use-translation');
   if (useTranslationChk) useTranslationChk.checked = !!echo.ttsUseTranslation;
   const useTranslationLbl = document.getElementById('echo-tts-use-translation-label');
