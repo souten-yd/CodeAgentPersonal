@@ -11849,13 +11849,19 @@ async function _echoNormalizeJapaneseTtsText(text) {
 async function _echoPrepareSpeechText(sentence) {
   const raw = String(sentence?.text || '').trim();
   const translated = String(sentence?.translated || '').trim();
+  const translatedFailed = sentence?.translation_failed === true;
   const detected = sentence?.detected_language || _echoInferLanguage(raw, (echo.asrLanguage || 'auto'));
   const output = sentence?.output_language || ((echo.outputLanguage || 'same') === 'same' ? detected : (echo.outputLanguage || detected));
   const preferred = (echo.ttsLanguage || 'auto') === 'auto' ? output : (echo.ttsLanguage || output);
   let ttsText = preferred === 'ja'
     ? String(sentence?.japanese_text || '').trim()
     : String(sentence?.english_text || '').trim();
-  if (!ttsText) ttsText = String(sentence?.tts_text || '').trim() || (translated && sentence?.translation_used ? translated : raw);
+  const placeholderFailed = ttsText === '[translation failed]';
+  if (!ttsText || placeholderFailed || translatedFailed) {
+    const candidate = String(sentence?.tts_text || '').trim();
+    const safeCandidate = candidate && candidate !== '[translation failed]' ? candidate : '';
+    ttsText = safeCandidate || (translated && sentence?.translation_used && translated !== '[translation failed]' ? translated : raw);
+  }
   const translationUsed = !!sentence?.translation_used;
 
   if (output === 'ja') {
