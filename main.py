@@ -11968,6 +11968,12 @@ def debug_echo_typo_redirect():
 
 def _echo_group_key_for_filename(fname: str) -> str:
     stem, _ = os.path.splitext(os.path.basename(fname or ""))
+    stem = re.sub(
+        r"_(transcript_raw|transcript_segments|transcript_ja|transcript_en|minutes_bilingual)$",
+        "",
+        stem,
+        flags=re.IGNORECASE,
+    )
     stem = re.sub(r"_(minutes|transcript)$", "", stem, flags=re.IGNORECASE)
     stem = re.sub(r"_audio$", "", stem, flags=re.IGNORECASE)
     return stem
@@ -12015,17 +12021,17 @@ def _echo_parse_transcript_markdown(md: str) -> list[dict]:
         s = line.strip()
         if not s.startswith("|"):
             continue
-        if "言語" in s and "原文" in s and "翻訳" in s:
+        if "言語" in s and "原文" in s:
             continue
-        if re.fullmatch(r"\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|", s):
+        if re.fullmatch(r"\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*(\|\s*-+\s*)?\|", s):
             continue
         parts = [p.strip() for p in s.strip("|").split("|")]
-        if len(parts) < 4:
+        if len(parts) < 3:
             continue
         lang_cell = parts[1]
         lang = "ja" if ("🇯🇵" in lang_cell or "ja" in lang_cell.lower()) else "en"
         text = parts[2].replace("｜", "|")
-        translated = parts[3].replace("｜", "|")
+        translated = parts[3].replace("｜", "|") if len(parts) >= 4 else ""
         if not text and not translated:
             continue
         rows.append({
@@ -12071,6 +12077,21 @@ def _echo_generate_minutes_from_transcript_file(transcript_filename: str, overwr
         "create_minutes": True,
     }
     minutes_data = _echo_generate_minutes(session)
+    ja_lines: list[str] = []
+    en_lines: list[str] = []
+    for row in sentences:
+        src = str(row.get("text", "")).strip()
+        if not src:
+            continue
+        lang = str(row.get("lang", "en")).lower()
+        if lang == "ja":
+            ja_lines.append(src)
+            tr = _echo_do_translate(src, source_language="ja", target_language="en")
+            en_lines.append(tr if str(tr).strip() else "[translation failed]")
+        else:
+            en_lines.append(src)
+            tr = _echo_do_translate(src, source_language="en", target_language="ja")
+            ja_lines.append(tr if str(tr).strip() else "[translation failed]")
     title = (
         minutes_data.get("title", _extract_title_from_md(transcript_path) or _title_from_filename(transcript_filename))
         if isinstance(minutes_data, dict)
@@ -12093,8 +12114,10 @@ def _echo_generate_minutes_from_transcript_file(transcript_filename: str, overwr
             if cons:
                 f.write("## 結論\n" + "\n".join(f"- {c}" for c in cons) + "\n\n")
         f.write("---\n## 文字起こし\n\n")
-        with open(transcript_path, "r", encoding="utf-8") as tf:
-            f.write(tf.read())
+        f.write("## 日本語\n\n")
+        f.write("\n".join(f"{i+1}. {t}" for i, t in enumerate(ja_lines)) + "\n\n")
+        f.write("## English\n\n")
+        f.write("\n".join(f"{i+1}. {t}" for i, t in enumerate(en_lines)) + "\n")
     return minutes_filename
 
 
@@ -12341,14 +12364,6 @@ def echo_import_audio_transcript(req: dict):
         f.write("\n".join(str(s.get("japanese_text", "")).strip() for s in segments if str(s.get("japanese_text", "")).strip()) + "\n")
     with open(base_path + "_transcript_en.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(str(s.get("english_text", "")).strip() for s in segments if str(s.get("english_text", "")).strip()) + "\n")
-    minutes_md = ["# Minutes", "", "## 日本語", ""]
-    ja_lines = [str(s.get("japanese_text", "")).strip() for s in segments if str(s.get("japanese_text", "")).strip()]
-    en_lines = [str(s.get("english_text", "")).strip() for s in segments if str(s.get("english_text", "")).strip()]
-    minutes_md.extend([f"{i+1}. {t}" for i, t in enumerate(ja_lines)])
-    minutes_md.extend(["", "## English", ""])
-    minutes_md.extend([f"{i+1}. {t}" for i, t in enumerate(en_lines)])
-    with open(base_path + "_minutes_bilingual.md", "w", encoding="utf-8") as f:
-        f.write("\n".join(minutes_md).rstrip() + "\n")
 
     translation_warning_count = sum(1 for s in segments if "translation_failed" in (s.get("warnings") or []))
     segment_count = len(segments)
@@ -12361,7 +12376,6 @@ def echo_import_audio_transcript(req: dict):
         "transcript_segments_filename": f"{base}_transcript_segments.json",
         "transcript_ja_filename": f"{base}_transcript_ja.txt",
         "transcript_en_filename": f"{base}_transcript_en.txt",
-        "minutes_bilingual_filename": f"{base}_minutes_bilingual.md",
         "segment_count": segment_count,
         "translation_warning_count": translation_warning_count,
         "audio_filename": audio_filename,
@@ -12382,6 +12396,12 @@ def echo_list_sessions():
                 continue
             stat = os.stat(fpath)
             ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+            if re.search(
+                r"_(transcript_raw|transcript_segments|transcript_ja|transcript_en|minutes_bilingual)\.(txt|json|md)$",
+                fname,
+                flags=re.IGNORECASE,
+            ):
+                continue
             title = ""
             if ext == "md":
                 title = _extract_title_from_md(fpath)

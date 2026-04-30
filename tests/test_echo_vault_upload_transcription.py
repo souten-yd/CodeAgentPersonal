@@ -8,7 +8,7 @@ import main
 
 
 class EchoVaultUploadTranscriptionTests(unittest.TestCase):
-    def test_import_audio_transcript_generates_segmented_artifacts_and_minutes_layout(self):
+    def test_import_audio_transcript_generates_segmented_transcript(self):
         text = "今日は会議を開始します。次に進捗を確認します。最後に課題を整理します。"
         with tempfile.TemporaryDirectory() as td:
             with patch.object(main, "ECHOVAULT_DIR", td), patch.object(main, "_echo_do_translate", side_effect=lambda t, **_: f"EN:{t}"):
@@ -22,9 +22,6 @@ class EchoVaultUploadTranscriptionTests(unittest.TestCase):
             base = out["session"]
             self.assertEqual(out["transcript_raw_filename"], f"{base}_transcript_raw.txt")
             self.assertEqual(out["transcript_segments_filename"], f"{base}_transcript_segments.json")
-            self.assertEqual(out["transcript_ja_filename"], f"{base}_transcript_ja.txt")
-            self.assertEqual(out["transcript_en_filename"], f"{base}_transcript_en.txt")
-            self.assertEqual(out["minutes_bilingual_filename"], f"{base}_minutes_bilingual.md")
             seg_path = Path(td) / f"{base}_transcript_segments.json"
             self.assertTrue(seg_path.exists())
             segs = json.loads(seg_path.read_text(encoding="utf-8"))
@@ -32,10 +29,11 @@ class EchoVaultUploadTranscriptionTests(unittest.TestCase):
             self.assertTrue(all("index" in s and "start" in s and "end" in s and "source_text" in s for s in segs))
             self.assertTrue(all("detected_language" in s and "japanese_text" in s and "english_text" in s and "warnings" in s for s in segs))
 
-            minutes = (Path(td) / f"{base}_minutes_bilingual.md").read_text(encoding="utf-8")
-            self.assertLess(minutes.index("## 日本語"), minutes.index("## English"))
-            self.assertNotIn(" / ", minutes)
-            self.assertNotIn(" | ", minutes)
+            transcript_md = (Path(td) / out["transcript_filename"]).read_text(encoding="utf-8")
+            self.assertGreaterEqual(transcript_md.count("\n| 1 |"), 1)
+            self.assertIn("今日は会議を開始します。", transcript_md)
+            self.assertIn("次に進捗を確認します。", transcript_md)
+            self.assertIn("最後に課題を整理します。", transcript_md)
 
     def test_long_english_without_punctuation_is_split_by_max_chars(self):
         text = " ".join(["word"] * 120)
@@ -117,12 +115,43 @@ class EchoVaultUploadTranscriptionTests(unittest.TestCase):
             self.assertEqual(len(segs), 2)
             self.assertEqual([s["source_text"] for s in segs], ["最初に確認します。", "次にリスクを見ます。"])
 
-    def test_ui_lists_artifact_labels_for_upload_completion(self):
+    def test_ui_does_not_list_artifact_labels_for_upload_completion(self):
         ui = Path("ui.html").read_text(encoding="utf-8")
-        self.assertIn("name: 'Segments JSON'", ui)
-        self.assertIn("name: 'Japanese transcript'", ui)
-        self.assertIn("name: 'English transcript'", ui)
-        self.assertIn("name: 'Bilingual minutes'", ui)
+        self.assertNotIn("Segments JSON", ui)
+        self.assertNotIn("Japanese transcript", ui)
+        self.assertNotIn("English transcript", ui)
+        self.assertNotIn("Bilingual minutes", ui)
+
+    def test_sessions_api_skips_helper_artifacts(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = "2026-04-30_16-10_upload_demo"
+            (Path(td) / f"{base}_transcript_segments.json").write_text("[]", encoding="utf-8")
+            (Path(td) / f"{base}_transcript_ja.txt").write_text("ja", encoding="utf-8")
+            (Path(td) / f"{base}_transcript_en.txt").write_text("en", encoding="utf-8")
+            (Path(td) / f"{base}_minutes_bilingual.md").write_text("# Minutes", encoding="utf-8")
+            (Path(td) / f"{base}_transcript.md").write_text("# 文字起こし", encoding="utf-8")
+            with patch.object(main, "ECHOVAULT_DIR", td):
+                out = main.echo_list_sessions()
+            names = [f["name"] for f in out["files"]]
+            self.assertEqual(names, [f"{base}_transcript.md"])
+
+    def test_generate_minutes_separates_japanese_and_english_sections(self):
+        with tempfile.TemporaryDirectory() as td:
+            transcript_name = "2026-04-30_16-10_upload_demo_transcript.md"
+            md = "\n".join([
+                "# 文字起こし — demo",
+                "",
+                "| # | 言語 | 原文 |",
+                "|---|------|------|",
+                "| 1 | 🇯🇵 | こんにちは。 |",
+                "| 2 | 🇺🇸 | Today we review the plan. |",
+            ])
+            (Path(td) / transcript_name).write_text(md, encoding="utf-8")
+            with patch.object(main, "ECHOVAULT_DIR", td), patch.object(main, "_echo_do_translate", side_effect=lambda t, **_: f"T:{t}"):
+                out = main.echo_generate_minutes({"transcript_filename": transcript_name, "overwrite": True})
+            minutes = (Path(td) / out["filename"]).read_text(encoding="utf-8")
+            self.assertLess(minutes.index("## 日本語"), minutes.index("## English"))
+            self.assertNotIn(" / ", minutes)
 
 
 if __name__ == "__main__":
