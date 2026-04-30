@@ -58,7 +58,7 @@ def test_build_normalization_preview_includes_requested_fields_for_jp_extra(tmp_
 
     rt = runtime.StyleBertVITS2Runtime()
     monkeypatch.setattr(runtime, "_resolve_model_paths", lambda _m: (str(model_dir / "model.safetensors"), str(model_dir / "config.json"), str(model_dir / "style_vectors.npy")))
-    monkeypatch.setattr(runtime, "_resolve_sbv2_jp_extra_normalization_settings", lambda _req: {})
+    monkeypatch.setattr(runtime, "_resolve_sbv2_jp_extra_normalization_settings", lambda _req, *, is_jp_extra: {})
 
     preview = rt.build_normalization_preview(
         {
@@ -81,3 +81,19 @@ def test_build_normalization_preview_includes_requested_fields_for_jp_extra(tmp_
     assert preview["needs_translation"] is True
     assert isinstance(preview["normalization_operations"], list)
     assert "warnings" in preview
+
+
+def test_resolve_requested_language_precedence():
+    req = {
+        "route_info": {"tts_language": "en"},
+        "tts_language": "ja",
+        "echo_tts_language": "ja",
+        "language": "ja",
+        "settings": {"echo_tts_language": "ja", "echo_tts_sbv2_language": "ja"},
+    }
+    assert runtime._resolve_requested_language(req) == "en"
+
+
+def test_resolve_requested_language_legacy_setting_backward_compatible():
+    req = {"settings": {"echo_tts_sbv2_language": "en"}}
+    assert runtime._resolve_requested_language(req) == "en"
