@@ -13,7 +13,12 @@ import uuid
 from pathlib import Path
 
 from .engine_registry import TTSEngineRuntime
-from .style_bert_vits2_paths import resolve_style_bert_vits2_models_dir
+from .style_bert_vits2_paths import (
+    resolve_style_bert_vits2_models_dir,
+    resolve_style_bert_vits2_python_path,
+    resolve_style_bert_vits2_repo_dir,
+    resolve_style_bert_vits2_venv_dir,
+)
 from .text_normalizer import looks_japanese, normalize_text_for_sbv2_jp_extra
 
 _STYLE_BERT_VITS2_DEFAULT_REPO_DIR = "/app/Style-Bert-VITS2"
@@ -26,33 +31,16 @@ _TEXT_LOG_INFO_LIMIT = 500
 _TEXT_LOG_DEBUG_LIMIT = 50000
 
 
-def _project_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
 def _repo_dir() -> str:
-    env = os.environ.get("CODEAGENT_STYLE_BERT_VITS2_REPO_DIR", "").strip()
-    if env:
-        return env
-    if os.name == "nt":
-        return str(_project_root() / "third_party" / "Style-Bert-VITS2")
-    return _STYLE_BERT_VITS2_DEFAULT_REPO_DIR
+    return resolve_style_bert_vits2_repo_dir()
 
 
 def _venv_dir() -> str:
-    env = os.environ.get("CODEAGENT_STYLE_BERT_VITS2_VENV_DIR", "").strip()
-    if env:
-        return env
-    if os.name == "nt":
-        return str(_project_root() / "tts_envs" / "style_bert_vits2")
-    return _STYLE_BERT_VITS2_DEFAULT_VENV_DIR
+    return resolve_style_bert_vits2_venv_dir()
 
 
 def _python_path() -> str:
-    venv = Path(_venv_dir())
-    if os.name == "nt":
-        return str(venv / "Scripts" / "python.exe")
-    return str(venv / "bin" / "python")
+    return resolve_style_bert_vits2_python_path()
 
 
 def _models_dir() -> str:

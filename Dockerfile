@@ -10,8 +10,9 @@ FROM ubuntu:${UBUNTU_VERSION} AS llama_prebuilt
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.list \
-    && apt-get update -o Acquire::Retries=3 \
-    && apt-get install -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get update -o Acquire::Retries=5 \
+    && apt-get install -y --no-install-recommends --fix-missing \
         ca-certificates \
         curl \
         jq \
@@ -72,8 +73,9 @@ RUN mkdir -p \
     /opt/hf_cache/transformers \
     /opt/style-bert-vits2-models
 
-RUN apt-get update -o Acquire::Retries=3 \
-    && apt-get install -y --no-install-recommends \
+RUN rm -rf /var/lib/apt/lists/* \
+    && apt-get update -o Acquire::Retries=5 \
+    && apt-get install -y --no-install-recommends --fix-missing \
         ca-certificates \
         curl \
         jq \
@@ -84,9 +86,9 @@ RUN apt-get update -o Acquire::Retries=3 \
         sox \
         libsox-fmt-all \
     && update-ca-certificates \
-    && add-apt-repository ppa:deadsnakes/ppa \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
     && apt-get update \
-    && apt-get install -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends --fix-missing \
         python3.11 \
         python3.11-dev \
         python3.11-venv \
@@ -162,8 +164,9 @@ RUN mkdir -p \
     /app/Style-Bert-VITS2/bert/deberta-v2-large-japanese-char-wwm \
     /app/Style-Bert-VITS2/bert/deberta-v2-large-japanese-char-wwm-onnx
 
-RUN apt-get update -o Acquire::Retries=3 \
-    && apt-get install -y --no-install-recommends \
+RUN rm -rf /var/lib/apt/lists/* \
+    && apt-get update -o Acquire::Retries=5 \
+    && apt-get install -y --no-install-recommends --fix-missing \
         git \
     && rm -rf /var/lib/apt/lists/*
 
@@ -296,8 +299,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-RUN apt-get update -o Acquire::Retries=3 \
-    && apt-get install -y --no-install-recommends \
+RUN rm -rf /var/lib/apt/lists/* \
+    && apt-get update -o Acquire::Retries=5 \
+    && apt-get install -y --no-install-recommends --fix-missing \
         build-essential \
         ca-certificates \
         curl \
@@ -316,9 +320,9 @@ RUN apt-get update -o Acquire::Retries=3 \
         sox \
         libsox-fmt-all \
     && update-ca-certificates \
-    && add-apt-repository ppa:deadsnakes/ppa \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
     && apt-get update \
-    && apt-get install -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends --fix-missing \
         python3.11 \
         python3.11-venv \
         python3.11-distutils \
