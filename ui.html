@@ -1415,9 +1415,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       </button>
       <button id="echo-clear-btn" onclick="echoClearTranscript()" style="display:none;font-size:10px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="会話をクリア">✕ Clear</button>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:10px;color:var(--text3)">
-        <label>ASR <select id="echo-asr-language" onchange="saveEchoSettings()"><option value="auto">Auto Japanese/English</option><option value="ja">Japanese</option><option value="en">English</option></select></label>
-        <label>Output <select id="echo-output-language" onchange="saveEchoSettings()"><option value="same">Same as input</option><option value="ja">Translate to Japanese</option><option value="en">Translate to English</option></select></label>
-        <label>TTS <select id="echo-tts-language" onchange="saveEchoSettings()"><option value="auto">Auto by output language</option><option value="ja">Japanese voice</option><option value="en">English voice</option></select></label>
+        <span title="ASRはASRタブの設定を利用">ASR: ASRタブ設定を使用</span>
       </div>
     </div>
     <div class="echo-transcript" id="echo-transcript">
@@ -2506,6 +2504,28 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <option value="raw" selected>Raw text</option>
               <option value="translated">Translated text</option>
             </select>
+          </div>
+          <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo output language</div>
+              <select id="echo-output-language"
+                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+                onchange="saveEchoSettings()">
+                <option value="same">Same as input</option>
+                <option value="ja">Translate to Japanese</option>
+                <option value="en">Translate to English</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo TTS language</div>
+              <select id="echo-tts-language"
+                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+                onchange="saveEchoSettings()">
+                <option value="auto">Auto by output language</option>
+                <option value="ja">Japanese voice</option>
+                <option value="en">English voice</option>
+              </select>
+            </div>
           </div>
           <div style="margin-top:8px">
             <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">JP-Extra non-Japanese policy</div>
@@ -5432,8 +5452,8 @@ function saveEchoSettings() {
   echo.groupOverflowMode = document.getElementById('echo-group-overflow-mode')?.value || echo.groupOverflowMode || 'rolling';
   echo.parallelMaxSentences = Math.max(1, parseInt(document.getElementById('echo-parallel-max-sentences')?.value || `${echo.parallelMaxSentences || 20}`, 10) || 20);
   echo.textRevealSeconds = Math.max(0, _numOr(document.getElementById('echo-text-reveal-seconds')?.value, echo.textRevealSeconds ?? 1.5));
-  echo.asrLang     = document.getElementById('echo-asr-lang')?.value       || document.getElementById('echo-asr-language')?.value || 'auto';
-  echo.asrLanguage = document.getElementById('echo-asr-language')?.value || echo.asrLang || 'auto';
+  echo.asrLang     = document.getElementById('echo-asr-lang')?.value || 'auto';
+  echo.asrLanguage = echo.asrLang || 'auto';
   echo.outputLanguage = document.getElementById('echo-output-language')?.value || echo.outputLanguage || 'same';
   echo.ttsLanguage = document.getElementById('echo-tts-language')?.value || echo.ttsLanguage || 'auto';
   echo.asrInputDeviceId = document.getElementById('echo-asr-input-device')?.value || echo.asrInputDeviceId || 'default';
@@ -5801,8 +5821,6 @@ function _echoInitSettingsUI() {
   if (overflowModeInput) overflowModeInput.disabled = !['lang_serial', 'lang_parallel'].includes(echo.displayStyle || 'lang_serial');
   const asrLangSel = document.getElementById('echo-asr-lang');
   if (asrLangSel) asrLangSel.value = echo.asrLang;
-  const echoAsrLanguageSel = document.getElementById('echo-asr-language');
-  if (echoAsrLanguageSel) echoAsrLanguageSel.value = echo.asrLanguage || echo.asrLang || 'auto';
   const echoOutputLanguageSel = document.getElementById('echo-output-language');
   if (echoOutputLanguageSel) echoOutputLanguageSel.value = echo.outputLanguage || 'same';
   const echoTtsLanguageSel = document.getElementById('echo-tts-language');
