@@ -2120,7 +2120,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <select id="echo-asr-model"
             style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
             onchange="saveEchoSettings()">
-            <option value="large-v3-turbo">large-v3-turbo / bundled / /opt/asr_models/large-v3-turbo</option>
+            <option value="large-v3-turbo">large-v3-turbo（同梱）</option>
             <option value="small">small（高速・軽量）</option>
             <option value="medium">medium（バランス）</option>
           </select>
@@ -3066,7 +3066,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">モデル</div>
           <select id="asr-model-sel"
             style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
-            <option value="large-v3-turbo">large-v3-turbo / bundled / /opt/asr_models/large-v3-turbo</option>
+            <option value="large-v3-turbo">large-v3-turbo（同梱）</option>
             <option value="small">small（精度・速度バランス）</option>
             <option value="base">base（軽量・高速）</option>
             <option value="tiny">tiny（最軽量）</option>
@@ -3896,7 +3896,6 @@ function ttsStop() {
   clearTtsBlockedState();
   hideFloatingTtsPlayer();
   tts._autoplayBlockedNoticeShown = false;
-  _clearQwen3CloneStatusTimer();
   const cloneStatusEl = document.getElementById('qwen3-clone-test-status');
   if (cloneStatusEl) _setQwen3CloneTestStatus('停止');
   _setQwen3ClonePlayToggle(false);
@@ -4657,7 +4656,6 @@ async function _playQwen3CloneTestBlob() {
     engine: 'qwen3tts',
     kind: 'clone_test',
   });
-  _clearQwen3CloneStatusTimer();
   _setQwen3ClonePlayToggle(false);
   return result;
 }
