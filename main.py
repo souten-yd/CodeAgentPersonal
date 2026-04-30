@@ -612,11 +612,60 @@ def _model_health_ok(port: int) -> bool:
 
 
 def _choose_default_startup_model() -> str:
-    return (
-        choose_model_for_role("plan", include_disabled=True)
-        or choose_model_for_role("chat", include_disabled=True)
-        or choose_model_for_role("code", include_disabled=True)
-    )
+    catalog = get_runtime_model_catalog(include_disabled=True)
+    rows = model_db_list()
+    existing_enabled_keys = {
+        str(m.get("model_key") or "").strip()
+        for m in rows
+        if int(m.get("enabled", 1) or 1) != 0
+        and m.get("path")
+        and os.path.isfile(str(m.get("path")))
+    }
+    for role in ("plan", "chat", "code"):
+        key = choose_model_for_role(role, include_disabled=True)
+        if key and key in catalog and key in existing_enabled_keys:
+            return key
+    for key in catalog.keys():
+        if key in existing_enabled_keys:
+            return key
+    return ""
+
+
+def _is_bundled_gemma_model(row: dict) -> bool:
+    try:
+        path = str(row.get("path") or "")
+        key = str(row.get("model_key") or "")
+        name = str(row.get("name") or "")
+        notes = str(row.get("notes") or "")
+        joined = " ".join([path, key, name, notes]).lower()
+        return (
+            "gemma-4-e4b-it-q4_k_m" in joined
+            or "gemma_4_e4b_it_q4_k_m" in joined
+            or "/models/gemma-4-e4b-it-q4_k_m.gguf" in joined
+        )
+    except Exception:
+        return False
+
+
+def _allow_unbenchmarked_startup_autoload(models: list[dict]) -> tuple[bool, str]:
+    try:
+        existing_models = [
+            m for m in models
+            if int(m.get("enabled", 1) or 1) != 0
+            and m.get("path")
+            and os.path.isfile(str(m.get("path")))
+        ]
+        if not existing_models:
+            return False, "no_existing_enabled_model_files"
+        if os.name == "nt" and not IS_RUNPOD_RUNTIME:
+            return True, "windows_local_existing_model_unbenchmarked_allowed"
+        if IS_RUNPOD_RUNTIME:
+            for m in existing_models:
+                if _is_bundled_gemma_model(m):
+                    return True, "runpod_bundled_gemma_unbenchmarked_allowed"
+        return False, "no_benchmarked_models"
+    except Exception as e:
+        return False, f"unbenchmarked_autoload_check_failed:{e}"
 
 
 def model_db_status_summary() -> dict:
@@ -669,8 +718,17 @@ def _should_startup_autoload_llm() -> tuple[bool, str]:
         return False, "no_models"
     if int(status.get("enabled", 0) or 0) <= 0:
         return False, "no_enabled_models"
-    if _startup_requires_benchmark() and int(status.get("benchmarked", 0) or 0) <= 0:
-        return False, "no_benchmarked_models"
+    if int(status.get("benchmarked", 0) or 0) <= 0:
+        try:
+            models = model_db_list()
+        except Exception as e:
+            return False, f"model_db_list_error:{e}"
+        allowed, reason = _allow_unbenchmarked_startup_autoload(models)
+        if allowed:
+            print(f"[Startup] allow unbenchmarked startup auto-load: {reason}")
+            return True, reason
+        if _startup_requires_benchmark():
+            return False, reason
     if not _model_manager.has_llama_server():
         return False, "llama_server_not_found"
     return True, "ok"
@@ -688,9 +746,13 @@ def schedule_default_model_load(reason: str = "", force: bool = False) -> tuple[
         and os.path.isfile(str(m.get("path")))
     ]
     if not models:
-        return False, "no_models"
-    if not force and _startup_requires_benchmark() and not any(_has_benchmark_profile(m) for m in models):
-        return False, "no_benchmarked_models"
+        return False, "no_existing_enabled_model_files"
+    has_any_benchmark = any(_has_benchmark_profile(m) for m in models)
+    if not force and not has_any_benchmark:
+        allowed, reason = _allow_unbenchmarked_startup_autoload(models)
+        if not allowed:
+            return False, reason
+        print(f"[ModelManager] allowing unbenchmarked auto-load: {reason}")
     if not force and _model_health_ok(_model_manager.llm_port):
         _model_manager._sync_current_model()
         return False, "already_running"
@@ -709,7 +771,7 @@ def schedule_default_model_load(reason: str = "", force: bool = False) -> tuple[
             print(f"[ModelManager] auto-load error ({reason or 'unspecified'}): {e}")
 
     _t.Thread(target=_worker, daemon=True).start()
-    return True, key
+    return True, {"model_key": key, "reason": reason or "ok"}
 
 
 def _fallback_role_recommendations(models: list[dict]) -> dict[str, list[str]]:
@@ -7008,6 +7070,15 @@ def call_llm_chat(messages: list, llm_url: str = "", max_output_tokens: int | No
             return content, {"prompt_tokens":0,"completion_tokens":0,"tps":0}
         except Exception as e2:
             raise HTTPException(status_code=502, detail=f"LLM unreachable after retry ({url}): {e2}")
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "llm_not_ready",
+                "message": "LLM server is not running. Please wait for model auto-load or load a model from Models.",
+                "url": url,
+            },
+        )
     except requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"LLM unreachable ({url}): {e}")
 
@@ -8047,6 +8118,13 @@ def run_job_background(job_id: str, req: "JobRequest"):
     _ev = _wait_threading.Event()
     _job_wait_events[job_id] = _ev
 
+    def _format_job_exception(ex: Exception) -> str:
+        if isinstance(ex, HTTPException) and isinstance(ex.detail, dict):
+            detail = ex.detail
+            if detail.get("error") == "llm_not_ready":
+                return f"LLM not ready: {detail.get('message', 'LLM server is not running.')}"
+        return str(ex)
+
     def write(event_type: str, data: dict):
         nonlocal seq
         job_append_step(project, job_id, seq, event_type, data)
@@ -8222,7 +8300,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                             task_output = ev.get("error","") or task_output
                 except Exception as _task_ex:
                     # HTTPException(502/413)などがタスクループを突き抜けないよう捕捉
-                    err_msg = str(_task_ex)
+                    err_msg = _format_job_exception(_task_ex)
                     print(f"[JOB {job_id}] task {i+1}/{total} exception: {err_msg[:100]}")
                     write("task_error", {"task_id": todo["id"], "error": f"[exception] {err_msg[:200]}"})
                     task_status = "error"
@@ -8282,7 +8360,7 @@ def run_job_background(job_id: str, req: "JobRequest"):
                                 _output = ev.get("error","") or _output
                     except Exception as _ex:
                         _status = "error"
-                        _output = f"[exception] {str(_ex)[:200]}"
+                        _output = f"[exception] {_format_job_exception(_ex)[:200]}"
                     return _steps, _status, _output
 
                 def _classify_orchestration_error(err_text: str) -> str:
@@ -15352,7 +15430,10 @@ def model_auto_load(req: dict | None = None):
         reason=req.get("reason", "api"),
         force=bool(req.get("force", False))
     )
-    return {"ok": True, "started": started, "detail": detail}
+    if started and isinstance(detail, dict):
+        return {"ok": True, "started": True, "model_key": detail.get("model_key", ""), "reason": detail.get("reason", "ok")}
+    reason = detail.get("reason", "unknown") if isinstance(detail, dict) else str(detail)
+    return {"ok": True, "started": bool(started), "reason": reason}
 
 @app.post("/jobs/{job_id}/respond")
 def respond_to_job(job_id: str, req: dict):
