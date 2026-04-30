@@ -4442,6 +4442,99 @@ function _validateStyleBertVits2RequestBodyOrThrow(body = {}) {
 
 
 
+let _sbv2TestAudioBlob = null;
+let _sbv2TestBusy = false;
+let _sbv2TestVoiceRecorder = null;
+let _sbv2TestVoiceRecording = false;
+let _sbv2TestVoiceChunks = [];
+
+
+function _isRecordingBlockedByTts() {
+  return !!(tts._playing || _sbv2TestBusy || ttsAudioQueue.length > 0);
+}
+
+function _isEchoRecordingBlockedByTts() {
+  // Echo は TTS再生中でも常時録音を継続可能にする
+  return false;
+}
+
+async function _echoRefreshAudioDeviceSelectors() {
+  const inSel = document.getElementById('echo-asr-input-device');
+  const outSel = document.getElementById('echo-tts-output-device');
+  const inNote = document.getElementById('echo-asr-input-device-note');
+  const outNote = document.getElementById('echo-tts-output-device-note');
+  if (!inSel && !outSel) return;
+  const fallbackIn = [{id: 'default', label: 'システム既定'}];
+  const fallbackOut = [{id: 'default', label: 'システム既定（iPhoneはOS側で切替）'}];
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    if (inSel) {
+      inSel.innerHTML = fallbackIn.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
+      inSel.value = echo.asrInputDeviceId || 'default';
+    }
+    if (outSel) {
+      outSel.innerHTML = fallbackOut.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
+      outSel.value = echo.ttsOutputDeviceId || 'default';
+    }
+    if (inNote) inNote.textContent = 'このブラウザは入力デバイス一覧取得に未対応です。';
+    if (outNote) outNote.textContent = 'このブラウザは出力デバイス一覧取得に未対応です。';
+    return;
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const ins = devices.filter((d) => d.kind === 'audioinput');
+    const outs = devices.filter((d) => d.kind === 'audiooutput');
+    if (inSel) {
+      const inputOpts = [
+        {id: 'default', label: 'システム既定'},
+        ...ins.map((d, idx) => ({id: d.deviceId, label: d.label || `マイク ${idx + 1}`})),
+      ];
+      inSel.innerHTML = inputOpts.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
+      inSel.value = inputOpts.some((x) => x.id === echo.asrInputDeviceId) ? echo.asrInputDeviceId : 'default';
+    }
+    if (outSel) {
+      const outputOpts = [
+        {id: 'default', label: 'システム既定（iPhoneはOS側で切替）'},
+        ...outs.map((d, idx) => ({id: d.deviceId, label: d.label || `出力 ${idx + 1}`})),
+      ];
+      outSel.innerHTML = outputOpts.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
+      outSel.value = outputOpts.some((x) => x.id === echo.ttsOutputDeviceId) ? echo.ttsOutputDeviceId : 'default';
+    }
+    if (inNote) inNote.textContent = ins.length ? '接続済みマイク/イヤホンを選択できます。' : 'マイク一覧を取得するには一度録音許可が必要な場合があります。';
+    if (outNote) {
+      outNote.textContent = outs.length
+        ? '対応ブラウザではTTS出力先を選択できます。iPhone/SafariではOS側切替を利用してください。'
+        : '出力先の列挙不可。iPhone/SafariではOS側の出力切替を利用してください。';
+    }
+  } catch (e) {
+    if (inNote) inNote.textContent = `入力デバイス一覧取得に失敗: ${e.message || String(e)}`;
+    if (outNote) outNote.textContent = `出力デバイス一覧取得に失敗: ${e.message || String(e)}`;
+  }
+}
+
+function _syncRecordingControlsWithTts() {
+  const blocked = _isRecordingBlockedByTts();
+  const reason = blocked ? 'TTS生成/再生中は録音を開始できません。' : '';
+  _setMicState(voiceRecording, blocked || voiceRecording, voiceTarget || 'chat');
+  const sbv2Btn = document.getElementById('sbv2-test-asr-btn');
+  if (sbv2Btn && !_sbv2TestVoiceRecording) {
+    sbv2Btn.disabled = blocked || _sbv2TestBusy;
+    sbv2Btn.title = reason;
+  }
+  const echoBtn = document.getElementById('echo-record-btn');
+  if (echoBtn && !echo.recording) {
+    const echoBlocked = _isEchoRecordingBlockedByTts();
+    echoBtn.disabled = echoBlocked;
+    echoBtn.title = echoBlocked ? reason : '';
+  }
+  if (blocked && voiceRecording && voiceRecorder) {
+    voiceRecording = false;
+    _stopVoiceLevelMonitoring(voiceTarget);
+    _setMicState(false, true, voiceTarget || 'chat');
+    voiceRecorder.stop();
+  }
+}
+
+
 async function runQwen3CloneTestGenerate(target = 'jp') {
   if (!_isEchoQwen3Selected()) {
     _setQwen3CloneTestStatus('Qwen3 TTS選択時のみ利用可能', true);
