@@ -3456,7 +3456,7 @@ let isTtsPlaying = false;
 const tts = {
   enabled:      localStorage.getItem('tts_enabled')    === 'true',
   autoSpeak:    localStorage.getItem('tts_auto_speak') === 'true',
-  engine:       localStorage.getItem('tts_engine')     || 'style_bert_vits2',
+  engine:       'style_bert_vits2',
   voice:        localStorage.getItem('tts_voice')      || '',
   speed:        parseFloat(localStorage.getItem('tts_speed') || '1.0'),
   styleBertVits2Model: localStorage.getItem('tts_style_bert_vits2_model')
@@ -3508,16 +3508,15 @@ function _normalizeStyleBertVits2Model(model) {
 tts.engine = _normalizeTtsEngine(tts.engine);
 function cleanupDeprecatedQwen3TtsStorage() {
   try {
-    ['tts_qwen3model','tsasr_qwen3model','echo_qwen3model','echo_tts_engine','tts_engine'].forEach((key) => {
+    ['tts_qwen3model','tsasr_qwen3model','echo_qwen3model'].forEach((key) => {
       const value = localStorage.getItem(key);
       if (!value) return;
       if (/qwen3|qwen_tts|qwen3tts/i.test(value)) localStorage.removeItem(key);
     });
+    ['tts_engine', 'echo_tts_engine', 'engine', 'engine_key', 'selected_tts_engine'].forEach((key) => localStorage.removeItem(key));
     localStorage.removeItem('qwen3_ref_text');
     localStorage.removeItem('qwen3_clone_require_ref_text');
     localStorage.removeItem('qwen3_clone_test_text');
-    localStorage.setItem('tts_engine', 'style_bert_vits2');
-    localStorage.setItem('echo_tts_engine', 'style_bert_vits2');
   } catch (_) {}
 }
 cleanupDeprecatedQwen3TtsStorage();
@@ -3529,7 +3528,6 @@ if (!tts.styleBertVits2Model) {
 }
 tts.styleBertVits2Model = _normalizeStyleBertVits2Model(tts.styleBertVits2Model);
 localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model);
-localStorage.setItem('tts_engine', tts.engine);
 
 // ── TALK MODE (EchoVault) グローバル状態 ──
 const echo = {
@@ -3558,7 +3556,7 @@ const echo = {
     }
     return autoPlayTtsStored === 'true';
   })(),
-  ttsEngine:      localStorage.getItem('echo_tts_engine')  || 'style_bert_vits2',
+  ttsEngine:      'style_bert_vits2',
   ttsOutputDeviceId: localStorage.getItem('echo_tts_output_device_id') || 'default',
   styleBertVits2Model: localStorage.getItem('echo_style_bert_vits2_model')
                     || localStorage.getItem('echo_stylebertvits2_model')
@@ -3654,10 +3652,8 @@ const echo = {
   _connState: 'disconnected',
 };
 echo.ttsEngine = _normalizeTtsEngine(echo.ttsEngine);
-localStorage.setItem('echo_tts_engine', echo.ttsEngine);
 // Chat/Task のTTSは Echo TTS 設定を既定値として使う
 tts.engine = echo.ttsEngine;
-localStorage.setItem('tts_engine', tts.engine);
 
 // 旧表示モードの互換変換
 if (!localStorage.getItem('echo_display_style')) {
@@ -4216,6 +4212,7 @@ async function _ttsPlayStyleBertVits2Batch(queueItem = {}) {
     context,
     source: context === 'echo' ? 'echo' : (context === 'agent' ? 'agent' : 'chat'),
     engine: 'style_bert_vits2',
+    engine_key: 'style_bert_vits2',
     kind: 'batch',
     textPreview: String(translatedSentences[0] || '').slice(0, 60),
   });
@@ -4347,6 +4344,7 @@ function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
   const body = {
     text,
     engine,
+    engine_key: 'style_bert_vits2',
     model: modelId,
     device: selectedDevice,
     language,
@@ -4860,14 +4858,13 @@ if (navigator.mediaDevices?.addEventListener) {
 }
 
 function saveTtsSettings() {
-  tts.engine     = _normalizeTtsEngine(document.getElementById('tts-engine-sel')?.value || tts.engine);
+  tts.engine     = 'style_bert_vits2';
   tts.voice      = document.getElementById('tts-voice-sel')?.value || tts.voice;
   tts.speed      = parseFloat(document.getElementById('tts-speed-slider')?.value || `${tts.speed || 1.0}`);
   const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
   if (styleSel) tts.styleBertVits2Model = _normalizeStyleBertVits2Model(styleSel.value || tts.styleBertVits2Model);
   const devRadio = document.querySelector('input[name="tts-device"]:checked');
   if (devRadio) _syncTtsDeviceState(devRadio.value);
-  localStorage.setItem('tts_engine',     tts.engine);
   localStorage.setItem('tts_voice',      tts.voice);
   localStorage.setItem('tts_speed',      tts.speed);
   localStorage.setItem('tts_style_bert_vits2_model', _normalizeStyleBertVits2Model(tts.styleBertVits2Model));
@@ -4926,32 +4923,12 @@ function _normalizeEchoSbv2AdvancedDefaults() {
 
 async function onTtsEngineChange() {
   saveTtsSettings();
-  if (!document.getElementById('tts-engine-note')) return;
-  const engine = _normalizeTtsEngine(tts.engine);
-  tts.engine = engine;
-  const note       = document.getElementById('tts-engine-note');
-  const loadRow    = document.getElementById('tts-engine-load-row');
-  const voiceRow   = document.getElementById('tts-voice-row');
-  const deviceRow  = document.getElementById('tts-device-row');
-  const unloadBtn  = document.getElementById('tts-unload-btn');
-
-  // デフォルトで全行非表示にしてから必要なものだけ表示
-  loadRow.style.display   = 'none';
-  deviceRow.style.display = 'none';
-  voiceRow.style.display  = '';
-
-  if (engine === 'style_bert_vits2') {
-    note.textContent = 'Style-Bert-VITS2 をローカルモデルで実行します。Echo TTS 側でモデルを選択してください。';
-    voiceRow.style.display = 'none';
-  }
-
-  // アンロードボタンの表示制御（ロード状態に基づく）
-  _ttsSyncUnloadBtn(engine);
+  _ttsSyncUnloadBtn('style_bert_vits2');
 }
 
 
 function _isEchoStyleBertVits2Selected() {
-  return (document.getElementById('echo-tts-engine')?.value || echo.ttsEngine) === 'style_bert_vits2';
+  return true;
 }
 
 async function _ttsLoadVoicesFromServer(engine) {
@@ -5379,7 +5356,7 @@ async function loadTtsEngine() {
 
 function saveEchoSettings() {
   echo.autoPlayTts = document.getElementById('echo-autoplay-tts')?.checked || false;
-  echo.ttsEngine   = _normalizeTtsEngine(document.getElementById('echo-tts-engine')?.value || 'style_bert_vits2');
+  echo.ttsEngine   = 'style_bert_vits2';
   echo.ttsOutputDeviceId = document.getElementById('echo-tts-output-device')?.value || echo.ttsOutputDeviceId || 'default';
   // Chat/Task 側のTTSエンジンも Echo 設定を参照する
   tts.engine = echo.ttsEngine;
@@ -5510,9 +5487,7 @@ function saveEchoSettings() {
   const asrDev = document.querySelector('input[name="echo-asr-device"]:checked')?.value || echo.asrDevice || localStorage.getItem('asr_device') || 'cuda';
   _syncAsrDeviceState(asrDev);
   localStorage.setItem('echo_autoplay_tts', echo.autoPlayTts);
-  localStorage.setItem('echo_tts_engine',   echo.ttsEngine);
   localStorage.setItem('echo_tts_output_device_id', echo.ttsOutputDeviceId || 'default');
-  localStorage.setItem('tts_engine', tts.engine);
   localStorage.setItem('echo_style_bert_vits2_model', _normalizeStyleBertVits2Model(echo.styleBertVits2Model));
   localStorage.setItem('tts_style_bert_vits2_model', _normalizeStyleBertVits2Model(tts.styleBertVits2Model || echo.styleBertVits2Model));
   localStorage.setItem('echo_tts_sbv2_language', `${echo.ttsSbv2Language}`);
@@ -5734,8 +5709,6 @@ function _echoInitSettingsUI() {
   if (autoChk) autoChk.checked = echo.autoPlayTts;
   const autoLbl = document.getElementById('echo-autoplay-label');
   if (autoLbl) autoLbl.textContent = echo.autoPlayTts ? 'ON' : 'OFF';
-  const engSel = document.getElementById('echo-tts-engine');
-  if (engSel) engSel.value = echo.ttsEngine;
   const echoOutSel = document.getElementById('echo-tts-output-device');
   if (echoOutSel) echoOutSel.value = echo.ttsOutputDeviceId || 'default';
   const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
@@ -5776,7 +5749,7 @@ function _echoInitSettingsUI() {
   if (sbv2Pitch) sbv2Pitch.value = `${echo.sbv2PitchScale ?? 1.0}`;
   const sbv2Intonation = document.getElementById('echo-tts-sbv2-intonation-scale');
   if (sbv2Intonation) sbv2Intonation.value = `${echo.sbv2IntonationScale ?? 1.0}`;
-  const selectedEchoTtsEngine = engSel?.value || echo.ttsEngine;
+  const selectedEchoTtsEngine = echo.ttsEngine;
   if (selectedEchoTtsEngine === 'style_bert_vits2') {
     _ensureStyleBertVits2Prepared({context: 'echo'});
   } else {

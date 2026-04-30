@@ -12280,6 +12280,7 @@ def tts_debug_api(limit: int = 20):
 
 @app.get("/tts/voices")
 async def tts_voices_api(engine: str = "style_bert_vits2"):
+    engine = "style_bert_vits2"
     try:
         runtime = _tts_engine_registry.get(raw_engine=engine)
     except KeyError:
@@ -12289,8 +12290,11 @@ async def tts_voices_api(engine: str = "style_bert_vits2"):
 
 @app.post("/tts/load")
 def tts_load_api(req: dict = {}):
-    engine = str(req.get("engine", "style_bert_vits2"))
-    engine_key = _tts_engine_registry.resolve_engine_key(engine, req.get("engine_key"))
+    req = dict(req or {})
+    engine = "style_bert_vits2"
+    req["engine"] = engine
+    req["engine_key"] = engine
+    engine_key = engine
 
     def _sse(payload: dict) -> str:
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -12322,7 +12326,10 @@ def tts_load_api(req: dict = {}):
 
 @app.post("/tts/unload")
 def tts_unload_api(req: dict = {}):
-    engine = str(req.get("engine", "style_bert_vits2"))
+    req = dict(req or {})
+    engine = "style_bert_vits2"
+    req["engine"] = engine
+    req["engine_key"] = engine
     try:
         runtime = _tts_engine_registry.get(raw_engine=engine, raw_engine_key=req.get("engine_key"))
     except KeyError:
@@ -13001,7 +13008,10 @@ def tts_ref_audio_delete(filename: str):
 def tts_synthesize_api(req: dict):
     from fastapi.responses import Response as FastAPIResponse
     request_id = str(req.get("request_id") or uuid.uuid4().hex[:8])
-    engine = str(req.get("engine", "style_bert_vits2"))
+    req = dict(req or {})
+    engine = "style_bert_vits2"
+    req["engine"] = engine
+    req["engine_key"] = engine
     text = str(req.get("text", "")).strip()
     if not text:
         raise HTTPException(status_code=400, detail="text required")
@@ -13192,7 +13202,10 @@ def _merge_wav_bytes(wav_chunks: list[bytes]) -> bytes:
 
 
 def _run_tts_synthesize_batch(req: dict):
-    engine = str(req.get("engine", "style_bert_vits2"))
+    req = dict(req or {})
+    engine = "style_bert_vits2"
+    req["engine"] = engine
+    req["engine_key"] = engine
     model = str(req.get("model", "")).strip()
     device = str(req.get("device", "")).strip()
     output_format = str(req.get("output", "json") or "json").strip().lower()
