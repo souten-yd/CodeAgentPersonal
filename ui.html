@@ -1414,6 +1414,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         📝 Minutes OFF
       </button>
       <button id="echo-clear-btn" onclick="echoClearTranscript()" style="display:none;font-size:10px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="会話をクリア">✕ Clear</button>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:10px;color:var(--text3)">
+        <span title="ASRはASRタブの設定を利用">ASR: ASRタブ設定を使用</span>
+      </div>
     </div>
     <div class="echo-transcript" id="echo-transcript">
       <div class="echo-empty">「Start」を押して同時通訳・録音を開始...</div>
@@ -1422,7 +1425,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <span id="echo-conn-status" class="echo-conn-off">● 未接続</span>
       <div class="echo-status-right">
         <span id="echo-busy-status" class="echo-busy-status">idle</span>
-        <span class="echo-status" id="echo-status">Ready</span>
+        <span class="echo-status" id="echo-status">Ready · ASR: auto · Output: Same · TTS: auto</span>
         <span id="echo-sentence-count" class="echo-output-count" title="ASR出力の確定回数（「出力まとめ回数」と同じ定義で1回=1カウント）">出力回数: 0</span>
         <span class="echo-duration" id="echo-duration">00:00</span>
       </div>
@@ -2493,14 +2496,37 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <span style="font-size:11px;color:var(--text2)" id="echo-tts-use-translation-label">OFF</span>
             </label>
           </div>
-          <div style="margin-top:8px">
-            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS text source</div>
-            <select id="echo-tts-text-source"
-              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
-              onchange="saveEchoSettings()">
-              <option value="raw" selected>Raw text</option>
-              <option value="translated">Translated text</option>
-            </select>
+          <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo ASR language</div>
+              <select id="echo-asr-lang-unified"
+                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+                onchange="saveEchoSettings()">
+                <option value="auto">Auto Japanese/English</option>
+                <option value="ja">Japanese</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo output language</div>
+              <select id="echo-output-language"
+                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+                onchange="saveEchoSettings()">
+                <option value="same">Same as input</option>
+                <option value="ja">Translate to Japanese</option>
+                <option value="en">Translate to English</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo TTS language</div>
+              <select id="echo-tts-language"
+                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+                onchange="saveEchoSettings()">
+                <option value="auto">Auto by output language</option>
+                <option value="ja">Japanese voice</option>
+                <option value="en">English voice</option>
+              </select>
+            </div>
           </div>
           <div style="margin-top:8px">
             <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">JP-Extra non-Japanese policy</div>
@@ -2661,68 +2687,6 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
       </div>
 
-      <!-- TTS 翻訳設定 -->
-      <div>
-        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🌐 TTS 翻訳設定</div>
-        <div style="font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.6">
-          EN テキスト → 日本語に翻訳して読み上げ、日本語テキスト → 英語に翻訳して読み上げ（デフォルト）。<br>
-          翻訳 LLM: Modelsタブの <code style="background:var(--bg3);padding:1px 4px;border-radius:2px">translate</code> ロール設定を使用します。
-        </div>
-        <!-- 翻訳TTS有効 -->
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div style="font-size:11px;font-weight:700;color:var(--text2)">翻訳TTS 有効</div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="tts-translate-enable"
-              style="width:14px;height:14px;accent-color:var(--accent)"
-              onchange="saveTtsTranslateSettings()">
-            <span style="font-size:11px;color:var(--text2)" id="tts-translate-enable-label">OFF</span>
-          </label>
-        </div>
-        <!-- 言語モード -->
-        <div style="margin-bottom:8px" id="tts-translate-mode-row">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">再生言語モード</div>
-          <select id="tts-translate-mode"
-            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
-            onchange="saveTtsTranslateSettings()">
-            <option value="auto" selected>自動（EN→JP / JP→EN）</option>
-            <option value="ja">日本語のみ（EN→JP、JP→そのまま）</option>
-            <option value="en">英語のみ（JP→EN、EN→そのまま）</option>
-            <option value="off">翻訳なし（原文そのまま）</option>
-          </select>
-        </div>
-        <!-- 翻訳方向（新設定） -->
-        <div style="margin-bottom:8px">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">翻訳方向</div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div style="font-size:11px;color:var(--text2)">EN → JA を翻訳</div>
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-              <input type="checkbox" id="tts-translate-en2ja-enable"
-                style="width:14px;height:14px;accent-color:var(--accent)"
-                onchange="saveTtsTranslateSettings()">
-              <span style="font-size:11px;color:var(--text2)" id="tts-translate-en2ja-enable-label">OFF</span>
-            </label>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <div style="font-size:11px;color:var(--text2)">JA → EN を翻訳</div>
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-              <input type="checkbox" id="tts-translate-ja2en-enable"
-                style="width:14px;height:14px;accent-color:var(--accent)"
-                onchange="saveTtsTranslateSettings()">
-              <span style="font-size:11px;color:var(--text2)" id="tts-translate-ja2en-enable-label">OFF</span>
-            </label>
-          </div>
-        </div>
-        <!-- 自動再生 -->
-        <div style="display:flex;align-items:center;justify-content:space-between">
-          <div style="font-size:11px;font-weight:700;color:var(--text2)">TTS 自動再生</div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="tts-translate-autoplay"
-              style="width:14px;height:14px;accent-color:var(--accent)"
-              onchange="saveTtsTranslateSettings()">
-            <span style="font-size:11px;color:var(--text2)" id="tts-translate-autoplay-label">OFF</span>
-          </label>
-        </div>
-      </div>
     </div>
 
     </div>
@@ -3590,7 +3554,10 @@ const echo = {
                     || localStorage.getItem('echo_stylebertvits2_model')
                     || localStorage.getItem('echo_style-bert-vits2_model')
                     || '',
-  asrLang:        localStorage.getItem('echo_asr_lang')    || 'auto',
+  asrLang:        localStorage.getItem('echo.asrLanguage') || localStorage.getItem('echo_asr_lang') || 'auto',
+  outputLanguage: localStorage.getItem('echo.outputLanguage') || 'same',
+  ttsLanguage:    localStorage.getItem('echo.ttsLanguage') || 'auto',
+  ttsVoiceId:     localStorage.getItem('echo.ttsVoiceId') || 'auto',
   asrInputDeviceId: localStorage.getItem('echo_asr_input_device_id') || 'default',
   asrModel:       localStorage.getItem('echo_asr_model')   || 'large-v3-turbo',
   asrProfile:     localStorage.getItem('echo_asr_profile') || 'balanced',
@@ -5195,6 +5162,10 @@ async function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
 function _updateEchoSbv2LanguageNote() {
   const note = document.getElementById('echo-tts-sbv2-language-note');
   const sel = document.getElementById('echo-tts-sbv2-language');
+  const outputSel = document.getElementById('echo-output-language');
+  const ttsLangSel = document.getElementById('echo-tts-language');
+  const asrLangUnifiedSel = document.getElementById('echo-asr-lang-unified');
+  const asrLangSel = document.getElementById('echo-asr-lang');
   const isForced = _isJpExtraModelMeta(_getSelectedSbv2Meta());
   if (note) note.style.display = isForced ? '' : 'none';
   if (sel) {
@@ -5208,6 +5179,16 @@ function _updateEchoSbv2LanguageNote() {
     } else {
       options.forEach((opt) => { opt.disabled = false; });
     }
+  }
+  if (isForced) {
+    echo.outputLanguage = 'ja';
+    echo.ttsLanguage = 'ja';
+    echo.asrLang = 'auto';
+    echo.asrLanguage = 'auto';
+    if (outputSel) outputSel.value = 'ja';
+    if (ttsLangSel) ttsLangSel.value = 'ja';
+    if (asrLangUnifiedSel) asrLangUnifiedSel.value = 'auto';
+    if (asrLangSel) asrLangSel.value = 'auto';
   }
 }
 
@@ -5401,7 +5382,7 @@ function saveEchoSettings() {
   }
   echo.ttsSbv2Language = _normalizeEchoSbv2Language(document.getElementById('echo-tts-sbv2-language')?.value || echo.ttsSbv2Language || 'JP');
   echo.ttsUseTranslation = !!document.getElementById('echo-tts-use-translation')?.checked;
-  echo.ttsTextSource = (document.getElementById('echo-tts-text-source')?.value || echo.ttsTextSource || 'raw') === 'translated' ? 'translated' : 'raw';
+  echo.ttsTextSource = 'raw';
   echo.sbv2TextNormalization = document.getElementById('echo-tts-sbv2-text-normalization')?.checked !== false;
   echo.sbv2EnglishToKatakana = (document.getElementById('echo-tts-sbv2-english-to-katakana')?.value || echo.sbv2EnglishToKatakana || 'llm').toLowerCase();
   echo.sbv2EmojiPolicy = (document.getElementById('echo-tts-sbv2-emoji-policy')?.value || echo.sbv2EmojiPolicy || 'skip').toLowerCase();
@@ -5424,7 +5405,28 @@ function saveEchoSettings() {
   echo.groupOverflowMode = document.getElementById('echo-group-overflow-mode')?.value || echo.groupOverflowMode || 'rolling';
   echo.parallelMaxSentences = Math.max(1, parseInt(document.getElementById('echo-parallel-max-sentences')?.value || `${echo.parallelMaxSentences || 20}`, 10) || 20);
   echo.textRevealSeconds = Math.max(0, _numOr(document.getElementById('echo-text-reveal-seconds')?.value, echo.textRevealSeconds ?? 1.5));
-  echo.asrLang     = document.getElementById('echo-asr-lang')?.value       || 'auto';
+  echo.asrLang     = document.getElementById('echo-asr-lang-unified')?.value || document.getElementById('echo-asr-lang')?.value || 'auto';
+  echo.asrLanguage = echo.asrLang || 'auto';
+  const asrLangControl = document.getElementById('echo-asr-lang');
+  if (asrLangControl) asrLangControl.value = echo.asrLang;
+  const asrLangUnifiedControl = document.getElementById('echo-asr-lang-unified');
+  if (asrLangUnifiedControl) asrLangUnifiedControl.value = echo.asrLang;
+  echo.outputLanguage = document.getElementById('echo-output-language')?.value || echo.outputLanguage || 'same';
+  echo.ttsLanguage = document.getElementById('echo-tts-language')?.value || echo.ttsLanguage || 'auto';
+  if (_isJpExtraModelMeta(_getSelectedSbv2Meta())) {
+    echo.outputLanguage = 'ja';
+    echo.ttsLanguage = 'ja';
+    echo.asrLang = 'auto';
+    echo.asrLanguage = 'auto';
+    const outputSel = document.getElementById('echo-output-language');
+    if (outputSel) outputSel.value = 'ja';
+    const ttsLangSel = document.getElementById('echo-tts-language');
+    if (ttsLangSel) ttsLangSel.value = 'ja';
+    const asrUnifiedSel = document.getElementById('echo-asr-lang-unified');
+    if (asrUnifiedSel) asrUnifiedSel.value = 'auto';
+    const asrSel = document.getElementById('echo-asr-lang');
+    if (asrSel) asrSel.value = 'auto';
+  }
   echo.asrInputDeviceId = document.getElementById('echo-asr-input-device')?.value || echo.asrInputDeviceId || 'default';
   echo.asrModel    = document.getElementById('echo-asr-model')?.value      || 'large-v3-turbo';
   echo.asrProfile  = document.getElementById('echo-asr-profile')?.value    || 'balanced';
@@ -5528,6 +5530,10 @@ function saveEchoSettings() {
   localStorage.setItem('echo_parallel_max_sentences', `${echo.parallelMaxSentences}`);
   localStorage.setItem('echo_text_reveal_seconds', `${echo.textRevealSeconds}`);
   localStorage.setItem('echo_asr_lang',     echo.asrLang);
+  localStorage.setItem('echo.asrLanguage', echo.asrLanguage || echo.asrLang);
+  localStorage.setItem('echo.outputLanguage', echo.outputLanguage || 'same');
+  localStorage.setItem('echo.ttsLanguage', echo.ttsLanguage || 'auto');
+  localStorage.setItem('echo.ttsVoiceId', echo.ttsVoiceId || 'auto');
   localStorage.setItem('echo_asr_input_device_id', echo.asrInputDeviceId || 'default');
   localStorage.setItem('echo_asr_model',    echo.asrModel);
   localStorage.setItem('echo_asr_profile', echo.asrProfile);
@@ -5786,6 +5792,12 @@ function _echoInitSettingsUI() {
   if (overflowModeInput) overflowModeInput.disabled = !['lang_serial', 'lang_parallel'].includes(echo.displayStyle || 'lang_serial');
   const asrLangSel = document.getElementById('echo-asr-lang');
   if (asrLangSel) asrLangSel.value = echo.asrLang;
+  const asrLangUnifiedSel = document.getElementById('echo-asr-lang-unified');
+  if (asrLangUnifiedSel) asrLangUnifiedSel.value = echo.asrLang;
+  const echoOutputLanguageSel = document.getElementById('echo-output-language');
+  if (echoOutputLanguageSel) echoOutputLanguageSel.value = echo.outputLanguage || 'same';
+  const echoTtsLanguageSel = document.getElementById('echo-tts-language');
+  if (echoTtsLanguageSel) echoTtsLanguageSel.value = echo.ttsLanguage || 'auto';
   const asrInputSel = document.getElementById('echo-asr-input-device');
   if (asrInputSel) asrInputSel.value = echo.asrInputDeviceId || 'default';
   const modelSel = document.getElementById('echo-asr-model');
@@ -6486,6 +6498,7 @@ function initPanelResizer() {
 // ── INIT ──
 addEventListener('load', async () => {
   initTheme();
+_echoRefreshStatusLine();
   if (window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window) {
     bindModeAndNexusTapHandlers();
   }
@@ -11909,7 +11922,8 @@ function _echoRenderTranscript(forceRebuild = false, shouldScroll = true) {
 function _echoAddSentence(ev) {
   const time  = new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
   const sid   = ev.id;
-  const sentence = {id: sid, text: ev.text, displayText: '', lang: ev.lang, translated: '', displayTranslated: '', time};
+  const flow = _echoResolveLanguageFlow(ev);
+  const sentence = {id: sid, text: ev.text, displayText: '', lang: flow.detectedLang, translated: '', displayTranslated: '', time, detected_language: flow.detectedLang, output_language: flow.target, translation_used: flow.translationUsed, tts_language: flow.ttsLanguage};
   echo.sentences.push(sentence);
   _echoUpdateSentenceCount();
   if (echo.displayStyle === 'sentence') {
@@ -11941,10 +11955,15 @@ function _echoAddSentence(ev) {
   }
 }
 
-function _echoUpdateTranslation(id, translated) {
+function _echoUpdateTranslation(id, translated, meta = {}) {
   const s = echo.sentences.find(x => x.id === id);
   if (!s) return;
   s.translated = translated || '';
+  if (meta.detected_language) s.detected_language = meta.detected_language;
+  if (meta.output_language) s.output_language = meta.output_language;
+  if (typeof meta.translation_used === 'boolean') s.translation_used = meta.translation_used;
+  if (meta.tts_language) s.tts_language = meta.tts_language;
+  if (meta.tts_text) s.tts_text = meta.tts_text;
   _echoAnimateSentenceField(s, 'displayTranslated', translated || '');
   _echoUpdateSentenceDom(s);
   _updateEchoTtsPreview({rawText: s.text || '', translatedText: s.translated || ''});
@@ -11962,31 +11981,136 @@ function _echoUpdateTranslation(id, translated) {
   }
 }
 
-function _echoPlaySentence(sid, opts = {}) {
+
+async function _echoTranslateToTarget(text, sourceLang, targetLang) {
+  const clean = String(text || '').trim();
+  if (!clean) return clean;
+  if (!['ja','en'].includes(sourceLang) || !['ja','en'].includes(targetLang) || sourceLang === targetLang) return clean;
+  try {
+    const r = await fetch(API + '/tts/translate-text', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({text: clean, src_lang: sourceLang})
+    });
+    const d = await r.json();
+    return String(d.translated || clean).trim() || clean;
+  } catch (_) {
+    return clean;
+  }
+}
+function _echoSanitizeEnglishTtsText(text) {
+  return String(text || '')
+    .replace(/[\u{1F300}-\u{1FAFF}\uFE0F]/gu, ' ')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/[\u3000]/g, ' ')
+    .replace(/[^A-Za-z0-9 .,!?;:'"()\-\/\n\r\t]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function _echoNormalizeJapaneseTtsText(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return raw;
+  const hasAsciiWord = /[A-Za-z]{2,}/.test(raw);
+  if (!hasAsciiWord) return raw;
+  try {
+    const resp = await fetch(API + '/api/tts/style-bert-vits2/preview-normalization', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        text: raw,
+        language: 'JP',
+        sbv2_jp_extra_text_normalization: true,
+        sbv2_jp_extra_english_to_katakana: 'llm',
+        sbv2_jp_extra_emoji_policy: echo.sbv2EmojiPolicy || 'skip',
+        sbv2_jp_extra_symbol_policy: echo.sbv2SymbolPolicy || 'readable',
+        sbv2_jp_extra_url_policy: echo.sbv2UrlPolicy || 'skip',
+        sbv2_jp_extra_non_japanese_policy: 'normalize_then_allow'
+      })
+    });
+    if (!resp.ok) return raw;
+    const data = await resp.json();
+    const normalized = String(data?.normalized_text || '').trim();
+    return normalized || raw;
+  } catch (_) {
+    return raw;
+  }
+}
+async function _echoPrepareSpeechText(sentence) {
+  const raw = String(sentence?.text || '').trim();
+  const translated = String(sentence?.translated || '').trim();
+  const detected = sentence?.detected_language || _echoInferLanguage(raw, (echo.asrLanguage || 'auto'));
+  const output = sentence?.output_language || ((echo.outputLanguage || 'same') === 'same' ? detected : (echo.outputLanguage || detected));
+  let ttsText = translated && sentence?.translation_used ? translated : raw;
+  let translationUsed = !!sentence?.translation_used;
+
+  if (output !== detected) {
+    const converted = await _echoTranslateToTarget(ttsText, detected, output);
+    if (converted && converted !== ttsText) {
+      ttsText = converted;
+      translationUsed = true;
+    }
+  }
+
+  if (output === 'ja') {
+    ttsText = await _echoNormalizeJapaneseTtsText(ttsText);
+  }
+
+  if (output === 'en') {
+    const hasJapanese = /[぀-ヿ㐀-鿿]/.test(ttsText);
+    if (hasJapanese) {
+      const converted = await _echoTranslateToTarget(ttsText, 'ja', 'en');
+      if (converted) {
+        ttsText = converted;
+        translationUsed = true;
+      }
+    }
+    ttsText = _echoSanitizeEnglishTtsText(ttsText);
+  }
+
+  sentence.translation_used = translationUsed;
+  sentence.tts_text = ttsText;
+  sentence.tts_language = (echo.ttsLanguage || 'auto') === 'auto' ? output : (echo.ttsLanguage || output);
+  return {ttsText, detected, output, ttsLanguage: sentence.tts_language};
+}
+async function _echoPlaySentence(sid, opts = {}) {
   const s = echo.sentences.find(x => x.id === sid);
   if (!s) return;
   const trigger = opts.trigger || 'unknown';
-  const canUseTranslated = !!echo.ttsUseTranslation
-    && echo.ttsTextSource === 'translated'
-    && !!(s.translated || '').trim();
-  const speechText = canUseTranslated ? s.translated : s.text;
-  console.info(`[Echo][play_sentence] sid=${sid} trigger=${trigger} canUseTranslated=${canUseTranslated} flags=${JSON.stringify({
-    autoPlayTts: !!echo.autoPlayTts,
-    ttsTranslateAutoplay: !!echo.ttsTranslateAutoplay,
-    ttsTextSource: echo.ttsTextSource || 'raw',
-    force: opts.force === true,
-  })}`);
+  const prepared = await _echoPrepareSpeechText(s);
+  const speechText = prepared.ttsText || s.text;
+  console.info(`[Echo][play_sentence] sid=${sid} trigger=${trigger} detected=${prepared.detected} output=${prepared.output} tts=${prepared.ttsLanguage}`);
   _updateEchoTtsPreview({rawText: s.text || '', translatedText: s.translated || ''});
-  // Echoモード用TTSエンジンで再生（グローバルtts.engineを書き換えない）
-  // すでに Echo で翻訳済みテキストを選んだ場合は再翻訳しない。
   ttsSpeak(speechText, {
     context: 'echo',
     force: opts.force === true,
     engine: echo.ttsEngine,
-    skipTranslate: canUseTranslated || !echo.ttsUseTranslation,
+    skipTranslate: true,
     rawText: s.text || '',
     translatedText: s.translated || '',
   });
+}
+
+
+function _echoInferLanguage(text, fallback = 'auto') {
+  const src = String(text || '');
+  if (/[぀-ヿ㐀-鿿]/.test(src)) return 'ja';
+  if (/[A-Za-z]/.test(src)) return 'en';
+  return fallback === 'ja' || fallback === 'en' ? fallback : 'ja';
+}
+function _echoResolveLanguageFlow(ev) {
+  const detected = (ev.detected_language || ev.lang || '').toLowerCase();
+  const asrLang = (echo.asrLanguage || echo.asrLang || 'auto').toLowerCase();
+  const detectedLang = detected === 'ja' || detected === 'en' ? detected : _echoInferLanguage(ev.text || '', asrLang);
+  const output = (echo.outputLanguage || 'same').toLowerCase();
+  const target = output === 'ja' || output === 'en' ? output : detectedLang;
+  const translationUsed = target !== detectedLang;
+  const ttsLanguage = (echo.ttsLanguage || 'auto') === 'auto' ? target : echo.ttsLanguage;
+  return {detectedLang, target, translationUsed, ttsLanguage};
+}
+function _echoRefreshStatusLine() {
+  const el = document.getElementById('echo-status');
+  if (!el) return;
+  const outMap = {same:'Same',ja:'Japanese',en:'English'};
+  el.textContent = `Ready · ASR: ${echo.asrLanguage || echo.asrLang || 'auto'} · Output: ${outMap[echo.outputLanguage || 'same'] || 'Same'} · TTS: ${echo.ttsLanguage || 'auto'}`;
 }
 
 function _echoHandleEvent(ev) {
@@ -11994,9 +12118,9 @@ function _echoHandleEvent(ev) {
     _echoAddSentence(ev);
   } else if (ev.type === 'translation') {
     if (echo.ttsTranslateEnabled) {
-      _echoUpdateTranslation(ev.id, ev.translated);
+      _echoUpdateTranslation(ev.id, ev.translated, ev);
     } else {
-      _echoUpdateTranslation(ev.id, '');
+      _echoUpdateTranslation(ev.id, '', ev);
     }
   } else if (ev.type === 'status') {
     const stateMap = {
@@ -12080,7 +12204,7 @@ function _echoConnectWs(wsMode) {
       : {
           type: 'start',
           session_id: echo.sessionId,
-          language: echo.asrLang,
+          language: echo.asrLanguage || echo.asrLang,
           model: echo.asrModel,
           asr_profile: echo.asrProfile || 'balanced',
           no_speech_threshold: echo.asrNoSpeechThreshold,
@@ -12105,6 +12229,8 @@ function _echoConnectWs(wsMode) {
           channels: 1,
           mime: `audio/pcm;rate=${echo.pcmTargetRate};channels=1`,
           translate_enabled: !!echo.ttsTranslateEnabled,
+          output_language: echo.outputLanguage || 'same',
+          tts_language: echo.ttsLanguage || 'auto',
           create_minutes: !!echo.autoGenerateMinutes,
         };
     ws.send(JSON.stringify(payload));

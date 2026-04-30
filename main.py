@@ -10944,6 +10944,16 @@ def _echo_normalize_lang(lang: str | None, text: str = "") -> str:
         return "ja"
     return "en"
 
+def _echo_normalize_output_language(value: str | None) -> str:
+    raw = str(value or "same").strip().lower()
+    return raw if raw in {"same", "ja", "en"} else "same"
+
+def _echo_resolve_target_language(detected_lang: str, output_language: str) -> str:
+    output = _echo_normalize_output_language(output_language)
+    if output == "same":
+        return detected_lang if detected_lang in {"ja", "en"} else "ja"
+    return output
+
 def _echo_do_translate(text: str, src_lang: str, llm_url: str = "") -> str:
     """LLM を使い text を翻訳する。src_lang: 'ja'→英訳, 'en'→和訳。"""
     target = "English" if src_lang == "ja" else "日本語"
@@ -11274,6 +11284,10 @@ async def echo_stream_ws(websocket: WebSocket):
                     chunk_channels = int(ev.get("channels", 1) or 1)
                     chunk_mime = str(ev.get("mime", "audio/webm"))
                     translate_enabled = bool(ev.get("translate_enabled", True))
+                    output_language = _echo_normalize_output_language(ev.get("output_language", "same"))
+                    tts_language = str(ev.get("tts_language", "auto")).strip().lower()
+                    if tts_language not in {"auto", "ja", "en"}:
+                        tts_language = "auto"
                     create_minutes = bool(ev.get("create_minutes", translate_enabled))
                     processed_chunk_seqs = set()
                     if asr_device in {"cpu", "cuda"}:
@@ -11315,6 +11329,8 @@ async def echo_stream_ws(websocket: WebSocket):
                         "buffer_format": "webm",
                         "asr_filter": asr_filter,
                         "translate_enabled": translate_enabled,
+                        "output_language": output_language,
+                        "tts_language": tts_language,
                         "create_minutes": create_minutes,
                         "recent_confirmed_text": "",
                         "prompt_keep_chars": 40,
@@ -11335,6 +11351,8 @@ async def echo_stream_ws(websocket: WebSocket):
                         channels=chunk_channels,
                         asr_filter=asr_filter,
                         translate_enabled=translate_enabled,
+                        output_language=output_language,
+                        tts_language=tts_language,
                         create_minutes=create_minutes,
                     )
                     await send({"type": "status", "state": "recording"})
@@ -11356,6 +11374,10 @@ async def echo_stream_ws(websocket: WebSocket):
                             session["asr_filter"] = _echo_resolve_filter_config({})
                         if "translate_enabled" not in session:
                             session["translate_enabled"] = True
+                        if "output_language" not in session:
+                            session["output_language"] = "same"
+                        if "tts_language" not in session:
+                            session["tts_language"] = "auto"
                         if "create_minutes" not in session:
                             session["create_minutes"] = bool(session.get("translate_enabled", True))
                     else:
@@ -11379,6 +11401,8 @@ async def echo_stream_ws(websocket: WebSocket):
                             "buffer_format": "webm",
                             "asr_filter": _echo_resolve_filter_config({}),
                             "translate_enabled": True,
+                            "output_language": "same",
+                            "tts_language": "auto",
                             "create_minutes": True,
                             "recent_confirmed_text": "",
                             "prompt_keep_chars": 40,
@@ -11559,18 +11583,41 @@ async def echo_stream_ws(websocket: WebSocket):
                             await send({"type": "status", "state": "recording"})
                             continue
                         sid = len(session["sentences"])
+                        output_mode = _echo_normalize_output_language(session.get("output_language", "same"))
+                        target_lang = _echo_resolve_target_language(lang_det, output_mode)
+                        resolved_tts_lang = session.get("tts_language", "auto")
+                        if resolved_tts_lang not in {"ja", "en"}:
+                            resolved_tts_lang = target_lang
+                        translation_used = False
+                        tts_text = text
+                        translated_value = ""
                         session["sentences"].append({
                             "id": sid, "text": text,
-                            "lang": lang_det, "translated": ""
+                            "lang": lang_det, "translated": "",
+                            "detected_language": lang_det,
+                            "output_language": target_lang,
+                            "tts_language": resolved_tts_lang,
+                            "translation_used": False,
+                            "tts_text": text,
                         })
                         session["recent_confirmed_text"] = _echo_build_recent_prompt_text(
                             session.get("recent_confirmed_text", ""),
                             text,
                             session.get("prompt_keep_chars", 40),
                         )
-                        await send({"type": "sentence", "id": sid, "text": text, "lang": lang_det})
-                        # 翻訳（ASR後に順次実行）
-                        if session.get("translate_enabled", True):
+                        await send({
+                            "type": "sentence",
+                            "id": sid,
+                            "text": text,
+                            "lang": lang_det,
+                            "detected_language": lang_det,
+                            "output_language": target_lang,
+                            "translation_used": False,
+                            "tts_language": resolved_tts_lang,
+                            "tts_text": text,
+                        })
+                        # 翻訳（ASR後に順次実行）: output_language が same の場合は不要
+                        if session.get("translate_enabled", True) and target_lang != lang_det:
                             tr_start = time.perf_counter()
                             _echo_debug_append(
                                 session_id=session_id,
@@ -11590,9 +11637,24 @@ async def echo_stream_ws(websocket: WebSocket):
                                 elapsed_ms=round((tr_end - tr_start) * 1000, 3),
                                 result_chars=len(transl or ""),
                             )
-                            session["sentences"][sid]["translated"] = transl
-                            tgt = "en" if lang_det == "ja" else "ja"
-                            await send({"type": "translation", "id": sid, "translated": transl, "target_lang": tgt})
+                            translated_value = transl or ""
+                            translation_used = bool(translated_value)
+                            if translation_used:
+                                tts_text = translated_value
+                            session["sentences"][sid]["translated"] = translated_value
+                            session["sentences"][sid]["translation_used"] = translation_used
+                            session["sentences"][sid]["tts_text"] = tts_text
+                            await send({
+                                "type": "translation",
+                                "id": sid,
+                                "translated": translated_value,
+                                "target_lang": target_lang,
+                                "detected_language": lang_det,
+                                "output_language": target_lang,
+                                "translation_used": translation_used,
+                                "tts_language": resolved_tts_lang,
+                                "tts_text": tts_text,
+                            })
                     if seq is not None:
                         processed_chunk_seqs.add(seq)
                         await send({"type": "ack", "seq": seq})
