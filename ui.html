@@ -3898,7 +3898,6 @@ function ttsStop() {
   tts._autoplayBlockedNoticeShown = false;
   const cloneStatusEl = document.getElementById('qwen3-clone-test-status');
   if (cloneStatusEl) _setQwen3CloneTestStatus('停止');
-  _setQwen3ClonePlayToggle(false);
   const generateBtns = _qwen3CloneGenerateButtons();
   generateBtns.forEach((btn) => btn.dataset.busy = 'false');
   const playBtn = document.getElementById('qwen3-clone-test-play-btn');
@@ -4642,21 +4641,18 @@ async function runQwen3CloneTestGenerate(target = 'jp') {
     _qwen3CloneTestBusy = false;
     _syncRecordingControlsWithTts();
     generateBtns.forEach((btn) => { btn.dataset.busy = 'false'; btn.disabled = false; });
-    _setQwen3ClonePlayToggle(false);
   }
 }
 
 async function _playQwen3CloneTestBlob() {
   if (!_qwen3CloneTestAudioBlob) return {ok: false, reason: 'no_audio'};
   _trackQwen3ClonePlaybackProgress();
-  _setQwen3ClonePlayToggle(true);
   const result = await enqueueTtsAudioBlob(_qwen3CloneTestAudioBlob, `qwen3-clone-${Date.now()}`, {
     context: 'echo',
     source: 'echo',
     engine: 'qwen3tts',
     kind: 'clone_test',
   });
-  _setQwen3ClonePlayToggle(false);
   return result;
 }
 
