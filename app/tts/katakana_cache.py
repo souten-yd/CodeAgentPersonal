@@ -12,6 +12,18 @@ _logger = logging.getLogger("style_bert_vits2")
 _DEFAULT_CACHE_PATH = "./ca_data/tts/katakana_cache.json"
 
 
+def _resolve_cache_path(path: str | None = None) -> Path:
+    if path:
+        return Path(path)
+    explicit = str(os.environ.get("CODEAGENT_KATAKANA_CACHE_PATH") or "").strip()
+    if explicit:
+        return Path(explicit)
+    ca_data_dir = str(os.environ.get("CODEAGENT_CA_DATA_DIR") or "").strip()
+    if ca_data_dir:
+        return Path(ca_data_dir) / "tts" / "katakana_cache.json"
+    return Path(_DEFAULT_CACHE_PATH)
+
+
 @dataclass
 class KatakanaCacheEntry:
     source: str
@@ -32,7 +44,7 @@ class KatakanaCacheEntry:
 
 class KatakanaPersistentCache:
     def __init__(self, path: str | None = None) -> None:
-        self._path = Path(path or os.environ.get("CODEAGENT_KATAKANA_CACHE_PATH") or _DEFAULT_CACHE_PATH)
+        self._path = _resolve_cache_path(path)
         self._lock = threading.Lock()
         self._entries: dict[str, KatakanaCacheEntry] = {}
         self._loaded = False
@@ -52,7 +64,6 @@ class KatakanaPersistentCache:
                 return None
             entry.hit_count += 1
             entry.updated_at = _utc_now()
-            self._save_locked()
             return entry.reading
 
     def set(self, token: str, reading: str, *, created_by: str = "llm") -> None:
@@ -69,6 +80,11 @@ class KatakanaPersistentCache:
                 updated_at=_utc_now(),
                 hit_count=(prev.hit_count if prev else 0),
             )
+            self._save_locked()
+
+    def flush(self) -> None:
+        with self._lock:
+            self._ensure_loaded_locked()
             self._save_locked()
 
     def _ensure_loaded_locked(self) -> None:
