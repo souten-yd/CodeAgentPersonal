@@ -2496,14 +2496,37 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <span style="font-size:11px;color:var(--text2)" id="echo-tts-use-translation-label">OFF</span>
             </label>
           </div>
-          <div style="margin-top:8px">
-            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS text source</div>
-            <select id="echo-tts-text-source"
-              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
-              onchange="saveEchoSettings()">
-              <option value="raw" selected>Raw text</option>
-              <option value="translated">Translated text</option>
-            </select>
+          <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo ASR language</div>
+              <select id="echo-asr-lang-unified"
+                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+                onchange="saveEchoSettings()">
+                <option value="auto">Auto Japanese/English</option>
+                <option value="ja">Japanese</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo output language</div>
+              <select id="echo-output-language"
+                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+                onchange="saveEchoSettings()">
+                <option value="same">Same as input</option>
+                <option value="ja">Translate to Japanese</option>
+                <option value="en">Translate to English</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo TTS language</div>
+              <select id="echo-tts-language"
+                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)"
+                onchange="saveEchoSettings()">
+                <option value="auto">Auto by output language</option>
+                <option value="ja">Japanese voice</option>
+                <option value="en">English voice</option>
+              </select>
+            </div>
           </div>
           <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div>
@@ -5171,6 +5194,10 @@ async function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
 function _updateEchoSbv2LanguageNote() {
   const note = document.getElementById('echo-tts-sbv2-language-note');
   const sel = document.getElementById('echo-tts-sbv2-language');
+  const outputSel = document.getElementById('echo-output-language');
+  const ttsLangSel = document.getElementById('echo-tts-language');
+  const asrLangUnifiedSel = document.getElementById('echo-asr-lang-unified');
+  const asrLangSel = document.getElementById('echo-asr-lang');
   const isForced = _isJpExtraModelMeta(_getSelectedSbv2Meta());
   if (note) note.style.display = isForced ? '' : 'none';
   if (sel) {
@@ -5184,6 +5211,16 @@ function _updateEchoSbv2LanguageNote() {
     } else {
       options.forEach((opt) => { opt.disabled = false; });
     }
+  }
+  if (isForced) {
+    echo.outputLanguage = 'ja';
+    echo.ttsLanguage = 'ja';
+    echo.asrLang = 'auto';
+    echo.asrLanguage = 'auto';
+    if (outputSel) outputSel.value = 'ja';
+    if (ttsLangSel) ttsLangSel.value = 'ja';
+    if (asrLangUnifiedSel) asrLangUnifiedSel.value = 'auto';
+    if (asrLangSel) asrLangSel.value = 'auto';
   }
 }
 
@@ -5377,7 +5414,7 @@ function saveEchoSettings() {
   }
   echo.ttsSbv2Language = _normalizeEchoSbv2Language(document.getElementById('echo-tts-sbv2-language')?.value || echo.ttsSbv2Language || 'JP');
   echo.ttsUseTranslation = !!document.getElementById('echo-tts-use-translation')?.checked;
-  echo.ttsTextSource = (document.getElementById('echo-tts-text-source')?.value || echo.ttsTextSource || 'raw') === 'translated' ? 'translated' : 'raw';
+  echo.ttsTextSource = 'raw';
   echo.sbv2TextNormalization = document.getElementById('echo-tts-sbv2-text-normalization')?.checked !== false;
   echo.sbv2EnglishToKatakana = (document.getElementById('echo-tts-sbv2-english-to-katakana')?.value || echo.sbv2EnglishToKatakana || 'llm').toLowerCase();
   echo.sbv2EmojiPolicy = (document.getElementById('echo-tts-sbv2-emoji-policy')?.value || echo.sbv2EmojiPolicy || 'skip').toLowerCase();
@@ -5408,6 +5445,20 @@ function saveEchoSettings() {
   if (asrLangUnifiedControl) asrLangUnifiedControl.value = echo.asrLang;
   echo.outputLanguage = document.getElementById('echo-output-language')?.value || echo.outputLanguage || 'same';
   echo.ttsLanguage = document.getElementById('echo-tts-language')?.value || echo.ttsLanguage || 'auto';
+  if (_isJpExtraModelMeta(_getSelectedSbv2Meta())) {
+    echo.outputLanguage = 'ja';
+    echo.ttsLanguage = 'ja';
+    echo.asrLang = 'auto';
+    echo.asrLanguage = 'auto';
+    const outputSel = document.getElementById('echo-output-language');
+    if (outputSel) outputSel.value = 'ja';
+    const ttsLangSel = document.getElementById('echo-tts-language');
+    if (ttsLangSel) ttsLangSel.value = 'ja';
+    const asrUnifiedSel = document.getElementById('echo-asr-lang-unified');
+    if (asrUnifiedSel) asrUnifiedSel.value = 'auto';
+    const asrSel = document.getElementById('echo-asr-lang');
+    if (asrSel) asrSel.value = 'auto';
+  }
   echo.asrInputDeviceId = document.getElementById('echo-asr-input-device')?.value || echo.asrInputDeviceId || 'default';
   echo.asrModel    = document.getElementById('echo-asr-model')?.value      || 'large-v3-turbo';
   echo.asrProfile  = document.getElementById('echo-asr-profile')?.value    || 'balanced';
