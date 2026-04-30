@@ -225,6 +225,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--primary-port", type=int, default=8080)
     parser.add_argument("--api-timeout", type=int, default=120)
     parser.add_argument("--llm-timeout", type=int, default=180)
+    parser.add_argument("--no-kill-on-api-timeout", dest="no_kill_on_api_timeout", action="store_true")
+    parser.add_argument("--kill-on-api-timeout", dest="no_kill_on_api_timeout", action="store_false")
+    parser.set_defaults(no_kill_on_api_timeout=True)
     return parser.parse_args()
 
 
@@ -301,6 +304,12 @@ def main() -> int:
     mode_key, mode_num = choose_mode()
 
     env = os.environ.copy()
+    no_kill_on_api_timeout = args.no_kill_on_api_timeout
+    env_toggle = env.get("CODEAGENT_NO_KILL_ON_API_TIMEOUT", "").strip().lower()
+    if env_toggle in {"1", "true", "yes", "on"}:
+        no_kill_on_api_timeout = True
+    elif env_toggle in {"0", "false", "no", "off"}:
+        no_kill_on_api_timeout = False
     env.setdefault("PYTHONUTF8", "1")
     env["CODEAGENT_LLM_PLANNER"] = f"http://127.0.0.1:{args.primary_port}/v1/chat/completions"
     env["CODEAGENT_LLM_EXECUTOR"] = f"http://127.0.0.1:{args.primary_port}/v1/chat/completions"
@@ -377,11 +386,21 @@ def main() -> int:
     try:
         api_ok = wait_http_200(f"http://127.0.0.1:{args.port}/health", args.api_timeout, "FastAPI", proc=proc)
         if not api_ok:
+            if proc.poll() is None and no_kill_on_api_timeout:
+                print("[WARN] FastAPI health did not become ready before timeout, but process is still running.")
+                print("[WARN] Keeping FastAPI process alive. Check logs or open the UI manually.")
+                lan_ip = detect_lan_ip()
+                print(f"[WARN] Local URL: http://localhost:{args.port}/")
+                print(f"[WARN] LAN URL  : http://{lan_ip}:{args.port}/")
+                return proc.wait()
             print("[ERROR] FastAPI did not become ready.")
             proc.terminate()
             return 1
 
-        status = request_json(f"http://127.0.0.1:{args.port}/models/db/status") or {}
+        status = request_json(f"http://127.0.0.1:{args.port}/models/db/status")
+        if not status:
+            print("[ModelDB] status unavailable. Skipping LLM startup wait.")
+            status = {}
         db_exists = bool(status.get("db_exists"))
         db_total = int(status.get("total", 0) or 0)
         benchmarked_total = int(status.get("benchmarked", 0) or 0)
@@ -414,11 +433,15 @@ def main() -> int:
                     print("[LLM][WARN] Warm-up request did not succeed (non-critical).")
         elif db_exists and db_total > 0:
             print(
-                f"[WAIT] model_db has {db_total} model(s) but benchmarked={benchmarked_total}. "
-                "Skipping auto planner load until benchmark completes via UI workflow."
+                "[WAIT] model_db has models but no benchmarked models. "
+                "Skipping LLM startup wait until UI benchmark completes."
             )
+        elif db_exists and db_total <= 0:
+            print("[WAIT] model_db is empty. FastAPI is ready; skipping LLM startup wait.")
+        elif not db_exists:
+            print("[WAIT] model_db is missing. FastAPI is ready; skipping LLM startup wait.")
         else:
-            print("[WAIT] model_db is missing or empty. Skipping LLM startup wait.")
+            print("[WAIT] model_db status is unknown. FastAPI is ready; skipping LLM startup wait.")
 
         lan_ip = detect_lan_ip()
         print("\n==============================================")

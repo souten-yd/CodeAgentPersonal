@@ -92,7 +92,16 @@ async def lifespan(app):
     _seed_model_catalog = globals().get("seed_default_model_catalog")
     if _seed_model_catalog: _seed_model_catalog()
     _schedule_model_load = globals().get("schedule_default_model_load")
-    if _schedule_model_load: _schedule_model_load(reason="startup")
+    _should_startup_autoload = globals().get("_should_startup_autoload_llm")
+    if _schedule_model_load:
+        should_autoload = True
+        reason = "ok"
+        if _should_startup_autoload:
+            should_autoload, reason = _should_startup_autoload()
+        if should_autoload:
+            _schedule_model_load(reason="startup")
+        else:
+            print(f"[Startup] skip default model auto-load: {reason}")
     _log_tts_startup_health = globals().get("_log_tts_startup_health")
     if _log_tts_startup_health: _log_tts_startup_health()
     _load_echo_voice_ref = globals().get("_load_persisted_echo_voice_ref")
@@ -610,6 +619,34 @@ def _choose_default_startup_model() -> str:
     )
 
 
+def model_db_status_summary() -> dict:
+    rows = model_db_list()
+    total = len(rows)
+    enabled = sum(1 for row in rows if int(row.get("enabled", 1) or 1) != 0)
+    benchmarked = sum(1 for row in rows if _has_benchmark_profile(row))
+    return {"total": total, "enabled": enabled, "benchmarked": benchmarked}
+
+
+def _should_startup_autoload_llm() -> tuple[bool, str]:
+    if os.environ.get("CODEAGENT_STARTUP_AUTOLOAD_LLM", "true").strip().lower() == "false":
+        return False, "disabled_by_env"
+    if not model_db_exists():
+        return False, "no_model_db"
+    try:
+        status = model_db_status_summary()
+    except Exception as e:
+        return False, f"model_db_status_error:{e}"
+    if int(status.get("total", 0) or 0) <= 0:
+        return False, "no_models"
+    if int(status.get("enabled", 0) or 0) <= 0:
+        return False, "no_enabled_models"
+    if int(status.get("benchmarked", 0) or 0) <= 0:
+        return False, "no_benchmarked_models"
+    if not _model_manager.has_llama_server():
+        return False, "llama_server_not_found"
+    return True, "ok"
+
+
 def schedule_default_model_load(reason: str = "", force: bool = False) -> tuple[bool, str]:
     if not _model_manager.has_llama_server():
         return False, "llama_server_not_found"
@@ -618,6 +655,8 @@ def schedule_default_model_load(reason: str = "", force: bool = False) -> tuple[
     models = [m for m in model_db_list() if int(m.get("enabled", 1) or 1) != 0 and m.get("path")]
     if not models:
         return False, "no_models"
+    if not force and not any(_has_benchmark_profile(m) for m in models):
+        return False, "no_benchmarked_models"
     if not force and _model_health_ok(_model_manager.llm_port):
         _model_manager._sync_current_model()
         return False, "already_running"
@@ -17096,7 +17135,41 @@ def debug_llama():
 
 @app.get("/health")
 def health():
-    return _get_lightweight_health_status()
+    return {"status": "ok"}
+
+
+@app.get("/system/readiness")
+def system_readiness():
+    payload = {
+        "fastapi": "ready",
+        "model_db_exists": False,
+        "model_db_status_available": False,
+        "model_db_status": {},
+        "llm_autoload_eligible": False,
+        "autoload_reason": "unknown",
+        "llm_running": False,
+    }
+    try:
+        payload["model_db_exists"] = model_db_exists()
+    except Exception as e:
+        payload["autoload_reason"] = f"model_db_exists_error:{e}"
+    try:
+        status = model_db_status_summary()
+        payload["model_db_status"] = status
+        payload["model_db_status_available"] = True
+    except Exception as e:
+        payload["model_db_status"] = {"error": str(e)}
+    try:
+        should, reason = _should_startup_autoload_llm()
+        payload["llm_autoload_eligible"] = bool(should)
+        payload["autoload_reason"] = str(reason)
+    except Exception as e:
+        payload["autoload_reason"] = f"autoload_check_error:{e}"
+    try:
+        payload["llm_running"] = _model_health_ok(_model_manager.llm_port)
+    except Exception:
+        payload["llm_running"] = False
+    return payload
 
 # =========================
 # 静的ファイル配信
