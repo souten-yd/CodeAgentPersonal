@@ -24,6 +24,12 @@ _EMOJI_TOKEN_PATTERN = re.compile(
 _ASCII_WORD_PATTERN = re.compile(r"\b[A-Za-z][A-Za-z0-9_\-]*\b")
 _CONTROL_PATTERN = re.compile(r"[\x00-\x08\x0B-\x1F\x7F]")
 _MULTISPACE_PATTERN = re.compile(r"[ \t\u3000]+")
+_JP_PUNCT_ASCII_MAP = str.maketrans({",": "、", ".": "。", "!": "！", "?": "？"})
+_MARKDOWN_CODE_FENCE_PATTERN = re.compile(r"```+")
+_MARKDOWN_HEADING_PATTERN = re.compile(r"(?m)^\s*#{1,6}\s*")
+_MARKDOWN_BULLET_PATTERN = re.compile(r"(?m)^\s*[-*]\s+")
+_SPACE_BEFORE_PUNCT_PATTERN = re.compile(r"\s+([、。！？：；，．・ー」』）)\]])")
+_SPACE_AFTER_OPENING_PUNCT_PATTERN = re.compile(r"([「『（(])\s+")
 _NUMBER_UNIT_PATTERN = re.compile(
     r"(?P<number>\d+(?:[.,]\d+)?)\s*(?P<unit>tb|gb|mb|kb|vram|ghz|mhz|khz|km|kg|cm|mm|m|g|mg|ml|l|℃|°C|%|円|¥|\$)\b",
     re.IGNORECASE,
@@ -87,6 +93,19 @@ _SYMBOL_REPLACEMENTS = {
     "=": "イコール",
 }
 
+
+def _normalize_punctuation_for_jp_extra(text: str) -> str:
+    current = text.translate(_JP_PUNCT_ASCII_MAP)
+    # collapse repeated punctuation to natural pauses
+    current = re.sub(r"。{2,}", "。", current)
+    current = re.sub(r"、{2,}", "、", current)
+    current = re.sub(r"！{2,}", "！", current)
+    current = re.sub(r"？{2,}", "？", current)
+    current = re.sub(r"(?:。\s*){2,}", "。", current)
+    # convert ellipsis variants to period pause
+    current = re.sub(r"(?:\.{2,}|…{1,})", "。", current)
+    return current
+
 def looks_japanese(text: str | None) -> bool:
     return bool(_JP_TEXT_PATTERN.search(str(text or "")))
 
@@ -129,6 +148,13 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
     current = _MULTISPACE_PATTERN.sub(" ", current)
     current = re.sub(r"\n{3,}", "\n\n", current).strip()
     _append_operation(operations, "whitespace_newline_cleanup", before, current)
+
+    # 2.5) markdown cleanup (preserve readable structure)
+    before = current
+    current = _MARKDOWN_CODE_FENCE_PATTERN.sub("", current)
+    current = _MARKDOWN_HEADING_PATTERN.sub("", current)
+    current = _MARKDOWN_BULLET_PATTERN.sub("・", current)
+    _append_operation(operations, "markdown_cleanup", before, current)
 
     # 3) URL/email policy
     before = current
@@ -181,6 +207,11 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
     current = _MULTISPACE_PATTERN.sub(" ", current).strip()
     _append_operation(operations, "emoji_policy", before, current, emoji_policy)
 
+    # 4.5) JP-Extra punctuation normalization/retention
+    before = current
+    current = _normalize_punctuation_for_jp_extra(current)
+    _append_operation(operations, "jp_punctuation_normalization", before, current)
+
     # 5) symbol policy
     before = current
     symbol_policy = str(
@@ -196,11 +227,14 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
         warnings.append(f"unknown symbol policy: {symbol_policy}. fallback=readable")
         symbol_policy = "readable"
     if symbol_policy == "skip":
-        current = re.sub(r"[^\w\sぁ-んァ-ン一-龯。、，．！？!?\-ー・]", " ", current)
+        current = re.sub(r"[^\w\sぁ-んァ-ン一-龯々〆〤。、，．！？：；「」『』（）()!?\-ー・]", " ", current)
     elif symbol_policy == "readable":
         for symbol, replacement in _SYMBOL_REPLACEMENTS.items():
             current = current.replace(symbol, f" {replacement} ")
-    current = _MULTISPACE_PATTERN.sub(" ", current).strip()
+    current = _MULTISPACE_PATTERN.sub(" ", current)
+    current = _SPACE_BEFORE_PUNCT_PATTERN.sub(r"\1", current)
+    current = _SPACE_AFTER_OPENING_PUNCT_PATTERN.sub(r"\1", current)
+    current = current.strip()
     _append_operation(operations, "symbol_policy", before, current, symbol_policy)
 
     # 6) notation rules (No. / version)
@@ -227,7 +261,9 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
     current = _CURRENCY_PREFIX_PATTERN.sub(_replace_currency_prefix, current)
     current = _NUMBER_UNIT_PATTERN.sub(_replace_unit, current)
     current = current.replace("$", " ドル ").replace("¥", " 円 ")
-    current = _MULTISPACE_PATTERN.sub(" ", current).strip()
+    current = _MULTISPACE_PATTERN.sub(" ", current)
+    current = _SPACE_BEFORE_PUNCT_PATTERN.sub(r"\1", current)
+    current = current.strip()
     _append_operation(operations, "number_unit_readability", before, current)
 
     # 8) english dictionary replacement + strategy
@@ -268,7 +304,10 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
     else:
         warnings.append(f"unknown english_to_katakana policy: {english_policy}. fallback=rule")
         current = _ASCII_WORD_PATTERN.sub(lambda m: english_dict.get(m.group(0).lower(), m.group(0)), current)
-    current = _MULTISPACE_PATTERN.sub(" ", current).strip()
+    current = _MULTISPACE_PATTERN.sub(" ", current)
+    current = _SPACE_BEFORE_PUNCT_PATTERN.sub(r"\1", current)
+    current = _SPACE_AFTER_OPENING_PUNCT_PATTERN.sub(r"\1", current)
+    current = current.strip()
     _append_operation(operations, "english_to_katakana", before, current, english_policy, force=True)
 
     looks_after = looks_japanese(current)
