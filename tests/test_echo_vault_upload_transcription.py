@@ -93,6 +93,37 @@ class EchoVaultUploadTranscriptionTests(unittest.TestCase):
             self.assertGreater(segs[2]["start"], segs[1]["start"])
             self.assertAlmostEqual(segs[-1]["end"], 12.0, places=2)
 
+    def test_ja_hint_still_splits_english_segment_by_period(self):
+        with tempfile.TemporaryDirectory() as td:
+            with patch.object(main, "ECHOVAULT_DIR", td), patch.object(main, "_echo_do_translate", side_effect=lambda t, **_: f"T:{t}"):
+                out = main.echo_import_audio_transcript({
+                    "transcript_text": "fallback",
+                    "language": "ja",
+                    "segments": [{"start": 0, "end": 8, "text": "Next we review the roadmap. Then we check the risks."}],
+                })
+            segs = json.loads((Path(td) / out["transcript_segments_filename"]).read_text(encoding="utf-8"))
+            self.assertEqual(len(segs), 2)
+            self.assertEqual([s["source_text"] for s in segs], ["Next we review the roadmap.", "Then we check the risks."])
+
+    def test_en_hint_still_splits_japanese_segment_by_japanese_period(self):
+        with tempfile.TemporaryDirectory() as td:
+            with patch.object(main, "ECHOVAULT_DIR", td), patch.object(main, "_echo_do_translate", side_effect=lambda t, **_: f"T:{t}"):
+                out = main.echo_import_audio_transcript({
+                    "transcript_text": "fallback",
+                    "language": "en",
+                    "segments": [{"start": 0, "end": 8, "text": "最初に確認します。次にリスクを見ます。"}],
+                })
+            segs = json.loads((Path(td) / out["transcript_segments_filename"]).read_text(encoding="utf-8"))
+            self.assertEqual(len(segs), 2)
+            self.assertEqual([s["source_text"] for s in segs], ["最初に確認します。", "次にリスクを見ます。"])
+
+    def test_ui_lists_artifact_labels_for_upload_completion(self):
+        ui = Path("ui.html").read_text(encoding="utf-8")
+        self.assertIn("name: 'Segments JSON'", ui)
+        self.assertIn("name: 'Japanese transcript'", ui)
+        self.assertIn("name: 'English transcript'", ui)
+        self.assertIn("name: 'Bilingual minutes'", ui)
+
 
 if __name__ == "__main__":
     unittest.main()
