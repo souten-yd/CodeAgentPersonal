@@ -89,9 +89,18 @@ RUN rm -rf /var/lib/apt/lists/* \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH=/root/.local/bin:${PATH}
 RUN uv python install 3.11
-RUN uv venv --python 3.11 /opt/venv
+RUN uv venv --seed --python 3.11 /opt/venv
 ENV PATH=/opt/venv/bin:${PATH}
+RUN python -m ensurepip --upgrade || true
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN python - <<'PY'
+import sys
+import pip
+print("python executable:", sys.executable)
+print("python version:", sys.version)
+print("pip version:", pip.__version__)
+assert sys.version_info[:2] == (3, 11), sys.version
+PY
 RUN python --version \
     && python - <<'PY'
 import sys
@@ -185,7 +194,7 @@ RUN rm -rf /app/Style-Bert-VITS2 \
 # Keep Style-Bert-VITS2 dependencies isolated from existing Qwen3-TTS pins by using a dedicated venv.
 RUN set -eux; \
     cd /app/Style-Bert-VITS2; \
-    python -m venv /opt/style-bert-vits2-venv; \
+    uv venv --seed --python 3.11 /opt/style-bert-vits2-venv; \
     site_packages="$("/opt/style-bert-vits2-venv/bin/python" -c 'import site; print(site.getsitepackages()[0])')"; \
     printf '%s\n' \
       '/opt/venv/lib/python3.11/site-packages' \
@@ -193,6 +202,14 @@ RUN set -eux; \
       '/opt/venv/lib/python3/dist-packages' \
       '/opt/venv/lib/python3.11/dist-packages' \
       > "${site_packages}/_runpod_opt_venv.pth"; \
+    /opt/style-bert-vits2-venv/bin/python - <<'PY'
+import sys
+import pip
+print("sbv2 python executable:", sys.executable)
+print("sbv2 python version:", sys.version)
+print("sbv2 pip version:", pip.__version__)
+assert sys.version_info[:2] == (3, 11), sys.version
+PY
     /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir --upgrade pip wheel "setuptools<82"; \
     /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir huggingface_hub; \
     /opt/style-bert-vits2-venv/bin/python -c "import torch, torchaudio, av; print(torch.__version__, torchaudio.__version__, av.__version__)"; \
@@ -334,6 +351,8 @@ ENV PATH=/opt/venv/bin:/root/.local/bin:${PATH}
 # Copy application source and prebuilt venv artifacts from build stage.
 COPY . /app
 COPY --from=py_build /opt/venv /opt/venv
+COPY --from=py_base /root/.local/bin/uv /root/.local/bin/uv
+COPY --from=py_base /root/.local/bin/uvx /root/.local/bin/uvx
 COPY --from=style_bert_vits2_build /app/Style-Bert-VITS2 /app/Style-Bert-VITS2
 COPY --from=style_bert_vits2_build /opt/style-bert-vits2-venv /opt/style-bert-vits2-venv
 COPY --from=style_bert_vits2_build /opt/hf_cache /opt/hf_cache
@@ -363,7 +382,7 @@ PY
 RUN set -eux; \
     mkdir -p /opt/searxng; \
     git clone https://github.com/searxng/searxng /opt/searxng/searxng-src; \
-    python -m venv /opt/searxng/searx-pyenv; \
+    /root/.local/bin/uv venv --seed --python 3.11 /opt/searxng/searx-pyenv; \
     /opt/searxng/searx-pyenv/bin/pip install --no-cache-dir -U pip setuptools wheel; \
     /opt/searxng/searx-pyenv/bin/pip install --no-cache-dir -U pyyaml msgspec typing-extensions pybind11; \
     cd /opt/searxng/searxng-src; \
