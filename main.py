@@ -42,6 +42,7 @@ from agent.planner import Planner
 from agent.session import AgentSession
 from agent.tools.registry import ToolRegistry, create_default_registry
 from agent.types import Action, Evaluation, Plan, ToolResult
+from agent.plan_approval_manager import PlanApprovalManager
 from agent.task_planning_runner import TaskPlanningRunner
 from app.tts.engine_registry import EngineRegistry, TTSEngineRuntime
 from app.tts.style_bert_vits2_runtime import StyleBertVITS2Runtime, _read_model_version
@@ -9129,6 +9130,13 @@ class RequirementAnswerRequest(BaseModel):
     skip_with_defaults: bool = False
 
 
+class PlanApprovalActionRequest(BaseModel):
+    user_comment: str = ""
+    revision_request: str = ""
+    risk_acknowledged: bool = False
+    destructive_change_acknowledged: bool = False
+
+
 class TaskContinueRequest(BaseModel):
     requirement_id: str
     planning_mode: str = "standard"
@@ -10595,6 +10603,7 @@ _phase1_planning_runner = TaskPlanningRunner(
     active_skills_fn=_phase1_active_skills_safe,
     warning_logger=lambda msg: print(f"[PHASE1][NEXUS] {msg}"),
 )
+_phase1_approval_manager = PlanApprovalManager(_phase1_planning_runner.storage)
 
 
 def _resolve_project_path_for_phase_planning(project_path: str, project_name: str) -> tuple[str, list[str]]:
@@ -10669,6 +10678,64 @@ def api_get_plan_markdown(plan_id: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="plan markdown not found")
 
+
+
+
+@app.get("/api/plans/{plan_id}/approval")
+def api_get_plan_approval(plan_id: str):
+    try:
+        return _phase1_approval_manager.get_latest_approval(plan_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="plan not found")
+
+
+@app.post("/api/plans/{plan_id}/approve")
+def api_approve_plan(plan_id: str, req: PlanApprovalActionRequest):
+    try:
+        return _phase1_approval_manager.decide(
+            plan_id=plan_id,
+            decision="approve",
+            user_comment=req.user_comment,
+            revision_request=req.revision_request,
+            risk_acknowledged=req.risk_acknowledged,
+            destructive_change_acknowledged=req.destructive_change_acknowledged,
+            approved_by="user",
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="plan not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/plans/{plan_id}/request-revision")
+def api_request_plan_revision(plan_id: str, req: PlanApprovalActionRequest):
+    try:
+        return _phase1_approval_manager.decide(
+            plan_id=plan_id,
+            decision="request_revision",
+            user_comment=req.user_comment,
+            revision_request=req.revision_request,
+            approved_by="user",
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="plan not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/plans/{plan_id}/reject")
+def api_reject_plan(plan_id: str, req: PlanApprovalActionRequest):
+    try:
+        return _phase1_approval_manager.decide(
+            plan_id=plan_id,
+            decision="reject",
+            user_comment=req.user_comment,
+            approved_by="user",
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="plan not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 @app.get("/api/reviews/{review_id}")
 def api_get_review(review_id: str):

@@ -13486,6 +13486,69 @@ function _renderPhase1ReviewSection(reviewResult) {
   </div>`;
 }
 
+
+async function _phase5PlanDecision(planId, decision, payload = {}) {
+  const endpoint = decision === 'approve' ? 'approve' : (decision === 'request_revision' ? 'request-revision' : 'reject');
+  const r = await fetch(API + `/api/plans/${encodeURIComponent(planId)}/${endpoint}`, {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload || {})
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+  return d;
+}
+
+function _renderPhase5ApprovalSection(result, cardId) {
+  const plan = result?.plan || {};
+  const review = result?.review_result || plan?.review_result || {};
+  const approval = plan?.approval || result?.approval || null;
+  const status = String(approval?.status || 'pending');
+  const executionReady = !!(approval?.execution_ready || plan?.status === 'execution_ready');
+  const requiresConfirm = !!review?.requires_user_confirmation;
+  const destructive = !!(review?.destructive_change_detected || plan?.destructive_change_detected);
+  return `<div class="phase1-warning-box" id="${cardId}-approval-box">
+    <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:6px">Plan Approval (Phase 5)</div>
+    <div style="font-size:11px;color:var(--text2);line-height:1.6">Approval status: <b>${esc(status)}</b> / Execution ready: <b>${esc(String(executionReady))}</b></div>
+    <div style="font-size:11px;color:var(--text3);margin-top:5px">Phase 5では承認状態のみ保存し、実装はまだ実行されません。承認後、このPlanは execution_ready になります。</div>
+    <label style="display:${requiresConfirm?'flex':'none'};gap:7px;margin-top:8px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-risk-ack"> リスクを理解しました</label>
+    <label style="display:${destructive?'flex':'none'};gap:7px;margin-top:6px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-destructive-ack"> 破壊的変更の可能性を理解しました</label>
+    <textarea id="${cardId}-comment" placeholder="コメント（任意）" style="width:100%;margin-top:8px;min-height:50px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px"></textarea>
+    <textarea id="${cardId}-revision" placeholder="修正要求（Request Revision時）" style="width:100%;margin-top:6px;min-height:50px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px"></textarea>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="phase1-plan-btn" data-a="approve">Approve Plan</button>
+      <button class="phase1-tab-btn" data-a="request_revision">Request Revision</button>
+      <button class="phase1-tab-btn" data-a="reject">Reject Plan</button>
+    </div>
+    <div id="${cardId}-approval-msg" style="font-size:11px;color:var(--text3);margin-top:6px"></div>
+  </div>`;
+}
+
+function _bindPhase5ApprovalActions(cardRoot, result) {
+  const planId = result?.plan_id || result?.plan?.plan_id;
+  if (!planId || !cardRoot) return;
+  cardRoot.querySelectorAll('[data-a]').forEach((btn) => btn.addEventListener('click', async () => {
+    if (busy) return;
+    const action = btn.getAttribute('data-a');
+    const cid = cardRoot.id;
+    const riskAck = !!cardRoot.querySelector(`#${cid}-risk-ack`)?.checked;
+    const desAck = !!cardRoot.querySelector(`#${cid}-destructive-ack`)?.checked;
+    const comment = (cardRoot.querySelector(`#${cid}-comment`)?.value || '').trim();
+    const revision = (cardRoot.querySelector(`#${cid}-revision`)?.value || '').trim();
+    const msgEl = cardRoot.querySelector(`#${cid}-approval-msg`);
+    try {
+      setBusy(true);
+      const payload = { user_comment: comment, revision_request: revision, risk_acknowledged: riskAck, destructive_change_acknowledged: desAck };
+      const res = await _phase5PlanDecision(planId, action, payload);
+      if (msgEl) msgEl.textContent = res.message || 'approval updated';
+      addLog('ok', 'plan-only', `${action} success plan_id=${planId} (approved but not executed)`);
+      result.plan = res.plan || result.plan;
+      result.approval = res.approval || null;
+    } catch (e) {
+      if (msgEl) msgEl.textContent = `Error: ${e.message || String(e)}`;
+      addLog('err', 'plan-only', e.message || String(e));
+    } finally { setBusy(false); }
+  }));
+}
+
 function renderPhase1PlanCard(result, planMarkdown = '') {
   const requirement = result?.requirement || {};
   const plan = result?.plan || {};
@@ -13517,6 +13580,7 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
       <div class="plan-section">
         ${warningsHtml}
         ${_renderPhase1ReviewSection(reviewResult)}
+        ${_renderPhase5ApprovalSection(result, cardId)}
         ${_renderNexusContextSummary(result?.nexus_context, { title: "Nexus Context", compact: true })}
         <div class="phase1-tabs">
           <button class="phase1-tab-btn active" data-tab="requirements" onclick="_switchPhase1CardTab('${cardId}','requirements')">Requirements</button>
@@ -13551,6 +13615,8 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
   div.className = 'msg system';
   div.innerHTML = html;
   w.appendChild(div);
+  const cardRoot = div.querySelector(`#${cardId}`);
+  _bindPhase5ApprovalActions(cardRoot, result);
   scrollMsgs();
 }
 
