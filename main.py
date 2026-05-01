@@ -28,6 +28,7 @@ import io
 import hashlib
 import traceback
 import unicodedata
+from pathlib import Path
 from datetime import datetime
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -52,7 +53,11 @@ from app.tts.style_bert_vits2_manager import (
     import_model_zip,
 )
 from app.env_detection import detect_gpu_profile, detect_os_profile, detect_runpod
-from app.asr.service import transcribe_audio as asr_service_transcribe_audio
+from app.asr.service import (
+    transcribe_audio as asr_service_transcribe_audio,
+    _normalize_asr_engine,
+)
+from app.asr.whisper_cpp_runtime import resolve_whisper_cpp_binary, resolve_whisper_cpp_model
 from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_base_dir,
     resolve_style_bert_vits2_models_dir,
@@ -10303,6 +10308,51 @@ def _faster_whisper_transcribe(
 
 
 
+
+
+def _resolve_asr_runtime_config() -> dict:
+    os_prof = detect_os_profile()
+    gpu_prof = detect_gpu_profile()
+    is_windows = bool(os_prof.get("is_windows"))
+    is_runpod = bool(detect_runpod())
+    vendor = str(gpu_prof.get("vendor") or "unknown").lower()
+    engine = "faster_whisper" if is_runpod else _normalize_asr_engine(os.environ.get("CODEAGENT_ASR_ENGINE", "auto"))
+    bin_path = resolve_whisper_cpp_binary()
+    model_path = resolve_whisper_cpp_model()
+    return {
+        "is_windows": is_windows,
+        "is_runpod": is_runpod,
+        "gpu_vendor": vendor,
+        "asr_engine": engine,
+        "whisper_cpp_ready": bool(bin_path and model_path and Path(model_path).exists()),
+        "whisper_cpp_binary": str(bin_path) if bin_path else "",
+        "whisper_cpp_model": str(model_path) if model_path else "",
+        "ffmpeg_available": bool(shutil.which("ffmpeg")),
+    }
+
+
+def _apply_asr_runtime_settings(req: dict | None = None) -> dict:
+    req = req or {}
+    cfg = _resolve_asr_runtime_config()
+    saved_engine = str(settings_get("asr_engine") or "").strip().lower()
+    saved_fw = str(settings_get("faster_whisper_device") or "").strip().lower()
+    saved_cpp = str(settings_get("whisper_cpp_backend") or "").strip().lower()
+    req_engine = str(req.get("asr_engine") or "").strip().lower()
+    req_fw = str(req.get("faster_whisper_device") or req.get("device") or "").strip().lower()
+    req_cpp = str(req.get("whisper_cpp_backend") or "").strip().lower()
+    engine = req_engine or saved_engine or _normalize_asr_engine(os.environ.get("CODEAGENT_ASR_ENGINE", "")) or "faster_whisper"
+    if cfg.get("is_runpod"):
+        engine = "faster_whisper"
+    if engine not in {"faster_whisper", "whisper_cpp"}:
+        engine = "faster_whisper"
+    fw = req_fw or saved_fw or str(os.environ.get("CODEAGENT_ASR_DEVICE", "cuda")).strip().lower()
+    if fw not in {"cpu", "cuda"}: fw = "cuda"
+    cpp = req_cpp or saved_cpp or str(os.environ.get("CODEAGENT_WHISPER_CPP_BACKEND", "vulkan")).strip().lower()
+    if cpp not in {"cpu", "vulkan"}: cpp = "vulkan"
+    os.environ["CODEAGENT_ASR_ENGINE"] = "faster_whisper" if cfg.get("is_runpod") else engine
+    os.environ["CODEAGENT_WHISPER_CPP_BACKEND"] = cpp
+    os.environ["CODEAGENT_ASR_DEVICE"] = fw
+    return {"engine": os.environ["CODEAGENT_ASR_ENGINE"], "faster_whisper_device": fw, "whisper_cpp_backend": cpp}
 def voice_transcribe(
     audio_bytes: bytes,
     language: str = "auto",
@@ -10772,6 +10822,7 @@ def voice_status_api():
 
 @app.post("/voice/load")
 def voice_load_api(req: dict):
+    _apply_asr_runtime_settings(req)
     model_name = str(req.get("model", "small")).strip() or "small"
     device = req.get("device")
     if device not in ("cpu", "cuda"):
@@ -10791,6 +10842,7 @@ def voice_transcribe_api(req: dict):
     if language not in {"auto", "ja", "en"}:
         language = "auto"
     model_name = str(req.get("model", "large-v3-turbo")).strip() or "large-v3-turbo"
+    _apply_asr_runtime_settings(req)
     # モデルはサーバー終了まで RAM に常駐させる（unload しない）
     auto_unload = False
     audio_format = str(req.get("audio_format", "webm")).strip() or "webm"
@@ -16841,6 +16893,11 @@ def get_ensemble_vram_api():
 # ユーザー設定 API
 # =========================
 
+@app.get("/asr/config")
+def asr_config_api():
+    return _resolve_asr_runtime_config()
+
+
 @app.get("/settings")
 def get_settings_api():
     """全設定を返す（未設定はデフォルト値）"""
@@ -16871,6 +16928,8 @@ def save_settings_api(req: dict):
         raw = str(req.get("ensemble_auto_switch_on_low_vram", "true")).strip().lower()
         req["ensemble_auto_switch_on_low_vram"] = "true" if raw in ("true", "1", "yes", "on") else "false"
     settings_set_bulk(req)
+    if any(k in req for k in ("asr_engine", "faster_whisper_device", "whisper_cpp_backend")):
+        _apply_asr_runtime_settings(req)
     if "ensemble_execution_mode" in req or "ensemble_auto_switch_on_low_vram" in req:
         _sync_ensemble_settings_to_opencode_json()
         _apply_ensemble_execution_mode_guard()
