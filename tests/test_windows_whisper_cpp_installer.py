@@ -1,4 +1,6 @@
 from pathlib import Path
+import shutil
+import subprocess
 
 
 def test_whisper_cpp_vulkan_installer_conditions() -> None:
@@ -22,3 +24,23 @@ def test_wrapper_bat_calls_powershell_installer() -> None:
     content = wrapper.read_text(encoding="utf-8")
     assert "install_whisper_cpp_vulkan.ps1" in content
     assert "-ExecutionPolicy Bypass" in content
+
+
+def test_whisper_cpp_vulkan_installer_powershell_parse() -> None:
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if powershell is None:
+        import pytest
+
+        pytest.skip("PowerShell is not available in this environment.")
+
+    command = (
+        "$tokens=$null;$errors=$null;"
+        "[System.Management.Automation.Language.Parser]::ParseFile("
+        "'scripts/windows/install_whisper_cpp_vulkan.ps1',[ref]$tokens,[ref]$errors"
+        ") | Out-Null; "
+        "if($errors.Count -gt 0){$errors | Format-List; exit 1}else{Write-Host 'PowerShell syntax OK'}"
+    )
+    subprocess.run(
+        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+        check=True,
+    )
