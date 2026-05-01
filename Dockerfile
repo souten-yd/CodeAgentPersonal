@@ -66,7 +66,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-COPY docker/keys/deadsnakes.gpg /etc/apt/keyrings/deadsnakes.gpg
+COPY docker/keys/deadsnakes.asc /tmp/deadsnakes.asc
 
 RUN mkdir -p \
     /opt/cache \
@@ -81,12 +81,17 @@ RUN rm -rf /var/lib/apt/lists/* \
         ca-certificates \
         curl \
         jq \
+        gnupg \
         build-essential \
         pkg-config \
         sox \
         libsox-fmt-all \
     && update-ca-certificates \
-    && test -s /etc/apt/keyrings/deadsnakes.gpg \
+    && test -s /tmp/deadsnakes.asc \
+    && grep -q "BEGIN PGP PUBLIC KEY BLOCK" /tmp/deadsnakes.asc \
+    && mkdir -p /etc/apt/keyrings \
+    && gpg --dearmor -o /etc/apt/keyrings/deadsnakes.gpg /tmp/deadsnakes.asc \
+    && rm -f /tmp/deadsnakes.asc \
     && gpg --show-keys --with-colons /etc/apt/keyrings/deadsnakes.gpg | grep -q "BA6932366A755776" \
     && . /etc/os-release \
     && echo "deb [signed-by=/etc/apt/keyrings/deadsnakes.gpg] https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu ${VERSION_CODENAME} main" \
@@ -305,7 +310,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-COPY docker/keys/deadsnakes.gpg /etc/apt/keyrings/deadsnakes.gpg
+COPY docker/keys/deadsnakes.asc /tmp/deadsnakes.asc
 
 RUN rm -rf /var/lib/apt/lists/* \
     && apt-get update -o Acquire::Retries=5 \
@@ -313,6 +318,7 @@ RUN rm -rf /var/lib/apt/lists/* \
         build-essential \
         ca-certificates \
         curl \
+        gnupg \
         git \
         tini \
         libgomp1 \
@@ -326,7 +332,11 @@ RUN rm -rf /var/lib/apt/lists/* \
         sox \
         libsox-fmt-all \
     && update-ca-certificates \
-    && test -s /etc/apt/keyrings/deadsnakes.gpg \
+    && test -s /tmp/deadsnakes.asc \
+    && grep -q "BEGIN PGP PUBLIC KEY BLOCK" /tmp/deadsnakes.asc \
+    && mkdir -p /etc/apt/keyrings \
+    && gpg --dearmor -o /etc/apt/keyrings/deadsnakes.gpg /tmp/deadsnakes.asc \
+    && rm -f /tmp/deadsnakes.asc \
     && gpg --show-keys --with-colons /etc/apt/keyrings/deadsnakes.gpg | grep -q "BA6932366A755776" \
     && . /etc/os-release \
     && echo "deb [signed-by=/etc/apt/keyrings/deadsnakes.gpg] https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu ${VERSION_CODENAME} main" \
