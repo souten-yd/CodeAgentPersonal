@@ -57,6 +57,17 @@ def _site_packages_dir() -> str:
     return resolve_style_bert_vits2_site_packages_dir()
 
 
+def _worker_env() -> dict[str, str]:
+    env = os.environ.copy()
+    sbv2_venv = _venv_dir()
+    env["PYTORCH_JIT"] = "0"
+    env["PYTHONNOUSERSITE"] = "1"
+    env.pop("PYTHONHOME", None)
+    env["VIRTUAL_ENV"] = sbv2_venv
+    env["PATH"] = os.pathsep.join([str(Path(sbv2_venv) / "bin"), env.get("PATH", "")])
+    return env
+
+
 def _worker_count() -> int:
     raw = str(os.environ.get("CODEAGENT_STYLE_BERT_VITS2_WORKERS", "1")).strip()
     try:
@@ -408,6 +419,28 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         self._worker_stderr_tails: list[collections.deque[str]] = []
         self._stderr_threads: list[threading.Thread | None] = []
         self._worker_rr_index = 0
+
+    @staticmethod
+    def _likely_reason_from_worker_error(returncode: int | None, stderr_tail: str) -> str:
+        if returncode == 139:
+            lowered = (stderr_tail or "").lower()
+            if any(token in lowered for token in ("torch.jit", "modeling_deberta_v2", "segmentation fault")):
+                return "deberta_v2_torch_jit_segfault"
+        return ""
+
+    def _worker_failure_debug_info(self, worker_idx: int) -> dict:
+        proc = self._worker_procs[worker_idx] if worker_idx < len(self._worker_procs) else None
+        stderr_tail = "\n".join(self._worker_stderr_tails[worker_idx]) if worker_idx < len(self._worker_stderr_tails) else ""
+        returncode = proc.poll() if proc is not None else None
+        likely_reason = self._likely_reason_from_worker_error(returncode, stderr_tail)
+        return {
+            "worker_returncode": returncode,
+            "stderr_tail": stderr_tail,
+            "likely_reason": likely_reason,
+            "pytorch_jit_env": "0",
+            "torch_file": "",
+            "transformers_file": "",
+        }
         if self._workers != 1:
             _logger.warning(
                 "[Style-Bert-VITS2] CODEAGENT_STYLE_BERT_VITS2_WORKERS=%d. Multi-worker mode may degrade GPU performance due to contention; default/recommended is 1.",
@@ -1001,6 +1034,7 @@ while True:
                     encoding="utf-8",
                     errors="replace",
                     bufsize=1,
+                    env=_worker_env(),
                 )
                 if self._worker_procs[idx] and self._worker_procs[idx].stderr:
                     self._stderr_threads[idx] = threading.Thread(
@@ -1030,9 +1064,11 @@ while True:
             for _ in range(3):
                 line = proc.stdout.readline()
                 if not line:
-                    stderr_tail = "\n".join(self._worker_stderr_tails[worker_idx])
+                    failure = self._worker_failure_debug_info(worker_idx)
                     raise RuntimeError(
-                        f"Style-Bert-VITS2 worker returned no output (worker={worker_idx}).\n{stderr_tail}"
+                        "Style-Bert-VITS2 worker returned no output "
+                        f"(worker={worker_idx}, returncode={failure.get('worker_returncode')}, likely_reason={failure.get('likely_reason')}).\n"
+                        f"{failure.get('stderr_tail')}"
                     )
                 stripped = line.strip()
                 if not stripped:
@@ -1280,20 +1316,22 @@ while True:
                 })
                 raise RuntimeError("Style-Bert-VITS2 synth failed: empty audio payload")
         except Exception as e:
-            if not isinstance(e, RuntimeError):
-                write_tts_debug_entry({
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "stage": "runtime_error",
-                    "ok": False,
-                    "request_id": request_id,
-                    "engine": "style_bert_vits2",
-                    "model_name": payload.get("model_name"),
-                    "model_path": payload.get("model_path"),
-                    "raw_text": payload.get("raw_text"),
-                    "normalized_text": payload.get("text"),
-                    "error": f"{type(e).__name__}: {e}",
-                    "traceback": traceback.format_exc(),
-                })
+            worker_idx = (self._worker_rr_index - 1) % self._workers if self._workers > 0 else 0
+            worker_debug = self._worker_failure_debug_info(worker_idx)
+            write_tts_debug_entry({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "stage": "runtime_error",
+                "ok": False,
+                "request_id": request_id,
+                "engine": "style_bert_vits2",
+                "model_name": payload.get("model_name"),
+                "model_path": payload.get("model_path"),
+                "raw_text": payload.get("raw_text"),
+                "normalized_text": payload.get("text"),
+                "error": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc(),
+                **worker_debug,
+            })
             raise
 
         audio_bytes = base64.b64decode(b64)
@@ -1478,6 +1516,37 @@ while True:
             detail = "koharune-ami model files are missing"
             reason = "style_bert_vits2_koharune_ami_missing"
         setup_hint = "Run setup_style_bert_vits2_windows.bat" if os.name == "nt" else ""
+        torch_version = ""
+        torch_file = ""
+        torch_cuda_version = ""
+        torch_cuda_available = False
+        transformers_version = ""
+        transformers_file = ""
+        tokenizers_version = ""
+        tokenizers_file = ""
+        try:
+            import torch  # type: ignore
+
+            torch_version = str(getattr(torch, "__version__", ""))
+            torch_file = str(getattr(torch, "__file__", ""))
+            torch_cuda_version = str(getattr(getattr(torch, "version", None), "cuda", "") or "")
+            torch_cuda_available = bool(torch.cuda.is_available())
+        except Exception:
+            pass
+        try:
+            import transformers  # type: ignore
+
+            transformers_version = str(getattr(transformers, "__version__", ""))
+            transformers_file = str(getattr(transformers, "__file__", ""))
+        except Exception:
+            pass
+        try:
+            import tokenizers  # type: ignore
+
+            tokenizers_version = str(getattr(tokenizers, "__version__", ""))
+            tokenizers_file = str(getattr(tokenizers, "__file__", ""))
+        except Exception:
+            pass
         return {
             "available": available,
             "loaded": available,
@@ -1498,4 +1567,15 @@ while True:
             "detail": detail,
             "reason": reason,
             "worker_running": any(proc and proc.poll() is None for proc in self._worker_procs),
+            "pytorch_jit_env": _worker_env().get("PYTORCH_JIT", ""),
+            "python_executable": py,
+            "sys_path_contains_opt_venv": any("/opt/venv" in p for p in os.sys.path),
+            "torch_version": torch_version,
+            "torch_file": torch_file,
+            "torch_cuda_version": torch_cuda_version,
+            "torch_cuda_available": torch_cuda_available,
+            "transformers_version": transformers_version,
+            "transformers_file": transformers_file,
+            "tokenizers_version": tokenizers_version,
+            "tokenizers_file": tokenizers_file,
         }
