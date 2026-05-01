@@ -4,7 +4,10 @@ import re
 import unicodedata
 from typing import Any
 
-from .katakanaizer import katakanaize_english_segments_with_llm
+from .katakanaizer import (
+    japanese_full_text_reading_with_llm,
+    katakanaize_english_segments_with_llm,
+)
 
 _JP_TEXT_PATTERN = re.compile(r"[ぁ-ゟ゠-ヿ㐀-䶿一-鿿々〆〤ｦ-ﾟ]")
 _URL_PATTERN = re.compile(
@@ -34,6 +37,7 @@ _MARKDOWN_HEADING_PATTERN = re.compile(r"(?m)^\s*#{1,6}\s*")
 _MARKDOWN_BULLET_PATTERN = re.compile(r"(?m)^\s*[-*]\s+")
 _SPACE_BEFORE_PUNCT_PATTERN = re.compile(r"\s+([、。！？：；，．・ー」』）)\]])")
 _SPACE_AFTER_OPENING_PUNCT_PATTERN = re.compile(r"([「『（(])\s+")
+_ASCII_ALPHA_PATTERN = re.compile(r"[A-Za-z]")
 _NUMBER_UNIT_PATTERN = re.compile(
     r"(?P<number>\d+(?:[.,]\d+)?)\s*(?P<unit>vram|ghz|mhz|khz|tb|gb|mb|kb|kv|ma|kw|mw|km|kg|cm|mm|mg|ml|°C|v|a|w|m|g|l|℃|%|円|¥|\$)(?=$|[^A-Za-z])",
     re.IGNORECASE,
@@ -443,6 +447,49 @@ def normalize_text_for_japanese_tts(text: str | None, settings: dict | None) -> 
     current = current.strip()
     _append_operation(operations, "english_to_katakana", before, current, english_policy, force=True)
 
+    # 7.5) full-text Japanese reading normalization
+    before = current
+    full_text_enabled = bool(settings.get("sbv2_jp_extra_full_text_reading_normalization", False))
+    full_text_mode = str(settings.get("sbv2_jp_extra_full_text_reading_mode", "llm")).strip().lower()
+    full_text_dict_raw = settings.get("sbv2_jp_extra_japanese_reading_dict") or {}
+    full_text_dict = (
+        {str(k): str(v) for k, v in full_text_dict_raw.items()}
+        if isinstance(full_text_dict_raw, dict)
+        else {}
+    )
+    dict_applied_keys: list[str] = []
+    if full_text_dict:
+        for key, value in sorted(full_text_dict.items(), key=lambda item: len(item[0]), reverse=True):
+            if key and key in current:
+                current = current.replace(key, value)
+                dict_applied_keys.append(key)
+    llm_applied = False
+    llm_warning: str | None = None
+    if full_text_enabled and full_text_mode == "llm":
+        try:
+            llm_text = japanese_full_text_reading_with_llm(current)
+            if llm_text:
+                current = llm_text
+                llm_applied = True
+        except Exception as exc:
+            llm_warning = f"japanese full text llm reading failed: {exc}"
+            warnings.append(llm_warning)
+    elif full_text_enabled and full_text_mode not in {"dict", "llm"}:
+        warnings.append(f"unknown full text reading mode: {full_text_mode}. fallback=dict")
+    operations.append(
+        {
+            "type": "japanese_full_text_reading",
+            "before": before,
+            "after": current,
+            "value": {
+                "japanese_reading_dict": dict_applied_keys,
+                "japanese_full_text_llm_reading": full_text_mode == "llm",
+                "accepted": {"dict": bool(dict_applied_keys), "llm": llm_applied},
+                "warnings": [llm_warning] if llm_warning else [],
+            },
+        }
+    )
+
     before = current
     remaining_before = [m.group(0) for m in _EN_SEGMENT_PATTERN.finditer(current)]
     if remaining_before:
@@ -459,6 +506,22 @@ def normalize_text_for_japanese_tts(text: str | None, settings: dict | None) -> 
         operations.append({"type": "english_fallback", "from": before, "to": current, "value": {"mode": "spelling_or_replace", "remaining_before": remaining_before, "remaining_after": remaining_after}})
     else:
         remaining_after = []
+
+    if _ASCII_ALPHA_PATTERN.search(current):
+        if english_policy != "skip":
+            rerun = _EN_SEGMENT_PATTERN.sub(lambda m: english_dict.get(m.group(0).lower(), m.group(0)), current)
+            if rerun != current:
+                current = rerun
+        if _ASCII_ALPHA_PATTERN.search(current):
+            warnings.append("ascii_alpha_remains_in_final_text")
+            operations.append(
+                {
+                    "type": "warning",
+                    "category": "final_ascii_check",
+                    "level": "warning",
+                    "message": "ASCII alphabets remain in final text after normalization",
+                }
+            )
 
     looks_after = looks_japanese(current)
     if current and not looks_after:

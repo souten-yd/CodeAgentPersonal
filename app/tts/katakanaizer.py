@@ -303,3 +303,48 @@ def katakanaize_english_segments_with_llm(
             raise RuntimeError(f"katakana llm failed: {exc}") from exc
 
     return {"result": result, "summary": {"accepted": accepted, "rejected": rejected}} if return_summary else result
+
+
+def japanese_full_text_reading_with_llm(
+    text: str,
+    *,
+    timeout_sec: float | None = None,
+) -> str:
+    source = _normalize_segment(text)
+    if not source:
+        return ""
+    timeout_value = float(timeout_sec or _DEFAULT_TIMEOUT_SEC)
+    model = str(os.environ.get("CODEAGENT_KATAKANA_LLM_MODEL", _DEFAULT_MODEL)).strip() or _DEFAULT_MODEL
+    endpoint = _endpoint()
+    response = requests.post(
+        endpoint,
+        timeout=timeout_value,
+        headers={"Content-Type": "application/json"},
+        json={
+            "model": model,
+            "temperature": 0,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Convert the given Japanese text into TTS-friendly reading text. "
+                        "Keep natural Japanese wording and punctuation. "
+                        "Convert difficult kanji, titles, and proper nouns into readable forms. "
+                        "Return plain text only. Do not return JSON or explanations."
+                    ),
+                },
+                {"role": "user", "content": source},
+            ],
+        },
+    )
+    response.raise_for_status()
+    body = response.json() if response.content else {}
+    content = (
+        (
+            ((body.get("choices") or [{}])[0].get("message") or {}).get("content")
+            if isinstance(body, dict)
+            else ""
+        )
+        or ""
+    )
+    return _normalize_segment(content)

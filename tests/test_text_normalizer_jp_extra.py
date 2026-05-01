@@ -209,3 +209,55 @@ def test_llm_reject_reason_in_operations(monkeypatch):
     assert llm_ops
     assert llm_ops[0]["value"]["rejected"]["UnknownTerm"] == "same_as_token"
     assert not any(ch.isascii() and ch.isalpha() for ch in out["normalized_text"])
+
+
+def test_full_text_reading_dict_normalization_for_game_titles():
+    settings = {
+        "sbv2_jp_extra_full_text_reading_normalization": True,
+        "sbv2_jp_extra_full_text_reading_mode": "dict",
+        "sbv2_jp_extra_japanese_reading_dict": {
+            "紅の砂漠": "くれないのさばく",
+            "Valve": "バルブ",
+            "Steamdeck": "スチームデック",
+            "Steam Deck": "スチームデック",
+            "Starfield": "スターフィールド",
+        },
+    }
+    out = normalize_text_for_sbv2_jp_extra("ValveのSteamdeckでStarfieldと紅の砂漠をやります。", settings)
+    assert out["normalized_text"] == "バルブのスチームデックでスターフィールドとくれないのさばくをやります。"
+    op = [x for x in out["operations"] if x.get("type") == "japanese_full_text_reading"][0]
+    assert "紅の砂漠" in op["value"]["japanese_reading_dict"]
+
+
+def test_full_text_reading_dict_kanji_only_case():
+    settings = {
+        "sbv2_jp_extra_full_text_reading_normalization": True,
+        "sbv2_jp_extra_full_text_reading_mode": "dict",
+        "sbv2_jp_extra_japanese_reading_dict": {"紅の砂漠": "くれないのさばく"},
+    }
+    out = normalize_text_for_sbv2_jp_extra("紅の砂漠", settings)
+    assert out["normalized_text"] == "くれないのさばく"
+
+
+def test_full_text_reading_llm_disabled_dict_only_stable():
+    settings = {
+        "sbv2_jp_extra_full_text_reading_normalization": False,
+        "sbv2_jp_extra_full_text_reading_mode": "llm",
+        "sbv2_jp_extra_japanese_reading_dict": {"紅の砂漠": "くれないのさばく"},
+    }
+    out = normalize_text_for_sbv2_jp_extra("紅の砂漠", settings)
+    assert out["normalized_text"] == "くれないのさばく"
+
+
+def test_full_text_reading_no_ascii_left_in_final_text():
+    settings = {
+        "sbv2_jp_extra_full_text_reading_normalization": True,
+        "sbv2_jp_extra_full_text_reading_mode": "dict",
+        "sbv2_jp_extra_japanese_reading_dict": {
+            "Valve": "バルブ",
+            "Steamdeck": "スチームデック",
+            "Starfield": "スターフィールド",
+        },
+    }
+    out = normalize_text_for_sbv2_jp_extra("ValveのSteamdeckでStarfieldをやります。", settings)
+    assert not any(ch.isascii() and ch.isalpha() for ch in out["normalized_text"])
