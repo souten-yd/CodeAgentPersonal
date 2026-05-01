@@ -20,7 +20,7 @@ from .style_bert_vits2_paths import (
     resolve_style_bert_vits2_site_packages_dir,
     resolve_style_bert_vits2_venv_dir,
 )
-from .text_normalizer import looks_japanese, normalize_text_for_sbv2_jp_extra
+from .text_normalizer import looks_japanese, preprocess_text_for_tts
 
 _STYLE_BERT_VITS2_DEFAULT_REPO_DIR = "/app/Style-Bert-VITS2"
 _STYLE_BERT_VITS2_DEFAULT_VENV_DIR = "/app/Style-Bert-VITS2/.venv"
@@ -476,15 +476,16 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         normalization_result = None
         normalized_text = text
         normalization_settings = _resolve_sbv2_jp_extra_normalization_settings(req, is_jp_extra=is_jp_extra)
-        normalization_enabled = bool(
-            is_jp_extra and _to_optional_bool(normalization_settings.get("sbv2_jp_extra_text_normalization"), True)
+        normalization_enabled = True
+        tts_target_language = "ja" if effective_language == "JP" else "en"
+        normalization_result = preprocess_text_for_tts(
+            text,
+            target_language=tts_target_language,
+            model_kind="style_bert_vits2",
+            is_jp_extra=is_jp_extra,
+            settings=normalization_settings,
         )
-        if normalization_enabled:
-            normalization_result = normalize_text_for_sbv2_jp_extra(text, normalization_settings)
-            normalized_text = str(normalization_result.get("text") or "")
-        elif is_jp_extra:
-            normalization_result = {"changed": False}
-            normalized_text = text
+        normalized_text = str(normalization_result.get("text") or "")
         non_japanese_policy = _normalize_non_japanese_policy(
             normalization_settings.get("sbv2_jp_extra_non_japanese_policy")
         )
@@ -566,16 +567,16 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
                     requested_language, model_version
                 )
                 normalization_settings = _resolve_sbv2_jp_extra_normalization_settings(req, is_jp_extra=is_jp_extra)
-                normalization_enabled = bool(
-                    is_jp_extra
-                    and _to_optional_bool(normalization_settings.get("sbv2_jp_extra_text_normalization"), True)
+                normalization_enabled = True
+                tts_target_language = "ja" if effective_language == "JP" else "en"
+                normalization_result = preprocess_text_for_tts(
+                    original_text,
+                    target_language=tts_target_language,
+                    model_kind="style_bert_vits2",
+                    is_jp_extra=is_jp_extra,
+                    settings=normalization_settings,
                 )
-                if normalization_enabled:
-                    normalization_result = normalize_text_for_sbv2_jp_extra(original_text, normalization_settings)
-                    normalized_text = str(normalization_result.get("text") or "")
-                elif is_jp_extra:
-                    normalization_result = {"changed": False}
-                    normalized_text = original_text
+                normalized_text = str(normalization_result.get("text") or "")
                 final_text = normalized_text
                 looks_japanese_final = (
                     bool(normalization_result.get("looks_japanese_after"))

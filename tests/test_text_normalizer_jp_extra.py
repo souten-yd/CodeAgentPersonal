@@ -1,5 +1,5 @@
 from app.tts import text_normalizer
-from app.tts.text_normalizer import normalize_text_for_sbv2_jp_extra
+from app.tts.text_normalizer import normalize_text_for_sbv2_jp_extra, preprocess_text_for_tts
 
 
 def _normalize(text: str) -> str:
@@ -72,8 +72,9 @@ def test_llm_failure_does_not_raise_and_records_warning(monkeypatch):
 
     monkeypatch.setattr(text_normalizer, "katakanaize_english_segments_with_llm", _boom)
     result = normalize_text_for_sbv2_jp_extra("UnknownWordを読みます。", {})
-    assert "UnknownWord" in result["normalized_text"]
+    assert "UnknownWord" not in result["normalized_text"]
     assert any("english llm katakanaize failed" in w for w in result["warnings"])
+    assert "english_remains_after_katakanaize" in result["warnings"]
     assert any(op.get("type") == "warning" and op.get("category") == "english_katakanaize" for op in result["operations"])
 
 
@@ -123,3 +124,12 @@ def test_period_kept_between_sentences():
 def test_url_and_emoji_removal_do_not_join_sentences():
     out = _normalize("前です。https://example.com😊後です。")
     assert "前です。後です。" in out.replace(" ", "")
+
+
+def test_echo_translation_japanese_tts_preprocess_removes_english():
+    out = preprocess_text_for_tts("Echo VaultのUploadでPlaywrightを使います。", target_language="ja")
+    assert "エコー" in out["text"]
+    assert "ボルト" in out["text"]
+    assert "アップロード" in out["text"]
+    assert "プレイライト" in out["text"]
+    assert not any(ch.isascii() and ch.isalpha() for ch in out["text"])
