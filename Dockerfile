@@ -86,29 +86,51 @@ RUN rm -rf /var/lib/apt/lists/* \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python -m venv /opt/venv
-ENV PATH=/opt/venv/bin:${PATH}
-RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
-RUN python - <<'PY'
-import sys
-import pip
-print("python executable:", sys.executable)
-print("python version:", sys.version)
-print("pip version:", pip.__version__)
-assert sys.version_info[:2] == (3, 11), sys.version
-PY
-RUN python --version \
-    && python - <<'PY'
-import sys
-print("sys.version", sys.version)
-assert sys.version_info[:2] == (3, 11), sys.version
-PY
-RUN python - <<'PY'
+RUN /opt/conda/bin/python - <<'PY'
 import sys
 import torch
 import torchaudio
 
+print("conda python:", sys.executable)
+print("conda version:", sys.version)
+print("torch:", torch.__version__, torch.__file__)
+print("torchaudio:", torchaudio.__version__, torchaudio.__file__)
+print("torch.version.cuda:", torch.version.cuda)
+
+assert sys.version_info[:2] == (3, 11), sys.version
+assert torch.__version__.startswith("2.9.1"), torch.__version__
+assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
+PY
+
+RUN /opt/conda/bin/python -m venv --system-site-packages /opt/venv
+RUN set -eux; \
+    conda_site_packages="$(/opt/conda/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
+    venv_site_packages="$(/opt/venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
+    printf '%s\n' "${conda_site_packages}" > "${venv_site_packages}/_pytorch_base_conda.pth"; \
+    cat "${venv_site_packages}/_pytorch_base_conda.pth"
+
+ENV PATH=/opt/venv/bin:${PATH}
+RUN /opt/venv/bin/python -m pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN python - <<'PY'
+import sys
+import pip
 print("python executable:", sys.executable)
+print("venv version:", sys.version)
+print("pip version:", pip.__version__)
+assert sys.version_info[:2] == (3, 11), sys.version
+PY
+RUN /opt/venv/bin/python --version \
+    && /opt/venv/bin/python - <<'PY'
+import sys
+print("sys.version", sys.version)
+assert sys.version_info[:2] == (3, 11), sys.version
+PY
+RUN /opt/venv/bin/python - <<'PY'
+import sys
+import torch
+import torchaudio
+
+print("venv python:", sys.executable)
 print("python version:", sys.version)
 print("torch:", torch.__version__, torch.__file__)
 print("torchaudio:", torchaudio.__version__, torchaudio.__file__)
@@ -126,16 +148,16 @@ COPY . /app
 
 # Install Python dependencies if present.
 RUN if [ -f /app/requirements.txt ]; then \
-        python -m pip install --no-cache-dir -r /app/requirements.txt; \
+        /opt/venv/bin/python -m pip install --no-cache-dir -r /app/requirements.txt; \
     else \
-        python -m pip install --no-cache-dir fastapi 'uvicorn[standard]' pydantic requests python-multipart; \
+        /opt/venv/bin/python -m pip install --no-cache-dir fastapi 'uvicorn[standard]' pydantic requests python-multipart; \
     fi
 
 
 # Pre-download bundled faster-whisper ASR model into image layer.
 RUN set -eux; \
     mkdir -p /opt/asr_models/large-v3-turbo; \
-    python - <<'PY'
+    /opt/venv/bin/python - <<'PY'
 from pathlib import Path
 
 model_dir = Path("/opt/asr_models/large-v3-turbo")
@@ -160,16 +182,16 @@ print("[ASR] faster-whisper large-v3-turbo download step completed")
 PY
 
 # Install TTS runtime dependencies (Style-Bert-VITS2 required set).
-RUN python - <<'PY'
+RUN /opt/venv/bin/python - <<'PY'
 import torch, torchaudio
 print("[TTS] preinstalled torch", torch.__version__, "cuda", torch.version.cuda)
 print("[TTS] preinstalled torchaudio", torchaudio.__version__)
 PY
 
-RUN python -m pip check
+RUN /opt/venv/bin/python -m pip check
 
 # Re-pin core framework versions in case optional deps caused downgrades
-RUN python -m pip install --no-cache-dir --upgrade "pydantic>=2.6" "fastapi>=0.110"
+RUN /opt/venv/bin/python -m pip install --no-cache-dir --upgrade "pydantic>=2.6" "fastapi>=0.110"
 
 ########################################
 # Build stage: Style-Bert-VITS2 (isolated venv/layer)
@@ -200,10 +222,12 @@ RUN rm -rf /app/Style-Bert-VITS2 \
 # Keep Style-Bert-VITS2 dependencies isolated from existing Qwen3-TTS pins by using a dedicated venv.
 RUN set -eux; \
     cd /app/Style-Bert-VITS2; \
-    python -m venv /opt/style-bert-vits2-venv; \
+    /opt/conda/bin/python -m venv --system-site-packages /opt/style-bert-vits2-venv; \
     opt_site_packages="$(/opt/venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
+    conda_site_packages="$(/opt/conda/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
     sbv2_site_packages="$(/opt/style-bert-vits2-venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
-    printf '%s\n' "${opt_site_packages}" > "${sbv2_site_packages}/_runpod_opt_venv.pth"
+    printf '%s\n%s\n' "${opt_site_packages}" "${conda_site_packages}" > "${sbv2_site_packages}/_runpod_opt_venv.pth"; \
+    cat "${sbv2_site_packages}/_runpod_opt_venv.pth"
 
 RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
 import sys
@@ -424,7 +448,7 @@ PY
 RUN set -eux; \
     mkdir -p /opt/searxng; \
     git clone https://github.com/searxng/searxng /opt/searxng/searxng-src; \
-    python -m venv /opt/searxng/searx-pyenv; \
+    /opt/conda/bin/python -m venv /opt/searxng/searx-pyenv; \
     /opt/searxng/searx-pyenv/bin/pip install --no-cache-dir -U pip setuptools wheel; \
     /opt/searxng/searx-pyenv/bin/pip install --no-cache-dir -U pyyaml msgspec typing-extensions pybind11; \
     cd /opt/searxng/searxng-src; \
