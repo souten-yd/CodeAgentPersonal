@@ -81,13 +81,24 @@ RUN rm -rf /var/lib/apt/lists/* \
         jq \
         build-essential \
         pkg-config \
-        software-properties-common \
         gnupg \
         sox \
         libsox-fmt-all \
     && update-ca-certificates \
-    && add-apt-repository -y ppa:deadsnakes/ppa \
-    && apt-get update \
+    && mkdir -p /etc/apt/keyrings \
+    && for i in 1 2 3 4 5; do \
+        curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
+          "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF23C5A6CF475977595C89F51BA6932366A755776" \
+          -o /tmp/deadsnakes.asc && break; \
+        sleep $((i * 5)); \
+      done \
+    && test -s /tmp/deadsnakes.asc \
+    && gpg --dearmor -o /etc/apt/keyrings/deadsnakes.gpg /tmp/deadsnakes.asc \
+    && rm -f /tmp/deadsnakes.asc \
+    && . /etc/os-release \
+    && echo "deb [signed-by=/etc/apt/keyrings/deadsnakes.gpg] https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu ${VERSION_CODENAME} main" \
+        > /etc/apt/sources.list.d/deadsnakes.list \
+    && apt-get update -o Acquire::Retries=5 \
     && apt-get install -y --no-install-recommends --fix-missing \
         python3.11 \
         python3.11-dev \
@@ -315,13 +326,24 @@ RUN rm -rf /var/lib/apt/lists/* \
         libxml2 \
         libxslt-dev \
         zlib1g-dev \
-        software-properties-common \
         gnupg \
         sox \
         libsox-fmt-all \
     && update-ca-certificates \
-    && add-apt-repository -y ppa:deadsnakes/ppa \
-    && apt-get update \
+    && mkdir -p /etc/apt/keyrings \
+    && for i in 1 2 3 4 5; do \
+        curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
+          "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF23C5A6CF475977595C89F51BA6932366A755776" \
+          -o /tmp/deadsnakes.asc && break; \
+        sleep $((i * 5)); \
+      done \
+    && test -s /tmp/deadsnakes.asc \
+    && gpg --dearmor -o /etc/apt/keyrings/deadsnakes.gpg /tmp/deadsnakes.asc \
+    && rm -f /tmp/deadsnakes.asc \
+    && . /etc/os-release \
+    && echo "deb [signed-by=/etc/apt/keyrings/deadsnakes.gpg] https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu ${VERSION_CODENAME} main" \
+        > /etc/apt/sources.list.d/deadsnakes.list \
+    && apt-get update -o Acquire::Retries=5 \
     && apt-get install -y --no-install-recommends --fix-missing \
         python3.11 \
         python3.11-venv \
