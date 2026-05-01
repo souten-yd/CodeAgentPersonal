@@ -43,6 +43,9 @@ from agent.session import AgentSession
 from agent.tools.registry import ToolRegistry, create_default_registry
 from agent.types import Action, Evaluation, Plan, ToolResult
 from agent.plan_approval_manager import PlanApprovalManager
+from agent.implementation_executor import ImplementationExecutor
+from agent.implementation_schema import ImplementationRunRequest
+from agent.run_storage import RunStorage
 from agent.task_planning_runner import TaskPlanningRunner
 from app.tts.engine_registry import EngineRegistry, TTSEngineRuntime
 from app.tts.style_bert_vits2_runtime import StyleBertVITS2Runtime, _read_model_version
@@ -10604,6 +10607,8 @@ _phase1_planning_runner = TaskPlanningRunner(
     warning_logger=lambda msg: print(f"[PHASE1][NEXUS] {msg}"),
 )
 _phase1_approval_manager = PlanApprovalManager(_phase1_planning_runner.storage)
+_phase6_run_storage = RunStorage(CA_DATA_DIR)
+_phase6_executor = ImplementationExecutor(_phase1_planning_runner.storage, _phase6_run_storage)
 
 
 def _resolve_project_path_for_phase_planning(project_path: str, project_name: str) -> tuple[str, list[str]]:
@@ -10736,6 +10741,49 @@ def api_reject_plan(plan_id: str, req: PlanApprovalActionRequest):
         raise HTTPException(status_code=404, detail="plan not found")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+@app.post("/api/plans/{plan_id}/execute")
+def api_execute_plan(plan_id: str, req: ImplementationRunRequest):
+    try:
+        return _phase6_executor.execute(
+            plan_id=plan_id,
+            execution_mode=req.execution_mode,
+            project_path=req.project_path,
+            allow_update=req.allow_update,
+            allow_create=req.allow_create,
+            allow_delete=req.allow_delete,
+            allow_run_command=req.allow_run_command,
+            user_comment=req.user_comment,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="plan not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/runs/{run_id}")
+def api_get_run(run_id: str):
+    try:
+        return _phase6_run_storage.load_run(run_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="run not found")
+
+
+@app.get("/api/runs/{run_id}/log")
+def api_get_run_log(run_id: str):
+    try:
+        return {"run_id": run_id, "log": _phase6_run_storage.read_log(run_id)}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="run log not found")
+
+
+@app.get("/api/runs/{run_id}/report")
+def api_get_run_report(run_id: str):
+    try:
+        return {"run_id": run_id, "report": _phase6_run_storage.read_report(run_id)}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="run report not found")
+
 
 @app.get("/api/reviews/{review_id}")
 def api_get_review(review_id: str):
