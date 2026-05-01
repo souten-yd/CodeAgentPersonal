@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import traceback
 import uuid
 from pathlib import Path
 from datetime import datetime, timezone
