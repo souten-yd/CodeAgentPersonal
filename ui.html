@@ -2467,7 +2467,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div>
               <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS Model</div>
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-                <select id="tsasr-style-bert-vits2-model-sel" style="flex:1;min-width:120px;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="saveEchoSettings()"><option value="">（モデルなし）</option></select>
+                <select id="tsasr-style-bert-vits2-model-sel" style="flex:1;min-width:120px;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="onStyleBertVits2ModelSelectionChange()"><option value="">（モデルなし）</option></select>
                 <button onclick="refreshStyleBertVits2Models('echo')" id="tsasr-style-bert-vits2-refresh-btn" style="padding:4px 10px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">再読込</button>
               </div>
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">
@@ -5099,6 +5099,16 @@ async function _ensureStyleBertVits2Prepared({force = false, context = 'echo'} =
     }
   })();
   return _styleBertVits2PrepareState.inFlight;
+}
+
+async function onStyleBertVits2ModelSelectionChange() {
+  saveEchoSettings();
+  _styleBertVits2PrepareState.prepared = false;
+  try {
+    await _ensureStyleBertVits2Prepared({force: true, context: 'echo'});
+  } catch (e) {
+    console.warn('[Style-Bert-VITS2] auto prepare after model selection failed:', e);
+  }
 }
 
 async function runStyleBertVits2InitialSetup(context = 'echo') {
