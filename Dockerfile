@@ -42,7 +42,7 @@ RUN set -eux; \
 ########################################
 ## Build stage: Python deps + Style-Bert-VITS2 prep (with CUDA toolkit)
 ########################################
-FROM pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel AS py_base
+FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04 AS py_base
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -86,9 +86,23 @@ RUN rm -rf /var/lib/apt/lists/* \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python -m venv /opt/venv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH=/root/.local/bin:${PATH}
+RUN uv python install 3.11
+RUN uv venv --python 3.11 /opt/venv
 ENV PATH=/opt/venv/bin:${PATH}
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN python --version \
+    && python - <<'PY'
+import sys
+print("sys.version", sys.version)
+assert sys.version_info[:2] == (3, 11), sys.version
+PY
+RUN python -m pip install --no-cache-dir \
+      --index-url https://download.pytorch.org/whl/cu128 \
+      torch==2.9.1+cu128 \
+      torchaudio==2.9.1+cu128 \
+      torchvision==0.24.1+cu128
 
 FROM py_base AS py_build
 
@@ -257,7 +271,7 @@ PY
 ########################################
 # Runtime stage: Python + codeAgent + llama.cpp
 ########################################
-FROM pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel AS runtime
+FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -315,8 +329,7 @@ RUN rm -rf /var/lib/apt/lists/* \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python -m venv /opt/venv
-ENV PATH=/opt/venv/bin:${PATH}
+ENV PATH=/opt/venv/bin:/root/.local/bin:${PATH}
 
 # Copy application source and prebuilt venv artifacts from build stage.
 COPY . /app
@@ -327,6 +340,24 @@ COPY --from=style_bert_vits2_build /opt/hf_cache /opt/hf_cache
 COPY --from=style_bert_vits2_build /opt/cache /opt/cache
 COPY --from=style_bert_vits2_build /opt/style-bert-vits2-models /opt/style-bert-vits2-models
 COPY --from=py_build /opt/asr_models /opt/asr_models
+
+RUN /opt/venv/bin/python --version \
+    && /opt/venv/bin/python - <<'PY'
+import sys
+print("sys.version", sys.version)
+assert sys.version_info[:2] == (3, 11), sys.version
+PY \
+    && /opt/style-bert-vits2-venv/bin/python --version \
+    && /opt/style-bert-vits2-venv/bin/python - <<'PY'
+import sys, torch, torchaudio, av
+print("sys.version", sys.version)
+assert sys.version_info[:2] == (3, 11), sys.version
+print("torch", torch.__version__)
+print("torchaudio", torchaudio.__version__)
+print("torch.version.cuda", torch.version.cuda)
+print("av", av.__version__)
+assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
+PY
 
 # Build SearXNG editable runtime inside isolated venv for Runpod single-container startup.
 RUN set -eux; \
