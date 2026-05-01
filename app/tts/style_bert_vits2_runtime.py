@@ -132,10 +132,12 @@ def _resolve_model_paths(model_id: str) -> tuple[str, str, str]:
     style_path = model_dir / "style_vectors.npy"
 
     if weight_path is None:
-        for candidate in sorted(model_dir.rglob("*")):
-            if candidate.is_file() and candidate.suffix.lower() in _STYLE_BERT_VITS2_WEIGHT_EXTENSIONS:
-                weight_path = candidate
-                break
+        candidates = [c for c in sorted(model_dir.rglob("*")) if c.is_file() and c.suffix.lower() in _STYLE_BERT_VITS2_WEIGHT_EXTENSIONS]
+        onnx_candidates = [c for c in candidates if c.suffix.lower() == ".onnx"]
+        if onnx_candidates:
+            weight_path = onnx_candidates[0]
+        elif candidates:
+            weight_path = candidates[0]
     if weight_path is None:
         raise RuntimeError(f"Style-Bert-VITS2 weight file missing in: {model_dir}")
 
@@ -433,6 +435,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         self._worker_stderr_tails: list[collections.deque[str]] = []
         self._stderr_threads: list[threading.Thread | None] = []
         self._worker_rr_index = 0
+        self._last_backend_diag: dict[str, object] = {}
 
     @staticmethod
     def _likely_reason_from_worker_error(returncode: int | None, stderr_tail: str) -> str:
@@ -498,7 +501,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
                 "directml_attempted": bool(directml_attempted),
             }
         warmup_started = time.perf_counter()
-        preload_payload = self._build_payload(req, model=model, text="事前ロードです。", request_id="prepare")
+        preload_payload = self._build_payload(req, model=model, text=str(req.get("warmup_text") or "事前ロードです。"), request_id="prepare")
         result = self._send_to_worker(preload_payload)
         warmup_elapsed_ms = int((time.perf_counter() - warmup_started) * 1000)
         return {
@@ -785,11 +788,37 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="pyopenjta
 
 loaded_model = None
 loaded_signature = None
+loaded_session = None
+loaded_model_kind = ""
+loaded_provider = ""
+last_warmup_ms = 0
+run_lock = None
 
 
 def emit_response(payload: dict) -> None:
     _REAL_STDOUT.write(json.dumps(payload, ensure_ascii=False) + "\n")
     _REAL_STDOUT.flush()
+
+
+def _init_run_lock():
+    global run_lock
+    if run_lock is None:
+        import threading
+        run_lock = threading.Lock()
+
+
+def _pick_onnx_provider() -> tuple[str, list[str], str]:
+    try:
+        import onnxruntime as ort
+        providers = list(ort.get_available_providers())
+        version = str(getattr(ort, "__version__", ""))
+    except Exception:
+        return "", [], ""
+    if sys.platform == "win32" and "DmlExecutionProvider" in providers:
+        return "DmlExecutionProvider", providers, version
+    if "CPUExecutionProvider" in providers:
+        return "CPUExecutionProvider", providers, version
+    return "", providers, version
 
 
 def synth(req: dict) -> dict:
@@ -1300,6 +1329,15 @@ while True:
                 )
         try:
             output = self._send_to_worker(payload)
+            self._last_backend_diag = {
+                "selected_tts_backend": str(output.get("selected_tts_backend") or "style_bert_vits2"),
+                "onnxruntime_version": str(output.get("onnxruntime_version") or ""),
+                "available_providers": output.get("available_providers") or [],
+                "selected_provider": str(output.get("selected_provider") or ""),
+                "selected_model_file": str(output.get("selected_model_file") or payload.get("model_path") or ""),
+                "warmup_ms": int(output.get("warmup_ms") or 0),
+                "last_inference_ms": int(output.get("infer_elapsed_ms") or 0),
+            }
             if not output.get("ok"):
                 err = output.get("error") or "unknown error"
                 write_tts_debug_entry({
@@ -1596,4 +1634,5 @@ while True:
             "transformers_file": transformers_file,
             "tokenizers_version": tokenizers_version,
             "tokenizers_file": tokenizers_file,
+            **self._last_backend_diag,
         }
