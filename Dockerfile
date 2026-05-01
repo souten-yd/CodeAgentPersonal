@@ -131,14 +131,13 @@ print("[ASR] faster-whisper large-v3-turbo download step completed")
 PY
 
 # Install TTS runtime dependencies (Style-Bert-VITS2 required set).
-RUN set -eux; \
-    python - <<'PY'
+RUN python - <<'PY'
 import torch, torchaudio
 print("[TTS] preinstalled torch", torch.__version__, "cuda", torch.version.cuda)
 print("[TTS] preinstalled torchaudio", torchaudio.__version__)
 PY
-    ; \
-    python -m pip check
+
+RUN python -m pip check
 
 # Re-pin core framework versions in case optional deps caused downgrades
 RUN python -m pip install --no-cache-dir --upgrade "pydantic>=2.6" "fastapi>=0.110"
