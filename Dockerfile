@@ -195,14 +195,11 @@ RUN rm -rf /app/Style-Bert-VITS2 \
 RUN set -eux; \
     cd /app/Style-Bert-VITS2; \
     uv venv --seed --python 3.11 /opt/style-bert-vits2-venv; \
-    site_packages="$("/opt/style-bert-vits2-venv/bin/python" -c 'import site; print(site.getsitepackages()[0])')"; \
-    printf '%s\n' \
-      '/opt/venv/lib/python3.11/site-packages' \
-      '/opt/venv/local/lib/python3.11/dist-packages' \
-      '/opt/venv/lib/python3/dist-packages' \
-      '/opt/venv/lib/python3.11/dist-packages' \
-      > "${site_packages}/_runpod_opt_venv.pth"; \
-    /opt/style-bert-vits2-venv/bin/python - <<'PY'
+    opt_site_packages="$(/opt/venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
+    sbv2_site_packages="$(/opt/style-bert-vits2-venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
+    printf '%s\n' "${opt_site_packages}" > "${sbv2_site_packages}/_runpod_opt_venv.pth"
+
+RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
 import sys
 import pip
 print("sbv2 python executable:", sys.executable)
@@ -210,9 +207,11 @@ print("sbv2 python version:", sys.version)
 print("sbv2 pip version:", pip.__version__)
 assert sys.version_info[:2] == (3, 11), sys.version
 PY
+
+RUN set -eux; \
+    cd /app/Style-Bert-VITS2; \
     /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir --upgrade pip wheel "setuptools<82"; \
     /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir huggingface_hub; \
-    /opt/style-bert-vits2-venv/bin/python -c "import torch, torchaudio, av; print(torch.__version__, torchaudio.__version__, av.__version__)"; \
     /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir -e . --no-deps; \
     /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir \
       "numpy<2" \
@@ -236,6 +235,20 @@ PY
       num2words \
       pypinyin; \
     /opt/style-bert-vits2-venv/bin/python -c "import pyopenjtalk; pyopenjtalk.g2p('辞書ウォームアップ')"
+
+RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
+import sys
+import torch
+import torchaudio
+import av
+print("sbv2 python", sys.version)
+print("sbv2 torch", torch.__version__, torch.__file__)
+print("sbv2 torchaudio", torchaudio.__version__, torchaudio.__file__)
+print("sbv2 torch.version.cuda", torch.version.cuda)
+print("sbv2 av", av.__version__, av.__file__)
+assert sys.version_info[:2] == (3, 11), sys.version
+assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
+PY
 
 RUN set -eux; \
     mkdir -p \
@@ -360,15 +373,21 @@ COPY --from=style_bert_vits2_build /opt/cache /opt/cache
 COPY --from=style_bert_vits2_build /opt/style-bert-vits2-models /opt/style-bert-vits2-models
 COPY --from=py_build /opt/asr_models /opt/asr_models
 
-RUN /opt/venv/bin/python --version \
-    && /opt/venv/bin/python - <<'PY'
+RUN /opt/venv/bin/python --version
+
+RUN /opt/venv/bin/python - <<'PY'
 import sys
 print("sys.version", sys.version)
 assert sys.version_info[:2] == (3, 11), sys.version
-PY \
-    && /opt/style-bert-vits2-venv/bin/python --version \
-    && /opt/style-bert-vits2-venv/bin/python - <<'PY'
-import sys, torch, torchaudio, av
+PY
+
+RUN /opt/style-bert-vits2-venv/bin/python --version
+
+RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
+import sys
+import torch
+import torchaudio
+import av
 print("sys.version", sys.version)
 assert sys.version_info[:2] == (3, 11), sys.version
 print("torch", torch.__version__)
