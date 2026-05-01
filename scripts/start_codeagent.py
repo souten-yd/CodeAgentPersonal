@@ -29,6 +29,11 @@ AUTO_MODE_NUM = "1"
 DEFAULT_SYS_VENV_NAME = "venv_sys"
 
 
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
+
 def startup_requires_benchmark(runpod: bool, os_profile: dict) -> bool:
     if str(os_profile.get("system", "")).lower().startswith("windows"):
         return False
@@ -376,14 +381,12 @@ def main() -> int:
         env.setdefault("CODEAGENT_WORK_DIR", "/workspace/ca_data/workspace")
         env.setdefault("CODEAGENT_SKILLS_DIR", "/workspace/ca_data/skills")
         env.setdefault("CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR", "/workspace/ca_data/tts/style_bert_vits2/models")
-    if os.name == "nt" and not runpod:
+    if _is_windows() and not runpod:
         env.setdefault("CODEAGENT_STYLE_BERT_VITS2_REPO_DIR", str(base_dir / "third_party" / "Style-Bert-VITS2"))
         env.setdefault("CODEAGENT_STYLE_BERT_VITS2_VENV_DIR", str(base_dir / "tts_envs" / "style_bert_vits2"))
         env.setdefault("CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR", str(base_dir / "ca_data" / "tts" / "style_bert_vits2" / "models"))
         env.setdefault("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "directml")
         env.setdefault("CODEAGENT_AUTO_SETUP_STYLE_BERT_VITS2", "false")
-        env.setdefault("CODEAGENT_SEARXNG_REPO_DIR", str(base_dir / "third_party" / "searxng"))
-        env.setdefault("CODEAGENT_SEARXNG_VENV_DIR", str(base_dir / "search_envs" / "searxng"))
         env.setdefault("CODEAGENT_SEARXNG_CONFIG_DIR", str(base_dir / "ca_data" / "searxng"))
         env.setdefault("CODEAGENT_SEARXNG_LOG_FILE", str(base_dir / "ca_data" / "searxng" / "searxng.log"))
         env.setdefault("NEXUS_WEB_SEARCH_PROVIDER", "searxng")
@@ -399,7 +402,7 @@ def main() -> int:
         env["CODEAGENT_STYLE_BERT_VITS2_DEVICE"] = str(gpu_profile.get("recommended_tts_device") or "cpu")
 
     auto_setup_sbv2 = str(env.get("CODEAGENT_AUTO_SETUP_STYLE_BERT_VITS2", "")).strip().lower() in {"1", "true", "yes", "on"}
-    if os.name == "nt" and not runpod and auto_setup_sbv2:
+    if _is_windows() and not runpod and auto_setup_sbv2:
         sbv2_python = Path(env.get("CODEAGENT_STYLE_BERT_VITS2_VENV_DIR", "")) / "Scripts" / "python.exe"
         sbv2_repo = Path(env.get("CODEAGENT_STYLE_BERT_VITS2_REPO_DIR", ""))
         sbv2_models = Path(env.get("CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR", ""))
@@ -434,7 +437,7 @@ def main() -> int:
     if not runpod:
         python_exec, _ = _ensure_local_bootstrap_venv(base_dir, env)
 
-    if os.name == "nt" and not runpod:
+    if _is_windows() and not runpod:
         auto_start_searxng = str(env.get("AUTO_START_SEARXNG", "")).strip().lower() in {"1", "true", "yes", "on"}
         if auto_start_searxng:
             searx_start_script = base_dir / "scripts" / "start_searxng_windows.py"
