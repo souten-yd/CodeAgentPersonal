@@ -12752,7 +12752,22 @@ def tts_debug_api(limit: int = 20):
     entries = _read_recent_tts_debug_entries(limit)
     if entries and isinstance(entries, list) and isinstance(entries[0], dict) and entries[0].get("ok") is False and entries[0].get("traceback"):
         return {"ok": False, "error": entries[0].get("error"), "traceback": entries[0].get("traceback"), "entries": []}
-    return {"ok": True, "entries": entries, "count": len(entries)}
+    requested_device = ""
+    effective_device = ""
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        requested_device = str(entry.get("requested_device") or entry.get("device") or requested_device or "")
+        effective_device = str(entry.get("effective_device") or entry.get("device") or effective_device or "")
+        if requested_device and effective_device:
+            break
+    return {
+        "ok": True,
+        "entries": entries,
+        "count": len(entries),
+        "requested_device": requested_device,
+        "effective_device": effective_device,
+    }
 
 
 @app.get("/tts/voices")
@@ -13357,16 +13372,34 @@ def api_style_bert_vits2_prepare(req: dict = {}):
         status["initialized_now"] = initialized_now
         status["prepare_id"] = prepare_id
         status["initialize_action"] = initialize_action
-        status["ready"] = bool(
+        setup_ready = bool(
             status["repo_exists"]
             and status["venv_exists"]
-            and status["python_exists"]
-            and status["python_executable"]
-            and status["pth_exists"]
-            and status["init_flag_exists"]
+            and (status["python_exists"] or status["python_executable"])
+            and status["site_packages_exists"]
             and status.get("models_ready", False)
-        )
-        if status["ready"]:
+            and status.get("initialize_action") in {"already_initialized", "initialized", "executed", "skipped_importable_and_models_ready"}
+        ) or bool(status.get("init_flag_exists") and status.get("models_ready"))
+        status["setup_ready"] = setup_ready
+        status["runtime_ready"] = False
+        status["ready"] = setup_ready
+        if not setup_ready:
+            reason_parts = []
+            if not status["repo_exists"]:
+                reason_parts.append("repo_missing")
+            if not status["venv_exists"]:
+                reason_parts.append("venv_missing")
+            if not (status["python_exists"] or status["python_executable"]):
+                reason_parts.append("python_missing")
+            if not status["site_packages_exists"]:
+                reason_parts.append("site_packages_missing")
+            if not status.get("models_ready", False):
+                reason_parts.append("models_not_ready")
+            if status.get("initialize_action") not in {"already_initialized", "initialized", "executed", "skipped_importable_and_models_ready"}:
+                reason_parts.append("initialize_incomplete")
+            status["reason"] = status.get("reason") or "style_bert_vits2_setup_not_ready"
+            status["detail"] = status.get("detail") or ",".join(reason_parts) or "setup requirements not met"
+        if setup_ready:
             status["runtime_prepare"] = None
             try:
                 runtime = _tts_engine_registry.get(raw_engine_key="style_bert_vits2")
@@ -13383,6 +13416,7 @@ def api_style_bert_vits2_prepare(req: dict = {}):
                         prepare_payload["device"] = requested_device
                     preload_result = runtime.prepare(prepare_payload)
                     status["runtime_prepare"] = preload_result
+                    status["runtime_ready"] = bool(isinstance(preload_result, dict) and str(preload_result.get("status", "")).lower() == "ready")
                     if isinstance(status["runtime_prepare"], dict):
                         status["runtime_prepare"]["device"] = preload_result.get("device")
                         status["runtime_prepare"]["warmup_elapsed_ms"] = preload_result.get("warmup_elapsed_ms")
