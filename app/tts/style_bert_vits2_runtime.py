@@ -40,6 +40,24 @@ def _venv_dir() -> str:
     return resolve_style_bert_vits2_venv_dir()
 
 
+
+
+def _tts_debug_log_path() -> Path:
+    ca_data = os.environ.get("CODEAGENT_CA_DATA_DIR", "").strip()
+    if ca_data:
+        return Path(ca_data) / "tts_debug.jsonl"
+    return Path(__file__).resolve().parents[2] / "ca_data" / "tts_debug.jsonl"
+
+
+def _write_tts_debug_entry(entry: dict) -> None:
+    try:
+        path = _tts_debug_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(dict(entry or {}), ensure_ascii=False) + "\n")
+    except Exception:
+        return
+
 def _python_path() -> str:
     return resolve_style_bert_vits2_python_path()
 
@@ -524,6 +542,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "translated_text": str(req.get("translated_text") or ""),
             "non_japanese_policy": non_japanese_policy,
             "jp_extra_normalization": normalization_result,
+            "wav_encoder": str(os.environ.get("CODEAGENT_TTS_WAV_ENCODER", "")).strip().lower(),
         }
 
     def build_normalization_preview(self, req: dict | None = None) -> dict:
@@ -748,20 +767,18 @@ def synth(req: dict) -> dict:
         try:
             import torch
 
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = "cuda" if (sys.platform != "win32" and torch.cuda.is_available()) else "cpu"
         except Exception:
             device = "cpu"
-    if device in {"directml", "dml"}:
+    if sys.platform == "win32" and device in {"directml", "dml", "privateuseone", "auto"}:
+        device = "cpu"
+        effective_device = "cpu"
+        fallback_reason = "windows_directml_fallback_to_cpu"
+    elif device in {"directml", "dml"}:
         directml_attempted = True
-        try:
-            import torch_directml
-
-            device = torch_directml.device()
-            effective_device = "directml"
-        except Exception as e:
-            device = "cpu"
-            effective_device = "cpu"
-            fallback_reason = f"directml_unavailable:{type(e).__name__}:{e}"
+        device = "cpu"
+        effective_device = "cpu"
+        fallback_reason = "directml_disabled_fallback_to_cpu"
     elif device not in {"cpu", "cuda", "mps"}:
         device = "cpu"
         effective_device = "cpu"
@@ -824,6 +841,7 @@ def synth(req: dict) -> dict:
 
     infer_signature = inspect.signature(loaded_model.infer)
     infer_params = set(infer_signature.parameters.keys())
+    forbidden = {"engine", "model", "model_name", "model_path", "config_path", "style_vec_path", "route", "caller", "return_mode", "voice", "voice_name"}
     if "language" not in infer_params:
         kwargs.pop("language", None)
 
@@ -854,27 +872,50 @@ def synth(req: dict) -> dict:
     )
     sys.stderr.flush()
 
+    kwargs = {k: v for k, v in kwargs.items() if k in infer_params and k not in forbidden}
+
     infer_started = time.perf_counter()
     infer_result = loaded_model.infer(**kwargs)
     infer_elapsed_ms = int((time.perf_counter() - infer_started) * 1000)
     if isinstance(infer_result, tuple) and len(infer_result) == 2:
-        sample_rate, audio = infer_result
+        a, b = infer_result
+        if isinstance(a, int):
+            sample_rate, audio = a, b
+        else:
+            audio, sample_rate = a, b
     else:
-        audio = infer_result
-        data = getattr(hp, "data", None)
-        sample_rate = getattr(data, "sampling_rate", None) or 44100
+        raise RuntimeError("unexpected infer result from Style-Bert-VITS2")
 
     audio_arr = np.asarray(audio)
-    if audio_arr.dtype != np.int16:
-        audio_arr = np.clip(audio_arr, -32768, 32767).astype(np.int16)
+    audio_arr = np.squeeze(audio_arr)
+    audio_arr = np.nan_to_num(audio_arr)
 
     encode_started = time.perf_counter()
     buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(int(sample_rate))
-        wf.writeframes(audio_arr.tobytes())
+    encoder = "wave"
+    use_soundfile = (sys.platform == "win32") or (str(req.get("wav_encoder") or "").strip().lower() == "soundfile")
+    if use_soundfile:
+        try:
+            import soundfile as sf
+            sf.write(buffer, audio_arr, int(sample_rate), format="WAV")
+            encoder = "soundfile"
+        except Exception:
+            buffer = io.BytesIO()
+
+    if encoder == "wave":
+        if np.issubdtype(audio_arr.dtype, np.floating):
+            audio_arr = np.clip(audio_arr, -1.0, 1.0)
+            pcm = (audio_arr * 32767.0).astype(np.int16)
+        elif audio_arr.dtype == np.int16:
+            pcm = audio_arr
+        else:
+            pcm = audio_arr.astype(np.int16)
+
+        with wave.open(buffer, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(int(sample_rate))
+            wf.writeframes(pcm.tobytes())
 
     wav_bytes = buffer.getvalue()
     audio_b64 = None
@@ -905,7 +946,20 @@ def synth(req: dict) -> dict:
         "fallback_reason": str(fallback_reason),
         "directml_attempted": bool(directml_attempted),
         "model_name": str(req.get("model_name", "")),
+        "model_path": str(model_path),
+        "config_path": str(config_path),
+        "style_vec_path": str(style_vec_path),
+        "speaker": req.get("speaker"),
+        "speaker_id": req.get("speaker_id"),
+        "style": req.get("style"),
+        "line_split": req.get("line_split"),
         "text_length": len(text_value),
+        "audio_dtype": str(audio_arr.dtype),
+        "audio_shape": list(audio_arr.shape),
+        "audio_min": float(np.min(audio_arr)) if audio_arr.size else 0.0,
+        "audio_max": float(np.max(audio_arr)) if audio_arr.size else 0.0,
+        "encoder": encoder,
+        "infer_kwargs_keys": sorted(kwargs.keys()),
     }
 
 
@@ -1189,6 +1243,7 @@ while True:
             raise RuntimeError("Style-Bert-VITS2 synth failed: empty audio payload")
 
         audio_bytes = base64.b64decode(b64)
+        _write_tts_debug_entry({"timestamp": datetime.now(timezone.utc).isoformat(), "request_id": request_id, "route": payload.get("route"), "engine": "style_bert_vits2", "model_name": payload.get("model_name"), "model_path": payload.get("model_path"), "config_path": payload.get("config_path"), "style_vec_path": payload.get("style_vec_path"), "raw_text": payload.get("raw_text"), "normalized_text": payload.get("text"), "effective_language": payload.get("effective_language"), "model_version": payload.get("model_version"), "is_jp_extra": payload.get("is_jp_extra"), "device": output.get("device") or payload.get("device"), "speaker": payload.get("speaker"), "speaker_id": payload.get("speaker_id"), "style": payload.get("style"), "line_split": payload.get("line_split"), "infer_kwargs_keys": output.get("infer_kwargs_keys"), "sample_rate": output.get("sample_rate"), "audio_dtype": output.get("audio_dtype"), "audio_shape": output.get("audio_shape"), "audio_min": output.get("audio_min"), "audio_max": output.get("audio_max"), "encoder": output.get("encoder"), "wav_bytes_len": len(audio_bytes)})
         _logger.info(
             "[Style-Bert-VITS2][synthesize] id=%s model=%s text_len=%d device=%s cache_hit=%s load_ms=%d infer_ms=%d encode_ms=%d total_ms=%d bytes=%d",
             request_id,
