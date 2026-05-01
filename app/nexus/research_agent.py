@@ -64,6 +64,11 @@ class ResearchAgentInput:
     official_first: bool = True
     download_timeout_sec: int | None = None
     continue_on_download_error: bool = True
+    recursive_search: bool = False
+    max_iterations: int = 1
+    max_followup_queries: int = 4
+    confidence_threshold: float = 0.75
+    stop_when_sufficient: bool = True
 
 
 def _now_iso() -> str:
@@ -247,6 +252,84 @@ def _build_evidence_from_sources(job_id: str, sources: list[dict]) -> list[Evide
                 )
             )
     return evidence
+
+
+def _analyze_research_gaps(*, sources: list[dict], evidence_chunks: list[dict], answer_payload: dict) -> dict:
+    source_count = len(sources)
+    evidence_chunk_count = len(evidence_chunks)
+    has_official_or_pdf = any(bool(s.get("is_official")) or "pdf" in str(s.get("content_type") or "").lower() for s in sources)
+    answer_text = str(answer_payload.get("answer_markdown") or answer_payload.get("summary") or "")
+    unverified_mentions = answer_text.count("未確認")
+    degraded_or_failed = sum(1 for s in sources if str(s.get("status") or "") in {"degraded", "failed"})
+    citation_count = len(answer_payload.get("references") or [])
+    failed_ratio = (degraded_or_failed / source_count) if source_count else 1.0
+
+    confidence = 0.0
+    confidence += min(0.25, source_count / 20.0)
+    confidence += min(0.2, evidence_chunk_count / 25.0)
+    confidence += 0.15 if has_official_or_pdf else 0.0
+    confidence += min(0.25, citation_count / 12.0)
+    confidence -= min(0.25, failed_ratio * 0.25 + (0.1 if unverified_mentions else 0.0))
+    confidence = max(0.0, min(1.0, confidence))
+
+    gaps: list[str] = []
+    unresolved_items: list[str] = []
+    if source_count < 3:
+        gaps.append("source_count_low")
+        unresolved_items.append("信頼できる情報源が不足")
+    if evidence_chunk_count < 3:
+        gaps.append("evidence_chunks_low")
+    if not has_official_or_pdf:
+        gaps.append("official_or_pdf_missing")
+        unresolved_items.append("一次資料/公式資料が未取得")
+    if unverified_mentions > 0:
+        gaps.append("answer_contains_unverified")
+        unresolved_items.append("未確認の主張が残存")
+    if failed_ratio >= 0.4:
+        gaps.append("high_degraded_or_failed_ratio")
+    if citation_count < 2:
+        gaps.append("citation_count_low")
+    return {
+        "confidence": confidence,
+        "sufficient": len(gaps) == 0,
+        "gaps": gaps,
+        "unresolved_items": unresolved_items,
+    }
+
+
+def _generate_followup_queries(*, original_query: str, gaps: list[str], max_followup_queries: int) -> list[str]:
+    gap_hints = {
+        "source_count_low": "最新 統計 公式データ",
+        "evidence_chunks_low": "詳細 レポート PDF",
+        "official_or_pdf_missing": "site:gov OR site:org filetype:pdf",
+        "answer_contains_unverified": "検証 ファクトチェック 一次情報",
+        "high_degraded_or_failed_ratio": "ミラー 公的機関 代替ソース",
+        "citation_count_low": "根拠 出典",
+    }
+    queries: list[str] = []
+    seen: set[str] = set()
+    for gap in gaps:
+        hint = gap_hints.get(gap)
+        if not hint:
+            continue
+        q = f"{original_query} {hint}".strip()
+        if q in seen:
+            continue
+        seen.add(q)
+        queries.append(q)
+        if len(queries) >= max_followup_queries:
+            break
+    return queries
+
+
+def _should_stop_recursive_research(*, analysis: dict, iteration: int, payload: ResearchAgentInput) -> tuple[bool, str]:
+    if iteration >= payload.max_iterations:
+        return True, "max_iterations_reached"
+    if analysis.get("confidence", 0.0) >= payload.confidence_threshold and payload.stop_when_sufficient:
+        return True, "confidence_threshold_reached"
+    if analysis.get("sufficient") and payload.stop_when_sufficient:
+        return True, "sufficient_evidence"
+    return False, "continue"
 
 
 
@@ -822,6 +905,98 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             job_id=effective_job_id,
             project=payload.project,
         )
+        iterations: list[dict] = []
+        final_confidence = 0.0
+        unresolved_items: list[str] = []
+        stop_reason = "recursive_disabled"
+        if payload.recursive_search and payload.max_iterations > 1:
+            stop_reason = "max_iterations_reached"
+            for iteration in range(1, payload.max_iterations + 1):
+                append_job_event(effective_job_id, "recursive_iteration_started", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
+                append_job_event(effective_job_id, "recursive_gap_analysis_started", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
+                analysis = _analyze_research_gaps(sources=registered_sources, evidence_chunks=source_chunks, answer_payload=answer_payload)
+                append_job_event(
+                    effective_job_id,
+                    "recursive_gap_analysis_finished",
+                    {"iteration": iteration, "status": "running", "analysis": analysis, "updated_at": _now_iso()},
+                )
+                final_confidence = float(analysis.get("confidence") or 0.0)
+                unresolved_items = list(analysis.get("unresolved_items") or [])
+                should_stop, reason = _should_stop_recursive_research(analysis=analysis, iteration=iteration, payload=payload)
+                if should_stop:
+                    stop_reason = reason
+                    iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": [], "added_sources": 0, "stop_reason": reason})
+                    append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": reason, "updated_at": _now_iso()})
+                    append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
+                    break
+                followup_queries = _generate_followup_queries(
+                    original_query=query,
+                    gaps=list(analysis.get("gaps") or []),
+                    max_followup_queries=payload.max_followup_queries,
+                )
+                append_job_event(effective_job_id, "recursive_followup_queries_generated", {"iteration": iteration, "queries": followup_queries, "status": "running", "updated_at": _now_iso()})
+                if not followup_queries:
+                    stop_reason = "no_followup_queries"
+                    append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
+                    iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": [], "added_sources": 0, "stop_reason": stop_reason})
+                    append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
+                    break
+                append_job_event(effective_job_id, "recursive_followup_search_started", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
+                planned = [{"query": q} for q in followup_queries]
+                followup_search = run_web_search(planned, mode=payload.mode, depth=payload.depth, max_results_per_query=payload.max_results_per_query, scope=payload.scope, language=payload.language)
+                followup_candidates = collect_source_candidates(search_items=list(followup_search.get("items") or []), manual_urls=[])
+                followup_ranked = rank_source_candidates(followup_candidates, prefer_pdf=payload.prefer_pdf, official_first=payload.official_first)
+                followup_downloaded, _ = _download_sources_parallel(
+                    job_id=effective_job_id,
+                    candidates=followup_ranked,
+                    max_downloads=max_downloads,
+                    max_download_bytes=max_download_bytes,
+                    max_total_download_bytes=max_total_download_bytes,
+                    download_timeout_sec=download_timeout_sec,
+                    continue_on_download_error=payload.continue_on_download_error,
+                    concurrency=runtime_cfg.download_concurrency,
+                    pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
+                    download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
+                    download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
+                )
+                followup_registered = register_or_update_sources(job_id=effective_job_id, project=payload.project, sources=followup_downloaded)
+                source_index = {str(s.get("source_id") or ""): s for s in registered_sources}
+                for source in followup_registered:
+                    sid = str(source.get("source_id") or "")
+                    if sid and sid not in source_index:
+                        source_index[sid] = source
+                registered_sources = list(source_index.values())
+                source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
+                normalized = normalize_reference_labels(
+                    references=build_citation_map(registered_sources, source_chunks),
+                    evidence_json=registered_sources,
+                    evidence_chunks=source_chunks,
+                )
+                references = normalized["references"]
+                registered_sources = normalized["evidence_json"]
+                source_chunks = normalized["evidence_chunks"]
+                answer_payload = build_answer_payload(
+                    question=query,
+                    summary=summary,
+                    references=references,
+                    evidence=registered_sources,
+                    evidence_chunks=source_chunks,
+                    job_id=effective_job_id,
+                    project=payload.project,
+                )
+                append_job_event(effective_job_id, "recursive_followup_search_finished", {"iteration": iteration, "status": "running", "added_sources": len(followup_registered), "updated_at": _now_iso()})
+                iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "added_sources": len(followup_registered)})
+                append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
+        else:
+            analysis = _analyze_research_gaps(sources=registered_sources, evidence_chunks=source_chunks, answer_payload=answer_payload)
+            final_confidence = float(analysis.get("confidence") or 0.0)
+            unresolved_items = list(analysis.get("unresolved_items") or [])
+            iterations = []
+        answer_payload["recursive_search"] = bool(payload.recursive_search)
+        answer_payload["iterations"] = iterations
+        answer_payload["confidence"] = final_confidence
+        answer_payload["unresolved_items"] = unresolved_items
+        answer_payload["stop_reason"] = stop_reason
         generation = answer_payload.get("generation") or {}
         generation_mode = (
             answer_payload.get("generation_mode")

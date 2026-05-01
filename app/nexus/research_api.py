@@ -39,6 +39,11 @@ class ResearchRunRequest(BaseModel):
     official_first: bool = True
     download_timeout_sec: int | None = Field(default=None, ge=1, le=600)
     continue_on_download_error: bool = True
+    recursive_search: bool = False
+    max_iterations: int = Field(default=1, ge=1, le=5)
+    max_followup_queries: int = Field(default=4, ge=1, le=10)
+    confidence_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
+    stop_when_sufficient: bool = True
 
 
 class CollectRequest(BaseModel):
@@ -107,6 +112,11 @@ def run_research(payload: ResearchRunRequest) -> dict:
                 official_first=payload.official_first,
                 download_timeout_sec=payload.download_timeout_sec,
                 continue_on_download_error=payload.continue_on_download_error,
+                recursive_search=payload.recursive_search,
+                max_iterations=payload.max_iterations,
+                max_followup_queries=payload.max_followup_queries,
+                confidence_threshold=payload.confidence_threshold,
+                stop_when_sufficient=payload.stop_when_sufficient,
             )
         )
     except ValueError as exc:
@@ -145,6 +155,11 @@ def run_research_async(payload: ResearchRunRequest) -> dict:
         official_first=payload.official_first,
         download_timeout_sec=payload.download_timeout_sec,
         continue_on_download_error=payload.continue_on_download_error,
+        recursive_search=payload.recursive_search,
+        max_iterations=payload.max_iterations,
+        max_followup_queries=payload.max_followup_queries,
+        confidence_threshold=payload.confidence_threshold,
+        stop_when_sufficient=payload.stop_when_sufficient,
     )
     job_id = f"research_{uuid.uuid4().hex}"
     existing = get_job(job_id)
