@@ -13487,6 +13487,20 @@ def tts_synthesize_api(req: dict):
     text = str(req.get("text", "")).strip()
     if not text:
         raise HTTPException(status_code=400, detail="text required")
+    try:
+        _write_tts_debug_entry(
+            {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "stage": "route_enter",
+                "route": "/tts/synthesize",
+                "request_id": request_id,
+                "engine": engine,
+                "model": str(req.get("model", "")).strip(),
+                "text_preview": text[:100],
+            }
+        )
+    except Exception:
+        _style_bert_vits2_logger.warning("[TTS][synthesize:%s] route_enter debug write failed", request_id, exc_info=True)
     _style_bert_vits2_logger.info(
         "[TTS][synthesize:%s] request engine=%s text_len=%d model=%s speaker=%s",
         request_id,
@@ -13514,33 +13528,8 @@ def tts_synthesize_api(req: dict):
             req.get("needs_translation"),
             req.get("translation_target_language"),
         )
-        batch_items = _build_tts_batch_items_from_text(req, req.get("text", text))
-        if len(batch_items) >= 2:
-            batch_req = dict(req)
-            batch_req["output"] = "zip"
-            batch_req["items"] = batch_items
-            batch_req["text"] = text
-            batch_req["request_id"] = request_id
-            _style_bert_vits2_logger.info(
-                "[TTS][synthesize:%s] style_bert_vits2 multi-sentence batch route items=%d",
-                request_id,
-                len(batch_items),
-            )
-            batch_result = _run_tts_synthesize_batch(batch_req)
-            zip_bytes = batch_result.get("zip_bytes", b"") if isinstance(batch_result, dict) else b""
-            wav_chunks: list[bytes] = []
-            with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
-                manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
-                for item in manifest.get("items", []):
-                    fname = str(item.get("filename", "")).strip()
-                    if fname and fname.lower().endswith(".wav"):
-                        wav_chunks.append(zf.read(fname))
-            merged_wav = _merge_wav_bytes(wav_chunks)
-            if not merged_wav:
-                raise HTTPException(status_code=500, detail="batch synthesis returned empty audio")
-            return FastAPIResponse(content=merged_wav, media_type="audio/wav")
     try:
-        runtime = _tts_engine_registry.get(raw_engine=engine, raw_engine_key=req.get("engine_key"))
+        runtime = _tts_engine_registry.get(raw_engine_key="style_bert_vits2")
     except KeyError:
         raise HTTPException(status_code=400, detail=f"不明なエンジン: {engine}")
 
@@ -13576,6 +13565,22 @@ def tts_synthesize_api(req: dict):
         _style_bert_vits2_logger.warning("[TTS][synthesize:%s] validation_error: %s", request_id, e)
         raise HTTPException(status_code=400, detail=error_message)
     except Exception as e:
+        try:
+            _write_tts_debug_entry(
+                {
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "stage": "route_error",
+                    "route": "/tts/synthesize",
+                    "request_id": request_id,
+                    "engine": normalized_key,
+                    "model": str(req.get("model", "")).strip(),
+                    "text": text,
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
+        except Exception:
+            _style_bert_vits2_logger.warning("[TTS][synthesize:%s] route_error debug write failed", request_id, exc_info=True)
         _style_bert_vits2_logger.error(
             "[TTS][synthesize:%s] failed engine=%s error=%s",
             request_id,
