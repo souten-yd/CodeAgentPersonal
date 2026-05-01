@@ -35,3 +35,6 @@ python main.py
 - Dockerfile の faster-whisper 経路は変更不要です。
 - `whisper.cpp` は ggml 形式モデルが必要です。
 - 既存の faster-whisper モデル (`/opt/asr_models/large-v3-turbo`) は `whisper.cpp` に直接使えません。
+- ブラウザ録音の `webm` を `whisper.cpp` に渡す場合は `ffmpeg` が必要です。
+- `wav` 入力だけを扱う場合は `ffmpeg` は不要です。
+- Windows では `ffmpeg.exe` を PATH に通しておいてください。

@@ -77,6 +77,17 @@ try {
         Write-Host "  $model"
         Write-Host "Place ggml-large-v3-turbo.bin there before using whisper.cpp ASR."
     }
+
+    $ffmpegCmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
+    if (-not $ffmpegCmd) {
+        Write-Host ""
+        Write-Host "[WARN] ffmpeg is not found in PATH."
+        Write-Host "       ffmpeg is required when passing browser-recorded webm audio to whisper.cpp."
+        Write-Host "       If you only use wav input, ffmpeg is optional."
+    } else {
+        Write-Host ""
+        Write-Host "[whisper.cpp] ffmpeg found: $($ffmpegCmd.Source)"
+    }
 } catch {
     Write-Error "[whisper.cpp] install failed: $($_.Exception.Message)"
     exit 1

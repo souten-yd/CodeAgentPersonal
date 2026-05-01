@@ -35,9 +35,12 @@ def select_asr_backend() -> str:
         return "faster_whisper"
     os_profile = detect_os_profile()
     gpu = detect_gpu_profile()
-    if os_profile.is_linux and gpu.vendor == "nvidia":
+    is_linux = bool(os_profile.get("is_linux"))
+    is_windows = bool(os_profile.get("is_windows"))
+    vendor = str(gpu.get("vendor") or "").lower()
+    if is_linux and vendor == "nvidia":
         return "faster_whisper"
-    if os_profile.is_windows and gpu.vendor == "amd" and whisper_cpp_ready():
+    if is_windows and vendor == "amd" and whisper_cpp_ready():
         return "whisper_cpp"
     return "faster_whisper"
 
