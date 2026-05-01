@@ -323,12 +323,12 @@ def _generate_followup_queries(*, original_query: str, gaps: list[str], max_foll
 
 
 def _should_stop_recursive_research(*, analysis: dict, iteration: int, payload: ResearchAgentInput) -> tuple[bool, str]:
-    if iteration >= payload.max_iterations:
-        return True, "max_iterations_reached"
     if analysis.get("confidence", 0.0) >= payload.confidence_threshold and payload.stop_when_sufficient:
         return True, "confidence_threshold_reached"
     if analysis.get("sufficient") and payload.stop_when_sufficient:
         return True, "sufficient_evidence"
+    if iteration >= payload.max_iterations:
+        return True, "max_iterations_reached"
     return False, "continue"
 
 
@@ -976,6 +976,12 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                         continue
                     batch_canonicals.add(canonical)
                     filtered_followup_ranked.append(candidate)
+                if not filtered_followup_ranked:
+                    stop_reason = "no_new_sources"
+                    append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
+                    iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "added_sources": 0, "stop_reason": stop_reason})
+                    append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
+                    break
                 followup_downloaded, _ = _download_sources_parallel(
                     job_id=effective_job_id,
                     candidates=filtered_followup_ranked,
@@ -995,6 +1001,12 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 cumulative_downloads += len(newly_downloaded)
                 cumulative_downloaded_bytes += sum(max(0, int(item.get("size") or 0)) for item in newly_downloaded)
                 followup_registered = register_or_update_sources(job_id=effective_job_id, project=payload.project, sources=followup_downloaded)
+                if not followup_registered:
+                    stop_reason = "no_new_sources"
+                    append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
+                    iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "added_sources": 0, "stop_reason": stop_reason})
+                    append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
+                    break
                 source_index = {str(s.get("source_id") or ""): s for s in registered_sources}
                 for source in followup_registered:
                     sid = str(source.get("source_id") or "")

@@ -50,56 +50,65 @@ def save_evidence_items(
     if not job_id:
         raise ValueError("job_id is required")
 
+    with transaction() as conn:
+        return _insert_evidence_items(conn, job_id=job_id, items=items, project=project)
+
+
+def _insert_evidence_items(
+    conn,
+    *,
+    job_id: str,
+    items: list[EvidenceItem],
+    project: str = "default",
+) -> int:
     if not items:
         return 0
-
     created_at = _now_iso()
     normalized_project = (project or "default").strip() or "default"
-    with transaction() as conn:
-        for item in items:
-            if not item.retrieved_at:
-                raise ValueError("retrieved_at is required")
-            if not item.url:
-                raise ValueError("url is required")
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO nexus_evidence (
-                    evidence_id, project, job_id, source_id, source_type, document_id, chunk_id, title,
-                    citation_label, source_url, publisher, published_date,
-                    retrieved_at, note, quote, relevance, credibility, freshness,
-                    evidence_level, metadata_json, metadata,
-                    url, relevance_score, credibility_score, freshness_score, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    item.evidence_id,
-                    normalized_project,
-                    job_id,
-                    item.source_id,
-                    item.source_type,
-                    item.document_id,
-                    item.chunk_id,
-                    item.title,
-                    item.citation_label,
-                    item.url,
-                    item.publisher,
-                    item.published_date,
-                    item.retrieved_at,
-                    item.note,
-                    item.quote,
-                    float(item.relevance_score or 0.0),
-                    float(item.credibility_score or 0.0),
-                    float(item.freshness_score or 0.0),
-                    item.evidence_level,
-                    json.dumps(item.metadata_json, ensure_ascii=False),
-                    json.dumps(item.metadata_json, ensure_ascii=False),
-                    item.url,
-                    float(item.relevance_score or 0.0),
-                    float(item.credibility_score or 0.0),
-                    float(item.freshness_score or 0.0),
-                    created_at,
-                ),
-            )
+    for item in items:
+        if not item.retrieved_at:
+            raise ValueError("retrieved_at is required")
+        if not item.url:
+            raise ValueError("url is required")
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO nexus_evidence (
+                evidence_id, project, job_id, source_id, source_type, document_id, chunk_id, title,
+                citation_label, source_url, publisher, published_date,
+                retrieved_at, note, quote, relevance, credibility, freshness,
+                evidence_level, metadata_json, metadata,
+                url, relevance_score, credibility_score, freshness_score, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                item.evidence_id,
+                normalized_project,
+                job_id,
+                item.source_id,
+                item.source_type,
+                item.document_id,
+                item.chunk_id,
+                item.title,
+                item.citation_label,
+                item.url,
+                item.publisher,
+                item.published_date,
+                item.retrieved_at,
+                item.note,
+                item.quote,
+                float(item.relevance_score or 0.0),
+                float(item.credibility_score or 0.0),
+                float(item.freshness_score or 0.0),
+                item.evidence_level,
+                json.dumps(item.metadata_json, ensure_ascii=False),
+                json.dumps(item.metadata_json, ensure_ascii=False),
+                item.url,
+                float(item.relevance_score or 0.0),
+                float(item.credibility_score or 0.0),
+                float(item.freshness_score or 0.0),
+                created_at,
+            ),
+        )
     return len(items)
 
 
@@ -113,7 +122,7 @@ def replace_evidence_items_for_job(
         raise ValueError("job_id is required")
     with transaction() as conn:
         conn.execute("DELETE FROM nexus_evidence WHERE job_id = ?", (job_id,))
-    return save_evidence_items(job_id, items, project=project)
+        return _insert_evidence_items(conn, job_id=job_id, items=items, project=project)
 
 
 
