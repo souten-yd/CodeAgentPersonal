@@ -147,13 +147,14 @@ try {
     if (-not $ffmpegCmd) {
         Write-Host ""
         Write-Host "[WARN] ffmpeg is not found in PATH."
-        Write-Host "       ブラウザ録音 webm を使う場合は ffmpeg が必要です。"
+        Write-Host "       ffmpeg is required when using browser-recorded webm input."
         Write-Host "       If you only use wav input, ffmpeg is optional."
     } else {
         Write-Host ""
-        Write-Host "[whisper.cpp] ffmpeg found: $($ffmpegCmd.Source)"
+        Write-Host ("[whisper.cpp] ffmpeg found: " + $ffmpegCmd.Source)
     }
 } catch {
-    Write-Error "[whisper.cpp] install failed: $($_.Exception.Message)"
+    $msg = $_.Exception.Message
+    Write-Error ("[whisper.cpp] install failed: " + $msg)
     exit 1
 }
