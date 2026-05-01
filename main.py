@@ -10742,6 +10742,12 @@ def api_reject_plan(plan_id: str, req: PlanApprovalActionRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+class PatchApprovalActionRequest(BaseModel):
+    user_comment: str = ""
+    risk_acknowledged: bool = False
+    safety_warnings_acknowledged: bool = False
+
+
 @app.post("/api/plans/{plan_id}/execute")
 def api_execute_plan(plan_id: str, req: ImplementationRunRequest):
     try:
@@ -10805,9 +10811,68 @@ def api_get_run_patch(run_id: str, patch_id: str):
     try:
         from agent.patch_storage import PatchStorage
         ps = PatchStorage(_phase6_run_storage.base_dir)
-        return ps.load_patch(run_id, patch_id)
+        payload = ps.load_patch(run_id, patch_id)
+        latest = ps.find_latest_patch_approval(run_id, patch_id)
+        payload["approval"] = latest.model_dump() if latest else None
+        return payload
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="patch not found")
+
+
+@app.get("/api/runs/{run_id}/patch_approvals")
+def api_get_run_patch_approvals(run_id: str):
+    try:
+        from agent.patch_storage import PatchStorage
+        ps = PatchStorage(_phase6_run_storage.base_dir)
+        return {"run_id": run_id, "patch_approvals": ps.list_patch_approvals(run_id)}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="run patch approvals not found")
+
+
+@app.post("/api/runs/{run_id}/patches/{patch_id}/approve")
+def api_approve_patch(run_id: str, patch_id: str, req: PatchApprovalActionRequest):
+    try:
+        from agent.patch_approval_manager import PatchApprovalManager
+        from agent.patch_storage import PatchStorage
+        ps = PatchStorage(_phase6_run_storage.base_dir)
+        pm = PatchApprovalManager(ps)
+        return pm.decide(
+            run_id=run_id,
+            patch_id=patch_id,
+            decision="approve",
+            user_comment=req.user_comment,
+            risk_acknowledged=req.risk_acknowledged,
+            safety_warnings_acknowledged=req.safety_warnings_acknowledged,
+            approved_by="user",
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="patch not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/runs/{run_id}/patches/{patch_id}/reject")
+def api_reject_patch(run_id: str, patch_id: str, req: PatchApprovalActionRequest):
+    try:
+        from agent.patch_approval_manager import PatchApprovalManager
+        from agent.patch_storage import PatchStorage
+        ps = PatchStorage(_phase6_run_storage.base_dir)
+        pm = PatchApprovalManager(ps)
+        return pm.decide(run_id=run_id, patch_id=patch_id, decision="reject", user_comment=req.user_comment, approved_by="user")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="patch not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/runs/{run_id}/patches/{patch_id}/apply")
+def api_apply_patch(run_id: str, patch_id: str):
+    try:
+        return _phase6_executor.apply_patch(run_id, patch_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="patch not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 @app.get("/api/reviews/{review_id}")
 def api_get_review(review_id: str):
     try:

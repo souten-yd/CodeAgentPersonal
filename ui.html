@@ -13766,6 +13766,12 @@ function _renderPhase6ExecutionSection(result, cardId) {
       <button class="phase1-tab-btn" data-run-view="log">View Run Log</button>
       <button class="phase1-tab-btn" data-run-view="report">View Final Report</button>
     </div>
+    <div style="margin-top:10px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
+      <div style="font-size:11px;font-weight:700;color:var(--text)">Patch Review (Phase 8)</div>
+      <div style="font-size:11px;color:var(--text2);margin-top:4px">Patchは承認後に個別applyできます / proposed_content のappendのみ適用 / delete/run_command/high riskは実行されません。</div>
+      <button class="phase1-tab-btn" data-run-view="patches" style="margin-top:6px">Load Patches</button>
+      <div id="${cardId}-patch-list" style="margin-top:8px;font-size:11px"></div>
+    </div>
     <pre id="${cardId}-exec-result" style="white-space:pre-wrap;margin-top:8px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px;color:var(--text2)">No run yet.</pre>
   </div>`;
 }
@@ -13838,6 +13844,45 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
       return;
     }
     try {
+      if (kind === 'patches') {
+        const r = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patches`);
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+        const listEl = cardRoot.querySelector(`#${cid}-patch-list`);
+        const patches = Array.isArray(d.patches) ? d.patches : [];
+        listEl.innerHTML = patches.map((p) => {
+          const warns = (p.safety_warnings||[]).map((w)=>`<div>• ${esc(String(w))}</div>`).join('');
+          const riskAck = (String(p.risk_level||'low').toLowerCase()==='medium' || String(p.risk_level||'low').toLowerCase()==='high') ? `<label><input type="checkbox" data-risk="${p.patch_id}"> リスクを理解しました</label>` : '';
+          const warnAck = (p.safety_warnings||[]).length ? `<label><input type="checkbox" data-warn="${p.patch_id}"> safety warningsを確認しました</label>` : '';
+          return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px">
+<div>patch_id=${esc(p.patch_id)} step_id=${esc(p.step_id||'')} target=${esc(p.target_file||'')}</div>
+<div>apply_allowed=${String(!!p.apply_allowed)} applied=${String(!!p.applied)} approval_status=${esc(p.approval_status||'pending')}</div>
+<div>${warns||''}</div>${warnAck}${riskAck}
+<details><summary>Diff</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.unified_diff||'')}</pre></details>
+<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button data-pa="approve" data-pid="${p.patch_id}">Approve Patch</button><button data-pa="reject" data-pid="${p.patch_id}">Reject Patch</button><button data-pa="apply" data-pid="${p.patch_id}">Apply Approved Patch</button></div><pre id="${cid}-pv-${p.patch_id}" style="white-space:pre-wrap"></pre></div>`;
+        }).join('') || '<div style="color:var(--text3)">No patches.</div>';
+        listEl.querySelectorAll('[data-pa]').forEach((b)=>b.addEventListener('click', async ()=>{
+          const action = b.getAttribute('data-pa'); const pid = b.getAttribute('data-pid'); const out = listEl.querySelector(`#${cid}-pv-${pid}`);
+          try {
+            let ep = `/api/runs/${encodeURIComponent(runId)}/patches/${encodeURIComponent(pid)}/${action}`;
+            let payload = {};
+            if (action === 'approve') {
+              payload = {
+                user_comment:'ui approve',
+                risk_acknowledged: !!listEl.querySelector(`[data-risk="${pid}"]`)?.checked,
+                safety_warnings_acknowledged: !!listEl.querySelector(`[data-warn="${pid}"]`)?.checked,
+              };
+            } else if (action === 'reject') {
+              payload = {user_comment:'ui reject'};
+            }
+            const r2 = await fetch(API + ep, {method:'POST', headers:{'Content-Type':'application/json'}, body: action==='apply' ? undefined : JSON.stringify(payload)});
+            const d2 = await r2.json();
+            if (!r2.ok) throw new Error(d2.detail || `HTTP ${r2.status}`);
+            out.textContent = JSON.stringify(d2, null, 2);
+          } catch(e) { out.textContent = `Error: ${e.message||String(e)}`; }
+        }));
+        return;
+      }
       const ep = kind === 'report' ? `/api/runs/${encodeURIComponent(runId)}/report` : `/api/runs/${encodeURIComponent(runId)}/log`;
       const r = await fetch(API + ep);
       const d = await r.json();

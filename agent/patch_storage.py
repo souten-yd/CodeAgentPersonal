@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from agent.patch_approval_schema import PatchApprovalRecord
 from agent.patch_schema import PatchApplyResult, PatchProposal
 from agent.verification_schema import VerificationResult
 
@@ -16,6 +17,12 @@ class PatchStorage:
 
     def _patches_dir(self, run_id: str) -> Path:
         p = self._run_dir(run_id) / "patches"
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+
+    def _patch_approvals_dir(self, run_id: str) -> Path:
+        p = self._run_dir(run_id) / "patch_approvals"
         p.mkdir(parents=True, exist_ok=True)
         return p
 
@@ -43,9 +50,57 @@ class PatchStorage:
         pd = self._patches_dir(run_id)
         out: list[dict] = []
         for path in sorted(pd.glob("*.patch.json")):
-            out.append(json.loads(path.read_text(encoding="utf-8")))
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            latest = self.find_latest_patch_approval(run_id, str(payload.get("patch_id", "")))
+            if latest:
+                payload.setdefault("approval_status", latest.status)
+                payload.setdefault("approved_for_apply", latest.approved_for_apply)
+                payload.setdefault("patch_approval_id", latest.patch_approval_id)
+            else:
+                payload.setdefault("approval_status", "pending")
+                payload.setdefault("approved_for_apply", False)
+                payload.setdefault("patch_approval_id", "")
+            payload.setdefault("safety_warnings", payload.get("safety_warnings") or [])
+            payload.setdefault("apply_allowed", bool(payload.get("apply_allowed", False)))
+            payload.setdefault("unified_diff", payload.get("unified_diff", ""))
+            out.append(payload)
         return out
 
     def load_patch(self, run_id: str, patch_id: str) -> dict:
         path = self._patches_dir(run_id) / f"{patch_id}.patch.json"
         return json.loads(path.read_text(encoding="utf-8"))
+
+
+    def save_patch_approval(self, record: PatchApprovalRecord) -> None:
+        ad = self._patch_approvals_dir(record.run_id)
+        (ad / f"{record.patch_approval_id}.patch_approval.json").write_text(json.dumps(record.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
+        (ad / f"{record.patch_approval_id}.patch_approval.md").write_text(
+            f"# Patch Approval {record.patch_approval_id}\n\n- patch_id: {record.patch_id}\n- status: {record.status}\n- decision: {record.decision}\n",
+            encoding="utf-8",
+        )
+
+    def load_patch_approval(self, run_id: str, patch_approval_id: str) -> dict:
+        path = self._patch_approvals_dir(run_id) / f"{patch_approval_id}.patch_approval.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def find_latest_patch_approval(self, run_id: str, patch_id: str) -> PatchApprovalRecord | None:
+        approvals = self.list_patch_approvals(run_id)
+        filtered = [a for a in approvals if str(a.get("patch_id", "")) == patch_id]
+        if not filtered:
+            return None
+        filtered.sort(key=lambda x: str(x.get("updated_at", "")))
+        return PatchApprovalRecord(**filtered[-1])
+
+    def list_patch_approvals(self, run_id: str) -> list[dict]:
+        ad = self._patch_approvals_dir(run_id)
+        out: list[dict] = []
+        for path in sorted(ad.glob("*.patch_approval.json")):
+            out.append(json.loads(path.read_text(encoding="utf-8")))
+        return out
+
+    def update_patch_payload(self, run_id: str, patch_id: str, updates: dict) -> dict:
+        path = self._patches_dir(run_id) / f"{patch_id}.patch.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload.update(updates or {})
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return payload
