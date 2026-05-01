@@ -120,6 +120,36 @@ _UNIT_READABLE_MAP = {
     "$": "ドル",
 }
 
+
+_ALPHA_SPELLING_KATAKANA = {
+    "a": "エー",
+    "b": "ビー",
+    "c": "シー",
+    "d": "ディー",
+    "e": "イー",
+    "f": "エフ",
+    "g": "ジー",
+    "h": "エイチ",
+    "i": "アイ",
+    "j": "ジェー",
+    "k": "ケー",
+    "l": "エル",
+    "m": "エム",
+    "n": "エヌ",
+    "o": "オー",
+    "p": "ピー",
+    "q": "キュー",
+    "r": "アール",
+    "s": "エス",
+    "t": "ティー",
+    "u": "ユー",
+    "v": "ブイ",
+    "w": "ダブリュー",
+    "x": "エックス",
+    "y": "ワイ",
+    "z": "ゼット",
+}
+
 _SYMBOL_REPLACEMENTS = {
     "&": "アンド",
     "@": "アット",
@@ -167,17 +197,19 @@ def _append_operation(
 
 
 def _fallback_spelling_reading(token: str) -> str:
-    letters = [" " if ch in {"-", "_"} else ch for ch in token]
+    converted = token.replace("-", "・").replace("_", "・")
     mapped: list[str] = []
-    for ch in letters:
+    for ch in converted:
         lower = ch.lower()
         if "a" <= lower <= "z":
-            mapped.append(chr(ord("Ａ") + ord(lower) - ord("a")))
+            mapped.append(_ALPHA_SPELLING_KATAKANA[lower])
         elif ch.isdigit():
             mapped.append(ch)
-        elif ch == " ":
-            mapped.append(" ")
-    return "".join(mapped).strip()
+        elif ch == "・":
+            mapped.append("・")
+    result = "".join(mapped)
+    result = re.sub(r"・{2,}", "・", result).strip("・ ")
+    return result
 
 
 def normalize_text_for_japanese_tts(text: str | None, settings: dict | None) -> dict[str, Any]:
@@ -391,8 +423,10 @@ def normalize_text_for_japanese_tts(text: str | None, settings: dict | None) -> 
         if remaining_after:
             current = _EN_SEGMENT_PATTERN.sub("英語", current)
             remaining_after = [m.group(0) for m in _EN_SEGMENT_PATTERN.finditer(current)]
-        warnings.append("english_remains_after_katakanaize")
-        operations.append({"type": "english_fallback", "from": before, "to": current, "value": "spell_or_replace"})
+        warnings.append("english_spelling_fallback_applied")
+        if remaining_after:
+            warnings.append("english_remains_after_katakanaize")
+        operations.append({"type": "english_fallback", "from": before, "to": current, "value": {"mode": "spelling_or_replace", "remaining_before": remaining_before, "remaining_after": remaining_after}})
     else:
         remaining_after = []
 
