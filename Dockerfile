@@ -373,27 +373,31 @@ COPY --from=style_bert_vits2_build /opt/cache /opt/cache
 COPY --from=style_bert_vits2_build /opt/style-bert-vits2-models /opt/style-bert-vits2-models
 COPY --from=py_build /opt/asr_models /opt/asr_models
 
-RUN /opt/venv/bin/python --version
+RUN test -x /opt/venv/bin/python \
+    && /opt/venv/bin/python --version
 
 RUN /opt/venv/bin/python - <<'PY'
 import sys
-print("sys.version", sys.version)
+print("runtime /opt/venv python:", sys.executable)
+print("runtime /opt/venv version:", sys.version)
 assert sys.version_info[:2] == (3, 11), sys.version
 PY
 
-RUN /opt/style-bert-vits2-venv/bin/python --version
+RUN test -x /opt/style-bert-vits2-venv/bin/python \
+    && /opt/style-bert-vits2-venv/bin/python --version
 
 RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
 import sys
 import torch
 import torchaudio
 import av
-print("sys.version", sys.version)
-assert sys.version_info[:2] == (3, 11), sys.version
+print("runtime sbv2 python:", sys.executable)
+print("runtime sbv2 version:", sys.version)
 print("torch", torch.__version__)
 print("torchaudio", torchaudio.__version__)
 print("torch.version.cuda", torch.version.cuda)
 print("av", av.__version__)
+assert sys.version_info[:2] == (3, 11), sys.version
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
