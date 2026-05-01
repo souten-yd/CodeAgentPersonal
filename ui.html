@@ -13522,6 +13522,76 @@ function _renderPhase5ApprovalSection(result, cardId) {
   </div>`;
 }
 
+
+async function _phase6ExecutePlan(planId, payload = {}) {
+  const r = await fetch(API + `/api/plans/${encodeURIComponent(planId)}/execute`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+  return d;
+}
+
+function _renderPhase6ExecutionSection(result, cardId) {
+  const plan = result?.plan || {};
+  const approval = plan?.approval || result?.approval || null;
+  const canShow = String(plan?.status||'') === 'execution_ready' && !!approval?.execution_ready;
+  if (!canShow) return '';
+  return `<div class="phase1-warning-box" id="${cardId}-exec-box">
+    <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:6px">Implementation Execution (Phase 6 MVP)</div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:6px">Phase 6ではdelete/run_commandは実行されません。</div>
+    <label style="display:flex;gap:7px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-allow-create"> allow_create</label>
+    <label style="display:flex;gap:7px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-allow-update"> allow_update</label>
+    <label style="display:flex;gap:7px;font-size:11px;color:var(--text3)"><input type="checkbox" disabled id="${cardId}-allow-delete"> allow_delete (disabled)</label>
+    <label style="display:flex;gap:7px;font-size:11px;color:var(--text3)"><input type="checkbox" disabled id="${cardId}-allow-run"> allow_run_command (disabled)</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="phase1-plan-btn" data-exec="dry_run">Dry Run</button>
+      <button class="phase1-tab-btn" data-exec="safe_apply">Safe Apply</button>
+    </div>
+    <pre id="${cardId}-exec-result" style="white-space:pre-wrap;margin-top:8px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px;color:var(--text2)">No run yet.</pre>
+  </div>`;
+}
+
+function _bindPhase6ExecutionActions(cardRoot, result) {
+  const planId = result?.plan_id || result?.plan?.plan_id;
+  if (!planId || !cardRoot) return;
+  cardRoot.querySelectorAll('[data-exec]').forEach((btn) => btn.addEventListener('click', async () => {
+    if (busy) return;
+    const cid = cardRoot.id;
+    const mode = btn.getAttribute('data-exec') || 'dry_run';
+    const allowCreate = !!cardRoot.querySelector(`#${cid}-allow-create`)?.checked;
+    const allowUpdate = !!cardRoot.querySelector(`#${cid}-allow-update`)?.checked;
+    const outEl = cardRoot.querySelector(`#${cid}-exec-result`);
+    try {
+      setBusy(true);
+      const res = await _phase6ExecutePlan(planId, {
+        execution_mode: mode,
+        project_path: '',
+        allow_update: allowUpdate,
+        allow_create: allowCreate,
+        allow_delete: false,
+        allow_run_command: false,
+        user_comment: `ui ${mode}`,
+      });
+      const run = res?.run || {};
+      const steps = Array.isArray(run.step_results) ? run.step_results : [];
+      const stepLines = steps.map((x) => `- ${x.step_id}: ${x.status} (${x.action_type})`).join('\n');
+      const body = [
+        `status=${res.status}`,
+        `summary=${res.summary}`,
+        `mode=${res.execution_mode}`,
+        `changes=${mode==='dry_run' ? 'none (dry_run)' : 'see changed_files in steps'}`,
+        stepLines || '- no steps'
+      ].join('\n');
+      if (outEl) outEl.textContent = body;
+      addLog('ok', 'plan-only', `phase6 execute success plan_id=${planId} run_id=${res.run_id} mode=${mode}`);
+    } catch (e) {
+      if (outEl) outEl.textContent = `Error: ${e.message || String(e)}`;
+      addLog('err', 'plan-only', e.message || String(e));
+    } finally { setBusy(false); }
+  }));
+}
+
 function _bindPhase5ApprovalActions(cardRoot, result) {
   const planId = result?.plan_id || result?.plan?.plan_id;
   if (!planId || !cardRoot) return;
@@ -13581,6 +13651,7 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
         ${warningsHtml}
         ${_renderPhase1ReviewSection(reviewResult)}
         ${_renderPhase5ApprovalSection(result, cardId)}
+        ${_renderPhase6ExecutionSection(result, cardId)}
         ${_renderNexusContextSummary(result?.nexus_context, { title: "Nexus Context", compact: true })}
         <div class="phase1-tabs">
           <button class="phase1-tab-btn active" data-tab="requirements" onclick="_switchPhase1CardTab('${cardId}','requirements')">Requirements</button>
@@ -13617,6 +13688,7 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
   w.appendChild(div);
   const cardRoot = div.querySelector(`#${cardId}`);
   _bindPhase5ApprovalActions(cardRoot, result);
+  _bindPhase6ExecutionActions(cardRoot, result);
   scrollMsgs();
 }
 
