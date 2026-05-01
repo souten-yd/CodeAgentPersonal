@@ -166,3 +166,24 @@ def test_fallback_spelling_reading_directml_has_no_english():
     assert out
     assert not any(ch.isascii() and ch.isalpha() for ch in out)
     assert not any("Ａ" <= ch <= "Ｚ" or "ａ" <= ch <= "ｚ" for ch in out)
+
+
+def test_added_default_dictionary_terms():
+    out = _normalize("OpenRouterとWhisperCppとCUDAとPyTorchとMCPとRAGを使います。")
+    assert "オープンルーター" in out
+    assert "ウィスパーシーピーピー" in out
+    assert "クーダ" in out
+    assert "パイトーチ" in out
+    assert "エムシーピー" in out
+    assert "ラグ" in out
+
+
+def test_llm_valid_unknownterm_is_adopted(monkeypatch):
+    monkeypatch.setattr(
+        text_normalizer,
+        "katakanaize_english_segments_with_llm",
+        lambda segments, **kwargs: {s: "アンノウンターム" for s in segments},
+    )
+    out = normalize_text_for_sbv2_jp_extra("UnknownTermを使います。", {})
+    assert "アンノウンターム" in out["normalized_text"]
+    assert not any(ch.isascii() and ch.isalpha() for ch in out["normalized_text"])

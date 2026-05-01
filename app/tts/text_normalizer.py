@@ -86,6 +86,23 @@ _DEFAULT_ENGLISH_DICT = {
     "vits": "ビッツ",
     "onnx": "オニキス",
     "windows": "ウィンドウズ",
+    "openrouter": "オープンルーター",
+    "whispercpp": "ウィスパーシーピーピー",
+    "whisper-cpp": "ウィスパーシーピーピー",
+    "llama": "ラマ",
+    "llamacpp": "ラマシーピーピー",
+    "llama-cpp": "ラマシーピーピー",
+    "gguf": "ジージーユーエフ",
+    "mcp": "エムシーピー",
+    "rag": "ラグ",
+    "cuda": "クーダ",
+    "pytorch": "パイトーチ",
+    "transformers": "トランスフォーマーズ",
+    "huggingface": "ハギングフェイス",
+    "hf": "エイチエフ",
+    "lmstudio": "エルエムスタジオ",
+    "openwebui": "オープンウェブユーアイ",
+    "searxng": "サークスエヌジー",
 }
 _UNIT_READABLE_MAP = {
     "tb": "テラバイト",
@@ -388,6 +405,7 @@ def normalize_text_for_japanese_tts(text: str | None, settings: dict | None) -> 
             try:
                 llm_map = katakanaize_english_segments_with_llm(
                     unresolved_segments,
+                    context=current,
                     english_dict=english_dict,
                     raise_on_failure=True,
                 )

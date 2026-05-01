@@ -25,12 +25,20 @@ def _normalize_segment(segment: str | None) -> str:
 
 
 def _extract_json_object(content: str) -> dict[str, str]:
+    def _normalize_mapping(parsed: object) -> dict[str, str]:
+        if not isinstance(parsed, dict):
+            return {}
+        nested = parsed.get("segments") or parsed.get("readings") or parsed.get("mapping")
+        if isinstance(nested, dict):
+            return {str(k): str(v) for k, v in nested.items()}
+        return {str(k): str(v) for k, v in parsed.items() if isinstance(k, str)}
+
     text = str(content or "").strip()
     if not text:
         return {}
     try:
         parsed = json.loads(text)
-        return {str(k): str(v) for k, v in parsed.items()} if isinstance(parsed, dict) else {}
+        return _normalize_mapping(parsed)
     except Exception:
         pass
     match = _JSON_BLOCK_PATTERN.search(text)
@@ -38,7 +46,7 @@ def _extract_json_object(content: str) -> dict[str, str]:
         return {}
     try:
         parsed = json.loads(match.group(0))
-        return {str(k): str(v) for k, v in parsed.items()} if isinstance(parsed, dict) else {}
+        return _normalize_mapping(parsed)
     except Exception:
         return {}
 
@@ -54,26 +62,37 @@ _DESCRIPTION_MARKERS = (
 )
 
 
-def _is_valid_katakana_reading(token: str, value: str) -> bool:
+def _validate_katakana_reading(token: str, value: str) -> tuple[bool, str]:
     text = _normalize_segment(value)
     if not text:
-        return False
+        return False, "empty"
     if len(text) > 64:
-        return False
+        return False, "too_long"
     if _URL_PATTERN.search(text):
-        return False
+        return False, "contains_url"
+    if text.lower() == token.lower():
+        return False, "same_as_token"
     if re.search(r"[A-Za-z]", text):
-        return False
+        return False, "contains_ascii"
     lower = text.lower()
     if any(marker in lower for marker in ("{", "}", "\"", "description", "explanation", "segments")):
-        return False
+        return False, "contains_json_or_meta"
     if any(marker in text for marker in _DESCRIPTION_MARKERS):
-        return False
+        return False, "contains_description"
     if not _KATAKANA_ALLOWED_PATTERN.fullmatch(text):
-        return False
+        return False, "contains_disallowed_characters"
     if len(text) > max(24, len(token) * 4):
-        return False
-    return True
+        return False, "too_verbose_for_token"
+    return True, "ok"
+
+
+def _is_valid_katakana_reading(token: str, value: str) -> bool:
+    return _validate_katakana_reading(token, value)[0]
+
+
+def _truncate_for_log(value: str, limit: int = 200) -> str:
+    text = str(value or "")
+    return text if len(text) <= limit else f"{text[:limit]}…(truncated)"
 
 
 def _endpoint() -> str:
@@ -102,6 +121,7 @@ def _endpoint() -> str:
 def katakanaize_english_segments_with_llm(
     segments: Iterable[str],
     *,
+    context: str | None = None,
     english_dict: dict[str, str] | None = None,
     timeout_sec: float | None = None,
     raise_on_failure: bool = False,
@@ -151,6 +171,7 @@ def katakanaize_english_segments_with_llm(
     try:
         _logger.info("[SBV2][normalize][llm_request_count] count=%d", len(pending))
         _logger.info("[SBV2][normalize][katakana_llm_start] pending=%d", len(pending))
+        _logger.info("[SBV2][normalize][katakana_llm_pending] tokens=%s", _truncate_for_log(json.dumps(pending, ensure_ascii=False)))
         response = requests.post(
             endpoint,
             timeout=timeout_value,
@@ -164,12 +185,17 @@ def katakanaize_english_segments_with_llm(
                         "role": "system",
                         "content": (
                             "Convert English terms to natural Japanese Katakana readings. "
-                            "Return ONLY one JSON object. Keys must exactly match the input strings."
+                            "Return ONLY a flat JSON object. "
+                            "Do not return explanations. "
+                            "Do not copy English terms as values. "
+                            "Values must be Japanese Katakana readings only. "
+                            'Example: {"UnknownTerm":"アンノウンターム","OpenRouter":"オープンルーター","WhisperCpp":"ウィスパーシーピーピー"} '
+                            "Keys must exactly match the input strings."
                         ),
                     },
                     {
                         "role": "user",
-                        "content": json.dumps({"segments": pending}, ensure_ascii=False),
+                        "content": json.dumps({"segments": pending, "context": context}, ensure_ascii=False),
                     },
                 ],
             },
@@ -184,18 +210,31 @@ def katakanaize_english_segments_with_llm(
             )
             or ""
         )
+        _logger.info("[SBV2][normalize][katakana_llm_raw_content] content=%s", _truncate_for_log(content, 500))
         converted = _extract_json_object(content)
+        _logger.info(
+            "[SBV2][normalize][katakana_llm_parsed_mapping] mapping=%s",
+            _truncate_for_log(json.dumps(converted, ensure_ascii=False), 500),
+        )
         if not converted:
             raise ValueError("llm returned empty/non-json mapping")
         converted_count = 0
         for token in pending:
             raw_value = _normalize_segment(converted.get(token))
-            if _is_valid_katakana_reading(token, raw_value):
+            is_valid, reason = _validate_katakana_reading(token, raw_value)
+            _logger.info(
+                "[SBV2][normalize][katakana_llm_token_raw] token=%s raw_value=%s",
+                token,
+                _truncate_for_log(raw_value, 120),
+            )
+            if is_valid:
                 value = raw_value
                 _KATAKANA_CACHE[token] = value
                 _PERSISTENT_CACHE.set(token, value, created_by="llm")
                 _logger.info("[SBV2][normalize][persistent_cache_saved] token=%s", token)
+                _logger.info("[SBV2][normalize][katakana_llm_accept] token=%s value=%s", token, _truncate_for_log(value, 120))
             else:
+                _logger.info("[SBV2][normalize][katakana_llm_reject] token=%s reason=%s", token, reason)
                 value = dictionary.get(token.lower(), token)
                 if value != token:
                     _KATAKANA_CACHE[token] = value
