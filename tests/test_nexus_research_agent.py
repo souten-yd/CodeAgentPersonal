@@ -4,8 +4,9 @@ import uuid
 from unittest.mock import patch
 
 from app.nexus.db import get_conn
+from app.nexus.evidence import EvidenceItem, list_evidence_items, replace_evidence_items_for_job, save_evidence_items
 from app.nexus.jobs import create_job
-from app.nexus.research_agent import ResearchAgentInput, _download_sources_parallel, run_research_job
+from app.nexus.research_agent import ResearchAgentInput, _download_sources_parallel, _should_stop_recursive_research, run_research_job
 
 
 class NexusResearchAgentTests(unittest.TestCase):
@@ -482,6 +483,103 @@ class NexusResearchRecursiveTests(unittest.TestCase):
             )
         stops = [p for e, p in captured if e == "recursive_stopped" and p.get("reason") == "download_budget_exhausted"]
         self.assertTrue(stops)
+
+    def test_recursive_stops_no_new_sources_when_filtered_candidates_empty(self) -> None:
+        captured = []
+        with patch("app.nexus.research_agent.plan_web_queries", return_value=["q"]), patch(
+            "app.nexus.research_agent.run_web_search", return_value={"items": [{"url": "https://example.com/1"}]}
+        ), patch("app.nexus.research_agent.collect_source_candidates", return_value=[{"url": "https://example.com/1"}]), patch(
+            "app.nexus.research_agent.rank_source_candidates", return_value=[{"url": "https://example.com/1"}]
+        ), patch(
+            "app.nexus.research_agent.register_or_update_sources",
+            return_value=[{"source_id": "src-1", "url": "https://example.com/1", "final_url": "https://example.com/1"}],
+        ), patch(
+            "app.nexus.research_agent._download_sources_parallel",
+            return_value=([{"source_id": "src-1", "url": "https://example.com/1", "status": "downloaded", "size": 10}], 0),
+        ) as mocked_followup_download, patch(
+            "app.nexus.research_agent._build_evidence_from_sources", return_value=[]
+        ), patch("app.nexus.research_agent.save_evidence_items", return_value=0), patch(
+            "app.nexus.research_agent.replace_evidence_items_for_job", return_value=0
+        ), patch("app.nexus.research_agent._load_source_chunks", return_value=[]), patch(
+            "app.nexus.research_agent.build_citation_map", return_value=[]
+        ), patch(
+            "app.nexus.research_agent._analyze_research_gaps", return_value={"confidence": 0.1, "gaps": ["source_count_low"], "unresolved_items": []}
+        ), patch("app.nexus.research_agent.build_answer_payload", return_value={"answer": "ok"}), patch(
+            "app.nexus.research_agent.append_job_event", side_effect=lambda _jid, et, payload: captured.append((et, payload))
+        ):
+            run_research_job(ResearchAgentInput(query="q", recursive_search=True, max_iterations=2), job_id="job-r3")
+        stops = [p for e, p in captured if e == "recursive_stopped" and p.get("reason") == "no_new_sources"]
+        self.assertTrue(stops)
+        self.assertEqual(mocked_followup_download.call_count, 1)
+
+    def test_recursive_stops_no_new_sources_when_registered_empty(self) -> None:
+        captured = []
+        with patch("app.nexus.research_agent.plan_web_queries", return_value=["q"]), patch(
+            "app.nexus.research_agent.run_web_search", return_value={"items": [{"url": "https://example.com/new"}]}
+        ), patch("app.nexus.research_agent.collect_source_candidates", return_value=[{"url": "https://example.com/new"}]), patch(
+            "app.nexus.research_agent.rank_source_candidates", return_value=[{"url": "https://example.com/new"}]
+        ), patch(
+            "app.nexus.research_agent._download_sources_parallel",
+            return_value=([{"source_id": "src-2", "url": "https://example.com/new", "status": "downloaded", "size": 10}], 0),
+        ), patch(
+            "app.nexus.research_agent.register_or_update_sources",
+            side_effect=[
+                [{"source_id": "src-1", "url": "https://example.com/old", "final_url": "https://example.com/old"}],
+                [],
+            ],
+        ), patch("app.nexus.research_agent._build_evidence_from_sources", return_value=[]), patch(
+            "app.nexus.research_agent.save_evidence_items", return_value=0
+        ), patch("app.nexus.research_agent.replace_evidence_items_for_job", return_value=0), patch(
+            "app.nexus.research_agent._load_source_chunks", return_value=[]
+        ), patch("app.nexus.research_agent.build_citation_map", return_value=[]), patch(
+            "app.nexus.research_agent._analyze_research_gaps", return_value={"confidence": 0.1, "gaps": ["source_count_low"], "unresolved_items": []}
+        ), patch("app.nexus.research_agent.build_answer_payload", return_value={"answer": "ok"}), patch(
+            "app.nexus.research_agent.append_job_event", side_effect=lambda _jid, et, payload: captured.append((et, payload))
+        ):
+            run_research_job(ResearchAgentInput(query="q", recursive_search=True, max_iterations=2), job_id="job-r4")
+        stops = [p for e, p in captured if e == "recursive_stopped" and p.get("reason") == "no_new_sources"]
+        self.assertTrue(stops)
+
+    def test_should_stop_prefers_confidence_over_max_iterations(self) -> None:
+        should_stop, reason = _should_stop_recursive_research(
+            analysis={"confidence": 0.9, "sufficient": False},
+            iteration=2,
+            payload=ResearchAgentInput(query="q", recursive_search=True, max_iterations=2, confidence_threshold=0.75),
+        )
+        self.assertTrue(should_stop)
+        self.assertEqual(reason, "confidence_threshold_reached")
+
+    def test_replace_evidence_items_for_job_replaces_existing_rows(self) -> None:
+        job_id = f"job-evidence-{uuid.uuid4().hex[:6]}"
+        create_job(job_id, title="evidence", status="running", message="running")
+        save_evidence_items(
+            job_id,
+            [EvidenceItem(source_type="web", document_id="", chunk_id="c1", url="https://example.com/1", retrieved_at="2026-01-01T00:00:00+00:00", source_id="s1")],
+        )
+        replaced = replace_evidence_items_for_job(
+            job_id,
+            [EvidenceItem(source_type="web", document_id="", chunk_id="c2", url="https://example.com/2", retrieved_at="2026-01-01T00:00:01+00:00", source_id="s2")],
+        )
+        items = list_evidence_items(job_id)
+        self.assertEqual(replaced, 1)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["chunk_id"], "c2")
+
+    def test_replace_evidence_items_for_job_rolls_back_on_insert_error(self) -> None:
+        job_id = f"job-evidence-rollback-{uuid.uuid4().hex[:6]}"
+        create_job(job_id, title="evidence rollback", status="running", message="running")
+        save_evidence_items(
+            job_id,
+            [EvidenceItem(source_type="web", document_id="", chunk_id="c1", url="https://example.com/1", retrieved_at="2026-01-01T00:00:00+00:00", source_id="s1")],
+        )
+        with self.assertRaises(ValueError):
+            replace_evidence_items_for_job(
+                job_id,
+                [EvidenceItem(source_type="web", document_id="", chunk_id="c2", url="", retrieved_at="2026-01-01T00:00:01+00:00", source_id="s2")],
+            )
+        items = list_evidence_items(job_id)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["chunk_id"], "c1")
 
 
 if __name__ == "__main__":
