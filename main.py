@@ -10754,6 +10754,9 @@ def api_execute_plan(plan_id: str, req: ImplementationRunRequest):
             allow_delete=req.allow_delete,
             allow_run_command=req.allow_run_command,
             user_comment=req.user_comment,
+            apply_patches=req.apply_patches,
+            preview_only=req.preview_only,
+            max_patch_bytes=req.max_patch_bytes,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="plan not found")
@@ -10785,6 +10788,26 @@ def api_get_run_report(run_id: str):
         raise HTTPException(status_code=404, detail="run report not found")
 
 
+
+
+@app.get("/api/runs/{run_id}/patches")
+def api_get_run_patches(run_id: str):
+    try:
+        from agent.patch_storage import PatchStorage
+        ps = PatchStorage(_phase6_run_storage.base_dir)
+        return {"run_id": run_id, "patches": ps.list_patches(run_id)}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="run patches not found")
+
+
+@app.get("/api/runs/{run_id}/patches/{patch_id}")
+def api_get_run_patch(run_id: str, patch_id: str):
+    try:
+        from agent.patch_storage import PatchStorage
+        ps = PatchStorage(_phase6_run_storage.base_dir)
+        return ps.load_patch(run_id, patch_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="patch not found")
 @app.get("/api/reviews/{review_id}")
 def api_get_review(review_id: str):
     try:
