@@ -13534,12 +13534,19 @@ async function _phase6ExecutePlan(planId, payload = {}) {
 
 function _renderPhase6ExecutionSection(result, cardId) {
   const plan = result?.plan || {};
+  const requirement = result?.requirement || {};
   const approval = plan?.approval || result?.approval || null;
+  const executionProjectPath =
+    plan?.resolved_project_path ||
+    requirement?.resolved_project_path ||
+    result?.resolved_project_path ||
+    '';
   const canShow = String(plan?.status||'') === 'execution_ready' && !!approval?.execution_ready;
   if (!canShow) return '';
   return `<div class="phase1-warning-box" id="${cardId}-exec-box">
     <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:6px">Implementation Execution (Phase 6 MVP)</div>
     <div style="font-size:11px;color:var(--text2);margin-bottom:6px">Phase 6ではdelete/run_commandは実行されません。</div>
+    <div style="font-size:10px;color:var(--text3);margin-bottom:6px;word-break:break-all">resolved_project_path: ${esc(executionProjectPath || '(not resolved)')}</div>
     <label style="display:flex;gap:7px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-allow-create"> allow_create</label>
     <label style="display:flex;gap:7px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-allow-update"> allow_update</label>
     <label style="display:flex;gap:7px;font-size:11px;color:var(--text3)"><input type="checkbox" disabled id="${cardId}-allow-delete"> allow_delete (disabled)</label>
@@ -13547,6 +13554,11 @@ function _renderPhase6ExecutionSection(result, cardId) {
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <button class="phase1-plan-btn" data-exec="dry_run">Dry Run</button>
       <button class="phase1-tab-btn" data-exec="safe_apply">Safe Apply</button>
+    </div>
+    <div id="${cardId}-exec-msg" style="font-size:11px;color:var(--amber);margin-top:6px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="phase1-tab-btn" data-run-view="log">View Run Log</button>
+      <button class="phase1-tab-btn" data-run-view="report">View Final Report</button>
     </div>
     <pre id="${cardId}-exec-result" style="white-space:pre-wrap;margin-top:8px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px;color:var(--text2)">No run yet.</pre>
   </div>`;
@@ -13562,11 +13574,21 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
     const allowCreate = !!cardRoot.querySelector(`#${cid}-allow-create`)?.checked;
     const allowUpdate = !!cardRoot.querySelector(`#${cid}-allow-update`)?.checked;
     const outEl = cardRoot.querySelector(`#${cid}-exec-result`);
+    const msgEl = cardRoot.querySelector(`#${cid}-exec-msg`);
+    const executionProjectPath =
+      result?.plan?.resolved_project_path ||
+      result?.requirement?.resolved_project_path ||
+      result?.resolved_project_path ||
+      '';
     try {
       setBusy(true);
+      if (msgEl) msgEl.textContent = '';
+      if (mode === 'safe_apply' && !executionProjectPath) {
+        throw new Error('Safe Apply requires resolved project path. Please regenerate the plan with project context.');
+      }
       const res = await _phase6ExecutePlan(planId, {
         execution_mode: mode,
-        project_path: '',
+        project_path: executionProjectPath,
         allow_update: allowUpdate,
         allow_create: allowCreate,
         allow_delete: false,
@@ -13584,11 +13606,33 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
         stepLines || '- no steps'
       ].join('\n');
       if (outEl) outEl.textContent = body;
+      cardRoot.dataset.lastRunId = res.run_id || '';
       addLog('ok', 'plan-only', `phase6 execute success plan_id=${planId} run_id=${res.run_id} mode=${mode}`);
     } catch (e) {
       if (outEl) outEl.textContent = `Error: ${e.message || String(e)}`;
+      if (msgEl) msgEl.textContent = e.message || String(e);
       addLog('err', 'plan-only', e.message || String(e));
     } finally { setBusy(false); }
+  }));
+
+  cardRoot.querySelectorAll('[data-run-view]').forEach((btn) => btn.addEventListener('click', async () => {
+    const cid = cardRoot.id;
+    const outEl = cardRoot.querySelector(`#${cid}-exec-result`);
+    const runId = cardRoot.dataset.lastRunId || '';
+    const kind = btn.getAttribute('data-run-view') || 'log';
+    if (!runId) {
+      if (outEl) outEl.textContent = 'Run not found. Execute Dry Run or Safe Apply first.';
+      return;
+    }
+    try {
+      const ep = kind === 'report' ? `/api/runs/${encodeURIComponent(runId)}/report` : `/api/runs/${encodeURIComponent(runId)}/log`;
+      const r = await fetch(API + ep);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+      if (outEl) outEl.textContent = kind === 'report' ? String(d.report || '') : String(d.log || '');
+    } catch (e) {
+      if (outEl) outEl.textContent = `Error: ${e.message || String(e)}`;
+    }
   }));
 }
 
