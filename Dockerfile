@@ -87,6 +87,7 @@ RUN rm -rf /var/lib/apt/lists/* \
         libsox-fmt-all \
     && update-ca-certificates \
     && test -s /etc/apt/keyrings/deadsnakes.gpg \
+    && gpg --show-keys --with-colons /etc/apt/keyrings/deadsnakes.gpg | grep -q "BA6932366A755776" \
     && . /etc/os-release \
     && echo "deb [signed-by=/etc/apt/keyrings/deadsnakes.gpg] https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu ${VERSION_CODENAME} main" \
         > /etc/apt/sources.list.d/deadsnakes.list \
@@ -326,6 +327,7 @@ RUN rm -rf /var/lib/apt/lists/* \
         libsox-fmt-all \
     && update-ca-certificates \
     && test -s /etc/apt/keyrings/deadsnakes.gpg \
+    && gpg --show-keys --with-colons /etc/apt/keyrings/deadsnakes.gpg | grep -q "BA6932366A755776" \
     && . /etc/os-release \
     && echo "deb [signed-by=/etc/apt/keyrings/deadsnakes.gpg] https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu ${VERSION_CODENAME} main" \
         > /etc/apt/sources.list.d/deadsnakes.list \
