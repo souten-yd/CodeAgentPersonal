@@ -50,8 +50,30 @@ class Phase8PatchApprovalTests(unittest.TestCase):
         pm = PatchApprovalManager(self.storage)
         ok = pm.decide("r1","p1","approve", user_comment="日本語", risk_acknowledged=False)
         self.assertEqual(ok["approval"]["status"], "approved")
-        rej = pm.decide("r1","p1","reject", user_comment="不要")
+        with self.assertRaises(ValueError):
+            pm.decide("r1","p1","reject", user_comment="不要")
+
+    def test_rejected_patch_cannot_be_reapproved(self):
+        self._save_patch()
+        pm = PatchApprovalManager(self.storage)
+        rej = pm.decide("r1", "p1", "reject", user_comment="不要")
         self.assertEqual(rej["approval"]["status"], "rejected")
+        with self.assertRaises(ValueError):
+            pm.decide("r1", "p1", "approve", safety_warnings_acknowledged=True, risk_acknowledged=True)
+
+    def test_warning_ack_and_medium_risk_ack_can_approve(self):
+        self._save_patch(safety_warnings=["warn"], risk_level="medium")
+        pm = PatchApprovalManager(self.storage)
+        ok = pm.decide(
+            "r1",
+            "p1",
+            "approve",
+            user_comment="日本語コメント",
+            safety_warnings_acknowledged=True,
+            risk_acknowledged=True,
+        )
+        self.assertEqual(ok["approval"]["status"], "approved")
+        self.assertEqual(ok["approval"]["user_comment"], "日本語コメント")
 
 if __name__ == "__main__":
     unittest.main()

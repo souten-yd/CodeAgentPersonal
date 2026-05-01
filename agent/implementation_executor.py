@@ -7,7 +7,7 @@ from uuid import uuid4
 from agent.implementation_schema import ImplementationRun, ImplementationStepResult
 from agent.patch_generator import PatchGenerator
 from agent.patch_safety import PatchSafetyChecker
-from agent.patch_schema import PatchApplyResult
+from agent.patch_schema import PatchApplyResult, PatchProposal
 from agent.patch_approval_manager import PatchApprovalManager
 from agent.patch_storage import PatchStorage
 from agent.plan_storage import PlanStorage
@@ -188,13 +188,18 @@ class ImplementationExecutor:
 
     def apply_patch(self, run_id: str, patch_id: str) -> dict:
         patch = self.patch_storage.load_patch(run_id, patch_id)
-        self.patch_approval_manager.require_approved_for_apply(run_id, patch_id)
+        approval = self.patch_approval_manager.require_approved_for_apply(run_id, patch_id)
         if not bool(patch.get("apply_allowed", False)):
             raise ValueError("patch apply is not allowed")
         if bool(patch.get("applied", False)):
             raise ValueError("duplicate apply is rejected")
         if str(patch.get("patch_type", "append")) != "append":
             raise ValueError("only append patch_type can be applied in Phase 8")
+        proposed = str(patch.get("proposed_content", ""))
+        if not proposed.strip():
+            raise ValueError("proposed_content is empty")
+        if "CodeAgent Phase 7 patch note" not in proposed:
+            raise ValueError("required patch marker is missing")
 
         run_payload = self.run_storage.load_run(run_id)
         project_path = str(run_payload.get("project_path", "")).strip()
@@ -209,10 +214,19 @@ class ImplementationExecutor:
         if self._is_binary(target):
             raise ValueError("binary target apply is rejected")
 
+        patch_model = PatchProposal(**patch)
+        allowed, warnings = self.patch_safety.evaluate(patch_model, project, str(patch.get("risk_level", "low")))
+        safety_updates = {"safety_warnings": warnings}
+        if not allowed:
+            safety_updates["apply_allowed"] = False
+            self.patch_storage.update_patch_payload(run_id, patch_id, safety_updates)
+            raise ValueError(f"patch safety check failed before apply: {'; '.join(warnings) if warnings else 'unknown reason'}")
+        if warnings != list(patch.get("safety_warnings") or []):
+            self.patch_storage.update_patch_payload(run_id, patch_id, safety_updates)
+
         before = target.read_text(encoding="utf-8")
         backup = target.with_suffix(target.suffix + '.bak.phase8')
         backup.write_text(before, encoding="utf-8")
-        proposed = str(patch.get("proposed_content", ""))
         with target.open("a", encoding="utf-8") as f:
             f.write(proposed)
 
@@ -235,8 +249,18 @@ class ImplementationExecutor:
             verification_result_id=vr.verification_id,
         )
         self.patch_storage.save_apply_result(run_id, ar)
-        self.patch_storage.update_patch_payload(run_id, patch_id, {"applied": True, "status": "applied"})
-        approval = self.patch_approval_manager.mark_applied(run_id, patch_id, ar.model_dump())
+        approval = self.patch_approval_manager.mark_applied(run_id, patch_id, ar.model_dump(), vr.verification_id)
+        self.patch_storage.update_patch_payload(
+            run_id,
+            patch_id,
+            {
+                "applied": True,
+                "status": "applied",
+                "verification_id": vr.verification_id,
+                "approval_status": "applied",
+                "patch_approval_id": approval.patch_approval_id,
+            },
+        )
         return {
             "run_id": run_id,
             "patch_id": patch_id,

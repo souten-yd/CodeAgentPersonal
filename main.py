@@ -10873,6 +10873,21 @@ def api_apply_patch(run_id: str, patch_id: str):
         raise HTTPException(status_code=404, detail="patch not found")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/runs/{run_id}/verification/{verification_id}")
+def api_get_verification_result(run_id: str, verification_id: str):
+    try:
+        from agent.patch_storage import PatchStorage
+        ps = PatchStorage(_phase6_run_storage.base_dir)
+        payload_path = ps._verification_dir(run_id) / f"{verification_id}.verification.json"
+        if not payload_path.exists():
+            raise FileNotFoundError
+        return json.loads(payload_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="verification result not found")
+
+
 @app.get("/api/reviews/{review_id}")
 def api_get_review(review_id: str):
     try:
