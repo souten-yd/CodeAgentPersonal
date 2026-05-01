@@ -624,6 +624,7 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-tl-item{border-left:2px solid var(--accent-border);padding-left:8px}
 .nexus-tl-head{font-size:10px;color:var(--text2);font-family:var(--font-mono)}
 .nexus-tl-body{font-size:10px;color:var(--text3);line-height:1.4}
+.nexus-tl-body{overflow-wrap:anywhere;word-break:break-word}
 .nexus-tl-item.state-planning{border-left-color:rgba(136,136,255,.65)}
 .nexus-tl-item.state-searching{border-left-color:rgba(0,200,255,.72)}
 .nexus-tl-item.state-collecting_sources{border-left-color:rgba(0,255,157,.6)}
@@ -712,6 +713,8 @@ html.logo-svg-ready .logo-text{display:none}
   .nexus-topbar{flex-direction:column;align-items:stretch}
   .nexus-subtabs{padding-bottom:2px}
   .nexus-deep-grid{grid-template-columns:1fr}
+  .nexus-form-grid.cols-2,.nexus-form-grid.cols-3{grid-template-columns:1fr}
+  .nexus-input[type="number"]{max-width:100%;box-sizing:border-box}
 }
 .chat-topbar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0}
 .chat-control-row{display:flex;align-items:center;gap:10px;width:100%;min-width:0}
@@ -1611,6 +1614,20 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               </div>
               <div class="nexus-form-grid cols-2">
                 <label class="nexus-check"><input id="nexus-deep-official-first" type="checkbox" checked> official_first</label>
+              </div>
+              <div class="nexus-card" style="margin-top:6px">
+                <div class="nexus-card-title">Advanced Settings: Recursive Research</div>
+                <div class="nexus-form-grid">
+                  <label class="nexus-check"><input id="nexus-deep-recursive-search" type="checkbox"> Recursive Research</label>
+                  <div class="nexus-form-grid cols-2">
+                    <input id="nexus-deep-max-iterations" class="nexus-input" type="number" min="1" max="5" step="1" value="1" placeholder="max_iterations (1-5)" disabled>
+                    <input id="nexus-deep-max-followup-queries" class="nexus-input" type="number" min="1" max="10" step="1" value="4" placeholder="max_followup_queries (1-10)" disabled>
+                  </div>
+                  <div class="nexus-form-grid cols-2">
+                    <input id="nexus-deep-confidence-threshold" class="nexus-input" type="number" min="0" max="1" step="0.05" value="0.75" placeholder="confidence_threshold (0-1)" disabled>
+                    <label class="nexus-check"><input id="nexus-deep-stop-when-sufficient" type="checkbox" checked disabled> stop_when_sufficient</label>
+                  </div>
+                </div>
               </div>
               <div class="nexus-actions">
                 <button class="settings-btn primary" id="nexus-deep-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusDeepResearch()">Start Research</button>
@@ -7849,7 +7866,28 @@ function renderNexusDeepTimeline(events = []) {
     const state = String(ev?.data?.state || '').trim();
     const stateMeta = NEXUS_TIMELINE_STATE_META[state] || { label: state || '-', className: 'state-unknown' };
     const type = String(ev?.type || '').trim();
-    const label = ev?.data?.state || ev?.data?.label || type || 'event';
+    const data = (ev?.data && typeof ev.data === 'object') ? ev.data : {};
+    const label = (() => {
+      const iteration = Number(data?.iteration ?? data?.iteration_index);
+      if (type === 'recursive_iteration_started') return `Iteration ${Number.isFinite(iteration) ? iteration : '?'} started`;
+      if (type === 'recursive_gap_analysis_started') return 'Gap analysis started';
+      if (type === 'recursive_gap_analysis_finished') {
+        const conf = clampFloat(data?.confidence, 0, 1);
+        return `Gap analysis finished: confidence ${conf == null ? '-' : conf.toFixed(2)}`;
+      }
+      if (type === 'recursive_followup_queries_generated') {
+        const count = Number(data?.followup_query_count ?? data?.count);
+        return `Follow-up queries: ${Number.isFinite(count) ? count : '-'}`;
+      }
+      if (type === 'recursive_followup_search_started') return 'Follow-up search started';
+      if (type === 'recursive_followup_search_finished') {
+        const added = Number(data?.added_sources ?? data?.new_sources ?? data?.sources_added);
+        return `Added sources: ${Number.isFinite(added) ? added : '-'}`;
+      }
+      if (type === 'recursive_iteration_finished') return `Iteration ${Number.isFinite(iteration) ? iteration : '?'} finished`;
+      if (type === 'recursive_stopped') return `Recursive stopped: ${String(data?.stop_reason || data?.reason || '-').trim() || '-'}`;
+      return data?.state || data?.label || type || 'event';
+    })();
     const importantBadge = importantTypes.has(type) ? '<span class="nexus-status-badge degraded">event</span> ' : '';
     return `<div class="nexus-tl-item ${esc(stateMeta.className)}">
       <div class="nexus-tl-head">#${Number.isFinite(seq) ? seq : '-'} · ${esc(ts)}</div>
@@ -7888,6 +7926,23 @@ function renderNexusDeepAnswer(answer = {}) {
     ? answer.citation_verification
     : {};
   const warningsHtml = renderNexusDeepCitationWarnings(answer, { shouldMount: false });
+  const recursiveSearch = answer?.recursive_search;
+  const iterations = answer?.iterations;
+  const confidence = answer?.confidence;
+  const unresolvedItems = Array.isArray(answer?.unresolved_items) ? answer.unresolved_items : [];
+  const stopReason = String(answer?.stop_reason || '').trim();
+  const hasRecursiveMeta = [recursiveSearch, iterations, confidence, stopReason].some((v) => v !== undefined && v !== null && String(v).trim() !== '') || unresolvedItems.length > 0;
+  const recursiveMetaHtml = hasRecursiveMeta ? `<div class="nexus-answer-section">
+      <div class="nexus-answer-subtitle">Recursive Research</div>
+      <div style="font-size:11px;color:var(--text2);line-height:1.5">
+        <div>- Enabled: <b>${esc(String(Boolean(recursiveSearch)))}</b></div>
+        <div>- Final confidence: <b>${esc(confidence == null ? '-' : String(confidence))}</b></div>
+        <div>- Stop reason: <b>${esc(stopReason || '-')}</b></div>
+        <div>- Iterations: <b>${esc(iterations == null ? '-' : String(iterations))}</b></div>
+        <div>- Unresolved items:</div>
+        <ul style="margin:4px 0 0 18px;padding:0">${(unresolvedItems.length ? unresolvedItems : ['-']).map((item) => `<li>${esc(String(item || '-'))}</li>`).join('')}</ul>
+      </div>
+    </div>` : '';
   el.innerHTML = `
     <div class="nexus-answer-section">
       <div class="nexus-answer-subtitle">Markdown</div>
@@ -7930,7 +7985,8 @@ function renderNexusDeepAnswer(answer = {}) {
       <div class="nexus-answer-subtitle">Citation verification</div>
       ${warningsHtml || '<div class="nexus-empty">warnings はありません</div>'}
       <pre class="nexus-answer-json">${esc(JSON.stringify(verification, null, 2) || '{}')}</pre>
-    </div>`;
+    </div>
+    ${recursiveMetaHtml}`;
   renderNexusDeepCitationWarnings(answer, { shouldMount: true, forceEmpty: true });
 }
 
@@ -8669,6 +8725,11 @@ const NEXUS_DEEP_STORAGE = {
   preferPdf: 'nexus.deepResearch.preferPdf',
   officialFirst: 'nexus.deepResearch.officialFirst',
   continueOnError: 'nexus.deepResearch.continueOnError',
+  recursiveSearch: 'nexus.deepResearch.recursiveSearch',
+  maxIterations: 'nexus.deepResearch.maxIterations',
+  maxFollowupQueries: 'nexus.deepResearch.maxFollowupQueries',
+  confidenceThreshold: 'nexus.deepResearch.confidenceThreshold',
+  stopWhenSufficient: 'nexus.deepResearch.stopWhenSufficient',
 };
 
 const NEXUS_DEEP_LEGACY_STORAGE = {
@@ -8706,6 +8767,46 @@ function clampInt(value, min, max) {
   return Math.min(max, Math.max(min, num));
 }
 
+function clampFloat(value, min, max) {
+  const num = Number.parseFloat(String(value ?? '').trim());
+  if (!Number.isFinite(num)) return null;
+  return Math.min(max, Math.max(min, num));
+}
+
+function normalizeNexusRecursiveSettings(raw = {}) {
+  const enabled = Boolean(raw?.recursiveSearch);
+  if (!enabled) {
+    return {
+      recursive_search: false,
+      max_iterations: 1,
+      max_followup_queries: 4,
+      confidence_threshold: 0.75,
+      stop_when_sufficient: true,
+    };
+  }
+  return {
+    recursive_search: true,
+    max_iterations: clampInt(raw?.maxIterations, 1, 5) ?? 2,
+    max_followup_queries: clampInt(raw?.maxFollowupQueries, 1, 10) ?? 4,
+    confidence_threshold: clampFloat(raw?.confidenceThreshold, 0, 1) ?? 0.75,
+    stop_when_sufficient: raw?.stopWhenSufficient !== false,
+  };
+}
+
+function updateNexusRecursiveControls(options = {}) {
+  const recursiveEl = document.getElementById('nexus-deep-recursive-search');
+  const maxIterationsEl = document.getElementById('nexus-deep-max-iterations');
+  const maxFollowupEl = document.getElementById('nexus-deep-max-followup-queries');
+  const confidenceEl = document.getElementById('nexus-deep-confidence-threshold');
+  const stopWhenSufficientEl = document.getElementById('nexus-deep-stop-when-sufficient');
+  const enabled = recursiveEl?.checked === true;
+  [maxIterationsEl, maxFollowupEl, confidenceEl, stopWhenSufficientEl].forEach((el) => { if (el) el.disabled = !enabled; });
+  if (enabled && options?.preferRecommendedOnEnable && maxIterationsEl) {
+    const parsed = clampInt(maxIterationsEl.value, 1, 5);
+    if (parsed === null || parsed === 1) maxIterationsEl.value = '2';
+  }
+}
+
 function loadNexusDeepResearchForm() {
   migrateNexusDeepResearchStorageOnce();
   const topicEl = document.getElementById('nexus-deep-topic');
@@ -8718,6 +8819,11 @@ function loadNexusDeepResearchForm() {
   const continueOnDownloadErrorEl = document.getElementById('nexus-deep-continue-on-download-error');
   const preferPdfEl = document.getElementById('nexus-deep-prefer-pdf');
   const officialFirstEl = document.getElementById('nexus-deep-official-first');
+  const recursiveSearchEl = document.getElementById('nexus-deep-recursive-search');
+  const maxIterationsEl = document.getElementById('nexus-deep-max-iterations');
+  const maxFollowupQueriesEl = document.getElementById('nexus-deep-max-followup-queries');
+  const confidenceThresholdEl = document.getElementById('nexus-deep-confidence-threshold');
+  const stopWhenSufficientEl = document.getElementById('nexus-deep-stop-when-sufficient');
 
   if (topicEl) topicEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.topic) || '';
   if (depthEl) depthEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.depth) || 'standard';
@@ -8738,6 +8844,18 @@ function loadNexusDeepResearchForm() {
     const raw = localStorage.getItem(NEXUS_DEEP_STORAGE.officialFirst);
     officialFirstEl.checked = raw === null ? true : raw === 'true';
   }
+  if (recursiveSearchEl) {
+    const raw = localStorage.getItem(NEXUS_DEEP_STORAGE.recursiveSearch);
+    recursiveSearchEl.checked = raw === 'true';
+  }
+  if (maxIterationsEl) maxIterationsEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.maxIterations) || '1';
+  if (maxFollowupQueriesEl) maxFollowupQueriesEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.maxFollowupQueries) || '4';
+  if (confidenceThresholdEl) confidenceThresholdEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.confidenceThreshold) || '0.75';
+  if (stopWhenSufficientEl) {
+    const raw = localStorage.getItem(NEXUS_DEEP_STORAGE.stopWhenSufficient);
+    stopWhenSufficientEl.checked = raw === null ? true : raw === 'true';
+  }
+  updateNexusRecursiveControls();
 }
 
 function saveNexusDeepResearchForm(values) {
@@ -8751,6 +8869,11 @@ function saveNexusDeepResearchForm(values) {
   localStorage.setItem(NEXUS_DEEP_STORAGE.continueOnError, values.continueOnDownloadError ? 'true' : 'false');
   localStorage.setItem(NEXUS_DEEP_STORAGE.preferPdf, values.preferPdf ? 'true' : 'false');
   localStorage.setItem(NEXUS_DEEP_STORAGE.officialFirst, values.officialFirst ? 'true' : 'false');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.recursiveSearch, values.recursiveSearch ? 'true' : 'false');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.maxIterations, values.maxIterations == null ? '1' : String(values.maxIterations));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.maxFollowupQueries, values.maxFollowupQueries == null ? '4' : String(values.maxFollowupQueries));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.confidenceThreshold, values.confidenceThreshold == null ? '0.75' : String(values.confidenceThreshold));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.stopWhenSufficient, values.stopWhenSufficient === false ? 'false' : 'true');
 }
 
 function bindNexusDeepResearchFormPersistence() {
@@ -8767,12 +8890,25 @@ function bindNexusDeepResearchFormPersistence() {
     'nexus-deep-continue-on-download-error',
     'nexus-deep-prefer-pdf',
     'nexus-deep-official-first',
+    'nexus-deep-recursive-search',
+    'nexus-deep-max-iterations',
+    'nexus-deep-max-followup-queries',
+    'nexus-deep-confidence-threshold',
+    'nexus-deep-stop-when-sufficient',
   ];
   const persist = () => {
     const maxDownloadMb = clampInt(document.getElementById('nexus-deep-max-download-mb')?.value, 1, 500);
     const maxTotalDownloadMb = clampInt(document.getElementById('nexus-deep-max-total-download-mb')?.value, 1, 2048);
     const maxDownloads = clampInt(document.getElementById('nexus-deep-max-downloads')?.value, 1, 200);
     const downloadTimeoutSec = clampInt(document.getElementById('nexus-deep-download-timeout-sec')?.value, 1, 600);
+    const recursiveSearch = document.getElementById('nexus-deep-recursive-search')?.checked === true;
+    const recursiveValues = normalizeNexusRecursiveSettings({
+      recursiveSearch,
+      maxIterations: document.getElementById('nexus-deep-max-iterations')?.value,
+      maxFollowupQueries: document.getElementById('nexus-deep-max-followup-queries')?.value,
+      confidenceThreshold: document.getElementById('nexus-deep-confidence-threshold')?.value,
+      stopWhenSufficient: document.getElementById('nexus-deep-stop-when-sufficient')?.checked !== false,
+    });
     saveNexusDeepResearchForm({
       topic: (document.getElementById('nexus-deep-topic')?.value || '').trim(),
       depth: (document.getElementById('nexus-deep-depth')?.value || 'standard').trim().toLowerCase(),
@@ -8784,12 +8920,20 @@ function bindNexusDeepResearchFormPersistence() {
       continueOnDownloadError: document.getElementById('nexus-deep-continue-on-download-error')?.checked !== false,
       preferPdf: document.getElementById('nexus-deep-prefer-pdf')?.checked !== false,
       officialFirst: document.getElementById('nexus-deep-official-first')?.checked !== false,
+      recursiveSearch: recursiveValues.recursive_search,
+      maxIterations: recursiveValues.max_iterations,
+      maxFollowupQueries: recursiveValues.max_followup_queries,
+      confidenceThreshold: recursiveValues.confidence_threshold,
+      stopWhenSufficient: recursiveValues.stop_when_sufficient,
     });
   };
   ids.forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('change', persist);
+    if (id === 'nexus-deep-recursive-search') {
+      el.addEventListener('change', () => updateNexusRecursiveControls({ preferRecommendedOnEnable: true }));
+    }
     if (id === 'nexus-deep-topic') el.addEventListener('blur', persist);
   });
 }
@@ -8822,6 +8966,11 @@ async function runNexusDeepResearch() {
   const continueOnDownloadError = document.getElementById('nexus-deep-continue-on-download-error')?.checked !== false;
   const preferPdf = document.getElementById('nexus-deep-prefer-pdf')?.checked !== false;
   const officialFirst = document.getElementById('nexus-deep-official-first')?.checked !== false;
+  const recursiveSearch = document.getElementById('nexus-deep-recursive-search')?.checked === true;
+  const maxIterationsEl = document.getElementById('nexus-deep-max-iterations');
+  const maxFollowupQueriesEl = document.getElementById('nexus-deep-max-followup-queries');
+  const confidenceThresholdEl = document.getElementById('nexus-deep-confidence-threshold');
+  const stopWhenSufficientEl = document.getElementById('nexus-deep-stop-when-sufficient');
 
   const maxDownloadMb = clampInt(maxDownloadMbEl?.value, 1, 500);
   const maxTotalDownloadMb = clampInt(maxTotalDownloadMbEl?.value, 1, 2048);
@@ -8831,6 +8980,17 @@ async function runNexusDeepResearch() {
   if (maxTotalDownloadMbEl) maxTotalDownloadMbEl.value = maxTotalDownloadMb == null ? '' : String(maxTotalDownloadMb);
   if (maxDownloadsEl) maxDownloadsEl.value = maxDownloads == null ? '' : String(maxDownloads);
   if (downloadTimeoutSecEl) downloadTimeoutSecEl.value = downloadTimeoutSec == null ? '' : String(downloadTimeoutSec);
+  const recursiveSettings = normalizeNexusRecursiveSettings({
+    recursiveSearch,
+    maxIterations: maxIterationsEl?.value,
+    maxFollowupQueries: maxFollowupQueriesEl?.value,
+    confidenceThreshold: confidenceThresholdEl?.value,
+    stopWhenSufficient: stopWhenSufficientEl?.checked !== false,
+  });
+  if (maxIterationsEl) maxIterationsEl.value = String(recursiveSettings.max_iterations);
+  if (maxFollowupQueriesEl) maxFollowupQueriesEl.value = String(recursiveSettings.max_followup_queries);
+  if (confidenceThresholdEl) confidenceThresholdEl.value = String(recursiveSettings.confidence_threshold);
+  if (stopWhenSufficientEl) stopWhenSufficientEl.checked = recursiveSettings.stop_when_sufficient;
 
   saveNexusDeepResearchForm({
     topic,
@@ -8843,6 +9003,11 @@ async function runNexusDeepResearch() {
     continueOnDownloadError,
     preferPdf,
     officialFirst,
+    recursiveSearch: recursiveSettings.recursive_search,
+    maxIterations: recursiveSettings.max_iterations,
+    maxFollowupQueries: recursiveSettings.max_followup_queries,
+    confidenceThreshold: recursiveSettings.confidence_threshold,
+    stopWhenSufficient: recursiveSettings.stop_when_sufficient,
   });
 
   const btn = document.getElementById('nexus-deep-run-btn');
@@ -8890,6 +9055,11 @@ async function runNexusDeepResearch() {
       continue_on_download_error: continueOnDownloadError,
       prefer_pdf: researchType === 'standards_legal' ? true : preferPdf,
       official_first: researchType === 'standards_legal' ? true : officialFirst,
+      recursive_search: recursiveSettings.recursive_search,
+      max_iterations: recursiveSettings.max_iterations,
+      max_followup_queries: recursiveSettings.max_followup_queries,
+      confidence_threshold: recursiveSettings.confidence_threshold,
+      stop_when_sufficient: recursiveSettings.stop_when_sufficient,
     };
     const runEndpoint = nexusApi('/nexus/research/run');
     const runRes = await fetch(runEndpoint, {
