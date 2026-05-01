@@ -51,6 +51,7 @@ from app.tts.style_bert_vits2_manager import (
     import_model_zip,
 )
 from app.env_detection import detect_gpu_profile, detect_os_profile, detect_runpod
+from app.asr.service import transcribe_audio as asr_service_transcribe_audio
 from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_base_dir,
     resolve_style_bert_vits2_models_dir,
@@ -10193,7 +10194,7 @@ def _detect_repetition_loop(text: str, config: dict | None = None) -> tuple[bool
         "ngram_max_repeat": max_repeat,
     }
 
-def voice_transcribe(
+def _faster_whisper_transcribe(
     audio_bytes: bytes,
     language: str = "auto",
     model_name: str = "large-v3-turbo",
@@ -10298,6 +10299,38 @@ def voice_transcribe(
             os.remove(temp_path)
         except Exception:
             pass
+
+
+
+def voice_transcribe(
+    audio_bytes: bytes,
+    language: str = "auto",
+    model_name: str = "large-v3-turbo",
+    auto_unload: bool = False,
+    audio_format: str = "webm",
+    asr_profile: str = "balanced",
+    beam_size: int | None = None,
+    best_of: int | None = None,
+    no_speech_threshold: float | None = None,
+    log_prob_threshold: float | None = None,
+    compression_ratio_threshold: float | None = None,
+    asr_post_filter: dict | None = None,
+) -> dict:
+    return asr_service_transcribe_audio(
+        audio_bytes=audio_bytes,
+        language=language,
+        model_name=model_name,
+        audio_format=audio_format,
+        faster_whisper_transcribe=_faster_whisper_transcribe,
+        auto_unload=auto_unload,
+        asr_profile=asr_profile,
+        beam_size=beam_size,
+        best_of=best_of,
+        no_speech_threshold=no_speech_threshold,
+        log_prob_threshold=log_prob_threshold,
+        compression_ratio_threshold=compression_ratio_threshold,
+        asr_post_filter=asr_post_filter,
+    )
 
 def _build_conversation_io(req: ChatRequest):
     has_audio = bool((req.audio_base64 or "").strip())
