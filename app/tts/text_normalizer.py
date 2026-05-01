@@ -403,11 +403,23 @@ def normalize_text_for_japanese_tts(text: str | None, settings: dict | None) -> 
         ]
         if english_policy == "llm" and unresolved_segments:
             try:
-                llm_map = katakanaize_english_segments_with_llm(
+                llm_result = katakanaize_english_segments_with_llm(
                     unresolved_segments,
                     context=current,
                     english_dict=english_dict,
                     raise_on_failure=True,
+                    return_summary=True,
+                )
+                llm_map = dict((llm_result or {}).get("result") or {})
+                llm_summary = dict((llm_result or {}).get("summary") or {})
+                operations.append(
+                    {
+                        "type": "english_llm_katakanaize",
+                        "value": {
+                            "accepted": dict(llm_summary.get("accepted") or {}),
+                            "rejected": dict(llm_summary.get("rejected") or {}),
+                        },
+                    }
                 )
                 current = _EN_SEGMENT_PATTERN.sub(
                     lambda m: llm_map.get(m.group(0), english_dict.get(m.group(0).lower(), m.group(0))),

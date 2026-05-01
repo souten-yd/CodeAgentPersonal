@@ -182,8 +182,30 @@ def test_llm_valid_unknownterm_is_adopted(monkeypatch):
     monkeypatch.setattr(
         text_normalizer,
         "katakanaize_english_segments_with_llm",
-        lambda segments, **kwargs: {s: "アンノウンターム" for s in segments},
+        lambda segments, **kwargs: {
+            "result": {s: "アンノウンターム" for s in segments},
+            "summary": {"accepted": {s: "アンノウンターム" for s in segments}, "rejected": {}},
+        },
     )
     out = normalize_text_for_sbv2_jp_extra("UnknownTermを使います。", {})
     assert "アンノウンターム" in out["normalized_text"]
+    assert not any(ch.isascii() and ch.isalpha() for ch in out["normalized_text"])
+    llm_ops = [op for op in out["operations"] if op.get("type") == "english_llm_katakanaize"]
+    assert llm_ops
+    assert llm_ops[0]["value"]["accepted"]["UnknownTerm"] == "アンノウンターム"
+
+
+def test_llm_reject_reason_in_operations(monkeypatch):
+    monkeypatch.setattr(
+        text_normalizer,
+        "katakanaize_english_segments_with_llm",
+        lambda segments, **kwargs: {
+            "result": {s: "アンノウンターム" for s in segments},
+            "summary": {"accepted": {}, "rejected": {s: "same_as_token" for s in segments}},
+        },
+    )
+    out = normalize_text_for_sbv2_jp_extra("UnknownTermを使います。", {})
+    llm_ops = [op for op in out["operations"] if op.get("type") == "english_llm_katakanaize"]
+    assert llm_ops
+    assert llm_ops[0]["value"]["rejected"]["UnknownTerm"] == "same_as_token"
     assert not any(ch.isascii() and ch.isalpha() for ch in out["normalized_text"])

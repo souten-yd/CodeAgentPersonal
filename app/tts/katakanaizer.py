@@ -60,6 +60,9 @@ _DESCRIPTION_MARKERS = (
     "と読みます",
     "です",
 )
+_KATAKANA_FRAGMENT_PATTERN = re.compile(r"[ァ-ヶーぁ-ゖー・]{2,}")
+_CAMEL_SPLIT_PATTERN = re.compile(r"[A-Z]+(?=[A-Z][a-z]|\d|$)|[A-Z]?[a-z]+|\d+")
+_CAMEL_FALLBACK_DICT = {"unknown": "アンノウン", "term": "ターム"}
 
 
 def _validate_katakana_reading(token: str, value: str) -> tuple[bool, str]:
@@ -88,6 +91,33 @@ def _validate_katakana_reading(token: str, value: str) -> tuple[bool, str]:
 
 def _is_valid_katakana_reading(token: str, value: str) -> bool:
     return _validate_katakana_reading(token, value)[0]
+
+
+def _extract_reading_candidate(token: str, value: str) -> str:
+    text = _normalize_segment(value)
+    if not text:
+        return ""
+    if _validate_katakana_reading(token, text)[0]:
+        return text
+    has_ascii = bool(re.search(r"[A-Za-z]", text))
+    extraction_allowed = (not has_ascii) or any(mark in text for mark in ("読み", ":", "：", "=>", "は", "です"))
+    if not extraction_allowed:
+        return ""
+    for match in _KATAKANA_FRAGMENT_PATTERN.finditer(text):
+        candidate = _normalize_segment(match.group(0))
+        if _validate_katakana_reading(token, candidate)[0]:
+            return candidate
+    return ""
+
+
+def _camelcase_fallback_reading(token: str) -> str:
+    if not re.search(r"[A-Za-z]", token):
+        return token
+    parts = _CAMEL_SPLIT_PATTERN.findall(token)
+    reading = "".join(_CAMEL_FALLBACK_DICT.get(part.lower(), "") for part in parts)
+    if not reading:
+        return token
+    return reading if _validate_katakana_reading(token, reading)[0] else token
 
 
 def _truncate_for_log(value: str, limit: int = 200) -> str:
@@ -125,7 +155,8 @@ def katakanaize_english_segments_with_llm(
     english_dict: dict[str, str] | None = None,
     timeout_sec: float | None = None,
     raise_on_failure: bool = False,
-) -> dict[str, str]:
+    return_summary: bool = False,
+) -> dict[str, str] | dict[str, dict[str, str]]:
     normalized_segments: list[str] = []
     seen: set[str] = set()
     for segment in segments:
@@ -140,6 +171,8 @@ def katakanaize_english_segments_with_llm(
 
     dictionary = {str(k).lower(): str(v) for k, v in (english_dict or {}).items()}
     result: dict[str, str] = {}
+    accepted: dict[str, str] = {}
+    rejected: dict[str, str] = {}
     pending: list[str] = []
 
     for token in normalized_segments:
@@ -162,7 +195,7 @@ def katakanaize_english_segments_with_llm(
         pending.append(token)
 
     if not pending:
-        return result
+        return {"result": result, "summary": {"accepted": accepted, "rejected": rejected}} if return_summary else result
 
     timeout_value = float(timeout_sec or _DEFAULT_TIMEOUT_SEC)
     model = str(os.environ.get("CODEAGENT_KATAKANA_LLM_MODEL", _DEFAULT_MODEL)).strip() or _DEFAULT_MODEL
@@ -217,25 +250,30 @@ def katakanaize_english_segments_with_llm(
             _truncate_for_log(json.dumps(converted, ensure_ascii=False), 500),
         )
         if not converted:
-            raise ValueError("llm returned empty/non-json mapping")
+            converted = {token: content for token in pending}
         converted_count = 0
         for token in pending:
             raw_value = _normalize_segment(converted.get(token))
-            is_valid, reason = _validate_katakana_reading(token, raw_value)
+            extracted = _extract_reading_candidate(token, raw_value)
+            is_valid, reason = _validate_katakana_reading(token, extracted)
+            if not is_valid and not extracted:
+                _, reason = _validate_katakana_reading(token, raw_value)
             _logger.info(
                 "[SBV2][normalize][katakana_llm_token_raw] token=%s raw_value=%s",
                 token,
                 _truncate_for_log(raw_value, 120),
             )
             if is_valid:
-                value = raw_value
+                value = extracted
                 _KATAKANA_CACHE[token] = value
                 _PERSISTENT_CACHE.set(token, value, created_by="llm")
                 _logger.info("[SBV2][normalize][persistent_cache_saved] token=%s", token)
                 _logger.info("[SBV2][normalize][katakana_llm_accept] token=%s value=%s", token, _truncate_for_log(value, 120))
+                accepted[token] = value
             else:
                 _logger.info("[SBV2][normalize][katakana_llm_reject] token=%s reason=%s", token, reason)
-                value = dictionary.get(token.lower(), token)
+                rejected[token] = reason
+                value = dictionary.get(token.lower(), _camelcase_fallback_reading(token))
                 if value != token:
                     _KATAKANA_CACHE[token] = value
             result[token] = value
@@ -254,11 +292,14 @@ def katakanaize_english_segments_with_llm(
             exc,
         )
         for token in pending:
-            fallback = dictionary.get(token.lower(), token)
+            fallback = dictionary.get(token.lower(), _camelcase_fallback_reading(token))
             result[token] = fallback
             if fallback != token:
                 _KATAKANA_CACHE[token] = fallback
+                accepted[token] = fallback
+            else:
+                rejected[token] = "llm_failure"
         if raise_on_failure:
             raise RuntimeError(f"katakana llm failed: {exc}") from exc
 
-    return result
+    return {"result": result, "summary": {"accepted": accepted, "rejected": rejected}} if return_summary else result
