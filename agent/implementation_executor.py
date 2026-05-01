@@ -8,6 +8,7 @@ from agent.implementation_schema import ImplementationRun, ImplementationStepRes
 from agent.patch_generator import PatchGenerator
 from agent.patch_safety import PatchSafetyChecker
 from agent.patch_schema import PatchApplyResult
+from agent.patch_approval_manager import PatchApprovalManager
 from agent.patch_storage import PatchStorage
 from agent.plan_storage import PlanStorage
 from agent.run_storage import RunStorage
@@ -22,6 +23,7 @@ class ImplementationExecutor:
         self.run_storage = run_storage
         self.patch_storage = PatchStorage(run_storage.base_dir)
         self.patch_generator = PatchGenerator()
+        self.patch_approval_manager = PatchApprovalManager(self.patch_storage)
         self.patch_safety = PatchSafetyChecker()
         self.verification_runner = VerificationRunner()
 
@@ -162,6 +164,9 @@ class ImplementationExecutor:
             step.status = "completed"
             step.message = "patch preview generated; file unchanged"
             return
+        step.status = "completed"
+        step.message = "patch preview generated; apply requires patch approval API in Phase 8"
+        return
         if not allowed:
             self._block(step, None, "patch safety check failed")
             return
@@ -179,6 +184,67 @@ class ImplementationExecutor:
         ar = PatchApplyResult(patch_id=proposal.patch_id, applied=True, target_file=str(target), backup_path=str(backup), changed_bytes=len(proposal.proposed_content.encode('utf-8')), message='patch applied', verification_result_id=vr.verification_id)
         self.patch_storage.save_apply_result(run_id, ar)
         step.status='completed'; step.message='patch applied and verified'
+
+
+    def apply_patch(self, run_id: str, patch_id: str) -> dict:
+        patch = self.patch_storage.load_patch(run_id, patch_id)
+        self.patch_approval_manager.require_approved_for_apply(run_id, patch_id)
+        if not bool(patch.get("apply_allowed", False)):
+            raise ValueError("patch apply is not allowed")
+        if bool(patch.get("applied", False)):
+            raise ValueError("duplicate apply is rejected")
+        if str(patch.get("patch_type", "append")) != "append":
+            raise ValueError("only append patch_type can be applied in Phase 8")
+
+        run_payload = self.run_storage.load_run(run_id)
+        project_path = str(run_payload.get("project_path", "")).strip()
+        if not project_path:
+            raise ValueError("run project_path is empty")
+        project = Path(project_path)
+        target = self._resolve_target(project, str(patch.get("target_file", "")))
+        if target is None:
+            raise ValueError("target file is outside project or blocked")
+        if not target.exists():
+            raise ValueError("target file does not exist")
+        if self._is_binary(target):
+            raise ValueError("binary target apply is rejected")
+
+        before = target.read_text(encoding="utf-8")
+        backup = target.with_suffix(target.suffix + '.bak.phase8')
+        backup.write_text(before, encoding="utf-8")
+        proposed = str(patch.get("proposed_content", ""))
+        with target.open("a", encoding="utf-8") as f:
+            f.write(proposed)
+
+        vr = self.verification_runner.run(
+            run_id=run_id,
+            plan_id=str(patch.get("plan_id", "")),
+            patch_id=patch_id,
+            project_path=project,
+            target_file=target,
+        )
+        self.patch_storage.save_verification_result(vr)
+
+        ar = PatchApplyResult(
+            patch_id=patch_id,
+            applied=True,
+            target_file=str(target),
+            backup_path=str(backup),
+            changed_bytes=len(proposed.encode("utf-8")),
+            message="patch applied",
+            verification_result_id=vr.verification_id,
+        )
+        self.patch_storage.save_apply_result(run_id, ar)
+        self.patch_storage.update_patch_payload(run_id, patch_id, {"applied": True, "status": "applied"})
+        approval = self.patch_approval_manager.mark_applied(run_id, patch_id, ar.model_dump())
+        return {
+            "run_id": run_id,
+            "patch_id": patch_id,
+            "applied": True,
+            "apply_result": ar.model_dump(),
+            "verification_result": vr.model_dump(),
+            "approval": approval.model_dump(),
+        }
 
     def _resolve_target(self, project_path: Path, target_file: str) -> Path | None:
         if not target_file or ".." in Path(target_file).parts: return None

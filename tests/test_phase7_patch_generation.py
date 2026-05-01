@@ -42,12 +42,12 @@ class Phase7PatchGenerationTests(unittest.TestCase):
         step = out["run"]["step_results"][0]
         self.assertTrue(step["patch_id"])
 
-    def test_apply_patches_true_updates_when_allow_update_true(self):
+    def test_apply_patches_true_does_not_direct_apply_in_phase8(self):
         target = self.project / "b.py"; target.write_text("x=1\n", encoding="utf-8")
         self._save_plan([ImplementationStep(step_id="s1", title="upd", action_type="update", risk_level="low", target_files=["b.py"])])
         out = self.executor.execute("plan7", execution_mode="safe_apply", project_path=str(self.project), allow_update=True, apply_patches=True, preview_only=False)
-        self.assertIn("CodeAgent Phase 7 patch note", target.read_text(encoding="utf-8"))
-        self.assertTrue(out["run"]["step_results"][0]["verification_id"])
+        self.assertNotIn("CodeAgent Phase 7 patch note", target.read_text(encoding="utf-8"))
+        self.assertFalse(out["run"]["step_results"][0]["verification_id"])
 
     def test_json_update_is_rejected(self):
         target = self.project / "a.json"; target.write_text("{\"a\":1}\n", encoding="utf-8")
@@ -64,8 +64,8 @@ class Phase7PatchGenerationTests(unittest.TestCase):
         ])
         out = self.executor.execute("plan7", execution_mode="safe_apply", project_path=str(self.project), allow_update=True, apply_patches=True, preview_only=False)
         self.assertEqual(out["run"]["step_results"][0]["status"], "completed")
-        self.assertIn("<!-- CodeAgent Phase 7 patch note", html.read_text(encoding="utf-8"))
-        self.assertIn("/* CodeAgent Phase 7 patch note", js.read_text(encoding="utf-8"))
+        self.assertEqual(html.read_text(encoding="utf-8"), "<h1>x</h1>\n")
+        self.assertEqual(js.read_text(encoding="utf-8"), "const x = 1;\n")
 
     def test_preview_only_has_no_verification_id_and_apply_has_it(self):
         target = self.project / "c.py"; target.write_text("x=1\n", encoding="utf-8")
@@ -73,7 +73,7 @@ class Phase7PatchGenerationTests(unittest.TestCase):
         out1 = self.executor.execute("plan7", execution_mode="safe_apply", project_path=str(self.project), allow_update=True, apply_patches=False, preview_only=True)
         self.assertFalse(out1["run"]["step_results"][0]["verification_id"])
         out2 = self.executor.execute("plan7", execution_mode="safe_apply", project_path=str(self.project), allow_update=True, apply_patches=True, preview_only=False)
-        self.assertTrue(out2["run"]["step_results"][0]["verification_id"])
+        self.assertFalse(out2["run"]["step_results"][0]["verification_id"])
 
     def test_patch_and_verification_files_saved_utf8(self):
         target = self.project / "d.py"; target.write_text("x=1\n", encoding="utf-8")
