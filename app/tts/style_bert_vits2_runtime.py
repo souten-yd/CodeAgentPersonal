@@ -5,6 +5,7 @@ import collections
 import json
 import logging
 import os
+import platform
 import subprocess
 import tempfile
 import threading
@@ -134,13 +135,19 @@ def _pick_device(req: dict) -> str:
     valid_devices = {"cpu", "cuda", "mps", "directml", "dml"}
     auto_values = {"", "auto"}
     disabled_markers = {"", "-1", "none", "void"}
+    windows_fallback_devices = {"cuda", "directml", "dml", "privateuseone", "privateuseone:0", "auto", ""}
+    is_windows = os.name == "nt" or platform.system() == "Windows"
 
     requested = str(req.get("device", "")).strip().lower()
+    if is_windows and requested in windows_fallback_devices:
+        return "cpu"
     if requested in valid_devices:
         return requested
 
     if requested in auto_values:
         env_device = str(os.environ.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "")).strip().lower()
+        if is_windows and env_device in windows_fallback_devices:
+            return "cpu"
         if env_device in valid_devices:
             return env_device
         if env_device in auto_values:
@@ -756,10 +763,13 @@ def synth(req: dict) -> dict:
             device = "cuda" if (sys.platform != "win32" and torch.cuda.is_available()) else "cpu"
         except Exception:
             device = "cpu"
-    if sys.platform == "win32" and device in {"directml", "dml", "privateuseone", "auto"}:
+    if sys.platform == "win32" and device in {"cuda", "directml", "dml", "privateuseone", "privateuseone:0", "auto"}:
         device = "cpu"
         effective_device = "cpu"
-        fallback_reason = "windows_directml_fallback_to_cpu"
+        if requested_device == "cuda":
+            fallback_reason = "windows_torch_cuda_unavailable"
+        else:
+            fallback_reason = "windows_force_cpu"
     elif device in {"directml", "dml"}:
         directml_attempted = True
         device = "cpu"
