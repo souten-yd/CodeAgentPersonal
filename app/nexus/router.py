@@ -190,6 +190,9 @@ def _check_searxng_connectivity(url: str) -> tuple[bool, str]:
                 return True, "SearXNG 疎通確認に成功しました。"
             return False, "SearXNG から想定外レスポンスを受信しました。"
     except Exception as exc:  # noqa: BLE001
+        status = getattr(exc, "code", None)
+        if status == 403:
+            return False, "SearXNG は起動していますが JSON API が無効です。settings.yml の search.formats に json を追加してコンテナを再起動してください。"
         return False, f"SearXNG 疎通確認に失敗しました: {exc}"
 
 
@@ -197,7 +200,7 @@ def _resolve_searxng_state(autostart_status: str, probe_ok: bool) -> tuple[str, 
     normalized = (autostart_status or "").strip().lower()
     searx_log = os.getenv("CODEAGENT_SEARXNG_LOG_FILE", "/workspace/ca_data/searxng/searxng.log")
     windows_hint = (
-        " Windowsでは SearXNG は Docker コンテナで起動します。Docker Desktop を起動し、必要なら start.bat を再実行してください。ログ: ca_data/searxng/searxng.log"
+        " Windowsでは SearXNG は Docker コンテナ codeagent-searxng で起動します。Docker Desktop を起動し、start.bat を再実行してください。ログ: ca_data/searxng/searxng.log"
         if os.name == "nt"
         else ""
     )

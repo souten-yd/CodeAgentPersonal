@@ -28,5 +28,17 @@ class TestRouterWindowsHint(unittest.TestCase):
             self.assertNotIn("setup_searxng_windows.py", msg)
 
 
+class TestRouterSearxng403Hint(unittest.TestCase):
+    def test_403_message_mentions_json_formats(self):
+        mod = importlib.import_module("app.nexus.router")
+        class E(Exception):
+            code = 403
+        with patch("app.nexus.router.request.urlopen", side_effect=E()):
+            ok, msg = mod._check_searxng_connectivity("http://127.0.0.1:8088")
+            self.assertFalse(ok)
+            self.assertIn("search.formats", msg)
+            self.assertIn("json", msg)
+
+
 if __name__ == "__main__":
     unittest.main()
