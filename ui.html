@@ -2774,26 +2774,19 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div style="padding:4px 0 14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
           <div>
-            <div style="font-size:11px;font-weight:700;color:var(--text2)">DuckDuckGo検索</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:2px">必要と判断したときだけエージェントがWeb検索を使用</div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">Web検索</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">Chat / Task / Agent で必要な場合に、外部Web検索の使用を許可します。</div>
           </div>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="search-chk"
+            <input type="checkbox" id="search-chk" checked
               style="width:14px;height:14px;accent-color:var(--accent)"
               onchange="toggleSearch()">
-            <span style="font-size:11px;color:var(--text2)" id="search-label">OFF</span>
+            <span style="font-size:11px;color:var(--text2)" id="search-label">ON</span>
           </label>
         </div>
-        <div style="margin-bottom:4px;font-size:11px;color:var(--text2)">検索件数</div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <input type="range" id="search-num-slider" min="1" max="20" step="1" value="5"
-            style="flex:1;accent-color:var(--accent);cursor:pointer"
-            oninput="updateSearchNumLabel(this.value)" onchange="applySearchNum(this.value)">
-          <span id="search-num-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:28px;text-align:right">5</span>
-        </div>
+        <div id="search-provider-status" style="margin-top:2px;font-size:10px;color:var(--text3);line-height:1.6">現在のプロバイダ: - / 状態: 確認中</div>
         <div style="margin-top:6px;font-size:10px;color:var(--text3);line-height:1.6">
-          ※ ON は「検索ツールの使用を許可」する設定です。<br>
-          実際に検索した場合は Working タブに「🔎 Web検索中… / ✓ Web検索 完了」と表示されます。
+          実際に検索が実行された場合は Working / Log に検索中・完了・警告が表示されます。
         </div>
       </div>
 
@@ -6189,19 +6182,12 @@ async function loadSettingsFromDb() {
     if (slbl) slbl.textContent = streaming ? 'ON' : 'OFF';
 
     // Search
-    const search = d.search_enabled === 'true';
+    const search = String(d.search_enabled ?? 'true').toLowerCase() !== 'false';
     searchEnabled = search;
     const sc = document.getElementById('search-chk');
     const sl2 = document.getElementById('search-label');
     if (sc) sc.checked = search;
     if (sl2) sl2.textContent = search ? 'ON' : 'OFF';
-
-    // Search num
-    const snum = parseInt(d.search_num) || 5;
-    const sns = document.getElementById('search-num-slider');
-    const snl = document.getElementById('search-num-label');
-    if (sns) sns.value = snum;
-    if (snl) snl.textContent = snum;
 
     // Ctx size
     const ctx = normalizeCtxSize(d.ctx_size, DEFAULT_CTX_SIZE);
@@ -7535,7 +7521,21 @@ function setNexusWebStatus(status = {}, runtimeMeta = {}, isErr = false) {
   if (runtimeMeta?.message) extra.push(runtimeMeta.message);
   el.style.color = nonFatalState ? 'var(--amber)' : 'var(--text2)';
   el.textContent = `状態: ${labels.join(' / ')} | provider:${provider} | engine:${engine}${searxngState ? ` | searxng_state:${searxngState}` : ''}${extra.length ? ` | ${extra.join(' | ')}` : ''}`;
+
+  const providerEl = document.getElementById('search-provider-status');
+  if (providerEl) {
+    const providerName = String(status?.active_provider || status?.provider || provider || '-');
+    if (!status?.configured || nonFatalState) {
+      const msg = String(status?.message || runtimeMeta?.message || 'unknown');
+      providerEl.style.color = 'var(--amber)';
+      providerEl.textContent = `Web検索は許可されていますが、検索プロバイダが未接続です: ${msg}`;
+    } else {
+      providerEl.style.color = 'var(--text3)';
+      providerEl.textContent = `現在のプロバイダ: ${providerName} / 状態: 接続済み`;
+    }
+  }
 }
+
 
 async function refreshNexusWebStatus(runtimeMeta = {}) {
   try {
@@ -14612,33 +14612,6 @@ function updateStepsLabel(val) {
   _saveSettingDb('max_steps', val);
 }
 
-// ── SEARCH NUM RESULTS SLIDER ──
-async function initSearchNumSlider() {
-  try {
-    const r = await fetch(API+'/search/status');
-    const d = await r.json();
-    const n = d.num_results || 5;
-    const slider = document.getElementById('search-num-slider');
-    const label = document.getElementById('search-num-label');
-    if (slider) slider.value = n;
-    if (label) label.textContent = n;
-  } catch(e) {}
-}
-function updateSearchNumLabel(val) {
-  const el = document.getElementById('search-num-label');
-  if (el) el.textContent = val;
-}
-async function applySearchNum(val) {
-  try {
-    await fetch(API+'/search/num', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({num_results: parseInt(val)})
-    });
-    _saveSettingDb('search_num', val);
-    addLog('ok','search', `num_results set to ${val}`);
-  } catch(e) { addLog('err','search', e.message); }
-}
-
 // ── CONTEXT LENGTH SLIDER ──
 let _current_n_ctx_ui = DEFAULT_CTX_SIZE; // UIが知っているn_ctx（統計表示用）
 
@@ -14719,6 +14692,7 @@ async function initSearch() {
     const r = await fetch(API+'/search/status');
     const d = await r.json();
     applySearchUI(d.enabled);
+    await refreshNexusWebStatus();
   } catch(e) {}
 }
 
