@@ -2895,6 +2895,16 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <option value="tiny">tiny（最軽量）</option>
           </select>
         </div>
+        <div id="asr-engine-wrap" style="margin-bottom:8px;display:none">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASR Engine (Windows)</div>
+          <select id="asr-engine-sel" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)" onchange="saveAsrSettings()">
+            <option value="faster_whisper">faster-whisper</option><option value="whisper_cpp">whisper.cpp</option>
+          </select>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+            <div><div style="font-size:10px;color:var(--text3)">faster-whisper device</div><select id="asr-fw-device-sel" onchange="saveAsrSettings()"><option value="cpu">cpu</option><option value="cuda">cuda</option></select></div>
+            <div><div style="font-size:10px;color:var(--text3)">whisper.cpp backend</div><select id="asr-cpp-backend-sel" onchange="saveAsrSettings()"><option value="vulkan">vulkan</option><option value="cpu">cpu</option></select></div>
+          </div>
+        </div>
         <!-- デバイス選択 -->
         <div style="margin-bottom:8px">
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">デバイス</div>
@@ -3028,6 +3038,7 @@ function normalizeCtxSize(value, fallback = _settingsDefaultCtxSize) {
 }
 
 let mode = 'chat';
+let asrRuntimeConfig = {is_windows:false,is_runpod:false,gpu_vendor:'unknown',asr_engine:'faster_whisper',whisper_cpp_ready:false};
 const CHAT_TASK_TOGGLE_KEY = 'chat_task_enabled';
 let isTaskEnabled = localStorage.getItem(CHAT_TASK_TOGGLE_KEY) === 'true';
 const PHASE1_PLAN_DRAWER_KEY = 'phase1_plan_drawer_open';
@@ -5766,6 +5777,7 @@ function saveTtsTranslateSettings(context = 'echo') {
 
 function refreshAsrTab() {
   _echoInitSettingsUI();
+  _loadAsrRuntimeConfig().then(()=>_renderAsrRuntimeUi());
   fetch(API + '/voice/status').then(r => r.json()).then(s => {
     const statusEl = document.getElementById('tsasr-asr-status');
     const loadBtn  = document.getElementById('tsasr-asr-load-btn');
@@ -5881,6 +5893,20 @@ function _ttsInitSettingsUI() {
 
 // ── ASR 設定 JS ──
 
+async function _loadAsrRuntimeConfig() {
+  try {
+    const r = await fetch(API + '/asr/config');
+    asrRuntimeConfig = await r.json();
+  } catch(_) {}
+}
+
+function _renderAsrRuntimeUi() {
+  const engineWrap = document.getElementById('asr-engine-wrap');
+  const runpod = !!asrRuntimeConfig.is_runpod;
+  const windows = !!asrRuntimeConfig.is_windows;
+  if (engineWrap) engineWrap.style.display = (!runpod && windows) ? '' : 'none';
+}
+
 function _asrInitSettingsUI() {
   const silenceEl = document.getElementById('asr-silence-ms');
   const minSpeechEl = document.getElementById('asr-min-speech-ms');
@@ -5888,6 +5914,7 @@ function _asrInitSettingsUI() {
   if (silenceEl) silenceEl.value = String(voiceAsrSettings.silenceMs);
   if (minSpeechEl) minSpeechEl.value = String(voiceAsrSettings.minSpeechMs);
   if (autoSendEl) autoSendEl.checked = !!voiceAsrSettings.autoSendAfterAsr;
+  _loadAsrRuntimeConfig().then(()=>_renderAsrRuntimeUi());
   fetch(API + '/voice/status').then(r => r.json()).then(s => {
     const statusTxt = document.getElementById('asr-status-txt');
     const unloadBtn = document.getElementById('asr-unload-btn');
@@ -5925,6 +5952,12 @@ function saveAsrSettings() {
   _saveSettingDb('silence_ms', voiceAsrSettings.silenceMs);
   _saveSettingDb('min_speech_ms', voiceAsrSettings.minSpeechMs);
   _saveSettingDb('auto_send_after_asr', voiceAsrSettings.autoSendAfterAsr);
+  const engineSel=document.getElementById('asr-engine-sel');
+  const fwSel=document.getElementById('asr-fw-device-sel');
+  const cppSel=document.getElementById('asr-cpp-backend-sel');
+  if(engineSel) _saveSettingDb('asr_engine', engineSel.value);
+  if(fwSel) _saveSettingDb('faster_whisper_device', fwSel.value);
+  if(cppSel) _saveSettingDb('whisper_cpp_backend', cppSel.value);
 }
 
 async function loadAsrModel() {
@@ -11368,7 +11401,10 @@ async function transcribeVoiceBlob(blob, opts = {}){
         no_speech_threshold: echo.asrNoSpeechThreshold,
         log_prob_threshold: echo.asrLogProbThreshold,
         compression_ratio_threshold: echo.asrCompressionRatioThreshold,
-        auto_unload: false
+        auto_unload: false,
+        asr_engine: document.getElementById('asr-engine-sel')?.value || '',
+        faster_whisper_device: document.getElementById('asr-fw-device-sel')?.value || '',
+        whisper_cpp_backend: document.getElementById('asr-cpp-backend-sel')?.value || ''
       })
     });
     if (!resp.ok) {
@@ -12574,6 +12610,9 @@ async function echoUploadSessionAudio(input) {
         model: echo.asrModel || 'large-v3-turbo',
         asr_profile: echo.asrProfile || 'balanced',
         auto_unload: false,
+        asr_engine: document.getElementById('asr-engine-sel')?.value || '',
+        faster_whisper_device: document.getElementById('asr-fw-device-sel')?.value || '',
+        whisper_cpp_backend: document.getElementById('asr-cpp-backend-sel')?.value || '',
       })
     });
     if (!resp.ok || !resp.body) {
