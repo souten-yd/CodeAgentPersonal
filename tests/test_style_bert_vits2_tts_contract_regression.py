@@ -214,6 +214,9 @@ def test_build_payload_jp_extra_normalizes_english_text(tmp_path, monkeypatch):
     assert "エコー" in payload["text"]
     assert "ボルト" in payload["text"]
     assert "ダイレクトエムエル" in payload["text"]
+    unknown_payload = rt._build_payload({"text_source": "prepared"}, model="sample-jp-extra", text="Echo VaultでUnknownTermを使います。", request_id="t1b")
+    assert not any(ch.isascii() and ch.isalpha() for ch in unknown_payload["text"])
+    assert not any("Ａ" <= ch <= "Ｚ" or "ａ" <= ch <= "ｚ" for ch in unknown_payload["text"])
 
 
 def test_build_payload_prepared_text_still_normalizes(tmp_path, monkeypatch):

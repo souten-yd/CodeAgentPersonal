@@ -74,7 +74,7 @@ def test_llm_failure_does_not_raise_and_records_warning(monkeypatch):
     result = normalize_text_for_sbv2_jp_extra("UnknownWordを読みます。", {})
     assert "UnknownWord" not in result["normalized_text"]
     assert any("english llm katakanaize failed" in w for w in result["warnings"])
-    assert "english_remains_after_katakanaize" in result["warnings"]
+    assert "english_spelling_fallback_applied" in result["warnings"]
     assert any(op.get("type") == "warning" and op.get("category") == "english_katakanaize" for op in result["operations"])
 
 
@@ -133,3 +133,36 @@ def test_echo_translation_japanese_tts_preprocess_removes_english():
     assert "アップロード" in out["text"]
     assert "プレイライト" in out["text"]
     assert not any(ch.isascii() and ch.isalpha() for ch in out["text"])
+
+
+def test_fallback_unknown_term_is_katakana_only():
+    result = normalize_text_for_sbv2_jp_extra("UnknownTerm", {})
+    text = result["normalized_text"]
+    assert text
+    assert not any(ch.isascii() and ch.isalpha() for ch in text)
+    assert not any("Ａ" <= ch <= "Ｚ" or "ａ" <= ch <= "ｚ" for ch in text)
+
+
+def test_fallback_abc_to_spelling_reading():
+    assert text_normalizer._fallback_spelling_reading("ABC") == "エービーシー"
+
+
+def test_dictionary_ui_and_vad_priority():
+    out = _normalize("UIとVADを確認します。")
+    assert "ユーアイ" in out
+    assert "ブイエーディー" in out
+
+
+def test_echo_vault_unknown_term_has_no_english_left():
+    out = preprocess_text_for_tts("Echo VaultでUnknownTermを使います。", target_language="ja")
+    assert "エコー" in out["text"]
+    assert "ボルト" in out["text"]
+    assert not any(ch.isascii() and ch.isalpha() for ch in out["text"])
+    assert not any("Ａ" <= ch <= "Ｚ" or "ａ" <= ch <= "ｚ" for ch in out["text"])
+
+
+def test_fallback_spelling_reading_directml_has_no_english():
+    out = text_normalizer._fallback_spelling_reading("DirectML")
+    assert out
+    assert not any(ch.isascii() and ch.isalpha() for ch in out)
+    assert not any("Ａ" <= ch <= "Ｚ" or "ａ" <= ch <= "ｚ" for ch in out)
