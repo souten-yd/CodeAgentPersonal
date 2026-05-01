@@ -4,6 +4,27 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Invoke-DownloadWithRetry {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [Parameter(Mandatory = $true)][string]$OutFile,
+        [int]$MaxRetries = 3
+    )
+
+    for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
+        try {
+            Invoke-WebRequest -Uri $Uri -OutFile $OutFile -Headers @{ "User-Agent" = "CodeAgentPersonal" }
+            return
+        } catch {
+            if ($attempt -eq $MaxRetries) {
+                throw
+            }
+            Write-Host "[download] attempt ${attempt}/${MaxRetries} failed. retrying..."
+            Start-Sleep -Seconds ([Math]::Min(2 * $attempt, 10))
+        }
+    }
+}
+
 try {
     $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
     $InstallDir = Join-Path $RepoRoot "ca_data\bin\whisper.cpp-vulkan"
@@ -21,13 +42,15 @@ try {
         Write-Host "[whisper.cpp] fetching latest release..."
         $release = Invoke-RestMethod -Uri $ApiUrl -Headers @{ "User-Agent" = "CodeAgentPersonal" }
 
-        $asset = $release.assets |
+        $matchingAssets = $release.assets |
             Where-Object {
                 $_.name -match "(?i)(windows|win)" -and
                 $_.name -match "(?i)vulkan" -and
-                $_.name -match "(?i)(x64|amd64)" -and
-                $_.name -match "\.zip$"
-            } |
+                $_.name -match "(?i)\.zip$"
+            }
+
+        $asset = $matchingAssets |
+            Sort-Object -Property @{ Expression = { if ($_.name -match "(?i)(x64|amd64|amd)") { 0 } else { 1 } } }, @{ Expression = { $_.name } } |
             Select-Object -First 1
 
         if (-not $asset) {
@@ -35,7 +58,7 @@ try {
             $release.assets |
                 Where-Object { $_.name -match "(?i)vulkan" -and $_.name -match "\.zip$" } |
                 ForEach-Object { Write-Host " - $($_.name)" }
-            throw "No Windows x64 Vulkan zip asset found in latest release."
+            throw "No Windows Vulkan zip asset found in latest release."
         }
 
         if ($Force -and (Test-Path $InstallDir)) {
@@ -45,17 +68,24 @@ try {
 
         $zipPath = Join-Path $env:TEMP $asset.name
         Write-Host "[whisper.cpp] downloading: $($asset.name)"
-        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath -Headers @{ "User-Agent" = "CodeAgentPersonal" }
+        Invoke-DownloadWithRetry -Uri $asset.browser_download_url -OutFile $zipPath
 
         Expand-Archive -Path $zipPath -DestinationPath $InstallDir -Force
     }
 
-    $bin = Get-ChildItem $InstallDir -Recurse -Include "whisper-cli.exe","main.exe","whisper.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $bin) {
+    $bins = Get-ChildItem $InstallDir -Recurse -Include "whisper-cli.exe","main.exe","whisper.exe" -ErrorAction SilentlyContinue
+    if (-not $bins) {
         throw "whisper.cpp executable not found under $InstallDir"
     }
 
-    Write-Host "[whisper.cpp] executable: $($bin.FullName)"
+    Write-Host "[whisper.cpp] detected executables:"
+    foreach ($candidate in $bins) {
+        Write-Host " - $($candidate.FullName)"
+    }
+
+    $bin = $bins | Select-Object -First 1
+
+    Write-Host "[whisper.cpp] startup check: $($bin.FullName)"
     try {
         & $bin.FullName --help | Select-Object -First 20
     } catch {
@@ -63,6 +93,48 @@ try {
     }
 
     $model = Join-Path $ModelDir "ggml-large-v3-turbo.bin"
+    $modelPart = "${model}.part"
+    $modelUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin?download=true"
+    $minModelBytes = 1GB
+
+    $needModelDownload = $Force
+    if (-not $needModelDownload) {
+        if (-not (Test-Path $model)) {
+            $needModelDownload = $true
+        } else {
+            $modelFile = Get-Item $model
+            if ($modelFile.Length -lt $minModelBytes) {
+                Write-Host "[whisper.cpp] existing model is smaller than 1GB. re-downloading."
+                $needModelDownload = $true
+            }
+        }
+    }
+
+    if ($needModelDownload) {
+        try {
+            if (Test-Path $modelPart) {
+                Remove-Item -Force $modelPart
+            }
+            Write-Host "[whisper.cpp] downloading model..."
+            Write-Host "[whisper.cpp] source: $modelUrl"
+            Invoke-DownloadWithRetry -Uri $modelUrl -OutFile $modelPart
+
+            $partFile = Get-Item $modelPart
+            if ($partFile.Length -lt $minModelBytes) {
+                throw "Downloaded model is smaller than 1GB. It may be an HTML error page or incomplete download."
+            }
+
+            Move-Item -Force $modelPart $model
+            Write-Host "[whisper.cpp] model saved: $model"
+        } catch {
+            Write-Host "[ERROR] Failed to download ggml-large-v3-turbo.bin"
+            Write-Host "  target: $model"
+            Write-Host "  manual: $modelUrl"
+            throw
+        }
+    } else {
+        Write-Host "[whisper.cpp] model already exists and is >=1GB: $model"
+    }
 
     Write-Host ""
     Write-Host "Set these environment variables for Windows AMD Vulkan ASR:"
@@ -71,18 +143,11 @@ try {
     Write-Host "set CODEAGENT_WHISPER_CPP_BIN=$($bin.FullName)"
     Write-Host "set CODEAGENT_WHISPER_CPP_MODEL=$model"
 
-    if (-not (Test-Path $model)) {
-        Write-Host ""
-        Write-Host "[WARN] whisper.cpp ggml model is not found:"
-        Write-Host "  $model"
-        Write-Host "Place ggml-large-v3-turbo.bin there before using whisper.cpp ASR."
-    }
-
     $ffmpegCmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
     if (-not $ffmpegCmd) {
         Write-Host ""
         Write-Host "[WARN] ffmpeg is not found in PATH."
-        Write-Host "       ffmpeg is required when passing browser-recorded webm audio to whisper.cpp."
+        Write-Host "       ブラウザ録音 webm を使う場合は ffmpeg が必要です。"
         Write-Host "       If you only use wav input, ffmpeg is optional."
     } else {
         Write-Host ""
