@@ -39,13 +39,13 @@ class ImplementationExecutor:
 
         run_id = f"run_{uuid4().hex[:12]}"
         now = self._now()
-        resolved_project_path, path_warnings = self._resolve_execution_project_path(plan, project_path)
+        resolved_project_path, project_path_source, path_warnings = self._resolve_execution_project_path(plan, project_path)
         steps = plan.get("implementation_steps") or []
         run = ImplementationRun(run_id=run_id, plan_id=plan_id, requirement_id=str(plan.get("requirement_id", "")), approval_id=str(approval.get("approval_id", "")), created_at=now, updated_at=now, status="running", execution_mode=execution_mode, project_path=resolved_project_path, total_steps=len(steps), warnings=[], errors=[], summary="", no_destructive_actions=True)
         run.warnings.extend(path_warnings)
 
         if execution_mode == "safe_apply":
-            self._validate_explicit_project_path_for_safe_apply(project_path, resolved_project_path)
+            self._validate_project_path_for_safe_apply(resolved_project_path, project_path_source)
         elif not resolved_project_path:
             run.warnings.append("project_path was not resolved; dry_run only")
 
@@ -80,15 +80,13 @@ class ImplementationExecutor:
         if str(review.get("recommended_next_action", "")) == "reject_plan":
             raise ValueError("plan review rejected execution")
 
-    def _validate_explicit_project_path_for_safe_apply(self, requested_project_path: str, resolved_project_path: str) -> None:
-        req = str(requested_project_path or "")
-        if req.strip() in {"", ".", "./"}:
-            raise ValueError("safe_apply requires explicit non-dot project_path")
+    def _validate_project_path_for_safe_apply(self, resolved_project_path: str, source: str) -> None:
         resolved_dir = Path(resolved_project_path)
         if not resolved_project_path or not resolved_dir.exists() or not resolved_dir.is_dir():
             raise ValueError("safe_apply requires an explicit or stored resolved_project_path")
         cwd = Path.cwd().resolve()
-        if resolved_dir.resolve() == cwd or str(resolved_dir.resolve()) == "/app":
+        repo_root = Path(__file__).resolve().parent.parent
+        if resolved_dir.resolve() in {cwd, repo_root} or str(resolved_dir.resolve()) == "/app":
             raise ValueError("safe_apply project_path is too broad; specify concrete project directory")
 
     def _run_step(self, run: ImplementationRun, step: ImplementationStepResult, execution_mode: str, plan: dict, project_path: Path | None, allow_update: bool, allow_create: bool, logs: list[str], apply_patches: bool, preview_only: bool, max_patch_bytes: int) -> None:
@@ -100,6 +98,7 @@ class ImplementationExecutor:
             if execution_mode == "dry_run":
                 if action == "update" and project_path is not None and allow_update:
                     self._safe_update(step, project_path, run.run_id, run.plan_id, plan, apply_patches=False, preview_only=True, max_patch_bytes=max_patch_bytes)
+                    step.status = "skipped"; step.skipped_reason = "dry_run: execution planned only"; step.message = "patch preview generated during dry_run; file unchanged"; run.skipped_steps += 1; return
                 step.status = "skipped"; step.skipped_reason = "dry_run: execution planned only"; step.message = "Recorded planned action. No changes made."; run.skipped_steps += 1; return
             if action == "inspect":
                 if project_path is None: step.status="skipped"; step.skipped_reason="project_path unresolved"; step.message="inspect skipped: project_path unresolved"; run.skipped_steps +=1; return
@@ -145,13 +144,21 @@ class ImplementationExecutor:
         if target is None: self._block(step,None,"target path is outside project or blocked"); return
         if not target.exists(): raise ValueError("target file does not exist")
         if self._is_binary(target): raise ValueError("binary file update is blocked")
-        proposal=self.patch_generator.generate_append_patch(run_id, plan_id, step.step_id, step.title, str(plan.get('description','')), step.risk_level, target)
+        try:
+            proposal=self.patch_generator.generate_append_patch(run_id, plan_id, step.step_id, step.title, str(plan.get('description','')), step.risk_level, target)
+        except ValueError as exc:
+            self._block(step, None, f"patch generation blocked: {exc}")
+            return
         self.patch_safety.max_patch_bytes = max_patch_bytes
         allowed,warns=self.patch_safety.evaluate(proposal, project_path, step.risk_level)
         proposal.apply_allowed=allowed; proposal.safety_warnings=warns
         self.patch_storage.save_patch_proposal(proposal)
         step.patch_id = proposal.patch_id
-        if preview_only or not apply_patches:
+        if preview_only:
+            step.status = "completed"
+            step.message = "patch preview generated; file unchanged"
+            return
+        if not apply_patches:
             step.status = "completed"
             step.message = "patch preview generated; file unchanged"
             return
@@ -182,9 +189,15 @@ class ImplementationExecutor:
         if "ca_data" in resolved.parts: return None
         return resolved
 
-    def _resolve_execution_project_path(self, plan: dict, requested_project_path: str) -> tuple[str, list[str]]:
+    def _resolve_execution_project_path(self, plan: dict, requested_project_path: str) -> tuple[str, str, list[str]]:
         warnings=[]; candidates=[]; req=str(requested_project_path or "").strip()
-        if req: candidates.append(("request.project_path", req))
+        if req:
+            if req in {".", "./"}:
+                warnings.append("request.project_path ignored: dot path is invalid for resolution fallback")
+            else:
+                candidates.append(("request.project_path", req))
+        elif str(requested_project_path or "") != "":
+            warnings.append("request.project_path ignored: blank input")
         plan_resolved=str(plan.get("resolved_project_path","")).strip()
         if plan_resolved: candidates.append(("plan.resolved_project_path", plan_resolved))
         plan_path=str(plan.get("project_path","")).strip()
@@ -204,10 +217,10 @@ class ImplementationExecutor:
                 if str(resolved) == str(Path('.').resolve()):
                     warnings.append(f"project_path from {source} resolved to current directory")
                     continue
-                return str(resolved), warnings
+                return str(resolved), source, warnings
             except Exception as exc:
                 warnings.append(f"invalid project_path from {source}: {exc}")
-        return "", warnings
+        return "", "", warnings
 
     def _tally_step_status(self, run: ImplementationRun, step: ImplementationStepResult) -> None:
         if step.status == "completed": run.completed_steps += 1

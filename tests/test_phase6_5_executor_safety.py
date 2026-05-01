@@ -51,18 +51,20 @@ class Phase65ExecutorSafetyTests(unittest.TestCase):
         payload.update(fields)
         p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    def test_safe_apply_with_empty_project_path_fails(self):
+    def test_safe_apply_with_empty_project_path_uses_plan_fallback(self):
         self._save_plan([ImplementationStep(step_id="s1", title="作成", action_type="create", target_files=["new.txt"])])
         self._approve()
-        with self.assertRaises(ValueError):
-            self.executor.execute("plan6", execution_mode="safe_apply", project_path="", allow_create=True)
+        self._inject_plan_fields(resolved_project_path=str(self.project))
+        out = self.executor.execute("plan6", execution_mode="safe_apply", project_path="", allow_create=True)
+        self.assertEqual(out["run"]["step_results"][0]["status"], "completed")
 
 
-    def test_safe_apply_with_dot_project_path_fails(self):
+    def test_safe_apply_with_dot_project_path_uses_plan_fallback(self):
         self._save_plan([ImplementationStep(step_id="s1", title="作成", action_type="create", target_files=["new.txt"])])
         self._approve()
-        with self.assertRaises(ValueError):
-            self.executor.execute("plan6", execution_mode="safe_apply", project_path=".", allow_create=True)
+        self._inject_plan_fields(resolved_project_path=str(self.project))
+        out = self.executor.execute("plan6", execution_mode="safe_apply", project_path=".", allow_create=True)
+        self.assertEqual(out["run"]["step_results"][0]["status"], "completed")
 
     def test_safe_apply_with_blank_project_path_fails(self):
         self._save_plan([ImplementationStep(step_id="s1", title="作成", action_type="create", target_files=["new.txt"])])
@@ -76,20 +78,26 @@ class Phase65ExecutorSafetyTests(unittest.TestCase):
         self.assertIn("project_path was not resolved; dry_run only", out["run"]["warnings"])
         self.assertFalse((self.project / "new.txt").exists())
 
-    def test_safe_apply_with_empty_request_rejected_even_if_plan_has_path(self):
+    def test_safe_apply_with_dot_project_path_without_fallback_fails(self):
         self._save_plan([ImplementationStep(step_id="s1", title="作成", action_type="create", target_files=["from_plan.txt"])])
         self._approve()
-        self._inject_plan_fields(resolved_project_path=str(self.project))
+        with self.assertRaises(ValueError):
+            self.executor.execute("plan6", execution_mode="safe_apply", project_path=".", allow_create=True)
+
+    def test_safe_apply_with_empty_request_rejected_if_plan_path_is_cwd(self):
+        self._save_plan([ImplementationStep(step_id="s1", title="作成", action_type="create", target_files=["from_plan.txt"])])
+        self._approve()
+        self._inject_plan_fields(resolved_project_path=str(Path.cwd()))
         with self.assertRaises(ValueError):
             self.executor.execute("plan6", execution_mode="safe_apply", project_path="", allow_create=True)
 
-    def test_safe_apply_with_empty_request_rejected_even_if_requirement_has_path(self):
+    def test_safe_apply_with_empty_request_rejected_if_requirement_is_app(self):
         self._save_plan([ImplementationStep(step_id="s1", title="作成", action_type="create", target_files=["from_requirement.txt"])])
         req = RequirementDefinition(
             requirement_id="req6",
             source_task_id="task1",
             user_input="u",
-            resolved_project_path=str(self.project),
+            resolved_project_path="/app",
         )
         self.storage.save_requirement(req)
         self._approve()

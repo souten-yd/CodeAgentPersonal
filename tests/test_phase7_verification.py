@@ -22,3 +22,9 @@ class Phase7VerificationTests(unittest.TestCase):
             vr = VerificationRunner().run("run1", "plan1", "patch1", Path(td), p)
             self.assertIn(vr.status, {"failed", "warning"})
 
+    def test_marker_check_with_html_comment(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "a.html"
+            p.write_text("<h1>ok</h1>\n<!-- CodeAgent Phase 7 patch note -->\n", encoding="utf-8")
+            vr = VerificationRunner().run("run1", "plan1", "patch1", Path(td), p)
+            self.assertEqual(vr.status, "passed")
