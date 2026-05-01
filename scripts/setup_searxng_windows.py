@@ -40,20 +40,20 @@ def _is_incomplete_repo(repo_dir: Path) -> bool:
 
 
 def _clone_searxng_sparse(repo_dir: Path, base_dir: Path, env: dict[str, str]) -> None:
-    sparse_patterns = "\n".join(
-        [
-            "/*",
-            "!/utils/templates/**",
-            "/searx/",
-            "/searxng_extra/",
-            "/pyproject.toml",
-            "/babel.cfg",
-            "/README.rst",
-            "/manage",
-            "/requirements*.txt",
-            "",
-        ]
-    )
+    sparse_patterns = [
+        "/searx/**",
+        "/searxng_extra/**",
+        "/pyproject.toml",
+        "/setup.py",
+        "/setup.cfg",
+        "/babel.cfg",
+        "/README.rst",
+        "/LICENSE",
+        "/LICENSES/**",
+        "/requirements*.txt",
+        "/manage",
+        "",
+    ]
     _run(
         ["git", "clone", "--filter=blob:none", "--no-checkout", "https://github.com/searxng/searxng.git", str(repo_dir)],
         cwd=base_dir,
@@ -62,7 +62,7 @@ def _clone_searxng_sparse(repo_dir: Path, base_dir: Path, env: dict[str, str]) -
     _run(["git", "-C", str(repo_dir), "sparse-checkout", "init", "--no-cone"], cwd=base_dir, env=env)
     info_sparse = repo_dir / ".git" / "info" / "sparse-checkout"
     info_sparse.parent.mkdir(parents=True, exist_ok=True)
-    info_sparse.write_text(sparse_patterns, encoding="utf-8")
+    info_sparse.write_text("\n".join(sparse_patterns), encoding="utf-8")
     try:
         _run(["git", "-C", str(repo_dir), "checkout", "HEAD"], cwd=base_dir, env=env)
     except RuntimeError as exc:
@@ -71,6 +71,18 @@ def _clone_searxng_sparse(repo_dir: Path, base_dir: Path, env: dict[str, str]) -
             " 壊れた third_party/searxng を削除して再実行してください。"
             f" repo_dir={repo_dir} sparse_pattern_file={info_sparse} sparse_patterns={sparse_patterns!r}"
         ) from exc
+
+    required_paths = [
+        repo_dir / "searx" / "webapp.py",
+        repo_dir / "pyproject.toml",
+    ]
+    missing_paths = [str(path) for path in required_paths if not path.exists()]
+    if missing_paths:
+        raise RuntimeError(
+            "SearXNG sparse checkout 後の必須ファイルが不足しています。"
+            f" missing={missing_paths} repo_dir={repo_dir} sparse_patterns={sparse_patterns!r}"
+        )
+
 
 
 def main() -> int:
