@@ -16,7 +16,7 @@ _JSON_BLOCK_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
 _KATAKANA_CACHE: dict[str, str] = {}
 _PERSISTENT_CACHE = KatakanaPersistentCache()
 _DEFAULT_TIMEOUT_SEC = 4.0
-_DEFAULT_ENDPOINT = "http://127.0.0.1:8000/v1/chat/completions"
+_DEFAULT_ENDPOINT = "http://127.0.0.1:8080/v1/chat/completions"
 _DEFAULT_MODEL = "local-llm"
 
 
@@ -77,7 +77,23 @@ def _is_valid_katakana_reading(token: str, value: str) -> bool:
 
 
 def _endpoint() -> str:
-    endpoint = str(os.environ.get("CODEAGENT_KATAKANA_LLM_ENDPOINT", _DEFAULT_ENDPOINT)).strip()
+    explicit = str(os.environ.get("CODEAGENT_KATAKANA_LLM_ENDPOINT", "")).strip()
+    if explicit:
+        endpoint = explicit
+    else:
+        codeagent_base = str(os.environ.get("CODEAGENT_LLM_BASE_URL", "")).strip().rstrip("/")
+        if codeagent_base:
+            endpoint = f"{codeagent_base}/v1/chat/completions"
+        else:
+            openai_base = str(os.environ.get("OPENAI_BASE_URL", "")).strip().rstrip("/")
+            if openai_base:
+                endpoint = (
+                    f"{openai_base}/chat/completions"
+                    if openai_base.endswith("/v1")
+                    else f"{openai_base}/v1/chat/completions"
+                )
+            else:
+                endpoint = _DEFAULT_ENDPOINT
     if "/tts/translate-text" in endpoint.lower():
         raise ValueError("katakana llm endpoint must not be /tts/translate-text")
     return endpoint

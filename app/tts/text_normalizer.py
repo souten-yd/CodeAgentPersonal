@@ -65,6 +65,27 @@ _DEFAULT_ENGLISH_DICT = {
     "vram": "ブイラム",
     "ok": "オーケー",
     "ng": "エヌジー",
+    "ui": "ユーアイ",
+    "webui": "ウェブユーアイ",
+    "echo": "エコー",
+    "vault": "ボルト",
+    "echovault": "エコーボルト",
+    "vad": "ブイエーディー",
+    "directml": "ダイレクトエムエル",
+    "rocm": "ロックエム",
+    "vulkan": "バルカン",
+    "whisper": "ウィスパー",
+    "playwright": "プレイライト",
+    "codeagent": "コードエージェント",
+    "kasane": "カサネ",
+    "nexus": "ネクサス",
+    "upload": "アップロード",
+    "stylebertvits2": "スタイルバートブイツーツー",
+    "sbv2": "エスビーブイツー",
+    "bert": "バート",
+    "vits": "ビッツ",
+    "onnx": "オニキス",
+    "windows": "ウィンドウズ",
 }
 _UNIT_READABLE_MAP = {
     "tb": "テラバイト",
@@ -145,7 +166,21 @@ def _append_operation(
     operations.append(operation)
 
 
-def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) -> dict[str, Any]:
+def _fallback_spelling_reading(token: str) -> str:
+    letters = [" " if ch in {"-", "_"} else ch for ch in token]
+    mapped: list[str] = []
+    for ch in letters:
+        lower = ch.lower()
+        if "a" <= lower <= "z":
+            mapped.append(chr(ord("Ａ") + ord(lower) - ord("a")))
+        elif ch.isdigit():
+            mapped.append(ch)
+        elif ch == " ":
+            mapped.append(" ")
+    return "".join(mapped).strip()
+
+
+def normalize_text_for_japanese_tts(text: str | None, settings: dict | None) -> dict[str, Any]:
     settings = settings or {}
     original = str(text or "")
     operations: list[dict[str, Any]] = []
@@ -346,6 +381,21 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
     current = current.strip()
     _append_operation(operations, "english_to_katakana", before, current, english_policy, force=True)
 
+    before = current
+    remaining_before = [m.group(0) for m in _EN_SEGMENT_PATTERN.finditer(current)]
+    if remaining_before:
+        for token in sorted(set(remaining_before), key=len, reverse=True):
+            spelling = _fallback_spelling_reading(token) or "英語"
+            current = re.sub(rf"(?<![A-Za-z0-9]){re.escape(token)}(?![A-Za-z0-9])", spelling, current)
+        remaining_after = [m.group(0) for m in _EN_SEGMENT_PATTERN.finditer(current)]
+        if remaining_after:
+            current = _EN_SEGMENT_PATTERN.sub("英語", current)
+            remaining_after = [m.group(0) for m in _EN_SEGMENT_PATTERN.finditer(current)]
+        warnings.append("english_remains_after_katakanaize")
+        operations.append({"type": "english_fallback", "from": before, "to": current, "value": "spell_or_replace"})
+    else:
+        remaining_after = []
+
     looks_after = looks_japanese(current)
     if current and not looks_after:
         warnings.append("normalized text still does not look Japanese.")
@@ -358,5 +408,50 @@ def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) ->
         "warnings": warnings,
         "looks_japanese_before": looks_before,
         "looks_japanese_after": looks_after,
+        "english_remaining": remaining_after,
         "changed": current != original,
+    }
+
+
+def normalize_text_for_sbv2_jp_extra(text: str | None, settings: dict | None) -> dict[str, Any]:
+    return normalize_text_for_japanese_tts(text, settings)
+
+
+def preprocess_text_for_tts(
+    text: str,
+    *,
+    target_language: str,
+    model_kind: str = "style_bert_vits2",
+    is_jp_extra: bool = False,
+    settings: dict | None = None,
+) -> dict[str, Any]:
+    original = str(text or "")
+    lang = str(target_language or "").strip().lower()
+    normalized_target = "ja" if lang in {"ja", "jp", "japanese", "日本語"} else "en"
+    operations: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    if normalized_target == "ja":
+        jp = normalize_text_for_japanese_tts(original, settings or {})
+        return {
+            "text": str(jp.get("text") or ""),
+            "original_text": original,
+            "target_language": "ja",
+            "operations": list(jp.get("operations") or []),
+            "warnings": list(jp.get("warnings") or []),
+            "english_remaining": list(jp.get("english_remaining") or []),
+            "changed": bool(jp.get("changed")),
+            "model_kind": model_kind,
+            "is_jp_extra": is_jp_extra,
+        }
+
+    return {
+        "text": original,
+        "original_text": original,
+        "target_language": "en",
+        "operations": operations,
+        "warnings": warnings,
+        "english_remaining": [],
+        "changed": False,
+        "model_kind": model_kind,
+        "is_jp_extra": is_jp_extra,
     }

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.tts.language_router import resolve_tts_language_route
 from app.tts.text_normalizer import normalize_text_for_sbv2_jp_extra
+from app.tts import katakanaizer
 
 ROOT = Path(__file__).resolve().parents[1]
 UI_HTML = (ROOT / "ui.html").read_text(encoding="utf-8")
@@ -194,6 +195,58 @@ def test_build_payload_jp_extra_forces_jp_language_without_nameerror(tmp_path, m
     assert payload["is_jp_extra"] is True
     assert payload["effective_language"] == "JP"
     assert "use_translation" not in payload
+
+
+def test_build_payload_jp_extra_normalizes_english_text(tmp_path, monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    model_dir = tmp_path / "sample-jp-extra"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text('{"version":"2.0-jp-extra"}', encoding="utf-8")
+    (model_dir / "style_vectors.npy").write_bytes(b"dummy")
+    (model_dir / "model.safetensors").write_bytes(b"dummy")
+    monkeypatch.setattr(runtime, "_resolve_model_paths", lambda _m: (str(model_dir / "model.safetensors"), str(model_dir / "config.json"), str(model_dir / "style_vectors.npy")))
+
+    rt = runtime.StyleBertVITS2Runtime()
+    payload = rt._build_payload({"text_source": "prepared"}, model="sample-jp-extra", text="Echo VaultでDirectMLを使います。", request_id="t1")
+    assert payload["normalization_enabled"] is True
+    assert not any(ch.isascii() and ch.isalpha() for ch in payload["text"])
+    assert "エコー" in payload["text"]
+    assert "ボルト" in payload["text"]
+    assert "ダイレクトエムエル" in payload["text"]
+
+
+def test_build_payload_prepared_text_still_normalizes(tmp_path, monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    model_dir = tmp_path / "sample-global"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text('{"version":"2.0"}', encoding="utf-8")
+    (model_dir / "style_vectors.npy").write_bytes(b"dummy")
+    (model_dir / "model.safetensors").write_bytes(b"dummy")
+    monkeypatch.setattr(runtime, "_resolve_model_paths", lambda _m: (str(model_dir / "model.safetensors"), str(model_dir / "config.json"), str(model_dir / "style_vectors.npy")))
+    rt = runtime.StyleBertVITS2Runtime()
+    payload = rt._build_payload({"text_source": "prepared", "route_info": {"text_source": "prepared", "tts_language": "ja"}}, model="sample-global", text="Echo VaultでVADを使います。", request_id="t2")
+    assert "エコー" in payload["text"]
+    assert "ボルト" in payload["text"]
+    assert "ブイエーディー" in payload["text"]
+    assert not any(ch.isascii() and ch.isalpha() for ch in payload["text"])
+
+
+def test_katakanaizer_default_endpoint_is_8080(monkeypatch):
+    monkeypatch.delenv("CODEAGENT_KATAKANA_LLM_ENDPOINT", raising=False)
+    monkeypatch.delenv("CODEAGENT_LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    assert katakanaizer._endpoint() == "http://127.0.0.1:8080/v1/chat/completions"
+
+
+def test_katakanaizer_rejects_translate_text_endpoint(monkeypatch):
+    monkeypatch.setenv("CODEAGENT_KATAKANA_LLM_ENDPOINT", "http://127.0.0.1:8080/tts/translate-text")
+    try:
+        katakanaizer._endpoint()
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
 
 
 def test_build_payload_global_respects_route_tts_language(tmp_path, monkeypatch):
