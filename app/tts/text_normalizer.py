@@ -6,6 +6,7 @@ from typing import Any
 
 from .katakanaizer import (
     japanese_full_text_reading_with_llm,
+    japanese_full_text_reading_with_llm_detailed,
     katakanaize_english_segments_with_llm,
 )
 
@@ -233,6 +234,28 @@ def _fallback_spelling_reading(token: str) -> str:
     return result
 
 
+
+
+def _extract_major_japanese_nouns(text: str) -> set[str]:
+    return {m.group(0) for m in re.finditer(r"[一-龯]{2,}", str(text or ""))}
+
+
+def _validate_full_text_llm_candidate(source: str, candidate: str) -> tuple[bool, str]:
+    c = str(candidate or "").strip()
+    if not c:
+        return False, "empty"
+    if c in {"TTS向け全文読みの正規化を追加", "Add full-text Japanese reading normalization", "変換しました", "以下の通りです"}:
+        return False, "title_like"
+    if len(c) < max(4, len(source) // 4):
+        return False, "too_short_vs_source"
+    if _ASCII_ALPHA_PATTERN.search(c):
+        return False, "contains_ascii"
+    if any(mark in c for mark in ("<think", "</think>", "```", "{", "}")):
+        return False, "contains_meta_tokens"
+    major = _extract_major_japanese_nouns(source)
+    if major and not any(noun in c for noun in major) and not re.search(r"[ぁ-ん]{3,}", c):
+        return False, "major_nouns_lost"
+    return True, "accepted"
 def normalize_text_for_japanese_tts(text: str | None, settings: dict | None) -> dict[str, Any]:
     settings = settings or {}
     original = str(text or "")
@@ -465,17 +488,28 @@ def normalize_text_for_japanese_tts(text: str | None, settings: dict | None) -> 
                 dict_applied_keys.append(key)
     llm_applied = False
     llm_warning: str | None = None
+    raw_llm_output = ""
+    sanitized_llm_output = ""
+    rejected_reason = "disabled_or_not_used"
     if full_text_enabled and full_text_mode == "llm":
         try:
-            llm_text = japanese_full_text_reading_with_llm(current)
-            if llm_text:
-                current = llm_text
+            llm_detail = japanese_full_text_reading_with_llm_detailed(current)
+            raw_llm_output = str(llm_detail.get("raw_output") or "")
+            sanitized_llm_output = str(llm_detail.get("sanitized_output") or "")
+            ok, reason = _validate_full_text_llm_candidate(before, sanitized_llm_output)
+            if ok:
+                current = sanitized_llm_output
                 llm_applied = True
+                rejected_reason = ""
+            else:
+                rejected_reason = reason
         except Exception as exc:
             llm_warning = f"japanese full text llm reading failed: {exc}"
             warnings.append(llm_warning)
+            rejected_reason = "llm_exception"
     elif full_text_enabled and full_text_mode not in {"dict", "llm"}:
         warnings.append(f"unknown full text reading mode: {full_text_mode}. fallback=dict")
+        rejected_reason = "unknown_mode"
     operations.append(
         {
             "type": "japanese_full_text_reading",
@@ -486,6 +520,10 @@ def normalize_text_for_japanese_tts(text: str | None, settings: dict | None) -> 
                 "japanese_full_text_llm_reading": full_text_mode == "llm",
                 "accepted": {"dict": bool(dict_applied_keys), "llm": llm_applied},
                 "warnings": [llm_warning] if llm_warning else [],
+                "raw_llm_output_preview": raw_llm_output[:120],
+                "sanitized_llm_output_preview": sanitized_llm_output[:120],
+                "accepted": llm_applied,
+                "rejected_reason": rejected_reason,
             },
         }
     )

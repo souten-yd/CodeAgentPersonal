@@ -305,14 +305,49 @@ def katakanaize_english_segments_with_llm(
     return {"result": result, "summary": {"accepted": accepted, "rejected": rejected}} if return_summary else result
 
 
-def japanese_full_text_reading_with_llm(
+
+_FULL_TEXT_ALLOWED_JSON_KEYS = ("text", "reading", "normalized_text", "tts_text")
+_TITLE_LIKE_RESPONSES = {
+    "TTS向け全文読みの正規化を追加",
+    "Add full-text Japanese reading normalization",
+    "変換しました",
+    "以下の通りです",
+}
+_FULL_TEXT_PREFIX_PATTERN = re.compile(r"^\s*(?:読み上げ用テキスト|変換後)\s*[:：]\s*")
+_THINK_REASONING_PATTERN = re.compile(r"<(?:think|reasoning)>.*?</(?:think|reasoning)>", re.IGNORECASE | re.DOTALL)
+_CODE_FENCE_PATTERN = re.compile(r"```(?:json)?\s*.*?```", re.IGNORECASE | re.DOTALL)
+
+
+def _sanitize_full_text_llm_output(content: str) -> tuple[str, str]:
+    raw = _normalize_segment(content)
+    if not raw:
+        return "", "empty"
+    text = _THINK_REASONING_PATTERN.sub("", raw)
+    text = _CODE_FENCE_PATTERN.sub("", text)
+    text = _FULL_TEXT_PREFIX_PATTERN.sub("", text).strip()
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        parsed = None
+    if isinstance(parsed, dict):
+        for key in _FULL_TEXT_ALLOWED_JSON_KEYS:
+            value = parsed.get(key)
+            if isinstance(value, str) and _normalize_segment(value):
+                return _normalize_segment(value), "json_allowed_key"
+        return "", "json_disallowed_keys"
+    if re.fullmatch(r"\{.*\}", text, re.DOTALL):
+        return "", "json_like_rejected"
+    return _normalize_segment(text), "plain_text"
+
+
+def japanese_full_text_reading_with_llm_detailed(
     text: str,
     *,
     timeout_sec: float | None = None,
-) -> str:
+) -> dict[str, str]:
     source = _normalize_segment(text)
     if not source:
-        return ""
+        return {"raw_output": "", "sanitized_output": "", "sanitizer": "empty_input"}
     timeout_value = float(timeout_sec or _DEFAULT_TIMEOUT_SEC)
     model = str(os.environ.get("CODEAGENT_KATAKANA_LLM_MODEL", _DEFAULT_MODEL)).strip() or _DEFAULT_MODEL
     endpoint = _endpoint()
@@ -339,12 +374,13 @@ def japanese_full_text_reading_with_llm(
     )
     response.raise_for_status()
     body = response.json() if response.content else {}
-    content = (
-        (
-            ((body.get("choices") or [{}])[0].get("message") or {}).get("content")
-            if isinstance(body, dict)
-            else ""
-        )
-        or ""
-    )
-    return _normalize_segment(content)
+    content = ((((body.get("choices") or [{}])[0].get("message") or {}).get("content") if isinstance(body, dict) else "") or "")
+    sanitized, sanitizer = _sanitize_full_text_llm_output(content)
+    return {"raw_output": _normalize_segment(content), "sanitized_output": sanitized, "sanitizer": sanitizer}
+
+def japanese_full_text_reading_with_llm(
+    text: str,
+    *,
+    timeout_sec: float | None = None,
+) -> str:
+    return japanese_full_text_reading_with_llm_detailed(text, timeout_sec=timeout_sec).get("sanitized_output", "")
