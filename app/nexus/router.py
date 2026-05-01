@@ -197,7 +197,7 @@ def _resolve_searxng_state(autostart_status: str, probe_ok: bool) -> tuple[str, 
     normalized = (autostart_status or "").strip().lower()
     searx_log = os.getenv("CODEAGENT_SEARXNG_LOG_FILE", "/workspace/ca_data/searxng/searxng.log")
     windows_hint = (
-        " Windowsでは scripts/setup_searxng_windows.py を実行してください。"
+        " Windowsでは SearXNG は Docker コンテナで起動します。Docker Desktop を起動し、必要なら start.bat を再実行してください。ログ: ca_data/searxng/searxng.log"
         if os.name == "nt"
         else ""
     )
