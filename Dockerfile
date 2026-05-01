@@ -42,7 +42,7 @@ RUN set -eux; \
 ########################################
 ## Build stage: Python deps + Style-Bert-VITS2 prep (with CUDA toolkit)
 ########################################
-FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu${UBUNTU_VERSION} AS py_base
+FROM pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel AS py_base
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -66,8 +66,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-COPY docker/keys/deadsnakes.asc /tmp/deadsnakes.asc
-
 RUN mkdir -p \
     /opt/cache \
     /opt/hf_cache \
@@ -81,30 +79,14 @@ RUN rm -rf /var/lib/apt/lists/* \
         ca-certificates \
         curl \
         jq \
-        gnupg \
         build-essential \
         pkg-config \
         sox \
         libsox-fmt-all \
     && update-ca-certificates \
-    && test -s /tmp/deadsnakes.asc \
-    && grep -q "BEGIN PGP PUBLIC KEY BLOCK" /tmp/deadsnakes.asc \
-    && mkdir -p /etc/apt/keyrings \
-    && gpg --dearmor -o /etc/apt/keyrings/deadsnakes.gpg /tmp/deadsnakes.asc \
-    && rm -f /tmp/deadsnakes.asc \
-    && gpg --show-keys --with-colons /etc/apt/keyrings/deadsnakes.gpg | grep -q "BA6932366A755776" \
-    && . /etc/os-release \
-    && echo "deb [signed-by=/etc/apt/keyrings/deadsnakes.gpg] https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu ${VERSION_CODENAME} main" \
-        > /etc/apt/sources.list.d/deadsnakes.list \
-    && apt-get update -o Acquire::Retries=5 \
-    && apt-get install -y --no-install-recommends --fix-missing \
-        python3.11 \
-        python3.11-dev \
-        python3.11-venv \
-        python3.11-distutils \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3.11 -m venv /opt/venv
+RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:${PATH}
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
 
@@ -150,9 +132,12 @@ PY
 
 # Install TTS runtime dependencies (Style-Bert-VITS2 required set).
 RUN set -eux; \
-    python -m pip install --no-cache-dir --upgrade-strategy only-if-needed \
-      --index-url "https://download.pytorch.org/whl/cu128" \
-      -r /app/requirements-tts.txt; \
+    python - <<'PY'
+import torch, torchaudio
+print("[TTS] preinstalled torch", torch.__version__, "cuda", torch.version.cuda)
+print("[TTS] preinstalled torchaudio", torchaudio.__version__)
+PY
+    ; \
     python -m pip check
 
 # Re-pin core framework versions in case optional deps caused downgrades
@@ -187,7 +172,7 @@ RUN rm -rf /app/Style-Bert-VITS2 \
 # Keep Style-Bert-VITS2 dependencies isolated from existing Qwen3-TTS pins by using a dedicated venv.
 RUN set -eux; \
     cd /app/Style-Bert-VITS2; \
-    python3.11 -m venv /opt/style-bert-vits2-venv; \
+    python -m venv /opt/style-bert-vits2-venv; \
     site_packages="$("/opt/style-bert-vits2-venv/bin/python" -c 'import site; print(site.getsitepackages()[0])')"; \
     printf '%s\n' \
       '/opt/venv/lib/python3.11/site-packages' \
@@ -273,7 +258,7 @@ PY
 ########################################
 # Runtime stage: Python + codeAgent + llama.cpp
 ########################################
-FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu${UBUNTU_VERSION} AS runtime
+FROM pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -310,15 +295,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-COPY docker/keys/deadsnakes.asc /tmp/deadsnakes.asc
-
 RUN rm -rf /var/lib/apt/lists/* \
     && apt-get update -o Acquire::Retries=5 \
     && apt-get install -y --no-install-recommends --fix-missing \
         build-essential \
         ca-certificates \
         curl \
-        gnupg \
         git \
         tini \
         libgomp1 \
@@ -332,23 +314,9 @@ RUN rm -rf /var/lib/apt/lists/* \
         sox \
         libsox-fmt-all \
     && update-ca-certificates \
-    && test -s /tmp/deadsnakes.asc \
-    && grep -q "BEGIN PGP PUBLIC KEY BLOCK" /tmp/deadsnakes.asc \
-    && mkdir -p /etc/apt/keyrings \
-    && gpg --dearmor -o /etc/apt/keyrings/deadsnakes.gpg /tmp/deadsnakes.asc \
-    && rm -f /tmp/deadsnakes.asc \
-    && gpg --show-keys --with-colons /etc/apt/keyrings/deadsnakes.gpg | grep -q "BA6932366A755776" \
-    && . /etc/os-release \
-    && echo "deb [signed-by=/etc/apt/keyrings/deadsnakes.gpg] https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu ${VERSION_CODENAME} main" \
-        > /etc/apt/sources.list.d/deadsnakes.list \
-    && apt-get update -o Acquire::Retries=5 \
-    && apt-get install -y --no-install-recommends --fix-missing \
-        python3.11 \
-        python3.11-venv \
-        python3.11-distutils \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3.11 -m venv /opt/venv
+RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:${PATH}
 
 # Copy application source and prebuilt venv artifacts from build stage.
@@ -365,7 +333,7 @@ COPY --from=py_build /opt/asr_models /opt/asr_models
 RUN set -eux; \
     mkdir -p /opt/searxng; \
     git clone https://github.com/searxng/searxng /opt/searxng/searxng-src; \
-    python3.11 -m venv /opt/searxng/searx-pyenv; \
+    python -m venv /opt/searxng/searx-pyenv; \
     /opt/searxng/searx-pyenv/bin/pip install --no-cache-dir -U pip setuptools wheel; \
     /opt/searxng/searx-pyenv/bin/pip install --no-cache-dir -U pyyaml msgspec typing-extensions pybind11; \
     cd /opt/searxng/searxng-src; \
