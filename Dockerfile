@@ -366,6 +366,7 @@ COPY . /app
 COPY --from=py_build /opt/venv /opt/venv
 COPY --from=py_base /root/.local/bin/uv /root/.local/bin/uv
 COPY --from=py_base /root/.local/bin/uvx /root/.local/bin/uvx
+COPY --from=py_base /root/.local/share/uv /root/.local/share/uv
 COPY --from=style_bert_vits2_build /app/Style-Bert-VITS2 /app/Style-Bert-VITS2
 COPY --from=style_bert_vits2_build /opt/style-bert-vits2-venv /opt/style-bert-vits2-venv
 COPY --from=style_bert_vits2_build /opt/hf_cache /opt/hf_cache
@@ -373,7 +374,9 @@ COPY --from=style_bert_vits2_build /opt/cache /opt/cache
 COPY --from=style_bert_vits2_build /opt/style-bert-vits2-models /opt/style-bert-vits2-models
 COPY --from=py_build /opt/asr_models /opt/asr_models
 
-RUN test -x /opt/venv/bin/python \
+RUN ls -la /opt/venv/bin \
+    && readlink -f /opt/venv/bin/python \
+    && test -x /opt/venv/bin/python \
     && /opt/venv/bin/python --version
 
 RUN /opt/venv/bin/python - <<'PY'
@@ -383,7 +386,9 @@ print("runtime /opt/venv version:", sys.version)
 assert sys.version_info[:2] == (3, 11), sys.version
 PY
 
-RUN test -x /opt/style-bert-vits2-venv/bin/python \
+RUN ls -la /opt/style-bert-vits2-venv/bin \
+    && readlink -f /opt/style-bert-vits2-venv/bin/python \
+    && test -x /opt/style-bert-vits2-venv/bin/python \
     && /opt/style-bert-vits2-venv/bin/python --version
 
 RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
