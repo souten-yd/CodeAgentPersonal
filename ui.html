@@ -7872,11 +7872,13 @@ function renderNexusDeepTimeline(events = []) {
       if (type === 'recursive_iteration_started') return `Iteration ${Number.isFinite(iteration) ? iteration : '?'} started`;
       if (type === 'recursive_gap_analysis_started') return 'Gap analysis started';
       if (type === 'recursive_gap_analysis_finished') {
-        const conf = clampFloat(data?.confidence, 0, 1);
+        const rawConfidence = data?.confidence ?? data?.analysis?.confidence;
+        const conf = clampFloat(rawConfidence, 0, 1);
         return `Gap analysis finished: confidence ${conf == null ? '-' : conf.toFixed(2)}`;
       }
       if (type === 'recursive_followup_queries_generated') {
-        const count = Number(data?.followup_query_count ?? data?.count);
+        const fallbackCount = Array.isArray(data?.queries) ? data.queries.length : null;
+        const count = Number(data?.followup_query_count ?? data?.count ?? fallbackCount);
         return `Follow-up queries: ${Number.isFinite(count) ? count : '-'}`;
       }
       if (type === 'recursive_followup_search_started') return 'Follow-up search started';
@@ -7888,10 +7890,34 @@ function renderNexusDeepTimeline(events = []) {
       if (type === 'recursive_stopped') return `Recursive stopped: ${String(data?.stop_reason || data?.reason || '-').trim() || '-'}`;
       return data?.state || data?.label || type || 'event';
     })();
+    const bodyDetails = (() => {
+      const lines = [];
+      if (type === 'recursive_followup_queries_generated') {
+        const queries = Array.isArray(data?.queries) ? data.queries.map((q) => String(q || '').trim()).filter(Boolean) : [];
+        if (queries.length) {
+          lines.push('Follow-up queries:');
+          queries.slice(0, 10).forEach((q) => lines.push(`- ${q}`));
+          if (queries.length > 10) lines.push(`- ...and ${queries.length - 10} more`);
+        }
+      }
+      if (type === 'recursive_gap_analysis_finished') {
+        const analysis = (data?.analysis && typeof data.analysis === 'object') ? data.analysis : {};
+        const gaps = Array.isArray(analysis?.gaps) ? analysis.gaps.map((g) => String(g || '').trim()).filter(Boolean) : [];
+        const unresolved = Array.isArray(analysis?.unresolved_items) ? analysis.unresolved_items.map((item) => String(item || '').trim()).filter(Boolean) : [];
+        if (gaps.length) lines.push(`Gaps: ${gaps.join(', ')}`);
+        if (unresolved.length) {
+          lines.push('Unresolved:');
+          unresolved.slice(0, 10).forEach((item) => lines.push(`- ${item}`));
+          if (unresolved.length > 10) lines.push(`- ...and ${unresolved.length - 10} more`);
+        }
+      }
+      if (!lines.length) return '';
+      return `<div style="margin-top:4px;white-space:pre-wrap">${esc(lines.join('\n'))}</div>`;
+    })();
     const importantBadge = importantTypes.has(type) ? '<span class="nexus-status-badge degraded">event</span> ' : '';
     return `<div class="nexus-tl-item ${esc(stateMeta.className)}">
       <div class="nexus-tl-head">#${Number.isFinite(seq) ? seq : '-'} · ${esc(ts)}</div>
-      <div class="nexus-tl-body">${importantBadge}<span class="nexus-tl-state ${esc(stateMeta.className)}">${esc(stateMeta.label)}</span> ${esc(String(label))}</div>
+      <div class="nexus-tl-body">${importantBadge}<span class="nexus-tl-state ${esc(stateMeta.className)}">${esc(stateMeta.label)}</span> ${esc(String(label))}${bodyDetails}</div>
     </div>`;
   }).join('');
 }
@@ -7929,6 +7955,8 @@ function renderNexusDeepAnswer(answer = {}) {
   const recursiveSearch = answer?.recursive_search;
   const iterations = answer?.iterations;
   const confidence = answer?.confidence;
+  const iterationCount = Array.isArray(iterations) ? iterations.length : 0;
+  const confidenceDisplay = (typeof confidence === 'number' && Number.isFinite(confidence)) ? confidence.toFixed(2) : (confidence == null ? '-' : String(confidence));
   const unresolvedItems = Array.isArray(answer?.unresolved_items) ? answer.unresolved_items : [];
   const stopReason = String(answer?.stop_reason || '').trim();
   const hasRecursiveMeta = [recursiveSearch, iterations, confidence, stopReason].some((v) => v !== undefined && v !== null && String(v).trim() !== '') || unresolvedItems.length > 0;
@@ -7936,11 +7964,12 @@ function renderNexusDeepAnswer(answer = {}) {
       <div class="nexus-answer-subtitle">Recursive Research</div>
       <div style="font-size:11px;color:var(--text2);line-height:1.5">
         <div>- Enabled: <b>${esc(String(Boolean(recursiveSearch)))}</b></div>
-        <div>- Final confidence: <b>${esc(confidence == null ? '-' : String(confidence))}</b></div>
+        <div>- Final confidence: <b>${esc(confidenceDisplay)}</b></div>
         <div>- Stop reason: <b>${esc(stopReason || '-')}</b></div>
-        <div>- Iterations: <b>${esc(iterations == null ? '-' : String(iterations))}</b></div>
+        <div>- Iterations: <b>${esc(String(iterationCount))}</b></div>
         <div>- Unresolved items:</div>
         <ul style="margin:4px 0 0 18px;padding:0">${(unresolvedItems.length ? unresolvedItems : ['-']).map((item) => `<li>${esc(String(item || '-'))}</li>`).join('')}</ul>
+        ${Array.isArray(iterations) ? `<details style="margin-top:6px"><summary>Iteration details JSON</summary><pre class="nexus-answer-json" style="margin-top:6px">${esc(JSON.stringify(iterations, null, 2))}</pre></details>` : ''}
       </div>
     </div>` : '';
   el.innerHTML = `
@@ -8930,9 +8959,13 @@ function bindNexusDeepResearchFormPersistence() {
   ids.forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.addEventListener('change', persist);
     if (id === 'nexus-deep-recursive-search') {
-      el.addEventListener('change', () => updateNexusRecursiveControls({ preferRecommendedOnEnable: true }));
+      el.addEventListener('change', () => {
+        updateNexusRecursiveControls({ preferRecommendedOnEnable: true });
+        persist();
+      });
+    } else {
+      el.addEventListener('change', persist);
     }
     if (id === 'nexus-deep-topic') el.addEventListener('blur', persist);
   });
