@@ -177,11 +177,24 @@ def _pick_device(req: dict) -> str:
             if has_cuda_visibility or has_cuda_dir or torch_cuda_available:
                 return "cuda"
 
+    if is_windows:
+        return "cpu"
     if requested in {"directml", "dml"}:
         return "directml"
-    if requested == "auto" and os.name == "nt":
-        return "directml"
     return "cpu"
+
+
+def _sanitize_jp_extra_final_text(text: str) -> str:
+    value = str(text or "")
+    for ch in ("!", "！", "‼", "❗", "?", "？", "⁇", "❓"):
+        value = value.replace(ch, "。")
+    for ch in (",", "，"):
+        value = value.replace(ch, "、")
+    while "。。" in value:
+        value = value.replace("。。", "。")
+    while "、、" in value:
+        value = value.replace("、、", "、")
+    return value
 
 
 def _directml_available() -> bool:
@@ -531,6 +544,8 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             settings=normalization_settings,
         )
         normalized_text = str(normalization_result.get("text") or "")
+        if is_jp_extra:
+            normalized_text = _sanitize_jp_extra_final_text(normalized_text)
         non_japanese_policy = _normalize_non_japanese_policy(
             normalization_settings.get("sbv2_jp_extra_non_japanese_policy")
         )
@@ -623,6 +638,8 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
                     settings=normalization_settings,
                 )
                 normalized_text = str(normalization_result.get("text") or "")
+                if is_jp_extra:
+                    normalized_text = _sanitize_jp_extra_final_text(normalized_text)
                 final_text = normalized_text
                 looks_japanese_final = (
                     bool(normalization_result.get("looks_japanese_after"))

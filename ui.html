@@ -4073,7 +4073,7 @@ async function _ttsFetchAudio(text, engine = tts.engine, context = 'main', opts 
   engine = _normalizeTtsEngine(engine);
   if (engine === 'style_bert_vits2') {
     const prepared = await _ensureStyleBertVits2Prepared({context});
-    if (!prepared) throw new Error('Style-Bert-VITS2 の初期セットアップに失敗しました。');
+    if (!prepared?.ready) throw new Error(prepared?.message || 'Style-Bert-VITS2 の初期セットアップに失敗しました。');
   }
   const body = _buildTtsRequestBodyByEngine({ text, engine, context, opts });
   const resp = await fetch(API + '/tts/synthesize', {
@@ -5061,7 +5061,7 @@ async function refreshStyleBertVits2Models(context = 'echo') {
 }
 
 async function _ensureStyleBertVits2Prepared({force = false, context = 'echo'} = {}) {
-  if (!force && _styleBertVits2PrepareState.prepared) return true;
+  if (!force && _styleBertVits2PrepareState.prepared) return {ready: true, message: ''};
   if (_styleBertVits2PrepareState.inFlight) return _styleBertVits2PrepareState.inFlight;
   const statusEl = document.getElementById('tsasr-style-bert-vits2-status');
   _styleBertVits2PrepareState.inFlight = (async () => {
@@ -5072,25 +5072,28 @@ async function _ensureStyleBertVits2Prepared({force = false, context = 'echo'} =
       if (!resp.ok) {
         throw new Error(_getUserFacingApiErrorMessage(data, '初期セットアップに失敗しました。'));
       }
-      _styleBertVits2PrepareState.prepared = !!data.ready;
+      const setupReady = !!(data.setup_ready ?? data.ready);
+      const runtimeReady = !!(data.runtime_ready ?? false);
+      _styleBertVits2PrepareState.prepared = setupReady;
+      const backendDetail = String(data.detail || data.reason || '').trim();
       if (statusEl) {
-        if (data.ready) {
-          statusEl.textContent = data.initialized_now ? '初期セットアップ完了' : '初期セットアップ済み';
+        if (setupReady) {
+          statusEl.textContent = runtimeReady ? (data.initialized_now ? '初期セットアップ完了' : '初期セットアップ済み') : '音声モデルの事前ロードに失敗しました';
         } else {
-          statusEl.textContent = '初期セットアップ未完了';
+          statusEl.textContent = backendDetail || '初期セットアップ未完了';
         }
       }
-      if (data.ready) {
+      if (setupReady) {
         await refreshStyleBertVits2Models(context);
         if (statusEl) {
           statusEl.textContent = data.initialized_now ? '初期セットアップ完了' : '初期セットアップ済み';
         }
       }
-      return !!data.ready;
+      return {ready: setupReady, message: backendDetail || (runtimeReady ? '' : '音声モデルの事前ロードに失敗しました')};
     } catch (e) {
       _styleBertVits2PrepareState.prepared = false;
       if (statusEl) statusEl.textContent = `初期セットアップ失敗: ${e.message || e}`;
-      return false;
+      return {ready: false, message: String(e?.message || e || '初期セットアップに失敗しました。')};
     } finally {
       _styleBertVits2PrepareState.inFlight = null;
     }
@@ -5106,7 +5109,8 @@ async function runStyleBertVits2InitialSetup(context = 'echo') {
   let ready = false;
   if (statusEl) statusEl.textContent = '初期セットアップ中...';
   try {
-    ready = await _ensureStyleBertVits2Prepared({force: false, context});
+    const prepareResult = await _ensureStyleBertVits2Prepared({force: false, context});
+    ready = !!prepareResult?.ready;
   } catch (_e) {
     ready = false;
   } finally {
