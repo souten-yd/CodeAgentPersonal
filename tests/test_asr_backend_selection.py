@@ -84,3 +84,35 @@ def test_auto_runpod_skips_profile_detection(monkeypatch):
     monkeypatch.setattr(service, "detect_gpu_profile", _should_not_be_called)
     monkeypatch.setattr(service, "whisper_cpp_ready", lambda: True)
     assert service.select_asr_backend() == "faster_whisper"
+
+
+def test_normalize_asr_engine_importable():
+    from app.asr.service import _normalize_asr_engine
+
+    assert callable(_normalize_asr_engine)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("whisper.cpp", "whisper_cpp"),
+        ("whisper-cpp", "whisper_cpp"),
+        ("whispercpp", "whisper_cpp"),
+        ("cpp", "whisper_cpp"),
+        ("faster-whisper", "faster_whisper"),
+        ("fasterwhisper", "faster_whisper"),
+    ],
+)
+def test_normalize_asr_engine_aliases(value, expected):
+    assert service._normalize_asr_engine(value) == expected
+
+
+def test_normalize_asr_engine_unknown_fallback():
+    assert service._normalize_asr_engine("unknown_engine") == "faster_whisper"
+
+
+def test_import_main_succeeds():
+    import importlib
+
+    module = importlib.import_module("main")
+    assert module is not None

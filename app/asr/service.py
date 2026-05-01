@@ -9,11 +9,24 @@ class ASRConfigurationError(RuntimeError):
     pass
 
 
-def _engine_setting() -> str:
-    raw = (os.environ.get("CODEAGENT_ASR_ENGINE") or "").strip().lower()
-    if raw in {"faster_whisper", "whisper_cpp", "auto"}:
-        return raw
+def _normalize_asr_engine(value: str | None) -> str:
+    raw = (value or "").strip().lower()
+    aliases = {
+        "faster-whisper": "faster_whisper",
+        "fasterwhisper": "faster_whisper",
+        "whisper.cpp": "whisper_cpp",
+        "whisper-cpp": "whisper_cpp",
+        "whispercpp": "whisper_cpp",
+        "cpp": "whisper_cpp",
+    }
+    normalized = aliases.get(raw, raw)
+    if normalized in {"faster_whisper", "whisper_cpp", "auto"}:
+        return normalized
     return "faster_whisper"
+
+
+def _engine_setting() -> str:
+    return _normalize_asr_engine(os.environ.get("CODEAGENT_ASR_ENGINE"))
 
 
 def whisper_cpp_ready() -> bool:
