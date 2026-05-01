@@ -115,10 +115,10 @@ def test_llm_failure_unknown_term_not_cached_and_retried(monkeypatch, tmp_path):
     out1 = katakanaizer.katakanaize_english_segments_with_llm(["UnknownTerm"])
     out2 = katakanaizer.katakanaize_english_segments_with_llm(["UnknownTerm"])
 
-    assert out1["UnknownTerm"] == "UnknownTerm"
-    assert out2["UnknownTerm"] == "UnknownTerm"
-    assert "UnknownTerm" not in katakanaizer._KATAKANA_CACHE
-    assert calls["n"] == 2
+    assert out1["UnknownTerm"] == "アンノウンターム"
+    assert out2["UnknownTerm"] == "アンノウンターム"
+    assert katakanaizer._KATAKANA_CACHE["UnknownTerm"] == "アンノウンターム"
+    assert calls["n"] == 1
 
 
 def test_llm_failure_dictionary_fallback_is_cached(monkeypatch, tmp_path):
@@ -241,8 +241,9 @@ def test_llm_same_english_is_rejected(monkeypatch, tmp_path):
     monkeypatch.setattr(
         katakanaizer.requests, "post", lambda *args, **kwargs: _DummyResponse(_mock_llm_response({"UnknownTerm": "UnknownTerm"}))
     )
-    out = katakanaizer.katakanaize_english_segments_with_llm(["UnknownTerm"])
-    assert out["UnknownTerm"] == "UnknownTerm"
+    out = katakanaizer.katakanaize_english_segments_with_llm(["UnknownTerm"], return_summary=True)
+    assert out["result"]["UnknownTerm"] == "アンノウンターム"
+    assert out["summary"]["rejected"]["UnknownTerm"] == "same_as_token"
 
 
 def test_llm_explanatory_text_rejected(monkeypatch, tmp_path):
@@ -253,4 +254,27 @@ def test_llm_explanatory_text_rejected(monkeypatch, tmp_path):
     payload = {"choices": [{"message": {"content": "UnknownTermの読みはアンノウンタームです。"}}]}
     monkeypatch.setattr(katakanaizer.requests, "post", lambda *args, **kwargs: _DummyResponse(payload))
     out = katakanaizer.katakanaize_english_segments_with_llm(["UnknownTerm"])
-    assert out["UnknownTerm"] == "UnknownTerm"
+    assert out["UnknownTerm"] == "アンノウンターム"
+
+
+def test_llm_json_explanatory_value_adopted(monkeypatch, tmp_path):
+    cache_path = tmp_path / "katakana_cache.json"
+    monkeypatch.setenv("CODEAGENT_KATAKANA_CACHE_PATH", str(cache_path))
+    katakanaizer._KATAKANA_CACHE.clear()
+    katakanaizer._PERSISTENT_CACHE = katakanaizer.KatakanaPersistentCache()
+    payload = _mock_llm_response({"UnknownTerm": "UnknownTermの読みはアンノウンタームです。"})
+    monkeypatch.setattr(katakanaizer.requests, "post", lambda *args, **kwargs: _DummyResponse(payload))
+    out = katakanaizer.katakanaize_english_segments_with_llm(["UnknownTerm"])
+    assert out["UnknownTerm"] == "アンノウンターム"
+
+
+def test_llm_ascii_mixed_value_rejected_reason_visible(monkeypatch, tmp_path):
+    cache_path = tmp_path / "katakana_cache.json"
+    monkeypatch.setenv("CODEAGENT_KATAKANA_CACHE_PATH", str(cache_path))
+    katakanaizer._KATAKANA_CACHE.clear()
+    katakanaizer._PERSISTENT_CACHE = katakanaizer.KatakanaPersistentCache()
+    payload = _mock_llm_response({"UnknownTerm": "アンノウンターム UnknownTerm"})
+    monkeypatch.setattr(katakanaizer.requests, "post", lambda *args, **kwargs: _DummyResponse(payload))
+    out = katakanaizer.katakanaize_english_segments_with_llm(["UnknownTerm"], return_summary=True)
+    assert out["result"]["UnknownTerm"] == "アンノウンターム"
+    assert out["summary"]["rejected"]["UnknownTerm"] == "contains_ascii"
