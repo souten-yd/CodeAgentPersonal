@@ -5825,6 +5825,15 @@ function refreshTtsTab() {
   });
   fetch(API + '/tts/status').then(r => r.json()).then(s => {
     _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
+    const sb = s?.engines?.style_bert_vits2 || s?.style_bert_vits2 || {};
+    const backend = String(sb?.selected_tts_backend || '').toLowerCase();
+    const isWindows = String(navigator.platform || '').toLowerCase().includes('win');
+    if (isWindows && backend.includes('onnx directml')) {
+      echo.ttsEngine = 'style_bert_vits2';
+      tts.engine = 'style_bert_vits2';
+      localStorage.setItem('echo_tts_engine', 'style_bert_vits2');
+      localStorage.setItem('tts_engine', 'style_bert_vits2');
+    }
   }).catch(() => {});
   const ttsPreload = document.getElementById('tsasr-tts-preload');
   const ttsDir   = document.getElementById('tsasr-tts-dir');
