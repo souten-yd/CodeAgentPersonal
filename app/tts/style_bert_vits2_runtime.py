@@ -791,6 +791,8 @@ loaded_signature = None
 loaded_session = None
 loaded_model_kind = ""
 loaded_provider = ""
+loaded_onnx_signature = None
+loaded_onnx_inputs = None
 last_warmup_ms = 0
 run_lock = None
 
@@ -822,7 +824,7 @@ def _pick_onnx_provider() -> tuple[str, list[str], str]:
 
 
 def synth(req: dict) -> dict:
-    global loaded_model, loaded_signature
+    global loaded_model, loaded_signature, loaded_session, loaded_onnx_signature, loaded_onnx_inputs
     total_started = time.perf_counter()
     load_started = total_started
     load_elapsed_ms = 0
@@ -858,32 +860,67 @@ def synth(req: dict) -> dict:
     elif device not in {"cpu", "cuda", "mps"}:
         device = "cpu"
         effective_device = "cpu"
-    signature = (str(model_path), str(config_path), str(style_vec_path), str(effective_device))
-    cache_hit = loaded_model is not None and loaded_signature == signature
+    model_suffix = model_path.suffix.lower()
+    is_onnx_model = model_suffix == ".onnx"
+    selected_provider, available_providers, onnxruntime_version = ("", [], "")
+    selected_tts_backend = "Style-Bert-VITS2 PyTorch"
+    warmup_ms = 0
 
-    if loaded_model is None or loaded_signature != signature:
-        try:
-            loaded_model = TTSModel(
-                model_path=model_path,
-                config_path=config_path,
-                style_vec_path=style_vec_path,
-                device=device,
-            )
-        except Exception as e:
-            if requested_device in {"directml", "dml"}:
-                fallback_reason = f"directml_model_load_failed:{type(e).__name__}:{e}"
-                device = "cpu"
-                effective_device = "cpu"
+    signature = (str(model_path), str(config_path), str(style_vec_path), str(effective_device), model_suffix)
+    cache_hit = loaded_signature == signature
+
+    if is_onnx_model:
+        selected_provider, available_providers, onnxruntime_version = _pick_onnx_provider()
+        if not selected_provider:
+            raise RuntimeError("onnxruntime provider unavailable")
+        selected_tts_backend = "Style-Bert-VITS2 ONNX DirectML" if selected_provider == "DmlExecutionProvider" else "Style-Bert-VITS2 ONNX CPU"
+        import onnxruntime as ort
+        provider_list = ["CPUExecutionProvider"] if selected_provider == "CPUExecutionProvider" else [selected_provider, "CPUExecutionProvider"]
+        onnx_signature = (str(model_path), tuple(provider_list))
+        if loaded_session is None or loaded_onnx_signature != onnx_signature:
+            session_started = time.perf_counter()
+            loaded_session = ort.InferenceSession(str(model_path), providers=provider_list)
+            loaded_onnx_signature = onnx_signature
+            loaded_signature = signature
+            loaded_model = TTSModel(model_path=model_path, config_path=config_path, style_vec_path=style_vec_path, device="cpu")
+            if loaded_onnx_inputs is None:
+                loaded_onnx_inputs = [i.name for i in loaded_session.get_inputs()]
+            warmup_started = time.perf_counter()
+            _init_run_lock()
+            with run_lock:
+                dummy = {name: np.zeros((1,), dtype=np.int64) for name in (loaded_onnx_inputs or [])}
+                try:
+                    loaded_session.run(None, dummy)
+                except Exception:
+                    pass
+            warmup_ms = int((time.perf_counter() - warmup_started) * 1000)
+            load_elapsed_ms = int((time.perf_counter() - session_started) * 1000)
+        else:
+            loaded_signature = signature
+    else:
+        if loaded_model is None or loaded_signature != signature:
+            try:
                 loaded_model = TTSModel(
                     model_path=model_path,
                     config_path=config_path,
                     style_vec_path=style_vec_path,
-                    device="cpu",
+                    device=device,
                 )
-            else:
-                raise
-        loaded_signature = signature
-    load_elapsed_ms = int((time.perf_counter() - load_started) * 1000)
+            except Exception as e:
+                if requested_device in {"directml", "dml"}:
+                    fallback_reason = f"directml_model_load_failed:{type(e).__name__}:{e}"
+                    device = "cpu"
+                    effective_device = "cpu"
+                    loaded_model = TTSModel(
+                        model_path=model_path,
+                        config_path=config_path,
+                        style_vec_path=style_vec_path,
+                        device="cpu",
+                    )
+                else:
+                    raise
+            loaded_signature = signature
+        load_elapsed_ms = int((time.perf_counter() - load_started) * 1000)
 
     out_path = Path(req["out_path"]) if req.get("out_path") else None
     return_mode = str(req.get("return_mode", "b64") or "b64").strip().lower()
@@ -951,7 +988,12 @@ def synth(req: dict) -> dict:
     kwargs = {k: v for k, v in kwargs.items() if k in infer_params and k not in forbidden}
 
     infer_started = time.perf_counter()
-    infer_result = loaded_model.infer(**kwargs)
+    if is_onnx_model and loaded_session is not None:
+        _init_run_lock()
+        with run_lock:
+            infer_result = loaded_model.infer(**kwargs)
+    else:
+        infer_result = loaded_model.infer(**kwargs)
     infer_elapsed_ms = int((time.perf_counter() - infer_started) * 1000)
     if isinstance(infer_result, tuple) and len(infer_result) == 2:
         a, b = infer_result
@@ -1036,6 +1078,12 @@ def synth(req: dict) -> dict:
         "audio_max": float(np.max(audio_arr)) if audio_arr.size else 0.0,
         "encoder": encoder,
         "infer_kwargs_keys": sorted(kwargs.keys()),
+        "selected_tts_backend": selected_tts_backend,
+        "onnxruntime_version": onnxruntime_version,
+        "available_providers": available_providers,
+        "selected_provider": selected_provider,
+        "selected_model_file": str(model_path),
+        "warmup_ms": int(warmup_ms),
     }
 
 
