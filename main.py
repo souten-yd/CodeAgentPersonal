@@ -58,7 +58,7 @@ from app.asr.service import (
     _normalize_asr_engine,
     resolve_effective_asr_config,
 )
-from app.asr.whisper_cpp_runtime import resolve_ffmpeg_binary, resolve_whisper_cpp_binary, resolve_whisper_cpp_model
+from app.asr.whisper_cpp_runtime import WHISPER_CPP_SERVER_RUNTIME, resolve_ffmpeg_binary, resolve_whisper_cpp_binary, resolve_whisper_cpp_model
 from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_base_dir,
     resolve_style_bert_vits2_models_dir,
@@ -16914,6 +16914,27 @@ def get_ensemble_vram_api():
 @app.get("/asr/config")
 def asr_config_api():
     return _resolve_asr_runtime_config()
+
+
+@app.get("/asr/status")
+def asr_status_api():
+    cfg = _resolve_asr_runtime_config()
+    st = WHISPER_CPP_SERVER_RUNTIME.status()
+    return {**cfg, **st}
+
+
+@app.post("/asr/load")
+def asr_load_api():
+    cfg = _resolve_asr_runtime_config()
+    if cfg.get("effective_engine") == "whisper_cpp":
+        return {**cfg, **WHISPER_CPP_SERVER_RUNTIME.load(auto=False)}
+    return {**cfg, "loaded": False, "warning": "whisper_cpp runtime is not active"}
+
+
+@app.post("/asr/unload")
+def asr_unload_api():
+    cfg = _resolve_asr_runtime_config()
+    return {**cfg, **WHISPER_CPP_SERVER_RUNTIME.unload()}
 
 
 @app.get("/settings")
