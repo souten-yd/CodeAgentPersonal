@@ -42,7 +42,7 @@ RUN set -eux; \
 ########################################
 ## Build stage: Python deps + Style-Bert-VITS2 prep (with CUDA toolkit)
 ########################################
-FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu${UBUNTU_VERSION} AS py_build
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu${UBUNTU_VERSION} AS py_base
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -66,6 +66,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
+COPY docker/keys/deadsnakes.gpg /etc/apt/keyrings/deadsnakes.gpg
+
 RUN mkdir -p \
     /opt/cache \
     /opt/hf_cache \
@@ -81,20 +83,10 @@ RUN rm -rf /var/lib/apt/lists/* \
         jq \
         build-essential \
         pkg-config \
-        gnupg \
         sox \
         libsox-fmt-all \
     && update-ca-certificates \
-    && mkdir -p /etc/apt/keyrings \
-    && for i in 1 2 3 4 5; do \
-        curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
-          "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF23C5A6CF475977595C89F51BA6932366A755776" \
-          -o /tmp/deadsnakes.asc && break; \
-        sleep $((i * 5)); \
-      done \
-    && test -s /tmp/deadsnakes.asc \
-    && gpg --dearmor -o /etc/apt/keyrings/deadsnakes.gpg /tmp/deadsnakes.asc \
-    && rm -f /tmp/deadsnakes.asc \
+    && test -s /etc/apt/keyrings/deadsnakes.gpg \
     && . /etc/os-release \
     && echo "deb [signed-by=/etc/apt/keyrings/deadsnakes.gpg] https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu ${VERSION_CODENAME} main" \
         > /etc/apt/sources.list.d/deadsnakes.list \
@@ -109,6 +101,8 @@ RUN rm -rf /var/lib/apt/lists/* \
 RUN python3.11 -m venv /opt/venv
 ENV PATH=/opt/venv/bin:${PATH}
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
+
+FROM py_base AS py_build
 
 # Copy application source first.
 COPY . /app
@@ -310,6 +304,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
+COPY docker/keys/deadsnakes.gpg /etc/apt/keyrings/deadsnakes.gpg
+
 RUN rm -rf /var/lib/apt/lists/* \
     && apt-get update -o Acquire::Retries=5 \
     && apt-get install -y --no-install-recommends --fix-missing \
@@ -326,20 +322,10 @@ RUN rm -rf /var/lib/apt/lists/* \
         libxml2 \
         libxslt-dev \
         zlib1g-dev \
-        gnupg \
         sox \
         libsox-fmt-all \
     && update-ca-certificates \
-    && mkdir -p /etc/apt/keyrings \
-    && for i in 1 2 3 4 5; do \
-        curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
-          "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF23C5A6CF475977595C89F51BA6932366A755776" \
-          -o /tmp/deadsnakes.asc && break; \
-        sleep $((i * 5)); \
-      done \
-    && test -s /tmp/deadsnakes.asc \
-    && gpg --dearmor -o /etc/apt/keyrings/deadsnakes.gpg /tmp/deadsnakes.asc \
-    && rm -f /tmp/deadsnakes.asc \
+    && test -s /etc/apt/keyrings/deadsnakes.gpg \
     && . /etc/os-release \
     && echo "deb [signed-by=/etc/apt/keyrings/deadsnakes.gpg] https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu ${VERSION_CODENAME} main" \
         > /etc/apt/sources.list.d/deadsnakes.list \
