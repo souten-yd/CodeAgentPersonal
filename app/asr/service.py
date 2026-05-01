@@ -2,7 +2,7 @@ import os
 from typing import Callable
 
 from app.env_detection import detect_gpu_profile, detect_os_profile, detect_runpod
-from app.asr.whisper_cpp_runtime import resolve_ffmpeg_binary, resolve_whisper_cpp_binary, resolve_whisper_cpp_model, transcribe_with_whisper_cpp
+from app.asr.whisper_cpp_runtime import WHISPER_CPP_SERVER_RUNTIME, resolve_ffmpeg_binary, resolve_whisper_cpp_binary, resolve_whisper_cpp_model, resolve_whisper_cpp_server_binary, transcribe_with_whisper_cpp
 
 
 class ASRConfigurationError(RuntimeError):
@@ -66,6 +66,7 @@ def resolve_effective_asr_config() -> dict:
     if requested == "auto":
         requested = ""
     warnings: list[str] = []
+    cpp_server_bin = resolve_whisper_cpp_server_binary()
     cpp_bin = resolve_whisper_cpp_binary()
     cpp_model = resolve_whisper_cpp_model()
     cpp_assets_ready = whisper_cpp_ready()
@@ -115,6 +116,8 @@ def resolve_effective_asr_config() -> dict:
         "whisper_cpp_visible": whisper_cpp_visible,
         "whisper_cpp_ready": whisper_cpp_ready_effective,
         "whisper_cpp_binary": str(cpp_bin) if cpp_bin else "",
+        "whisper_cpp_server_binary": str(cpp_server_bin) if cpp_server_bin else "",
+        "whisper_cpp_server_available": bool(cpp_server_bin),
         "whisper_cpp_model": str(cpp_model),
         "ffmpeg_available": ffmpeg_available,
         "ffmpeg_binary": str(ffmpeg_bin) if ffmpeg_bin else "",
@@ -140,7 +143,7 @@ def transcribe_audio(
 ) -> dict:
     backend = select_asr_backend()
     if backend == "whisper_cpp":
-        return transcribe_with_whisper_cpp(audio_bytes=audio_bytes, audio_format=audio_format, language=language)
+        return WHISPER_CPP_SERVER_RUNTIME.transcribe(audio_bytes=audio_bytes, audio_format=audio_format, language=language)
     return faster_whisper_transcribe(
         audio_bytes=audio_bytes,
         language=language,
