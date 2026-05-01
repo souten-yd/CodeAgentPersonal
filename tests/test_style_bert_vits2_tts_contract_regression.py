@@ -316,3 +316,53 @@ def test_main_has_no_legacy_echo_do_translate_three_positional_args():
         if not isinstance(node.func, ast.Name) or node.func.id != "_echo_do_translate":
             continue
         assert len(node.args) < 3, f"legacy positional call remains at line {getattr(node, 'lineno', '?')}"
+
+
+def test_pick_device_windows_cuda_falls_back_to_cpu(monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    monkeypatch.setattr(runtime.os, "name", "nt")
+    monkeypatch.setattr(runtime.platform, "system", lambda: "Windows")
+    assert runtime._pick_device({"device": "cuda"}) == "cpu"
+
+
+def test_pick_device_windows_directml_falls_back_to_cpu(monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    monkeypatch.setattr(runtime.os, "name", "nt")
+    monkeypatch.setattr(runtime.platform, "system", lambda: "Windows")
+    assert runtime._pick_device({"device": "directml"}) == "cpu"
+
+
+def test_pick_device_windows_env_cuda_falls_back_to_cpu(monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    monkeypatch.setattr(runtime.os, "name", "nt")
+    monkeypatch.setattr(runtime.platform, "system", lambda: "Windows")
+    monkeypatch.setenv("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "cuda")
+    assert runtime._pick_device({"device": ""}) == "cpu"
+
+
+def test_pick_device_linux_cuda_available_prefers_cuda(monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    class _TorchMock:
+        class cuda:  # noqa: N801
+            @staticmethod
+            def is_available():
+                return True
+
+    monkeypatch.setattr(runtime.os, "name", "posix")
+    monkeypatch.setattr(runtime.platform, "system", lambda: "Linux")
+    import sys
+    monkeypatch.setitem(sys.modules, "torch", _TorchMock)
+    assert runtime._pick_device({"device": "auto"}) == "cuda"
+
+
+def test_pick_device_linux_env_cuda_kept(monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    monkeypatch.setattr(runtime.os, "name", "posix")
+    monkeypatch.setattr(runtime.platform, "system", lambda: "Linux")
+    monkeypatch.setenv("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "cuda")
+    assert runtime._pick_device({"device": ""}) == "cuda"
