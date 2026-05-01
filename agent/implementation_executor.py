@@ -40,7 +40,7 @@ class ImplementationExecutor:
 
         run_id = f"run_{uuid4().hex[:12]}"
         now = self._now()
-        resolved_project_path = str(Path(project_path or ".").resolve())
+        resolved_project_path, path_warnings = self._resolve_execution_project_path(plan, project_path)
         steps = plan.get("implementation_steps") or []
         run = ImplementationRun(
             run_id=run_id,
@@ -58,6 +58,15 @@ class ImplementationExecutor:
             summary="",
             no_destructive_actions=True,
         )
+        run.warnings.extend(path_warnings)
+        if execution_mode == "safe_apply":
+            if not resolved_project_path:
+                raise ValueError("safe_apply requires an explicit or stored resolved_project_path")
+            resolved_dir = Path(resolved_project_path)
+            if not resolved_dir.exists() or not resolved_dir.is_dir():
+                raise ValueError("safe_apply requires an explicit or stored resolved_project_path")
+        elif not resolved_project_path:
+            run.warnings.append("project_path was not resolved; dry_run only")
         logs = [f"[{now}] start run_id={run_id} plan_id={plan_id} mode={execution_mode} comment={user_comment}"]
         if allow_delete:
             run.warnings.append("allow_delete was ignored in Phase 6. delete remains blocked.")
@@ -80,7 +89,7 @@ class ImplementationExecutor:
                 step,
                 execution_mode=execution_mode,
                 plan=plan,
-                project_path=Path(resolved_project_path),
+                project_path=Path(resolved_project_path) if resolved_project_path else None,
                 allow_update=allow_update,
                 allow_create=allow_create,
                 logs=logs,
@@ -114,7 +123,7 @@ class ImplementationExecutor:
         if str(review.get("recommended_next_action", "")) == "reject_plan":
             raise ValueError("plan review rejected execution")
 
-    def _run_step(self, run: ImplementationRun, step: ImplementationStepResult, execution_mode: str, plan: dict, project_path: Path, allow_update: bool, allow_create: bool, logs: list[str]) -> None:
+    def _run_step(self, run: ImplementationRun, step: ImplementationStepResult, execution_mode: str, plan: dict, project_path: Path | None, allow_update: bool, allow_create: bool, logs: list[str]) -> None:
         step.started_at = self._now()
         step.status = "running"
         action = step.action_type
@@ -134,20 +143,30 @@ class ImplementationExecutor:
                 return
 
             if action == "inspect":
+                if project_path is None:
+                    step.status = "skipped"
+                    step.skipped_reason = "project_path unresolved"
+                    step.message = "inspect skipped: project_path unresolved"
+                    run.skipped_steps += 1
+                    return
                 self._inspect(step, project_path)
-                run.completed_steps += 1
+                self._tally_step_status(run, step)
                 return
             if action == "create":
                 if not allow_create:
                     return self._block(step, run, "allow_create is false")
+                if project_path is None:
+                    return self._block(step, run, "project_path unresolved")
                 self._create_stub(step, project_path)
-                run.completed_steps += 1
+                self._tally_step_status(run, step)
                 return
             if action == "update":
                 if not allow_update:
                     return self._block(step, run, "allow_update is false")
+                if project_path is None:
+                    return self._block(step, run, "project_path unresolved")
                 self._safe_update(step, project_path)
-                run.completed_steps += 1
+                self._tally_step_status(run, step)
                 return
 
             step.status = "skipped"
@@ -189,7 +208,8 @@ class ImplementationExecutor:
             raise ValueError("create step requires target_files")
         target = self._resolve_target(project_path, step.target_files[0])
         if target is None:
-            raise ValueError("target path is outside project or blocked")
+            self._block(step, None, "target path is outside project or blocked")
+            return
         if target.exists():
             self._block(step, None, "target already exists; overwrite is blocked")
             return
@@ -209,7 +229,8 @@ class ImplementationExecutor:
             raise ValueError("update step requires target_files")
         target = self._resolve_target(project_path, step.target_files[0])
         if target is None:
-            raise ValueError("target path is outside project or blocked")
+            self._block(step, None, "target path is outside project or blocked")
+            return
         if not target.exists():
             raise ValueError("target file does not exist")
         if self._is_binary(target):
@@ -230,7 +251,58 @@ class ImplementationExecutor:
             return None
         if any(part in self.BLOCKED_DIR_NAMES for part in resolved.parts):
             return None
+        if "ca_data" in resolved.parts:
+            return None
         return resolved
+
+    def _resolve_execution_project_path(self, plan: dict, requested_project_path: str) -> tuple[str, list[str]]:
+        warnings: list[str] = []
+        candidates: list[tuple[str, str]] = []
+        req = str(requested_project_path or "").strip()
+        if req:
+            candidates.append(("request.project_path", req))
+        plan_resolved = str(plan.get("resolved_project_path", "")).strip()
+        if plan_resolved:
+            candidates.append(("plan.resolved_project_path", plan_resolved))
+        plan_path = str(plan.get("project_path", "")).strip()
+        if plan_path:
+            candidates.append(("plan.project_path", plan_path))
+        requirement_id = str(plan.get("requirement_id", "")).strip()
+        if requirement_id:
+            try:
+                requirement = self.storage.load_requirement(requirement_id)
+                req_resolved = str(requirement.get("resolved_project_path", "")).strip()
+                if req_resolved:
+                    candidates.append(("requirement.resolved_project_path", req_resolved))
+                req_path = str(requirement.get("project_path", "")).strip()
+                if req_path:
+                    candidates.append(("requirement.project_path", req_path))
+            except Exception as exc:
+                warnings.append(f"requirement load warning: {exc}")
+
+        for source, raw in candidates:
+            try:
+                resolved = Path(raw).expanduser().resolve()
+                if str(resolved) == str(Path(".").resolve()) and source != "request.project_path":
+                    continue
+                return str(resolved), warnings
+            except Exception as exc:
+                warnings.append(f"invalid project_path from {source}: {exc}")
+        return "", warnings
+
+    def _tally_step_status(self, run: ImplementationRun, step: ImplementationStepResult) -> None:
+        if step.status == "completed":
+            run.completed_steps += 1
+        elif step.status == "blocked":
+            run.blocked_steps += 1
+            if step.message:
+                run.warnings.append(f"{step.step_id}: {step.message}")
+        elif step.status == "skipped":
+            run.skipped_steps += 1
+        elif step.status == "failed":
+            run.failed_steps += 1
+            if step.error:
+                run.errors.append(f"{step.step_id}: {step.error}")
 
     def _is_binary(self, path: Path) -> bool:
         data = path.read_bytes()[:1024]
