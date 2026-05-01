@@ -66,3 +66,4 @@ class ImplementationRunRequest(BaseModel):
     apply_patches: bool = False
     preview_only: bool = True
     max_patch_bytes: int = 20000
+    patch_generation_mode: str = "append"

@@ -13756,6 +13756,14 @@ function _renderPhase6ExecutionSection(result, cardId) {
     <label style="display:flex;gap:7px;font-size:11px;color:var(--text3)"><input type="checkbox" disabled id="${cardId}-allow-run"> allow_run_command (disabled)</label>
     <label style="display:flex;gap:7px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-preview-only" checked> preview_only</label>
     <label style="display:flex;gap:7px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-apply-patches"> apply_patches</label>
+    <label style="display:block;font-size:11px;color:var(--text2);margin-top:6px">Patch Generation Mode
+      <select id="${cardId}-patch-mode" style="margin-left:6px">
+        <option value="append" selected>Append note only</option>
+        <option value="llm_replace_block">LLM replace block preview</option>
+        <option value="auto">Auto: LLM replace block, fallback append</option>
+      </select>
+    </label>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px">LLM replace blockはpreviewのみ生成します。承認なしにapplyされません。exact matchが1件の場合のみapply可能です。</div>
     <div style="font-size:11px;color:var(--text3);margin-top:4px">書き込みが発生するのは apply_patches=true かつ preview_only=false のときのみです。Safe Apply時のproject_pathは空/./でも、Plan/Requirementのresolved_project_path fallbackが使われる場合があります。</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <button class="phase1-plan-btn" data-exec="dry_run">Dry Run</button>
@@ -13797,6 +13805,7 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
       if (msgEl) msgEl.textContent = '';
       const previewOnly = !!cardRoot.querySelector(`#${cid}-preview-only`)?.checked;
       const applyPatches = !!cardRoot.querySelector(`#${cid}-apply-patches`)?.checked;
+      const patchMode = cardRoot.querySelector(`#${cid}-patch-mode`)?.value || "append";
       const res = await _phase6ExecutePlan(planId, {
         execution_mode: mode,
         project_path: executionProjectPath,
@@ -13807,6 +13816,7 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
         apply_patches: applyPatches,
         preview_only: previewOnly,
         user_comment: `ui ${mode}`,
+        patch_generation_mode: patchMode,
       });
       const run = res?.run || {};
       const steps = Array.isArray(run.step_results) ? run.step_results : [];
@@ -13858,10 +13868,10 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
         : (isApplied ? '<div style="color:var(--amber);margin-top:6px">Applied patches cannot be modified from this panel.</div>' : '');
       return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px">
 <div>patch_id=${esc(p.patch_id)} step_id=${esc(p.step_id||'')} target=${esc(p.target_file||'')}</div>
-<div>risk_level=${esc(p.risk_level||'low')} apply_allowed=${String(applyAllowed)} applied=${String(!!p.applied)} approval_status=${esc(approvalStatus)}</div>
+<div>risk_level=${esc(p.risk_level||'low')} patch_type=${esc(p.patch_type||'append')} generator=${esc(p.generator||'')} match_count=${esc(String(p.match_count??''))} can_apply_reason=${esc(p.can_apply_reason||'')} apply_allowed=${String(applyAllowed)} applied=${String(!!p.applied)} approval_status=${esc(approvalStatus)}</div>
 <div>patch_approval_id=${esc(p.patch_approval_id||'')} verification_id=${esc(p.verification_id||'')}</div>
 <div>${warns||''}</div>${warnAck}${riskAck}${stateMsg}
-<details><summary>Diff</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.unified_diff||'')}</pre></details>
+<details><summary>Original block</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.original_block||'')}</pre></details><details><summary>Replacement block</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.replacement_block||'')}</pre></details><details><summary>Diff</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.unified_diff||'')}</pre></details>
 <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button data-pa="approve" data-pid="${p.patch_id}" ${disableApprove ? 'disabled' : ''}>Approve Patch</button><button data-pa="reject" data-pid="${p.patch_id}" ${disableReject ? 'disabled' : ''}>Reject Patch</button><button data-pa="apply" data-pid="${p.patch_id}" ${disableApply ? 'disabled' : ''}>Apply Approved Patch</button></div><pre id="${cid}-pv-${p.patch_id}" style="white-space:pre-wrap"></pre></div>`;
     }).join('') || '<div style="color:var(--text3)">No patches.</div>';
     listEl.querySelectorAll('[data-pa]').forEach((b)=>b.addEventListener('click', async ()=>{

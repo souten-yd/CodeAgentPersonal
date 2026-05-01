@@ -11,7 +11,7 @@ class VerificationRunner:
     def __init__(self, max_file_bytes: int = 200 * 1024) -> None:
         self.max_file_bytes = max_file_bytes
 
-    def run(self, run_id: str, plan_id: str, patch_id: str, project_path: Path, target_file: Path) -> VerificationResult:
+    def run(self, run_id: str, plan_id: str, patch_id: str, project_path: Path, target_file: Path, replacement_hint: str = "") -> VerificationResult:
         checks: list[VerificationCheck] = []
         warnings: list[str] = []
         errors: list[str] = []
@@ -34,7 +34,8 @@ class VerificationRunner:
             add("size limit", target_file.stat().st_size <= self.max_file_bytes, "size checked")
             add("inside project", project_path.resolve() in target_file.resolve().parents or project_path.resolve() == target_file.resolve(), "path checked")
             add("ca_data untouched", "ca_data" not in target_file.resolve().parts, "path policy checked")
-            add("marker exists", "CodeAgent Phase 7 patch note" in text, "marker checked")
+            marker_ok = ("CodeAgent Phase 7 patch note" in text) or (replacement_hint and replacement_hint[:80] in text)
+            add("marker/replacement exists", bool(marker_ok), "marker or replacement checked")
             add("no destructive marker", "DELETE" not in text and "run_command" not in text, "destructive markers checked")
             if target_file.suffix == ".py":
                 try:
