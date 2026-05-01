@@ -2895,8 +2895,15 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <option value="tiny">tiny（最軽量）</option>
           </select>
         </div>
-        <div id="asr-engine-wrap" style="margin-bottom:8px;display:none">
-          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASR Engine (Windows)</div>
+        <div id="asr-runtime-summary" style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASR runtime (auto)</div>
+          <div id="asr-runtime-line1" style="font-size:11px;color:var(--text);font-family:var(--font-mono)">ASR: loading...</div>
+          <div id="asr-runtime-line2" style="font-size:10px;color:var(--text3);margin-top:3px"></div>
+          <div id="asr-runtime-warnings" style="font-size:10px;color:var(--amber);margin-top:4px;line-height:1.6"></div>
+        </div>
+        <details id="asr-engine-wrap" style="margin-bottom:8px;display:none">
+          <summary style="cursor:pointer;font-size:11px;color:var(--text2);font-weight:700">Advanced ASR override</summary>
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin:6px 0 4px">ASR Engine (Windows)</div>
           <select id="asr-engine-sel" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)" onchange="saveAsrSettings()">
             <option value="faster_whisper">faster-whisper</option><option value="whisper_cpp">whisper.cpp</option>
           </select>
@@ -2904,9 +2911,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div><div style="font-size:10px;color:var(--text3)">faster-whisper device</div><select id="asr-fw-device-sel" onchange="saveAsrSettings()"><option value="cpu">cpu</option><option value="cuda">cuda</option></select></div>
             <div><div style="font-size:10px;color:var(--text3)">whisper.cpp backend</div><select id="asr-cpp-backend-sel" onchange="saveAsrSettings()"><option value="vulkan">vulkan</option><option value="cpu">cpu</option></select></div>
           </div>
-        </div>
+        </details>
         <!-- デバイス選択 -->
-        <div style="margin-bottom:8px">
+        <div id="asr-device-wrap" style="margin-bottom:8px">
           <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">デバイス</div>
           <div style="display:flex;gap:14px">
             <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
@@ -5902,9 +5909,17 @@ async function _loadAsrRuntimeConfig() {
 
 function _renderAsrRuntimeUi() {
   const engineWrap = document.getElementById('asr-engine-wrap');
+  const deviceWrap = document.getElementById('asr-device-wrap');
+  const line1 = document.getElementById('asr-runtime-line1');
+  const line2 = document.getElementById('asr-runtime-line2');
+  const warns = document.getElementById('asr-runtime-warnings');
   const runpod = !!asrRuntimeConfig.is_runpod;
   const windows = !!asrRuntimeConfig.is_windows;
   if (engineWrap) engineWrap.style.display = (!runpod && windows) ? '' : 'none';
+  if (deviceWrap) deviceWrap.style.display = runpod ? '' : 'none';
+  if (line1) line1.textContent = `ASR: ${asrRuntimeConfig.effective_engine || 'faster_whisper'} / ${asrRuntimeConfig.model || 'large-v3-turbo'} (${asrRuntimeConfig.effective_backend || 'cpu'})`;
+  if (line2) line2.textContent = (asrRuntimeConfig.ffmpeg_available ? 'input conversion: ffmpeg available' : 'input conversion: ffmpeg missing');
+  if (warns) warns.innerHTML = ((asrRuntimeConfig.warnings || []).map(w => `⚠ ${esc(String(w))}`).join('<br>'));
 }
 
 function _asrInitSettingsUI() {
@@ -11402,9 +11417,10 @@ async function transcribeVoiceBlob(blob, opts = {}){
         log_prob_threshold: echo.asrLogProbThreshold,
         compression_ratio_threshold: echo.asrCompressionRatioThreshold,
         auto_unload: false,
-        asr_engine: document.getElementById('asr-engine-sel')?.value || '',
-        faster_whisper_device: document.getElementById('asr-fw-device-sel')?.value || '',
-        whisper_cpp_backend: document.getElementById('asr-cpp-backend-sel')?.value || ''
+        asr_override: !!document.getElementById('asr-engine-wrap')?.open,
+        asr_engine: document.getElementById('asr-engine-wrap')?.open ? (document.getElementById('asr-engine-sel')?.value || '') : '',
+        faster_whisper_device: document.getElementById('asr-engine-wrap')?.open ? (document.getElementById('asr-fw-device-sel')?.value || '') : '',
+        whisper_cpp_backend: document.getElementById('asr-engine-wrap')?.open ? (document.getElementById('asr-cpp-backend-sel')?.value || '') : ''
       })
     });
     if (!resp.ok) {
@@ -12610,9 +12626,10 @@ async function echoUploadSessionAudio(input) {
         model: echo.asrModel || 'large-v3-turbo',
         asr_profile: echo.asrProfile || 'balanced',
         auto_unload: false,
-        asr_engine: document.getElementById('asr-engine-sel')?.value || '',
-        faster_whisper_device: document.getElementById('asr-fw-device-sel')?.value || '',
-        whisper_cpp_backend: document.getElementById('asr-cpp-backend-sel')?.value || '',
+        asr_override: !!document.getElementById('asr-engine-wrap')?.open,
+        asr_engine: document.getElementById('asr-engine-wrap')?.open ? (document.getElementById('asr-engine-sel')?.value || '') : '',
+        faster_whisper_device: document.getElementById('asr-engine-wrap')?.open ? (document.getElementById('asr-fw-device-sel')?.value || '') : '',
+        whisper_cpp_backend: document.getElementById('asr-engine-wrap')?.open ? (document.getElementById('asr-cpp-backend-sel')?.value || '') : '',
       })
     });
     if (!resp.ok || !resp.body) {

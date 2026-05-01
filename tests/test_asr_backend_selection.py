@@ -48,6 +48,7 @@ def test_auto_windows_amd_with_assets(monkeypatch):
     monkeypatch.setenv("CODEAGENT_ASR_ENGINE", "auto")
     _mock_profiles(monkeypatch, is_windows=True, is_linux=False, vendor="amd")
     monkeypatch.setattr(service, "whisper_cpp_ready", lambda: True)
+    monkeypatch.setattr(service, "resolve_ffmpeg_binary", lambda: "/tmp/ffmpeg")
     assert service.select_asr_backend() == "whisper_cpp"
 
 

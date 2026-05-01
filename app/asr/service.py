@@ -2,7 +2,7 @@ import os
 from typing import Callable
 
 from app.env_detection import detect_gpu_profile, detect_os_profile, detect_runpod
-from app.asr.whisper_cpp_runtime import resolve_whisper_cpp_binary, resolve_whisper_cpp_model, transcribe_with_whisper_cpp
+from app.asr.whisper_cpp_runtime import resolve_ffmpeg_binary, resolve_whisper_cpp_binary, resolve_whisper_cpp_model, transcribe_with_whisper_cpp
 
 
 class ASRConfigurationError(RuntimeError):
@@ -26,7 +26,10 @@ def _normalize_asr_engine(value: str | None) -> str:
 
 
 def _engine_setting() -> str:
-    return _normalize_asr_engine(os.environ.get("CODEAGENT_ASR_ENGINE"))
+    raw = os.environ.get("CODEAGENT_ASR_ENGINE")
+    if raw is None or str(raw).strip() == "":
+        return "auto"
+    return _normalize_asr_engine(raw)
 
 
 def whisper_cpp_ready() -> bool:
@@ -35,27 +38,96 @@ def whisper_cpp_ready() -> bool:
     return bool(bin_path and model_path.exists())
 
 
-def select_asr_backend() -> str:
-    mode = _engine_setting()
-    if mode == "faster_whisper":
-        return "faster_whisper"
-    if mode == "whisper_cpp":
-        if not whisper_cpp_ready():
-            raise ASRConfigurationError("CODEAGENT_ASR_ENGINE=whisper_cpp was requested, but binary/model is missing")
-        return "whisper_cpp"
-    # auto
-    if detect_runpod():
-        return "faster_whisper"
+def resolve_effective_asr_config() -> dict:
+    is_runpod = bool(detect_runpod())
+    if is_runpod:
+        return {
+            "runtime": "runpod",
+            "is_windows": False,
+            "is_runpod": True,
+            "gpu_vendor": "nvidia",
+            "effective_engine": "faster_whisper",
+            "effective_backend": "cuda",
+            "model": "large-v3-turbo",
+            "whisper_cpp_visible": False,
+            "whisper_cpp_ready": False,
+            "whisper_cpp_binary": "",
+            "whisper_cpp_model": "",
+            "ffmpeg_available": bool(resolve_ffmpeg_binary()),
+            "ffmpeg_binary": str(resolve_ffmpeg_binary() or ""),
+            "warnings": [],
+        }
     os_profile = detect_os_profile()
     gpu = detect_gpu_profile()
-    is_linux = bool(os_profile.get("is_linux"))
     is_windows = bool(os_profile.get("is_windows"))
-    vendor = str(gpu.get("vendor") or "").lower()
-    if is_linux and vendor == "nvidia":
-        return "faster_whisper"
-    if is_windows and vendor == "amd" and whisper_cpp_ready():
-        return "whisper_cpp"
-    return "faster_whisper"
+    is_linux = bool(os_profile.get("is_linux"))
+    vendor = str(gpu.get("vendor") or "unknown").lower()
+    requested = _engine_setting()
+    if requested == "auto":
+        requested = ""
+    warnings: list[str] = []
+    cpp_bin = resolve_whisper_cpp_binary()
+    cpp_model = resolve_whisper_cpp_model()
+    cpp_assets_ready = whisper_cpp_ready()
+    ffmpeg_bin = resolve_ffmpeg_binary()
+    ffmpeg_available = bool(ffmpeg_bin)
+
+    effective_engine = "faster_whisper"
+    effective_backend = "cpu"
+    model = "large-v3-turbo"
+    whisper_cpp_visible = bool(is_windows and not is_runpod)
+    whisper_cpp_ready_effective = False
+
+    if is_runpod:
+        effective_backend = "cuda"
+    elif requested == "whisper_cpp":
+        if is_windows and vendor == "amd" and cpp_assets_ready and ffmpeg_available:
+            effective_engine, effective_backend, model = "whisper_cpp", "vulkan", cpp_model.name
+            whisper_cpp_ready_effective = True
+        else:
+            warnings.append("Run setup_whisper_cpp_vulkan_windows.bat -Force")
+            if not ffmpeg_available:
+                warnings.insert(0, "ffmpeg is required for browser-recorded webm input")
+            else:
+                warnings.insert(0, "whisper.cpp Vulkan is not ready.")
+    elif requested == "faster_whisper":
+        effective_backend = "cuda" if (is_linux and vendor == "nvidia") else "cpu"
+    elif is_windows and vendor == "amd" and cpp_assets_ready and ffmpeg_available:
+        effective_engine, effective_backend, model = "whisper_cpp", "vulkan", cpp_model.name
+        whisper_cpp_ready_effective = True
+    elif is_windows and vendor == "amd":
+        warnings.append("Run setup_whisper_cpp_vulkan_windows.bat -Force")
+        if not ffmpeg_available:
+            warnings.insert(0, "ffmpeg is required for browser-recorded webm input")
+        else:
+            warnings.insert(0, "whisper.cpp Vulkan is not ready.")
+    elif is_linux and vendor == "nvidia":
+        effective_backend = "cuda"
+
+    return {
+        "runtime": "runpod" if is_runpod else ("windows" if is_windows else "linux" if is_linux else "other"),
+        "is_windows": is_windows,
+        "is_runpod": is_runpod,
+        "gpu_vendor": vendor,
+        "effective_engine": effective_engine,
+        "effective_backend": effective_backend,
+        "model": model,
+        "whisper_cpp_visible": whisper_cpp_visible,
+        "whisper_cpp_ready": whisper_cpp_ready_effective,
+        "whisper_cpp_binary": str(cpp_bin) if cpp_bin else "",
+        "whisper_cpp_model": str(cpp_model),
+        "ffmpeg_available": ffmpeg_available,
+        "ffmpeg_binary": str(ffmpeg_bin) if ffmpeg_bin else "",
+        "warnings": warnings,
+    }
+
+
+def select_asr_backend() -> str:
+    mode = _engine_setting()
+    cfg = resolve_effective_asr_config()
+    if mode == "whisper_cpp" and cfg["effective_engine"] != "whisper_cpp":
+        raise ASRConfigurationError("CODEAGENT_ASR_ENGINE=whisper_cpp was requested, but runtime requirements are missing")
+    return str(cfg["effective_engine"])
 
 
 def transcribe_audio(

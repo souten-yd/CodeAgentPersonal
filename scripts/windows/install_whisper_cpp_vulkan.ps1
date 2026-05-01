@@ -29,10 +29,12 @@ try {
     $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
     $InstallDir = Join-Path $RepoRoot "ca_data\bin\whisper.cpp-vulkan"
     $ModelDir = Join-Path $RepoRoot "ca_data\asr_models\whisper_cpp"
+    $FfmpegDir = Join-Path $RepoRoot "ca_data\bin\ffmpeg"
     $ApiUrl = "https://api.github.com/repos/souten-yd/whisper.cpp/releases/latest"
 
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
     New-Item -ItemType Directory -Force -Path $ModelDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $FfmpegDir | Out-Null
 
     $installedBin = Get-ChildItem $InstallDir -Recurse -Include "whisper-cli.exe","main.exe","whisper.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
 
@@ -136,23 +138,34 @@ try {
         Write-Host "[whisper.cpp] model already exists and is >=1GB: $model"
     }
 
+    $ffmpegEnv = $env:CODEAGENT_FFMPEG_BIN
+    $resolvedFfmpeg = $null
+    if ($ffmpegEnv -and (Test-Path $ffmpegEnv)) { $resolvedFfmpeg = (Resolve-Path $ffmpegEnv).Path }
+    if (-not $resolvedFfmpeg) {
+        $ffmpegCmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
+        if ($ffmpegCmd) { $resolvedFfmpeg = $ffmpegCmd.Source }
+    }
+    if (-not $resolvedFfmpeg) {
+        $ffmpegApi = "https://api.github.com/repos/GyanD/codexffmpeg/releases/latest"
+        $ffmpegRelease = Invoke-RestMethod -Uri $ffmpegApi -Headers @{ "User-Agent" = "CodeAgentPersonal" }
+        $ffmpegAsset = $ffmpegRelease.assets | Where-Object { $_.name -match "(?i)essentials_build.*\.zip$" } | Select-Object -First 1
+        if (-not $ffmpegAsset) { throw "No ffmpeg essentials_build zip asset found in latest release." }
+        $ffmpegZip = Join-Path $env:TEMP $ffmpegAsset.name
+        Write-Host "[ffmpeg] downloading: $($ffmpegAsset.name)"
+        Invoke-DownloadWithRetry -Uri $ffmpegAsset.browser_download_url -OutFile $ffmpegZip
+        Expand-Archive -Path $ffmpegZip -DestinationPath $FfmpegDir -Force
+        $candidate = Get-ChildItem $FfmpegDir -Recurse -Filter "ffmpeg.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($candidate) { $resolvedFfmpeg = $candidate.FullName }
+    }
+    if (-not $resolvedFfmpeg) { throw "ffmpeg.exe is not found after setup." }
+
     Write-Host ""
     Write-Host "Set these environment variables for Windows AMD Vulkan ASR:"
-    Write-Host "set CODEAGENT_ASR_ENGINE=whisper_cpp"
+    Write-Host "set CODEAGENT_ASR_ENGINE=auto"
     Write-Host "set CODEAGENT_WHISPER_CPP_BACKEND=vulkan"
     Write-Host "set CODEAGENT_WHISPER_CPP_BIN=$($bin.FullName)"
     Write-Host "set CODEAGENT_WHISPER_CPP_MODEL=$model"
-
-    $ffmpegCmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
-    if (-not $ffmpegCmd) {
-        Write-Host ""
-        Write-Host "[WARN] ffmpeg is not found in PATH."
-        Write-Host "       ffmpeg is required when using browser-recorded webm input."
-        Write-Host "       If you only use wav input, ffmpeg is optional."
-    } else {
-        Write-Host ""
-        Write-Host ("[whisper.cpp] ffmpeg found: " + $ffmpegCmd.Source)
-    }
+    Write-Host "set CODEAGENT_FFMPEG_BIN=$resolvedFfmpeg"
 } catch {
     $msg = $_.Exception.Message
     Write-Error ("[whisper.cpp] install failed: " + $msg)
