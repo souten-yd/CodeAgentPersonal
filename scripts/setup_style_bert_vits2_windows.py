@@ -109,8 +109,10 @@ def main() -> int:
     _run([str(python_exe), "-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools<82"])
 
     if with_directml:
-        _run([str(pip_exe), "install", "torch-directml", "onnxruntime", "onnxruntime-directml"])
+        _run([str(pip_exe), "uninstall", "-y", "onnxruntime", "onnxruntime-gpu", "onnxruntime-directml"])
+        _run([str(pip_exe), "install", "torch-directml", "onnxruntime-directml"])
     else:
+        _run([str(pip_exe), "uninstall", "-y", "onnxruntime-directml", "onnxruntime-gpu"])
         _run([str(pip_exe), "install", "onnxruntime"])
 
     _run([str(python_exe), "-m", "pip", "install", "-e", ".", "--no-deps"], cwd=sbv2_repo)
@@ -177,6 +179,14 @@ def main() -> int:
                         shutil.rmtree(target)
                 shutil.move(str(child), str(target))
             shutil.rmtree(nested_koharune_dir, ignore_errors=True)
+        model_onnx_path = koharune_dir / "koharune-ami.onnx"
+        if model_onnx_path.exists():
+            print(f"[OK] ONNX model found: {model_onnx_path}")
+        else:
+            print("[WARN] ONNX model not found for koharune-ami.")
+            print(f"       Place exported ONNX at: {model_onnx_path}")
+            print("[INFO] Example conversion (manual):")
+            print("       python -m style_bert_vits2.convert_onnx --model <path/to/model.safetensors> --output <path/to/model.onnx>")
 
     smoke = (
         "import torch\n"
@@ -193,41 +203,45 @@ def main() -> int:
 
     if with_directml:
         dml_smoke = (
-            "import torch\n"
-            "import torch_directml\n"
-            "dml = torch_directml.device()\n"
-            "x = torch.ones((2,2), device=dml)\n"
-            "y = x + x\n"
-            "print(y.cpu())\n"
+            "import onnxruntime as ort\n"
+            "providers = ort.get_available_providers()\n"
+            "print('providers=' + ','.join(providers))\n"
+            "assert 'DmlExecutionProvider' in providers, providers\n"
         )
         _run([str(python_exe), "-c", dml_smoke], cwd=sbv2_repo)
         if args.smoke_infer:
             dml_infer_smoke = (
                 "import traceback\n"
-                "import torch_directml\n"
+                "import onnxruntime as ort\n"
                 "from style_bert_vits2.tts_model import TTSModel\n"
                 "from style_bert_vits2.constants import Languages\n"
                 "from pathlib import Path\n"
                 f"model_dir = Path({str(koharune_dir)!r})\n"
+                "providers = ort.get_available_providers()\n"
+                "assert 'DmlExecutionProvider' in providers, providers\n"
+                "model_path = model_dir / 'koharune-ami.onnx'\n"
+                "if not model_path.exists():\n"
+                "    raise RuntimeError(f'ONNX model missing: {model_path}')\n"
                 "try:\n"
-                "    device = torch_directml.device()\n"
                 "    model = TTSModel(\n"
-                "        model_path=model_dir / 'koharune-ami.safetensors',\n"
+                "        model_path=model_path,\n"
                 "        config_path=model_dir / 'config.json',\n"
                 "        style_vec_path=model_dir / 'style_vectors.npy',\n"
-                "        device=device,\n"
+                "        device='cpu',\n"
                 "    )\n"
                 "    result = model.infer(text='こんにちは。', language=Languages.JP, style='Neutral')\n"
                 "    if result is None:\n"
                 "        raise RuntimeError('infer returned None')\n"
-                "    print('[OK] DirectML inference ready')\n"
+                "    print('[OK] ONNX DirectML inference ready')\n"
                 "except Exception as e:\n"
-                "    print('[ERROR] torch_directml import succeeded, but SBV2 DirectML inference failed')\n"
+                "    print('[ERROR] ONNX DirectML inference failed')\n"
                 "    print(f'[ERROR] {type(e).__name__}: {e}')\n"
                 "    traceback.print_exc()\n"
                 "    raise\n"
             )
             _run([str(python_exe), "-c", dml_infer_smoke], cwd=sbv2_repo)
+
+    print("[INFO] ONNX Runtime Vulkan is out of scope for this setup; onnxruntime-vulkan is not installed.")
 
     assert (koharune_dir / "config.json").exists()
     assert (koharune_dir / "style_vectors.npy").exists()
