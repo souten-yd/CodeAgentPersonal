@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import os
 import secrets
+import stat
 import subprocess
 import sys
+import shutil
 from pathlib import Path
 
 
@@ -13,6 +15,60 @@ def _run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:
     result = subprocess.run(cmd, cwd=cwd, env=env, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(cmd)}")
+
+
+def _rmtree_onerror(func, path, exc_info):
+    # Windowsでreadonly属性のファイル削除に失敗した際の対策
+    if isinstance(exc_info[1], PermissionError):
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+        return
+    raise exc_info[1]
+
+
+def _is_incomplete_repo(repo_dir: Path) -> bool:
+    git_dir = repo_dir / ".git"
+    if not git_dir.exists():
+        return False
+    required_paths = [
+        repo_dir / "searx" / "webapp.py",
+        repo_dir / "pyproject.toml",
+    ]
+    if any(not p.exists() for p in required_paths):
+        return True
+    return False
+
+
+def _clone_searxng_sparse(repo_dir: Path, base_dir: Path, env: dict[str, str]) -> None:
+    patterns = "\n".join(
+        [
+            "/*",
+            "!/utils/templates/**",
+            "/searx/",
+            "/searxng_extra/",
+            "/pyproject.toml",
+            "/babel.cfg",
+            "/README.rst",
+            "/manage",
+            "/requirements*.txt",
+            "",
+        ]
+    )
+    _run(
+        ["git", "clone", "--filter=blob:none", "--no-checkout", "https://github.com/searxng/searxng.git", str(repo_dir)],
+        cwd=base_dir,
+        env=env,
+    )
+    _run(["git", "-C", str(repo_dir), "sparse-checkout", "init", "--no-cone"], cwd=base_dir, env=env)
+    info_sparse = repo_dir / ".git" / "info" / "sparse-checkout"
+    info_sparse.write_text(patterns, encoding="utf-8")
+    try:
+        _run(["git", "-C", str(repo_dir), "checkout", "HEAD"], cwd=base_dir, env=env)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            "SearXNG の sparse checkout に失敗しました。Windows では通常 clone が失敗するため sparse checkout を使用しています。"
+            " 壊れた third_party/searxng を削除して再実行してください。"
+        ) from exc
 
 
 def main() -> int:
@@ -40,9 +96,14 @@ def main() -> int:
 
     _run([str(py_exe), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"], cwd=base_dir, env=env)
 
+    if repo_dir.exists() and _is_incomplete_repo(repo_dir):
+        print("[SearXNG][setup] Existing repo looks incomplete. Removing and re-cloning with sparse checkout.")
+        shutil.rmtree(repo_dir, onerror=_rmtree_onerror)
+
     if not repo_dir.exists():
         repo_dir.parent.mkdir(parents=True, exist_ok=True)
-        _run(["git", "clone", "https://github.com/searxng/searxng.git", str(repo_dir)], cwd=base_dir, env=env)
+        print("[SearXNG][setup] Cloning SearXNG with Windows-safe sparse checkout (utils/templates is excluded).")
+        _clone_searxng_sparse(repo_dir=repo_dir, base_dir=base_dir, env=env)
     else:
         print(f"[SearXNG][setup] Reusing repo: {repo_dir}")
 
@@ -56,6 +117,10 @@ def main() -> int:
     secret_key = secret_file.read_text(encoding="utf-8").strip()
 
     settings_file = config_dir / "settings.yml"
+    bind_address = env.get("SEARXNG_BIND_ADDRESS", "127.0.0.1")
+    port = env.get("SEARXNG_PORT", "8088")
+    base_url = env.get("SEARXNG_BASE_URL", "false")
+
     if not settings_file.exists():
         settings_file.write_text(
             "\n".join(
@@ -64,9 +129,9 @@ def main() -> int:
                     "general:",
                     f"  secret_key: \"{secret_key}\"",
                     "server:",
-                    "  bind_address: \"127.0.0.1\"",
-                    "  port: 8088",
-                    "  base_url: false",
+                    f"  bind_address: \"{bind_address}\"",
+                    f"  port: {port}",
+                    f"  base_url: {base_url}",
                     "search:",
                     "  safe_search: 0",
                     "ui:",

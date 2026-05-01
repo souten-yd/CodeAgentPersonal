@@ -25,6 +25,7 @@ venv/
 .venv/
 env/
 .env
+search_envs/
 
 # ========== LLM バイナリ ==========
 llama/
@@ -58,6 +59,12 @@ logs/
 # ========== ca_data/ は管理対象 ==========
 # （ca_data/.gitignore で内部の除外を制御）
 # ca_data/ 自体は除外しない
+ca_data/searxng/secret_key
+ca_data/searxng/settings.yml
+ca_data/searxng/*.log
+
+# ========== Windows向けSearXNGローカル生成物 ==========
+third_party/searxng/
 
 # ========== ワークスペース（ルート直下の古い場所） ==========
 workspace/
