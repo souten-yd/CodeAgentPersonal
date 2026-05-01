@@ -42,7 +42,7 @@ RUN set -eux; \
 ########################################
 ## Build stage: Python deps + Style-Bert-VITS2 prep (with CUDA toolkit)
 ########################################
-FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04 AS py_base
+FROM pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel AS py_base
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -86,12 +86,8 @@ RUN rm -rf /var/lib/apt/lists/* \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH=/root/.local/bin:${PATH}
-RUN uv python install 3.11
-RUN uv venv --seed --python 3.11 /opt/venv
+RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:${PATH}
-RUN python -m ensurepip --upgrade || true
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
 RUN python - <<'PY'
 import sys
@@ -107,11 +103,21 @@ import sys
 print("sys.version", sys.version)
 assert sys.version_info[:2] == (3, 11), sys.version
 PY
-RUN python -m pip install --no-cache-dir \
-      --index-url https://download.pytorch.org/whl/cu128 \
-      torch==2.9.1+cu128 \
-      torchaudio==2.9.1+cu128 \
-      torchvision==0.24.1+cu128
+RUN python - <<'PY'
+import sys
+import torch
+import torchaudio
+
+print("python executable:", sys.executable)
+print("python version:", sys.version)
+print("torch:", torch.__version__, torch.__file__)
+print("torchaudio:", torchaudio.__version__, torchaudio.__file__)
+print("torch.version.cuda:", torch.version.cuda)
+
+assert sys.version_info[:2] == (3, 11), sys.version
+assert torch.__version__.startswith("2.9.1"), torch.__version__
+assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
+PY
 
 FROM py_base AS py_build
 
@@ -194,7 +200,7 @@ RUN rm -rf /app/Style-Bert-VITS2 \
 # Keep Style-Bert-VITS2 dependencies isolated from existing Qwen3-TTS pins by using a dedicated venv.
 RUN set -eux; \
     cd /app/Style-Bert-VITS2; \
-    uv venv --seed --python 3.11 /opt/style-bert-vits2-venv; \
+    python -m venv /opt/style-bert-vits2-venv; \
     opt_site_packages="$(/opt/venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
     sbv2_site_packages="$(/opt/style-bert-vits2-venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
     printf '%s\n' "${opt_site_packages}" > "${sbv2_site_packages}/_runpod_opt_venv.pth"
@@ -247,6 +253,7 @@ print("sbv2 torchaudio", torchaudio.__version__, torchaudio.__file__)
 print("sbv2 torch.version.cuda", torch.version.cuda)
 print("sbv2 av", av.__version__, av.__file__)
 assert sys.version_info[:2] == (3, 11), sys.version
+assert torch.__version__.startswith("2.9.1"), torch.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
@@ -301,7 +308,7 @@ PY
 ########################################
 # Runtime stage: Python + codeAgent + llama.cpp
 ########################################
-FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04 AS runtime
+FROM pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -359,14 +366,11 @@ RUN rm -rf /var/lib/apt/lists/* \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-ENV PATH=/opt/venv/bin:/root/.local/bin:${PATH}
+ENV PATH=/opt/venv/bin:${PATH}
 
 # Copy application source and prebuilt venv artifacts from build stage.
 COPY . /app
 COPY --from=py_build /opt/venv /opt/venv
-COPY --from=py_base /root/.local/bin/uv /root/.local/bin/uv
-COPY --from=py_base /root/.local/bin/uvx /root/.local/bin/uvx
-COPY --from=py_base /root/.local/share/uv /root/.local/share/uv
 COPY --from=style_bert_vits2_build /app/Style-Bert-VITS2 /app/Style-Bert-VITS2
 COPY --from=style_bert_vits2_build /opt/style-bert-vits2-venv /opt/style-bert-vits2-venv
 COPY --from=style_bert_vits2_build /opt/hf_cache /opt/hf_cache
@@ -381,9 +385,18 @@ RUN ls -la /opt/venv/bin \
 
 RUN /opt/venv/bin/python - <<'PY'
 import sys
-print("runtime /opt/venv python:", sys.executable)
-print("runtime /opt/venv version:", sys.version)
+import torch
+import torchaudio
+
+print("runtime python:", sys.executable)
+print("runtime version:", sys.version)
+print("torch:", torch.__version__, torch.__file__)
+print("torchaudio:", torchaudio.__version__, torchaudio.__file__)
+print("torch.version.cuda:", torch.version.cuda)
+
 assert sys.version_info[:2] == (3, 11), sys.version
+assert torch.__version__.startswith("2.9.1"), torch.__version__
+assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
 RUN ls -la /opt/style-bert-vits2-venv/bin \
@@ -403,6 +416,7 @@ print("torchaudio", torchaudio.__version__)
 print("torch.version.cuda", torch.version.cuda)
 print("av", av.__version__)
 assert sys.version_info[:2] == (3, 11), sys.version
+assert torch.__version__.startswith("2.9.1"), torch.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
@@ -410,7 +424,7 @@ PY
 RUN set -eux; \
     mkdir -p /opt/searxng; \
     git clone https://github.com/searxng/searxng /opt/searxng/searxng-src; \
-    /root/.local/bin/uv venv --seed --python 3.11 /opt/searxng/searx-pyenv; \
+    python -m venv /opt/searxng/searx-pyenv; \
     /opt/searxng/searx-pyenv/bin/pip install --no-cache-dir -U pip setuptools wheel; \
     /opt/searxng/searx-pyenv/bin/pip install --no-cache-dir -U pyyaml msgspec typing-extensions pybind11; \
     cd /opt/searxng/searxng-src; \
