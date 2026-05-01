@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from datetime import datetime, timezone
 
 from .engine_registry import TTSEngineRuntime
 from .style_bert_vits2_paths import (
@@ -21,6 +22,7 @@ from .style_bert_vits2_paths import (
     resolve_style_bert_vits2_venv_dir,
 )
 from .text_normalizer import looks_japanese, preprocess_text_for_tts
+from .tts_debug import write_tts_debug_entry
 
 _STYLE_BERT_VITS2_DEFAULT_REPO_DIR = "/app/Style-Bert-VITS2"
 _STYLE_BERT_VITS2_DEFAULT_VENV_DIR = "/app/Style-Bert-VITS2/.venv"
@@ -41,22 +43,6 @@ def _venv_dir() -> str:
 
 
 
-
-def _tts_debug_log_path() -> Path:
-    ca_data = os.environ.get("CODEAGENT_CA_DATA_DIR", "").strip()
-    if ca_data:
-        return Path(ca_data) / "tts_debug.jsonl"
-    return Path(__file__).resolve().parents[2] / "ca_data" / "tts_debug.jsonl"
-
-
-def _write_tts_debug_entry(entry: dict) -> None:
-    try:
-        path = _tts_debug_log_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(dict(entry or {}), ensure_ascii=False) + "\n")
-    except Exception:
-        return
 
 def _python_path() -> str:
     return resolve_style_bert_vits2_python_path()
@@ -1233,17 +1219,57 @@ while True:
                     "[Style-Bert-VITS2][input_non_japanese_warn] JP-Extra text still looks non-Japanese after normalization; proceeding. final_text_preview=%r",
                     preview,
                 )
-        output = self._send_to_worker(payload)
-        if not output.get("ok"):
-            err = output.get("error") or "unknown error"
-            raise RuntimeError(f"Style-Bert-VITS2 synth failed: {err}\n{output.get('traceback', '')}")
+        try:
+            output = self._send_to_worker(payload)
+            if not output.get("ok"):
+                err = output.get("error") or "unknown error"
+                write_tts_debug_entry({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "ok": False,
+                    "request_id": request_id,
+                    "engine": "style_bert_vits2",
+                    "model_name": payload.get("model_name"),
+                    "model_path": payload.get("model_path"),
+                    "raw_text": payload.get("raw_text"),
+                    "normalized_text": payload.get("text"),
+                    "error": err,
+                    "traceback": output.get("traceback"),
+                })
+                raise RuntimeError(f"Style-Bert-VITS2 synth failed: {err}\n{output.get('traceback', '')}")
 
-        b64 = output.get("audio_b64")
-        if not b64:
-            raise RuntimeError("Style-Bert-VITS2 synth failed: empty audio payload")
+            b64 = output.get("audio_b64")
+            if not b64:
+                err = "empty audio payload"
+                write_tts_debug_entry({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "ok": False,
+                    "request_id": request_id,
+                    "engine": "style_bert_vits2",
+                    "model_name": payload.get("model_name"),
+                    "model_path": payload.get("model_path"),
+                    "raw_text": payload.get("raw_text"),
+                    "normalized_text": payload.get("text"),
+                    "error": err,
+                })
+                raise RuntimeError("Style-Bert-VITS2 synth failed: empty audio payload")
+        except Exception as e:
+            if not isinstance(e, RuntimeError):
+                write_tts_debug_entry({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "ok": False,
+                    "request_id": request_id,
+                    "engine": "style_bert_vits2",
+                    "model_name": payload.get("model_name"),
+                    "model_path": payload.get("model_path"),
+                    "raw_text": payload.get("raw_text"),
+                    "normalized_text": payload.get("text"),
+                    "error": f"{type(e).__name__}: {e}",
+                    "traceback": traceback.format_exc(),
+                })
+            raise
 
         audio_bytes = base64.b64decode(b64)
-        _write_tts_debug_entry({"timestamp": datetime.now(timezone.utc).isoformat(), "request_id": request_id, "route": payload.get("route"), "engine": "style_bert_vits2", "model_name": payload.get("model_name"), "model_path": payload.get("model_path"), "config_path": payload.get("config_path"), "style_vec_path": payload.get("style_vec_path"), "raw_text": payload.get("raw_text"), "normalized_text": payload.get("text"), "effective_language": payload.get("effective_language"), "model_version": payload.get("model_version"), "is_jp_extra": payload.get("is_jp_extra"), "device": output.get("device") or payload.get("device"), "speaker": payload.get("speaker"), "speaker_id": payload.get("speaker_id"), "style": payload.get("style"), "line_split": payload.get("line_split"), "infer_kwargs_keys": output.get("infer_kwargs_keys"), "sample_rate": output.get("sample_rate"), "audio_dtype": output.get("audio_dtype"), "audio_shape": output.get("audio_shape"), "audio_min": output.get("audio_min"), "audio_max": output.get("audio_max"), "encoder": output.get("encoder"), "wav_bytes_len": len(audio_bytes)})
+        write_tts_debug_entry({"timestamp": datetime.now(timezone.utc).isoformat(), "request_id": request_id, "route": payload.get("route"), "engine": "style_bert_vits2", "model_name": payload.get("model_name"), "model_path": payload.get("model_path"), "config_path": payload.get("config_path"), "style_vec_path": payload.get("style_vec_path"), "raw_text": payload.get("raw_text"), "normalized_text": payload.get("text"), "effective_language": payload.get("effective_language"), "model_version": payload.get("model_version"), "is_jp_extra": payload.get("is_jp_extra"), "device": output.get("device") or payload.get("device"), "speaker": payload.get("speaker"), "speaker_id": payload.get("speaker_id"), "style": payload.get("style"), "line_split": payload.get("line_split"), "infer_kwargs_keys": output.get("infer_kwargs_keys"), "sample_rate": output.get("sample_rate"), "audio_dtype": output.get("audio_dtype"), "audio_shape": output.get("audio_shape"), "audio_min": output.get("audio_min"), "audio_max": output.get("audio_max"), "encoder": output.get("encoder"), "wav_bytes_len": len(audio_bytes)})
         _logger.info(
             "[Style-Bert-VITS2][synthesize] id=%s model=%s text_len=%d device=%s cache_hit=%s load_ms=%d infer_ms=%d encode_ms=%d total_ms=%d bytes=%d",
             request_id,

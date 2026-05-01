@@ -45,6 +45,7 @@ from agent.task_planning_runner import TaskPlanningRunner
 from app.tts.engine_registry import EngineRegistry, TTSEngineRuntime
 from app.tts.style_bert_vits2_runtime import StyleBertVITS2Runtime, _read_model_version
 from app.tts.language_router import resolve_tts_language_route
+from app.tts.tts_debug import read_recent_tts_debug_entries, write_tts_debug_entry
 from app.tts.style_bert_vits2_manager import (
     StyleBertVITS2Error,
     ensure_model_exists,
@@ -12683,37 +12684,13 @@ def _build_tts_engine_registry() -> EngineRegistry:
 
 
 
-_TTS_DEBUG_LOG_PATH = os.path.join(CA_DATA_DIR, "tts_debug.jsonl")
-
-
 def _read_recent_tts_debug_entries(limit: int = 20):
-    try:
-        n = max(1, min(int(limit), 500))
-    except Exception:
-        n = 20
-    if not os.path.exists(_TTS_DEBUG_LOG_PATH):
-        return []
-    try:
-        with open(_TTS_DEBUG_LOG_PATH, "r", encoding="utf-8") as f:
-            rows = [ln.strip() for ln in f if ln.strip()]
-        out = []
-        for ln in rows[-n:]:
-            try:
-                out.append(json.loads(ln))
-            except Exception:
-                out.append({"ok": False, "error": "invalid_jsonl_entry", "raw": ln[:500]})
-        return out
-    except Exception as e:
-        return [{"ok": False, "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()}]
+    return read_recent_tts_debug_entries(limit)
 
 
 def _write_tts_debug_entry(entry: dict) -> None:
-    try:
-        os.makedirs(CA_DATA_DIR, exist_ok=True)
-        with open(_TTS_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(json.dumps(dict(entry or {}), ensure_ascii=False) + "\n")
-    except Exception:
-        return
+    write_tts_debug_entry(entry)
+
 
 
 _tts_engine_registry = _build_tts_engine_registry()
