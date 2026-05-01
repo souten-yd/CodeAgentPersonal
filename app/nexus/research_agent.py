@@ -14,7 +14,7 @@ from app.nexus.answer_builder import build_answer_payload
 from app.nexus.citation_mapper import build_citation_map, normalize_reference_labels
 from app.nexus.config import load_runtime_config
 from app.nexus.downloader import safe_download, save_download_artifacts
-from app.nexus.evidence import EvidenceItem, save_evidence_items
+from app.nexus.evidence import EvidenceItem, replace_evidence_items_for_job, save_evidence_items
 from app.nexus.jobs import append_job_event, append_job_heartbeat, create_job, ensure_job_exists, update_job
 from app.nexus.source_collector import collect_source_candidates, rank_source_candidates
 from app.nexus.source_registry import (
@@ -909,6 +909,14 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         final_confidence = 0.0
         unresolved_items: list[str] = []
         stop_reason = "recursive_disabled"
+        cumulative_downloads = sum(
+            1 for item in downloadable_sources if str(item.get("status") or "") in {"downloaded", "degraded", "reused"}
+        )
+        cumulative_downloaded_bytes = sum(
+            max(0, int(item.get("size") or 0))
+            for item in downloadable_sources
+            if str(item.get("status") or "") in {"downloaded", "degraded", "reused"}
+        )
         if payload.recursive_search and payload.max_iterations > 1:
             stop_reason = "max_iterations_reached"
             for iteration in range(1, payload.max_iterations + 1):
@@ -941,17 +949,39 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": [], "added_sources": 0, "stop_reason": stop_reason})
                     append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
                     break
+                remaining_downloads = max(0, max_downloads - cumulative_downloads)
+                remaining_total_bytes = max(0, max_total_download_bytes - cumulative_downloaded_bytes)
+                if remaining_downloads <= 0 or remaining_total_bytes <= 0:
+                    stop_reason = "download_budget_exhausted"
+                    append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
+                    iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "added_sources": 0, "stop_reason": stop_reason})
+                    append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
+                    break
                 append_job_event(effective_job_id, "recursive_followup_search_started", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
-                planned = [{"query": q} for q in followup_queries]
-                followup_search = run_web_search(planned, mode=payload.mode, depth=payload.depth, max_results_per_query=payload.max_results_per_query, scope=payload.scope, language=payload.language)
+                followup_search = run_web_search(followup_queries, mode=payload.mode, depth=payload.depth, max_results_per_query=payload.max_results_per_query, scope=payload.scope, language=payload.language)
                 followup_candidates = collect_source_candidates(search_items=list(followup_search.get("items") or []), manual_urls=[])
                 followup_ranked = rank_source_candidates(followup_candidates, prefer_pdf=payload.prefer_pdf, official_first=payload.official_first)
+                existing_canonicals = {
+                    canonicalize_source_url(str(s.get("canonical_url") or s.get("final_url") or s.get("url") or ""))
+                    for s in registered_sources
+                    if str(s.get("canonical_url") or s.get("final_url") or s.get("url") or "").strip()
+                }
+                batch_canonicals: set[str] = set()
+                filtered_followup_ranked: list[dict] = []
+                for candidate in followup_ranked:
+                    canonical = canonicalize_source_url(str(candidate.get("canonical_url") or candidate.get("url") or ""))
+                    if not canonical:
+                        continue
+                    if canonical in existing_canonicals or canonical in batch_canonicals:
+                        continue
+                    batch_canonicals.add(canonical)
+                    filtered_followup_ranked.append(candidate)
                 followup_downloaded, _ = _download_sources_parallel(
                     job_id=effective_job_id,
-                    candidates=followup_ranked,
-                    max_downloads=max_downloads,
+                    candidates=filtered_followup_ranked,
+                    max_downloads=remaining_downloads,
                     max_download_bytes=max_download_bytes,
-                    max_total_download_bytes=max_total_download_bytes,
+                    max_total_download_bytes=remaining_total_bytes,
                     download_timeout_sec=download_timeout_sec,
                     continue_on_download_error=payload.continue_on_download_error,
                     concurrency=runtime_cfg.download_concurrency,
@@ -959,6 +989,11 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
                     download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
                 )
+                newly_downloaded = [
+                    item for item in followup_downloaded if str(item.get("status") or "") in {"downloaded", "degraded", "reused"}
+                ]
+                cumulative_downloads += len(newly_downloaded)
+                cumulative_downloaded_bytes += sum(max(0, int(item.get("size") or 0)) for item in newly_downloaded)
                 followup_registered = register_or_update_sources(job_id=effective_job_id, project=payload.project, sources=followup_downloaded)
                 source_index = {str(s.get("source_id") or ""): s for s in registered_sources}
                 for source in followup_registered:
@@ -987,6 +1022,8 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 append_job_event(effective_job_id, "recursive_followup_search_finished", {"iteration": iteration, "status": "running", "added_sources": len(followup_registered), "updated_at": _now_iso()})
                 iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "added_sources": len(followup_registered)})
                 append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
+            final_evidence_items = _build_evidence_from_sources(effective_job_id, registered_sources)
+            replace_evidence_items_for_job(effective_job_id, final_evidence_items, project=payload.project)
         else:
             analysis = _analyze_research_gaps(sources=registered_sources, evidence_chunks=source_chunks, answer_payload=answer_payload)
             final_confidence = float(analysis.get("confidence") or 0.0)
