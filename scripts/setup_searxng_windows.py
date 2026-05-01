@@ -40,7 +40,7 @@ def _is_incomplete_repo(repo_dir: Path) -> bool:
 
 
 def _clone_searxng_sparse(repo_dir: Path, base_dir: Path, env: dict[str, str]) -> None:
-    patterns = "\n".join(
+    sparse_patterns = "\n".join(
         [
             "/*",
             "!/utils/templates/**",
@@ -61,13 +61,15 @@ def _clone_searxng_sparse(repo_dir: Path, base_dir: Path, env: dict[str, str]) -
     )
     _run(["git", "-C", str(repo_dir), "sparse-checkout", "init", "--no-cone"], cwd=base_dir, env=env)
     info_sparse = repo_dir / ".git" / "info" / "sparse-checkout"
-    info_sparse.write_text(patterns, encoding="utf-8")
+    info_sparse.parent.mkdir(parents=True, exist_ok=True)
+    info_sparse.write_text(sparse_patterns, encoding="utf-8")
     try:
         _run(["git", "-C", str(repo_dir), "checkout", "HEAD"], cwd=base_dir, env=env)
     except RuntimeError as exc:
         raise RuntimeError(
             "SearXNG の sparse checkout に失敗しました。Windows では通常 clone が失敗するため sparse checkout を使用しています。"
             " 壊れた third_party/searxng を削除して再実行してください。"
+            f" repo_dir={repo_dir} sparse_pattern_file={info_sparse} sparse_patterns={sparse_patterns!r}"
         ) from exc
 
 
