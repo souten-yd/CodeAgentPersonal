@@ -57,6 +57,18 @@ class Phase65ExecutorSafetyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.executor.execute("plan6", execution_mode="safe_apply", project_path="", allow_create=True)
 
+
+    def test_safe_apply_with_dot_project_path_fails(self):
+        self._save_plan([ImplementationStep(step_id="s1", title="作成", action_type="create", target_files=["new.txt"])])
+        self._approve()
+        with self.assertRaises(ValueError):
+            self.executor.execute("plan6", execution_mode="safe_apply", project_path=".", allow_create=True)
+
+    def test_safe_apply_with_blank_project_path_fails(self):
+        self._save_plan([ImplementationStep(step_id="s1", title="作成", action_type="create", target_files=["new.txt"])])
+        self._approve()
+        with self.assertRaises(ValueError):
+            self.executor.execute("plan6", execution_mode="safe_apply", project_path="   ", allow_create=True)
     def test_dry_run_with_empty_project_path_succeeds_with_warning(self):
         self._save_plan([ImplementationStep(step_id="s1", title="作成", action_type="create", target_files=["new.txt"])])
         self._approve()
@@ -64,15 +76,14 @@ class Phase65ExecutorSafetyTests(unittest.TestCase):
         self.assertIn("project_path was not resolved; dry_run only", out["run"]["warnings"])
         self.assertFalse((self.project / "new.txt").exists())
 
-    def test_safe_apply_uses_plan_resolved_project_path(self):
+    def test_safe_apply_with_empty_request_rejected_even_if_plan_has_path(self):
         self._save_plan([ImplementationStep(step_id="s1", title="作成", action_type="create", target_files=["from_plan.txt"])])
         self._approve()
         self._inject_plan_fields(resolved_project_path=str(self.project))
-        out = self.executor.execute("plan6", execution_mode="safe_apply", project_path="", allow_create=True)
-        self.assertTrue((self.project / "from_plan.txt").exists())
-        self.assertEqual(out["run"]["project_path"], str(self.project.resolve()))
+        with self.assertRaises(ValueError):
+            self.executor.execute("plan6", execution_mode="safe_apply", project_path="", allow_create=True)
 
-    def test_safe_apply_uses_requirement_resolved_project_path(self):
+    def test_safe_apply_with_empty_request_rejected_even_if_requirement_has_path(self):
         self._save_plan([ImplementationStep(step_id="s1", title="作成", action_type="create", target_files=["from_requirement.txt"])])
         req = RequirementDefinition(
             requirement_id="req6",
@@ -82,9 +93,8 @@ class Phase65ExecutorSafetyTests(unittest.TestCase):
         )
         self.storage.save_requirement(req)
         self._approve()
-        out = self.executor.execute("plan6", execution_mode="safe_apply", project_path="", allow_create=True)
-        self.assertTrue((self.project / "from_requirement.txt").exists())
-        self.assertEqual(out["run"]["project_path"], str(self.project.resolve()))
+        with self.assertRaises(ValueError):
+            self.executor.execute("plan6", execution_mode="safe_apply", project_path="", allow_create=True)
 
     def test_existing_create_target_blocked_counted(self):
         (self.project / "exists.txt").write_text("x", encoding="utf-8")

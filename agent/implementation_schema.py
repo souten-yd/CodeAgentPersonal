@@ -29,6 +29,8 @@ class ImplementationStepResult(BaseModel):
     skipped_reason: str = ""
     error: str = ""
     log: list[str] = Field(default_factory=list)
+    patch_id: str = ""
+    verification_id: str = ""
 
 
 class ImplementationRun(BaseModel):
@@ -61,3 +63,6 @@ class ImplementationRunRequest(BaseModel):
     allow_delete: bool = False
     allow_run_command: bool = False
     user_comment: str = ""
+    apply_patches: bool = False
+    preview_only: bool = True
+    max_patch_bytes: int = 20000
