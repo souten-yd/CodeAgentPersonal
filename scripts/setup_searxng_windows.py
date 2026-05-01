@@ -41,6 +41,21 @@ def _is_incomplete_repo(repo_dir: Path) -> bool:
     return any(not p.exists() for p in required_paths)
 
 
+def _verify_required_files(repo_dir: Path) -> None:
+    required_paths = [
+        repo_dir / "searx" / "webapp.py",
+        repo_dir / "setup.py",
+        repo_dir / "requirements.txt",
+        repo_dir / "requirements-dev.txt",
+    ]
+    missing = [str(p) for p in required_paths if not p.exists()]
+    if missing:
+        raise RuntimeError(
+            "SearXNG source directory is incomplete. "
+            f"Missing required files: {missing}"
+        )
+
+
 def _detect_default_branch(env: dict[str, str]) -> str:
     try:
         result = subprocess.run(
@@ -119,19 +134,7 @@ def _download_searxng_zip(repo_dir: Path, env: dict[str, str]) -> None:
             extracted += 1
 
     print(f"[SearXNG][setup] Extracted {extracted} files, skipped {skipped} files.")
-    required = [
-        repo_dir / "searx" / "webapp.py",
-        repo_dir / "setup.py",
-        repo_dir / "requirements.txt",
-        repo_dir / "requirements-dev.txt",
-    ]
-    missing = [str(path) for path in required if not path.exists()]
-    if missing:
-        raise RuntimeError(
-            "SearXNG ZIP extraction incomplete. "
-            f"Missing: {missing}\n"
-            "Required files are setup.py-based because upstream SearXNG may not provide pyproject.toml."
-        )
+    _verify_required_files(repo_dir)
 
 
 
@@ -170,15 +173,26 @@ def main() -> int:
         _download_searxng_zip(repo_dir=repo_dir, env=env)
     else:
         print(f"[SearXNG][setup] Reusing existing source directory: {repo_dir}")
+        _verify_required_files(repo_dir)
 
+    requirements_file = repo_dir / "requirements.txt"
+    if not requirements_file.exists():
+        raise RuntimeError(f"SearXNG requirements.txt not found: {requirements_file}")
+
+    _run([str(pip_exe), "install", "-r", str(requirements_file)], cwd=base_dir, env=env)
     try:
-        _run([str(pip_exe), "install", "-e", str(repo_dir)], cwd=base_dir, env=env)
-    except RuntimeError:
-        print("[SearXNG][setup] pip install failed. Removing source directory and retrying from source ZIP.")
-        if repo_dir.exists():
-            shutil.rmtree(repo_dir, onerror=_rmtree_onerror)
-        _download_searxng_zip(repo_dir=repo_dir, env=env)
-        _run([str(pip_exe), "install", "-e", str(repo_dir)], cwd=base_dir, env=env)
+        _run(
+            [str(pip_exe), "install", "--no-build-isolation", "-e", str(repo_dir)],
+            cwd=base_dir,
+            env=env,
+        )
+    except RuntimeError as exc:
+        print(
+            "[SearXNG][setup] pip editable install failed. "
+            "If this fails with ModuleNotFoundError during editable build, ensure requirements.txt "
+            "was installed before editable install and use --no-build-isolation."
+        )
+        raise exc
 
     secret_file = config_dir / "secret_key"
     if not secret_file.exists() or not secret_file.read_text(encoding="utf-8").strip():
