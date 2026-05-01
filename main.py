@@ -10763,6 +10763,7 @@ def api_execute_plan(plan_id: str, req: ImplementationRunRequest):
             apply_patches=req.apply_patches,
             preview_only=req.preview_only,
             max_patch_bytes=req.max_patch_bytes,
+            patch_generation_mode=req.patch_generation_mode,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="plan not found")
@@ -10880,10 +10881,7 @@ def api_get_verification_result(run_id: str, verification_id: str):
     try:
         from agent.patch_storage import PatchStorage
         ps = PatchStorage(_phase6_run_storage.base_dir)
-        payload_path = ps._verification_dir(run_id) / f"{verification_id}.verification.json"
-        if not payload_path.exists():
-            raise FileNotFoundError
-        return json.loads(payload_path.read_text(encoding="utf-8"))
+        return ps.load_verification_result(run_id, verification_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="verification result not found")
 

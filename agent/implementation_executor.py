@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from agent.implementation_schema import ImplementationRun, ImplementationStepResult
 from agent.patch_generator import PatchGenerator
+from agent.llm_patch_generator import generate_replace_block_patch
 from agent.patch_safety import PatchSafetyChecker
 from agent.patch_schema import PatchApplyResult, PatchProposal
 from agent.patch_approval_manager import PatchApprovalManager
@@ -27,7 +28,7 @@ class ImplementationExecutor:
         self.patch_safety = PatchSafetyChecker()
         self.verification_runner = VerificationRunner()
 
-    def execute(self, plan_id: str, execution_mode: str = "dry_run", project_path: str = "", allow_update: bool = False, allow_create: bool = False, allow_delete: bool = False, allow_run_command: bool = False, user_comment: str = "", apply_patches: bool = False, preview_only: bool = True, max_patch_bytes: int = 20000) -> dict:
+    def execute(self, plan_id: str, execution_mode: str = "dry_run", project_path: str = "", allow_update: bool = False, allow_create: bool = False, allow_delete: bool = False, allow_run_command: bool = False, user_comment: str = "", apply_patches: bool = False, preview_only: bool = True, max_patch_bytes: int = 20000, patch_generation_mode: str = "append") -> dict:
         if execution_mode not in {"dry_run", "safe_apply"}:
             raise ValueError("execution_mode must be dry_run or safe_apply")
 
@@ -61,7 +62,7 @@ class ImplementationExecutor:
         for idx, raw in enumerate(steps, start=1):
             step = ImplementationStepResult(step_id=str(raw.get("step_id", f"step_{idx}")), title=str(raw.get("title", f"Step {idx}")), action_type=str(raw.get("action_type", "inspect")), risk_level=str(raw.get("risk_level", "low")), target_files=[str(x) for x in (raw.get("target_files") or [])], status="pending")
             run.step_results.append(step)
-            self._run_step(run, step, execution_mode=execution_mode, plan=plan, project_path=Path(resolved_project_path) if resolved_project_path else None, allow_update=allow_update, allow_create=allow_create, logs=logs, apply_patches=apply_patches, preview_only=preview_only, max_patch_bytes=max_patch_bytes)
+            self._run_step(run, step, execution_mode=execution_mode, plan=plan, project_path=Path(resolved_project_path) if resolved_project_path else None, allow_update=allow_update, allow_create=allow_create, logs=logs, apply_patches=apply_patches, preview_only=preview_only, max_patch_bytes=max_patch_bytes, patch_generation_mode=patch_generation_mode)
             run.updated_at = self._now()
 
         self._finalize_run(run)
@@ -91,7 +92,7 @@ class ImplementationExecutor:
         if resolved_dir.resolve() in {cwd, repo_root} or str(resolved_dir.resolve()) == "/app":
             raise ValueError("safe_apply project_path is too broad; specify concrete project directory")
 
-    def _run_step(self, run: ImplementationRun, step: ImplementationStepResult, execution_mode: str, plan: dict, project_path: Path | None, allow_update: bool, allow_create: bool, logs: list[str], apply_patches: bool, preview_only: bool, max_patch_bytes: int) -> None:
+    def _run_step(self, run: ImplementationRun, step: ImplementationStepResult, execution_mode: str, plan: dict, project_path: Path | None, allow_update: bool, allow_create: bool, logs: list[str], apply_patches: bool, preview_only: bool, max_patch_bytes: int, patch_generation_mode: str = "append") -> None:
         step.started_at = self._now(); step.status = "running"
         action = step.action_type; risk = step.risk_level.lower(); step.log.append(f"start action={action} risk={risk}")
         try:
@@ -99,7 +100,7 @@ class ImplementationExecutor:
             if action in {"delete", "run_command"}: return self._block(step, run, f"{action} is blocked in Phase 7")
             if execution_mode == "dry_run":
                 if action == "update" and project_path is not None and allow_update:
-                    self._safe_update(step, project_path, run.run_id, run.plan_id, plan, apply_patches=False, preview_only=True, max_patch_bytes=max_patch_bytes)
+                    self._safe_update(step, project_path, run.run_id, run.plan_id, plan, apply_patches=False, preview_only=True, max_patch_bytes=max_patch_bytes, patch_generation_mode=patch_generation_mode)
                     step.status = "skipped"; step.skipped_reason = "dry_run: execution planned only"; step.message = "patch preview generated during dry_run; file unchanged"; run.skipped_steps += 1; return
                 step.status = "skipped"; step.skipped_reason = "dry_run: execution planned only"; step.message = "Recorded planned action. No changes made."; run.skipped_steps += 1; return
             if action == "inspect":
@@ -112,7 +113,7 @@ class ImplementationExecutor:
             if action == "update":
                 if not allow_update: return self._block(step, run, "allow_update is false")
                 if project_path is None: return self._block(step, run, "project_path unresolved")
-                self._safe_update(step, project_path, run.run_id, run.plan_id, plan, apply_patches=apply_patches, preview_only=preview_only, max_patch_bytes=max_patch_bytes); self._tally_step_status(run, step); return
+                self._safe_update(step, project_path, run.run_id, run.plan_id, plan, apply_patches=apply_patches, preview_only=preview_only, max_patch_bytes=max_patch_bytes, patch_generation_mode=patch_generation_mode); self._tally_step_status(run, step); return
             step.status = "skipped"; step.skipped_reason = f"unsupported action_type={action}"; step.message = "Skipped unsupported action"; run.skipped_steps += 1
         except Exception as exc:
             step.status = "failed"; step.error = str(exc); step.message = f"failed: {exc}"; run.failed_steps += 1; run.errors.append(f"{step.step_id}: {exc}")
@@ -139,15 +140,24 @@ class ImplementationExecutor:
         target.write_text("\n".join(["# TODO generated by CodeAgent Phase 6",f"# Step: {step.title}",""]), encoding="utf-8")
         step.changed_files.append(str(target)); step.status="completed"; step.message="created safe stub file"
 
-    def _safe_update(self, step: ImplementationStepResult, project_path: Path, run_id: str, plan_id: str, plan: dict, apply_patches: bool, preview_only: bool, max_patch_bytes: int) -> None:
+    def _safe_update(self, step: ImplementationStepResult, project_path: Path, run_id: str, plan_id: str, plan: dict, apply_patches: bool, preview_only: bool, max_patch_bytes: int, patch_generation_mode: str = "append") -> None:
         if not step.target_files: raise ValueError("update step requires target_files")
         if len(step.target_files) != 1: self._block(step,None,"Phase 7 supports only single target_file for update patch MVP"); return
         target=self._resolve_target(project_path, step.target_files[0])
         if target is None: self._block(step,None,"target path is outside project or blocked"); return
         if not target.exists(): raise ValueError("target file does not exist")
         if self._is_binary(target): raise ValueError("binary file update is blocked")
+        proposal = None
+        mode = (patch_generation_mode or "append").strip().lower()
         try:
-            proposal=self.patch_generator.generate_append_patch(run_id, plan_id, step.step_id, step.title, str(plan.get('description','')), step.risk_level, target)
+            if mode in {"llm_replace_block", "auto"}:
+                content = target.read_text(encoding="utf-8")
+                proposal = generate_replace_block_patch(run_id, plan_id, step.step_id, step.title, str(plan.get('description','')), step.risk_level, target, content, llm_fn=None)
+                if mode == "auto" and not proposal.apply_allowed:
+                    proposal = self.patch_generator.generate_append_patch(run_id, plan_id, step.step_id, step.title, str(plan.get('description','')), step.risk_level, target)
+                    proposal.metadata = {**(proposal.metadata or {}), "fallback_from": "llm_replace_block"}
+            else:
+                proposal=self.patch_generator.generate_append_patch(run_id, plan_id, step.step_id, step.title, str(plan.get('description','')), step.risk_level, target)
         except ValueError as exc:
             self._block(step, None, f"patch generation blocked: {exc}")
             return
@@ -167,23 +177,6 @@ class ImplementationExecutor:
         step.status = "completed"
         step.message = "patch preview generated; apply requires patch approval API in Phase 8"
         return
-        if not allowed:
-            self._block(step, None, "patch safety check failed")
-            return
-        before=target.read_text(encoding='utf-8')
-        backup = target.with_suffix(target.suffix + '.bak.phase7')
-        backup.write_text(before, encoding='utf-8')
-        with target.open('a', encoding='utf-8') as f:
-            f.write(proposal.proposed_content)
-        step.changed_files.append(str(target))
-        proposal.applied=True; proposal.status='applied'
-        self.patch_storage.save_patch_proposal(proposal)
-        vr=self.verification_runner.run(run_id=run_id, plan_id=plan_id, patch_id=proposal.patch_id, project_path=project_path, target_file=target)
-        self.patch_storage.save_verification_result(vr)
-        step.verification_id = vr.verification_id
-        ar = PatchApplyResult(patch_id=proposal.patch_id, applied=True, target_file=str(target), backup_path=str(backup), changed_bytes=len(proposal.proposed_content.encode('utf-8')), message='patch applied', verification_result_id=vr.verification_id)
-        self.patch_storage.save_apply_result(run_id, ar)
-        step.status='completed'; step.message='patch applied and verified'
 
 
     def apply_patch(self, run_id: str, patch_id: str) -> dict:
@@ -193,13 +186,18 @@ class ImplementationExecutor:
             raise ValueError("patch apply is not allowed")
         if bool(patch.get("applied", False)):
             raise ValueError("duplicate apply is rejected")
-        if str(patch.get("patch_type", "append")) != "append":
-            raise ValueError("only append patch_type can be applied in Phase 8")
+        patch_type = str(patch.get("patch_type", "append"))
         proposed = str(patch.get("proposed_content", ""))
-        if not proposed.strip():
-            raise ValueError("proposed_content is empty")
-        if "CodeAgent Phase 7 patch note" not in proposed:
-            raise ValueError("required patch marker is missing")
+        if patch_type == "append":
+            if not proposed.strip():
+                raise ValueError("proposed_content is empty")
+            if "CodeAgent Phase 7 patch note" not in proposed:
+                raise ValueError("required patch marker is missing")
+        elif patch_type == "replace_block":
+            if not str(patch.get("original_block", "")).strip() or not str(patch.get("replacement_block", "")).strip():
+                raise ValueError("original/replacement block is empty")
+        else:
+            raise ValueError("unsupported patch_type")
 
         run_payload = self.run_storage.load_run(run_id)
         project_path = str(run_payload.get("project_path", "")).strip()
@@ -227,8 +225,16 @@ class ImplementationExecutor:
         before = target.read_text(encoding="utf-8")
         backup = target.with_suffix(target.suffix + '.bak.phase8')
         backup.write_text(before, encoding="utf-8")
-        with target.open("a", encoding="utf-8") as f:
-            f.write(proposed)
+        if patch_type == "append":
+            with target.open("a", encoding="utf-8") as f:
+                f.write(proposed)
+        else:
+            original_block = str(patch.get("original_block", ""))
+            replacement_block = str(patch.get("replacement_block", ""))
+            match_count = before.count(original_block)
+            if match_count != 1:
+                raise ValueError("replace_block apply requires exact match_count == 1")
+            target.write_text(before.replace(original_block, replacement_block, 1), encoding="utf-8")
 
         vr = self.verification_runner.run(
             run_id=run_id,
@@ -236,6 +242,7 @@ class ImplementationExecutor:
             patch_id=patch_id,
             project_path=project,
             target_file=target,
+            replacement_hint=str(patch.get("replacement_block", "")),
         )
         self.patch_storage.save_verification_result(vr)
 
@@ -244,7 +251,7 @@ class ImplementationExecutor:
             applied=True,
             target_file=str(target),
             backup_path=str(backup),
-            changed_bytes=len(proposed.encode("utf-8")),
+            changed_bytes=len((proposed if patch_type == "append" else str(patch.get("replacement_block", ""))).encode("utf-8")),
             message="patch applied",
             verification_result_id=vr.verification_id,
         )

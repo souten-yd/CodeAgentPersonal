@@ -11,7 +11,7 @@ def _utc_now_iso() -> str:
 
 
 PatchStatus = Literal["proposed", "approved", "applied", "rejected", "failed"]
-PatchType = Literal["append", "replace_block", "unified_diff"]
+PatchType = Literal["append", "replace_block"]
 
 
 class PatchProposal(BaseModel):
@@ -31,6 +31,16 @@ class PatchProposal(BaseModel):
     apply_allowed: bool = False
     applied: bool = False
     error: str = ""
+    original_block: str = ""
+    replacement_block: str = ""
+    match_strategy: str = ""
+    match_count: int = 0
+    can_apply_reason: str = ""
+    generator: str = ""
+    llm_model: str = ""
+    llm_prompt_preview: str = ""
+    llm_raw_output_preview: str = ""
+    llm_sanitized: bool = False
     metadata: dict = Field(default_factory=dict)
 
 

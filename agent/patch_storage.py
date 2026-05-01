@@ -35,7 +35,7 @@ class PatchStorage:
         pd = self._patches_dir(proposal.run_id)
         (pd / f"{proposal.patch_id}.patch.json").write_text(json.dumps(proposal.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
         (pd / f"{proposal.patch_id}.diff").write_text(proposal.unified_diff, encoding="utf-8")
-        (pd / f"{proposal.patch_id}.md").write_text(f"# Patch {proposal.patch_id}\n\n- target: {proposal.target_file}\n- status: {proposal.status}\n", encoding="utf-8")
+        (pd / f"{proposal.patch_id}.md").write_text(f"# Patch {proposal.patch_id}\n\n- target: {proposal.target_file}\n- status: {proposal.status}\n- patch_type: {proposal.patch_type}\n- generator: {proposal.generator or proposal.metadata.get('generator','')}\n- apply_allowed: {proposal.apply_allowed}\n", encoding="utf-8")
 
     def save_apply_result(self, run_id: str, result: PatchApplyResult) -> None:
         pd = self._patches_dir(run_id)
@@ -45,6 +45,11 @@ class PatchStorage:
         vd = self._verification_dir(result.run_id)
         (vd / f"{result.verification_id}.verification.json").write_text(json.dumps(result.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
         (vd / f"{result.verification_id}.md").write_text(f"# Verification {result.verification_id}\n\n- status: {result.status}\n- summary: {result.summary}\n", encoding="utf-8")
+
+
+    def load_verification_result(self, run_id: str, verification_id: str) -> dict:
+        path = self._verification_dir(run_id) / f"{verification_id}.verification.json"
+        return json.loads(path.read_text(encoding="utf-8"))
 
     def list_patches(self, run_id: str) -> list[dict]:
         pd = self._patches_dir(run_id)
