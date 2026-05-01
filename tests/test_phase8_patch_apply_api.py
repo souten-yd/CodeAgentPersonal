@@ -62,6 +62,74 @@ class Phase8PatchApplyApiTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.executor.apply_patch(run_id, patch_id)
 
+    def test_rejected_patch_cannot_apply(self):
+        run_id, patch_id, _ = self._run_with_patch()
+        pm = PatchApprovalManager(self.executor.patch_storage)
+        pm.decide(run_id, patch_id, "reject")
+        with self.assertRaises(ValueError):
+            self.executor.apply_patch(run_id, patch_id)
+
+    def test_apply_updates_patch_and_verification_artifacts(self):
+        run_id, patch_id, _ = self._run_with_patch()
+        pm = PatchApprovalManager(self.executor.patch_storage)
+        pm.decide(run_id, patch_id, "approve")
+        res = self.executor.apply_patch(run_id, patch_id)
+        payload = self.executor.patch_storage.load_patch(run_id, patch_id)
+        self.assertEqual(payload.get("status"), "applied")
+        self.assertTrue(payload.get("applied"))
+        self.assertTrue(payload.get("verification_id"))
+        self.assertEqual(payload.get("approval_status"), "applied")
+        approval = self.executor.patch_storage.find_latest_patch_approval(run_id, patch_id)
+        self.assertIsNotNone(approval)
+        self.assertEqual(approval.status, "applied")
+        self.assertTrue(approval.metadata.get("verification_id"))
+        self.assertTrue(res["apply_result"]["backup_path"])
+        self.assertTrue(res["apply_result"]["verification_result_id"])
+        vdir = self.root / "ca_data" / "runs" / run_id / "verification"
+        self.assertTrue((vdir / f"{res['apply_result']['verification_result_id']}.verification.json").exists())
+        self.assertTrue((vdir / f"{res['apply_result']['verification_result_id']}.md").exists())
+
+    def test_apply_safety_recheck_rejects_tampered_marker(self):
+        run_id, patch_id, _ = self._run_with_patch()
+        pm = PatchApprovalManager(self.executor.patch_storage)
+        pm.decide(run_id, patch_id, "approve")
+        patch = self.executor.patch_storage.load_patch(run_id, patch_id)
+        patch["proposed_content"] = "\n# tampered\n"
+        self.executor.patch_storage.update_patch_payload(run_id, patch_id, patch)
+        with self.assertRaises(ValueError):
+            self.executor.apply_patch(run_id, patch_id)
+
+    def test_apply_safety_recheck_rejects_ca_data_target(self):
+        run_id, patch_id, _ = self._run_with_patch()
+        pm = PatchApprovalManager(self.executor.patch_storage)
+        pm.decide(run_id, patch_id, "approve")
+        self.executor.patch_storage.update_patch_payload(run_id, patch_id, {"target_file": "ca_data/hack.py"})
+        with self.assertRaises(ValueError):
+            self.executor.apply_patch(run_id, patch_id)
+
+    def test_apply_safety_recheck_rejects_outside_target(self):
+        run_id, patch_id, _ = self._run_with_patch()
+        pm = PatchApprovalManager(self.executor.patch_storage)
+        pm.decide(run_id, patch_id, "approve")
+        self.executor.patch_storage.update_patch_payload(run_id, patch_id, {"target_file": "../escape.py"})
+        with self.assertRaises(ValueError):
+            self.executor.apply_patch(run_id, patch_id)
+
+    def test_apply_safety_recheck_rejects_secret_and_patch_type_and_denied_ext(self):
+        run_id, patch_id, _ = self._run_with_patch()
+        pm = PatchApprovalManager(self.executor.patch_storage)
+        pm.decide(run_id, patch_id, "approve")
+        self.executor.patch_storage.update_patch_payload(run_id, patch_id, {"proposed_content": "\n# CodeAgent Phase 7 patch note\napi_key=abc\n"})
+        with self.assertRaises(ValueError):
+            self.executor.apply_patch(run_id, patch_id)
+        self.executor.patch_storage.update_patch_payload(run_id, patch_id, {"proposed_content": "\n# CodeAgent Phase 7 patch note\nok=1\n", "patch_type": "replace_block"})
+        with self.assertRaises(ValueError):
+            self.executor.apply_patch(run_id, patch_id)
+        (self.project / "d.json").write_text("{}", encoding="utf-8")
+        self.executor.patch_storage.update_patch_payload(run_id, patch_id, {"patch_type": "append", "target_file": "d.json"})
+        with self.assertRaises(ValueError):
+            self.executor.apply_patch(run_id, patch_id)
+
     def test_patch_list_includes_approval_fields(self):
         run_id, patch_id, _ = self._run_with_patch()
         pm = PatchApprovalManager(self.executor.patch_storage)

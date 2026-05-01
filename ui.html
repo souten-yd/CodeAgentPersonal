@@ -13834,6 +13834,72 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
     } finally { setBusy(false); }
   }));
 
+  async function loadPhase8Patches(cid, runId) {
+    const listEl = cardRoot.querySelector(`#${cid}-patch-list`);
+    const r = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patches`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    const patches = Array.isArray(d.patches) ? d.patches : [];
+    listEl.innerHTML = patches.map((p) => {
+      const warns = (p.safety_warnings||[]).map((w)=>`<div>• ${esc(String(w))}</div>`).join('');
+      const risk = String(p.risk_level||'low').toLowerCase();
+      const riskAck = (risk==='medium' || risk==='high') ? `<label><input type="checkbox" data-risk="${p.patch_id}"> リスクを理解しました</label>` : '';
+      const warnAck = (p.safety_warnings||[]).length ? `<label><input type="checkbox" data-warn="${p.patch_id}"> safety warningsを確認しました</label>` : '';
+      const approvalStatus = String(p.approval_status || 'pending');
+      const isApplied = !!p.applied || approvalStatus === 'applied';
+      const isRejected = approvalStatus === 'rejected';
+      const isApproved = approvalStatus === 'approved';
+      const applyAllowed = !!p.apply_allowed;
+      const disableApprove = (!applyAllowed) || isApplied || isRejected || isApproved;
+      const disableReject = isApplied || isRejected || isApproved;
+      const disableApply = (!applyAllowed) || isApplied || isRejected || (!isApproved);
+      const stateMsg = isRejected
+        ? '<div style="color:var(--amber);margin-top:6px">Rejected patches cannot be re-approved. Generate a new patch preview if needed.</div>'
+        : (isApplied ? '<div style="color:var(--amber);margin-top:6px">Applied patches cannot be modified from this panel.</div>' : '');
+      return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px">
+<div>patch_id=${esc(p.patch_id)} step_id=${esc(p.step_id||'')} target=${esc(p.target_file||'')}</div>
+<div>risk_level=${esc(p.risk_level||'low')} apply_allowed=${String(applyAllowed)} applied=${String(!!p.applied)} approval_status=${esc(approvalStatus)}</div>
+<div>patch_approval_id=${esc(p.patch_approval_id||'')} verification_id=${esc(p.verification_id||'')}</div>
+<div>${warns||''}</div>${warnAck}${riskAck}${stateMsg}
+<details><summary>Diff</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.unified_diff||'')}</pre></details>
+<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button data-pa="approve" data-pid="${p.patch_id}" ${disableApprove ? 'disabled' : ''}>Approve Patch</button><button data-pa="reject" data-pid="${p.patch_id}" ${disableReject ? 'disabled' : ''}>Reject Patch</button><button data-pa="apply" data-pid="${p.patch_id}" ${disableApply ? 'disabled' : ''}>Apply Approved Patch</button></div><pre id="${cid}-pv-${p.patch_id}" style="white-space:pre-wrap"></pre></div>`;
+    }).join('') || '<div style="color:var(--text3)">No patches.</div>';
+    listEl.querySelectorAll('[data-pa]').forEach((b)=>b.addEventListener('click', async ()=>{
+      const action = b.getAttribute('data-pa'); const pid = b.getAttribute('data-pid'); const out = listEl.querySelector(`#${cid}-pv-${pid}`);
+      try {
+        let ep = `/api/runs/${encodeURIComponent(runId)}/patches/${encodeURIComponent(pid)}/${action}`;
+        let payload = {};
+        if (action === 'approve') {
+          payload = {
+            user_comment:'ui approve',
+            risk_acknowledged: !!listEl.querySelector(`[data-risk="${pid}"]`)?.checked,
+            safety_warnings_acknowledged: !!listEl.querySelector(`[data-warn="${pid}"]`)?.checked,
+          };
+        } else if (action === 'reject') {
+          payload = {user_comment:'ui reject'};
+        }
+        const r2 = await fetch(API + ep, {method:'POST', headers:{'Content-Type':'application/json'}, body: action==='apply' ? undefined : JSON.stringify(payload)});
+        const d2 = await r2.json();
+        if (!r2.ok) throw new Error(d2.detail || `HTTP ${r2.status}`);
+        if (action === 'apply') {
+          let text = JSON.stringify(d2, null, 2);
+          const vid = d2?.apply_result?.verification_result_id || d2?.verification_result?.verification_id || '';
+          if (vid) {
+            try {
+              const vr = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/verification/${encodeURIComponent(vid)}`);
+              const vd = await vr.json();
+              if (vr.ok) text += `\n\nverification(refetched):\n${JSON.stringify(vd, null, 2)}`;
+            } catch (_) {}
+          }
+          out.textContent = text;
+        } else {
+          out.textContent = JSON.stringify(d2, null, 2);
+        }
+        await loadPhase8Patches(cid, runId);
+      } catch(e) { out.textContent = `Error: ${e.message||String(e)}`; }
+    }));
+  }
+
   cardRoot.querySelectorAll('[data-run-view]').forEach((btn) => btn.addEventListener('click', async () => {
     const cid = cardRoot.id;
     const outEl = cardRoot.querySelector(`#${cid}-exec-result`);
@@ -13845,42 +13911,7 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
     }
     try {
       if (kind === 'patches') {
-        const r = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patches`);
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
-        const listEl = cardRoot.querySelector(`#${cid}-patch-list`);
-        const patches = Array.isArray(d.patches) ? d.patches : [];
-        listEl.innerHTML = patches.map((p) => {
-          const warns = (p.safety_warnings||[]).map((w)=>`<div>• ${esc(String(w))}</div>`).join('');
-          const riskAck = (String(p.risk_level||'low').toLowerCase()==='medium' || String(p.risk_level||'low').toLowerCase()==='high') ? `<label><input type="checkbox" data-risk="${p.patch_id}"> リスクを理解しました</label>` : '';
-          const warnAck = (p.safety_warnings||[]).length ? `<label><input type="checkbox" data-warn="${p.patch_id}"> safety warningsを確認しました</label>` : '';
-          return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px">
-<div>patch_id=${esc(p.patch_id)} step_id=${esc(p.step_id||'')} target=${esc(p.target_file||'')}</div>
-<div>apply_allowed=${String(!!p.apply_allowed)} applied=${String(!!p.applied)} approval_status=${esc(p.approval_status||'pending')}</div>
-<div>${warns||''}</div>${warnAck}${riskAck}
-<details><summary>Diff</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.unified_diff||'')}</pre></details>
-<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button data-pa="approve" data-pid="${p.patch_id}">Approve Patch</button><button data-pa="reject" data-pid="${p.patch_id}">Reject Patch</button><button data-pa="apply" data-pid="${p.patch_id}">Apply Approved Patch</button></div><pre id="${cid}-pv-${p.patch_id}" style="white-space:pre-wrap"></pre></div>`;
-        }).join('') || '<div style="color:var(--text3)">No patches.</div>';
-        listEl.querySelectorAll('[data-pa]').forEach((b)=>b.addEventListener('click', async ()=>{
-          const action = b.getAttribute('data-pa'); const pid = b.getAttribute('data-pid'); const out = listEl.querySelector(`#${cid}-pv-${pid}`);
-          try {
-            let ep = `/api/runs/${encodeURIComponent(runId)}/patches/${encodeURIComponent(pid)}/${action}`;
-            let payload = {};
-            if (action === 'approve') {
-              payload = {
-                user_comment:'ui approve',
-                risk_acknowledged: !!listEl.querySelector(`[data-risk="${pid}"]`)?.checked,
-                safety_warnings_acknowledged: !!listEl.querySelector(`[data-warn="${pid}"]`)?.checked,
-              };
-            } else if (action === 'reject') {
-              payload = {user_comment:'ui reject'};
-            }
-            const r2 = await fetch(API + ep, {method:'POST', headers:{'Content-Type':'application/json'}, body: action==='apply' ? undefined : JSON.stringify(payload)});
-            const d2 = await r2.json();
-            if (!r2.ok) throw new Error(d2.detail || `HTTP ${r2.status}`);
-            out.textContent = JSON.stringify(d2, null, 2);
-          } catch(e) { out.textContent = `Error: ${e.message||String(e)}`; }
-        }));
+        await loadPhase8Patches(cid, runId);
         return;
       }
       const ep = kind === 'report' ? `/api/runs/${encodeURIComponent(runId)}/report` : `/api/runs/${encodeURIComponent(runId)}/log`;

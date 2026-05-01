@@ -29,6 +29,12 @@ class PatchApprovalManager:
             raise ValueError("patch already applied")
         if decision not in {"approve", "reject"}:
             raise ValueError("decision must be approve or reject")
+        latest = self.patch_storage.find_latest_patch_approval(run_id, patch_id)
+        if latest is not None:
+            if latest.status in {"rejected", "applied"}:
+                raise ValueError(f"{latest.status} patch cannot be modified")
+            if latest.status == "approved" and decision == "reject":
+                raise ValueError("approved patch cannot be rejected; generate a new patch proposal")
 
         risk_level = str(patch.get("risk_level", "low")).lower()
         warnings = [str(x) for x in (patch.get("safety_warnings") or [])]
@@ -85,12 +91,16 @@ class PatchApprovalManager:
             raise ValueError("approved patch approval is required before apply")
         return latest
 
-    def mark_applied(self, run_id: str, patch_id: str, apply_result: dict) -> PatchApprovalRecord:
+    def mark_applied(self, run_id: str, patch_id: str, apply_result: dict, verification_id: str = "") -> PatchApprovalRecord:
         latest = self.require_approved_for_apply(run_id, patch_id)
         latest.status = "applied"
         latest.applied = True
         latest.updated_at = self._now()
-        latest.metadata = {**(latest.metadata or {}), "apply_result": apply_result}
+        latest.metadata = {
+            **(latest.metadata or {}),
+            "apply_result": apply_result,
+            "verification_id": verification_id,
+        }
         self.patch_storage.save_patch_approval(latest)
         self.patch_storage.update_patch_payload(
             run_id,
