@@ -382,6 +382,15 @@ def main() -> int:
         env.setdefault("CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR", str(base_dir / "ca_data" / "tts" / "style_bert_vits2" / "models"))
         env.setdefault("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "directml")
         env.setdefault("CODEAGENT_AUTO_SETUP_STYLE_BERT_VITS2", "false")
+        env.setdefault("CODEAGENT_SEARXNG_REPO_DIR", str(base_dir / "third_party" / "searxng"))
+        env.setdefault("CODEAGENT_SEARXNG_VENV_DIR", str(base_dir / "search_envs" / "searxng"))
+        env.setdefault("CODEAGENT_SEARXNG_CONFIG_DIR", str(base_dir / "ca_data" / "searxng"))
+        env.setdefault("CODEAGENT_SEARXNG_LOG_FILE", str(base_dir / "ca_data" / "searxng" / "searxng.log"))
+        env.setdefault("NEXUS_WEB_SEARCH_PROVIDER", "searxng")
+        env.setdefault("NEXUS_SEARXNG_URL", "http://127.0.0.1:8088")
+        env.setdefault("SEARXNG_PORT", "8088")
+        env.setdefault("SEARXNG_BIND_ADDRESS", "127.0.0.1")
+        env.setdefault("AUTO_START_SEARXNG", "true")
     env["CODEAGENT_LOCAL_GPU_VENDOR"] = str(gpu_profile.get("vendor") or "none")
     env["CODEAGENT_LOCAL_GPU_NAME"] = str(gpu_profile.get("name") or "")
     env["CODEAGENT_TTS_RECOMMENDED_DEVICE"] = str(gpu_profile.get("recommended_tts_device") or "cpu")
@@ -424,6 +433,16 @@ def main() -> int:
     python_exec = sys.executable
     if not runpod:
         python_exec, _ = _ensure_local_bootstrap_venv(base_dir, env)
+
+    if os.name == "nt" and not runpod:
+        auto_start_searxng = str(env.get("AUTO_START_SEARXNG", "")).strip().lower() in {"1", "true", "yes", "on"}
+        if auto_start_searxng:
+            searx_start_script = base_dir / "scripts" / "start_searxng_windows.py"
+            print(f"[SearXNG][windows] AUTO_START_SEARXNG=true -> launching {searx_start_script}")
+            try:
+                subprocess.Popen([sys.executable, str(searx_start_script)], cwd=base_dir, env=env)
+            except Exception as exc:
+                print(f"[SearXNG][windows][WARN] failed to launch helper: {exc}")
 
     print("==============================================")
     print(" CodeAgent Launcher")

@@ -195,6 +195,12 @@ def _check_searxng_connectivity(url: str) -> tuple[bool, str]:
 
 def _resolve_searxng_state(autostart_status: str, probe_ok: bool) -> tuple[str, str]:
     normalized = (autostart_status or "").strip().lower()
+    searx_log = os.getenv("CODEAGENT_SEARXNG_LOG_FILE", "/workspace/ca_data/searxng/searxng.log")
+    windows_hint = (
+        " Windowsでは scripts/setup_searxng_windows.py を実行してください。"
+        if os.name == "nt"
+        else ""
+    )
     if normalized in {"not_requested", "disabled"}:
         return "autostart_disabled", "SearXNG auto-start is disabled. Set AUTO_START_SEARXNG=true."
     if normalized == "failed_runtime_missing":
@@ -202,9 +208,9 @@ def _resolve_searxng_state(autostart_status: str, probe_ok: bool) -> tuple[str, 
     if probe_ok:
         return "connected", "SearXNG is connected."
     if normalized in {"ready", "ready_existing", "started_unverified"}:
-        return "disconnected", "Check log: /workspace/ca_data/searxng/searxng.log"
+        return "disconnected", f"Check log: {searx_log}.{windows_hint}"
     if normalized.startswith("failed_"):
-        return "disconnected", "Check log: /workspace/ca_data/searxng/searxng.log"
+        return "disconnected", f"Check log: {searx_log}.{windows_hint}"
     return "starting", "SearXNG is starting."
 
 
