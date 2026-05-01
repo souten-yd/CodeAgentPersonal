@@ -64,6 +64,7 @@ def _worker_env() -> dict[str, str]:
     env["PYTORCH_JIT"] = "0"
     env["PYTHONNOUSERSITE"] = "1"
     env.pop("PYTHONHOME", None)
+    env.pop("PYTHONPATH", None)
     env["VIRTUAL_ENV"] = sbv2_venv
     env["PATH"] = os.pathsep.join([str(Path(sbv2_venv) / "bin"), env.get("PATH", "")])
     return env
@@ -502,6 +503,9 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             }
         warmup_started = time.perf_counter()
         preload_payload = self._build_payload(req, model=model, text=str(req.get("warmup_text") or "事前ロードです。"), request_id="prepare")
+        preload_payload["line_split"] = False
+        preload_payload["style"] = "Neutral"
+        preload_payload["speaker_id"] = 0
         result = self._send_to_worker(preload_payload)
         warmup_elapsed_ms = int((time.perf_counter() - warmup_started) * 1000)
         return {
@@ -513,8 +517,11 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "effective_device": str(result.get("effective_device") or result.get("device") or "cpu"),
             "fallback_reason": str(result.get("fallback_reason") or ""),
             "directml_attempted": bool(result.get("directml_attempted")),
-            "warmup_elapsed_ms": warmup_elapsed_ms,
+            "warmup_elapsed_ms": int(result.get("warmup_ms") or warmup_elapsed_ms),
             "cache_hit": bool(result.get("cache_hit")),
+            "loaded_signature": str(result.get("loaded_signature") or ""),
+            "actual_onnx_session_providers": result.get("actual_onnx_session_providers") or [],
+            "actual_onnx_provider": str(result.get("actual_onnx_provider") or ""),
         }
 
     @staticmethod
@@ -793,6 +800,7 @@ loaded_model_kind = ""
 loaded_provider = ""
 loaded_onnx_signature = None
 loaded_onnx_inputs = None
+loaded_onnx_provider_list = []
 last_warmup_ms = 0
 run_lock = None
 
@@ -824,7 +832,7 @@ def _pick_onnx_provider() -> tuple[str, list[str], str]:
 
 
 def synth(req: dict) -> dict:
-    global loaded_model, loaded_signature, loaded_session, loaded_onnx_signature, loaded_onnx_inputs
+    global loaded_model, loaded_signature, loaded_session, loaded_onnx_signature, loaded_onnx_inputs, loaded_onnx_provider_list, last_warmup_ms
     total_started = time.perf_counter()
     load_started = total_started
     load_elapsed_ms = 0
@@ -882,21 +890,27 @@ def synth(req: dict) -> dict:
             loaded_session = ort.InferenceSession(str(model_path), providers=provider_list)
             loaded_onnx_signature = onnx_signature
             loaded_signature = signature
-            loaded_model = TTSModel(model_path=model_path, config_path=config_path, style_vec_path=style_vec_path, device="cpu")
+            loaded_model = TTSModel(model_path=model_path, config_path=config_path, style_vec_path=style_vec_path, device="cpu", onnx_providers=provider_list)
+            loaded_onnx_provider_list = list(loaded_session.get_providers() or [])
             if loaded_onnx_inputs is None:
                 loaded_onnx_inputs = [i.name for i in loaded_session.get_inputs()]
             warmup_started = time.perf_counter()
-            _init_run_lock()
-            with run_lock:
-                dummy = {name: np.zeros((1,), dtype=np.int64) for name in (loaded_onnx_inputs or [])}
-                try:
-                    loaded_session.run(None, dummy)
-                except Exception:
-                    pass
+            warmup_kwargs = {
+                "text": "事前ロードです。",
+                "language": Languages.JP,
+                "speaker_id": 0,
+                "style": "Neutral",
+                "line_split": False,
+            }
+            infer_result = loaded_model.infer(**{k: v for k, v in warmup_kwargs.items() if k in set(inspect.signature(loaded_model.infer).parameters.keys())})
+            if not infer_result:
+                pass
             warmup_ms = int((time.perf_counter() - warmup_started) * 1000)
+            last_warmup_ms = warmup_ms
             load_elapsed_ms = int((time.perf_counter() - session_started) * 1000)
         else:
             loaded_signature = signature
+            warmup_ms = int(last_warmup_ms or 0)
     else:
         if loaded_model is None or loaded_signature != signature:
             try:
@@ -921,6 +935,7 @@ def synth(req: dict) -> dict:
                     raise
             loaded_signature = signature
         load_elapsed_ms = int((time.perf_counter() - load_started) * 1000)
+        warmup_ms = int(last_warmup_ms or 0)
 
     out_path = Path(req["out_path"]) if req.get("out_path") else None
     return_mode = str(req.get("return_mode", "b64") or "b64").strip().lower()
@@ -1084,6 +1099,9 @@ def synth(req: dict) -> dict:
         "selected_provider": selected_provider,
         "selected_model_file": str(model_path),
         "warmup_ms": int(warmup_ms),
+        "loaded_signature": f"{model_path}|{selected_provider or effective_device}|{model_suffix}",
+        "actual_onnx_session_providers": loaded_onnx_provider_list if is_onnx_model else [],
+        "actual_onnx_provider": (loaded_onnx_provider_list[0] if (is_onnx_model and loaded_onnx_provider_list) else ""),
     }
 
 
@@ -1382,7 +1400,11 @@ while True:
                 "onnxruntime_version": str(output.get("onnxruntime_version") or ""),
                 "available_providers": output.get("available_providers") or [],
                 "selected_provider": str(output.get("selected_provider") or ""),
+                "actual_onnx_session_providers": output.get("actual_onnx_session_providers") or [],
+                "actual_onnx_provider": str(output.get("actual_onnx_provider") or ""),
                 "selected_model_file": str(output.get("selected_model_file") or payload.get("model_path") or ""),
+                "loaded_signature": str(output.get("loaded_signature") or ""),
+                "cache_hit": bool(output.get("cache_hit")),
                 "warmup_ms": int(output.get("warmup_ms") or 0),
                 "last_inference_ms": int(output.get("infer_elapsed_ms") or 0),
             }
@@ -1651,6 +1673,18 @@ while True:
             tokenizers_file = str(getattr(tokenizers, "__file__", ""))
         except Exception:
             pass
+        onnxruntime_file = ""
+        onnxruntime_warning = ""
+        try:
+            import onnxruntime  # type: ignore
+
+            onnxruntime_file = str(getattr(onnxruntime, "__file__", "") or "")
+            expected_root = str(Path(_venv_dir()).resolve())
+            actual_file = str(Path(onnxruntime_file).resolve()) if onnxruntime_file else ""
+            if actual_file and expected_root and not actual_file.startswith(expected_root):
+                onnxruntime_warning = f"onnxruntime_file_outside_tts_env:{actual_file}"
+        except Exception:
+            pass
         return {
             "available": available,
             "loaded": available,
@@ -1682,5 +1716,7 @@ while True:
             "transformers_file": transformers_file,
             "tokenizers_version": tokenizers_version,
             "tokenizers_file": tokenizers_file,
+            "onnxruntime_file": onnxruntime_file,
+            "warning": onnxruntime_warning,
             **self._last_backend_diag,
         }
