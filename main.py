@@ -56,8 +56,9 @@ from app.env_detection import detect_gpu_profile, detect_os_profile, detect_runp
 from app.asr.service import (
     transcribe_audio as asr_service_transcribe_audio,
     _normalize_asr_engine,
+    resolve_effective_asr_config,
 )
-from app.asr.whisper_cpp_runtime import resolve_whisper_cpp_binary, resolve_whisper_cpp_model
+from app.asr.whisper_cpp_runtime import resolve_ffmpeg_binary, resolve_whisper_cpp_binary, resolve_whisper_cpp_model
 from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_base_dir,
     resolve_style_bert_vits2_models_dir,
@@ -10311,24 +10312,7 @@ def _faster_whisper_transcribe(
 
 
 def _resolve_asr_runtime_config() -> dict:
-    os_prof = detect_os_profile()
-    gpu_prof = detect_gpu_profile()
-    is_windows = bool(os_prof.get("is_windows"))
-    is_runpod = bool(detect_runpod())
-    vendor = str(gpu_prof.get("vendor") or "unknown").lower()
-    engine = "faster_whisper" if is_runpod else _normalize_asr_engine(os.environ.get("CODEAGENT_ASR_ENGINE", "auto"))
-    bin_path = resolve_whisper_cpp_binary()
-    model_path = resolve_whisper_cpp_model()
-    return {
-        "is_windows": is_windows,
-        "is_runpod": is_runpod,
-        "gpu_vendor": vendor,
-        "asr_engine": engine,
-        "whisper_cpp_ready": bool(bin_path and model_path and Path(model_path).exists()),
-        "whisper_cpp_binary": str(bin_path) if bin_path else "",
-        "whisper_cpp_model": str(model_path) if model_path else "",
-        "ffmpeg_available": bool(shutil.which("ffmpeg")),
-    }
+    return resolve_effective_asr_config()
 
 
 def _apply_asr_runtime_settings(req: dict | None = None) -> dict:
@@ -10337,9 +10321,9 @@ def _apply_asr_runtime_settings(req: dict | None = None) -> dict:
     saved_engine = str(settings_get("asr_engine") or "").strip().lower()
     saved_fw = str(settings_get("faster_whisper_device") or "").strip().lower()
     saved_cpp = str(settings_get("whisper_cpp_backend") or "").strip().lower()
-    req_engine = str(req.get("asr_engine") or "").strip().lower()
-    req_fw = str(req.get("faster_whisper_device") or req.get("device") or "").strip().lower()
-    req_cpp = str(req.get("whisper_cpp_backend") or "").strip().lower()
+    req_engine = str(req.get("asr_engine") or "").strip().lower() if req.get("asr_override") else ""
+    req_fw = str(req.get("faster_whisper_device") or req.get("device") or "").strip().lower() if req.get("asr_override") else ""
+    req_cpp = str(req.get("whisper_cpp_backend") or "").strip().lower() if req.get("asr_override") else ""
     engine = req_engine or saved_engine or _normalize_asr_engine(os.environ.get("CODEAGENT_ASR_ENGINE", "")) or "faster_whisper"
     if cfg.get("is_runpod"):
         engine = "faster_whisper"

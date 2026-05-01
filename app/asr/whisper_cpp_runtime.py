@@ -45,6 +45,21 @@ def resolve_whisper_cpp_binary() -> Path | None:
 def resolve_whisper_cpp_model() -> Path:
     return Path((os.environ.get("CODEAGENT_WHISPER_CPP_MODEL") or "").strip() or _default_model_path())
 
+def resolve_ffmpeg_binary() -> Path | None:
+    env_bin = (os.environ.get("CODEAGENT_FFMPEG_BIN") or "").strip()
+    if env_bin:
+        p = Path(env_bin)
+        if p.exists():
+            return p
+    ffmpeg_root = _repo_root() / "ca_data" / "bin" / "ffmpeg"
+    if ffmpeg_root.exists():
+        for name in ("ffmpeg.exe", "ffmpeg"):
+            hits = list(ffmpeg_root.rglob(name))
+            if hits:
+                return hits[0]
+    sys_ffmpeg = shutil.which("ffmpeg")
+    return Path(sys_ffmpeg) if sys_ffmpeg else None
+
 
 def _default_threads() -> int:
     cpu = os.cpu_count() or 4
@@ -59,11 +74,11 @@ def _ensure_wav(input_bytes: bytes, audio_format: str, temp_dir: Path) -> Path:
         with wave.open(str(src), "rb"):
             pass
         return src
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = resolve_ffmpeg_binary()
     if not ffmpeg:
         raise RuntimeError("ffmpeg is not installed; non-wav input requires ffmpeg (webm/m4a/mp3 etc.)")
     out = temp_dir / "input.wav"
-    cmd = [ffmpeg, "-y", "-i", str(src), "-ar", "16000", "-ac", "1", str(out)]
+    cmd = [str(ffmpeg), "-y", "-i", str(src), "-ar", "16000", "-ac", "1", str(out)]
     cp = subprocess.run(cmd, capture_output=True, text=True)
     if cp.returncode != 0:
         raise RuntimeError(f"ffmpeg conversion failed: {cp.stderr.strip()[:400]}")

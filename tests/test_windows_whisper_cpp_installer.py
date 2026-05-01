@@ -16,6 +16,8 @@ def test_whisper_cpp_vulkan_installer_conditions() -> None:
 
     assert "ggml-large-v3-turbo.bin" in script
     assert "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin?download=true" in script
+    assert "CODEAGENT_FFMPEG_BIN" in script
+    assert "codexffmpeg/releases/latest" in script
 
 
 def test_wrapper_bat_calls_powershell_installer() -> None:
