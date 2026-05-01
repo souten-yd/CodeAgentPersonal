@@ -258,9 +258,9 @@ os.makedirs(UI_DIR, exist_ok=True)
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
 # =========================
-# Web検索 有効/無効フラグ（デフォルトOFF）
+# Web検索 有効/無効フラグ（デフォルトON）
 # =========================
-_search_enabled = False
+_search_enabled = True
 _search_num_results: int = 5  # デフォルト5件
 
 # =========================
@@ -4658,7 +4658,7 @@ SETTINGS_DEFAULTS = {
     "max_steps":          "20",
     "auto_select_option": "true",
     "auto_skill_gen":     "true",
-    "search_enabled":     "false",
+    "search_enabled":     "true",
     "search_num":         "5",
     "streaming_enabled":  "true",
     "ctx_size":           str(_default_llm_ctx_size()),
