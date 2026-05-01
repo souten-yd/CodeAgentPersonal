@@ -103,6 +103,19 @@ def save_evidence_items(
     return len(items)
 
 
+def replace_evidence_items_for_job(
+    job_id: str,
+    items: list[EvidenceItem],
+    project: str = "default",
+) -> int:
+    """Replace all evidence rows for a job with a new set."""
+    if not job_id:
+        raise ValueError("job_id is required")
+    with transaction() as conn:
+        conn.execute("DELETE FROM nexus_evidence WHERE job_id = ?", (job_id,))
+    return save_evidence_items(job_id, items, project=project)
+
+
 
 def build_library_evidence(
     search_results: list[dict],

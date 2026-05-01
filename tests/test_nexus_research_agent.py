@@ -413,5 +413,76 @@ class NexusResearchParallelDownloadTests(unittest.TestCase):
         self.assertTrue(bool((details or {}).get("output_incomplete")))
 
 
+class NexusResearchRecursiveTests(unittest.TestCase):
+    def test_recursive_search_false_keeps_existing_path(self) -> None:
+        with patch("app.nexus.research_agent.plan_web_queries", return_value=["q"]), patch(
+            "app.nexus.research_agent.run_web_search", return_value={"items": []}
+        ) as mocked_search, patch("app.nexus.research_agent.collect_source_candidates", return_value=[]), patch(
+            "app.nexus.research_agent.rank_source_candidates", return_value=[]
+        ), patch("app.nexus.research_agent.register_or_update_sources", return_value=[]), patch(
+            "app.nexus.research_agent._build_evidence_from_sources", return_value=[]
+        ), patch("app.nexus.research_agent.save_evidence_items", return_value=0), patch(
+            "app.nexus.research_agent._load_source_chunks", return_value=[]
+        ), patch("app.nexus.research_agent.build_citation_map", return_value=[]), patch(
+            "app.nexus.research_agent.build_answer_payload", return_value={"answer": "ok"}
+        ):
+            run_research_job(ResearchAgentInput(query="q", recursive_search=False), job_id="job-r0")
+        self.assertEqual(mocked_search.call_count, 1)
+
+    def test_recursive_followup_uses_string_queries_and_updates_evidence(self) -> None:
+        search_calls: list[list] = []
+        replace_calls: list[list] = []
+
+        def _mock_search(queries, **kwargs):
+            search_calls.append(list(queries))
+            return {"items": [{"url": "https://example.com/new", "title": "new"}]}
+
+        with patch("app.nexus.research_agent.plan_web_queries", return_value=["q"]), patch(
+            "app.nexus.research_agent.run_web_search", side_effect=_mock_search
+        ), patch("app.nexus.research_agent.collect_source_candidates", return_value=[{"url": "https://example.com/new", "title": "new"}]), patch(
+            "app.nexus.research_agent.rank_source_candidates", return_value=[{"url": "https://example.com/new", "title": "new"}]
+        ), patch("app.nexus.research_agent._download_sources_parallel", return_value=([{"source_id": "src-2", "url": "https://example.com/new", "final_url": "https://example.com/new", "status": "downloaded", "size": 10}], 0)), patch(
+            "app.nexus.research_agent.register_or_update_sources",
+            side_effect=[
+                [{"source_id": "src-1", "url": "https://example.com/old", "final_url": "https://example.com/old"}],
+                [{"source_id": "src-2", "url": "https://example.com/new", "final_url": "https://example.com/new"}],
+            ],
+        ), patch("app.nexus.research_agent._build_evidence_from_sources", return_value=[]), patch(
+            "app.nexus.research_agent.save_evidence_items", return_value=0
+        ), patch("app.nexus.research_agent.replace_evidence_items_for_job", side_effect=lambda *args, **kwargs: replace_calls.append(args[1]) or 0), patch(
+            "app.nexus.research_agent._load_source_chunks", return_value=[]
+        ), patch("app.nexus.research_agent.build_citation_map", return_value=[]), patch(
+            "app.nexus.research_agent._analyze_research_gaps",
+            side_effect=[{"confidence": 0.1, "gaps": ["source_count_low"], "unresolved_items": []}, {"confidence": 0.9, "gaps": [], "unresolved_items": []}],
+        ), patch("app.nexus.research_agent.build_answer_payload", return_value={"answer": "ok"}):
+            run_research_job(ResearchAgentInput(query="q", recursive_search=True, max_iterations=2), job_id="job-r1")
+        self.assertTrue(all(isinstance(q, str) for q in search_calls[-1]))
+        self.assertTrue(replace_calls)
+
+    def test_recursive_download_budget_exhaustion_stops(self) -> None:
+        captured = []
+        with patch("app.nexus.research_agent.plan_web_queries", return_value=["q"]), patch(
+            "app.nexus.research_agent.run_web_search", return_value={"items": []}
+        ), patch("app.nexus.research_agent.collect_source_candidates", return_value=[]), patch(
+            "app.nexus.research_agent.rank_source_candidates", return_value=[]
+        ), patch("app.nexus.research_agent._download_sources_parallel", return_value=([{"source_id": "src-1", "status": "downloaded", "size": 10}], 0)), patch(
+            "app.nexus.research_agent.register_or_update_sources", return_value=[{"source_id": "src-1", "url": "https://example.com/1"}]
+        ), patch("app.nexus.research_agent._build_evidence_from_sources", return_value=[]), patch(
+            "app.nexus.research_agent.save_evidence_items", return_value=0
+        ), patch("app.nexus.research_agent.replace_evidence_items_for_job", return_value=0), patch(
+            "app.nexus.research_agent._load_source_chunks", return_value=[]
+        ), patch("app.nexus.research_agent.build_citation_map", return_value=[]), patch(
+            "app.nexus.research_agent._analyze_research_gaps", return_value={"confidence": 0.1, "gaps": ["source_count_low"], "unresolved_items": []}
+        ), patch("app.nexus.research_agent.build_answer_payload", return_value={"answer": "ok"}), patch(
+            "app.nexus.research_agent.append_job_event", side_effect=lambda _jid, et, payload: captured.append((et, payload))
+        ):
+            run_research_job(
+                ResearchAgentInput(query="q", recursive_search=True, max_iterations=2, max_downloads=0, max_total_download_mb=1),
+                job_id="job-r2",
+            )
+        stops = [p for e, p in captured if e == "recursive_stopped" and p.get("reason") == "download_budget_exhausted"]
+        self.assertTrue(stops)
+
+
 if __name__ == "__main__":
     unittest.main()
