@@ -34,7 +34,9 @@ def _is_incomplete_repo(repo_dir: Path) -> bool:
         return False
     required_paths = [
         repo_dir / "searx" / "webapp.py",
-        repo_dir / "pyproject.toml",
+        repo_dir / "setup.py",
+        repo_dir / "requirements.txt",
+        repo_dir / "requirements-dev.txt",
     ]
     return any(not p.exists() for p in required_paths)
 
@@ -117,10 +119,19 @@ def _download_searxng_zip(repo_dir: Path, env: dict[str, str]) -> None:
             extracted += 1
 
     print(f"[SearXNG][setup] Extracted {extracted} files, skipped {skipped} files.")
-    required = [repo_dir / "searx" / "webapp.py", repo_dir / "pyproject.toml"]
+    required = [
+        repo_dir / "searx" / "webapp.py",
+        repo_dir / "setup.py",
+        repo_dir / "requirements.txt",
+        repo_dir / "requirements-dev.txt",
+    ]
     missing = [str(path) for path in required if not path.exists()]
     if missing:
-        raise RuntimeError(f"SearXNG ZIP extraction incomplete. Missing: {missing}")
+        raise RuntimeError(
+            "SearXNG ZIP extraction incomplete. "
+            f"Missing: {missing}\n"
+            "Required files are setup.py-based because upstream SearXNG may not provide pyproject.toml."
+        )
 
 
 
