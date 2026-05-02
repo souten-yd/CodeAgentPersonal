@@ -58,7 +58,7 @@ class PatchSafetyChecker:
             if not proposal.original_block.strip() or not proposal.replacement_block.strip():
                 return False, ["original/replacement block is empty"]
             match_count = text.count(proposal.original_block)
-            if match_count != 1 or proposal.match_count not in {0, 1, match_count}:
+            if match_count != 1:
                 return False, ["replace_block match_count must be exactly 1"]
             if len(proposal.replacement_block.encode("utf-8")) > 20_000:
                 return False, ["replacement block too large"]
@@ -68,8 +68,17 @@ class PatchSafetyChecker:
             if len(proposal.original_block.splitlines()) > max(1, len(text.splitlines()) * 0.5):
                 return False, ["replacement scope too large"]
             lowered = proposal.replacement_block.lower()
-            if proposal.replacement_block.strip() == "":
-                return False, ["deletion-only replace patch is blocked"]
+            diff_lines = proposal.unified_diff.splitlines()
+            if not proposal.unified_diff.strip():
+                return False, ["replace_block unified_diff is required"]
+            add_lines = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
+            del_lines = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
+            if add_lines + del_lines == 0:
+                return False, ["replace_block diff has no changed lines"]
+            if del_lines > 0 and add_lines == 0:
+                return False, ["delete-only replace patch is blocked"]
+            if del_lines > (add_lines * 4 + 20):
+                return False, ["replace_block deletion volume too high"]
         else:
             return False, ["unsupported patch_type"]
 
