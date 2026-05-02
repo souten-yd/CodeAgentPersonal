@@ -1337,7 +1337,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <option value="plan_then_ask">Plan then ask</option>
           <option value="plan_and_execute">Plan and execute</option>
         </select>
-        <button class="phase1-plan-btn" onclick="generatePlanOnlyFromInput()">Generate Plan</button>
+        <button class="phase1-plan-btn" onclick="startPlanWorkflow()">Generate Plan</button>
         <div class="phase1-plan-note">
           <div>Phase 1では安全のため、実装は行わずPlan生成のみ実行します。</div>
           <div>Requirement Modeの質問フローはPhase 2で有効化されます。</div>
@@ -13529,8 +13529,80 @@ function _renderNexusContextSummary(nexusContext, { title = 'Nexus Context Summa
     </details>`;
 }
 
+const planWorkflowState = {
+  requirementId: '',
+  planId: '',
+  reviewId: '',
+  approvalId: '',
+  runId: '',
+  latestPatchIds: [],
+  projectPath: '',
+  planningMode: 'standard',
+  patchGenerationMode: 'auto',
+  executionMode: 'dry_run',
+  approvalStatus: 'pending',
+  executionReady: false,
+  lastError: '',
+};
+
+function _computePlanWorkflowNextAction() {
+  if (planWorkflowState.lastError) return `error: ${planWorkflowState.lastError}`;
+  if (planWorkflowState.requirementId && !planWorkflowState.planId) return 'answer clarification';
+  if (!planWorkflowState.planId) return 'review plan';
+  if (!planWorkflowState.executionReady) return 'approve plan';
+  if (!planWorkflowState.runId) return 'execute preview';
+  if ((planWorkflowState.latestPatchIds || []).length > 0) return 'review patches';
+  return 'inspect verification failed';
+}
+
+function _renderPlanWorkflowStatusPanel() {
+  const panelId = 'plan-workflow-status-panel';
+  const old = document.getElementById(panelId);
+  if (old) old.remove();
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.id = panelId;
+  div.innerHTML = `
+    <div class="msg-role">Plan Workflow Status</div>
+    <div class="plan-card" style="padding:10px">
+      <div style="font-size:12px;line-height:1.6">
+        <div>Requirement: <b>${esc(planWorkflowState.requirementId || '-')}</b></div>
+        <div>Plan: <b>${esc(planWorkflowState.planId || '-')}</b></div>
+        <div>Review: <b>${esc(planWorkflowState.reviewId || '-')}</b></div>
+        <div>Approval: <b>${esc(planWorkflowState.approvalStatus || 'pending')}</b></div>
+        <div>Execution Ready: <b>${esc(String(!!planWorkflowState.executionReady))}</b></div>
+        <div>Run: <b>${esc(planWorkflowState.runId || '-')}</b></div>
+        <div>Patches: <b>${esc(String((planWorkflowState.latestPatchIds || []).length))}</b></div>
+        <div>Next Action: <b>${esc(_computePlanWorkflowNextAction())}</b></div>
+      </div>
+    </div>`;
+  const w = messages();
+  w.appendChild(div);
+  scrollMsgs();
+}
+
+function _updatePlanWorkflowState(partial = {}) {
+  Object.assign(planWorkflowState, partial || {});
+  _renderPlanWorkflowStatusPanel();
+}
+
+function startPlanWorkflow() {
+  return generatePlanOnlyFromInput();
+}
+
 function renderClarificationCard(result, context = {}) {
   const questions = Array.isArray(result?.questions) ? result.questions : [];
+  _updatePlanWorkflowState({
+    requirementId: result?.requirement_id || '',
+    planId: '',
+    reviewId: '',
+    approvalId: '',
+    runId: '',
+    latestPatchIds: [],
+    approvalStatus: 'pending',
+    executionReady: false,
+    lastError: '',
+  });
   const cardId = 'phase2-clar-card-' + Date.now();
   const qHtml = questions.length
     ? questions.map((q) => `
@@ -13783,7 +13855,7 @@ function _renderPhase6ExecutionSection(result, cardId) {
     <label style="display:flex;gap:7px;font-size:11px;color:var(--text3)"><input type="checkbox" disabled id="${cardId}-allow-delete"> allow_delete (disabled)</label>
     <label style="display:flex;gap:7px;font-size:11px;color:var(--text3)"><input type="checkbox" disabled id="${cardId}-allow-run"> allow_run_command (disabled)</label>
     <label style="display:flex;gap:7px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-preview-only" checked> preview_only</label>
-    <label style="display:flex;gap:7px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-apply-patches"> apply_patches</label>
+    <label style="display:flex;gap:7px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-apply-patches" checked> apply_patches</label>
     <label style="display:block;font-size:11px;color:var(--text2);margin-top:6px">Patch Generation Mode
       <select id="${cardId}-patch-mode" style="margin-left:6px">
         <option value="append" selected>Append note only</option>
@@ -13794,8 +13866,8 @@ function _renderPhase6ExecutionSection(result, cardId) {
     <div style="font-size:11px;color:var(--text3);margin-top:4px">LLM replace blockはpreviewのみ生成します。承認なしにapplyされません。exact matchが1件の場合のみapply可能です。</div>
     <div style="font-size:11px;color:var(--text3);margin-top:4px">書き込みが発生するのは apply_patches=true かつ preview_only=false のときのみです。Safe Apply時のproject_pathは空/./でも、Plan/Requirementのresolved_project_path fallbackが使われる場合があります。</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-      <button class="phase1-plan-btn" data-exec="dry_run">Dry Run</button>
-      <button class="phase1-tab-btn" data-exec="safe_apply">Safe Apply</button>
+      <button class="phase1-plan-btn" data-exec="dry_run">Execute Preview (dry_run)</button>
+      <button class="phase1-tab-btn" data-exec="safe_apply">Execute Preview (safe_apply)</button>
     </div>
     <div id="${cardId}-exec-msg" style="font-size:11px;color:var(--amber);margin-top:6px"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
@@ -13834,6 +13906,7 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
       const previewOnly = !!cardRoot.querySelector(`#${cid}-preview-only`)?.checked;
       const applyPatches = !!cardRoot.querySelector(`#${cid}-apply-patches`)?.checked;
       const patchMode = cardRoot.querySelector(`#${cid}-patch-mode`)?.value || "append";
+      _updatePlanWorkflowState({executionMode: mode, patchGenerationMode: patchMode});
       const res = await _phase6ExecutePlan(planId, {
         execution_mode: mode,
         project_path: executionProjectPath,
@@ -13864,11 +13937,14 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
       ].join('\n');
       if (outEl) outEl.textContent = body;
       cardRoot.dataset.lastRunId = res.run_id || '';
+      _updatePlanWorkflowState({runId: res.run_id || '', lastError: ''});
       addLog('ok', 'plan-only', `phase6 execute success plan_id=${planId} run_id=${res.run_id} mode=${mode}`);
+      if (res.run_id) await loadPhase8Patches(cid, res.run_id);
     } catch (e) {
       if (outEl) outEl.textContent = `Error: ${e.message || String(e)}`;
       if (msgEl) msgEl.textContent = e.message || String(e);
       addLog('err', 'plan-only', e.message || String(e));
+      _updatePlanWorkflowState({lastError: e.message || String(e)});
     } finally { setBusy(false); }
   }));
 
@@ -13878,7 +13954,13 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
     const patches = Array.isArray(d.patches) ? d.patches : [];
-    listEl.innerHTML = patches.map((p) => {
+    _updatePlanWorkflowState({runId, latestPatchIds: patches.map((p)=>p.patch_id).filter(Boolean), lastError: ''});
+    let dashboardNoteHtml = '';
+    try {
+      const dr = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
+      if (dr.status === 404) dashboardNoteHtml = '<div style="color:var(--text3);margin-bottom:6px">Dashboard not available yet</div>';
+    } catch (_) {}
+    listEl.innerHTML = dashboardNoteHtml + (patches.map((p) => {
       const warns = (p.safety_warnings||[]).map((w)=>`<div>• ${esc(String(w))}</div>`).join('');
       const risk = String(p.risk_level||'low').toLowerCase();
       const riskAck = (risk==='medium' || risk==='high') ? `<label><input type="checkbox" data-risk="${p.patch_id}"> リスクを理解しました</label>` : '';
@@ -13903,7 +13985,7 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
 <div>${warns||''}</div><div style="color:var(--text2)">Quality score is advisory. Review diff before approving.</div>${(p.quality_warnings||[]).map((w)=>`<div>•Q ${esc(String(w))}</div>`).join('')}<div style="color:var(--text2)">${p.reproposal_of_patch_id?'Reproposal is preview only. It is not approved or applied automatically.':''}</div>${warnAck}${riskAck}${qWarnAck}${lowQAck}${stateMsg}${String(p.verification_status||'')==='failed'?`<div style="margin-top:6px"><button data-pa="reproposal" data-pid="${p.patch_id}">Generate Reproposal Preview</button></div>`:''}
 <details><summary>Original block</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.original_block||'')}</pre></details><details><summary>Replacement block</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.replacement_block||'')}</pre></details><details><summary>Diff</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.unified_diff||'')}</pre></details>
 <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button data-pa="approve" data-pid="${p.patch_id}" ${disableApprove ? 'disabled' : ''}>Approve Patch</button><button data-pa="reject" data-pid="${p.patch_id}" ${disableReject ? 'disabled' : ''}>Reject Patch</button><button data-pa="apply" data-pid="${p.patch_id}" ${disableApply ? 'disabled' : ''}>Apply Approved Patch</button><button data-pa="manual-check" data-pid="${p.patch_id}">Save Manual Check</button><button data-pa="view-manual-checks" data-pid="${p.patch_id}">View Manual Checks</button><button data-pa="view-reproposal-chain" data-pid="${p.patch_id}">View Reproposal Chain</button>${(p.metadata||{}).llm_telemetry_id?`<button data-pa="view-llm-telemetry" data-pid="${p.patch_id}" data-tid="${esc((p.metadata||{}).llm_telemetry_id)}">View LLM Telemetry</button>`:''}${(p.metadata||{}).fallback_telemetry_id?`<button data-pa="view-fallback-telemetry" data-pid="${p.patch_id}" data-tid="${esc((p.metadata||{}).fallback_telemetry_id)}">View Fallback Telemetry</button>`:''}</div><div id="${cid}-pv-${p.patch_id}" style="white-space:pre-wrap;overflow-wrap:anywhere"></div></div>`;
-    }).join('') || '<div style="color:var(--text3)">No patches.</div>';
+    }).join('') || '<div style="color:var(--text3)">No patches.</div>');
     listEl.querySelectorAll('[data-pa]').forEach((b)=>b.addEventListener('click', async ()=>{
       const action = b.getAttribute('data-pa'); const pid = b.getAttribute('data-pid'); const out = listEl.querySelector(`#${cid}-pv-${pid}`);
       try {
@@ -14040,9 +14122,15 @@ function _bindPhase5ApprovalActions(cardRoot, result) {
       addLog('ok', 'plan-only', `${action} success plan_id=${planId} (approved but not executed)`);
       result.plan = res.plan || result.plan;
       result.approval = res.approval || null;
+      _updatePlanWorkflowState({
+        approvalId: res.approval_id || '',
+        approvalStatus: String((res.approval || {}).status || 'pending'),
+        executionReady: !!((res.approval || {}).execution_ready),
+      });
     } catch (e) {
       if (msgEl) msgEl.textContent = `Error: ${e.message || String(e)}`;
       addLog('err', 'plan-only', e.message || String(e));
+      _updatePlanWorkflowState({lastError: e.message || String(e)});
     } finally { setBusy(false); }
   }));
 }
@@ -14052,6 +14140,16 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
   const plan = result?.plan || {};
   const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
   const reviewResult = result?.review_result || null;
+  _updatePlanWorkflowState({
+    requirementId: result?.requirement_id || '',
+    planId: result?.plan_id || result?.plan?.plan_id || '',
+    reviewId: reviewResult?.review_id || '',
+    projectPath: result?.resolved_project_path || result?.requirement?.resolved_project_path || '',
+    planningMode: result?.planning_mode || planWorkflowState.planningMode,
+    approvalStatus: String(result?.approval?.status || result?.plan?.approval?.status || 'pending'),
+    executionReady: !!(result?.approval?.execution_ready || result?.plan?.approval?.execution_ready || result?.plan?.status === 'execution_ready'),
+    lastError: '',
+  });
   const planSteps = Array.isArray(plan.implementation_steps) ? plan.implementation_steps : [];
   const cardId = 'phase1-plan-card-' + Date.now();
   const markdownHtml = _renderPhase1Markdown(planMarkdown);
@@ -14132,6 +14230,20 @@ async function generatePlanOnlyFromInput() {
   if (input) { input.value = ''; input.style.height = 'auto'; }
   setBusy(true);
   const progEl = addProgressCard('Generating Phase 1 plan...');
+  _updatePlanWorkflowState({
+    planningMode,
+    executionMode: 'dry_run',
+    patchGenerationMode: 'auto',
+    requirementId: '',
+    planId: '',
+    reviewId: '',
+    approvalId: '',
+    runId: '',
+    latestPatchIds: [],
+    approvalStatus: 'pending',
+    executionReady: false,
+    lastError: '',
+  });
   try {
     const r = await fetch(API + '/api/task/plan', {
       method:'POST',
@@ -14152,6 +14264,7 @@ async function generatePlanOnlyFromInput() {
     ws.forEach((w) => addLog('warn', 'plan-only', String(w)));
 
     if (d.status === 'waiting_for_clarification') {
+      _updatePlanWorkflowState({ requirementId: d.requirement_id || '', lastError: '' });
       renderClarificationCard(d, { planningMode, requirementMode, executionMode });
       addLog('ok', 'plan-only', `Clarification required requirement_id=${d.requirement_id}`);
       return;
@@ -14171,6 +14284,7 @@ async function generatePlanOnlyFromInput() {
   } catch (e) {
     addMsg('error', 'Phase1 plan generation failed: ' + (e.message || String(e)));
     addLog('err', 'plan-only', e.message || String(e));
+    _updatePlanWorkflowState({ lastError: e.message || String(e) });
   } finally {
     progEl.remove();
     setBusy(false);
