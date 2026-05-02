@@ -561,6 +561,10 @@ html.logo-svg-ready .logo-text{display:none}
 /* ── CHAT COL ── */
 
 .agent-col,.agent-panel-col,.atlas-panel-col{display:flex;flex-direction:column;min-height:0;background:var(--bg1)}
+.atlas-panel-col{overflow:auto;min-height:0}
+.atlas-panel-col #atlas-workbench-card{max-width:100%}
+.atlas-panel-col #atlas-workbench-card-atlas-run-input{min-width:0;max-width:100%;width:100%}
+.atlas-panel-col #atlas-workbench-card-atlas-runs-list,.atlas-panel-col #atlas-workbench-card-patch-list{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
 .agent-col{flex:1 1 auto;border-right:1px solid var(--border)}
 .agent-panel-col{flex:0 0 min(42vw,520px);min-width:240px;max-width:70vw}
 @media(max-width:768px){
@@ -1390,7 +1394,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
         <div style="margin-top:8px"><b>Atlas Runs</b> / Last Run: <span id="atlas-workbench-card-atlas-last-run">-</span></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
-          <input id="atlas-workbench-card-atlas-run-input" placeholder="run_id" value="" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px">
+          <input id="atlas-workbench-card-atlas-run-input" placeholder="run_id" value="" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;min-width:0;max-width:100%;flex:1 1 220px">
           <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
         </div>
         <div id="atlas-workbench-card-atlas-runs-list" style="margin-top:6px;font-size:11px"></div>
@@ -6900,7 +6904,7 @@ function setMode(m) {
     panelCol.style.display = '';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
-    if (atlasPanelCol) atlasPanelCol.style.display = '';
+    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(true);
@@ -6933,7 +6937,7 @@ function setMode(m) {
     panelCol.style.display = 'none';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
-    if (atlasPanelCol) atlasPanelCol.style.display = '';
+    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
@@ -6961,7 +6965,7 @@ function setMode(m) {
     panelCol.style.display = '';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
-    if (atlasPanelCol) atlasPanelCol.style.display = '';
+    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(false);
@@ -10037,6 +10041,7 @@ function mobSwitch(name) {
     atc?.classList.add('mob-hidden');
   } else if (name === 'atlas') {
     if (mode !== 'atlas') { setMode('atlas'); return; }
+    ensureAtlasWorkbenchHost();
     atc?.classList.remove('mob-hidden');
     ap?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
@@ -13799,7 +13804,7 @@ async function openLastAtlasDashboardFromWorkbench() {
   const cardRoot = ensureAtlasWorkbenchHost();
   if (!cardRoot) return;
   const runId = getAtlasLastRunId();
-  if (!runId) { addMsg('system', 'Last run is not available yet. Run Atlas once, then open dashboard.'); return; }
+  if (!runId) { addMsg('system', 'Last run is not available. Run Atlas once, load recent runs, or enter run_id.'); return; }
   await loadAtlasRunDashboard('atlas-workbench-card', runId, cardRoot, 'lastRun');
 }
 
@@ -13809,7 +13814,7 @@ async function openManualAtlasRunDashboardFromWorkbench() {
   const cid = 'atlas-workbench-card';
   const manual = (cardRoot.querySelector(`#${cid}-atlas-run-input`)?.value || '').trim();
   const runId = manual || getAtlasLastRunId();
-  if (!runId) { addMsg('system', 'run_id is required. Enter run_id or open a recent run first.'); return; }
+  if (!runId) { addMsg('system', 'run_id is required. Run Atlas once, load recent runs, or enter run_id.'); return; }
   cardRoot.dataset.lastRunId = runId;
   _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
   await loadAtlasRunDashboard(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');
@@ -13827,7 +13832,7 @@ async function openPatchReviewFromWorkbench() {
   const cid = 'atlas-workbench-card';
   const manual = (cardRoot.querySelector(`#${cid}-atlas-run-input`)?.value || '').trim();
   const runId = manual || getAtlasLastRunId();
-  if (!runId) { addMsg('system', 'run_id is required for patch review. Enter run_id or load recent runs.'); return; }
+  if (!runId) { addMsg('system', 'run_id is required for patch review. Run Atlas once, load recent runs, or enter run_id.'); return; }
   cardRoot.dataset.lastRunId = runId;
   _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
   await loadAtlasRunDashboard(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');

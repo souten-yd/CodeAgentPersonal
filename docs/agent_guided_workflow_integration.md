@@ -66,3 +66,9 @@
 - No API breaking rename.
 - No Task/Agent deletion.
 - Future phase may further split Atlas subviews, but Phase 16 is a thin wrapper only.
+
+
+## Phase 16.5 note (Atlas wrapper smoke / layout polish)
+- Phase 16.5 validates Atlas wrapper layout and smoke behavior across desktop/mobile mode switching.
+- Atlas wrapper remains thin and reuses existing APIs/functions (no runtime or API split in this phase).
+- No workspace split or destructive navigation change is introduced in this phase.

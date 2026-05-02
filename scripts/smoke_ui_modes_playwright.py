@@ -30,33 +30,35 @@ NEXUS_TABS = [
 
 
 async def verify_mode_switches(page) -> None:
-  await page.click("#btn-chat")
-  await page.wait_for_function(
-    "() => document.getElementById('chat-col')?.classList.contains('active')"
-  )
-
   await page.click("#btn-atlas")
-  await page.wait_for_function(
-    "() => document.getElementById('atlas-panel-col')?.classList.contains('active')"
-  )
+  await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
+  await page.wait_for_function("() => document.getElementById('agent-col') && getComputedStyle(document.getElementById('agent-col')).display === 'none'")
+  await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display === 'none'")
+  assert await page.locator("#atlas-panel-col", has_text="Atlas Workbench").count() > 0
+  assert await page.get_by_role("button", name="Start Atlas").count() > 0
+  assert await page.get_by_role("button", name="Load Recent Atlas Runs").count() > 0
 
   await page.click("#btn-agent")
-  await page.wait_for_function(
-    "() => document.getElementById('agent-col')?.classList.contains('active')"
-  )
-  await page.wait_for_function(
-    "() => document.getElementById('agent-panel-col')?.classList.contains('active')"
-  )
+  await page.wait_for_function("() => document.getElementById('agent-col') && getComputedStyle(document.getElementById('agent-col')).display !== 'none'")
+  await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display !== 'none'")
+  await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display === 'none'")
+  agent_chat_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-agent-chat')).display !== 'none'")
+  agent_tasks_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-agent-tasks')).display !== 'none'")
+  assert agent_chat_visible and agent_tasks_visible
+
+  await page.click("#btn-chat")
+  await page.wait_for_function("() => document.getElementById('chat-col') && getComputedStyle(document.getElementById('chat-col')).display !== 'none'")
+  await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display === 'none'")
+  await page.wait_for_function("() => document.getElementById('agent-col') && getComputedStyle(document.getElementById('agent-col')).display === 'none'")
+  await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display === 'none'")
 
   await page.click("#btn-echo")
-  await page.wait_for_function(
-    "() => document.getElementById('echo-col')?.classList.contains('active')"
-  )
+  await page.wait_for_function("() => document.getElementById('echo-col') && getComputedStyle(document.getElementById('echo-col')).display !== 'none'")
+  await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display === 'none'")
 
   await page.click("#btn-nexus")
-  await page.wait_for_function(
-    "() => document.getElementById('nexus-col')?.classList.contains('active')"
-  )
+  await page.wait_for_function("() => document.getElementById('nexus-col') && getComputedStyle(document.getElementById('nexus-col')).display !== 'none'")
+  await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display === 'none'")
 
 
 async def verify_nexus_tabs(page) -> None:
@@ -185,11 +187,17 @@ async def verify_mobile_mode_switches(browser) -> None:
   await page.wait_for_function(
     "() => document.getElementById('mob-atlas')?.classList.contains('active')"
   )
+  await page.wait_for_function("() => document.getElementById('agent-panel-col')?.classList.contains('mob-hidden')")
+  await page.wait_for_function("() => document.getElementById('agent-col')?.classList.contains('mob-hidden')")
 
   await page.click("#btn-agent")
   await page.wait_for_function(
     "() => document.getElementById('agent-col') && !document.getElementById('agent-col').classList.contains('mob-hidden')"
   )
+  await page.wait_for_function("() => document.getElementById('mob-agent-chat')?.classList.contains('active')")
+  await page.wait_for_function("() => document.getElementById('atlas-panel-col')?.classList.contains('mob-hidden')")
+  agent_tasks_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-agent-tasks')).display !== 'none'")
+  assert agent_tasks_visible
 
   await page.click("#btn-echo")
   await page.wait_for_function(

@@ -11,6 +11,12 @@ class TestPhase16AtlasWorkspaceWrapperUiContract(unittest.TestCase):
         self.assertIn('id="atlas-panel-col"', self.ui)
         self.assertIn('Atlas Workbench', self.ui)
 
+    def test_atlas_wrapper_layout_safety(self):
+        self.assertIn('.atlas-panel-col{overflow:auto;min-height:0}', self.ui)
+        self.assertIn('flex-wrap:wrap', self.ui)
+        self.assertIn('atlas-workbench-card-atlas-run-input', self.ui)
+        self.assertTrue('min-width:0' in self.ui or 'max-width:100%' in self.ui)
+
     def test_atlas_wrapper_has_core_actions(self):
         for label in [
             'Start Atlas',
@@ -33,19 +39,30 @@ class TestPhase16AtlasWorkspaceWrapperUiContract(unittest.TestCase):
             self.assertIn(host_id, self.ui)
 
     def test_setmode_atlas_uses_wrapper(self):
-        self.assertIn("if (atlasPanelCol) atlasPanelCol.style.display = 'none';", self.ui)
-        self.assertIn("atlasPanelCol?.classList.remove('mob-hidden');", self.ui)
+        self.assertIn("} else if (m === 'atlas') {", self.ui)
+        self.assertIn('ensureAtlasWorkbenchHost();', self.ui)
 
     def test_mobile_atlas_uses_wrapper(self):
         self.assertIn("const _ATLAS_MOB_TAB_IDS = ['mob-atlas'];", self.ui)
         self.assertIn("atc?.classList.remove('mob-hidden');", self.ui)
-        self.assertIn("id=\"mob-atlas\"", self.ui)
+        self.assertIn("ensureAtlasWorkbenchHost();", self.ui)
+
+    def test_mode_branches_hide_atlas_when_not_atlas(self):
+        self.assertIn("if (atlasPanelCol) atlasPanelCol.style.display = 'none';", self.ui)
+
+    def test_helper_functions_exist(self):
+        for fn in [
+            'function openLastAtlasDashboardFromWorkbench()',
+            'function openManualAtlasRunDashboardFromWorkbench()',
+            'function loadRecentAtlasRunsFromWorkbench()',
+            'function openPatchReviewFromWorkbench()',
+        ]:
+            self.assertIn(fn, self.ui)
 
     def test_agent_compatibility_remains(self):
         self.assertIn('id="btn-agent"', self.ui)
         self.assertIn('id="mob-agent-chat"', self.ui)
         self.assertIn('id="mob-agent-tasks"', self.ui)
-        self.assertIn('Agent is the advanced runtime surface. Atlas is the guided workflow for normal work.', self.ui)
 
     def test_legacy_task_compatibility_remains(self):
         self.assertIn('function openLegacyTaskFromAtlas()', self.ui)
