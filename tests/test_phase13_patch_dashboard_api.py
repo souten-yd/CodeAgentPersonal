@@ -27,6 +27,20 @@ class TestPhase13PatchDashboardApi(unittest.TestCase):
             finally:
                 main._phase6_run_storage.base_dir = old
 
+    def test_dashboard_api_empty_run(self):
+        with tempfile.TemporaryDirectory() as td:
+            old = main._phase6_run_storage.base_dir
+            main._phase6_run_storage.base_dir = Path(td)
+            try:
+                c = TestClient(main.app)
+                r = c.get('/api/runs/empty-run/patch-dashboard')
+                self.assertEqual(r.status_code, 200)
+                d = r.json()['dashboard']
+                self.assertEqual(d['counts']['total'], 0)
+                self.assertEqual(d['patches'], [])
+            finally:
+                main._phase6_run_storage.base_dir = old
+
 
 if __name__ == '__main__':
     unittest.main()

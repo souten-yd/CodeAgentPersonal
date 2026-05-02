@@ -13960,6 +13960,7 @@ const _ATLAS_PATCH_FILTERS = [
   ['blocked', 'Blocked'],
   ['verification_failed', 'Verification Failed'],
   ['low_quality', 'Low Quality'],
+  ['quality_not_evaluated', 'Quality Not Evaluated'],
   ['safety_warning', 'Safety Warnings'],
   ['missing_manual_check', 'Missing Manual Check'],
   ['missing_telemetry', 'Missing Telemetry'],
@@ -13981,7 +13982,7 @@ async function loadAtlasRunDashboard(cid, runId, cardRoot) {
     dashboardEl.innerHTML = `
       <div><b>Atlas Run Dashboard</b> (run_id=${esc(runId)})</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-        <span>Total: ${esc(String(c.total||0))}</span><span>Pending: ${esc(String(c.pending||0))}</span><span>Approved: ${esc(String(c.approved||0))}</span><span>Applied: ${esc(String(c.applied||0))}</span><span>Blocked: ${esc(String(c.apply_blocked||0))}</span><span>Verification Failed: ${esc(String(c.verification_failed||0))}</span><span>Low Quality: ${esc(String(c.low_quality||0))}</span>
+        <span>Total: ${esc(String(c.total||0))}</span><span>Pending: ${esc(String(c.pending||0))}</span><span>Approved: ${esc(String(c.approved||0))}</span><span>Approved Not Applied: ${esc(String(c.approved_not_applied||0))}</span><span>Applied: ${esc(String(c.applied||0))}</span><span>Blocked: ${esc(String(c.apply_blocked||0))}</span><span>Verification Failed: ${esc(String(c.verification_failed||0))}</span><span>Low Quality: ${esc(String(c.low_quality||0))}</span><span>Quality Not Evaluated: ${esc(String(c.quality_not_evaluated||0))}</span>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
         <span>Safety Warnings: ${esc(String(c.safety_warnings||0))}</span><span>Total Manual Checks: ${esc(String(c.total_manual_checks||0))}</span><span>Patches with Manual Check: ${esc(String(c.patches_with_manual_check||0))}</span><span>LLM Telemetry Records: ${esc(String(c.llm_telemetry_records||0))}</span><span>Patches with Telemetry: ${esc(String(c.patches_with_telemetry||0))}</span><span>Reproposal Candidates: ${esc(String(c.reproposal_candidates||0))}</span>
@@ -13993,6 +13994,7 @@ async function loadAtlasRunDashboard(cid, runId, cardRoot) {
       ${renderList('Unreviewed patches', att.unreviewed_patch_ids || [])}
       ${renderList('Missing telemetry patches', att.missing_telemetry_patch_ids || [])}
       ${renderList('Missing manual check patches', att.missing_manual_check_patch_ids || [])}
+      ${renderList('Quality not evaluated patches', att.quality_not_evaluated_patch_ids || [])}
       ${renderList('Reproposal candidates', att.reproposal_needed_patch_ids || [])}
     `;
     dashboardEl.querySelectorAll('[data-scroll-pid]').forEach((btn)=>btn.addEventListener('click', ()=>{
