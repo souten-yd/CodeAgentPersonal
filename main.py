@@ -10844,6 +10844,23 @@ def api_get_run_patches(run_id: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="run patches not found")
 
+@app.get("/api/runs/{run_id}/patch-dashboard")
+def api_get_run_patch_dashboard(run_id: str):
+    from agent.llm_telemetry_storage import LLMTelemetryStorage
+    from agent.manual_check_storage import ManualCheckStorage
+    from agent.patch_storage import PatchStorage
+
+    ps = PatchStorage(_phase6_run_storage.base_dir)
+    mcs = ManualCheckStorage(_phase6_run_storage.base_dir)
+    ts = LLMTelemetryStorage(_phase6_run_storage.base_dir)
+    return {
+        "dashboard": ps.get_run_patch_dashboard_summary(
+            run_id=run_id,
+            manual_checks=mcs.list_manual_checks(run_id),
+            telemetry=ts.list_telemetry(run_id),
+        )
+    }
+
 
 @app.get("/api/runs/{run_id}/patches/{patch_id}")
 def api_get_run_patch(run_id: str, patch_id: str):

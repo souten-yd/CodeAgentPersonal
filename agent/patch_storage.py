@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from agent.patch_approval_schema import PatchApprovalRecord
@@ -187,4 +188,193 @@ class PatchStorage:
             "related_reproposal_count": related_reproposal_count,
             "reproposal_count_total": reproposal_count_total,
             "reproposal_count_total_semantics": "ancestor_plus_direct_children",
+        }
+
+    def get_run_patch_dashboard_summary(
+        self,
+        run_id: str,
+        manual_checks: list[dict] | None = None,
+        telemetry: list[dict] | None = None,
+    ) -> dict:
+        patches = self.list_patches(run_id)
+        manual_checks = manual_checks or []
+        telemetry = telemetry or []
+        manual_by_patch: dict[str, list[dict]] = {}
+        telemetry_by_patch: dict[str, list[dict]] = {}
+        for item in manual_checks:
+            pid = str(item.get("patch_id", "") or "")
+            if pid:
+                manual_by_patch.setdefault(pid, []).append(item)
+        for item in telemetry:
+            pid = str(item.get("patch_id", "") or "")
+            if pid:
+                telemetry_by_patch.setdefault(pid, []).append(item)
+        counts = {
+            "total": 0,
+            "apply_allowed": 0,
+            "apply_blocked": 0,
+            "pending": 0,
+            "approved": 0,
+            "rejected": 0,
+            "applied": 0,
+            "verification_failed": 0,
+            "verification_passed": 0,
+            "low_quality": 0,
+            "quality_warnings": 0,
+            "safety_warnings": 0,
+            "has_telemetry": 0,
+            "has_manual_check": 0,
+            "has_reproposal": 0,
+            "reproposal_patch": 0,
+            "reproposal_candidates": 0,
+            "total_manual_checks": len(manual_checks),
+            "patches_with_manual_check": 0,
+            "llm_telemetry_records": len(telemetry),
+            "patches_with_telemetry": 0,
+        }
+        risk_counts: dict[str, int] = {}
+        patch_type_counts: dict[str, int] = {}
+        generator_counts: dict[str, int] = {}
+        attention = {
+            "blocked_patch_ids": [],
+            "low_quality_patch_ids": [],
+            "verification_failed_patch_ids": [],
+            "unreviewed_patch_ids": [],
+            "missing_telemetry_patch_ids": [],
+            "missing_manual_check_patch_ids": [],
+            "reproposal_needed_patch_ids": [],
+        }
+        out_patches: list[dict] = []
+        for p in patches:
+            patch_id = str(p.get("patch_id", "") or "")
+            approval_status = str(p.get("approval_status", "") or "pending")
+            applied = bool(p.get("applied", False) or approval_status == "applied")
+            apply_allowed = bool(p.get("apply_allowed", False))
+            verification_status = str(p.get("verification_status", "") or "")
+            quality_score = float(p.get("quality_score", 0.0) or 0.0)
+            safety_warnings = p.get("safety_warnings") or []
+            quality_warnings = p.get("quality_warnings") or []
+            metadata = p.get("metadata") if isinstance(p.get("metadata"), dict) else {}
+            generator = str(p.get("generator", "") or "")
+            patch_type = str(p.get("patch_type", "") or "")
+            has_reproposal = bool(p.get("has_reproposal", False))
+            reproposal_of_patch_id = str(p.get("reproposal_of_patch_id", "") or "")
+            patch_manual_checks = manual_by_patch.get(patch_id, [])
+            patch_telemetry = telemetry_by_patch.get(patch_id, [])
+            has_manual_check = len(patch_manual_checks) > 0
+            has_telemetry = bool(metadata.get("llm_telemetry_id") or metadata.get("fallback_telemetry_id") or patch_telemetry)
+            attention_flags: list[str] = []
+            if not apply_allowed:
+                attention_flags.append("blocked")
+            if safety_warnings:
+                attention_flags.append("safety_warning")
+            if quality_warnings:
+                attention_flags.append("quality_warning")
+            if quality_score < 0.4:
+                attention_flags.append("low_quality")
+            if approval_status in ("", "pending"):
+                attention_flags.append("unreviewed")
+            if approval_status == "approved" and not applied:
+                attention_flags.append("approved_not_applied")
+            if applied:
+                attention_flags.append("applied")
+            if verification_status == "failed":
+                attention_flags.append("verification_failed")
+            if verification_status == "passed":
+                attention_flags.append("verification_passed")
+            if has_reproposal:
+                attention_flags.append("has_reproposal")
+            if reproposal_of_patch_id:
+                attention_flags.append("reproposal_patch")
+            if generator == "llm_replace_block" and not has_telemetry:
+                attention_flags.append("missing_telemetry")
+            if generator == "llm_replace_block" and not has_manual_check:
+                attention_flags.append("missing_manual_check")
+            if approval_status == "rejected":
+                attention_flags.append("rejected")
+            is_reproposal_candidate = verification_status == "failed" and (not has_reproposal) and patch_type == "replace_block"
+            counts["total"] += 1
+            if apply_allowed:
+                counts["apply_allowed"] += 1
+            else:
+                counts["apply_blocked"] += 1
+            if approval_status in ("", "pending"):
+                counts["pending"] += 1
+            elif approval_status == "approved":
+                counts["approved"] += 1
+            elif approval_status == "rejected":
+                counts["rejected"] += 1
+            if applied:
+                counts["applied"] += 1
+            if verification_status == "failed":
+                counts["verification_failed"] += 1
+            if verification_status == "passed":
+                counts["verification_passed"] += 1
+            if quality_score < 0.4:
+                counts["low_quality"] += 1
+            if quality_warnings:
+                counts["quality_warnings"] += 1
+            if safety_warnings:
+                counts["safety_warnings"] += 1
+            if has_telemetry:
+                counts["has_telemetry"] += 1
+                counts["patches_with_telemetry"] += 1
+            if has_manual_check:
+                counts["has_manual_check"] += 1
+                counts["patches_with_manual_check"] += 1
+            if has_reproposal:
+                counts["has_reproposal"] += 1
+            if reproposal_of_patch_id:
+                counts["reproposal_patch"] += 1
+            if is_reproposal_candidate:
+                counts["reproposal_candidates"] += 1
+            risk_key = str(p.get("risk_level", "low") or "low").lower()
+            risk_counts[risk_key] = risk_counts.get(risk_key, 0) + 1
+            if patch_type:
+                patch_type_counts[patch_type] = patch_type_counts.get(patch_type, 0) + 1
+            if generator:
+                generator_counts[generator] = generator_counts.get(generator, 0) + 1
+            if "blocked" in attention_flags:
+                attention["blocked_patch_ids"].append(patch_id)
+            if "low_quality" in attention_flags:
+                attention["low_quality_patch_ids"].append(patch_id)
+            if "verification_failed" in attention_flags:
+                attention["verification_failed_patch_ids"].append(patch_id)
+            if "unreviewed" in attention_flags:
+                attention["unreviewed_patch_ids"].append(patch_id)
+            if "missing_telemetry" in attention_flags:
+                attention["missing_telemetry_patch_ids"].append(patch_id)
+            if "missing_manual_check" in attention_flags:
+                attention["missing_manual_check_patch_ids"].append(patch_id)
+            if is_reproposal_candidate:
+                attention["reproposal_needed_patch_ids"].append(patch_id)
+            out_patches.append({
+                "patch_id": patch_id,
+                "target_file": str(p.get("target_file", "") or ""),
+                "patch_type": patch_type,
+                "generator": generator,
+                "apply_allowed": apply_allowed,
+                "approval_status": approval_status,
+                "applied": applied,
+                "verification_status": verification_status,
+                "quality_score": quality_score,
+                "has_safety_warnings": bool(safety_warnings),
+                "has_quality_warnings": bool(quality_warnings),
+                "has_telemetry": has_telemetry,
+                "telemetry_count": len(patch_telemetry),
+                "has_manual_check": has_manual_check,
+                "manual_check_count": len(patch_manual_checks),
+                "has_reproposal": has_reproposal,
+                "reproposal_of_patch_id": reproposal_of_patch_id,
+                "attention_flags": attention_flags,
+            })
+        return {
+            "run_id": run_id,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "counts": counts,
+            "risk_counts": risk_counts,
+            "patch_type_counts": patch_type_counts,
+            "generator_counts": generator_counts,
+            "attention": attention,
+            "patches": out_patches,
         }
