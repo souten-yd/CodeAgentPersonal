@@ -1413,11 +1413,11 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);max-width:100%;overflow-wrap:anywhere">
             <div id="atlas-plan-review-anchor" data-atlas-plan-section="review" style="font-size:12px;font-weight:700;color:var(--text)">Atlas Guided Plan Flow</div>
             <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.6">Steps: Requirement → Plan → Review → Approval → Execute Preview → Patch Review</div>
-            <div id="atlas-workbench-card-plan-flow" style="margin-top:8px;font-size:11px;line-height:1.6"></div>
+            <div id="atlas-workbench-card-plan-flow" data-atlas-workflow-target="plan-review" style="margin-top:8px;font-size:11px;line-height:1.6"></div>
             <div id="atlas-plan-approval-anchor" data-atlas-plan-section="approval" style="margin-top:6px;height:1px"></div>
-            <div id="atlas-workbench-card-plan-next-action" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.6"></div>
+            <div id="atlas-workbench-card-plan-next-action" data-atlas-workflow-target="approval" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.6"></div>
             <div id="atlas-plan-execute-preview-anchor" data-atlas-plan-section="execute-preview" style="height:1px"></div>
-            <div id="atlas-workbench-card-plan-next-action-buttons" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
+            <div id="atlas-workbench-card-plan-next-action-buttons" data-atlas-workflow-target="execute-preview" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
             <div style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.6">Execute Preview remains locked until plan approval.<br>No apply happens from this panel.<br>Patch application still requires Patch Review approval.</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
               <button class="phase1-tab-btn" type="button" onclick="setAtlasSubview('runs')">Open Runs</button>
@@ -1452,7 +1452,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
             <button class="phase1-tab-btn" type="button" onclick="openPatchReviewFromWorkbench()">Open Patch Review for this run</button>
           </div>
-          <div id="atlas-workbench-card-patch-list" style="margin-top:8px;font-size:11px"></div>
+          <div id="atlas-workbench-card-patch-list" data-atlas-workflow-target="patch-review" style="margin-top:8px;font-size:11px"></div>
         </div>
         <div class="atlas-subview" data-atlas-subview-panel="legacy" style="display:none">
           <div style="font-size:12px;color:var(--text2);line-height:1.6">Taskは互換のため残しています。通常作業はAtlasから開始してください。<br>Agentは高度な実行基盤・内部Runtime確認用です。</div>
@@ -13916,23 +13916,27 @@ function findAtlasWorkflowTarget(kind) {
   const key = String(kind || '').trim().toLowerCase();
   const selectorMap = {
     review: [
+      '[data-atlas-workflow-target="plan-review"]',
       '#atlas-plan-review-anchor',
       '[data-atlas-plan-section="review"]',
       '#atlas-workbench-card-plan-flow',
       '#atlas-workbench-card-plan-next-action',
     ],
     approval: [
+      '[data-atlas-workflow-target="approval"]',
       '#atlas-plan-approval-anchor',
       '[data-atlas-plan-section="approval"]',
       '#atlas-workbench-card-plan-next-action',
       '#atlas-workbench-card-plan-next-action-buttons',
     ],
     execute_preview: [
+      '[data-atlas-workflow-target="execute-preview"]',
       '#atlas-plan-execute-preview-anchor',
       '[data-atlas-plan-section="execute-preview"]',
       '#atlas-workbench-card-plan-next-action-buttons',
     ],
     patch_review: [
+      '[data-atlas-workflow-target="patch-review"]',
       '#atlas-workbench-card-patch-list',
       '[data-atlas-subview-panel="patch_review"]',
       '#atlas-workbench-card',
