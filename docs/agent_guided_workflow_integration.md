@@ -52,3 +52,9 @@
 - Chat/Task compatibility Plan button (`startPlanWorkflow()`).
 - Atlas button (`startAtlasWorkflow()`).
 - Backward-compatible alias (`startAgentGuidedWorkflow()`).
+
+## Phase 15.5 polish (Atlas navigation / legacy task explicit switch)
+- Legacy Task access from Atlas is now explicit (task-on), not toggle-based.
+- Atlas is the normal workbench for guided work planning, execution preview, patch review, and run audit.
+- Agent remains the advanced runtime surface.
+- Task remains as a compatibility path.
