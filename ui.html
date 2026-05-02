@@ -1406,6 +1406,16 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em">タスク管理</span>
       <span class="tab-label" id="agent-status-label">idle</span>
     </div>
+    <div class="agent-guided-workflow-card" style="margin:10px 10px 0 10px;padding:10px;border:1px solid var(--accent-border);border-radius:8px;background:var(--accent-bg)">
+      <div style="font-size:12px;font-weight:700;color:var(--accent);letter-spacing:.04em">Guided Workflow</div>
+      <div class="muted" style="font-size:11px;color:var(--text2);margin-top:6px;line-height:1.5">Requirement → Plan → Review → Approval → Execute Preview → Patch Review の安全な作業フローです。<br>自動applyは行わず、各段階で確認できます。</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button class="phase1-plan-btn" type="button" onclick="startAgentGuidedWorkflow()">Start Guided Workflow</button>
+        <button class="phase1-tab-btn" type="button" onclick="showPlanWorkflowPanel()">Open Plan Panel</button>
+      </div>
+      <div style="margin-top:8px;font-size:10px;color:var(--text3)">Status: <span id="agent-guided-workflow-status">idle</span></div>
+      <div style="margin-top:6px;font-size:10px;color:var(--text3)">Taskは今後Agent内のGuided Workflowへ統合予定です。既存互換のため当面は残します。</div>
+    </div>
     <div style="padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border)">
       <input id="agent-task-search" placeholder="タスク名で検索..." oninput="handleAgentTaskSearch(this.value)"
         style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:11px">
@@ -13543,6 +13553,8 @@ const planWorkflowState = {
   approvalStatus: 'pending',
   executionReady: false,
   lastError: '',
+  source: 'chat_task_plan_button',
+  workspace: 'Chat/Task',
 };
 
 function _computePlanWorkflowNextAction() {
@@ -13566,6 +13578,8 @@ function _renderPlanWorkflowStatusPanel() {
     <div class="msg-role">Plan Workflow Status</div>
     <div class="plan-card" style="padding:10px">
       <div style="font-size:12px;line-height:1.6">
+        <div>Source: <b>${esc(planWorkflowState.source || 'chat_task_plan_button')}</b></div>
+        <div>Workspace: <b>${esc(planWorkflowState.workspace || 'Chat/Task')}</b></div>
         <div>Requirement: <b>${esc(planWorkflowState.requirementId || '-')}</b></div>
         <div>Plan: <b>${esc(planWorkflowState.planId || '-')}</b></div>
         <div>Review: <b>${esc(planWorkflowState.reviewId || '-')}</b></div>
@@ -13578,6 +13592,8 @@ function _renderPlanWorkflowStatusPanel() {
     </div>`;
   const w = messages();
   w.appendChild(div);
+  const agentStatus = document.getElementById('agent-guided-workflow-status');
+  if (agentStatus) agentStatus.textContent = `${planWorkflowState.workspace || 'Chat/Task'} / ${_computePlanWorkflowNextAction()}`;
   scrollMsgs();
 }
 
@@ -13586,7 +13602,30 @@ function _updatePlanWorkflowState(partial = {}) {
   _renderPlanWorkflowStatusPanel();
 }
 
-function startPlanWorkflow() {
+function startPlanWorkflow(options = {}) {
+  return runGuidedPlanWorkflow(options);
+}
+
+function startAgentGuidedWorkflow() {
+  return startPlanWorkflow({ source: 'agent_guided_workflow', workspace: 'Agent' });
+}
+
+function showPlanWorkflowPanel() {
+  const panel = document.getElementById('phase1-plan-panel');
+  const toggle = document.getElementById('phase1-plan-toggle');
+  if (panel) {
+    panel.classList.remove('collapsed');
+    panel.setAttribute('aria-hidden', 'false');
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  if (toggle) toggle.setAttribute('aria-expanded', 'true');
+  addMsg('system', 'Plan Panelを開きました。Agent Guided Workflowから既存Plan Workflowを利用できます。');
+}
+
+async function runGuidedPlanWorkflow(options = {}) {
+  const source = options?.source || planWorkflowState.source || 'chat_task_plan_button';
+  const workspace = options?.workspace || (source === 'agent_guided_workflow' ? 'Agent' : 'Chat/Task');
+  _updatePlanWorkflowState({ source, workspace });
   return generatePlanOnlyFromInput();
 }
 
@@ -13602,6 +13641,8 @@ function renderClarificationCard(result, context = {}) {
     approvalStatus: 'pending',
     executionReady: false,
     lastError: '',
+    source: planWorkflowState.source || 'chat_task_plan_button',
+    workspace: planWorkflowState.workspace || 'Chat/Task',
   });
   const cardId = 'phase2-clar-card-' + Date.now();
   const qHtml = questions.length
@@ -14218,6 +14259,7 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
   scrollMsgs();
 }
 
+// Backward-compatible name: this now drives the full guided workflow chain (plan/review/approval/execute preview/patch review).
 async function generatePlanOnlyFromInput() {
   const input = document.getElementById('input');
   const text = (input?.value || '').trim();
