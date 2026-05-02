@@ -1248,6 +1248,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <div class="hdr-right">
     <div class="mode-wrap">
       <button class="mode-btn active" id="btn-chat" onclick="setMode('chat')">Chat</button>
+      <button class="mode-btn" id="btn-atlas" onclick="setMode('atlas')">Atlas</button>
       <button class="mode-btn" id="btn-agent" onclick="setMode('agent')">Agent</button>
       <button class="mode-btn" id="btn-echo" onclick="setMode('echo')">Echo</button>
       <button class="mode-btn" id="btn-nexus" onclick="setMode('nexus')">Nexus</button>
@@ -1291,6 +1292,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <!-- Agent モード用タブ (デフォルト非表示) -->
   <button class="mob-tab wide" id="mob-agent-chat" onclick="mobSwitch('agent_chat')" style="display:none">Agent Chat</button>
   <button class="mob-tab wide" id="mob-agent-tasks" onclick="mobSwitch('agent_tasks')" style="display:none">Agent Tasks</button>
+  <button class="mob-tab wide" id="mob-atlas" onclick="mobSwitch('atlas')" style="display:none">Atlas</button>
   <!-- Echo モード用タブ (デフォルト非表示) -->
   <button class="mob-tab" id="mob-echo" onclick="mobSwitch('echo')" style="display:none">Echo</button>
   <button class="mob-tab" id="mob-vault" onclick="mobSwitch('vault')" style="display:none">Vault</button>
@@ -1412,9 +1414,16 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
         <button class="phase1-plan-btn" type="button" onclick="startAtlasWorkflow()">Start Atlas</button>
         <button class="phase1-tab-btn" type="button" onclick="showAtlasPanel()">Open Atlas Panel</button>
+        <button class="phase1-tab-btn" type="button" onclick="openLastRunDashboardFromStatus()">Open Last Atlas Dashboard</button>
+        <button class="phase1-tab-btn" type="button" onclick="showAtlasPanel();setTimeout(()=>{ const btn=[...document.querySelectorAll('[data-run-view=\"load-recent-atlas-runs\"]')][0]; if(btn) btn.click(); }, 60);">Load Recent Atlas Runs</button>
       </div>
       <div style="margin-top:8px;font-size:10px;color:var(--text3)">Status: <span id="agent-guided-workflow-status">idle</span></div>
+      <div style="margin-top:6px;font-size:10px;color:var(--text3)">Agent powers Atlas workflows through planning, execution preview, evaluation, and memory.</div>
       <div style="margin-top:6px;font-size:10px;color:var(--text3)">Taskは互換のため残します。新しいGuided WorkflowはAtlasとして扱います。</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <button class="phase1-tab-btn" type="button" onclick="setMode('chat');toggleChatTaskMode();">Open Legacy Task</button>
+        <button class="phase1-tab-btn" type="button" onclick="setMode('chat');showAtlasPanel();">Open Task Panel</button>
+      </div>
     </div>
     <div style="padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border)">
       <input id="agent-task-search" placeholder="タスク名で検索..." oninput="handleAgentTaskSearch(this.value)"
@@ -6619,6 +6628,8 @@ const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault','tab-btn-log-echo','tab-btn-models-
 const _CHAT_MOB_TAB_IDS = ['mob-chat','mob-files','mob-log','mob-skills','mob-memory','mob-models'];
 // Agent モード用モバイルタブID
 const _AGENT_MOB_TAB_IDS = ['mob-agent-chat','mob-agent-tasks'];
+// Atlas モード用モバイルタブID
+const _ATLAS_MOB_TAB_IDS = ['mob-atlas'];
 // Echo モード用モバイルタブID
 const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-echo','mob-asr','mob-tts'];
 // Nexus モード用モバイルタブID（単一ビューのためタブ不要）
@@ -6683,12 +6694,14 @@ function _updateMobTabs(m) {
   const isEcho = (m === 'echo');
   const isAgent = (m === 'agent');
   const isNexus = (m === 'nexus');
-  const isChatTask = !isEcho && !isAgent && !isNexus;
+  const isAtlas = (m === 'atlas');
+  const isChatTask = !isEcho && !isAgent && !isNexus && !isAtlas;
   mobTabs?.classList.toggle('echo-mode', isEcho);
   mobTabs?.classList.toggle('chat-task-mode', isChatTask);
 
   _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isChatTask ? '' : 'none'; });
   _AGENT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isAgent ? '' : 'none'; });
+  _ATLAS_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isAtlas ? '' : 'none'; });
   _ECHO_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
   _NEXUS_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isNexus ? '' : 'none'; });
 }
@@ -6806,7 +6819,7 @@ function _bindTapClick(el, handler) {
 }
 
 function bindModeAndNexusTapHandlers() {
-  ['chat','agent','echo','nexus'].forEach((name) => {
+  ['chat','atlas','agent','echo','nexus'].forEach((name) => {
     _bindTapClick(document.getElementById('btn-' + name), () => setMode(name));
   });
   ['dashboard','library','news','market','web-scout','deep-research','compare','formula','evidence','report'].forEach((name) => {
@@ -6818,7 +6831,7 @@ function setMode(m) {
   if (m === 'task') m = 'chat';
   const prevMode = mode;
   mode = m;
-  ['chat','agent','echo','nexus'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
+  ['chat','atlas','agent','echo','nexus'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
   syncChatTaskToggle();
   const chatCol  = document.getElementById('chat-col');
   const echoCol  = document.getElementById('echo-col');
@@ -6864,6 +6877,19 @@ function setMode(m) {
       mobSwitch('agent_chat');
       return;
     }
+  } else if (m === 'atlas') {
+    appBody?.classList.remove('echo-active');
+    panelCol?.classList.remove('echo-tabs-equal');
+    panelCol?.classList.remove('chat-task-tabs-equal');
+    chatCol.style.display = 'none';
+    echoCol.style.display = 'none';
+    panelCol.style.display = 'none';
+    if (agentCol) agentCol.style.display = 'none';
+    if (agentPanelCol) agentPanelCol.style.display = '';
+    if (nexusCol) nexusCol.style.display = 'none';
+    if (resizer) resizer.style.display = 'none';
+    _setEchoTabVisibility(false);
+    showAtlasPanel();
   } else if (m === 'nexus') {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
@@ -6901,7 +6927,7 @@ function setMode(m) {
   syncAgentSessionUi();
 
   if (window.innerWidth <= 768) {
-    const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS];
+    const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ATLAS_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS];
     if (m === 'echo') {
       chatCol?.classList.add('mob-hidden');
       panelCol?.classList.add('mob-hidden');
@@ -6920,6 +6946,15 @@ function setMode(m) {
       nexusCol?.classList.add('mob-hidden');
       allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
       document.getElementById('mob-agent-chat')?.classList.add('active');
+    } else if (m === 'atlas') {
+      chatCol?.classList.add('mob-hidden');
+      panelCol?.classList.add('mob-hidden');
+      echoCol?.classList.add('mob-hidden');
+      agentCol?.classList.add('mob-hidden');
+      agentPanelCol?.classList.remove('mob-hidden');
+      nexusCol?.classList.add('mob-hidden');
+      allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+      document.getElementById('mob-atlas')?.classList.add('active');
     } else if (m === 'nexus') {
       chatCol?.classList.add('mob-hidden');
       panelCol?.classList.add('mob-hidden');
@@ -9895,7 +9930,7 @@ function sendAgentInput() {
 
 // ── MOBILE ──
 function mobSwitch(name) {
-  const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS];
+  const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ATLAS_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS];
   allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
 
   const activeId = (name === 'log' && mode === 'echo') ? 'mob-log-echo'
@@ -9940,6 +9975,14 @@ function mobSwitch(name) {
     pc?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
     ap?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
+  } else if (name === 'atlas') {
+    if (mode !== 'atlas') { setMode('atlas'); return; }
+    ap?.classList.remove('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    pc?.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
     nc?.classList.add('mob-hidden');
   } else if (name === 'nexus') {
     if (mode !== 'nexus') { setMode('nexus'); return; }
