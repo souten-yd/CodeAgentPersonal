@@ -524,7 +524,7 @@ html.logo-svg-ready .logo-text{display:none}
     height:auto;
     width:100%;
   }
-  .chat-col,.agent-col,.agent-panel-col,.nexus-col{
+  .chat-col,.agent-col,.agent-panel-col,.atlas-panel-col,.nexus-col{
     /* flex layout: messages flex-grow, input always visible at bottom */
     display:flex!important;flex-direction:column!important;
     height:100%;max-height:100%;
@@ -560,7 +560,7 @@ html.logo-svg-ready .logo-text{display:none}
 
 /* ── CHAT COL ── */
 
-.agent-col,.agent-panel-col{display:flex;flex-direction:column;min-height:0;background:var(--bg1)}
+.agent-col,.agent-panel-col,.atlas-panel-col{display:flex;flex-direction:column;min-height:0;background:var(--bg1)}
 .agent-col{flex:1 1 auto;border-right:1px solid var(--border)}
 .agent-panel-col{flex:0 0 min(42vw,520px);min-width:240px;max-width:70vw}
 @media(max-width:768px){
@@ -1369,6 +1369,37 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   </div>
 
   <!-- AGENT MODE -->
+  <div class="atlas-panel-col mob-hidden" id="atlas-panel-col" style="display:none">
+    <div class="agent-head"><h3>Atlas Workbench</h3></div>
+    <div class="agent-ctx">要件定義・計画・実行Preview・Patch Review・Run Auditの作業入口です。</div>
+    <div class="plan-card" id="atlas-workbench-card" style="margin:10px">
+      <div class="plan-card-header"><span>Atlas Workbench</span></div>
+      <div class="plan-section">
+        <div style="font-size:12px;color:var(--text2);line-height:1.6">Agent powers Atlas workflows. Agent is the advanced runtime surface. Atlas is the guided workflow for normal work.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <button class="phase1-plan-btn" type="button" onclick="startAtlasWorkflow()">Start Atlas</button>
+          <button class="phase1-tab-btn" type="button" onclick="showAtlasPanel()">Open Atlas Panel</button>
+          <button class="phase1-tab-btn" type="button" onclick="openLastAtlasDashboardFromWorkbench()">Open Last Atlas Dashboard</button>
+          <button class="phase1-tab-btn" type="button" onclick="loadRecentAtlasRunsFromWorkbench()">Load Recent Atlas Runs</button>
+          <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
+          <button class="phase1-tab-btn" type="button" onclick="openPatchReviewFromWorkbench()">Open Patch Review for this run</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <button class="phase1-tab-btn" type="button" onclick="openLegacyTaskFromAtlas();">Open Legacy Task</button>
+          <button class="phase1-tab-btn" type="button" onclick="setMode('agent')">Open Agent Advanced</button>
+        </div>
+        <div style="margin-top:8px"><b>Atlas Runs</b> / Last Run: <span id="atlas-workbench-card-atlas-last-run">-</span></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+          <input id="atlas-workbench-card-atlas-run-input" placeholder="run_id" value="" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px">
+          <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
+        </div>
+        <div id="atlas-workbench-card-atlas-runs-list" style="margin-top:6px;font-size:11px"></div>
+        <div id="atlas-workbench-card-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div>
+        <div id="atlas-workbench-card-patch-list" style="margin-top:8px;font-size:11px"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="agent-col mob-hidden" id="agent-col" style="display:none">
     <div class="chat-topbar">
       <div class="agent-session-row">
@@ -6852,6 +6883,7 @@ function setMode(m) {
   const agentCol = document.getElementById('agent-col');
   const agentPanelCol = document.getElementById('agent-panel-col');
   const nexusCol = document.getElementById('nexus-col');
+  const atlasPanelCol = document.getElementById('atlas-panel-col');
   const resizer = document.getElementById('panel-resizer');
   const appBody  = document.querySelector('.app-body');
   _updateMobTabs(m);
@@ -6868,6 +6900,7 @@ function setMode(m) {
     panelCol.style.display = '';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (atlasPanelCol) atlasPanelCol.style.display = '';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(true);
@@ -6882,6 +6915,7 @@ function setMode(m) {
     panelCol.style.display = 'none';
     if (agentCol) agentCol.style.display = '';
     if (agentPanelCol) agentPanelCol.style.display = '';
+    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
@@ -6898,11 +6932,12 @@ function setMode(m) {
     echoCol.style.display = 'none';
     panelCol.style.display = 'none';
     if (agentCol) agentCol.style.display = 'none';
-    if (agentPanelCol) agentPanelCol.style.display = '';
+    if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (atlasPanelCol) atlasPanelCol.style.display = '';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
-    showAtlasPanel();
+    ensureAtlasWorkbenchHost();
   } else if (m === 'nexus') {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
@@ -6926,6 +6961,7 @@ function setMode(m) {
     panelCol.style.display = '';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (atlasPanelCol) atlasPanelCol.style.display = '';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(false);
@@ -6947,6 +6983,7 @@ function setMode(m) {
       echoCol?.classList.remove('mob-hidden');
       agentCol?.classList.add('mob-hidden');
       agentPanelCol?.classList.add('mob-hidden');
+      atlasPanelCol?.classList.add('mob-hidden');
       nexusCol?.classList.add('mob-hidden');
       allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
       document.getElementById('mob-echo')?.classList.add('active');
@@ -6956,6 +6993,7 @@ function setMode(m) {
       echoCol?.classList.add('mob-hidden');
       agentCol?.classList.remove('mob-hidden');
       agentPanelCol?.classList.add('mob-hidden');
+      atlasPanelCol?.classList.add('mob-hidden');
       nexusCol?.classList.add('mob-hidden');
       allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
       document.getElementById('mob-agent-chat')?.classList.add('active');
@@ -6964,7 +7002,8 @@ function setMode(m) {
       panelCol?.classList.add('mob-hidden');
       echoCol?.classList.add('mob-hidden');
       agentCol?.classList.add('mob-hidden');
-      agentPanelCol?.classList.remove('mob-hidden');
+      agentPanelCol?.classList.add('mob-hidden');
+      atlasPanelCol?.classList.remove('mob-hidden');
       nexusCol?.classList.add('mob-hidden');
       allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
       document.getElementById('mob-atlas')?.classList.add('active');
@@ -6974,6 +7013,7 @@ function setMode(m) {
       echoCol?.classList.add('mob-hidden');
       agentCol?.classList.add('mob-hidden');
       agentPanelCol?.classList.add('mob-hidden');
+      atlasPanelCol?.classList.add('mob-hidden');
       nexusCol?.classList.remove('mob-hidden');
       allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
       document.getElementById('mob-nexus')?.classList.add('active');
@@ -6983,6 +7023,7 @@ function setMode(m) {
       echoCol?.classList.add('mob-hidden');
       agentCol?.classList.add('mob-hidden');
       agentPanelCol?.classList.add('mob-hidden');
+      atlasPanelCol?.classList.add('mob-hidden');
       nexusCol?.classList.add('mob-hidden');
       allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
       document.getElementById('mob-chat')?.classList.add('active');
@@ -9957,6 +9998,7 @@ function mobSwitch(name) {
   const ac = document.getElementById('agent-col');
   const ap = document.getElementById('agent-panel-col');
   const nc = document.getElementById('nexus-col');
+  const atc = document.getElementById('atlas-panel-col');
 
   if (name === 'chat') {
     setMode('chat');
@@ -9964,6 +10006,7 @@ function mobSwitch(name) {
     ec?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
     ap?.classList.add('mob-hidden');
+    atc?.classList.add('mob-hidden');
     nc?.classList.add('mob-hidden');
   } else if (name === 'agent_chat') {
     if (mode !== 'agent') { setMode('agent'); return; }
@@ -9973,6 +10016,7 @@ function mobSwitch(name) {
     pc?.classList.add('mob-hidden');
     ec?.classList.add('mob-hidden');
     nc?.classList.add('mob-hidden');
+    atc?.classList.add('mob-hidden');
   } else if (name === 'agent_tasks') {
     if (mode !== 'agent') { setMode('agent'); return; }
     ac?.classList.add('mob-hidden');
@@ -9981,6 +10025,7 @@ function mobSwitch(name) {
     pc?.classList.add('mob-hidden');
     ec?.classList.add('mob-hidden');
     nc?.classList.add('mob-hidden');
+    atc?.classList.add('mob-hidden');
   } else if (name === 'echo') {
     setMode('echo');
     ec?.classList.remove('mob-hidden');
@@ -9989,9 +10034,11 @@ function mobSwitch(name) {
     ac?.classList.add('mob-hidden');
     ap?.classList.add('mob-hidden');
     nc?.classList.add('mob-hidden');
+    atc?.classList.add('mob-hidden');
   } else if (name === 'atlas') {
     if (mode !== 'atlas') { setMode('atlas'); return; }
-    ap?.classList.remove('mob-hidden');
+    atc?.classList.remove('mob-hidden');
+    ap?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
     cc?.classList.add('mob-hidden');
     pc?.classList.add('mob-hidden');
@@ -10004,6 +10051,7 @@ function mobSwitch(name) {
     ec?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
     ap?.classList.add('mob-hidden');
+    atc?.classList.add('mob-hidden');
     pc?.classList.add('mob-hidden');
   } else if (name === 'vault') {
     ec?.classList.add('mob-hidden');
@@ -13734,6 +13782,60 @@ function startAgentGuidedWorkflow() {
 
 function showAtlasPanel() {
   return showPlanWorkflowPanel();
+}
+
+function ensureAtlasWorkbenchHost() {
+  const cardRoot = document.getElementById('atlas-workbench-card');
+  if (!cardRoot) return null;
+  const cid = 'atlas-workbench-card';
+  const inputEl = cardRoot.querySelector(`#${cid}-atlas-run-input`);
+  if (inputEl && !inputEl.value) inputEl.value = getAtlasLastRunId();
+  const lastEl = cardRoot.querySelector(`#${cid}-atlas-last-run`);
+  if (lastEl) lastEl.textContent = getAtlasLastRunId() || '-';
+  return cardRoot;
+}
+
+async function openLastAtlasDashboardFromWorkbench() {
+  const cardRoot = ensureAtlasWorkbenchHost();
+  if (!cardRoot) return;
+  const runId = getAtlasLastRunId();
+  if (!runId) { addMsg('system', 'Last run is not available yet. Run Atlas once, then open dashboard.'); return; }
+  await loadAtlasRunDashboard('atlas-workbench-card', runId, cardRoot, 'lastRun');
+}
+
+async function openManualAtlasRunDashboardFromWorkbench() {
+  const cardRoot = ensureAtlasWorkbenchHost();
+  if (!cardRoot) return;
+  const cid = 'atlas-workbench-card';
+  const manual = (cardRoot.querySelector(`#${cid}-atlas-run-input`)?.value || '').trim();
+  const runId = manual || getAtlasLastRunId();
+  if (!runId) { addMsg('system', 'run_id is required. Enter run_id or open a recent run first.'); return; }
+  cardRoot.dataset.lastRunId = runId;
+  _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
+  await loadAtlasRunDashboard(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');
+}
+
+async function loadRecentAtlasRunsFromWorkbench() {
+  const cardRoot = ensureAtlasWorkbenchHost();
+  if (!cardRoot) return;
+  await loadRecentAtlasRuns('atlas-workbench-card', cardRoot);
+}
+
+async function openPatchReviewFromWorkbench() {
+  const cardRoot = ensureAtlasWorkbenchHost();
+  if (!cardRoot) return;
+  const cid = 'atlas-workbench-card';
+  const manual = (cardRoot.querySelector(`#${cid}-atlas-run-input`)?.value || '').trim();
+  const runId = manual || getAtlasLastRunId();
+  if (!runId) { addMsg('system', 'run_id is required for patch review. Enter run_id or load recent runs.'); return; }
+  cardRoot.dataset.lastRunId = runId;
+  _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
+  await loadAtlasRunDashboard(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');
+  setTimeout(() => {
+    const btn = cardRoot.querySelector('[data-atlas-dashboard-action="open-patch-review"]');
+    if (btn) btn.click();
+    else addMsg('system', 'Patch Review button is not available yet. Load dashboard first.');
+  }, 60);
 }
 
 function showPlanWorkflowPanel() {
