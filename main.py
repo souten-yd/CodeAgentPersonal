@@ -10771,6 +10771,11 @@ class PatchApprovalActionRequest(BaseModel):
     safety_warnings_acknowledged: bool = False
 
 
+class PatchReproposalRequest(BaseModel):
+    reason: str = "verification_failed"
+    user_comment: str = ""
+
+
 @app.post("/api/plans/{plan_id}/execute")
 def api_execute_plan(plan_id: str, req: ImplementationRunRequest):
     try:
@@ -10893,6 +10898,17 @@ def api_reject_patch(run_id: str, patch_id: str, req: PatchApprovalActionRequest
 def api_apply_patch(run_id: str, patch_id: str):
     try:
         return _phase6_executor.apply_patch(run_id, patch_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="patch not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+
+@app.post("/api/runs/{run_id}/patches/{patch_id}/reproposal")
+def api_generate_reproposal(run_id: str, patch_id: str, req: PatchReproposalRequest):
+    try:
+        return _phase6_executor.generate_reproposal(run_id, patch_id, reason=req.reason, user_comment=req.user_comment)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="patch not found")
     except ValueError as exc:

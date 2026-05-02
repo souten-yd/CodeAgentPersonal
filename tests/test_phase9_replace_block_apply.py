@@ -52,7 +52,7 @@ class Phase9ReplaceBlockApplyTests(unittest.TestCase):
 
         t.write_text("header\ny=1\nfooter\n", encoding="utf-8")
         before = t.read_text(encoding="utf-8")
-        backup = t.with_suffix(t.suffix + ".bak.phase8")
+        backup = t.with_suffix(t.suffix + ".bak.phase8.rb_no_match")
         if backup.exists():
             backup.unlink()
 
@@ -73,7 +73,7 @@ class Phase9ReplaceBlockApplyTests(unittest.TestCase):
 
         t.write_text("header\nx=1\nx=1\nfooter\n", encoding="utf-8")
         before = t.read_text(encoding="utf-8")
-        backup = t.with_suffix(t.suffix + ".bak.phase8")
+        backup = t.with_suffix(t.suffix + ".bak.phase8.rb_multi")
         if backup.exists():
             backup.unlink()
 
@@ -92,7 +92,7 @@ class Phase9ReplaceBlockApplyTests(unittest.TestCase):
         self.executor.patch_storage.save_patch_proposal(patch)
         PatchApprovalManager(self.executor.patch_storage).decide(run_id, "rb_ok", "approve")
 
-        backup = t.with_suffix(t.suffix + ".bak.phase8")
+        backup = t.with_suffix(t.suffix + ".bak.phase8.rb_ok")
         if backup.exists():
             backup.unlink()
 
@@ -117,7 +117,7 @@ class Phase9ReplaceBlockApplyTests(unittest.TestCase):
         self.executor.patch_storage.save_patch_proposal(patch)
         PatchApprovalManager(self.executor.patch_storage).decide(run_id, "ap1", "approve")
 
-        backup = t.with_suffix(t.suffix + ".bak.phase8")
+        backup = t.with_suffix(t.suffix + ".bak.phase8.ap1")
         if backup.exists():
             backup.unlink()
 
