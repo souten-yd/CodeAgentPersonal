@@ -13545,12 +13545,22 @@ const ATLAS_LAST_DASHBOARD_RUN_KEY = 'atlas:lastDashboardRunId';
 function _atlasLsGet(key) { try { return localStorage.getItem(key) || ''; } catch(_) { return ''; } }
 function _atlasLsSet(key, value) { try { if (value) localStorage.setItem(key, value); } catch(_) {} }
 
+function getAtlasLastRunId() { return _atlasLsGet(ATLAS_LAST_RUN_KEY) || ''; }
+
+function restoreAtlasLastRunState() {
+  const lastRun = getAtlasLastRunId();
+  if (!lastRun) return '';
+  planWorkflowState.lastRunId = lastRun;
+  return lastRun;
+}
+
 const planWorkflowState = {
   requirementId: '',
   planId: '',
   reviewId: '',
   approvalId: '',
   runId: '',
+  lastRunId: getAtlasLastRunId(),
   latestPatchIds: [],
   projectPath: '',
   planningMode: 'standard',
@@ -13581,6 +13591,7 @@ function _renderPlanWorkflowStatusPanel() {
   div.className = 'msg system';
   div.id = panelId;
   const hasRun = !!planWorkflowState.runId;
+  const lastRunId = planWorkflowState.lastRunId || getAtlasLastRunId();
   div.innerHTML = `
     <div class="msg-role">Atlas Workflow Status</div>
     <div class="plan-card" style="padding:10px">
@@ -13593,12 +13604,13 @@ function _renderPlanWorkflowStatusPanel() {
         <div>Approval: <b>${esc(planWorkflowState.approvalStatus || 'pending')}</b></div>
         <div>Execution Ready: <b>${esc(String(!!planWorkflowState.executionReady))}</b></div>
         <div>Run: <b>${esc(planWorkflowState.runId || '-')}</b></div>
+        <div>Last Run: <b>${esc(lastRunId || '-')}</b></div>
         <div>Patches: <b>${esc(String((planWorkflowState.latestPatchIds || []).length))}</b></div>
         <div>Next Action: <b>${esc(_computePlanWorkflowNextAction())}</b></div>
       </div>
       <div style="margin-top:8px">
         <button class="phase1-tab-btn" onclick="openCurrentRunDashboardFromStatus()" ${hasRun ? '' : 'disabled'}>Open Atlas Dashboard</button>
-        <button class="phase1-tab-btn" onclick="openLastRunDashboardFromStatus()" ${_atlasLsGet(ATLAS_LAST_RUN_KEY) ? '' : 'disabled'}>Open Last Atlas Dashboard</button>
+        <button class="phase1-tab-btn" onclick="openLastRunDashboardFromStatus()" ${lastRunId ? '' : 'disabled'}>Open Last Atlas Dashboard</button>
         ${hasRun ? '' : '<div style="font-size:10px;color:var(--text3);margin-top:4px">Execute Preview後に利用可能</div>'}
       </div>
     </div>`;
@@ -13609,10 +13621,26 @@ function _renderPlanWorkflowStatusPanel() {
   scrollMsgs();
 }
 
+function ensureAtlasDashboardHost() {
+  const existing = Array.from(document.querySelectorAll('.plan-card[id^="phase1-plan-card-"]')).pop();
+  if (existing) return existing;
+  showPlanWorkflowPanel();
+  const retried = Array.from(document.querySelectorAll('.plan-card[id^="phase1-plan-card-"]')).pop();
+  if (retried) return retried;
+  const w = messages();
+  const wrap = document.createElement('div');
+  wrap.className = 'msg system';
+  const cid = `phase1-plan-card-fallback-${Date.now()}`;
+  wrap.innerHTML = `<div class="msg-role">Atlas Dashboard</div><div class="plan-card" id="${cid}"><div style="font-size:11px;color:var(--text2);margin-bottom:6px">Fallback dashboard host (no active plan card yet).</div><div id="${cid}-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div></div>`;
+  w.appendChild(wrap);
+  scrollMsgs();
+  return wrap.querySelector(`#${cid}`);
+}
+
 async function openLastRunDashboardFromStatus() {
-  const runId = _atlasLsGet(ATLAS_LAST_RUN_KEY);
+  const runId = planWorkflowState.lastRunId || _atlasLsGet(ATLAS_LAST_RUN_KEY);
   if (!runId) return;
-  const latestCard = Array.from(document.querySelectorAll('.plan-card[id^="phase1-plan-card-"]')).pop();
+  const latestCard = ensureAtlasDashboardHost();
   if (!latestCard) return;
   const cid = latestCard.id;
   await loadAtlasRunDashboard(cid, runId, latestCard, 'lastRun');
@@ -13632,6 +13660,7 @@ async function openCurrentRunDashboardFromStatus() {
 
 function _updatePlanWorkflowState(partial = {}) {
   Object.assign(planWorkflowState, partial || {});
+  restoreAtlasLastRunState();
   _renderPlanWorkflowStatusPanel();
 }
 
@@ -13678,6 +13707,7 @@ function renderClarificationCard(result, context = {}) {
     reviewId: '',
     approvalId: '',
     runId: '',
+  lastRunId: getAtlasLastRunId(),
     latestPatchIds: [],
     approvalStatus: 'pending',
     executionReady: false,
@@ -13963,7 +13993,7 @@ function _renderPhase6ExecutionSection(result, cardId) {
       <button class="phase1-tab-btn" data-run-view="atlas-dashboard" style="margin-top:6px">Load Atlas Dashboard</button>
       <button class="phase1-tab-btn" data-run-view="refresh-atlas-dashboard" style="margin-top:6px">Refresh Atlas Dashboard</button>
       <div style="margin-top:8px"><b>Atlas Runs</b> / Last Run: <span id="${cardId}-atlas-last-run">-</span></div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px"><input id="${cardId}-atlas-run-input" placeholder="run_id" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px"><button class="phase1-tab-btn" data-run-view="open-run-dashboard">Open Run Dashboard</button><button class="phase1-tab-btn" data-run-view="load-recent-atlas-runs">Load Recent Atlas Runs</button><button class="phase1-tab-btn" data-run-view="open-last-atlas-dashboard">Open Last Atlas Dashboard</button></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px"><input id="${cardId}-atlas-run-input" placeholder="run_id" value="${esc(getAtlasLastRunId())}" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px"><button class="phase1-tab-btn" data-run-view="open-run-dashboard">Open Run Dashboard</button><button class="phase1-tab-btn" data-run-view="load-recent-atlas-runs">Load Recent Atlas Runs</button><button class="phase1-tab-btn" data-run-view="open-last-atlas-dashboard">Open Last Atlas Dashboard</button></div>
       <div id="${cardId}-atlas-runs-list" style="margin-top:6px;font-size:11px"></div>
       <div id="${cardId}-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div>
       <div id="${cardId}-patch-list" style="margin-top:8px;font-size:11px"></div>
@@ -14019,6 +14049,10 @@ async function loadAtlasRunDashboard(cid, runId, cardRoot, openedFrom = "current
     `;
     _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
     _atlasLsSet(ATLAS_LAST_DASHBOARD_RUN_KEY, runId);
+    if (root) root.dataset.lastRunId = runId;
+    const lastEl = root?.querySelector(`#${cid}-atlas-last-run`);
+    if (lastEl) lastEl.textContent = runId;
+    _updatePlanWorkflowState({ lastRunId: runId });
     dashboardEl.querySelectorAll('[data-atlas-dashboard-action]').forEach((btn)=>btn.addEventListener('click', async ()=>{
       const a = btn.getAttribute('data-atlas-dashboard-action');
       if (a === 'open-patch-review' || a === 'refresh-patches') await loadPhase8Patches(cid, runId);
@@ -14101,7 +14135,7 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
       if (outEl) outEl.textContent = body;
       cardRoot.dataset.lastRunId = res.run_id || '';
       _atlasLsSet(ATLAS_LAST_RUN_KEY, res.run_id || '');
-      _updatePlanWorkflowState({runId: res.run_id || '', lastError: ''});
+      _updatePlanWorkflowState({runId: res.run_id || '', lastRunId: res.run_id || '', lastError: ''});
       addLog('ok', 'plan-only', `phase6 execute success plan_id=${planId} run_id=${res.run_id} mode=${mode}`);
       if (res.run_id) await loadPhase8Patches(cid, res.run_id);
     } catch (e) {
@@ -14437,6 +14471,7 @@ async function generatePlanOnlyFromInput() {
     reviewId: '',
     approvalId: '',
     runId: '',
+  lastRunId: getAtlasLastRunId(),
     latestPatchIds: [],
     approvalStatus: 'pending',
     executionReady: false,

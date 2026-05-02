@@ -10837,6 +10837,8 @@ def api_list_atlas_runs(limit: int = 20):
             "quality_not_evaluated_count": 0,
             "has_dashboard": False,
         }
+        if r.get("summary_error"):
+            item["summary_error"] = str(r.get("summary_error"))
         if not run_id:
             out.append(item)
             continue

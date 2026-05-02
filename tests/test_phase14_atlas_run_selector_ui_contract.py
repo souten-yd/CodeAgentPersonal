@@ -18,8 +18,17 @@ class TestPhase14AtlasRunSelectorUIContract(unittest.TestCase):
         ]:
             self.assertIn(label, self.ui)
 
-    def test_local_storage_key_and_no_bulk(self):
+    def test_last_run_restore_and_prefill_contract(self):
         self.assertIn('atlas:lastRunId', self.ui)
+        self.assertIn('atlas:lastDashboardRunId', self.ui)
+        self.assertIn('lastRunId: getAtlasLastRunId()', self.ui)
+        self.assertIn('function restoreAtlasLastRunState()', self.ui)
+        self.assertIn('Last Run:', self.ui)
+        self.assertIn('value="${esc(getAtlasLastRunId())}"', self.ui)
+        self.assertIn('Open Last Atlas Dashboard', self.ui)
+        self.assertIn('function ensureAtlasDashboardHost()', self.ui)
+
+    def test_no_bulk_actions(self):
         self.assertNotIn('bulk apply', self.ui.lower())
         self.assertNotIn('bulk approve', self.ui.lower())
 
