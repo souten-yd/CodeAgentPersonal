@@ -13884,15 +13884,15 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
       return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px">
 <div>patch_id=${esc(p.patch_id)} step_id=${esc(p.step_id||'')} target=${esc(p.target_file||'')}</div>
 <div>risk_level=${esc(p.risk_level||'low')} patch_type=${esc(p.patch_type||'append')} generator=${esc(p.generator||'')} match_count=${esc(String(p.match_count??''))} can_apply_reason=${esc(p.can_apply_reason||'')} apply_allowed=${String(applyAllowed)} applied=${String(!!p.applied)} approval_status=${esc(approvalStatus)}</div>
-<div>patch_approval_id=${esc(p.patch_approval_id||'')} verification_id=${esc(p.verification_id||'')} verification_status=${esc(p.verification_status||'')} verification_summary=${esc(p.verification_summary||'')}</div><div>llm_sanitized=${esc(String(!!p.llm_sanitized))} llm_model=${esc(p.llm_model||'')} fallback_from=${esc((p.metadata||{}).fallback_from||'')}</div><div style="font-size:11px;color:var(--text2)">LLM replace_block はpreview proposalです。承認なしにapplyされません。apply_allowed=false の場合は safety_warnings / can_apply_reason を確認してください。</div>
-<div>${warns||''}</div>${warnAck}${riskAck}${stateMsg}
+<div>patch_approval_id=${esc(p.patch_approval_id||'')} verification_id=${esc(p.verification_id||'')} verification_status=${esc(p.verification_status||'')} verification_summary=${esc(p.verification_summary||'')}</div><div>quality_score=${esc(String(p.quality_score??''))} quality_summary=${esc(p.quality_summary||'')} candidate_block_count=${esc(String(p.candidate_block_count??''))} selected_candidate_reason=${esc(p.selected_candidate_reason||'')}</div><div>reproposal_of_patch_id=${esc(p.reproposal_of_patch_id||'')} reproposal_reason=${esc(p.reproposal_reason||'')} parent_verification_id=${esc(p.parent_verification_id||'')}</div><div>llm_sanitized=${esc(String(!!p.llm_sanitized))} llm_model=${esc(p.llm_model||'')} fallback_from=${esc((p.metadata||{}).fallback_from||'')}</div><div style="font-size:11px;color:var(--text2)">LLM replace_block はpreview proposalです。承認なしにapplyされません。apply_allowed=false の場合は safety_warnings / can_apply_reason を確認してください。</div>
+<div>${warns||''}</div><div style="color:var(--text2)">Quality score is advisory. Review diff before approving.</div>${(p.quality_warnings||[]).map((w)=>`<div>•Q ${esc(String(w))}</div>`).join('')}<div style="color:var(--text2)">${p.reproposal_of_patch_id?'Reproposal is preview only. It is not approved or applied automatically.':''}</div>${warnAck}${riskAck}${stateMsg}${String(p.verification_status||'')==='failed'?`<div style="margin-top:6px"><button data-pa="reproposal" data-pid="${p.patch_id}">Generate Reproposal Preview</button></div>`:''}
 <details><summary>Original block</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.original_block||'')}</pre></details><details><summary>Replacement block</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.replacement_block||'')}</pre></details><details><summary>Diff</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.unified_diff||'')}</pre></details>
 <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button data-pa="approve" data-pid="${p.patch_id}" ${disableApprove ? 'disabled' : ''}>Approve Patch</button><button data-pa="reject" data-pid="${p.patch_id}" ${disableReject ? 'disabled' : ''}>Reject Patch</button><button data-pa="apply" data-pid="${p.patch_id}" ${disableApply ? 'disabled' : ''}>Apply Approved Patch</button></div><pre id="${cid}-pv-${p.patch_id}" style="white-space:pre-wrap"></pre></div>`;
     }).join('') || '<div style="color:var(--text3)">No patches.</div>';
     listEl.querySelectorAll('[data-pa]').forEach((b)=>b.addEventListener('click', async ()=>{
       const action = b.getAttribute('data-pa'); const pid = b.getAttribute('data-pid'); const out = listEl.querySelector(`#${cid}-pv-${pid}`);
       try {
-        let ep = `/api/runs/${encodeURIComponent(runId)}/patches/${encodeURIComponent(pid)}/${action}`;
+        let ep = action==='reproposal' ? `/api/runs/${encodeURIComponent(runId)}/patches/${encodeURIComponent(pid)}/reproposal` : `/api/runs/${encodeURIComponent(runId)}/patches/${encodeURIComponent(pid)}/${action}`;
         let payload = {};
         if (action === 'approve') {
           payload = {
@@ -13903,10 +13903,12 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
         } else if (action === 'reject') {
           payload = {user_comment:'ui reject'};
         }
-        const r2 = await fetch(API + ep, {method:'POST', headers:{'Content-Type':'application/json'}, body: action==='apply' ? undefined : JSON.stringify(payload)});
+        const r2 = await fetch(API + ep, {method:'POST', headers:{'Content-Type':'application/json'}, body: (action==='apply') ? undefined : JSON.stringify(payload)});
         const d2 = await r2.json();
         if (!r2.ok) throw new Error(d2.detail || `HTTP ${r2.status}`);
-        if (action === 'apply') {
+        if (action === 'reproposal') {
+          payload = {reason:'verification_failed', user_comment:'verification failed; generate preview only'};
+        } else if (action === 'apply') {
           let text = JSON.stringify(d2, null, 2);
           const vid = d2?.apply_result?.verification_result_id || d2?.verification_result?.verification_id || '';
           if (vid) {

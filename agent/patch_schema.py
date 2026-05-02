@@ -44,6 +44,15 @@ class PatchProposal(BaseModel):
     metadata: dict = Field(default_factory=dict)
     verification_status: str = ""
     verification_summary: str = ""
+    backup_path_policy: str = ""
+    quality_score: float = 0.0
+    quality_warnings: list[str] = Field(default_factory=list)
+    quality_summary: str = ""
+    candidate_block_count: int = 0
+    selected_candidate_reason: str = ""
+    reproposal_of_patch_id: str = ""
+    reproposal_reason: str = ""
+    parent_verification_id: str = ""
 
 
 class PatchApplyResult(BaseModel):
@@ -57,3 +66,12 @@ class PatchApplyResult(BaseModel):
     verification_result_id: str = ""
     verification_status: str = ""
     verification_summary: str = ""
+    backup_path_policy: str = ""
+    quality_score: float = 0.0
+    quality_warnings: list[str] = Field(default_factory=list)
+    quality_summary: str = ""
+    candidate_block_count: int = 0
+    selected_candidate_reason: str = ""
+    reproposal_of_patch_id: str = ""
+    reproposal_reason: str = ""
+    parent_verification_id: str = ""

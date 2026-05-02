@@ -252,7 +252,7 @@ class ImplementationExecutor:
         if warnings != list(patch.get("safety_warnings") or []):
             self.patch_storage.update_patch_payload(run_id, patch_id, safety_updates)
 
-        backup = self._backup_path_for(target)
+        backup = self._backup_path_for(target, patch_id)
         if patch_type == "append":
             backup.write_text(before, encoding="utf-8")
             with target.open("a", encoding="utf-8") as f:
@@ -308,8 +308,41 @@ class ImplementationExecutor:
         }
 
 
-    def _backup_path_for(self, target: Path) -> Path:
-        return target.with_suffix(target.suffix + '.bak.phase8')
+    def generate_reproposal(self, run_id: str, patch_id: str, reason: str = "verification_failed", user_comment: str = "") -> dict:
+        patch = self.patch_storage.load_patch(run_id, patch_id)
+        if str(patch.get("verification_status", "")) != "failed":
+            raise ValueError("reproposal requires verification_status=failed")
+        if str(patch.get("patch_type", "")) != "replace_block":
+            raise ValueError("reproposal supports replace_block only")
+        run_payload = self.run_storage.load_run(run_id)
+        project = Path(str(run_payload.get("project_path", "")))
+        target = self._resolve_target(project, str(patch.get("target_file", "")))
+        if target is None or not target.exists():
+            raise ValueError("target file is unavailable")
+        content = target.read_text(encoding="utf-8")
+        proposal = generate_replace_block_patch(
+            run_id,
+            str(patch.get("plan_id", "")),
+            str(patch.get("step_id", "")),
+            f"Reproposal: {patch.get('step_id','')}",
+            user_comment or reason,
+            str(patch.get("risk_level", "low")),
+            target,
+            content,
+            llm_fn=self.llm_patch_fn,
+            context={"reproposal_of_patch_id": patch_id, "reason": reason},
+        )
+        proposal.reproposal_of_patch_id = patch_id
+        proposal.reproposal_reason = reason
+        proposal.parent_verification_id = str(patch.get("verification_id", ""))
+        proposal.status = "proposed"
+        proposal.applied = False
+        self.patch_storage.save_patch_proposal(proposal)
+        return {"run_id": run_id, "patch_id": proposal.patch_id, "reproposal": proposal.model_dump()}
+
+    def _backup_path_for(self, target: Path, patch_id: str = "") -> Path:
+        safe_patch_id = patch_id or "unknown"
+        return target.with_suffix(target.suffix + f".bak.phase8.{safe_patch_id}")
 
     def _resolve_target(self, project_path: Path, target_file: str) -> Path | None:
         if not target_file or ".." in Path(target_file).parts: return None
