@@ -34,7 +34,20 @@ class TestPhase14AtlasRunsApi(unittest.TestCase):
             finally:
                 main._phase6_run_storage.base_dir = old
 
-    def test_empty_and_broken_run(self):
+    def test_empty_runs_dir_returns_empty_list(self):
+        with tempfile.TemporaryDirectory() as td:
+            old = main._phase6_run_storage.base_dir
+            main._phase6_run_storage.base_dir = Path(td)
+            try:
+                c = TestClient(main.app)
+                r = c.get('/api/atlas/runs')
+                self.assertEqual(r.status_code, 200)
+                runs = r.json().get('runs', [])
+                self.assertEqual(runs, [])
+            finally:
+                main._phase6_run_storage.base_dir = old
+
+    def test_broken_run_has_summary_error(self):
         with tempfile.TemporaryDirectory() as td:
             old = main._phase6_run_storage.base_dir
             main._phase6_run_storage.base_dir = Path(td)
@@ -47,7 +60,10 @@ class TestPhase14AtlasRunsApi(unittest.TestCase):
                 self.assertEqual(r.status_code, 200)
                 runs = r.json().get('runs', [])
                 self.assertTrue(isinstance(runs, list))
-                self.assertTrue(any(x.get('run_id') == 'broken' for x in runs) or runs == [])
+                broken = next((x for x in runs if x.get('run_id') == 'broken'), None)
+                self.assertIsNotNone(broken)
+                self.assertIn('summary_error', broken)
+                self.assertTrue(broken['summary_error'])
             finally:
                 main._phase6_run_storage.base_dir = old
 
