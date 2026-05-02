@@ -7,15 +7,16 @@ class TestPhase12_8AgentGuidedWorkflowUIContract(unittest.TestCase):
     def setUpClass(cls):
         cls.ui = Path('ui.html').read_text(encoding='utf-8')
 
-    def test_guided_workflow_card_exists(self):
-        self.assertIn('Guided Workflow', self.ui)
+    def test_atlas_card_exists(self):
+        self.assertIn('Atlas', self.ui)
         self.assertIn('agent-guided-workflow-card', self.ui)
-        self.assertIn('Start Guided Workflow', self.ui)
+        self.assertIn('Start Atlas', self.ui)
 
-    def test_agent_entry_function_uses_shared_workflow(self):
+    def test_agent_entry_function_is_backward_compatible_alias(self):
+        self.assertIn('function startAtlasWorkflow()', self.ui)
+        self.assertIn("return startPlanWorkflow({ source: 'atlas', workspace: 'Atlas' });", self.ui)
         self.assertIn('function startAgentGuidedWorkflow()', self.ui)
-        self.assertIn("return startPlanWorkflow({ source: 'agent_guided_workflow', workspace: 'Agent' });", self.ui)
-        self.assertIn('agent_guided_workflow', self.ui)
+        self.assertIn('return startAtlasWorkflow();', self.ui)
 
     def test_start_plan_workflow_remains_compatible(self):
         self.assertIn('onclick="startPlanWorkflow()"', self.ui)
@@ -23,13 +24,13 @@ class TestPhase12_8AgentGuidedWorkflowUIContract(unittest.TestCase):
         self.assertIn('return runGuidedPlanWorkflow(options);', self.ui)
 
     def test_plan_workflow_state_has_source_workspace(self):
-        self.assertIn('source:', self.ui)
-        self.assertIn('workspace:', self.ui)
+        self.assertIn("source: 'atlas'", self.ui)
+        self.assertIn("workspace: 'Atlas'", self.ui)
         self.assertIn('Source:', self.ui)
         self.assertIn('Workspace:', self.ui)
 
     def test_task_compatibility_note_exists(self):
-        self.assertIn('Taskは今後Agent内のGuided Workflowへ統合予定です。既存互換のため当面は残します。', self.ui)
+        self.assertIn('Taskは互換のため残します。新しいGuided WorkflowはAtlasとして扱います。', self.ui)
 
 
 if __name__ == '__main__':

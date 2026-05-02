@@ -11,9 +11,10 @@ class Phase12_6PlanButtonUiContractTests(unittest.TestCase):
 
     def test_plan_button_calls_new_e2e_function(self):
         self.assertIn('onclick="startPlanWorkflow()"', self.ui)
+        self.assertIn('Start Atlas', self.ui)
 
     def test_plan_workflow_status_panel_exists(self):
-        self.assertIn('Plan Workflow Status', self.ui)
+        self.assertIn('Atlas Workflow Status', self.ui)
         self.assertIn('function _renderPlanWorkflowStatusPanel()', self.ui)
 
     def test_execute_preview_controls_exist(self):

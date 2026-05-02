@@ -1337,10 +1337,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <option value="plan_then_ask">Plan then ask</option>
           <option value="plan_and_execute">Plan and execute</option>
         </select>
-        <button class="phase1-plan-btn" onclick="startPlanWorkflow()">Generate Plan</button>
+        <button class="phase1-plan-btn" onclick="startPlanWorkflow()">Start Atlas</button>
         <div class="phase1-plan-note">
-          <div>Phase 1では安全のため、実装は行わずPlan生成のみ実行します。</div>
-          <div>Requirement Modeの質問フローはPhase 2で有効化されます。</div>
+          <div>Atlas creates a reviewed plan before any execution preview.</div>
+          <div>要件から安全な実行計画へ。</div>
         </div>
       </div>
     </div>
@@ -1407,14 +1407,14 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
       <span class="tab-label" id="agent-status-label">idle</span>
     </div>
     <div class="agent-guided-workflow-card" style="margin:10px 10px 0 10px;padding:10px;border:1px solid var(--accent-border);border-radius:8px;background:var(--accent-bg)">
-      <div style="font-size:12px;font-weight:700;color:var(--accent);letter-spacing:.04em">Guided Workflow</div>
+      <div style="font-size:12px;font-weight:700;color:var(--accent);letter-spacing:.04em">Atlas</div>
       <div class="muted" style="font-size:11px;color:var(--text2);margin-top:6px;line-height:1.5">Requirement → Plan → Review → Approval → Execute Preview → Patch Review の安全な作業フローです。<br>自動applyは行わず、各段階で確認できます。</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-        <button class="phase1-plan-btn" type="button" onclick="startAgentGuidedWorkflow()">Start Guided Workflow</button>
-        <button class="phase1-tab-btn" type="button" onclick="showPlanWorkflowPanel()">Open Plan Panel</button>
+        <button class="phase1-plan-btn" type="button" onclick="startAtlasWorkflow()">Start Atlas</button>
+        <button class="phase1-tab-btn" type="button" onclick="showAtlasPanel()">Open Atlas Panel</button>
       </div>
       <div style="margin-top:8px;font-size:10px;color:var(--text3)">Status: <span id="agent-guided-workflow-status">idle</span></div>
-      <div style="margin-top:6px;font-size:10px;color:var(--text3)">Taskは今後Agent内のGuided Workflowへ統合予定です。既存互換のため当面は残します。</div>
+      <div style="margin-top:6px;font-size:10px;color:var(--text3)">Taskは互換のため残します。新しいGuided WorkflowはAtlasとして扱います。</div>
     </div>
     <div style="padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border)">
       <input id="agent-task-search" placeholder="タスク名で検索..." oninput="handleAgentTaskSearch(this.value)"
@@ -13553,8 +13553,8 @@ const planWorkflowState = {
   approvalStatus: 'pending',
   executionReady: false,
   lastError: '',
-  source: 'chat_task_plan_button',
-  workspace: 'Chat/Task',
+  source: 'atlas',
+  workspace: 'Atlas',
 };
 
 function _computePlanWorkflowNextAction() {
@@ -13575,11 +13575,11 @@ function _renderPlanWorkflowStatusPanel() {
   div.className = 'msg system';
   div.id = panelId;
   div.innerHTML = `
-    <div class="msg-role">Plan Workflow Status</div>
+    <div class="msg-role">Atlas Workflow Status</div>
     <div class="plan-card" style="padding:10px">
       <div style="font-size:12px;line-height:1.6">
-        <div>Source: <b>${esc(planWorkflowState.source || 'chat_task_plan_button')}</b></div>
-        <div>Workspace: <b>${esc(planWorkflowState.workspace || 'Chat/Task')}</b></div>
+        <div>Source: <b>${esc(planWorkflowState.source || 'atlas')}</b></div>
+        <div>Workspace: <b>${esc(planWorkflowState.workspace || 'Atlas')}</b></div>
         <div>Requirement: <b>${esc(planWorkflowState.requirementId || '-')}</b></div>
         <div>Plan: <b>${esc(planWorkflowState.planId || '-')}</b></div>
         <div>Review: <b>${esc(planWorkflowState.reviewId || '-')}</b></div>
@@ -13593,7 +13593,7 @@ function _renderPlanWorkflowStatusPanel() {
   const w = messages();
   w.appendChild(div);
   const agentStatus = document.getElementById('agent-guided-workflow-status');
-  if (agentStatus) agentStatus.textContent = `${planWorkflowState.workspace || 'Chat/Task'} / ${_computePlanWorkflowNextAction()}`;
+  if (agentStatus) agentStatus.textContent = `${planWorkflowState.workspace || 'Atlas'} / ${_computePlanWorkflowNextAction()}`;
   scrollMsgs();
 }
 
@@ -13606,8 +13606,16 @@ function startPlanWorkflow(options = {}) {
   return runGuidedPlanWorkflow(options);
 }
 
+function startAtlasWorkflow() {
+  return startPlanWorkflow({ source: 'atlas', workspace: 'Atlas' });
+}
+
 function startAgentGuidedWorkflow() {
-  return startPlanWorkflow({ source: 'agent_guided_workflow', workspace: 'Agent' });
+  return startAtlasWorkflow();
+}
+
+function showAtlasPanel() {
+  return showPlanWorkflowPanel();
 }
 
 function showPlanWorkflowPanel() {
@@ -13619,12 +13627,12 @@ function showPlanWorkflowPanel() {
     panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
   if (toggle) toggle.setAttribute('aria-expanded', 'true');
-  addMsg('system', 'Plan Panelを開きました。Agent Guided Workflowから既存Plan Workflowを利用できます。');
+  addMsg('system', 'Atlas Panelを開きました。Atlas workflowから既存Plan Workflow互換導線を利用できます。');
 }
 
 async function runGuidedPlanWorkflow(options = {}) {
-  const source = options?.source || planWorkflowState.source || 'chat_task_plan_button';
-  const workspace = options?.workspace || (source === 'agent_guided_workflow' ? 'Agent' : 'Chat/Task');
+  const source = options?.source || planWorkflowState.source || 'atlas';
+  const workspace = options?.workspace || 'Atlas';
   _updatePlanWorkflowState({ source, workspace });
   return generatePlanOnlyFromInput();
 }
