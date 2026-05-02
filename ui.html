@@ -1391,9 +1391,11 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="patch_review" onclick="setAtlasSubview('patch_review')">Patch Review</button>
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="legacy" onclick="setAtlasSubview('legacy')">Legacy</button>
         </div>
+        <div id="atlas-workbench-card-resume-notice" style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.5">Atlas restored: Overview. No Last Run yet. Run Atlas once, load recent runs, or enter run_id.</div>
         <div class="atlas-subview" data-atlas-subview-panel="overview">
           <div style="font-size:12px;color:var(--text2);line-height:1.6">要件定義・計画・実行Preview・Patch Review・Run Auditを安全に進める作業入口です。</div>
           <div style="margin-top:8px"><b>Atlas Runs</b> / Last Run: <span id="atlas-workbench-card-atlas-last-run">-</span></div>
+          <div style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.5">Resume from Overview: use Open Last Atlas Dashboard, Load Recent Atlas Runs, or Open Run Dashboard.</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
             <button class="phase1-plan-btn" type="button" onclick="startAtlasWorkflow()">Start Atlas</button>
             <button class="phase1-tab-btn" type="button" onclick="openLastAtlasDashboardFromWorkbench()">Open Last Atlas Dashboard</button>
@@ -1410,6 +1412,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
         <div class="atlas-subview" data-atlas-subview-panel="runs" style="display:none">
           <div style="margin-top:2px"><b>Atlas Runs</b> / Last Run: <span data-atlas-last-run-mirror>-</span></div>
+          <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.5">Recent runs are not auto-loaded after restore. Use Load Recent Atlas Runs to refresh the list.</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
             <input id="atlas-workbench-card-atlas-run-input" placeholder="run_id" value="" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;min-width:0;max-width:100%;flex:1 1 220px">
             <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
@@ -1418,14 +1421,19 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div id="atlas-workbench-card-atlas-runs-list" style="margin-top:6px;font-size:11px"></div>
         </div>
         <div class="atlas-subview" data-atlas-subview-panel="dashboard" style="display:none">
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
+          <div style="font-size:12px;color:var(--text2);line-height:1.6"><b>Resume Dashboard</b></div>
+          <div style="margin-top:2px;font-size:11px;color:var(--text2);line-height:1.5">Use Open Last Atlas Dashboard to load the last run manually.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
             <button class="phase1-tab-btn" type="button" onclick="openLastAtlasDashboardFromWorkbench()">Open Last Atlas Dashboard</button>
             <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
           </div>
           <div id="atlas-workbench-card-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div>
         </div>
         <div class="atlas-subview" data-atlas-subview-panel="patch_review" style="display:none">
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
+          <div style="font-size:12px;color:var(--text2);line-height:1.6"><b>Resume Patch Review</b></div>
+          <div style="margin-top:2px;font-size:11px;color:var(--text2);line-height:1.5">Use Open Patch Review for this run to load patches manually.</div>
+          <div style="margin-top:2px;font-size:11px;color:var(--text2)">Last Run: <span data-atlas-last-run-mirror>-</span></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
             <button class="phase1-tab-btn" type="button" onclick="openPatchReviewFromWorkbench()">Open Patch Review for this run</button>
           </div>
           <div id="atlas-workbench-card-patch-list" style="margin-top:8px;font-size:11px"></div>
@@ -13837,11 +13845,33 @@ function getAtlasLastSubview() {
   return normalizeAtlasSubview(_atlasLsGet(ATLAS_LAST_SUBVIEW_KEY));
 }
 
+function updateAtlasResumeNotice(subview) {
+  const notice = document.getElementById('atlas-workbench-card-resume-notice');
+  if (!notice) return;
+  const current = normalizeAtlasSubview(subview || getAtlasLastSubview());
+  const labelMap = {
+    overview: 'Overview',
+    plan: 'Plan',
+    runs: 'Runs',
+    dashboard: 'Dashboard',
+    patch_review: 'Patch Review',
+    legacy: 'Legacy',
+  };
+  const label = labelMap[current] || 'Overview';
+  const lastRun = getAtlasLastRunId();
+  if (lastRun) {
+    notice.textContent = `Atlas restored: ${label}. Last Run: ${lastRun}. Content is not auto-loaded. Use the resume buttons below.`;
+  } else {
+    notice.textContent = `Atlas restored: ${label}. No Last Run yet. Run Atlas once, load recent runs, or enter run_id.`;
+  }
+}
+
 function restoreAtlasSubviewState() {
   restoreAtlasLastRunState();
   const subview = getAtlasLastSubview();
   setAtlasSubview(subview);
   ensureAtlasWorkbenchHost();
+  updateAtlasResumeNotice(subview);
 }
 
 function setAtlasSubview(name) {
@@ -13857,6 +13887,7 @@ function setAtlasSubview(name) {
     btn.classList.toggle('active', btn.getAttribute('data-atlas-subview-tab') === next);
   });
   if (next === 'runs' || next === 'dashboard' || next === 'patch_review') ensureAtlasWorkbenchHost();
+  updateAtlasResumeNotice(next);
 }
 
 function ensureAtlasWorkbenchHost() {
@@ -13870,6 +13901,7 @@ function ensureAtlasWorkbenchHost() {
   cardRoot.querySelectorAll('[data-atlas-last-run-mirror]').forEach((el) => {
     el.textContent = getAtlasLastRunId() || '-';
   });
+  updateAtlasResumeNotice(cardRoot.dataset.atlasCurrentSubview || getAtlasLastSubview());
   return cardRoot;
 }
 
