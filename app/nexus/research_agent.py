@@ -921,6 +921,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         recursive_stop_reason = stop_reason
         if payload.recursive_search:
             recursive_stop_reason = "max_iterations_reached"
+            completed_all_iterations = True
             for iteration in range(1, payload.max_iterations + 1):
                 append_job_event(effective_job_id, "recursive_iteration_started", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
                 append_job_event(effective_job_id, "recursive_gap_analysis_started", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
@@ -934,6 +935,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 unresolved_items = list(analysis.get("unresolved_items") or [])
                 should_stop, reason = _should_stop_recursive_research(analysis=analysis, iteration=iteration, payload=payload)
                 if should_stop:
+                    completed_all_iterations = False
                     recursive_stop_reason = reason
                     stop_reason = reason
                     iteration_payload = {"iteration": iteration, "analysis": analysis, "followup_queries": [], "followup_search_executed": False, "added_sources": 0, "stop_reason": reason}
@@ -949,6 +951,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 followup_queries_count += len(followup_queries)
                 append_job_event(effective_job_id, "recursive_followup_queries_generated", {"iteration": iteration, "queries": followup_queries, "status": "running", "updated_at": _now_iso()})
                 if not followup_queries:
+                    completed_all_iterations = False
                     recursive_stop_reason = "no_followup_queries"
                     stop_reason = "no_followup_queries"
                     append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
@@ -958,6 +961,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 remaining_downloads = max(0, max_downloads - cumulative_downloads)
                 remaining_total_bytes = max(0, max_total_download_bytes - cumulative_downloaded_bytes)
                 if remaining_downloads <= 0 or remaining_total_bytes <= 0:
+                    completed_all_iterations = False
                     recursive_stop_reason = "download_budget_exhausted"
                     stop_reason = "download_budget_exhausted"
                     append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
@@ -985,6 +989,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     batch_canonicals.add(canonical)
                     filtered_followup_ranked.append(candidate)
                 if not filtered_followup_ranked:
+                    completed_all_iterations = False
                     recursive_stop_reason = "no_new_sources"
                     stop_reason = "no_new_sources"
                     append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
@@ -1011,6 +1016,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 cumulative_downloaded_bytes += sum(max(0, int(item.get("size") or 0)) for item in newly_downloaded)
                 followup_registered = register_or_update_sources(job_id=effective_job_id, project=payload.project, sources=followup_downloaded)
                 if not followup_registered:
+                    completed_all_iterations = False
                     recursive_stop_reason = "no_new_sources"
                     stop_reason = "no_new_sources"
                     append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
@@ -1046,6 +1052,23 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 append_job_event(effective_job_id, "recursive_followup_search_finished", {"iteration": iteration, "status": "running", "added_sources": added_count, "updated_at": _now_iso()})
                 iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": True, "added_sources": added_count, "stop_reason": ""})
                 append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": True, "updated_at": _now_iso()})
+            if completed_all_iterations:
+                stop_reason = "max_iterations_reached"
+                append_job_event(
+                    effective_job_id,
+                    "recursive_stopped",
+                    {
+                        "iteration": payload.max_iterations,
+                        "status": "running",
+                        "reason": "max_iterations_reached",
+                        "followup_search_count": followup_search_count,
+                        "followup_queries_count": followup_queries_count,
+                        "added_sources_total": added_sources_total,
+                        "updated_at": _now_iso(),
+                    },
+                )
+                if iterations and not str(iterations[-1].get("stop_reason") or "").strip():
+                    iterations[-1]["stop_reason"] = "max_iterations_reached"
             final_evidence_items = _build_evidence_from_sources(effective_job_id, registered_sources)
             replace_evidence_items_for_job(effective_job_id, final_evidence_items, project=payload.project)
         else:
