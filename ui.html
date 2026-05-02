@@ -1409,6 +1409,18 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <button class="phase1-plan-btn" type="button" onclick="startAtlasWorkflow()">Start Atlas</button>
             <button class="phase1-tab-btn" type="button" onclick="showAtlasPanel()">Open Atlas Panel</button>
           </div>
+          <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);max-width:100%;overflow-wrap:anywhere">
+            <div style="font-size:12px;font-weight:700;color:var(--text)">Atlas Guided Plan Flow</div>
+            <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.6">Steps: Requirement → Plan → Review → Approval → Execute Preview → Patch Review</div>
+            <div id="atlas-workbench-card-plan-flow" style="margin-top:8px;font-size:11px;line-height:1.6"></div>
+            <div id="atlas-workbench-card-plan-next-action" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.6"></div>
+            <div style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.6">Execute Preview remains locked until plan approval.<br>No apply happens from this panel.<br>Patch application still requires Patch Review approval.</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+              <button class="phase1-tab-btn" type="button" onclick="setAtlasSubview('runs')">Open Runs</button>
+              <button class="phase1-tab-btn" type="button" onclick="setAtlasSubview('dashboard')">Open Dashboard</button>
+              <button class="phase1-tab-btn" type="button" onclick="setAtlasSubview('patch_review')">Open Patch Review</button>
+            </div>
+          </div>
         </div>
         <div class="atlas-subview" data-atlas-subview-panel="runs" style="display:none">
           <div style="margin-top:2px"><b>Atlas Runs</b> / Last Run: <span data-atlas-last-run-mirror>-</span></div>
@@ -13814,10 +13826,48 @@ async function openCurrentRunDashboardFromStatus() {
   await loadAtlasRunDashboard(cid, runId, latestCard);
 }
 
+function renderAtlasPlanFlowSummary() {
+  const flowEl = document.getElementById('atlas-workbench-card-plan-flow');
+  const nextEl = document.getElementById('atlas-workbench-card-plan-next-action');
+  if (!flowEl || !nextEl) return;
+
+  const requirement = planWorkflowState.requirementId ? 'done' : 'pending';
+  const plan = planWorkflowState.planId ? 'generated' : 'pending';
+  const review = planWorkflowState.reviewId ? 'done' : 'pending';
+  const approval = (planWorkflowState.approvalStatus === 'approved' || !!planWorkflowState.approvalId) ? 'approved' : 'required';
+  const executePreview = planWorkflowState.runId ? 'completed' : (planWorkflowState.executionReady ? 'ready' : 'locked');
+  const patchReview = (planWorkflowState.runId || (planWorkflowState.latestPatchIds || []).length > 0) ? 'available' : 'available after preview';
+
+  const rows = [
+    `Requirement: ${requirement}`,
+    `Plan: ${plan}`,
+    `Review: ${review}`,
+    `Approval: ${approval}`,
+    `Execute Preview: ${executePreview}`,
+    `Patch Review: ${patchReview}`,
+  ];
+
+  flowEl.replaceChildren();
+  for (const row of rows) {
+    const div = document.createElement('div');
+    div.textContent = row;
+    flowEl.appendChild(div);
+  }
+
+  let nextAction = 'Start Atlas';
+  if (planWorkflowState.runId) nextAction = 'Open Patch Review';
+  else if (planWorkflowState.executionReady) nextAction = 'Run Execute Preview';
+  else if (planWorkflowState.planId && !(planWorkflowState.approvalStatus === 'approved' || !!planWorkflowState.approvalId)) nextAction = 'Approve plan';
+  else if (planWorkflowState.planId) nextAction = 'Review generated plan';
+
+  nextEl.textContent = `Next Action: ${nextAction}`;
+}
+
 function _updatePlanWorkflowState(partial = {}) {
   Object.assign(planWorkflowState, partial || {});
   restoreAtlasLastRunState();
   _renderPlanWorkflowStatusPanel();
+  renderAtlasPlanFlowSummary();
 }
 
 function startPlanWorkflow(options = {}) {
