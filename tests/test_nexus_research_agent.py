@@ -569,6 +569,7 @@ class NexusResearchRecursiveTests(unittest.TestCase):
         self.assertEqual(result["answer"]["followup_search_count"], 1)
 
     def test_recursive_max_iterations_2_executes_two_followup_searches_without_early_stop(self) -> None:
+        captured = []
         with patch("app.nexus.research_agent.plan_web_queries", return_value=["q"]), patch(
             "app.nexus.research_agent.run_web_search",
             side_effect=[{"items": [{"url": "https://example.com/new-1"}]}, {"items": [{"url": "https://example.com/new-2"}]}, {"items": [{"url": "https://example.com/new-3"}]}],
@@ -590,10 +591,16 @@ class NexusResearchRecursiveTests(unittest.TestCase):
             "app.nexus.research_agent.build_citation_map", return_value=[]
         ), patch("app.nexus.research_agent._analyze_research_gaps", return_value={"confidence": 0.1, "gaps": ["source_count_low"], "unresolved_items": []}), patch(
             "app.nexus.research_agent.build_answer_payload", return_value={"answer": "ok"}
+        ), patch(
+            "app.nexus.research_agent.append_job_event", side_effect=lambda _jid, et, payload: captured.append((et, payload))
         ):
             result = run_research_job(ResearchAgentInput(query="q", recursive_search=True, max_iterations=2), job_id="job-r6")
         self.assertEqual(mocked_search.call_count, 3)
         self.assertEqual(result["answer"]["followup_search_count"], 2)
+        self.assertEqual(result["answer"]["recursive_stop_reason"], "max_iterations_reached")
+        self.assertEqual(result["answer"]["iterations"][-1]["stop_reason"], "max_iterations_reached")
+        max_iter_stops = [p for e, p in captured if e == "recursive_stopped" and p.get("reason") == "max_iterations_reached"]
+        self.assertTrue(max_iter_stops)
 
     def test_recursive_confidence_threshold_stops_before_followup(self) -> None:
         with patch("app.nexus.research_agent.plan_web_queries", return_value=["q"]), patch(
