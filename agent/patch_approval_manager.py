@@ -91,7 +91,7 @@ class PatchApprovalManager:
             raise ValueError("approved patch approval is required before apply")
         return latest
 
-    def mark_applied(self, run_id: str, patch_id: str, apply_result: dict, verification_id: str = "") -> PatchApprovalRecord:
+    def mark_applied(self, run_id: str, patch_id: str, apply_result: dict, verification_id: str = "", verification_status: str = "", verification_summary: str = "") -> PatchApprovalRecord:
         latest = self.require_approved_for_apply(run_id, patch_id)
         latest.status = "applied"
         latest.applied = True
@@ -100,6 +100,8 @@ class PatchApprovalManager:
             **(latest.metadata or {}),
             "apply_result": apply_result,
             "verification_id": verification_id,
+            "verification_status": verification_status,
+            "verification_summary": verification_summary,
         }
         self.patch_storage.save_patch_approval(latest)
         self.patch_storage.update_patch_payload(

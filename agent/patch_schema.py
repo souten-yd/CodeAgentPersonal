@@ -55,3 +55,5 @@ class PatchApplyResult(BaseModel):
     message: str = ""
     error: str = ""
     verification_result_id: str = ""
+    verification_status: str = ""
+    verification_summary: str = ""
