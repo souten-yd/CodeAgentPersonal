@@ -220,6 +220,7 @@ class PatchStorage:
             "verification_failed": 0,
             "verification_passed": 0,
             "low_quality": 0,
+            "quality_not_evaluated": 0,
             "quality_warnings": 0,
             "safety_warnings": 0,
             "has_telemetry": 0,
@@ -231,6 +232,7 @@ class PatchStorage:
             "patches_with_manual_check": 0,
             "llm_telemetry_records": len(telemetry),
             "patches_with_telemetry": 0,
+            "approved_not_applied": 0,
         }
         risk_counts: dict[str, int] = {}
         patch_type_counts: dict[str, int] = {}
@@ -242,6 +244,7 @@ class PatchStorage:
             "unreviewed_patch_ids": [],
             "missing_telemetry_patch_ids": [],
             "missing_manual_check_patch_ids": [],
+            "quality_not_evaluated_patch_ids": [],
             "reproposal_needed_patch_ids": [],
         }
         out_patches: list[dict] = []
@@ -251,7 +254,7 @@ class PatchStorage:
             applied = bool(p.get("applied", False) or approval_status == "applied")
             apply_allowed = bool(p.get("apply_allowed", False))
             verification_status = str(p.get("verification_status", "") or "")
-            quality_score = float(p.get("quality_score", 0.0) or 0.0)
+            raw_quality_score = p.get("quality_score", None)
             safety_warnings = p.get("safety_warnings") or []
             quality_warnings = p.get("quality_warnings") or []
             metadata = p.get("metadata") if isinstance(p.get("metadata"), dict) else {}
@@ -262,7 +265,31 @@ class PatchStorage:
             patch_manual_checks = manual_by_patch.get(patch_id, [])
             patch_telemetry = telemetry_by_patch.get(patch_id, [])
             has_manual_check = len(patch_manual_checks) > 0
-            has_telemetry = bool(metadata.get("llm_telemetry_id") or metadata.get("fallback_telemetry_id") or patch_telemetry)
+            telemetry_ids = []
+            if metadata.get("llm_telemetry_id"):
+                telemetry_ids.append(str(metadata.get("llm_telemetry_id")))
+            if metadata.get("fallback_telemetry_id"):
+                telemetry_ids.append(str(metadata.get("fallback_telemetry_id")))
+            telemetry_ids = list(dict.fromkeys(telemetry_ids))
+            telemetry_record_count = len(patch_telemetry)
+            telemetry_reference_count = len(telemetry_ids)
+            has_telemetry = bool(telemetry_record_count > 0 or telemetry_reference_count > 0)
+            is_llm_quality_patch = (
+                patch_type == "replace_block"
+                or generator == "llm_replace_block"
+                or bool(p.get("quality_summary"))
+                or bool(quality_warnings)
+                or int(p.get("candidate_block_count") or 0) > 0
+            )
+            quality_evaluated = bool(is_llm_quality_patch and raw_quality_score is not None and raw_quality_score != "")
+            quality_score = None
+            if quality_evaluated:
+                try:
+                    quality_score = float(raw_quality_score)
+                except Exception:
+                    quality_evaluated = False
+                    quality_score = None
+            is_low_quality = bool(quality_evaluated and quality_score is not None and quality_score < 0.4)
             attention_flags: list[str] = []
             if not apply_allowed:
                 attention_flags.append("blocked")
@@ -270,8 +297,10 @@ class PatchStorage:
                 attention_flags.append("safety_warning")
             if quality_warnings:
                 attention_flags.append("quality_warning")
-            if quality_score < 0.4:
+            if is_low_quality:
                 attention_flags.append("low_quality")
+            if (generator == "llm_replace_block" or patch_type == "replace_block") and not quality_evaluated:
+                attention_flags.append("quality_not_evaluated")
             if approval_status in ("", "pending"):
                 attention_flags.append("unreviewed")
             if approval_status == "approved" and not applied:
@@ -310,8 +339,10 @@ class PatchStorage:
                 counts["verification_failed"] += 1
             if verification_status == "passed":
                 counts["verification_passed"] += 1
-            if quality_score < 0.4:
+            if is_low_quality:
                 counts["low_quality"] += 1
+            if "quality_not_evaluated" in attention_flags:
+                counts["quality_not_evaluated"] += 1
             if quality_warnings:
                 counts["quality_warnings"] += 1
             if safety_warnings:
@@ -319,6 +350,8 @@ class PatchStorage:
             if has_telemetry:
                 counts["has_telemetry"] += 1
                 counts["patches_with_telemetry"] += 1
+            if "approved_not_applied" in attention_flags:
+                counts["approved_not_applied"] += 1
             if has_manual_check:
                 counts["has_manual_check"] += 1
                 counts["patches_with_manual_check"] += 1
@@ -346,6 +379,8 @@ class PatchStorage:
                 attention["missing_telemetry_patch_ids"].append(patch_id)
             if "missing_manual_check" in attention_flags:
                 attention["missing_manual_check_patch_ids"].append(patch_id)
+            if "quality_not_evaluated" in attention_flags:
+                attention["quality_not_evaluated_patch_ids"].append(patch_id)
             if is_reproposal_candidate:
                 attention["reproposal_needed_patch_ids"].append(patch_id)
             out_patches.append({
@@ -358,10 +393,15 @@ class PatchStorage:
                 "applied": applied,
                 "verification_status": verification_status,
                 "quality_score": quality_score,
+                "quality_evaluated": quality_evaluated,
+                "is_low_quality": is_low_quality,
                 "has_safety_warnings": bool(safety_warnings),
                 "has_quality_warnings": bool(quality_warnings),
                 "has_telemetry": has_telemetry,
-                "telemetry_count": len(patch_telemetry),
+                "telemetry_count": telemetry_record_count,
+                "telemetry_record_count": telemetry_record_count,
+                "telemetry_reference_count": telemetry_reference_count,
+                "telemetry_ids": telemetry_ids,
                 "has_manual_check": has_manual_check,
                 "manual_check_count": len(patch_manual_checks),
                 "has_reproposal": has_reproposal,

@@ -13,9 +13,9 @@ class TestPhase13PatchDashboardUIContract(unittest.TestCase):
         self.assertIn('Open Atlas Dashboard', self.ui)
 
     def test_filters_and_attention_labels(self):
-        for label in ['Pending', 'Approved', 'Applied', 'Blocked', 'Verification Failed', 'Low Quality', 'Missing Manual Check', 'Missing Telemetry', 'Reproposal Candidates']:
+        for label in ['Pending', 'Approved', 'Approved Not Applied', 'Applied', 'Blocked', 'Verification Failed', 'Low Quality', 'Quality Not Evaluated', 'Missing Manual Check', 'Missing Telemetry', 'Reproposal Candidates', 'Patches with Telemetry', 'LLM Telemetry Records']:
             self.assertIn(label, self.ui)
-        for label in ['Blocked patches', 'Low quality patches', 'Verification failed patches', 'Unreviewed patches', 'Missing telemetry patches', 'Missing manual check patches', 'Reproposal candidates']:
+        for label in ['Blocked patches', 'Low quality patches', 'Verification failed patches', 'Unreviewed patches', 'Missing telemetry patches', 'Missing manual check patches', 'Quality not evaluated patches', 'Reproposal candidates']:
             self.assertIn(label, self.ui)
 
     def test_no_bulk_controls(self):
