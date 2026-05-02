@@ -10809,6 +10809,59 @@ def api_execute_plan(plan_id: str, req: ImplementationRunRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.get("/api/atlas/runs")
+def api_list_atlas_runs(limit: int = 20):
+    from agent.llm_telemetry_storage import LLMTelemetryStorage
+    from agent.manual_check_storage import ManualCheckStorage
+    from agent.patch_storage import PatchStorage
+
+    ps = PatchStorage(_phase6_run_storage.base_dir)
+    mcs = ManualCheckStorage(_phase6_run_storage.base_dir)
+    ts = LLMTelemetryStorage(_phase6_run_storage.base_dir)
+
+    runs = _phase6_run_storage.list_runs(limit=limit)
+    out = []
+    for r in runs:
+        run_id = str(r.get("run_id", "") or "")
+        item = {
+            "run_id": run_id,
+            "created_at": str(r.get("created_at", "") or ""),
+            "plan_id": str(r.get("plan_id", "") or ""),
+            "status": str(r.get("status", "unknown") or "unknown"),
+            "execution_mode": str(r.get("execution_mode", "") or ""),
+            "patch_count": 0,
+            "applied_count": 0,
+            "blocked_count": 0,
+            "verification_failed_count": 0,
+            "low_quality_count": 0,
+            "quality_not_evaluated_count": 0,
+            "has_dashboard": False,
+        }
+        if not run_id:
+            out.append(item)
+            continue
+        try:
+            dashboard = ps.get_run_patch_dashboard_summary(
+                run_id=run_id,
+                manual_checks=mcs.list_manual_checks(run_id),
+                telemetry=ts.list_telemetry(run_id),
+            )
+            counts = dashboard.get("counts", {}) if isinstance(dashboard, dict) else {}
+            item.update({
+                "patch_count": int(counts.get("total", 0) or 0),
+                "applied_count": int(counts.get("applied", 0) or 0),
+                "blocked_count": int(counts.get("apply_blocked", 0) or 0),
+                "verification_failed_count": int(counts.get("verification_failed", 0) or 0),
+                "low_quality_count": int(counts.get("low_quality", 0) or 0),
+                "quality_not_evaluated_count": int(counts.get("quality_not_evaluated", 0) or 0),
+                "has_dashboard": True,
+            })
+        except Exception as exc:
+            item["summary_error"] = str(exc)
+        out.append(item)
+    return {"runs": out}
+
+
 @app.get("/api/runs/{run_id}")
 def api_get_run(run_id: str):
     try:
