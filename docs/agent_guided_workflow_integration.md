@@ -79,3 +79,10 @@
 - Existing planning/run/dashboard/patch APIs and helpers continue to be reused.
 - No Task/Agent deletion is performed.
 - No auto apply or bulk approve/apply is introduced.
+
+## Phase 17.5 note (Atlas subview robustness cleanup)
+- Phase 17.5 separates root current-subview state from panel selectors.
+- Root uses `data-atlas-current-subview`.
+- Panels use `data-atlas-subview-panel`.
+- Existing host IDs and APIs remain unchanged.
+- This is robustness cleanup only, not workspace split.
