@@ -72,3 +72,10 @@
 - Phase 16.5 validates Atlas wrapper layout and smoke behavior across desktop/mobile mode switching.
 - Atlas wrapper remains thin and reuses existing APIs/functions (no runtime or API split in this phase).
 - No workspace split or destructive navigation change is introduced in this phase.
+
+## Phase 17 note (Atlas lightweight subviews)
+- Atlas wrapper now has lightweight subviews (Overview / Plan / Runs / Dashboard / Patch Review / Legacy).
+- Subviews are UI organization only; no full workspace split is introduced in this phase.
+- Existing planning/run/dashboard/patch APIs and helpers continue to be reused.
+- No Task/Agent deletion is performed.
+- No auto apply or bulk approve/apply is introduced.
