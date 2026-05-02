@@ -35,6 +35,11 @@ async def verify_mode_switches(page) -> None:
     "() => document.getElementById('chat-col')?.classList.contains('active')"
   )
 
+  await page.click("#btn-atlas")
+  await page.wait_for_function(
+    "() => document.getElementById('agent-panel-col')?.classList.contains('active')"
+  )
+
   await page.click("#btn-agent")
   await page.wait_for_function(
     "() => document.getElementById('agent-col')?.classList.contains('active')"
@@ -77,24 +82,29 @@ async def verify_mode_specific_subtabs(page) -> None:
   await page.click("#btn-chat")
   for tab_id in ["mob-chat", "mob-files", "mob-log", "mob-skills", "mob-memory", "mob-models"]:
     assert await is_visible(tab_id), f"{tab_id} should be visible in chat mode"
-  for tab_id in ["mob-agent-chat", "mob-agent-tasks", "mob-echo", "mob-vault", "mob-log-echo", "mob-models-echo", "mob-asr", "mob-tts", "mob-nexus"]:
+  for tab_id in ["mob-agent-chat", "mob-agent-tasks", "mob-atlas", "mob-echo", "mob-vault", "mob-log-echo", "mob-models-echo", "mob-asr", "mob-tts", "mob-nexus"]:
     assert not await is_visible(tab_id), f"{tab_id} should be hidden in chat mode"
+
+  await page.click("#btn-atlas")
+  assert await is_visible("mob-atlas"), "mob-atlas should be visible in atlas mode"
+  for tab_id in ["mob-chat", "mob-files", "mob-log", "mob-skills", "mob-memory", "mob-models", "mob-agent-chat", "mob-agent-tasks", "mob-echo", "mob-vault", "mob-log-echo", "mob-models-echo", "mob-asr", "mob-tts", "mob-nexus"]:
+    assert not await is_visible(tab_id), f"{tab_id} should be hidden in atlas mode"
 
   await page.click("#btn-agent")
   for tab_id in ["mob-agent-chat", "mob-agent-tasks"]:
     assert await is_visible(tab_id), f"{tab_id} should be visible in agent mode"
-  for tab_id in ["mob-chat", "mob-files", "mob-log", "mob-skills", "mob-memory", "mob-models", "mob-echo", "mob-vault", "mob-log-echo", "mob-models-echo", "mob-asr", "mob-tts", "mob-nexus"]:
+  for tab_id in ["mob-chat", "mob-files", "mob-log", "mob-skills", "mob-memory", "mob-models", "mob-atlas", "mob-echo", "mob-vault", "mob-log-echo", "mob-models-echo", "mob-asr", "mob-tts", "mob-nexus"]:
     assert not await is_visible(tab_id), f"{tab_id} should be hidden in agent mode"
 
   await page.click("#btn-echo")
   for tab_id in ["mob-echo", "mob-vault", "mob-log-echo", "mob-models-echo", "mob-asr", "mob-tts"]:
     assert await is_visible(tab_id), f"{tab_id} should be visible in echo mode"
-  for tab_id in ["mob-chat", "mob-files", "mob-log", "mob-skills", "mob-memory", "mob-models", "mob-agent-chat", "mob-agent-tasks", "mob-nexus"]:
+  for tab_id in ["mob-chat", "mob-files", "mob-log", "mob-skills", "mob-memory", "mob-models", "mob-agent-chat", "mob-agent-tasks", "mob-atlas", "mob-nexus"]:
     assert not await is_visible(tab_id), f"{tab_id} should be hidden in echo mode"
 
   await page.click("#btn-nexus")
   assert await is_visible("mob-nexus"), "mob-nexus should be visible in nexus mode"
-  for tab_id in ["mob-chat", "mob-files", "mob-log", "mob-skills", "mob-memory", "mob-models", "mob-agent-chat", "mob-agent-tasks", "mob-echo", "mob-vault", "mob-log-echo", "mob-models-echo", "mob-asr", "mob-tts"]:
+  for tab_id in ["mob-chat", "mob-files", "mob-log", "mob-skills", "mob-memory", "mob-models", "mob-agent-chat", "mob-agent-tasks", "mob-atlas", "mob-echo", "mob-vault", "mob-log-echo", "mob-models-echo", "mob-asr", "mob-tts"]:
     assert not await is_visible(tab_id), f"{tab_id} should be hidden in nexus mode"
 
 
@@ -166,6 +176,14 @@ async def verify_mobile_mode_switches(browser) -> None:
   await page.click("#btn-chat")
   await page.wait_for_function(
     "() => !document.body.classList.contains('mode-agent') && !document.getElementById('chat-col')?.classList.contains('mob-hidden')"
+  )
+
+  await page.click("#btn-atlas")
+  await page.wait_for_function(
+    "() => document.getElementById('agent-panel-col') && !document.getElementById('agent-panel-col').classList.contains('mob-hidden')"
+  )
+  await page.wait_for_function(
+    "() => document.getElementById('mob-atlas')?.classList.contains('active')"
   )
 
   await page.click("#btn-agent")

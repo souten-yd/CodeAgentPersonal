@@ -37,6 +37,17 @@
 - no bulk approve/apply
 - no approval bypass
 
+## Phase 15 migration (top-level Atlas entry)
+- Top-level navigation begins moving to: Chat / Atlas / Agent / Echo / Nexus.
+- Task is no longer the primary top-level entry.
+- Task remains reachable from Atlas as Legacy/Guided Task.
+- Agent remains available as advanced runtime access.
+- Future target remains: Chat / Atlas / Echo / Nexus.
+- Non-goals stay unchanged for this phase:
+  - no deletion of Task/Agent
+  - no API breaking rename
+  - no auto apply / bulk apply / bulk approve
+
 ## Current workflow entry points
 - Chat/Task compatibility Plan button (`startPlanWorkflow()`).
 - Atlas button (`startAtlasWorkflow()`).
