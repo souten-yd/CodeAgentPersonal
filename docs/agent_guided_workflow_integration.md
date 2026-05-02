@@ -95,3 +95,11 @@
 - Atlas restore does not auto-fetch dashboard or patch review content.
 - Users explicitly open dashboard/patch review from Atlas controls.
 - No URL routing, hash routing, or history API is introduced in this phase.
+
+
+## Phase 18.5 note (Atlas restore UX polish / explicit resume prompts)
+- Phase 18.5 adds explicit resume prompts after URL-free Atlas subview restore.
+- Dashboard / Patch Review / Recent Runs still do not auto-fetch on restore.
+- Users resume manually via Atlas Workbench buttons.
+- Resume notice uses restored last subview and `atlas:lastRunId`.
+- No URL routing, hash routing, or history API is introduced in this phase.
