@@ -29,9 +29,15 @@ class TestPhase15AtlasTopNavUiContract(unittest.TestCase):
         self.assertIn('Taskは互換のため残します。', self.ui)
         self.assertIn('Open Legacy Task', self.ui)
         self.assertIn('Agent powers Atlas workflows', self.ui)
+        self.assertIn('Agent is the advanced runtime surface. Atlas is the guided workflow for normal work.', self.ui)
         self.assertIn('Agent', self.ui)
         self.assertIn('mob-agent-chat', self.ui)
         self.assertIn('mob-agent-tasks', self.ui)
+
+    def test_legacy_task_uses_explicit_switch(self):
+        self.assertIn('function openLegacyTaskFromAtlas()', self.ui)
+        self.assertIn('onclick="openLegacyTaskFromAtlas();">Open Legacy Task</button>', self.ui)
+        self.assertNotIn("onclick=\"setMode('chat');toggleChatTaskMode();\">Open Legacy Task</button>", self.ui)
 
     def test_mobile_atlas_tab_exists(self):
         self.assertIn('id="mob-atlas"', self.ui)

@@ -1418,11 +1418,13 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <button class="phase1-tab-btn" type="button" onclick="showAtlasPanel();setTimeout(()=>{ const btn=[...document.querySelectorAll('[data-run-view=\"load-recent-atlas-runs\"]')][0]; if(btn) btn.click(); }, 60);">Load Recent Atlas Runs</button>
       </div>
       <div style="margin-top:8px;font-size:10px;color:var(--text3)">Status: <span id="agent-guided-workflow-status">idle</span></div>
+      <div style="margin-top:6px;font-size:10px;color:var(--text3)">Atlas Workbench: safe planning, execution preview, patch review, and run audit.</div>
       <div style="margin-top:6px;font-size:10px;color:var(--text3)">Agent powers Atlas workflows through planning, execution preview, evaluation, and memory.</div>
+      <div style="margin-top:6px;font-size:10px;color:var(--text3)">Agent is the advanced runtime surface. Atlas is the guided workflow for normal work.</div>
       <div style="margin-top:6px;font-size:10px;color:var(--text3)">Taskは互換のため残します。新しいGuided WorkflowはAtlasとして扱います。</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-        <button class="phase1-tab-btn" type="button" onclick="setMode('chat');toggleChatTaskMode();">Open Legacy Task</button>
-        <button class="phase1-tab-btn" type="button" onclick="setMode('chat');showAtlasPanel();">Open Task Panel</button>
+        <button class="phase1-tab-btn" type="button" onclick="openLegacyTaskFromAtlas();">Open Legacy Task</button>
+        <button class="phase1-tab-btn" type="button" onclick="openLegacyTaskFromAtlas();">Open Task Panel</button>
       </div>
     </div>
     <div style="padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border)">
@@ -6785,6 +6787,17 @@ function toggleAgentTts(nextState = null) {
     enableAudioFromUserGesture().catch((e) => {
       console.warn('[Agent][TTS] audio unlock failed:', e);
     });
+  }
+}
+
+function openLegacyTaskFromAtlas() {
+  setMode('chat');
+  if (typeof window.setChatTaskMode === 'function') {
+    window.setChatTaskMode('task');
+    return;
+  }
+  if (!isTaskEnabled && typeof toggleChatTaskMode === 'function') {
+    toggleChatTaskMode();
   }
 }
 
