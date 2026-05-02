@@ -1627,6 +1627,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
                     <input id="nexus-deep-confidence-threshold" class="nexus-input" type="number" min="0" max="1" step="0.05" value="0.75" placeholder="confidence_threshold (0-1)" disabled>
                     <label class="nexus-check"><input id="nexus-deep-stop-when-sufficient" type="checkbox" checked disabled> stop_when_sufficient</label>
                   </div>
+                  <div style="font-size:10px;color:var(--text3);line-height:1.4">
+                    When enabled, recursive search may stop before running follow-up searches if confidence is already high.
+                  </div>
                 </div>
               </div>
               <div class="nexus-actions">
@@ -7886,7 +7889,12 @@ function renderNexusDeepTimeline(events = []) {
         const added = Number(data?.added_sources ?? data?.new_sources ?? data?.sources_added);
         return `Added sources: ${Number.isFinite(added) ? added : '-'}`;
       }
-      if (type === 'recursive_iteration_finished') return `Iteration ${Number.isFinite(iteration) ? iteration : '?'} finished`;
+      if (type === 'recursive_iteration_finished') {
+        const executed = data?.followup_search_executed;
+        if (executed === true) return `Iteration ${Number.isFinite(iteration) ? iteration : '?'} finished (follow-up search executed)`;
+        if (executed === false) return `Iteration ${Number.isFinite(iteration) ? iteration : '?'} finished (no follow-up search)`;
+        return `Iteration ${Number.isFinite(iteration) ? iteration : '?'} finished`;
+      }
       if (type === 'recursive_stopped') return `Recursive stopped: ${String(data?.stop_reason || data?.reason || '-').trim() || '-'}`;
       return data?.state || data?.label || type || 'event';
     })();
@@ -7959,13 +7967,20 @@ function renderNexusDeepAnswer(answer = {}) {
   const confidenceDisplay = (typeof confidence === 'number' && Number.isFinite(confidence)) ? confidence.toFixed(2) : (confidence == null ? '-' : String(confidence));
   const unresolvedItems = Array.isArray(answer?.unresolved_items) ? answer.unresolved_items : [];
   const stopReason = String(answer?.stop_reason || '').trim();
+  const followupSearchCount = Number(answer?.followup_search_count ?? 0);
+  const followupQueriesCount = Number(answer?.followup_queries_count ?? 0);
+  const addedSourcesTotal = Number(answer?.added_sources_total ?? 0);
+  const recursiveStopReason = String(answer?.recursive_stop_reason || stopReason || '').trim();
   const hasRecursiveMeta = [recursiveSearch, iterations, confidence, stopReason].some((v) => v !== undefined && v !== null && String(v).trim() !== '') || unresolvedItems.length > 0;
   const recursiveMetaHtml = hasRecursiveMeta ? `<div class="nexus-answer-section">
       <div class="nexus-answer-subtitle">Recursive Research</div>
       <div style="font-size:11px;color:var(--text2);line-height:1.5">
         <div>- Enabled: <b>${esc(String(Boolean(recursiveSearch)))}</b></div>
         <div>- Final confidence: <b>${esc(confidenceDisplay)}</b></div>
-        <div>- Stop reason: <b>${esc(stopReason || '-')}</b></div>
+        <div>- Follow-up searches executed: <b>${esc(Number.isFinite(followupSearchCount) ? String(followupSearchCount) : '-')}</b></div>
+        <div>- Follow-up queries generated: <b>${esc(Number.isFinite(followupQueriesCount) ? String(followupQueriesCount) : '-')}</b></div>
+        <div>- Added sources total: <b>${esc(Number.isFinite(addedSourcesTotal) ? String(addedSourcesTotal) : '-')}</b></div>
+        <div>- Stop reason: <b>${esc(recursiveStopReason || '-')}</b></div>
         <div>- Iterations: <b>${esc(String(iterationCount))}</b></div>
         <div>- Unresolved items:</div>
         <ul style="margin:4px 0 0 18px;padding:0">${(unresolvedItems.length ? unresolvedItems : ['-']).map((item) => `<li>${esc(String(item || '-'))}</li>`).join('')}</ul>
