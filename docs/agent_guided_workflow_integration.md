@@ -58,3 +58,11 @@
 - Atlas is the normal workbench for guided work planning, execution preview, patch review, and run audit.
 - Agent remains the advanced runtime surface.
 - Task remains as a compatibility path.
+
+## Phase 16 note (Atlas thin workbench wrapper)
+- Atlas now has a thin top-level workbench wrapper (`atlas-panel-col`) for guided workflow entry.
+- Existing Agent panel remains available for advanced runtime access.
+- Atlas wrapper reuses existing planning, run selector, dashboard, and patch review functions.
+- No API breaking rename.
+- No Task/Agent deletion.
+- Future phase may further split Atlas subviews, but Phase 16 is a thin wrapper only.

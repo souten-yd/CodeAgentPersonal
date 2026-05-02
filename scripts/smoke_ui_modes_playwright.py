@@ -37,7 +37,7 @@ async def verify_mode_switches(page) -> None:
 
   await page.click("#btn-atlas")
   await page.wait_for_function(
-    "() => document.getElementById('agent-panel-col')?.classList.contains('active')"
+    "() => document.getElementById('atlas-panel-col')?.classList.contains('active')"
   )
 
   await page.click("#btn-agent")
@@ -180,7 +180,7 @@ async def verify_mobile_mode_switches(browser) -> None:
 
   await page.click("#btn-atlas")
   await page.wait_for_function(
-    "() => document.getElementById('agent-panel-col') && !document.getElementById('agent-panel-col').classList.contains('mob-hidden')"
+    "() => document.getElementById('atlas-panel-col') && !document.getElementById('atlas-panel-col').classList.contains('mob-hidden')"
   )
   await page.wait_for_function(
     "() => document.getElementById('mob-atlas')?.classList.contains('active')"
