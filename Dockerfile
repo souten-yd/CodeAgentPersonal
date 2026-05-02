@@ -332,7 +332,7 @@ PY
 ########################################
 # Runtime stage: Python + codeAgent + llama.cpp
 ########################################
-FROM pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel AS runtime
+FROM style_bert_vits2_build AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -369,38 +369,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-RUN rm -rf /var/lib/apt/lists/* \
-    && apt-get update -o Acquire::Retries=5 \
-    && apt-get install -y --no-install-recommends --fix-missing \
-        build-essential \
-        ca-certificates \
-        curl \
-        git \
-        tini \
-        libgomp1 \
-        libcurl4 \
-        libffi-dev \
-        libsndfile1 \
-        libssl-dev \
-        libxml2 \
-        libxslt-dev \
-        zlib1g-dev \
-        sox \
-        libsox-fmt-all \
-    && update-ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
 ENV PATH=/opt/venv/bin:${PATH}
-
-# Copy application source and prebuilt venv artifacts from build stage.
-COPY . /app
-COPY --from=py_build /opt/venv /opt/venv
-COPY --from=style_bert_vits2_build /app/Style-Bert-VITS2 /app/Style-Bert-VITS2
-COPY --from=style_bert_vits2_build /opt/style-bert-vits2-venv /opt/style-bert-vits2-venv
-COPY --from=style_bert_vits2_build /opt/hf_cache /opt/hf_cache
-COPY --from=style_bert_vits2_build /opt/cache /opt/cache
-COPY --from=style_bert_vits2_build /opt/style-bert-vits2-models /opt/style-bert-vits2-models
-COPY --from=py_build /opt/asr_models /opt/asr_models
 
 RUN ls -la /opt/venv/bin \
     && readlink -f /opt/venv/bin/python \
@@ -411,12 +380,16 @@ RUN /opt/venv/bin/python - <<'PY'
 import sys
 import torch
 import torchaudio
+import faster_whisper
+import av
 
 print("runtime python:", sys.executable)
 print("runtime version:", sys.version)
 print("torch:", torch.__version__, torch.__file__)
 print("torchaudio:", torchaudio.__version__, torchaudio.__file__)
 print("torch.version.cuda:", torch.version.cuda)
+print("faster_whisper:", faster_whisper.__file__)
+print("av:", av.__version__, av.__file__)
 
 assert sys.version_info[:2] == (3, 11), sys.version
 assert torch.__version__.startswith("2.9.1"), torch.__version__
@@ -433,16 +406,27 @@ import sys
 import torch
 import torchaudio
 import av
+import transformers
+import numba
+import llvmlite
+from style_bert_vits2.tts_model import TTSModel
+
 print("runtime sbv2 python:", sys.executable)
 print("runtime sbv2 version:", sys.version)
-print("torch", torch.__version__)
-print("torchaudio", torchaudio.__version__)
-print("torch.version.cuda", torch.version.cuda)
-print("av", av.__version__)
+print("torch:", torch.__version__, torch.__file__)
+print("torchaudio:", torchaudio.__version__, torchaudio.__file__)
+print("torch.version.cuda:", torch.version.cuda)
+print("av:", av.__version__, av.__file__)
+print("transformers:", transformers.__version__)
+print("numba:", numba.__version__)
+print("llvmlite:", llvmlite.__version__)
+
 assert sys.version_info[:2] == (3, 11), sys.version
 assert torch.__version__.startswith("2.9.1"), torch.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
+
+RUN command -v git && git --version
 
 # Build SearXNG editable runtime inside isolated venv for Runpod single-container startup.
 RUN set -eux; \
@@ -470,7 +454,7 @@ RUN ln -sf /app/llama/bin/llama-server /usr/local/bin/llama-server \
 
 RUN set -eux; \
     mkdir -p /models; \
-    python - <<'PY'
+    /opt/venv/bin/python - <<'PY'
 from huggingface_hub import hf_hub_download
 from pathlib import Path
 
@@ -494,5 +478,4 @@ EXPOSE 8000 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=5 \
   CMD curl -fsS http://127.0.0.1:${CODEAGENT_PORT}/health >/dev/null || exit 1
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/usr/local/bin/start-services.sh"]
