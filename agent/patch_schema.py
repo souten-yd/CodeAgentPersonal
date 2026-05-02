@@ -42,6 +42,8 @@ class PatchProposal(BaseModel):
     llm_raw_output_preview: str = ""
     llm_sanitized: bool = False
     metadata: dict = Field(default_factory=dict)
+    verification_status: str = ""
+    verification_summary: str = ""
 
 
 class PatchApplyResult(BaseModel):

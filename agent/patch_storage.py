@@ -35,7 +35,19 @@ class PatchStorage:
         pd = self._patches_dir(proposal.run_id)
         (pd / f"{proposal.patch_id}.patch.json").write_text(json.dumps(proposal.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
         (pd / f"{proposal.patch_id}.diff").write_text(proposal.unified_diff, encoding="utf-8")
-        (pd / f"{proposal.patch_id}.md").write_text(f"# Patch {proposal.patch_id}\n\n- target: {proposal.target_file}\n- status: {proposal.status}\n- patch_type: {proposal.patch_type}\n- generator: {proposal.generator or proposal.metadata.get('generator','')}\n- apply_allowed: {proposal.apply_allowed}\n", encoding="utf-8")
+        patch_md = (
+            f"# Patch {proposal.patch_id}\n\n"
+            f"- target: {proposal.target_file}\n"
+            f"- status: {proposal.status}\n"
+            f"- patch_type: {proposal.patch_type}\n"
+            f"- generator: {proposal.generator or proposal.metadata.get('generator','')}\n"
+            f"- apply_allowed: {proposal.apply_allowed}\n"
+            f"- can_apply_reason: {proposal.can_apply_reason}\n"
+            f"- safety_warnings: {'; '.join(proposal.safety_warnings or [])}\n"
+            f"- original_block_summary: {(proposal.original_block or '')[:120].replace(chr(10), ' ')}\n"
+            f"- replacement_block_summary: {(proposal.replacement_block or '')[:120].replace(chr(10), ' ')}\n"
+        )
+        (pd / f"{proposal.patch_id}.md").write_text(patch_md, encoding="utf-8")
 
     def save_apply_result(self, run_id: str, result: PatchApplyResult) -> None:
         pd = self._patches_dir(run_id)

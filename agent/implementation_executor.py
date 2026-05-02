@@ -19,7 +19,7 @@ from agent.verification_runner import VerificationRunner
 class ImplementationExecutor:
     BLOCKED_DIR_NAMES = {".git", "node_modules", "venv", ".venv", "__pycache__", "dist", "build"}
 
-    def __init__(self, storage: PlanStorage, run_storage: RunStorage) -> None:
+    def __init__(self, storage: PlanStorage, run_storage: RunStorage, llm_patch_fn=None) -> None:
         self.storage = storage
         self.run_storage = run_storage
         self.patch_storage = PatchStorage(run_storage.base_dir)
@@ -27,6 +27,7 @@ class ImplementationExecutor:
         self.patch_approval_manager = PatchApprovalManager(self.patch_storage)
         self.patch_safety = PatchSafetyChecker()
         self.verification_runner = VerificationRunner()
+        self.llm_patch_fn = llm_patch_fn
 
     def execute(self, plan_id: str, execution_mode: str = "dry_run", project_path: str = "", allow_update: bool = False, allow_create: bool = False, allow_delete: bool = False, allow_run_command: bool = False, user_comment: str = "", apply_patches: bool = False, preview_only: bool = True, max_patch_bytes: int = 20000, patch_generation_mode: str = "append") -> dict:
         if execution_mode not in {"dry_run", "safe_apply"}:
@@ -152,10 +153,28 @@ class ImplementationExecutor:
         try:
             if mode in {"llm_replace_block", "auto"}:
                 content = target.read_text(encoding="utf-8")
-                proposal = generate_replace_block_patch(run_id, plan_id, step.step_id, step.title, str(plan.get('description','')), step.risk_level, target, content, llm_fn=None)
+                proposal = generate_replace_block_patch(
+                    run_id,
+                    plan_id,
+                    step.step_id,
+                    step.title,
+                    str(plan.get("description", "")),
+                    step.risk_level,
+                    target,
+                    content,
+                    llm_fn=self.llm_patch_fn,
+                    context={
+                        "plan_id": plan_id,
+                        "requirement_id": plan.get("requirement_id", ""),
+                        "user_goal": plan.get("user_goal", ""),
+                        "requirement_summary": plan.get("requirement_summary", ""),
+                        "step": step.model_dump() if hasattr(step, "model_dump") else {},
+                    },
+                )
                 if mode == "auto" and not proposal.apply_allowed:
+                    fallback_reason = proposal.can_apply_reason or "llm_invalid"
                     proposal = self.patch_generator.generate_append_patch(run_id, plan_id, step.step_id, step.title, str(plan.get('description','')), step.risk_level, target)
-                    proposal.metadata = {**(proposal.metadata or {}), "fallback_from": "llm_replace_block"}
+                    proposal.metadata = {**(proposal.metadata or {}), "fallback_from": "llm_replace_block", "fallback_reason": fallback_reason}
             else:
                 proposal=self.patch_generator.generate_append_patch(run_id, plan_id, step.step_id, step.title, str(plan.get('description','')), step.risk_level, target)
         except ValueError as exc:
@@ -232,8 +251,14 @@ class ImplementationExecutor:
             original_block = str(patch.get("original_block", ""))
             replacement_block = str(patch.get("replacement_block", ""))
             match_count = before.count(original_block)
-            if match_count != 1:
-                raise ValueError("replace_block apply requires exact match_count == 1")
+            if match_count == 0:
+                self.patch_storage.update_patch_payload(run_id, patch_id, {"apply_allowed": False, "safety_warnings": list(set(list(patch.get("safety_warnings") or []) + ["replace_block original_block no longer exists"]))})
+                raise ValueError("replace_block original_block no longer exists")
+            if match_count > 1:
+                self.patch_storage.update_patch_payload(run_id, patch_id, {"apply_allowed": False, "safety_warnings": list(set(list(patch.get("safety_warnings") or []) + ["replace_block original_block is ambiguous"]))})
+                raise ValueError("replace_block original_block is ambiguous")
+            backup = target.with_suffix(target.suffix + '.bak.phase8')
+            backup.write_text(before, encoding="utf-8")
             target.write_text(before.replace(original_block, replacement_block, 1), encoding="utf-8")
 
         vr = self.verification_runner.run(
@@ -252,7 +277,7 @@ class ImplementationExecutor:
             target_file=str(target),
             backup_path=str(backup),
             changed_bytes=len((proposed if patch_type == "append" else str(patch.get("replacement_block", ""))).encode("utf-8")),
-            message="patch applied",
+            message=f"patch applied; verification={vr.status}",
             verification_result_id=vr.verification_id,
         )
         self.patch_storage.save_apply_result(run_id, ar)
@@ -266,6 +291,8 @@ class ImplementationExecutor:
                 "verification_id": vr.verification_id,
                 "approval_status": "applied",
                 "patch_approval_id": approval.patch_approval_id,
+                "verification_status": vr.status,
+                "verification_summary": vr.summary,
             },
         )
         return {

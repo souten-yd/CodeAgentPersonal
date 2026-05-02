@@ -10587,6 +10587,29 @@ def _phase1_llm_json(prompt: str, user_content: str) -> dict | None:
         return None
 
 
+
+
+def call_patch_llm(prompt: str, target_file: str = "", content: str = "") -> str:
+    base_url = (os.environ.get("CODEAGENT_LLM_BASE_URL") or os.environ.get("OPENAI_API_BASE") or "http://127.0.0.1:8080/v1").rstrip("/")
+    model = (os.environ.get("CODEAGENT_LLM_MODEL") or os.environ.get("OPENAI_MODEL") or "local-model").strip()
+    api_key = (os.environ.get("CODEAGENT_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()
+    url = f"{base_url}/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "Return JSON object only. No markdown."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.2,
+    }
+    res = requests.post(url, headers=headers, json=payload, timeout=25)
+    res.raise_for_status()
+    data = res.json()
+    return str((((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""))
+
 def _phase1_active_skills_safe() -> list:
     try:
         for fn_name in ("_active_skills", "active_skills", "get_active_skills"):
@@ -10608,7 +10631,7 @@ _phase1_planning_runner = TaskPlanningRunner(
 )
 _phase1_approval_manager = PlanApprovalManager(_phase1_planning_runner.storage)
 _phase6_run_storage = RunStorage(CA_DATA_DIR)
-_phase6_executor = ImplementationExecutor(_phase1_planning_runner.storage, _phase6_run_storage)
+_phase6_executor = ImplementationExecutor(_phase1_planning_runner.storage, _phase6_run_storage, llm_patch_fn=call_patch_llm)
 
 
 def _resolve_project_path_for_phase_planning(project_path: str, project_name: str) -> tuple[str, list[str]]:

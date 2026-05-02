@@ -46,12 +46,29 @@ class Phase9ReplaceBlockApplyTests(unittest.TestCase):
         PlanApprovalManager(self.storage).decide("p1", "approve")
         run = self.executor.execute("p1", execution_mode="safe_apply", project_path=str(self.project), allow_update=True, preview_only=True)
         run_id = run["run_id"]
-        patch = PatchProposal(patch_id="rb1", run_id=run_id, plan_id="p1", step_id="s1", target_file=str(t), patch_type="replace_block", original_block="x=1", replacement_block="x=2", match_count=1, apply_allowed=True)
+        patch = PatchProposal(patch_id="rb1", run_id=run_id, plan_id="p1", step_id="s1", target_file=str(t), patch_type="replace_block", original_block="x=1", replacement_block="x=2", match_count=1, apply_allowed=True, unified_diff="--- a\n+++ a\n@@\n-x=1\n+x=2")
         self.executor.patch_storage.save_patch_proposal(patch)
         PatchApprovalManager(self.executor.patch_storage).decide(run_id, "rb1", "approve")
         res = self.executor.apply_patch(run_id, "rb1")
         self.assertTrue(res["applied"])
         body=t.read_text(encoding="utf-8"); self.assertIn("x=2", body); self.assertIn("header", body)
+
+
+    def test_replace_block_apply_verification_status_saved(self):
+        t = self.project / "a.py"; t.write_text("header\nx=1\nfooter\n", encoding="utf-8")
+        plan = Plan(plan_id="p2", requirement_id="r2", status="planned", user_goal="g", requirement_summary="s", implementation_steps=[ImplementationStep(step_id="s1", title="u", action_type="update", risk_level="low", target_files=["a.py"])])
+        review = PlanReviewResult(review_id="rv2", plan_id="p2", requirement_id="r2", overall_risk="low", recommended_next_action="proceed")
+        self.storage.save_plan(plan, user_input="u", interpreted_goal="g", review_result=review)
+        PlanApprovalManager(self.storage).decide("p2", "approve")
+        run = self.executor.execute("p2", execution_mode="safe_apply", project_path=str(self.project), allow_update=True, preview_only=True)
+        run_id = run["run_id"]
+        patch = PatchProposal(patch_id="rb2", run_id=run_id, plan_id="p2", step_id="s1", target_file=str(t), patch_type="replace_block", original_block="x=1", replacement_block="x=2", match_count=1, apply_allowed=True, unified_diff="--- a\n+++ a\n@@\n-x=1\n+x=2")
+        self.executor.patch_storage.save_patch_proposal(patch)
+        PatchApprovalManager(self.executor.patch_storage).decide(run_id, "rb2", "approve")
+        res = self.executor.apply_patch(run_id, "rb2")
+        self.assertIn("verification=", res["apply_result"]["message"])
+        saved = self.executor.patch_storage.load_patch(run_id, "rb2")
+        self.assertIn(saved.get("verification_status", ""), {"passed", "failed"})
 
 if __name__ == '__main__':
     unittest.main()
