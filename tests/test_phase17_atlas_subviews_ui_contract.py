@@ -13,11 +13,16 @@ class TestPhase17AtlasSubviewsUiContract(unittest.TestCase):
 
     def test_helper_and_data_attributes_exist(self):
         self.assertIn('function setAtlasSubview(name)', self.ui)
-        self.assertIn('data-atlas-subview', self.ui)
+        self.assertIn('data-atlas-current-subview', self.ui)
+        self.assertIn('data-atlas-subview-panel', self.ui)
         self.assertIn('data-atlas-subview-tab', self.ui)
 
-    def test_default_overview_exists(self):
-        self.assertIn('id="atlas-workbench-card" data-atlas-subview="overview"', self.ui)
+    def test_root_uses_current_subview_attribute(self):
+        self.assertIn('id="atlas-workbench-card" data-atlas-current-subview="overview"', self.ui)
+
+    def test_panels_use_panel_attribute(self):
+        for subview in ['overview', 'plan', 'runs', 'dashboard', 'patch_review', 'legacy']:
+            self.assertIn(f'data-atlas-subview-panel="{subview}"', self.ui)
 
     def test_existing_host_ids_remain(self):
         for host_id in [
@@ -38,6 +43,17 @@ class TestPhase17AtlasSubviewsUiContract(unittest.TestCase):
             "setAtlasSubview('plan')",
         ]:
             self.assertIn(hook, self.ui)
+
+    def test_set_subview_uses_panel_selector_not_broad_selector(self):
+        self.assertIn("querySelectorAll('[data-atlas-subview-panel]')", self.ui)
+        self.assertIn("querySelectorAll('[data-atlas-subview-tab]')", self.ui)
+        self.assertNotIn("querySelectorAll('[data-atlas-subview]')", self.ui)
+
+    def test_root_does_not_use_old_data_atlas_subview(self):
+        self.assertNotIn('id="atlas-workbench-card" data-atlas-subview=', self.ui)
+
+    def test_invalid_subview_fallback_exists(self):
+        self.assertIn("const next = allowed.includes(name) ? name : 'overview';", self.ui)
 
     def test_legacy_compatibility_remains(self):
         self.assertIn('function openLegacyTaskFromAtlas()', self.ui)

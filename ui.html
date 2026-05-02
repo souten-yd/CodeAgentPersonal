@@ -1380,7 +1380,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   <div class="atlas-panel-col mob-hidden" id="atlas-panel-col" style="display:none">
     <div class="agent-head"><h3>Atlas Workbench</h3></div>
     <div class="agent-ctx">要件定義・計画・実行Preview・Patch Review・Run Auditの作業入口です。</div>
-    <div class="plan-card" id="atlas-workbench-card" data-atlas-subview="overview" style="margin:10px">
+    <div class="plan-card" id="atlas-workbench-card" data-atlas-current-subview="overview" style="margin:10px">
       <div class="plan-card-header"><span>Atlas Workbench</span></div>
       <div class="plan-section">
         <div class="atlas-subview-tabs">
@@ -1391,7 +1391,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="patch_review" onclick="setAtlasSubview('patch_review')">Patch Review</button>
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="legacy" onclick="setAtlasSubview('legacy')">Legacy</button>
         </div>
-        <div class="atlas-subview" data-atlas-subview="overview">
+        <div class="atlas-subview" data-atlas-subview-panel="overview">
           <div style="font-size:12px;color:var(--text2);line-height:1.6">要件定義・計画・実行Preview・Patch Review・Run Auditを安全に進める作業入口です。</div>
           <div style="margin-top:8px"><b>Atlas Runs</b> / Last Run: <span id="atlas-workbench-card-atlas-last-run">-</span></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
@@ -1401,14 +1401,14 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
           </div>
         </div>
-        <div class="atlas-subview" data-atlas-subview="plan" style="display:none">
+        <div class="atlas-subview" data-atlas-subview-panel="plan" style="display:none">
           <div style="font-size:12px;color:var(--text2);line-height:1.6">Agent powers Atlas workflows. Agent is the advanced runtime surface. Atlas is the guided workflow for normal work.</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
             <button class="phase1-plan-btn" type="button" onclick="startAtlasWorkflow()">Start Atlas</button>
             <button class="phase1-tab-btn" type="button" onclick="showAtlasPanel()">Open Atlas Panel</button>
           </div>
         </div>
-        <div class="atlas-subview" data-atlas-subview="runs" style="display:none">
+        <div class="atlas-subview" data-atlas-subview-panel="runs" style="display:none">
           <div style="margin-top:2px"><b>Atlas Runs</b> / Last Run: <span data-atlas-last-run-mirror>-</span></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
             <input id="atlas-workbench-card-atlas-run-input" placeholder="run_id" value="" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;min-width:0;max-width:100%;flex:1 1 220px">
@@ -1417,20 +1417,20 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </div>
           <div id="atlas-workbench-card-atlas-runs-list" style="margin-top:6px;font-size:11px"></div>
         </div>
-        <div class="atlas-subview" data-atlas-subview="dashboard" style="display:none">
+        <div class="atlas-subview" data-atlas-subview-panel="dashboard" style="display:none">
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
             <button class="phase1-tab-btn" type="button" onclick="openLastAtlasDashboardFromWorkbench()">Open Last Atlas Dashboard</button>
             <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
           </div>
           <div id="atlas-workbench-card-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div>
         </div>
-        <div class="atlas-subview" data-atlas-subview="patch_review" style="display:none">
+        <div class="atlas-subview" data-atlas-subview-panel="patch_review" style="display:none">
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
             <button class="phase1-tab-btn" type="button" onclick="openPatchReviewFromWorkbench()">Open Patch Review for this run</button>
           </div>
           <div id="atlas-workbench-card-patch-list" style="margin-top:8px;font-size:11px"></div>
         </div>
-        <div class="atlas-subview" data-atlas-subview="legacy" style="display:none">
+        <div class="atlas-subview" data-atlas-subview-panel="legacy" style="display:none">
           <div style="font-size:12px;color:var(--text2);line-height:1.6">Taskは互換のため残しています。通常作業はAtlasから開始してください。<br>Agentは高度な実行基盤・内部Runtime確認用です。</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
             <button class="phase1-tab-btn" type="button" onclick="openLegacyTaskFromAtlas();">Open Legacy Task</button>
@@ -13831,9 +13831,9 @@ function setAtlasSubview(name) {
   const allowed = ['overview', 'plan', 'runs', 'dashboard', 'patch_review', 'legacy'];
   const next = allowed.includes(name) ? name : 'overview';
   const root = document.getElementById('atlas-workbench-card');
-  if (root) root.dataset.atlasSubview = next;
-  document.querySelectorAll('[data-atlas-subview]').forEach((el) => {
-    el.style.display = el.getAttribute('data-atlas-subview') === next ? '' : 'none';
+  if (root) root.dataset.atlasCurrentSubview = next;
+  document.querySelectorAll('[data-atlas-subview-panel]').forEach((el) => {
+    el.style.display = el.getAttribute('data-atlas-subview-panel') === next ? '' : 'none';
   });
   document.querySelectorAll('[data-atlas-subview-tab]').forEach((btn) => {
     btn.classList.toggle('active', btn.getAttribute('data-atlas-subview-tab') === next);
