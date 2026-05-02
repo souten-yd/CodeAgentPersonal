@@ -118,3 +118,11 @@
 - No backend workflow behavior is changed in this phase.
 - No approval bypass is introduced.
 - No auto apply / bulk apply is introduced.
+
+
+## Phase 20 note (Guided Plan Flow action buttons)
+- Guided Plan Flow now shows explicit next-action buttons in the Plan subview.
+- These buttons open existing safe workflow panels/functions only.
+- Approval and Patch Review gates remain required.
+- This phase introduces no backend workflow behavior change.
+- No bulk apply is introduced in this phase.

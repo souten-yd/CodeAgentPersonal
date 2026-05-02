@@ -1414,6 +1414,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.6">Steps: Requirement → Plan → Review → Approval → Execute Preview → Patch Review</div>
             <div id="atlas-workbench-card-plan-flow" style="margin-top:8px;font-size:11px;line-height:1.6"></div>
             <div id="atlas-workbench-card-plan-next-action" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.6"></div>
+            <div id="atlas-workbench-card-plan-next-action-buttons" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
             <div style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.6">Execute Preview remains locked until plan approval.<br>No apply happens from this panel.<br>Patch application still requires Patch Review approval.</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
               <button class="phase1-tab-btn" type="button" onclick="setAtlasSubview('runs')">Open Runs</button>
@@ -13908,6 +13909,45 @@ function deriveAtlasPlanFlowState() {
   return flow;
 }
 
+function renderAtlasPlanNextActionButtons(flow) {
+  const buttonsEl = document.getElementById('atlas-workbench-card-plan-next-action-buttons');
+  if (!buttonsEl) return;
+  buttonsEl.replaceChildren();
+
+  const addBtn = (label, onClick, primary = false) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = primary ? 'phase1-plan-btn' : 'phase1-tab-btn';
+    btn.textContent = label;
+    btn.onclick = onClick;
+    buttonsEl.appendChild(btn);
+  };
+
+  const nextAction = String(flow?.nextAction || '');
+  if (nextAction === 'Start Atlas') {
+    addBtn('Start Atlas', startAtlasWorkflow, true);
+  } else if (nextAction === 'Review generated plan') {
+    addBtn('Open Atlas Panel', showAtlasPanel);
+    addBtn('Review Plan', showAtlasPanel);
+  } else if (nextAction === 'Approve plan') {
+    addBtn('Open Approval Panel', showAtlasPanel);
+    addBtn('Review Plan', showAtlasPanel);
+  } else if (nextAction === 'Run Execute Preview') {
+    addBtn('Open Execute Preview', showAtlasPanel);
+  } else if (nextAction === 'Open Patch Review') {
+    addBtn('Open Patch Review', openPatchReviewFromWorkbench);
+  }
+
+  const note = document.createElement('div');
+  note.style.flexBasis = '100%';
+  note.style.marginTop = '2px';
+  note.style.fontSize = '10px';
+  note.style.color = 'var(--text3)';
+  note.style.lineHeight = '1.6';
+  note.textContent = 'Actions open existing safe workflow panels. Approval and Patch Review gates remain required.';
+  buttonsEl.appendChild(note);
+}
+
 function renderAtlasPlanFlowSummary() {
   const flowEl = document.getElementById('atlas-workbench-card-plan-flow');
   const nextEl = document.getElementById('atlas-workbench-card-plan-next-action');
@@ -13931,6 +13971,7 @@ function renderAtlasPlanFlowSummary() {
   }
 
   nextEl.textContent = `Next Action: ${flow.nextAction}`;
+  renderAtlasPlanNextActionButtons(flow);
 }
 
 function _updatePlanWorkflowState(partial = {}) {
