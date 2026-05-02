@@ -81,6 +81,17 @@ class PatchStorage:
             payload.setdefault("apply_allowed", bool(payload.get("apply_allowed", False)))
             payload.setdefault("unified_diff", payload.get("unified_diff", ""))
             out.append(payload)
+        by_parent: dict[str, list[dict]] = {}
+        for p in out:
+            parent = str(p.get("reproposal_of_patch_id", "") or "")
+            if parent:
+                by_parent.setdefault(parent, []).append(p)
+        for p in out:
+            p["verification_failed"] = str(p.get("verification_status", "")) == "failed"
+            children = by_parent.get(str(p.get("patch_id", "")), [])
+            p["reproposal_count"] = len(children)
+            p["has_reproposal"] = len(children) > 0
+            p["latest_reproposal_patch_id"] = str(children[-1].get("patch_id", "")) if children else ""
         return out
 
     def load_patch(self, run_id: str, patch_id: str) -> dict:

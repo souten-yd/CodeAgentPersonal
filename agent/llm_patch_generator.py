@@ -53,7 +53,7 @@ def generate_replace_block_patch(run_id: str, plan_id: str, step_id: str, step_t
     selector = PatchContextSelector()
     candidates = selector.select_candidates(file_content, step_title, step_description, max_candidates=5, target_file=str(target_file))
     prompt = _build_prompt(target_file, step_title, step_description, candidates)
-    metadata = {"context": context or {}, "candidates_summary": [{"candidate_id": c.candidate_id, "reason": c.reason, "start_line": c.start_line, "end_line": c.end_line} for c in candidates]}
+    metadata = {"context": context or {}, "candidates_summary": [{"candidate_id": c.candidate_id, "reason": c.reason, "start_line": c.start_line, "end_line": c.end_line} for c in candidates], "prompt_chars": len(prompt)}
 
     def finalize(p: PatchProposal) -> PatchProposal:
         q = PatchQualityEvaluator().evaluate(p, file_content, step_title, step_description)
@@ -66,14 +66,16 @@ def generate_replace_block_patch(run_id: str, plan_id: str, step_id: str, step_t
         return p
 
     def invalid(reason: str, warnings: list[str], raw: str = "", sanitized: bool = False, original: str = "", replacement: str = "") -> PatchProposal:
-        return finalize(PatchProposal(patch_id=patch_id, run_id=run_id, plan_id=plan_id, step_id=step_id, target_file=str(target_file), patch_type="replace_block", risk_level=risk_level, apply_allowed=False, can_apply_reason=reason, generator="llm_replace_block", llm_prompt_preview=prompt[:500], llm_raw_output_preview=(raw or "")[:1000], llm_sanitized=sanitized, safety_warnings=warnings, original_block=original, replacement_block=replacement, metadata=metadata, candidate_block_count=len(candidates)))
+        md = {**metadata, "raw_output_chars": len(raw or ""), "validation_reason": reason}
+        return finalize(PatchProposal(patch_id=patch_id, run_id=run_id, plan_id=plan_id, step_id=step_id, target_file=str(target_file), patch_type="replace_block", risk_level=risk_level, apply_allowed=False, can_apply_reason=reason, generator="llm_replace_block", llm_prompt_preview=prompt[:500], llm_raw_output_preview=(raw or "")[:1000], llm_sanitized=sanitized, safety_warnings=warnings, original_block=original, replacement_block=replacement, metadata=md, candidate_block_count=len(candidates)))
 
     if llm_fn is None:
         return invalid("llm_unavailable", ["llm_fn is None"])
     try:
         raw = str(llm_fn(prompt=prompt, target_file=str(target_file), content=file_content) or "")
     except Exception as exc:
-        return invalid("llm_error", [f"llm_error: {exc}"])
+        md = {**metadata, "llm_error": str(exc)}
+        return finalize(PatchProposal(patch_id=patch_id, run_id=run_id, plan_id=plan_id, step_id=step_id, target_file=str(target_file), patch_type="replace_block", risk_level=risk_level, apply_allowed=False, can_apply_reason="llm_error", generator="llm_replace_block", llm_prompt_preview=prompt[:500], llm_raw_output_preview="", llm_sanitized=False, safety_warnings=[f"llm_error: {exc}"], metadata=md, candidate_block_count=len(candidates)))
 
     json_text, sanitized = _extract_json_text(raw)
     try:
@@ -110,4 +112,6 @@ def generate_replace_block_patch(run_id: str, plan_id: str, step_id: str, step_t
     if changed_lines > MAX_CHANGED_LINES:
         return invalid("changed_lines_exceeds_limit", ["changed lines exceeds limit"], raw=raw, sanitized=sanitized, original=original, replacement=replacement)
 
+    metadata["raw_output_chars"] = len(raw or "")
+    metadata["validation_reason"] = "exact_match"
     return finalize(PatchProposal(patch_id=patch_id, run_id=run_id, plan_id=plan_id, step_id=step_id, target_file=str(target_file), patch_type="replace_block", risk_level=risk_level, original_preview=file_content[:400], proposed_content="", unified_diff=diff, original_block=original, replacement_block=replacement, match_strategy="exact", match_count=1, can_apply_reason="exact_match", generator="llm_replace_block", llm_prompt_preview=prompt[:500], llm_raw_output_preview=raw[:1000], llm_sanitized=sanitized, apply_allowed=True, metadata=metadata, candidate_block_count=len(candidates), selected_candidate_reason=selected_reason))

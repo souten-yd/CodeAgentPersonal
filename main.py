@@ -10769,6 +10769,16 @@ class PatchApprovalActionRequest(BaseModel):
     user_comment: str = ""
     risk_acknowledged: bool = False
     safety_warnings_acknowledged: bool = False
+    quality_warnings_acknowledged: bool = False
+    low_quality_acknowledged: bool = False
+
+
+class ManualCheckRequest(BaseModel):
+    reviewer: str = "user"
+    llm_endpoint: str = ""
+    model: str = ""
+    observed_issue: str = ""
+    notes: str = ""
 
 
 class PatchReproposalRequest(BaseModel):
@@ -10872,6 +10882,8 @@ def api_approve_patch(run_id: str, patch_id: str, req: PatchApprovalActionReques
             user_comment=req.user_comment,
             risk_acknowledged=req.risk_acknowledged,
             safety_warnings_acknowledged=req.safety_warnings_acknowledged,
+            quality_warnings_acknowledged=req.quality_warnings_acknowledged,
+            low_quality_acknowledged=req.low_quality_acknowledged,
             approved_by="user",
         )
     except FileNotFoundError:
@@ -10923,6 +10935,74 @@ def api_get_verification_result(run_id: str, verification_id: str):
         return ps.load_verification_result(run_id, verification_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="verification result not found")
+
+
+@app.get("/api/runs/{run_id}/llm-telemetry")
+def api_get_llm_telemetry(run_id: str):
+    from agent.llm_telemetry_storage import LLMTelemetryStorage
+    ts = LLMTelemetryStorage(_phase6_run_storage.base_dir)
+    return {"run_id": run_id, "telemetry": ts.list_telemetry(run_id)}
+
+
+@app.get("/api/runs/{run_id}/llm-telemetry/{telemetry_id}")
+def api_get_llm_telemetry_one(run_id: str, telemetry_id: str):
+    try:
+        from agent.llm_telemetry_storage import LLMTelemetryStorage
+        ts = LLMTelemetryStorage(_phase6_run_storage.base_dir)
+        return ts.load_telemetry(run_id, telemetry_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="llm telemetry not found")
+
+
+@app.post("/api/runs/{run_id}/patches/{patch_id}/manual-check")
+def api_save_manual_check(run_id: str, patch_id: str, req: ManualCheckRequest):
+    from uuid import uuid4
+    from agent.manual_check_schema import ManualLLMCheckResult
+    from agent.manual_check_storage import ManualCheckStorage
+    from agent.patch_storage import PatchStorage
+    ps = PatchStorage(_phase6_run_storage.base_dir)
+    patch = ps.load_patch(run_id, patch_id)
+    listed = ps.list_patches(run_id)
+    has_reproposal = any(str(x.get("reproposal_of_patch_id", "")) == patch_id for x in listed)
+    rec = ManualLLMCheckResult(
+        check_id=f"mc_{uuid4().hex[:12]}",
+        run_id=run_id,
+        patch_id=patch_id,
+        reviewer=req.reviewer,
+        llm_endpoint=req.llm_endpoint,
+        model=req.model,
+        test_target_file=str(patch.get("target_file", "")),
+        patch_generation_mode=str((patch.get("metadata") or {}).get("patch_generation_mode", patch.get("generator", ""))),
+        patch_type=str(patch.get("patch_type", "")),
+        generator=str(patch.get("generator", "")),
+        apply_allowed=bool(patch.get("apply_allowed", False)),
+        quality_score=float(patch.get("quality_score", 0.0) or 0.0),
+        can_apply_reason=str(patch.get("can_apply_reason", "")),
+        safety_warnings=[str(x) for x in (patch.get("safety_warnings") or [])],
+        quality_warnings=[str(x) for x in (patch.get("quality_warnings") or [])],
+        verification_status=str(patch.get("verification_status", "")),
+        reproposal_generated=has_reproposal,
+        observed_issue=req.observed_issue,
+        notes=req.notes,
+        metadata={},
+    )
+    ManualCheckStorage(_phase6_run_storage.base_dir).save_manual_check(rec)
+    return {"manual_check": rec.model_dump()}
+
+
+@app.get("/api/runs/{run_id}/manual-checks")
+def api_get_manual_checks(run_id: str):
+    from agent.manual_check_storage import ManualCheckStorage
+    return {"run_id": run_id, "manual_checks": ManualCheckStorage(_phase6_run_storage.base_dir).list_manual_checks(run_id)}
+
+
+@app.get("/api/runs/{run_id}/manual-checks/{check_id}")
+def api_get_manual_check(run_id: str, check_id: str):
+    try:
+        from agent.manual_check_storage import ManualCheckStorage
+        return ManualCheckStorage(_phase6_run_storage.base_dir).load_manual_check(run_id, check_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="manual check not found")
 
 
 @app.get("/api/reviews/{review_id}")

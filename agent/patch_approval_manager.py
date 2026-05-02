@@ -22,6 +22,8 @@ class PatchApprovalManager:
         user_comment: str = "",
         risk_acknowledged: bool = False,
         safety_warnings_acknowledged: bool = False,
+        quality_warnings_acknowledged: bool = False,
+        low_quality_acknowledged: bool = False,
         approved_by: str = "user",
     ) -> dict:
         patch = self.patch_storage.load_patch(run_id, patch_id)
@@ -38,6 +40,9 @@ class PatchApprovalManager:
 
         risk_level = str(patch.get("risk_level", "low")).lower()
         warnings = [str(x) for x in (patch.get("safety_warnings") or [])]
+        quality_warnings = [str(x) for x in (patch.get("quality_warnings") or [])]
+        quality_score = float(patch.get("quality_score", 0.0) or 0.0)
+        quality_summary = str(patch.get("quality_summary", "") or "")
         apply_allowed = bool(patch.get("apply_allowed", False))
 
         if decision == "approve":
@@ -47,6 +52,10 @@ class PatchApprovalManager:
                 raise ValueError("safety warnings acknowledgment is required")
             if risk_level in {"medium", "high"} and not risk_acknowledged:
                 raise ValueError("risk acknowledgment is required for medium/high risk patch")
+            if quality_warnings and not quality_warnings_acknowledged:
+                raise ValueError("quality warnings acknowledgment is required")
+            if quality_score < 0.4 and not low_quality_acknowledged:
+                raise ValueError("low quality acknowledgment is required for quality_score < 0.4")
 
         status = "approved" if decision == "approve" else "rejected"
         record = PatchApprovalRecord(
@@ -63,7 +72,12 @@ class PatchApprovalManager:
             user_comment=user_comment,
             risk_acknowledged=bool(risk_acknowledged),
             safety_warnings_acknowledged=bool(safety_warnings_acknowledged),
+            quality_warnings_acknowledged=bool(quality_warnings_acknowledged),
+            low_quality_acknowledged=bool(low_quality_acknowledged),
             apply_allowed_at_approval=apply_allowed,
+            quality_score_at_approval=quality_score,
+            quality_warnings_at_approval=quality_warnings,
+            quality_summary_at_approval=quality_summary,
             approved_for_apply=(decision == "approve"),
             applied=False,
             warnings=warnings,

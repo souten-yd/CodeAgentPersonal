@@ -7,6 +7,8 @@ from uuid import uuid4
 from agent.implementation_schema import ImplementationRun, ImplementationStepResult
 from agent.patch_generator import PatchGenerator
 from agent.llm_patch_generator import generate_replace_block_patch
+from agent.llm_telemetry_schema import LLMCallTelemetry
+from agent.llm_telemetry_storage import LLMTelemetryStorage
 from agent.patch_safety import PatchSafetyChecker
 from agent.patch_schema import PatchApplyResult, PatchProposal
 from agent.patch_approval_manager import PatchApprovalManager
@@ -28,6 +30,7 @@ class ImplementationExecutor:
         self.patch_safety = PatchSafetyChecker()
         self.verification_runner = VerificationRunner()
         self.llm_patch_fn = llm_patch_fn
+        self.llm_telemetry_storage = LLMTelemetryStorage(run_storage.base_dir)
 
     def execute(self, plan_id: str, execution_mode: str = "dry_run", project_path: str = "", allow_update: bool = False, allow_create: bool = False, allow_delete: bool = False, allow_run_command: bool = False, user_comment: str = "", apply_patches: bool = False, preview_only: bool = True, max_patch_bytes: int = 20000, patch_generation_mode: str = "append") -> dict:
         if execution_mode not in {"dry_run", "safe_apply"}:
@@ -153,6 +156,7 @@ class ImplementationExecutor:
         try:
             if mode in {"llm_replace_block", "auto"}:
                 content = target.read_text(encoding="utf-8")
+                started = self._now()
                 proposal = generate_replace_block_patch(
                     run_id,
                     plan_id,
@@ -171,10 +175,11 @@ class ImplementationExecutor:
                         "step": step.model_dump() if hasattr(step, "model_dump") else {},
                     },
                 )
+                self._save_llm_telemetry(run_id, plan_id, step.step_id, proposal, "patch_generation", started)
                 if mode == "auto" and not proposal.apply_allowed:
                     fallback_reason = proposal.can_apply_reason or "llm_invalid"
                     proposal = self.patch_generator.generate_append_patch(run_id, plan_id, step.step_id, step.title, str(plan.get('description','')), step.risk_level, target)
-                    proposal.metadata = {**(proposal.metadata or {}), "fallback_from": "llm_replace_block", "fallback_reason": fallback_reason}
+                    proposal.metadata = {**(proposal.metadata or {}), "fallback_from": "llm_replace_block", "fallback_reason": fallback_reason, "fallback_telemetry_id": proposal.metadata.get("llm_telemetry_id", "")}
             else:
                 proposal=self.patch_generator.generate_append_patch(run_id, plan_id, step.step_id, step.title, str(plan.get('description','')), step.risk_level, target)
         except ValueError as exc:
@@ -332,6 +337,7 @@ class ImplementationExecutor:
             llm_fn=self.llm_patch_fn,
             context={"reproposal_of_patch_id": patch_id, "reason": reason},
         )
+        self._save_llm_telemetry(run_id, str(patch.get("plan_id", "")), str(patch.get("step_id", "")), proposal, "reproposal_generation", self._now())
         proposal.reproposal_of_patch_id = patch_id
         proposal.reproposal_reason = reason
         proposal.parent_verification_id = str(patch.get("verification_id", ""))
@@ -351,6 +357,47 @@ class ImplementationExecutor:
 
         self.patch_storage.save_patch_proposal(proposal)
         return {"run_id": run_id, "patch_id": proposal.patch_id, "reproposal": proposal.model_dump()}
+
+    def _save_llm_telemetry(self, run_id: str, plan_id: str, step_id: str, proposal: PatchProposal, purpose: str, started_at: str) -> None:
+        md = proposal.metadata or {}
+        telemetry_id = f"llm_{uuid4().hex[:12]}"
+        model = ""
+        base_url = ""
+        error = ""
+        try:
+            import os
+            base_url = (os.environ.get("CODEAGENT_LLM_BASE_URL") or os.environ.get("OPENAI_API_BASE") or "").strip()
+            model = (os.environ.get("CODEAGENT_LLM_MODEL") or os.environ.get("OPENAI_MODEL") or "").strip()
+        except Exception:
+            pass
+        if proposal.can_apply_reason == "llm_error":
+            error = "; ".join(proposal.safety_warnings or [])
+        rec = LLMCallTelemetry(
+            telemetry_id=telemetry_id,
+            run_id=run_id,
+            plan_id=plan_id,
+            patch_id=proposal.patch_id,
+            step_id=step_id,
+            purpose=purpose,  # type: ignore[arg-type]
+            provider="openai_compatible",
+            model=model,
+            base_url=base_url,
+            request_started_at=started_at,
+            request_finished_at=self._now(),
+            duration_ms=0,
+            success=bool(proposal.apply_allowed),
+            error=error,
+            prompt_chars=int(md.get("prompt_chars", 0) or 0),
+            response_chars=int(md.get("raw_output_chars", 0) or 0),
+            raw_output_preview=str(proposal.llm_raw_output_preview or "")[:1500],
+            sanitized=bool(proposal.llm_sanitized),
+            parsed_json=str(proposal.can_apply_reason or "") not in {"invalid_json", "invalid_json_type"},
+            validation_reason=str(proposal.can_apply_reason or md.get("validation_reason", "")),
+            apply_allowed_after_validation=bool(proposal.apply_allowed),
+            metadata={"generator": proposal.generator, "target_file": proposal.target_file},
+        )
+        self.llm_telemetry_storage.save_telemetry(rec)
+        proposal.metadata = {**md, "llm_telemetry_id": telemetry_id}
 
     def _backup_path_for(self, target: Path, patch_id: str = "") -> Path:
         safe_patch_id = patch_id or "unknown"
