@@ -152,6 +152,7 @@ class ImplementationExecutor:
         if not target.exists(): raise ValueError("target file does not exist")
         if self._is_binary(target): raise ValueError("binary file update is blocked")
         proposal = None
+        llm_telemetry_id = ""
         mode = (patch_generation_mode or "append").strip().lower()
         try:
             if mode in {"llm_replace_block", "auto"}:
@@ -176,10 +177,11 @@ class ImplementationExecutor:
                     },
                 )
                 self._save_llm_telemetry(run_id, plan_id, step.step_id, proposal, "patch_generation", started)
+                llm_telemetry_id = str((proposal.metadata or {}).get("llm_telemetry_id", "") or "")
                 if mode == "auto" and not proposal.apply_allowed:
                     fallback_reason = proposal.can_apply_reason or "llm_invalid"
                     proposal = self.patch_generator.generate_append_patch(run_id, plan_id, step.step_id, step.title, str(plan.get('description','')), step.risk_level, target)
-                    proposal.metadata = {**(proposal.metadata or {}), "fallback_from": "llm_replace_block", "fallback_reason": fallback_reason, "fallback_telemetry_id": proposal.metadata.get("llm_telemetry_id", "")}
+                    proposal.metadata = {**(proposal.metadata or {}), "fallback_from": "llm_replace_block", "fallback_reason": fallback_reason, "fallback_telemetry_id": llm_telemetry_id}
             else:
                 proposal=self.patch_generator.generate_append_patch(run_id, plan_id, step.step_id, step.title, str(plan.get('description','')), step.risk_level, target)
         except ValueError as exc:
@@ -372,6 +374,19 @@ class ImplementationExecutor:
             pass
         if proposal.can_apply_reason == "llm_error":
             error = "; ".join(proposal.safety_warnings or [])
+        finished_at = self._now()
+        duration_ms = 0
+        try:
+            duration_ms = int((datetime.fromisoformat(finished_at) - datetime.fromisoformat(started_at)).total_seconds() * 1000)
+            if duration_ms < 0:
+                duration_ms = 0
+        except Exception:
+            duration_ms = 0
+        validation_reason = str(proposal.can_apply_reason or md.get("validation_reason", ""))
+        response_chars = int(md.get("raw_output_chars", 0) or 0)
+        raw_preview = str(proposal.llm_raw_output_preview or "")[:1500]
+        llm_call_success = validation_reason not in {"llm_error", "llm_unavailable"} and bool(response_chars > 0 or raw_preview)
+        rejected_by_validation = llm_call_success and (not bool(proposal.apply_allowed))
         rec = LLMCallTelemetry(
             telemetry_id=telemetry_id,
             run_id=run_id,
@@ -383,18 +398,18 @@ class ImplementationExecutor:
             model=model,
             base_url=base_url,
             request_started_at=started_at,
-            request_finished_at=self._now(),
-            duration_ms=0,
-            success=bool(proposal.apply_allowed),
+            request_finished_at=finished_at,
+            duration_ms=duration_ms,
+            success=llm_call_success,
             error=error,
             prompt_chars=int(md.get("prompt_chars", 0) or 0),
-            response_chars=int(md.get("raw_output_chars", 0) or 0),
-            raw_output_preview=str(proposal.llm_raw_output_preview or "")[:1500],
+            response_chars=response_chars,
+            raw_output_preview=raw_preview,
             sanitized=bool(proposal.llm_sanitized),
-            parsed_json=str(proposal.can_apply_reason or "") not in {"invalid_json", "invalid_json_type"},
-            validation_reason=str(proposal.can_apply_reason or md.get("validation_reason", "")),
+            parsed_json=validation_reason not in {"invalid_json", "invalid_json_type"},
+            validation_reason=validation_reason,
             apply_allowed_after_validation=bool(proposal.apply_allowed),
-            metadata={"generator": proposal.generator, "target_file": proposal.target_file},
+            metadata={"generator": proposal.generator, "target_file": proposal.target_file, "validation_success": bool(proposal.apply_allowed), "llm_call_success": llm_call_success, "rejected_by_validation": rejected_by_validation},
         )
         self.llm_telemetry_storage.save_telemetry(rec)
         proposal.metadata = {**md, "llm_telemetry_id": telemetry_id}
