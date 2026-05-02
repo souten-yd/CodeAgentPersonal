@@ -13539,6 +13539,12 @@ function _renderNexusContextSummary(nexusContext, { title = 'Nexus Context Summa
     </details>`;
 }
 
+const ATLAS_LAST_RUN_KEY = 'atlas:lastRunId';
+const ATLAS_LAST_DASHBOARD_RUN_KEY = 'atlas:lastDashboardRunId';
+
+function _atlasLsGet(key) { try { return localStorage.getItem(key) || ''; } catch(_) { return ''; } }
+function _atlasLsSet(key, value) { try { if (value) localStorage.setItem(key, value); } catch(_) {} }
+
 const planWorkflowState = {
   requirementId: '',
   planId: '',
@@ -13592,6 +13598,7 @@ function _renderPlanWorkflowStatusPanel() {
       </div>
       <div style="margin-top:8px">
         <button class="phase1-tab-btn" onclick="openCurrentRunDashboardFromStatus()" ${hasRun ? '' : 'disabled'}>Open Atlas Dashboard</button>
+        <button class="phase1-tab-btn" onclick="openLastRunDashboardFromStatus()" ${_atlasLsGet(ATLAS_LAST_RUN_KEY) ? '' : 'disabled'}>Open Last Atlas Dashboard</button>
         ${hasRun ? '' : '<div style="font-size:10px;color:var(--text3);margin-top:4px">Execute Preview後に利用可能</div>'}
       </div>
     </div>`;
@@ -13600,6 +13607,15 @@ function _renderPlanWorkflowStatusPanel() {
   const agentStatus = document.getElementById('agent-guided-workflow-status');
   if (agentStatus) agentStatus.textContent = `${planWorkflowState.workspace || 'Atlas'} / ${_computePlanWorkflowNextAction()}`;
   scrollMsgs();
+}
+
+async function openLastRunDashboardFromStatus() {
+  const runId = _atlasLsGet(ATLAS_LAST_RUN_KEY);
+  if (!runId) return;
+  const latestCard = Array.from(document.querySelectorAll('.plan-card[id^="phase1-plan-card-"]')).pop();
+  if (!latestCard) return;
+  const cid = latestCard.id;
+  await loadAtlasRunDashboard(cid, runId, latestCard, 'lastRun');
 }
 
 async function openCurrentRunDashboardFromStatus() {
@@ -13945,6 +13961,10 @@ function _renderPhase6ExecutionSection(result, cardId) {
       <div style="font-size:11px;color:var(--text2);margin-top:4px">Patchは承認後に個別applyできます / proposed_content のappendのみ適用 / delete/run_command/high riskは実行されません。</div>
       <button class="phase1-tab-btn" data-run-view="patches" style="margin-top:6px">Load Patches</button>
       <button class="phase1-tab-btn" data-run-view="atlas-dashboard" style="margin-top:6px">Load Atlas Dashboard</button>
+      <button class="phase1-tab-btn" data-run-view="refresh-atlas-dashboard" style="margin-top:6px">Refresh Atlas Dashboard</button>
+      <div style="margin-top:8px"><b>Atlas Runs</b> / Last Run: <span id="${cardId}-atlas-last-run">-</span></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px"><input id="${cardId}-atlas-run-input" placeholder="run_id" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px"><button class="phase1-tab-btn" data-run-view="open-run-dashboard">Open Run Dashboard</button><button class="phase1-tab-btn" data-run-view="load-recent-atlas-runs">Load Recent Atlas Runs</button><button class="phase1-tab-btn" data-run-view="open-last-atlas-dashboard">Open Last Atlas Dashboard</button></div>
+      <div id="${cardId}-atlas-runs-list" style="margin-top:6px;font-size:11px"></div>
       <div id="${cardId}-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div>
       <div id="${cardId}-patch-list" style="margin-top:8px;font-size:11px"></div>
     </div>
@@ -13967,7 +13987,7 @@ const _ATLAS_PATCH_FILTERS = [
   ['reproposal_candidate', 'Reproposal Candidates'],
 ];
 
-async function loadAtlasRunDashboard(cid, runId, cardRoot) {
+async function loadAtlasRunDashboard(cid, runId, cardRoot, openedFrom = "current") {
   const root = cardRoot || document.getElementById(cid);
   const dashboardEl = root?.querySelector(`#${cid}-atlas-dashboard`);
   if (!dashboardEl || !runId) return;
@@ -13980,7 +14000,7 @@ async function loadAtlasRunDashboard(cid, runId, cardRoot) {
     const att = db.attention || {};
     const renderList = (title, items=[]) => `<div style="margin-top:4px"><b>${title}</b>: ${items.length ? items.map((pid)=>`<button class=\"phase1-tab-btn\" data-scroll-pid=\"${esc(String(pid))}\" style=\"margin:2px\">${esc(String(pid))}</button>`).join(' ') : '-'}</div>`;
     dashboardEl.innerHTML = `
-      <div><b>Atlas Run Dashboard</b> (run_id=${esc(runId)})</div>
+      <div><b>Atlas Run Dashboard</b></div><div>run_id: ${esc(runId)} / opened_from: ${esc(openedFrom)} / patches: ${esc(String(c.total||0))} / filter: ${esc(root?.dataset?.patchFilter || "all")}</div><div style="margin-top:4px"><button class="phase1-tab-btn" data-atlas-dashboard-action="open-patch-review">Open Patch Review for this run</button> <button class="phase1-tab-btn" data-atlas-dashboard-action="refresh-patches">Refresh Patches</button> <button class="phase1-tab-btn" data-atlas-dashboard-action="refresh-dashboard">Refresh Dashboard</button></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
         <span>Total: ${esc(String(c.total||0))}</span><span>Pending: ${esc(String(c.pending||0))}</span><span>Approved: ${esc(String(c.approved||0))}</span><span>Approved Not Applied: ${esc(String(c.approved_not_applied||0))}</span><span>Applied: ${esc(String(c.applied||0))}</span><span>Blocked: ${esc(String(c.apply_blocked||0))}</span><span>Verification Failed: ${esc(String(c.verification_failed||0))}</span><span>Low Quality: ${esc(String(c.low_quality||0))}</span><span>Quality Not Evaluated: ${esc(String(c.quality_not_evaluated||0))}</span>
       </div>
@@ -13997,6 +14017,13 @@ async function loadAtlasRunDashboard(cid, runId, cardRoot) {
       ${renderList('Quality not evaluated patches', att.quality_not_evaluated_patch_ids || [])}
       ${renderList('Reproposal candidates', att.reproposal_needed_patch_ids || [])}
     `;
+    _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
+    _atlasLsSet(ATLAS_LAST_DASHBOARD_RUN_KEY, runId);
+    dashboardEl.querySelectorAll('[data-atlas-dashboard-action]').forEach((btn)=>btn.addEventListener('click', async ()=>{
+      const a = btn.getAttribute('data-atlas-dashboard-action');
+      if (a === 'open-patch-review' || a === 'refresh-patches') await loadPhase8Patches(cid, runId);
+      if (a === 'refresh-dashboard') await loadAtlasRunDashboard(cid, runId, root, 'refresh');
+    }));
     dashboardEl.querySelectorAll('[data-scroll-pid]').forEach((btn)=>btn.addEventListener('click', ()=>{
       const pid = btn.getAttribute('data-scroll-pid') || '';
       document.getElementById(`${cid}-patch-${pid}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -14004,6 +14031,20 @@ async function loadAtlasRunDashboard(cid, runId, cardRoot) {
   } catch (e) {
     dashboardEl.innerHTML = `<div style="color:var(--danger)">Atlas Dashboard error: ${esc(e.message || String(e))}</div>`;
   }
+}
+
+
+async function loadRecentAtlasRuns(cid, cardRoot) {
+  const listEl = cardRoot.querySelector(`#${cid}-atlas-runs-list`);
+  const lastEl = cardRoot.querySelector(`#${cid}-atlas-last-run`);
+  if (lastEl) lastEl.textContent = _atlasLsGet(ATLAS_LAST_RUN_KEY) || '-';
+  const r = await fetch(API + '/api/atlas/runs?limit=20');
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+  const runs = Array.isArray(d.runs) ? d.runs : [];
+  listEl.innerHTML = runs.map((x)=>`<div style="margin-top:4px">- ${esc(x.run_id||'')} | patches=${esc(String(x.patch_count||0))} | blocked=${esc(String(x.blocked_count||0))} | failed=${esc(String(x.verification_failed_count||0))} | low_quality=${esc(String(x.low_quality_count||0))} | status=${esc(x.status||'unknown')} <button class="phase1-tab-btn" data-recent-open="${esc(x.run_id||'')}">Open Dashboard</button> <button class="phase1-tab-btn" data-recent-review="${esc(x.run_id||'')}">Open Patch Review</button></div>`).join('') || '<div style="color:var(--text3)">No runs.</div>';
+  listEl.querySelectorAll('[data-recent-open]').forEach((b)=>b.addEventListener('click', async ()=>{ const runId=b.getAttribute('data-recent-open')||''; if(!runId)return; cardRoot.dataset.lastRunId=runId; _atlasLsSet(ATLAS_LAST_RUN_KEY, runId); await loadAtlasRunDashboard(cid, runId, cardRoot, 'recentList'); }));
+  listEl.querySelectorAll('[data-recent-review]').forEach((b)=>b.addEventListener('click', async ()=>{ const runId=b.getAttribute('data-recent-review')||''; if(!runId)return; cardRoot.dataset.lastRunId=runId; _atlasLsSet(ATLAS_LAST_RUN_KEY, runId); await loadPhase8Patches(cid, runId); }));
 }
 
 function _bindPhase6ExecutionActions(cardRoot, result) {
@@ -14059,6 +14100,7 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
       ].join('\n');
       if (outEl) outEl.textContent = body;
       cardRoot.dataset.lastRunId = res.run_id || '';
+      _atlasLsSet(ATLAS_LAST_RUN_KEY, res.run_id || '');
       _updatePlanWorkflowState({runId: res.run_id || '', lastError: ''});
       addLog('ok', 'plan-only', `phase6 execute success plan_id=${planId} run_id=${res.run_id} mode=${mode}`);
       if (res.run_id) await loadPhase8Patches(cid, res.run_id);
@@ -14236,9 +14278,16 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
         return;
       }
       if (kind === 'atlas-dashboard') {
-        await loadAtlasRunDashboard(cid, runId, cardRoot);
+        await loadAtlasRunDashboard(cid, runId, cardRoot, 'current');
         return;
       }
+      if (kind === 'refresh-atlas-dashboard') {
+        await loadAtlasRunDashboard(cid, runId, cardRoot, 'refresh');
+        return;
+      }
+      if (kind === 'load-recent-atlas-runs') { await loadRecentAtlasRuns(cid, cardRoot); return; }
+      if (kind === 'open-last-atlas-dashboard') { const lastRun=_atlasLsGet(ATLAS_LAST_RUN_KEY); if (lastRun) { cardRoot.dataset.lastRunId=lastRun; await loadAtlasRunDashboard(cid, lastRun, cardRoot, 'lastRun'); } return; }
+      if (kind === 'open-run-dashboard') { const manual=(cardRoot.querySelector(`#${cid}-atlas-run-input`)?.value||'').trim(); if (manual) { cardRoot.dataset.lastRunId=manual; _atlasLsSet(ATLAS_LAST_RUN_KEY, manual); await loadAtlasRunDashboard(cid, manual, cardRoot, 'manualInput'); } return; }
       const ep = kind === 'report' ? `/api/runs/${encodeURIComponent(runId)}/report` : `/api/runs/${encodeURIComponent(runId)}/log`;
       const r = await fetch(API + ep);
       const d = await r.json();

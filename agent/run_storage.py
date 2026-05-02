@@ -99,3 +99,45 @@ class RunStorage:
         if not path.exists():
             raise FileNotFoundError(str(path))
         return path.read_text(encoding="utf-8")
+
+
+    def list_runs(self, limit: int = 20) -> list[dict]:
+        lim = max(1, min(int(limit or 20), 200))
+        items: list[dict] = []
+        run_root = self.base_dir / "runs"
+        run_root.mkdir(parents=True, exist_ok=True)
+        for rd in run_root.iterdir():
+            if not rd.is_dir():
+                continue
+            run_id = rd.name
+            run_json = rd / "run.json"
+            payload = {
+                "run_id": run_id,
+                "created_at": "",
+                "plan_id": "",
+                "status": "unknown",
+                "execution_mode": "",
+            }
+            if run_json.exists():
+                try:
+                    data = json.loads(run_json.read_text(encoding="utf-8"))
+                    payload.update({
+                        "run_id": str(data.get("run_id") or run_id),
+                        "created_at": str(data.get("created_at") or ""),
+                        "plan_id": str(data.get("plan_id") or ""),
+                        "status": str(data.get("status") or "unknown"),
+                        "execution_mode": str(data.get("execution_mode") or ""),
+                    })
+                except Exception:
+                    payload["summary_error"] = "run_json_parse_error"
+            try:
+                payload["_sort_key"] = run_json.stat().st_mtime if run_json.exists() else rd.stat().st_mtime
+            except Exception:
+                payload["_sort_key"] = 0
+            items.append(payload)
+        items.sort(key=lambda x: x.get("_sort_key", 0), reverse=True)
+        out = []
+        for x in items[:lim]:
+            x.pop("_sort_key", None)
+            out.append(x)
+        return out
