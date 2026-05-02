@@ -337,6 +337,18 @@ class ImplementationExecutor:
         proposal.parent_verification_id = str(patch.get("verification_id", ""))
         proposal.status = "proposed"
         proposal.applied = False
+        risk_level = str(proposal.risk_level or patch.get("risk_level", "low"))
+        try:
+            allowed, warns = self.patch_safety.evaluate(proposal, project, risk_level)
+            proposal.apply_allowed = bool(allowed)
+            proposal.safety_warnings = warns
+            if not allowed and not proposal.can_apply_reason:
+                proposal.can_apply_reason = "reproposal_safety_blocked"
+        except Exception as exc:
+            proposal.apply_allowed = False
+            proposal.safety_warnings = list(set(list(proposal.safety_warnings or []) + [f"reproposal safety error: {exc}"]))
+            proposal.can_apply_reason = proposal.can_apply_reason or "reproposal_safety_error"
+
         self.patch_storage.save_patch_proposal(proposal)
         return {"run_id": run_id, "patch_id": proposal.patch_id, "reproposal": proposal.model_dump()}
 
