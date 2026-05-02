@@ -363,6 +363,7 @@ html.logo-svg-ready .logo-text{display:none}
 .atlas-subview-tab{padding:4px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:5px;cursor:pointer}
 .atlas-subview-tab.active{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
 .atlas-subview{margin-top:10px}
+.atlas-focus-highlight{outline:1px solid var(--accent-border);box-shadow:0 0 0 3px var(--accent-bg);border-radius:8px}
 .phase1-tab-body{display:none}
 .phase1-tab-body.active{display:block}
 .phase1-warning-box{margin:8px 0;padding:8px 10px;border:1px solid rgba(255,197,102,.35);background:rgba(255,197,102,.08);border-radius:6px}
@@ -1410,10 +1411,12 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <button class="phase1-tab-btn" type="button" onclick="showAtlasPanel()">Open Atlas Panel</button>
           </div>
           <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);max-width:100%;overflow-wrap:anywhere">
-            <div style="font-size:12px;font-weight:700;color:var(--text)">Atlas Guided Plan Flow</div>
+            <div id="atlas-plan-review-anchor" data-atlas-plan-section="review" style="font-size:12px;font-weight:700;color:var(--text)">Atlas Guided Plan Flow</div>
             <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.6">Steps: Requirement → Plan → Review → Approval → Execute Preview → Patch Review</div>
             <div id="atlas-workbench-card-plan-flow" style="margin-top:8px;font-size:11px;line-height:1.6"></div>
+            <div id="atlas-plan-approval-anchor" data-atlas-plan-section="approval" style="margin-top:6px;height:1px"></div>
             <div id="atlas-workbench-card-plan-next-action" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.6"></div>
+            <div id="atlas-plan-execute-preview-anchor" data-atlas-plan-section="execute-preview" style="height:1px"></div>
             <div id="atlas-workbench-card-plan-next-action-buttons" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
             <div style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.6">Execute Preview remains locked until plan approval.<br>No apply happens from this panel.<br>Patch application still requires Patch Review approval.</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
@@ -13909,6 +13912,63 @@ function deriveAtlasPlanFlowState() {
   return flow;
 }
 
+function findAtlasWorkflowTarget(kind) {
+  const key = String(kind || '').trim().toLowerCase();
+  const selectorMap = {
+    review: [
+      '#atlas-plan-review-anchor',
+      '[data-atlas-plan-section="review"]',
+      '#atlas-workbench-card-plan-flow',
+      '#atlas-workbench-card-plan-next-action',
+    ],
+    approval: [
+      '#atlas-plan-approval-anchor',
+      '[data-atlas-plan-section="approval"]',
+      '#atlas-workbench-card-plan-next-action',
+      '#atlas-workbench-card-plan-next-action-buttons',
+    ],
+    execute_preview: [
+      '#atlas-plan-execute-preview-anchor',
+      '[data-atlas-plan-section="execute-preview"]',
+      '#atlas-workbench-card-plan-next-action-buttons',
+    ],
+    patch_review: [
+      '#atlas-workbench-card-patch-list',
+      '[data-atlas-subview-panel="patch_review"]',
+      '#atlas-workbench-card',
+    ],
+  };
+  const selectors = selectorMap[key] || [];
+  for (const sel of selectors) {
+    const el = document.querySelector(sel);
+    if (el) return el;
+  }
+  return null;
+}
+
+function focusAtlasWorkflowSection(kind) {
+  const key = String(kind || '').trim().toLowerCase();
+  if (key === 'patch_review') {
+    setAtlasSubview('patch_review');
+  } else {
+    showAtlasPanel();
+    setAtlasSubview('plan');
+  }
+  const target = findAtlasWorkflowTarget(key);
+  if (!target) {
+    addMsg('system', 'Target section is not visible yet. Open Atlas Panel and use the existing safe workflow controls.');
+    return false;
+  }
+  try {
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+    if (typeof target.focus === 'function') target.focus({ preventScroll: true });
+    target.classList.add('atlas-focus-highlight');
+    setTimeout(() => target.classList.remove('atlas-focus-highlight'), 1500);
+  } catch (_) {}
+  return true;
+}
+
 function renderAtlasPlanNextActionButtons(flow) {
   const buttonsEl = document.getElementById('atlas-workbench-card-plan-next-action-buttons');
   if (!buttonsEl) return;
@@ -13928,12 +13988,12 @@ function renderAtlasPlanNextActionButtons(flow) {
     addBtn('Start Atlas', startAtlasWorkflow, true);
   } else if (nextAction === 'Review generated plan') {
     addBtn('Open Atlas Panel', showAtlasPanel);
-    addBtn('Review Plan', showAtlasPanel);
+    addBtn('Review Plan', () => focusAtlasWorkflowSection('review'));
   } else if (nextAction === 'Approve plan') {
-    addBtn('Open Approval Panel', showAtlasPanel);
-    addBtn('Review Plan', showAtlasPanel);
+    addBtn('Open Approval Panel', () => focusAtlasWorkflowSection('approval'));
+    addBtn('Review Plan', () => focusAtlasWorkflowSection('review'));
   } else if (nextAction === 'Run Execute Preview') {
-    addBtn('Open Execute Preview', showAtlasPanel);
+    addBtn('Open Execute Preview', () => focusAtlasWorkflowSection('execute_preview'));
   } else if (nextAction === 'Open Patch Review') {
     addBtn('Open Patch Review', openPatchReviewFromWorkbench);
   }

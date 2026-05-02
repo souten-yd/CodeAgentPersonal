@@ -126,3 +126,10 @@
 - Approval and Patch Review gates remain required.
 - This phase introduces no backend workflow behavior change.
 - No bulk apply is introduced in this phase.
+
+## Phase 20.5 note (Guided Plan action focus / scroll targets)
+- Guided Plan action buttons now focus existing safe workflow sections in the Plan subview.
+- Buttons perform focus/scroll guidance only.
+- No approve/execute/apply is performed by these buttons.
+- Approval and Patch Review gates remain required.
+- No backend workflow behavior change is introduced in this phase.
