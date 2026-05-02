@@ -231,6 +231,17 @@ class ImplementationExecutor:
         if self._is_binary(target):
             raise ValueError("binary target apply is rejected")
 
+        before = target.read_text(encoding="utf-8")
+        if patch_type == "replace_block":
+            original_block = str(patch.get("original_block", ""))
+            match_count = before.count(original_block)
+            if match_count == 0:
+                self.patch_storage.update_patch_payload(run_id, patch_id, {"apply_allowed": False, "safety_warnings": list(set(list(patch.get("safety_warnings") or []) + ["replace_block original_block no longer exists"]))})
+                raise ValueError("replace_block original_block no longer exists")
+            if match_count > 1:
+                self.patch_storage.update_patch_payload(run_id, patch_id, {"apply_allowed": False, "safety_warnings": list(set(list(patch.get("safety_warnings") or []) + ["replace_block original_block is ambiguous"]))})
+                raise ValueError("replace_block original_block is ambiguous")
+
         patch_model = PatchProposal(**patch)
         allowed, warnings = self.patch_safety.evaluate(patch_model, project, str(patch.get("risk_level", "low")))
         safety_updates = {"safety_warnings": warnings}
@@ -241,23 +252,13 @@ class ImplementationExecutor:
         if warnings != list(patch.get("safety_warnings") or []):
             self.patch_storage.update_patch_payload(run_id, patch_id, safety_updates)
 
-        before = target.read_text(encoding="utf-8")
-        backup = target.with_suffix(target.suffix + '.bak.phase8')
-        backup.write_text(before, encoding="utf-8")
+        backup = self._backup_path_for(target)
         if patch_type == "append":
+            backup.write_text(before, encoding="utf-8")
             with target.open("a", encoding="utf-8") as f:
                 f.write(proposed)
         else:
-            original_block = str(patch.get("original_block", ""))
             replacement_block = str(patch.get("replacement_block", ""))
-            match_count = before.count(original_block)
-            if match_count == 0:
-                self.patch_storage.update_patch_payload(run_id, patch_id, {"apply_allowed": False, "safety_warnings": list(set(list(patch.get("safety_warnings") or []) + ["replace_block original_block no longer exists"]))})
-                raise ValueError("replace_block original_block no longer exists")
-            if match_count > 1:
-                self.patch_storage.update_patch_payload(run_id, patch_id, {"apply_allowed": False, "safety_warnings": list(set(list(patch.get("safety_warnings") or []) + ["replace_block original_block is ambiguous"]))})
-                raise ValueError("replace_block original_block is ambiguous")
-            backup = target.with_suffix(target.suffix + '.bak.phase8')
             backup.write_text(before, encoding="utf-8")
             target.write_text(before.replace(original_block, replacement_block, 1), encoding="utf-8")
 
@@ -279,9 +280,11 @@ class ImplementationExecutor:
             changed_bytes=len((proposed if patch_type == "append" else str(patch.get("replacement_block", ""))).encode("utf-8")),
             message=f"patch applied; verification={vr.status}",
             verification_result_id=vr.verification_id,
+            verification_status=vr.status,
+            verification_summary=vr.summary,
         )
         self.patch_storage.save_apply_result(run_id, ar)
-        approval = self.patch_approval_manager.mark_applied(run_id, patch_id, ar.model_dump(), vr.verification_id)
+        approval = self.patch_approval_manager.mark_applied(run_id, patch_id, ar.model_dump(), vr.verification_id, vr.status, vr.summary)
         self.patch_storage.update_patch_payload(
             run_id,
             patch_id,
@@ -303,6 +306,10 @@ class ImplementationExecutor:
             "verification_result": vr.model_dump(),
             "approval": approval.model_dump(),
         }
+
+
+    def _backup_path_for(self, target: Path) -> Path:
+        return target.with_suffix(target.suffix + '.bak.phase8')
 
     def _resolve_target(self, project_path: Path, target_file: str) -> Path | None:
         if not target_file or ".." in Path(target_file).parts: return None
