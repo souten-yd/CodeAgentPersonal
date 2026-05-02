@@ -29,7 +29,12 @@ class PatchApprovalRecord(BaseModel):
     user_comment: str = ""
     risk_acknowledged: bool = False
     safety_warnings_acknowledged: bool = False
+    quality_warnings_acknowledged: bool = False
+    low_quality_acknowledged: bool = False
     apply_allowed_at_approval: bool = False
+    quality_score_at_approval: float = 0.0
+    quality_warnings_at_approval: list[str] = Field(default_factory=list)
+    quality_summary_at_approval: str = ""
     approved_for_apply: bool = False
     applied: bool = False
     warnings: list[str] = Field(default_factory=list)
@@ -41,3 +46,5 @@ class PatchApprovalRequest(BaseModel):
     user_comment: str = ""
     risk_acknowledged: bool = False
     safety_warnings_acknowledged: bool = False
+    quality_warnings_acknowledged: bool = False
+    low_quality_acknowledged: bool = False
