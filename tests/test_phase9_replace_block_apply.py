@@ -109,6 +109,29 @@ class Phase9ReplaceBlockApplyTests(unittest.TestCase):
         self.assertIn(meta.get("verification_status", ""), {"passed", "failed"})
         self.assertTrue(meta.get("verification_summary", "") != "")
 
+
+    def test_two_patches_same_file_create_distinct_backups(self):
+        run_id, t = self._setup_run("p_two_backups")
+        t.write_text("header\nx=1\nfooter\n", encoding="utf-8")
+
+        p1 = PatchProposal(patch_id="rb1", run_id=run_id, plan_id="p_two_backups", step_id="s1", target_file=str(t), patch_type="replace_block", original_block="x=1", replacement_block="x=2", match_count=1, apply_allowed=True, unified_diff="--- a\n+++ a\n@@\n-x=1\n+x=2")
+        self.executor.patch_storage.save_patch_proposal(p1)
+        PatchApprovalManager(self.executor.patch_storage).decide(run_id, "rb1", "approve")
+        self.executor.apply_patch(run_id, "rb1")
+
+        p2 = PatchProposal(patch_id="rb2", run_id=run_id, plan_id="p_two_backups", step_id="s1", target_file=str(t), patch_type="replace_block", original_block="x=2", replacement_block="x=3", match_count=1, apply_allowed=True, unified_diff="--- a\n+++ a\n@@\n-x=2\n+x=3")
+        self.executor.patch_storage.save_patch_proposal(p2)
+        PatchApprovalManager(self.executor.patch_storage).decide(run_id, "rb2", "approve")
+        self.executor.apply_patch(run_id, "rb2")
+
+        b1 = t.with_suffix(t.suffix + ".bak.phase8.rb1")
+        b2 = t.with_suffix(t.suffix + ".bak.phase8.rb2")
+        self.assertNotEqual(str(b1), str(b2))
+        self.assertIn("rb1", str(b1))
+        self.assertIn("rb2", str(b2))
+        self.assertTrue(b1.exists())
+        self.assertTrue(b2.exists())
+
     def test_append_flow_still_creates_backup_and_works(self):
         run_id, t = self._setup_run("p_append")
         t.write_text("header\n", encoding="utf-8")

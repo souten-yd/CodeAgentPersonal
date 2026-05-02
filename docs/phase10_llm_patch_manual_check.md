@@ -18,3 +18,17 @@
 - reproposal generated? (yes/no):
 - observed issue:
 - notes:
+
+## Example Result
+
+- 実行日: 2026-05-02
+- LLM endpoint: http://127.0.0.1:8080/v1
+- model: local-model
+- patch_generation_mode: llm_replace_block
+- patch_type: replace_block
+- generator: llm_replace_block
+- apply_allowed: true
+- quality_score: 0.82
+- verification_status: passed
+- reproposal generated?: no
+- observed issue: none
