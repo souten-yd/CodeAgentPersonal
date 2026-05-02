@@ -10857,6 +10857,17 @@ def api_get_run_patch(run_id: str, patch_id: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="patch not found")
 
+@app.get("/api/runs/{run_id}/patches/{patch_id}/chain")
+def api_get_run_patch_chain(run_id: str, patch_id: str):
+    try:
+        from agent.patch_storage import PatchStorage
+        ps = PatchStorage(_phase6_run_storage.base_dir)
+        return {"chain": ps.get_patch_chain_summary(run_id, patch_id)}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="run patches not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
 
 @app.get("/api/runs/{run_id}/patch_approvals")
 def api_get_run_patch_approvals(run_id: str):
@@ -10949,7 +10960,24 @@ def api_get_llm_telemetry_one(run_id: str, telemetry_id: str):
     try:
         from agent.llm_telemetry_storage import LLMTelemetryStorage
         ts = LLMTelemetryStorage(_phase6_run_storage.base_dir)
-        return ts.load_telemetry(run_id, telemetry_id)
+        payload = ts.load_telemetry(run_id, telemetry_id)
+        md = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        payload["summary"] = {
+            "telemetry_id": str(payload.get("telemetry_id", "")),
+            "purpose": str(payload.get("purpose", "")),
+            "success": bool(payload.get("success", False)),
+            "llm_call_success": bool(md.get("llm_call_success", False)),
+            "validation_success": bool(md.get("validation_success", False)),
+            "rejected_by_validation": bool(md.get("rejected_by_validation", False)),
+            "duration_ms": int(payload.get("duration_ms", 0) or 0),
+            "prompt_chars": int(payload.get("prompt_chars", 0) or 0),
+            "response_chars": int(payload.get("response_chars", 0) or 0),
+            "validation_reason": str(payload.get("validation_reason", "")),
+            "apply_allowed_after_validation": bool(payload.get("apply_allowed_after_validation", False)),
+            "model": str(payload.get("model", "")),
+            "base_url": str(payload.get("base_url", "")),
+        }
+        return payload
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="llm telemetry not found")
 

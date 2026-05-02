@@ -327,6 +327,7 @@ class ImplementationExecutor:
         if target is None or not target.exists():
             raise ValueError("target file is unavailable")
         content = target.read_text(encoding="utf-8")
+        started = self._now()
         proposal = generate_replace_block_patch(
             run_id,
             str(patch.get("plan_id", "")),
@@ -339,7 +340,7 @@ class ImplementationExecutor:
             llm_fn=self.llm_patch_fn,
             context={"reproposal_of_patch_id": patch_id, "reason": reason},
         )
-        self._save_llm_telemetry(run_id, str(patch.get("plan_id", "")), str(patch.get("step_id", "")), proposal, "reproposal_generation", self._now())
+        self._save_llm_telemetry(run_id, str(patch.get("plan_id", "")), str(patch.get("step_id", "")), proposal, "reproposal_generation", started)
         proposal.reproposal_of_patch_id = patch_id
         proposal.reproposal_reason = reason
         proposal.parent_verification_id = str(patch.get("verification_id", ""))

@@ -115,6 +115,25 @@ class ReproposalPreviewTests(unittest.TestCase):
             self.assertFalse(patch.get('apply_allowed', True))
             self.assertIn(patch.get('can_apply_reason', ''), {'llm_unavailable', 'reproposal_safety_blocked', 'reproposal_safety_error'})
 
+    def test_reproposal_telemetry_duration_and_metadata(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ps, rs = PlanStorage(root / 'ca'), RunStorage(root / 'ca')
+            ex = ImplementationExecutor(ps, rs, llm_patch_fn=lambda **k: '{"candidate_id":"cand_1","original_block":"x=1","replacement_block":"x=2"}')
+            run_id = 'run_telemetry'; proj = root / 'proj'; proj.mkdir()
+            tf = proj / 'a.py'; tf.write_text('x=1\n', encoding='utf-8')
+            self._save_run(rs, run_id, proj)
+            original = PatchProposal(patch_id='p1', run_id=run_id, plan_id='pl', step_id='s1', target_file=str(tf), patch_type='replace_block', verification_status='failed')
+            ex.patch_storage.save_patch_proposal(original)
+            res = ex.generate_reproposal(run_id, 'p1')
+            patch = ex.patch_storage.load_patch(run_id, res['patch_id'])
+            tid = (patch.get('metadata') or {}).get('llm_telemetry_id', '')
+            self.assertTrue(tid)
+            t = ex.llm_telemetry_storage.load_telemetry(run_id, tid)
+            self.assertEqual(t.get('purpose'), 'reproposal_generation')
+            self.assertIsInstance(t.get('duration_ms'), int)
+            self.assertGreaterEqual(int(t.get('duration_ms', -1)), 0)
+
 
 if __name__ == '__main__':
     unittest.main()
