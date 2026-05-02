@@ -103,3 +103,11 @@
 - Users resume manually via Atlas Workbench buttons.
 - Resume notice uses restored last subview and `atlas:lastRunId`.
 - No URL routing, hash routing, or history API is introduced in this phase.
+
+## Phase 19 note (Atlas Guided Plan UX consolidation)
+- Plan subview now includes an **Atlas Guided Plan Flow** summary.
+- The summary shows progress for Requirement / Plan / Review / Approval / Execute Preview / Patch Review.
+- UI summary is derived from existing `planWorkflowState` and existing workflow functions.
+- No planner backend rewrite is introduced in this phase.
+- No approval bypass is introduced in this phase.
+- No auto apply / bulk apply / bulk approve is introduced in this phase.
