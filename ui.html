@@ -6978,7 +6978,7 @@ function setMode(m) {
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
-    ensureAtlasWorkbenchHost();
+    restoreAtlasSubviewState();
   } else if (m === 'nexus') {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
@@ -10078,7 +10078,7 @@ function mobSwitch(name) {
     atc?.classList.add('mob-hidden');
   } else if (name === 'atlas') {
     if (mode !== 'atlas') { setMode('atlas'); return; }
-    ensureAtlasWorkbenchHost();
+    restoreAtlasSubviewState();
     atc?.classList.remove('mob-hidden');
     ap?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
@@ -13687,6 +13687,8 @@ function _renderNexusContextSummary(nexusContext, { title = 'Nexus Context Summa
 
 const ATLAS_LAST_RUN_KEY = 'atlas:lastRunId';
 const ATLAS_LAST_DASHBOARD_RUN_KEY = 'atlas:lastDashboardRunId';
+const ATLAS_LAST_SUBVIEW_KEY = 'atlas:lastSubview';
+const ATLAS_SUBVIEWS = ['overview', 'plan', 'runs', 'dashboard', 'patch_review', 'legacy'];
 
 function _atlasLsGet(key) { try { return localStorage.getItem(key) || ''; } catch(_) { return ''; } }
 function _atlasLsSet(key, value) { try { if (value) localStorage.setItem(key, value); } catch(_) {} }
@@ -13827,11 +13829,27 @@ function showAtlasPanel() {
   return showPlanWorkflowPanel();
 }
 
+function normalizeAtlasSubview(name) {
+  return ATLAS_SUBVIEWS.includes(name) ? name : 'overview';
+}
+
+function getAtlasLastSubview() {
+  return normalizeAtlasSubview(_atlasLsGet(ATLAS_LAST_SUBVIEW_KEY));
+}
+
+function restoreAtlasSubviewState() {
+  restoreAtlasLastRunState();
+  const subview = getAtlasLastSubview();
+  setAtlasSubview(subview);
+  ensureAtlasWorkbenchHost();
+}
+
 function setAtlasSubview(name) {
-  const allowed = ['overview', 'plan', 'runs', 'dashboard', 'patch_review', 'legacy'];
+  const allowed = ATLAS_SUBVIEWS;
   const next = allowed.includes(name) ? name : 'overview';
   const root = document.getElementById('atlas-workbench-card');
   if (root) root.dataset.atlasCurrentSubview = next;
+  _atlasLsSet(ATLAS_LAST_SUBVIEW_KEY, next);
   document.querySelectorAll('[data-atlas-subview-panel]').forEach((el) => {
     el.style.display = el.getAttribute('data-atlas-subview-panel') === next ? '' : 'none';
   });
