@@ -300,6 +300,22 @@ class NexusResearchApiIntegrationTests(unittest.TestCase):
         self.assertEqual(health.get("stalled_reason"), "一部URLの応答待ち")
         self.assertEqual(health.get("download_active"), 2)
 
+
+    def test_bundle_health_terminal_jobs_are_not_stalled(self) -> None:
+        for status in ("completed", "degraded", "failed"):
+            job_id = f"job_bundle_{status}_{uuid.uuid4().hex[:8]}"
+            create_job(job_id, title="bundle", status=status)
+            response = self.client.get(f"/nexus/research/jobs/{job_id}/bundle")
+            self.assertEqual(response.status_code, 200)
+            health = response.json().get("health", {})
+            self.assertFalse(bool(health.get("is_active")))
+            self.assertFalse(bool(health.get("is_stalled")))
+
+    def test_legacy_bundle_endpoint_requires_report(self) -> None:
+        job_id = f"job_legacy_bundle_{uuid.uuid4().hex[:8]}"
+        create_job(job_id, title="legacy", status="completed")
+        response = self.client.get(f"/nexus/export/download/bundle/{job_id}")
+        self.assertEqual(response.status_code, 404)
     def test_get_research_job_answer_reconstructs_legacy_rows_without_answer_json(self) -> None:
         job_id = f"job_answer_legacy_{uuid.uuid4().hex[:8]}"
         now = datetime.now(timezone.utc).isoformat()

@@ -1129,43 +1129,27 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         _emit_phase(effective_job_id, "answer_save_finished", phase="answer_save", message="answer save finished", progress=0.94)
 
         _record_state(effective_job_id, "reporting", message="finalizing report", progress=0.95)
-        if download_error_count > 0:
-            update_job(
-                effective_job_id,
-                status="degraded",
-                progress=1.0,
-                message="research completed with degraded downloads",
-            )
-            append_job_event(
-                effective_job_id,
-                "job_degraded",
-                {
-                    "status": "degraded",
-                    "progress": 1.0,
-                    "message": "research completed with degraded downloads",
-                    "download_error_count": download_error_count,
-                },
-            )
-            _emit_phase(
-                effective_job_id,
-                "job_completed",
-                phase="completed",
-                message="job completed (degraded)",
-                progress=1.0,
-                status="degraded",
-            )
-            _record_state(effective_job_id, "completed", message="job completed (degraded)", progress=1.0)
-        else:
-            update_job(effective_job_id, status="completed", progress=1.0, message="research completed")
-            _emit_phase(
-                effective_job_id,
-                "job_completed",
-                phase="completed",
-                message="job completed",
-                progress=1.0,
-                status="completed",
-            )
-            _record_state(effective_job_id, "completed", message="job completed", progress=1.0)
+        source_has_degraded_or_failed = any(
+            str(source.get("status") or "") in {"degraded", "failed"} for source in registered_sources
+        )
+        final_status = "degraded" if download_error_count > 0 or source_has_degraded_or_failed else "completed"
+        final_message = "research completed with degraded sources" if final_status == "degraded" else "research completed"
+        final_evidence = final_evidence_items if payload.recursive_search else evidence_items
+        update_job(effective_job_id, status=final_status, progress=1.0, message=final_message)
+        append_job_event(
+            effective_job_id,
+            "research_completed",
+            {
+                "status": final_status,
+                "phase": "completed",
+                "message": final_message,
+                "progress": 1.0,
+                "answer_exists": bool(answer_payload),
+                "source_count": len(registered_sources),
+                "evidence_count": len(final_evidence or []),
+                "updated_at": _now_iso(),
+            },
+        )
 
         return {
             "job_id": effective_job_id,
@@ -1221,14 +1205,17 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             }
 
         update_job(effective_job_id, status="failed", progress=1.0, message="research failed", error=str(exc))
-        _emit_phase(
+        append_job_event(
             effective_job_id,
-            "job_failed",
-            phase="failed",
-            message=str(exc),
-            progress=1.0,
-            status="failed",
-            details={"error": str(exc)},
+            "research_failed",
+            {
+                "status": "failed",
+                "phase": "failed",
+                "message": "research failed",
+                "error": str(exc),
+                "progress": 1.0,
+                "updated_at": _now_iso(),
+            },
         )
         _record_state(effective_job_id, "failed", message=str(exc), progress=1.0)
         raise

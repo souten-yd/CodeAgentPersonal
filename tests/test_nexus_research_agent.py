@@ -199,6 +199,38 @@ class NexusResearchAgentTests(unittest.TestCase):
         self.assertEqual(constraint_events[0]["max_download_mb"], 7)
         self.assertEqual(constraint_events[0]["max_download_bytes"], 7 * 1024 * 1024)
 
+    def test_run_research_job_sets_terminal_status_and_completed_event(self) -> None:
+        fake_search = {"items": [{"title": "result", "url": "https://example.com/article", "snippet": "snippet"}]}
+        registered_sources = [{"source_id": "src-1", "title": "Article", "url": "https://example.com/article", "final_url": "https://example.com/article", "status": "downloaded"}]
+
+        with patch("app.nexus.research_agent.plan_web_queries", return_value=["q"]), patch(
+            "app.nexus.research_agent.run_web_search", return_value=fake_search
+        ), patch("app.nexus.research_agent.collect_source_candidates", return_value=fake_search["items"]), patch(
+            "app.nexus.research_agent.rank_source_candidates", return_value=fake_search["items"]
+        ), patch("app.nexus.research_agent.safe_download", return_value={"final_url": "https://example.com/article"}), patch(
+            "app.nexus.research_agent.save_download_artifacts", return_value={"status": "downloaded"}
+        ), patch("app.nexus.research_agent.register_or_update_sources", return_value=registered_sources), patch(
+            "app.nexus.research_agent._build_evidence_from_sources", return_value=[]
+        ), patch("app.nexus.research_agent.save_evidence_items", return_value=None), patch(
+            "app.nexus.research_agent._load_source_chunks", return_value=[]
+        ), patch("app.nexus.research_agent.build_citation_map", return_value=[]), patch(
+            "app.nexus.research_agent.build_answer_payload", return_value={"answer": "ok"}
+        ):
+            job_id = f"job-terminal-{uuid.uuid4().hex[:8]}"
+            create_job(job_id, title="terminal", status="queued", message="queued")
+            run_research_job(ResearchAgentInput(query="test"), job_id=job_id)
+
+        with get_conn() as conn:
+            row = conn.execute("SELECT status, progress FROM nexus_jobs WHERE job_id = ?", (job_id,)).fetchone()
+            completed_event = conn.execute(
+                "SELECT data FROM nexus_job_events WHERE job_id = ? AND type = 'research_completed' ORDER BY seq DESC LIMIT 1",
+                (job_id,),
+            ).fetchone()
+
+        self.assertIn(str(row["status"]), {"completed", "degraded"})
+        self.assertEqual(float(row["progress"]), 1.0)
+        self.assertIsNotNone(completed_event)
+
 
 class NexusResearchParallelDownloadTests(unittest.TestCase):
     def test_parallel_download_is_faster_than_serial(self) -> None:
