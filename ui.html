@@ -13574,6 +13574,7 @@ function _renderPlanWorkflowStatusPanel() {
   const div = document.createElement('div');
   div.className = 'msg system';
   div.id = panelId;
+  const hasRun = !!planWorkflowState.runId;
   div.innerHTML = `
     <div class="msg-role">Atlas Workflow Status</div>
     <div class="plan-card" style="padding:10px">
@@ -13589,12 +13590,28 @@ function _renderPlanWorkflowStatusPanel() {
         <div>Patches: <b>${esc(String((planWorkflowState.latestPatchIds || []).length))}</b></div>
         <div>Next Action: <b>${esc(_computePlanWorkflowNextAction())}</b></div>
       </div>
+      <div style="margin-top:8px">
+        <button class="phase1-tab-btn" onclick="openCurrentRunDashboardFromStatus()" ${hasRun ? '' : 'disabled'}>Open Atlas Dashboard</button>
+        ${hasRun ? '' : '<div style="font-size:10px;color:var(--text3);margin-top:4px">Execute Preview後に利用可能</div>'}
+      </div>
     </div>`;
   const w = messages();
   w.appendChild(div);
   const agentStatus = document.getElementById('agent-guided-workflow-status');
   if (agentStatus) agentStatus.textContent = `${planWorkflowState.workspace || 'Atlas'} / ${_computePlanWorkflowNextAction()}`;
   scrollMsgs();
+}
+
+async function openCurrentRunDashboardFromStatus() {
+  const runId = planWorkflowState.runId || '';
+  if (!runId) return;
+  const latestCard = Array.from(document.querySelectorAll('.plan-card[id^="phase1-plan-card-"]')).pop();
+  if (!latestCard) return;
+  const cid = latestCard.id;
+  const dashboardEl = latestCard.querySelector(`#${cid}-atlas-dashboard`);
+  if (!dashboardEl) return;
+  dashboardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  await loadAtlasRunDashboard(cid, runId, latestCard);
 }
 
 function _updatePlanWorkflowState(partial = {}) {
@@ -13927,10 +13944,64 @@ function _renderPhase6ExecutionSection(result, cardId) {
       <div style="font-size:11px;font-weight:700;color:var(--text)">Patch Review (Phase 8)</div>
       <div style="font-size:11px;color:var(--text2);margin-top:4px">Patchは承認後に個別applyできます / proposed_content のappendのみ適用 / delete/run_command/high riskは実行されません。</div>
       <button class="phase1-tab-btn" data-run-view="patches" style="margin-top:6px">Load Patches</button>
+      <button class="phase1-tab-btn" data-run-view="atlas-dashboard" style="margin-top:6px">Load Atlas Dashboard</button>
+      <div id="${cardId}-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div>
       <div id="${cardId}-patch-list" style="margin-top:8px;font-size:11px"></div>
     </div>
     <pre id="${cardId}-exec-result" style="white-space:pre-wrap;margin-top:8px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px;color:var(--text2)">No run yet.</pre>
   </div>`;
+}
+
+const _ATLAS_PATCH_FILTERS = [
+  ['all', 'All'],
+  ['pending', 'Pending'],
+  ['approved', 'Approved'],
+  ['applied', 'Applied'],
+  ['blocked', 'Blocked'],
+  ['verification_failed', 'Verification Failed'],
+  ['low_quality', 'Low Quality'],
+  ['safety_warning', 'Safety Warnings'],
+  ['missing_manual_check', 'Missing Manual Check'],
+  ['missing_telemetry', 'Missing Telemetry'],
+  ['reproposal_candidate', 'Reproposal Candidates'],
+];
+
+async function loadAtlasRunDashboard(cid, runId, cardRoot) {
+  const root = cardRoot || document.getElementById(cid);
+  const dashboardEl = root?.querySelector(`#${cid}-atlas-dashboard`);
+  if (!dashboardEl || !runId) return;
+  try {
+    const r = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    const db = d.dashboard || {};
+    const c = db.counts || {};
+    const att = db.attention || {};
+    const renderList = (title, items=[]) => `<div style="margin-top:4px"><b>${title}</b>: ${items.length ? items.map((pid)=>`<button class=\"phase1-tab-btn\" data-scroll-pid=\"${esc(String(pid))}\" style=\"margin:2px\">${esc(String(pid))}</button>`).join(' ') : '-'}</div>`;
+    dashboardEl.innerHTML = `
+      <div><b>Atlas Run Dashboard</b> (run_id=${esc(runId)})</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <span>Total: ${esc(String(c.total||0))}</span><span>Pending: ${esc(String(c.pending||0))}</span><span>Approved: ${esc(String(c.approved||0))}</span><span>Applied: ${esc(String(c.applied||0))}</span><span>Blocked: ${esc(String(c.apply_blocked||0))}</span><span>Verification Failed: ${esc(String(c.verification_failed||0))}</span><span>Low Quality: ${esc(String(c.low_quality||0))}</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+        <span>Safety Warnings: ${esc(String(c.safety_warnings||0))}</span><span>Total Manual Checks: ${esc(String(c.total_manual_checks||0))}</span><span>Patches with Manual Check: ${esc(String(c.patches_with_manual_check||0))}</span><span>LLM Telemetry Records: ${esc(String(c.llm_telemetry_records||0))}</span><span>Patches with Telemetry: ${esc(String(c.patches_with_telemetry||0))}</span><span>Reproposal Candidates: ${esc(String(c.reproposal_candidates||0))}</span>
+      </div>
+      <div style="margin-top:6px"><b>Attention Lists</b></div>
+      ${renderList('Blocked patches', att.blocked_patch_ids || [])}
+      ${renderList('Low quality patches', att.low_quality_patch_ids || [])}
+      ${renderList('Verification failed patches', att.verification_failed_patch_ids || [])}
+      ${renderList('Unreviewed patches', att.unreviewed_patch_ids || [])}
+      ${renderList('Missing telemetry patches', att.missing_telemetry_patch_ids || [])}
+      ${renderList('Missing manual check patches', att.missing_manual_check_patch_ids || [])}
+      ${renderList('Reproposal candidates', att.reproposal_needed_patch_ids || [])}
+    `;
+    dashboardEl.querySelectorAll('[data-scroll-pid]').forEach((btn)=>btn.addEventListener('click', ()=>{
+      const pid = btn.getAttribute('data-scroll-pid') || '';
+      document.getElementById(`${cid}-patch-${pid}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }));
+  } catch (e) {
+    dashboardEl.innerHTML = `<div style="color:var(--danger)">Atlas Dashboard error: ${esc(e.message || String(e))}</div>`;
+  }
 }
 
 function _bindPhase6ExecutionActions(cardRoot, result) {
@@ -14004,12 +14075,29 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
     if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
     const patches = Array.isArray(d.patches) ? d.patches : [];
     _updatePlanWorkflowState({runId, latestPatchIds: patches.map((p)=>p.patch_id).filter(Boolean), lastError: ''});
+    let dashboardData = null;
     let dashboardNoteHtml = '';
     try {
       const dr = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
+      const dd = await dr.json();
+      if (dr.ok) dashboardData = dd.dashboard || null;
       if (dr.status === 404) dashboardNoteHtml = '<div style="color:var(--text3);margin-bottom:6px">Dashboard not available yet</div>';
     } catch (_) {}
-    listEl.innerHTML = dashboardNoteHtml + (patches.map((p) => {
+    const filterState = cardRoot.dataset.patchFilter || 'all';
+    const summaryById = new Map(((dashboardData && Array.isArray(dashboardData.patches)) ? dashboardData.patches : []).map((x)=>[String(x.patch_id||''), x]));
+    const filterButtons = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${_ATLAS_PATCH_FILTERS.map(([k,label])=>`<button class="phase1-tab-btn" data-pf="${k}" ${filterState===k?'style="border-color:var(--accent);color:var(--accent)"':''}>${label}</button>`).join('')}</div>`;
+    const filtered = patches.filter((p) => {
+      if (filterState === 'all') return true;
+      const a = summaryById.get(String(p.patch_id||'')) || {};
+      const flags = Array.isArray(a.attention_flags) ? a.attention_flags : [];
+      const approvalStatus = String(p.approval_status || 'pending');
+      if (filterState === 'pending') return approvalStatus === 'pending';
+      if (filterState === 'approved') return approvalStatus === 'approved';
+      if (filterState === 'applied') return !!p.applied || approvalStatus === 'applied';
+      if (filterState === 'reproposal_candidate') return ((dashboardData?.attention?.reproposal_needed_patch_ids)||[]).includes(p.patch_id);
+      return flags.includes(filterState);
+    });
+    listEl.innerHTML = filterButtons + dashboardNoteHtml + (filtered.map((p) => {
       const warns = (p.safety_warnings||[]).map((w)=>`<div>• ${esc(String(w))}</div>`).join('');
       const risk = String(p.risk_level||'low').toLowerCase();
       const riskAck = (risk==='medium' || risk==='high') ? `<label><input type="checkbox" data-risk="${p.patch_id}"> リスクを理解しました</label>` : '';
@@ -14027,7 +14115,7 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
       const stateMsg = isRejected
         ? '<div style="color:var(--amber);margin-top:6px">Rejected patches cannot be re-approved. Generate a new patch preview if needed.</div>'
         : (isApplied ? '<div style="color:var(--amber);margin-top:6px">Applied patches cannot be modified from this panel.</div>' : '');
-      return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px">
+      return `<div id="${cid}-patch-${esc(p.patch_id)}" style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px">
 <div><b>Basic</b></div><div>patch_id=${esc(p.patch_id)} step_id=${esc(p.step_id||'')} target=${esc(p.target_file||'')}</div>
 <div><b>Safety</b></div><div>risk_level=${esc(p.risk_level||'low')} patch_type=${esc(p.patch_type||'append')} generator=${esc(p.generator||'')} match_count=${esc(String(p.match_count??''))} can_apply_reason=${esc(p.can_apply_reason||'')} apply_allowed=${String(applyAllowed)} applied=${String(!!p.applied)} approval_status=${esc(approvalStatus)}</div>
 <div><b>Quality</b></div><div>quality_score=${esc(String(p.quality_score??''))} quality_summary=${esc(p.quality_summary||'')} candidate_block_count=${esc(String(p.candidate_block_count??''))} selected_candidate_reason=${esc(p.selected_candidate_reason||'')}</div><div><b>Telemetry</b></div><div>llm_sanitized=${esc(String(!!p.llm_sanitized))} llm_model=${esc(p.llm_model||'')} fallback_from=${esc((p.metadata||{}).fallback_from||'')}</div><div>llm_telemetry_id=${esc((p.metadata||{}).llm_telemetry_id||'')} fallback_telemetry_id=${esc((p.metadata||{}).fallback_telemetry_id||'')}</div><div><b>Verification</b></div><div>patch_approval_id=${esc(p.patch_approval_id||'')} verification_id=${esc(p.verification_id||'')} verification_status=${esc(p.verification_status||'')} verification_summary=${esc(p.verification_summary||'')} verification_failed=${esc(String(!!p.verification_failed))}</div><div><b>Reproposal</b></div><div>reproposal_of_patch_id=${esc(p.reproposal_of_patch_id||'')} reproposal_reason=${esc(p.reproposal_reason||'')} parent_verification_id=${esc(p.parent_verification_id||'')} has_reproposal=${esc(String(!!p.has_reproposal))} reproposal_count=${esc(String(p.reproposal_count??0))} latest_reproposal_patch_id=${esc(p.latest_reproposal_patch_id||'')}</div>${p.has_reproposal?'<div style="color:var(--amber)">Reproposal already generated</div>':''}<div style="font-size:11px;color:var(--text2)">LLM replace_block はpreview proposalです。承認なしにapplyされません。apply_allowed=false の場合は safety_warnings / can_apply_reason を確認してください。</div>
@@ -14035,6 +14123,11 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
 <details><summary>Original block</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.original_block||'')}</pre></details><details><summary>Replacement block</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.replacement_block||'')}</pre></details><details><summary>Diff</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.unified_diff||'')}</pre></details>
 <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button data-pa="approve" data-pid="${p.patch_id}" ${disableApprove ? 'disabled' : ''}>Approve Patch</button><button data-pa="reject" data-pid="${p.patch_id}" ${disableReject ? 'disabled' : ''}>Reject Patch</button><button data-pa="apply" data-pid="${p.patch_id}" ${disableApply ? 'disabled' : ''}>Apply Approved Patch</button><button data-pa="manual-check" data-pid="${p.patch_id}">Save Manual Check</button><button data-pa="view-manual-checks" data-pid="${p.patch_id}">View Manual Checks</button><button data-pa="view-reproposal-chain" data-pid="${p.patch_id}">View Reproposal Chain</button>${(p.metadata||{}).llm_telemetry_id?`<button data-pa="view-llm-telemetry" data-pid="${p.patch_id}" data-tid="${esc((p.metadata||{}).llm_telemetry_id)}">View LLM Telemetry</button>`:''}${(p.metadata||{}).fallback_telemetry_id?`<button data-pa="view-fallback-telemetry" data-pid="${p.patch_id}" data-tid="${esc((p.metadata||{}).fallback_telemetry_id)}">View Fallback Telemetry</button>`:''}</div><div id="${cid}-pv-${p.patch_id}" style="white-space:pre-wrap;overflow-wrap:anywhere"></div></div>`;
     }).join('') || '<div style="color:var(--text3)">No patches.</div>');
+    listEl.querySelectorAll('[data-pf]').forEach((btn)=>btn.addEventListener('click', async ()=>{
+      cardRoot.dataset.patchFilter = btn.getAttribute('data-pf') || 'all';
+      await loadPhase8Patches(cid, runId);
+    }));
+    await loadAtlasRunDashboard(cid, runId, cardRoot);
     listEl.querySelectorAll('[data-pa]').forEach((b)=>b.addEventListener('click', async ()=>{
       const action = b.getAttribute('data-pa'); const pid = b.getAttribute('data-pid'); const out = listEl.querySelector(`#${cid}-pv-${pid}`);
       try {
@@ -14138,6 +14231,10 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
     try {
       if (kind === 'patches') {
         await loadPhase8Patches(cid, runId);
+        return;
+      }
+      if (kind === 'atlas-dashboard') {
+        await loadAtlasRunDashboard(cid, runId, cardRoot);
         return;
       }
       const ep = kind === 'report' ? `/api/runs/${encodeURIComponent(runId)}/report` : `/api/runs/${encodeURIComponent(runId)}/log`;
