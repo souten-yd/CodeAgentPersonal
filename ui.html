@@ -1637,6 +1637,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
                 <button class="settings-btn" id="nexus-deep-bundle-btn" style="padding:5px 12px;font-size:11px" onclick="downloadNexusDeepBundle()" disabled>Download Bundle</button>
               </div>
               <div id="nexus-deep-status" class="nexus-result-meta">状態: 未実行</div>
+              <div class="nexus-result-meta">Deep Researchの結果はResearch Answerとして保存されます。Reportには自動保存されません。ダウンロードはResearch Bundleを使用してください。</div>
               <div class="nexus-card nexus-current-run-card" style="margin-top:10px">
                 <div class="nexus-card-title">Current Run</div>
                 <div id="nexus-deep-current-run" class="nexus-result-panel"><div class="nexus-empty">No current run</div></div>
@@ -8496,9 +8497,9 @@ async function refreshNexusDeepAnswer(jobId) {
 
 function getNexusDeepTerminalState() {
   const latestState = String(nexusDeepResearchEvents?.[0]?.data?.state || '').toLowerCase();
-  if (latestState === 'completed' || latestState === 'failed' || latestState === 'degraded') return latestState;
+  if (TERMINAL_RESEARCH_STATUSES.has(latestState)) return latestState;
   const jobState = String(nexusDeepResearchHealth?.job_status || '').toLowerCase();
-  if (jobState === 'completed' || jobState === 'failed' || jobState === 'degraded') return jobState;
+  if (TERMINAL_RESEARCH_STATUSES.has(jobState)) return jobState;
   return '';
 }
 
@@ -8626,7 +8627,16 @@ async function pollNexusDeepResearch(jobId, maxTicks = 300) {
       : '';
     setNexusDeepStatus(`job:${id} / state:${state || '-'} / ${formatNexusDeepProgressStatus()}${stallMsg}`, state === 'failed' || stalled, nexusDeepResearchStubMode);
     updateNexusDeepCurrentStatus(state || 'running');
-    if (state || tick >= maxTicks) {
+    if (TERMINAL_RESEARCH_STATUSES.has(String(state || '').toLowerCase())) {
+      stopNexusDeepResearchPolling();
+      const btn = document.getElementById('nexus-deep-run-btn');
+      const bundleBtn = document.getElementById('nexus-deep-bundle-btn');
+      if (btn) btn.disabled = false;
+      if (bundleBtn) bundleBtn.disabled = false;
+      await refreshNexusDeepBundle(requestJobId, { onlyIfCurrent: true });
+      return;
+    }
+    if (tick >= maxTicks) {
       stopNexusDeepResearchPolling();
       return;
     }
@@ -8787,6 +8797,9 @@ const NEXUS_DEEP_LEGACY_STORAGE = {
 };
 
 const NEXUS_DEEP_MIGRATION_DONE_KEY = 'nexus.deepResearch.migrationDone.v1';
+
+const TERMINAL_RESEARCH_STATUSES = new Set(["completed", "degraded", "failed", "cancelled"]);
+
 
 function migrateNexusDeepResearchStorageOnce() {
   if (localStorage.getItem(NEXUS_DEEP_MIGRATION_DONE_KEY) === 'true') return;

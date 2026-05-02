@@ -20,6 +20,12 @@ from app.nexus.research_agent import ResearchAgentInput, _download_sources_paral
 from app.nexus.source_collector import collect_source_candidates, rank_source_candidates
 from app.nexus.source_registry import register_or_update_sources
 
+TERMINAL_JOB_STATUSES = {"completed", "degraded", "failed", "cancelled"}
+
+
+def is_terminal_job(job: dict) -> bool:
+    return str(job.get("status") or "").lower() in TERMINAL_JOB_STATUSES
+
 
 class ResearchRunRequest(BaseModel):
     query: str = Field(min_length=1)
@@ -123,6 +129,11 @@ def run_research(payload: ResearchRunRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     job_id = str(result.get("job_id") or "")
+    if is_terminal:
+        is_stalled = False
+        stalled_reason = ""
+        suggested_action = ""
+
     return {
         "job_id": job_id,
         "job": get_research_job(job_id).get("job"),
@@ -380,8 +391,8 @@ def _build_research_job_health(job: dict, events: list[dict]) -> dict:
     if inferred_phase == "download":
         inferred_phase = "downloading"
     current_message = str((last_heartbeat or {}).get("data", {}).get("message") or job.get("message") or "").strip()
-    is_active = status == "running" and bool(last_heartbeat_at)
-    is_terminal = status in {"completed", "degraded", "failed", "cancelled"}
+    is_terminal = is_terminal_job(job)
+    is_active = status == "running" and bool(last_heartbeat_at) and not is_terminal
     progress_events = [ev for ev in events if str(ev.get("type") or "") == "download_progress"]
     last_progress = progress_events[-1] if progress_events else {}
     progress_data = (last_progress.get("data") or {}) if isinstance(last_progress, dict) else {}
