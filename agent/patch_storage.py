@@ -162,7 +162,10 @@ class PatchStorage:
         root_patch_id = str(chain[0].get("patch_id", "")) if chain else patch_id
         parent_patch_id = str(current.get("reproposal_of_patch_id", "") or "")
         children = [str(x.get("patch_id", "")) for x in by_parent.get(patch_id, []) if str(x.get("patch_id", ""))]
-        reproposal_count_total = max(0, len(chain) - 1)
+        ancestor_reproposal_count = max(0, len(chain) - 1)
+        child_reproposal_count = len(children)
+        related_reproposal_count = ancestor_reproposal_count + child_reproposal_count
+        reproposal_count_total = related_reproposal_count
         return {
             "run_id": run_id,
             "root_patch_id": root_patch_id,
@@ -179,5 +182,9 @@ class PatchStorage:
                 }
                 for p in chain
             ],
+            "ancestor_reproposal_count": ancestor_reproposal_count,
+            "child_reproposal_count": child_reproposal_count,
+            "related_reproposal_count": related_reproposal_count,
             "reproposal_count_total": reproposal_count_total,
+            "reproposal_count_total_semantics": "ancestor_plus_direct_children",
         }
