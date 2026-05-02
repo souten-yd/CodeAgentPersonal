@@ -36,9 +36,51 @@ class TestPhase19AtlasGuidedPlanUxUiContract(unittest.TestCase):
         m = re.search(r'function renderAtlasPlanFlowSummary\(\) \{([\s\S]*?)\n\}', self.ui)
         self.assertIsNotNone(m)
         body = m.group(1)
-        self.assertIn('planWorkflowState', body)
+        self.assertIn('deriveAtlasPlanFlowState()', body)
         self.assertIn("document.getElementById('atlas-workbench-card-plan-flow')", body)
         self.assertIn("document.getElementById('atlas-workbench-card-plan-next-action')", body)
+
+
+    def test_state_mapping_helpers_exist(self):
+        self.assertIn('function atlasHasValue(v)', self.ui)
+        self.assertIn('function deriveAtlasPlanFlowState()', self.ui)
+
+    def test_render_uses_derived_state(self):
+        m = re.search(r'function renderAtlasPlanFlowSummary\(\) \{([\s\S]*?)\n\}', self.ui)
+        self.assertIsNotNone(m)
+        body = m.group(1)
+        self.assertIn('const flow = deriveAtlasPlanFlowState();', body)
+
+    def test_derived_mapping_includes_alias_fields(self):
+        for token in [
+            'requirementResult',
+            'requirementText',
+            'planningResult',
+            'generatedPlan',
+            'planMarkdown',
+            'planReview',
+            'approvalStatus',
+            'planApproved',
+            'executionRunId',
+            'previewRunId',
+            'patchCount',
+        ]:
+            self.assertIn(token, self.ui)
+
+    def test_next_action_strings_remain(self):
+        for token in [
+            'Start Atlas',
+            'Review generated plan',
+            'Approve plan',
+            'Run Execute Preview',
+            'Open Patch Review',
+        ]:
+            self.assertIn(token, self.ui)
+
+    def test_render_avoids_inner_html(self):
+        m = re.search(r'function renderAtlasPlanFlowSummary\(\) \{([\s\S]*?)\n\}', self.ui)
+        self.assertIsNotNone(m)
+        self.assertNotIn('innerHTML', m.group(1))
 
     def test_start_atlas_still_selects_plan_and_uses_atlas_source(self):
         m = re.search(r'function startAtlasWorkflow\(\) \{([\s\S]*?)\n\}', self.ui)

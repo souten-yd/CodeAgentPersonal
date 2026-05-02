@@ -13826,25 +13826,101 @@ async function openCurrentRunDashboardFromStatus() {
   await loadAtlasRunDashboard(cid, runId, latestCard);
 }
 
+function atlasHasValue(v) {
+  if (v === null || v === undefined || v === false) return false;
+  if (typeof v === 'string') return v.trim().length > 0;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === 'object') return Object.keys(v).length > 0;
+  return Boolean(v);
+}
+
+function deriveAtlasPlanFlowState() {
+  const state = planWorkflowState || {};
+
+  // Requirement aliases
+  const hasRequirement = [
+    state.requirementId,
+    state.requirement,
+    state.requirementResult,
+    state.requirementDraft,
+    state.requirementText,
+    state.requirementSummary,
+  ].some(atlasHasValue);
+
+  // Plan aliases
+  const hasPlan = [
+    state.planId,
+    state.plan,
+    state.planResult,
+    state.planningResult,
+    state.generatedPlan,
+    state.planMarkdown,
+  ].some(atlasHasValue);
+
+  // Review aliases
+  const hasReview = [
+    state.reviewId,
+    state.review,
+    state.reviewResult,
+    state.planReview,
+    state.reviewSummary,
+  ].some(atlasHasValue);
+
+  // Approval aliases
+  const status = String(state.approvalStatus || state.planApproval?.status || '').toLowerCase();
+  const hasApproved = status === 'approved' || [
+    state.approved === true,
+    state.approvalId,
+    state.planApproved === true,
+  ].some(atlasHasValue);
+
+  // Execute Preview aliases
+  const hasRun = [
+    state.runId,
+    state.executionRunId,
+    state.previewRunId,
+  ].some(atlasHasValue);
+
+  const executionReady = state.executionReady === true || hasApproved;
+
+  // Patch aliases
+  const patchCount = Number(state.patchCount || 0);
+  const patchAvailable = hasRun || [
+    state.latestPatchIds,
+    state.patchIds,
+  ].some(atlasHasValue) || patchCount > 0;
+
+  const flow = {
+    requirement: hasRequirement ? 'done' : 'pending',
+    plan: hasPlan ? 'generated' : 'pending',
+    review: hasReview ? 'done' : 'pending',
+    approval: hasApproved ? 'approved' : 'required',
+    executePreview: hasRun ? 'completed' : (executionReady ? 'ready' : 'locked'),
+    patchReview: patchAvailable ? 'available' : 'available after preview',
+    nextAction: 'Start Atlas',
+  };
+
+  if (flow.patchReview === 'available') flow.nextAction = 'Open Patch Review';
+  else if (flow.executePreview === 'ready') flow.nextAction = 'Run Execute Preview';
+  else if (flow.plan === 'generated' && flow.approval === 'required') flow.nextAction = 'Approve plan';
+  else if (flow.plan === 'generated') flow.nextAction = 'Review generated plan';
+
+  return flow;
+}
+
 function renderAtlasPlanFlowSummary() {
   const flowEl = document.getElementById('atlas-workbench-card-plan-flow');
   const nextEl = document.getElementById('atlas-workbench-card-plan-next-action');
   if (!flowEl || !nextEl) return;
 
-  const requirement = planWorkflowState.requirementId ? 'done' : 'pending';
-  const plan = planWorkflowState.planId ? 'generated' : 'pending';
-  const review = planWorkflowState.reviewId ? 'done' : 'pending';
-  const approval = (planWorkflowState.approvalStatus === 'approved' || !!planWorkflowState.approvalId) ? 'approved' : 'required';
-  const executePreview = planWorkflowState.runId ? 'completed' : (planWorkflowState.executionReady ? 'ready' : 'locked');
-  const patchReview = (planWorkflowState.runId || (planWorkflowState.latestPatchIds || []).length > 0) ? 'available' : 'available after preview';
-
+  const flow = deriveAtlasPlanFlowState();
   const rows = [
-    `Requirement: ${requirement}`,
-    `Plan: ${plan}`,
-    `Review: ${review}`,
-    `Approval: ${approval}`,
-    `Execute Preview: ${executePreview}`,
-    `Patch Review: ${patchReview}`,
+    `• Requirement: ${flow.requirement}`,
+    `• Plan: ${flow.plan}`,
+    `• Review: ${flow.review}`,
+    `• Approval: ${flow.approval}`,
+    `• Execute Preview: ${flow.executePreview}`,
+    `• Patch Review: ${flow.patchReview}`,
   ];
 
   flowEl.replaceChildren();
@@ -13854,13 +13930,7 @@ function renderAtlasPlanFlowSummary() {
     flowEl.appendChild(div);
   }
 
-  let nextAction = 'Start Atlas';
-  if (planWorkflowState.runId) nextAction = 'Open Patch Review';
-  else if (planWorkflowState.executionReady) nextAction = 'Run Execute Preview';
-  else if (planWorkflowState.planId && !(planWorkflowState.approvalStatus === 'approved' || !!planWorkflowState.approvalId)) nextAction = 'Approve plan';
-  else if (planWorkflowState.planId) nextAction = 'Review generated plan';
-
-  nextEl.textContent = `Next Action: ${nextAction}`;
+  nextEl.textContent = `Next Action: ${flow.nextAction}`;
 }
 
 function _updatePlanWorkflowState(partial = {}) {

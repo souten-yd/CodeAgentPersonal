@@ -111,3 +111,10 @@
 - No planner backend rewrite is introduced in this phase.
 - No approval bypass is introduced in this phase.
 - No auto apply / bulk apply / bulk approve is introduced in this phase.
+
+## Phase 19.5 note (Guided Plan Flow state mapping cleanup)
+- Guided Plan Flow state mapping is now derived via a dedicated UI helper.
+- The helper reads existing `planWorkflowState` aliases safely for display-only status.
+- No backend workflow behavior is changed in this phase.
+- No approval bypass is introduced.
+- No auto apply / bulk apply is introduced.
