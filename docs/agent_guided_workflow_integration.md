@@ -86,3 +86,12 @@
 - Panels use `data-atlas-subview-panel`.
 - Existing host IDs and APIs remain unchanged.
 - This is robustness cleanup only, not workspace split.
+
+
+## Phase 18 note (Atlas subview persistence / URL-free restore)
+- Phase 18 adds URL-free Atlas subview persistence using localStorage.
+- New key: `atlas:lastSubview`.
+- Last run tracking continues to use `atlas:lastRunId`.
+- Atlas restore does not auto-fetch dashboard or patch review content.
+- Users explicitly open dashboard/patch review from Atlas controls.
+- No URL routing, hash routing, or history API is introduced in this phase.
