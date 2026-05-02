@@ -132,3 +132,52 @@ class PatchStorage:
         payload.update(updates or {})
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return payload
+
+    def get_patch_chain_summary(self, run_id: str, patch_id: str) -> dict:
+        patches = self.list_patches(run_id)
+        by_id: dict[str, dict] = {str(p.get("patch_id", "")): p for p in patches if str(p.get("patch_id", ""))}
+        current = by_id.get(patch_id)
+        if not current:
+            raise ValueError("patch not found")
+
+        by_parent: dict[str, list[dict]] = {}
+        for p in patches:
+            parent = str(p.get("reproposal_of_patch_id", "") or "")
+            if parent:
+                by_parent.setdefault(parent, []).append(p)
+
+        seen: set[str] = set()
+        lineage_rev: list[dict] = []
+        cursor = current
+        while cursor:
+            cid = str(cursor.get("patch_id", ""))
+            if not cid or cid in seen:
+                break
+            seen.add(cid)
+            lineage_rev.append(cursor)
+            parent_id = str(cursor.get("reproposal_of_patch_id", "") or "")
+            cursor = by_id.get(parent_id) if parent_id else None
+
+        chain = list(reversed(lineage_rev))
+        root_patch_id = str(chain[0].get("patch_id", "")) if chain else patch_id
+        parent_patch_id = str(current.get("reproposal_of_patch_id", "") or "")
+        children = [str(x.get("patch_id", "")) for x in by_parent.get(patch_id, []) if str(x.get("patch_id", ""))]
+        reproposal_count_total = max(0, len(chain) - 1)
+        return {
+            "run_id": run_id,
+            "root_patch_id": root_patch_id,
+            "current_patch_id": patch_id,
+            "parent_patch_id": parent_patch_id,
+            "children": children,
+            "chain": [
+                {
+                    "patch_id": str(p.get("patch_id", "")),
+                    "status": str(p.get("status", "")),
+                    "verification_status": str(p.get("verification_status", "")),
+                    "reproposal_of_patch_id": str(p.get("reproposal_of_patch_id", "")),
+                    "created_at": str(p.get("created_at", "")),
+                }
+                for p in chain
+            ],
+            "reproposal_count_total": reproposal_count_total,
+        }

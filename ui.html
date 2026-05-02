@@ -13884,12 +13884,12 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
         ? '<div style="color:var(--amber);margin-top:6px">Rejected patches cannot be re-approved. Generate a new patch preview if needed.</div>'
         : (isApplied ? '<div style="color:var(--amber);margin-top:6px">Applied patches cannot be modified from this panel.</div>' : '');
       return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px">
-<div>patch_id=${esc(p.patch_id)} step_id=${esc(p.step_id||'')} target=${esc(p.target_file||'')}</div>
-<div>risk_level=${esc(p.risk_level||'low')} patch_type=${esc(p.patch_type||'append')} generator=${esc(p.generator||'')} match_count=${esc(String(p.match_count??''))} can_apply_reason=${esc(p.can_apply_reason||'')} apply_allowed=${String(applyAllowed)} applied=${String(!!p.applied)} approval_status=${esc(approvalStatus)}</div>
-<div>patch_approval_id=${esc(p.patch_approval_id||'')} verification_id=${esc(p.verification_id||'')} verification_status=${esc(p.verification_status||'')} verification_summary=${esc(p.verification_summary||'')}</div><div>quality_score=${esc(String(p.quality_score??''))} quality_summary=${esc(p.quality_summary||'')} candidate_block_count=${esc(String(p.candidate_block_count??''))} selected_candidate_reason=${esc(p.selected_candidate_reason||'')}</div><div>reproposal_of_patch_id=${esc(p.reproposal_of_patch_id||'')} reproposal_reason=${esc(p.reproposal_reason||'')} parent_verification_id=${esc(p.parent_verification_id||'')}</div><div>llm_sanitized=${esc(String(!!p.llm_sanitized))} llm_model=${esc(p.llm_model||'')} fallback_from=${esc((p.metadata||{}).fallback_from||'')}</div><div>llm_telemetry_id=${esc((p.metadata||{}).llm_telemetry_id||'')} fallback_telemetry_id=${esc((p.metadata||{}).fallback_telemetry_id||'')}</div><div>verification_failed=${esc(String(!!p.verification_failed))} has_reproposal=${esc(String(!!p.has_reproposal))} reproposal_count=${esc(String(p.reproposal_count??0))} latest_reproposal_patch_id=${esc(p.latest_reproposal_patch_id||'')}</div>${p.has_reproposal?'<div style="color:var(--amber)">Reproposal already generated</div>':''}<div style="font-size:11px;color:var(--text2)">LLM replace_block はpreview proposalです。承認なしにapplyされません。apply_allowed=false の場合は safety_warnings / can_apply_reason を確認してください。</div>
+<div><b>Basic</b></div><div>patch_id=${esc(p.patch_id)} step_id=${esc(p.step_id||'')} target=${esc(p.target_file||'')}</div>
+<div><b>Safety</b></div><div>risk_level=${esc(p.risk_level||'low')} patch_type=${esc(p.patch_type||'append')} generator=${esc(p.generator||'')} match_count=${esc(String(p.match_count??''))} can_apply_reason=${esc(p.can_apply_reason||'')} apply_allowed=${String(applyAllowed)} applied=${String(!!p.applied)} approval_status=${esc(approvalStatus)}</div>
+<div><b>Quality</b></div><div>quality_score=${esc(String(p.quality_score??''))} quality_summary=${esc(p.quality_summary||'')} candidate_block_count=${esc(String(p.candidate_block_count??''))} selected_candidate_reason=${esc(p.selected_candidate_reason||'')}</div><div><b>Telemetry</b></div><div>llm_sanitized=${esc(String(!!p.llm_sanitized))} llm_model=${esc(p.llm_model||'')} fallback_from=${esc((p.metadata||{}).fallback_from||'')}</div><div>llm_telemetry_id=${esc((p.metadata||{}).llm_telemetry_id||'')} fallback_telemetry_id=${esc((p.metadata||{}).fallback_telemetry_id||'')}</div><div><b>Verification</b></div><div>patch_approval_id=${esc(p.patch_approval_id||'')} verification_id=${esc(p.verification_id||'')} verification_status=${esc(p.verification_status||'')} verification_summary=${esc(p.verification_summary||'')} verification_failed=${esc(String(!!p.verification_failed))}</div><div><b>Reproposal</b></div><div>reproposal_of_patch_id=${esc(p.reproposal_of_patch_id||'')} reproposal_reason=${esc(p.reproposal_reason||'')} parent_verification_id=${esc(p.parent_verification_id||'')} has_reproposal=${esc(String(!!p.has_reproposal))} reproposal_count=${esc(String(p.reproposal_count??0))} latest_reproposal_patch_id=${esc(p.latest_reproposal_patch_id||'')}</div>${p.has_reproposal?'<div style="color:var(--amber)">Reproposal already generated</div>':''}<div style="font-size:11px;color:var(--text2)">LLM replace_block はpreview proposalです。承認なしにapplyされません。apply_allowed=false の場合は safety_warnings / can_apply_reason を確認してください。</div>
 <div>${warns||''}</div><div style="color:var(--text2)">Quality score is advisory. Review diff before approving.</div>${(p.quality_warnings||[]).map((w)=>`<div>•Q ${esc(String(w))}</div>`).join('')}<div style="color:var(--text2)">${p.reproposal_of_patch_id?'Reproposal is preview only. It is not approved or applied automatically.':''}</div>${warnAck}${riskAck}${qWarnAck}${lowQAck}${stateMsg}${String(p.verification_status||'')==='failed'?`<div style="margin-top:6px"><button data-pa="reproposal" data-pid="${p.patch_id}">Generate Reproposal Preview</button></div>`:''}
 <details><summary>Original block</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.original_block||'')}</pre></details><details><summary>Replacement block</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.replacement_block||'')}</pre></details><details><summary>Diff</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.unified_diff||'')}</pre></details>
-<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button data-pa="approve" data-pid="${p.patch_id}" ${disableApprove ? 'disabled' : ''}>Approve Patch</button><button data-pa="reject" data-pid="${p.patch_id}" ${disableReject ? 'disabled' : ''}>Reject Patch</button><button data-pa="apply" data-pid="${p.patch_id}" ${disableApply ? 'disabled' : ''}>Apply Approved Patch</button><button data-pa="manual-check" data-pid="${p.patch_id}">Save Manual Check</button>${(p.metadata||{}).llm_telemetry_id?`<button data-pa="view-llm-telemetry" data-pid="${p.patch_id}" data-tid="${esc((p.metadata||{}).llm_telemetry_id)}">View LLM Telemetry</button>`:''}${(p.metadata||{}).fallback_telemetry_id?`<button data-pa="view-fallback-telemetry" data-pid="${p.patch_id}" data-tid="${esc((p.metadata||{}).fallback_telemetry_id)}">View Fallback Telemetry</button>`:''}</div><pre id="${cid}-pv-${p.patch_id}" style="white-space:pre-wrap"></pre></div>`;
+<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button data-pa="approve" data-pid="${p.patch_id}" ${disableApprove ? 'disabled' : ''}>Approve Patch</button><button data-pa="reject" data-pid="${p.patch_id}" ${disableReject ? 'disabled' : ''}>Reject Patch</button><button data-pa="apply" data-pid="${p.patch_id}" ${disableApply ? 'disabled' : ''}>Apply Approved Patch</button><button data-pa="manual-check" data-pid="${p.patch_id}">Save Manual Check</button><button data-pa="view-manual-checks" data-pid="${p.patch_id}">View Manual Checks</button><button data-pa="view-reproposal-chain" data-pid="${p.patch_id}">View Reproposal Chain</button>${(p.metadata||{}).llm_telemetry_id?`<button data-pa="view-llm-telemetry" data-pid="${p.patch_id}" data-tid="${esc((p.metadata||{}).llm_telemetry_id)}">View LLM Telemetry</button>`:''}${(p.metadata||{}).fallback_telemetry_id?`<button data-pa="view-fallback-telemetry" data-pid="${p.patch_id}" data-tid="${esc((p.metadata||{}).fallback_telemetry_id)}">View Fallback Telemetry</button>`:''}</div><pre id="${cid}-pv-${p.patch_id}" style="white-space:pre-wrap"></pre></div>`;
     }).join('') || '<div style="color:var(--text3)">No patches.</div>';
     listEl.querySelectorAll('[data-pa]').forEach((b)=>b.addEventListener('click', async ()=>{
       const action = b.getAttribute('data-pa'); const pid = b.getAttribute('data-pid'); const out = listEl.querySelector(`#${cid}-pv-${pid}`);
@@ -13901,7 +13901,10 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
           const rt = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/llm-telemetry/${encodeURIComponent(tid)}`);
           const dt = await rt.json();
           if (!rt.ok) throw new Error(dt.detail || `HTTP ${rt.status}`);
-          out.textContent = JSON.stringify(dt, null, 2);
+          const summary = dt && dt.summary ? dt.summary : null;
+          const summaryText = summary ? ["Telemetry Summary", ...Object.entries(summary).map(([k,v]) => `${k}: ${String(v)}`)].join("\n") : "Telemetry Summary: (none)";
+          const raw = JSON.stringify(dt, null, 2);
+          out.innerHTML = `<div style="font-weight:700;margin-bottom:4px">Telemetry Summary</div><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(summaryText)}</pre><details><summary>Raw JSON</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(raw)}</pre></details>`;
           return;
         }
         if (action === 'manual-check') {
@@ -13909,6 +13912,36 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
           const notes = prompt('Notes', 'manual check from UI') || '';
           ep = `/api/runs/${encodeURIComponent(runId)}/patches/${encodeURIComponent(pid)}/manual-check`;
           payload = { reviewer: 'user', observed_issue: observed, notes };
+        }
+        if (action === 'view-manual-checks') {
+          const rm = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/manual-checks`);
+          const dm = await rm.json();
+          if (!rm.ok) throw new Error(dm.detail || `HTTP ${rm.status}`);
+          const items = (Array.isArray(dm.manual_checks) ? dm.manual_checks : []).filter((x)=>String(x.patch_id||'')===String(pid));
+          const lines = items.length ? items.map((x)=>[
+            `check_id=${x.check_id||''}`,`created_at=${x.created_at||''}`,`reviewer=${x.reviewer||''}`,`observed_issue=${x.observed_issue||''}`,`notes=${x.notes||''}`,`apply_allowed=${String(!!x.apply_allowed)}`,`quality_score=${String(x.quality_score??'')}`,`verification_status=${x.verification_status||''}`
+          ].join('\n')).join('\n\n---\n\n') : 'No manual checks for this patch.';
+          out.textContent = lines;
+          return;
+        }
+        if (action === 'view-reproposal-chain') {
+          const rc = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patches/${encodeURIComponent(pid)}/chain`);
+          const dc = await rc.json();
+          if (!rc.ok) throw new Error(dc.detail || `HTTP ${rc.status}`);
+          const c = dc.chain || {};
+          const chain = Array.isArray(c.chain) ? c.chain : [];
+          const lines = [
+            `root_patch_id=${c.root_patch_id||''}`,
+            `current_patch_id=${c.current_patch_id||''}`,
+            `parent_patch_id=${c.parent_patch_id||''}`,
+            `reproposal_count_total=${String(c.reproposal_count_total??0)}`,
+            `children=${JSON.stringify(c.children||[])}`,
+            '',
+            'chain entries:',
+            ...chain.map((x)=>`- patch_id=${x.patch_id||''} status=${x.status||''} verification_status=${x.verification_status||''} reproposal_of_patch_id=${x.reproposal_of_patch_id||''}`)
+          ];
+          out.textContent = lines.join('\n');
+          return;
         }
         if (action === 'approve') {
           payload = {
