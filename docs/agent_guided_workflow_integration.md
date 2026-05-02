@@ -133,3 +133,11 @@
 - No approve/execute/apply is performed by these buttons.
 - Approval and Patch Review gates remain required.
 - No backend workflow behavior change is introduced in this phase.
+
+
+## Phase 21 note (Stable Workflow Section Anchors / Existing UI Target Tagging)
+- Stable `data-atlas-workflow-target` anchors are added to existing workflow UI sections (plan review / approval / execute preview / patch review).
+- `findAtlasWorkflowTarget(kind)` now prefers real workflow UI targets and falls back to lightweight Phase 20.5 anchors.
+- Focus helper behavior remains focus/scroll guidance only.
+- No approve/execute/apply workflow behavior changes are introduced in this phase.
+- Approval and Patch Review gates remain required.
