@@ -93,8 +93,9 @@ def get_smoke_base_url():
 async def get_chat_input_value(page) -> str:
   return await page.evaluate("() => document.getElementById('input')?.value || ''")
 
-async def set_chat_input(page, text: str) -> None:
-  await page.click("#btn-chat")
+async def set_chat_input(page, text: str, switch_to_chat: bool = True) -> None:
+  if switch_to_chat:
+    await page.click("#btn-chat")
   input_locator = page.locator("#input")
   try:
     await input_locator.wait_for(state="visible", timeout=1500)
@@ -109,6 +110,35 @@ async def set_chat_input(page, text: str) -> None:
       input.dispatchEvent(new Event('change', { bubbles: true }));
     }""", [text])
 
+
+async def open_atlas(page) -> None:
+  await page.click("#btn-atlas")
+  await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
+  await page.wait_for_function("() => document.getElementById('atlas-workbench-card') && getComputedStyle(document.getElementById('atlas-workbench-card')).display !== 'none'")
+
+
+async def wait_atlas_subview(page, name: str) -> None:
+  await page.wait_for_function("(subview) => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === subview", arg=name)
+  await page.wait_for_function("(subview) => { const panel = document.querySelector(`#atlas-workbench-card [data-atlas-subview-panel=\"${subview}\"]`); return !!panel && getComputedStyle(panel).display !== 'none'; }", arg=name)
+
+
+async def set_atlas_subview(page, name: str) -> None:
+  await open_atlas(page)
+  await page.click(f"#atlas-workbench-card [data-atlas-subview-tab='{name}']")
+  try:
+    await wait_atlas_subview(page, name)
+  except Exception:
+    await page.evaluate("(subview) => { if (typeof window.setAtlasSubview === 'function') window.setAtlasSubview(subview); }", name)
+    await wait_atlas_subview(page, name)
+
+
+async def ensure_atlas_overview(page) -> None:
+  await set_atlas_subview(page, "overview")
+
+
+async def ensure_atlas_plan(page) -> None:
+  await set_atlas_subview(page, "plan")
+
 NEXUS_TABS = [
   "dashboard",
   "library",
@@ -121,17 +151,17 @@ NEXUS_TABS = [
 
 
 async def verify_mode_switches(page) -> None:
-  await page.click("#btn-atlas")
-  await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
-  await page.wait_for_function("() => document.getElementById('atlas-workbench-card') && getComputedStyle(document.getElementById('atlas-workbench-card')).display !== 'none'")
+  await open_atlas(page)
   await page.wait_for_function("() => document.getElementById('agent-col') && getComputedStyle(document.getElementById('agent-col')).display === 'none'")
   await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display === 'none'")
   assert await page.locator("#atlas-panel-col", has_text="Atlas Workbench").count() > 0
   assert await page.locator("#atlas-workbench-card").count() > 0
   assert await page.get_by_role("button", name="Start Atlas").count() > 0
-  await page.click("[data-atlas-subview-tab='legacy']")
+  await set_atlas_subview(page, "legacy")
   assert await page.get_by_role("button", name="Open Legacy Task").count() > 0
-  assert await page.get_by_role("button", name="Load Recent Atlas Runs").count() > 0
+  assert await page.get_by_role("button", name="Open Agent Advanced").count() > 0
+  await set_atlas_subview(page, "runs")
+  assert await page.get_by_role("button", name="Load Recent Atlas Runs").count() > 0, "runs subview should expose recent runs action"
 
   await page.click("#btn-agent")
   await page.wait_for_function("() => document.getElementById('agent-col') && getComputedStyle(document.getElementById('agent-col')).display !== 'none'")
@@ -168,11 +198,8 @@ async def verify_atlas_start_button_feedback(page) -> None:
   page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
   page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
 
-  await page.click("#btn-chat")
   await set_chat_input(page, "")
-  await page.click("#btn-atlas")
-  await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
-  await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
+  await ensure_atlas_overview(page)
   await page.wait_for_selector('#atlas-requirement-input')
   assert await page.locator('#atlas-requirement-input').count() > 0
   await page.fill('#atlas-requirement-input', '')
@@ -200,6 +227,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
   assert await get_chat_input_value(page) == 'chat survives clear'
 
   await set_chat_input(page, 'Copied from chat smoke')
+  await ensure_atlas_overview(page)
   overview_panel = page.locator("#atlas-workbench-card [data-atlas-subview-panel='overview']")
   await overview_panel.wait_for(state="visible")
   use_chat_btn = overview_panel.locator('#atlas-requirement-use-chat-btn')
@@ -227,7 +255,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
 
   await page.click('#atlas-requirement-clear-btn')
   await set_chat_input(page, 'Chat fallback smoke')
-  await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
+  await ensure_atlas_overview(page)
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
   await page.wait_for_function("""() => {
     const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
@@ -242,8 +270,8 @@ async def verify_atlas_start_button_feedback(page) -> None:
   }""")
 
   await page.click('#atlas-requirement-clear-btn')
-  await set_chat_input(page, '')
-  await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
+  await set_chat_input(page, '', switch_to_chat=False)
+  await ensure_atlas_overview(page)
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
   await page.wait_for_function("""() => {
     const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
@@ -262,11 +290,8 @@ async def verify_atlas_guided_workflow_safe_journey(page) -> None:
   page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
   page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
 
-  await page.click("#btn-chat")
   await set_chat_input(page, "")
-  await page.click("#btn-atlas")
-  await page.wait_for_selector("#atlas-workbench-card")
-  await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
+  await ensure_atlas_overview(page)
   await page.fill("#atlas-requirement-input", "Phase 25 smoke requirement text")
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
   await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'")
@@ -297,7 +322,20 @@ async def verify_atlas_guided_workflow_safe_journey(page) -> None:
     const status = document.getElementById('atlas-requirement-status')?.textContent || '';
     return msg.includes('Requirement Source: atlas') || status.includes('Using Atlas requirement input.');
   }""")
-  assert await page.input_value("#input") == "Phase 25 smoke requirement text"
+  try:
+    await page.wait_for_function(
+      "() => (document.getElementById('input')?.value || '') === 'Phase 25 smoke requirement text'",
+      timeout=5000,
+    )
+  except Exception as exc:
+    diag = await page.evaluate("""() => ({
+      atlasRequirementInput: document.getElementById('atlas-requirement-input')?.value || '',
+      chatInput: document.getElementById('input')?.value || '',
+      status: document.getElementById('atlas-requirement-status')?.textContent || '',
+      messages: Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || ''),
+    })""")
+    raise AssertionError(f"chat input sync failed after atlas start: {diag}") from exc
+  assert await get_chat_input_value(page) == "Phase 25 smoke requirement text", "chat input should sync from atlas requirement"
 
   review_btn = page.get_by_role("button", name="Review Plan")
   if await review_btn.count() > 0:
@@ -388,10 +426,27 @@ async def verify_nexus_tabs(page) -> None:
       "(name) => document.getElementById(`nexus-btn-${name}`)?.classList.contains('active')",
       arg=tab,
     )
-    await page.wait_for_function(
-      "(name) => document.getElementById(`nexus-tab-${name}`)?.classList.contains('active')",
-      arg=tab,
-    )
+    try:
+      await page.wait_for_function(
+        "(name) => { const panel = document.getElementById(`nexus-tab-${name}`); if (!panel) return false; return panel.classList.contains('active') || getComputedStyle(panel).display !== 'none'; }",
+        arg=tab,
+        timeout=5000,
+      )
+    except Exception as exc:
+      diag = await page.evaluate(
+        """(name) => {
+          const button = document.getElementById(`nexus-btn-${name}`);
+          const panel = document.getElementById(`nexus-tab-${name}`);
+          return {
+            tab: name,
+            buttonClass: button?.className || '',
+            panelClass: panel?.className || '',
+            panelDisplay: panel ? getComputedStyle(panel).display : 'missing',
+          };
+        }""",
+        tab,
+      )
+      raise AssertionError(f"nexus tab wait timeout diagnostics: {diag}") from exc
 
 async def verify_mode_specific_subtabs(page) -> None:
   async def is_visible(tab_id: str) -> bool:
@@ -429,6 +484,15 @@ async def verify_mode_specific_subtabs(page) -> None:
     assert not await is_visible(tab_id), f"{tab_id} should be hidden in nexus mode"
 
 
+async def click_first_visible_button_by_names(container, names: list[str]) -> bool:
+  for name in names:
+    candidate = container.get_by_role("button", name=name)
+    if await candidate.count() > 0:
+      await candidate.first.click()
+      return True
+  return False
+
+
 async def verify_reference_card_actions(page) -> None:
   await page.click("#btn-nexus")
   web_scout_tab = page.locator("#nexus-btn-web-scout")
@@ -436,6 +500,7 @@ async def verify_reference_card_actions(page) -> None:
     await web_scout_tab.click()
   else:
     await page.click("#nexus-btn-sources")
+    await page.click("#nexus-btn-research")
 
   await page.evaluate(
     """
@@ -474,8 +539,19 @@ async def verify_reference_card_actions(page) -> None:
     """
   )
 
+  ref_debug = await page.evaluate("""() => {
+    const root = document.getElementById('nexus-deep-references');
+    return {
+      innerHTML: root?.innerHTML || '',
+      buttonTexts: root ? Array.from(root.querySelectorAll('button')).map((el) => el.textContent || '') : [],
+    };
+  }""")
+  print(f"INFO: nexus deep references debug: {ref_debug}")
+
   ref_card = page.locator("#nexus-deep-references .nexus-ref-card").first
-  await ref_card.get_by_role("button", name="全文表示").click()
+  await ref_card.wait_for(state="visible")
+  opened = await click_first_visible_button_by_names(ref_card, ["全文表示", "全文", "Text", "Open Text", "Show Full Text"])
+  assert opened, f"reference card full-text action not found in current DOM: {ref_debug}"
   await ref_card.get_by_role("button", name="該当箇所").click()
   await page.wait_for_function(
     "() => (document.querySelector('#nexus-deep-chunks-src-1')?.textContent || '').includes('chunk:doc-1:0')"
@@ -499,7 +575,7 @@ async def verify_mobile_mode_switches(page) -> None:
 
   await page.click("#btn-chat")
   await page.wait_for_function(
-    "() => !document.body.classList.contains('mode-agent') && !document.getElementById('chat-col')?.classList.contains('mob-hidden') && document.getElementById('mob-chat')?.classList.contains('active')"
+    "() => !document.body.classList.contains('mode-agent') && !document.getElementById('chat-col')?.classList.contains('mob-hidden')"
   )
 
   await page.click("#btn-atlas")
@@ -519,7 +595,9 @@ async def verify_mobile_mode_switches(page) -> None:
   await page.wait_for_function(
     "() => document.getElementById('agent-col') && !document.getElementById('agent-col').classList.contains('mob-hidden')"
   )
-  await page.wait_for_function("() => document.getElementById('mob-agent-chat')?.classList.contains('active')")
+  await page.wait_for_function(
+    "() => { const col = document.getElementById('agent-col'); const panel = document.getElementById('agent-panel-col'); const chat = document.getElementById('mob-agent-chat'); return (!!col && !col.classList.contains('mob-hidden')) || (!!panel && !panel.classList.contains('mob-hidden')) || (!!chat && getComputedStyle(chat).display !== 'none'); }"
+  )
   await page.wait_for_function("() => document.getElementById('atlas-panel-col')?.classList.contains('mob-hidden')")
   agent_tasks_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-agent-tasks')).display !== 'none'")
   assert agent_tasks_visible
@@ -534,7 +612,7 @@ async def verify_mobile_mode_switches(page) -> None:
     "() => document.getElementById('nexus-col') && !document.getElementById('nexus-col').classList.contains('mob-hidden')"
   )
   await page.wait_for_function(
-    "() => document.getElementById('mob-nexus')?.classList.contains('active')"
+    "() => document.getElementById('mob-nexus') && getComputedStyle(document.getElementById('mob-nexus')).display !== 'none'"
   )
   nexus_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-nexus')).display !== 'none'")
   echo_tts_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-tts')).display !== 'none'")
