@@ -104,9 +104,16 @@ async def verify_atlas_start_button_feedback(page) -> None:
   await page.wait_for_function("""() => {
     const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
     const status = (document.getElementById('atlas-requirement-status')?.textContent || '');
-    return logs.some((t) => t.includes('Starting Atlas guided planning workflow...'))
-      || status.includes('Using Atlas requirement input');
+    const chatValue = (document.getElementById('input')?.value || '');
+    return (
+      (logs.some((t) => t.includes('Starting Atlas guided planning workflow...'))
+        || status.includes('Using Atlas requirement input')
+        || status.includes('Starting Atlas guided planning workflow...'))
+      && chatValue === 'Short Atlas requirement for smoke test'
+      && !logs.some((t) => t.includes('Atlas Start failed:'))
+    );
   }""")
+  assert not any('ReferenceError' in e for e in errors), f"atlas start smoke found reference errors: {errors}"
   assert not errors, f"atlas start smoke found errors: {errors}"
 
 async def verify_nexus_tabs(page) -> None:

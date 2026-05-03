@@ -14288,10 +14288,11 @@ async function runGuidedPlanWorkflow(options = {}) {
   const workspace = options?.workspace || 'Atlas';
   _updatePlanWorkflowState({ source, workspace });
   const input = document.getElementById('input');
-  const text = (options?.requirementText || (source === 'atlas' ? getAtlasRequirementText() : (input?.value || ''))).trim();
-  if (source === 'atlas' && text) syncAtlasRequirementToChatInput(text);
+  const requirementText = (options?.requirementText || (source === 'atlas' ? getAtlasRequirementText() : (input?.value || ''))).trim();
+  const text = requirementText;
   if (!text && source === 'atlas') {
     const msg = 'Atlas Start needs a request. Enter a message in Chat or use Atlas Plan inputs, then press Start Atlas again.';
+    setAtlasRequirementStatus('Enter a requirement to start.');
     addMsg('system', msg);
     addLog('warn', 'atlas', msg);
     _updatePlanWorkflowState({ lastError: msg });
@@ -14303,6 +14304,10 @@ async function runGuidedPlanWorkflow(options = {}) {
     addLog('warn', 'atlas', busyMsg);
     _updatePlanWorkflowState({ lastError: busyMsg });
     return null;
+  }
+  if (source === 'atlas' && requirementText) {
+    syncAtlasRequirementToChatInput(requirementText);
+    setAtlasRequirementStatus('Using Atlas requirement input.');
   }
   return generatePlanOnlyFromInput();
 }
@@ -15060,8 +15065,7 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
 // Backward-compatible name: this now drives the full guided workflow chain (plan/review/approval/execute preview/patch review).
 async function generatePlanOnlyFromInput() {
   const input = document.getElementById('input');
-  const text = (options?.requirementText || (source === 'atlas' ? getAtlasRequirementText() : (input?.value || ''))).trim();
-  if (source === 'atlas' && text) syncAtlasRequirementToChatInput(text);
+  const text = (input?.value || '').trim();
   if (!text || busy) return;
   const planningMode = document.getElementById('phase1-planning-mode')?.value || 'standard';
   const requirementMode = document.getElementById('phase1-requirement-mode')?.value || 'ask_when_needed';

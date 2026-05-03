@@ -34,12 +34,24 @@ class TestPhase23AtlasRequirementInputUiContract(unittest.TestCase):
         self.assertIn('syncAtlasRequirementToChatInput(requirementText);', body)
         self.assertIn("startPlanWorkflow({ source: 'atlas', workspace: 'Atlas', requirementText });", body)
 
+    def test_generate_plan_only_from_input_is_legacy_safe(self):
+        m = re.search(r'async function generatePlanOnlyFromInput\(\) \{([\s\S]*?)\n\}', self.ui)
+        self.assertIsNotNone(m)
+        body = m.group(1)
+        self.assertIn("document.getElementById('input')", body)
+        self.assertNotIn('options?.requirementText', body)
+        self.assertNotIn("source === 'atlas'", body)
+        self.assertNotIn('getAtlasRequirementText()', body)
+        self.assertNotIn('syncAtlasRequirementToChatInput', body)
+
     def test_run_guided_plan_workflow_supports_requirement_text(self):
         m = re.search(r'async function runGuidedPlanWorkflow\(options = \{\}\) \{([\s\S]*?)\n\}', self.ui)
         self.assertIsNotNone(m)
         body = m.group(1)
         self.assertIn('options?.requirementText', body)
         self.assertIn("source === 'atlas' ? getAtlasRequirementText()", body)
+        self.assertIn('syncAtlasRequirementToChatInput(requirementText);', body)
+        self.assertIn('return generatePlanOnlyFromInput();', body)
 
     def test_empty_request_feedback_remains(self):
         self.assertIn('Atlas Start needs a request.', self.ui)

@@ -179,3 +179,10 @@
 - Existing safe guided planning path is reused (`startAtlasWorkflow` -> `startPlanWorkflow` -> `runGuidedPlanWorkflow` -> `generatePlanOnlyFromInput`).
 - Empty request feedback remains in place for Atlas starts.
 - No approval / execute / patch behavior changes are introduced in this phase.
+
+## Phase 23.1 note (Requirement propagation safety fix)
+- Fixes Requirement propagation into the existing plan generation path.
+- `generatePlanOnlyFromInput()` remains legacy-safe and reads Chat input (`#input`).
+- Atlas Requirement is synchronized into Chat input before invoking the existing planner.
+- No backend workflow changes were introduced in this phase.
+- No approval / execute / patch behavior changes are introduced in this phase.
