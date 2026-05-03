@@ -429,3 +429,14 @@
 - **Source URL** and **Download** remain diagnostic-only actions.
 - Backend E2E remains opt-in (`RUN_ATLAS_BACKEND_E2E`), with no backend workflow behavior changes.
 - No approval/execute/patch behavior changes were made.
+
+## Phase 25.5 note (Lock Playwright UI smoke 9/9 PASS)
+- Playwright UI smoke reached 9/9 PASS (`Total scenarios: 9`, `PASS: 9`, `FAIL: 0`).
+- UI smoke is served over an HTTP mock origin (`http://127.0.0.1:<port>/`), not `file://`.
+- Scenario aggregation remains enabled and keeps producing artifacts plus summary output.
+- `reference_card_actions` final policy is fixed as:
+  - Full Text and Highlight are required checks.
+  - Source URL and Download are diagnostic-only checks.
+- Backend E2E remains explicit opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
+- No backend workflow behavior changes are introduced in this phase.
+- No approval / execute / patch behavior changes are introduced in this phase.
