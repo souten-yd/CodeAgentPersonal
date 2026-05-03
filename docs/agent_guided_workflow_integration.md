@@ -668,3 +668,13 @@
 - Approve is still never clicked by smoke.
 - Execute Preview / Patch Apply are still never clicked by smoke.
 - Workflow remains opt-in only (`RUN_ATLAS_BACKEND_E2E=1`, `RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1`, `RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL=1`).
+
+## Phase 29.0c note (invalid selector guard + exception-safe diagnostics)
+- Windows PlanApproval gate diagnostics initially failed because `:has-text()` was used inside `document.querySelector`.
+- `:has-text()` is Playwright locator syntax and invalid for browser DOM `querySelector`/`querySelectorAll`.
+- Phase 29.0c replaces that path with DOM traversal + `textContent` filtering for approve-candidate diagnostics.
+- PlanApproval diagnostic collection is now exception-safe (`diagnosticError`/`selectorErrors`) and does not crash scenarios on selector/DOM mismatches.
+- `needs_clarification` / `needs_clarification_after_resolution` skip path now returns early with `plan_approval_gate_skipped_needs_clarification` and does not depend on full selector diagnostics.
+- Approve is still never clicked.
+- Execute Preview / Patch Apply are still never clicked.
+- Workflow remains explicit opt-in only.

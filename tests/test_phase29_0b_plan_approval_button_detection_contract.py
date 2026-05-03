@@ -15,8 +15,6 @@ class TestPhase290bPlanApprovalButtonDetectionContract(unittest.TestCase):
 
     def test_approve_selector_candidates_are_expanded(self):
         for token in [
-            "button:has-text(\\\"Approve\\\")",
-            "button:has-text(\\\"承認\\\")",
             "[data-action*=\\\"approve\\\"]",
             "[data-a*=\\\"approve\\\"]",
             "[id*=\\\"approve\\\"]",

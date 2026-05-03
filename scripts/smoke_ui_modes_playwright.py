@@ -747,21 +747,17 @@ async def collect_atlas_clarification_diag(page) -> dict:
 
 async def collect_atlas_plan_approval_gate_diag(page) -> dict:
   return await page.evaluate("""() => {
+    try {
     const statusText = document.getElementById('atlas-workflow-status')?.textContent || '';
     const flowText = document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '';
     const messages = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
     const approvalCard = document.querySelector('#plan-approval-card, [data-atlas-workflow-target=\"dynamic-approval\"], [data-atlas-workflow-target=\"approval\"]');
+    const selectorErrors = [];
     const approveSelectorCandidates = [
       '#approve-plan-btn',
       '[data-action=\"approve-plan\"]',
       '#plan-approval-card [data-a=\"approve\"]',
       '#plan-approval-card button.phase1-plan-btn[data-a=\"approve\"]',
-      '#plan-approval-card button:has-text(\"Approve\")',
-      '#plan-approval-card button:has-text(\"承認\")',
-      '#atlas-workbench-card button:has-text(\"Approve\")',
-      '#atlas-workbench-card button:has-text(\"承認\")',
-      '#atlas-workbench-card [role=\"button\"]:has-text(\"Approve\")',
-      '#atlas-workbench-card [role=\"button\"]:has-text(\"承認\")',
       '#atlas-workbench-card [data-action*=\"approve\"]',
       '#atlas-workbench-card [data-a*=\"approve\"]',
       '#atlas-workbench-card [id*=\"approve\"]',
@@ -794,7 +790,14 @@ async def collect_atlas_plan_approval_gate_diag(page) -> dict:
       '[data-a]',
       '[data-action]',
     ];
-    const allButtonElements = Array.from(new Set(buttonSelectorScopes.flatMap((sel) => Array.from(document.querySelectorAll(sel)))));
+    const allButtonElements = Array.from(new Set(buttonSelectorScopes.flatMap((sel) => {
+      try {
+        return Array.from(document.querySelectorAll(sel));
+      } catch (error) {
+        selectorErrors.push({ selector: sel, error: String(error) });
+        return [];
+      }
+    })));
     const buttonInventory = allButtonElements.map((el) => ({
       text: (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 200),
       id: el.id || '',
@@ -815,7 +818,14 @@ async def collect_atlas_plan_approval_gate_diag(page) -> dict:
       const corpus = `${b.text} ${b.id} ${b.className} ${b.ariaLabel} ${b.title} ${b.dataAction} ${b.dataA}`.toLowerCase();
       return /execute|apply\\s+patch|apply|approve|承認|bulk/.test(corpus);
     });
-    const approveButton = approveSelectorCandidates.map((sel) => document.querySelector(sel)).find((el) => !!el)
+    const approveButton = approveSelectorCandidates.map((sel) => {
+      try {
+        return document.querySelector(sel);
+      } catch (error) {
+        selectorErrors.push({ selector: sel, error: String(error) });
+        return null;
+      }
+    }).find((el) => !!el)
       || allButtonElements.find((el) => {
         const corpus = `${el.textContent || ''} ${el.id || ''} ${el.className || ''} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''} ${el.getAttribute('data-action') || ''} ${el.getAttribute('data-a') || ''}`.toLowerCase();
         return approveTextCandidates.some((token) => corpus.includes(token.toLowerCase()));
@@ -856,15 +866,46 @@ async def collect_atlas_plan_approval_gate_diag(page) -> dict:
       approvalCandidateButtons,
       destructiveCandidateButtons,
       approvalPanelTextTail: (approvalCard?.textContent || '').slice(-1000),
+      workbenchTextTail: (document.getElementById('atlas-workbench-card')?.textContent || '').slice(-1000),
       workbenchHtmlTail: (document.getElementById('atlas-workbench-card')?.innerHTML || '').slice(-1000),
       approveSelectorCandidates,
+      diagnosticError: "",
+      selectorErrors,
       failureReason: "",
     };
+    } catch (error) {
+      return {
+        diagnosticError: String(error),
+        allButtons: [],
+        approvalCandidateButtons: [],
+        destructiveCandidateButtons: [],
+        approvalPanelTextTail: "",
+        workbenchTextTail: "",
+        selectorErrors: [],
+        failureReason: "",
+      };
+    }
   }""")
 
 
 async def verify_atlas_plan_approval_gate_readiness(page, wait_diag: dict, console_errors: list[str], page_errors: list[str]) -> dict:
   final_decision = str(wait_diag.get("finalDecision") or "unknown")
+  if final_decision in ("needs_clarification", "needs_clarification_after_resolution"):
+    return {
+      "finalDecision": final_decision,
+      "completionDecisionReason": wait_diag.get("completionDecisionReason", ""),
+      "consoleErrors": list(console_errors),
+      "pageErrors": list(page_errors),
+      "destructiveActionDetected": False,
+      "skippedReason": "plan_approval_gate_skipped_needs_clarification",
+      "diagnosticError": "",
+      "allButtons": [],
+      "approvalCandidateButtons": [],
+      "destructiveCandidateButtons": [],
+      "approvalPanelTextTail": "",
+      "workbenchTextTail": "",
+      "selectorErrors": [],
+    }
   gate_diag = await collect_atlas_plan_approval_gate_diag(page)
   gate_diag["finalDecision"] = final_decision
   gate_diag["completionDecisionReason"] = wait_diag.get("completionDecisionReason", "")
@@ -872,9 +913,6 @@ async def verify_atlas_plan_approval_gate_readiness(page, wait_diag: dict, conso
   gate_diag["pageErrors"] = list(page_errors)
   gate_diag["destructiveActionDetected"] = False
   gate_diag["skippedReason"] = ""
-  if final_decision in ("needs_clarification", "needs_clarification_after_resolution"):
-    gate_diag["skippedReason"] = "plan_approval_gate_skipped_needs_clarification"
-    return gate_diag
   if final_decision != "completed":
     gate_diag["skippedReason"] = f"plan_approval_gate_skipped_non_completed:{final_decision}"
     return gate_diag
