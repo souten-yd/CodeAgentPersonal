@@ -4,6 +4,7 @@
 # Prebuilt stage: download llama.cpp CUDA binaries
 ########################################
 ARG CUDA_VERSION=12.8.0
+ARG KASANE_DEBUG_TEST_HARNESS=1
 ARG UBUNTU_VERSION=22.04
 FROM ubuntu:${UBUNTU_VERSION} AS llama_prebuilt
 
@@ -62,7 +63,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CODEAGENT_ASR_DEFAULT_MODEL=large-v3-turbo \
     CODEAGENT_ASR_MODEL_CACHE=/opt/asr_models \
     CODEAGENT_ASR_MODEL_PATH=/opt/asr_models/large-v3-turbo \
-    CODEAGENT_ASR_LOCAL_FILES_ONLY=1
+    CODEAGENT_ASR_LOCAL_FILES_ONLY=1 \
+    KASANE_DEBUG_TEST_HARNESS=${KASANE_DEBUG_TEST_HARNESS}
 
 WORKDIR /app
 
@@ -365,7 +367,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CODEAGENT_ASR_DEFAULT_MODEL=large-v3-turbo \
     CODEAGENT_ASR_MODEL_CACHE=/opt/asr_models \
     CODEAGENT_ASR_MODEL_PATH=/opt/asr_models/large-v3-turbo \
-    CODEAGENT_ASR_LOCAL_FILES_ONLY=1
+    CODEAGENT_ASR_LOCAL_FILES_ONLY=1 \
+    KASANE_DEBUG_TEST_HARNESS=${KASANE_DEBUG_TEST_HARNESS}
 
 WORKDIR /app
 
