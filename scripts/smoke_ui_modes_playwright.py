@@ -381,49 +381,81 @@ async def verify_atlas_backend_e2e_journey(page) -> None:
   errors: list[str] = []
   page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
   page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
+  base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip() or "mock-http-origin"
+  atlas_requirement = "Phase 26.0 backend e2e smoke requirement"
 
-  await page.click("#btn-chat")
-  await set_chat_input(page, "")
-  await page.click("#btn-atlas")
-  await page.wait_for_selector("#atlas-workbench-card")
-  await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
-  await page.fill("#atlas-requirement-input", "Phase 25.2 backend e2e smoke requirement")
-  await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+  async def backend_e2e_diag_dump(label: str):
+    diag = await page.evaluate("""() => ({
+      mode: document.querySelector('#mode-switcher .active,[data-mode].active')?.id || '',
+      atlasSubview: document.getElementById('atlas-workbench-card')?.dataset?.atlasCurrentSubview || '',
+      atlasRequirementInput: document.getElementById('atlas-requirement-input')?.value || '',
+      atlasRequirementStatus: document.getElementById('atlas-requirement-status')?.textContent || '',
+      messagesTail: Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').slice(-10),
+    })""")
+    try:
+      health_res = await page.request.get("/health", timeout=4000)
+      health = {"status": health_res.status, "ok": health_res.ok}
+    except Exception as exc:
+      health = {"error": str(exc)}
+    try:
+      plan_res = await page.request.post("/api/task/plan", data={"message": "phase26 backend e2e diag plan probe"}, timeout=4000)
+      plan_status = {"status": plan_res.status, "ok": plan_res.ok}
+    except Exception as exc:
+      plan_status = {"error": str(exc)}
+    diag["baseUrl"] = base_url
+    diag["health"] = health
+    diag["planStatus"] = plan_status
+    diag["hasAtlasStartFailed"] = any("Atlas Start failed:" in (m or "") for m in diag.get("messagesTail", []))
+    diag["consoleErrors"] = list(errors)
+    print(f"INFO: atlas backend e2e diagnostics ({label}): {diag}")
 
-  await page.wait_for_function(
-    "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'",
-    timeout=30_000,
-  )
-  await page.wait_for_function(
-    "() => !!document.getElementById('atlas-workbench-card-plan-flow') && (document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '').includes('Requirement')",
-    timeout=30_000,
-  )
+  try:
+    await page.click("#btn-chat")
+    await set_chat_input(page, "")
+    await page.click("#btn-atlas")
+    await page.wait_for_selector("#atlas-workbench-card")
+    await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
+    await page.fill("#atlas-requirement-input", atlas_requirement)
+    await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
 
-  const_messages = await page.evaluate("""() => Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n')""")
-  assert "Atlas Start failed:" not in const_messages, "backend E2E smoke must not accept Atlas Start failed"
+    await page.wait_for_function(
+      "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'",
+      timeout=30_000,
+    )
+    await page.wait_for_function(
+      "() => !!document.getElementById('atlas-workbench-card-plan-flow') && (document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '').includes('Requirement')",
+      timeout=30_000,
+    )
 
-  await page.wait_for_function("""() => {
-    const status = document.getElementById('atlas-requirement-status')?.textContent || '';
-    const messages = Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n');
-    return (
-      messages.includes('Atlas Workflow Status')
-      || messages.includes('Requirement Source: atlas')
-      || messages.includes('Source: atlas')
-      || messages.includes('Workspace: Atlas')
-      || status.includes('Using Atlas requirement input.')
-      || status.includes('Starting Atlas guided planning workflow')
-    );
-  }""", timeout=45_000)
-  await page.wait_for_function("""() => {
-    const status = document.getElementById('atlas-requirement-status')?.textContent || '';
-    const messages = Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n');
-    return (
-      status.includes('Using Atlas requirement input.')
-      || messages.includes('Requirement Source: atlas')
-      || messages.includes('Source: atlas')
-      || messages.includes('Workspace: Atlas')
-    );
-  }""", timeout=45_000)
+    const_messages = await page.evaluate("""() => Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n')""")
+    assert "Atlas Start failed:" not in const_messages, "backend E2E smoke must not accept Atlas Start failed"
+
+    await page.wait_for_function("""() => {
+      const status = document.getElementById('atlas-requirement-status')?.textContent || '';
+      const messages = Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n');
+      return (
+        messages.includes('Atlas Workflow Status')
+        || messages.includes('Requirement Source: atlas')
+        || messages.includes('Source: atlas')
+        || messages.includes('Workspace: Atlas')
+        || status.includes('Using Atlas requirement input.')
+        || status.includes('Starting Atlas guided planning workflow')
+      );
+    }""", timeout=45_000)
+    await page.wait_for_function("""() => {
+      const status = document.getElementById('atlas-requirement-status')?.textContent || '';
+      const messages = Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n');
+      return (
+        status.includes('Using Atlas requirement input.')
+        || messages.includes('Requirement Source: atlas')
+        || messages.includes('Source: atlas')
+        || messages.includes('Workspace: Atlas')
+      );
+    }""", timeout=45_000)
+  except Exception:
+    await backend_e2e_diag_dump("failure")
+    raise
+  await backend_e2e_diag_dump("success")
   if errors:
     raise AssertionError("\n".join(errors))
 
