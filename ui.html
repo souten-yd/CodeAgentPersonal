@@ -1321,8 +1321,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div class="proj-btn" onclick="toggleDrawer()">
             <span>◈</span><span class="proj-name" id="proj-display">default</span><span style="font-size:9px;color:var(--text3)">▼</span>
           </div>
-          <button class="chat-task-toggle" id="chat-task-toggle" onclick="toggleChatTaskMode()" title="Task実行をON/OFF">
-            <span>Task</span><span id="chat-task-toggle-label">OFF</span>
+          <button class="chat-task-toggle" id="chat-task-toggle" onclick="toggleChatTaskMode()" title="Legacy Task compatibility path をON/OFF">
+            <span>Legacy Task</span><span id="chat-task-toggle-label">OFF</span>
           </button>
           <button class="chat-task-toggle" id="chat-tts-toggle" onclick="toggleChatTtsUnified()" title="Chat TTS 自動読み上げのON/OFF">
             <span id="chat-tts-toggle-label">TTS OFF</span>
@@ -1331,6 +1331,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <span>Plan設定</span>
           </button>
         </div>
+      </div>
+      <div class="chat-role-note" id="chat-role-note" style="padding:6px 10px 0 10px;font-size:11px;color:var(--text2);line-height:1.5">
+        Chat is for lightweight conversation, Q&amp;A, and quick investigation.<br>
+        Use Atlas for guided work planning, approval, execution preview, and patch review.
       </div>
       <div class="phase1-plan-panel collapsed" id="phase1-plan-panel" aria-hidden="true">
         <select id="phase1-planning-mode" class="sel">
@@ -1351,7 +1355,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <button class="phase1-plan-btn" onclick="startPlanWorkflow()">Start Atlas</button>
         <div class="phase1-plan-note">
           <div>Atlas creates a reviewed plan before any execution preview.</div>
-          <div>要件から安全な実行計画へ。</div>
+          <div>通常作業はAtlasから開始してください。Legacy Taskは互換用途です。</div>
         </div>
       </div>
     </div>
@@ -1455,7 +1459,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div id="atlas-workbench-card-patch-list" data-atlas-workflow-target="patch-review" style="margin-top:8px;font-size:11px"></div>
         </div>
         <div class="atlas-subview" data-atlas-subview-panel="legacy" style="display:none">
-          <div style="font-size:12px;color:var(--text2);line-height:1.6">Taskは互換のため残しています。通常作業はAtlasから開始してください。<br>Agentは高度な実行基盤・内部Runtime確認用です。</div>
+          <div style="font-size:12px;color:var(--text2);line-height:1.6">Task remains compatibility path under Atlas Legacy. Agent remains advanced runtime surface.<br>通常作業はAtlas Overview/Planから開始してください。</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
             <button class="phase1-tab-btn" type="button" onclick="openLegacyTaskFromAtlas();">Open Legacy Task</button>
             <button class="phase1-tab-btn" type="button" onclick="setMode('agent')">Open Agent Advanced</button>

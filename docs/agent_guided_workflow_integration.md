@@ -155,3 +155,12 @@
 - Restore failures must not blank the Atlas Workbench; Atlas panel visibility is preserved with safe fallback.
 - Desktop/mobile smoke checks are reinforced for Atlas visibility.
 - No workflow behavior changes are introduced in this phase.
+
+## Phase 22: Chat Surface Cleanup / Move Task-Agent Legacy Entrypoints to Atlas
+
+- Chat surface is clarified as lightweight conversation/Q&A and quick investigation.
+- Atlas is reinforced as the primary guided workflow surface for normal work.
+- Task remains a compatibility path under Atlas Legacy (`Open Legacy Task`).
+- Agent remains the advanced runtime surface (`Open Agent Advanced`).
+- No Task/Agent deletion was introduced.
+- No workflow behavior changes were introduced (approval gates and execute/patch flow remain unchanged).
