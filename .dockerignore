@@ -1,5 +1,8 @@
 .git
 .github
+!.github/
+!.github/workflows/
+!.github/workflows/playwright-ui-smoke.yml
 __pycache__
 *.pyc
 *.pyo

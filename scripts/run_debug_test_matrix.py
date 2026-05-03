@@ -50,7 +50,7 @@ TEST_PRESETS: list[TestPreset] = [
 
 
 def _write_summary(run_dir: Path, payload: dict[str, Any]) -> None:
-    lines = [f"# Debug Test Matrix {payload['run_id']}", "", f"- status: **{payload.get('status', 'unknown')}**", f"- total: {payload.get('total', 0)} pass: {payload.get('passed', 0)} fail: {payload.get('failed', 0)}", ""]
+    lines = [f"# Debug Test Matrix {payload['run_id']}", "", f"- status: **{payload.get('status', 'unknown')}**", f"- total: {payload.get('total', 0)} pass: {payload.get('passed', 0)} fail: {payload.get('failed', 0)} skip: {payload.get('skipped', 0)} timeout: {payload.get('timeout', 0)}", ""]
     if payload.get("current_test"):
         lines.extend([f"- current_test: {payload['current_test']}", ""])
     lines.extend(["| id | status | exit | duration |", "|---|---:|---:|---:|"])
@@ -68,7 +68,7 @@ def run_all_presets(run_id: str) -> dict[str, Any]:
     run_dir = DEBUG_RUN_ROOT / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     started = time.time()
-    payload: dict[str, Any] = {"run_id": run_id, "status": "running", "current_test": None, "started_at": datetime.now(timezone.utc).isoformat(), "results": [], "total": 0, "passed": 0, "failed": 0}
+    payload: dict[str, Any] = {"run_id": run_id, "status": "running", "current_test": None, "started_at": datetime.now(timezone.utc).isoformat(), "results": [], "total": 0, "passed": 0, "failed": 0, "skipped": 0, "timeout": 0}
     _write_progress(run_dir, payload)
     for preset in TEST_PRESETS:
         payload["current_test"] = preset.id
@@ -91,7 +91,10 @@ def run_all_presets(run_id: str) -> dict[str, Any]:
             code = int(proc.returncode)
             out = proc.stdout or ""
             err = proc.stderr or ""
-            if code != 0:
+            combined = f"{out}\n{err}"
+            if "SKIP: playwright is not installed" in combined or "SKIP:" in combined:
+                status = "skipped"
+            elif code != 0:
                 status = "failed"
         except subprocess.TimeoutExpired as exc:
             status = "timeout"
@@ -101,17 +104,30 @@ def run_all_presets(run_id: str) -> dict[str, Any]:
         (test_dir / "stdout.log").write_text(out, encoding="utf-8", errors="replace")
         (test_dir / "stderr.log").write_text(err, encoding="utf-8", errors="replace")
         payload["results"].append({"id": preset.id, "title": preset.title, "status": status, "exit_code": code, "duration_sec": round(time.time() - t0, 3), "stdout_tail": "\n".join(out.splitlines()[-20:]), "stderr_tail": "\n".join(err.splitlines()[-20:]), "artifact_path": str(artifact_dir)})
-        failed = sum(1 for r in payload["results"] if r["status"] != "passed")
+        failed = sum(1 for r in payload["results"] if r["status"] == "failed")
+        skipped = sum(1 for r in payload["results"] if r["status"] == "skipped")
+        timeout = sum(1 for r in payload["results"] if r["status"] == "timeout")
         payload["total"] = len(payload["results"])
-        payload["passed"] = payload["total"] - failed
+        payload["passed"] = sum(1 for r in payload["results"] if r["status"] == "passed")
         payload["failed"] = failed
+        payload["skipped"] = skipped
+        payload["timeout"] = timeout
         _write_progress(run_dir, payload)
 
-    failed = sum(1 for r in payload["results"] if r["status"] != "passed")
+    failed = sum(1 for r in payload["results"] if r["status"] == "failed")
+    skipped = sum(1 for r in payload["results"] if r["status"] == "skipped")
+    timeout = sum(1 for r in payload["results"] if r["status"] == "timeout")
     payload["total"] = len(payload["results"])
-    payload["passed"] = payload["total"] - failed
+    payload["passed"] = sum(1 for r in payload["results"] if r["status"] == "passed")
     payload["failed"] = failed
-    payload["status"] = "passed" if failed == 0 else "finished_with_failures"
+    payload["skipped"] = skipped
+    payload["timeout"] = timeout
+    if failed > 0:
+        payload["status"] = "finished_with_failures"
+    elif skipped > 0:
+        payload["status"] = "finished_with_skips"
+    else:
+        payload["status"] = "passed"
     payload["current_test"] = None
     payload["finished_at"] = datetime.now(timezone.utc).isoformat()
     payload["duration_sec"] = round(time.time() - started, 3)

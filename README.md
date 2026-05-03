@@ -1347,7 +1347,10 @@ PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 RUN_ATLAS_BACKEND_E2E=1 python s
 - Runpod debug build では現時点でデフォルト ON (`ARG/ENV KASANE_DEBUG_TEST_HARNESS=1`) です。
 - `/debug/tests` から **Run All Tests** を実行できます。
 - Matrix は failure が出ても停止せず、最後まで実行して一覧化します。
+- 集計は `pass / fail / skip / timeout` を表示し、`SKIP:` 検出時は passed 扱いせず `skipped` として記録します。
 - 結果は `ca_data/debug_test_runs` 配下に `result.json` / `summary.md` / `stdout` / `stderr` / artifacts を保存します。
+- Debug Harness の実ブラウザ実行には Playwright + Chromium が必要です（debug build は `KASANE_DEBUG_TEST_HARNESS=1` 時に導入）。
+- 現在の non-destructive smoke matrix では Chrome extension は不要です。
 - destructive actions (approve/execute/apply) は含みません。
 - 認証は Runpod debug 利用を優先して意図的に省略しています。
 - 本番では `KASANE_DEBUG_TEST_HARNESS=0` で無効化してください。
