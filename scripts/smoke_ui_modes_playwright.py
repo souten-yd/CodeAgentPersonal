@@ -438,9 +438,10 @@ async def run_backend_preflight(page) -> None:
 
 
 async def verify_atlas_backend_e2e_journey(page) -> None:
-  errors: list[str] = []
-  page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
-  page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
+  page_errors: list[str] = []
+  console_errors: list[str] = []
+  page.on("pageerror", lambda e: page_errors.append(str(e)))
+  page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
   preflight_status = await collect_backend_preflight_status(page)
   if preflight_status.get("errors"):
     raise AssertionError(f"backend preflight failed before full e2e: {preflight_status}")
@@ -453,12 +454,19 @@ async def verify_atlas_backend_e2e_journey(page) -> None:
       atlasSubview: document.getElementById('atlas-workbench-card')?.dataset?.atlasCurrentSubview || '',
       atlasRequirementInput: document.getElementById('atlas-requirement-input')?.value || '',
       atlasRequirementStatus: document.getElementById('atlas-requirement-status')?.textContent || '',
-      messagesTail: Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').slice(-10),
+      messagesTail: Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || '').slice(0, 240)).slice(-8),
+      planFlowTextTail: (document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '').slice(-600),
+      approveButtonsPresent: !!document.querySelector("#approve-plan-btn, [data-action='approve-plan']"),
+      executeButtonsPresent: !!document.querySelector("#execute-preview-btn, [data-action='execute-preview']"),
+      patchApplyButtonsPresent: !!document.querySelector("#apply-patch-btn, [data-action='apply-patch']"),
+      bulkApprovePresent: !!Array.from(document.querySelectorAll('button')).find((el) => /bulk\\s*approve/i.test(el.textContent || '')),
+      bulkApplyPresent: !!Array.from(document.querySelectorAll('button')).find((el) => /bulk\\s*apply/i.test(el.textContent || '')),
     })""")
     diag["baseUrl"] = base_url
     diag["preflightStatus"] = preflight_status
     diag["hasAtlasStartFailed"] = any("Atlas Start failed:" in (m or "") for m in diag.get("messagesTail", []))
-    diag["consoleErrors"] = list(errors)
+    diag["consoleErrors"] = list(console_errors)
+    diag["pageErrors"] = list(page_errors)
     print(f"INFO: atlas backend e2e diagnostics ({label}): {diag}")
 
   try:
@@ -469,6 +477,7 @@ async def verify_atlas_backend_e2e_journey(page) -> None:
     await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
     await page.fill("#atlas-requirement-input", atlas_requirement)
     await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+    print("INFO: backend E2E dry-run stops before approval/execute/patch actions.")
 
     await page.wait_for_function(
       "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'",
@@ -508,8 +517,9 @@ async def verify_atlas_backend_e2e_journey(page) -> None:
     await backend_e2e_diag_dump("failure")
     raise
   await backend_e2e_diag_dump("success")
-  if errors:
-    raise AssertionError("\n".join(errors))
+  if page_errors or console_errors:
+    joined = [f"pageerror: {text}" for text in page_errors] + [f"console[error]: {text}" for text in console_errors]
+    raise AssertionError("\n".join(joined))
 
 async def verify_nexus_tabs(page) -> None:
   await page.click("#btn-nexus")

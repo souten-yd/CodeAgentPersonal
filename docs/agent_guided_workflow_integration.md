@@ -499,3 +499,18 @@
 - `PLAYWRIGHT_SMOKE_BASE_URL` alone remains guarded and ignored in default mode; explicit base URL is honored only for real-backend opt-in modes.
 - Full backend E2E remains not yet executed by this phase note and is still an explicit opt-in path.
 - No approval / execute / apply behavior changes were introduced.
+
+## Phase 26.4 note (Full backend E2E dry-run with Atlas Start only)
+- Full backend E2E dry-run command:
+  - `PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 RUN_ATLAS_BACKEND_E2E=1 python scripts/smoke_ui_modes_playwright.py`
+- Full backend E2E scenario set remains isolated to:
+  - `atlas_backend_preflight`
+  - `atlas_backend_e2e_journey`
+- Dry-run scope:
+  - presses Atlas Start
+  - verifies guided workflow / status signals
+  - stops before approval / execute / patch actions
+- Failure policy:
+  - `Atlas Start failed:` is treated as failure in full backend E2E mode.
+  - preflight failure prevents meaningful E2E and fails before Atlas Start journey assertions.
+- Default workflow remains opt-in/off for backend E2E (`RUN_ATLAS_BACKEND_E2E=1` only).
