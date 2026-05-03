@@ -200,6 +200,9 @@ async def verify_mode_switches(page) -> None:
 
 
 async def verify_atlas_start_button_feedback(page) -> None:
+  errors: list[str] = []
+  page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+  page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
 
   async def atlas_diag_dump(label: str):
     diag = await page.evaluate("""() => ({
