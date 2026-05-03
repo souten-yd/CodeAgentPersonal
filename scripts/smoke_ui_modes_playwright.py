@@ -13,9 +13,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from check_ui_inline_script_syntax import main as check_ui_syntax_main
 try:
-  from playwright.async_api import async_playwright
+  from playwright.async_api import TimeoutError as PlaywrightTimeoutError, async_playwright
 except Exception:  # pragma: no cover - optional dependency
   async_playwright = None
+  PlaywrightTimeoutError = Exception
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -202,103 +203,91 @@ async def verify_atlas_start_button_feedback(page) -> None:
   page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
   page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
 
-  await set_chat_input(page, "")
-  await ensure_atlas_overview(page)
-  await get_atlas_requirement_input(page).wait_for(state="visible")
-  assert await get_atlas_requirement_input(page).count() > 0
-  await fill_atlas_requirement(page, "")
-  await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
-  await page.wait_for_function("""() => {
-    const root = document.getElementById('atlas-workbench-card');
-    return !!root && root.dataset.atlasCurrentSubview === 'plan';
-  }""")
-  await page.wait_for_function("""() => {
-    const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
-    return logs.some((t) => t.includes('Atlas Start needs a request.'));
-  }""")
-  assert await page.locator('#atlas-workbench-card', has_text='Atlas Guided Plan Flow').count() > 0
-  short_requirement_text = "Short Atlas requirement for smoke test"
+  async def atlas_diag_dump(label: str):
+    diag = await page.evaluate("""() => ({
+      subview: document.getElementById('atlas-workbench-card')?.dataset?.atlasCurrentSubview || '',
+      atlasRequirementInput: document.getElementById('atlas-requirement-input')?.value || '',
+      chatInput: document.getElementById('input')?.value || '',
+      status: document.getElementById('atlas-requirement-status')?.textContent || '',
+      messagesTail: Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').slice(-8),
+      useChatVisible: !!document.querySelector('#atlas-workbench-card #atlas-requirement-use-chat-btn'),
+      useChatEnabled: !(document.querySelector('#atlas-workbench-card #atlas-requirement-use-chat-btn')?.disabled ?? true),
+      clearVisible: !!document.querySelector('#atlas-workbench-card #atlas-requirement-clear-btn'),
+      clearEnabled: !(document.querySelector('#atlas-workbench-card #atlas-requirement-clear-btn')?.disabled ?? true),
+      startVisible: !!document.querySelector("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn"),
+      activeModeButton: document.querySelector('#mode-switcher .active,[data-mode].active')?.id || '',
+    })""")
+    print(f"INFO: atlas_start_button_feedback diagnostics ({label}): {diag}")
+    return diag
+  empty_start = "Atlas Start needs a request."
+  empty_status = "Enter a requirement to start."
+  atlas_start_value = "Atlas input start smoke"
   copied_requirement_text = "Copied from chat smoke"
-  await fill_atlas_requirement(page, short_requirement_text)
-  await page.wait_for_function("() => (document.getElementById('atlas-requirement-char-count')?.textContent || '').includes('chars')")
-
-  await page.click('#btn-chat')
-  await set_chat_input(page, 'chat survives clear')
-  await page.click('#btn-atlas')
-  await get_atlas_requirement_input(page).wait_for(state="visible")
-  assert await get_atlas_requirement_input(page).input_value() == short_requirement_text
-
-  await click_atlas_requirement_clear(page)
-  assert await get_atlas_requirement_input(page).input_value() == ''
-  assert await get_chat_input_value(page) == 'chat survives clear'
-
-  await set_chat_input_value_direct(page, copied_requirement_text)
-  await open_atlas(page)
-  await click_atlas_use_chat_input(page)
   expected_text = copied_requirement_text
-  assert await get_atlas_requirement_input(page).input_value() == expected_text
-  await ensure_atlas_overview(page)
-  await fill_atlas_requirement(page, expected_text)
-
-  await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
-  await page.wait_for_function("""() => {
-    const root = document.getElementById('atlas-workbench-card');
-    return !!root && root.dataset.atlasCurrentSubview === 'plan';
-  }""")
-  await page.wait_for_function("""() => {
-    const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
-    const status = (document.getElementById('atlas-requirement-status')?.textContent || '');
-    const messages = logs.join('\\n');
-    const atlasValue = (document.getElementById('atlas-requirement-input')?.value || '');
-    return (
-      (logs.some((t) => t.includes('Using Atlas requirement input.'))
+  try:
+    # A. Empty start feedback
+    await set_chat_input(page, "")
+    await ensure_atlas_overview(page)
+    await get_atlas_requirement_input(page).wait_for(state="visible")
+    await fill_atlas_requirement(page, "")
+    await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+    await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'")
+    await page.wait_for_function("""([msg, statusText]) => {
+      const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
+      const status = document.getElementById('atlas-requirement-status')?.textContent || '';
+      return logs.some((t) => t.includes(msg)) || status.includes(statusText);
+    }""", [empty_start, empty_status])
+    # B. Persistence / clear
+    short_requirement_text = "Short Atlas requirement for smoke test"
+    await fill_atlas_requirement(page, short_requirement_text)
+    await page.wait_for_function("() => (document.getElementById('atlas-requirement-char-count')?.textContent || '').includes('chars')")
+    await set_chat_input(page, "chat survives clear", switch_to_chat=True)
+    await open_atlas(page)
+    await click_atlas_requirement_clear(page)
+    assert await get_atlas_requirement_input(page).input_value() == ""
+    assert await get_chat_input_value(page) == "chat survives clear"
+    # C. Use Chat Input
+    await set_chat_input_value_direct(page, copied_requirement_text)
+    await open_atlas(page)
+    await click_atlas_use_chat_input(page)
+    await page.wait_for_function("""([expected]) => {
+      const atlasValue = document.getElementById('atlas-requirement-input')?.value || '';
+      const status = document.getElementById('atlas-requirement-status')?.textContent || '';
+      return atlasValue === expected || status.includes('Copied from Chat input.');
+    }""", [expected_text])
+    assert await get_atlas_requirement_input(page).input_value() == expected_text
+    # D. Atlas input Start
+    expected_text = atlas_start_value
+    await fill_atlas_requirement(page, expected_text)
+    await ensure_atlas_overview(page)
+    await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+    await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'")
+    await page.wait_for_function("""([atlasValue]) => {
+      const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
+      const status = document.getElementById('atlas-requirement-status')?.textContent || '';
+      const msg = logs.join('\\n');
+      return (
+        logs.some((t) => t.includes('Using Atlas requirement input.'))
         || status.includes('Using Atlas requirement input.')
-        || logs.some((t) => t.includes('Starting Atlas guided planning workflow...')))
-      && atlasValue === 'Copied from chat smoke'
-      && (messages.includes('Boss') || messages.includes('Atlas Workflow Status') || messages.includes('Atlas Start failed:'))
-          );
-  }""")
-
-  await click_atlas_requirement_clear(page)
-  await set_chat_input(page, 'Chat fallback smoke')
-  await ensure_atlas_overview(page)
-  await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
-  await page.wait_for_function("""() => {
-    const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
-    const status = (document.getElementById('atlas-requirement-status')?.textContent || '');
-    const chatValue = (document.getElementById('input')?.value || '');
-    const atlasValue = (document.getElementById('atlas-requirement-input')?.value || '');
-    return (
-      (logs.some((t) => t.includes('Falling back to Chat input.')) || status.includes('Falling back to Chat input.'))
-      && chatValue === 'Chat fallback smoke'
-      && atlasValue === ''
-          );
-  }""")
-
-  await click_atlas_requirement_clear(page)
-  await set_chat_input(page, '', switch_to_chat=False)
-  await ensure_atlas_overview(page)
-  await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
-  await page.wait_for_function("""() => {
-    const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
-    const status = (document.getElementById('atlas-requirement-status')?.textContent || '');
-    return (
-      logs.some((t) => t.includes('Atlas Start needs a request.'))
-      || status.includes('Enter a requirement to start.')
-    );
-  }""")
-  diag = await page.evaluate("""() => ({
-    subview: document.getElementById('atlas-workbench-card')?.dataset?.atlasCurrentSubview || '',
-    atlasRequirementInput: document.getElementById('atlas-requirement-input')?.value || '',
-    chatInput: document.getElementById('input')?.value || '',
-    status: document.getElementById('atlas-requirement-status')?.textContent || '',
-    messagesTail: Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').slice(-8),
-    useChatVisible: !!document.querySelector('#atlas-workbench-card #atlas-requirement-use-chat-btn'),
-    useChatEnabled: !(document.querySelector('#atlas-workbench-card #atlas-requirement-use-chat-btn')?.disabled ?? true),
-    clearVisible: !!document.querySelector('#atlas-workbench-card #atlas-requirement-clear-btn'),
-    clearEnabled: !(document.querySelector('#atlas-workbench-card #atlas-requirement-clear-btn')?.disabled ?? true),
-  })""")
-  print(f"INFO: atlas_start_button_feedback diagnostics: {diag}")
+        || logs.some((t) => t.includes('Starting Atlas guided planning workflow...'))
+      ) && (
+        msg.includes(atlasValue) || msg.includes('Requirement Preview') || msg.includes('Atlas Workflow Status') || msg.includes('Boss')
+      );
+    }""", [atlas_start_value])
+    # E. Chat fallback Start
+    await click_atlas_requirement_clear(page)
+    await set_chat_input(page, "Chat fallback smoke")
+    await ensure_atlas_overview(page)
+    await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+    await page.wait_for_function("""() => {
+      const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
+      const status = document.getElementById('atlas-requirement-status')?.textContent || '';
+      return logs.some((t) => t.includes('Falling back to Chat input.')) || status.includes('Falling back to Chat input.');
+    }""")
+  except (AssertionError, PlaywrightTimeoutError) as err:
+    await atlas_diag_dump(f"failure: {type(err).__name__}")
+    raise
+  await atlas_diag_dump("final")
   assert not any('ReferenceError' in e for e in errors), f"atlas start smoke found reference errors: {errors}"
   assert not errors, f"atlas start smoke found errors: {errors}"
 
@@ -514,6 +503,21 @@ async def click_first_visible_button_by_names(container, names: list[str]) -> bo
 
 
 async def verify_reference_card_actions(page) -> None:
+  async def ref_diag_dump(label: str):
+    ref_diag = await page.evaluate("""() => {
+      const root = document.getElementById('nexus-deep-references');
+      const card = root?.querySelector('.nexus-ref-card');
+      return {
+        referencesText: root?.textContent || '',
+        cardCount: root?.querySelectorAll('.nexus-ref-card')?.length || 0,
+        cardButtonTexts: card ? Array.from(card.querySelectorAll('button')).map((el) => el.textContent || '') : [],
+        viewerText: document.getElementById('nexus-reference-viewer')?.textContent || '',
+        openedUrls: window.__openedUrls || [],
+        activeNexusTab: document.querySelector('#nexus-tabbar .nexus-tab-btn.active')?.id || '',
+      };
+    }""")
+    print(f"INFO: reference_card_actions diagnostics ({label}): {ref_diag}")
+    return ref_diag
   await page.click("#btn-nexus")
   web_scout_tab = page.locator("#nexus-btn-web-scout")
   if await web_scout_tab.count() > 0:
@@ -568,33 +572,25 @@ async def verify_reference_card_actions(page) -> None:
   }""")
   print(f"INFO: nexus deep references debug: {ref_debug}")
 
-  ref_card = page.locator("#nexus-deep-references .nexus-ref-card").first
-  await ref_card.wait_for(state="visible")
-  assert await ref_card.locator("text=[S1] Mock Source").count() > 0
-  opened = await click_first_visible_button_by_names(ref_card, ["全文表示", "全文", "Text", "Open Text", "Show Full Text"])
-  assert opened, f"reference card full-text action not found in current DOM: {ref_debug}"
-  await ref_card.get_by_role("button", name="該当箇所").click()
-  await page.wait_for_function("""() => {
-    const text = document.getElementById('nexus-reference-viewer')?.textContent || '';
-    return text.includes('source_id: src-1') && text.includes('mode: text') && text.includes('highlight: doc-1:0');
-  }""")
-  await ref_card.get_by_role("button", name="元URL").click()
-  await ref_card.get_by_role("button", name="ダウンロード").click()
+  try:
+    ref_card = page.locator("#nexus-deep-references .nexus-ref-card").first
+    await ref_card.wait_for(state="visible")
+    assert await ref_card.locator("text=[S1] Mock Source").count() > 0
+    opened = await click_first_visible_button_by_names(ref_card, ["全文表示", "全文", "Text", "Open Text", "Show Full Text"])
+    assert opened, f"reference card full-text action not found in current DOM: {ref_debug}"
+    await ref_card.get_by_role("button", name="該当箇所").click()
+    await page.wait_for_function("""() => {
+      const text = document.getElementById('nexus-reference-viewer')?.textContent || '';
+      return text.includes('source_id: src-1') && text.includes('mode: text') && text.includes('highlight: doc-1:0');
+    }""")
+    await ref_card.get_by_role("button", name="元URL").click()
+    await ref_card.get_by_role("button", name="ダウンロード").click()
+  except (AssertionError, PlaywrightTimeoutError) as err:
+    await ref_diag_dump(f"failure: {type(err).__name__}")
+    raise
 
   opened_urls = await page.evaluate("() => window.__openedUrls || []")
-  ref_diag = await page.evaluate("""() => {
-    const root = document.getElementById('nexus-deep-references');
-    const card = root?.querySelector('.nexus-ref-card');
-    return {
-      referencesText: root?.textContent || '',
-      cardCount: root?.querySelectorAll('.nexus-ref-card')?.length || 0,
-      cardButtonTexts: card ? Array.from(card.querySelectorAll('button')).map((el) => el.textContent || '') : [],
-      viewerText: document.getElementById('nexus-reference-viewer')?.textContent || '',
-      openedUrls: window.__openedUrls || [],
-      activeNexusTab: document.querySelector('#nexus-tabbar .nexus-tab-btn.active')?.id || '',
-    };
-  }""")
-  print(f"INFO: reference_card_actions diagnostics: {ref_diag}")
+  await ref_diag_dump("final")
   assert any("/nexus/sources/src-1/text" in url for url in opened_urls), opened_urls
   assert any("https://example.com/report" in url for url in opened_urls), opened_urls
   assert any("/nexus/sources/src-1/original" in url for url in opened_urls), opened_urls

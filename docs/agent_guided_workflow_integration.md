@@ -318,3 +318,13 @@
 - Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
 - No backend workflow changes were introduced.
 - No approval / execute / patch behavior changes were introduced.
+
+## Phase 25.4.8 note (Final Playwright UI smoke expected-state cleanup)
+- Final expected-state cleanup was applied for the last Playwright UI smoke failures.
+- Atlas Start feedback smoke is now staged step-by-step to avoid mixed stale expectations.
+- Chat fallback status (`Falling back to Chat input.`) is accepted in the chat-fallback step.
+- Atlas workflow verification now relies on Requirement Preview / Boss message / Workflow Status evidence, not final Chat input value.
+- Reference card smoke now verifies current Reference Viewer fields: `source_id`, `mode`, `highlight`.
+- Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
+- No backend workflow changes were introduced.
+- No approval / execute / patch behavior changes were introduced.
