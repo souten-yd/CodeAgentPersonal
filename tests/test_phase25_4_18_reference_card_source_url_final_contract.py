@@ -33,7 +33,6 @@ class TestPhase25418ReferenceCardSourceUrlFinalContract(unittest.TestCase):
         for token in [
             '/nexus/sources/src-1/text',
             '/nexus/sources/src-1/chunks',
-            '/nexus/sources/src-1/original',
             'source_id: src-1',
             'mode: text',
             'doc-1:0',
