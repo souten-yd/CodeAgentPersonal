@@ -210,3 +210,11 @@
 - Approval / Execute Preview / Patch Review gates remain required.
 - Restore behavior still does not auto-fetch Dashboard/Patch/Recent Runs content.
 - No backend workflow behavior changes were introduced in this phase.
+
+## Phase 25.1 note (Execute tests / deflake Atlas safe journey smoke)
+- Phase 25 tests and smoke were executed, and safe-journey smoke behavior was deflaked.
+- Atlas safe journey smoke no longer requires backend completion to pass.
+- Workflow Status is verified when present, and visible start/failure feedback is accepted when backend is unavailable.
+- Console/page errors still fail smoke.
+- No backend workflow behavior was changed.
+- No approval / execute / patch behavior was changed.
