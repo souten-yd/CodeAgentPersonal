@@ -22,7 +22,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PLAYWRIGHT_ARTIFACT_DIR = ROOT / "artifacts" / "playwright"
+PLAYWRIGHT_ARTIFACT_DIR = Path(os.environ.get("PLAYWRIGHT_SMOKE_ARTIFACT_DIR", str(ROOT / "artifacts" / "playwright")))
 DEFAULT_DESKTOP_VIEWPORT = {"width": 1280, "height": 900}
 DEFAULT_MOBILE_VIEWPORT = {"width": 390, "height": 844}
 

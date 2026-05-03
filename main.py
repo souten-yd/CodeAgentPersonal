@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, UploadFile, Form
-from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse, JSONResponse
+from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -217,6 +217,45 @@ WORK_DIR = os.path.abspath(os.environ.get("CODEAGENT_WORK_DIR", DEFAULT_WORK_DIR
 SANDBOX_CONTAINER = "claude_sandbox"
 
 os.makedirs(WORK_DIR, exist_ok=True)
+
+DEBUG_TEST_HARNESS_ENABLED = os.environ.get("KASANE_DEBUG_TEST_HARNESS", "1").strip() == "1"
+DEBUG_TEST_RUNS_DIR = Path(CA_DATA_DIR) / "debug_test_runs"
+DEBUG_TEST_RUNS_DIR.mkdir(parents=True, exist_ok=True)
+_DEBUG_TEST_RUN_LOCK = threading.Lock()
+_DEBUG_TEST_ACTIVE_RUN_ID: str | None = None
+
+def _debug_harness_guard() -> None:
+    if not DEBUG_TEST_HARNESS_ENABLED:
+        raise HTTPException(status_code=404, detail="debug test harness disabled")
+
+def _debug_run_result_path(run_id: str) -> Path:
+    return DEBUG_TEST_RUNS_DIR / run_id / "result.json"
+
+def _load_debug_run_result(run_id: str) -> dict:
+    p = _debug_run_result_path(run_id)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="run not found")
+    return json.loads(p.read_text(encoding="utf-8"))
+
+def _list_debug_runs(limit: int = 20) -> list[dict]:
+    runs = []
+    for rp in sorted(DEBUG_TEST_RUNS_DIR.glob("*/result.json"), reverse=True):
+        try:
+            runs.append(json.loads(rp.read_text(encoding="utf-8")))
+        except Exception:
+            continue
+        if len(runs) >= limit:
+            break
+    return runs
+
+def _run_debug_test_matrix_background(run_id: str) -> None:
+    global _DEBUG_TEST_ACTIVE_RUN_ID
+    try:
+        from scripts.run_debug_test_matrix import run_all_presets
+        run_all_presets(run_id)
+    finally:
+        with _DEBUG_TEST_RUN_LOCK:
+            _DEBUG_TEST_ACTIVE_RUN_ID = None
 
 
 def get_default_llama_server_path() -> str:
@@ -17905,6 +17944,47 @@ def debug_llama():
             "log_tail": log_tail,
         },
     }
+
+
+@app.get("/debug/tests", response_class=HTMLResponse)
+def debug_tests_home():
+    _debug_harness_guard()
+    runs = _list_debug_runs()
+    from scripts.run_debug_test_matrix import TEST_PRESETS
+    preset_items = "".join([f"<li><b>{p.id}</b>: {p.title} - {p.description}</li>" for p in TEST_PRESETS])
+    run_items = "".join([f"<li><a href='/debug/tests/runs/{r['run_id']}'>{r['run_id']}</a> - {r.get('status','unknown')}</li>" for r in runs]) or "<li>No runs yet</li>"
+    return f"""<html><body><h1>Debug Test Harness enabled</h1><form method='post' action='/api/debug/tests/run-all'><button type='submit'>Run All Tests</button></form><h2>Presets</h2><ul>{preset_items}</ul><h2>Recent runs</h2><ul>{run_items}</ul></body></html>"""
+
+@app.post("/api/debug/tests/run-all")
+def debug_tests_run_all():
+    _debug_harness_guard()
+    global _DEBUG_TEST_ACTIVE_RUN_ID
+    with _DEBUG_TEST_RUN_LOCK:
+        if _DEBUG_TEST_ACTIVE_RUN_ID:
+            return JSONResponse(status_code=409, content={"ok": False, "error": "debug test run is already running", "run_id": _DEBUG_TEST_ACTIVE_RUN_ID})
+        run_id = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        _DEBUG_TEST_ACTIVE_RUN_ID = run_id
+    run_dir = DEBUG_TEST_RUNS_DIR / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "result.json").write_text(json.dumps({"run_id": run_id, "status": "queued", "results": []}, ensure_ascii=False, indent=2), encoding="utf-8")
+    threading.Thread(target=_run_debug_test_matrix_background, args=(run_id,), daemon=True).start()
+    return {"ok": True, "run_id": run_id, "status": "queued", "view_url": f"/debug/tests/runs/{run_id}"}
+
+@app.get("/api/debug/tests/runs/{run_id}")
+def debug_tests_run_status(run_id: str):
+    _debug_harness_guard()
+    return _load_debug_run_result(run_id)
+
+@app.get("/debug/tests/runs/{run_id}", response_class=HTMLResponse)
+def debug_tests_run_view(run_id: str):
+    _debug_harness_guard()
+    result = _load_debug_run_result(run_id)
+    rows = []
+    for r in result.get("results", []):
+        rows.append(f"<tr><td>{r.get('id')}</td><td>{r.get('title','')}</td><td>{r.get('status')}</td><td>{r.get('exit_code')}</td><td>{r.get('duration_sec')}</td><td><pre>{(r.get('stdout_tail') or '')[-800:]}</pre></td><td><pre>{(r.get('stderr_tail') or '')[-800:]}</pre></td><td>{r.get('artifact_path','')}</td></tr>")
+    summary_path = DEBUG_TEST_RUNS_DIR / run_id / "summary.md"
+    summary = summary_path.read_text(encoding="utf-8") if summary_path.exists() else "(summary pending)"
+    return f"""<html><body><h1>Run {run_id}</h1><p>status: <b>{result.get('status')}</b></p><p>started_at: {result.get('started_at','')}</p><p>finished_at: {result.get('finished_at','')}</p><p>duration: {result.get('duration_sec','')}</p><p>total:{result.get('total',0)} pass:{result.get('passed',0)} fail:{result.get('failed',0)}</p><table border='1'><tr><th>id</th><th>title</th><th>status</th><th>exit_code</th><th>duration</th><th>stdout tail</th><th>stderr tail</th><th>artifact path</th></tr>{''.join(rows)}</table><h2>summary.md</h2><pre>{summary}</pre></body></html>"""
 
 @app.get("/health")
 def health():

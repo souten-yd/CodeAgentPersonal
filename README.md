@@ -1340,3 +1340,14 @@ PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 RUN_ATLAS_BACKEND_E2E=1 python s
 - Phase 28.1: Windows local opt-in run result is recorded (`atlas_backend_preflight` + `atlas_backend_e2e_resolve_clarification`: `Total scenarios: 2`, `PASS: 2`) and policy lock is unchanged (at most one `おまかせで進める`, no auto clarification answer, no approval/execute/apply, opt-in only).
 - Phase 29.0c: fixed PlanApproval diagnostic invalid selector usage (`:has-text()` inside DOM querySelector), switched to DOM `textContent` filtering with exception-safe diagnostics, preserved needs-clarification safe skip, and kept approval/execute/apply non-automation + opt-in policy unchanged.
 - Optional PlanApproval actionability opt-in (`RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL_ACTIONABLE=1` with E2E + WAIT_PLAN + CHECK_PLAN_APPROVAL) opens Approval Panel for inspection and validates Approve visibility/actionability without clicking Approve/Execute/Apply.
+
+
+## Debug Test Harness (Runpod Phase 30.0)
+- `KASANE_DEBUG_TEST_HARNESS=1` のときのみ `/debug/tests` と `/api/debug/tests/*` が有効です。
+- Runpod debug build では現時点でデフォルト ON (`ARG/ENV KASANE_DEBUG_TEST_HARNESS=1`) です。
+- `/debug/tests` から **Run All Tests** を実行できます。
+- Matrix は failure が出ても停止せず、最後まで実行して一覧化します。
+- 結果は `ca_data/debug_test_runs` 配下に `result.json` / `summary.md` / `stdout` / `stderr` / artifacts を保存します。
+- destructive actions (approve/execute/apply) は含みません。
+- 認証は Runpod debug 利用を優先して意図的に省略しています。
+- 本番では `KASANE_DEBUG_TEST_HARNESS=0` で無効化してください。
