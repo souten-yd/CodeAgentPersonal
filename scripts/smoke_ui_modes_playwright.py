@@ -1180,7 +1180,7 @@ async def main() -> None:
     base_url, mock_server = get_smoke_base_url()
     print(f"INFO: Playwright smoke base URL = {base_url}")
     results: list[dict[str, str]] = []
-    scenarios = [
+    default_ui_scenarios = [
       ("bootstrap_api_contract", lambda current_page: current_page.evaluate("() => [typeof window.setMode, typeof window.switchNexusTab]")),
       ("mode_switches", verify_mode_switches),
       ("atlas_start_button_feedback", verify_atlas_start_button_feedback),
@@ -1190,28 +1190,42 @@ async def main() -> None:
       ("reference_card_actions", verify_reference_card_actions),
       ("chat_search_and_agent_web_tool_tts", verify_chat_search_and_agent_web_tool_tts),
     ]
+
     run_backend_preflight_opt_in = os.environ.get("RUN_ATLAS_BACKEND_PREFLIGHT", "").strip() == "1"
     run_backend_e2e_opt_in = os.environ.get("RUN_ATLAS_BACKEND_E2E", "").strip() == "1"
-    if run_backend_preflight_opt_in or run_backend_e2e_opt_in:
-      scenarios.append(("atlas_backend_preflight", run_backend_preflight))
+    preflight_only_mode = run_backend_preflight_opt_in and not run_backend_e2e_opt_in
+    full_backend_e2e_mode = run_backend_e2e_opt_in
+
+    if preflight_only_mode:
+      print("INFO: preflight-only mode enabled (RUN_ATLAS_BACKEND_PREFLIGHT=1, RUN_ATLAS_BACKEND_E2E unset).")
+      print("INFO: UI scenarios skipped in preflight-only mode.")
+      scenarios = [("atlas_backend_preflight", run_backend_preflight)]
+    elif full_backend_e2e_mode:
+      print("INFO: full backend E2E mode enabled (RUN_ATLAS_BACKEND_E2E=1).")
+      print("INFO: default UI scenarios are skipped in full backend E2E mode.")
+      scenarios = [
+        ("atlas_backend_preflight", run_backend_preflight),
+        ("atlas_backend_e2e_journey", verify_atlas_backend_e2e_journey),
+      ]
     else:
+      print("INFO: default mode enabled; running mock-backed UI smoke scenarios.")
       print("INFO: backend preflight remains opt-in (set RUN_ATLAS_BACKEND_PREFLIGHT=1 to include).")
-    if run_backend_e2e_opt_in:
-      scenarios.append(("atlas_backend_e2e_journey", verify_atlas_backend_e2e_journey))
-    else:
       print("SKIP: RUN_ATLAS_BACKEND_E2E is not set")
       print("INFO: backend E2E scenario remains opt-in (set RUN_ATLAS_BACKEND_E2E=1 to include).")
+      scenarios = list(default_ui_scenarios)
 
-    async def bootstrap_assertions(current_page) -> None:
-      set_mode_type, switch_tab_type = await current_page.evaluate("() => [typeof window.setMode, typeof window.switchNexusTab]")
-      assert set_mode_type == "function", f"window.setMode is {set_mode_type}"
-      assert switch_tab_type == "function", f"window.switchNexusTab is {switch_tab_type}"
-    scenarios[0] = ("bootstrap_api_contract", bootstrap_assertions)
+      async def bootstrap_assertions(current_page) -> None:
+        set_mode_type, switch_tab_type = await current_page.evaluate("() => [typeof window.setMode, typeof window.switchNexusTab]")
+        assert set_mode_type == "function", f"window.setMode is {set_mode_type}"
+        assert switch_tab_type == "function", f"window.switchNexusTab is {switch_tab_type}"
+
+      scenarios[0] = ("bootstrap_api_contract", bootstrap_assertions)
 
     for scenario_name, scenario_fn in scenarios:
       await run_smoke_scenario(scenario_name, browser, base_url, scenario_fn, results, DEFAULT_DESKTOP_VIEWPORT)
 
-    await run_smoke_scenario("mobile_mode_switches", browser, base_url, lambda page: verify_mobile_mode_switches(page), results, DEFAULT_MOBILE_VIEWPORT)
+    if not (preflight_only_mode or full_backend_e2e_mode):
+      await run_smoke_scenario("mobile_mode_switches", browser, base_url, lambda page: verify_mobile_mode_switches(page), results, DEFAULT_MOBILE_VIEWPORT)
     await browser.close()
     if mock_server:
       server, thread = mock_server

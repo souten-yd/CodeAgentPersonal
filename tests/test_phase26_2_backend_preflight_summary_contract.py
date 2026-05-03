@@ -14,8 +14,10 @@ class TestPhase262BackendPreflightSummaryContract(unittest.TestCase):
         self.assertIn('backend preflight remains opt-in', self.smoke)
 
     def test_backend_e2e_gate_implies_preflight_added(self):
-        self.assertIn('if run_backend_preflight_opt_in or run_backend_e2e_opt_in:', self.smoke)
-        self.assertIn('if run_backend_e2e_opt_in:', self.smoke)
+        self.assertIn('preflight_only_mode', self.smoke)
+        self.assertIn('full_backend_e2e_mode', self.smoke)
+        self.assertIn('("atlas_backend_preflight", run_backend_preflight)', self.smoke)
+        self.assertIn('("atlas_backend_e2e_journey", verify_atlas_backend_e2e_journey)', self.smoke)
 
     def test_preflight_get_only_and_no_plan_post(self):
         self.assertIn('page.request.get(', self.smoke)
