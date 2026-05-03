@@ -608,3 +608,17 @@
   - `pageErrors: []`
   - `hasAtlasStartFailed: False`
 
+
+## Phase 28.0 note (Atlas clarification gate resolution opt-in validation)
+
+- Phase 28.0 introduces explicit opt-in clarification resolution for backend wait-plan smoke.
+- Required env set:
+  - `RUN_ATLAS_BACKEND_E2E=1`
+  - `RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1`
+  - `RUN_ATLAS_BACKEND_E2E_RESOLVE_CLARIFICATION=1`
+- Resolution runs only when initial terminal state is `needs_clarification`.
+- Resolution action is limited to clicking `おまかせで進める` at most once.
+- No automatic clarification answer text is generated or filled.
+- No approval/execute/patch apply action is performed.
+- After one resolution attempt, smoke stops at `completed` or `needs_clarification_after_resolution`.
+- This behavior remains manual, explicit opt-in, and is not enabled in default workflow/CI runs.
