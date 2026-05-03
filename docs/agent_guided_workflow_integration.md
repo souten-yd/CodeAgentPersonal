@@ -264,3 +264,15 @@
 - Failure diagnostics now include truncated summary rows plus per-scenario full `.log` and screenshot artifacts under `artifacts/playwright/`.
 - Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`; default optional CI smoke does not enable it.
 - No backend guided-workflow behavior/gates were changed (PlanApproval / Execute Preview / PatchApproval logic unchanged).
+
+
+## Phase 25.4.2: Remaining Playwright UI smoke stabilization
+- Remaining Playwright smoke failures were investigated after the HTTP-origin harness fix.
+- Hidden Atlas control selectors were scoped and stabilized under `#atlas-workbench-card` overview panel.
+- Python Playwright `wait_for_function` argument usage was corrected to keyword-based `arg=` form.
+- Nexus/reference selectors were aligned to current UI tab IDs with fallback for legacy `web-scout`.
+- Mobile scenario viewport isolation was improved with explicit mobile viewport setup per scenario.
+- Summary readability was improved with scenario-name escaping and safer error truncation/formatting.
+- Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
+- No backend workflow changes were introduced.
+- No approval / execute / patch behavior changes were introduced.
