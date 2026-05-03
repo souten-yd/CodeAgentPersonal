@@ -557,6 +557,8 @@ async def wait_reference_viewer_current_fields(page, timeout_ms: int = 8000, int
 
 async def verify_reference_card_actions(page) -> None:
   clicked_action_button = ""
+  initial_viewer_diag = {}
+  final_viewer_diag = {}
   async def ref_diag_dump(label: str, reason: str = ""):
     ref_diag = await collect_reference_viewer_text(page)
     printable = {
@@ -569,6 +571,8 @@ async def verify_reference_card_actions(page) -> None:
       "activeNexusTab": ref_diag.get("activeNexusTab", ""),
       "refCardCount": ref_diag.get("refCardCount", 0),
       "viewerStatus": "updated" if all(token in ref_diag.get("normalizedText", "") for token in ["source_id: src-1", "mode: text", "highlight: doc-1:0"]) else "initial_or_pending",
+      "viewerInitialStatus": "updated" if all(token in normalize_reference_text(initial_viewer_diag.get("normalizedText", "")) for token in ["source_id: src-1", "mode: text", "highlight: doc-1:0"]) else "initial_or_pending",
+      "viewerFinalStatus": "updated" if all(token in normalize_reference_text(final_viewer_diag.get("normalizedText", "")) for token in ["source_id: src-1", "mode: text", "highlight: doc-1:0"]) else "initial_or_pending",
       "clickedActionButton": clicked_action_button,
       "fullErrorReason": reason,
     }
@@ -637,10 +641,11 @@ async def verify_reference_card_actions(page) -> None:
     await ref_card.wait_for(state="visible")
     assert await ref_card.locator("text=[S1] Mock Source").count() > 0
 
+    initial_viewer_diag = await collect_reference_viewer_text(page)
     opened = await click_first_visible_button_by_names(ref_card, ["全文表示", "Text", "Open Text", "Show Full Text", "全文"])
     assert opened, f"reference card full-text action not found in current DOM: {ref_debug}"
     clicked_action_button = "全文表示/Text"
-    await wait_reference_viewer_current_fields(page)
+    final_viewer_diag = await wait_reference_viewer_current_fields(page)
     await ref_card.get_by_role("button", name="該当箇所").click()
     await wait_reference_viewer_current_fields(page)
     await ref_card.get_by_role("button", name="元URL").click()
