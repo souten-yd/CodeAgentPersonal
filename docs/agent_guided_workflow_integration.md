@@ -363,3 +363,11 @@
 - Backend E2E remains opt-in.
 - No backend workflow changes were introduced in this phase.
 - No approval / execute / patch behavior changes were introduced in this phase.
+
+## Phase 25.4.12 note (Final reference_card_actions async viewer update wait)
+- Final `reference_card_actions` stabilization now treats **Full Text** as a fetch-driven viewer update and does not require it to be a `window.open` action.
+- Smoke now tracks `fetchedUrls` and `openedUrls` separately so `/nexus/sources/src-1/text` can be asserted via fetch activity while URL actions remain asserted via `window.open`.
+- Reference Viewer verification now waits for current fields (`source_id`, `mode`, `highlight`) after Full Text click with polling-based async wait.
+- Backend E2E remains opt-in (`RUN_ATLAS_BACKEND_E2E`) and default smoke remains UI-only.
+- No backend workflow behavior changes were made.
+- No approval/execute/patch behavior changes were made.
