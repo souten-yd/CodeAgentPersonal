@@ -328,3 +328,10 @@
 - Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
 - No backend workflow changes were introduced.
 - No approval / execute / patch behavior changes were introduced.
+
+## Phase 25.4.9 note (Final Playwright wait argument and Reference Viewer wait update)
+- Final Playwright `wait_for_function` argument fix was applied for Python API compatibility (`arg=` keyword for JS arguments).
+- Reference card smoke now waits on current Reference Viewer fields: `source_id`, `mode`, `highlight`.
+- Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
+- No backend workflow changes were introduced.
+- No approval / execute / patch behavior changes were introduced.
