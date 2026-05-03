@@ -8,14 +8,14 @@ class TestPhase25_4_12ReferenceViewerAsyncWaitContract(unittest.TestCase):
         cls.smoke = Path("scripts/smoke_ui_modes_playwright.py").read_text(encoding="utf-8")
 
     def test_async_wait_helper_exists(self):
-        self.assertIn("async def wait_reference_viewer_current_fields", self.smoke)
+        self.assertIn("async def wait_reference_viewer_text_fields", self.smoke)
 
     def test_collect_helper_exists(self):
         self.assertIn("async def collect_reference_viewer_text", self.smoke)
 
     def test_full_text_click_before_wait(self):
-        click_idx = self.smoke.find("click_first_visible_button_by_names(ref_card, [\"全文表示\"")
-        wait_idx = self.smoke.find("await wait_reference_viewer_current_fields(page)", click_idx)
+        click_idx = self.smoke.find("click_reference_button(ref_card, [\"全文表示\"")
+        wait_idx = self.smoke.find("wait_reference_viewer_text_fields(page, [\"source_id: src-1\", \"mode: text\"], \"Full Text\")", click_idx)
         self.assertGreater(click_idx, -1)
         self.assertGreater(wait_idx, click_idx)
 
