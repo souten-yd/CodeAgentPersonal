@@ -751,7 +751,76 @@ async def collect_atlas_plan_approval_gate_diag(page) -> dict:
     const flowText = document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '';
     const messages = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
     const approvalCard = document.querySelector('#plan-approval-card, [data-atlas-workflow-target=\"dynamic-approval\"], [data-atlas-workflow-target=\"approval\"]');
-    const approveButton = document.querySelector('#approve-plan-btn, [data-action=\"approve-plan\"], #plan-approval-card [data-a=\"approve\"], #plan-approval-card button.phase1-plan-btn[data-a=\"approve\"]');
+    const approveSelectorCandidates = [
+      '#approve-plan-btn',
+      '[data-action=\"approve-plan\"]',
+      '#plan-approval-card [data-a=\"approve\"]',
+      '#plan-approval-card button.phase1-plan-btn[data-a=\"approve\"]',
+      '#plan-approval-card button:has-text(\"Approve\")',
+      '#plan-approval-card button:has-text(\"承認\")',
+      '#atlas-workbench-card button:has-text(\"Approve\")',
+      '#atlas-workbench-card button:has-text(\"承認\")',
+      '#atlas-workbench-card [role=\"button\"]:has-text(\"Approve\")',
+      '#atlas-workbench-card [role=\"button\"]:has-text(\"承認\")',
+      '#atlas-workbench-card [data-action*=\"approve\"]',
+      '#atlas-workbench-card [data-a*=\"approve\"]',
+      '#atlas-workbench-card [id*=\"approve\"]',
+      '#atlas-workbench-card [class*=\"approve\"]',
+    ];
+    const approveTextCandidates = [
+      'approve',
+      'approve plan',
+      'plan approve',
+      'approve_plan',
+      '承認',
+      '計画を承認',
+      'planを承認',
+      'プランを承認',
+      '承認して続行',
+    ];
+    const isVisibleIsh = (el) => {
+      if (!el) return false;
+      const style = window.getComputedStyle(el);
+      if (!style) return false;
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') <= 0) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
+    const buttonSelectorScopes = [
+      '#atlas-workbench-card button',
+      '#atlas-workbench-card [role=\"button\"]',
+      '#plan-approval-card button',
+      '[data-atlas-workflow-target] button',
+      '[data-a]',
+      '[data-action]',
+    ];
+    const allButtonElements = Array.from(new Set(buttonSelectorScopes.flatMap((sel) => Array.from(document.querySelectorAll(sel)))));
+    const buttonInventory = allButtonElements.map((el) => ({
+      text: (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 200),
+      id: el.id || '',
+      className: String(el.className || '').slice(0, 300),
+      disabled: !!el.disabled,
+      ariaLabel: (el.getAttribute('aria-label') || '').slice(0, 200),
+      title: (el.getAttribute('title') || '').slice(0, 200),
+      dataAction: (el.getAttribute('data-action') || '').slice(0, 120),
+      dataA: (el.getAttribute('data-a') || '').slice(0, 120),
+      dataAtlasWorkflowTarget: (el.getAttribute('data-atlas-workflow-target') || '').slice(0, 120),
+      visibleIsh: isVisibleIsh(el),
+    }));
+    const approvalCandidateButtons = buttonInventory.filter((b) => {
+      const corpus = `${b.text} ${b.id} ${b.className} ${b.ariaLabel} ${b.title} ${b.dataAction} ${b.dataA}`.toLowerCase();
+      return approveTextCandidates.some((token) => corpus.includes(token.toLowerCase())) || /approve/.test(corpus);
+    });
+    const destructiveCandidateButtons = buttonInventory.filter((b) => {
+      const corpus = `${b.text} ${b.id} ${b.className} ${b.ariaLabel} ${b.title} ${b.dataAction} ${b.dataA}`.toLowerCase();
+      return /execute|apply\\s+patch|apply|approve|承認|bulk/.test(corpus);
+    });
+    const approveButton = approveSelectorCandidates.map((sel) => document.querySelector(sel)).find((el) => !!el)
+      || allButtonElements.find((el) => {
+        const corpus = `${el.textContent || ''} ${el.id || ''} ${el.className || ''} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''} ${el.getAttribute('data-action') || ''} ${el.getAttribute('data-a') || ''}`.toLowerCase();
+        return approveTextCandidates.some((token) => corpus.includes(token.toLowerCase()));
+      })
+      || null;
     const executeButton = document.querySelector('#execute-preview-btn, [data-action=\"execute-preview\"], #plan-approval-card [data-a=\"execute-preview\"]');
     const patchApplyButtons = Array.from(document.querySelectorAll('button')).filter((el) => /apply\\s+approved\\s+patch|apply\\s+patch/i.test(el.textContent || ''));
     const patchCards = Array.from(document.querySelectorAll('[id*=\"patch-\"], [data-pa]'));
@@ -771,6 +840,7 @@ async def collect_atlas_plan_approval_gate_diag(page) -> dict:
       planGenerated,
       reviewDone,
       execute_preview_locked,
+      executePreviewLocked: execute_preview_locked,
       patchApplyLocked,
       patchCount: patchCountText || String(patchCards.length),
       planTextTail: flowText.slice(-800),
@@ -782,6 +852,13 @@ async def collect_atlas_plan_approval_gate_diag(page) -> dict:
       planFlowTextTail: flowText.slice(-800),
       messagesTail: messages.slice(-10).map((text) => String(text).slice(-240)),
       approvalRequired,
+      allButtons: buttonInventory,
+      approvalCandidateButtons,
+      destructiveCandidateButtons,
+      approvalPanelTextTail: (approvalCard?.textContent || '').slice(-1000),
+      workbenchHtmlTail: (document.getElementById('atlas-workbench-card')?.innerHTML || '').slice(-1000),
+      approveSelectorCandidates,
+      failureReason: "",
     };
   }""")
 
@@ -806,6 +883,7 @@ async def verify_atlas_plan_approval_gate_readiness(page, wait_diag: dict, conso
   if not gate_diag.get("planApprovalGatePresent"):
     raise AssertionError(f"plan approval gate not present on completed state: {json.dumps(gate_diag, ensure_ascii=False)}")
   if not gate_diag.get("approveButtonPresent"):
+    gate_diag["failureReason"] = "approval_required_but_approve_button_missing"
     raise AssertionError(f"approve button missing on completed state: {json.dumps(gate_diag, ensure_ascii=False)}")
   if not gate_diag.get("execute_preview_locked"):
     raise AssertionError(f"execute preview unlocked before approval: {json.dumps(gate_diag, ensure_ascii=False)}")

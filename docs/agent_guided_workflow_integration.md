@@ -659,3 +659,12 @@
 - This phase does not click approve, does not execute preview, and does not apply patch.
 - Execute Preview / Patch Apply are validated as locked before approval.
 - Preflight remains GET-only and default workflow remains opt-in (no default E2E/WAIT_PLAN/CHECK_PLAN_APPROVAL enablement).
+
+## Phase 29.0b note (PlanApproval approve-button detection diagnostics)
+- Windows PlanApproval readiness reached completed plan state (Plan generated / Review done / Approval required / Execute Preview locked / Patch Apply locked).
+- Initial failure cause was selector miss: PlanApproval gate was present, but approve button was not found by existing selector candidates.
+- Phase 29.0b adds Plan subview button inventory diagnostics (`allButtons`, `approvalCandidateButtons`, `destructiveCandidateButtons`) and panel tail diagnostics (`approvalPanelTextTail` / `workbenchHtmlTail`).
+- Phase 29.0b expands approve-button detection selectors and text candidates for detection-only diagnostics.
+- Approve is still never clicked by smoke.
+- Execute Preview / Patch Apply are still never clicked by smoke.
+- Workflow remains opt-in only (`RUN_ATLAS_BACKEND_E2E=1`, `RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1`, `RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL=1`).
