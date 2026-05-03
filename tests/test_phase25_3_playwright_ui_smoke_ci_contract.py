@@ -20,7 +20,7 @@ class TestPhase253PlaywrightUiSmokeCiContract(unittest.TestCase):
 
     def test_ui_smoke_function_remains_default_path(self):
         self.assertIn("async def verify_atlas_guided_workflow_safe_journey(page) -> None:", self.smoke)
-        self.assertIn("await verify_atlas_guided_workflow_safe_journey(page)", self.smoke)
+        self.assertIn("(\"atlas_guided_workflow_safe_journey\", verify_atlas_guided_workflow_safe_journey)", self.smoke)
 
     def test_backend_e2e_function_exists_with_gate(self):
         self.assertIn("async def verify_atlas_backend_e2e_journey(page) -> None:", self.smoke)

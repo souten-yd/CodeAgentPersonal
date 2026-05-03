@@ -34,3 +34,20 @@ jobs:
       - name: Run Playwright UI smoke (backend E2E opt-in remains off)
         run: |
           python scripts/smoke_ui_modes_playwright.py
+
+      - name: Append smoke summary to GitHub Step Summary
+        if: always()
+        run: |
+          if [ -f artifacts/playwright/summary.md ]; then
+            cat artifacts/playwright/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No smoke summary generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload Playwright smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-ui-smoke-artifacts
+          path: artifacts/playwright/**
+          if-no-files-found: warn
