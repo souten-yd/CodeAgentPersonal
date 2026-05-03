@@ -727,6 +727,51 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
   last_diag["finalDecision"] = final if final != "timeout" else last_diag.get("finalDecision", "timeout")
   return last_diag
 
+
+async def collect_atlas_clarification_diag(page) -> dict:
+  return await page.evaluate("""() => ({
+    clarificationInputPresent: !!document.querySelector("#atlas-clarification-input, textarea[name='clarification'], textarea#clarification-answer"),
+    answerAndGenerateButtonPresent: !!Array.from(document.querySelectorAll('#atlas-workbench-card button, #atlas-workbench-card [role="button"]')).find((el) => (el.textContent || '').includes('回答してPlan生成')),
+    proceedWithAssumptionsButtonPresent: !!Array.from(document.querySelectorAll('#atlas-workbench-card button, #atlas-workbench-card [role="button"]')).find((el) => (el.textContent || '').includes('おまかせで進める')),
+    clarificationSignals: {
+      nextActionAnswerClarification: (document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '').includes('Next Action: answer clarification'),
+      clarificationKeyword: ((document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '') + '\n' + Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\n')).toLowerCase().includes('clarification'),
+    },
+    planFlowTextTail: (document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '').slice(-800),
+    messagesTail: Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || '').slice(-240)).slice(-10),
+    approveButtonsPresent: !!document.querySelector("#approve-plan-btn, [data-action='approve-plan']"),
+    executeButtonsPresent: !!document.querySelector("#execute-preview-btn, [data-action='execute-preview']"),
+    patchApplyButtonsPresent: !!document.querySelector("#apply-patch-btn, [data-action='apply-patch']"),
+  })""")
+
+
+async def click_atlas_proceed_with_assumptions_once(page) -> tuple[bool, str]:
+  selectors = [
+    "#atlas-workbench-card button:has-text('おまかせで進める')",
+    "#atlas-workbench-card [role='button']:has-text('おまかせで進める')",
+    "text=おまかせで進める",
+  ]
+  for selector in selectors:
+    locator = page.locator(selector)
+    if await locator.count() > 0:
+      await locator.first.click()
+      return True, "おまかせで進める"
+  return False, ""
+
+
+async def resolve_atlas_clarification_once(page) -> dict:
+  diag_before = await collect_atlas_clarification_diag(page)
+  click_succeeded, clicked_text = await click_atlas_proceed_with_assumptions_once(page)
+  diag_after = await collect_atlas_clarification_diag(page)
+  return {
+    "resolutionAttempted": True,
+    "resolutionAction": "proceed_with_assumptions" if click_succeeded else "none",
+    "clickedButtonText": clicked_text,
+    "resolutionClickSucceeded": click_succeeded,
+    "clarificationBefore": diag_before,
+    "clarificationAfter": diag_after,
+  }
+
 async def verify_nexus_tabs(page) -> None:
   await page.click("#btn-nexus")
   for tab in NEXUS_TABS:
@@ -1394,8 +1439,11 @@ async def main() -> None:
   run_backend_preflight_opt_in = os.environ.get("RUN_ATLAS_BACKEND_PREFLIGHT", "").strip() == "1"
   run_backend_e2e_opt_in = os.environ.get("RUN_ATLAS_BACKEND_E2E", "").strip() == "1"
   run_backend_wait_plan_opt_in = os.environ.get("RUN_ATLAS_BACKEND_E2E_WAIT_PLAN", "").strip() == "1"
+  run_backend_resolve_clarification_opt_in = os.environ.get("RUN_ATLAS_BACKEND_E2E_RESOLVE_CLARIFICATION", "").strip() == "1"
   if run_backend_wait_plan_opt_in and not run_backend_e2e_opt_in:
     raise AssertionError("RUN_ATLAS_BACKEND_E2E_WAIT_PLAN requires RUN_ATLAS_BACKEND_E2E=1.")
+  if run_backend_resolve_clarification_opt_in and not (run_backend_e2e_opt_in and run_backend_wait_plan_opt_in):
+    raise AssertionError("RUN_ATLAS_BACKEND_E2E_RESOLVE_CLARIFICATION requires RUN_ATLAS_BACKEND_E2E=1 and RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1.")
   preflight_only_mode = run_backend_preflight_opt_in and not run_backend_e2e_opt_in
   full_backend_e2e_mode = run_backend_e2e_opt_in
   real_backend_opt_in = run_backend_preflight_opt_in or run_backend_e2e_opt_in
@@ -1445,11 +1493,68 @@ async def main() -> None:
           timeout=30_000,
         )
         diag = await wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=preflight_status, base_url=base_url, console_errors=console_errors, page_errors=page_errors)
-        print("INFO: atlas backend wait-plan diagnostics:\n" + json.dumps(diag, ensure_ascii=False, indent=2))
+        wait_plan_diag = {
+          "initialFinalDecision": diag.get("finalDecision"),
+          "initialCompletionReason": diag.get("completionDecisionReason"),
+          "resolutionAttempted": False,
+          "resolutionAction": "none",
+          "clickedButtonText": "",
+          "resolutionClickSucceeded": False,
+          "postResolutionFinalDecision": diag.get("finalDecision"),
+          "postResolutionCompletionReason": diag.get("completionDecisionReason"),
+          "clarificationSignalsBefore": diag.get("clarificationSignals", []),
+          "clarificationSignalsAfter": diag.get("clarificationSignals", []),
+          "planFlowTextTailBefore": diag.get("planFlowTextTail", ""),
+          "planFlowTextTailAfter": diag.get("planFlowTextTail", ""),
+          "messagesTailBefore": diag.get("messagesTail", []),
+          "messagesTailAfter": diag.get("messagesTail", []),
+          "approveButtonsPresentBefore": diag.get("approveButtonsPresent", False),
+          "executeButtonsPresentBefore": diag.get("executeButtonsPresent", False),
+          "patchApplyButtonsPresentBefore": diag.get("patchApplyButtonsPresent", False),
+          "consoleErrors": list(console_errors),
+          "pageErrors": list(page_errors),
+          "elapsedMs": diag.get("elapsedMs"),
+        }
+        if diag.get("finalDecision") == "needs_clarification" and run_backend_resolve_clarification_opt_in:
+          resolution_diag = await resolve_atlas_clarification_once(page)
+          wait_plan_diag["resolutionAttempted"] = bool(resolution_diag.get("resolutionAttempted"))
+          wait_plan_diag["resolutionAction"] = resolution_diag.get("resolutionAction", "none")
+          wait_plan_diag["clickedButtonText"] = resolution_diag.get("clickedButtonText", "")
+          wait_plan_diag["resolutionClickSucceeded"] = bool(resolution_diag.get("resolutionClickSucceeded"))
+          wait_plan_diag["clarificationSignalsBefore"] = diag.get("clarificationSignals", [])
+          wait_plan_diag["planFlowTextTailBefore"] = diag.get("planFlowTextTail", "")
+          wait_plan_diag["messagesTailBefore"] = diag.get("messagesTail", [])
+          wait_plan_diag["approveButtonsPresentBefore"] = diag.get("approveButtonsPresent", False)
+          wait_plan_diag["executeButtonsPresentBefore"] = diag.get("executeButtonsPresent", False)
+          wait_plan_diag["patchApplyButtonsPresentBefore"] = diag.get("patchApplyButtonsPresent", False)
+          if not wait_plan_diag["resolutionClickSucceeded"]:
+            raise AssertionError(f"clarification resolution requested but proceed-with-assumptions button was not clicked: {json.dumps(wait_plan_diag, ensure_ascii=False)}")
+          post_diag = await wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=preflight_status, base_url=base_url, console_errors=console_errors, page_errors=page_errors)
+          wait_plan_diag["postResolutionFinalDecision"] = post_diag.get("finalDecision")
+          wait_plan_diag["postResolutionCompletionReason"] = post_diag.get("completionDecisionReason")
+          wait_plan_diag["clarificationSignalsAfter"] = post_diag.get("clarificationSignals", [])
+          wait_plan_diag["planFlowTextTailAfter"] = post_diag.get("planFlowTextTail", "")
+          wait_plan_diag["messagesTailAfter"] = post_diag.get("messagesTail", [])
+          wait_plan_diag["approveButtonsPresentAfter"] = post_diag.get("approveButtonsPresent", False)
+          wait_plan_diag["executeButtonsPresentAfter"] = post_diag.get("executeButtonsPresent", False)
+          wait_plan_diag["patchApplyButtonsPresentAfter"] = post_diag.get("patchApplyButtonsPresent", False)
+          wait_plan_diag["consoleErrors"] = list(console_errors)
+          wait_plan_diag["pageErrors"] = list(page_errors)
+          wait_plan_diag["elapsedMs"] = post_diag.get("elapsedMs")
+          diag = post_diag
+          if diag.get("finalDecision") == "needs_clarification":
+            diag = {**diag, "finalDecision": "needs_clarification_after_resolution", "completionDecisionReason": "clarification_required_after_single_resolution_attempt"}
+            wait_plan_diag["postResolutionFinalDecision"] = "needs_clarification_after_resolution"
+        print("INFO: atlas backend wait-plan diagnostics:\n" + json.dumps({"waitPlan": diag, "resolution": wait_plan_diag}, ensure_ascii=False, indent=2))
         if diag.get("finalDecision") in ("failed", "timeout", "unknown"):
           raise AssertionError(f"atlas wait-plan did not complete successfully: {json.dumps(diag, ensure_ascii=False)}")
 
-      if run_backend_wait_plan_opt_in:
+      if run_backend_wait_plan_opt_in and run_backend_resolve_clarification_opt_in:
+        scenarios = [
+          ("atlas_backend_preflight", run_backend_preflight),
+          ("atlas_backend_e2e_resolve_clarification", verify_atlas_backend_e2e_wait_plan),
+        ]
+      elif run_backend_wait_plan_opt_in:
         scenarios = [
           ("atlas_backend_preflight", run_backend_preflight),
           ("atlas_backend_e2e_wait_plan", verify_atlas_backend_e2e_wait_plan),
