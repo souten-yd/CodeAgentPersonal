@@ -15,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CA_DATA_DIR = Path(os.environ.get("CODEAGENT_CA_DATA_DIR", "/workspace/ca_data" if Path('/workspace').exists() else str(REPO_ROOT / "ca_data"))).resolve()
 DEBUG_RUN_ROOT = CA_DATA_DIR / "debug_test_runs"
 
+
 @dataclass(frozen=True)
 class TestPreset:
     id: str
@@ -23,6 +24,18 @@ class TestPreset:
     command: list[str]
     env: dict[str, str]
     timeout_sec: int = 300
+
+
+SMOKE_ENV_KEYS = [
+    "PLAYWRIGHT_SMOKE_BASE_URL",
+    "RUN_ATLAS_BACKEND_PREFLIGHT",
+    "RUN_ATLAS_BACKEND_E2E",
+    "RUN_ATLAS_BACKEND_E2E_WAIT_PLAN",
+    "RUN_ATLAS_BACKEND_E2E_RESOLVE_CLARIFICATION",
+    "RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL",
+    "RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL_ACTIONABLE",
+    "PLAYWRIGHT_SMOKE_ARTIFACT_DIR",
+]
 
 TEST_PRESETS: list[TestPreset] = [
     TestPreset("static_contracts", "Static contract tests", "Representative phase contract tests", [sys.executable, "-m", "unittest", "tests.test_phase29_0_plan_approval_gate_readiness_contract", "tests.test_phase29_0c_plan_approval_invalid_selector_guard_contract", "tests.test_phase29_1_plan_approval_actionability_contract"], {}, 300),
@@ -35,16 +48,37 @@ TEST_PRESETS: list[TestPreset] = [
     TestPreset("plan_approval_actionability", "Plan approval actionability", "Validate actionable plan approval path (may fail)", [sys.executable, "scripts/smoke_ui_modes_playwright.py"], {"PLAYWRIGHT_SMOKE_BASE_URL": "http://127.0.0.1:8000", "RUN_ATLAS_BACKEND_PREFLIGHT": "1", "RUN_ATLAS_BACKEND_E2E": "1", "RUN_ATLAS_BACKEND_E2E_WAIT_PLAN": "1", "RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL": "1", "RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL_ACTIONABLE": "1"}, 900),
 ]
 
+
+def _write_summary(run_dir: Path, payload: dict[str, Any]) -> None:
+    lines = [f"# Debug Test Matrix {payload['run_id']}", "", f"- status: **{payload.get('status', 'unknown')}**", f"- total: {payload.get('total', 0)} pass: {payload.get('passed', 0)} fail: {payload.get('failed', 0)}", ""]
+    if payload.get("current_test"):
+        lines.extend([f"- current_test: {payload['current_test']}", ""])
+    lines.extend(["| id | status | exit | duration |", "|---|---:|---:|---:|"])
+    for row in payload.get("results", []):
+        lines.append(f"| {row['id']} | {row['status']} | {row['exit_code']} | {row['duration_sec']}s |")
+    (run_dir / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_progress(run_dir: Path, payload: dict[str, Any]) -> None:
+    (run_dir / "result.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_summary(run_dir, payload)
+
+
 def run_all_presets(run_id: str) -> dict[str, Any]:
     run_dir = DEBUG_RUN_ROOT / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     started = time.time()
-    payload: dict[str, Any] = {"run_id": run_id, "status": "running", "started_at": datetime.now(timezone.utc).isoformat(), "results": []}
+    payload: dict[str, Any] = {"run_id": run_id, "status": "running", "current_test": None, "started_at": datetime.now(timezone.utc).isoformat(), "results": [], "total": 0, "passed": 0, "failed": 0}
+    _write_progress(run_dir, payload)
     for preset in TEST_PRESETS:
+        payload["current_test"] = preset.id
+        _write_progress(run_dir, payload)
         test_dir = run_dir / preset.id
         test_dir.mkdir(parents=True, exist_ok=True)
         artifact_dir = test_dir / "artifacts" / "playwright"
         env = os.environ.copy()
+        for key in SMOKE_ENV_KEYS:
+            env.pop(key, None)
         env.update(preset.env)
         env["PLAYWRIGHT_SMOKE_ARTIFACT_DIR"] = str(artifact_dir)
         t0 = time.time()
@@ -67,16 +101,19 @@ def run_all_presets(run_id: str) -> dict[str, Any]:
         (test_dir / "stdout.log").write_text(out, encoding="utf-8", errors="replace")
         (test_dir / "stderr.log").write_text(err, encoding="utf-8", errors="replace")
         payload["results"].append({"id": preset.id, "title": preset.title, "status": status, "exit_code": code, "duration_sec": round(time.time() - t0, 3), "stdout_tail": "\n".join(out.splitlines()[-20:]), "stderr_tail": "\n".join(err.splitlines()[-20:]), "artifact_path": str(artifact_dir)})
+        failed = sum(1 for r in payload["results"] if r["status"] != "passed")
+        payload["total"] = len(payload["results"])
+        payload["passed"] = payload["total"] - failed
+        payload["failed"] = failed
+        _write_progress(run_dir, payload)
+
     failed = sum(1 for r in payload["results"] if r["status"] != "passed")
     payload["total"] = len(payload["results"])
     payload["passed"] = payload["total"] - failed
     payload["failed"] = failed
     payload["status"] = "passed" if failed == 0 else "finished_with_failures"
+    payload["current_test"] = None
     payload["finished_at"] = datetime.now(timezone.utc).isoformat()
     payload["duration_sec"] = round(time.time() - started, 3)
-    (run_dir / "result.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    lines = [f"# Debug Test Matrix {run_id}", "", f"- status: **{payload['status']}**", f"- total: {payload['total']} pass: {payload['passed']} fail: {payload['failed']}", "", "| id | status | exit | duration |", "|---|---:|---:|---:|"]
-    for row in payload["results"]:
-        lines.append(f"| {row['id']} | {row['status']} | {row['exit_code']} | {row['duration_sec']}s |")
-    (run_dir / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _write_progress(run_dir, payload)
     return payload
