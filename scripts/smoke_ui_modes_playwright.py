@@ -236,7 +236,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
       const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
       const status = document.getElementById('atlas-requirement-status')?.textContent || '';
       return logs.some((t) => t.includes(msg)) || status.includes(statusText);
-    }""", [empty_start, empty_status])
+    }""", arg=[empty_start, empty_status])
     # B. Persistence / clear
     short_requirement_text = "Short Atlas requirement for smoke test"
     await fill_atlas_requirement(page, short_requirement_text)
@@ -254,7 +254,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
       const atlasValue = document.getElementById('atlas-requirement-input')?.value || '';
       const status = document.getElementById('atlas-requirement-status')?.textContent || '';
       return atlasValue === expected || status.includes('Copied from Chat input.');
-    }""", [expected_text])
+    }""", arg=[expected_text])
     assert await get_atlas_requirement_input(page).input_value() == expected_text
     # D. Atlas input Start
     expected_text = atlas_start_value
@@ -273,7 +273,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
       ) && (
         msg.includes(atlasValue) || msg.includes('Requirement Preview') || msg.includes('Atlas Workflow Status') || msg.includes('Boss')
       );
-    }""", [atlas_start_value])
+    }""", arg=[atlas_start_value])
     # E. Chat fallback Start
     await click_atlas_requirement_clear(page)
     await set_chat_input(page, "Chat fallback smoke")
