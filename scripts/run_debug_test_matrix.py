@@ -64,6 +64,28 @@ def _write_progress(run_dir: Path, payload: dict[str, Any]) -> None:
     _write_summary(run_dir, payload)
 
 
+def _refresh_counts_and_status(payload: dict[str, Any], *, final: bool = False) -> None:
+    results = payload.get("results", [])
+    failed = sum(1 for r in results if r["status"] == "failed")
+    skipped = sum(1 for r in results if r["status"] == "skipped")
+    timeout = sum(1 for r in results if r["status"] == "timeout")
+    payload["total"] = len(results)
+    payload["passed"] = sum(1 for r in results if r["status"] == "passed")
+    payload["failed"] = failed
+    payload["skipped"] = skipped
+    payload["timeout"] = timeout
+
+    if not final:
+        return
+
+    if failed > 0 or timeout > 0:
+        payload["status"] = "finished_with_failures"
+    elif skipped > 0:
+        payload["status"] = "finished_with_skips"
+    else:
+        payload["status"] = "passed"
+
+
 def run_all_presets(run_id: str) -> dict[str, Any]:
     run_dir = DEBUG_RUN_ROOT / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -104,30 +126,10 @@ def run_all_presets(run_id: str) -> dict[str, Any]:
         (test_dir / "stdout.log").write_text(out, encoding="utf-8", errors="replace")
         (test_dir / "stderr.log").write_text(err, encoding="utf-8", errors="replace")
         payload["results"].append({"id": preset.id, "title": preset.title, "status": status, "exit_code": code, "duration_sec": round(time.time() - t0, 3), "stdout_tail": "\n".join(out.splitlines()[-20:]), "stderr_tail": "\n".join(err.splitlines()[-20:]), "artifact_path": str(artifact_dir)})
-        failed = sum(1 for r in payload["results"] if r["status"] == "failed")
-        skipped = sum(1 for r in payload["results"] if r["status"] == "skipped")
-        timeout = sum(1 for r in payload["results"] if r["status"] == "timeout")
-        payload["total"] = len(payload["results"])
-        payload["passed"] = sum(1 for r in payload["results"] if r["status"] == "passed")
-        payload["failed"] = failed
-        payload["skipped"] = skipped
-        payload["timeout"] = timeout
+        _refresh_counts_and_status(payload)
         _write_progress(run_dir, payload)
 
-    failed = sum(1 for r in payload["results"] if r["status"] == "failed")
-    skipped = sum(1 for r in payload["results"] if r["status"] == "skipped")
-    timeout = sum(1 for r in payload["results"] if r["status"] == "timeout")
-    payload["total"] = len(payload["results"])
-    payload["passed"] = sum(1 for r in payload["results"] if r["status"] == "passed")
-    payload["failed"] = failed
-    payload["skipped"] = skipped
-    payload["timeout"] = timeout
-    if failed > 0:
-        payload["status"] = "finished_with_failures"
-    elif skipped > 0:
-        payload["status"] = "finished_with_skips"
-    else:
-        payload["status"] = "passed"
+    _refresh_counts_and_status(payload, final=True)
     payload["current_test"] = None
     payload["finished_at"] = datetime.now(timezone.utc).isoformat()
     payload["duration_sec"] = round(time.time() - started, 3)
