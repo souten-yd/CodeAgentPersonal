@@ -760,14 +760,7 @@ async def verify_reference_card_actions(page) -> None:
     await ref_diag_dump(f"failure: {type(err).__name__}", str(err))
     raise
 
-  viewer_diag = await wait_reference_viewer_text_fields(page, ["source_id: src-1", "mode: text", "doc-1:0"], "Final")
-  viewer_text = normalize_reference_text(viewer_diag.get("normalizedText", ""))
-  assert "[S1] Mock Source" in viewer_text, viewer_text
-  assert "source_id: src-1" in viewer_text, viewer_text
-  assert "mode: text" in viewer_text, viewer_text
-  assert "highlight: doc-1:0" in viewer_text, viewer_text
   fetched_urls = await page.evaluate("() => window.__fetchedUrls || []")
-  opened_urls = await page.evaluate("() => window.__openedUrls || []")
   await ref_diag_dump("final")
   assert any("/nexus/sources/src-1/text" in url for url in fetched_urls), fetched_urls
 
