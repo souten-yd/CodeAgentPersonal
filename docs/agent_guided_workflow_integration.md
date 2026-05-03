@@ -622,3 +622,25 @@
 - No approval/execute/patch apply action is performed.
 - After one resolution attempt, smoke stops at `completed` or `needs_clarification_after_resolution`.
 - This behavior remains manual, explicit opt-in, and is not enabled in default workflow/CI runs.
+
+## Phase 28.1 note (Windows clarification resolution opt-in result record and policy lock)
+
+- Windows local clarification resolution opt-in was validated.
+- Command env set:
+  - `RUN_ATLAS_BACKEND_E2E=1`
+  - `RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1`
+  - `RUN_ATLAS_BACKEND_E2E_RESOLVE_CLARIFICATION=1`
+- Scenario set:
+  - `atlas_backend_preflight`
+  - `atlas_backend_e2e_resolve_clarification`
+- Result summary:
+  - `Total scenarios: 2`
+  - `PASS: 2`
+- Observed final state is constrained to:
+  - `completed`
+  - `needs_clarification_after_resolution`
+- Clarification resolution clicks `おまかせで進める` at most once.
+- No automatic clarification answer is generated or submitted.
+- No approval / execute / patch apply action is performed.
+- Preflight remains GET-only.
+- This remains explicit opt-in only and is not enabled by default workflow/CI settings.
