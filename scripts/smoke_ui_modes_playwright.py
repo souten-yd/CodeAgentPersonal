@@ -737,8 +737,9 @@ async def verify_reference_card_actions(page) -> None:
       source_url_action_status = "skippedMissing"
       print("INFO: Source URL action skipped: button missing")
     tracking = await get_reference_tracking(page)
+    source_url_opened = any("https://example.com/report" in url for url in tracking["openedUrls"])
     if source_url_clicked:
-      assert any("https://example.com/report" in url for url in tracking["openedUrls"]), tracking
+      assert source_url_opened, tracking
 
     clicked_action_button = await click_reference_button(ref_card, ["ダウンロード", "Download"])
     tracking = await get_reference_tracking(page)
