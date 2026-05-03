@@ -549,3 +549,20 @@
   - full backend E2E remains opt-in
   - default mock-backed UI smoke remains 9/9
   - workflow does not enable backend E2E by default
+
+## Phase 27.0 Atlas backend job lifecycle wait-plan opt-in
+
+- Phase 26.5 validated full backend E2E dry-run reaches Atlas plan subview.
+- Phase 27.0 adds an additional explicit opt-in `RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1` to observe lifecycle until plan completion/failure/timeout.
+- Full opt-in command (PowerShell):
+  - `$env:PLAYWRIGHT_SMOKE_BASE_URL="http://127.0.0.1:8000"`
+  - `$env:RUN_ATLAS_BACKEND_E2E="1"`
+  - `$env:RUN_ATLAS_BACKEND_E2E_WAIT_PLAN="1"`
+  - `python scripts/smoke_ui_modes_playwright.py`
+- Expected behavior:
+  - preflight runs first
+  - Atlas Start is triggered
+  - lifecycle waits for plan completion/failure/timeout
+  - no approval / execute preview / patch apply automation is performed
+- Default workflow remains backend-off (no `RUN_ATLAS_BACKEND_E2E` and no wait-plan env by default).
+- Wait-plan mode can invoke planner/LLM and may take longer; inspect logs/diagnostics before moving to approval/execute phases.
