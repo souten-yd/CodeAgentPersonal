@@ -308,3 +308,13 @@
 - Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
 - No backend workflow behavior changes were introduced.
 - No approval / execute / patch behavior changes were introduced.
+
+
+## Phase 25.4.7 note (Final Playwright UI smoke 9/9 cleanup)
+- Final Playwright UI smoke cleanup targets the remaining two scenarios only.
+- Atlas Use Chat Input smoke now sets Chat input via DOM direct setter without leaving Atlas mode.
+- Atlas Start smoke no longer relies on the final Chat input value for success assertions.
+- Reference card smoke aligns to current Reference Viewer fields: `source_id`, `mode`, `highlight`.
+- Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
+- No backend workflow changes were introduced.
+- No approval / execute / patch behavior changes were introduced.

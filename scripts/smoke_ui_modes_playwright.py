@@ -93,6 +93,16 @@ def get_smoke_base_url():
 async def get_chat_input_value(page) -> str:
   return await page.evaluate("() => document.getElementById('input')?.value || ''")
 
+async def set_chat_input_value_direct(page, text: str) -> None:
+  await page.evaluate("""([value]) => {
+    const input = document.getElementById('input');
+    if (!input) return;
+    input.value = String(value || '');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }""", [text])
+
+
 async def set_chat_input(page, text: str, switch_to_chat: bool = True) -> None:
   if switch_to_chat:
     await page.click("#btn-chat")
@@ -102,13 +112,7 @@ async def set_chat_input(page, text: str, switch_to_chat: bool = True) -> None:
     await input_locator.fill(text)
     return
   except Exception:
-    await page.evaluate("""([value]) => {
-      const input = document.getElementById('input');
-      if (!input) return;
-      input.value = String(value || '');
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    }""", [text])
+    await set_chat_input_value_direct(page, text)
 
 
 async def open_atlas(page) -> None:
@@ -228,7 +232,8 @@ async def verify_atlas_start_button_feedback(page) -> None:
   assert await get_atlas_requirement_input(page).input_value() == ''
   assert await get_chat_input_value(page) == 'chat survives clear'
 
-  await set_chat_input(page, copied_requirement_text)
+  await set_chat_input_value_direct(page, copied_requirement_text)
+  await open_atlas(page)
   await click_atlas_use_chat_input(page)
   expected_text = copied_requirement_text
   assert await get_atlas_requirement_input(page).input_value() == expected_text
@@ -586,6 +591,7 @@ async def verify_reference_card_actions(page) -> None:
       cardButtonTexts: card ? Array.from(card.querySelectorAll('button')).map((el) => el.textContent || '') : [],
       viewerText: document.getElementById('nexus-reference-viewer')?.textContent || '',
       openedUrls: window.__openedUrls || [],
+      activeNexusTab: document.querySelector('#nexus-tabbar .nexus-tab-btn.active')?.id || '',
     };
   }""")
   print(f"INFO: reference_card_actions diagnostics: {ref_diag}")
