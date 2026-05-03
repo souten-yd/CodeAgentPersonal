@@ -70,6 +70,25 @@ async def verify_mode_switches(page) -> None:
   await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display === 'none'")
 
 
+
+
+async def verify_atlas_start_button_feedback(page) -> None:
+  await page.click("#btn-chat")
+  await page.fill("#input", "")
+  await page.click("#btn-atlas")
+  await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
+  await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
+  await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+  await page.wait_for_function("""() => {
+    const root = document.getElementById('atlas-workbench-card');
+    return !!root && root.dataset.atlasCurrentSubview === 'plan';
+  }""")
+  await page.wait_for_function("""() => {
+    const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
+    return logs.some((t) => t.includes('Atlas Start needs a request.'));
+  }""")
+  assert await page.locator('#atlas-workbench-card', has_text='Atlas Guided Plan Flow').count() > 0
+
 async def verify_nexus_tabs(page) -> None:
   await page.click("#btn-nexus")
   for tab in NEXUS_TABS:
@@ -418,6 +437,7 @@ async def main() -> None:
     assert switch_tab_type == "function", f"window.switchNexusTab is {switch_tab_type}"
 
     await verify_mode_switches(page)
+    await verify_atlas_start_button_feedback(page)
     await verify_mode_specific_subtabs(page)
     await verify_nexus_tabs(page)
     await verify_reference_card_actions(page)

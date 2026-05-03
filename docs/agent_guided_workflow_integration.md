@@ -164,3 +164,10 @@
 - Agent remains the advanced runtime surface (`Open Agent Advanced`).
 - No Task/Agent deletion was introduced.
 - No workflow behavior changes were introduced (approval gates and execute/patch flow remain unchanged).
+
+## Phase 22.1 note (Atlas Start Button Execution Regression Fix)
+- Fixes Atlas Workbench Start Atlas regression where clicking Start Atlas could appear unresponsive.
+- Start Atlas now surfaces workflow start and failure state in visible UI messages/logs.
+- Empty request no longer fails silently; Atlas now shows a clear input guidance message.
+- Atlas Workbench Start uses the existing safe Plan Workflow path (`startPlanWorkflow`), without workflow bypass.
+- No approval / execute / patch behavior changes are introduced in this phase.
