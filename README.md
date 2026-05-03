@@ -1323,4 +1323,4 @@ PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 RUN_ATLAS_BACKEND_PREFLIGHT=1 py
 PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 RUN_ATLAS_BACKEND_E2E=1 python scripts/smoke_ui_modes_playwright.py
 ```
 
-- `PLAYWRIGHT_SMOKE_BASE_URL` should be used for real backend opt-in modes (`RUN_ATLAS_BACKEND_PREFLIGHT=1` or `RUN_ATLAS_BACKEND_E2E=1`) unless intentionally overriding UI origin.
+- `PLAYWRIGHT_SMOKE_BASE_URL` is only honored in real backend opt-in modes (`RUN_ATLAS_BACKEND_PREFLIGHT=1` or `RUN_ATLAS_BACKEND_E2E=1`). In default mode, it is ignored and smoke remains mock-backed by design.

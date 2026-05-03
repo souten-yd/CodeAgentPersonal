@@ -86,9 +86,9 @@ def start_mock_server():
   thread.start()
   return server, thread
 
-def get_smoke_base_url():
+def get_smoke_base_url(use_explicit_base_url: bool = False):
   explicit = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip()
-  if explicit:
+  if use_explicit_base_url and explicit:
     return explicit.rstrip("/"), None
   server, thread = start_mock_server()
   return f"http://127.0.0.1:{server.server_port}", (server, thread)
@@ -1175,9 +1175,20 @@ async def main() -> None:
     raise AssertionError(f"ui inline script syntax check failed: rc={syntax_rc}")
   PLAYWRIGHT_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 
+  run_backend_preflight_opt_in = os.environ.get("RUN_ATLAS_BACKEND_PREFLIGHT", "").strip() == "1"
+  run_backend_e2e_opt_in = os.environ.get("RUN_ATLAS_BACKEND_E2E", "").strip() == "1"
+  preflight_only_mode = run_backend_preflight_opt_in and not run_backend_e2e_opt_in
+  full_backend_e2e_mode = run_backend_e2e_opt_in
+  real_backend_opt_in = run_backend_preflight_opt_in or run_backend_e2e_opt_in
+  explicit_base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip()
+
   async with async_playwright() as p:
     browser = await p.chromium.launch()
-    base_url, mock_server = get_smoke_base_url()
+    if explicit_base_url and not real_backend_opt_in:
+      print("INFO: PLAYWRIGHT_SMOKE_BASE_URL is ignored in default mock-backed UI smoke. Set RUN_ATLAS_BACKEND_PREFLIGHT=1 or RUN_ATLAS_BACKEND_E2E=1 to target a real backend.")
+    if real_backend_opt_in and not explicit_base_url:
+      raise AssertionError("PLAYWRIGHT_SMOKE_BASE_URL is required when RUN_ATLAS_BACKEND_PREFLIGHT=1 or RUN_ATLAS_BACKEND_E2E=1.")
+    base_url, mock_server = get_smoke_base_url(use_explicit_base_url=real_backend_opt_in)
     print(f"INFO: Playwright smoke base URL = {base_url}")
     results: list[dict[str, str]] = []
     default_ui_scenarios = [
@@ -1191,10 +1202,6 @@ async def main() -> None:
       ("chat_search_and_agent_web_tool_tts", verify_chat_search_and_agent_web_tool_tts),
     ]
 
-    run_backend_preflight_opt_in = os.environ.get("RUN_ATLAS_BACKEND_PREFLIGHT", "").strip() == "1"
-    run_backend_e2e_opt_in = os.environ.get("RUN_ATLAS_BACKEND_E2E", "").strip() == "1"
-    preflight_only_mode = run_backend_preflight_opt_in and not run_backend_e2e_opt_in
-    full_backend_e2e_mode = run_backend_e2e_opt_in
 
     if preflight_only_mode:
       print("INFO: preflight-only mode enabled (RUN_ATLAS_BACKEND_PREFLIGHT=1, RUN_ATLAS_BACKEND_E2E unset).")
