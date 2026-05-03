@@ -141,3 +141,10 @@
 - Focus helper behavior remains focus/scroll guidance only.
 - No approve/execute/apply workflow behavior changes are introduced in this phase.
 - Approval and Patch Review gates remain required.
+
+## Phase 21.5 note (Dynamic Plan Workflow card target tagging)
+- Dynamic Plan Workflow card sections now receive stable workflow targets (`dynamic-plan-review`, `dynamic-approval`, `dynamic-execute-preview`, `dynamic-patch-review`).
+- `findAtlasWorkflowTarget(kind)` prefers dynamic real UI targets first, then stable Atlas Plan Flow targets, then lightweight fallback anchors.
+- Focus helper behavior remains focus/scroll guidance only.
+- No approval/execution/apply workflow behavior changes are introduced in this phase.
+- Approval and Patch Review gates remain required.

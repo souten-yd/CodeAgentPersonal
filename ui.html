@@ -13916,13 +13916,14 @@ function findAtlasWorkflowTarget(kind) {
   const key = String(kind || '').trim().toLowerCase();
   const selectorMap = {
     review: [
+      '[data-atlas-workflow-target="dynamic-plan-review"]',
       '[data-atlas-workflow-target="plan-review"]',
       '#atlas-plan-review-anchor',
       '[data-atlas-plan-section="review"]',
       '#atlas-workbench-card-plan-flow',
-      '#atlas-workbench-card-plan-next-action',
     ],
     approval: [
+      '[data-atlas-workflow-target="dynamic-approval"]',
       '[data-atlas-workflow-target="approval"]',
       '#atlas-plan-approval-anchor',
       '[data-atlas-plan-section="approval"]',
@@ -13930,12 +13931,14 @@ function findAtlasWorkflowTarget(kind) {
       '#atlas-workbench-card-plan-next-action-buttons',
     ],
     execute_preview: [
+      '[data-atlas-workflow-target="dynamic-execute-preview"]',
       '[data-atlas-workflow-target="execute-preview"]',
       '#atlas-plan-execute-preview-anchor',
       '[data-atlas-plan-section="execute-preview"]',
       '#atlas-workbench-card-plan-next-action-buttons',
     ],
     patch_review: [
+      '[data-atlas-workflow-target="dynamic-patch-review"]',
       '[data-atlas-workflow-target="patch-review"]',
       '#atlas-workbench-card-patch-list',
       '[data-atlas-subview-panel="patch_review"]',
@@ -14384,7 +14387,7 @@ function _renderPhase1ReviewSection(reviewResult) {
       }).join('')
     : `<div style="font-size:11px;color:var(--text3)">No findings</div>`;
 
-  return `<div class="phase1-warning-box" style="border-color:var(--border)">
+  return `<div class="phase1-warning-box" data-atlas-workflow-target="dynamic-plan-review" style="border-color:var(--border)">
     ${dangerBanner}
     <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:4px">Plan Review</div>
     <div style="font-size:11px;color:var(--text2);line-height:1.5">
@@ -14417,7 +14420,7 @@ function _renderPhase5ApprovalSection(result, cardId) {
   const executionReady = !!(approval?.execution_ready || plan?.status === 'execution_ready');
   const requiresConfirm = !!review?.requires_user_confirmation;
   const destructive = !!(review?.destructive_change_detected || plan?.destructive_change_detected);
-  return `<div class="phase1-warning-box" id="${cardId}-approval-box">
+  return `<div class="phase1-warning-box" id="${cardId}-approval-box" data-atlas-workflow-target="dynamic-approval">
     <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:6px">Plan Approval (Phase 5)</div>
     <div style="font-size:11px;color:var(--text2);line-height:1.6">Approval status: <b>${esc(status)}</b> / Execution ready: <b>${esc(String(executionReady))}</b></div>
     <div style="font-size:11px;color:var(--text3);margin-top:5px">Phase 5では承認状態のみ保存し、実装はまだ実行されません。承認後、このPlanは execution_ready になります。</div>
@@ -14455,7 +14458,7 @@ function _renderPhase6ExecutionSection(result, cardId) {
     '';
   const canShow = String(plan?.status||'') === 'execution_ready' && !!approval?.execution_ready;
   if (!canShow) return '';
-  return `<div class="phase1-warning-box" id="${cardId}-exec-box">
+  return `<div class="phase1-warning-box" id="${cardId}-exec-box" data-atlas-workflow-target="dynamic-execute-preview">
     <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:6px">Implementation Execution (Phase 7 MVP)</div>
     <div style="font-size:11px;color:var(--text2);margin-bottom:6px">Phase 7.5では小規模patchのみ対象です。preview_only はデフォルトONで、ファイル変更は発生しません。</div>
     <div style="font-size:10px;color:var(--text3);margin-bottom:6px;word-break:break-all">resolved_project_path: ${esc(executionProjectPath || '(not resolved)')}</div>
@@ -14483,7 +14486,7 @@ function _renderPhase6ExecutionSection(result, cardId) {
       <button class="phase1-tab-btn" data-run-view="log">View Run Log</button>
       <button class="phase1-tab-btn" data-run-view="report">View Final Report</button>
     </div>
-    <div style="margin-top:10px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
+    <div data-atlas-workflow-target="dynamic-patch-review" style="margin-top:10px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
       <div style="font-size:11px;font-weight:700;color:var(--text)">Patch Review (Phase 8)</div>
       <div style="font-size:11px;color:var(--text2);margin-top:4px">Patchは承認後に個別applyできます / proposed_content のappendのみ適用 / delete/run_command/high riskは実行されません。</div>
       <button class="phase1-tab-btn" data-run-view="patches" style="margin-top:6px">Load Patches</button>
@@ -14922,7 +14925,7 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
           <div class="plan-section-title">要件明確度スコア</div><div class="plan-approach-text">${esc(String(requirement.requirement_completeness_score ?? '-'))}</div>
           ${_renderNexusContextSummary(result?.nexus_context, { title: "Nexus Context Summary", compact: false })}
         </div>
-        <div class="phase1-tab-body" data-tab="plan">
+        <div class="phase1-tab-body" data-tab="plan" data-atlas-workflow-target="dynamic-plan-review">
           ${markdownSectionHtml}
           <div style="font-size:10px;color:var(--text3);margin-top:6px;word-break:break-all">path: ${esc(result?.plan_markdown_path || '-')}</div>
           <div class="plan-section-title">実装案</div>${_phase1List(plan.architecture_options)}
