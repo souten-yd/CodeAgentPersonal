@@ -410,3 +410,12 @@
 - Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
 - No backend workflow changes were introduced in this phase.
 - No approval / execute / patch behavior changes were introduced in this phase.
+
+## Phase 25.4.20 note (reference_card_actions Source URL/Download diagnostic-only)
+- In `reference_card_actions`, **Source URL** and **Download** actions are now treated as diagnostic-only and are not required smoke assertions.
+- **Full Text** and **Highlight** remain required checks (`/text`, `/chunks`, `source_id: src-1`, `mode: text`, `doc-1:0`/`highlight: doc-1:0`).
+- **Download** is intentionally not clicked as a required action in smoke because it can trigger current-page navigation and invalidate UI/tracking state.
+- `fetchedUrls` and `openedUrls` are still collected and emitted for diagnostics.
+- Atlas backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E`.
+- No backend workflow logic changes were made.
+- No approval/execute/patch behavior was changed.
