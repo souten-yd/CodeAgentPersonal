@@ -162,6 +162,60 @@ async def verify_atlas_start_button_feedback(page) -> None:
   assert not any('ReferenceError' in e for e in errors), f"atlas start smoke found reference errors: {errors}"
   assert not errors, f"atlas start smoke found errors: {errors}"
 
+
+async def verify_atlas_guided_workflow_safe_journey(page) -> None:
+  errors: list[str] = []
+  page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+  page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
+
+  await page.click("#btn-chat")
+  await page.fill("#input", "")
+  await page.click("#btn-atlas")
+  await page.wait_for_selector("#atlas-workbench-card")
+  await page.click("[data-atlas-subview-tab='overview']")
+  await page.fill("#atlas-requirement-input", "Phase 25 smoke requirement text")
+  await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+  await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'")
+  await page.wait_for_function("() => (document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '').includes('Requirement')")
+  await page.wait_for_function("() => Array.from(document.querySelectorAll('#messages .msg')).some((el) => (el.textContent || '').includes('Atlas Workflow Status'))")
+  await page.wait_for_function("""() => {
+    const msg = Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n');
+    return msg.includes('Source: atlas') && msg.includes('Workspace: Atlas');
+  }""")
+  await page.wait_for_function("""() => {
+    const msg = Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n');
+    const status = document.getElementById('atlas-requirement-status')?.textContent || '';
+    return msg.includes('Requirement Source: atlas') || status.includes('Using Atlas requirement input.');
+  }""")
+  assert await page.input_value("#input") == "Phase 25 smoke requirement text"
+
+  review_btn = page.get_by_role("button", name="Review Plan")
+  if await review_btn.count() > 0:
+    await review_btn.first.click()
+  approval_btn = page.get_by_role("button", name="Open Approval Panel")
+  if await approval_btn.count() > 0:
+    await approval_btn.first.click()
+  execute_btn = page.get_by_role("button", name="Open Execute Preview")
+  if await execute_btn.count() > 0:
+    await execute_btn.first.click()
+  patch_btn = page.get_by_role("button", name="Open Patch Review")
+  if await patch_btn.count() > 0:
+    await patch_btn.first.click()
+  else:
+    await page.click("[data-atlas-subview-tab='patch_review']")
+
+  await page.click("[data-atlas-subview-tab='runs']")
+  await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'runs'")
+  await page.click("[data-atlas-subview-tab='dashboard']")
+  await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'dashboard'")
+  await page.click("[data-atlas-subview-tab='legacy']")
+  await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'legacy'")
+
+  for mode in ["#btn-chat", "#btn-atlas", "#btn-echo", "#btn-nexus", "#btn-atlas"]:
+    await page.click(mode)
+  if errors:
+    raise AssertionError("\n".join(errors))
+
 async def verify_nexus_tabs(page) -> None:
   await page.click("#btn-nexus")
   for tab in NEXUS_TABS:
@@ -511,6 +565,7 @@ async def main() -> None:
 
     await verify_mode_switches(page)
     await verify_atlas_start_button_feedback(page)
+    await verify_atlas_guided_workflow_safe_journey(page)
     await verify_mode_specific_subtabs(page)
     await verify_nexus_tabs(page)
     await verify_reference_card_actions(page)

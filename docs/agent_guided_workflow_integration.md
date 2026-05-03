@@ -202,3 +202,11 @@
 - Start Atlas status messages are cleaned up to reduce silent or misleading feedback.
 - Existing safe Plan Workflow path remains unchanged.
 - No approval / execute / patch behavior changes are introduced in this phase.
+
+## Phase 25 note (Atlas guided workflow end-to-end safe journey smoke)
+- Atlas guided workflow safe journey smoke was added for end-to-end UI verification.
+- Atlas Start verification now covers Plan subview activation, Guided Plan Flow visibility, Workflow Status visibility, and requirement source visibility.
+- Action buttons are verified as focus/navigation helpers only (non-destructive).
+- Approval / Execute Preview / Patch Review gates remain required.
+- Restore behavior still does not auto-fetch Dashboard/Patch/Recent Runs content.
+- No backend workflow behavior changes were introduced in this phase.
