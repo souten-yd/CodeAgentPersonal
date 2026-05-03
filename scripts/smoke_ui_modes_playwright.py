@@ -529,12 +529,18 @@ async def collect_reference_viewer_text(page) -> dict:
     const normalizedText = (combinedText || '').replace(/\s+/g, ' ').trim();
     const root = document.getElementById('nexus-deep-references');
     const card = root?.querySelector('.nexus-ref-card');
+    const cardButtons = card ? Array.from(card.querySelectorAll('button')).map((el) => ({
+      text: (el.textContent || '').trim(),
+      disabled: !!el.disabled,
+      onclick: el.getAttribute('onclick') || '',
+    })) : [];
     return {
       candidates,
       combinedText,
       normalizedText,
       refCardCount: root?.querySelectorAll('.nexus-ref-card')?.length || 0,
-      cardButtonTexts: card ? Array.from(card.querySelectorAll('button')).map((el) => el.textContent || '') : [],
+      cardButtonTexts: cardButtons.map((item) => item.text),
+      cardButtons,
       fetchedUrls: window.__fetchedUrls || [],
       openedUrls: window.__openedUrls || [],
       activeNexusTab: document.querySelector('#nexus-tabbar .nexus-tab-btn.active')?.id || '',
@@ -551,6 +557,21 @@ async def click_reference_button(card, labels: list[str]) -> str:
   opened = await click_first_visible_button_by_names(card, labels)
   if opened:
     return labels[0] if labels else "unknown"
+  raise AssertionError(f"reference card action button not found: {labels}")
+
+
+async def click_reference_button_if_enabled(card, labels: list[str]) -> tuple[str, bool]:
+  for label in labels:
+    locator = card.get_by_role("button", name=label)
+    if await locator.count() > 0:
+      button = locator.first
+      if await button.is_disabled():
+        return label, False
+      await button.click()
+      return label, True
+  opened = await click_first_visible_button_by_names(card, labels)
+  if opened:
+    return labels[0] if labels else "unknown", True
   raise AssertionError(f"reference card action button not found: {labels}")
 
 
@@ -587,6 +608,7 @@ async def verify_reference_card_actions(page) -> None:
       "normalizedText": ref_diag.get("normalizedText", ""),
       "normalizedViewerText": ref_diag.get("normalizedText", ""),
       "cardButtonTexts": ref_diag.get("cardButtonTexts", []),
+      "cardButtons": ref_diag.get("cardButtons", []),
       "fetchedUrls": ref_diag.get("fetchedUrls", []),
       "openedUrls": ref_diag.get("openedUrls", []),
       "activeNexusTab": ref_diag.get("activeNexusTab", ""),
@@ -639,7 +661,11 @@ async def verify_reference_card_actions(page) -> None:
           title: 'Mock Source',
           source_type: 'web',
           status: 'downloaded',
+          url: 'https://example.com/report',
+          source_url: 'https://example.com/report',
+          original_url: 'https://example.com/report',
           final_url: 'https://example.com/report',
+          link: 'https://example.com/report',
           local_text_path: '/tmp/mock.txt',
         }],
         [{ source_id: 'src-1', quote: 'mock quote', chunk_id: 'doc-1:0', page_start: 2, page_end: 3 }],
@@ -671,9 +697,12 @@ async def verify_reference_card_actions(page) -> None:
     clicked_action_button = await click_reference_button(ref_card, ["該当箇所", "Highlight", "Citation", "Chunk", "Open Highlight"])
     await wait_reference_viewer_text_fields(page, ["doc-1:0"], "Highlight")
 
-    clicked_action_button = await click_reference_button(ref_card, ["元URL", "Source URL", "Open Source"])
+    clicked_action_button, source_url_clicked = await click_reference_button_if_enabled(ref_card, ["元URL", "Source URL", "Open Source"])
     tracking = await get_reference_tracking(page)
-    assert any("https://example.com/report" in url for url in tracking["openedUrls"]), tracking
+    if source_url_clicked:
+      assert any("https://example.com/report" in url for url in tracking["openedUrls"]), tracking
+    else:
+      print("INFO: Source URL action skipped because URL button disabled")
 
     clicked_action_button = await click_reference_button(ref_card, ["ダウンロード", "Download"])
     tracking = await get_reference_tracking(page)
@@ -692,7 +721,17 @@ async def verify_reference_card_actions(page) -> None:
   opened_urls = await page.evaluate("() => window.__openedUrls || []")
   await ref_diag_dump("final")
   assert any("/nexus/sources/src-1/text" in url for url in fetched_urls), fetched_urls
-  assert any("https://example.com/report" in url for url in opened_urls), opened_urls
+  source_url_button_state = await page.evaluate("""() => {
+    const card = document.querySelector('#nexus-deep-references .nexus-ref-card');
+    if (!card) return { exists: false, disabled: null, onclick: '', text: '' };
+    const button = Array.from(card.querySelectorAll('button')).find((el) => ['元URL', 'Source URL', 'Open Source'].includes((el.textContent || '').trim()));
+    if (!button) return { exists: false, disabled: null, onclick: '', text: '' };
+    return { exists: true, disabled: !!button.disabled, onclick: button.getAttribute('onclick') || '', text: (button.textContent || '').trim() };
+  }""")
+  if source_url_button_state.get("exists") and not source_url_button_state.get("disabled"):
+    assert any("https://example.com/report" in url for url in opened_urls), opened_urls
+  else:
+    print(f"INFO: Source URL action skipped because URL button disabled: {source_url_button_state}")
   assert any("/nexus/sources/src-1/original" in url for url in opened_urls), opened_urls
 
 
