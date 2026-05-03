@@ -243,3 +243,13 @@
   - `RUN_ATLAS_BACKEND_E2E=1 python scripts/smoke_ui_modes_playwright.py`
 - No backend workflow behavior changes were introduced in this phase.
 - No approval / execute / patch behavior changes were introduced in this phase.
+
+## Phase 25.4 note (Playwright UI smoke diagnostic aggregation)
+- Playwright UI smoke now aggregates scenario results and prints a final summary.
+- Scenario failures no longer stop collection immediately; remaining scenarios continue.
+- Final smoke job still fails when any scenario fails.
+- Scenario failure screenshots and summary markdown are written under `artifacts/playwright/`.
+- Optional workflow uploads artifacts and appends summary to GitHub Step Summary.
+- Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1` only.
+- No backend workflow behavior changes were introduced in this phase.
+- No approval / execute / patch behavior changes were introduced in this phase.

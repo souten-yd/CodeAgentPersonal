@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 import os
+import re
+import traceback
 
 from check_ui_inline_script_syntax import main as check_ui_syntax_main
 try:
@@ -15,6 +17,7 @@ except Exception:  # pragma: no cover - optional dependency
 ROOT = Path(__file__).resolve().parents[1]
 UI_FILE_URL = ROOT.joinpath("ui.html").resolve().as_uri()
 UI_TARGET_URL = os.environ.get("UI_TEST_URL", "").strip() or UI_FILE_URL
+PLAYWRIGHT_ARTIFACT_DIR = ROOT / "artifacts" / "playwright"
 
 NEXUS_TABS = [
   "dashboard",
@@ -610,6 +613,68 @@ async def verify_chat_search_and_agent_web_tool_tts(page) -> None:
   assert agent_off_tts_count == 0, agent_off_tts_count
 
 
+def _safe_artifact_name(name: str) -> str:
+  return re.sub(r"[^a-zA-Z0-9._-]+", "_", name).strip("_") or "scenario"
+
+
+async def run_smoke_scenario(name: str, page, coro_factory, results: list[dict[str, str]]) -> None:
+  scenario_errors: list[str] = []
+  page.on("pageerror", lambda e: scenario_errors.append(f"pageerror: {e}"))
+  page.on("console", lambda m: scenario_errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
+  try:
+    await page.goto(UI_TARGET_URL)
+    await page.wait_for_load_state("domcontentloaded")
+    await coro_factory(page)
+    if scenario_errors:
+      raise AssertionError("\n".join(scenario_errors))
+    results.append({"name": name, "status": "PASS", "error": ""})
+  except Exception as err:
+    err_text = f"{type(err).__name__}: {err}"
+    if scenario_errors:
+      err_text = err_text + "\n" + "\n".join(scenario_errors)
+    results.append({"name": name, "status": "FAIL", "error": err_text})
+    safe = _safe_artifact_name(name)
+    try:
+      await page.screenshot(path=str(PLAYWRIGHT_ARTIFACT_DIR / f"{safe}.png"), full_page=True)
+    except Exception:
+      pass
+    try:
+      (PLAYWRIGHT_ARTIFACT_DIR / f"{safe}.traceback.txt").write_text(traceback.format_exc(), encoding="utf-8")
+    except Exception:
+      pass
+
+
+def has_smoke_failures(results: list[dict[str, str]]) -> bool:
+  return any(r.get("status") == "FAIL" for r in results)
+
+
+def print_smoke_summary(results: list[dict[str, str]]) -> str:
+  counts: dict[str, int] = {}
+  for row in results:
+    counts[row["status"]] = counts.get(row["status"], 0) + 1
+  total = len(results)
+  pass_count = counts.get("PASS", 0)
+  fail_count = counts.get("FAIL", 0)
+
+  lines = [
+    "# Playwright UI Smoke Summary",
+    "",
+    f"- Total scenarios: **{total}**",
+    f"- PASS: **{pass_count}**",
+    f"- FAIL: **{fail_count}**",
+    "",
+    "| Scenario | Status | Error |",
+    "|---|---|---|",
+  ]
+  for row in results:
+    error = (row.get("error") or "").replace("\n", "<br>")
+    lines.append(f"| {row['name']} | {row['status']} | {error} |")
+  summary = "\n".join(lines) + "\n"
+  print(summary)
+  (PLAYWRIGHT_ARTIFACT_DIR / "summary.md").write_text(summary, encoding="utf-8")
+  return summary
+
+
 async def main() -> None:
   if async_playwright is None:
     print("SKIP: playwright is not installed.")
@@ -620,39 +685,48 @@ async def main() -> None:
   syntax_rc = check_ui_syntax_main()
   if syntax_rc != 0:
     raise AssertionError(f"ui inline script syntax check failed: rc={syntax_rc}")
+  PLAYWRIGHT_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 
   async with async_playwright() as p:
     browser = await p.chromium.launch()
     page = await browser.new_page(viewport={"width": 1440, "height": 900})
-    errors: list[str] = []
-    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
-    page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
+    results: list[dict[str, str]] = []
+    scenarios = [
+      ("bootstrap_api_contract", lambda current_page: current_page.evaluate("() => [typeof window.setMode, typeof window.switchNexusTab]")),
+      ("mode_switches", verify_mode_switches),
+      ("atlas_start_button_feedback", verify_atlas_start_button_feedback),
+      ("atlas_guided_workflow_safe_journey", verify_atlas_guided_workflow_safe_journey),
+      ("mode_specific_subtabs", verify_mode_specific_subtabs),
+      ("nexus_tabs", verify_nexus_tabs),
+      ("reference_card_actions", verify_reference_card_actions),
+      ("chat_search_and_agent_web_tool_tts", verify_chat_search_and_agent_web_tool_tts),
+    ]
+    if os.environ.get("RUN_ATLAS_BACKEND_E2E", "").strip() == "1":
+      scenarios.append(("atlas_backend_e2e_journey", verify_atlas_backend_e2e_journey))
+    else:
+      print("INFO: backend E2E scenario remains opt-in (set RUN_ATLAS_BACKEND_E2E=1 to include).")
 
-    await page.goto(UI_TARGET_URL)
-    await page.wait_for_load_state("domcontentloaded")
+    async def bootstrap_assertions(current_page) -> None:
+      set_mode_type, switch_tab_type = await current_page.evaluate("() => [typeof window.setMode, typeof window.switchNexusTab]")
+      assert set_mode_type == "function", f"window.setMode is {set_mode_type}"
+      assert switch_tab_type == "function", f"window.switchNexusTab is {switch_tab_type}"
+    scenarios[0] = ("bootstrap_api_contract", bootstrap_assertions)
 
-    set_mode_type = await page.evaluate("() => typeof window.setMode")
-    switch_tab_type = await page.evaluate("() => typeof window.switchNexusTab")
-    assert set_mode_type == "function", f"window.setMode is {set_mode_type}"
-    assert switch_tab_type == "function", f"window.switchNexusTab is {switch_tab_type}"
-
-    await verify_mode_switches(page)
-    await verify_atlas_start_button_feedback(page)
-    await verify_atlas_guided_workflow_safe_journey(page)
-    await verify_mode_specific_subtabs(page)
-    await verify_nexus_tabs(page)
-    await verify_reference_card_actions(page)
-    await verify_chat_search_and_agent_web_tool_tts(page)
-    await verify_atlas_backend_e2e_journey(page)
-
-    if errors:
-      raise AssertionError("\n".join(errors))
+    for scenario_name, scenario_fn in scenarios:
+      await run_smoke_scenario(scenario_name, page, scenario_fn, results)
 
     await page.close()
-    await verify_mobile_mode_switches(browser)
+    try:
+      await verify_mobile_mode_switches(browser)
+      results.append({"name": "mobile_mode_switches", "status": "PASS", "error": ""})
+    except Exception as err:
+      results.append({"name": "mobile_mode_switches", "status": "FAIL", "error": f"{type(err).__name__}: {err}"})
     await browser.close()
 
-  print("OK: smoke_ui_modes_playwright passed (desktop + mobile)")
+  summary = print_smoke_summary(results)
+  if has_smoke_failures(results):
+    raise AssertionError(f"Playwright smoke scenarios failed.\n\n{summary}")
+  print("OK: smoke_ui_modes_playwright passed with scenario aggregation")
 
 
 if __name__ == "__main__":
