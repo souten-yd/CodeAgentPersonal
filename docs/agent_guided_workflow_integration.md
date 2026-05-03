@@ -440,3 +440,15 @@
 - Backend E2E remains explicit opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
 - No backend workflow behavior changes are introduced in this phase.
 - No approval / execute / patch behavior changes are introduced in this phase.
+
+
+## Phase 26.0 note (Atlas backend E2E opt-in validation readiness)
+- Backend E2E remains explicit opt-in (`RUN_ATLAS_BACKEND_E2E=1`).
+- Default Playwright UI smoke remains mock-backed and fixed at 9/9 scenarios.
+- Real backend E2E requires a backend process already running plus:
+  - `PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000`
+  - `RUN_ATLAS_BACKEND_E2E=1`
+  - Example: `PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 RUN_ATLAS_BACKEND_E2E=1 python scripts/smoke_ui_modes_playwright.py`
+- Backend E2E validates start/status/source/workspace signals but does not auto-approve, auto-execute, or auto-apply patches.
+- `Atlas Start failed:` remains acceptable in backend-unavailable mock UI smoke, but is a hard failure in backend E2E path.
+- Backend E2E diagnostics include base URL, Atlas mode/subview/requirement/status, message tail, `/health`, `/api/task/plan`, and browser console/page errors.
