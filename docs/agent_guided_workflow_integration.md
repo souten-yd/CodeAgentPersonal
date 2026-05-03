@@ -299,3 +299,12 @@
 - Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
 - No backend workflow changes were introduced.
 - No approval / execute / patch behavior changes were introduced.
+
+## Phase 25.4.6 note (Final two Playwright UI smoke failures cleanup)
+- Final two Playwright UI smoke failures were aligned to current UI behavior without backend workflow rewrites.
+- Atlas Requirement controls are treated as Workbench-level controls (`#atlas-workbench-card` scoped), not Overview-panel-only controls.
+- Atlas Start smoke no longer relies on Overview panel scoping for common Requirement controls (Use Chat / Clear / Requirement input).
+- Reference card smoke now verifies current Reference Viewer fields: `source_id`, `mode`, and `highlight`.
+- Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
+- No backend workflow behavior changes were introduced.
+- No approval / execute / patch behavior changes were introduced.

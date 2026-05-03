@@ -200,9 +200,9 @@ async def verify_atlas_start_button_feedback(page) -> None:
 
   await set_chat_input(page, "")
   await ensure_atlas_overview(page)
-  await page.wait_for_selector('#atlas-requirement-input')
-  assert await page.locator('#atlas-requirement-input').count() > 0
-  await page.fill('#atlas-requirement-input', '')
+  await get_atlas_requirement_input(page).wait_for(state="visible")
+  assert await get_atlas_requirement_input(page).count() > 0
+  await fill_atlas_requirement(page, "")
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
   await page.wait_for_function("""() => {
     const root = document.getElementById('atlas-workbench-card');
@@ -213,23 +213,27 @@ async def verify_atlas_start_button_feedback(page) -> None:
     return logs.some((t) => t.includes('Atlas Start needs a request.'));
   }""")
   assert await page.locator('#atlas-workbench-card', has_text='Atlas Guided Plan Flow').count() > 0
-  await page.fill('#atlas-requirement-input', 'Short Atlas requirement for smoke test')
+  short_requirement_text = "Short Atlas requirement for smoke test"
+  copied_requirement_text = "Copied from chat smoke"
+  await fill_atlas_requirement(page, short_requirement_text)
   await page.wait_for_function("() => (document.getElementById('atlas-requirement-char-count')?.textContent || '').includes('chars')")
 
   await page.click('#btn-chat')
   await set_chat_input(page, 'chat survives clear')
   await page.click('#btn-atlas')
-  await page.wait_for_selector('#atlas-requirement-input')
-  assert await page.input_value('#atlas-requirement-input') == 'Short Atlas requirement for smoke test'
+  await get_atlas_requirement_input(page).wait_for(state="visible")
+  assert await get_atlas_requirement_input(page).input_value() == short_requirement_text
 
   await click_atlas_requirement_clear(page)
-  assert await page.input_value('#atlas-requirement-input') == ''
+  assert await get_atlas_requirement_input(page).input_value() == ''
   assert await get_chat_input_value(page) == 'chat survives clear'
 
-  await set_chat_input(page, 'Copied from chat smoke')
-  await ensure_atlas_overview(page)
+  await set_chat_input(page, copied_requirement_text)
   await click_atlas_use_chat_input(page)
-  assert await page.input_value('#atlas-requirement-input') == 'Copied from chat smoke'
+  expected_text = copied_requirement_text
+  assert await get_atlas_requirement_input(page).input_value() == expected_text
+  await ensure_atlas_overview(page)
+  await fill_atlas_requirement(page, expected_text)
 
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
   await page.wait_for_function("""() => {
@@ -239,12 +243,14 @@ async def verify_atlas_start_button_feedback(page) -> None:
   await page.wait_for_function("""() => {
     const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
     const status = (document.getElementById('atlas-requirement-status')?.textContent || '');
-    const chatValue = (document.getElementById('input')?.value || '');
+    const messages = logs.join('\\n');
+    const atlasValue = (document.getElementById('atlas-requirement-input')?.value || '');
     return (
       (logs.some((t) => t.includes('Using Atlas requirement input.'))
         || status.includes('Using Atlas requirement input.')
         || logs.some((t) => t.includes('Starting Atlas guided planning workflow...')))
-      && chatValue === 'Short Atlas requirement for smoke test'
+      && atlasValue === 'Copied from chat smoke'
+      && (messages.includes('Boss') || messages.includes('Atlas Workflow Status') || messages.includes('Atlas Start failed:'))
           );
   }""")
 
@@ -276,6 +282,18 @@ async def verify_atlas_start_button_feedback(page) -> None:
       || status.includes('Enter a requirement to start.')
     );
   }""")
+  diag = await page.evaluate("""() => ({
+    subview: document.getElementById('atlas-workbench-card')?.dataset?.atlasCurrentSubview || '',
+    atlasRequirementInput: document.getElementById('atlas-requirement-input')?.value || '',
+    chatInput: document.getElementById('input')?.value || '',
+    status: document.getElementById('atlas-requirement-status')?.textContent || '',
+    messagesTail: Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').slice(-8),
+    useChatVisible: !!document.querySelector('#atlas-workbench-card #atlas-requirement-use-chat-btn'),
+    useChatEnabled: !(document.querySelector('#atlas-workbench-card #atlas-requirement-use-chat-btn')?.disabled ?? true),
+    clearVisible: !!document.querySelector('#atlas-workbench-card #atlas-requirement-clear-btn'),
+    clearEnabled: !(document.querySelector('#atlas-workbench-card #atlas-requirement-clear-btn')?.disabled ?? true),
+  })""")
+  print(f"INFO: atlas_start_button_feedback diagnostics: {diag}")
   assert not any('ReferenceError' in e for e in errors), f"atlas start smoke found reference errors: {errors}"
   assert not errors, f"atlas start smoke found errors: {errors}"
 
@@ -559,6 +577,18 @@ async def verify_reference_card_actions(page) -> None:
   await ref_card.get_by_role("button", name="ダウンロード").click()
 
   opened_urls = await page.evaluate("() => window.__openedUrls || []")
+  ref_diag = await page.evaluate("""() => {
+    const root = document.getElementById('nexus-deep-references');
+    const card = root?.querySelector('.nexus-ref-card');
+    return {
+      referencesText: root?.textContent || '',
+      cardCount: root?.querySelectorAll('.nexus-ref-card')?.length || 0,
+      cardButtonTexts: card ? Array.from(card.querySelectorAll('button')).map((el) => el.textContent || '') : [],
+      viewerText: document.getElementById('nexus-reference-viewer')?.textContent || '',
+      openedUrls: window.__openedUrls || [],
+    };
+  }""")
+  print(f"INFO: reference_card_actions diagnostics: {ref_diag}")
   assert any("/nexus/sources/src-1/text" in url for url in opened_urls), opened_urls
   assert any("https://example.com/report" in url for url in opened_urls), opened_urls
   assert any("/nexus/sources/src-1/original" in url for url in opened_urls), opened_urls
@@ -580,6 +610,13 @@ async def click_atlas_use_chat_input(page) -> None:
   await use_chat_btn.wait_for(state="visible")
   await use_chat_btn.scroll_into_view_if_needed()
   await use_chat_btn.click()
+
+
+async def fill_atlas_requirement(page, text: str) -> None:
+  requirement = get_atlas_requirement_input(page)
+  await requirement.wait_for(state="visible")
+  await requirement.scroll_into_view_if_needed()
+  await requirement.fill(text)
 
 
 async def verify_mobile_mode_switches(page) -> None:
