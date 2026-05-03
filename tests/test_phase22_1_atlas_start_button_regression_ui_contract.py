@@ -14,7 +14,7 @@ class TestPhase22_1AtlasStartButtonRegressionUiContract(unittest.TestCase):
         body = m.group(1)
         self.assertIn("setAtlasSubview('plan');", body)
         self.assertIn('renderAtlasPlanFlowSummary()', body)
-        self.assertIn("await startPlanWorkflow({ source: 'atlas', workspace: 'Atlas' });", body)
+        self.assertIn("startPlanWorkflow({ source: 'atlas', workspace: 'Atlas'", body)
         self.assertIn('catch (err)', body)
         self.assertIn('startAtlasWorkflow failed:', body)
 

@@ -82,6 +82,9 @@ async def verify_atlas_start_button_feedback(page) -> None:
   await page.click("#btn-atlas")
   await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
   await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
+  await page.wait_for_selector('#atlas-requirement-input')
+  assert await page.locator('#atlas-requirement-input').count() > 0
+  await page.fill('#atlas-requirement-input', '')
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
   await page.wait_for_function("""() => {
     const root = document.getElementById('atlas-workbench-card');
@@ -92,6 +95,18 @@ async def verify_atlas_start_button_feedback(page) -> None:
     return logs.some((t) => t.includes('Atlas Start needs a request.'));
   }""")
   assert await page.locator('#atlas-workbench-card', has_text='Atlas Guided Plan Flow').count() > 0
+  await page.fill('#atlas-requirement-input', 'Short Atlas requirement for smoke test')
+  await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+  await page.wait_for_function("""() => {
+    const root = document.getElementById('atlas-workbench-card');
+    return !!root && root.dataset.atlasCurrentSubview === 'plan';
+  }""")
+  await page.wait_for_function("""() => {
+    const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
+    const status = (document.getElementById('atlas-requirement-status')?.textContent || '');
+    return logs.some((t) => t.includes('Starting Atlas guided planning workflow...'))
+      || status.includes('Using Atlas requirement input');
+  }""")
   assert not errors, f"atlas start smoke found errors: {errors}"
 
 async def verify_nexus_tabs(page) -> None:
