@@ -592,3 +592,19 @@
 - `needs_clarification` is PASS for lifecycle validation, but is explicitly distinct from generated-plan completion (`Plan: generated`).
 - No automatic clarification response is performed; no approval / execute / patch behavior was changed.
 - Wait-plan mode remains manual opt-in (`RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1` with `RUN_ATLAS_BACKEND_E2E=1`).
+
+## Phase 27.2 note (wait-plan terminal success + safety policy lock)
+- Windows local wait-plan E2E was validated with opt-in settings and preserved safety gates.
+- Wait-plan accepts two safe terminal states: `completed` and `needs_clarification`.
+- `needs_clarification` is a valid human-in-the-loop terminal state and is not the same as Plan generated.
+- Clarification buttons (for example `回答してPlan生成` / `おまかせで進める`) are detected for diagnostics but are not clicked automatically.
+- Approval / execute / patch apply are not executed in wait-plan validation scope.
+- Backend job endpoints remain diagnostic-only, preflight remains GET-only, and WAIT_PLAN remains explicit opt-in.
+- Recorded terminal decision examples:
+  - `finalDecision: completed` or `finalDecision: needs_clarification`
+  - `completionDecisionReason: plan_flow_generated_review_done_approval_required`
+  - `completionDecisionReason: clarification_required_before_plan_generation`
+  - `consoleErrors: []`
+  - `pageErrors: []`
+  - `hasAtlasStartFailed: False`
+
