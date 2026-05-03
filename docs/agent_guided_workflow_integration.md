@@ -514,3 +514,38 @@
   - `Atlas Start failed:` is treated as failure in full backend E2E mode.
   - preflight failure prevents meaningful E2E and fails before Atlas Start journey assertions.
 - Default workflow remains opt-in/off for backend E2E (`RUN_ATLAS_BACKEND_E2E=1` only).
+
+## Phase 26.5 note (Windows full backend E2E dry-run success record / opt-in policy lock)
+- Windows local real-backend full E2E dry-run was validated.
+- Command (bash):
+  - `PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 RUN_ATLAS_BACKEND_E2E=1 python scripts/smoke_ui_modes_playwright.py`
+- Command (PowerShell):
+  - `$env:PLAYWRIGHT_SMOKE_BASE_URL="http://127.0.0.1:8000"`
+  - `$env:RUN_ATLAS_BACKEND_E2E="1"`
+  - `Remove-Item Env:RUN_ATLAS_BACKEND_PREFLIGHT -ErrorAction SilentlyContinue`
+  - `python scripts/smoke_ui_modes_playwright.py`
+- Observed result:
+  - Total scenarios: 2
+  - PASS: 2
+  - FAIL: 0
+  - atlas_backend_preflight PASS
+  - atlas_backend_e2e_journey PASS
+- Observed dry-run state:
+  - full backend E2E mode enabled
+  - default UI scenarios are skipped in full backend E2E mode
+  - atlasSubview: plan
+  - atlasRequirementStatus: Using Atlas requirement input.
+  - hasAtlasStartFailed: False
+  - consoleErrors: []
+  - pageErrors: []
+  - approval/execute/patch/bulk buttons not activated
+- Scope:
+  - preflight runs first
+  - Atlas Start is pressed
+  - guided workflow/status is verified
+  - dry-run stops before approval / execute / patch apply
+  - no destructive action
+- Policy lock:
+  - full backend E2E remains opt-in
+  - default mock-backed UI smoke remains 9/9
+  - workflow does not enable backend E2E by default
