@@ -477,3 +477,5 @@
 - Default optional smoke remains mock-backed 9/9 baseline.
 - No approval / execute / apply behavior changes were introduced.
 
+
+- `PLAYWRIGHT_SMOKE_BASE_URL` should be used for real backend opt-in modes (`RUN_ATLAS_BACKEND_PREFLIGHT=1` or `RUN_ATLAS_BACKEND_E2E=1`) unless intentionally overriding UI origin.
