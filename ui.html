@@ -14062,9 +14062,19 @@ function startPlanWorkflow(options = {}) {
   return runGuidedPlanWorkflow(options);
 }
 
-function startAtlasWorkflow() {
+async function startAtlasWorkflow() {
   setAtlasSubview('plan');
-  return startPlanWorkflow({ source: 'atlas', workspace: 'Atlas' });
+  try { renderAtlasPlanFlowSummary(); } catch (err) { console.warn('renderAtlasPlanFlowSummary failed:', err); }
+  try { addMsg('system', 'Starting Atlas guided planning workflow...'); } catch (_err) {}
+  try {
+    // legacy mapping: return startPlanWorkflow({ source: 'atlas', workspace: 'Atlas' });
+    return await startPlanWorkflow({ source: 'atlas', workspace: 'Atlas' });
+  } catch (err) {
+    console.warn('startAtlasWorkflow failed:', err);
+    try { addMsg('error', 'Atlas Start failed: ' + (err?.message || String(err))); } catch (_msgErr) {}
+    try { addLog('err', 'atlas', 'Start Atlas failed: ' + (err?.message || String(err))); } catch (_logErr) {}
+    return null;
+  }
 }
 
 function startAgentGuidedWorkflow() {
@@ -14239,6 +14249,22 @@ async function runGuidedPlanWorkflow(options = {}) {
   const source = options?.source || planWorkflowState.source || 'atlas';
   const workspace = options?.workspace || 'Atlas';
   _updatePlanWorkflowState({ source, workspace });
+  const input = document.getElementById('input');
+  const text = (input?.value || '').trim();
+  if (!text && source === 'atlas') {
+    const msg = 'Atlas Start needs a request. Enter a message in Chat or use Atlas Plan inputs, then press Start Atlas again.';
+    addMsg('system', msg);
+    addLog('warn', 'atlas', msg);
+    _updatePlanWorkflowState({ lastError: msg });
+    return null;
+  }
+  if (busy && source === 'atlas') {
+    const busyMsg = 'Atlas workflow is busy now. Wait for the current step to finish, then press Start Atlas again.';
+    addMsg('system', busyMsg);
+    addLog('warn', 'atlas', busyMsg);
+    _updatePlanWorkflowState({ lastError: busyMsg });
+    return null;
+  }
   return generatePlanOnlyFromInput();
 }
 
