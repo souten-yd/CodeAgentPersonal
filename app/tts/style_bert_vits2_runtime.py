@@ -36,6 +36,38 @@ _TEXT_LOG_INFO_LIMIT = 500
 _TEXT_LOG_DEBUG_LIMIT = 50000
 
 
+def _is_windows_runtime() -> bool:
+    return os.name == "nt" or platform.system() == "Windows"
+
+
+def _is_runpod_runtime() -> bool:
+    try:
+        from app.env_detection import detect_runpod
+
+        return bool(detect_runpod())
+    except Exception:
+        return bool(os.environ.get("RUNPOD_POD_ID") or os.environ.get("RUNPOD_API_KEY"))
+
+
+def _is_linux_cuda_runpod_runtime() -> bool:
+    return _is_runpod_runtime() and not _is_windows_runtime()
+
+
+def _onnx_auto_enabled() -> bool:
+    if str(os.environ.get("CODEAGENT_STYLE_BERT_VITS2_ENABLE_ONNX_MODEL", "")).strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    return _is_windows_runtime()
+
+
+def _onnx_internal_warmup_enabled() -> bool:
+    raw = str(os.environ.get("CODEAGENT_STYLE_BERT_VITS2_ONNX_INTERNAL_WARMUP", "")).strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return _is_windows_runtime()
+
+
 def _repo_dir() -> str:
     return resolve_style_bert_vits2_repo_dir()
 
@@ -61,7 +93,16 @@ def _site_packages_dir() -> str:
 def _worker_env() -> dict[str, str]:
     env = os.environ.copy()
     sbv2_venv = _venv_dir()
-    env["PYTORCH_JIT"] = "0"
+    disable_jit = str(env.get("CODEAGENT_STYLE_BERT_VITS2_DISABLE_PYTORCH_JIT", "")).strip().lower()
+    is_windows_runtime = _is_windows_runtime()
+    if disable_jit in {"1", "true", "yes", "on"}:
+        env["PYTORCH_JIT"] = "0"
+    elif disable_jit in {"0", "false", "no", "off"}:
+        env.pop("PYTORCH_JIT", None)
+    elif is_windows_runtime:
+        env["PYTORCH_JIT"] = "0"
+    else:
+        env.pop("PYTORCH_JIT", None)
     env["PYTHONNOUSERSITE"] = "1"
     env.pop("PYTHONHOME", None)
     env.pop("PYTHONPATH", None)
@@ -134,11 +175,15 @@ def _resolve_model_paths(model_id: str) -> tuple[str, str, str]:
 
     if weight_path is None:
         candidates = [c for c in sorted(model_dir.rglob("*")) if c.is_file() and c.suffix.lower() in _STYLE_BERT_VITS2_WEIGHT_EXTENSIONS]
-        onnx_candidates = [c for c in candidates if c.suffix.lower() == ".onnx"]
-        if onnx_candidates:
-            weight_path = onnx_candidates[0]
-        elif candidates:
-            weight_path = candidates[0]
+        if _onnx_auto_enabled():
+            suffix_order = [".onnx", ".safetensors", ".pth", ".pt"]
+        else:
+            suffix_order = [".safetensors", ".pth", ".pt", ".onnx"]
+        for suffix in suffix_order:
+            pick = next((c for c in candidates if c.suffix.lower() == suffix), None)
+            if pick is not None:
+                weight_path = pick
+                break
     if weight_path is None:
         raise RuntimeError(f"Style-Bert-VITS2 weight file missing in: {model_dir}")
 
@@ -455,7 +500,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "worker_returncode": returncode,
             "stderr_tail": stderr_tail,
             "likely_reason": likely_reason,
-            "pytorch_jit_env": "0",
+            "pytorch_jit_env": _worker_env().get("PYTORCH_JIT", ""),
             "torch_file": "",
             "transformers_file": "",
         }
@@ -595,6 +640,11 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
             "non_japanese_policy": non_japanese_policy,
             "jp_extra_normalization": normalization_result,
             "wav_encoder": str(os.environ.get("CODEAGENT_TTS_WAV_ENCODER", "")).strip().lower(),
+            "is_windows_runtime": _is_windows_runtime(),
+            "is_runpod_runtime": _is_runpod_runtime(),
+            "onnx_auto_enabled": _onnx_auto_enabled(),
+            "onnx_internal_warmup_enabled": _onnx_internal_warmup_enabled(),
+            "pytorch_jit_env": _worker_env().get("PYTORCH_JIT", ""),
         }
 
     def build_normalization_preview(self, req: dict | None = None) -> dict:
@@ -799,9 +849,7 @@ loaded_session = None
 loaded_model_kind = ""
 loaded_provider = ""
 loaded_onnx_signature = None
-loaded_onnx_inputs = None
 loaded_onnx_provider_list = []
-last_warmup_ms = 0
 run_lock = None
 
 
@@ -832,7 +880,7 @@ def _pick_onnx_provider() -> tuple[str, list[str], str]:
 
 
 def synth(req: dict) -> dict:
-    global loaded_model, loaded_signature, loaded_session, loaded_onnx_signature, loaded_onnx_inputs, loaded_onnx_provider_list, last_warmup_ms
+    global loaded_model, loaded_signature, loaded_session, loaded_onnx_signature, loaded_onnx_provider_list
     total_started = time.perf_counter()
     load_started = total_started
     load_elapsed_ms = 0
@@ -874,17 +922,20 @@ def synth(req: dict) -> dict:
     selected_tts_backend = "Style-Bert-VITS2 PyTorch"
     warmup_ms = 0
 
-    signature = (str(model_path), str(config_path), str(style_vec_path), str(effective_device), model_suffix)
-    cache_hit = loaded_signature == signature
-
+    is_windows_runtime = sys.platform == "win32"
+    is_runpod_runtime = bool(str(req.get("is_runpod_runtime", "") or "").strip().lower() in {"1", "true", "yes", "on"})
     if is_onnx_model:
         selected_provider, available_providers, onnxruntime_version = _pick_onnx_provider()
         if not selected_provider:
             raise RuntimeError("onnxruntime provider unavailable")
+    signature = (str(model_path), str(config_path), str(style_vec_path), "onnx" if is_onnx_model else "pytorch", str(effective_device), selected_provider)
+    cache_hit = loaded_signature == signature
+    if is_onnx_model:
         selected_tts_backend = "Style-Bert-VITS2 ONNX DirectML" if selected_provider == "DmlExecutionProvider" else "Style-Bert-VITS2 ONNX CPU"
         import onnxruntime as ort
         provider_list = ["CPUExecutionProvider"] if selected_provider == "CPUExecutionProvider" else [selected_provider, "CPUExecutionProvider"]
         onnx_signature = (str(model_path), tuple(provider_list))
+        onnx_internal_warmup_enabled = bool(str(req.get("onnx_internal_warmup_enabled", "")).strip().lower() in {"1", "true", "yes", "on"})
         if loaded_session is None or loaded_onnx_signature != onnx_signature:
             session_started = time.perf_counter()
             loaded_session = ort.InferenceSession(str(model_path), providers=provider_list)
@@ -892,25 +943,13 @@ def synth(req: dict) -> dict:
             loaded_signature = signature
             loaded_model = TTSModel(model_path=model_path, config_path=config_path, style_vec_path=style_vec_path, device="cpu", onnx_providers=provider_list)
             loaded_onnx_provider_list = list(loaded_session.get_providers() or [])
-            if loaded_onnx_inputs is None:
-                loaded_onnx_inputs = [i.name for i in loaded_session.get_inputs()]
-            warmup_started = time.perf_counter()
-            warmup_kwargs = {
-                "text": "事前ロードです。",
-                "language": Languages.JP,
-                "speaker_id": 0,
-                "style": "Neutral",
-                "line_split": False,
-            }
-            infer_result = loaded_model.infer(**{k: v for k, v in warmup_kwargs.items() if k in set(inspect.signature(loaded_model.infer).parameters.keys())})
-            if not infer_result:
-                pass
-            warmup_ms = int((time.perf_counter() - warmup_started) * 1000)
-            last_warmup_ms = warmup_ms
+            if onnx_internal_warmup_enabled:
+                warmup_started = time.perf_counter()
+                _ = loaded_model.infer(text="事前ロードです。", language=Languages.JP, speaker_id=0, style="Neutral", line_split=False)
+                warmup_ms = int((time.perf_counter() - warmup_started) * 1000)
             load_elapsed_ms = int((time.perf_counter() - session_started) * 1000)
         else:
             loaded_signature = signature
-            warmup_ms = int(last_warmup_ms or 0)
     else:
         if loaded_model is None or loaded_signature != signature:
             try:
@@ -935,7 +974,7 @@ def synth(req: dict) -> dict:
                     raise
             loaded_signature = signature
         load_elapsed_ms = int((time.perf_counter() - load_started) * 1000)
-        warmup_ms = int(last_warmup_ms or 0)
+        warmup_ms = 0
 
     out_path = Path(req["out_path"]) if req.get("out_path") else None
     return_mode = str(req.get("return_mode", "b64") or "b64").strip().lower()
@@ -1098,8 +1137,14 @@ def synth(req: dict) -> dict:
         "available_providers": available_providers,
         "selected_provider": selected_provider,
         "selected_model_file": str(model_path),
+        "selected_model_suffix": model_suffix,
+        "is_windows_runtime": bool(is_windows_runtime),
+        "is_runpod_runtime": bool(is_runpod_runtime),
+        "pytorch_jit_env": str(req.get("pytorch_jit_env") or ""),
+        "onnx_auto_enabled": bool(str(req.get("onnx_auto_enabled", "")).strip().lower() in {"1", "true", "yes", "on"}),
+        "onnx_internal_warmup_enabled": bool(str(req.get("onnx_internal_warmup_enabled", "")).strip().lower() in {"1", "true", "yes", "on"}),
         "warmup_ms": int(warmup_ms),
-        "loaded_signature": f"{model_path}|{selected_provider or effective_device}|{model_suffix}",
+        "loaded_signature": str(signature),
         "actual_onnx_session_providers": loaded_onnx_provider_list if is_onnx_model else [],
         "actual_onnx_provider": (loaded_onnx_provider_list[0] if (is_onnx_model and loaded_onnx_provider_list) else ""),
     }
