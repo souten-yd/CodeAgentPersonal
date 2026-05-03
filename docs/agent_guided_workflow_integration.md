@@ -195,3 +195,10 @@
 - Atlas Requirement now shows character count and clearer status feedback for save/restore/fallback/start.
 - Existing safe Plan Workflow path remains unchanged.
 - No approval / execute / patch behavior changes are introduced in this phase.
+
+## Phase 24 note (Atlas Requirement source accuracy / Start status cleanup)
+- Atlas Requirement source is now derived explicitly (`atlas` / `chat` / `empty`).
+- Atlas Requirement input and Chat fallback are distinguished in status feedback.
+- Start Atlas status messages are cleaned up to reduce silent or misleading feedback.
+- Existing safe Plan Workflow path remains unchanged.
+- No approval / execute / patch behavior changes are introduced in this phase.

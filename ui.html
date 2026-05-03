@@ -14136,12 +14136,18 @@ function initAtlasRequirementInputHandlers() {
   updateAtlasRequirementCharCount();
 }
 
-function getAtlasRequirementText() {
+function deriveAtlasRequirementSource() {
   const atlasInput = document.getElementById('atlas-requirement-input');
-  const atlasText = (atlasInput?.value || '').trim();
-  if (atlasText) return atlasText;
   const chatInput = document.getElementById('input');
-  return (chatInput?.value || '').trim();
+  const atlasText = (atlasInput?.value || '').trim();
+  if (atlasText) return { text: atlasText, source: 'atlas' };
+  const chatText = (chatInput?.value || '').trim();
+  if (chatText) return { text: chatText, source: 'chat' };
+  return { text: '', source: 'empty' };
+}
+
+function getAtlasRequirementText() {
+  return deriveAtlasRequirementSource().text;
 }
 
 function syncAtlasRequirementToChatInput(text) {
@@ -14156,10 +14162,9 @@ function startPlanWorkflow(options = {}) {
 async function startAtlasWorkflow() {
   setAtlasSubview('plan');
   try { renderAtlasPlanFlowSummary(); } catch (err) { console.warn('renderAtlasPlanFlowSummary failed:', err); }
-  const atlasInput = document.getElementById('atlas-requirement-input');
-  const atlasText = (atlasInput?.value || '').trim();
-  const requirementText = getAtlasRequirementText();
-  if (!requirementText) {
+  const derived = deriveAtlasRequirementSource();
+  const requirementText = derived.text;
+  if (!requirementText || derived.source === 'empty') {
     const msg = 'Atlas Start needs a request. Enter a message in Chat or use Atlas Plan inputs, then press Start Atlas again.';
     setAtlasRequirementStatus('Enter a requirement to start.');
     addMsg('system', msg);
@@ -14167,13 +14172,16 @@ async function startAtlasWorkflow() {
     _updatePlanWorkflowState({ lastError: msg });
     return null;
   }
-  if (atlasText) setAtlasRequirementStatus('Using Atlas requirement input.');
-  else setAtlasRequirementStatus('Falling back to Chat input.');
-  syncAtlasRequirementToChatInput(requirementText);
+  if (derived.source === 'atlas') {
+    setAtlasRequirementStatus('Using Atlas requirement input.');
+    syncAtlasRequirementToChatInput(requirementText);
+  } else {
+    setAtlasRequirementStatus('Falling back to Chat input.');
+  }
   setAtlasRequirementStatus('Starting Atlas guided planning workflow...');
   try { addMsg('system', 'Starting Atlas guided planning workflow...'); } catch (_err) {}
   try {
-    return await startPlanWorkflow({ source: 'atlas', workspace: 'Atlas', requirementText });
+    return await startPlanWorkflow({ source: 'atlas', workspace: 'Atlas', requirementText, requirementSource: derived.source });
   } catch (err) {
     console.warn('startAtlasWorkflow failed:', err);
     try { addMsg('error', 'Atlas Start failed: ' + (err?.message || String(err))); } catch (_msgErr) {}
@@ -14360,11 +14368,19 @@ function showPlanWorkflowPanel() {
 async function runGuidedPlanWorkflow(options = {}) {
   const source = options?.source || planWorkflowState.source || 'atlas';
   const workspace = options?.workspace || 'Atlas';
-  _updatePlanWorkflowState({ source, workspace });
-  const input = document.getElementById('input');
-  const requirementText = (options?.requirementText || (source === 'atlas' ? getAtlasRequirementText() : (input?.value || ''))).trim();
-  const text = requirementText;
-  if (!text && source === 'atlas') {
+  const derived = deriveAtlasRequirementSource();
+  const requirementSource = (options?.requirementSource === 'atlas' || options?.requirementSource === 'chat')
+    ? options.requirementSource
+    : derived.source;
+  const requirementText = String(options?.requirementText || derived.text || '').trim();
+  _updatePlanWorkflowState({
+    source,
+    workspace,
+    requirementSource: requirementSource === 'empty' ? '' : requirementSource,
+    requirementTextPreview: requirementText ? requirementText.slice(0, 120) : '',
+  });
+
+  if (!requirementText && source === 'atlas') {
     const msg = 'Atlas Start needs a request. Enter a message in Chat or use Atlas Plan inputs, then press Start Atlas again.';
     setAtlasRequirementStatus('Enter a requirement to start.');
     addMsg('system', msg);
@@ -14374,14 +14390,19 @@ async function runGuidedPlanWorkflow(options = {}) {
   }
   if (busy && source === 'atlas') {
     const busyMsg = 'Atlas workflow is busy now. Wait for the current step to finish, then press Start Atlas again.';
+    setAtlasRequirementStatus('Atlas workflow is busy now.');
     addMsg('system', busyMsg);
     addLog('warn', 'atlas', busyMsg);
     _updatePlanWorkflowState({ lastError: busyMsg });
     return null;
   }
   if (source === 'atlas' && requirementText) {
-    syncAtlasRequirementToChatInput(requirementText);
-    setAtlasRequirementStatus((options?.requirementText || document.getElementById('atlas-requirement-input')?.value || '').trim() ? 'Using Atlas requirement input.' : 'Falling back to Chat input.');
+    if (requirementSource === 'atlas') {
+      syncAtlasRequirementToChatInput(requirementText);
+      setAtlasRequirementStatus('Using Atlas requirement input.');
+    } else if (requirementSource === 'chat') {
+      setAtlasRequirementStatus('Falling back to Chat input.');
+    }
   }
   return generatePlanOnlyFromInput();
 }

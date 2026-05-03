@@ -122,11 +122,41 @@ async def verify_atlas_start_button_feedback(page) -> None:
     const status = (document.getElementById('atlas-requirement-status')?.textContent || '');
     const chatValue = (document.getElementById('input')?.value || '');
     return (
-      (logs.some((t) => t.includes('Starting Atlas guided planning workflow...'))
-        || status.includes('Using Atlas requirement input')
-        || status.includes('Starting Atlas guided planning workflow...'))
+      (logs.some((t) => t.includes('Using Atlas requirement input.'))
+        || status.includes('Using Atlas requirement input.')
+        || logs.some((t) => t.includes('Starting Atlas guided planning workflow...')))
       && chatValue === 'Short Atlas requirement for smoke test'
       && !logs.some((t) => t.includes('Atlas Start failed:'))
+    );
+  }""")
+
+  await page.click('#atlas-requirement-clear-btn')
+  await page.fill('#input', 'Chat fallback smoke')
+  await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
+  await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+  await page.wait_for_function("""() => {
+    const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
+    const status = (document.getElementById('atlas-requirement-status')?.textContent || '');
+    const chatValue = (document.getElementById('input')?.value || '');
+    const atlasValue = (document.getElementById('atlas-requirement-input')?.value || '');
+    return (
+      (logs.some((t) => t.includes('Falling back to Chat input.')) || status.includes('Falling back to Chat input.'))
+      && chatValue === 'Chat fallback smoke'
+      && atlasValue === ''
+      && !logs.some((t) => t.includes('Atlas Start failed:'))
+    );
+  }""")
+
+  await page.click('#atlas-requirement-clear-btn')
+  await page.fill('#input', '')
+  await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
+  await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+  await page.wait_for_function("""() => {
+    const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
+    const status = (document.getElementById('atlas-requirement-status')?.textContent || '');
+    return (
+      logs.some((t) => t.includes('Atlas Start needs a request.'))
+      || status.includes('Enter a requirement to start.')
     );
   }""")
   assert not any('ReferenceError' in e for e in errors), f"atlas start smoke found reference errors: {errors}"
