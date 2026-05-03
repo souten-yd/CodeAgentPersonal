@@ -524,7 +524,8 @@ async def collect_reference_viewer_text(page) -> dict:
       selector,
       texts: Array.from(document.querySelectorAll(selector)).map((el) => (el.textContent || '').trim()).filter(Boolean),
     }));
-    const combinedText = candidates.flatMap((item) => item.texts).join('\n');
+    const newline = String.fromCharCode(10);
+    const combinedText = candidates.flatMap((item) => item.texts).join(newline);
     const normalizedText = (combinedText || '').replace(/\s+/g, ' ').trim();
     const root = document.getElementById('nexus-deep-references');
     const card = root?.querySelector('.nexus-ref-card');
@@ -537,7 +538,7 @@ async def collect_reference_viewer_text(page) -> dict:
       openedUrls: window.__openedUrls || [],
       activeNexusTab: document.querySelector('#nexus-tabbar .nexus-tab-btn.active')?.id || '',
     };
-  }""", REFERENCE_VIEWER_SELECTORS)
+  }""", arg=REFERENCE_VIEWER_SELECTORS)
 
 
 async def wait_reference_viewer_current_fields(page, timeout_ms: int = 5000, interval_ms: int = 500) -> dict:
