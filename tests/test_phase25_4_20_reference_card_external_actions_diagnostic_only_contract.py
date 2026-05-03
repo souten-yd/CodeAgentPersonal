@@ -16,7 +16,9 @@ class TestPhase25420ReferenceCardExternalActionsDiagnosticOnlyContract(unittest.
         self.assertIn('downloadActionStatus', self.smoke)
         self.assertIn('Download action inspected only; not clicked to avoid current-page navigation in UI smoke.', self.smoke)
         self.assertNotIn('assert any("/nexus/sources/src-1/original" in url for url in tracking["openedUrls"])', self.smoke)
+        self.assertNotIn('assert any("/nexus/sources/src-1/original" in url for url in tracking["fetchedUrls"])', self.smoke)
         self.assertNotIn('assert any("/nexus/sources/src-1/original" in url for url in opened_urls)', self.smoke)
+        self.assertNotIn('assert any("/nexus/sources/src-1/original" in url for url in fetched_urls)', self.smoke)
 
     def test_full_text_and_highlight_checks_remain_required(self):
         for token in [
@@ -31,6 +33,20 @@ class TestPhase25420ReferenceCardExternalActionsDiagnosticOnlyContract(unittest.
 
     def test_button_state_diagnostics_exist(self):
         for token in ['sourceUrlButtonState', 'downloadButtonState', 'onclick', 'disabled', 'enabled']:
+            self.assertIn(token, self.smoke)
+
+    def test_reference_card_diagnostics_payload_kept(self):
+        for token in [
+            'sourceUrlActionStatus',
+            'sourceUrlButtonState',
+            'downloadActionStatus',
+            'downloadButtonState',
+            'fetchedUrls',
+            'openedUrls',
+            'cardButtonTexts',
+            'normalizedText',
+            'activeNexusTab',
+        ]:
             self.assertIn(token, self.smoke)
 
     def test_fetched_opened_separation_and_backend_gate(self):
