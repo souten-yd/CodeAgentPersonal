@@ -96,6 +96,22 @@ async def verify_atlas_start_button_feedback(page) -> None:
   }""")
   assert await page.locator('#atlas-workbench-card', has_text='Atlas Guided Plan Flow').count() > 0
   await page.fill('#atlas-requirement-input', 'Short Atlas requirement for smoke test')
+  await page.wait_for_function("() => (document.getElementById('atlas-requirement-char-count')?.textContent || '').includes('chars')")
+
+  await page.click('#btn-chat')
+  await page.fill('#input', 'chat survives clear')
+  await page.click('#btn-atlas')
+  await page.wait_for_selector('#atlas-requirement-input')
+  assert await page.input_value('#atlas-requirement-input') == 'Short Atlas requirement for smoke test'
+
+  await page.click('#atlas-requirement-clear-btn')
+  assert await page.input_value('#atlas-requirement-input') == ''
+  assert await page.input_value('#input') == 'chat survives clear'
+
+  await page.fill('#input', 'Copied from chat smoke')
+  await page.click('#atlas-requirement-use-chat-btn')
+  assert await page.input_value('#atlas-requirement-input') == 'Copied from chat smoke'
+
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
   await page.wait_for_function("""() => {
     const root = document.getElementById('atlas-workbench-card');
