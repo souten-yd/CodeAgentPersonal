@@ -45,6 +45,7 @@ RUN set -eux; \
 ########################################
 FROM pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel AS py_base
 
+ARG KASANE_DEBUG_TEST_HARNESS=1
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \

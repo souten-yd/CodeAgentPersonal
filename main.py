@@ -26,6 +26,7 @@ import time
 import inspect
 import io
 import hashlib
+import html
 import traceback
 import unicodedata
 from pathlib import Path
@@ -17951,8 +17952,8 @@ def debug_tests_home():
     _debug_harness_guard()
     runs = _list_debug_runs()
     from scripts.run_debug_test_matrix import TEST_PRESETS
-    preset_items = "".join([f"<li><b>{p.id}</b>: {p.title} - {p.description}</li>" for p in TEST_PRESETS])
-    run_items = "".join([f"<li><a href='/debug/tests/runs/{r['run_id']}'>{r['run_id']}</a> - {r.get('status','unknown')}</li>" for r in runs]) or "<li>No runs yet</li>"
+    preset_items = "".join([f"<li><b>{html.escape(p.id)}</b>: {html.escape(p.title)} - {html.escape(p.description)}</li>" for p in TEST_PRESETS])
+    run_items = "".join([f"<li><a href='/debug/tests/runs/{html.escape(r['run_id'])}'>{html.escape(r['run_id'])}</a> - {html.escape(r.get('status','unknown'))}</li>" for r in runs]) or "<li>No runs yet</li>"
     return f"""<html><body><h1>Debug Test Harness enabled</h1><form method='post' action='/api/debug/tests/run-all'><button type='submit'>Run All Tests</button></form><h2>Presets</h2><ul>{preset_items}</ul><h2>Recent runs</h2><ul>{run_items}</ul></body></html>"""
 
 @app.post("/api/debug/tests/run-all")
@@ -17968,7 +17969,7 @@ def debug_tests_run_all():
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "result.json").write_text(json.dumps({"run_id": run_id, "status": "queued", "results": []}, ensure_ascii=False, indent=2), encoding="utf-8")
     threading.Thread(target=_run_debug_test_matrix_background, args=(run_id,), daemon=True).start()
-    return {"ok": True, "run_id": run_id, "status": "queued", "view_url": f"/debug/tests/runs/{run_id}"}
+    return RedirectResponse(url=f"/debug/tests/runs/{run_id}", status_code=303)
 
 @app.get("/api/debug/tests/runs/{run_id}")
 def debug_tests_run_status(run_id: str):
@@ -17981,10 +17982,10 @@ def debug_tests_run_view(run_id: str):
     result = _load_debug_run_result(run_id)
     rows = []
     for r in result.get("results", []):
-        rows.append(f"<tr><td>{r.get('id')}</td><td>{r.get('title','')}</td><td>{r.get('status')}</td><td>{r.get('exit_code')}</td><td>{r.get('duration_sec')}</td><td><pre>{(r.get('stdout_tail') or '')[-800:]}</pre></td><td><pre>{(r.get('stderr_tail') or '')[-800:]}</pre></td><td>{r.get('artifact_path','')}</td></tr>")
+        rows.append(f"<tr><td>{html.escape(str(r.get('id','')))}</td><td>{html.escape(str(r.get('title','')))}</td><td>{html.escape(str(r.get('status','')))}</td><td>{html.escape(str(r.get('exit_code','')))}</td><td>{html.escape(str(r.get('duration_sec','')))}</td><td><pre>{html.escape(((r.get('stdout_tail') or '')[-800:]))}</pre></td><td><pre>{html.escape(((r.get('stderr_tail') or '')[-800:]))}</pre></td><td>{html.escape(str(r.get('artifact_path','')))}</td></tr>")
     summary_path = DEBUG_TEST_RUNS_DIR / run_id / "summary.md"
     summary = summary_path.read_text(encoding="utf-8") if summary_path.exists() else "(summary pending)"
-    return f"""<html><body><h1>Run {run_id}</h1><p>status: <b>{result.get('status')}</b></p><p>started_at: {result.get('started_at','')}</p><p>finished_at: {result.get('finished_at','')}</p><p>duration: {result.get('duration_sec','')}</p><p>total:{result.get('total',0)} pass:{result.get('passed',0)} fail:{result.get('failed',0)}</p><table border='1'><tr><th>id</th><th>title</th><th>status</th><th>exit_code</th><th>duration</th><th>stdout tail</th><th>stderr tail</th><th>artifact path</th></tr>{''.join(rows)}</table><h2>summary.md</h2><pre>{summary}</pre></body></html>"""
+    return f"""<html><body><h1>Run {html.escape(run_id)}</h1><p>status: <b>{html.escape(str(result.get('status','')))}</b></p><p>started_at: {html.escape(str(result.get('started_at','')))}</p><p>finished_at: {html.escape(str(result.get('finished_at','')))}</p><p>duration: {html.escape(str(result.get('duration_sec','')))}</p><p>current_test: {html.escape(str(result.get('current_test','')))}</p><p>total:{html.escape(str(result.get('total',0)))} pass:{html.escape(str(result.get('passed',0)))} fail:{html.escape(str(result.get('failed',0)))}</p><table border='1'><tr><th>id</th><th>title</th><th>status</th><th>exit_code</th><th>duration</th><th>stdout tail</th><th>stderr tail</th><th>artifact path</th></tr>{''.join(rows)}</table><h2>summary.md</h2><pre>{html.escape(summary)}</pre></body></html>"""
 
 @app.get("/health")
 def health():
