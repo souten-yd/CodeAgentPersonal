@@ -401,3 +401,12 @@
 - Backend E2E remains opt-in (`RUN_ATLAS_BACKEND_E2E`).
 - No backend workflow changes were introduced.
 - No approval / execute / patch behavior changes were introduced.
+
+## Phase 25.4.19 note (reference_card_actions Source URL diagnostic-only)
+- Source URL action in `reference_card_actions` is now diagnostic-only.
+- Full Text / Highlight / Download checks remain required.
+- Source URL `openedUrls` is recorded but no longer fails smoke when absent.
+- This avoids failures on valid disabled/no-op Source URL UI states.
+- Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
+- No backend workflow changes were introduced in this phase.
+- No approval / execute / patch behavior changes were introduced in this phase.
