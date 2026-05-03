@@ -627,11 +627,28 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
       "plan_flow_review_done": "review: done",
       "plan_flow_approval_required": "approval: required",
     }
+    clarification_plan_flow_requirements = {
+      "plan_flow_requirement_done": "requirement: done",
+      "plan_flow_plan_pending": "plan: pending",
+      "plan_flow_review_pending": "review: pending",
+    }
+    clarification_signal_tokens = {
+      "next_action_answer_clarification": "next action: answer clarification",
+      "answer_clarification_text_present": "answer clarification",
+      "answer_and_generate_plan_button_present": "回答してplan生成",
+      "proceed_with_assumptions_button_present": "おまかせで進める",
+      "clarification_keyword_present": "clarification",
+      "question_keyword_present": "question",
+      "additional_confirmation_keyword_present": "追加確認",
+      "confirmation_items_keyword_present": "確認事項",
+    }
     matched_plan_flow = [name for name, token in plan_flow_requirements.items() if token in haystack]
     missing_plan_flow = [name for name in plan_flow_requirements if name not in matched_plan_flow]
     completion_signals = [token for token in completion_signal_tokens if token in haystack]
     completion_signals.extend(matched_plan_flow)
     pending_signals = [token for token in pending_signal_tokens if token in haystack]
+    clarification_signals = [name for name, token in clarification_signal_tokens.items() if token in haystack]
+    clarification_plan_flow_matched = [name for name, token in clarification_plan_flow_requirements.items() if token in haystack]
     backend_done_statuses = {"succeeded", "completed", "done", "success"}
     backend_running_statuses = {"running"}
     backend_statuses = [st for st in active_statuses if st]
@@ -653,6 +670,7 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
     diag["normalizedPlanFlowText"] = haystack
     diag["matchedCompletionSignals"] = matched_plan_flow
     diag["missingCompletionSignals"] = missing_plan_flow
+    diag["clarificationSignals"] = clarification_signals
     diag["completionDecisionReason"] = "in_progress"
 
     if failure_signals:
@@ -665,6 +683,18 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
     has_completion_signal = len(completion_signals) > 0
     has_pending_signal = len(pending_signals) > 0
 
+    has_clarification_signal = len(clarification_signals) > 0
+    has_clarification_plan_flow = all(name in clarification_plan_flow_matched for name in clarification_plan_flow_requirements)
+    if has_clarification_plan_flow and has_clarification_signal and last_error in ("", "-") and not console_errors and not page_errors and not failure_signals:
+      final = "needs_clarification"
+      clarification_completion_signals = list(dict.fromkeys(clarification_plan_flow_matched + ["clarification_required"]))
+      last_diag = {
+        **diag,
+        "finalDecision": final,
+        "completionDecisionReason": "clarification_required_before_plan_generation",
+        "completionSignals": clarification_completion_signals,
+      }
+      break
     if has_pending_signal:
       diag["completionDecisionReason"] = "pending_plan_detected"
     elif not missing_plan_flow and last_error in ("", "-") and not console_errors and not page_errors:
