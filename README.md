@@ -5,6 +5,7 @@ CodeAgent Personal は、ローカルLLM、llama.cpp、FastAPI、Web UI、Docker
 
 - Preflight-only opt-in (`RUN_ATLAS_BACKEND_PREFLIGHT=1`) adds `atlas_backend_preflight` to the summary/artifacts and does **not** press Atlas Start.
 - Full backend E2E opt-in (`RUN_ATLAS_BACKEND_E2E=1`) runs preflight first, then `atlas_backend_e2e_journey`.
+- Optional wait-plan opt-in (`RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1` with `RUN_ATLAS_BACKEND_E2E=1`) adds `atlas_backend_e2e_wait_plan` to observe plan completion/failure/timeout without approval/execute/patch apply.
 - Preflight primary required check is `/health`; other GET endpoints are diagnostic/warning oriented.
 - Preflight artifact log includes baseUrl, endpoint status/ok/json(jsonError), elapsedMs, and errors/warnings.
 - Default smoke remains mock-backed 9 scenarios and does not change approval/execute/apply behavior.

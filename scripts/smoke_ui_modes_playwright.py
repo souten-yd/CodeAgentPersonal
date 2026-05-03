@@ -521,6 +521,86 @@ async def verify_atlas_backend_e2e_journey(page) -> None:
     joined = [f"pageerror: {text}" for text in page_errors] + [f"console[error]: {text}" for text in console_errors]
     raise AssertionError("\n".join(joined))
 
+
+async def collect_atlas_job_lifecycle_diag(page, preflight_status=None, base_url: str = "", elapsed_ms: int = 0, final_decision: str = "unknown", current_job_id: str = "") -> dict:
+  status_text = await page.evaluate("""() => (document.getElementById('atlas-workflow-status')?.textContent || '')""")
+  messages = await page.evaluate("""() => Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''))""")
+  plan_flow_text = await page.evaluate("""() => (document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '')""")
+  atlas_data = await page.evaluate("""() => ({
+    atlasSubview: document.getElementById('atlas-workbench-card')?.dataset?.atlasCurrentSubview || '',
+    atlasRequirementInput: document.getElementById('atlas-requirement-input')?.value || '',
+    atlasRequirementStatus: document.getElementById('atlas-requirement-status')?.textContent || '',
+    approveButtonsPresent: !!document.querySelector("#approve-plan-btn, [data-action='approve-plan']"),
+    executeButtonsPresent: !!document.querySelector("#execute-preview-btn, [data-action='execute-preview']"),
+    patchApplyButtonsPresent: !!document.querySelector("#apply-patch-btn, [data-action='apply-patch']"),
+  })""")
+
+  jobs_active = await page.request.get(urljoin(base_url.rstrip("/") + "/", "projects/default/jobs?limit=20"), timeout=5000)
+  jobs_recent = await page.request.get(urljoin(base_url.rstrip("/") + "/", "projects/default/history?limit=20"), timeout=5000)
+  jobs_resp = await jobs_active.json() if jobs_active.ok else {"status": jobs_active.status}
+  history_resp = await jobs_recent.json() if jobs_recent.ok else {"status": jobs_recent.status}
+
+  status_tail = status_text[-800:]
+  messages_tail = [str(m)[-240:] for m in messages[-10:]]
+  plan_tail = plan_flow_text[-800:]
+  last_error = "-"
+  for line in status_text.splitlines():
+    if "Last Error:" in line:
+      last_error = line.split("Last Error:", 1)[1].strip() or "-"
+      break
+  if not current_job_id and isinstance(jobs_resp, dict):
+    for j in jobs_resp.get("jobs", []):
+      if isinstance(j, dict) and j.get("id"):
+        current_job_id = str(j.get("id"))
+        break
+  return {
+    "baseUrl": base_url,
+    "preflightStatus": preflight_status,
+    **atlas_data,
+    "atlasWorkflowStatusTextTail": status_tail,
+    "planFlowTextTail": plan_tail,
+    "messagesTail": messages_tail,
+    "lastError": last_error,
+    "activeJobsResponse": _truncate_json(jobs_resp),
+    "recentJobsResponse": _truncate_json(history_resp),
+    "currentJobId": current_job_id,
+    "elapsedMs": elapsed_ms,
+    "finalDecision": final_decision,
+  }
+
+
+async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=None, base_url: str = "", console_errors=None, page_errors=None) -> dict:
+  console_errors = console_errors or []
+  page_errors = page_errors or []
+  started = time.perf_counter()
+  final = "timeout"
+  last_diag = {}
+  while (time.perf_counter() - started) * 1000 < timeout_ms:
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    diag = await collect_atlas_job_lifecycle_diag(page, preflight_status=preflight_status, base_url=base_url, elapsed_ms=elapsed_ms)
+    diag["consoleErrors"] = list(console_errors)
+    diag["pageErrors"] = list(page_errors)
+    haystack = "\n".join([diag.get("atlasWorkflowStatusTextTail", ""), diag.get("planFlowTextTail", ""), "\n".join(diag.get("messagesTail", []))]).lower()
+    last_error = str(diag.get("lastError", "-") or "-").strip()
+    active_jobs_text = json.dumps(diag.get("activeJobsResponse", {}), ensure_ascii=False).lower()
+    if "atlas start failed:" in haystack or last_error not in ("", "-") or any(k in haystack for k in [" job failed", "failed", "error", "timeout"]):
+      final = "failed"
+      last_diag = {**diag, "finalDecision": final}
+      break
+    if any(k in haystack for k in ["plan: completed", "plan ready", "review ready", "plan generated", "approval: required"]) and ("succeeded" in active_jobs_text or "completed" in active_jobs_text or "done" in active_jobs_text or "running" in active_jobs_text):
+      final = "completed"
+      last_diag = {**diag, "finalDecision": final}
+      break
+    last_diag = diag
+    await page.wait_for_timeout(2000)
+  if not last_diag:
+    last_diag = await collect_atlas_job_lifecycle_diag(page, preflight_status=preflight_status, base_url=base_url, elapsed_ms=timeout_ms)
+  last_diag["consoleErrors"] = list(console_errors)
+  last_diag["pageErrors"] = list(page_errors)
+  last_diag["elapsedMs"] = int((time.perf_counter() - started) * 1000)
+  last_diag["finalDecision"] = final if final != "timeout" else last_diag.get("finalDecision", "timeout")
+  return last_diag
+
 async def verify_nexus_tabs(page) -> None:
   await page.click("#btn-nexus")
   for tab in NEXUS_TABS:
@@ -1187,6 +1267,9 @@ async def main() -> None:
 
   run_backend_preflight_opt_in = os.environ.get("RUN_ATLAS_BACKEND_PREFLIGHT", "").strip() == "1"
   run_backend_e2e_opt_in = os.environ.get("RUN_ATLAS_BACKEND_E2E", "").strip() == "1"
+  run_backend_wait_plan_opt_in = os.environ.get("RUN_ATLAS_BACKEND_E2E_WAIT_PLAN", "").strip() == "1"
+  if run_backend_wait_plan_opt_in and not run_backend_e2e_opt_in:
+    raise AssertionError("RUN_ATLAS_BACKEND_E2E_WAIT_PLAN requires RUN_ATLAS_BACKEND_E2E=1.")
   preflight_only_mode = run_backend_preflight_opt_in and not run_backend_e2e_opt_in
   full_backend_e2e_mode = run_backend_e2e_opt_in
   real_backend_opt_in = run_backend_preflight_opt_in or run_backend_e2e_opt_in
@@ -1224,6 +1307,22 @@ async def main() -> None:
         ("atlas_backend_preflight", run_backend_preflight),
         ("atlas_backend_e2e_journey", verify_atlas_backend_e2e_journey),
       ]
+      if run_backend_wait_plan_opt_in:
+        async def verify_atlas_backend_e2e_wait_plan(page):
+          page_errors = []
+          console_errors = []
+          page.on("pageerror", lambda e: page_errors.append(str(e)))
+          page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
+          preflight_status = await collect_backend_preflight_status(page)
+          if preflight_status.get("errors"):
+            raise AssertionError(f"backend preflight failed before wait-plan e2e: {preflight_status}")
+          base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip() or "mock-http-origin"
+          await verify_atlas_backend_e2e_journey(page)
+          diag = await wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=preflight_status, base_url=base_url, console_errors=console_errors, page_errors=page_errors)
+          print("INFO: atlas backend wait-plan diagnostics:\n" + json.dumps(diag, ensure_ascii=False, indent=2))
+          if diag.get("finalDecision") in ("failed", "timeout", "unknown"):
+            raise AssertionError(f"atlas wait-plan did not complete successfully: {json.dumps(diag, ensure_ascii=False)}")
+        scenarios.append(("atlas_backend_e2e_wait_plan", verify_atlas_backend_e2e_wait_plan))
     else:
       print("INFO: default mode enabled; running mock-backed UI smoke scenarios.")
       print("INFO: backend preflight remains opt-in (set RUN_ATLAS_BACKEND_PREFLIGHT=1 to include).")
