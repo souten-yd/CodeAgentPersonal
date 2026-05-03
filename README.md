@@ -1333,3 +1333,4 @@ PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 RUN_ATLAS_BACKEND_E2E=1 python s
 
 - Phase 27.0b: wait-plan completion now recognizes `Requirement: done` + `Plan: generated` + `Review: done` + `Approval: required` (`Last Error: -`) as completed; still opt-in only.
 - Phase 27.1: wait-plan also treats clarification gate (`Requirement: done` + `Plan: pending` + `Review: pending` + `Next Action: answer clarification`) as `needs_clarification` PASS terminal state (not plan-generated completion); still no auto response/approval/execute/apply and still opt-in only.
+- Phase 27.2: local wait-plan E2E validation is recorded as terminal success policy lock; result may end in `completed` or `needs_clarification`, where `needs_clarification` requires human action and there is no automatic clarification / approval / execution / patch apply.
