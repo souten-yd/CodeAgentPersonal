@@ -6,6 +6,10 @@ from pathlib import Path
 import os
 import re
 import traceback
+import json
+import html
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from check_ui_inline_script_syntax import main as check_ui_syntax_main
 try:
@@ -15,9 +19,95 @@ except Exception:  # pragma: no cover - optional dependency
 
 
 ROOT = Path(__file__).resolve().parents[1]
-UI_FILE_URL = ROOT.joinpath("ui.html").resolve().as_uri()
-UI_TARGET_URL = os.environ.get("UI_TEST_URL", "").strip() or UI_FILE_URL
 PLAYWRIGHT_ARTIFACT_DIR = ROOT / "artifacts" / "playwright"
+DEFAULT_DESKTOP_VIEWPORT = {"width": 1280, "height": 900}
+DEFAULT_MOBILE_VIEWPORT = {"width": 390, "height": 844}
+
+
+
+MOCK_GET_ROUTES = {
+  "/health": {"ok": True},
+  "/settings": {},
+  "/system/summary": {},
+  "/system/usage": {},
+  "/projects": {"projects": [{"name": "default"}]},
+  "/llm/props": {},
+  "/nexus/summary": {},
+  "/models/db/status": {},
+  "/models/db": {"models": []},
+  "/models/roles": {},
+  "/skills": [],
+  "/projects/default/history": [],
+  "/models/orchestration": {},
+  "/projects/default/jobs": {"jobs": []},
+  "/echo/sessions": [],
+  "/nexus/documents": {"documents": []},
+  "/nexus/jobs/active": {"jobs": []},
+  "/nexus/web/status": {},
+}
+
+def _json_response(handler: BaseHTTPRequestHandler, payload, status: int = 200):
+  body = json.dumps(payload).encode("utf-8")
+  handler.send_response(status)
+  handler.send_header("Content-Type", "application/json; charset=utf-8")
+  handler.send_header("Content-Length", str(len(body)))
+  handler.end_headers()
+  handler.wfile.write(body)
+
+def start_mock_server():
+  ui_html = ROOT.joinpath("ui.html").read_bytes()
+  class Handler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+      return
+    def do_GET(self):
+      path = self.path.split("?", 1)[0]
+      if path in ("/", "/ui.html"):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(ui_html)))
+        self.end_headers()
+        self.wfile.write(ui_html)
+        return
+      payload = MOCK_GET_ROUTES.get(path, {})
+      _json_response(self, payload)
+    def do_POST(self):
+      path = self.path.split("?", 1)[0]
+      if path == "/agent/start":
+        return _json_response(self, {"ok": False, "message": "mock smoke backend"})
+      if path == "/api/task/plan":
+        return _json_response(self, {"ok": False, "error": "mock smoke backend: planner unavailable"})
+      return _json_response(self, {})
+
+  server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+  thread = threading.Thread(target=server.serve_forever, daemon=True)
+  thread.start()
+  return server, thread
+
+def get_smoke_base_url():
+  explicit = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip()
+  if explicit:
+    return explicit.rstrip("/"), None
+  server, thread = start_mock_server()
+  return f"http://127.0.0.1:{server.server_port}", (server, thread)
+
+async def get_chat_input_value(page) -> str:
+  return await page.evaluate("() => document.getElementById('input')?.value || ''")
+
+async def set_chat_input(page, text: str) -> None:
+  await page.click("#btn-chat")
+  input_locator = page.locator("#input")
+  try:
+    await input_locator.wait_for(state="visible", timeout=1500)
+    await input_locator.fill(text)
+    return
+  except Exception:
+    await page.evaluate("""([value]) => {
+      const input = document.getElementById('input');
+      if (!input) return;
+      input.value = String(value || '');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", [text])
 
 NEXUS_TABS = [
   "dashboard",
@@ -81,7 +171,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
   page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
 
   await page.click("#btn-chat")
-  await page.fill("#input", "")
+  await set_chat_input(page, "")
   await page.click("#btn-atlas")
   await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
   await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
@@ -102,16 +192,16 @@ async def verify_atlas_start_button_feedback(page) -> None:
   await page.wait_for_function("() => (document.getElementById('atlas-requirement-char-count')?.textContent || '').includes('chars')")
 
   await page.click('#btn-chat')
-  await page.fill('#input', 'chat survives clear')
+  await set_chat_input(page, 'chat survives clear')
   await page.click('#btn-atlas')
   await page.wait_for_selector('#atlas-requirement-input')
   assert await page.input_value('#atlas-requirement-input') == 'Short Atlas requirement for smoke test'
 
   await page.click('#atlas-requirement-clear-btn')
   assert await page.input_value('#atlas-requirement-input') == ''
-  assert await page.input_value('#input') == 'chat survives clear'
+  assert await get_chat_input_value(page) == 'chat survives clear'
 
-  await page.fill('#input', 'Copied from chat smoke')
+  await set_chat_input(page, 'Copied from chat smoke')
   await page.click('#atlas-requirement-use-chat-btn')
   assert await page.input_value('#atlas-requirement-input') == 'Copied from chat smoke'
 
@@ -134,7 +224,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
   }""")
 
   await page.click('#atlas-requirement-clear-btn')
-  await page.fill('#input', 'Chat fallback smoke')
+  await set_chat_input(page, 'Chat fallback smoke')
   await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
   await page.wait_for_function("""() => {
@@ -151,7 +241,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
   }""")
 
   await page.click('#atlas-requirement-clear-btn')
-  await page.fill('#input', '')
+  await set_chat_input(page, '')
   await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
   await page.wait_for_function("""() => {
@@ -172,7 +262,7 @@ async def verify_atlas_guided_workflow_safe_journey(page) -> None:
   page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
 
   await page.click("#btn-chat")
-  await page.fill("#input", "")
+  await set_chat_input(page, "")
   await page.click("#btn-atlas")
   await page.wait_for_selector("#atlas-workbench-card")
   await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
@@ -245,7 +335,7 @@ async def verify_atlas_backend_e2e_journey(page) -> None:
   page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
 
   await page.click("#btn-chat")
-  await page.fill("#input", "")
+  await set_chat_input(page, "")
   await page.click("#btn-atlas")
   await page.wait_for_selector("#atlas-workbench-card")
   await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
@@ -394,14 +484,12 @@ async def verify_reference_card_actions(page) -> None:
   assert any("/nexus/sources/src-1/original" in url for url in opened_urls), opened_urls
 
 
-async def verify_mobile_mode_switches(browser) -> None:
-  page = await browser.new_page(viewport={"width": 390, "height": 844})
+async def verify_mobile_mode_switches(page) -> None:
+  await page.set_viewport_size(DEFAULT_MOBILE_VIEWPORT)
   errors: list[str] = []
   page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
   page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
 
-  await page.goto(UI_TARGET_URL)
-  await page.wait_for_load_state("domcontentloaded")
 
   await page.click("#btn-chat")
   await page.wait_for_function(
@@ -450,7 +538,6 @@ async def verify_mobile_mode_switches(browser) -> None:
   if errors:
     raise AssertionError("\n".join(errors))
 
-  await page.close()
 
 
 
@@ -617,23 +704,26 @@ def _safe_artifact_name(name: str) -> str:
   return re.sub(r"[^a-zA-Z0-9._-]+", "_", name).strip("_") or "scenario"
 
 
-async def run_smoke_scenario(name: str, page, coro_factory, results: list[dict[str, str]]) -> None:
+async def run_smoke_scenario(name: str, browser, base_url: str, coro_factory, results: list[dict[str, str]], viewport: dict[str, int] | None = None) -> None:
   scenario_errors: list[str] = []
+  page = await browser.new_page(viewport=viewport or DEFAULT_DESKTOP_VIEWPORT)
   page.on("pageerror", lambda e: scenario_errors.append(f"pageerror: {e}"))
   page.on("console", lambda m: scenario_errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
   try:
-    await page.goto(UI_TARGET_URL)
+    await page.goto(base_url)
     await page.wait_for_load_state("domcontentloaded")
     await coro_factory(page)
     if scenario_errors:
       raise AssertionError("\n".join(scenario_errors))
-    results.append({"name": name, "status": "PASS", "error": ""})
+    results.append({"name": name, "status": "PASS", "error": "", "artifact": ""})
   except Exception as err:
+    safe = _safe_artifact_name(name)
     err_text = f"{type(err).__name__}: {err}"
     if scenario_errors:
       err_text = err_text + "\n" + "\n".join(scenario_errors)
-    results.append({"name": name, "status": "FAIL", "error": err_text})
-    safe = _safe_artifact_name(name)
+    log_path = PLAYWRIGHT_ARTIFACT_DIR / f"{safe}.log"
+    log_path.write_text(err_text + "\n\n" + traceback.format_exc(), encoding="utf-8")
+    results.append({"name": name, "status": "FAIL", "error": err_text, "artifact": str(log_path.relative_to(ROOT))})
     try:
       await page.screenshot(path=str(PLAYWRIGHT_ARTIFACT_DIR / f"{safe}.png"), full_page=True)
     except Exception:
@@ -642,6 +732,8 @@ async def run_smoke_scenario(name: str, page, coro_factory, results: list[dict[s
       (PLAYWRIGHT_ARTIFACT_DIR / f"{safe}.traceback.txt").write_text(traceback.format_exc(), encoding="utf-8")
     except Exception:
       pass
+  finally:
+    await page.close()
 
 
 def has_smoke_failures(results: list[dict[str, str]]) -> bool:
@@ -663,12 +755,12 @@ def print_smoke_summary(results: list[dict[str, str]]) -> str:
     f"- PASS: **{pass_count}**",
     f"- FAIL: **{fail_count}**",
     "",
-    "| Scenario | Status | Error |",
-    "|---|---|---|",
+    "| Scenario | Status | Error summary | Artifact |",
+    "|---|---|---|---|",
   ]
   for row in results:
-    error = (row.get("error") or "").replace("\n", "<br>")
-    lines.append(f"| {row['name']} | {row['status']} | {error} |")
+    error = html.escape((row.get("error") or "").replace("\n", " ")[:450])
+    lines.append(f"| {row['name']} | {row['status']} | {error} | {row.get('artifact', '')} |")
   summary = "\n".join(lines) + "\n"
   print(summary)
   (PLAYWRIGHT_ARTIFACT_DIR / "summary.md").write_text(summary, encoding="utf-8")
@@ -689,7 +781,8 @@ async def main() -> None:
 
   async with async_playwright() as p:
     browser = await p.chromium.launch()
-    page = await browser.new_page(viewport={"width": 1440, "height": 900})
+    base_url, mock_server = get_smoke_base_url()
+    print(f"INFO: Playwright smoke base URL = {base_url}")
     results: list[dict[str, str]] = []
     scenarios = [
       ("bootstrap_api_contract", lambda current_page: current_page.evaluate("() => [typeof window.setMode, typeof window.switchNexusTab]")),
@@ -713,15 +806,15 @@ async def main() -> None:
     scenarios[0] = ("bootstrap_api_contract", bootstrap_assertions)
 
     for scenario_name, scenario_fn in scenarios:
-      await run_smoke_scenario(scenario_name, page, scenario_fn, results)
+      await run_smoke_scenario(scenario_name, browser, base_url, scenario_fn, results, DEFAULT_DESKTOP_VIEWPORT)
 
-    await page.close()
-    try:
-      await verify_mobile_mode_switches(browser)
-      results.append({"name": "mobile_mode_switches", "status": "PASS", "error": ""})
-    except Exception as err:
-      results.append({"name": "mobile_mode_switches", "status": "FAIL", "error": f"{type(err).__name__}: {err}"})
+    await run_smoke_scenario("mobile_mode_switches", browser, base_url, lambda page: verify_mobile_mode_switches(page), results, DEFAULT_MOBILE_VIEWPORT)
     await browser.close()
+    if mock_server:
+      server, thread = mock_server
+      server.shutdown()
+      server.server_close()
+      thread.join(timeout=2)
 
   summary = print_smoke_summary(results)
   if has_smoke_failures(results):

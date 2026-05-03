@@ -253,3 +253,14 @@
 - Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1` only.
 - No backend workflow behavior changes were introduced in this phase.
 - No approval / execute / patch behavior changes were introduced in this phase.
+
+
+## Phase 25.4.1 note (Serve Playwright smoke UI over HTTP / scenario isolation)
+- Playwright UI smoke now serves `ui.html` over `http://127.0.0.1:<port>/` by default instead of `file://`.
+- Smoke harness includes a lightweight in-process mock HTTP backend so UI fetch calls succeed without backend wiring.
+- `file://` fetch scheme failures are fixed at harness/origin level (not ignored).
+- Scenarios are isolated with per-scenario pages and viewport setup to reduce cascading failures.
+- Chat input helper fallback (`set_chat_input` / DOM dispatch) reduces hidden-input flakiness.
+- Failure diagnostics now include truncated summary rows plus per-scenario full `.log` and screenshot artifacts under `artifacts/playwright/`.
+- Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`; default optional CI smoke does not enable it.
+- No backend guided-workflow behavior/gates were changed (PlanApproval / Execute Preview / PatchApproval logic unchanged).

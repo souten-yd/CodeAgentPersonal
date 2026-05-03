@@ -20,7 +20,7 @@ class TestPhase254PlaywrightSmokeDiagnosticAggregationContract(unittest.TestCase
 
     def test_failure_does_not_stop_next_scenarios_and_finally_fails(self):
         self.assertIn("for scenario_name, scenario_fn in scenarios:", self.smoke)
-        self.assertIn("await run_smoke_scenario(scenario_name, page, scenario_fn, results)", self.smoke)
+        self.assertIn("await run_smoke_scenario(scenario_name, browser, base_url, scenario_fn, results, DEFAULT_DESKTOP_VIEWPORT)", self.smoke)
         self.assertIn("if has_smoke_failures(results):", self.smoke)
         self.assertIn("raise AssertionError", self.smoke)
 
