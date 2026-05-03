@@ -354,3 +354,12 @@
 - Backend E2E remains opt-in behind the existing `RUN_ATLAS_BACKEND_E2E` gate.
 - No backend workflow behavior changes were made.
 - No approval / execute / patch behavior changes were made.
+
+
+## Phase 25.4.12 note (Fix collect_reference_viewer_text page.evaluate JavaScript syntax)
+- Fixed final `reference_card_actions` failure caused by an invalid JavaScript string in `page.evaluate`.
+- `collect_reference_viewer_text` now avoids unsafe newline string literals in inline JS.
+- Reference Viewer field checks remain `source_id` / `mode` / `highlight` based.
+- Backend E2E remains opt-in.
+- No backend workflow changes were introduced in this phase.
+- No approval / execute / patch behavior changes were introduced in this phase.
