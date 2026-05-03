@@ -2,42 +2,41 @@ import pathlib
 import unittest
 
 
-class TestPhase290PlanApprovalGateReadinessContract(unittest.TestCase):
+class TestPhase290bPlanApprovalButtonDetectionContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.smoke = pathlib.Path("scripts/smoke_ui_modes_playwright.py").read_text(encoding="utf-8")
         cls.workflow = pathlib.Path(".github/workflows/playwright-ui-smoke.yml").read_text(encoding="utf-8")
 
-    def test_new_env_gate_exists(self):
-        self.assertIn("RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL", self.smoke)
+    def test_button_inventory_diagnostics_exist(self):
+        for token in ["allButtons", "approvalCandidateButtons", "destructiveCandidateButtons"]:
+            self.assertIn(token, self.smoke)
+        self.assertTrue("approvalPanelTextTail" in self.smoke or "workbenchHtmlTail" in self.smoke)
 
-    def test_gate_requires_e2e_and_wait_plan(self):
-        self.assertIn(
-            "RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL requires RUN_ATLAS_BACKEND_E2E=1 and RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1.",
-            self.smoke,
-        )
-
-    def test_scenario_exists(self):
-        self.assertIn("atlas_backend_e2e_plan_approval_gate", self.smoke)
-
-    def test_helper_exists(self):
-        self.assertTrue(
-            "async def collect_atlas_plan_approval_gate_diag(page)" in self.smoke
-            or "async def verify_atlas_plan_approval_gate_readiness(page" in self.smoke
-        )
+    def test_approve_selector_candidates_are_expanded(self):
+        for token in [
+            "button:has-text(\\\"Approve\\\")",
+            "button:has-text(\\\"承認\\\")",
+            "[data-action*=\\\"approve\\\"]",
+            "[data-a*=\\\"approve\\\"]",
+            "[id*=\\\"approve\\\"]",
+            "approve plan",
+            "approve_plan",
+        ]:
+            self.assertIn(token, self.smoke)
 
     def test_approve_button_inspected_not_clicked(self):
         self.assertIn("approveButtonPresent", self.smoke)
         self.assertIn("approveButtonEnabled", self.smoke)
         self.assertNotIn("approvePlan(", self.smoke)
 
-    def test_execute_patch_locked(self):
+    def test_failure_reason_explicit(self):
+        self.assertIn("approval_required_but_approve_button_missing", self.smoke)
+
+    def test_execute_patch_lock_aliases_exist(self):
+        self.assertIn("executePreviewLocked", self.smoke)
         self.assertIn("execute_preview_locked", self.smoke)
         self.assertIn("patchApplyLocked", self.smoke)
-
-    def test_needs_clarification_skip_path_exists(self):
-        self.assertIn("plan_approval_gate_skipped_needs_clarification", self.smoke)
-        self.assertIn("needs_clarification_after_resolution", self.smoke)
 
     def test_destructive_actions_not_automated(self):
         for token in ["approvePlan(", "executePreview(", "applyPatch(", "bulk approve", "bulk apply", "auto approve", "auto apply"]:

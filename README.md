@@ -7,6 +7,7 @@ CodeAgent Personal は、ローカルLLM、llama.cpp、FastAPI、Web UI、Docker
 - Full backend E2E opt-in (`RUN_ATLAS_BACKEND_E2E=1`) runs preflight first, then `atlas_backend_e2e_journey`.
 - Optional wait-plan opt-in (`RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1` with `RUN_ATLAS_BACKEND_E2E=1`) adds `atlas_backend_e2e_wait_plan` to observe plan completion/failure/timeout without approval/execute/patch apply.
 - Optional PlanApproval readiness opt-in (`RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL=1` with E2E + WAIT_PLAN) adds `atlas_backend_e2e_plan_approval_gate` and validates approval gate visibility/lock state without clicking approve/execute/apply.
+- Phase 29.0b extends approve-button detection diagnostics with button inventory + broader selectors, still detection-only (no approve/execute/apply clicks).
 - Preflight primary required check is `/health`; other GET endpoints are diagnostic/warning oriented.
 - Preflight artifact log includes baseUrl, endpoint status/ok/json(jsonError), elapsedMs, and errors/warnings.
 - Default smoke remains mock-backed 9 scenarios and does not change approval/execute/apply behavior.

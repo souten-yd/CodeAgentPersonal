@@ -37,7 +37,7 @@ class TestPhase281ClarificationResolutionResultRecordContract(unittest.TestCase)
             self.assertIn(token, self.smoke)
 
     def test_destructive_actions_are_not_automated(self):
-        for token in ["approvePlan(", "executePreview", "applyPatch", "bulk approve", "bulk apply", "auto approve", "auto apply"]:
+        for token in ["approvePlan(", "executePreview(", "applyPatch(", "bulk approve", "bulk apply", "auto approve", "auto apply"]:
             self.assertNotIn(token, self.smoke)
 
     def test_preflight_remains_get_only(self):
