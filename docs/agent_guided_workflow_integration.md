@@ -276,3 +276,16 @@
 - Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
 - No backend workflow changes were introduced.
 - No approval / execute / patch behavior changes were introduced.
+
+## Phase 25.4.4 artifact-driven Playwright smoke alignment
+
+- Applied artifact-driven Playwright smoke fixes without backend workflow behavior changes.
+- Updated Atlas Legacy subview expectation to current UI (Legacy verifies `Open Legacy Task` and `Open Agent Advanced`; Recent Runs verification moved to Runs subview).
+- Added/strengthened Atlas helpers (`open_atlas`, `set_atlas_subview`, `wait_atlas_subview`, `ensure_atlas_overview`, `ensure_atlas_plan`) to avoid hidden-panel waits.
+- Stabilized `#input` sync verification in guided workflow with explicit wait + diagnostics.
+- Aligned Nexus tab wait logic to current visible DOM state (not only stale `.active` panel class assumptions).
+- Updated Reference card action selectors to match current labels/render target with multi-label fallback and DOM diagnostics.
+- Updated mobile mode checks to rely on visible panel/display state instead of stale `active` class assumptions.
+- Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E`.
+- No backend workflow logic changes.
+- No approval / execute / patch behavior changes.
