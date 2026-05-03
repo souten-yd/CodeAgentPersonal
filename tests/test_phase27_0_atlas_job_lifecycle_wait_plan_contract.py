@@ -50,5 +50,27 @@ class TestPhase27AtlasJobLifecycleWaitPlanContract(unittest.TestCase):
         self.assertNotIn("RUN_ATLAS_BACKEND_E2E=1", self.workflow)
 
 
+    def test_wait_plan_scenario_branch_is_exclusive(self):
+        self.assertIn("if run_backend_wait_plan_opt_in:", self.smoke)
+        self.assertIn('("atlas_backend_e2e_wait_plan", verify_atlas_backend_e2e_wait_plan)', self.smoke)
+        self.assertIn("scenarios = [", self.smoke)
+        self.assertIn('("atlas_backend_e2e_journey", verify_atlas_backend_e2e_journey)', self.smoke)
+        self.assertNotIn('scenarios.append(("atlas_backend_e2e_wait_plan", verify_atlas_backend_e2e_wait_plan))', self.smoke)
+
+    def test_wait_plan_does_not_call_dry_run_helper(self):
+        wait_plan_block = self.smoke.split("async def verify_atlas_backend_e2e_wait_plan", 1)[1].split("if run_backend_wait_plan_opt_in:", 1)[0]
+        self.assertNotIn("await verify_atlas_backend_e2e_journey(page)", wait_plan_block)
+
+    def test_failure_detection_avoids_generic_error_token(self):
+        wait_block = self.smoke.split("async def wait_atlas_plan_completion", 1)[1].split("async def verify_nexus_tabs", 1)[0]
+        self.assertNotIn('[" job failed", "failed", "error", "timeout"]', wait_block)
+        self.assertIn('last_error not in ("", "-")', wait_block)
+
+    def test_lifecycle_get_diagnostics_are_exception_safe(self):
+        block = self.smoke.split("async def collect_atlas_job_lifecycle_diag", 1)[1].split("async def wait_atlas_plan_completion", 1)[0]
+        for token in ['"status"', '"ok"', '"json"', '"jsonError"', '"error"']:
+            self.assertIn(token, block)
+
+
 if __name__ == "__main__":
     unittest.main()
