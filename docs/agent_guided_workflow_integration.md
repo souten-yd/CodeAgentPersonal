@@ -229,3 +229,17 @@
   - `python -m pip install playwright`
   - `python -m playwright install chromium`
 - No backend workflow behavior changes were introduced in this phase.
+
+
+## Phase 25.3 note (Run Playwright UI smoke in prepared env / optional CI job)
+- Playwright UI smoke was attempted in a prepared environment via `python scripts/smoke_ui_modes_playwright.py`.
+- UI smoke remains backend-independent and accepts visible `Atlas Start failed:` feedback when backend is unavailable.
+- Backend E2E smoke remains explicit opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
+- Optional/manual GitHub Actions workflow was added: `.github/workflows/playwright-ui-smoke.yml` (`workflow_dispatch` only).
+- Optional smoke setup/run commands are unchanged:
+  - `python -m pip install playwright`
+  - `python -m playwright install chromium`
+  - `python scripts/smoke_ui_modes_playwright.py`
+  - `RUN_ATLAS_BACKEND_E2E=1 python scripts/smoke_ui_modes_playwright.py`
+- No backend workflow behavior changes were introduced in this phase.
+- No approval / execute / patch behavior changes were introduced in this phase.

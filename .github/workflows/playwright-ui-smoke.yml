@@ -1,0 +1,36 @@
+name: Playwright UI smoke (optional)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  playwright-ui-smoke:
+    name: playwright-ui-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install minimal dependencies for smoke
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install fastapi uvicorn requests pydantic
+          python -m pip install playwright
+
+      - name: Install Chromium for Playwright
+        run: |
+          python -m playwright install chromium
+
+      - name: Run inline script syntax check
+        run: |
+          python scripts/check_ui_inline_script_syntax.py
+
+      - name: Run Playwright UI smoke (backend E2E opt-in remains off)
+        run: |
+          python scripts/smoke_ui_modes_playwright.py
