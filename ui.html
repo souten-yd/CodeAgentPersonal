@@ -13786,12 +13786,20 @@ function _renderPlanWorkflowStatusPanel() {
   div.id = panelId;
   const hasRun = !!planWorkflowState.runId;
   const lastRunId = planWorkflowState.lastRunId || getAtlasLastRunId();
+  const requirementPreview = String(planWorkflowState.requirementTextPreview || '').trim();
+  const preview = requirementPreview ? requirementPreview.slice(0, 120) : '-';
+  const requirementSource = planWorkflowState.requirementSource || '-';
+  const currentStep = _computePlanWorkflowNextAction();
   div.innerHTML = `
     <div class="msg-role">Atlas Workflow Status</div>
     <div class="plan-card" style="padding:10px">
       <div style="font-size:12px;line-height:1.6">
         <div>Source: <b>${esc(planWorkflowState.source || 'atlas')}</b></div>
         <div>Workspace: <b>${esc(planWorkflowState.workspace || 'Atlas')}</b></div>
+        <div>Requirement Source: <b>${esc(requirementSource)}</b></div>
+        <div>Requirement Preview: <b>${esc(preview)}</b></div>
+        <div>Last Error: <b>${esc(planWorkflowState.lastError || '-')}</b></div>
+        <div>Current Step / Status: <b>${esc(currentStep)}</b></div>
         <div>Requirement: <b>${esc(planWorkflowState.requirementId || '-')}</b></div>
         <div>Plan: <b>${esc(planWorkflowState.planId || '-')}</b></div>
         <div>Review: <b>${esc(planWorkflowState.reviewId || '-')}</b></div>
@@ -13800,7 +13808,7 @@ function _renderPlanWorkflowStatusPanel() {
         <div>Run: <b>${esc(planWorkflowState.runId || '-')}</b></div>
         <div>Last Run: <b>${esc(lastRunId || '-')}</b></div>
         <div>Patches: <b>${esc(String((planWorkflowState.latestPatchIds || []).length))}</b></div>
-        <div>Next Action: <b>${esc(_computePlanWorkflowNextAction())}</b></div>
+        <div>Next Action: <b>${esc(currentStep)}</b></div>
       </div>
       <div style="margin-top:8px">
         <button class="phase1-tab-btn" onclick="openCurrentRunDashboardFromStatus()" ${hasRun ? '' : 'disabled'}>Open Atlas Dashboard</button>
