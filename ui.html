@@ -1397,6 +1397,11 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="legacy" onclick="setAtlasSubview('legacy')">Legacy</button>
         </div>
         <div id="atlas-workbench-card-resume-notice" style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.5">Atlas restored: Overview. No Last Run yet. Run Atlas once, load recent runs, or enter run_id.</div>
+        <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)">
+          <div style="font-size:12px;font-weight:700;color:var(--text)">What do you want Atlas to plan?</div>
+          <textarea id="atlas-requirement-input" placeholder="Describe the task, requirement, bug, or change you want Atlas to plan…" rows="3" style="margin-top:6px;width:100%;min-height:84px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;box-sizing:border-box"></textarea>
+          <div id="atlas-requirement-status" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.5">Ready to start Atlas.</div>
+        </div>
         <div class="atlas-subview" data-atlas-subview-panel="overview">
           <div style="font-size:12px;color:var(--text2);line-height:1.6">要件定義・計画・実行Preview・Patch Review・Run Auditを安全に進める作業入口です。</div>
           <div style="margin-top:8px"><b>Atlas Runs</b> / Last Run: <span id="atlas-workbench-card-atlas-last-run">-</span></div>
@@ -14058,6 +14063,25 @@ function _updatePlanWorkflowState(partial = {}) {
   renderAtlasPlanFlowSummary();
 }
 
+function setAtlasRequirementStatus(message) {
+  const status = document.getElementById('atlas-requirement-status');
+  if (!status) return;
+  status.textContent = message || 'Ready to start Atlas.';
+}
+
+function getAtlasRequirementText() {
+  const atlasInput = document.getElementById('atlas-requirement-input');
+  const atlasText = (atlasInput?.value || '').trim();
+  if (atlasText) return atlasText;
+  const chatInput = document.getElementById('input');
+  return (chatInput?.value || '').trim();
+}
+
+function syncAtlasRequirementToChatInput(text) {
+  const chatInput = document.getElementById('input');
+  if (chatInput && text) chatInput.value = text;
+}
+
 function startPlanWorkflow(options = {}) {
   return runGuidedPlanWorkflow(options);
 }
@@ -14065,14 +14089,28 @@ function startPlanWorkflow(options = {}) {
 async function startAtlasWorkflow() {
   setAtlasSubview('plan');
   try { renderAtlasPlanFlowSummary(); } catch (err) { console.warn('renderAtlasPlanFlowSummary failed:', err); }
+  const atlasInput = document.getElementById('atlas-requirement-input');
+  const atlasText = (atlasInput?.value || '').trim();
+  const requirementText = getAtlasRequirementText();
+  if (!requirementText) {
+    const msg = 'Atlas Start needs a request. Enter a message in Chat or use Atlas Plan inputs, then press Start Atlas again.';
+    setAtlasRequirementStatus('Enter a requirement to start.');
+    addMsg('system', msg);
+    addLog('warn', 'atlas', msg);
+    _updatePlanWorkflowState({ lastError: msg });
+    return null;
+  }
+  if (atlasText) setAtlasRequirementStatus('Using Atlas requirement input.');
+  else setAtlasRequirementStatus('Falling back to Chat input.');
+  syncAtlasRequirementToChatInput(requirementText);
   try { addMsg('system', 'Starting Atlas guided planning workflow...'); } catch (_err) {}
   try {
-    // legacy mapping: return startPlanWorkflow({ source: 'atlas', workspace: 'Atlas' });
-    return await startPlanWorkflow({ source: 'atlas', workspace: 'Atlas' });
+    return await startPlanWorkflow({ source: 'atlas', workspace: 'Atlas', requirementText });
   } catch (err) {
     console.warn('startAtlasWorkflow failed:', err);
     try { addMsg('error', 'Atlas Start failed: ' + (err?.message || String(err))); } catch (_msgErr) {}
     try { addLog('err', 'atlas', 'Start Atlas failed: ' + (err?.message || String(err))); } catch (_logErr) {}
+    setAtlasRequirementStatus('Ready to start Atlas.');
     return null;
   }
 }
@@ -14250,7 +14288,8 @@ async function runGuidedPlanWorkflow(options = {}) {
   const workspace = options?.workspace || 'Atlas';
   _updatePlanWorkflowState({ source, workspace });
   const input = document.getElementById('input');
-  const text = (input?.value || '').trim();
+  const text = (options?.requirementText || (source === 'atlas' ? getAtlasRequirementText() : (input?.value || ''))).trim();
+  if (source === 'atlas' && text) syncAtlasRequirementToChatInput(text);
   if (!text && source === 'atlas') {
     const msg = 'Atlas Start needs a request. Enter a message in Chat or use Atlas Plan inputs, then press Start Atlas again.';
     addMsg('system', msg);
@@ -15021,7 +15060,8 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
 // Backward-compatible name: this now drives the full guided workflow chain (plan/review/approval/execute preview/patch review).
 async function generatePlanOnlyFromInput() {
   const input = document.getElementById('input');
-  const text = (input?.value || '').trim();
+  const text = (options?.requirementText || (source === 'atlas' ? getAtlasRequirementText() : (input?.value || ''))).trim();
+  if (source === 'atlas' && text) syncAtlasRequirementToChatInput(text);
   if (!text || busy) return;
   const planningMode = document.getElementById('phase1-planning-mode')?.value || 'standard';
   const requirementMode = document.getElementById('phase1-requirement-mode')?.value || 'ask_when_needed';

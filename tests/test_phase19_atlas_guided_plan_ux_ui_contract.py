@@ -87,7 +87,7 @@ class TestPhase19AtlasGuidedPlanUxUiContract(unittest.TestCase):
         self.assertIsNotNone(m)
         body = m.group(1)
         self.assertIn("setAtlasSubview('plan');", body)
-        self.assertIn("return startPlanWorkflow({ source: 'atlas', workspace: 'Atlas' });", body)
+        self.assertIn("startPlanWorkflow({ source: 'atlas', workspace: 'Atlas'", body)
 
     def test_safety_copy_exists(self):
         for token in [

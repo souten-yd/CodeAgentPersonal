@@ -171,3 +171,11 @@
 - Empty request no longer fails silently; Atlas now shows a clear input guidance message.
 - Atlas Workbench Start uses the existing safe Plan Workflow path (`startPlanWorkflow`), without workflow bypass.
 - No approval / execute / patch behavior changes are introduced in this phase.
+
+
+## Phase 23 note (Atlas dedicated Requirement input)
+- Atlas Workbench now includes a dedicated Requirement input (`atlas-requirement-input`).
+- Start Atlas reads Atlas Requirement input first, then falls back to Chat input (`#input`).
+- Existing safe guided planning path is reused (`startAtlasWorkflow` -> `startPlanWorkflow` -> `runGuidedPlanWorkflow` -> `generatePlanOnlyFromInput`).
+- Empty request feedback remains in place for Atlas starts.
+- No approval / execute / patch behavior changes are introduced in this phase.
