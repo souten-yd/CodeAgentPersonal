@@ -344,3 +344,13 @@
 - Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
 - No backend workflow changes were introduced.
 - No approval / execute / patch behavior changes were introduced.
+
+## Phase 25.4.11 note (Final reference_card_actions smoke stabilization)
+
+- Stabilized `reference_card_actions` by switching Reference Viewer verification to direct DOM evaluation helpers with a `#nexus-col` fallback.
+- Viewer field checks now validate current UI fields: `source_id`, `mode`, and `highlight`.
+- Viewer wait and URL action assertions are separated so viewer render and button-open flows are validated independently.
+- Diagnostics now include candidate selector text dumps and normalized viewer text output.
+- Backend E2E remains opt-in behind the existing `RUN_ATLAS_BACKEND_E2E` gate.
+- No backend workflow behavior changes were made.
+- No approval / execute / patch behavior changes were made.
