@@ -452,3 +452,18 @@
 - Backend E2E validates start/status/source/workspace signals but does not auto-approve, auto-execute, or auto-apply patches.
 - `Atlas Start failed:` remains acceptable in backend-unavailable mock UI smoke, but is a hard failure in backend E2E path.
 - Backend E2E diagnostics include base URL, Atlas mode/subview/requirement/status, message tail, `/health`, `/api/task/plan`, and browser console/page errors.
+
+## Phase 26.1 note (Real backend preflight / full E2E separation)
+- Backend real-environment checks are split into two opt-in paths:
+  - preflight
+  - full backend E2E
+- Preflight gate: `RUN_ATLAS_BACKEND_PREFLIGHT=1`.
+  - GET-only probes (`/health`, `/system/summary`, `/settings`, `/projects`, `/models/db/status`).
+  - Does not start planner/LLM.
+  - Does not press Atlas Start.
+- Full backend E2E gate: `RUN_ATLAS_BACKEND_E2E=1`.
+  - Runs backend preflight first.
+  - Then presses Atlas Start and validates Atlas guided workflow signals.
+  - Does not auto-approve / auto-execute / auto-apply.
+- Default Playwright UI smoke remains 9/9 mock-backed scenarios.
+- Optional workflow remains manual (`workflow_dispatch`) and does not enable backend preflight/E2E by default.

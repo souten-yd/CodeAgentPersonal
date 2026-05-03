@@ -200,9 +200,6 @@ async def verify_mode_switches(page) -> None:
 
 
 async def verify_atlas_start_button_feedback(page) -> None:
-  errors: list[str] = []
-  page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
-  page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
 
   async def atlas_diag_dump(label: str):
     diag = await page.evaluate("""() => ({
@@ -374,13 +371,48 @@ async def verify_atlas_guided_workflow_safe_journey(page) -> None:
     raise AssertionError("\n".join(errors))
 
 
+
+
+async def collect_backend_preflight_status(page) -> dict:
+  base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip() or "mock-http-origin"
+  endpoints = [
+    ("health", "/health"),
+    ("systemSummary", "/system/summary"),
+    ("settings", "/settings"),
+    ("projects", "/projects"),
+    ("modelDbStatus", "/models/db/status"),
+  ]
+  status: dict[str, object] = {"baseUrl": base_url, "errors": []}
+  for key, path in endpoints:
+    try:
+      res = await page.request.get(path, timeout=3000)
+      payload: dict[str, object] = {"status": res.status, "ok": res.ok}
+      ctype = (res.headers.get("content-type") or "").lower()
+      if "application/json" in ctype:
+        try:
+          payload["json"] = await res.json()
+        except Exception as exc:
+          payload["jsonError"] = str(exc)
+      status[key] = payload
+    except Exception as exc:
+      status[key] = {"error": str(exc)}
+      status["errors"].append(f"{path}: {exc}")
+  return status
+
+
+async def run_backend_preflight(page) -> None:
+  preflight = await collect_backend_preflight_status(page)
+  if preflight.get("errors"):
+    raise AssertionError(f"backend preflight failed: {preflight}")
+
+
 async def verify_atlas_backend_e2e_journey(page) -> None:
-  if os.environ.get("RUN_ATLAS_BACKEND_E2E", "").strip() != "1":
-    print("SKIP: RUN_ATLAS_BACKEND_E2E is not set")
-    return
   errors: list[str] = []
   page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
   page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
+  preflight_status = await collect_backend_preflight_status(page)
+  if preflight_status.get("errors"):
+    raise AssertionError(f"backend preflight failed before full e2e: {preflight_status}")
   base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip() or "mock-http-origin"
   atlas_requirement = "Phase 26.0 backend e2e smoke requirement"
 
@@ -392,19 +424,8 @@ async def verify_atlas_backend_e2e_journey(page) -> None:
       atlasRequirementStatus: document.getElementById('atlas-requirement-status')?.textContent || '',
       messagesTail: Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').slice(-10),
     })""")
-    try:
-      health_res = await page.request.get("/health", timeout=4000)
-      health = {"status": health_res.status, "ok": health_res.ok}
-    except Exception as exc:
-      health = {"error": str(exc)}
-    try:
-      plan_res = await page.request.post("/api/task/plan", data={"message": "phase26 backend e2e diag plan probe"}, timeout=4000)
-      plan_status = {"status": plan_res.status, "ok": plan_res.ok}
-    except Exception as exc:
-      plan_status = {"error": str(exc)}
     diag["baseUrl"] = base_url
-    diag["health"] = health
-    diag["planStatus"] = plan_status
+    diag["preflightStatus"] = preflight_status
     diag["hasAtlasStartFailed"] = any("Atlas Start failed:" in (m or "") for m in diag.get("messagesTail", []))
     diag["consoleErrors"] = list(errors)
     print(f"INFO: atlas backend e2e diagnostics ({label}): {diag}")
@@ -1138,9 +1159,16 @@ async def main() -> None:
       ("reference_card_actions", verify_reference_card_actions),
       ("chat_search_and_agent_web_tool_tts", verify_chat_search_and_agent_web_tool_tts),
     ]
-    if os.environ.get("RUN_ATLAS_BACKEND_E2E", "").strip() == "1":
+    run_backend_preflight_opt_in = os.environ.get("RUN_ATLAS_BACKEND_PREFLIGHT", "").strip() == "1"
+    run_backend_e2e_opt_in = os.environ.get("RUN_ATLAS_BACKEND_E2E", "").strip() == "1"
+    if run_backend_preflight_opt_in or run_backend_e2e_opt_in:
+      scenarios.append(("atlas_backend_preflight", run_backend_preflight))
+    else:
+      print("INFO: backend preflight remains opt-in (set RUN_ATLAS_BACKEND_PREFLIGHT=1 to include).")
+    if run_backend_e2e_opt_in:
       scenarios.append(("atlas_backend_e2e_journey", verify_atlas_backend_e2e_journey))
     else:
+      print("SKIP: RUN_ATLAS_BACKEND_E2E is not set")
       print("INFO: backend E2E scenario remains opt-in (set RUN_ATLAS_BACKEND_E2E=1 to include).")
 
     async def bootstrap_assertions(current_page) -> None:
