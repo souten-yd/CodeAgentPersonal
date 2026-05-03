@@ -17,9 +17,9 @@ class TestPhase25418ReferenceCardSourceUrlFinalContract(unittest.TestCase):
             self.smoke,
         )
 
-    def test_source_url_assert_is_conditional(self):
-        self.assertIn('source_url_action_status = "clicked"', self.smoke)
-        self.assertIn('if source_url_action_status == "clicked":', self.smoke)
+    def test_source_url_diagnostic_statuses_exist(self):
+        self.assertIn('source_url_action_status = "opened"', self.smoke)
+        self.assertIn('clickedNoOpen', self.smoke)
 
     def test_disabled_or_missing_source_url_is_diagnostic_only(self):
         self.assertIn('source_url_action_status = "skippedDisabled"', self.smoke)
