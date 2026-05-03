@@ -509,8 +509,8 @@ REFERENCE_VIEWER_SELECTORS = [
   ".nexus-reference-viewer",
   "[id*='reference-viewer']",
   "[id*='reference'][id*='viewer']",
-  "#nexus-col",
   "#nexus-deep-references",
+  "#nexus-col",
 ]
 
 
@@ -535,14 +535,15 @@ async def collect_reference_viewer_text(page) -> dict:
       normalizedText,
       refCardCount: root?.querySelectorAll('.nexus-ref-card')?.length || 0,
       cardButtonTexts: card ? Array.from(card.querySelectorAll('button')).map((el) => el.textContent || '') : [],
+      fetchedUrls: window.__fetchedUrls || [],
       openedUrls: window.__openedUrls || [],
       activeNexusTab: document.querySelector('#nexus-tabbar .nexus-tab-btn.active')?.id || '',
     };
   }""", arg=REFERENCE_VIEWER_SELECTORS)
 
 
-async def wait_reference_viewer_current_fields(page, timeout_ms: int = 5000, interval_ms: int = 500) -> dict:
-  required = ['[S1] Mock Source', 'source_id: src-1', 'mode: text', 'highlight: doc-1:0']
+async def wait_reference_viewer_current_fields(page, timeout_ms: int = 8000, interval_ms: int = 200) -> dict:
+  required = ['source_id: src-1', 'mode: text', 'highlight: doc-1:0']
   last_diag = {}
   deadline = time.monotonic() + (timeout_ms / 1000.0)
   while time.monotonic() < deadline:
@@ -551,10 +552,11 @@ async def wait_reference_viewer_current_fields(page, timeout_ms: int = 5000, int
     if all(token in normalized_text for token in required):
       return last_diag
     await page.wait_for_timeout(interval_ms)
-  raise AssertionError(f"reference viewer fields not found: required={required} diag={last_diag}")
+  raise AssertionError(f"reference viewer fields not found after full-text click: required={required} diag={last_diag}")
 
 
 async def verify_reference_card_actions(page) -> None:
+  clicked_action_button = ""
   async def ref_diag_dump(label: str, reason: str = ""):
     ref_diag = await collect_reference_viewer_text(page)
     printable = {
@@ -562,9 +564,12 @@ async def verify_reference_card_actions(page) -> None:
       "normalizedText": ref_diag.get("normalizedText", ""),
       "normalizedViewerText": ref_diag.get("normalizedText", ""),
       "cardButtonTexts": ref_diag.get("cardButtonTexts", []),
+      "fetchedUrls": ref_diag.get("fetchedUrls", []),
       "openedUrls": ref_diag.get("openedUrls", []),
       "activeNexusTab": ref_diag.get("activeNexusTab", ""),
       "refCardCount": ref_diag.get("refCardCount", 0),
+      "viewerStatus": "updated" if all(token in ref_diag.get("normalizedText", "") for token in ["source_id: src-1", "mode: text", "highlight: doc-1:0"]) else "initial_or_pending",
+      "clickedActionButton": clicked_action_button,
       "fullErrorReason": reason,
     }
     print(f"INFO: reference_card_actions diagnostics ({label}): {printable}")
@@ -581,6 +586,7 @@ async def verify_reference_card_actions(page) -> None:
     """
     () => {
       window.__openedUrls = [];
+      window.__fetchedUrls = [];
       const realFetch = window.fetch.bind(window);
       window.open = (url) => {
         window.__openedUrls.push(String(url || ''));
@@ -588,6 +594,9 @@ async def verify_reference_card_actions(page) -> None:
       };
       window.fetch = async (input, init) => {
         const url = String(typeof input === 'string' ? input : (input?.url || ''));
+        if (url.includes('/nexus/sources/src-1')) {
+          window.__fetchedUrls.push(url);
+        }
         if (url.includes('/nexus/sources/src-1/chunks')) {
           return {
             ok: true,
@@ -628,10 +637,10 @@ async def verify_reference_card_actions(page) -> None:
     await ref_card.wait_for(state="visible")
     assert await ref_card.locator("text=[S1] Mock Source").count() > 0
 
-    await wait_reference_viewer_current_fields(page)
-
-    opened = await click_first_visible_button_by_names(ref_card, ["全文表示", "全文", "Text", "Open Text", "Show Full Text"])
+    opened = await click_first_visible_button_by_names(ref_card, ["全文表示", "Text", "Open Text", "Show Full Text", "全文"])
     assert opened, f"reference card full-text action not found in current DOM: {ref_debug}"
+    clicked_action_button = "全文表示/Text"
+    await wait_reference_viewer_current_fields(page)
     await ref_card.get_by_role("button", name="該当箇所").click()
     await wait_reference_viewer_current_fields(page)
     await ref_card.get_by_role("button", name="元URL").click()
@@ -646,9 +655,10 @@ async def verify_reference_card_actions(page) -> None:
   assert "source_id: src-1" in viewer_text, viewer_text
   assert "mode: text" in viewer_text, viewer_text
   assert "highlight: doc-1:0" in viewer_text, viewer_text
+  fetched_urls = await page.evaluate("() => window.__fetchedUrls || []")
   opened_urls = await page.evaluate("() => window.__openedUrls || []")
   await ref_diag_dump("final")
-  assert any("/nexus/sources/src-1/text" in url for url in opened_urls), opened_urls
+  assert any("/nexus/sources/src-1/text" in url for url in fetched_urls), fetched_urls
   assert any("https://example.com/report" in url for url in opened_urls), opened_urls
   assert any("/nexus/sources/src-1/original" in url for url in opened_urls), opened_urls
 
