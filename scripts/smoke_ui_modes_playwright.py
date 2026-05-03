@@ -603,15 +603,62 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
     active_jobs_json = active_jobs.get("json") if isinstance(active_jobs.get("json"), dict) else {}
     active_statuses = [str(j.get("status", "")).strip().lower() for j in active_jobs_json.get("jobs", []) if isinstance(j, dict)]
     active_failed = any(st in {"failed", "error", "cancelled", "canceled"} for st in active_statuses)
-    if "atlas start failed:" in haystack or last_error not in ("", "-") or " job failed" in haystack or "status: failed" in haystack or "failed:" in haystack or active_failed:
+    completion_signal_tokens = [
+      "plan: completed",
+      "plan: ready",
+      "plan ready",
+      "review ready",
+      "plan generated",
+      "generated plan",
+      "plan review",
+      "review: ready",
+      "review: required",
+    ]
+    pending_signal_tokens = ["plan: pending", "review: pending", "requirement: pending"]
+    completion_signals = [token for token in completion_signal_tokens if token in haystack]
+    pending_signals = [token for token in pending_signal_tokens if token in haystack]
+    backend_done_statuses = {"succeeded", "completed", "done", "success"}
+    backend_running_statuses = {"running"}
+    backend_statuses = [st for st in active_statuses if st]
+    backend_done_hits = [st for st in backend_statuses if st in backend_done_statuses]
+    backend_running_hits = [st for st in backend_statuses if st in backend_running_statuses]
+    failure_signals = []
+    if "atlas start failed:" in haystack:
+      failure_signals.append("atlas_start_failed")
+    if last_error not in ("", "-"):
+      failure_signals.append("last_error_present")
+    if " job failed" in haystack or "status: failed" in haystack or "failed:" in haystack:
+      failure_signals.append("failed_text_detected")
+    if active_failed:
+      failure_signals.append("backend_failed_status")
+    diag["completionSignals"] = completion_signals
+    diag["pendingSignals"] = pending_signals
+    diag["backendJobStatuses"] = backend_statuses
+    diag["failureSignals"] = failure_signals
+    diag["completionDecisionReason"] = "in_progress"
+
+    if failure_signals:
       final = "failed"
-      last_diag = {**diag, "finalDecision": final}
+      reason = "last_error_present" if "last_error_present" in failure_signals else "failure_signal_detected"
+      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": reason}
       break
-    active_jobs_text = json.dumps(active_jobs_json, ensure_ascii=False).lower()
-    if any(k in haystack for k in ["plan: completed", "plan ready", "review ready", "plan generated", "approval: required"]) and ("succeeded" in active_jobs_text or "completed" in active_jobs_text or "done" in active_jobs_text or "running" in active_jobs_text):
+
+    active_jobs_available = not (active_jobs.get("status") in (404, None) and (active_jobs.get("error") or active_jobs.get("json") is None))
+    has_completion_signal = len(completion_signals) > 0
+    has_pending_signal = len(pending_signals) > 0
+
+    if has_pending_signal:
+      diag["completionDecisionReason"] = "pending_plan_detected"
+    elif has_completion_signal and backend_done_hits:
       final = "completed"
-      last_diag = {**diag, "finalDecision": final}
+      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "ui_plan_ready_and_backend_done"}
       break
+    elif has_completion_signal and not active_jobs_available:
+      final = "completed"
+      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "ui_plan_ready_backend_unavailable"}
+      break
+    elif has_completion_signal and backend_running_hits:
+      diag["completionDecisionReason"] = "backend_running_not_completed"
     last_diag = diag
     await page.wait_for_timeout(2000)
   if not last_diag:
@@ -619,6 +666,8 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
   last_diag["consoleErrors"] = list(console_errors)
   last_diag["pageErrors"] = list(page_errors)
   last_diag["elapsedMs"] = int((time.perf_counter() - started) * 1000)
+  if final == "timeout" and not last_diag.get("completionDecisionReason"):
+    last_diag["completionDecisionReason"] = "timeout_without_completion"
   last_diag["finalDecision"] = final if final != "timeout" else last_diag.get("finalDecision", "timeout")
   return last_diag
 
