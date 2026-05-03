@@ -38,6 +38,8 @@ async def verify_mode_switches(page) -> None:
   assert await page.locator("#atlas-panel-col", has_text="Atlas Workbench").count() > 0
   assert await page.locator("#atlas-workbench-card").count() > 0
   assert await page.get_by_role("button", name="Start Atlas").count() > 0
+  await page.click("[data-atlas-subview-tab='legacy']")
+  assert await page.get_by_role("button", name="Open Legacy Task").count() > 0
   assert await page.get_by_role("button", name="Load Recent Atlas Runs").count() > 0
 
   await page.click("#btn-agent")
@@ -53,6 +55,9 @@ async def verify_mode_switches(page) -> None:
   await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display === 'none'")
   await page.wait_for_function("() => document.getElementById('agent-col') && getComputedStyle(document.getElementById('agent-col')).display === 'none'")
   await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display === 'none'")
+  assert await page.locator("#chat-role-note", has_text="Chat is for lightweight conversation").count() > 0
+  assert await page.locator("#chat-role-note", has_text="Use Atlas for guided work planning").count() > 0
+
   await page.click("#btn-atlas")
   await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
 
