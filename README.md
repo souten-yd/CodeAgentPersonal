@@ -1330,3 +1330,5 @@ PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 RUN_ATLAS_BACKEND_E2E=1 python s
 ```
 
 - `PLAYWRIGHT_SMOKE_BASE_URL` is only honored in real backend opt-in modes (`RUN_ATLAS_BACKEND_PREFLIGHT=1` or `RUN_ATLAS_BACKEND_E2E=1`). In default mode, it is ignored and smoke remains mock-backed by design.
+
+- Phase 27.0b: wait-plan completion now recognizes `Requirement: done` + `Plan: generated` + `Review: done` + `Approval: required` (`Last Error: -`) as completed; still opt-in only.
