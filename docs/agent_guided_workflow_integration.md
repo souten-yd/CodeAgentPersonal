@@ -186,3 +186,12 @@
 - Atlas Requirement is synchronized into Chat input before invoking the existing planner.
 - No backend workflow changes were introduced in this phase.
 - No approval / execute / patch behavior changes are introduced in this phase.
+
+
+## Phase 23.5 note (Atlas Requirement input polish / persistence)
+- Atlas Requirement input now persists drafts via localStorage (`atlas:requirementInput`).
+- Clear Requirement clears only Atlas Requirement input (it does not clear Chat input).
+- Use Chat Input copies Chat text into Atlas Requirement input.
+- Atlas Requirement now shows character count and clearer status feedback for save/restore/fallback/start.
+- Existing safe Plan Workflow path remains unchanged.
+- No approval / execute / patch behavior changes are introduced in this phase.

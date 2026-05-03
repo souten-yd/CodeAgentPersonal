@@ -1399,7 +1399,13 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         <div id="atlas-workbench-card-resume-notice" style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.5">Atlas restored: Overview. No Last Run yet. Run Atlas once, load recent runs, or enter run_id.</div>
         <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)">
           <div style="font-size:12px;font-weight:700;color:var(--text)">What do you want Atlas to plan?</div>
+          <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.5">Write your request here for Atlas-first guided planning. If empty, Atlas can fall back to Chat input.</div>
           <textarea id="atlas-requirement-input" placeholder="Describe the task, requirement, bug, or change you want Atlas to plan…" rows="3" style="margin-top:6px;width:100%;min-height:84px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;box-sizing:border-box"></textarea>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px">
+            <button id="atlas-requirement-clear-btn" class="phase1-tab-btn" type="button" onclick="clearAtlasRequirementInput()">Clear Requirement</button>
+            <button id="atlas-requirement-use-chat-btn" class="phase1-tab-btn" type="button" onclick="copyChatInputToAtlasRequirement()">Use Chat Input</button>
+            <div id="atlas-requirement-char-count" style="font-size:11px;color:var(--text3)">0 chars</div>
+          </div>
           <div id="atlas-requirement-status" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.5">Ready to start Atlas.</div>
         </div>
         <div class="atlas-subview" data-atlas-subview-panel="overview">
@@ -13727,10 +13733,11 @@ function _renderNexusContextSummary(nexusContext, { title = 'Nexus Context Summa
 const ATLAS_LAST_RUN_KEY = 'atlas:lastRunId';
 const ATLAS_LAST_DASHBOARD_RUN_KEY = 'atlas:lastDashboardRunId';
 const ATLAS_LAST_SUBVIEW_KEY = 'atlas:lastSubview';
+const ATLAS_REQUIREMENT_INPUT_KEY = 'atlas:requirementInput';
 const ATLAS_SUBVIEWS = ['overview', 'plan', 'runs', 'dashboard', 'patch_review', 'legacy'];
 
 function _atlasLsGet(key) { try { return localStorage.getItem(key) || ''; } catch(_) { return ''; } }
-function _atlasLsSet(key, value) { try { if (value) localStorage.setItem(key, value); } catch(_) {} }
+function _atlasLsSet(key, value) { try { localStorage.setItem(key, value || ''); } catch(_) {} }
 
 function getAtlasLastRunId() { return _atlasLsGet(ATLAS_LAST_RUN_KEY) || ''; }
 
@@ -14069,6 +14076,66 @@ function setAtlasRequirementStatus(message) {
   status.textContent = message || 'Ready to start Atlas.';
 }
 
+
+function updateAtlasRequirementCharCount() {
+  const input = document.getElementById('atlas-requirement-input');
+  const counter = document.getElementById('atlas-requirement-char-count');
+  if (!counter) return;
+  const count = (input?.value || '').length;
+  counter.textContent = `${count} chars`;
+}
+
+function persistAtlasRequirementInput() {
+  const input = document.getElementById('atlas-requirement-input');
+  if (!input) return;
+  try { _atlasLsSet(ATLAS_REQUIREMENT_INPUT_KEY, input.value || ''); } catch (err) { console.warn('persistAtlasRequirementInput failed:', err); }
+}
+
+function restoreAtlasRequirementInput() {
+  const input = document.getElementById('atlas-requirement-input');
+  if (!input) return;
+  const saved = _atlasLsGet(ATLAS_REQUIREMENT_INPUT_KEY);
+  if (saved && !input.value) input.value = saved;
+  updateAtlasRequirementCharCount();
+  setAtlasRequirementStatus(input.value.trim() ? 'Requirement draft restored.' : 'Ready to start Atlas.');
+}
+
+function clearAtlasRequirementInput() {
+  const input = document.getElementById('atlas-requirement-input');
+  if (input) input.value = '';
+  try { _atlasLsSet(ATLAS_REQUIREMENT_INPUT_KEY, ''); } catch (err) { console.warn('clearAtlasRequirementInput failed:', err); }
+  updateAtlasRequirementCharCount();
+  setAtlasRequirementStatus('Requirement cleared.');
+}
+
+function copyChatInputToAtlasRequirement() {
+  const input = document.getElementById('atlas-requirement-input');
+  const chatInput = document.getElementById('input');
+  if (!input) return;
+  const text = (chatInput?.value || '').trim();
+  if (!text) {
+    setAtlasRequirementStatus('Chat input is empty.');
+    updateAtlasRequirementCharCount();
+    return;
+  }
+  input.value = text;
+  persistAtlasRequirementInput();
+  updateAtlasRequirementCharCount();
+  setAtlasRequirementStatus('Copied from Chat input.');
+}
+
+function initAtlasRequirementInputHandlers() {
+  const input = document.getElementById('atlas-requirement-input');
+  if (!input || input.dataset.bound === '1') return;
+  input.addEventListener('input', () => {
+    persistAtlasRequirementInput();
+    updateAtlasRequirementCharCount();
+    setAtlasRequirementStatus('Requirement draft saved.');
+  });
+  input.dataset.bound = '1';
+  updateAtlasRequirementCharCount();
+}
+
 function getAtlasRequirementText() {
   const atlasInput = document.getElementById('atlas-requirement-input');
   const atlasText = (atlasInput?.value || '').trim();
@@ -14103,6 +14170,7 @@ async function startAtlasWorkflow() {
   if (atlasText) setAtlasRequirementStatus('Using Atlas requirement input.');
   else setAtlasRequirementStatus('Falling back to Chat input.');
   syncAtlasRequirementToChatInput(requirementText);
+  setAtlasRequirementStatus('Starting Atlas guided planning workflow...');
   try { addMsg('system', 'Starting Atlas guided planning workflow...'); } catch (_err) {}
   try {
     return await startPlanWorkflow({ source: 'atlas', workspace: 'Atlas', requirementText });
@@ -14110,7 +14178,7 @@ async function startAtlasWorkflow() {
     console.warn('startAtlasWorkflow failed:', err);
     try { addMsg('error', 'Atlas Start failed: ' + (err?.message || String(err))); } catch (_msgErr) {}
     try { addLog('err', 'atlas', 'Start Atlas failed: ' + (err?.message || String(err))); } catch (_logErr) {}
-    setAtlasRequirementStatus('Ready to start Atlas.');
+    setAtlasRequirementStatus('Atlas Start failed.');
     return null;
   }
 }
@@ -14180,6 +14248,12 @@ function restoreAtlasSubviewState() {
     updateAtlasResumeNotice(subview);
   } catch (err) {
     console.warn('updateAtlasResumeNotice failed during restore:', err);
+  }
+  try {
+    initAtlasRequirementInputHandlers();
+    restoreAtlasRequirementInput();
+  } catch (err) {
+    console.warn('restoreAtlasRequirementInput failed during restore:', err);
   }
 }
 
@@ -14307,7 +14381,7 @@ async function runGuidedPlanWorkflow(options = {}) {
   }
   if (source === 'atlas' && requirementText) {
     syncAtlasRequirementToChatInput(requirementText);
-    setAtlasRequirementStatus('Using Atlas requirement input.');
+    setAtlasRequirementStatus((options?.requirementText || document.getElementById('atlas-requirement-input')?.value || '').trim() ? 'Using Atlas requirement input.' : 'Falling back to Chat input.');
   }
   return generatePlanOnlyFromInput();
 }
