@@ -218,3 +218,14 @@
 - Console/page errors still fail smoke.
 - No backend workflow behavior was changed.
 - No approval / execute / patch behavior was changed.
+
+## Phase 25.2 note (Playwright smoke split: UI smoke / backend E2E smoke)
+- Playwright smoke is split into backend-independent UI smoke and optional backend E2E smoke.
+- Default smoke (`python scripts/smoke_ui_modes_playwright.py`) runs UI smoke only.
+- Backend E2E smoke is opt-in and runs only when `RUN_ATLAS_BACKEND_E2E=1` is set.
+- UI smoke accepts visible backend failure (`Atlas Start failed:`) as a valid safe-journey outcome when backend is unavailable.
+- Backend E2E smoke does not accept `Atlas Start failed:` and expects workflow/status/source signals on success path.
+- If Playwright is missing, smoke prints install guidance:
+  - `python -m pip install playwright`
+  - `python -m playwright install chromium`
+- No backend workflow behavior changes were introduced in this phase.

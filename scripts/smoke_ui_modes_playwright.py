@@ -232,6 +232,60 @@ async def verify_atlas_guided_workflow_safe_journey(page) -> None:
   if errors:
     raise AssertionError("\n".join(errors))
 
+
+async def verify_atlas_backend_e2e_journey(page) -> None:
+  if os.environ.get("RUN_ATLAS_BACKEND_E2E", "").strip() != "1":
+    print("SKIP: RUN_ATLAS_BACKEND_E2E is not set")
+    return
+  errors: list[str] = []
+  page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+  page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
+
+  await page.click("#btn-chat")
+  await page.fill("#input", "")
+  await page.click("#btn-atlas")
+  await page.wait_for_selector("#atlas-workbench-card")
+  await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
+  await page.fill("#atlas-requirement-input", "Phase 25.2 backend e2e smoke requirement")
+  await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+
+  await page.wait_for_function(
+    "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'",
+    timeout=30_000,
+  )
+  await page.wait_for_function(
+    "() => !!document.getElementById('atlas-workbench-card-plan-flow') && (document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '').includes('Requirement')",
+    timeout=30_000,
+  )
+
+  const_messages = await page.evaluate("""() => Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n')""")
+  assert "Atlas Start failed:" not in const_messages, "backend E2E smoke must not accept Atlas Start failed"
+
+  await page.wait_for_function("""() => {
+    const status = document.getElementById('atlas-requirement-status')?.textContent || '';
+    const messages = Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n');
+    return (
+      messages.includes('Atlas Workflow Status')
+      || messages.includes('Requirement Source: atlas')
+      || messages.includes('Source: atlas')
+      || messages.includes('Workspace: Atlas')
+      || status.includes('Using Atlas requirement input.')
+      || status.includes('Starting Atlas guided planning workflow')
+    );
+  }""", timeout=45_000)
+  await page.wait_for_function("""() => {
+    const status = document.getElementById('atlas-requirement-status')?.textContent || '';
+    const messages = Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n');
+    return (
+      status.includes('Using Atlas requirement input.')
+      || messages.includes('Requirement Source: atlas')
+      || messages.includes('Source: atlas')
+      || messages.includes('Workspace: Atlas')
+    );
+  }""", timeout=45_000)
+  if errors:
+    raise AssertionError("\n".join(errors))
+
 async def verify_nexus_tabs(page) -> None:
   await page.click("#btn-nexus")
   for tab in NEXUS_TABS:
@@ -558,7 +612,10 @@ async def verify_chat_search_and_agent_web_tool_tts(page) -> None:
 
 async def main() -> None:
   if async_playwright is None:
-    print("SKIP: playwright is not installed")
+    print("SKIP: playwright is not installed.")
+    print("Install with:")
+    print("python -m pip install playwright")
+    print("python -m playwright install chromium")
     return
   syntax_rc = check_ui_syntax_main()
   if syntax_rc != 0:
@@ -586,6 +643,7 @@ async def main() -> None:
     await verify_nexus_tabs(page)
     await verify_reference_card_actions(page)
     await verify_chat_search_and_agent_web_tool_tts(page)
+    await verify_atlas_backend_e2e_journey(page)
 
     if errors:
       raise AssertionError("\n".join(errors))
