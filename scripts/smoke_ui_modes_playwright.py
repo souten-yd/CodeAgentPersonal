@@ -542,17 +542,38 @@ async def collect_reference_viewer_text(page) -> dict:
   }""", arg=REFERENCE_VIEWER_SELECTORS)
 
 
-async def wait_reference_viewer_current_fields(page, timeout_ms: int = 8000, interval_ms: int = 200) -> dict:
-  required = ['source_id: src-1', 'mode: text', 'highlight: doc-1:0']
+async def click_reference_button(card, labels: list[str]) -> str:
+  for label in labels:
+    locator = card.get_by_role("button", name=label)
+    if await locator.count() > 0:
+      await locator.first.click()
+      return label
+  opened = await click_first_visible_button_by_names(card, labels)
+  if opened:
+    return labels[0] if labels else "unknown"
+  raise AssertionError(f"reference card action button not found: {labels}")
+
+
+async def wait_reference_viewer_text_fields(page, required_tokens: list[str], label: str, timeout_ms: int = 8000, interval_ms: int = 200) -> dict:
   last_diag = {}
   deadline = time.monotonic() + (timeout_ms / 1000.0)
   while time.monotonic() < deadline:
     last_diag = await collect_reference_viewer_text(page)
     normalized_text = normalize_reference_text(last_diag.get('normalizedText', ''))
-    if all(token in normalized_text for token in required):
+    if all(token in normalized_text for token in required_tokens):
       return last_diag
     await page.wait_for_timeout(interval_ms)
-  raise AssertionError(f"reference viewer fields not found after full-text click: required={required} diag={last_diag}")
+  raise AssertionError(f"reference viewer fields not found ({label}): required={required_tokens} normalizedText={last_diag.get('normalizedText', '')} diag={last_diag}")
+
+
+async def get_reference_tracking(page) -> dict:
+  diag = await collect_reference_viewer_text(page)
+  return {
+    "fetchedUrls": diag.get("fetchedUrls", []),
+    "openedUrls": diag.get("openedUrls", []),
+    "cardButtonTexts": diag.get("cardButtonTexts", []),
+    "activeNexusTab": diag.get("activeNexusTab", ""),
+  }
 
 
 async def verify_reference_card_actions(page) -> None:
@@ -642,19 +663,26 @@ async def verify_reference_card_actions(page) -> None:
     assert await ref_card.locator("text=[S1] Mock Source").count() > 0
 
     initial_viewer_diag = await collect_reference_viewer_text(page)
-    opened = await click_first_visible_button_by_names(ref_card, ["全文表示", "Text", "Open Text", "Show Full Text", "全文"])
-    assert opened, f"reference card full-text action not found in current DOM: {ref_debug}"
-    clicked_action_button = "全文表示/Text"
-    final_viewer_diag = await wait_reference_viewer_current_fields(page)
-    await ref_card.get_by_role("button", name="該当箇所").click()
-    await wait_reference_viewer_current_fields(page)
-    await ref_card.get_by_role("button", name="元URL").click()
-    await ref_card.get_by_role("button", name="ダウンロード").click()
+    clicked_action_button = await click_reference_button(ref_card, ["全文表示", "Text", "Open Text", "Show Full Text", "全文"])
+    final_viewer_diag = await wait_reference_viewer_text_fields(page, ["source_id: src-1", "mode: text"], "Full Text")
+    tracking = await get_reference_tracking(page)
+    assert any("/nexus/sources/src-1/text" in url for url in tracking["fetchedUrls"]), tracking
+
+    clicked_action_button = await click_reference_button(ref_card, ["該当箇所", "Highlight", "Citation", "Chunk", "Open Highlight"])
+    await wait_reference_viewer_text_fields(page, ["doc-1:0"], "Highlight")
+
+    clicked_action_button = await click_reference_button(ref_card, ["元URL", "Source URL", "Open Source"])
+    tracking = await get_reference_tracking(page)
+    assert any("https://example.com/report" in url for url in tracking["openedUrls"]), tracking
+
+    clicked_action_button = await click_reference_button(ref_card, ["ダウンロード", "Download"])
+    tracking = await get_reference_tracking(page)
+    assert any("/nexus/sources/src-1/original" in url for url in tracking["openedUrls"]) or any("/nexus/sources/src-1/original" in url for url in tracking["fetchedUrls"]), tracking
   except (AssertionError, PlaywrightTimeoutError) as err:
     await ref_diag_dump(f"failure: {type(err).__name__}", str(err))
     raise
 
-  viewer_diag = await wait_reference_viewer_current_fields(page)
+  viewer_diag = await wait_reference_viewer_text_fields(page, ["source_id: src-1", "mode: text", "doc-1:0"], "Final")
   viewer_text = normalize_reference_text(viewer_diag.get("normalizedText", ""))
   assert "[S1] Mock Source" in viewer_text, viewer_text
   assert "source_id: src-1" in viewer_text, viewer_text

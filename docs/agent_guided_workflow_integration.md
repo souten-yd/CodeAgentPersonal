@@ -372,3 +372,13 @@
 - Backend E2E remains opt-in (`RUN_ATLAS_BACKEND_E2E`) and default smoke remains UI-only.
 - No backend workflow behavior changes were made.
 - No approval/execute/patch behavior changes were made.
+
+## Phase 25.4.14 note (Final reference_card_actions action sequencing fix)
+- Final reference_card_actions action sequencing fix applied for Playwright UI smoke.
+- Full Text action now verifies source text fetch and `mode: text` only.
+- Highlight action is verified in a separate step for highlight/doc chunk fields.
+- URL and Download actions are verified separately.
+- `fetchedUrls` and `openedUrls` remain separated.
+- Backend E2E remains opt-in (`RUN_ATLAS_BACKEND_E2E`).
+- No backend workflow changes were introduced.
+- No approval/execute/patch behavior changes were introduced.
