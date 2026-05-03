@@ -479,3 +479,23 @@
 
 
 - `PLAYWRIGHT_SMOKE_BASE_URL` is only honored in real backend opt-in modes (`RUN_ATLAS_BACKEND_PREFLIGHT=1` or `RUN_ATLAS_BACKEND_E2E=1`). In default mode, it is ignored and smoke remains mock-backed by design.
+
+## Phase 26.3 note (Windows local preflight validation and default/base-url guard confirmation)
+- Windows local backend preflight-only was validated as a single-scenario run:
+  - Total scenarios: 1
+  - PASS: 1
+  - FAIL: 0
+  - atlas_backend_preflight PASS
+- Confirmed preflight endpoint status snapshot:
+  - /health 200
+  - /system/summary 200
+  - /settings 200
+  - /projects 200
+  - /models/db/status 200
+  - errors []
+  - warnings []
+- Preflight remained GET-only (no planner start, no Atlas Start button press, no diagnostic POST).
+- Default mock-backed UI smoke 9/9 verification must remain a separate run from preflight-only mode.
+- `PLAYWRIGHT_SMOKE_BASE_URL` alone remains guarded and ignored in default mode; explicit base URL is honored only for real-backend opt-in modes.
+- Full backend E2E remains not yet executed by this phase note and is still an explicit opt-in path.
+- No approval / execute / apply behavior changes were introduced.
