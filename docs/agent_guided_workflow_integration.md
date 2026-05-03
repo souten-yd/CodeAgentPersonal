@@ -467,3 +467,13 @@
   - Does not auto-approve / auto-execute / auto-apply.
 - Default Playwright UI smoke remains 9/9 mock-backed scenarios.
 - Optional workflow remains manual (`workflow_dispatch`) and does not enable backend preflight/E2E by default.
+
+## Phase 26.2 note (Real backend preflight execution visibility hardening)
+- `atlas_backend_preflight` appears in scenario summary only when opt-in is enabled.
+- Preflight diagnostics are visible in artifact logs (`baseUrl`, per-endpoint status/ok/json|jsonError, elapsedMs, errors/warnings).
+- Preflight remains GET-only and planner-safe (no plan generation / no Atlas Start in preflight-only path).
+- `/health` is treated as the primary required liveness check; other preflight endpoints are diagnostic warnings.
+- Full backend E2E remains separate opt-in (`RUN_ATLAS_BACKEND_E2E=1`) and still runs preflight first.
+- Default optional smoke remains mock-backed 9/9 baseline.
+- No approval / execute / apply behavior changes were introduced.
+

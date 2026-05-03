@@ -6,6 +6,7 @@ from pathlib import Path
 import os
 import re
 import time
+from urllib.parse import urljoin
 import traceback
 import json
 import html
@@ -376,6 +377,16 @@ async def verify_atlas_guided_workflow_safe_journey(page) -> None:
 
 
 
+def _truncate_json(value, limit: int = 240):
+  try:
+    text = json.dumps(value, ensure_ascii=False)
+  except Exception:
+    return "<non-json>"
+  if len(text) <= limit:
+    return text
+  return text[:limit] + "...<truncated>"
+
+
 async def collect_backend_preflight_status(page) -> dict:
   base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip() or "mock-http-origin"
   endpoints = [
@@ -385,28 +396,45 @@ async def collect_backend_preflight_status(page) -> dict:
     ("projects", "/projects"),
     ("modelDbStatus", "/models/db/status"),
   ]
-  status: dict[str, object] = {"baseUrl": base_url, "errors": []}
+  status: dict[str, object] = {"baseUrl": base_url, "errors": [], "warnings": []}
   for key, path in endpoints:
+    target_url = urljoin(base_url.rstrip("/") + "/", path.lstrip("/")) if base_url.startswith("http") else path
+    started = time.perf_counter()
     try:
-      res = await page.request.get(path, timeout=3000)
-      payload: dict[str, object] = {"status": res.status, "ok": res.ok}
+      res = await page.request.get(target_url, timeout=3000)
+      elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+      payload: dict[str, object] = {"status": res.status, "ok": res.ok, "elapsedMs": elapsed_ms}
       ctype = (res.headers.get("content-type") or "").lower()
       if "application/json" in ctype:
         try:
-          payload["json"] = await res.json()
+          payload["json"] = _truncate_json(await res.json())
         except Exception as exc:
           payload["jsonError"] = str(exc)
+          status["warnings"].append(f"{path}: json parse failed ({exc})")
+      elif ctype:
+        payload["contentType"] = ctype
       status[key] = payload
+      if key == "health" and res.status >= 500:
+        status["errors"].append(f"{path}: health returned HTTP {res.status}")
+      elif key != "health" and res.status >= 500:
+        status["warnings"].append(f"{path}: returned HTTP {res.status}")
+      elif key != "health" and res.status != 200:
+        status["warnings"].append(f"{path}: returned HTTP {res.status}")
     except Exception as exc:
-      status[key] = {"error": str(exc)}
-      status["errors"].append(f"{path}: {exc}")
+      elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+      status[key] = {"error": str(exc), "elapsedMs": elapsed_ms}
+      if key == "health":
+        status["errors"].append(f"{path}: {exc}")
+      else:
+        status["warnings"].append(f"{path}: {exc}")
   return status
 
 
 async def run_backend_preflight(page) -> None:
   preflight = await collect_backend_preflight_status(page)
+  print("INFO: backend preflight status:\n" + json.dumps(preflight, ensure_ascii=False, indent=2))
   if preflight.get("errors"):
-    raise AssertionError(f"backend preflight failed: {preflight}")
+    raise AssertionError(f"backend preflight failed: {preflight['errors']}")
 
 
 async def verify_atlas_backend_e2e_journey(page) -> None:
