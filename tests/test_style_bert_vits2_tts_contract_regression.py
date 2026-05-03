@@ -321,7 +321,6 @@ def test_main_has_no_legacy_echo_do_translate_three_positional_args():
 def test_pick_device_windows_cuda_falls_back_to_cpu(monkeypatch):
     from app.tts import style_bert_vits2_runtime as runtime
 
-    monkeypatch.setattr(runtime.os, "name", "nt")
     monkeypatch.setattr(runtime.platform, "system", lambda: "Windows")
     assert runtime._pick_device({"device": "cuda"}) == "cpu"
 
@@ -329,7 +328,6 @@ def test_pick_device_windows_cuda_falls_back_to_cpu(monkeypatch):
 def test_pick_device_windows_directml_falls_back_to_cpu(monkeypatch):
     from app.tts import style_bert_vits2_runtime as runtime
 
-    monkeypatch.setattr(runtime.os, "name", "nt")
     monkeypatch.setattr(runtime.platform, "system", lambda: "Windows")
     assert runtime._pick_device({"device": "directml"}) == "cpu"
 
@@ -337,7 +335,6 @@ def test_pick_device_windows_directml_falls_back_to_cpu(monkeypatch):
 def test_pick_device_windows_env_cuda_falls_back_to_cpu(monkeypatch):
     from app.tts import style_bert_vits2_runtime as runtime
 
-    monkeypatch.setattr(runtime.os, "name", "nt")
     monkeypatch.setattr(runtime.platform, "system", lambda: "Windows")
     monkeypatch.setenv("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "cuda")
     assert runtime._pick_device({"device": ""}) == "cpu"
@@ -352,7 +349,6 @@ def test_pick_device_linux_cuda_available_prefers_cuda(monkeypatch):
             def is_available():
                 return True
 
-    monkeypatch.setattr(runtime.os, "name", "posix")
     monkeypatch.setattr(runtime.platform, "system", lambda: "Linux")
     import sys
     monkeypatch.setitem(sys.modules, "torch", _TorchMock)
@@ -362,7 +358,67 @@ def test_pick_device_linux_cuda_available_prefers_cuda(monkeypatch):
 def test_pick_device_linux_env_cuda_kept(monkeypatch):
     from app.tts import style_bert_vits2_runtime as runtime
 
-    monkeypatch.setattr(runtime.os, "name", "posix")
     monkeypatch.setattr(runtime.platform, "system", lambda: "Linux")
     monkeypatch.setenv("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "cuda")
     assert runtime._pick_device({"device": ""}) == "cuda"
+
+
+def test_resolve_model_paths_windows_prefers_onnx(tmp_path, monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    model_dir = tmp_path / "m1"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    (model_dir / "style_vectors.npy").write_bytes(b"x")
+    (model_dir / "a.safetensors").write_bytes(b"x")
+    (model_dir / "b.onnx").write_bytes(b"x")
+    monkeypatch.setattr(runtime, "_models_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(runtime.platform, "system", lambda: "Windows")
+    model_path, _, _ = runtime._resolve_model_paths("m1")
+    assert model_path.endswith(".onnx")
+
+
+def test_resolve_model_paths_runpod_linux_prefers_safetensors(tmp_path, monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    model_dir = tmp_path / "m2"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    (model_dir / "style_vectors.npy").write_bytes(b"x")
+    (model_dir / "a.safetensors").write_bytes(b"x")
+    (model_dir / "b.onnx").write_bytes(b"x")
+    monkeypatch.setattr(runtime, "_models_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(runtime.platform, "system", lambda: "Linux")
+    monkeypatch.delenv("CODEAGENT_STYLE_BERT_VITS2_ENABLE_ONNX_MODEL", raising=False)
+    model_path, _, _ = runtime._resolve_model_paths("m2")
+    assert model_path.endswith(".safetensors")
+
+
+def test_resolve_model_paths_explicit_onnx_respected_on_linux(tmp_path, monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    model_dir = tmp_path / "m3"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    (model_dir / "style_vectors.npy").write_bytes(b"x")
+    model_file = model_dir / "z.onnx"
+    model_file.write_bytes(b"x")
+    monkeypatch.setattr(runtime.platform, "system", lambda: "Linux")
+    model_path, _, _ = runtime._resolve_model_paths(str(model_file))
+    assert model_path.endswith(".onnx")
+
+
+def test_resolve_model_paths_linux_with_onnx_env_prefers_onnx(tmp_path, monkeypatch):
+    from app.tts import style_bert_vits2_runtime as runtime
+
+    model_dir = tmp_path / "m4"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    (model_dir / "style_vectors.npy").write_bytes(b"x")
+    (model_dir / "a.safetensors").write_bytes(b"x")
+    (model_dir / "b.onnx").write_bytes(b"x")
+    monkeypatch.setattr(runtime, "_models_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(runtime.platform, "system", lambda: "Linux")
+    monkeypatch.setenv("CODEAGENT_STYLE_BERT_VITS2_ENABLE_ONNX_MODEL", "1")
+    model_path, _, _ = runtime._resolve_model_paths("m4")
+    assert model_path.endswith(".onnx")
