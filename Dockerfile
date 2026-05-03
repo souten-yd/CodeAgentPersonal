@@ -156,6 +156,11 @@ RUN if [ -f /app/requirements.txt ]; then \
         /opt/venv/bin/python -m pip install --no-cache-dir fastapi 'uvicorn[standard]' pydantic requests python-multipart; \
     fi
 
+RUN if [ "${KASANE_DEBUG_TEST_HARNESS}" = "1" ]; then \
+        /opt/venv/bin/python -m pip install --no-cache-dir playwright \
+        && /opt/venv/bin/python -m playwright install --with-deps chromium; \
+    fi
+
 
 # Pre-download bundled faster-whisper ASR model into image layer.
 RUN set -eux; \
