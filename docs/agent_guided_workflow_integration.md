@@ -148,3 +148,10 @@
 - Focus helper behavior remains focus/scroll guidance only.
 - No approval/execution/apply workflow behavior changes are introduced in this phase.
 - Approval and Patch Review gates remain required.
+
+## Phase 21.6 note (Atlas top-level visibility regression fix)
+- Fixes Atlas top-level visibility regression where Atlas button could leave the workbench blank.
+- Atlas button must show `atlas-panel-col` and `Atlas Workbench`.
+- Restore failures must not blank the Atlas Workbench; Atlas panel visibility is preserved with safe fallback.
+- Desktop/mobile smoke checks are reinforced for Atlas visibility.
+- No workflow behavior changes are introduced in this phase.
