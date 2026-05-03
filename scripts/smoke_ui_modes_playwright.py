@@ -932,6 +932,127 @@ async def verify_atlas_plan_approval_gate_readiness(page, wait_diag: dict, conso
   return gate_diag
 
 
+async def open_atlas_approval_panel_for_inspection(page) -> dict:
+  return await page.evaluate("""() => {
+    const isVisibleIsh = (el) => {
+      if (!el) return false;
+      const style = window.getComputedStyle(el);
+      if (!style) return false;
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') <= 0) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
+    const allButtons = Array.from(document.querySelectorAll('#atlas-workbench-card button, #atlas-workbench-card [role="button"]'));
+    const openButton = allButtons.find((el) => /open\\s+approval\\s+panel/i.test((el.textContent || '').trim()));
+    const beforePresent = !!openButton;
+    const beforeVisible = isVisibleIsh(openButton || null);
+    let clicked = false;
+    if (openButton && !openButton.disabled) {
+      openButton.click();
+      clicked = true;
+    }
+    const approvalPanel = document.querySelector('#plan-approval-card, [data-atlas-workflow-target="dynamic-approval"], [data-atlas-workflow-target="approval"]');
+    const approvalPanelVisible = isVisibleIsh(approvalPanel || null);
+    return {
+      openApprovalPanelButtonPresent: beforePresent,
+      openApprovalPanelButtonVisible: beforeVisible,
+      openApprovalPanelClicked: clicked,
+      approvalPanelVisible,
+    };
+  }""")
+
+
+async def collect_atlas_approval_panel_actionability_diag(page) -> dict:
+  return await page.evaluate("""() => {
+    const isVisibleIsh = (el) => {
+      if (!el) return false;
+      const style = window.getComputedStyle(el);
+      if (!style) return false;
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') <= 0) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
+    const allButtons = Array.from(document.querySelectorAll('#atlas-workbench-card button, #atlas-workbench-card [role="button"], #plan-approval-card button'));
+    const inventory = allButtons.map((el) => ({
+      text: (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 200),
+      id: el.id || '',
+      dataAction: el.getAttribute('data-action') || '',
+      dataA: el.getAttribute('data-a') || '',
+      disabled: !!el.disabled,
+      visibleIsh: isVisibleIsh(el),
+    }));
+    const corpusFor = (b) => `${b.text} ${b.id} ${b.dataAction} ${b.dataA}`.toLowerCase();
+    const approveButton = inventory.find((b) => /approve|承認/.test(corpusFor(b)));
+    const requestRevisionButton = inventory.find((b) => /request\\s+revision|revision|修正/.test(corpusFor(b)));
+    const rejectButton = inventory.find((b) => /reject|却下/.test(corpusFor(b)));
+    const executeButton = inventory.find((b) => /execute\\s+preview/.test(corpusFor(b)));
+    const patchApplyButton = inventory.find((b) => /apply\\s+approved\\s+patch|apply\\s+patch/.test(corpusFor(b)));
+    const approvalPanel = document.querySelector('#plan-approval-card, [data-atlas-workflow-target="dynamic-approval"], [data-atlas-workflow-target="approval"]');
+    const approveButtonActionableCandidate = !!approveButton && !!approveButton.visibleIsh && !approveButton.disabled && /approve|承認/.test(corpusFor(approveButton));
+    return {
+      approvalPanelVisible: isVisibleIsh(approvalPanel || null),
+      approveButtonPresent: !!approveButton,
+      approveButtonVisible: !!approveButton && !!approveButton.visibleIsh,
+      approveButtonEnabled: !!approveButton && !approveButton.disabled,
+      approveButtonActionableCandidate,
+      requestRevisionButtonPresent: !!requestRevisionButton,
+      rejectButtonPresent: !!rejectButton,
+      executePreviewLocked: !executeButton || !!executeButton.disabled,
+      patchApplyLocked: !patchApplyButton || !!patchApplyButton.disabled,
+      approvalPanelTextTail: (approvalPanel?.textContent || '').slice(-1000),
+      allButtonsAfterOpen: inventory,
+      approvalCandidateButtonsAfterOpen: inventory.filter((b) => /approve|承認/.test(corpusFor(b))),
+      destructiveActionDetected: false,
+    };
+  }""")
+
+
+async def verify_atlas_plan_approval_actionability(page, wait_diag: dict, console_errors: list[str], page_errors: list[str]) -> dict:
+  final_decision = str(wait_diag.get("finalDecision") or "unknown")
+  if final_decision in ("needs_clarification", "needs_clarification_after_resolution"):
+    return {
+      "finalDecision": final_decision,
+      "completionDecisionReason": wait_diag.get("completionDecisionReason", ""),
+      "skippedReason": "plan_approval_actionability_skipped_needs_clarification",
+      "destructiveActionDetected": False,
+      "consoleErrors": list(console_errors),
+      "pageErrors": list(page_errors),
+    }
+  gate_diag_before_open = await collect_atlas_plan_approval_gate_diag(page)
+  open_diag = await open_atlas_approval_panel_for_inspection(page)
+  action_diag = await collect_atlas_approval_panel_actionability_diag(page)
+  diag = {
+    "finalDecision": final_decision,
+    "completionDecisionReason": wait_diag.get("completionDecisionReason", ""),
+    "gateDiagBeforeOpen": gate_diag_before_open,
+    "actionabilityDiagAfterOpen": action_diag,
+    **open_diag,
+    **action_diag,
+    "skippedReason": "",
+    "destructiveActionDetected": False,
+    "consoleErrors": list(console_errors),
+    "pageErrors": list(page_errors),
+  }
+  if final_decision != "completed":
+    diag["skippedReason"] = f"plan_approval_actionability_skipped_non_completed:{final_decision}"
+    return diag
+  if console_errors or page_errors:
+    raise AssertionError(f"plan approval actionability aborted due to page/console errors: {json.dumps(diag, ensure_ascii=False)}")
+  if not diag.get("openApprovalPanelButtonPresent"):
+    raise AssertionError(f"open approval panel button missing in completed state: {json.dumps(diag, ensure_ascii=False)}")
+  if not diag.get("openApprovalPanelClicked"):
+    raise AssertionError(f"open approval panel click failed in completed state: {json.dumps(diag, ensure_ascii=False)}")
+  if not diag.get("approvalPanelVisible"):
+    raise AssertionError(f"approval panel not visible after open action: {json.dumps(diag, ensure_ascii=False)}")
+  if not diag.get("approveButtonActionableCandidate"):
+    raise AssertionError(f"approve button is not actionable candidate after panel open: {json.dumps(diag, ensure_ascii=False)}")
+  if not diag.get("executePreviewLocked"):
+    raise AssertionError(f"execute preview unlocked before approval: {json.dumps(diag, ensure_ascii=False)}")
+  if not diag.get("patchApplyLocked"):
+    raise AssertionError(f"patch apply unlocked before approval/preview: {json.dumps(diag, ensure_ascii=False)}")
+  return diag
+
+
 async def click_atlas_proceed_with_assumptions_once(page) -> tuple[bool, str]:
   selectors = [
     "#atlas-workbench-card button:has-text('おまかせで進める')",
@@ -1628,12 +1749,15 @@ async def main() -> None:
   run_backend_wait_plan_opt_in = os.environ.get("RUN_ATLAS_BACKEND_E2E_WAIT_PLAN", "").strip() == "1"
   run_backend_resolve_clarification_opt_in = os.environ.get("RUN_ATLAS_BACKEND_E2E_RESOLVE_CLARIFICATION", "").strip() == "1"
   run_backend_check_plan_approval_opt_in = os.environ.get("RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL", "").strip() == "1"
+  run_backend_check_plan_approval_actionable_opt_in = os.environ.get("RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL_ACTIONABLE", "").strip() == "1"
   if run_backend_wait_plan_opt_in and not run_backend_e2e_opt_in:
     raise AssertionError("RUN_ATLAS_BACKEND_E2E_WAIT_PLAN requires RUN_ATLAS_BACKEND_E2E=1.")
   if run_backend_resolve_clarification_opt_in and not (run_backend_e2e_opt_in and run_backend_wait_plan_opt_in):
     raise AssertionError("RUN_ATLAS_BACKEND_E2E_RESOLVE_CLARIFICATION requires RUN_ATLAS_BACKEND_E2E=1 and RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1.")
   if run_backend_check_plan_approval_opt_in and not (run_backend_e2e_opt_in and run_backend_wait_plan_opt_in):
     raise AssertionError("RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL requires RUN_ATLAS_BACKEND_E2E=1 and RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1.")
+  if run_backend_check_plan_approval_actionable_opt_in and not (run_backend_e2e_opt_in and run_backend_wait_plan_opt_in and run_backend_check_plan_approval_opt_in):
+    raise AssertionError("RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL_ACTIONABLE requires RUN_ATLAS_BACKEND_E2E=1, RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1, and RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL=1.")
   preflight_only_mode = run_backend_preflight_opt_in and not run_backend_e2e_opt_in
   full_backend_e2e_mode = run_backend_e2e_opt_in
   real_backend_opt_in = run_backend_preflight_opt_in or run_backend_e2e_opt_in
@@ -1739,12 +1863,20 @@ async def main() -> None:
         if run_backend_check_plan_approval_opt_in:
           approval_diag = await verify_atlas_plan_approval_gate_readiness(page, diag, console_errors, page_errors)
           print("INFO: atlas plan-approval-gate diagnostics:\n" + json.dumps(approval_diag, ensure_ascii=False, indent=2))
+        if run_backend_check_plan_approval_actionable_opt_in:
+          actionability_diag = await verify_atlas_plan_approval_actionability(page, diag, console_errors, page_errors)
+          print("INFO: atlas plan-approval-actionability diagnostics:\n" + json.dumps(actionability_diag, ensure_ascii=False, indent=2))
         if diag.get("finalDecision") in ("failed", "timeout", "unknown"):
           raise AssertionError(f"atlas wait-plan did not complete successfully: {json.dumps(diag, ensure_ascii=False)}")
         if run_backend_check_plan_approval_opt_in and diag.get("finalDecision") in ("needs_clarification", "needs_clarification_after_resolution"):
           print("INFO: plan_approval_gate_skipped_needs_clarification")
 
-      if run_backend_check_plan_approval_opt_in:
+      if run_backend_check_plan_approval_actionable_opt_in:
+        scenarios = [
+          ("atlas_backend_preflight", run_backend_preflight),
+          ("atlas_backend_e2e_plan_approval_actionability", verify_atlas_backend_e2e_wait_plan),
+        ]
+      elif run_backend_check_plan_approval_opt_in:
         scenarios = [
           ("atlas_backend_preflight", run_backend_preflight),
           ("atlas_backend_e2e_plan_approval_gate", verify_atlas_backend_e2e_wait_plan),
