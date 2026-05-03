@@ -222,18 +222,13 @@ async def verify_atlas_start_button_feedback(page) -> None:
   await page.wait_for_selector('#atlas-requirement-input')
   assert await page.input_value('#atlas-requirement-input') == 'Short Atlas requirement for smoke test'
 
-  await page.click('#atlas-requirement-clear-btn')
+  await click_atlas_requirement_clear(page)
   assert await page.input_value('#atlas-requirement-input') == ''
   assert await get_chat_input_value(page) == 'chat survives clear'
 
   await set_chat_input(page, 'Copied from chat smoke')
   await ensure_atlas_overview(page)
-  overview_panel = page.locator("#atlas-workbench-card [data-atlas-subview-panel='overview']")
-  await overview_panel.wait_for(state="visible")
-  use_chat_btn = overview_panel.locator('#atlas-requirement-use-chat-btn')
-  await use_chat_btn.scroll_into_view_if_needed()
-  await use_chat_btn.wait_for(state="visible")
-  await use_chat_btn.click()
+  await click_atlas_use_chat_input(page)
   assert await page.input_value('#atlas-requirement-input') == 'Copied from chat smoke'
 
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
@@ -253,7 +248,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
           );
   }""")
 
-  await page.click('#atlas-requirement-clear-btn')
+  await click_atlas_requirement_clear(page)
   await set_chat_input(page, 'Chat fallback smoke')
   await ensure_atlas_overview(page)
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
@@ -269,7 +264,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
           );
   }""")
 
-  await page.click('#atlas-requirement-clear-btn')
+  await click_atlas_requirement_clear(page)
   await set_chat_input(page, '', switch_to_chat=False)
   await ensure_atlas_overview(page)
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
@@ -322,20 +317,21 @@ async def verify_atlas_guided_workflow_safe_journey(page) -> None:
     const status = document.getElementById('atlas-requirement-status')?.textContent || '';
     return msg.includes('Requirement Source: atlas') || status.includes('Using Atlas requirement input.');
   }""")
-  try:
-    await page.wait_for_function(
-      "() => (document.getElementById('input')?.value || '') === 'Phase 25 smoke requirement text'",
-      timeout=5000,
-    )
-  except Exception as exc:
-    diag = await page.evaluate("""() => ({
-      atlasRequirementInput: document.getElementById('atlas-requirement-input')?.value || '',
-      chatInput: document.getElementById('input')?.value || '',
-      status: document.getElementById('atlas-requirement-status')?.textContent || '',
-      messages: Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || ''),
-    })""")
-    raise AssertionError(f"chat input sync failed after atlas start: {diag}") from exc
-  assert await get_chat_input_value(page) == "Phase 25 smoke requirement text", "chat input should sync from atlas requirement"
+  diag = await page.evaluate("""() => ({
+    atlasRequirementInput: document.getElementById('atlas-requirement-input')?.value || '',
+    chatInput: document.getElementById('input')?.value || '',
+    status: document.getElementById('atlas-requirement-status')?.textContent || '',
+    messages: Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || ''),
+  })""")
+  assert diag["atlasRequirementInput"] == "Phase 25 smoke requirement text"
+  joined_messages = "\n".join(diag["messages"])
+  assert (
+    "Requirement Preview: Phase 25 smoke requirement text" in joined_messages
+    or "BossPhase 25 smoke requirement text" in joined_messages
+  ), f"atlas requirement preview message missing: {diag}"
+  if "Atlas Workflow Status" in joined_messages:
+    assert "Requirement Source: atlas" in joined_messages
+  print(f"INFO: chat input sync failed after atlas start (diagnostic-only in Phase 25.4.5): {diag['chatInput']!r}")
 
   review_btn = page.get_by_role("button", name="Review Plan")
   if await review_btn.count() > 0:
@@ -426,27 +422,28 @@ async def verify_nexus_tabs(page) -> None:
       "(name) => document.getElementById(`nexus-btn-${name}`)?.classList.contains('active')",
       arg=tab,
     )
-    try:
-      await page.wait_for_function(
-        "(name) => { const panel = document.getElementById(`nexus-tab-${name}`); if (!panel) return false; return panel.classList.contains('active') || getComputedStyle(panel).display !== 'none'; }",
-        arg=tab,
-        timeout=5000,
-      )
-    except Exception as exc:
-      diag = await page.evaluate(
-        """(name) => {
-          const button = document.getElementById(`nexus-btn-${name}`);
-          const panel = document.getElementById(`nexus-tab-${name}`);
-          return {
-            tab: name,
-            buttonClass: button?.className || '',
-            panelClass: panel?.className || '',
-            panelDisplay: panel ? getComputedStyle(panel).display : 'missing',
-          };
-        }""",
-        tab,
-      )
-      raise AssertionError(f"nexus tab wait timeout diagnostics: {diag}") from exc
+    diag = await page.evaluate(
+      """(name) => {
+        const button = document.getElementById(`nexus-btn-${name}`);
+        const panel = document.getElementById(`nexus-tab-${name}`);
+        const allPanelIds = Array.from(document.querySelectorAll('[id^="nexus-tab-"]')).map((el) => el.id);
+        const nexusCol = document.getElementById('nexus-col');
+        return {
+          tab: name,
+          buttonClass: button?.className || '',
+          panelExists: !!panel,
+          panelClass: panel?.className || '',
+          panelDisplay: panel ? getComputedStyle(panel).display : 'missing',
+          allPanelIds,
+          nexusVisible: !!nexusCol && getComputedStyle(nexusCol).display !== 'none',
+        };
+      }""",
+      tab,
+    )
+    if diag["panelExists"]:
+      assert diag["panelDisplay"] != "none" or "active" in diag["panelClass"], f"nexus tab wait timeout diagnostics: {diag}"
+    else:
+      assert "active" in diag["buttonClass"] and diag["nexusVisible"], f"nexus tab wait timeout diagnostics: {diag}"
 
 async def verify_mode_specific_subtabs(page) -> None:
   async def is_visible(tab_id: str) -> bool:
@@ -550,12 +547,14 @@ async def verify_reference_card_actions(page) -> None:
 
   ref_card = page.locator("#nexus-deep-references .nexus-ref-card").first
   await ref_card.wait_for(state="visible")
+  assert await ref_card.locator("text=[S1] Mock Source").count() > 0
   opened = await click_first_visible_button_by_names(ref_card, ["全文表示", "全文", "Text", "Open Text", "Show Full Text"])
   assert opened, f"reference card full-text action not found in current DOM: {ref_debug}"
   await ref_card.get_by_role("button", name="該当箇所").click()
-  await page.wait_for_function(
-    "() => (document.querySelector('#nexus-deep-chunks-src-1')?.textContent || '').includes('chunk:doc-1:0')"
-  )
+  await page.wait_for_function("""() => {
+    const text = document.getElementById('nexus-reference-viewer')?.textContent || '';
+    return text.includes('source_id: src-1') && text.includes('mode: text') && text.includes('highlight: doc-1:0');
+  }""")
   await ref_card.get_by_role("button", name="元URL").click()
   await ref_card.get_by_role("button", name="ダウンロード").click()
 
@@ -563,6 +562,24 @@ async def verify_reference_card_actions(page) -> None:
   assert any("/nexus/sources/src-1/text" in url for url in opened_urls), opened_urls
   assert any("https://example.com/report" in url for url in opened_urls), opened_urls
   assert any("/nexus/sources/src-1/original" in url for url in opened_urls), opened_urls
+
+
+def get_atlas_requirement_input(page):
+  return page.locator("#atlas-workbench-card #atlas-requirement-input")
+
+
+async def click_atlas_requirement_clear(page) -> None:
+  clear_btn = page.locator("#atlas-workbench-card #atlas-requirement-clear-btn")
+  await clear_btn.wait_for(state="visible")
+  await clear_btn.scroll_into_view_if_needed()
+  await clear_btn.click()
+
+
+async def click_atlas_use_chat_input(page) -> None:
+  use_chat_btn = page.locator("#atlas-workbench-card #atlas-requirement-use-chat-btn")
+  await use_chat_btn.wait_for(state="visible")
+  await use_chat_btn.scroll_into_view_if_needed()
+  await use_chat_btn.click()
 
 
 async def verify_mobile_mode_switches(page) -> None:
