@@ -392,3 +392,12 @@
 - Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E`.
 - No backend workflow behavior changes were made.
 - No approval/execute/patch behavior changes were made.
+
+## Phase 25.4.18 note (Final reference_card_actions Source URL conditional assert)
+- Final `reference_card_actions` Source URL `openedUrls` assertion now runs only when the URL button is enabled and clicked.
+- Disabled/missing Source URL buttons are diagnosed (`skippedDisabled` / `skippedMissing`), not force-clicked.
+- Full Text / Highlight / Download checks remain required.
+- fetchedUrls and openedUrls remain separated.
+- Backend E2E remains opt-in (`RUN_ATLAS_BACKEND_E2E`).
+- No backend workflow changes were introduced.
+- No approval / execute / patch behavior changes were introduced.

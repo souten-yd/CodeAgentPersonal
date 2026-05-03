@@ -17,8 +17,8 @@ class TestPhase25416ReferenceCardDisabledSourceUrlContract(unittest.TestCase):
         self.assertNotIn("force=True", self.smoke)
 
     def test_source_url_assert_is_conditional(self):
-        self.assertIn("if source_url_clicked:", self.smoke)
-        self.assertIn("Source URL action skipped because URL button disabled", self.smoke)
+        self.assertIn("source_url_action_status = \"skippedDisabled\"", self.smoke)
+        self.assertIn("INFO: Source URL action skipped: button disabled", self.smoke)
 
     def test_full_text_highlight_and_download_remain(self):
         for token in ["全文表示", "該当箇所", "/nexus/sources/src-1/text", "highlight: doc-1:0", "ダウンロード", "/nexus/sources/src-1/original"]:

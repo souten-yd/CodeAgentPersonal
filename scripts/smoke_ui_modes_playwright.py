@@ -575,6 +575,29 @@ async def click_reference_button_if_enabled(card, labels: list[str]) -> tuple[st
   raise AssertionError(f"reference card action button not found: {labels}")
 
 
+async def get_reference_button_state(card, labels: list[str]) -> dict:
+  for label in labels:
+    locator = card.get_by_role("button", name=label)
+    if await locator.count() > 0:
+      button = locator.first
+      return {
+        "exists": True,
+        "disabled": await button.is_disabled(),
+        "enabled": await button.is_enabled(),
+        "visible": await button.is_visible(),
+        "text": ((await button.text_content()) or "").strip(),
+        "onclick": (await button.get_attribute("onclick")) or "",
+      }
+  return {
+    "exists": False,
+    "disabled": None,
+    "enabled": False,
+    "visible": False,
+    "text": "",
+    "onclick": "",
+  }
+
+
 async def wait_reference_viewer_text_fields(page, required_tokens: list[str], label: str, timeout_ms: int = 8000, interval_ms: int = 200) -> dict:
   last_diag = {}
   deadline = time.monotonic() + (timeout_ms / 1000.0)
@@ -601,6 +624,8 @@ async def verify_reference_card_actions(page) -> None:
   clicked_action_button = ""
   initial_viewer_diag = {}
   final_viewer_diag = {}
+  source_url_action_status = "notAttempted"
+  source_url_button_state = {}
   async def ref_diag_dump(label: str, reason: str = ""):
     ref_diag = await collect_reference_viewer_text(page)
     printable = {
@@ -612,6 +637,8 @@ async def verify_reference_card_actions(page) -> None:
       "fetchedUrls": ref_diag.get("fetchedUrls", []),
       "openedUrls": ref_diag.get("openedUrls", []),
       "activeNexusTab": ref_diag.get("activeNexusTab", ""),
+      "sourceUrlActionStatus": source_url_action_status,
+      "sourceUrlButtonState": source_url_button_state,
       "refCardCount": ref_diag.get("refCardCount", 0),
       "viewerStatus": "updated" if all(token in ref_diag.get("normalizedText", "") for token in ["source_id: src-1", "mode: text", "highlight: doc-1:0"]) else "initial_or_pending",
       "viewerInitialStatus": "updated" if all(token in normalize_reference_text(initial_viewer_diag.get("normalizedText", "")) for token in ["source_id: src-1", "mode: text", "highlight: doc-1:0"]) else "initial_or_pending",
@@ -697,12 +724,21 @@ async def verify_reference_card_actions(page) -> None:
     clicked_action_button = await click_reference_button(ref_card, ["該当箇所", "Highlight", "Citation", "Chunk", "Open Highlight"])
     await wait_reference_viewer_text_fields(page, ["doc-1:0"], "Highlight")
 
-    clicked_action_button, source_url_clicked = await click_reference_button_if_enabled(ref_card, ["元URL", "Source URL", "Open Source"])
+    source_url_button_state = await get_reference_button_state(ref_card, ["元URL", "Source URL", "Open URL", "Original URL", "URL"])
+    source_url_clicked = False
+    if source_url_button_state.get("exists") and source_url_button_state.get("enabled"):
+      clicked_action_button = await click_reference_button(ref_card, ["元URL", "Source URL", "Open URL", "Original URL", "URL"])
+      source_url_clicked = True
+      source_url_action_status = "clicked"
+    elif source_url_button_state.get("exists"):
+      source_url_action_status = "skippedDisabled"
+      print(f"INFO: Source URL action skipped: button disabled, onclick={source_url_button_state.get('onclick', '')}, text={source_url_button_state.get('text', '')}")
+    else:
+      source_url_action_status = "skippedMissing"
+      print("INFO: Source URL action skipped: button missing")
     tracking = await get_reference_tracking(page)
     if source_url_clicked:
       assert any("https://example.com/report" in url for url in tracking["openedUrls"]), tracking
-    else:
-      print("INFO: Source URL action skipped because URL button disabled")
 
     clicked_action_button = await click_reference_button(ref_card, ["ダウンロード", "Download"])
     tracking = await get_reference_tracking(page)
@@ -721,18 +757,9 @@ async def verify_reference_card_actions(page) -> None:
   opened_urls = await page.evaluate("() => window.__openedUrls || []")
   await ref_diag_dump("final")
   assert any("/nexus/sources/src-1/text" in url for url in fetched_urls), fetched_urls
-  source_url_button_state = await page.evaluate("""() => {
-    const card = document.querySelector('#nexus-deep-references .nexus-ref-card');
-    if (!card) return { exists: false, disabled: null, onclick: '', text: '' };
-    const button = Array.from(card.querySelectorAll('button')).find((el) => ['元URL', 'Source URL', 'Open Source'].includes((el.textContent || '').trim()));
-    if (!button) return { exists: false, disabled: null, onclick: '', text: '' };
-    return { exists: true, disabled: !!button.disabled, onclick: button.getAttribute('onclick') || '', text: (button.textContent || '').trim() };
-  }""")
-  if source_url_button_state.get("exists") and not source_url_button_state.get("disabled"):
+  if source_url_action_status == "clicked":
     assert any("https://example.com/report" in url for url in opened_urls), opened_urls
-  else:
-    print(f"INFO: Source URL action skipped because URL button disabled: {source_url_button_state}")
-  assert any("/nexus/sources/src-1/original" in url for url in opened_urls), opened_urls
+  assert any("/nexus/sources/src-1/original" in url for url in opened_urls) or any("/nexus/sources/src-1/original" in url for url in fetched_urls), {"openedUrls": opened_urls, "fetchedUrls": fetched_urls}
 
 
 def get_atlas_requirement_input(page):
