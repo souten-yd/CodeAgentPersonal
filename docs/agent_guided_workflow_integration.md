@@ -382,3 +382,13 @@
 - Backend E2E remains opt-in (`RUN_ATLAS_BACKEND_E2E`).
 - No backend workflow changes were introduced.
 - No approval/execute/patch behavior changes were introduced.
+
+## Phase 25.4.16 note (Final reference_card_actions disabled Source URL handling)
+- Final `reference_card_actions` fix now handles disabled **Source URL** buttons without force-clicking.
+- Smoke mock source data now provides multiple URL fields (`url`, `source_url`, `original_url`, `final_url`, `link`) to match current UI expectations.
+- Source URL button is clicked only when enabled; when disabled, smoke records diagnostics and skips URL open assertion for that action.
+- Full Text / Highlight / Download action checks remain in place.
+- Diagnostics now include button text/disabled/onclick metadata for reference-card action analysis.
+- Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E`.
+- No backend workflow behavior changes were made.
+- No approval/execute/patch behavior changes were made.
