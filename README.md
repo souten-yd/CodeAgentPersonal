@@ -2,6 +2,12 @@
 
 CodeAgent Personal は、ローカルLLM、llama.cpp、FastAPI、Web UI、Docker/venv実行環境を組み合わせた、個人向けの自律型コードエージェント基盤です。
 
+
+- Preflight-only opt-in (`RUN_ATLAS_BACKEND_PREFLIGHT=1`) adds `atlas_backend_preflight` to the summary/artifacts and does **not** press Atlas Start.
+- Full backend E2E opt-in (`RUN_ATLAS_BACKEND_E2E=1`) runs preflight first, then `atlas_backend_e2e_journey`.
+- Preflight primary required check is `/health`; other GET endpoints are diagnostic/warning oriented.
+- Preflight artifact log includes baseUrl, endpoint status/ok/json(jsonError), elapsedMs, and errors/warnings.
+- Default smoke remains mock-backed 9 scenarios and does not change approval/execute/apply behavior.
 チャット、タスク実行、エージェントループ、モデル管理、永続メモリ、SKILL拡張、音声入出力、文書検索・レポート生成を統合し、ローカルPCやRunpod上で開発作業を支援します。
 
 単なるチャットUIではなく、LLMがプロジェクト内のファイルを読み、編集し、コマンドを実行し、テスト結果を見て再試行するための開発支援プラットフォームです。
