@@ -419,3 +419,13 @@
 - Atlas backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E`.
 - No backend workflow logic changes were made.
 - No approval/execute/patch behavior was changed.
+
+## Phase 25.4.21 note (reference_card_actions final viewer diagnostic-only)
+- Final Reference Viewer check in `reference_card_actions` is now diagnostic-only.
+- Required assertions remain at action points:
+  - **Full Text** keeps required `/text` fetch and `source_id: src-1` + `mode: text` viewer checks.
+  - **Highlight** keeps required `/chunks` fetch and `doc-1:0`/`highlight: doc-1:0` viewer checks.
+- **Source URL** may legitimately switch the viewer to `mode: url`; this must not fail the final step.
+- **Source URL** and **Download** remain diagnostic-only actions.
+- Backend E2E remains opt-in (`RUN_ATLAS_BACKEND_E2E`), with no backend workflow behavior changes.
+- No approval/execute/patch behavior changes were made.
