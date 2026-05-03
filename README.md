@@ -1317,7 +1317,8 @@ PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 RUN_ATLAS_BACKEND_PREFLIGHT=1 py
 
 - Full backend E2E (preflight runs first):
   - `RUN_ATLAS_BACKEND_E2E=1` runs `atlas_backend_preflight` then `atlas_backend_e2e_journey`.
-  - Atlas Start is pressed only in this mode.
+  - Atlas Start is pressed only in this mode (dry-run scope: verify workflow/status and stop before approval/execute/patch actions).
+  - `Atlas Start failed:` is a hard failure in this mode.
 
 ```bash
 PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 RUN_ATLAS_BACKEND_E2E=1 python scripts/smoke_ui_modes_playwright.py
