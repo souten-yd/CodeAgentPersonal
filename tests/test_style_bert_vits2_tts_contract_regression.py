@@ -422,3 +422,11 @@ def test_resolve_model_paths_linux_with_onnx_env_prefers_onnx(tmp_path, monkeypa
     monkeypatch.setenv("CODEAGENT_STYLE_BERT_VITS2_ENABLE_ONNX_MODEL", "1")
     model_path, _, _ = runtime._resolve_model_paths("m4")
     assert model_path.endswith(".onnx")
+
+
+def test_onnx_internal_warmup_contract_not_windows_default():
+    runtime_src = (ROOT / "app" / "tts" / "style_bert_vits2_runtime.py").read_text(encoding="utf-8")
+    start = runtime_src.index("def _onnx_internal_warmup_enabled()")
+    end = runtime_src.index("\n\ndef _repo_dir()", start)
+    fn_src = runtime_src[start:end]
+    assert "return _is_windows_runtime()" not in fn_src

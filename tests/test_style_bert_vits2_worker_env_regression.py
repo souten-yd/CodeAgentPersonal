@@ -49,10 +49,10 @@ def test_worker_env_enable_jit_override_removes_var(monkeypatch):
     assert "PYTORCH_JIT" not in env
 
 
-def test_onnx_internal_warmup_default_windows_true(monkeypatch):
+def test_onnx_internal_warmup_default_windows_false(monkeypatch):
     monkeypatch.delenv("CODEAGENT_STYLE_BERT_VITS2_ONNX_INTERNAL_WARMUP", raising=False)
     monkeypatch.setattr(runtime.platform, "system", lambda: "Windows")
-    assert runtime._onnx_internal_warmup_enabled() is True
+    assert runtime._onnx_internal_warmup_enabled() is False
 
 
 def test_onnx_internal_warmup_default_linux_false(monkeypatch):
@@ -61,7 +61,13 @@ def test_onnx_internal_warmup_default_linux_false(monkeypatch):
     assert runtime._onnx_internal_warmup_enabled() is False
 
 
-def test_onnx_internal_warmup_env_override(monkeypatch):
+def test_onnx_internal_warmup_env_override_true_windows(monkeypatch):
+    monkeypatch.setenv("CODEAGENT_STYLE_BERT_VITS2_ONNX_INTERNAL_WARMUP", "1")
+    monkeypatch.setattr(runtime.platform, "system", lambda: "Windows")
+    assert runtime._onnx_internal_warmup_enabled() is True
+
+
+def test_onnx_internal_warmup_env_override_true_linux(monkeypatch):
     monkeypatch.setenv("CODEAGENT_STYLE_BERT_VITS2_ONNX_INTERNAL_WARMUP", "1")
     monkeypatch.setattr(runtime.platform, "system", lambda: "Linux")
     assert runtime._onnx_internal_warmup_enabled() is True

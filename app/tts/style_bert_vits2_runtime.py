@@ -63,9 +63,7 @@ def _onnx_internal_warmup_enabled() -> bool:
     raw = str(os.environ.get("CODEAGENT_STYLE_BERT_VITS2_ONNX_INTERNAL_WARMUP", "")).strip().lower()
     if raw in {"1", "true", "yes", "on"}:
         return True
-    if raw in {"0", "false", "no", "off"}:
-        return False
-    return _is_windows_runtime()
+    return False
 
 
 def _repo_dir() -> str:
