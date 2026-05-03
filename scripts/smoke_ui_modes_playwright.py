@@ -5,6 +5,7 @@ import asyncio
 from pathlib import Path
 import os
 import re
+import time
 import traceback
 import json
 import html
@@ -517,59 +518,55 @@ def normalize_reference_text(text: str) -> str:
   return re.sub(r"\s+", " ", (text or "")).strip()
 
 
-async def get_reference_viewer_text(page) -> str:
-  texts = await page.evaluate("""(selectors) => {
-    const chunks = [];
-    for (const selector of selectors) {
-      const nodes = Array.from(document.querySelectorAll(selector));
-      for (const node of nodes) {
-        const text = (node?.textContent || '').trim();
-        if (text) chunks.push(text);
-      }
-    }
-    return chunks;
+async def collect_reference_viewer_text(page) -> dict:
+  return await page.evaluate("""(selectors) => {
+    const candidates = selectors.map((selector) => ({
+      selector,
+      texts: Array.from(document.querySelectorAll(selector)).map((el) => (el.textContent || '').trim()).filter(Boolean),
+    }));
+    const combinedText = candidates.flatMap((item) => item.texts).join('\n');
+    const normalizedText = (combinedText || '').replace(/\s+/g, ' ').trim();
+    const root = document.getElementById('nexus-deep-references');
+    const card = root?.querySelector('.nexus-ref-card');
+    return {
+      candidates,
+      combinedText,
+      normalizedText,
+      refCardCount: root?.querySelectorAll('.nexus-ref-card')?.length || 0,
+      cardButtonTexts: card ? Array.from(card.querySelectorAll('button')).map((el) => el.textContent || '') : [],
+      openedUrls: window.__openedUrls || [],
+      activeNexusTab: document.querySelector('#nexus-tabbar .nexus-tab-btn.active')?.id || '',
+    };
   }""", REFERENCE_VIEWER_SELECTORS)
-  return normalize_reference_text("\n".join(texts))
+
+
+async def wait_reference_viewer_current_fields(page, timeout_ms: int = 5000, interval_ms: int = 500) -> dict:
+  required = ['[S1] Mock Source', 'source_id: src-1', 'mode: text', 'highlight: doc-1:0']
+  last_diag = {}
+  deadline = time.monotonic() + (timeout_ms / 1000.0)
+  while time.monotonic() < deadline:
+    last_diag = await collect_reference_viewer_text(page)
+    normalized_text = normalize_reference_text(last_diag.get('normalizedText', ''))
+    if all(token in normalized_text for token in required):
+      return last_diag
+    await page.wait_for_timeout(interval_ms)
+  raise AssertionError(f"reference viewer fields not found: required={required} diag={last_diag}")
 
 
 async def verify_reference_card_actions(page) -> None:
-  async def ref_diag_dump(label: str):
-    ref_diag = await page.evaluate("""() => {
-      const root = document.getElementById('nexus-deep-references');
-      const card = root?.querySelector('.nexus-ref-card');
-      const selectors = [
-        '#nexus-reference-viewer',
-        '#nexus-deep-reference-viewer',
-        '.nexus-reference-viewer',
-        '[id*="reference-viewer"]',
-        '[id*="reference"][id*="viewer"]',
-        '#nexus-col',
-        '#nexus-deep-references',
-      ];
-      const selectorTextDump = selectors.map((selector) => ({
-        selector,
-        texts: Array.from(document.querySelectorAll(selector)).map((el) => (el.textContent || '').trim()).filter(Boolean),
-      }));
-      const normalizedViewerText = selectorTextDump
-        .flatMap((item) => item.texts)
-        .join('\n')
-        .replace(/\s+/g, ' ')
-        .trim();
-      const nexusColText = document.getElementById('nexus-col')?.textContent || '';
-      return {
-        referencesText: root?.textContent || '',
-        cardCount: root?.querySelectorAll('.nexus-ref-card')?.length || 0,
-        cardButtonTexts: card ? Array.from(card.querySelectorAll('button')).map((el) => el.textContent || '') : [],
-        selectorTextDump,
-        viewerText: document.getElementById('nexus-reference-viewer')?.textContent || '',
-        normalizedViewerText,
-        nexusColTextTail: nexusColText.slice(-800),
-        deepReferencesText: document.getElementById('nexus-deep-references')?.textContent || '',
-        openedUrls: window.__openedUrls || [],
-        activeNexusTab: document.querySelector('#nexus-tabbar .nexus-tab-btn.active')?.id || '',
-      };
-    }""")
-    print(f"INFO: reference_card_actions diagnostics ({label}): {ref_diag}")
+  async def ref_diag_dump(label: str, reason: str = ""):
+    ref_diag = await collect_reference_viewer_text(page)
+    printable = {
+      "selectorTextDump": ref_diag.get("candidates", []),
+      "normalizedText": ref_diag.get("normalizedText", ""),
+      "normalizedViewerText": ref_diag.get("normalizedText", ""),
+      "cardButtonTexts": ref_diag.get("cardButtonTexts", []),
+      "openedUrls": ref_diag.get("openedUrls", []),
+      "activeNexusTab": ref_diag.get("activeNexusTab", ""),
+      "refCardCount": ref_diag.get("refCardCount", 0),
+      "fullErrorReason": reason,
+    }
+    print(f"INFO: reference_card_actions diagnostics ({label}): {printable}")
     return ref_diag
   await page.click("#btn-nexus")
   web_scout_tab = page.locator("#nexus-btn-web-scout")
@@ -630,43 +627,21 @@ async def verify_reference_card_actions(page) -> None:
     await ref_card.wait_for(state="visible")
     assert await ref_card.locator("text=[S1] Mock Source").count() > 0
 
-    await page.wait_for_function("""(selectors) => {
-      const normalize = (s) => (s || '').replace(/\\s+/g, ' ').trim();
-      const text = normalize(
-        selectors
-          .flatMap((selector) =>
-            Array.from(document.querySelectorAll(selector)).map((el) => el.textContent || '')
-          )
-          .join('\\n')
-      );
-      return text.includes('source_id: src-1')
-        && text.includes('mode: text')
-        && text.includes('highlight: doc-1:0');
-    }""", arg=REFERENCE_VIEWER_SELECTORS)
+    await wait_reference_viewer_current_fields(page)
 
     opened = await click_first_visible_button_by_names(ref_card, ["全文表示", "全文", "Text", "Open Text", "Show Full Text"])
     assert opened, f"reference card full-text action not found in current DOM: {ref_debug}"
     await ref_card.get_by_role("button", name="該当箇所").click()
-    await page.wait_for_function("""(selectors) => {
-      const normalize = (s) => (s || '').replace(/\\s+/g, ' ').trim();
-      const text = normalize(
-        selectors
-          .flatMap((selector) =>
-            Array.from(document.querySelectorAll(selector)).map((el) => el.textContent || '')
-          )
-          .join('\\n')
-      );
-      return text.includes('source_id: src-1')
-        && text.includes('mode: text')
-        && text.includes('highlight: doc-1:0');
-    }""", arg=REFERENCE_VIEWER_SELECTORS)
+    await wait_reference_viewer_current_fields(page)
     await ref_card.get_by_role("button", name="元URL").click()
     await ref_card.get_by_role("button", name="ダウンロード").click()
   except (AssertionError, PlaywrightTimeoutError) as err:
-    await ref_diag_dump(f"failure: {type(err).__name__}")
+    await ref_diag_dump(f"failure: {type(err).__name__}", str(err))
     raise
 
-  viewer_text = await get_reference_viewer_text(page)
+  viewer_diag = await wait_reference_viewer_current_fields(page)
+  viewer_text = normalize_reference_text(viewer_diag.get("normalizedText", ""))
+  assert "[S1] Mock Source" in viewer_text, viewer_text
   assert "source_id: src-1" in viewer_text, viewer_text
   assert "mode: text" in viewer_text, viewer_text
   assert "highlight: doc-1:0" in viewer_text, viewer_text
