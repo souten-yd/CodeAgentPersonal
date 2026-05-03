@@ -678,3 +678,15 @@
 - Approve is still never clicked.
 - Execute Preview / Patch Apply are still never clicked.
 - Workflow remains explicit opt-in only.
+
+
+### Phase 29.1: Atlas PlanApproval panel actionability validation (opt-in, no approval execution)
+
+- Phase 29.0c validated PlanApproval gate readiness and Approve Plan detection.
+- Prior inventory confirmed Approve Plan presence but not visible/actionable state in the general workbench inventory.
+- Phase 29.1 adds Approval Panel actionability validation via `RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL_ACTIONABLE=1` (still opt-in only).
+- This check may click **Open Approval Panel** to expose the approval card UI.
+- This check never clicks **Approve Plan**.
+- This check never executes preview.
+- This check never applies patch.
+- This check only validates Approve Plan visible/actionable candidate signals after panel open.
