@@ -575,3 +575,12 @@
 - `Plan: pending` / `Review: pending` / `Requirement: pending` explicitly block completion.
 - Diagnostics now include completion/pending/failure signal sets and a completion decision reason.
 - Approval / execute preview / patch apply automation remains out of scope.
+
+
+## Phase 27.0b wait-plan completion recognition fix
+- Windows local wait-plan opt-in run reached `Requirement: done`, `Plan: generated`, `Review: done`, `Approval: required` with `Last Error: -`.
+- Initial wait-plan result failed because completion recognition did not classify this generated/review-done/approval-required state as completed.
+- Completion recognition now treats the above four Plan Flow markers plus `Last Error: -` as plan-generation completed.
+- Backend job endpoints (`/api/jobs/active`, `/api/jobs/recent`) remain diagnostic-only and are not mandatory for completion.
+- No approval / execute preview / patch apply behavior changes were added.
+- Wait-plan remains opt-in via `RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1` with `RUN_ATLAS_BACKEND_E2E=1`.

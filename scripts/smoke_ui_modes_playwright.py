@@ -597,7 +597,9 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
     diag = await collect_atlas_job_lifecycle_diag(page, preflight_status=preflight_status, base_url=base_url, elapsed_ms=elapsed_ms)
     diag["consoleErrors"] = list(console_errors)
     diag["pageErrors"] = list(page_errors)
-    haystack = "\n".join([diag.get("atlasWorkflowStatusTextTail", ""), diag.get("planFlowTextTail", ""), "\n".join(diag.get("messagesTail", []))]).lower()
+    raw_haystack = "\n".join([diag.get("atlasWorkflowStatusTextTail", ""), diag.get("planFlowTextTail", ""), "\n".join(diag.get("messagesTail", []))])
+    normalized_haystack = " ".join(raw_haystack.replace("•", " ").replace("	", " ").lower().split())
+    haystack = normalized_haystack.replace(":", ": ").replace("  ", " ")
     last_error = str(diag.get("lastError", "-") or "-").strip()
     active_jobs = diag.get("activeJobsResponse", {}) if isinstance(diag.get("activeJobsResponse"), dict) else {}
     active_jobs_json = active_jobs.get("json") if isinstance(active_jobs.get("json"), dict) else {}
@@ -613,9 +615,22 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
       "plan review",
       "review: ready",
       "review: required",
+      "requirement: done",
+      "plan: generated",
+      "review: done",
+      "approval: required",
     ]
     pending_signal_tokens = ["plan: pending", "review: pending", "requirement: pending"]
+    plan_flow_requirements = {
+      "plan_flow_requirement_done": "requirement: done",
+      "plan_flow_plan_generated": "plan: generated",
+      "plan_flow_review_done": "review: done",
+      "plan_flow_approval_required": "approval: required",
+    }
+    matched_plan_flow = [name for name, token in plan_flow_requirements.items() if token in haystack]
+    missing_plan_flow = [name for name in plan_flow_requirements if name not in matched_plan_flow]
     completion_signals = [token for token in completion_signal_tokens if token in haystack]
+    completion_signals.extend(matched_plan_flow)
     pending_signals = [token for token in pending_signal_tokens if token in haystack]
     backend_done_statuses = {"succeeded", "completed", "done", "success"}
     backend_running_statuses = {"running"}
@@ -627,7 +642,7 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
       failure_signals.append("atlas_start_failed")
     if last_error not in ("", "-"):
       failure_signals.append("last_error_present")
-    if " job failed" in haystack or "status: failed" in haystack or "failed:" in haystack:
+    if " job failed" in haystack or "status: failed" in haystack or "failed:" in haystack or " exception" in haystack or " error:" in haystack:
       failure_signals.append("failed_text_detected")
     if active_failed:
       failure_signals.append("backend_failed_status")
@@ -635,6 +650,9 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
     diag["pendingSignals"] = pending_signals
     diag["backendJobStatuses"] = backend_statuses
     diag["failureSignals"] = failure_signals
+    diag["normalizedPlanFlowText"] = haystack
+    diag["matchedCompletionSignals"] = matched_plan_flow
+    diag["missingCompletionSignals"] = missing_plan_flow
     diag["completionDecisionReason"] = "in_progress"
 
     if failure_signals:
@@ -649,6 +667,10 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
 
     if has_pending_signal:
       diag["completionDecisionReason"] = "pending_plan_detected"
+    elif not missing_plan_flow and last_error in ("", "-") and not console_errors and not page_errors:
+      final = "completed"
+      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "plan_flow_generated_review_done_approval_required"}
+      break
     elif has_completion_signal and backend_done_hits:
       final = "completed"
       last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "ui_plan_ready_and_backend_done"}
@@ -668,6 +690,10 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
   last_diag["elapsedMs"] = int((time.perf_counter() - started) * 1000)
   if final == "timeout" and not last_diag.get("completionDecisionReason"):
     last_diag["completionDecisionReason"] = "timeout_without_completion"
+  if final == "timeout":
+    last_diag.setdefault("normalizedPlanFlowText", "")
+    last_diag.setdefault("matchedCompletionSignals", [])
+    last_diag.setdefault("missingCompletionSignals", ["plan_flow_requirement_done", "plan_flow_plan_generated", "plan_flow_review_done", "plan_flow_approval_required"])
   last_diag["finalDecision"] = final if final != "timeout" else last_diag.get("finalDecision", "timeout")
   return last_diag
 

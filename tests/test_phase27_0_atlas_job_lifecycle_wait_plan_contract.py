@@ -62,10 +62,12 @@ class TestPhase27AtlasJobLifecycleWaitPlanContract(unittest.TestCase):
         self.assertNotIn("await verify_atlas_backend_e2e_journey(page)", wait_plan_block)
 
 
-    def test_completion_signals_exclude_approval_required_only(self):
+    def test_completion_signals_include_approval_required_and_done_markers(self):
         wait_block = self.smoke.split("async def wait_atlas_plan_completion", 1)[1].split("async def verify_nexus_tabs", 1)[0]
-        self.assertNotIn('"approval: required"', wait_block)
-        self.assertIn('"review: required"', wait_block)
+        self.assertIn('"approval: required"', wait_block)
+        self.assertIn('"requirement: done"', wait_block)
+        self.assertIn('"plan: generated"', wait_block)
+        self.assertIn('"review: done"', wait_block)
 
     def test_running_not_treated_as_completion(self):
         wait_block = self.smoke.split("async def wait_atlas_plan_completion", 1)[1].split("async def verify_nexus_tabs", 1)[0]
