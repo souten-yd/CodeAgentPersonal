@@ -32,9 +32,11 @@ NEXUS_TABS = [
 async def verify_mode_switches(page) -> None:
   await page.click("#btn-atlas")
   await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
+  await page.wait_for_function("() => document.getElementById('atlas-workbench-card') && getComputedStyle(document.getElementById('atlas-workbench-card')).display !== 'none'")
   await page.wait_for_function("() => document.getElementById('agent-col') && getComputedStyle(document.getElementById('agent-col')).display === 'none'")
   await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display === 'none'")
   assert await page.locator("#atlas-panel-col", has_text="Atlas Workbench").count() > 0
+  assert await page.locator("#atlas-workbench-card").count() > 0
   assert await page.get_by_role("button", name="Start Atlas").count() > 0
   assert await page.get_by_role("button", name="Load Recent Atlas Runs").count() > 0
 
@@ -51,6 +53,8 @@ async def verify_mode_switches(page) -> None:
   await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display === 'none'")
   await page.wait_for_function("() => document.getElementById('agent-col') && getComputedStyle(document.getElementById('agent-col')).display === 'none'")
   await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display === 'none'")
+  await page.click("#btn-atlas")
+  await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
 
   await page.click("#btn-echo")
   await page.wait_for_function("() => document.getElementById('echo-col') && getComputedStyle(document.getElementById('echo-col')).display !== 'none'")
@@ -183,6 +187,9 @@ async def verify_mobile_mode_switches(browser) -> None:
   await page.click("#btn-atlas")
   await page.wait_for_function(
     "() => document.getElementById('atlas-panel-col') && !document.getElementById('atlas-panel-col').classList.contains('mob-hidden')"
+  )
+  await page.wait_for_function(
+    "() => document.getElementById('atlas-workbench-card') && getComputedStyle(document.getElementById('atlas-workbench-card')).display !== 'none'"
   )
   await page.wait_for_function(
     "() => document.getElementById('mob-atlas')?.classList.contains('active')"

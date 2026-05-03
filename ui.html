@@ -6998,11 +6998,17 @@ function setMode(m) {
     panelCol.style.display = 'none';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
-    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+    if (atlasPanelCol) atlasPanelCol.style.display = '';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
-    restoreAtlasSubviewState();
+    try {
+      restoreAtlasSubviewState();
+    } catch (err) {
+      console.warn('Atlas restore failed in setMode(atlas):', err);
+      try { setAtlasSubview('overview'); } catch (_err) {}
+      try { ensureAtlasWorkbenchHost(); } catch (_err) {}
+    }
   } else if (m === 'nexus') {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
@@ -14095,27 +14101,60 @@ function updateAtlasResumeNotice(subview) {
 }
 
 function restoreAtlasSubviewState() {
-  restoreAtlasLastRunState();
-  const subview = getAtlasLastSubview();
-  setAtlasSubview(subview);
-  ensureAtlasWorkbenchHost();
-  updateAtlasResumeNotice(subview);
+  try {
+    restoreAtlasLastRunState();
+  } catch (err) {
+    console.warn('restoreAtlasLastRunState failed:', err);
+  }
+  let subview = 'overview';
+  try {
+    subview = normalizeAtlasSubview(getAtlasLastSubview());
+  } catch (err) {
+    console.warn('getAtlasLastSubview failed:', err);
+    subview = 'overview';
+  }
+  try {
+    setAtlasSubview(subview);
+  } catch (err) {
+    console.warn('setAtlasSubview failed during restore:', err);
+    try { setAtlasSubview('overview'); } catch (_err) {}
+  }
+  try {
+    ensureAtlasWorkbenchHost();
+  } catch (err) {
+    console.warn('ensureAtlasWorkbenchHost failed during restore:', err);
+  }
+  try {
+    updateAtlasResumeNotice(subview);
+  } catch (err) {
+    console.warn('updateAtlasResumeNotice failed during restore:', err);
+  }
 }
 
 function setAtlasSubview(name) {
-  const allowed = ATLAS_SUBVIEWS;
+  const allowed = Array.isArray(ATLAS_SUBVIEWS) ? ATLAS_SUBVIEWS : ['overview'];
   const next = allowed.includes(name) ? name : 'overview';
   const root = document.getElementById('atlas-workbench-card');
-  if (root) root.dataset.atlasCurrentSubview = next;
-  _atlasLsSet(ATLAS_LAST_SUBVIEW_KEY, next);
-  document.querySelectorAll('[data-atlas-subview-panel]').forEach((el) => {
+  if (!root) return next;
+  root.dataset.atlasCurrentSubview = next;
+  try {
+    _atlasLsSet(ATLAS_LAST_SUBVIEW_KEY, next);
+  } catch (err) {
+    console.warn('Atlas subview persistence failed:', err);
+  }
+  root.querySelectorAll('[data-atlas-subview-panel]').forEach((el) => {
     el.style.display = el.getAttribute('data-atlas-subview-panel') === next ? '' : 'none';
   });
-  document.querySelectorAll('[data-atlas-subview-tab]').forEach((btn) => {
+  root.querySelectorAll('[data-atlas-subview-tab]').forEach((btn) => {
     btn.classList.toggle('active', btn.getAttribute('data-atlas-subview-tab') === next);
   });
-  if (next === 'runs' || next === 'dashboard' || next === 'patch_review') ensureAtlasWorkbenchHost();
-  updateAtlasResumeNotice(next);
+  if (next === 'runs' || next === 'dashboard' || next === 'patch_review') {
+    try { ensureAtlasWorkbenchHost(); } catch (err) { console.warn('ensureAtlasWorkbenchHost failed:', err); }
+  }
+  if (typeof updateAtlasResumeNotice === 'function') {
+    try { updateAtlasResumeNotice(next); } catch (err) { console.warn('updateAtlasResumeNotice failed:', err); }
+  }
+  return next;
 }
 
 function ensureAtlasWorkbenchHost() {
