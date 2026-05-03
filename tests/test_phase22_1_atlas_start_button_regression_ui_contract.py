@@ -30,7 +30,7 @@ class TestPhase22_1AtlasStartButtonRegressionUiContract(unittest.TestCase):
         m = re.search(r'async function runGuidedPlanWorkflow\(options = \{\}\) \{([\s\S]*?)\n\}', self.ui)
         self.assertIsNotNone(m)
         body = m.group(1)
-        self.assertIn("if (!text && source === 'atlas')", body)
+        self.assertTrue("if (!text && source === 'atlas')" in body or "if (!requirementText && source === 'atlas')" in body)
         self.assertIn('Atlas Start needs a request.', body)
         self.assertIn("addMsg('system', msg);", body)
         self.assertIn("addLog('warn', 'atlas', msg);", body)

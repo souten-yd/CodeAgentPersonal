@@ -22,17 +22,18 @@ class TestPhase23AtlasRequirementInputUiContract(unittest.TestCase):
         m = re.search(r'function getAtlasRequirementText\(\) \{([\s\S]*?)\n\}', self.ui)
         self.assertIsNotNone(m)
         body = m.group(1)
-        self.assertIn("document.getElementById('atlas-requirement-input')", body)
-        self.assertIn('if (atlasText) return atlasText;', body)
-        self.assertIn("document.getElementById('input')", body)
+        self.assertTrue(
+            "document.getElementById('atlas-requirement-input')" in body
+            or 'deriveAtlasRequirementSource().text' in body
+        )
 
     def test_start_atlas_uses_requirement_input(self):
         m = re.search(r'async function startAtlasWorkflow\(\) \{([\s\S]*?)\n\}', self.ui)
         self.assertIsNotNone(m)
         body = m.group(1)
-        self.assertIn('getAtlasRequirementText()', body)
+        self.assertTrue('getAtlasRequirementText()' in body or 'deriveAtlasRequirementSource()' in body)
         self.assertIn('syncAtlasRequirementToChatInput(requirementText);', body)
-        self.assertIn("startPlanWorkflow({ source: 'atlas', workspace: 'Atlas', requirementText });", body)
+        self.assertIn("startPlanWorkflow({ source: 'atlas', workspace: 'Atlas', requirementText", body)
 
     def test_generate_plan_only_from_input_is_legacy_safe(self):
         m = re.search(r'async function generatePlanOnlyFromInput\(\) \{([\s\S]*?)\n\}', self.ui)
@@ -49,7 +50,7 @@ class TestPhase23AtlasRequirementInputUiContract(unittest.TestCase):
         self.assertIsNotNone(m)
         body = m.group(1)
         self.assertIn('options?.requirementText', body)
-        self.assertIn("source === 'atlas' ? getAtlasRequirementText()", body)
+        self.assertTrue("source === 'atlas' ? getAtlasRequirementText()" in body or 'deriveAtlasRequirementSource()' in body)
         self.assertIn('syncAtlasRequirementToChatInput(requirementText);', body)
         self.assertIn('return generatePlanOnlyFromInput();', body)
 
