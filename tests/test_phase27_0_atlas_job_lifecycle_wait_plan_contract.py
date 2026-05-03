@@ -61,6 +61,33 @@ class TestPhase27AtlasJobLifecycleWaitPlanContract(unittest.TestCase):
         wait_plan_block = self.smoke.split("async def verify_atlas_backend_e2e_wait_plan", 1)[1].split("if run_backend_wait_plan_opt_in:", 1)[0]
         self.assertNotIn("await verify_atlas_backend_e2e_journey(page)", wait_plan_block)
 
+
+    def test_completion_signals_exclude_approval_required_only(self):
+        wait_block = self.smoke.split("async def wait_atlas_plan_completion", 1)[1].split("async def verify_nexus_tabs", 1)[0]
+        self.assertNotIn('"approval: required"', wait_block)
+        self.assertIn('"review: required"', wait_block)
+
+    def test_running_not_treated_as_completion(self):
+        wait_block = self.smoke.split("async def wait_atlas_plan_completion", 1)[1].split("async def verify_nexus_tabs", 1)[0]
+        self.assertIn('backend_done_statuses = {"succeeded", "completed", "done", "success"}', wait_block)
+        self.assertNotIn('backend_done_statuses = {"succeeded", "completed", "done", "success", "running"}', wait_block)
+
+    def test_pending_signals_block_completion(self):
+        wait_block = self.smoke.split("async def wait_atlas_plan_completion", 1)[1].split("async def verify_nexus_tabs", 1)[0]
+        for token in ["plan: pending", "review: pending", "requirement: pending", '"pendingSignals"', '"pending_plan_detected"']:
+            self.assertIn(token, wait_block)
+
+    def test_diagnostics_include_completion_reason_fields(self):
+        wait_block = self.smoke.split("async def wait_atlas_plan_completion", 1)[1].split("async def verify_nexus_tabs", 1)[0]
+        for token in [
+            '"completionSignals"',
+            '"pendingSignals"',
+            '"backendJobStatuses"',
+            '"failureSignals"',
+            '"completionDecisionReason"',
+        ]:
+            self.assertIn(token, wait_block)
+
     def test_failure_detection_avoids_generic_error_token(self):
         wait_block = self.smoke.split("async def wait_atlas_plan_completion", 1)[1].split("async def verify_nexus_tabs", 1)[0]
         self.assertNotIn('[" job failed", "failed", "error", "timeout"]', wait_block)

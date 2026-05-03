@@ -566,3 +566,12 @@
   - no approval / execute preview / patch apply automation is performed
 - Default workflow remains backend-off (no `RUN_ATLAS_BACKEND_E2E` and no wait-plan env by default).
 - Wait-plan mode can invoke planner/LLM and may take longer; inspect logs/diagnostics before moving to approval/execute phases.
+
+## Phase 27.0c note (wait-plan completion detection tightening)
+
+- Wait-plan completion detection was tightened to avoid false completed decisions on pending plan states.
+- `Approval: required` alone is no longer treated as plan completion.
+- Backend job `running` is treated as in-progress, not completed.
+- `Plan: pending` / `Review: pending` / `Requirement: pending` explicitly block completion.
+- Diagnostics now include completion/pending/failure signal sets and a completion decision reason.
+- Approval / execute preview / patch apply automation remains out of scope.
