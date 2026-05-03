@@ -584,3 +584,11 @@
 - Backend job endpoints (`/api/jobs/active`, `/api/jobs/recent`) remain diagnostic-only and are not mandatory for completion.
 - No approval / execute preview / patch apply behavior changes were added.
 - Wait-plan remains opt-in via `RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1` with `RUN_ATLAS_BACKEND_E2E=1`.
+
+## Phase 27.1 note (clarification gate terminal-state recognition)
+- Windows wait-plan opt-in run can legitimately stop at clarification gate before plan generation, e.g. `Requirement: done`, `Plan: pending`, `Review: pending`, `Next Action: answer clarification`.
+- Clarification UI markers (for example `回答してPlan生成` / `おまかせで進める`) are treated as human-input-required signals.
+- Wait-plan classification now returns `finalDecision: needs_clarification` with `completionDecisionReason: clarification_required_before_plan_generation` instead of unknown timeout.
+- `needs_clarification` is PASS for lifecycle validation, but is explicitly distinct from generated-plan completion (`Plan: generated`).
+- No automatic clarification response is performed; no approval / execute / patch behavior was changed.
+- Wait-plan mode remains manual opt-in (`RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1` with `RUN_ATLAS_BACKEND_E2E=1`).
