@@ -335,3 +335,12 @@
 - Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
 - No backend workflow changes were introduced.
 - No approval / execute / patch behavior changes were introduced.
+
+## Phase 25.4.10 note (Final Reference Viewer selector fallback for Playwright UI smoke)
+- Final Reference Viewer selector fallback was applied for `reference_card_actions` in Playwright UI smoke.
+- Reference card smoke now collects viewer text from multiple current DOM candidates with `#nexus-col` fallback.
+- Viewer field checks are separated from URL action assertions.
+- Current viewer fields `source_id`, `mode`, and `highlight` are used for success checks.
+- Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
+- No backend workflow changes were introduced.
+- No approval / execute / patch behavior changes were introduced.
