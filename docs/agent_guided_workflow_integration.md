@@ -289,3 +289,13 @@
 - Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E`.
 - No backend workflow logic changes.
 - No approval / execute / patch behavior changes.
+
+## Phase 25.4.5 note (Final Playwright UI smoke alignment)
+- Final Playwright UI smoke alignment was applied after artifact review.
+- Atlas Requirement controls are treated as Workbench-level controls (root-scoped under `#atlas-workbench-card`), not Overview panel child-only controls.
+- Atlas guided workflow smoke now verifies Workflow Status / Requirement Preview evidence instead of requiring the final Chat input value to remain synced.
+- Nexus tabs accept current DOM behavior where some tabs may not expose `#nexus-tab-{name}` panels; active tab button + visible workspace is accepted when panel is missing.
+- Reference card checks align to current Reference Viewer text (`source_id`, `mode`, `highlight`) instead of stale chunk-only text assumptions.
+- Backend E2E remains opt-in via `RUN_ATLAS_BACKEND_E2E=1`.
+- No backend workflow changes were introduced.
+- No approval / execute / patch behavior changes were introduced.
