@@ -644,3 +644,18 @@
 - No approval / execute / patch apply action is performed.
 - Preflight remains GET-only.
 - This remains explicit opt-in only and is not enabled by default workflow/CI settings.
+
+## Phase 29.0 note (Atlas PlanApproval gate readiness validation)
+- Phase 29.0 introduces PlanApproval gate readiness validation as explicit opt-in only.
+- Required env:
+  - `RUN_ATLAS_BACKEND_E2E=1`
+  - `RUN_ATLAS_BACKEND_E2E_WAIT_PLAN=1`
+  - `RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL=1`
+- Optional env:
+  - `RUN_ATLAS_BACKEND_E2E_RESOLVE_CLARIFICATION=1`
+- Scenario set is `atlas_backend_preflight` + `atlas_backend_e2e_plan_approval_gate`.
+- PlanApproval gate checks run only when final state is `completed`.
+- If final state is `needs_clarification` or `needs_clarification_after_resolution`, gate check is skipped with `plan_approval_gate_skipped_needs_clarification` diagnostic.
+- This phase does not click approve, does not execute preview, and does not apply patch.
+- Execute Preview / Patch Apply are validated as locked before approval.
+- Preflight remains GET-only and default workflow remains opt-in (no default E2E/WAIT_PLAN/CHECK_PLAN_APPROVAL enablement).
