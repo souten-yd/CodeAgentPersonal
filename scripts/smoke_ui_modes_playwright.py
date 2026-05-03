@@ -73,6 +73,10 @@ async def verify_mode_switches(page) -> None:
 
 
 async def verify_atlas_start_button_feedback(page) -> None:
+  errors: list[str] = []
+  page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+  page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
+
   await page.click("#btn-chat")
   await page.fill("#input", "")
   await page.click("#btn-atlas")
@@ -88,6 +92,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
     return logs.some((t) => t.includes('Atlas Start needs a request.'));
   }""")
   assert await page.locator('#atlas-workbench-card', has_text='Atlas Guided Plan Flow').count() > 0
+  assert not errors, f"atlas start smoke found errors: {errors}"
 
 async def verify_nexus_tabs(page) -> None:
   await page.click("#btn-nexus")
