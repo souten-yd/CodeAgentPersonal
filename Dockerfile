@@ -271,6 +271,14 @@ RUN set -eux; \
     cd /app/Style-Bert-VITS2; \
     python -m venv /opt/style-bert-vits2-venv
 
+RUN set -eux; \
+    sbv2_site_packages="$(/opt/style-bert-vits2-venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
+    opt_site_packages="$(/opt/venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
+    printf '%s\n' "${opt_site_packages}" > "${sbv2_site_packages}/_runpod_opt_venv.pth"; \
+    cat "${sbv2_site_packages}/_runpod_opt_venv.pth"; \
+    test "$(cat "${sbv2_site_packages}/_runpod_opt_venv.pth")" = "${opt_site_packages}"; \
+    case "${opt_site_packages}" in /opt/venv/*) ;; *) echo "unexpected opt_site_packages=${opt_site_packages}" >&2; exit 1 ;; esac
+
 RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
 import sys
 import pip
@@ -308,14 +316,12 @@ RUN set -eux; \
       pypinyin; \
     /opt/style-bert-vits2-venv/bin/python -c "import pyopenjtalk; pyopenjtalk.g2p('辞書ウォームアップ')"
 
-RUN /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 torch==2.11.0+cu128 torchaudio==2.11.0+cu128 \
-    && /opt/style-bert-vits2-venv/bin/python -m pip check
-
 RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
 import sys
 import torch
 import torchaudio
 import av
+import onnxruntime
 from style_bert_vits2.tts_model import TTSModel
 
 print("sbv2 python:", sys.executable)
@@ -323,20 +329,27 @@ print("torch:", torch.__version__, torch.__file__)
 print("torchaudio:", torchaudio.__version__, torchaudio.__file__)
 print("torch.version.cuda:", torch.version.cuda)
 print("av:", av.__version__, av.__file__)
+print("onnxruntime:", onnxruntime.__version__, onnxruntime.__file__)
 assert sys.version_info[:2] == (3, 11), sys.version
 assert torch.__version__.startswith("2.11.0"), torch.__version__
 assert torchaudio.__version__.startswith("2.11.0"), torchaudio.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
-assert "/opt/style-bert-vits2-venv/" in torch.__file__, torch.__file__
-assert "/opt/style-bert-vits2-venv/" in torchaudio.__file__, torchaudio.__file__
+assert "/opt/venv/" in torch.__file__, torch.__file__
+assert "/opt/venv/" in torchaudio.__file__, torchaudio.__file__
+assert "/opt/venv/" in av.__file__, av.__file__
+assert "/opt/venv/" in onnxruntime.__file__, onnxruntime.__file__
 PY
 
 RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
 import sys
 paths = "\n".join(sys.path)
 print(paths)
+opt_site = "/opt/venv/lib/python3.11/site-packages"
+conda_site = "/opt/conda/envs/torch_env/lib/python3.11/site-packages"
+assert opt_site in sys.path, sys.path
+assert sys.path.count(opt_site) == 1, sys.path
 assert "/opt/conda/envs/torch_env/lib/python3.11/site-packages" not in paths
-assert "/opt/venv/lib/python3.11/site-packages" not in paths
+assert conda_site not in paths, paths
 PY
 
 RUN set -eux; \

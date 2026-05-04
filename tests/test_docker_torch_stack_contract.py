@@ -29,12 +29,20 @@ def test_dockerfile_torch_python_contract():
     assert "python -m venv --system-site-packages /opt/venv" not in dockerfile
     assert "python -m venv --system-site-packages /opt/style-bert-vits2-venv" not in dockerfile
     assert "_pytorch_base_conda.pth" not in dockerfile
-    assert "_runpod_opt_venv.pth" not in dockerfile
+    assert "_runpod_opt_venv.pth" in dockerfile
     assert "base_site_packages" not in dockerfile
     assert 'assert "/opt/venv/" in torch.__file__, torch.__file__' in dockerfile
-    assert 'assert "/opt/style-bert-vits2-venv/" in torch.__file__, torch.__file__' in dockerfile
+    assert 'assert "/opt/venv/" in torchaudio.__file__, torchaudio.__file__' in dockerfile
+    assert 'assert "/opt/venv/" in onnxruntime.__file__, onnxruntime.__file__' in dockerfile
     assert 'assert "/opt/conda/envs/torch_env/lib/python3.11/site-packages" not in paths' in dockerfile
-    assert 'assert "/opt/venv/lib/python3.11/site-packages" not in paths' in dockerfile
+    assert 'assert opt_site in sys.path, sys.path' in dockerfile
+    assert 'assert sys.path.count(opt_site) == 1, sys.path' in dockerfile
+    assert "opt_site_packages" in dockerfile
+    assert "case \"${opt_site_packages}\" in /opt/venv/*)" in dockerfile
+    assert "/opt/conda/envs/torch_env/lib/python3.11/site-packages" in dockerfile
+    assert 'printf \'%s\\n\' "${opt_site_packages}" > "${sbv2_site_packages}/_runpod_opt_venv.pth"' in dockerfile
+    assert 'printf \'%s\\n\' "${conda_site_packages}" > "${sbv2_site_packages}/_runpod_opt_venv.pth"' not in dockerfile
+    assert "/opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 torch==2.11.0+cu128 torchaudio==2.11.0+cu128" not in dockerfile
 
     py_blocks = _extract_run_python_blocks(dockerfile)
     base_check_block = _find_block_by_print(py_blocks, 'print("base python:", sys.executable)')
