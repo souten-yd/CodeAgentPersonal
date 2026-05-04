@@ -26,9 +26,44 @@ def test_dockerfile_torch_python_contract():
     assert "torch==2.11.0+cu128" in dockerfile
     assert "torchaudio==2.11.0+cu128" in dockerfile
 
+    py_blocks = _extract_run_python_blocks(dockerfile)
+    base_check_block = _find_block_by_print(py_blocks, 'print("base python:", sys.executable)')
+    assert 'print("base version:", sys.version)' in base_check_block
+    assert "import torch" not in base_check_block
+    assert "import torchaudio" not in base_check_block
+
+    first_torch_install = dockerfile.index("torch==2.11.0+cu128")
+    first_import_torch = dockerfile.index("import torch")
+    assert first_import_torch > first_torch_install
+
 
 def test_docker_publish_cache_contract():
     workflow = Path(".github/workflows/docker-publish.yml").read_text(encoding="utf-8")
     assert "no-cache: true" not in workflow
     assert "cache-from: type=gha" in workflow
     assert "cache-to: type=gha,mode=max" in workflow
+
+
+def _extract_run_python_blocks(dockerfile: str) -> list[str]:
+    blocks: list[str] = []
+    marker = "RUN "
+    start = 0
+    while True:
+        idx = dockerfile.find(marker, start)
+        if idx == -1:
+            break
+        end = dockerfile.find("\nRUN ", idx + 1)
+        if end == -1:
+            end = len(dockerfile)
+        block = dockerfile[idx:end]
+        if "<<'PY'" in block:
+            blocks.append(block)
+        start = idx + 1
+    return blocks
+
+
+def _find_block_by_print(blocks: list[str], print_marker: str) -> str:
+    for block in blocks:
+        if print_marker in block:
+            return block
+    raise AssertionError(f"missing RUN python block containing {print_marker!r}")
