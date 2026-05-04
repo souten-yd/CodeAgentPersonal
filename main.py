@@ -31,6 +31,7 @@ import traceback
 import unicodedata
 from pathlib import Path
 from datetime import datetime
+from typing import Mapping
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from agent.context_builder import ContextBuilder, FileSummaryCache, TaskV2ContextBuilder
