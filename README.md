@@ -1361,3 +1361,5 @@ PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 RUN_ATLAS_BACKEND_E2E=1 python s
 - Atlas is the source of truth for plan text and workflow status.
 - Atlas workbench panels are scroll-safe on desktop/mobile (no auto approve/execute/apply).
 - Agent moves under Atlas in Phase 31.1 (top-level Agent remains temporarily).
+
+- Phase 31.0b: Atlas/Chat decoupling completed. Atlas workflow status/plan/preview/errors stay inside Atlas, and smoke/contracts now validate Atlas DOM + chat non-mirroring.
