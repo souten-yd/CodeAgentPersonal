@@ -122,12 +122,7 @@ print("base version:", sys.version)
 assert sys.version_info[:2] == (3, 11), sys.version
 PY
 
-RUN python -m venv --system-site-packages /opt/venv
-RUN set -eux; \
-    base_site_packages="$(python -c 'import site; print(site.getsitepackages()[0])')"; \
-    venv_site_packages="$(/opt/venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
-    printf '%s\n' "${base_site_packages}" > "${venv_site_packages}/_pytorch_base_conda.pth"; \
-    cat "${venv_site_packages}/_pytorch_base_conda.pth"
+RUN python -m venv /opt/venv
 
 ENV PATH=/opt/venv/bin:${PATH}
 RUN /opt/venv/bin/python -m pip install --no-cache-dir --upgrade pip setuptools wheel
@@ -161,6 +156,15 @@ assert sys.version_info[:2] == (3, 11), sys.version
 assert torch.__version__.startswith("2.11.0"), torch.__version__
 assert torchaudio.__version__.startswith("2.11.0"), torchaudio.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
+assert "/opt/venv/" in torch.__file__, torch.__file__
+assert "/opt/venv/" in torchaudio.__file__, torchaudio.__file__
+PY
+
+RUN /opt/venv/bin/python - <<'PY'
+import sys
+paths = "\n".join(sys.path)
+print(paths)
+assert "/opt/conda/envs/torch_env/lib/python3.11/site-packages" not in paths
 PY
 
 FROM py_base AS py_build
@@ -217,6 +221,22 @@ PY
 
 RUN /opt/venv/bin/python -m pip check
 
+RUN /opt/venv/bin/python - <<'PY'
+import sys
+import faster_whisper
+import ctranslate2
+import av
+
+print("asr python:", sys.executable)
+print("faster_whisper:", getattr(faster_whisper, "__version__", "?"), faster_whisper.__file__)
+print("ctranslate2:", ctranslate2.__version__, ctranslate2.__file__)
+print("av:", av.__version__, av.__file__)
+
+assert "/opt/venv/" in faster_whisper.__file__, faster_whisper.__file__
+assert "/opt/venv/" in ctranslate2.__file__, ctranslate2.__file__
+assert "/opt/venv/" in av.__file__, av.__file__
+PY
+
 # Re-pin core framework versions in case optional deps caused downgrades
 RUN /opt/venv/bin/python -m pip install --no-cache-dir --upgrade "pydantic>=2.6" "fastapi>=0.110"
 
@@ -249,12 +269,7 @@ RUN rm -rf /app/Style-Bert-VITS2 \
 # Keep Style-Bert-VITS2 dependencies isolated from existing Qwen3-TTS pins by using a dedicated venv.
 RUN set -eux; \
     cd /app/Style-Bert-VITS2; \
-    python -m venv --system-site-packages /opt/style-bert-vits2-venv; \
-    opt_site_packages="$(/opt/venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
-    base_site_packages="$(python -c 'import site; print(site.getsitepackages()[0])')"; \
-    sbv2_site_packages="$(/opt/style-bert-vits2-venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
-    printf '%s\n%s\n' "${opt_site_packages}" "${base_site_packages}" > "${sbv2_site_packages}/_runpod_opt_venv.pth"; \
-    cat "${sbv2_site_packages}/_runpod_opt_venv.pth"
+    python -m venv /opt/style-bert-vits2-venv
 
 RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
 import sys
@@ -301,15 +316,27 @@ import sys
 import torch
 import torchaudio
 import av
-print("sbv2 python", sys.version)
-print("sbv2 torch", torch.__version__, torch.__file__)
-print("sbv2 torchaudio", torchaudio.__version__, torchaudio.__file__)
-print("sbv2 torch.version.cuda", torch.version.cuda)
-print("sbv2 av", av.__version__, av.__file__)
+from style_bert_vits2.tts_model import TTSModel
+
+print("sbv2 python:", sys.executable)
+print("torch:", torch.__version__, torch.__file__)
+print("torchaudio:", torchaudio.__version__, torchaudio.__file__)
+print("torch.version.cuda:", torch.version.cuda)
+print("av:", av.__version__, av.__file__)
 assert sys.version_info[:2] == (3, 11), sys.version
 assert torch.__version__.startswith("2.11.0"), torch.__version__
 assert torchaudio.__version__.startswith("2.11.0"), torchaudio.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
+assert "/opt/style-bert-vits2-venv/" in torch.__file__, torch.__file__
+assert "/opt/style-bert-vits2-venv/" in torchaudio.__file__, torchaudio.__file__
+PY
+
+RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
+import sys
+paths = "\n".join(sys.path)
+print(paths)
+assert "/opt/conda/envs/torch_env/lib/python3.11/site-packages" not in paths
+assert "/opt/venv/lib/python3.11/site-packages" not in paths
 PY
 
 RUN set -eux; \

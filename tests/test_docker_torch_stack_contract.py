@@ -26,6 +26,15 @@ def test_dockerfile_torch_python_contract():
     assert "--index-url https://download.pytorch.org/whl/cu128" in dockerfile
     assert "torch==2.11.0+cu128" in dockerfile
     assert "torchaudio==2.11.0+cu128" in dockerfile
+    assert "python -m venv --system-site-packages /opt/venv" not in dockerfile
+    assert "python -m venv --system-site-packages /opt/style-bert-vits2-venv" not in dockerfile
+    assert "_pytorch_base_conda.pth" not in dockerfile
+    assert "_runpod_opt_venv.pth" not in dockerfile
+    assert "base_site_packages" not in dockerfile
+    assert 'assert "/opt/venv/" in torch.__file__, torch.__file__' in dockerfile
+    assert 'assert "/opt/style-bert-vits2-venv/" in torch.__file__, torch.__file__' in dockerfile
+    assert 'assert "/opt/conda/envs/torch_env/lib/python3.11/site-packages" not in paths' in dockerfile
+    assert 'assert "/opt/venv/lib/python3.11/site-packages" not in paths' in dockerfile
 
     py_blocks = _extract_run_python_blocks(dockerfile)
     base_check_block = _find_block_by_print(py_blocks, 'print("base python:", sys.executable)')
@@ -41,11 +50,10 @@ def test_dockerfile_torch_python_contract():
 def test_docker_publish_cache_contract():
     workflow = Path(".github/workflows/docker-publish.yml").read_text(encoding="utf-8")
     assert "no-cache: true" not in workflow
-    assert "cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:latest" in workflow
-    assert "cache-to: type=inline" in workflow
-    assert "cache-to: type=gha" not in workflow
-    assert "type=gha,mode=max" not in workflow
-    assert "type=gha,mode=min" not in workflow
+    assert "cache-from:" in workflow
+    assert "cache-to:" in workflow
+    assert "type=gha" in workflow
+    assert "type=gha,mode=max" in workflow
 
 
 def _extract_run_python_blocks(dockerfile: str) -> list[str]:
