@@ -54,13 +54,41 @@ LEGACY_TEST_PRESETS: list[TestPreset] = [
 ]
 
 
+def _markdown_cell(value: Any, *, limit: int = 220) -> str:
+    text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
+    text = text.replace("|", "\\|")
+    if len(text) > limit:
+        text = text[: limit - 1].rstrip() + "…"
+    return text
+
+
+def _compact_tail(output: str, *, max_lines: int = 8, max_chars: int = 1600) -> str:
+    lines = output.splitlines()[-max_lines:]
+    tail = "\n".join(lines)
+    if len(tail) > max_chars:
+        tail = "…" + tail[-max_chars:]
+    return tail
+
+
+def _error_summary(stdout: str, stderr: str, status: str) -> str:
+    combined_lines = [line.strip() for line in f"{stderr}\n{stdout}".splitlines() if line.strip()]
+    priority_markers = ("AssertionError", "TimeoutError", "Error:", "FAIL", "Traceback", "SMOKE_STATUS")
+    for line in reversed(combined_lines):
+        if any(marker in line for marker in priority_markers):
+            return _markdown_cell(line, limit=300)
+    if status == "passed":
+        return ""
+    return _markdown_cell(combined_lines[-1] if combined_lines else status, limit=300)
+
+
 def _write_summary(run_dir: Path, payload: dict[str, Any]) -> None:
     lines = [f"# Debug Test Matrix {payload['run_id']}", "", f"- status: **{payload.get('status', 'unknown')}**", f"- total: {payload.get('total', 0)} pass: {payload.get('passed', 0)} fail: {payload.get('failed', 0)} skip: {payload.get('skipped', 0)} timeout: {payload.get('timeout', 0)}", ""]
     if payload.get("current_test"):
         lines.extend([f"- current_test: {payload['current_test']}", ""])
-    lines.extend(["| id | status | exit | duration |", "|---|---:|---:|---:|"])
+    lines.extend(["| id | status | exit | duration | error summary | artifact path | logs |", "|---|---:|---:|---:|---|---|---|"])
     for row in payload.get("results", []):
-        lines.append(f"| {row['id']} | {row['status']} | {row['exit_code']} | {row['duration_sec']}s |")
+        log_paths = f"stdout: {row.get('stdout_log_path', '')}<br>stderr: {row.get('stderr_log_path', '')}"
+        lines.append(f"| {row['id']} | {row['status']} | {row['exit_code']} | {row['duration_sec']}s | {_markdown_cell(row.get('error_summary'))} | {_markdown_cell(row.get('artifact_path'), limit=260)} | {_markdown_cell(log_paths, limit=360)} |")
     (run_dir / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -137,9 +165,11 @@ def run_all_presets(run_id: str) -> dict[str, Any]:
             code = -1
             out = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
             err = (exc.stderr or "") if isinstance(exc.stderr, str) else ""
-        (test_dir / "stdout.log").write_text(out, encoding="utf-8", errors="replace")
-        (test_dir / "stderr.log").write_text(err, encoding="utf-8", errors="replace")
-        payload["results"].append({"id": preset.id, "title": preset.title, "status": status, "exit_code": code, "duration_sec": round(time.time() - t0, 3), "stdout_tail": "\n".join(out.splitlines()[-20:]), "stderr_tail": "\n".join(err.splitlines()[-20:]), "artifact_path": str(artifact_dir)})
+        stdout_log_path = test_dir / "stdout.log"
+        stderr_log_path = test_dir / "stderr.log"
+        stdout_log_path.write_text(out, encoding="utf-8", errors="replace")
+        stderr_log_path.write_text(err, encoding="utf-8", errors="replace")
+        payload["results"].append({"id": preset.id, "title": preset.title, "status": status, "exit_code": code, "duration_sec": round(time.time() - t0, 3), "error_summary": _error_summary(out, err, status), "stdout_tail": _compact_tail(out), "stderr_tail": _compact_tail(err), "stdout_log_path": str(stdout_log_path), "stderr_log_path": str(stderr_log_path), "artifact_path": str(artifact_dir)})
         _refresh_counts_and_status(payload)
         _write_progress(run_dir, payload)
 

@@ -101,6 +101,17 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
         self.assertNotIn('ui_9of9_mock', default_list)
         self.assertNotIn('legacy_ui_9of9_mock', default_list)
 
+
+    def test_debug_harness_separates_default_and_legacy_ui_presets(self):
+        self.assertIn('from scripts.run_debug_test_matrix import LEGACY_TEST_PRESETS, TEST_PRESETS', (ROOT / 'main.py').read_text(encoding='utf-8'))
+        self.assertIn('Default acceptance presets', (ROOT / 'main.py').read_text(encoding='utf-8'))
+        self.assertIn('Legacy / manual informational presets', (ROOT / 'main.py').read_text(encoding='utf-8'))
+        self.assertIn('not run by Run All Tests', (ROOT / 'main.py').read_text(encoding='utf-8'))
+        self.assertIn('for preset in TEST_PRESETS:', MATRIX)
+        self.assertNotIn('for preset in TEST_PRESETS + LEGACY_TEST_PRESETS', MATRIX)
+        self.assertIn('| id | status | exit | duration | error summary | artifact path | logs |', MATRIX)
+        self.assertIn('stdout_log_path', MATRIX)
+
     def test_safety_no_destructive_presets_or_auto_actions(self):
         combined = SMOKE + MATRIX
         for forbidden in ['approve_plan preset', 'execute_preview preset', 'apply_patch preset', 'auto approve', 'auto apply']:

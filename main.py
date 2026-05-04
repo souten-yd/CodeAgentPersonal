@@ -17960,10 +17960,11 @@ def debug_llama():
 def debug_tests_home():
     _debug_harness_guard()
     runs = _list_debug_runs()
-    from scripts.run_debug_test_matrix import TEST_PRESETS
+    from scripts.run_debug_test_matrix import LEGACY_TEST_PRESETS, TEST_PRESETS
     preset_items = "".join([f"<li><b>{html.escape(p.id)}</b>: {html.escape(p.title)} - {html.escape(p.description)}</li>" for p in TEST_PRESETS])
+    legacy_items = "".join([f"<li><b>{html.escape(p.id)}</b>: {html.escape(p.title)} - {html.escape(p.description)} <em>(manual informational; not run by Run All Tests)</em></li>" for p in LEGACY_TEST_PRESETS]) or "<li>No legacy presets</li>"
     run_items = "".join([f"<li><a href='/debug/tests/runs/{html.escape(r['run_id'])}'>{html.escape(r['run_id'])}</a> - {html.escape(r.get('status','unknown'))}</li>" for r in runs]) or "<li>No runs yet</li>"
-    return f"""<html><body><h1>Debug Test Harness enabled</h1><form method='post' action='/api/debug/tests/run-all'><button type='submit'>Run All Tests</button></form><h2>Presets</h2><ul>{preset_items}</ul><h2>Recent runs</h2><ul>{run_items}</ul></body></html>"""
+    return f"""<html><body><h1>Debug Test Harness enabled</h1><form method='post' action='/api/debug/tests/run-all'><button type='submit'>Run All Tests</button></form><p>Run All Tests executes only the default acceptance presets below.</p><h2>Default acceptance presets</h2><ul>{preset_items}</ul><h2>Legacy / manual informational presets</h2><ul>{legacy_items}</ul><h2>Recent runs</h2><ul>{run_items}</ul></body></html>"""
 
 @app.post("/api/debug/tests/run-all")
 def debug_tests_run_all():
@@ -17991,10 +17992,12 @@ def debug_tests_run_view(run_id: str):
     result = _load_debug_run_result(run_id)
     rows = []
     for r in result.get("results", []):
-        rows.append(f"<tr><td>{html.escape(str(r.get('id','')))}</td><td>{html.escape(str(r.get('title','')))}</td><td>{html.escape(str(r.get('status','')))}</td><td>{html.escape(str(r.get('exit_code','')))}</td><td>{html.escape(str(r.get('duration_sec','')))}</td><td><pre>{html.escape(((r.get('stdout_tail') or '')[-800:]))}</pre></td><td><pre>{html.escape(((r.get('stderr_tail') or '')[-800:]))}</pre></td><td>{html.escape(str(r.get('artifact_path','')))}</td></tr>")
+        stdout_tail = html.escape(((r.get('stdout_tail') or '')[-500:]))
+        stderr_tail = html.escape(((r.get('stderr_tail') or '')[-500:]))
+        rows.append(f"<tr><td>{html.escape(str(r.get('id','')))}</td><td>{html.escape(str(r.get('title','')))}</td><td>{html.escape(str(r.get('status','')))}</td><td>{html.escape(str(r.get('exit_code','')))}</td><td>{html.escape(str(r.get('duration_sec','')))}</td><td>{html.escape(str(r.get('error_summary','')))}</td><td>{html.escape(str(r.get('artifact_path','')))}<br><small>stdout: {html.escape(str(r.get('stdout_log_path','')))}<br>stderr: {html.escape(str(r.get('stderr_log_path','')))}</small></td><td><pre>{stdout_tail}</pre></td><td><pre>{stderr_tail}</pre></td></tr>")
     summary_path = DEBUG_TEST_RUNS_DIR / run_id / "summary.md"
     summary = summary_path.read_text(encoding="utf-8") if summary_path.exists() else "(summary pending)"
-    return f"""<html><body><h1>Run {html.escape(run_id)}</h1><p>status: <b>{html.escape(str(result.get('status','')))}</b></p><p>started_at: {html.escape(str(result.get('started_at','')))}</p><p>finished_at: {html.escape(str(result.get('finished_at','')))}</p><p>duration: {html.escape(str(result.get('duration_sec','')))}</p><p>current_test: {html.escape(str(result.get('current_test','')))}</p><p>total:{html.escape(str(result.get('total',0)))} pass:{html.escape(str(result.get('passed',0)))} fail:{html.escape(str(result.get('failed',0)))} skip:{html.escape(str(result.get('skipped',0)))} timeout:{html.escape(str(result.get('timeout',0)))}</p><table border='1'><tr><th>id</th><th>title</th><th>status</th><th>exit_code</th><th>duration</th><th>stdout tail</th><th>stderr tail</th><th>artifact path</th></tr>{''.join(rows)}</table><h2>summary.md</h2><pre>{html.escape(summary)}</pre></body></html>"""
+    return f"""<html><body><h1>Run {html.escape(run_id)}</h1><p>status: <b>{html.escape(str(result.get('status','')))}</b></p><p>started_at: {html.escape(str(result.get('started_at','')))}</p><p>finished_at: {html.escape(str(result.get('finished_at','')))}</p><p>duration: {html.escape(str(result.get('duration_sec','')))}</p><p>current_test: {html.escape(str(result.get('current_test','')))}</p><p>total:{html.escape(str(result.get('total',0)))} pass:{html.escape(str(result.get('passed',0)))} fail:{html.escape(str(result.get('failed',0)))} skip:{html.escape(str(result.get('skipped',0)))} timeout:{html.escape(str(result.get('timeout',0)))}</p><table border='1'><tr><th>id</th><th>title</th><th>status</th><th>exit_code</th><th>duration</th><th>error summary</th><th>artifact/log paths</th><th>stdout tail</th><th>stderr tail</th></tr>{''.join(rows)}</table><h2>summary.md</h2><pre>{html.escape(summary)}</pre></body></html>"""
 
 @app.get("/health")
 def health():
