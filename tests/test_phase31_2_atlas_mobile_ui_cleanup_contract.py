@@ -39,9 +39,11 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
         self.assertIn('id="atlas-workbench-collapse-btn"', atlas)
         self.assertIn('onclick="toggleAtlasWorkbenchCollapse()"', atlas)
         self.assertIn('class="atlas-workbench-summary"', atlas)
-        self.assertIn('Current Action', atlas)
-        self.assertIn('Last Run', atlas)
-        self.assertIn('Status', atlas)
+        self.assertIn('Current:', atlas)
+        self.assertIn('Last Run:', atlas)
+        self.assertIn('Status:', atlas)
+        self.assertIn('atlas-workbench-summary-label', UI)
+        self.assertIn('display:flex;align-items:center;gap:6px;flex-wrap:wrap', UI)
         self.assertIn('function setAtlasWorkbenchCollapsed(collapsed)', UI)
         self.assertIn('#atlas-workbench-card.is-collapsed .atlas-workbench-body{display:none!important}', UI)
 
@@ -50,10 +52,8 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
         plan = UI.split('data-atlas-subview-panel="plan"', 1)[1].split('data-atlas-subview-panel="runs"', 1)[0]
         self.assertIn('id="atlas-requirement-input"', overview)
         self.assertIn('onclick="startAtlasWorkflow()"', overview)
-        self.assertIn('No generated plan yet', plan)
-        self.assertIn('This tab is for viewing generated plans', plan)
+        self.assertIn('No plan yet', plan)
         self.assertNotIn('onclick="startAtlasWorkflow()"', plan)
-        self.assertIn("note.textContent = 'Start new work from Overview. This Plan tab only displays generated plans.';", UI)
 
     def test_mobile_width_overflow_guards(self):
         for token in [
@@ -61,7 +61,7 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
             'overflow-x:hidden;width:100%;max-width:100%',
             '.atlas-panel-col{overflow-y:auto;overflow-x:hidden',
             'min-width:0;max-width:100%',
-            'width:calc(100% - 16px)!important',
+            'width:auto!important',
             'max-width:100%;min-width:0;min-height:84px',
         ]:
             self.assertIn(token, UI)
@@ -78,13 +78,17 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
             'Open Atlas',
         ]:
             self.assertNotIn(forbidden, chat)
-        self.assertIn('Chat is for lightweight conversation', chat)
-        self.assertIn('dedicated workflow mode', chat)
+        self.assertNotIn('Chat is for lightweight conversation', chat)
+        self.assertNotIn('dedicated workflow mode', chat)
+        self.assertNotIn('id="chat-task-toggle"', chat)
+        self.assertNotIn('Legacy Task', chat)
 
     def test_agent_execution_migration_marker(self):
         atlas = self._atlas_block()
-        self.assertIn('id="atlas-agent-execution-section"', atlas)
-        self.assertIn('Agent / Execution', atlas)
+        self.assertIn('id="atlas-agent-execution-marker"', atlas)
+        self.assertIn('data-atlas-agent-execution="true"', atlas)
+        self.assertNotIn('id="atlas-agent-execution-section"', atlas)
+        self.assertNotIn('Agent execution is moving under Atlas', atlas)
         self.assertIn('Legacy Agent Advanced', UI)
         agent_panel = UI.split('<div class="agent-panel-col mob-hidden"', 1)[1].split('<!-- ECHO MODE', 1)[0]
         self.assertNotIn('onclick="startAtlasWorkflow()"', agent_panel)
