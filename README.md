@@ -1111,6 +1111,15 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8000
 
 ---
 
+
+### KV cache default (Phase 30.3)
+
+- 既定のKV cache型は `LLAMA_CACHE_TYPE_K=q8_0` / `LLAMA_CACHE_TYPE_V=q8_0` です。
+- 既定のコンテキスト長は `DEFAULT_LLM_CTX_SIZE=16384` / `LLAMA_CTX_SIZE=16384` のまま維持します。
+- 無効化したい場合は `LLAMA_CACHE_TYPE_K=f16` と `LLAMA_CACHE_TYPE_V=f16` を指定してください。
+- `q4_0` はデフォルトでは有効化されません（VRAM制約時のみ明示設定で利用）。
+- TurboQuant/RotorQuant/planar3/iso3 はデフォルトで有効化しません。
+
 ## 16.2 llama-serverに接続できない
 
 確認:

@@ -1430,10 +1430,7 @@ class ModelManager:
             cmd += ["--batch-size", str(spec["batch_size"])]
         if spec.get("ubatch_size", -1) and spec.get("ubatch_size", -1) > 0:
             cmd += ["--ubatch-size", str(spec["ubatch_size"])]
-        if eff_ck:
-            cmd += ["--cache-type-k", eff_ck]
-        if eff_cv:
-            cmd += ["--cache-type-v", eff_cv]
+        append_llama_kv_cache_args(cmd, eff_ck or "f16", eff_cv or "f16")
         for arg in spec.get("extra_args", []):
             cmd.append(arg)
         cmd_text = (
@@ -5937,6 +5934,31 @@ def _read_gguf_metadata(path: str) -> dict:
     return result
 
 
+
+_ALLOWED_LLAMA_CACHE_TYPES = {"f16", "q8_0", "q4_0", "q4_1", "q5_0", "q5_1", "iq4_nl"}
+
+def _normalize_llama_cache_type(raw: str, env_key: str) -> str:
+    v = (raw or "").strip().lower()
+    if v in {"", "none", "default", "f16"}:
+        return "f16"
+    if v in _ALLOWED_LLAMA_CACHE_TYPES:
+        return v
+    print(f"[LLM][WARN] Invalid {env_key}={raw!r}; fallback to q8_0")
+    return "q8_0"
+
+def resolve_llama_cache_types(env: Mapping[str, str] | None = None) -> tuple[str, str]:
+    src = env or os.environ
+    ck = _normalize_llama_cache_type(src.get("LLAMA_CACHE_TYPE_K", "q8_0"), "LLAMA_CACHE_TYPE_K")
+    cv = _normalize_llama_cache_type(src.get("LLAMA_CACHE_TYPE_V", "q8_0"), "LLAMA_CACHE_TYPE_V")
+    return ck, cv
+
+def append_llama_kv_cache_args(cmd: list[str], cache_k: str, cache_v: str) -> list[str]:
+    if cache_k != "f16":
+        cmd += ["--cache-type-k", cache_k]
+    if cache_v != "f16":
+        cmd += ["--cache-type-v", cache_v]
+    return cmd
+
 def _calc_kv_cache_mb_from_gguf(path: str, ctx: int,
                                   cache_type_k: str = "f16",
                                   cache_type_v: str = "f16") -> int:
@@ -6051,33 +6073,19 @@ def _calc_safe_gpu_layers(spec: dict, force_gpu_layers: int = -1) -> dict:
         print(f"[ModelManager] 部分オフロード(ユーザー指定KV {user_ck}): free={free_vram_mb}MB, kv={kv}MB, layers={fl}")
         return {"gpu_layers": fl, "cache_type_k": user_ck, "cache_type_v": user_cv}
 
-    # ─── 自動KVキャッシュ量子化フェーズ ─────────────────────────
-    # フェーズ1: 全層 + KV f16（デフォルト、最速）
-    kv_f16 = _kv_mb("f16", "f16")
-    if file_size_mb + kv_f16 + overhead_mb + cuda_base_mb <= free_vram_mb:
-        print(f"[ModelManager] 全層GPU+KV f16: free={free_vram_mb}MB, model={file_size_mb}MB, kv={kv_f16}MB")
-        return {"gpu_layers": 999, "cache_type_k": "", "cache_type_v": ""}
+    env_ck, env_cv = resolve_llama_cache_types()
+    kv_env = _kv_mb(env_ck, env_cv)
+    if file_size_mb + kv_env + overhead_mb + cuda_base_mb <= free_vram_mb:
+        print(f"[ModelManager] 全層GPU+KV {env_ck}/{env_cv}: free={free_vram_mb}MB, kv={kv_env}MB")
+        return {"gpu_layers": 999, "cache_type_k": env_ck, "cache_type_v": env_cv}
 
-    # フェーズ2: 全層 + KV q8_0（50%削減、品質ほぼ同等）
-    kv_q8 = _kv_mb("q8_0", "q8_0")
-    if file_size_mb + kv_q8 + overhead_mb + cuda_base_mb <= free_vram_mb:
-        print(f"[ModelManager] 全層GPU+KV q8_0: free={free_vram_mb}MB, kv {kv_f16}MB→{kv_q8}MB")
-        return {"gpu_layers": 999, "cache_type_k": "q8_0", "cache_type_v": "q8_0"}
-
-    # フェーズ3: 全層 + KV q4_0（75%削減）
-    kv_q4 = _kv_mb("q4_0", "q4_0")
-    if file_size_mb + kv_q4 + overhead_mb + cuda_base_mb <= free_vram_mb:
-        print(f"[ModelManager] 全層GPU+KV q4_0: free={free_vram_mb}MB, kv {kv_f16}MB→{kv_q4}MB")
-        return {"gpu_layers": 999, "cache_type_k": "q4_0", "cache_type_v": "q4_0"}
-
-    # フェーズ4: 部分層 + KV q4_0（最終手段）
-    fl = _fitting_layers(kv_q4)
+    fl = _fitting_layers(kv_env)
     print(
-        f"[ModelManager] 部分オフロード+KV q4_0: "
-        f"free={free_vram_mb}MB, model={file_size_mb}MB, kv_q4={kv_q4}MB, "
+        f"[ModelManager] 部分オフロード+KV {env_ck}/{env_cv}: "
+        f"free={free_vram_mb}MB, model={file_size_mb}MB, kv={kv_env}MB, "
         f"overhead+cuda={overhead_mb+cuda_base_mb}MB, layers={fl}"
     )
-    return {"gpu_layers": fl, "cache_type_k": "q4_0", "cache_type_v": "q4_0"}
+    return {"gpu_layers": fl, "cache_type_k": env_ck, "cache_type_v": env_cv}
 
 
 def _disk_free_mb(path: str) -> int:
