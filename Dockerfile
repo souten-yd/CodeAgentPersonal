@@ -43,7 +43,7 @@ RUN set -eux; \
 ########################################
 ## Build stage: Python deps + Style-Bert-VITS2 prep (with CUDA toolkit)
 ########################################
-FROM pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel AS py_base
+FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} AS py_base
 
 ARG KASANE_DEBUG_TEST_HARNESS=1
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -82,6 +82,8 @@ RUN rm -rf /var/lib/apt/lists/* \
         ca-certificates \
         curl \
         jq \
+        wget \
+        bzip2 \
         build-essential \
         pkg-config \
         sox \
@@ -89,7 +91,20 @@ RUN rm -rf /var/lib/apt/lists/* \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN /opt/conda/bin/python - <<'PY'
+ENV CONDA_DIR=/opt/conda
+ENV PATH=${CONDA_DIR}/bin:${PATH}
+
+RUN wget -qO /tmp/miniconda.sh https://repo.anaconda.com/miniconda/Miniconda3-py311_25.3.1-1-Linux-x86_64.sh \
+    && bash /tmp/miniconda.sh -b -p /opt/conda \
+    && rm -f /tmp/miniconda.sh \
+    && conda clean -afy
+
+RUN conda create -n torch_env python=3.11 -y \
+    && conda clean -afy
+
+ENV PATH=/opt/conda/envs/torch_env/bin:/opt/conda/bin:${PATH}
+
+RUN python - <<'PY'
 import sys
 import torch
 import torchaudio
@@ -105,11 +120,11 @@ assert torch.__version__.startswith("2.11.0"), torch.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
-RUN /opt/conda/bin/python -m venv --system-site-packages /opt/venv
+RUN python -m venv --system-site-packages /opt/venv
 RUN set -eux; \
-    conda_site_packages="$(/opt/conda/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
+    base_site_packages="$(python -c 'import site; print(site.getsitepackages()[0])')"; \
     venv_site_packages="$(/opt/venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
-    printf '%s\n' "${conda_site_packages}" > "${venv_site_packages}/_pytorch_base_conda.pth"; \
+    printf '%s\n' "${base_site_packages}" > "${venv_site_packages}/_pytorch_base_conda.pth"; \
     cat "${venv_site_packages}/_pytorch_base_conda.pth"
 
 ENV PATH=/opt/venv/bin:${PATH}
@@ -231,11 +246,11 @@ RUN rm -rf /app/Style-Bert-VITS2 \
 # Keep Style-Bert-VITS2 dependencies isolated from existing Qwen3-TTS pins by using a dedicated venv.
 RUN set -eux; \
     cd /app/Style-Bert-VITS2; \
-    /opt/conda/bin/python -m venv --system-site-packages /opt/style-bert-vits2-venv; \
+    python -m venv --system-site-packages /opt/style-bert-vits2-venv; \
     opt_site_packages="$(/opt/venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
-    conda_site_packages="$(/opt/conda/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
+    base_site_packages="$(python -c 'import site; print(site.getsitepackages()[0])')"; \
     sbv2_site_packages="$(/opt/style-bert-vits2-venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
-    printf '%s\n%s\n' "${opt_site_packages}" "${conda_site_packages}" > "${sbv2_site_packages}/_runpod_opt_venv.pth"; \
+    printf '%s\n%s\n' "${opt_site_packages}" "${base_site_packages}" > "${sbv2_site_packages}/_runpod_opt_venv.pth"; \
     cat "${sbv2_site_packages}/_runpod_opt_venv.pth"
 
 RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
@@ -445,7 +460,7 @@ RUN command -v git && git --version
 RUN set -eux; \
     mkdir -p /opt/searxng; \
     git clone https://github.com/searxng/searxng /opt/searxng/searxng-src; \
-    /opt/conda/bin/python -m venv /opt/searxng/searx-pyenv; \
+    python -m venv /opt/searxng/searx-pyenv; \
     /opt/searxng/searx-pyenv/bin/pip install --no-cache-dir -U pip setuptools wheel; \
     /opt/searxng/searx-pyenv/bin/pip install --no-cache-dir -U pyyaml msgspec typing-extensions pybind11; \
     cd /opt/searxng/searxng-src; \
