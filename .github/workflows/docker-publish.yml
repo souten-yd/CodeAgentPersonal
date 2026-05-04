@@ -82,10 +82,8 @@ jobs:
           pull: true
           cache-from: |
             type=gha
-            type=registry,ref=${{ env.IMAGE_NAME }}:buildcache
           cache-to: |
             type=gha,mode=max
-            type=registry,ref=${{ env.IMAGE_NAME }}:buildcache,mode=max
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
