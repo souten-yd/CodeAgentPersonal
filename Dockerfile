@@ -106,18 +106,9 @@ ENV PATH=/opt/conda/envs/torch_env/bin:/opt/conda/bin:${PATH}
 
 RUN python - <<'PY'
 import sys
-import torch
-import torchaudio
-
-print("conda python:", sys.executable)
-print("conda version:", sys.version)
-print("torch:", torch.__version__, torch.__file__)
-print("torchaudio:", torchaudio.__version__, torchaudio.__file__)
-print("torch.version.cuda:", torch.version.cuda)
-
+print("base python:", sys.executable)
+print("base version:", sys.version)
 assert sys.version_info[:2] == (3, 11), sys.version
-assert torch.__version__.startswith("2.11.0"), torch.__version__
-assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
 RUN python -m venv --system-site-packages /opt/venv
@@ -150,13 +141,14 @@ import torch
 import torchaudio
 
 print("venv python:", sys.executable)
-print("python version:", sys.version)
+print("venv version:", sys.version)
 print("torch:", torch.__version__, torch.__file__)
 print("torchaudio:", torchaudio.__version__, torchaudio.__file__)
 print("torch.version.cuda:", torch.version.cuda)
 
 assert sys.version_info[:2] == (3, 11), sys.version
 assert torch.__version__.startswith("2.11.0"), torch.__version__
+assert torchaudio.__version__.startswith("2.11.0"), torchaudio.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
@@ -305,6 +297,7 @@ print("sbv2 torch.version.cuda", torch.version.cuda)
 print("sbv2 av", av.__version__, av.__file__)
 assert sys.version_info[:2] == (3, 11), sys.version
 assert torch.__version__.startswith("2.11.0"), torch.__version__
+assert torchaudio.__version__.startswith("2.11.0"), torchaudio.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
@@ -421,6 +414,7 @@ print("av:", av.__version__, av.__file__)
 
 assert sys.version_info[:2] == (3, 11), sys.version
 assert torch.__version__.startswith("2.11.0"), torch.__version__
+assert torchaudio.__version__.startswith("2.11.0"), torchaudio.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
@@ -451,6 +445,7 @@ print("llvmlite:", llvmlite.__version__)
 
 assert sys.version_info[:2] == (3, 11), sys.version
 assert torch.__version__.startswith("2.11.0"), torch.__version__
+assert torchaudio.__version__.startswith("2.11.0"), torchaudio.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
