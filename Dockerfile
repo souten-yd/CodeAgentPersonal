@@ -88,11 +88,19 @@ RUN rm -rf /var/lib/apt/lists/* \
         pkg-config \
         sox \
         libsox-fmt-all \
-        nodejs \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN node --version
+ARG NODE_VERSION=20.18.1
+RUN set -eux; \
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o /tmp/node.tar.xz; \
+    mkdir -p /opt/node; \
+    tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components=1; \
+    ln -sf /opt/node/bin/node /usr/local/bin/node; \
+    ln -sf /opt/node/bin/npm /usr/local/bin/npm; \
+    which node; \
+    node --version; \
+    node -e "const x={a:{b:1}}; console.log(x.a?.b)"
 
 ENV CONDA_DIR=/opt/conda
 ENV PATH=${CONDA_DIR}/bin:${PATH}

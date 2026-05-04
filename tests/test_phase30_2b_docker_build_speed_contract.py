@@ -11,8 +11,8 @@ SMOKE = Path("scripts/smoke_ui_modes_playwright.py").read_text(encoding="utf-8")
 
 class TestPhase302bDockerBuildSpeedContract(unittest.TestCase):
     def test_nodejs_present_in_dockerfile(self):
-        self.assertIn("nodejs", DOCKERFILE)
-        self.assertIn("RUN node --version", DOCKERFILE)
+        self.assertIn("ARG NODE_VERSION=20", DOCKERFILE)
+        self.assertIn("node --version", DOCKERFILE)
 
 
     def test_node_version_check_is_not_in_llama_prebuilt_stage(self):
@@ -20,14 +20,14 @@ class TestPhase302bDockerBuildSpeedContract(unittest.TestCase):
         py_base_start = DOCKERFILE.index("FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} AS py_base")
         llama_block = DOCKERFILE[llama_start:py_base_start]
         self.assertNotIn("RUN node --version", llama_block)
-        self.assertNotIn("nodejs", llama_block)
+        self.assertNotIn("ARG NODE_VERSION=20", llama_block)
 
     def test_node_version_check_runs_in_py_base_stage(self):
         py_base_start = DOCKERFILE.index("FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} AS py_base")
         py_build_start = DOCKERFILE.index("FROM py_base AS py_build")
         py_base_block = DOCKERFILE[py_base_start:py_build_start]
-        self.assertIn("nodejs", py_base_block)
-        self.assertIn("RUN node --version", py_base_block)
+        self.assertIn("ARG NODE_VERSION=20", py_base_block)
+        self.assertIn("node --version", py_base_block)
 
     def test_inline_syntax_checks_remain_enabled(self):
         self.assertIn("node --check", UI_SYNTAX)
