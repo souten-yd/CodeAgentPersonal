@@ -310,8 +310,8 @@ async function editMemoryInline(id) {
   --echo-font-size:13px;
   --r:8px;--r2:12px;
 }
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font-ui)}
-body{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font-ui);max-width:100%;overflow-x:hidden}
+body{display:flex;flex-direction:column;height:100dvh;overflow:hidden;overflow-x:hidden;width:100%;max-width:100%}
 
 /* ── HEADER ── */
 header{
@@ -359,8 +359,8 @@ html.logo-svg-ready .logo-text{display:none}
 .phase1-tabs{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
 .phase1-tab-btn{padding:4px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:5px;cursor:pointer}
 .phase1-tab-btn.active{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
-.atlas-subview-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
-.atlas-subview-tab{padding:4px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:5px;cursor:pointer}
+.atlas-subview-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;max-width:100%;min-width:0}
+.atlas-subview-tab{padding:4px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:5px;cursor:pointer;min-width:0}
 .atlas-subview-tab.active{border-color:var(--accent-border);background:var(--accent-bg);color:var(--accent)}
 .atlas-subview{margin-top:10px}
 .atlas-focus-highlight{outline:1px solid var(--accent-border);box-shadow:0 0 0 3px var(--accent-bg);border-radius:8px}
@@ -517,7 +517,7 @@ html.logo-svg-ready .logo-text{display:none}
 
 /* ── LAYOUT ── */
 .app-body{
-  display:flex;flex:1 1 auto;min-height:0;overflow:hidden;height:auto;
+  display:flex;flex:1 1 auto;min-height:0;overflow:hidden;overflow-x:hidden;height:auto;width:100%;max-width:100%;
 }
 @media(max-width:768px){
   :root{
@@ -565,13 +565,28 @@ html.logo-svg-ready .logo-text{display:none}
 
 /* ── CHAT COL ── */
 
-.agent-col,.agent-panel-col,.atlas-panel-col{display:flex;flex-direction:column;min-height:0;background:var(--bg1)}
-.atlas-panel-col{overflow:hidden;min-height:0;max-height:100dvh}
-.atlas-panel-col #atlas-workbench-card{max-width:100%;display:flex;flex-direction:column;min-height:0;max-height:calc(100dvh - 120px);overflow:hidden}
+.agent-col,.agent-panel-col,.atlas-panel-col{display:flex;flex-direction:column;min-height:0;background:var(--bg1);min-width:0;max-width:100%}
+.atlas-panel-col{overflow-y:auto;overflow-x:hidden;min-height:0;max-height:100dvh;width:100%;max-width:100%;-webkit-overflow-scrolling:touch}
+.atlas-panel-col #atlas-workbench-card{max-width:100%;width:calc(100% - 20px);display:flex;flex-direction:column;min-height:0;overflow:hidden;flex:0 0 auto}
 .atlas-panel-col #atlas-workbench-card-atlas-run-input{min-width:0;max-width:100%;width:100%}
-#atlas-workbench-card .plan-section{display:flex;flex-direction:column;min-height:0;overflow:hidden}
-#atlas-workbench-card .atlas-subview{min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-right:2px}
+#atlas-workbench-card .plan-section{display:flex;flex-direction:column;min-height:0;overflow:hidden;max-width:100%}
+#atlas-workbench-card .atlas-subview{min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-right:2px;max-width:100%}
+#atlas-workbench-card.is-collapsed .atlas-workbench-body{display:none!important}
+.atlas-workbench-header-actions{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.atlas-workbench-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:8px;font-size:11px;color:var(--text2);line-height:1.45}
+.atlas-workbench-summary-item{min-width:0;padding:7px;border:1px solid var(--border);border-radius:7px;background:var(--bg2);overflow-wrap:anywhere}
+.atlas-workbench-body{min-width:0;max-width:100%}
+.atlas-section-stack{display:flex;flex-direction:column;gap:10px;margin:0 10px 12px 10px;max-width:calc(100% - 20px);width:calc(100% - 20px);box-sizing:border-box}
+.atlas-info-card{border:1px solid var(--border);border-radius:10px;background:var(--bg2);padding:10px;max-width:100%;min-width:0;overflow-wrap:anywhere;word-break:break-word}
+.atlas-info-card h4{font-size:12px;color:var(--text);margin-bottom:6px}
 .atlas-panel-col #atlas-workbench-card-atlas-runs-list,.atlas-panel-col #atlas-workbench-card-patch-list{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
+@media(max-width:768px){
+  .atlas-panel-col{padding:0;max-height:100%;}
+  .atlas-panel-col #atlas-workbench-card{width:calc(100% - 16px)!important;margin:8px!important;max-width:calc(100% - 16px)!important}
+  .atlas-section-stack{width:calc(100% - 16px);max-width:calc(100% - 16px);margin:0 8px 10px 8px}
+  .atlas-workbench-summary{grid-template-columns:1fr}
+  #atlas-workbench-card .phase1-plan-btn,#atlas-workbench-card .phase1-tab-btn,.atlas-info-card .phase1-tab-btn{max-width:100%;white-space:normal}
+}
 .agent-col{flex:1 1 auto;border-right:1px solid var(--border)}
 .agent-panel-col{flex:0 0 min(42vw,520px);min-width:240px;max-width:70vw}
 @media(max-width:768px){
@@ -1329,36 +1344,11 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <button class="chat-task-toggle" id="chat-tts-toggle" onclick="toggleChatTtsUnified()" title="Chat TTS 自動読み上げのON/OFF">
             <span id="chat-tts-toggle-label">TTS OFF</span>
           </button>
-          <button class="chat-task-toggle phase1-plan-toggle" id="phase1-plan-toggle" onclick="togglePhase1PlanPanel()" aria-expanded="false" title="Plan only設定を開閉">
-            <span>Plan設定</span>
-          </button>
         </div>
       </div>
       <div class="chat-role-note" id="chat-role-note" style="padding:6px 10px 0 10px;font-size:11px;color:var(--text2);line-height:1.5">
         Chat is for lightweight conversation, Q&amp;A, and quick investigation.<br>
-        Use Atlas for guided work planning, approval, execution preview, and patch review.
-      </div>
-      <div class="phase1-plan-panel collapsed" id="phase1-plan-panel" aria-hidden="true">
-        <select id="phase1-planning-mode" class="sel">
-          <option value="fast">Fast</option>
-          <option value="standard" selected>Standard</option>
-          <option value="deep_nexus">Deep / Nexus</option>
-        </select>
-        <select id="phase1-requirement-mode" class="sel">
-          <option value="auto">Auto</option>
-          <option value="ask_when_needed" selected>Ask when needed</option>
-          <option value="full_requirement_session">Full requirement session</option>
-        </select>
-        <select id="phase1-execution-mode" class="sel">
-          <option value="plan_only" selected>Plan only</option>
-          <option value="plan_then_ask">Plan then ask</option>
-          <option value="plan_and_execute">Plan and execute</option>
-        </select>
-        <button class="phase1-plan-btn" onclick="startPlanWorkflow()">Start Atlas</button>
-        <div class="phase1-plan-note">
-          <div>Atlas creates a reviewed plan before any execution preview.</div>
-          <div>通常作業はAtlasから開始してください。Legacy Taskは互換用途です。</div>
-        </div>
+        Planning, approval, execution preview, and patch review live in the dedicated workflow mode.
       </div>
     </div>
     <div class="messages" id="messages">
@@ -1383,101 +1373,106 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
   </div>
 
-  <!-- AGENT MODE -->
+  <!-- ATLAS MODE -->
   <div class="atlas-panel-col mob-hidden" id="atlas-panel-col" style="display:none">
-    <div class="agent-head"><h3>Workflow Workbench</h3></div>
-    <div class="agent-ctx">Workflow Workbench: Requirement / Plan / Review / Approval / Agent Execution / Execute Preview / Patch Review / Apply.</div>
     <div class="plan-card" id="atlas-workbench-card" data-atlas-current-subview="overview" style="margin:10px">
-      <div class="plan-card-header"><span>Workflow Workbench</span></div>
+      <div class="plan-card-header">
+        <span>Workflow Workbench</span>
+        <div class="atlas-workbench-header-actions">
+          <button id="atlas-workbench-collapse-btn" class="phase1-tab-btn" type="button" onclick="toggleAtlasWorkbenchCollapse()" aria-expanded="true">Collapse</button>
+        </div>
+      </div>
       <div class="plan-section">
-        <div class="atlas-subview-tabs">
+        <div class="atlas-workbench-summary" aria-label="Atlas compact summary">
+          <div class="atlas-workbench-summary-item"><b>Current Action</b><br><span id="atlas-workbench-summary-action">Start Atlas</span></div>
+          <div class="atlas-workbench-summary-item"><b>Last Run</b><br><span id="atlas-workbench-summary-last-run">-</span></div>
+          <div class="atlas-workbench-summary-item"><b>Status</b><br><span id="atlas-workbench-summary-status">Ready</span></div>
+        </div>
+        <div class="atlas-subview-tabs" aria-label="Atlas workbench tabs">
           <button class="atlas-subview-tab active" type="button" data-atlas-subview-tab="overview" onclick="setAtlasSubview('overview')">Overview</button>
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="plan" onclick="setAtlasSubview('plan')">Plan</button>
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="runs" onclick="setAtlasSubview('runs')">Runs</button>
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="dashboard" onclick="setAtlasSubview('dashboard')">Dashboard</button>
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="patch_review" onclick="setAtlasSubview('patch_review')">Patch Review</button>
-          <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="legacy" onclick="setAtlasSubview('legacy')">Legacy</button>
         </div>
-        <div id="atlas-workbench-status" style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.5">Current Action: Start Atlas.</div><div id="atlas-workbench-card-resume-notice" style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.5">Atlas restored: Overview. No Last Run yet. Run Atlas once, load recent runs, or enter run_id.</div>
-        <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)">
-          <div style="font-size:12px;font-weight:700;color:var(--text)">What do you want Atlas to plan?</div>
-          <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.5">Write your request here for Atlas-first guided planning. Chat input is not mirrored into Atlas.</div>
-          <textarea id="atlas-requirement-input" placeholder="Describe the task, requirement, bug, or change you want Atlas to plan…" rows="3" style="margin-top:6px;width:100%;min-height:84px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;box-sizing:border-box"></textarea>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px">
-            <button id="atlas-requirement-clear-btn" class="phase1-tab-btn" type="button" onclick="clearAtlasRequirementInput()">Clear Requirement</button>
-                        <div id="atlas-requirement-char-count" style="font-size:11px;color:var(--text3)">0 chars</div>
-          </div>
-          <div id="atlas-requirement-status" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.5">Ready to start Atlas.</div>
-        </div>
-        <div class="atlas-subview" data-atlas-subview-panel="overview">
-          <div style="font-size:12px;color:var(--text2);line-height:1.6">要件定義・計画・実行Preview・Patch Review・Run Auditを安全に進める作業入口です。</div>
-          <div style="margin-top:8px"><b>Atlas Runs</b> / Last Run: <span id="atlas-workbench-card-atlas-last-run">-</span></div>
-          <div style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.5">Resume from Overview: use Open Last Atlas Dashboard, Load Recent Atlas Runs, or Open Run Dashboard.</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-            <button class="phase1-plan-btn" type="button" onclick="startAtlasWorkflow()">Start Atlas</button>
-            <button class="phase1-tab-btn" type="button" onclick="openLastAtlasDashboardFromWorkbench()">Open Last Atlas Dashboard</button>
-            <button class="phase1-tab-btn" type="button" onclick="loadRecentAtlasRunsFromWorkbench()">Load Recent Atlas Runs</button>
-            <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
-          </div>
-        </div>
-        <div class="atlas-subview" data-atlas-subview-panel="plan" style="display:none">
-          <div style="font-size:12px;color:var(--text2);line-height:1.6">Agent powers Atlas workflows. Agent is the advanced runtime surface. Atlas is the guided workflow for normal work.</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-            <button class="phase1-plan-btn" type="button" onclick="startAtlasWorkflow()">Start Atlas</button>
-            <button class="phase1-tab-btn" type="button" onclick="showAtlasPanel()">Open Atlas Panel</button>
-          </div>
-          <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);max-width:100%;overflow-wrap:anywhere">
-            <div id="atlas-plan-review-anchor" data-atlas-plan-section="review" style="font-size:12px;font-weight:700;color:var(--text)">Atlas Guided Plan Flow</div>
-            <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.6">Steps: Requirement → Plan → Review → Approval → Execute Preview → Patch Review</div>
-            <div id="atlas-workbench-card-plan-flow" data-atlas-workflow-target="plan-review" style="margin-top:8px;font-size:11px;line-height:1.6"></div>
-            <div id="atlas-plan-approval-anchor" data-atlas-plan-section="approval" style="margin-top:6px;height:1px"></div>
-            <div id="atlas-workbench-card-plan-next-action" data-atlas-workflow-target="approval" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.6"></div>
-            <div id="atlas-plan-execute-preview-anchor" data-atlas-plan-section="execute-preview" style="height:1px"></div>
-            <div id="atlas-workbench-card-plan-next-action-buttons" data-atlas-workflow-target="execute-preview" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
-            <div style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.6">Execute Preview remains locked until plan approval.<br>No apply happens from this panel.<br>Patch application still requires Patch Review approval.</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-              <button class="phase1-tab-btn" type="button" onclick="setAtlasSubview('runs')">Open Runs</button>
-              <button class="phase1-tab-btn" type="button" onclick="setAtlasSubview('dashboard')">Open Dashboard</button>
-              <button class="phase1-tab-btn" type="button" onclick="setAtlasSubview('patch_review')">Open Patch Review</button>
+        <div id="atlas-workbench-status" style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.5">Current Action: Start Atlas.</div>
+        <div id="atlas-workbench-card-resume-notice" style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.5">Atlas restored: Overview. No Last Run yet. Run Atlas once, load recent runs, or enter run_id.</div>
+        <div class="atlas-workbench-body">
+          <div class="atlas-subview" data-atlas-subview-panel="overview">
+            <div style="font-size:12px;color:var(--text2);line-height:1.6">要件入力、Start Atlas、Last Run / Recent Runs、Current Actionを確認する入口です。</div>
+            <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);max-width:100%;min-width:0;box-sizing:border-box">
+              <div style="font-size:12px;font-weight:700;color:var(--text)">What do you want Atlas to plan?</div>
+              <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.5">Write your request here for Atlas-first guided planning. Chat input is not mirrored into Atlas.</div>
+              <textarea id="atlas-requirement-input" placeholder="Describe the task, requirement, bug, or change you want Atlas to plan…" rows="3" style="margin-top:6px;width:100%;max-width:100%;min-width:0;min-height:84px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;box-sizing:border-box"></textarea>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px;max-width:100%">
+                <button id="atlas-requirement-clear-btn" class="phase1-tab-btn" type="button" onclick="clearAtlasRequirementInput()">Clear Requirement</button>
+                <div id="atlas-requirement-char-count" style="font-size:11px;color:var(--text3)">0 chars</div>
+              </div>
+              <div id="atlas-requirement-status" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.5">Ready to start Atlas.</div>
+            </div>
+            <div style="margin-top:8px"><b>Atlas Runs</b> / Last Run: <span id="atlas-workbench-card-atlas-last-run">-</span></div>
+            <div style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.5">Resume from Overview: use Open Last Atlas Dashboard, Load Recent Atlas Runs, or Open Run Dashboard.</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;max-width:100%">
+              <button class="phase1-plan-btn" type="button" onclick="startAtlasWorkflow()">Start Atlas</button>
+              <button class="phase1-tab-btn" type="button" onclick="openLastAtlasDashboardFromWorkbench()">Open Last Atlas Dashboard</button>
+              <button class="phase1-tab-btn" type="button" onclick="loadRecentAtlasRunsFromWorkbench()">Load Recent Atlas Runs</button>
+              <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
             </div>
           </div>
-        </div>
-        <div class="atlas-subview" data-atlas-subview-panel="runs" style="display:none">
-          <div style="margin-top:2px"><b>Atlas Runs</b> / Last Run: <span data-atlas-last-run-mirror>-</span></div>
-          <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.5">Recent runs are not auto-loaded after restore. Use Load Recent Atlas Runs to refresh the list.</div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
-            <input id="atlas-workbench-card-atlas-run-input" placeholder="run_id" value="" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;min-width:0;max-width:100%;flex:1 1 220px">
-            <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
-            <button class="phase1-tab-btn" type="button" onclick="loadRecentAtlasRunsFromWorkbench()">Load Recent Atlas Runs</button>
+          <div class="atlas-subview" data-atlas-subview-panel="plan" style="display:none">
+            <div style="font-size:12px;color:var(--text2);line-height:1.6">Plan is owned by Atlas. This tab is for viewing generated plans; start new work from Overview.</div>
+            <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);max-width:100%;overflow-wrap:anywhere;min-width:0">
+              <div id="atlas-plan-review-anchor" data-atlas-plan-section="review" style="font-size:12px;font-weight:700;color:var(--text)">Plan Output</div>
+              <div id="atlas-plan-empty-state" style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.6">No generated plan yet. Enter a requirement and press Start Atlas from Overview.</div>
+              <div id="atlas-plan-flow-summary" style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.6">Steps: Requirement → Plan → Review → Approval → Execute Preview → Patch Review</div>
+              <div id="atlas-workbench-card-plan-flow" data-atlas-workflow-target="plan-review" style="margin-top:8px;font-size:11px;line-height:1.6"></div>
+              <div id="atlas-plan-approval-anchor" data-atlas-plan-section="approval" style="margin-top:6px;height:1px"></div>
+              <div id="atlas-workbench-card-plan-next-action" data-atlas-workflow-target="approval" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.6"></div>
+              <div id="atlas-plan-execute-preview-anchor" data-atlas-plan-section="execute-preview" style="height:1px"></div>
+              <div id="atlas-workbench-card-plan-next-action-buttons" data-atlas-workflow-target="execute-preview" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;max-width:100%"></div>
+              <div style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.6">Execute Preview remains locked until plan approval.<br>No apply happens from this panel.<br>Patch application still requires Patch Review approval.</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;max-width:100%">
+                <button class="phase1-tab-btn" type="button" onclick="setAtlasSubview('runs')">Open Runs</button>
+                <button class="phase1-tab-btn" type="button" onclick="setAtlasSubview('dashboard')">Open Dashboard</button>
+                <button class="phase1-tab-btn" type="button" onclick="setAtlasSubview('patch_review')">Open Patch Review</button>
+              </div>
+            </div>
           </div>
-          <div id="atlas-workbench-card-atlas-runs-list" style="margin-top:6px;font-size:11px"></div>
-        </div>
-        <div class="atlas-subview" data-atlas-subview-panel="dashboard" style="display:none">
-          <div style="font-size:12px;color:var(--text2);line-height:1.6"><b>Resume Dashboard</b></div>
-          <div style="margin-top:2px;font-size:11px;color:var(--text2);line-height:1.5">Use Open Last Atlas Dashboard to load the last run manually.</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
-            <button class="phase1-tab-btn" type="button" onclick="openLastAtlasDashboardFromWorkbench()">Open Last Atlas Dashboard</button>
-            <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
+          <div class="atlas-subview" data-atlas-subview-panel="runs" style="display:none">
+            <div style="margin-top:2px"><b>Atlas Runs</b> / Last Run: <span data-atlas-last-run-mirror>-</span></div>
+            <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.5">Recent runs are not auto-loaded after restore. Use Load Recent Atlas Runs to refresh the list.</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;max-width:100%">
+              <input id="atlas-workbench-card-atlas-run-input" placeholder="run_id" value="" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;min-width:0;max-width:100%;flex:1 1 220px;box-sizing:border-box">
+              <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
+              <button class="phase1-tab-btn" type="button" onclick="loadRecentAtlasRunsFromWorkbench()">Load Recent Atlas Runs</button>
+            </div>
+            <div id="atlas-workbench-card-atlas-runs-list" style="margin-top:6px;font-size:11px"></div>
           </div>
-          <div id="atlas-workbench-card-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div>
-        </div>
-        <div class="atlas-subview" data-atlas-subview-panel="patch_review" style="display:none">
-          <div style="font-size:12px;color:var(--text2);line-height:1.6"><b>Resume Patch Review</b></div>
-          <div style="margin-top:2px;font-size:11px;color:var(--text2);line-height:1.5">Use Open Patch Review for this run to load patches manually.</div>
-          <div style="margin-top:2px;font-size:11px;color:var(--text2)">Last Run: <span data-atlas-last-run-mirror>-</span></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
-            <button class="phase1-tab-btn" type="button" onclick="openPatchReviewFromWorkbench()">Open Patch Review for this run</button>
+          <div class="atlas-subview" data-atlas-subview-panel="dashboard" style="display:none">
+            <div style="font-size:12px;color:var(--text2);line-height:1.6"><b>Resume Dashboard</b></div>
+            <div style="margin-top:2px;font-size:11px;color:var(--text2);line-height:1.5">Use Open Last Atlas Dashboard to load the last run manually.</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;max-width:100%">
+              <button class="phase1-tab-btn" type="button" onclick="openLastAtlasDashboardFromWorkbench()">Open Last Atlas Dashboard</button>
+              <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
+            </div>
+            <div id="atlas-workbench-card-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div>
           </div>
-          <div id="atlas-workbench-card-patch-list" data-atlas-workflow-target="patch-review" style="margin-top:8px;font-size:11px"></div>
-        </div>
-        <div class="atlas-subview" data-atlas-subview-panel="legacy" style="display:none">
-          <div style="font-size:12px;color:var(--text2);line-height:1.6">Task remains compatibility path under Atlas Legacy. Agent remains advanced runtime surface.<br>通常作業はAtlas Overview/Planから開始してください。</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-            <button class="phase1-tab-btn" type="button" onclick="openLegacyTaskFromAtlas();">Open Legacy Task</button>
-            <button class="phase1-tab-btn" type="button" onclick="setMode('agent')">Open Agent Advanced</button>
+          <div class="atlas-subview" data-atlas-subview-panel="patch_review" style="display:none">
+            <div style="font-size:12px;color:var(--text2);line-height:1.6"><b>Patch Review</b> remains gated and non-destructive.</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;max-width:100%">
+              <button class="phase1-tab-btn" type="button" onclick="openPatchReviewFromWorkbench()">Load Patch Review</button>
+            </div>
+            <div id="atlas-workbench-card-patch-list" data-atlas-workflow-target="patch-review" style="margin-top:8px;font-size:11px"></div>
           </div>
         </div>
       </div>
+    </div>
+    <div class="atlas-section-stack" aria-label="Atlas detail sections">
+      <section class="atlas-info-card" id="atlas-runs-section"><h4>Atlas Runs</h4><div>Recent and manual run inspection live in the Runs tab above. Last Run: <span data-atlas-last-run-mirror>-</span></div></section>
+      <section class="atlas-info-card" id="atlas-plan-output-section"><h4>Plan Output</h4><div>Generated plan details are viewed from the Plan tab. Start Atlas remains in Overview only.</div></section>
+      <section class="atlas-info-card" id="atlas-review-summary-section"><h4>Review Summary</h4><div>Review and approval status stay under Atlas Workbench; approval remains gated.</div></section>
+      <section class="atlas-info-card" id="atlas-patch-review-section"><h4>Patch Review</h4><div>Patch review is available from the Patch Review tab. Apply actions are not automated.</div></section>
+      <section class="atlas-info-card" id="atlas-agent-execution-section" data-atlas-agent-execution="true"><h4>Agent / Execution</h4><div>Agent execution is moving under Atlas. Top-level Agent is Legacy Agent Advanced; normal planning ownership stays with Atlas.</div></section>
     </div>
   </div>
 
@@ -1517,27 +1512,13 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
   <div class="agent-panel-col mob-hidden" id="agent-panel-col" style="display:none">
     <div class="panel-tabs" style="justify-content:space-between">
-      <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em">タスク管理</span>
+      <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em">Legacy Agent Advanced</span>
       <span class="tab-label" id="agent-status-label">idle</span>
     </div>
-    <div class="agent-guided-workflow-card" style="margin:10px 10px 0 10px;padding:10px;border:1px solid var(--accent-border);border-radius:8px;background:var(--accent-bg)">
-      <div style="font-size:12px;font-weight:700;color:var(--accent);letter-spacing:.04em">Atlas</div>
-      <div class="muted" style="font-size:11px;color:var(--text2);margin-top:6px;line-height:1.5">Requirement → Plan → Review → Approval → Execute Preview → Patch Review の安全な作業フローです。<br>自動applyは行わず、各段階で確認できます。</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-        <button class="phase1-plan-btn" type="button" onclick="startAtlasWorkflow()">Start Atlas</button>
-        <button class="phase1-tab-btn" type="button" onclick="showAtlasPanel()">Open Atlas Panel</button>
-        <button class="phase1-tab-btn" type="button" onclick="openLastRunDashboardFromStatus()">Open Last Atlas Dashboard</button>
-        <button class="phase1-tab-btn" type="button" onclick="showAtlasPanel();setTimeout(()=>{ const btn=[...document.querySelectorAll('[data-run-view=\"load-recent-atlas-runs\"]')][0]; if(btn) btn.click(); }, 60);">Load Recent Atlas Runs</button>
-      </div>
-      <div style="margin-top:8px;font-size:10px;color:var(--text3)">Status: <span id="agent-guided-workflow-status">idle</span></div>
-      <div style="margin-top:6px;font-size:10px;color:var(--text3)">Atlas Workbench: safe planning, execution preview, patch review, and run audit.</div>
-      <div style="margin-top:6px;font-size:10px;color:var(--text3)">Agent powers Atlas workflows through planning, execution preview, evaluation, and memory.</div>
-      <div style="margin-top:6px;font-size:10px;color:var(--text3)">Agent is the advanced runtime surface. Atlas is the guided workflow for normal work.</div>
-      <div style="margin-top:6px;font-size:10px;color:var(--text3)">Taskは互換のため残します。新しいGuided WorkflowはAtlasとして扱います。</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-        <button class="phase1-tab-btn" type="button" onclick="openLegacyTaskFromAtlas();">Open Legacy Task</button>
-        <button class="phase1-tab-btn" type="button" onclick="openLegacyTaskFromAtlas();">Open Task Panel</button>
-      </div>
+    <div class="agent-guided-workflow-card" style="margin:10px 10px 0 10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)">
+      <div style="font-size:12px;font-weight:700;color:var(--text);letter-spacing:.04em">Legacy Agent Advanced</div>
+      <div class="muted" style="font-size:11px;color:var(--text2);margin-top:6px;line-height:1.5">Agent is the advanced runtime surface while Agent / Execution moves under Atlas. Plan ownership stays with Atlas; use Atlas Overview to start guided work.</div>
+      <div style="margin-top:8px;font-size:10px;color:var(--text3)">Status: <span id="agent-guided-workflow-status">legacy advanced / idle</span></div>
     </div>
     <div style="padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border)">
       <input id="agent-task-search" placeholder="タスク名で検索..." oninput="handleAgentTaskSearch(this.value)"
@@ -13735,7 +13716,7 @@ const ATLAS_LAST_RUN_KEY = 'atlas:lastRunId';
 const ATLAS_LAST_DASHBOARD_RUN_KEY = 'atlas:lastDashboardRunId';
 const ATLAS_LAST_SUBVIEW_KEY = 'atlas:lastSubview';
 const ATLAS_REQUIREMENT_INPUT_KEY = 'atlas:requirementInput';
-const ATLAS_SUBVIEWS = ['overview', 'plan', 'runs', 'dashboard', 'patch_review', 'legacy'];
+const ATLAS_SUBVIEWS = ['overview', 'plan', 'runs', 'dashboard', 'patch_review'];
 
 function _atlasLsGet(key) { try { return localStorage.getItem(key) || ''; } catch(_) { return ''; } }
 function _atlasLsSet(key, value) { try { localStorage.setItem(key, value || ''); } catch(_) {} }
@@ -14022,11 +14003,18 @@ function renderAtlasPlanNextActionButtons(flow) {
     buttonsEl.appendChild(btn);
   };
 
+  const note = document.createElement('div');
+  note.style.flexBasis = '100%';
+  note.style.marginTop = '2px';
+  note.style.fontSize = '10px';
+  note.style.color = 'var(--text3)';
+  note.style.lineHeight = '1.6';
+  note.textContent = 'Actions open existing safe workflow panels. Approval and Patch Review gates remain required.';
+
   const nextAction = String(flow?.nextAction || '');
   if (nextAction === 'Start Atlas') {
-    addBtn('Start Atlas', startAtlasWorkflow, true);
+    note.textContent = 'Start new work from Overview. This Plan tab only displays generated plans.';
   } else if (nextAction === 'Review generated plan') {
-    addBtn('Open Atlas Panel', showAtlasPanel);
     addBtn('Review Plan', () => focusAtlasWorkflowSection('review'));
   } else if (nextAction === 'Approve plan') {
     addBtn('Open Approval Panel', () => focusAtlasWorkflowSection('approval'));
@@ -14037,13 +14025,6 @@ function renderAtlasPlanNextActionButtons(flow) {
     addBtn('Open Patch Review', openPatchReviewFromWorkbench);
   }
 
-  const note = document.createElement('div');
-  note.style.flexBasis = '100%';
-  note.style.marginTop = '2px';
-  note.style.fontSize = '10px';
-  note.style.color = 'var(--text3)';
-  note.style.lineHeight = '1.6';
-  note.textContent = 'Actions open existing safe workflow panels. Approval and Patch Review gates remain required.';
   buttonsEl.appendChild(note);
 }
 
@@ -14078,8 +14059,10 @@ function renderAtlasWorkbenchStatus() {
   const host = document.getElementById('atlas-workbench-status');
   if (!host) return;
   const flow = deriveAtlasPlanFlowState();
-  host.innerHTML = `<div><b>Current workflow state:</b> ${esc(flow.plan)} / approval ${esc(flow.approval)} / preview ${esc(flow.executePreview)}</div><div><b>Current next action:</b> ${esc(flow.nextAction)}</div><div><b>Atlas is source of truth:</b> Plan/status stay in Atlas Workbench only.</div>`;
+  host.innerHTML = `<div><b>Current workflow state:</b> ${esc(flow.plan)} / approval ${esc(flow.approval)} / preview ${esc(flow.executePreview)}</div><div><b>Current Action:</b> ${esc(flow.nextAction)}</div><div><b>Atlas is source of truth:</b> Plan/status stay in Atlas Workbench only.</div>`;
+  updateAtlasWorkbenchCompactSummary();
 }
+
 
 function _updatePlanWorkflowState(partial = {}) {
   Object.assign(planWorkflowState, partial || {});
@@ -14172,9 +14155,9 @@ async function startAtlasWorkflow() {
   }
   if (derived.source === 'atlas') {
     setAtlasRequirementStatus('Using Atlas requirement input.');
-    syncAtlasRequirementToChatInput(requirementText);
   }
   setAtlasRequirementStatus('Starting Atlas guided planning workflow...');
+  if (window.innerWidth <= 768) setAtlasWorkbenchCollapsed(true);
   try {
     return await startPlanWorkflow({ source: 'atlas', workspace: 'Atlas', requirementText, requirementSource: derived.source });
   } catch (err) {
@@ -14192,6 +14175,35 @@ function startAgentGuidedWorkflow() {
 
 function showAtlasPanel() {
   return showPlanWorkflowPanel();
+}
+
+function updateAtlasWorkbenchCompactSummary() {
+  const flow = (typeof deriveAtlasPlanFlowState === 'function') ? deriveAtlasPlanFlowState() : { nextAction: 'Start Atlas', plan: 'pending', approval: 'pending', executePreview: 'locked' };
+  const lastRun = getAtlasLastRunId();
+  const actionEl = document.getElementById('atlas-workbench-summary-action');
+  const lastRunEl = document.getElementById('atlas-workbench-summary-last-run');
+  const statusEl = document.getElementById('atlas-workbench-summary-status');
+  if (actionEl) actionEl.textContent = flow.nextAction || 'Start Atlas';
+  if (lastRunEl) lastRunEl.textContent = lastRun || '-';
+  if (statusEl) statusEl.textContent = `${flow.plan || 'pending'} / approval ${flow.approval || 'pending'} / preview ${flow.executePreview || 'locked'}`;
+}
+
+function setAtlasWorkbenchCollapsed(collapsed) {
+  const card = document.getElementById('atlas-workbench-card');
+  const btn = document.getElementById('atlas-workbench-collapse-btn');
+  if (!card) return;
+  card.classList.toggle('is-collapsed', !!collapsed);
+  card.dataset.atlasWorkbenchCollapsed = collapsed ? 'true' : 'false';
+  if (btn) {
+    btn.textContent = collapsed ? 'Expand' : 'Collapse';
+    btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  }
+  updateAtlasWorkbenchCompactSummary();
+}
+
+function toggleAtlasWorkbenchCollapse() {
+  const card = document.getElementById('atlas-workbench-card');
+  setAtlasWorkbenchCollapsed(!(card?.classList.contains('is-collapsed')));
 }
 
 function normalizeAtlasSubview(name) {
@@ -14212,7 +14224,6 @@ function updateAtlasResumeNotice(subview) {
     runs: 'Runs',
     dashboard: 'Dashboard',
     patch_review: 'Patch Review',
-    legacy: 'Legacy',
   };
   const label = labelMap[current] || 'Overview';
   const lastRun = getAtlasLastRunId();
@@ -14298,6 +14309,7 @@ function ensureAtlasWorkbenchHost() {
     el.textContent = getAtlasLastRunId() || '-';
   });
   updateAtlasResumeNotice(cardRoot.dataset.atlasCurrentSubview || getAtlasLastSubview());
+  updateAtlasWorkbenchCompactSummary();
   return cardRoot;
 }
 
@@ -14393,7 +14405,6 @@ async function runGuidedPlanWorkflow(options = {}) {
   }
   if (source === 'atlas' && requirementText) {
     if (requirementSource === 'atlas') {
-      syncAtlasRequirementToChatInput(requirementText);
       setAtlasRequirementStatus('Using Atlas requirement input.');
     } else if (requirementSource === 'chat') {
       setAtlasRequirementStatus('Falling back to Chat input.');
