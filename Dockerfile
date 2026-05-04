@@ -212,9 +212,6 @@ RUN /opt/venv/bin/python -m pip check
 # Re-pin core framework versions in case optional deps caused downgrades
 RUN /opt/venv/bin/python -m pip install --no-cache-dir --upgrade "pydantic>=2.6" "fastapi>=0.110"
 
-# Copy full application source after heavy dependency/model layers to reduce cache invalidation.
-COPY . /app
-
 ########################################
 # Build stage: Style-Bert-VITS2 (isolated venv/layer)
 ########################################
@@ -500,6 +497,9 @@ p = Path("/models/gemma-4-E4B-it-Q4_K_M.gguf")
 if not p.exists() or p.stat().st_size < 100 * 1024 * 1024:
     raise RuntimeError(f"GGUF download failed or too small: {p}")
 PY
+
+# Copy full application source at runtime tail to avoid invalidating SBV2/HF/GGUF heavy layers.
+COPY . /app
 
 COPY docker/start-services.sh /usr/local/bin/start-services.sh
 RUN chmod +x /usr/local/bin/start-services.sh

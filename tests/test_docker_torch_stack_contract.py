@@ -40,9 +40,11 @@ def test_dockerfile_torch_python_contract():
 def test_docker_publish_cache_contract():
     workflow = Path(".github/workflows/docker-publish.yml").read_text(encoding="utf-8")
     assert "no-cache: true" not in workflow
-    assert "cache-from: type=gha" in workflow
-    assert "cache-to: type=gha,mode=min,ignore-error=true" in workflow
-    assert "cache-to: type=gha,mode=max" not in workflow
+    assert "cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:latest" in workflow
+    assert "cache-to: type=inline" in workflow
+    assert "cache-to: type=gha" not in workflow
+    assert "type=gha,mode=max" not in workflow
+    assert "type=gha,mode=min" not in workflow
 
 
 def _extract_run_python_blocks(dockerfile: str) -> list[str]:
