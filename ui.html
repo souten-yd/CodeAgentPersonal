@@ -13817,11 +13817,12 @@ function _renderPlanWorkflowStatusPanel() {
         ${hasRun ? '' : '<div style="font-size:10px;color:var(--text3);margin-top:4px">Execute Preview後に利用可能</div>'}
       </div>
     </div>`;
-  const w = messages();
-  w.appendChild(div);
+  const host = document.getElementById('atlas-workbench-status-panel-host') || document.getElementById('atlas-workbench-status') || document.getElementById('atlas-workbench-card-plan-flow');
+  if (host) {
+    host.appendChild(div);
+  }
   const agentStatus = document.getElementById('agent-guided-workflow-status');
   if (agentStatus) agentStatus.textContent = `${planWorkflowState.workspace || 'Atlas'} / ${_computePlanWorkflowNextAction()}`;
-  scrollMsgs();
 }
 
 function ensureAtlasDashboardHost() {
@@ -14164,8 +14165,8 @@ async function startAtlasWorkflow() {
   if (!requirementText || derived.source === 'empty') {
     const msg = 'Atlas Start needs a request. Enter a requirement in Atlas and press Start Atlas again.';
     setAtlasRequirementStatus('Enter a requirement to start.');
-    addMsg('system', msg);
     addLog('warn', 'atlas', msg);
+    renderAtlasWorkbenchStatus();
     _updatePlanWorkflowState({ lastError: msg });
     return null;
   }
@@ -14178,9 +14179,9 @@ async function startAtlasWorkflow() {
     return await startPlanWorkflow({ source: 'atlas', workspace: 'Atlas', requirementText, requirementSource: derived.source });
   } catch (err) {
     console.warn('startAtlasWorkflow failed:', err);
-    try { addMsg('error', 'Atlas Start failed: ' + (err?.message || String(err))); } catch (_msgErr) {}
     try { addLog('err', 'atlas', 'Start Atlas failed: ' + (err?.message || String(err))); } catch (_logErr) {}
     setAtlasRequirementStatus('Atlas Start failed.');
+    renderAtlasWorkbenchStatus();
     return null;
   }
 }
@@ -14377,16 +14378,16 @@ async function runGuidedPlanWorkflow(options = {}) {
   if (!requirementText && source === 'atlas') {
     const msg = 'Atlas Start needs a request. Enter a requirement in Atlas and press Start Atlas again.';
     setAtlasRequirementStatus('Enter a requirement to start.');
-    addMsg('system', msg);
     addLog('warn', 'atlas', msg);
+    renderAtlasWorkbenchStatus();
     _updatePlanWorkflowState({ lastError: msg });
     return null;
   }
   if (busy && source === 'atlas') {
     const busyMsg = 'Atlas workflow is busy now. Wait for the current step to finish, then press Start Atlas again.';
     setAtlasRequirementStatus('Atlas workflow is busy now.');
-    addMsg('system', busyMsg);
     addLog('warn', 'atlas', busyMsg);
+    renderAtlasWorkbenchStatus();
     _updatePlanWorkflowState({ lastError: busyMsg });
     return null;
   }

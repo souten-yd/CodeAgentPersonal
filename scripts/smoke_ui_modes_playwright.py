@@ -231,9 +231,9 @@ async def verify_atlas_start_button_feedback(page) -> None:
     await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
     await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'")
     await page.wait_for_function("""([msg, statusText]) => {
-      const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
       const status = document.getElementById('atlas-requirement-status')?.textContent || '';
-      return logs.some((t) => t.includes(msg)) || status.includes(statusText);
+      const flow = document.getElementById('atlas-plan-flow-summary')?.textContent || '';
+      return status.includes(statusText) || flow.includes('Last Error');
     }""", arg=[empty_start, empty_status])
     # B. Persistence / clear
     short_requirement_text = "Short Atlas requirement for smoke test"
@@ -251,15 +251,19 @@ async def verify_atlas_start_button_feedback(page) -> None:
     await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
     await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'")
     await page.wait_for_function("""([atlasValue]) => {
-      const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
       const status = document.getElementById('atlas-requirement-status')?.textContent || '';
-      const msg = logs.join('\\n');
+      const workbench = document.getElementById('atlas-workbench-status')?.textContent || '';
+      const flow = document.getElementById('atlas-plan-flow-summary')?.textContent || '';
+      const planPanel = document.querySelector('[data-atlas-subview-panel="plan"]')?.textContent || '';
+      const overviewPanel = document.querySelector('[data-atlas-subview-panel="overview"]')?.textContent || '';
       return (
-        logs.some((t) => t.includes('Using Atlas requirement input.'))
-        || status.includes('Using Atlas requirement input.')
-        || logs.some((t) => t.includes('Starting Atlas guided planning workflow...'))
+        status.includes('Using Atlas requirement input.')
+        || status.includes('Starting Atlas guided planning workflow...')
       ) && (
-        msg.includes(atlasValue) || msg.includes('Requirement Preview') || msg.includes('Atlas Workflow Status') || msg.includes('Boss')
+        workbench.includes('Current Action')
+        || flow.includes('Requirement')
+        || planPanel.includes('Guided Plan Flow')
+        || overviewPanel.includes(atlasValue)
       );
     }""", arg=[atlas_start_value])
   except (AssertionError, PlaywrightTimeoutError) as err:
@@ -276,36 +280,28 @@ async def verify_atlas_guided_workflow_safe_journey(page) -> None:
   page.on("console", lambda m: errors.append(f"console[{m.type}]: {m.text}") if m.type == "error" else None)
 
   await set_chat_input(page, "")
+  before_messages = await page.evaluate("""() => Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '')""")
   await ensure_atlas_overview(page)
   await page.fill("#atlas-requirement-input", "Phase 25 smoke requirement text")
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
   await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'")
   await page.wait_for_function("""() => {
     const status = document.getElementById('atlas-requirement-status')?.textContent || '';
-    const flow = document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '';
-    const messages = Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n');
+    const flow = document.getElementById('atlas-plan-flow-summary')?.textContent || '';
+    const workbench = document.getElementById('atlas-workbench-status')?.textContent || '';
     return (
       flow.includes('Requirement')
       && (
         status.includes('Starting Atlas guided planning workflow')
         || status.includes('Using Atlas requirement input')
         || status.includes('Atlas Start failed')
-        || messages.includes('Starting Atlas guided planning workflow')
-        || messages.includes('Atlas Workflow Status')
-        || messages.includes('Atlas Start failed')
+        || workbench.includes('Current Action')
       )
     );
   }""")
-  const_messages = await page.evaluate("""() => Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n')""")
-  if "Atlas Start failed:" in const_messages:
-    print("INFO: Atlas Start failed is visible in UI; accepted for backend-unavailable safe journey smoke.")
-  if "Atlas Workflow Status" in const_messages:
-    assert "Source: atlas" in const_messages
-    assert "Workspace: Atlas" in const_messages
   await page.wait_for_function("""() => {
-    const msg = Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n');
     const status = document.getElementById('atlas-requirement-status')?.textContent || '';
-    return msg.includes('Requirement Source: atlas') || status.includes('Using Atlas requirement input.');
+    return status.includes('Using Atlas requirement input.') || status.includes('Atlas Start failed') || status.includes('Starting Atlas guided planning workflow');
   }""")
   diag = await page.evaluate("""() => ({
     atlasRequirementInput: document.getElementById('atlas-requirement-input')?.value || '',
@@ -314,14 +310,10 @@ async def verify_atlas_guided_workflow_safe_journey(page) -> None:
     messages: Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || ''),
   })""")
   assert diag["atlasRequirementInput"] == "Phase 25 smoke requirement text"
-  joined_messages = "\n".join(diag["messages"])
-  assert (
-    "Requirement Preview: Phase 25 smoke requirement text" in joined_messages
-    or "BossPhase 25 smoke requirement text" in joined_messages
-  ), f"atlas requirement preview message missing: {diag}"
-  if "Atlas Workflow Status" in joined_messages:
-    assert "Requirement Source: atlas" in joined_messages
-  print(f"INFO: chat input sync failed after atlas start (diagnostic-only in Phase 25.4.5): {diag['chatInput']!r}")
+  after_messages = diag["messages"]
+  new_messages = after_messages[len(before_messages):]
+  forbidden = ['Atlas Workflow Status', 'Requirement Preview', 'Boss', 'Approval required', 'Plan generated', 'Starting Atlas guided planning workflow', 'Atlas Start needs a request']
+  assert not any(any(token in msg for token in forbidden) for msg in new_messages), f"atlas chat leak detected: {new_messages}"
 
   review_btn = page.get_by_role("button", name="Review Plan")
   if await review_btn.count() > 0:

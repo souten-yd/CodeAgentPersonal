@@ -702,3 +702,12 @@
 - Agent becomes the execution engine/work area inside Atlas.
 - Top-level Agent tab will become legacy/redirect or be removed later.
 - Destructive actions remain gated and not automated.
+
+## Phase 31.0b note (Atlas/Chat decoupling)
+- Atlas is now fully Chat-decoupled for guided workflow status/plan/preview/error messaging.
+- Chat no longer mirrors Atlas Plan/status/notifications/Requirement Preview/Boss workflow text.
+- Empty Atlas requirement feedback remains inside Atlas status/log surfaces.
+- Playwright smoke now validates Atlas workflow via Atlas DOM panels/status elements, not Chat message assertions.
+- Chat non-mirroring is contract-locked.
+- Agent move remains Phase 31.1.
+- Destructive actions remain gated and not automated.
