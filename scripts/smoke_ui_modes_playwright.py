@@ -1692,6 +1692,13 @@ def has_smoke_failures(results: list[dict[str, str]]) -> bool:
   return any(r.get("status") == "FAIL" for r in results)
 
 
+def compact_smoke_error(error: str, *, limit: int = 240) -> str:
+  text = " ".join((error or "").replace("\r", " ").split())
+  if len(text) > limit:
+    text = text[: limit - 1].rstrip() + "…"
+  return html.escape(text).replace("|", "\\|")
+
+
 def print_smoke_summary(results: list[dict[str, str]]) -> str:
   counts: dict[str, int] = {}
   for row in results:
@@ -1707,13 +1714,13 @@ def print_smoke_summary(results: list[dict[str, str]]) -> str:
     f"- PASS: **{pass_count}**",
     f"- FAIL: **{fail_count}**",
     "",
-    "| Scenario | Status | Error summary | Artifact |",
+    "| Scenario | Status | Error summary | Artifact log |",
     "|---|---|---|---|",
   ]
   for row in results:
     scenario_name = row.get("name", "")
     escaped_name = scenario_name.replace("|", "\\|").replace("<", "&lt;").replace(">", "&gt;")
-    error = html.escape((row.get("error") or "").replace("\n", "<br>")[:500])
+    error = compact_smoke_error(row.get("error") or "")
     lines.append(f"| {escaped_name} | {row['status']} | {error} | {row.get('artifact', '')} |")
   summary = "\n".join(lines) + "\n"
   print(summary)
