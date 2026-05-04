@@ -33,10 +33,12 @@ class TestPhase302bDockerBuildSpeedContract(unittest.TestCase):
         self.assertIn("node --check", UI_SYNTAX)
         self.assertIn("check_ui_syntax_main()", SMOKE)
 
-    def test_gha_cache_export_uses_min_mode(self):
-        self.assertIn("cache-from: type=gha", WORKFLOW)
-        self.assertIn("cache-to: type=gha,mode=min,ignore-error=true", WORKFLOW)
-        self.assertNotIn("cache-to: type=gha,mode=max", WORKFLOW)
+    def test_default_cache_strategy_uses_registry_inline(self):
+        self.assertIn("cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:latest", WORKFLOW)
+        self.assertIn("cache-to: type=inline", WORKFLOW)
+        self.assertNotIn("cache-to: type=gha", WORKFLOW)
+        self.assertNotIn("type=gha,mode=max", WORKFLOW)
+        self.assertNotIn("type=gha,mode=min", WORKFLOW)
 
     def test_copy_order_prefers_dependency_layers(self):
         req_copy = DOCKERFILE.index("COPY requirements.txt requirements-tts.txt /app/")
