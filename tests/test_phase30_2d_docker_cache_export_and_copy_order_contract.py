@@ -34,8 +34,8 @@ class TestPhase302dDockerCacheExportAndCopyOrderContract(unittest.TestCase):
         self.assertNotIn("COPY . /app", py_build_block)
 
     def test_node_playwright_and_runtime_constraints_preserved(self):
-        self.assertIn("nodejs", DOCKERFILE)
-        self.assertIn("RUN node --version", DOCKERFILE)
+        self.assertIn("ARG NODE_VERSION=20", DOCKERFILE)
+        self.assertIn("node --version", DOCKERFILE)
         self.assertIn("playwright", DOCKERFILE)
         self.assertIn("playwright install --with-deps chromium", DOCKERFILE)
         self.assertIn("FROM nvidia/cuda:", DOCKERFILE)
