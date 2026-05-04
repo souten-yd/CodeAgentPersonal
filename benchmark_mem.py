@@ -286,8 +286,14 @@ def _start_server_once(path: str, ctx: int, ngl: int | None = None,
     if gpu_vendor == "nvidia":
         cmd += ["--flash-attn", "on"]
 
+    ck, cv = resolve_llama_cache_types()
+    if ck != "f16":
+        cmd += ["--cache-type-k", ck]
+    if cv != "f16":
+        cmd += ["--cache-type-v", cv]
+
     ngl_display = str(ngl) if ngl is not None else "auto(fit)"
-    print(f"[Benchmark] starting: -ngl={ngl_display} cmd={' '.join(cmd)}")
+    print(f"[Benchmark] starting: -ngl={ngl_display} cache_k={ck} cache_v={cv} cmd={' '.join(cmd)}")
 
     creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
     popen_kwargs = {
@@ -349,6 +355,11 @@ def _start_windows_autofit(path: str, ctx: int, mmproj_path: str) -> tuple:
     proc, load_sec, log_text, _ = _start_server_once(
         path, ctx, ngl=None, mmproj_path=mmproj_path,
     )
+    if load_sec is None and any(x in (log_text or "").lower() for x in ["unsupported cache type", "unknown argument", "requires flash attention", "kv cache", "cache-type"]):
+        os.environ["LLAMA_CACHE_TYPE_K"] = "f16"
+        os.environ["LLAMA_CACHE_TYPE_V"] = "f16"
+        print("[Benchmark][WARN] KV cache args failed; retrying with f16/f16")
+        proc, load_sec, log_text, _ = _start_server_once(path, ctx, ngl=None, mmproj_path=mmproj_path)
     if load_sec is not None:
         actual_ngl = _parse_ngl_from_log(log_text)
         print(f"[Benchmark] auto-fit 成功 (n_gpu_layers={actual_ngl})")

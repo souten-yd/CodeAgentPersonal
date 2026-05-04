@@ -376,6 +376,10 @@ def main() -> int:
     env.setdefault("DEFAULT_LLM_CTX_SIZE", "16384")
     env.setdefault("LLAMA_CTX_SIZE", env.get("DEFAULT_LLM_CTX_SIZE", "16384"))
     env.setdefault("NEXUS_ANSWER_LLM_MAX_CONTEXT_TOKENS", env.get("DEFAULT_LLM_CTX_SIZE", "16384"))
+    env.setdefault("LLAMA_CACHE_TYPE_K", "q8_0")
+    env.setdefault("LLAMA_CACHE_TYPE_V", "q8_0")
+    print(f"[LLM] LLAMA_CACHE_TYPE_K={env.get('LLAMA_CACHE_TYPE_K')}")
+    print(f"[LLM] LLAMA_CACHE_TYPE_V={env.get('LLAMA_CACHE_TYPE_V')}")
     if runpod:
         env.setdefault("CODEAGENT_CA_DATA_DIR", "/workspace/ca_data")
         env.setdefault("CODEAGENT_WORK_DIR", "/workspace/ca_data/workspace")
