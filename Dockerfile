@@ -43,7 +43,7 @@ RUN set -eux; \
 ########################################
 ## Build stage: Python deps + Style-Bert-VITS2 prep (with CUDA toolkit)
 ########################################
-FROM pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel AS py_base
+FROM pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel AS py_base
 
 ARG KASANE_DEBUG_TEST_HARNESS=1
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -101,7 +101,7 @@ print("torchaudio:", torchaudio.__version__, torchaudio.__file__)
 print("torch.version.cuda:", torch.version.cuda)
 
 assert sys.version_info[:2] == (3, 11), sys.version
-assert torch.__version__.startswith("2.9.1"), torch.__version__
+assert torch.__version__.startswith("2.11.0"), torch.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
@@ -114,6 +114,7 @@ RUN set -eux; \
 
 ENV PATH=/opt/venv/bin:${PATH}
 RUN /opt/venv/bin/python -m pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN /opt/venv/bin/python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 torch==2.11.0+cu128 torchaudio==2.11.0+cu128
 RUN python - <<'PY'
 import sys
 import pip
@@ -140,7 +141,7 @@ print("torchaudio:", torchaudio.__version__, torchaudio.__file__)
 print("torch.version.cuda:", torch.version.cuda)
 
 assert sys.version_info[:2] == (3, 11), sys.version
-assert torch.__version__.startswith("2.9.1"), torch.__version__
+assert torch.__version__.startswith("2.11.0"), torch.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
@@ -274,6 +275,9 @@ RUN set -eux; \
       pypinyin; \
     /opt/style-bert-vits2-venv/bin/python -c "import pyopenjtalk; pyopenjtalk.g2p('辞書ウォームアップ')"
 
+RUN /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 torch==2.11.0+cu128 torchaudio==2.11.0+cu128 \
+    && /opt/style-bert-vits2-venv/bin/python -m pip check
+
 RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
 import sys
 import torch
@@ -285,7 +289,7 @@ print("sbv2 torchaudio", torchaudio.__version__, torchaudio.__file__)
 print("sbv2 torch.version.cuda", torch.version.cuda)
 print("sbv2 av", av.__version__, av.__file__)
 assert sys.version_info[:2] == (3, 11), sys.version
-assert torch.__version__.startswith("2.9.1"), torch.__version__
+assert torch.__version__.startswith("2.11.0"), torch.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
@@ -401,7 +405,7 @@ print("faster_whisper:", faster_whisper.__file__)
 print("av:", av.__version__, av.__file__)
 
 assert sys.version_info[:2] == (3, 11), sys.version
-assert torch.__version__.startswith("2.9.1"), torch.__version__
+assert torch.__version__.startswith("2.11.0"), torch.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
@@ -431,7 +435,7 @@ print("numba:", numba.__version__)
 print("llvmlite:", llvmlite.__version__)
 
 assert sys.version_info[:2] == (3, 11), sys.version
-assert torch.__version__.startswith("2.9.1"), torch.__version__
+assert torch.__version__.startswith("2.11.0"), torch.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
 PY
 
