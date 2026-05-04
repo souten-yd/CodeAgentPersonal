@@ -19,3 +19,17 @@ ui
 .DS_Store
 .vscode
 .idea
+.pytest_cache
+.mypy_cache
+.ruff_cache
+venv_*
+node_modules
+artifacts
+ca_data/debug_test_runs
+ca_data/model_cache
+ca_data/tts
+models
+*.safetensors
+*.onnx
+*.pt
+*.pth

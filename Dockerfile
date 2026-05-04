@@ -21,6 +21,8 @@ RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.lis
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+RUN node --version
+
 RUN set -eux; \
     ASSET_REGEX='^llama\.cpp-b[0-9]+-cuda-12\.8\.tar\.gz$'; \
     curl -fsSL https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases/latest -o /tmp/release.json; \
@@ -88,6 +90,7 @@ RUN rm -rf /var/lib/apt/lists/* \
         pkg-config \
         sox \
         libsox-fmt-all \
+        nodejs \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -154,8 +157,8 @@ PY
 
 FROM py_base AS py_build
 
-# Copy application source first.
-COPY . /app
+# Copy dependency manifests first to preserve heavy build cache when app source changes.
+COPY requirements.txt requirements-tts.txt /app/
 
 # Install Python dependencies if present.
 RUN if [ -f /app/requirements.txt ]; then \
@@ -208,6 +211,9 @@ RUN /opt/venv/bin/python -m pip check
 
 # Re-pin core framework versions in case optional deps caused downgrades
 RUN /opt/venv/bin/python -m pip install --no-cache-dir --upgrade "pydantic>=2.6" "fastapi>=0.110"
+
+# Copy full application source after heavy dependency/model layers to reduce cache invalidation.
+COPY . /app
 
 ########################################
 # Build stage: Style-Bert-VITS2 (isolated venv/layer)
