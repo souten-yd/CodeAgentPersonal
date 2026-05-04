@@ -308,35 +308,55 @@ RUN set -eux; \
       pypinyin; \
     /opt/style-bert-vits2-venv/bin/python -c "import pyopenjtalk; pyopenjtalk.g2p('辞書ウォームアップ')"
 
-RUN /opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 torch==2.11.0+cu128 torchaudio==2.11.0+cu128 \
-    && /opt/style-bert-vits2-venv/bin/python -m pip check
+RUN set -eux; \
+    sbv2_site_packages="$(/opt/style-bert-vits2-venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
+    printf '%s\n' '/opt/venv/lib/python3.11/site-packages' > "${sbv2_site_packages}/_runpod_opt_venv.pth"; \
+    cat "${sbv2_site_packages}/_runpod_opt_venv.pth"
+
+RUN /opt/style-bert-vits2-venv/bin/python -m pip check
 
 RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
 import sys
 import torch
 import torchaudio
+import onnxruntime
 import av
+from pathlib import Path
 from style_bert_vits2.tts_model import TTSModel
 
 print("sbv2 python:", sys.executable)
 print("torch:", torch.__version__, torch.__file__)
 print("torchaudio:", torchaudio.__version__, torchaudio.__file__)
 print("torch.version.cuda:", torch.version.cuda)
+print("onnxruntime:", onnxruntime.__version__, onnxruntime.__file__)
 print("av:", av.__version__, av.__file__)
 assert sys.version_info[:2] == (3, 11), sys.version
 assert torch.__version__.startswith("2.11.0"), torch.__version__
 assert torchaudio.__version__.startswith("2.11.0"), torchaudio.__version__
 assert torch.version.cuda and torch.version.cuda.startswith("12.8"), torch.version.cuda
-assert "/opt/style-bert-vits2-venv/" in torch.__file__, torch.__file__
-assert "/opt/style-bert-vits2-venv/" in torchaudio.__file__, torchaudio.__file__
+assert "/opt/venv/" in torch.__file__, torch.__file__
+assert "/opt/venv/" in torchaudio.__file__, torchaudio.__file__
+assert "/opt/venv/" in onnxruntime.__file__, onnxruntime.__file__
+sbv2_site = Path(sys.prefix) / "lib/python3.11/site-packages"
+pth = sbv2_site / "_runpod_opt_venv.pth"
+assert pth.exists(), pth
+assert pth.read_text(encoding="utf-8").strip() == "/opt/venv/lib/python3.11/site-packages"
 PY
 
 RUN /opt/style-bert-vits2-venv/bin/python - <<'PY'
 import sys
+from pathlib import Path
 paths = "\n".join(sys.path)
 print(paths)
 assert "/opt/conda/envs/torch_env/lib/python3.11/site-packages" not in paths
-assert "/opt/venv/lib/python3.11/site-packages" not in paths
+assert "/opt/venv/lib/python3.11/site-packages" in paths
+sbv2_site = Path(sys.prefix) / "lib/python3.11/site-packages"
+assert not (sbv2_site / "_pytorch_base_conda.pth").exists()
+pth = sbv2_site / "_runpod_opt_venv.pth"
+assert pth.exists(), pth
+content = pth.read_text(encoding="utf-8").strip()
+assert content == "/opt/venv/lib/python3.11/site-packages", content
+assert "/opt/conda" not in content
 PY
 
 RUN set -eux; \

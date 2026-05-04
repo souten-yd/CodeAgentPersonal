@@ -28,13 +28,15 @@ def test_dockerfile_torch_python_contract():
     assert "torchaudio==2.11.0+cu128" in dockerfile
     assert "python -m venv --system-site-packages /opt/venv" not in dockerfile
     assert "python -m venv --system-site-packages /opt/style-bert-vits2-venv" not in dockerfile
-    assert "_pytorch_base_conda.pth" not in dockerfile
-    assert "_runpod_opt_venv.pth" not in dockerfile
+    assert 'assert not (sbv2_site / "_pytorch_base_conda.pth").exists()' in dockerfile
+    assert "_runpod_opt_venv.pth" in dockerfile
     assert "base_site_packages" not in dockerfile
     assert 'assert "/opt/venv/" in torch.__file__, torch.__file__' in dockerfile
-    assert 'assert "/opt/style-bert-vits2-venv/" in torch.__file__, torch.__file__' in dockerfile
+    assert 'assert "/opt/style-bert-vits2-venv/" in torch.__file__, torch.__file__' not in dockerfile
     assert 'assert "/opt/conda/envs/torch_env/lib/python3.11/site-packages" not in paths' in dockerfile
-    assert 'assert "/opt/venv/lib/python3.11/site-packages" not in paths' in dockerfile
+    assert 'assert "/opt/venv/lib/python3.11/site-packages" in paths' in dockerfile
+    assert "/opt/style-bert-vits2-venv/bin/python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 torch==2.11.0+cu128 torchaudio==2.11.0+cu128" not in dockerfile
+    assert "printf '%s\\n' '/opt/venv/lib/python3.11/site-packages'" in dockerfile
 
     py_blocks = _extract_run_python_blocks(dockerfile)
     base_check_block = _find_block_by_print(py_blocks, 'print("base python:", sys.executable)')
