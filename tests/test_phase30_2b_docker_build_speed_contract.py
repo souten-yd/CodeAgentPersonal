@@ -17,13 +17,13 @@ class TestPhase302bDockerBuildSpeedContract(unittest.TestCase):
 
     def test_node_version_check_is_not_in_llama_prebuilt_stage(self):
         llama_start = DOCKERFILE.index("FROM ubuntu:${UBUNTU_VERSION} AS llama_prebuilt")
-        py_base_start = DOCKERFILE.index("FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} AS py_base")
+        py_base_start = DOCKERFILE.index("FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu${UBUNTU_VERSION} AS py_base")
         llama_block = DOCKERFILE[llama_start:py_base_start]
         self.assertNotIn("RUN node --version", llama_block)
         self.assertNotIn("ARG NODE_VERSION=20", llama_block)
 
     def test_node_version_check_runs_in_py_base_stage(self):
-        py_base_start = DOCKERFILE.index("FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} AS py_base")
+        py_base_start = DOCKERFILE.index("FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu${UBUNTU_VERSION} AS py_base")
         py_build_start = DOCKERFILE.index("FROM py_base AS py_build")
         py_base_block = DOCKERFILE[py_base_start:py_build_start]
         self.assertIn("ARG NODE_VERSION=20", py_base_block)

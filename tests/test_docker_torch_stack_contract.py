@@ -60,8 +60,11 @@ def test_docker_publish_cache_contract():
     assert "no-cache: true" not in workflow
     assert "cache-from:" in workflow
     assert "cache-to:" in workflow
-    assert "type=gha" in workflow
-    assert "type=gha,mode=max" in workflow
+    assert "cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:latest" in workflow
+    assert "cache-to: type=inline" in workflow
+    assert "type=gha" not in workflow
+    assert "mode=max" not in workflow
+    assert "buildcache,mode=max" not in workflow
 
 
 def _extract_run_python_blocks(dockerfile: str) -> list[str]:
