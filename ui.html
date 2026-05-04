@@ -566,9 +566,11 @@ html.logo-svg-ready .logo-text{display:none}
 /* ── CHAT COL ── */
 
 .agent-col,.agent-panel-col,.atlas-panel-col{display:flex;flex-direction:column;min-height:0;background:var(--bg1)}
-.atlas-panel-col{overflow:auto;min-height:0}
-.atlas-panel-col #atlas-workbench-card{max-width:100%}
+.atlas-panel-col{overflow:hidden;min-height:0;max-height:100dvh}
+.atlas-panel-col #atlas-workbench-card{max-width:100%;display:flex;flex-direction:column;min-height:0;max-height:calc(100dvh - 120px);overflow:hidden}
 .atlas-panel-col #atlas-workbench-card-atlas-run-input{min-width:0;max-width:100%;width:100%}
+#atlas-workbench-card .plan-section{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+#atlas-workbench-card .atlas-subview{min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-right:2px}
 .atlas-panel-col #atlas-workbench-card-atlas-runs-list,.atlas-panel-col #atlas-workbench-card-patch-list{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
 .agent-col{flex:1 1 auto;border-right:1px solid var(--border)}
 .agent-panel-col{flex:0 0 min(42vw,520px);min-width:240px;max-width:70vw}
@@ -1383,10 +1385,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
   <!-- AGENT MODE -->
   <div class="atlas-panel-col mob-hidden" id="atlas-panel-col" style="display:none">
-    <div class="agent-head"><h3>Atlas Workbench</h3></div>
-    <div class="agent-ctx">要件定義・計画・実行Preview・Patch Review・Run Auditの作業入口です。</div>
+    <div class="agent-head"><h3>Workflow Workbench</h3></div>
+    <div class="agent-ctx">Workflow Workbench: Requirement / Plan / Review / Approval / Agent Execution / Execute Preview / Patch Review / Apply.</div>
     <div class="plan-card" id="atlas-workbench-card" data-atlas-current-subview="overview" style="margin:10px">
-      <div class="plan-card-header"><span>Atlas Workbench</span></div>
+      <div class="plan-card-header"><span>Workflow Workbench</span></div>
       <div class="plan-section">
         <div class="atlas-subview-tabs">
           <button class="atlas-subview-tab active" type="button" data-atlas-subview-tab="overview" onclick="setAtlasSubview('overview')">Overview</button>
@@ -1396,15 +1398,14 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="patch_review" onclick="setAtlasSubview('patch_review')">Patch Review</button>
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="legacy" onclick="setAtlasSubview('legacy')">Legacy</button>
         </div>
-        <div id="atlas-workbench-card-resume-notice" style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.5">Atlas restored: Overview. No Last Run yet. Run Atlas once, load recent runs, or enter run_id.</div>
+        <div id="atlas-workbench-status" style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.5">Current Action: Start Atlas.</div><div id="atlas-workbench-card-resume-notice" style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.5">Atlas restored: Overview. No Last Run yet. Run Atlas once, load recent runs, or enter run_id.</div>
         <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)">
           <div style="font-size:12px;font-weight:700;color:var(--text)">What do you want Atlas to plan?</div>
-          <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.5">Write your request here for Atlas-first guided planning. If empty, Atlas can fall back to Chat input.</div>
+          <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.5">Write your request here for Atlas-first guided planning. Chat input is not mirrored into Atlas.</div>
           <textarea id="atlas-requirement-input" placeholder="Describe the task, requirement, bug, or change you want Atlas to plan…" rows="3" style="margin-top:6px;width:100%;min-height:84px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;box-sizing:border-box"></textarea>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px">
             <button id="atlas-requirement-clear-btn" class="phase1-tab-btn" type="button" onclick="clearAtlasRequirementInput()">Clear Requirement</button>
-            <button id="atlas-requirement-use-chat-btn" class="phase1-tab-btn" type="button" onclick="copyChatInputToAtlasRequirement()">Use Chat Input</button>
-            <div id="atlas-requirement-char-count" style="font-size:11px;color:var(--text3)">0 chars</div>
+                        <div id="atlas-requirement-char-count" style="font-size:11px;color:var(--text3)">0 chars</div>
           </div>
           <div id="atlas-requirement-status" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.5">Ready to start Atlas.</div>
         </div>
@@ -14071,10 +14072,18 @@ function renderAtlasPlanFlowSummary() {
   renderAtlasPlanNextActionButtons(flow);
 }
 
+
+function renderAtlasWorkbenchStatus() {
+  const host = document.getElementById('atlas-workbench-status');
+  if (!host) return;
+  const flow = deriveAtlasPlanFlowState();
+  host.innerHTML = `<div><b>Current workflow state:</b> ${esc(flow.plan)} / approval ${esc(flow.approval)} / preview ${esc(flow.executePreview)}</div><div><b>Current next action:</b> ${esc(flow.nextAction)}</div><div><b>Atlas is source of truth:</b> Plan/status stay in Atlas Workbench only.</div>`;
+}
+
 function _updatePlanWorkflowState(partial = {}) {
   Object.assign(planWorkflowState, partial || {});
   restoreAtlasLastRunState();
-  _renderPlanWorkflowStatusPanel();
+  renderAtlasWorkbenchStatus();
   renderAtlasPlanFlowSummary();
 }
 
@@ -14116,22 +14125,6 @@ function clearAtlasRequirementInput() {
   setAtlasRequirementStatus('Requirement cleared.');
 }
 
-function copyChatInputToAtlasRequirement() {
-  const input = document.getElementById('atlas-requirement-input');
-  const chatInput = document.getElementById('input');
-  if (!input) return;
-  const text = (chatInput?.value || '').trim();
-  if (!text) {
-    setAtlasRequirementStatus('Chat input is empty.');
-    updateAtlasRequirementCharCount();
-    return;
-  }
-  input.value = text;
-  persistAtlasRequirementInput();
-  updateAtlasRequirementCharCount();
-  setAtlasRequirementStatus('Copied from Chat input.');
-}
-
 function initAtlasRequirementInputHandlers() {
   const input = document.getElementById('atlas-requirement-input');
   if (!input || input.dataset.bound === '1') return;
@@ -14146,11 +14139,8 @@ function initAtlasRequirementInputHandlers() {
 
 function deriveAtlasRequirementSource() {
   const atlasInput = document.getElementById('atlas-requirement-input');
-  const chatInput = document.getElementById('input');
   const atlasText = (atlasInput?.value || '').trim();
   if (atlasText) return { text: atlasText, source: 'atlas' };
-  const chatText = (chatInput?.value || '').trim();
-  if (chatText) return { text: chatText, source: 'chat' };
   return { text: '', source: 'empty' };
 }
 
@@ -14158,9 +14148,8 @@ function getAtlasRequirementText() {
   return deriveAtlasRequirementSource().text;
 }
 
-function syncAtlasRequirementToChatInput(text) {
-  const chatInput = document.getElementById('input');
-  if (chatInput && text) chatInput.value = text;
+function syncAtlasRequirementToChatInput(_text) {
+  return;
 }
 
 function startPlanWorkflow(options = {}) {
@@ -14173,7 +14162,7 @@ async function startAtlasWorkflow() {
   const derived = deriveAtlasRequirementSource();
   const requirementText = derived.text;
   if (!requirementText || derived.source === 'empty') {
-    const msg = 'Atlas Start needs a request. Enter a message in Chat or use Atlas Plan inputs, then press Start Atlas again.';
+    const msg = 'Atlas Start needs a request. Enter a requirement in Atlas and press Start Atlas again.';
     setAtlasRequirementStatus('Enter a requirement to start.');
     addMsg('system', msg);
     addLog('warn', 'atlas', msg);
@@ -14183,11 +14172,8 @@ async function startAtlasWorkflow() {
   if (derived.source === 'atlas') {
     setAtlasRequirementStatus('Using Atlas requirement input.');
     syncAtlasRequirementToChatInput(requirementText);
-  } else {
-    setAtlasRequirementStatus('Falling back to Chat input.');
   }
   setAtlasRequirementStatus('Starting Atlas guided planning workflow...');
-  try { addMsg('system', 'Starting Atlas guided planning workflow...'); } catch (_err) {}
   try {
     return await startPlanWorkflow({ source: 'atlas', workspace: 'Atlas', requirementText, requirementSource: derived.source });
   } catch (err) {
@@ -14389,7 +14375,7 @@ async function runGuidedPlanWorkflow(options = {}) {
   });
 
   if (!requirementText && source === 'atlas') {
-    const msg = 'Atlas Start needs a request. Enter a message in Chat or use Atlas Plan inputs, then press Start Atlas again.';
+    const msg = 'Atlas Start needs a request. Enter a requirement in Atlas and press Start Atlas again.';
     setAtlasRequirementStatus('Enter a requirement to start.');
     addMsg('system', msg);
     addLog('warn', 'atlas', msg);

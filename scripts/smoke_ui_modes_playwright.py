@@ -212,8 +212,6 @@ async def verify_atlas_start_button_feedback(page) -> None:
       chatInput: document.getElementById('input')?.value || '',
       status: document.getElementById('atlas-requirement-status')?.textContent || '',
       messagesTail: Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').slice(-8),
-      useChatVisible: !!document.querySelector('#atlas-workbench-card #atlas-requirement-use-chat-btn'),
-      useChatEnabled: !(document.querySelector('#atlas-workbench-card #atlas-requirement-use-chat-btn')?.disabled ?? true),
       clearVisible: !!document.querySelector('#atlas-workbench-card #atlas-requirement-clear-btn'),
       clearEnabled: !(document.querySelector('#atlas-workbench-card #atlas-requirement-clear-btn')?.disabled ?? true),
       startVisible: !!document.querySelector("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn"),
@@ -224,8 +222,6 @@ async def verify_atlas_start_button_feedback(page) -> None:
   empty_start = "Atlas Start needs a request."
   empty_status = "Enter a requirement to start."
   atlas_start_value = "Atlas input start smoke"
-  copied_requirement_text = "Copied from chat smoke"
-  expected_text = copied_requirement_text
   try:
     # A. Empty start feedback
     await set_chat_input(page, "")
@@ -248,17 +244,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
     await click_atlas_requirement_clear(page)
     assert await get_atlas_requirement_input(page).input_value() == ""
     assert await get_chat_input_value(page) == "chat survives clear"
-    # C. Use Chat Input
-    await set_chat_input_value_direct(page, copied_requirement_text)
-    await open_atlas(page)
-    await click_atlas_use_chat_input(page)
-    await page.wait_for_function("""([expected]) => {
-      const atlasValue = document.getElementById('atlas-requirement-input')?.value || '';
-      const status = document.getElementById('atlas-requirement-status')?.textContent || '';
-      return atlasValue === expected || status.includes('Copied from Chat input.');
-    }""", arg=[expected_text])
-    assert await get_atlas_requirement_input(page).input_value() == expected_text
-    # D. Atlas input Start
+    # C. Atlas input Start
     expected_text = atlas_start_value
     await fill_atlas_requirement(page, expected_text)
     await ensure_atlas_overview(page)
@@ -276,16 +262,6 @@ async def verify_atlas_start_button_feedback(page) -> None:
         msg.includes(atlasValue) || msg.includes('Requirement Preview') || msg.includes('Atlas Workflow Status') || msg.includes('Boss')
       );
     }""", arg=[atlas_start_value])
-    # E. Chat fallback Start
-    await click_atlas_requirement_clear(page)
-    await set_chat_input(page, "Chat fallback smoke")
-    await ensure_atlas_overview(page)
-    await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
-    await page.wait_for_function("""() => {
-      const logs = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
-      const status = document.getElementById('atlas-requirement-status')?.textContent || '';
-      return logs.some((t) => t.includes('Falling back to Chat input.')) || status.includes('Falling back to Chat input.');
-    }""")
   except (AssertionError, PlaywrightTimeoutError) as err:
     await atlas_diag_dump(f"failure: {type(err).__name__}")
     raise
@@ -1427,13 +1403,6 @@ async def click_atlas_requirement_clear(page) -> None:
   await clear_btn.wait_for(state="visible")
   await clear_btn.scroll_into_view_if_needed()
   await clear_btn.click()
-
-
-async def click_atlas_use_chat_input(page) -> None:
-  use_chat_btn = page.locator("#atlas-workbench-card #atlas-requirement-use-chat-btn")
-  await use_chat_btn.wait_for(state="visible")
-  await use_chat_btn.scroll_into_view_if_needed()
-  await use_chat_btn.click()
 
 
 async def fill_atlas_requirement(page, text: str) -> None:

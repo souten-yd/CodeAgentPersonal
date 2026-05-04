@@ -1354,3 +1354,10 @@ PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 RUN_ATLAS_BACKEND_E2E=1 python s
 - destructive actions (approve/execute/apply) は含みません。
 - 認証は Runpod debug 利用を優先して意図的に省略しています。
 - 本番では `KASANE_DEBUG_TEST_HARNESS=0` で無効化してください。
+
+
+## Phase 31.0 UI note
+- Atlas Workflow Workbench is Chat-decoupled: Chat no longer mirrors Atlas plan/status/buttons.
+- Atlas is the source of truth for plan text and workflow status.
+- Atlas workbench panels are scroll-safe on desktop/mobile (no auto approve/execute/apply).
+- Agent moves under Atlas in Phase 31.1 (top-level Agent remains temporarily).
