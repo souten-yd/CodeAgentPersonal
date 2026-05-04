@@ -21,8 +21,6 @@ RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.lis
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN node --version
-
 RUN set -eux; \
     ASSET_REGEX='^llama\.cpp-b[0-9]+-cuda-12\.8\.tar\.gz$'; \
     curl -fsSL https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases/latest -o /tmp/release.json; \
@@ -93,6 +91,8 @@ RUN rm -rf /var/lib/apt/lists/* \
         nodejs \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+RUN node --version
 
 ENV CONDA_DIR=/opt/conda
 ENV PATH=${CONDA_DIR}/bin:${PATH}
