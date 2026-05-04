@@ -13745,6 +13745,10 @@ const planWorkflowState = {
   approvalStatus: 'pending',
   executionReady: false,
   lastError: '',
+  workflowPhase: 'idle',
+  currentJobId: '',
+  currentRunId: '',
+  jobStatus: '',
   source: 'atlas',
   workspace: 'Atlas',
 };
@@ -13853,75 +13857,76 @@ function atlasHasValue(v) {
 
 function deriveAtlasPlanFlowState() {
   const state = planWorkflowState || {};
-
-  // Requirement aliases
-  const hasRequirement = [
-    state.requirementId,
-    state.requirement,
-    state.requirementResult,
-    state.requirementDraft,
-    state.requirementText,
-    state.requirementSummary,
-  ].some(atlasHasValue);
-
-  // Plan aliases
-  const hasPlan = [
-    state.planId,
-    state.plan,
-    state.planResult,
-    state.planningResult,
-    state.generatedPlan,
-    state.planMarkdown,
-  ].some(atlasHasValue);
-
-  // Review aliases
-  const hasReview = [
-    state.reviewId,
-    state.review,
-    state.reviewResult,
-    state.planReview,
-    state.reviewSummary,
-  ].some(atlasHasValue);
-
-  // Approval aliases
   const status = String(state.approvalStatus || state.planApproval?.status || '').toLowerCase();
+  const hasRequirement = [
+    state.requirementId, state.requirement, state.requirementResult,
+    state.requirementDraft, state.requirementText, state.requirementSummary,
+    state.requirementTextPreview,
+  ].some(atlasHasValue);
+  const hasPlan = [
+    state.planId, state.plan, state.planResult, state.planningResult,
+    state.generatedPlan, state.planMarkdown,
+  ].some(atlasHasValue);
+  const hasReview = [
+    state.reviewId, state.review, state.reviewResult, state.planReview,
+    state.reviewSummary,
+  ].some(atlasHasValue) || hasPlan;
   const hasApproved = status === 'approved' || [
-    state.approved === true,
-    state.approvalId,
-    state.planApproved === true,
+    state.approved === true, state.approvalId, state.planApproved === true,
   ].some(atlasHasValue);
-
-  // Execute Preview aliases
-  const hasRun = [
-    state.runId,
-    state.executionRunId,
-    state.previewRunId,
-  ].some(atlasHasValue);
-
+  const hasRun = [state.runId, state.executionRunId, state.previewRunId].some(atlasHasValue);
   const executionReady = state.executionReady === true || hasApproved;
-
-  // Patch aliases
   const patchCount = Number(state.patchCount || 0);
-  const patchAvailable = hasRun || [
-    state.latestPatchIds,
-    state.patchIds,
-  ].some(atlasHasValue) || patchCount > 0;
+  const patchAvailable = hasRun || [state.latestPatchIds, state.patchIds].some(atlasHasValue) || patchCount > 0;
+  const lastError = String(state.lastError || '').trim();
+  const phase = String(state.workflowPhase || '').trim().toLowerCase();
+  const isPlanning = phase === 'planning' || phase === 'running' || phase === 'waiting';
+  const isFailed = phase === 'plan_failed' || !!lastError;
 
   const flow = {
-    requirement: hasRequirement ? 'done' : 'pending',
-    plan: hasPlan ? 'generated' : 'pending',
-    review: hasReview ? 'done' : 'pending',
-    approval: hasApproved ? 'approved' : 'required',
-    executePreview: hasRun ? 'completed' : (executionReady ? 'ready' : 'locked'),
-    patchReview: patchAvailable ? 'available' : 'available after preview',
-    nextAction: 'Start Atlas',
+    requirement: hasRequirement ? 'ready' : 'pending',
+    plan: 'pending',
+    review: 'pending',
+    approval: 'locked',
+    executePreview: 'locked',
+    patchReview: 'locked',
+    nextAction: hasRequirement ? 'Start Atlas' : 'Start Atlas',
   };
 
-  if (flow.patchReview === 'available') flow.nextAction = 'Open Patch Review';
-  else if (flow.executePreview === 'ready') flow.nextAction = 'Run Execute Preview';
-  else if (flow.plan === 'generated' && flow.approval === 'required') flow.nextAction = 'Approve plan';
-  else if (flow.plan === 'generated') flow.nextAction = 'Review generated plan';
+  if (isFailed) {
+    flow.requirement = hasRequirement ? 'ready' : 'pending';
+    flow.plan = 'failed';
+    flow.review = 'unavailable';
+    flow.approval = 'locked';
+    flow.executePreview = 'locked';
+    flow.patchReview = 'locked';
+    flow.nextAction = `Failed: ${lastError || 'Plan generation failed'}`;
+    return flow;
+  }
 
+  if (isPlanning && !hasPlan) {
+    flow.plan = 'running';
+    flow.nextAction = 'Planning';
+    return flow;
+  }
+
+  if (hasPlan) {
+    flow.requirement = 'ready';
+    flow.plan = 'generated';
+    flow.review = hasReview ? 'ready' : 'pending';
+    flow.approval = hasApproved ? 'approved' : 'required';
+    flow.executePreview = hasRun ? 'completed' : (executionReady ? 'available' : 'locked');
+    flow.patchReview = patchAvailable ? 'available' : 'locked';
+    if (flow.patchReview === 'available') flow.nextAction = 'Open Patch Review';
+    else if (flow.executePreview === 'available') flow.nextAction = 'Run Execute Preview';
+    else if (flow.approval === 'required') flow.nextAction = 'Approve plan';
+    else flow.nextAction = 'Review generated plan';
+    return flow;
+  }
+
+  if (hasRequirement) {
+    flow.nextAction = 'Start Atlas';
+  }
   return flow;
 }
 
@@ -14059,7 +14064,10 @@ function renderAtlasWorkbenchStatus() {
   const host = document.getElementById('atlas-workbench-status');
   if (!host) return;
   const flow = deriveAtlasPlanFlowState();
-  host.innerHTML = `<div><b>Current workflow state:</b> ${esc(flow.plan)} / approval ${esc(flow.approval)} / preview ${esc(flow.executePreview)}</div><div><b>Current Action:</b> ${esc(flow.nextAction)}</div><div><b>Atlas is source of truth:</b> Plan/status stay in Atlas Workbench only.</div>`;
+  const currentJob = planWorkflowState.currentJobId || '-';
+  const lastRun = planWorkflowState.currentRunId || planWorkflowState.lastRunId || getAtlasLastRunId() || '-';
+  const lastError = planWorkflowState.lastError || '-';
+  host.innerHTML = `<div id="atlas-workflow-status"><div><b>Current workflow state:</b> ${esc(flow.plan)} / review ${esc(flow.review)} / approval ${esc(flow.approval)} / preview ${esc(flow.executePreview)}</div><div><b>Current Action:</b> ${esc(flow.nextAction)}</div><div><b>Current Job:</b> ${esc(currentJob)}</div><div><b>Last Run:</b> ${esc(lastRun)}</div><div><b>Last Error:</b> ${esc(lastError)}</div><div><b>Atlas is source of truth:</b> Plan/status stay in Atlas Workbench only.</div></div>`;
   updateAtlasWorkbenchCompactSummary();
 }
 
@@ -14184,8 +14192,10 @@ function updateAtlasWorkbenchCompactSummary() {
   const lastRunEl = document.getElementById('atlas-workbench-summary-last-run');
   const statusEl = document.getElementById('atlas-workbench-summary-status');
   if (actionEl) actionEl.textContent = flow.nextAction || 'Start Atlas';
-  if (lastRunEl) lastRunEl.textContent = lastRun || '-';
-  if (statusEl) statusEl.textContent = `${flow.plan || 'pending'} / approval ${flow.approval || 'pending'} / preview ${flow.executePreview || 'locked'}`;
+  const currentRun = planWorkflowState.currentRunId || planWorkflowState.lastRunId || lastRun;
+  const currentJob = planWorkflowState.currentJobId || '';
+  if (lastRunEl) lastRunEl.textContent = currentRun || '-';
+  if (statusEl) statusEl.textContent = `${flow.plan || 'pending'} / review ${flow.review || 'pending'} / approval ${flow.approval || 'locked'} / job ${currentJob || '-'}`;
 }
 
 function setAtlasWorkbenchCollapsed(collapsed) {
@@ -14410,18 +14420,22 @@ async function runGuidedPlanWorkflow(options = {}) {
       setAtlasRequirementStatus('Falling back to Chat input.');
     }
   }
-  return generatePlanOnlyFromInput();
+  return generatePlanOnlyFromInput({ text: requirementText, source, workspace, requirementSource });
 }
 
 function renderClarificationCard(result, context = {}) {
   const questions = Array.isArray(result?.questions) ? result.questions : [];
   _updatePlanWorkflowState({
+    workflowPhase: 'requirement_ready',
+    currentJobId: result?.atlas_job_id || result?.job_id || (result?.requirement_id ? `sync-requirement:${result.requirement_id}` : ''),
+    currentRunId: result?.atlas_run_id || result?.run_id || result?.requirement_id || '',
+    jobStatus: result?.job_status || 'waiting_for_clarification',
     requirementId: result?.requirement_id || '',
     planId: '',
     reviewId: '',
     approvalId: '',
     runId: '',
-  lastRunId: getAtlasLastRunId(),
+    lastRunId: getAtlasLastRunId(),
     latestPatchIds: [],
     approvalStatus: 'pending',
     executionReady: false,
@@ -15086,6 +15100,10 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
   const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
   const reviewResult = result?.review_result || null;
   _updatePlanWorkflowState({
+    workflowPhase: 'plan_generated',
+    currentJobId: result?.atlas_job_id || result?.job_id || (result?.plan_id ? `sync-plan:${result.plan_id}` : ''),
+    currentRunId: result?.atlas_run_id || result?.run_id || result?.plan_id || '',
+    jobStatus: result?.job_status || 'completed',
     requirementId: result?.requirement_id || '',
     planId: result?.plan_id || result?.plan?.plan_id || '',
     reviewId: reviewResult?.review_id || '',
@@ -15095,6 +15113,11 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
     executionReady: !!(result?.approval?.execution_ready || result?.plan?.approval?.execution_ready || result?.plan?.status === 'execution_ready'),
     lastError: '',
   });
+  const atlasPlanEmpty = document.getElementById('atlas-plan-empty-state');
+  if (atlasPlanEmpty) {
+    const title = plan.title || result?.message || 'Plan generated';
+    atlasPlanEmpty.textContent = `Plan generated: ${title} (plan_id=${result?.plan_id || result?.plan?.plan_id || '-'})`;
+  }
   const planSteps = Array.isArray(plan.implementation_steps) ? plan.implementation_steps : [];
   const cardId = 'phase1-plan-card-' + Date.now();
   const markdownHtml = _renderPhase1Markdown(planMarkdown);
@@ -15164,19 +15187,32 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
 }
 
 // Backward-compatible name: this now drives the full guided workflow chain (plan/review/approval/execute preview/patch review).
-async function generatePlanOnlyFromInput() {
+async function generatePlanOnlyFromInput(options = {}) {
   const input = document.getElementById('input');
-  const text = (input?.value || '').trim();
+  const source = options?.source || 'chat';
+  const workspace = options?.workspace || (source === 'atlas' ? 'Atlas' : 'Chat/Task');
+  const requirementSource = options?.requirementSource || (source === 'atlas' ? 'atlas' : 'chat');
+  const text = String(options?.text || input?.value || '').trim();
   if (!text || busy) return;
   const planningMode = document.getElementById('phase1-planning-mode')?.value || 'standard';
   const requirementMode = document.getElementById('phase1-requirement-mode')?.value || 'ask_when_needed';
   const executionMode = document.getElementById('phase1-execution-mode')?.value || 'plan_only';
-  addMsg('user', text);
-  addToHistory('user', text);
-  if (input) { input.value = ''; input.style.height = 'auto'; }
+  if (source !== 'atlas') {
+    addMsg('user', text);
+    addToHistory('user', text);
+    if (input) { input.value = ''; input.style.height = 'auto'; }
+  }
   setBusy(true);
-  const progEl = addProgressCard('Generating Phase 1 plan...');
+  const progEl = source === 'atlas' ? { remove() {} } : addProgressCard('Generating Phase 1 plan...');
   _updatePlanWorkflowState({
+    workflowPhase: 'planning',
+    currentJobId: 'sync-plan-pending',
+    currentRunId: '',
+    jobStatus: 'running',
+    source,
+    workspace,
+    requirementSource,
+    requirementTextPreview: text.slice(0, 120),
     planningMode,
     executionMode: 'dry_run',
     patchGenerationMode: 'auto',
@@ -15185,7 +15221,7 @@ async function generatePlanOnlyFromInput() {
     reviewId: '',
     approvalId: '',
     runId: '',
-  lastRunId: getAtlasLastRunId(),
+    lastRunId: getAtlasLastRunId(),
     latestPatchIds: [],
     approvalStatus: 'pending',
     executionReady: false,
@@ -15211,7 +15247,7 @@ async function generatePlanOnlyFromInput() {
     ws.forEach((w) => addLog('warn', 'plan-only', String(w)));
 
     if (d.status === 'waiting_for_clarification') {
-      _updatePlanWorkflowState({ requirementId: d.requirement_id || '', lastError: '' });
+      _updatePlanWorkflowState({ workflowPhase: 'requirement_ready', currentJobId: d.atlas_job_id || d.job_id || `sync-requirement:${d.requirement_id || 'unknown'}`, currentRunId: d.atlas_run_id || '', jobStatus: d.job_status || 'waiting_for_clarification', requirementId: d.requirement_id || '', lastError: '' });
       renderClarificationCard(d, { planningMode, requirementMode, executionMode });
       addLog('ok', 'plan-only', `Clarification required requirement_id=${d.requirement_id}`);
       return;
@@ -15229,9 +15265,10 @@ async function generatePlanOnlyFromInput() {
     renderPhase1PlanCard(d, planMarkdown);
     addLog('ok', 'plan-only', `Generated plan_id=${d.plan_id} requirement_id=${d.requirement_id}`);
   } catch (e) {
-    addMsg('error', 'Phase1 plan generation failed: ' + (e.message || String(e)));
-    addLog('err', 'plan-only', e.message || String(e));
-    _updatePlanWorkflowState({ lastError: e.message || String(e) });
+    const errMsg = e.message || String(e);
+    if (source !== 'atlas') addMsg('error', 'Phase1 plan generation failed: ' + errMsg);
+    addLog('err', 'plan-only', errMsg);
+    _updatePlanWorkflowState({ workflowPhase: 'plan_failed', jobStatus: 'failed', lastError: errMsg });
   } finally {
     progEl.remove();
     setBusy(false);

@@ -10732,6 +10732,15 @@ def api_task_plan(req: TaskPlanRequest):
         result_warnings = result.get("warnings") if isinstance(result.get("warnings"), list) else []
         result["warnings"] = list(dict.fromkeys([*api_warnings, *[str(x) for x in result_warnings if str(x).strip()]]))
         result["resolved_project_path"] = resolved_project_path
+        # Atlas planning is synchronous today. Expose stable lifecycle ids so the UI
+        # and debug harness can track the run without inventing an asynchronous job.
+        plan_id = str(result.get("plan_id") or result.get("plan", {}).get("plan_id") or "")
+        requirement_id = str(result.get("requirement_id") or "")
+        sync_id = plan_id or requirement_id or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        result["atlas_job_id"] = f"sync-plan:{sync_id}"
+        result["atlas_run_id"] = sync_id
+        result["job_status"] = "waiting_for_clarification" if result.get("status") == "waiting_for_clarification" else "completed"
+        result["plan_generated"] = bool(plan_id)
         return result
     except HTTPException:
         raise
@@ -11231,6 +11240,15 @@ def api_task_continue(req: TaskContinueRequest):
         result_warnings = result.get("warnings") if isinstance(result.get("warnings"), list) else []
         result["warnings"] = list(dict.fromkeys([*api_warnings, *[str(x) for x in result_warnings if str(x).strip()]]))
         result["resolved_project_path"] = resolved_project_path
+        # Atlas planning is synchronous today. Expose stable lifecycle ids so the UI
+        # and debug harness can track the run without inventing an asynchronous job.
+        plan_id = str(result.get("plan_id") or result.get("plan", {}).get("plan_id") or "")
+        requirement_id = str(result.get("requirement_id") or "")
+        sync_id = plan_id or requirement_id or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        result["atlas_job_id"] = f"sync-plan:{sync_id}"
+        result["atlas_run_id"] = sync_id
+        result["job_status"] = "waiting_for_clarification" if result.get("status") == "waiting_for_clarification" else "completed"
+        result["plan_generated"] = bool(plan_id)
         return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="requirement not found")

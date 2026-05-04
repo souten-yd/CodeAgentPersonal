@@ -469,13 +469,17 @@ async def verify_atlas_backend_e2e_journey(page) -> None:
 
 
 async def collect_atlas_job_lifecycle_diag(page, preflight_status=None, base_url: str = "", elapsed_ms: int = 0, final_decision: str = "unknown", current_job_id: str = "") -> dict:
-  status_text = await page.evaluate("""() => (document.getElementById('atlas-workflow-status')?.textContent || '')""")
+  status_text = await page.evaluate("""() => (document.getElementById('atlas-workflow-status')?.textContent || document.getElementById('atlas-workbench-status')?.textContent || '')""")
   messages = await page.evaluate("""() => Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''))""")
   plan_flow_text = await page.evaluate("""() => (document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '')""")
   atlas_data = await page.evaluate("""() => ({
     atlasSubview: document.getElementById('atlas-workbench-card')?.dataset?.atlasCurrentSubview || '',
     atlasRequirementInput: document.getElementById('atlas-requirement-input')?.value || '',
     atlasRequirementStatus: document.getElementById('atlas-requirement-status')?.textContent || '',
+    currentJobId: (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.currentJobId || '',
+    currentRunId: (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.currentRunId || (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.lastRunId || '',
+    jobStatus: (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.jobStatus || '',
+    workflowPhase: (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.workflowPhase || '',
     approveButtonsPresent: !!document.querySelector("#approve-plan-btn, [data-action='approve-plan']"),
     executeButtonsPresent: !!document.querySelector("#execute-preview-btn, [data-action='execute-preview']"),
     patchApplyButtonsPresent: !!document.querySelector("#apply-patch-btn, [data-action='apply-patch']"),
@@ -506,6 +510,8 @@ async def collect_atlas_job_lifecycle_diag(page, preflight_status=None, base_url
     if "Last Error:" in line:
       last_error = line.split("Last Error:", 1)[1].strip() or "-"
       break
+  if not current_job_id:
+    current_job_id = str(atlas_data.get("currentJobId") or "")
   if not current_job_id and isinstance(jobs_resp, dict):
     jobs_json = jobs_resp.get("json") if isinstance(jobs_resp.get("json"), dict) else {}
     for j in jobs_json.get("jobs", []):
@@ -523,9 +529,20 @@ async def collect_atlas_job_lifecycle_diag(page, preflight_status=None, base_url
     "activeJobsResponse": _truncate_json(jobs_resp),
     "recentJobsResponse": _truncate_json(history_resp),
     "currentJobId": current_job_id,
+    "currentRunId": str(atlas_data.get("currentRunId") or ""),
     "elapsedMs": elapsed_ms,
     "finalDecision": final_decision,
   }
+
+
+async def _write_atlas_lifecycle_snapshot(diag: dict, label: str) -> None:
+  try:
+    PLAYWRIGHT_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "_", label).strip("_") or "snapshot"
+    path = PLAYWRIGHT_ARTIFACT_DIR / f"atlas_lifecycle_{safe_label}.json"
+    path.write_text(json.dumps(diag, ensure_ascii=False, indent=2), encoding="utf-8")
+  except Exception:
+    pass
 
 
 async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=None, base_url: str = "", console_errors=None, page_errors=None) -> dict:
@@ -533,47 +550,59 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
   page_errors = page_errors or []
   started = time.perf_counter()
   final = "timeout"
-  last_diag = {}
+  last_diag: dict = {}
+  next_snapshot_ms = 0
+  saw_current_job = False
+  no_job_fail_after_ms = 8000
+  missing_job_fail_after_ms = 12000
+
   while (time.perf_counter() - started) * 1000 < timeout_ms:
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     diag = await collect_atlas_job_lifecycle_diag(page, preflight_status=preflight_status, base_url=base_url, elapsed_ms=elapsed_ms)
     diag["consoleErrors"] = list(console_errors)
     diag["pageErrors"] = list(page_errors)
     raw_haystack = "\n".join([diag.get("atlasWorkflowStatusTextTail", ""), diag.get("planFlowTextTail", ""), "\n".join(diag.get("messagesTail", []))])
-    normalized_haystack = " ".join(raw_haystack.replace("•", " ").replace("	", " ").lower().split())
+    normalized_haystack = " ".join(raw_haystack.replace("•", " ").replace("\t", " ").lower().split())
     haystack = normalized_haystack.replace(":", ": ").replace("  ", " ")
     last_error = str(diag.get("lastError", "-") or "-").strip()
+    current_job_id = str(diag.get("currentJobId") or "").strip()
+    current_run_id = str(diag.get("currentRunId") or "").strip()
+    if current_job_id:
+      saw_current_job = True
+
     active_jobs = diag.get("activeJobsResponse", {}) if isinstance(diag.get("activeJobsResponse"), dict) else {}
     active_jobs_json = active_jobs.get("json") if isinstance(active_jobs.get("json"), dict) else {}
-    active_statuses = [str(j.get("status", "")).strip().lower() for j in active_jobs_json.get("jobs", []) if isinstance(j, dict)]
+    active_jobs_list = [j for j in active_jobs_json.get("jobs", []) if isinstance(j, dict)]
+    active_statuses = [str(j.get("status", "")).strip().lower() for j in active_jobs_list]
     active_failed = any(st in {"failed", "error", "cancelled", "canceled"} for st in active_statuses)
-    completion_signal_tokens = [
-      "plan: completed",
-      "plan: ready",
-      "plan ready",
-      "review ready",
-      "plan generated",
-      "generated plan",
-      "plan review",
-      "review: ready",
-      "review: required",
-      "requirement: done",
-      "plan: generated",
-      "review: done",
-      "approval: required",
-    ]
-    pending_signal_tokens = ["plan: pending", "review: pending", "requirement: pending"]
+    current_job_active = bool(current_job_id and any(str(j.get("id") or "") == current_job_id for j in active_jobs_list))
+    sync_job = current_job_id.startswith("sync-")
+
     plan_flow_requirements = {
-      "plan_flow_requirement_done": "requirement: done",
+      "plan_flow_requirement_ready": "requirement: ready",
       "plan_flow_plan_generated": "plan: generated",
-      "plan_flow_review_done": "review: done",
+      "plan_flow_review_ready": "review: ready",
       "plan_flow_approval_required": "approval: required",
     }
-    clarification_plan_flow_requirements = {
-      "plan_flow_requirement_done": "requirement: done",
-      "plan_flow_plan_pending": "plan: pending",
-      "plan_flow_review_pending": "review: pending",
+    legacy_plan_flow_aliases = {
+      "plan_flow_requirement_ready": ["requirement: done"],
+      "plan_flow_review_ready": ["review: done", "review: required"],
     }
+    matched_plan_flow = []
+    for name, token in plan_flow_requirements.items():
+      aliases = legacy_plan_flow_aliases.get(name, [])
+      if token in haystack or any(alias in haystack for alias in aliases):
+        matched_plan_flow.append(name)
+    missing_plan_flow = [name for name in plan_flow_requirements if name not in matched_plan_flow]
+    pending_signals = [token for token in ["plan: pending", "review: pending", "requirement: pending"] if token in haystack]
+    contradictory_signals = []
+    if "plan: pending" in haystack and "approval: required" in haystack:
+      contradictory_signals.append("plan_pending_approval_required")
+    if "plan: pending" in haystack and "patch review: available" in haystack:
+      contradictory_signals.append("plan_pending_patch_review_available")
+    if "requirement: pending" in haystack and "approval: required" in haystack:
+      contradictory_signals.append("requirement_pending_approval_required")
+
     clarification_signal_tokens = {
       "next_action_answer_clarification": "next action: answer clarification",
       "answer_clarification_text_present": "answer clarification",
@@ -584,36 +613,37 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
       "additional_confirmation_keyword_present": "追加確認",
       "confirmation_items_keyword_present": "確認事項",
     }
-    matched_plan_flow = [name for name, token in plan_flow_requirements.items() if token in haystack]
-    missing_plan_flow = [name for name in plan_flow_requirements if name not in matched_plan_flow]
-    completion_signals = [token for token in completion_signal_tokens if token in haystack]
-    completion_signals.extend(matched_plan_flow)
-    pending_signals = [token for token in pending_signal_tokens if token in haystack]
     clarification_signals = [name for name, token in clarification_signal_tokens.items() if token in haystack]
-    clarification_plan_flow_matched = [name for name, token in clarification_plan_flow_requirements.items() if token in haystack]
-    backend_done_statuses = {"succeeded", "completed", "done", "success"}
-    backend_running_statuses = {"running"}
-    backend_statuses = [st for st in active_statuses if st]
-    backend_done_hits = [st for st in backend_statuses if st in backend_done_statuses]
-    backend_running_hits = [st for st in backend_statuses if st in backend_running_statuses]
+
     failure_signals = []
-    if "atlas start failed:" in haystack:
+    if "atlas start failed:" in haystack or "atlas start failed" in haystack:
       failure_signals.append("atlas_start_failed")
     if last_error not in ("", "-"):
       failure_signals.append("last_error_present")
-    if " job failed" in haystack or "status: failed" in haystack or "failed:" in haystack or " exception" in haystack or " error:" in haystack:
+    if "plan: failed" in haystack or " status: failed" in haystack or " exception" in haystack or " error:" in haystack:
       failure_signals.append("failed_text_detected")
     if active_failed:
       failure_signals.append("backend_failed_status")
-    diag["completionSignals"] = completion_signals
-    diag["pendingSignals"] = pending_signals
-    diag["backendJobStatuses"] = backend_statuses
-    diag["failureSignals"] = failure_signals
-    diag["normalizedPlanFlowText"] = haystack
-    diag["matchedCompletionSignals"] = matched_plan_flow
-    diag["missingCompletionSignals"] = missing_plan_flow
-    diag["clarificationSignals"] = clarification_signals
-    diag["completionDecisionReason"] = "in_progress"
+    if contradictory_signals:
+      failure_signals.extend(contradictory_signals)
+
+    diag.update({
+      "currentJobId": current_job_id,
+      "currentRunId": current_run_id,
+      "completionSignals": matched_plan_flow,
+      "pendingSignals": pending_signals,
+      "backendJobStatuses": active_statuses,
+      "failureSignals": failure_signals,
+      "normalizedPlanFlowText": haystack,
+      "matchedCompletionSignals": matched_plan_flow,
+      "missingCompletionSignals": missing_plan_flow,
+      "clarificationSignals": clarification_signals,
+      "completionDecisionReason": "in_progress",
+    })
+
+    if elapsed_ms >= next_snapshot_ms:
+      await _write_atlas_lifecycle_snapshot(diag, f"{elapsed_ms}ms")
+      next_snapshot_ms += 30000
 
     if failure_signals:
       final = "failed"
@@ -621,40 +651,31 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
       last_diag = {**diag, "finalDecision": final, "completionDecisionReason": reason}
       break
 
-    active_jobs_available = not (active_jobs.get("status") in (404, None) and (active_jobs.get("error") or active_jobs.get("json") is None))
-    has_completion_signal = len(completion_signals) > 0
-    has_pending_signal = len(pending_signals) > 0
+    if not missing_plan_flow and last_error in ("", "-") and not console_errors and not page_errors:
+      final = "completed"
+      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "plan_generated_review_ready"}
+      break
 
-    has_clarification_signal = len(clarification_signals) > 0
-    has_clarification_plan_flow = all(name in clarification_plan_flow_matched for name in clarification_plan_flow_requirements)
-    if has_clarification_plan_flow and has_clarification_signal and last_error in ("", "-") and not console_errors and not page_errors and not failure_signals:
+    if clarification_signals and "plan: pending" in haystack and last_error in ("", "-"):
       final = "needs_clarification"
-      clarification_completion_signals = list(dict.fromkeys(clarification_plan_flow_matched + ["clarification_required"]))
-      last_diag = {
-        **diag,
-        "finalDecision": final,
-        "completionDecisionReason": "clarification_required_before_plan_generation",
-        "completionSignals": clarification_completion_signals,
-      }
+      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "clarification_required_before_plan_generation"}
       break
-    if has_pending_signal:
+
+    if elapsed_ms >= no_job_fail_after_ms and not saw_current_job:
+      final = "failed"
+      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "no_current_job_id_or_sync_plan_id"}
+      break
+
+    if elapsed_ms >= missing_job_fail_after_ms and current_job_id and not sync_job and active_jobs.get("ok") and not current_job_active and "plan: generated" not in haystack:
+      final = "failed"
+      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "current_job_missing_from_active_jobs_without_plan"}
+      break
+
+    if pending_signals:
       diag["completionDecisionReason"] = "pending_plan_detected"
-    elif not missing_plan_flow and last_error in ("", "-") and not console_errors and not page_errors:
-      final = "completed"
-      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "plan_flow_generated_review_done_approval_required"}
-      break
-    elif has_completion_signal and backend_done_hits:
-      final = "completed"
-      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "ui_plan_ready_and_backend_done"}
-      break
-    elif has_completion_signal and not active_jobs_available:
-      final = "completed"
-      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "ui_plan_ready_backend_unavailable"}
-      break
-    elif has_completion_signal and backend_running_hits:
-      diag["completionDecisionReason"] = "backend_running_not_completed"
     last_diag = diag
     await page.wait_for_timeout(2000)
+
   if not last_diag:
     last_diag = await collect_atlas_job_lifecycle_diag(page, preflight_status=preflight_status, base_url=base_url, elapsed_ms=timeout_ms)
   last_diag["consoleErrors"] = list(console_errors)
@@ -665,8 +686,9 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
   if final == "timeout":
     last_diag.setdefault("normalizedPlanFlowText", "")
     last_diag.setdefault("matchedCompletionSignals", [])
-    last_diag.setdefault("missingCompletionSignals", ["plan_flow_requirement_done", "plan_flow_plan_generated", "plan_flow_review_done", "plan_flow_approval_required"])
+    last_diag.setdefault("missingCompletionSignals", ["plan_flow_requirement_ready", "plan_flow_plan_generated", "plan_flow_review_ready", "plan_flow_approval_required"])
   last_diag["finalDecision"] = final if final != "timeout" else last_diag.get("finalDecision", "timeout")
+  await _write_atlas_lifecycle_snapshot(last_diag, "final")
   return last_diag
 
 
@@ -690,7 +712,7 @@ async def collect_atlas_clarification_diag(page) -> dict:
 async def collect_atlas_plan_approval_gate_diag(page) -> dict:
   return await page.evaluate("""() => {
     try {
-    const statusText = document.getElementById('atlas-workflow-status')?.textContent || '';
+    const statusText = document.getElementById('atlas-workflow-status')?.textContent || document.getElementById('atlas-workbench-status')?.textContent || '';
     const flowText = document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '';
     const messages = Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || ''));
     const approvalCard = document.querySelector('#plan-approval-card, [data-atlas-workflow-target=\"dynamic-approval\"], [data-atlas-workflow-target=\"approval\"]');
