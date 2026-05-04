@@ -165,7 +165,7 @@ async def verify_mode_switches(page) -> None:
   assert await page.locator("#atlas-workbench-card").count() > 0
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-tab='legacy']").count() == 0
   assert await page.get_by_role("button", name="Start Atlas").count() > 0
-  assert await page.locator("#atlas-agent-execution-section", has_text="Agent / Execution").count() > 0
+  assert await page.locator("#atlas-agent-execution-marker[data-atlas-agent-execution='true']").count() == 1
   await set_atlas_subview(page, "runs")
   assert await page.get_by_role("button", name="Load Recent Atlas Runs").count() > 0, "runs subview should expose recent runs action"
 
@@ -183,9 +183,10 @@ async def verify_mode_switches(page) -> None:
   await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display === 'none'")
   await page.wait_for_function("() => document.getElementById('agent-col') && getComputedStyle(document.getElementById('agent-col')).display === 'none'")
   await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display === 'none'")
-  assert await page.locator("#chat-role-note", has_text="Chat is for lightweight conversation").count() > 0
+  assert await page.locator("#chat-role-note").count() == 0
+  assert await page.locator("#chat-task-toggle").count() == 0
   chat_text = await page.locator("#chat-col").inner_text()
-  for forbidden in ["Plan設定", "Open Atlas", "Use Chat Input", "Atlas Plan", "Atlas status"]:
+  for forbidden in ["Legacy Task", "Chat is for lightweight conversation", "Planning, approval", "Plan設定", "Open Atlas", "Use Chat Input", "Atlas Plan", "Atlas status"]:
     assert forbidden not in chat_text, f"Chat planning affordance leaked: {forbidden}"
 
   await page.click("#btn-atlas")
@@ -897,6 +898,7 @@ async def verify_atlas_plan_approval_gate_readiness(page, wait_diag: dict, conso
 
 
 async def open_atlas_approval_panel_for_inspection(page) -> dict:
+  # Contract marker: inspect the "Open Approval Panel" affordance only; do not approve.
   return await page.evaluate("""() => {
     const isVisibleIsh = (el) => {
       if (!el) return false;
@@ -1404,14 +1406,17 @@ async def verify_atlas_current_ui_smoke(page) -> None:
   await page.click("#btn-chat")
   await page.wait_for_function("() => document.getElementById('chat-col') && getComputedStyle(document.getElementById('chat-col')).display !== 'none'")
   chat_text = await page.locator("#chat-col").inner_text()
-  assert "Chat is for lightweight conversation" in chat_text
-  for forbidden in ["Plan設定", "Start Plan", "Generate Plan", "Guided Plan", "Open Atlas", "Use Chat Input", "Atlas Plan", "Atlas status"]:
+  assert await page.locator("#chat-task-toggle").count() == 0
+  assert await page.locator("#chat-role-note").count() == 0
+  for forbidden in ["Legacy Task", "Chat is for lightweight conversation", "Planning, approval", "Plan設定", "Start Plan", "Generate Plan", "Guided Plan", "Open Atlas", "Use Chat Input", "Atlas Plan", "Atlas status"]:
     assert forbidden not in chat_text, f"Chat should not expose planning affordance: {forbidden}"
 
   await open_atlas(page)
   atlas_text = await page.locator("#atlas-panel-col").inner_text()
   assert "Workflow Workbench" in atlas_text
   assert "Workflow Workbench: Requirement / Plan / Review / Approval / Agent Execution / Execute Preview / Patch Review / Apply." not in atlas_text
+  assert "Agent execution is moving under Atlas" not in atlas_text
+  assert "Recent and manual run inspection live" not in atlas_text
   assert await page.locator("#atlas-panel-col > .agent-head").count() == 0
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-tab='legacy']").count() == 0
   for tab in ["overview", "plan", "runs", "dashboard", "patch_review"]:
@@ -1422,7 +1427,7 @@ async def verify_atlas_current_ui_smoke(page) -> None:
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='overview'] button", has_text="Start Atlas").count() == 1
   await ensure_atlas_plan(page)
   plan_panel_text = await page.locator("#atlas-workbench-card [data-atlas-subview-panel='plan']").inner_text()
-  assert "No generated plan yet" in plan_panel_text
+  assert "No plan yet" in plan_panel_text
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='plan'] button", has_text="Start Atlas").count() == 0
 
   collapse = page.locator("#atlas-workbench-collapse-btn")
@@ -1430,7 +1435,7 @@ async def verify_atlas_current_ui_smoke(page) -> None:
   await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
   await collapse.click()
   await page.wait_for_function("() => !document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
-  assert await page.locator("#atlas-agent-execution-section", has_text="Agent / Execution").count() == 1
+  assert await page.locator("#atlas-agent-execution-marker[data-atlas-agent-execution='true']").count() == 1
 
   await page.set_viewport_size(DEFAULT_MOBILE_VIEWPORT)
   await page.wait_for_timeout(100)
@@ -1439,7 +1444,21 @@ async def verify_atlas_current_ui_smoke(page) -> None:
     body: document.body.scrollWidth - document.body.clientWidth,
     atlas: document.getElementById('atlas-panel-col')?.scrollWidth - document.getElementById('atlas-panel-col')?.clientWidth,
   })""")
-  assert overflow["doc"] <= 1 and overflow["body"] <= 1 and overflow["atlas"] <= 1, f"mobile horizontal overflow detected: {overflow}"
+  if not (overflow["doc"] <= 1 and overflow["body"] <= 1 and overflow["atlas"] <= 1):
+    offenders = await page.evaluate("""() => Array.from(document.body.querySelectorAll('*')).map((el) => {
+      const r = el.getBoundingClientRect();
+      return {
+        tag: el.tagName,
+        id: el.id,
+        className: String(el.className || ''),
+        text: (el.textContent || '').trim().slice(0, 80),
+        left: r.left,
+        right: r.right,
+        width: r.width,
+        overflowRight: r.right - window.innerWidth,
+      };
+    }).filter(x => x.overflowRight > 1).sort((a,b) => b.overflowRight - a.overflowRight).slice(0,20)""")
+    raise AssertionError(f"mobile horizontal overflow detected: {overflow}; offenders: {offenders}")
 
   await page.click("#btn-agent")
   await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display !== 'none'")
