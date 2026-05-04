@@ -43,7 +43,7 @@ RUN set -eux; \
 ########################################
 ## Build stage: Python deps + Style-Bert-VITS2 prep (with CUDA toolkit)
 ########################################
-FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} AS py_base
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu${UBUNTU_VERSION} AS py_base
 
 ARG KASANE_DEBUG_TEST_HARNESS=1
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -409,6 +409,27 @@ RUN ls -la /opt/venv/bin \
     && readlink -f /opt/venv/bin/python \
     && test -x /opt/venv/bin/python \
     && /opt/venv/bin/python --version
+
+RUN /opt/venv/bin/python - <<'PY'
+import os, sys, ctypes.util
+print("python", sys.executable)
+print("LD_LIBRARY_PATH", os.environ.get("LD_LIBRARY_PATH"))
+for name in ["cudart", "cublas", "cudnn"]:
+    print(name, ctypes.util.find_library(name))
+PY
+
+RUN /opt/venv/bin/python - <<'PY'
+import sys
+import torch
+import torchaudio
+print("torch", torch.__version__, torch.__file__)
+print("torchaudio", torchaudio.__version__, torchaudio.__file__)
+print("torch.version.cuda", torch.version.cuda)
+assert sys.version_info[:2] == (3, 11)
+assert torch.__version__.startswith("2.11.0")
+assert torchaudio.__version__.startswith("2.11.0")
+assert torch.version.cuda and torch.version.cuda.startswith("12.8")
+PY
 
 RUN /opt/venv/bin/python - <<'PY'
 import sys

@@ -12,7 +12,8 @@ def test_requirements_tts_contract():
 
 def test_dockerfile_torch_python_contract():
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
-    assert "FROM nvidia/cuda:" in dockerfile
+    assert "FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu${UBUNTU_VERSION}" in dockerfile
+    assert "FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION}" not in dockerfile
     assert "pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel" not in dockerfile
     assert "2.9.1" not in dockerfile
     assert "assert sys.version_info[:2] == (3, 11), sys.version" in dockerfile
