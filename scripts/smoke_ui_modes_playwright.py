@@ -161,12 +161,11 @@ async def verify_mode_switches(page) -> None:
   await open_atlas(page)
   await page.wait_for_function("() => document.getElementById('agent-col') && getComputedStyle(document.getElementById('agent-col')).display === 'none'")
   await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display === 'none'")
-  assert await page.locator("#atlas-panel-col", has_text="Atlas Workbench").count() > 0
+  assert await page.locator("#atlas-panel-col", has_text="Workflow Workbench").count() > 0
   assert await page.locator("#atlas-workbench-card").count() > 0
+  assert await page.locator("#atlas-workbench-card [data-atlas-subview-tab='legacy']").count() == 0
   assert await page.get_by_role("button", name="Start Atlas").count() > 0
-  await set_atlas_subview(page, "legacy")
-  assert await page.get_by_role("button", name="Open Legacy Task").count() > 0
-  assert await page.get_by_role("button", name="Open Agent Advanced").count() > 0
+  assert await page.locator("#atlas-agent-execution-section", has_text="Agent / Execution").count() > 0
   await set_atlas_subview(page, "runs")
   assert await page.get_by_role("button", name="Load Recent Atlas Runs").count() > 0, "runs subview should expose recent runs action"
 
@@ -174,6 +173,7 @@ async def verify_mode_switches(page) -> None:
   await page.wait_for_function("() => document.getElementById('agent-col') && getComputedStyle(document.getElementById('agent-col')).display !== 'none'")
   await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display !== 'none'")
   await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display === 'none'")
+  assert await page.locator("#agent-panel-col", has_text="Legacy Agent Advanced").count() > 0
   agent_chat_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-agent-chat')).display !== 'none'")
   agent_tasks_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-agent-tasks')).display !== 'none'")
   assert agent_chat_visible and agent_tasks_visible
@@ -184,21 +184,12 @@ async def verify_mode_switches(page) -> None:
   await page.wait_for_function("() => document.getElementById('agent-col') && getComputedStyle(document.getElementById('agent-col')).display === 'none'")
   await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display === 'none'")
   assert await page.locator("#chat-role-note", has_text="Chat is for lightweight conversation").count() > 0
-  assert await page.locator("#chat-role-note", has_text="Use Atlas for guided work planning").count() > 0
+  chat_text = await page.locator("#chat-col").inner_text()
+  for forbidden in ["Plan設定", "Open Atlas", "Use Chat Input", "Atlas Plan", "Atlas status"]:
+    assert forbidden not in chat_text, f"Chat planning affordance leaked: {forbidden}"
 
   await page.click("#btn-atlas")
   await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
-
-  await page.click("#btn-echo")
-  await page.wait_for_function("() => document.getElementById('echo-col') && getComputedStyle(document.getElementById('echo-col')).display !== 'none'")
-  await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display === 'none'")
-
-  await page.click("#btn-nexus")
-  await page.wait_for_function("() => document.getElementById('nexus-col') && getComputedStyle(document.getElementById('nexus-col')).display !== 'none'")
-  await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display === 'none'")
-
-
-
 
 async def verify_atlas_start_button_feedback(page) -> None:
   errors: list[str] = []
@@ -315,27 +306,10 @@ async def verify_atlas_guided_workflow_safe_journey(page) -> None:
   forbidden = ['Atlas Workflow Status', 'Requirement Preview', 'Boss', 'Approval required', 'Plan generated', 'Starting Atlas guided planning workflow', 'Atlas Start needs a request']
   assert not any(any(token in msg for token in forbidden) for msg in new_messages), f"atlas chat leak detected: {new_messages}"
 
-  review_btn = page.get_by_role("button", name="Review Plan")
-  if await review_btn.count() > 0:
-    await review_btn.first.click()
-  approval_btn = page.get_by_role("button", name="Open Approval Panel")
-  if await approval_btn.count() > 0:
-    await approval_btn.first.click()
-  execute_btn = page.get_by_role("button", name="Open Execute Preview")
-  if await execute_btn.count() > 0:
-    await execute_btn.first.click()
-  patch_btn = page.get_by_role("button", name="Open Patch Review")
-  if await patch_btn.count() > 0:
-    await patch_btn.first.click()
-  else:
-    await page.click("#atlas-workbench-card [data-atlas-subview-tab='patch_review']")
-
-  await page.click("#atlas-workbench-card [data-atlas-subview-tab='runs']")
-  await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'runs'")
-  await page.click("#atlas-workbench-card [data-atlas-subview-tab='dashboard']")
-  await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'dashboard'")
-  await page.click("#atlas-workbench-card [data-atlas-subview-tab='legacy']")
-  await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'legacy'")
+  for subview in ["runs", "dashboard", "patch_review"]:
+    await page.click(f"#atlas-workbench-card [data-atlas-subview-tab='{subview}']")
+    await page.wait_for_function("(name) => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === name", arg=subview)
+  assert await page.locator("#atlas-workbench-card [data-atlas-subview-tab='legacy']").count() == 0
 
   for mode in ["#btn-chat", "#btn-atlas", "#btn-echo", "#btn-nexus", "#btn-atlas"]:
     await page.click(mode)
@@ -1404,6 +1378,52 @@ async def fill_atlas_requirement(page, text: str) -> None:
   await requirement.fill(text)
 
 
+async def verify_atlas_current_ui_smoke(page) -> None:
+  await page.click("#btn-chat")
+  await page.wait_for_function("() => document.getElementById('chat-col') && getComputedStyle(document.getElementById('chat-col')).display !== 'none'")
+  chat_text = await page.locator("#chat-col").inner_text()
+  assert "Chat is for lightweight conversation" in chat_text
+  for forbidden in ["Plan設定", "Start Plan", "Generate Plan", "Guided Plan", "Open Atlas", "Use Chat Input", "Atlas Plan", "Atlas status"]:
+    assert forbidden not in chat_text, f"Chat should not expose planning affordance: {forbidden}"
+
+  await open_atlas(page)
+  atlas_text = await page.locator("#atlas-panel-col").inner_text()
+  assert "Workflow Workbench" in atlas_text
+  assert "Workflow Workbench: Requirement / Plan / Review / Approval / Agent Execution / Execute Preview / Patch Review / Apply." not in atlas_text
+  assert await page.locator("#atlas-panel-col > .agent-head").count() == 0
+  assert await page.locator("#atlas-workbench-card [data-atlas-subview-tab='legacy']").count() == 0
+  for tab in ["overview", "plan", "runs", "dashboard", "patch_review"]:
+    assert await page.locator(f"#atlas-workbench-card [data-atlas-subview-tab='{tab}']").count() == 1
+
+  await ensure_atlas_overview(page)
+  assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='overview'] #atlas-requirement-input").count() == 1
+  assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='overview'] button", has_text="Start Atlas").count() == 1
+  await ensure_atlas_plan(page)
+  plan_panel_text = await page.locator("#atlas-workbench-card [data-atlas-subview-panel='plan']").inner_text()
+  assert "No generated plan yet" in plan_panel_text
+  assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='plan'] button", has_text="Start Atlas").count() == 0
+
+  collapse = page.locator("#atlas-workbench-collapse-btn")
+  await collapse.click()
+  await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
+  await collapse.click()
+  await page.wait_for_function("() => !document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
+  assert await page.locator("#atlas-agent-execution-section", has_text="Agent / Execution").count() == 1
+
+  await page.set_viewport_size(DEFAULT_MOBILE_VIEWPORT)
+  await page.wait_for_timeout(100)
+  overflow = await page.evaluate("""() => ({
+    doc: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    body: document.body.scrollWidth - document.body.clientWidth,
+    atlas: document.getElementById('atlas-panel-col')?.scrollWidth - document.getElementById('atlas-panel-col')?.clientWidth,
+  })""")
+  assert overflow["doc"] <= 1 and overflow["body"] <= 1 and overflow["atlas"] <= 1, f"mobile horizontal overflow detected: {overflow}"
+
+  await page.click("#btn-agent")
+  await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display !== 'none'")
+  assert await page.locator("#agent-panel-col", has_text="Legacy Agent Advanced").count() > 0
+
+
 async def verify_mobile_mode_switches(page) -> None:
   await page.set_viewport_size(DEFAULT_MOBILE_VIEWPORT)
   await page.wait_for_timeout(100)
@@ -1745,6 +1765,7 @@ async def main() -> None:
     default_ui_scenarios = [
       ("bootstrap_api_contract", lambda current_page: current_page.evaluate("() => [typeof window.setMode, typeof window.switchNexusTab]")),
       ("mode_switches", verify_mode_switches),
+      ("atlas_current_ui_smoke", verify_atlas_current_ui_smoke),
       ("atlas_start_button_feedback", verify_atlas_start_button_feedback),
       ("atlas_guided_workflow_safe_journey", verify_atlas_guided_workflow_safe_journey),
       ("mode_specific_subtabs", verify_mode_specific_subtabs),
@@ -1880,10 +1901,17 @@ async def main() -> None:
 
       scenarios[0] = ("bootstrap_api_contract", bootstrap_assertions)
 
+    only = [item.strip() for item in os.environ.get("PLAYWRIGHT_SMOKE_ONLY", "").split(",") if item.strip()]
+    if only:
+      allowed = set(only)
+      scenarios = [item for item in scenarios if item[0] in allowed]
+      if not scenarios and "mobile_mode_switches" not in allowed:
+        raise AssertionError(f"PLAYWRIGHT_SMOKE_ONLY selected no known scenarios: {only}")
+
     for scenario_name, scenario_fn in scenarios:
       await run_smoke_scenario(scenario_name, browser, base_url, scenario_fn, results, DEFAULT_DESKTOP_VIEWPORT)
 
-    if not (preflight_only_mode or full_backend_e2e_mode):
+    if not (preflight_only_mode or full_backend_e2e_mode) and (not only or "mobile_mode_switches" in set(only)):
       await run_smoke_scenario("mobile_mode_switches", browser, base_url, lambda page: verify_mobile_mode_switches(page), results, DEFAULT_MOBILE_VIEWPORT)
     await browser.close()
     if mock_server:

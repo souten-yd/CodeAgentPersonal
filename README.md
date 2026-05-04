@@ -1372,3 +1372,15 @@ PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 RUN_ATLAS_BACKEND_E2E=1 python s
 - Agent moves under Atlas in Phase 31.1 (top-level Agent remains temporarily).
 
 - Phase 31.0b: Atlas/Chat decoupling completed. Atlas workflow status/plan/preview/errors stay inside Atlas, and smoke/contracts now validate Atlas DOM + chat non-mirroring.
+
+### Phase 31.2 Atlas mobile UI cleanup
+
+Atlas is now treated as the mobile-first planning and review surface. The normal Atlas view goes directly from the mode/system chrome into `Workflow Workbench`; the redundant standalone Atlas heading and long Workflow Workbench explanatory sentence were removed to save vertical space on phone-sized screens.
+
+`Workflow Workbench` can be collapsed and expanded. Its compact header keeps the current action, last run, status, and the Overview / Plan / Runs / Dashboard / Patch Review tabs visible while hiding the active tab body so that the lower Atlas detail sections are easier to scan by scrolling.
+
+Start ownership is simplified: Overview owns the requirement input and the primary `Start Atlas` entry point. The Plan tab is for viewing generated plans and showing the plan/review/approval flow state; it no longer presents the first-run Start Atlas form. Chat remains a normal conversation surface and does not mirror Atlas plan/status or expose planning buttons.
+
+Agent execution is moving under Atlas as `Agent / Execution`. The remaining top-level Agent mode is labeled as `Legacy Agent Advanced` for advanced runtime compatibility, while planning ownership stays with Atlas.
+
+The legacy 9/9 mock UI smoke is retained only as an informational compatibility preset. Current default acceptance uses `atlas_current_ui_smoke`, and destructive actions remain gated: the smoke flow does not approve plans, execute previews, or apply patches automatically.
