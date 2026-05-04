@@ -16,7 +16,9 @@ class Phase301bDebugHarnessTimeoutStatusContract(unittest.TestCase):
         self.assertIn('payload["status"] = "finished_with_failures"', MATRIX)
 
     def test_skipped_remains_separate_from_passed(self):
+        self.assertIn('if code != 0:', MATRIX)
         self.assertIn('status = "skipped"', MATRIX)
+        self.assertIn('elif _looks_like_full_skip(combined):', MATRIX)
         self.assertIn('finished_with_skips', MATRIX)
 
     def test_summary_includes_timeout_count(self):

@@ -64,6 +64,7 @@ class TestPhase302bDockerBuildSpeedContract(unittest.TestCase):
         self.assertNotIn("approve_plan", matrix)
         self.assertNotIn("execute_preview", matrix)
         self.assertNotIn("apply_patch", matrix)
+        self.assertNotIn('or "SKIP:" in combined', matrix)
 
     def test_dockerignore_keeps_workflow_available(self):
         self.assertIn(".github", DOCKERIGNORE)
