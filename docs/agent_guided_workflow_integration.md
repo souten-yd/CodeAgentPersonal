@@ -690,3 +690,15 @@
 - This check never executes preview.
 - This check never applies patch.
 - This check only validates Approve Plan visible/actionable candidate signals after panel open.
+
+## Phase 31.0 note (Atlas standalone Workflow Workbench / Chat decoupling)
+- Atlas is now standalone and Chat-decoupled for guided workflow UI.
+- Chat should not mirror Atlas Plan/status/buttons.
+- Plan full text belongs only in Atlas (Atlas is source of truth).
+- Atlas panels must be scrollable on desktop and mobile (`100dvh`, flex `min-height:0`, inner `overflow-y:auto`, `-webkit-overflow-scrolling:touch`).
+- Dashboard is being reframed as Workflow Workbench with Current Action and stepper-first framing.
+- Agent will be moved under Atlas in Phase 31.1.
+- Atlas owns planning, approval, execution, patch review, and reports.
+- Agent becomes the execution engine/work area inside Atlas.
+- Top-level Agent tab will become legacy/redirect or be removed later.
+- Destructive actions remain gated and not automated.
