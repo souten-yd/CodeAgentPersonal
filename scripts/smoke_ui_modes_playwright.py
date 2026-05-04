@@ -1627,6 +1627,15 @@ def _safe_artifact_name(name: str) -> str:
   return re.sub(r"[^a-zA-Z0-9._-]+", "_", name).strip("_") or "scenario"
 
 
+def safe_artifact_path(path: Path) -> str:
+  resolved_path = path.resolve()
+  resolved_root = ROOT.resolve()
+  try:
+    return str(resolved_path.relative_to(resolved_root))
+  except ValueError:
+    return str(resolved_path)
+
+
 async def run_smoke_scenario(name: str, browser, base_url: str, coro_factory, results: list[dict[str, str]], viewport: dict[str, int] | None = None) -> None:
   scenario_errors: list[str] = []
   page = await browser.new_page(viewport=viewport or DEFAULT_DESKTOP_VIEWPORT)
@@ -1646,7 +1655,7 @@ async def run_smoke_scenario(name: str, browser, base_url: str, coro_factory, re
       err_text = err_text + "\n" + "\n".join(scenario_errors)
     log_path = PLAYWRIGHT_ARTIFACT_DIR / f"{safe}.log"
     log_path.write_text(err_text + "\n\n" + traceback.format_exc(), encoding="utf-8")
-    results.append({"name": name, "status": "FAIL", "error": err_text, "artifact": str(log_path.relative_to(ROOT))})
+    results.append({"name": name, "status": "FAIL", "error": err_text, "artifact": safe_artifact_path(log_path)})
     try:
       await page.screenshot(path=str(PLAYWRIGHT_ARTIFACT_DIR / f"{safe}.png"), full_page=True)
     except Exception:

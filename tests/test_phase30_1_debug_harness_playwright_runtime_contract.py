@@ -20,9 +20,10 @@ class Phase301DebugHarnessPlaywrightRuntimeContract(unittest.TestCase):
         self.assertIn('Chrome extension は不要', README)
 
     def test_skip_is_not_marked_passed(self):
+        self.assertIn('def _looks_like_full_skip(output: str) -> bool:', MATRIX)
         self.assertIn('SKIP: playwright is not installed', MATRIX)
-        self.assertIn('"SKIP:"', MATRIX)
-        self.assertIn('status = "skipped"', MATRIX)
+        self.assertIn('if code != 0:', MATRIX)
+        self.assertIn('elif _looks_like_full_skip(combined):', MATRIX)
         self.assertIn('finished_with_skips', MATRIX)
 
     def test_summary_includes_skipped_count(self):

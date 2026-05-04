@@ -63,6 +63,15 @@ def _write_progress(run_dir: Path, payload: dict[str, Any]) -> None:
     (run_dir / "result.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     _write_summary(run_dir, payload)
 
+def _looks_like_full_skip(output: str) -> bool:
+    skip_markers = (
+        "SMOKE_STATUS: SKIPPED",
+        "SKIP: playwright is not installed",
+        "SKIP: browser dependency missing",
+        "SKIP: no scenarios selected",
+    )
+    return any(marker in output for marker in skip_markers)
+
 
 def _refresh_counts_and_status(payload: dict[str, Any], *, final: bool = False) -> None:
     results = payload.get("results", [])
@@ -114,10 +123,10 @@ def run_all_presets(run_id: str) -> dict[str, Any]:
             out = proc.stdout or ""
             err = proc.stderr or ""
             combined = f"{out}\n{err}"
-            if "SKIP: playwright is not installed" in combined or "SKIP:" in combined:
-                status = "skipped"
-            elif code != 0:
+            if code != 0:
                 status = "failed"
+            elif _looks_like_full_skip(combined):
+                status = "skipped"
         except subprocess.TimeoutExpired as exc:
             status = "timeout"
             code = -1
