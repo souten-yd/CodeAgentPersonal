@@ -164,9 +164,9 @@ async def wait_named(page, name: str, js_condition: str, *, timeout: int = 30_00
       await page.wait_for_function(js_condition, timeout=timeout)
     else:
       await page.wait_for_function(js_condition, arg=arg, timeout=timeout)
-  except PlaywrightTimeoutError as exc:
+  except Exception as exc:
     artifact = await write_dom_snapshot(page, f"wait_named_timeout_{name}")
-    raise AssertionError(f"wait_named_timeout:{name}; artifact={artifact}") from exc
+    raise AssertionError(f"wait_named_timeout:{name}; artifact={artifact}; cause={type(exc).__name__}: {exc}") from exc
 
 async def open_atlas(page) -> None:
   await page.click("#btn-atlas")

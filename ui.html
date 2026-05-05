@@ -15342,7 +15342,7 @@ async function generatePlanOnlyFromInput(options = {}) {
     ws.forEach((w) => addLog('warn', 'plan-only', String(w)));
 
     if (d.status === 'waiting_for_clarification') {
-      _updatePlanWorkflowState({ workflowPhase: 'requirement_ready', currentJobId: d.atlas_job_id || d.job_id || `sync-requirement:${d.requirement_id || 'unknown'}`, currentRunId: d.atlas_run_id || '', jobStatus: d.job_status || 'waiting_for_clarification', lastPlanApiIds: { atlas_job_id: d.atlas_job_id || '', atlas_run_id: d.atlas_run_id || '', requirement_id: d.requirement_id || '' }, requirementId: d.requirement_id || '', lastError: '' });
+      _updatePlanWorkflowState({ workflowPhase: 'requirement_ready', currentJobId: d.plan_id ? `sync-plan:${d.plan_id}` : 'sync-plan-pending', currentRunId: d.plan_id || d.atlas_run_id || '', jobStatus: d.job_status || 'waiting_for_clarification', lastPlanApiIds: { atlas_job_id: d.atlas_job_id || '', atlas_run_id: d.atlas_run_id || '', requirement_id: d.requirement_id || '', plan_id: d.plan_id || '' }, currentRequirementId: d.requirement_id || '', requirementId: d.requirement_id || '', lastError: '' });
       try { focusAtlasPlanWorkbench(); } catch (_) {}
       renderClarificationCard(d, { planningMode, requirementMode, executionMode, source, workspace, target: 'atlas' });
       addLog('ok', 'plan-only', `Clarification required requirement_id=${d.requirement_id}`);
