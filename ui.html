@@ -1421,6 +1421,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             <div style="margin-top:6px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);max-width:100%;overflow-wrap:anywhere;min-width:0">
               <div id="atlas-plan-review-anchor" data-atlas-plan-section="review" style="font-size:12px;font-weight:700;color:var(--text)">Plan Output</div>
               <div id="atlas-plan-empty-state" style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.6">No plan yet.</div>
+              <div id="atlas-workbench-card-plan-output" data-atlas-workflow-target="atlas-plan-output" style="margin-top:8px;max-width:100%;overflow-wrap:anywhere"></div>
               <div id="atlas-plan-flow-summary" style="display:none"></div>
               <div id="atlas-workbench-card-plan-flow" data-atlas-workflow-target="plan-review" style="margin-top:8px;font-size:11px;line-height:1.6"></div>
               <div id="atlas-plan-approval-anchor" data-atlas-plan-section="approval" style="margin-top:6px;height:1px"></div>
@@ -3158,7 +3159,7 @@ function normalizeCtxSize(value, fallback = _settingsDefaultCtxSize) {
 let mode = 'chat';
 let asrRuntimeConfig = {is_windows:false,is_runpod:false,gpu_vendor:'unknown',asr_engine:'faster_whisper',whisper_cpp_ready:false};
 const CHAT_TASK_TOGGLE_KEY = 'chat_task_enabled';
-let isTaskEnabled = localStorage.getItem(CHAT_TASK_TOGGLE_KEY) === 'true';
+let isTaskEnabled = false; // Chat/Atlas separation: legacy Chat task planning is disabled.
 const PHASE1_PLAN_DRAWER_KEY = 'phase1_plan_drawer_open';
 let isPhase1PlanOpen = localStorage.getItem(PHASE1_PLAN_DRAWER_KEY) === 'true';
 let busy = false;
@@ -13449,8 +13450,8 @@ async function sendMessage(msg) {
   addToHistory('user', msg);
   addLog('info','send',`[${getChatModeBadge()}][${currentProject}] ${msg}`);
 
-  if (mode === 'chat' && isTaskEnabled) {
-    // Task mode: plan first → approval → execute
+  if (false && mode === 'chat' && isTaskEnabled) {
+    // Legacy task mode is intentionally unreachable: Chat is direct conversation only.
     setBusy(true);
     const progEl = addProgressCard('Generating plan...');
     try {
@@ -14053,8 +14054,9 @@ function renderAtlasWorkbenchStatus() {
   const flow = deriveAtlasPlanFlowState();
   const currentJob = planWorkflowState.currentJobId || '-';
   const lastRun = planWorkflowState.currentRunId || planWorkflowState.lastRunId || getAtlasLastRunId() || '-';
-  const lastError = planWorkflowState.lastError || '-';
-  host.innerHTML = `<div id="atlas-workflow-status"><div><b>Current workflow state:</b> ${esc(flow.plan)} / review ${esc(flow.review)} / approval ${esc(flow.approval)} / preview ${esc(flow.executePreview)}</div><div><b>Current Action:</b> ${esc(flow.nextAction)}</div><div><b>Current Job:</b> ${esc(currentJob)}</div><div><b>Last Run:</b> ${esc(lastRun)}</div><div><b>Last Error:</b> ${esc(lastError)}</div><div><b>Atlas is source of truth:</b> Plan/status stay in Atlas Workbench only.</div></div>`;
+  const rawLastError = String(planWorkflowState.lastError || '').trim();
+  const lastError = rawLastError || '-';
+  host.innerHTML = `<div id="atlas-workflow-status" data-current-job-id="${esc(currentJob === '-' ? '' : currentJob)}" data-current-run-id="${esc(lastRun === '-' ? '' : lastRun)}" data-job-status="${esc(planWorkflowState.jobStatus || '')}" data-workflow-phase="${esc(planWorkflowState.workflowPhase || '')}" data-last-error="${esc(rawLastError)}"><div><b>Current workflow state:</b> ${esc(flow.plan)} / review ${esc(flow.review)} / approval ${esc(flow.approval)} / preview ${esc(flow.executePreview)}</div><div><b>Current Action:</b> ${esc(flow.nextAction)}</div><div><b>Current Job:</b> ${esc(currentJob)}</div><div><b>Last Run:</b> ${esc(lastRun)}</div><div><b>Last Error:</b> <span id="atlas-workflow-last-error" data-last-error-value="${esc(rawLastError)}">${esc(lastError)}</span></div></div>`;
   updateAtlasWorkbenchCompactSummary();
 }
 
@@ -14357,6 +14359,16 @@ async function openPatchReviewFromWorkbench() {
   }, 60);
 }
 
+function getAtlasPlanOutputHost({ clear = false } = {}) {
+  const host = document.getElementById('atlas-workbench-card-plan-output') || document.getElementById('atlas-workbench-card-plan-flow');
+  if (host && clear) host.replaceChildren();
+  return host;
+}
+
+function shouldRenderAtlasWorkflowInChat(context = {}) {
+  return context?.target === 'legacy_chat_task_plan';
+}
+
 function showPlanWorkflowPanel() {
   const panel = document.getElementById('phase1-plan-panel');
   const toggle = document.getElementById('phase1-plan-toggle');
@@ -14411,6 +14423,7 @@ async function runGuidedPlanWorkflow(options = {}) {
 }
 
 function renderClarificationCard(result, context = {}) {
+  const target = context?.target || ((context?.source || planWorkflowState.source) === 'atlas' ? 'atlas' : 'atlas');
   const questions = Array.isArray(result?.questions) ? result.questions : [];
   _updatePlanWorkflowState({
     workflowPhase: 'requirement_ready',
@@ -14427,8 +14440,8 @@ function renderClarificationCard(result, context = {}) {
     approvalStatus: 'pending',
     executionReady: false,
     lastError: '',
-    source: planWorkflowState.source || 'chat_task_plan_button',
-    workspace: planWorkflowState.workspace || 'Chat/Task',
+    source: context?.source || planWorkflowState.source || 'atlas',
+    workspace: context?.workspace || planWorkflowState.workspace || 'Atlas',
   });
   const cardId = 'phase2-clar-card-' + Date.now();
   const qHtml = questions.length
@@ -14460,9 +14473,16 @@ function renderClarificationCard(result, context = {}) {
         </div>
       </div>
     </div>`;
-  const w = messages();
-  w.appendChild(div);
-  scrollMsgs();
+  const host = target === 'atlas' ? getAtlasPlanOutputHost({ clear: false }) : null;
+  if (host) {
+    host.appendChild(div);
+    try { setAtlasSubview('plan'); } catch (_) {}
+  } else if (shouldRenderAtlasWorkflowInChat(context)) {
+    messages().appendChild(div);
+    scrollMsgs();
+  } else {
+    addLog('warn', 'atlas', 'Clarification card render skipped outside Atlas workspace.');
+  }
 
   const card = div.querySelector(`#${cardId}`);
   const submitBtn = card?.querySelector('[data-action="submit"]');
@@ -14505,12 +14525,13 @@ function renderClarificationCard(result, context = {}) {
     ws.forEach((w) => addLog('warn', 'plan-only', String(w)));
     if (dc.status === 'waiting_for_clarification') {
       softenCard();
-      renderClarificationCard(dc, context);
+      renderClarificationCard(dc, { ...context, target });
       return;
     }
     let planMarkdown = '';
     try {
-      const rm = await fetch(API + `/api/plans/${encodeURIComponent(dc.plan_id)}/markdown`);
+      const resolvedPlanId = dc.plan_id || dc?.plan?.plan_id || '';
+      const rm = await fetch(API + `/api/plans/${encodeURIComponent(resolvedPlanId)}/markdown`);
       const dm = await rm.json();
       if (!rm.ok) throw new Error(dm.detail || `HTTP ${rm.status}`);
       planMarkdown = String(dm.markdown || '');
@@ -14518,13 +14539,13 @@ function renderClarificationCard(result, context = {}) {
       addLog('warn', 'plan-only', `Plan markdown fetch warning: ${mdErr.message || String(mdErr)}`);
     }
     softenCard();
-    renderPhase1PlanCard(dc, planMarkdown);
+    renderPhase1PlanCard(dc, planMarkdown, { ...context, target });
   };
 
   submitBtn?.addEventListener('click', async () => {
     if (busy) return;
     setCardPending(true, '回答を送信中...');
-    const progEl = addProgressCard('Applying clarification answers...');
+    const progEl = target === 'atlas' ? { remove() {} } : addProgressCard('Applying clarification answers...');
     setBusy(true);
     try {
       const answers = _collectClarificationAnswers(card);
@@ -14537,7 +14558,7 @@ function renderClarificationCard(result, context = {}) {
       if (!ra.ok) throw new Error(da.detail || `HTTP ${ra.status}`);
       await runContinue();
     } catch (e) {
-      addMsg('error', 'Clarification failed: ' + (e.message || String(e)));
+      if (shouldRenderAtlasWorkflowInChat(context)) addMsg('error', 'Clarification failed: ' + (e.message || String(e)));
       addLog('err', 'plan-only', e.message || String(e));
     } finally {
       progEl.remove();
@@ -14561,7 +14582,7 @@ function renderClarificationCard(result, context = {}) {
       if (!ra.ok) throw new Error(da.detail || `HTTP ${ra.status}`);
       await runContinue();
     } catch (e) {
-      addMsg('error', 'Clarification skip failed: ' + (e.message || String(e)));
+      if (shouldRenderAtlasWorkflowInChat(context)) addMsg('error', 'Clarification skip failed: ' + (e.message || String(e)));
       addLog('err', 'plan-only', e.message || String(e));
     } finally {
       progEl.remove();
@@ -15081,38 +15102,42 @@ function _bindPhase5ApprovalActions(cardRoot, result) {
   }));
 }
 
-function renderPhase1PlanCard(result, planMarkdown = '') {
+function renderPhase1PlanCard(result, planMarkdown = '', context = {}) {
+  const target = context?.target || ((context?.source || planWorkflowState.source) === 'atlas' ? 'atlas' : 'atlas');
   const requirement = result?.requirement || {};
   const plan = result?.plan || {};
   const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
   const reviewResult = result?.review_result || null;
+  const resolvedPlanIdForState = result?.plan_id || result?.plan?.plan_id || '';
   _updatePlanWorkflowState({
     workflowPhase: 'plan_generated',
-    currentJobId: result?.atlas_job_id || result?.job_id || (result?.plan_id ? `sync-plan:${result.plan_id}` : ''),
-    currentRunId: result?.atlas_run_id || result?.run_id || result?.plan_id || '',
+    currentJobId: result?.atlas_job_id || result?.job_id || (resolvedPlanIdForState ? `sync-plan:${resolvedPlanIdForState}` : ''),
+    currentRunId: result?.atlas_run_id || result?.run_id || resolvedPlanIdForState || '',
     jobStatus: result?.job_status || 'completed',
     lastPlanApiIds: {
       atlas_job_id: result?.atlas_job_id || '',
       atlas_run_id: result?.atlas_run_id || '',
-      plan_id: result?.plan_id || result?.plan?.plan_id || '',
+      plan_id: resolvedPlanIdForState,
       requirement_id: result?.requirement_id || '',
     },
     generatedPlan: plan,
     planResult: result,
     planMarkdown: planMarkdown || '',
     requirementId: result?.requirement_id || '',
-    planId: result?.plan_id || result?.plan?.plan_id || '',
+    planId: resolvedPlanIdForState,
     reviewId: reviewResult?.review_id || '',
     projectPath: result?.resolved_project_path || result?.requirement?.resolved_project_path || '',
     planningMode: result?.planning_mode || planWorkflowState.planningMode,
     approvalStatus: String(result?.approval?.status || result?.plan?.approval?.status || 'pending'),
     executionReady: !!(result?.approval?.execution_ready || result?.plan?.approval?.execution_ready || result?.plan?.status === 'execution_ready'),
     lastError: '',
+    source: context?.source || planWorkflowState.source || 'atlas',
+    workspace: context?.workspace || planWorkflowState.workspace || 'Atlas',
   });
   const atlasPlanEmpty = document.getElementById('atlas-plan-empty-state');
   if (atlasPlanEmpty) {
     const title = plan.title || result?.message || 'Plan generated';
-    atlasPlanEmpty.textContent = `Plan generated: ${title} (plan_id=${result?.plan_id || result?.plan?.plan_id || '-'})`;
+    atlasPlanEmpty.textContent = `Plan generated: ${title} (plan_id=${resolvedPlanIdForState || '-'})`;
   }
   const planSteps = Array.isArray(plan.implementation_steps) ? plan.implementation_steps : [];
   const cardId = 'phase1-plan-card-' + Date.now();
@@ -15171,21 +15196,28 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
         </div>
       </div>
     </div>`;
-  const w = messages();
   const div = document.createElement('div');
   div.className = 'msg system';
   div.innerHTML = html;
-  w.appendChild(div);
+  const host = target === 'atlas' ? getAtlasPlanOutputHost({ clear: true }) : null;
+  if (host) {
+    host.appendChild(div);
+    try { setAtlasSubview('plan'); } catch (_) {}
+  } else if (shouldRenderAtlasWorkflowInChat(context)) {
+    messages().appendChild(div);
+    scrollMsgs();
+  } else {
+    addLog('warn', 'atlas', 'Plan card render skipped outside Atlas workspace.');
+  }
   const cardRoot = div.querySelector(`#${cardId}`);
   _bindPhase5ApprovalActions(cardRoot, result);
   _bindPhase6ExecutionActions(cardRoot, result);
-  scrollMsgs();
 }
 
 // Backward-compatible name: this now drives the full guided workflow chain (plan/review/approval/execute preview/patch review).
 async function generatePlanOnlyFromInput(options = {}) {
   const input = document.getElementById('input');
-  const source = options?.source || 'chat';
+  const source = options?.source || 'atlas';
   const workspace = options?.workspace || (source === 'atlas' ? 'Atlas' : 'Chat/Task');
   const requirementSource = options?.requirementSource || (source === 'atlas' ? 'atlas' : 'chat');
   const text = String(options?.text || input?.value || '').trim();
@@ -15244,25 +15276,26 @@ async function generatePlanOnlyFromInput(options = {}) {
 
     if (d.status === 'waiting_for_clarification') {
       _updatePlanWorkflowState({ workflowPhase: 'requirement_ready', currentJobId: d.atlas_job_id || d.job_id || `sync-requirement:${d.requirement_id || 'unknown'}`, currentRunId: d.atlas_run_id || '', jobStatus: d.job_status || 'waiting_for_clarification', lastPlanApiIds: { atlas_job_id: d.atlas_job_id || '', atlas_run_id: d.atlas_run_id || '', requirement_id: d.requirement_id || '' }, requirementId: d.requirement_id || '', lastError: '' });
-      renderClarificationCard(d, { planningMode, requirementMode, executionMode });
+      renderClarificationCard(d, { planningMode, requirementMode, executionMode, source, workspace, target: 'atlas' });
       addLog('ok', 'plan-only', `Clarification required requirement_id=${d.requirement_id}`);
       return;
     }
 
     let planMarkdown = '';
     try {
-      const rm = await fetch(API + `/api/plans/${encodeURIComponent(d.plan_id)}/markdown`);
+      const resolvedPlanId = d.plan_id || d?.plan?.plan_id || '';
+      const rm = await fetch(API + `/api/plans/${encodeURIComponent(resolvedPlanId)}/markdown`);
       const dm = await rm.json();
       if (!rm.ok) throw new Error(dm.detail || `HTTP ${rm.status}`);
       planMarkdown = String(dm.markdown || '');
     } catch (mdErr) {
       addLog('warn', 'plan-only', `Plan markdown fetch warning: ${mdErr.message || String(mdErr)}`);
     }
-    renderPhase1PlanCard(d, planMarkdown);
-    addLog('ok', 'plan-only', `Generated plan_id=${d.plan_id} requirement_id=${d.requirement_id}`);
+    renderPhase1PlanCard(d, planMarkdown, { source, workspace, target: 'atlas' });
+    addLog('ok', 'plan-only', `Generated plan_id=${d.plan_id || d?.plan?.plan_id || '-'} requirement_id=${d.requirement_id}`);
   } catch (e) {
     const errMsg = e.message || String(e);
-    if (source !== 'atlas') addMsg('error', 'Phase1 plan generation failed: ' + errMsg);
+    if (shouldRenderAtlasWorkflowInChat({ target: options?.target })) addMsg('error', 'Phase1 plan generation failed: ' + errMsg);
     addLog('err', 'plan-only', errMsg);
     _updatePlanWorkflowState({ workflowPhase: 'plan_failed', jobStatus: 'failed', lastError: errMsg });
   } finally {
