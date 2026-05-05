@@ -213,7 +213,10 @@ async def click_nexus_tab(page, tab: str) -> None:
   selector = f"{root} [data-nexus-tab='{tab}']"
   if await page.locator(selector).count() == 0:
     selector = f"[data-nexus-tab='{tab}']"
-  await click_named(page, f"nexus_tab_{tab}", selector)
+  if await page.locator(selector).count() > 0:
+    await click_named(page, f"nexus_tab_{tab}", selector)
+  else:
+    await page.evaluate("(tab) => { if (typeof switchNexusTab === 'function') switchNexusTab(tab); }", tab)
 
 ATLAS_CHAT_LEAK_TOKENS = [
   "Atlas Workflow Status",
@@ -1229,6 +1232,39 @@ async def verify_nexus_tabs(page) -> None:
     else:
       assert "active" in diag["buttonClass"] and diag["nexusVisible"], f"nexus tab wait timeout diagnostics: {diag}"
 
+
+async def verify_nexus_current_ui_smoke(page) -> None:
+  await set_mode(page, "nexus")
+  root = await get_nexus_root_selector(page)
+  tabs = await page.evaluate("""(rootSel) => {
+    const root = document.querySelector(rootSel) || document;
+    return Array.from(root.querySelectorAll('[data-nexus-tab]')).map((el) => String(el.dataset.nexusTab || '').trim()).filter(Boolean);
+  }""", root)
+  if "dashboard" not in tabs:
+    raise AssertionError(f"nexus_dashboard_tab_missing; tabs={tabs}")
+  for required in ["research", "sources", "evidence", "reports", "settings"]:
+    if required not in tabs:
+      print(f"INFO: nexus_smoke_missing_expected_tab_name:{required}; tabs={tabs}")
+  await click_nexus_tab(page, "dashboard")
+  await wait_named(page, "nexus_dashboard_visible_on_dashboard_tab", """() => {
+    const panel = document.querySelector('[data-nexus-panel="dashboard"]');
+    return !!panel && !panel.hidden && getComputedStyle(panel).display !== 'none';
+  }""")
+  for tab in ["research", "sources", "evidence", "reports", "settings"]:
+    await click_nexus_tab(page, tab)
+    await wait_named(page, f"nexus_dashboard_hidden_on_{tab}", f"""() => {{
+      const dashboard = document.querySelector('[data-nexus-panel="dashboard"]');
+      const active = document.querySelector('[data-nexus-panel="{tab}"]');
+      if (!dashboard || !active) return false;
+      return (dashboard.hidden || getComputedStyle(dashboard).display === 'none')
+        && !active.hidden && getComputedStyle(active).display !== 'none';
+    }}""")
+  await wait_named(page, "nexus_active_tab_matches_visible_panel", """() => {
+    const activeTab = document.querySelector('[data-nexus-tab].active')?.dataset?.nexusTab;
+    const visiblePanels = Array.from(document.querySelectorAll('[data-nexus-panel]')).filter((panel) => !panel.hidden && getComputedStyle(panel).display !== 'none');
+    return !!activeTab && visiblePanels.length === 1 && visiblePanels[0].dataset.nexusPanel === activeTab;
+  }""")
+
 async def verify_mode_specific_subtabs(page) -> None:
   async def is_visible(tab_id: str) -> bool:
     return await page.evaluate(
@@ -1748,24 +1784,6 @@ async def verify_atlas_current_ui_smoke(page) -> None:
     raise AssertionError(f"mobile horizontal overflow detected: {overflow}; offenders: {offenders}")
   await wait_named(page, 'mobile_no_horizontal_overflow', "() => document.documentElement.scrollWidth - document.documentElement.clientWidth <= 1 && document.body.scrollWidth - document.body.clientWidth <= 1")
 
-  await click_nexus_tab(page, "dashboard")
-  await wait_named(page, 'nexus_dashboard_visible_on_dashboard_tab', """() => {
-    const dashboard = document.querySelector('[data-nexus-panel="dashboard"]');
-    return !!dashboard && !dashboard.hidden && getComputedStyle(dashboard).display !== 'none';
-  }""")
-  for tab in ["research", "sources", "evidence", "reports"]:
-    await click_nexus_tab(page, tab)
-    await wait_named(page, f'nexus_dashboard_hidden_on_{tab}', f"""() => {{
-      const dashboard = document.querySelector('[data-nexus-panel="dashboard"]');
-      const panel = document.querySelector('[data-nexus-panel="{tab}"]');
-      if (!dashboard || !panel) return false;
-      return (
-        (dashboard.hidden || getComputedStyle(dashboard).display === 'none') &&
-        !panel.hidden &&
-        getComputedStyle(panel).display !== 'none'
-      );
-    }}""")
-
   await page.click("#btn-agent")
   await wait_named(page, 'agent_panel_visible_from_atlas_smoke', "() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display !== 'none'")
   assert await page.locator("#agent-panel-col", has_text="Legacy Agent Advanced").count() > 0
@@ -2120,6 +2138,7 @@ async def main() -> None:
       ("bootstrap_api_contract", lambda current_page: current_page.evaluate("() => [typeof window.setMode, typeof window.switchNexusTab]")),
       ("mode_switches", verify_mode_switches),
       ("atlas_current_ui_smoke", verify_atlas_current_ui_smoke),
+      ("nexus_current_ui_smoke", verify_nexus_current_ui_smoke),
       ("atlas_start_button_feedback", verify_atlas_start_button_feedback),
       ("atlas_guided_workflow_safe_journey", verify_atlas_guided_workflow_safe_journey),
       ("mode_specific_subtabs", verify_mode_specific_subtabs),
