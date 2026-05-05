@@ -159,12 +159,15 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
         self.assertIn("wait_named(page, 'workbench_collapse_available'", SMOKE)
         self.assertIn("wait_named(page, 'atlas_start_tab_visible'", SMOKE)
         self.assertIn("wait_named(page, 'atlas_activity_stream_visible'", SMOKE)
-        self.assertIn("wait_named(page, 'review_tab_has_approval'", SMOKE)
+        self.assertIn("wait_named(page, 'review_tab_has_review_host'", SMOKE)
 
-    def test_activity_stream_contract_outside_workbench_and_persists_on_collapse(self):
+    def test_activity_stream_contract_isolation_outside_workbench_and_persists_on_collapse(self):
         self.assertIn('id="atlas-activity-stream"', UI)
         self.assertIn("wait_named(page, 'atlas_activity_stream_outside_workbench'", SMOKE)
         self.assertIn("wait_named(page, 'activity_stream_visible_when_collapsed'", SMOKE)
+        self.assertIn('for mode_name in ["chat", "echo", "agent", "nexus"]', SMOKE)
+        self.assertIn('atlas_activity_stream_hidden_{mode_name}', SMOKE)
+        self.assertIn("atlas_activity_stream_visible_after_mode_switches", SMOKE)
 
 
 if __name__ == '__main__':

@@ -1459,8 +1459,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
       </div>
     </div>
-    </div>
-    <section id="atlas-activity-stream" data-atlas-output-stream="true" class="plan-card" style="margin:0 10px 10px 10px;padding:10px">
+    <section id="atlas-activity-stream" data-atlas-output-stream="true" class="plan-card" style="margin:0 10px 10px 10px;padding:10px;display:none">
       <div style="font-size:12px;font-weight:700;color:var(--text)">Activity Stream</div>
       <div id="atlas-activity-stream-list" style="margin-top:8px;font-size:11px;color:var(--text2)"></div>
     </section>
@@ -6937,6 +6936,7 @@ function setMode(m) {
   const agentPanelCol = document.getElementById('agent-panel-col');
   const nexusCol = document.getElementById('nexus-col');
   const atlasPanelCol = document.getElementById('atlas-panel-col');
+  const atlasActivityStream = document.getElementById('atlas-activity-stream');
   const resizer = document.getElementById('panel-resizer');
   const appBody  = document.querySelector('.app-body');
   _updateMobTabs(m);
@@ -6954,6 +6954,7 @@ function setMode(m) {
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
     if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+    if (atlasActivityStream) atlasActivityStream.style.display = 'none';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(true);
@@ -6969,6 +6970,7 @@ function setMode(m) {
     if (agentCol) agentCol.style.display = '';
     if (agentPanelCol) agentPanelCol.style.display = '';
     if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+    if (atlasActivityStream) atlasActivityStream.style.display = 'none';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
@@ -6987,6 +6989,7 @@ function setMode(m) {
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
     if (atlasPanelCol) atlasPanelCol.style.display = '';
+    if (atlasActivityStream) atlasActivityStream.style.display = '';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
@@ -7006,6 +7009,8 @@ function setMode(m) {
     panelCol.style.display = 'none';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+    if (atlasActivityStream) atlasActivityStream.style.display = 'none';
     if (nexusCol) nexusCol.style.display = '';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
@@ -7021,6 +7026,7 @@ function setMode(m) {
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
     if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+    if (atlasActivityStream) atlasActivityStream.style.display = 'none';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(false);
