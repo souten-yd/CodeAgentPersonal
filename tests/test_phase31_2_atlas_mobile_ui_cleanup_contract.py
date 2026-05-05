@@ -105,6 +105,30 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
         self.assertNotIn('ui_9of9_mock', default_list)
         self.assertNotIn('legacy_ui_9of9_mock', default_list)
 
+    def test_phase314c_chat_forbids_atlas_cards_and_atlas_cards_have_atlas_host(self):
+        chat = self._chat_block()
+        for forbidden in [
+            'Clarification Required',
+            'Clarification required before planning',
+            'Questions',
+            'Nexus Context',
+            'Requirements',
+            'Plan Output',
+            '解釈した目的',
+            '機能要件',
+            '非機能要件',
+        ]:
+            self.assertNotIn(forbidden, chat)
+        self.assertIn('id="atlas-workbench-card-plan-output"', UI)
+        self.assertIn('getAtlasPlanOutputHost({ clear: true', UI)
+        self.assertIn('getAtlasPlanOutputHost({ clear: false', UI)
+        self.assertIn("if (false && mode === 'chat' && isTaskEnabled)", UI)
+
+    def test_phase314c_smoke_checks_visible_standalone_atlas_heading(self):
+        self.assertIn('stray_atlas_heading', SMOKE)
+        self.assertIn('standalone Atlas heading above Workflow Workbench', SMOKE)
+        self.assertIn("parent.closest('.mode-wrap, .mob-tabs, #atlas-workbench-card')", SMOKE)
+
 
     def test_debug_harness_separates_default_and_legacy_ui_presets(self):
         self.assertIn('from scripts.run_debug_test_matrix import LEGACY_TEST_PRESETS, TEST_PRESETS', (ROOT / 'main.py').read_text(encoding='utf-8'))

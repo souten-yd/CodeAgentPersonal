@@ -39,6 +39,15 @@ class Phase304PlaywrightArtifactPathAndSkipContract(unittest.TestCase):
         self.assertNotIn('apply_patch', MATRIX)
         self.assertNotIn('shell=True', MATRIX)
 
+    def test_browser_launch_sigsegv_is_infra_retry_only(self):
+        self.assertIn('async def launch_browser_with_retry', SMOKE)
+        self.assertIn('def _is_browser_launch_infra_error', SMOKE)
+        self.assertIn('"sigsegv"', SMOKE.lower())
+        self.assertIn('"browser has been closed"', SMOKE)
+        self.assertIn('infra_browser_launch_failed', SMOKE)
+        self.assertIn('browser = await launch_browser_with_retry(p, attempts=2)', SMOKE)
+
+
     def test_wait_plan_and_approval_error_summaries_stay_short(self):
         self.assertIn('def compact_atlas_diag_reason', SMOKE)
         self.assertIn('artifact=atlas_lifecycle_final.json', SMOKE)

@@ -57,6 +57,35 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
         self.assertNotIn("Atlas Workflow Status", chat_block)
         self.assertNotIn("Atlas status mirror", chat_block)
 
+    def test_phase314c_last_error_uses_state_dataset_not_text_split(self):
+        diag_body = SMOKE.split("async def collect_atlas_job_lifecycle_diag", 1)[1].split("async def _write_atlas_lifecycle_snapshot", 1)[0]
+        wait_body = SMOKE.split("async def wait_atlas_plan_completion", 1)[1].split("async def collect_atlas_clarification_diag", 1)[0]
+        self.assertIn('data-last-error', UI)
+        self.assertIn('id="atlas-workflow-last-error"', UI)
+        self.assertIn('planWorkflowState', diag_body)
+        self.assertIn('dataset?.lastError', diag_body)
+        self.assertNotIn('split("Last Error:"', diag_body)
+        self.assertNotIn('" error:" in haystack', wait_body)
+        self.assertIn('last_error not in ("", "-")', wait_body)
+
+    def test_phase314c_wait_plan_accepts_approval_approved_but_rejects_pending_job(self):
+        wait_body = SMOKE.split("async def wait_atlas_plan_completion", 1)[1].split("async def collect_atlas_clarification_diag", 1)[0]
+        self.assertNotIn('"plan_flow_approval_required": "approval: required"', wait_body)
+        self.assertIn('concrete_sync_job', wait_body)
+        self.assertIn('current_job_id != "sync-plan-pending"', wait_body)
+        self.assertIn('"sync_plan_pending_after_generation"', wait_body)
+        self.assertIn('"plan_generated_review_ready"', wait_body)
+
+    def test_phase314c_plan_response_updates_concrete_job_and_run_ids(self):
+        render_body = UI.split("function renderPhase1PlanCard", 1)[1].split("// Backward-compatible name", 1)[0]
+        self.assertIn("workflowPhase: 'plan_generated'", render_body)
+        self.assertIn("currentJobId: result?.atlas_job_id || result?.job_id || (resolvedPlanIdForState ? `sync-plan:${resolvedPlanIdForState}` : '')", render_body)
+        self.assertIn("currentRunId: result?.atlas_run_id || result?.run_id || resolvedPlanIdForState || ''", render_body)
+        self.assertIn("const resolvedPlanIdForState = result?.plan_id || result?.plan?.plan_id || ''", render_body)
+        self.assertIn("jobStatus: result?.job_status || 'completed'", render_body)
+        self.assertIn("lastError: ''", render_body)
+
+
     def test_workflow_state_machine_locks_approval_until_plan_generated(self):
         derive_body = UI.split("function deriveAtlasPlanFlowState()", 1)[1].split("function findAtlasWorkflowTarget", 1)[0]
         self.assertIn("workflowPhase", UI)

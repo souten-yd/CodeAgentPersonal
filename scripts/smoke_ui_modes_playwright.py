@@ -28,6 +28,32 @@ DEFAULT_MOBILE_VIEWPORT = {"width": 390, "height": 844}
 
 
 
+def _is_browser_launch_infra_error(exc: Exception) -> bool:
+  text = f"{type(exc).__name__}: {exc}".lower()
+  return any(token in text for token in [
+    "targetclosederror",
+    "browser has been closed",
+    "target page, context or browser has been closed",
+    "sigsegv",
+    "process did exit",
+  ])
+
+
+async def launch_browser_with_retry(p, *, attempts: int = 2):
+  last_error = None
+  for attempt in range(1, max(1, attempts) + 1):
+    try:
+      return await p.chromium.launch()
+    except Exception as exc:
+      last_error = exc
+      if not _is_browser_launch_infra_error(exc):
+        raise
+      print(f"WARN: browser launch infra retry {attempt}/{attempts}: {type(exc).__name__}: {exc}")
+      if attempt < attempts:
+        await asyncio.sleep(1)
+  raise AssertionError(f"infra_browser_launch_failed: {type(last_error).__name__}: {last_error}")
+
+
 MOCK_GET_ROUTES = {
   "/health": {"ok": True},
   "/settings": {},
@@ -487,6 +513,7 @@ async def collect_atlas_job_lifecycle_diag(page, preflight_status=None, base_url
     approveButtonsPresent: !!document.querySelector("#approve-plan-btn, [data-action='approve-plan']"),
     executeButtonsPresent: !!document.querySelector("#execute-preview-btn, [data-action='execute-preview']"),
     patchApplyButtonsPresent: !!document.querySelector("#apply-patch-btn, [data-action='apply-patch']"),
+    lastError: String((typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.lastError || document.getElementById('atlas-workflow-status')?.dataset?.lastError || document.getElementById('atlas-workflow-last-error')?.dataset?.lastErrorValue || '').trim(),
   })""")
 
   async def safe_get_json(path: str) -> dict:
@@ -509,11 +536,9 @@ async def collect_atlas_job_lifecycle_diag(page, preflight_status=None, base_url
   status_tail = status_text[-800:]
   messages_tail = [str(m)[-240:] for m in messages[-10:]]
   plan_tail = plan_flow_text[-800:]
-  last_error = "-"
-  for line in status_text.splitlines():
-    if "Last Error:" in line:
-      last_error = line.split("Last Error:", 1)[1].strip() or "-"
-      break
+  last_error = str(atlas_data.get("lastError") or "").strip()
+  if last_error == "-":
+    last_error = ""
   if not current_job_id:
     current_job_id = str(atlas_data.get("currentJobId") or "")
   inferred_active_job_id = ""
@@ -530,7 +555,7 @@ async def collect_atlas_job_lifecycle_diag(page, preflight_status=None, base_url
     "atlasWorkflowStatusTextTail": status_tail,
     "planFlowTextTail": plan_tail,
     "messagesTail": messages_tail,
-    "lastError": last_error,
+    "lastError": last_error or "-",
     "activeJobsResponse": _truncate_json(jobs_resp),
     "recentJobsResponse": _truncate_json(history_resp),
     "currentJobId": current_job_id,
@@ -614,7 +639,6 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
       "plan_flow_requirement_ready": "requirement: ready",
       "plan_flow_plan_generated": "plan: generated",
       "plan_flow_review_ready": "review: ready",
-      "plan_flow_approval_required": "approval: required",
     }
     legacy_plan_flow_aliases = {
       "plan_flow_requirement_ready": ["requirement: done"],
@@ -652,7 +676,9 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
       failure_signals.append("atlas_start_failed")
     if last_error not in ("", "-"):
       failure_signals.append("last_error_present")
-    if "plan: failed" in haystack or " status: failed" in haystack or " exception" in haystack or " error:" in haystack:
+    explicit_failure_text = any(token in haystack for token in ["plan: failed", " status: failed", " exception", "atlas start failed"])
+    explicit_error_text = any(token in haystack for token in ["api exception", "request failed", "uncaught error", "job error"])
+    if explicit_failure_text or explicit_error_text:
       failure_signals.append("failed_text_detected")
     if active_failed:
       failure_signals.append("backend_failed_status")
@@ -683,7 +709,8 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
       last_diag = {**diag, "finalDecision": final, "completionDecisionReason": reason}
       break
 
-    if not missing_plan_flow and last_error in ("", "-") and not console_errors and not page_errors:
+    concrete_sync_job = bool(current_job_id and current_job_id != "sync-plan-pending" and (current_job_id.startswith("sync-plan:") or not current_job_id.startswith("sync-plan")))
+    if not missing_plan_flow and concrete_sync_job and last_error in ("", "-") and not console_errors and not page_errors:
       final = "completed"
       last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "plan_generated_review_ready"}
       break
@@ -703,7 +730,14 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
       last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "current_job_missing_from_active_jobs_without_plan"}
       break
 
-    if pending_signals:
+    if elapsed_ms >= missing_job_fail_after_ms and current_job_id == "sync-plan-pending" and "plan: generated" in haystack:
+      final = "failed"
+      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "sync_plan_pending_after_generation"}
+      break
+
+    if current_job_id == "sync-plan-pending" and "plan: generated" in haystack:
+      diag["completionDecisionReason"] = "sync_plan_pending_after_generation"
+    elif pending_signals:
       diag["completionDecisionReason"] = "pending_plan_detected"
     last_diag = diag
     await page.wait_for_timeout(2000)
@@ -718,7 +752,7 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
   if final == "timeout":
     last_diag.setdefault("normalizedPlanFlowText", "")
     last_diag.setdefault("matchedCompletionSignals", [])
-    last_diag.setdefault("missingCompletionSignals", ["plan_flow_requirement_ready", "plan_flow_plan_generated", "plan_flow_review_ready", "plan_flow_approval_required"])
+    last_diag.setdefault("missingCompletionSignals", ["plan_flow_requirement_ready", "plan_flow_plan_generated", "plan_flow_review_ready"])
   last_diag["finalDecision"] = final if final != "timeout" else last_diag.get("finalDecision", "timeout")
   await _write_atlas_lifecycle_snapshot(last_diag, "final")
   return last_diag
@@ -738,6 +772,7 @@ async def collect_atlas_clarification_diag(page) -> dict:
     approveButtonsPresent: !!document.querySelector("#approve-plan-btn, [data-action='approve-plan']"),
     executeButtonsPresent: !!document.querySelector("#execute-preview-btn, [data-action='execute-preview']"),
     patchApplyButtonsPresent: !!document.querySelector("#apply-patch-btn, [data-action='apply-patch']"),
+    lastError: String((typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.lastError || document.getElementById('atlas-workflow-status')?.dataset?.lastError || document.getElementById('atlas-workflow-last-error')?.dataset?.lastErrorValue || '').trim(),
   })""")
 
 
@@ -1449,6 +1484,26 @@ async def verify_atlas_current_ui_smoke(page) -> None:
   assert "Agent execution is moving under Atlas" not in atlas_text
   assert "Recent and manual run inspection live" not in atlas_text
   assert await page.locator("#atlas-panel-col > .agent-head").count() == 0
+  stray_atlas_heading = await page.evaluate("""() => {
+    const panel = document.getElementById('atlas-panel-col');
+    const card = document.getElementById('atlas-workbench-card');
+    if (!panel || !card) return false;
+    const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const text = String(node.nodeValue || '').trim();
+      if (text !== 'Atlas') continue;
+      const parent = node.parentElement;
+      if (!parent) continue;
+      if (parent.closest('.mode-wrap, .mob-tabs, #atlas-workbench-card')) continue;
+      const rect = parent.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const style = getComputedStyle(parent);
+      if (style.display !== 'none' && style.visibility !== 'hidden' && rect.bottom <= cardRect.top + 2) return true;
+    }
+    return false;
+  }""")
+  assert not stray_atlas_heading, "Atlas mode must not render a standalone Atlas heading above Workflow Workbench"
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-tab='legacy']").count() == 0
   for tab in ["overview", "plan", "runs", "dashboard", "patch_review"]:
     assert await page.locator(f"#atlas-workbench-card [data-atlas-subview-tab='{tab}']").count() == 1
@@ -1833,7 +1888,7 @@ async def main() -> None:
   explicit_base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip()
 
   async with async_playwright() as p:
-    browser = await p.chromium.launch()
+    browser = await launch_browser_with_retry(p, attempts=2)
     if explicit_base_url and not real_backend_opt_in:
       print("INFO: PLAYWRIGHT_SMOKE_BASE_URL is ignored in default mock-backed UI smoke. Set RUN_ATLAS_BACKEND_PREFLIGHT=1 or RUN_ATLAS_BACKEND_E2E=1 to target a real backend.")
     if real_backend_opt_in and not explicit_base_url:
