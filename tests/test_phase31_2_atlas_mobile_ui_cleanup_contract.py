@@ -33,7 +33,7 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
         self.assertIn("data-atlas-subview-tab=\"execute\"", tabs)
         self.assertIn("data-atlas-subview-tab=\"patch\"", tabs)
         self.assertNotIn("data-atlas-subview-tab=\"legacy\"", tabs)
-        self.assertIn("const ATLAS_SUBVIEWS = ['start', 'plan', 'review', 'execute', 'patch', 'runs'];", UI)
+        self.assertIn("const ATLAS_SUBVIEWS = ['start', 'plan', 'review', 'execute', 'patch', 'runs', 'activity'];", UI)
 
     def test_workbench_collapse_expand_and_compact_summary(self):
         atlas = self._atlas_block()
@@ -62,7 +62,7 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
             'overflow-x:hidden;width:100%;max-width:100%',
             '.atlas-panel-col{overflow-y:auto;overflow-x:hidden',
             'min-width:0;max-width:100%',
-            'width:calc(100% - 16px)!important',
+            'width:100%!important',
             'max-width:100%;min-width:0;min-height:84px',
         ]:
             self.assertIn(token, UI)
@@ -158,16 +158,17 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
         self.assertIn("wait_named(page, 'atlas_workbench_visible'", SMOKE)
         self.assertIn("wait_named(page, 'workbench_collapse_available'", SMOKE)
         self.assertIn("wait_named(page, 'atlas_start_tab_visible'", SMOKE)
-        self.assertIn("wait_named(page, 'atlas_activity_stream_visible'", SMOKE)
+        self.assertIn("wait_named(page, 'activity_stream_hidden_until_activity_tab_selected'", SMOKE)
         self.assertIn("wait_named(page, 'review_tab_has_review_host'", SMOKE)
 
-    def test_activity_stream_contract_isolation_outside_workbench_and_persists_on_collapse(self):
+    def test_activity_stream_contract_is_inside_activity_tab_and_mode_gated(self):
         self.assertIn('id="atlas-activity-stream"', UI)
-        self.assertIn("wait_named(page, 'atlas_activity_stream_outside_workbench'", SMOKE)
-        self.assertIn("wait_named(page, 'activity_stream_visible_when_collapsed'", SMOKE)
+        self.assertIn('data-atlas-subview-tab="activity"', UI)
+        self.assertIn('data-atlas-subview-panel="activity"', UI)
+        self.assertIn("wait_named(page, 'activity_tab_stream_visible_after_select'", SMOKE)
         self.assertIn('for mode_name in ["chat", "echo", "agent", "nexus"]', SMOKE)
         self.assertIn('atlas_activity_stream_hidden_{mode_name}', SMOKE)
-        self.assertIn("atlas_activity_stream_visible_after_mode_switches", SMOKE)
+        self.assertIn("activity_stream_hidden_after_mode_switches_until_tab_selected", SMOKE)
 
 
 if __name__ == '__main__':
