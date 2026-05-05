@@ -1374,7 +1374,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 
   <!-- ATLAS MODE -->
   <div class="atlas-panel-col mob-hidden" id="atlas-panel-col" style="display:none">
-    <div class="plan-card" id="atlas-workbench-card" data-atlas-current-subview="overview" style="margin:10px">
+    <div class="plan-card" id="atlas-workbench-card" data-atlas-current-subview="start" style="margin:10px">
       <div class="plan-card-header">
         <span>Workflow Workbench</span>
         <div class="atlas-workbench-header-actions">
@@ -1388,16 +1388,17 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div class="atlas-workbench-summary-item"><span class="atlas-workbench-summary-label">Status:</span><span id="atlas-workbench-summary-status">Ready</span></div>
         </div>
         <div class="atlas-subview-tabs" aria-label="Atlas workbench tabs">
-          <button class="atlas-subview-tab active" type="button" data-atlas-subview-tab="overview" onclick="setAtlasSubview('overview')">Overview</button>
+          <button class="atlas-subview-tab active" type="button" data-atlas-subview-tab="start" onclick="setAtlasSubview('start')">Start</button>
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="plan" onclick="setAtlasSubview('plan')">Plan</button>
+          <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="review" onclick="setAtlasSubview('review')">Review</button>
+          <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="execute" onclick="setAtlasSubview('execute')">Execute</button>
+          <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="patch" onclick="setAtlasSubview('patch')">Patch</button>
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="runs" onclick="setAtlasSubview('runs')">Runs</button>
-          <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="dashboard" onclick="setAtlasSubview('dashboard')">Dashboard</button>
-          <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="patch_review" onclick="setAtlasSubview('patch_review')">Patch Review</button>
         </div>
         <div id="atlas-workbench-status" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.3">Ready</div>
         <div id="atlas-workbench-card-resume-notice" style="display:none"></div>
         <div class="atlas-workbench-body">
-          <div class="atlas-subview" data-atlas-subview-panel="overview">
+          <div class="atlas-subview" data-atlas-subview-panel="start">
             <div style="margin-top:6px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);max-width:100%;min-width:0;box-sizing:border-box">
               <div style="font-size:12px;font-weight:700;color:var(--text)">Requirement</div>
               <textarea id="atlas-requirement-input" placeholder="Describe what you want Atlas to plan..." rows="3" style="margin-top:6px;width:100%;max-width:100%;min-width:0;min-height:84px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;box-sizing:border-box"></textarea>
@@ -1412,9 +1413,9 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;max-width:100%;font-size:11px;color:var(--text2)">
               <span>Last Run: <span id="atlas-workbench-card-atlas-last-run">-</span></span>
-              <button class="phase1-tab-btn" type="button" onclick="openLastAtlasDashboardFromWorkbench()">Open Last</button>
+              <button class="phase1-tab-btn" type="button" onclick="openLastAtlasExecuteFromWorkbench()">Open Last</button>
               <button class="phase1-tab-btn" type="button" onclick="loadRecentAtlasRunsFromWorkbench()">Load Recent</button>
-              <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run</button>
+              <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunExecuteFromWorkbench()">Open Run</button>
             </div>
           </div>
           <div class="atlas-subview" data-atlas-subview-panel="plan" style="display:none">
@@ -1423,31 +1424,32 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <div id="atlas-plan-empty-state" style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.6">No plan yet.</div>
               <div id="atlas-workbench-card-plan-output" data-atlas-workflow-target="atlas-plan-output" style="margin-top:8px;max-width:100%;overflow-wrap:anywhere"></div>
               <div id="atlas-plan-flow-summary" style="display:none"></div>
-              <div id="atlas-workbench-card-plan-flow" data-atlas-workflow-target="plan-review" style="margin-top:8px;font-size:11px;line-height:1.6"></div>
-              <div id="atlas-plan-approval-anchor" data-atlas-plan-section="approval" style="margin-top:6px;height:1px"></div>
-              <div id="atlas-workbench-card-plan-next-action" data-atlas-workflow-target="approval" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.6"></div>
-              <div id="atlas-plan-execute-preview-anchor" data-atlas-plan-section="execute-preview" style="height:1px"></div>
-              <div id="atlas-workbench-card-plan-next-action-buttons" data-atlas-workflow-target="execute-preview" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;max-width:100%"></div>
             </div>
           </div>
           <div class="atlas-subview" data-atlas-subview-panel="runs" style="display:none">
             <div style="margin-top:2px;font-size:11px;color:var(--text2)">Last Run: <span data-atlas-last-run-mirror>-</span></div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;max-width:100%">
               <input id="atlas-workbench-card-atlas-run-input" placeholder="run_id" value="" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;min-width:0;max-width:100%;flex:1 1 220px;box-sizing:border-box">
-              <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
+              <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunExecuteFromWorkbench()">Open Run Execute</button>
               <button class="phase1-tab-btn" type="button" onclick="loadRecentAtlasRunsFromWorkbench()">Load Recent Atlas Runs</button>
             </div>
             <div id="atlas-workbench-card-atlas-runs-list" style="margin-top:6px;font-size:11px"></div>
           </div>
-          <div class="atlas-subview" data-atlas-subview-panel="dashboard" style="display:none">
-            <div style="font-size:12px;color:var(--text2);line-height:1.4"><b>Dashboard</b></div>
+          <div class="atlas-subview" data-atlas-subview-panel="review" style="display:none">
+            <div style="font-size:12px;color:var(--text2);line-height:1.4"><b>Plan Review</b></div>
+            <div id="atlas-workbench-card-plan-flow" data-atlas-workflow-target="plan-review" style="margin-top:8px;font-size:11px;line-height:1.6"></div>
+            <div id="atlas-workbench-card-plan-next-action" data-atlas-workflow-target="approval" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.6"></div>
+          </div>
+          <div class="atlas-subview" data-atlas-subview-panel="execute" style="display:none">
+            <div style="font-size:12px;color:var(--text2);line-height:1.4"><b>Execute Preview</b></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;max-width:100%">
-              <button class="phase1-tab-btn" type="button" onclick="openLastAtlasDashboardFromWorkbench()">Open Last Atlas Dashboard</button>
-              <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunDashboardFromWorkbench()">Open Run Dashboard</button>
+              <button class="phase1-tab-btn" type="button" onclick="openLastAtlasExecuteFromWorkbench()">Open Last Atlas Execute</button>
+              <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunExecuteFromWorkbench()">Open Run Execute</button>
             </div>
+            <div id="atlas-workbench-card-plan-next-action-buttons" data-atlas-workflow-target="execute-preview" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;max-width:100%"></div>
             <div id="atlas-workbench-card-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div>
           </div>
-          <div class="atlas-subview" data-atlas-subview-panel="patch_review" style="display:none">
+          <div class="atlas-subview" data-atlas-subview-panel="patch" style="display:none">
             <div style="font-size:12px;color:var(--text2);line-height:1.4"><b>Patch Review</b></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;max-width:100%">
               <button class="phase1-tab-btn" type="button" onclick="openPatchReviewFromWorkbench()">Load Patch Review</button>
@@ -1457,6 +1459,11 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
       </div>
     </div>
+    </div>
+    <section id="atlas-activity-stream" data-atlas-output-stream="true" class="plan-card" style="margin:0 10px 10px 10px;padding:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--text)">Activity Stream</div>
+      <div id="atlas-activity-stream-list" style="margin-top:8px;font-size:11px;color:var(--text2)"></div>
+    </section>
     <div id="atlas-agent-execution-marker" hidden data-atlas-agent-execution="true"></div>
   </div>
 
@@ -1501,7 +1508,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     </div>
     <div class="agent-guided-workflow-card" style="margin:10px 10px 0 10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)">
       <div style="font-size:12px;font-weight:700;color:var(--text);letter-spacing:.04em">Legacy Agent Advanced</div>
-      <div class="muted" style="font-size:11px;color:var(--text2);margin-top:6px;line-height:1.5">Agent is the advanced runtime surface while Agent / Execution moves under Atlas. Plan ownership stays with Atlas; use Atlas Overview to start guided work.</div>
+      <div class="muted" style="font-size:11px;color:var(--text2);margin-top:6px;line-height:1.5">Agent is the advanced runtime surface while Agent / Execution moves under Atlas. Plan ownership stays with Atlas; use Atlas Start to start guided work.</div>
       <div style="margin-top:8px;font-size:10px;color:var(--text3)">Status: <span id="agent-guided-workflow-status">legacy advanced / idle</span></div>
     </div>
     <div style="padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border)">
@@ -1549,7 +1556,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
     <div class="nexus-topbar">
       <div class="nexus-title">Nexus Workspace</div>
       <div class="nexus-subtabs">
-        <button class="nexus-subtab active" id="nexus-btn-dashboard" onclick="switchNexusTab('dashboard')">Dashboard</button>
+        <button class="nexus-subtab active" id="nexus-btn-dashboard" onclick="switchNexusTab('execute')">Execute</button>
         <button class="nexus-subtab" id="nexus-btn-library" onclick="switchNexusTab('library')">Library</button>
         <button class="nexus-subtab" id="nexus-btn-research" onclick="switchNexusTab('research')">Research</button>
         <button class="nexus-subtab" id="nexus-btn-sources" onclick="switchNexusTab('sources')">Sources</button>
@@ -6912,7 +6919,7 @@ function bindModeAndNexusTapHandlers() {
   ['chat','atlas','agent','echo','nexus'].forEach((name) => {
     _bindTapClick(document.getElementById('btn-' + name), () => setMode(name));
   });
-  ['dashboard','library','news','market','web-scout','deep-research','compare','formula','evidence','report'].forEach((name) => {
+  ['execute','library','news','market','web-scout','deep-research','compare','formula','evidence','report'].forEach((name) => {
     _bindTapClick(document.getElementById('nexus-btn-' + name), () => switchNexusTab(name));
   });
 }
@@ -6987,7 +6994,7 @@ function setMode(m) {
       restoreAtlasSubviewState();
     } catch (err) {
       console.warn('Atlas restore failed in setMode(atlas):', err);
-      try { setAtlasSubview('overview'); } catch (_err) {}
+      try { setAtlasSubview('start'); } catch (_err) {}
       try { ensureAtlasWorkbenchHost(); } catch (_err) {}
     }
   } else if (m === 'nexus') {
@@ -7002,7 +7009,7 @@ function setMode(m) {
     if (nexusCol) nexusCol.style.display = '';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
-    switchNexusTab(window._nexusTab || 'dashboard');
+    switchNexusTab(window._nexusTab || 'execute');
     startNexusPolling();
   } else {
     appBody?.classList.remove('echo-active');
@@ -7084,8 +7091,8 @@ function setMode(m) {
 }
 
 function switchNexusTab(name) {
-  const tabs = ['dashboard','library','research','sources','evidence','reports','settings'];
-  const target = tabs.includes(name) ? name : 'dashboard';
+  const tabs = ['execute','library','research','sources','evidence','reports','settings'];
+  const target = tabs.includes(name) ? name : 'execute';
   window._nexusTab = target;
   const panelMap = { research:'deep-research', reports:'report' };
   tabs.forEach(tab => {
@@ -7097,7 +7104,7 @@ function switchNexusTab(name) {
     document.getElementById('nexus-tab-' + old)?.classList.remove('active');
     document.getElementById('nexus-btn-' + old)?.classList.remove('active');
   });
-  if (target === 'dashboard') refreshNexusDashboardSummary();
+  if (target === 'execute') refreshNexusExecuteSummary();
   if (target === 'library') {
     refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
     refreshNexusJobs();
@@ -7114,7 +7121,7 @@ function switchNexusTab(name) {
 const NEXUS_POLL_MS = 2500;
 let nexusDocSearchTimer = null;
 let nexusJobsPollTimer = null;
-let nexusDashboardPollTimer = null;
+let nexusExecutePollTimer = null;
 let nexusTrackers = {};
 let nexusSelectedDocumentId = null;
 let nexusEventTimeline = [];
@@ -7286,7 +7293,7 @@ async function deleteNexusDocument(documentId) {
     if (!r.ok) throw new Error(await r.text());
     updateNexusJobBanner('Document deleted.');
     await refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
-    await refreshNexusDashboardSummary();
+    await refreshNexusExecuteSummary();
   } catch (e) {
     updateNexusJobBanner('Delete failed: ' + e.message, true);
   }
@@ -7328,7 +7335,7 @@ async function refreshNexusJobs() {
   }
 }
 
-async function refreshNexusDashboardSummary() {
+async function refreshNexusExecuteSummary() {
   try {
     const query = '?project=' + encodeURIComponent(currentProject);
     const r = await fetchNexusCanonicalWithAlias('/nexus/summary' + query, '/nexus/dashboard/summary' + query);
@@ -7526,7 +7533,7 @@ async function trackNexusJob(jobId) {
     }
   }
   await refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
-  await refreshNexusDashboardSummary();
+  await refreshNexusExecuteSummary();
 }
 
 async function nexusUploadDocuments(droppedFiles = null) {
@@ -9604,20 +9611,20 @@ async function previewNexusReportMarkdown(reportId) {
 
 function startNexusPolling() {
   stopNexusPolling();
-  refreshNexusDashboardSummary();
+  refreshNexusExecuteSummary();
   refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
   refreshNexusJobs();
   refreshNexusWebStatus();
   renderNexusTimeline();
   nexusJobsPollTimer = setInterval(refreshNexusJobs, NEXUS_POLL_MS);
-  nexusDashboardPollTimer = setInterval(refreshNexusDashboardSummary, 5000);
+  nexusExecutePollTimer = setInterval(refreshNexusExecuteSummary, 5000);
 }
 
 function stopNexusPolling() {
   if (nexusJobsPollTimer) clearInterval(nexusJobsPollTimer);
-  if (nexusDashboardPollTimer) clearInterval(nexusDashboardPollTimer);
+  if (nexusExecutePollTimer) clearInterval(nexusExecutePollTimer);
   nexusJobsPollTimer = null;
-  nexusDashboardPollTimer = null;
+  nexusExecutePollTimer = null;
 }
 
 function _agentMessages() {
@@ -13697,10 +13704,10 @@ function _renderNexusContextSummary(nexusContext, { title = 'Nexus Context Summa
 }
 
 const ATLAS_LAST_RUN_KEY = 'atlas:lastRunId';
-const ATLAS_LAST_DASHBOARD_RUN_KEY = 'atlas:lastDashboardRunId';
+const ATLAS_LAST_DASHBOARD_RUN_KEY = 'atlas:lastExecuteRunId';
 const ATLAS_LAST_SUBVIEW_KEY = 'atlas:lastSubview';
 const ATLAS_REQUIREMENT_INPUT_KEY = 'atlas:requirementInput';
-const ATLAS_SUBVIEWS = ['overview', 'plan', 'runs', 'dashboard', 'patch_review'];
+const ATLAS_SUBVIEWS = ['start', 'plan', 'review', 'execute', 'patch', 'runs'];
 
 function _atlasLsGet(key) { try { return localStorage.getItem(key) || ''; } catch(_) { return ''; } }
 function _atlasLsSet(key, value) { try { localStorage.setItem(key, value || ''); } catch(_) {} }
@@ -13786,8 +13793,8 @@ function _renderPlanWorkflowStatusPanel() {
         <div>Next Action: <b>${esc(currentStep)}</b></div>
       </div>
       <div style="margin-top:8px">
-        <button class="phase1-tab-btn" onclick="openCurrentRunDashboardFromStatus()" ${hasRun ? '' : 'disabled'}>Open Atlas Dashboard</button>
-        <button class="phase1-tab-btn" onclick="openLastRunDashboardFromStatus()" ${lastRunId ? '' : 'disabled'}>Open Last Atlas Dashboard</button>
+        <button class="phase1-tab-btn" onclick="openCurrentRunExecuteFromStatus()" ${hasRun ? '' : 'disabled'}>Open Atlas Execute</button>
+        <button class="phase1-tab-btn" onclick="openLastRunExecuteFromStatus()" ${lastRunId ? '' : 'disabled'}>Open Last Atlas Execute</button>
         ${hasRun ? '' : '<div style="font-size:10px;color:var(--text3);margin-top:4px">Execute Preview後に利用可能</div>'}
       </div>
     </div>`;
@@ -13799,7 +13806,7 @@ function _renderPlanWorkflowStatusPanel() {
   if (agentStatus) agentStatus.textContent = `${planWorkflowState.workspace || 'Atlas'} / ${_computePlanWorkflowNextAction()}`;
 }
 
-function ensureAtlasDashboardHost() {
+function ensureAtlasExecuteHost() {
   const existing = Array.from(document.querySelectorAll('.plan-card[id^="phase1-plan-card-"]')).pop();
   if (existing) return existing;
   showPlanWorkflowPanel();
@@ -13809,22 +13816,22 @@ function ensureAtlasDashboardHost() {
   const wrap = document.createElement('div');
   wrap.className = 'msg system';
   const cid = `phase1-plan-card-fallback-${Date.now()}`;
-  wrap.innerHTML = `<div class="msg-role">Atlas Dashboard</div><div class="plan-card" id="${cid}"><div style="font-size:11px;color:var(--text2);margin-bottom:6px">Fallback dashboard host (no active plan card yet).</div><div id="${cid}-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div></div>`;
+  wrap.innerHTML = `<div class="msg-role">Atlas Execute</div><div class="plan-card" id="${cid}"><div style="font-size:11px;color:var(--text2);margin-bottom:6px">Fallback dashboard host (no active plan card yet).</div><div id="${cid}-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div></div>`;
   w.appendChild(wrap);
   scrollMsgs();
   return wrap.querySelector(`#${cid}`);
 }
 
-async function openLastRunDashboardFromStatus() {
+async function openLastRunExecuteFromStatus() {
   const runId = planWorkflowState.lastRunId || _atlasLsGet(ATLAS_LAST_RUN_KEY);
   if (!runId) return;
-  const latestCard = ensureAtlasDashboardHost();
+  const latestCard = ensureAtlasExecuteHost();
   if (!latestCard) return;
   const cid = latestCard.id;
-  await loadAtlasRunDashboard(cid, runId, latestCard, 'lastRun');
+  await loadAtlasRunExecute(cid, runId, latestCard, 'lastRun');
 }
 
-async function openCurrentRunDashboardFromStatus() {
+async function openCurrentRunExecuteFromStatus() {
   const runId = planWorkflowState.runId || '';
   if (!runId) return;
   const latestCard = Array.from(document.querySelectorAll('.plan-card[id^="phase1-plan-card-"]')).pop();
@@ -13833,7 +13840,7 @@ async function openCurrentRunDashboardFromStatus() {
   const dashboardEl = latestCard.querySelector(`#${cid}-atlas-dashboard`);
   if (!dashboardEl) return;
   dashboardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  await loadAtlasRunDashboard(cid, runId, latestCard);
+  await loadAtlasRunExecute(cid, runId, latestCard);
 }
 
 function atlasHasValue(v) {
@@ -13942,11 +13949,11 @@ function findAtlasWorkflowTarget(kind) {
       '[data-atlas-plan-section="execute-preview"]',
       '#atlas-workbench-card-plan-next-action-buttons',
     ],
-    patch_review: [
+    patch: [
       '[data-atlas-workflow-target="dynamic-patch-review"]',
       '[data-atlas-workflow-target="patch-review"]',
       '#atlas-workbench-card-patch-list',
-      '[data-atlas-subview-panel="patch_review"]',
+      '[data-atlas-subview-panel="patch"]',
       '#atlas-workbench-card',
     ],
   };
@@ -13960,8 +13967,8 @@ function findAtlasWorkflowTarget(kind) {
 
 function focusAtlasWorkflowSection(kind) {
   const key = String(kind || '').trim().toLowerCase();
-  if (key === 'patch_review') {
-    setAtlasSubview('patch_review');
+  if (key === 'patch') {
+    setAtlasSubview('patch');
   } else {
     showAtlasPanel();
     setAtlasSubview('plan');
@@ -14005,7 +14012,7 @@ function renderAtlasPlanNextActionButtons(flow) {
 
   const nextAction = String(flow?.nextAction || '');
   if (nextAction === 'Start Atlas') {
-    note.textContent = 'Start new work from Overview. This Plan tab only displays generated plans.';
+    note.textContent = 'Start new work from Start. This Plan tab only displays generated plans.';
   } else if (nextAction === 'Review generated plan') {
     addBtn('Review Plan', () => focusAtlasWorkflowSection('review'));
   } else if (nextAction === 'Approve plan' || nextAction === 'Review / Approve Plan') {
@@ -14205,7 +14212,7 @@ function toggleAtlasWorkbenchCollapse() {
 }
 
 function normalizeAtlasSubview(name) {
-  return ATLAS_SUBVIEWS.includes(name) ? name : 'overview';
+  return ATLAS_SUBVIEWS.includes(name) ? name : 'start';
 }
 
 function getAtlasLastSubview() {
@@ -14217,13 +14224,13 @@ function updateAtlasResumeNotice(subview) {
   if (!notice) return;
   const current = normalizeAtlasSubview(subview || getAtlasLastSubview());
   const labelMap = {
-    overview: 'Overview',
+    start: 'Start',
     plan: 'Plan',
     runs: 'Runs',
-    dashboard: 'Dashboard',
-    patch_review: 'Patch Review',
+    execute: 'Execute',
+    patch: 'Patch Review',
   };
-  const label = labelMap[current] || 'Overview';
+  const label = labelMap[current] || 'Start';
   const lastRun = getAtlasLastRunId();
   if (lastRun) {
     notice.textContent = `Atlas restored: ${label}. Last Run: ${lastRun}. Content is not auto-loaded. Use the resume buttons below.`;
@@ -14238,18 +14245,18 @@ function restoreAtlasSubviewState() {
   } catch (err) {
     console.warn('restoreAtlasLastRunState failed:', err);
   }
-  let subview = 'overview';
+  let subview = 'start';
   try {
     subview = normalizeAtlasSubview(getAtlasLastSubview());
   } catch (err) {
     console.warn('getAtlasLastSubview failed:', err);
-    subview = 'overview';
+    subview = 'start';
   }
   try {
     setAtlasSubview(subview);
   } catch (err) {
     console.warn('setAtlasSubview failed during restore:', err);
-    try { setAtlasSubview('overview'); } catch (_err) {}
+    try { setAtlasSubview('start'); } catch (_err) {}
   }
   try {
     ensureAtlasWorkbenchHost();
@@ -14270,8 +14277,8 @@ function restoreAtlasSubviewState() {
 }
 
 function setAtlasSubview(name) {
-  const allowed = Array.isArray(ATLAS_SUBVIEWS) ? ATLAS_SUBVIEWS : ['overview'];
-  const next = allowed.includes(name) ? name : 'overview';
+  const allowed = Array.isArray(ATLAS_SUBVIEWS) ? ATLAS_SUBVIEWS : ['start'];
+  const next = allowed.includes(name) ? name : 'start';
   const root = document.getElementById('atlas-workbench-card');
   if (!root) return next;
   root.dataset.atlasCurrentSubview = next;
@@ -14286,7 +14293,7 @@ function setAtlasSubview(name) {
   root.querySelectorAll('[data-atlas-subview-tab]').forEach((btn) => {
     btn.classList.toggle('active', btn.getAttribute('data-atlas-subview-tab') === next);
   });
-  if (next === 'runs' || next === 'dashboard' || next === 'patch_review') {
+  if (next === 'runs' || next === 'execute' || next === 'patch') {
     try { ensureAtlasWorkbenchHost(); } catch (err) { console.warn('ensureAtlasWorkbenchHost failed:', err); }
   }
   if (typeof updateAtlasResumeNotice === 'function') {
@@ -14311,17 +14318,17 @@ function ensureAtlasWorkbenchHost() {
   return cardRoot;
 }
 
-async function openLastAtlasDashboardFromWorkbench() {
-  setAtlasSubview('dashboard');
+async function openLastAtlasExecuteFromWorkbench() {
+  setAtlasSubview('execute');
   const cardRoot = ensureAtlasWorkbenchHost();
   if (!cardRoot) return;
   const runId = getAtlasLastRunId();
   if (!runId) { addMsg('system', 'Last run is not available. Run Atlas once, load recent runs, or enter run_id.'); return; }
-  await loadAtlasRunDashboard('atlas-workbench-card', runId, cardRoot, 'lastRun');
+  await loadAtlasRunExecute('atlas-workbench-card', runId, cardRoot, 'lastRun');
 }
 
-async function openManualAtlasRunDashboardFromWorkbench() {
-  setAtlasSubview('dashboard');
+async function openManualAtlasRunExecuteFromWorkbench() {
+  setAtlasSubview('execute');
   const cardRoot = ensureAtlasWorkbenchHost();
   if (!cardRoot) return;
   const cid = 'atlas-workbench-card';
@@ -14330,7 +14337,7 @@ async function openManualAtlasRunDashboardFromWorkbench() {
   if (!runId) { addMsg('system', 'run_id is required. Run Atlas once, load recent runs, or enter run_id.'); return; }
   cardRoot.dataset.lastRunId = runId;
   _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
-  await loadAtlasRunDashboard(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');
+  await loadAtlasRunExecute(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');
 }
 
 async function loadRecentAtlasRunsFromWorkbench() {
@@ -14341,7 +14348,7 @@ async function loadRecentAtlasRunsFromWorkbench() {
 }
 
 async function openPatchReviewFromWorkbench() {
-  setAtlasSubview('patch_review');
+  setAtlasSubview('patch');
   const cardRoot = ensureAtlasWorkbenchHost();
   if (!cardRoot) return;
   const cid = 'atlas-workbench-card';
@@ -14350,7 +14357,7 @@ async function openPatchReviewFromWorkbench() {
   if (!runId) { addMsg('system', 'run_id is required for patch review. Run Atlas once, load recent runs, or enter run_id.'); return; }
   cardRoot.dataset.lastRunId = runId;
   _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
-  await loadAtlasRunDashboard(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');
+  await loadAtlasRunExecute(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');
   setTimeout(() => {
     const btn = cardRoot.querySelector('[data-atlas-dashboard-action="open-patch-review"]');
     if (btn) btn.click();
@@ -14732,10 +14739,10 @@ function _renderPhase6ExecutionSection(result, cardId) {
       <div style="font-size:11px;font-weight:700;color:var(--text)">Patch Review (Phase 8)</div>
       <div style="font-size:11px;color:var(--text2);margin-top:4px">Patchは承認後に個別applyできます / proposed_content のappendのみ適用 / delete/run_command/high riskは実行されません。</div>
       <button class="phase1-tab-btn" data-run-view="patches" style="margin-top:6px">Load Patches</button>
-      <button class="phase1-tab-btn" data-run-view="atlas-dashboard" style="margin-top:6px">Load Atlas Dashboard</button>
-      <button class="phase1-tab-btn" data-run-view="refresh-atlas-dashboard" style="margin-top:6px">Refresh Atlas Dashboard</button>
+      <button class="phase1-tab-btn" data-run-view="atlas-dashboard" style="margin-top:6px">Load Atlas Execute</button>
+      <button class="phase1-tab-btn" data-run-view="refresh-atlas-dashboard" style="margin-top:6px">Refresh Atlas Execute</button>
       <div style="margin-top:8px"><b>Atlas Runs</b> / Last Run: <span id="${cardId}-atlas-last-run">-</span></div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px"><input id="${cardId}-atlas-run-input" placeholder="run_id" value="${esc(getAtlasLastRunId())}" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px"><button class="phase1-tab-btn" data-run-view="open-run-dashboard">Open Run Dashboard</button><button class="phase1-tab-btn" data-run-view="load-recent-atlas-runs">Load Recent Atlas Runs</button><button class="phase1-tab-btn" data-run-view="open-last-atlas-dashboard">Open Last Atlas Dashboard</button></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px"><input id="${cardId}-atlas-run-input" placeholder="run_id" value="${esc(getAtlasLastRunId())}" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px"><button class="phase1-tab-btn" data-run-view="open-run-dashboard">Open Run Execute</button><button class="phase1-tab-btn" data-run-view="load-recent-atlas-runs">Load Recent Atlas Runs</button><button class="phase1-tab-btn" data-run-view="open-last-atlas-dashboard">Open Last Atlas Execute</button></div>
       <div id="${cardId}-atlas-runs-list" style="margin-top:6px;font-size:11px"></div>
       <div id="${cardId}-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div>
       <div id="${cardId}-patch-list" style="margin-top:8px;font-size:11px"></div>
@@ -14759,7 +14766,7 @@ const _ATLAS_PATCH_FILTERS = [
   ['reproposal_candidate', 'Reproposal Candidates'],
 ];
 
-async function loadAtlasRunDashboard(cid, runId, cardRoot, openedFrom = "current") {
+async function loadAtlasRunExecute(cid, runId, cardRoot, openedFrom = "current") {
   const root = cardRoot || document.getElementById(cid);
   const dashboardEl = root?.querySelector(`#${cid}-atlas-dashboard`);
   if (!dashboardEl || !runId) return;
@@ -14772,7 +14779,7 @@ async function loadAtlasRunDashboard(cid, runId, cardRoot, openedFrom = "current
     const att = db.attention || {};
     const renderList = (title, items=[]) => `<div style="margin-top:4px"><b>${title}</b>: ${items.length ? items.map((pid)=>`<button class=\"phase1-tab-btn\" data-scroll-pid=\"${esc(String(pid))}\" style=\"margin:2px\">${esc(String(pid))}</button>`).join(' ') : '-'}</div>`;
     dashboardEl.innerHTML = `
-      <div><b>Atlas Run Dashboard</b></div><div>run_id: ${esc(runId)} / opened_from: ${esc(openedFrom)} / patches: ${esc(String(c.total||0))} / filter: ${esc(root?.dataset?.patchFilter || "all")}</div><div style="margin-top:4px"><button class="phase1-tab-btn" data-atlas-dashboard-action="open-patch-review">Open Patch Review for this run</button> <button class="phase1-tab-btn" data-atlas-dashboard-action="refresh-patches">Refresh Patches</button> <button class="phase1-tab-btn" data-atlas-dashboard-action="refresh-dashboard">Refresh Dashboard</button></div>
+      <div><b>Atlas Run Execute</b></div><div>run_id: ${esc(runId)} / opened_from: ${esc(openedFrom)} / patches: ${esc(String(c.total||0))} / filter: ${esc(root?.dataset?.patchFilter || "all")}</div><div style="margin-top:4px"><button class="phase1-tab-btn" data-atlas-dashboard-action="open-patch-review">Open Patch Review for this run</button> <button class="phase1-tab-btn" data-atlas-dashboard-action="refresh-patches">Refresh Patches</button> <button class="phase1-tab-btn" data-atlas-dashboard-action="refresh-dashboard">Refresh Execute</button></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
         <span>Total: ${esc(String(c.total||0))}</span><span>Pending: ${esc(String(c.pending||0))}</span><span>Approved: ${esc(String(c.approved||0))}</span><span>Approved Not Applied: ${esc(String(c.approved_not_applied||0))}</span><span>Applied: ${esc(String(c.applied||0))}</span><span>Blocked: ${esc(String(c.apply_blocked||0))}</span><span>Verification Failed: ${esc(String(c.verification_failed||0))}</span><span>Low Quality: ${esc(String(c.low_quality||0))}</span><span>Quality Not Evaluated: ${esc(String(c.quality_not_evaluated||0))}</span>
       </div>
@@ -14798,14 +14805,14 @@ async function loadAtlasRunDashboard(cid, runId, cardRoot, openedFrom = "current
     dashboardEl.querySelectorAll('[data-atlas-dashboard-action]').forEach((btn)=>btn.addEventListener('click', async ()=>{
       const a = btn.getAttribute('data-atlas-dashboard-action');
       if (a === 'open-patch-review' || a === 'refresh-patches') await loadPhase8Patches(cid, runId);
-      if (a === 'refresh-dashboard') await loadAtlasRunDashboard(cid, runId, root, 'refresh');
+      if (a === 'refresh-dashboard') await loadAtlasRunExecute(cid, runId, root, 'refresh');
     }));
     dashboardEl.querySelectorAll('[data-scroll-pid]').forEach((btn)=>btn.addEventListener('click', ()=>{
       const pid = btn.getAttribute('data-scroll-pid') || '';
       document.getElementById(`${cid}-patch-${pid}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }));
   } catch (e) {
-    dashboardEl.innerHTML = `<div style="color:var(--danger)">Atlas Dashboard error: ${esc(e.message || String(e))}</div>`;
+    dashboardEl.innerHTML = `<div style="color:var(--danger)">Atlas Execute error: ${esc(e.message || String(e))}</div>`;
   }
 }
 
@@ -14818,8 +14825,8 @@ async function loadRecentAtlasRuns(cid, cardRoot) {
   const d = await r.json();
   if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
   const runs = Array.isArray(d.runs) ? d.runs : [];
-  listEl.innerHTML = runs.map((x)=>`<div style="margin-top:4px">- ${esc(x.run_id||'')} | patches=${esc(String(x.patch_count||0))} | blocked=${esc(String(x.blocked_count||0))} | failed=${esc(String(x.verification_failed_count||0))} | low_quality=${esc(String(x.low_quality_count||0))} | status=${esc(x.status||'unknown')} <button class="phase1-tab-btn" data-recent-open="${esc(x.run_id||'')}">Open Dashboard</button> <button class="phase1-tab-btn" data-recent-review="${esc(x.run_id||'')}">Open Patch Review</button></div>`).join('') || '<div style="color:var(--text3)">No runs.</div>';
-  listEl.querySelectorAll('[data-recent-open]').forEach((b)=>b.addEventListener('click', async ()=>{ const runId=b.getAttribute('data-recent-open')||''; if(!runId)return; cardRoot.dataset.lastRunId=runId; _atlasLsSet(ATLAS_LAST_RUN_KEY, runId); await loadAtlasRunDashboard(cid, runId, cardRoot, 'recentList'); }));
+  listEl.innerHTML = runs.map((x)=>`<div style="margin-top:4px">- ${esc(x.run_id||'')} | patches=${esc(String(x.patch_count||0))} | blocked=${esc(String(x.blocked_count||0))} | failed=${esc(String(x.verification_failed_count||0))} | low_quality=${esc(String(x.low_quality_count||0))} | status=${esc(x.status||'unknown')} <button class="phase1-tab-btn" data-recent-open="${esc(x.run_id||'')}">Open Execute</button> <button class="phase1-tab-btn" data-recent-review="${esc(x.run_id||'')}">Open Patch Review</button></div>`).join('') || '<div style="color:var(--text3)">No runs.</div>';
+  listEl.querySelectorAll('[data-recent-open]').forEach((b)=>b.addEventListener('click', async ()=>{ const runId=b.getAttribute('data-recent-open')||''; if(!runId)return; cardRoot.dataset.lastRunId=runId; _atlasLsSet(ATLAS_LAST_RUN_KEY, runId); await loadAtlasRunExecute(cid, runId, cardRoot, 'recentList'); }));
   listEl.querySelectorAll('[data-recent-review]').forEach((b)=>b.addEventListener('click', async ()=>{ const runId=b.getAttribute('data-recent-review')||''; if(!runId)return; cardRoot.dataset.lastRunId=runId; _atlasLsSet(ATLAS_LAST_RUN_KEY, runId); await loadPhase8Patches(cid, runId); }));
 }
 
@@ -14901,7 +14908,7 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
       const dr = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
       const dd = await dr.json();
       if (dr.ok) dashboardData = dd.dashboard || null;
-      if (dr.status === 404) dashboardNoteHtml = '<div style="color:var(--text3);margin-bottom:6px">Dashboard not available yet</div>';
+      if (dr.status === 404) dashboardNoteHtml = '<div style="color:var(--text3);margin-bottom:6px">Execute not available yet</div>';
     } catch (_) {}
     const filterState = cardRoot.dataset.patchFilter || 'all';
     const summaryById = new Map(((dashboardData && Array.isArray(dashboardData.patches)) ? dashboardData.patches : []).map((x)=>[String(x.patch_id||''), x]));
@@ -14947,7 +14954,7 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
       cardRoot.dataset.patchFilter = btn.getAttribute('data-pf') || 'all';
       await loadPhase8Patches(cid, runId);
     }));
-    await loadAtlasRunDashboard(cid, runId, cardRoot);
+    await loadAtlasRunExecute(cid, runId, cardRoot);
     listEl.querySelectorAll('[data-pa]').forEach((b)=>b.addEventListener('click', async ()=>{
       const action = b.getAttribute('data-pa'); const pid = b.getAttribute('data-pid'); const out = listEl.querySelector(`#${cid}-pv-${pid}`);
       try {
@@ -15054,16 +15061,16 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
         return;
       }
       if (kind === 'atlas-dashboard') {
-        await loadAtlasRunDashboard(cid, runId, cardRoot, 'current');
+        await loadAtlasRunExecute(cid, runId, cardRoot, 'current');
         return;
       }
       if (kind === 'refresh-atlas-dashboard') {
-        await loadAtlasRunDashboard(cid, runId, cardRoot, 'refresh');
+        await loadAtlasRunExecute(cid, runId, cardRoot, 'refresh');
         return;
       }
       if (kind === 'load-recent-atlas-runs') { await loadRecentAtlasRuns(cid, cardRoot); return; }
-      if (kind === 'open-last-atlas-dashboard') { const lastRun=_atlasLsGet(ATLAS_LAST_RUN_KEY); if (lastRun) { cardRoot.dataset.lastRunId=lastRun; await loadAtlasRunDashboard(cid, lastRun, cardRoot, 'lastRun'); } return; }
-      if (kind === 'open-run-dashboard') { const manual=(cardRoot.querySelector(`#${cid}-atlas-run-input`)?.value||'').trim(); if (manual) { cardRoot.dataset.lastRunId=manual; _atlasLsSet(ATLAS_LAST_RUN_KEY, manual); await loadAtlasRunDashboard(cid, manual, cardRoot, 'manualInput'); } return; }
+      if (kind === 'open-last-atlas-dashboard') { const lastRun=_atlasLsGet(ATLAS_LAST_RUN_KEY); if (lastRun) { cardRoot.dataset.lastRunId=lastRun; await loadAtlasRunExecute(cid, lastRun, cardRoot, 'lastRun'); } return; }
+      if (kind === 'open-run-dashboard') { const manual=(cardRoot.querySelector(`#${cid}-atlas-run-input`)?.value||'').trim(); if (manual) { cardRoot.dataset.lastRunId=manual; _atlasLsSet(ATLAS_LAST_RUN_KEY, manual); await loadAtlasRunExecute(cid, manual, cardRoot, 'manualInput'); } return; }
       const ep = kind === 'report' ? `/api/runs/${encodeURIComponent(runId)}/report` : `/api/runs/${encodeURIComponent(runId)}/log`;
       const r = await fetch(API + ep);
       const d = await r.json();

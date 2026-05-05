@@ -26,13 +26,13 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
 
     def test_legacy_removed_from_normal_workbench_tabs(self):
         tabs = UI.split('<div class="atlas-subview-tabs"', 1)[1].split('</div>', 1)[0]
-        self.assertIn("data-atlas-subview-tab=\"overview\"", tabs)
+        self.assertIn("data-atlas-subview-tab=\"start\"", tabs)
         self.assertIn("data-atlas-subview-tab=\"plan\"", tabs)
         self.assertIn("data-atlas-subview-tab=\"runs\"", tabs)
-        self.assertIn("data-atlas-subview-tab=\"dashboard\"", tabs)
-        self.assertIn("data-atlas-subview-tab=\"patch_review\"", tabs)
+        self.assertIn("data-atlas-subview-tab=\"execute\"", tabs)
+        self.assertIn("data-atlas-subview-tab=\"patch\"", tabs)
         self.assertNotIn("data-atlas-subview-tab=\"legacy\"", tabs)
-        self.assertIn("const ATLAS_SUBVIEWS = ['overview', 'plan', 'runs', 'dashboard', 'patch_review'];", UI)
+        self.assertIn("const ATLAS_SUBVIEWS = ['start', 'plan', 'review', 'execute', 'patch', 'runs'];", UI)
 
     def test_workbench_collapse_expand_and_compact_summary(self):
         atlas = self._atlas_block()
@@ -47,11 +47,11 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
         self.assertIn('function setAtlasWorkbenchCollapsed(collapsed)', UI)
         self.assertIn('#atlas-workbench-card.is-collapsed .atlas-workbench-body{display:none!important}', UI)
 
-    def test_overview_owns_start_atlas_plan_is_view_only(self):
-        overview = UI.split('data-atlas-subview-panel="overview"', 1)[1].split('data-atlas-subview-panel="plan"', 1)[0]
-        plan = UI.split('data-atlas-subview-panel="plan"', 1)[1].split('data-atlas-subview-panel="runs"', 1)[0]
-        self.assertIn('id="atlas-requirement-input"', overview)
-        self.assertIn('onclick="startAtlasWorkflow()"', overview)
+    def test_start_owns_start_atlas_plan_is_view_only(self):
+        start = UI.split('data-atlas-subview-panel="start"', 1)[1].split('data-atlas-subview-panel="plan"', 1)[0]
+        plan = UI.split('data-atlas-subview-panel="plan"', 1)[1].split('data-atlas-subview-panel="review"', 1)[0]
+        self.assertIn('id="atlas-requirement-input"', start)
+        self.assertIn('onclick="startAtlasWorkflow()"', start)
         self.assertIn('No plan yet', plan)
         self.assertNotIn('onclick="startAtlasWorkflow()"', plan)
 
