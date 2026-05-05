@@ -256,7 +256,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
       messagesTail: Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').slice(-8),
       clearVisible: !!document.querySelector('#atlas-workbench-card #atlas-requirement-clear-btn'),
       clearEnabled: !(document.querySelector('#atlas-workbench-card #atlas-requirement-clear-btn')?.disabled ?? true),
-      startVisible: !!document.querySelector("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn"),
+      startVisible: !!document.querySelector("#atlas-workbench-card [data-atlas-subview-panel='start'] button.phase1-plan-btn"),
       activeModeButton: document.querySelector('#mode-switcher .active,[data-mode].active')?.id || '',
     })""")
     print(f"INFO: atlas_start_button_feedback diagnostics ({label}): {diag}")
@@ -270,7 +270,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
     await ensure_atlas_start(page)
     await get_atlas_requirement_input(page).wait_for(state="visible")
     await fill_atlas_requirement(page, "")
-    await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+    await page.click("#atlas-workbench-card [data-atlas-subview-panel='start'] button.phase1-plan-btn")
     await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'")
     await page.wait_for_function("""([msg, statusText]) => {
       const status = document.getElementById('atlas-requirement-status')?.textContent || '';
@@ -290,7 +290,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
     expected_text = atlas_start_value
     await fill_atlas_requirement(page, expected_text)
     await ensure_atlas_start(page)
-    await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+    await page.click("#atlas-workbench-card [data-atlas-subview-panel='start'] button.phase1-plan-btn")
     await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'")
     await page.wait_for_function("""([atlasValue]) => {
       const status = document.getElementById('atlas-requirement-status')?.textContent || '';
@@ -325,7 +325,7 @@ async def verify_atlas_guided_workflow_safe_journey(page) -> None:
   before_messages = await page.evaluate("""() => Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '')""")
   await ensure_atlas_start(page)
   await page.fill("#atlas-requirement-input", "Phase 25 smoke requirement text")
-  await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+  await page.click("#atlas-workbench-card [data-atlas-subview-panel='start'] button.phase1-plan-btn")
   await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'")
   await page.wait_for_function("""() => {
     const status = document.getElementById('atlas-requirement-status')?.textContent || '';
@@ -357,7 +357,7 @@ async def verify_atlas_guided_workflow_safe_journey(page) -> None:
   forbidden = ['Atlas Workflow Status', 'Requirement Preview', 'Boss', 'Approval required', 'Plan generated', 'Starting Atlas guided planning workflow', 'Atlas Start needs a request']
   assert not any(any(token in msg for token in forbidden) for msg in new_messages), f"atlas chat leak detected: {new_messages}"
 
-  for subview in ["runs", "dashboard", "patch_review"]:
+  for subview in ["runs", "execute", "patch"]:
     await page.click(f"#atlas-workbench-card [data-atlas-subview-tab='{subview}']")
     await page.wait_for_function("(name) => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === name", arg=subview)
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-tab='legacy']").count() == 0
@@ -435,9 +435,9 @@ async def start_atlas_backend_e2e_journey(page, atlas_requirement: str) -> None:
   await set_chat_input(page, "")
   await page.click("#btn-atlas")
   await page.wait_for_selector("#atlas-workbench-card")
-  await page.click("#atlas-workbench-card [data-atlas-subview-tab='overview']")
+  await page.click("#atlas-workbench-card [data-atlas-subview-tab='start']")
   await page.fill("#atlas-requirement-input", atlas_requirement)
-  await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
+  await page.click("#atlas-workbench-card [data-atlas-subview-panel='start'] button.phase1-plan-btn")
 
 
 async def verify_atlas_backend_e2e_journey(page) -> None:
@@ -1556,20 +1556,52 @@ async def verify_atlas_current_ui_smoke(page) -> None:
   }""")
   assert not stray_atlas_heading, "Atlas mode must not render a standalone Atlas heading above Workflow Workbench"
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-tab='legacy']").count() == 0
-  for tab in ["start", "plan", "runs", "dashboard", "patch_review"]:
+  for tab in ["start", "plan", "review", "execute", "patch", "runs"]:
     assert await page.locator(f"#atlas-workbench-card [data-atlas-subview-tab='{tab}']").count() == 1
 
+  await wait_named(page, 'atlas_activity_stream_visible', """() => {
+    const stream = document.getElementById('atlas-activity-stream');
+    return !!stream && getComputedStyle(stream).display !== 'none';
+  }""")
+  await wait_named(page, 'atlas_activity_stream_outside_workbench', """() => {
+    const stream = document.getElementById('atlas-activity-stream');
+    const card = document.getElementById('atlas-workbench-card');
+    return !!stream && !!card && !card.contains(stream);
+  }""")
+
   await ensure_atlas_start(page)
-  assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='overview'] #atlas-requirement-input").count() == 1
-  assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='overview'] button", has_text="Start Atlas").count() == 1
+  await wait_named(page, 'atlas_start_tab_visible', "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'start'")
+  assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='start'] #atlas-requirement-input").count() == 1
+  assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='start'] button", has_text="Start Atlas").count() == 1
   await ensure_atlas_plan(page)
+  await wait_named(page, 'plan_tab_plan_only', """() => {
+    const panel = document.querySelector("#atlas-workbench-card [data-atlas-subview-panel='plan']");
+    if (!panel) return false;
+    const text = panel.textContent || '';
+    return !text.includes('Approve Plan') && !text.includes('Execute Preview') && !text.includes('Patch Review');
+  }""")
   plan_panel_text = await page.locator("#atlas-workbench-card [data-atlas-subview-panel='plan']").inner_text()
   assert "No plan yet" in plan_panel_text
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='plan'] button", has_text="Start Atlas").count() == 0
+  await set_atlas_subview(page, "review")
+  await wait_named(page, 'review_tab_has_approval', """() => {
+    const panel = document.querySelector("#atlas-workbench-card [data-atlas-subview-panel='review']");
+    if (!panel) return false;
+    const text = panel.textContent || '';
+    return text.includes('Approval') || !!panel.querySelector("#approve-plan-btn,[data-action='approve-plan']");
+  }""")
+  await set_atlas_subview(page, "execute")
+  await wait_named(page, 'execute_tab_visible', "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'execute'")
+  await set_atlas_subview(page, "patch")
+  await wait_named(page, 'patch_tab_visible', "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'patch'")
 
   collapse = page.locator("#atlas-workbench-collapse-btn")
   await collapse.click()
   await wait_named(page, 'workbench_collapsed', "() => document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
+  await wait_named(page, 'activity_stream_visible_when_collapsed', """() => {
+    const stream = document.getElementById('atlas-activity-stream');
+    return !!stream && getComputedStyle(stream).display !== 'none';
+  }""")
   await collapse.click()
   await wait_named(page, 'workbench_collapse_available', "() => !document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
   assert await page.locator("#atlas-agent-execution-marker[data-atlas-agent-execution='true']").count() == 1
