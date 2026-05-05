@@ -144,10 +144,34 @@ async def set_chat_input(page, text: str, switch_to_chat: bool = True) -> None:
     await set_chat_input_value_direct(page, text)
 
 
+
+
+async def write_dom_snapshot(page, label: str) -> str:
+  PLAYWRIGHT_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+  safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", label).strip("_") or "dom_snapshot"
+  path = PLAYWRIGHT_ARTIFACT_DIR / f"{safe}.html"
+  try:
+    html_text = await page.content()
+  except Exception as exc:
+    html_text = f"<!-- DOM snapshot unavailable: {type(exc).__name__}: {exc} -->"
+  path.write_text(html_text, encoding="utf-8")
+  return path.name
+
+
+async def wait_named(page, name: str, js_condition: str, *, timeout: int = 30_000, arg=None) -> None:
+  try:
+    if arg is None:
+      await page.wait_for_function(js_condition, timeout=timeout)
+    else:
+      await page.wait_for_function(js_condition, arg=arg, timeout=timeout)
+  except PlaywrightTimeoutError as exc:
+    artifact = await write_dom_snapshot(page, f"wait_named_timeout_{name}")
+    raise AssertionError(f"wait_named_timeout:{name}; artifact={artifact}") from exc
+
 async def open_atlas(page) -> None:
   await page.click("#btn-atlas")
-  await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
-  await page.wait_for_function("() => document.getElementById('atlas-workbench-card') && getComputedStyle(document.getElementById('atlas-workbench-card')).display !== 'none'")
+  await wait_named(page, 'atlas_panel_visible', "() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
+  await wait_named(page, 'atlas_workbench_visible', "() => document.getElementById('atlas-workbench-card') && getComputedStyle(document.getElementById('atlas-workbench-card')).display !== 'none'")
 
 
 async def wait_atlas_subview(page, name: str) -> None:
@@ -205,7 +229,7 @@ async def verify_mode_switches(page) -> None:
   assert agent_chat_visible and agent_tasks_visible
 
   await page.click("#btn-chat")
-  await page.wait_for_function("() => document.getElementById('chat-col') && getComputedStyle(document.getElementById('chat-col')).display !== 'none'")
+  await wait_named(page, 'chat_visible', "() => document.getElementById('chat-col') && getComputedStyle(document.getElementById('chat-col')).display !== 'none'")
   await page.wait_for_function("() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display === 'none'")
   await page.wait_for_function("() => document.getElementById('agent-col') && getComputedStyle(document.getElementById('agent-col')).display === 'none'")
   await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display === 'none'")
@@ -939,6 +963,9 @@ async def verify_atlas_plan_approval_gate_readiness(page, wait_diag: dict, conso
     }
   if final_decision != "completed":
     dep_diag = {**wait_diag, "finalDecision": final_decision, "completionDecisionReason": wait_diag.get("completionDecisionReason", "wait_plan_failed")}
+    current_job = str(wait_diag.get("currentJobId") or "")
+    if current_job.startswith("sync-plan:req_") or current_job.startswith("sync-requirement:") or wait_diag.get("completionDecisionReason") == "pending_plan_detected":
+      dep_diag["completionDecisionReason"] = "dependency_failed:no_plan_generated"
     raise AssertionError(compact_atlas_diag_reason(dep_diag, prefix="plan approval gate failed: wait_plan_failed"))
   gate_diag = await collect_atlas_plan_approval_gate_diag(page)
   gate_diag["finalDecision"] = final_decision
@@ -974,21 +1001,23 @@ async def open_atlas_approval_panel_for_inspection(page) -> dict:
       const rect = el.getBoundingClientRect();
       return rect.width > 0 && rect.height > 0;
     };
+    const approvalPanel = document.querySelector('#plan-approval-card, [data-atlas-workflow-target="dynamic-approval"], [data-atlas-workflow-target="approval"]');
+    const approvalPanelAlreadyVisible = isVisibleIsh(approvalPanel || null);
     const allButtons = Array.from(document.querySelectorAll('#atlas-workbench-card button, #atlas-workbench-card [role="button"]'));
-    const openButton = allButtons.find((el) => /open\\s+approval\\s+panel/i.test((el.textContent || '').trim()));
-    const beforePresent = !!openButton;
-    const beforeVisible = isVisibleIsh(openButton || null);
+    const openButton = allButtons.find((el) => /open\s+approval\s+panel/i.test((el.textContent || '').trim()));
+    const beforePresent = approvalPanelAlreadyVisible || !!openButton;
+    const beforeVisible = approvalPanelAlreadyVisible || isVisibleIsh(openButton || null);
     let clicked = false;
-    if (openButton && !openButton.disabled) {
+    if (!approvalPanelAlreadyVisible && openButton && !openButton.disabled) {
       openButton.click();
       clicked = true;
     }
-    const approvalPanel = document.querySelector('#plan-approval-card, [data-atlas-workflow-target="dynamic-approval"], [data-atlas-workflow-target="approval"]');
-    const approvalPanelVisible = isVisibleIsh(approvalPanel || null);
+    const visiblePanel = document.querySelector('#plan-approval-card, [data-atlas-workflow-target="dynamic-approval"], [data-atlas-workflow-target="approval"]');
+    const approvalPanelVisible = approvalPanelAlreadyVisible || isVisibleIsh(visiblePanel || null);
     return {
       openApprovalPanelButtonPresent: beforePresent,
       openApprovalPanelButtonVisible: beforeVisible,
-      openApprovalPanelClicked: clicked,
+      openApprovalPanelClicked: approvalPanelAlreadyVisible || clicked,
       approvalPanelVisible,
     };
   }""")
@@ -1052,6 +1081,9 @@ async def verify_atlas_plan_approval_actionability(page, wait_diag: dict, consol
     }
   if final_decision != "completed":
     dep_diag = {**wait_diag, "finalDecision": final_decision, "completionDecisionReason": wait_diag.get("completionDecisionReason", "wait_plan_failed")}
+    current_job = str(wait_diag.get("currentJobId") or "")
+    if current_job.startswith("sync-plan:req_") or current_job.startswith("sync-requirement:") or wait_diag.get("completionDecisionReason") == "pending_plan_detected":
+      dep_diag["completionDecisionReason"] = "dependency_failed:no_plan_generated"
     raise AssertionError(compact_atlas_diag_reason(dep_diag, prefix="plan approval actionability failed: wait_plan_failed"))
   gate_diag_before_open = await collect_atlas_plan_approval_gate_diag(page)
   open_diag = await open_atlas_approval_panel_for_inspection(page)
@@ -1470,7 +1502,7 @@ async def fill_atlas_requirement(page, text: str) -> None:
 
 async def verify_atlas_current_ui_smoke(page) -> None:
   await page.click("#btn-chat")
-  await page.wait_for_function("() => document.getElementById('chat-col') && getComputedStyle(document.getElementById('chat-col')).display !== 'none'")
+  await wait_named(page, 'atlas_current_chat_visible', "() => document.getElementById('chat-col') && getComputedStyle(document.getElementById('chat-col')).display !== 'none'")
   chat_text = await page.locator("#chat-col").inner_text()
   assert await page.locator("#chat-task-toggle").count() == 0
   assert await page.locator("#chat-role-note").count() == 0
@@ -1503,6 +1535,25 @@ async def verify_atlas_current_ui_smoke(page) -> None:
     }
     return false;
   }""")
+  await wait_named(page, 'no_standalone_atlas_label', """() => {
+    const card = document.getElementById('atlas-workbench-card');
+    if (!card) return false;
+    const cardTop = card.getBoundingClientRect().top;
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const text = String(node.nodeValue || '').trim();
+      if (text !== 'Atlas') continue;
+      const parent = node.parentElement;
+      if (!parent) continue;
+      if (parent.closest('.mode-wrap, .mob-tabs, #atlas-workbench-card')) continue;
+      const style = getComputedStyle(parent);
+      const rect = parent.getBoundingClientRect();
+      const visible = style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      if (visible && rect.bottom <= cardTop + 2) return false;
+    }
+    return true;
+  }""")
   assert not stray_atlas_heading, "Atlas mode must not render a standalone Atlas heading above Workflow Workbench"
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-tab='legacy']").count() == 0
   for tab in ["overview", "plan", "runs", "dashboard", "patch_review"]:
@@ -1518,9 +1569,9 @@ async def verify_atlas_current_ui_smoke(page) -> None:
 
   collapse = page.locator("#atlas-workbench-collapse-btn")
   await collapse.click()
-  await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
+  await wait_named(page, 'workbench_collapsed', "() => document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
   await collapse.click()
-  await page.wait_for_function("() => !document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
+  await wait_named(page, 'workbench_collapse_available', "() => !document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
   assert await page.locator("#atlas-agent-execution-marker[data-atlas-agent-execution='true']").count() == 1
 
   await page.set_viewport_size(DEFAULT_MOBILE_VIEWPORT)

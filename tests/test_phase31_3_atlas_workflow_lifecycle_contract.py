@@ -144,6 +144,26 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
         self.assertIn("apiAtlasJobId", SMOKE)
         self.assertIn("apiAtlasRunId", SMOKE)
 
+    def test_phase314d_plan_generation_auto_expands_plan_tab_and_pre_approval_gate(self):
+        render_body = UI.split("function renderPhase1PlanCard", 1)[1].split("// Backward-compatible name", 1)[0]
+        self.assertIn("focusAtlasPlanWorkbench", UI)
+        self.assertIn("setAtlasWorkbenchCollapsed(false)", UI)
+        self.assertIn("setAtlasSubview('plan')", UI)
+        self.assertIn("try { focusAtlasPlanWorkbench(); } catch (_) {}", render_body)
+        self.assertIn("approvalStatus: 'pending'", render_body)
+        self.assertIn("executionReady: false", render_body)
+        self.assertIn("userApprovedPlan: false", render_body)
+
+    def test_phase314d_approval_requires_explicit_user_approve_and_dependency_fail_is_named(self):
+        derive_body = UI.split("function deriveAtlasPlanFlowState()", 1)[1].split("function findAtlasWorkflowTarget", 1)[0]
+        bind_body = UI.split("function _bindPhase5ApprovalActions", 1)[1].split("function renderPhase1PlanCard", 1)[0]
+        self.assertIn("state.userApprovedPlan === true", derive_body)
+        self.assertNotIn("state.approvalId", derive_body)
+        self.assertIn("const approvedByUser = action === 'approve'", bind_body)
+        self.assertIn("userApprovedPlan: approvedByUser", bind_body)
+        self.assertIn('dependency_failed:no_plan_generated', SMOKE)
+        self.assertNotIn('approveButton.click', SMOKE)
+
 
 if __name__ == "__main__":
     unittest.main()

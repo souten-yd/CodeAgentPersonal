@@ -149,6 +149,14 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
         self.assertNotIn('Open Execute Preview")\n  if await execute_btn.count()', guided)
         self.assertNotIn('Apply Patch', guided)
 
+    def test_phase314d_standalone_atlas_body_check_and_named_smoke_waits(self):
+        self.assertIn("wait_named(page, 'no_standalone_atlas_label'", SMOKE)
+        self.assertIn('document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)', SMOKE)
+        self.assertIn('wait_named_timeout:{name}', SMOKE)
+        self.assertIn('write_dom_snapshot(page, f"wait_named_timeout_{name}")', SMOKE)
+        self.assertIn("wait_named(page, 'atlas_workbench_visible'", SMOKE)
+        self.assertIn("wait_named(page, 'workbench_collapse_available'", SMOKE)
+
 
 if __name__ == '__main__':
     unittest.main()
