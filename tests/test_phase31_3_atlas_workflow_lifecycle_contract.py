@@ -168,7 +168,19 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
         self.assertIn("const approvedByUser = action === 'approve'", bind_body)
         self.assertIn("userApprovedPlan: approvedByUser", bind_body)
         self.assertIn('dependency_failed:no_plan_generated', SMOKE)
+        self.assertIn('sync-plan:req_', SMOKE)
         self.assertNotIn('approveButton.click', SMOKE)
+
+    def test_phase314n_requirement_plan_id_separation_and_named_wait_wrapper(self):
+        generate_body = UI.split("async function generatePlanOnlyFromInput", 1)[1].split("// ── PLAN APPROVAL", 1)[0]
+        self.assertIn("currentJobId: d.plan_id ? `sync-plan:${d.plan_id}` : 'sync-plan-pending'", generate_body)
+        self.assertIn("currentRequirementId: d.requirement_id || ''", generate_body)
+        self.assertNotIn("sync-plan:req_", generate_body)
+        wait_named_body = SMOKE.split("async def wait_named", 1)[1].split("async def open_atlas", 1)[0]
+        self.assertIn("except Exception as exc", wait_named_body)
+        self.assertIn("wait_named_timeout:", wait_named_body)
+        self.assertIn("cause={type(exc).__name__}", wait_named_body)
+
 
 
 if __name__ == "__main__":
