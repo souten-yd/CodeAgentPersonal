@@ -1174,6 +1174,37 @@ async def verify_atlas_plan_approval_actionability(page, wait_diag: dict, consol
   return diag
 
 
+async def prepare_generated_plan_for_approval_tests(
+  page,
+  *,
+  preflight_status: dict,
+  base_url: str,
+  console_errors: list[str],
+  page_errors: list[str],
+) -> dict:
+  await start_atlas_backend_e2e_journey(page, ATLAS_APPROVAL_STABLE_PROMPT)
+  await page.wait_for_function(
+    "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'",
+    timeout=30_000,
+  )
+  diag = await wait_atlas_plan_completion(
+    page,
+    timeout_ms=45000,
+    preflight_status=preflight_status,
+    base_url=base_url,
+    console_errors=console_errors,
+    page_errors=page_errors,
+  )
+  if not diag.get("planGenerated"):
+    dep_diag = {
+      **diag,
+      "completionDecisionReason": "dependency_failed:no_plan_generated",
+    }
+    raise AssertionError(compact_atlas_diag_reason(dep_diag, prefix="plan approval setup failed"))
+  await set_atlas_subview(page, "review")
+  return diag
+
+
 async def click_atlas_proceed_with_assumptions_once(page) -> tuple[bool, str]:
   selectors = [
     "#atlas-workbench-card button:has-text('おまかせで進める')",
@@ -1785,8 +1816,14 @@ async def verify_atlas_current_ui_smoke(page) -> None:
   await wait_named(page, 'mobile_no_horizontal_overflow', "() => document.documentElement.scrollWidth - document.documentElement.clientWidth <= 1 && document.body.scrollWidth - document.body.clientWidth <= 1")
 
   await page.click("#btn-agent")
-  await wait_named(page, 'agent_panel_visible_from_atlas_smoke', "() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display !== 'none'")
-  assert await page.locator("#agent-panel-col", has_text="Legacy Agent Advanced").count() > 0
+  await wait_named(page, 'agent_hides_atlas_panel_from_atlas_smoke', "() => document.getElementById('atlas-panel-col')?.classList.contains('mob-hidden') || getComputedStyle(document.getElementById('atlas-panel-col')).display === 'none'")
+  await wait_named(page, 'agent_hides_activity_stream_from_atlas_smoke', """() => {
+    const panel = document.querySelector('[data-atlas-subview-panel="activity"]');
+    const stream = document.getElementById('atlas-activity-stream');
+    if (!panel || !stream) return false;
+    return panel.hidden || getComputedStyle(panel).display === 'none' || stream.offsetParent === null;
+  }""")
+  await assert_no_atlas_chat_leak(page, "atlas_current_ui_smoke_agent_switch")
 
 
 async def verify_mobile_mode_switches(page) -> None:
@@ -2165,15 +2202,13 @@ async def main() -> None:
         if preflight_status.get("errors"):
           raise AssertionError(f"backend preflight failed before wait-plan e2e: {preflight_status}")
         base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip() or "mock-http-origin"
-        async def prepare_generated_plan_for_approval_tests() -> dict:
-          await start_atlas_backend_e2e_journey(page, ATLAS_APPROVAL_STABLE_PROMPT)
-          await page.wait_for_function(
-            "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'",
-            timeout=30_000,
-          )
-          return await wait_atlas_plan_completion(page, timeout_ms=45000, preflight_status=preflight_status, base_url=base_url, console_errors=console_errors, page_errors=page_errors)
-
-        diag = await prepare_generated_plan_for_approval_tests()
+        diag = await prepare_generated_plan_for_approval_tests(
+          page,
+          preflight_status=preflight_status,
+          base_url=base_url,
+          console_errors=console_errors,
+          page_errors=page_errors,
+        )
         wait_plan_diag = {
           "initialFinalDecision": diag.get("finalDecision"),
           "initialCompletionReason": diag.get("completionDecisionReason"),
