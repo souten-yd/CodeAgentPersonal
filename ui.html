@@ -1457,15 +1457,15 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
             </div>
             <div id="atlas-workbench-card-patch-list" data-atlas-workflow-target="patch-review" style="margin-top:8px;font-size:11px"></div>
           </div>
-        </div>
-      </div>
-    </div>
-          <div class="atlas-subview" data-atlas-subview-panel="activity" style="display:none">
+          <div class="atlas-subview" data-atlas-subview-panel="activity" style="display:none" hidden>
             <section id="atlas-activity-stream" data-atlas-output-stream="true" class="plan-card" style="margin-top:6px;padding:10px">
               <div style="font-size:12px;font-weight:700;color:var(--text)">Activity Stream</div>
               <div id="atlas-activity-stream-list" style="margin-top:8px;font-size:11px;color:var(--text2)"></div>
             </section>
           </div>
+        </div>
+      </div>
+    </div>
     <div id="atlas-agent-execution-marker" hidden data-atlas-agent-execution="true"></div>
   </div>
 
@@ -6921,7 +6921,7 @@ function bindModeAndNexusTapHandlers() {
   ['chat','atlas','agent','echo','nexus'].forEach((name) => {
     _bindTapClick(document.getElementById('btn-' + name), () => setMode(name));
   });
-  ['execute','library','news','market','web-scout','deep-research','compare','formula','evidence','report'].forEach((name) => {
+  ['dashboard','library','research','sources','evidence','reports','settings','news','market','web-scout','deep-research','compare','formula'].forEach((name) => {
     _bindTapClick(document.getElementById('nexus-btn-' + name), () => switchNexusTab(name));
   });
 }
@@ -6939,10 +6939,11 @@ function setMode(m) {
   const agentPanelCol = document.getElementById('agent-panel-col');
   const nexusCol = document.getElementById('nexus-col');
   const atlasPanelCol = document.getElementById('atlas-panel-col');
-  const atlasActivityStream = document.getElementById('atlas-activity-stream');
   const resizer = document.getElementById('panel-resizer');
   const appBody  = document.querySelector('.app-body');
   _updateMobTabs(m);
+  const sharedModeTitleRow = document.getElementById('mode-title-row') || document.querySelector('.mode-title-row,.mobile-mode-title,.mobile-mode-title-row,.agent-head.mode-title-row');
+  if (sharedModeTitleRow) sharedModeTitleRow.style.display = 'none';
 
   if (prevMode === 'agent' && m !== 'agent') stopAgentSession(false);
   if (prevMode === 'nexus' && m !== 'nexus') stopNexusPolling();
@@ -6957,7 +6958,6 @@ function setMode(m) {
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
     if (atlasPanelCol) atlasPanelCol.style.display = 'none';
-    if (atlasActivityStream) atlasActivityStream.style.display = 'none';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(true);
@@ -6973,7 +6973,6 @@ function setMode(m) {
     if (agentCol) agentCol.style.display = '';
     if (agentPanelCol) agentPanelCol.style.display = '';
     if (atlasPanelCol) atlasPanelCol.style.display = 'none';
-    if (atlasActivityStream) atlasActivityStream.style.display = 'none';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
@@ -6992,7 +6991,6 @@ function setMode(m) {
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
     if (atlasPanelCol) atlasPanelCol.style.display = '';
-    if (atlasActivityStream) atlasActivityStream.style.display = 'none';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
@@ -7013,11 +7011,10 @@ function setMode(m) {
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
     if (atlasPanelCol) atlasPanelCol.style.display = 'none';
-    if (atlasActivityStream) atlasActivityStream.style.display = 'none';
     if (nexusCol) nexusCol.style.display = '';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
-    switchNexusTab(window._nexusTab || 'execute');
+    switchNexusTab(window._nexusTab || 'dashboard');
     startNexusPolling();
   } else {
     appBody?.classList.remove('echo-active');
@@ -7029,7 +7026,6 @@ function setMode(m) {
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
     if (atlasPanelCol) atlasPanelCol.style.display = 'none';
-    if (atlasActivityStream) atlasActivityStream.style.display = 'none';
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(false);
@@ -7100,8 +7096,8 @@ function setMode(m) {
 }
 
 function switchNexusTab(name) {
-  const tabs = ['execute','library','research','sources','evidence','reports','settings'];
-  const target = tabs.includes(name) ? name : 'execute';
+  const tabs = ['dashboard','library','research','sources','evidence','reports','settings'];
+  const target = tabs.includes(name) ? name : 'dashboard';
   window._nexusTab = target;
   const panelMap = { research:'deep-research', reports:'report' };
   tabs.forEach(tab => {
@@ -7113,7 +7109,7 @@ function switchNexusTab(name) {
     document.getElementById('nexus-tab-' + old)?.classList.remove('active');
     document.getElementById('nexus-btn-' + old)?.classList.remove('active');
   });
-  if (target === 'execute') refreshNexusExecuteSummary();
+  if (target === 'dashboard') refreshNexusExecuteSummary();
   if (target === 'library') {
     refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
     refreshNexusJobs();
@@ -14297,7 +14293,9 @@ function setAtlasSubview(name) {
     console.warn('Atlas subview persistence failed:', err);
   }
   root.querySelectorAll('[data-atlas-subview-panel]').forEach((el) => {
-    el.style.display = el.getAttribute('data-atlas-subview-panel') === next ? '' : 'none';
+    const active = el.getAttribute('data-atlas-subview-panel') === next;
+    el.hidden = !active;
+    el.style.display = active ? '' : 'none';
   });
   root.querySelectorAll('[data-atlas-subview-tab]').forEach((btn) => {
     btn.classList.toggle('active', btn.getAttribute('data-atlas-subview-tab') === next);
@@ -14311,6 +14309,41 @@ function setAtlasSubview(name) {
   return next;
 }
 
+
+function appendAtlasActivityCard(type, data = {}) {
+  const stream = document.getElementById('atlas-activity-stream-list') || document.getElementById('atlas-activity-stream');
+  if (!stream) return;
+  const titleMap = {
+    plan_generated: 'Plan generated',
+    clarification_required: 'Clarification required',
+    review_ready: 'Review ready',
+    plan_approved: 'Plan approved',
+    execute_preview_generated: 'Execute preview ready',
+    patch_review_ready: 'Patch review ready',
+  };
+  const actionMap = {
+    plan_generated: 'plan', clarification_required: 'start', review_ready: 'review',
+    plan_approved: 'execute', execute_preview_generated: 'execute', patch_review_ready: 'patch',
+  };
+  const card = document.createElement('div');
+  card.className = 'atlas-activity-card';
+  card.dataset.activityType = type;
+  card.style.cssText = 'border:1px solid var(--border);border-radius:8px;background:var(--bg2);padding:8px;margin-top:6px';
+  const title = titleMap[type] || type;
+  const body = data.message || data.planId || data.runId || data.requirementId || '';
+  card.innerHTML = `<div style="font-size:11px;font-weight:700;color:var(--text)">${esc(title)}</div>${body ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">${esc(String(body).slice(0,140))}</div>` : ''}`;
+  const action = actionMap[type];
+  if (action) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'phase1-tab-btn';
+    btn.textContent = `Open ${action[0].toUpperCase()+action.slice(1)}`;
+    btn.style.marginTop = '6px';
+    btn.addEventListener('click', () => { try { setAtlasSubview(action); } catch (_) {} });
+    card.appendChild(btn);
+  }
+  stream.prepend(card);
+}
 function ensureAtlasWorkbenchHost() {
   const cardRoot = document.getElementById('atlas-workbench-card');
   if (!cardRoot) return null;
@@ -14347,6 +14380,7 @@ async function openManualAtlasRunExecuteFromWorkbench() {
   cardRoot.dataset.lastRunId = runId;
   _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
   await loadAtlasRunExecute(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');
+  appendAtlasActivityCard('patch_review_ready', { runId });
 }
 
 async function loadRecentAtlasRunsFromWorkbench() {
@@ -14894,6 +14928,7 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
       cardRoot.dataset.lastRunId = res.run_id || '';
       _atlasLsSet(ATLAS_LAST_RUN_KEY, res.run_id || '');
       _updatePlanWorkflowState({runId: res.run_id || '', lastRunId: res.run_id || '', lastError: ''});
+      appendAtlasActivityCard('execute_preview_generated', { runId: res.run_id || '' });
       addLog('ok', 'plan-only', `phase6 execute success plan_id=${planId} run_id=${res.run_id} mode=${mode}`);
       if (res.run_id) await loadPhase8Patches(cid, res.run_id);
     } catch (e) {
@@ -15112,6 +15147,7 @@ function _bindPhase5ApprovalActions(cardRoot, result) {
       result.plan = res.plan || result.plan;
       result.approval = res.approval || null;
       const approvedByUser = action === 'approve' && String((res.approval || {}).status || '').toLowerCase() === 'approved';
+      if (approvedByUser) appendAtlasActivityCard('plan_approved', { planId });
       _updatePlanWorkflowState({
         approvalId: approvedByUser ? (res.approval_id || '') : '',
         approvalStatus: approvedByUser ? 'approved' : String((res.approval || {}).status || 'pending'),
@@ -15310,6 +15346,7 @@ async function generatePlanOnlyFromInput(options = {}) {
       try { focusAtlasPlanWorkbench(); } catch (_) {}
       renderClarificationCard(d, { planningMode, requirementMode, executionMode, source, workspace, target: 'atlas' });
       addLog('ok', 'plan-only', `Clarification required requirement_id=${d.requirement_id}`);
+      appendAtlasActivityCard('clarification_required', { requirementId: d.requirement_id || '' });
       return;
     }
 
