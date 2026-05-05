@@ -168,6 +168,15 @@ async def wait_named(page, name: str, js_condition: str, *, timeout: int = 30_00
     artifact = await write_dom_snapshot(page, f"wait_named_timeout_{name}")
     raise AssertionError(f"wait_named_timeout:{name}; artifact={artifact}; cause={type(exc).__name__}: {exc}") from exc
 
+async def click_named(page, name: str, selector: str, *, timeout: int = 10_000) -> None:
+  try:
+    await page.locator(selector).click(timeout=timeout)
+  except Exception as exc:
+    artifact = await write_dom_snapshot(page, f"click_named_timeout_{name}")
+    raise AssertionError(
+      f"click_named_timeout:{name}; selector={selector}; artifact={artifact}; cause={type(exc).__name__}: {exc}"
+    ) from exc
+
 async def open_atlas(page) -> None:
   await page.click("#btn-atlas")
   await wait_named(page, 'atlas_panel_visible', "() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
@@ -185,6 +194,26 @@ async def set_mode(page, mode: str) -> None:
   if not selector:
     raise ValueError(f"unsupported mode: {mode}")
   await page.click(selector)
+
+async def get_nexus_root_selector(page) -> str:
+  candidates = [
+    "#nexus-panel-col",
+    "#nexus-col",
+    "#nexus-workspace",
+    "[data-mode-panel='nexus']",
+  ]
+  for selector in candidates:
+    if await page.locator(selector).count() > 0:
+      return selector
+  raise AssertionError("nexus_root_not_found")
+
+async def click_nexus_tab(page, tab: str) -> None:
+  await set_mode(page, "nexus")
+  root = await get_nexus_root_selector(page)
+  selector = f"{root} [data-nexus-tab='{tab}']"
+  if await page.locator(selector).count() == 0:
+    selector = f"[data-nexus-tab='{tab}']"
+  await click_named(page, f"nexus_tab_{tab}", selector)
 
 ATLAS_CHAT_LEAK_TOKENS = [
   "Atlas Workflow Status",
@@ -472,6 +501,8 @@ async def start_atlas_backend_e2e_journey(page, atlas_requirement: str) -> None:
   await page.click("#atlas-workbench-card [data-atlas-subview-tab='start']")
   await page.fill("#atlas-requirement-input", atlas_requirement)
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='start'] button.phase1-plan-btn")
+
+ATLAS_APPROVAL_STABLE_PROMPT = "Create a non-destructive implementation plan for adding a small UI label to the Atlas Start tab. Do not execute or modify files."
 
 
 async def verify_atlas_backend_e2e_journey(page) -> None:
@@ -1717,14 +1748,13 @@ async def verify_atlas_current_ui_smoke(page) -> None:
     raise AssertionError(f"mobile horizontal overflow detected: {overflow}; offenders: {offenders}")
   await wait_named(page, 'mobile_no_horizontal_overflow', "() => document.documentElement.scrollWidth - document.documentElement.clientWidth <= 1 && document.body.scrollWidth - document.body.clientWidth <= 1")
 
-  await set_mode(page, "nexus")
-  await page.click("#nexus-col [data-nexus-tab='dashboard']")
+  await click_nexus_tab(page, "dashboard")
   await wait_named(page, 'nexus_dashboard_visible_on_dashboard_tab', """() => {
     const dashboard = document.querySelector('[data-nexus-panel="dashboard"]');
     return !!dashboard && !dashboard.hidden && getComputedStyle(dashboard).display !== 'none';
   }""")
   for tab in ["research", "sources", "evidence", "reports"]:
-    await page.click(f"#nexus-col [data-nexus-tab='{tab}']")
+    await click_nexus_tab(page, tab)
     await wait_named(page, f'nexus_dashboard_hidden_on_{tab}', f"""() => {{
       const dashboard = document.querySelector('[data-nexus-panel="dashboard"]');
       const panel = document.querySelector('[data-nexus-panel="{tab}"]');
@@ -2116,12 +2146,15 @@ async def main() -> None:
         if preflight_status.get("errors"):
           raise AssertionError(f"backend preflight failed before wait-plan e2e: {preflight_status}")
         base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip() or "mock-http-origin"
-        await start_atlas_backend_e2e_journey(page, "Create a non-destructive implementation plan for adding a small UI label. Do not execute or modify files.")
-        await page.wait_for_function(
-          "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'",
-          timeout=30_000,
-        )
-        diag = await wait_atlas_plan_completion(page, timeout_ms=45000, preflight_status=preflight_status, base_url=base_url, console_errors=console_errors, page_errors=page_errors)
+        async def prepare_generated_plan_for_approval_tests() -> dict:
+          await start_atlas_backend_e2e_journey(page, ATLAS_APPROVAL_STABLE_PROMPT)
+          await page.wait_for_function(
+            "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'",
+            timeout=30_000,
+          )
+          return await wait_atlas_plan_completion(page, timeout_ms=45000, preflight_status=preflight_status, base_url=base_url, console_errors=console_errors, page_errors=page_errors)
+
+        diag = await prepare_generated_plan_for_approval_tests()
         wait_plan_diag = {
           "initialFinalDecision": diag.get("finalDecision"),
           "initialCompletionReason": diag.get("completionDecisionReason"),

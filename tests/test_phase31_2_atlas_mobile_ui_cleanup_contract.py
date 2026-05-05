@@ -161,6 +161,13 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
         self.assertIn("wait_named(page, 'atlas_start_tab_visible'", SMOKE)
         self.assertIn("wait_named(page, 'activity_stream_hidden_until_activity_tab_selected'", SMOKE)
         self.assertIn("wait_named(page, 'review_tab_has_review_host'", SMOKE)
+        self.assertIn("async def click_named(page, name: str, selector: str", SMOKE)
+        self.assertIn("click_named_timeout:{name}; selector={selector}; artifact={artifact}", SMOKE)
+        self.assertIn("async def get_nexus_root_selector(page) -> str:", SMOKE)
+        self.assertIn("async def click_nexus_tab(page, tab: str) -> None:", SMOKE)
+        atlas_smoke_body = SMOKE.split("async def verify_atlas_current_ui_smoke(page) -> None:", 1)[1].split("async def verify_mobile_mode_switches", 1)[0]
+        self.assertNotIn("#nexus-col [data-nexus-tab=", atlas_smoke_body)
+        self.assertIn("await click_nexus_tab(page, \"dashboard\")", atlas_smoke_body)
 
     def test_activity_stream_contract_is_inside_activity_tab_and_mode_gated(self):
         self.assertIn('id="atlas-activity-stream"', UI)
