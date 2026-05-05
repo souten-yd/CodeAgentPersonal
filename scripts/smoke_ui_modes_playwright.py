@@ -1569,6 +1569,25 @@ async def verify_atlas_current_ui_smoke(page) -> None:
     return !!stream && !!card && !card.contains(stream);
   }""")
 
+  for mode_name in ["chat", "echo", "agent", "nexus"]:
+    await set_mode(page, mode_name)
+    await wait_named(page, f'atlas_activity_stream_hidden_{mode_name}', """() => {
+      const stream = document.getElementById('atlas-activity-stream');
+      if (!stream) return false;
+      const style = getComputedStyle(stream);
+      const atlas = document.getElementById('atlas-panel-col');
+      const atlasHidden = !atlas || style.display === 'none' || atlas.offsetParent === null;
+      return atlasHidden && stream.offsetParent === null;
+    }""")
+  await open_atlas(page)
+  await wait_named(page, 'atlas_activity_stream_visible_after_mode_switches', """() => {
+    const stream = document.getElementById('atlas-activity-stream');
+    const atlas = document.getElementById('atlas-panel-col');
+    if (!stream || !atlas || !atlas.contains(stream)) return false;
+    const style = getComputedStyle(stream);
+    return style.display !== 'none' && stream.offsetParent !== null;
+  }""")
+
   await ensure_atlas_start(page)
   await wait_named(page, 'atlas_start_tab_visible', "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'start'")
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='start'] #atlas-requirement-input").count() == 1
@@ -1584,11 +1603,11 @@ async def verify_atlas_current_ui_smoke(page) -> None:
   assert "No plan yet" in plan_panel_text
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='plan'] button", has_text="Start Atlas").count() == 0
   await set_atlas_subview(page, "review")
-  await wait_named(page, 'review_tab_has_approval', """() => {
+  await wait_named(page, 'review_tab_has_review_host', """() => {
     const panel = document.querySelector("#atlas-workbench-card [data-atlas-subview-panel='review']");
     if (!panel) return false;
     const text = panel.textContent || '';
-    return text.includes('Approval') || !!panel.querySelector("#approve-plan-btn,[data-action='approve-plan']");
+    return text.includes('Plan Review') || text.includes('No review yet') || !!panel.querySelector('[data-atlas-workflow-target="approval"], #atlas-workbench-card-plan-next-action');
   }""")
   await set_atlas_subview(page, "execute")
   await wait_named(page, 'execute_tab_visible', "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'execute'")
@@ -2014,7 +2033,7 @@ async def main() -> None:
           "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'",
           timeout=30_000,
         )
-        diag = await wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=preflight_status, base_url=base_url, console_errors=console_errors, page_errors=page_errors)
+        diag = await wait_atlas_plan_completion(page, timeout_ms=45000, preflight_status=preflight_status, base_url=base_url, console_errors=console_errors, page_errors=page_errors)
         wait_plan_diag = {
           "initialFinalDecision": diag.get("finalDecision"),
           "initialCompletionReason": diag.get("completionDecisionReason"),
@@ -2051,7 +2070,7 @@ async def main() -> None:
           wait_plan_diag["patchApplyButtonsPresentBefore"] = diag.get("patchApplyButtonsPresent", False)
           if not wait_plan_diag["resolutionClickSucceeded"]:
             raise AssertionError("clarification resolution failed: proceed_with_assumptions_button_missing; artifact=atlas_lifecycle_final.json")
-          post_diag = await wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=preflight_status, base_url=base_url, console_errors=console_errors, page_errors=page_errors)
+          post_diag = await wait_atlas_plan_completion(page, timeout_ms=45000, preflight_status=preflight_status, base_url=base_url, console_errors=console_errors, page_errors=page_errors)
           wait_plan_diag["postResolutionFinalDecision"] = post_diag.get("finalDecision")
           wait_plan_diag["postResolutionCompletionReason"] = post_diag.get("completionDecisionReason")
           wait_plan_diag["clarificationSignalsAfter"] = post_diag.get("clarificationSignals", [])

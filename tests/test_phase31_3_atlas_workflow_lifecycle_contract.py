@@ -123,6 +123,7 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
 
     def test_approval_presets_depend_on_wait_plan_and_do_not_click_destructive_actions(self):
         self.assertIn("plan approval gate failed: wait_plan_failed", SMOKE)
+        self.assertIn("timeout_ms=45000", SMOKE)
         self.assertIn("plan approval actionability failed: wait_plan_failed", SMOKE)
         self.assertIn("RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL requires", SMOKE)
         banned = ["approvePlan(", "executePreview(", "applyPatch(", "bulk approve", "bulk apply", "auto approve", "auto apply"]
