@@ -1554,21 +1554,21 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   </div>
 
   <!-- NEXUS MODE -->
-  <div class="nexus-col mob-hidden" id="nexus-col" style="display:none">
+  <div class="nexus-col mob-hidden" id="nexus-col" style="display:none" data-mode-panel="nexus" data-nexus-current-tab="dashboard">
     <div class="nexus-topbar">
       <div class="nexus-title">Nexus Workspace</div>
       <div class="nexus-subtabs">
-        <button class="nexus-subtab active" id="nexus-btn-dashboard" onclick="switchNexusTab('dashboard')">Dashboard</button>
-        <button class="nexus-subtab" id="nexus-btn-library" onclick="switchNexusTab('library')">Library</button>
-        <button class="nexus-subtab" id="nexus-btn-research" onclick="switchNexusTab('research')">Research</button>
-        <button class="nexus-subtab" id="nexus-btn-sources" onclick="switchNexusTab('sources')">Sources</button>
-        <button class="nexus-subtab" id="nexus-btn-evidence" onclick="switchNexusTab('evidence')">Evidence</button>
-        <button class="nexus-subtab" id="nexus-btn-reports" onclick="switchNexusTab('reports')">Reports</button>
-        <button class="nexus-subtab" id="nexus-btn-settings" onclick="switchNexusTab('settings')">Settings</button>
+        <button class="nexus-subtab active" id="nexus-btn-dashboard" data-nexus-tab="dashboard" onclick="switchNexusTab('dashboard')">Dashboard</button>
+        <button class="nexus-subtab" id="nexus-btn-library" data-nexus-tab="library" onclick="switchNexusTab('library')">Library</button>
+        <button class="nexus-subtab" id="nexus-btn-research" data-nexus-tab="research" onclick="switchNexusTab('research')">Research</button>
+        <button class="nexus-subtab" id="nexus-btn-sources" data-nexus-tab="sources" onclick="switchNexusTab('sources')">Sources</button>
+        <button class="nexus-subtab" id="nexus-btn-evidence" data-nexus-tab="evidence" onclick="switchNexusTab('evidence')">Evidence</button>
+        <button class="nexus-subtab" id="nexus-btn-reports" data-nexus-tab="reports" onclick="switchNexusTab('reports')">Reports</button>
+        <button class="nexus-subtab" id="nexus-btn-settings" data-nexus-tab="settings" onclick="switchNexusTab('settings')">Settings</button>
       </div>
     </div>
     <div class="nexus-body">
-      <div class="nexus-tab active" id="nexus-tab-dashboard">
+      <div class="nexus-tab active" id="nexus-tab-dashboard" data-nexus-panel="dashboard">
         <div class="nexus-dashboard-grid">
           <div class="nexus-metric-card"><div class="nexus-metric-label">Documents</div><div class="nexus-metric-value" id="nexus-metric-documents">-</div></div>
           <div class="nexus-metric-card"><div class="nexus-metric-label">Chunks</div><div class="nexus-metric-value" id="nexus-metric-chunks">-</div></div>
@@ -1576,7 +1576,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div class="nexus-metric-card"><div class="nexus-metric-label">Active Jobs</div><div class="nexus-metric-value" id="nexus-metric-active-jobs">-</div></div>
         </div>
       </div>
-      <div class="nexus-tab" id="nexus-tab-library">
+      <div class="nexus-tab" id="nexus-tab-library" data-nexus-panel="library" hidden style="display:none">
         <div class="nexus-lib-grid">
           <div class="nexus-card">
             <div class="nexus-card-title">Upload</div>
@@ -1674,7 +1674,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </div>
         </div>
       </div>
-      <div class="nexus-tab" id="nexus-tab-deep-research">
+      <div class="nexus-tab" id="nexus-tab-deep-research" data-nexus-panel="research" hidden style="display:none">
         <div class="nexus-deep-grid nexus-research-layout nexus-research-layout--wide">
           <div class="nexus-card nexus-deep-panel">
             <div class="nexus-card-title">Deep Research</div>
@@ -1841,7 +1841,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </div>
         </div>
       </div>
-      <div class="nexus-tab" id="nexus-tab-evidence">
+      <div class="nexus-tab" id="nexus-tab-evidence" data-nexus-panel="evidence" hidden style="display:none">
         <div class="nexus-lib-grid">
           <div class="nexus-card">
             <div class="nexus-card-title">Evidence MVP (Phase 1)</div>
@@ -1863,7 +1863,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </div>
         </div>
       </div>
-      <div class="nexus-tab" id="nexus-tab-report">
+      <div class="nexus-tab" id="nexus-tab-report" data-nexus-panel="reports" hidden style="display:none">
         <div class="nexus-lib-grid">
           <div class="nexus-card">
             <div class="nexus-card-title">Report MVP (Phase 1)</div>
@@ -1887,7 +1887,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           </div>
         </div>
       </div>
-      <div class="nexus-tab" id="nexus-tab-sources">
+      <div class="nexus-tab" id="nexus-tab-sources" data-nexus-panel="sources" hidden style="display:none">
         <div class="nexus-card">
           <div class="nexus-card-title">Search in Sources</div>
           <div class="nexus-phase-note">収集済み資料内検索です。新しいWeb検索は行いません。</div>
@@ -1909,7 +1909,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
           <div id="nexus-sources-results" class="nexus-result-panel"><div class="nexus-empty">検索結果はここに表示されます。</div></div>
         </div>
       </div>
-      <div class="nexus-tab" id="nexus-tab-settings">
+      <div class="nexus-tab" id="nexus-tab-settings" data-nexus-panel="settings" hidden style="display:none">
         <div class="nexus-card"><div class="nexus-card-title">Web Search Providers</div><div id="nexus-settings-web" class="nexus-empty">Loading...</div></div>
         <div class="nexus-card"><div class="nexus-card-title">Deep Research Defaults</div><div id="nexus-settings-defaults" class="nexus-empty">Loading...</div></div>
         <div class="nexus-card"><div class="nexus-card-title">Answer Generation</div><div id="nexus-settings-answer" class="nexus-empty">Loading...</div></div>
@@ -7099,10 +7099,24 @@ function switchNexusTab(name) {
   const tabs = ['dashboard','library','research','sources','evidence','reports','settings'];
   const target = tabs.includes(name) ? name : 'dashboard';
   window._nexusTab = target;
-  const panelMap = { research:'deep-research', reports:'report' };
-  tabs.forEach(tab => {
-    const panelId = panelMap[tab] || tab;
-    document.getElementById('nexus-tab-' + panelId)?.classList.toggle('active', tab === target);
+  document.querySelectorAll('[data-nexus-tab]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.nexusTab === target);
+  });
+  document.querySelectorAll('[data-nexus-panel]').forEach((panel) => {
+    const active = panel.dataset.nexusPanel === target;
+    panel.classList.toggle('active', active);
+    panel.hidden = !active;
+    panel.style.display = active ? '' : 'none';
+  });
+  const dashboardPanel = document.querySelector('[data-nexus-panel="dashboard"]');
+  if (dashboardPanel) {
+    document.querySelectorAll('.nexus-dashboard-grid').forEach((grid) => {
+      if (!dashboardPanel.contains(grid)) dashboardPanel.appendChild(grid);
+    });
+  }
+  const root = document.getElementById('nexus-panel-col') || document.getElementById('nexus-col');
+  if (root) root.dataset.nexusCurrentTab = target;
+  tabs.forEach((tab) => {
     document.getElementById('nexus-btn-' + tab)?.classList.toggle('active', tab === target);
   });
   ['news','market','web-scout','compare','formula'].forEach(old => {

@@ -115,7 +115,7 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
         default_list = MATRIX.split('TEST_PRESETS: list[TestPreset] = [', 1)[1].split(']\n\nLEGACY_TEST_PRESETS', 1)[0]
         self.assertIn('TestPreset("atlas_current_ui_smoke"', default_list)
         for preset_id in [
-            '"static_contracts"', '"atlas_current_ui_smoke"', '"backend_preflight"',
+            '"static_contracts"', '"atlas_current_ui_smoke"', '"nexus_current_ui_smoke"', '"backend_preflight"',
             '"backend_e2e_dry_run"', '"wait_plan"', '"clarification_resolution"',
             '"plan_approval_gate"', '"plan_approval_actionability"',
         ]:
