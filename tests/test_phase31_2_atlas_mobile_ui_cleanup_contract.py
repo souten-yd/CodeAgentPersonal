@@ -28,6 +28,7 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
         tabs = UI.split('<div class="atlas-subview-tabs"', 1)[1].split('</div>', 1)[0]
         self.assertIn("data-atlas-subview-tab=\"start\"", tabs)
         self.assertIn("data-atlas-subview-tab=\"plan\"", tabs)
+        self.assertIn("data-atlas-subview-tab=\"review\"", tabs)
         self.assertIn("data-atlas-subview-tab=\"runs\"", tabs)
         self.assertIn("data-atlas-subview-tab=\"execute\"", tabs)
         self.assertIn("data-atlas-subview-tab=\"patch\"", tabs)
@@ -156,6 +157,14 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
         self.assertIn('write_dom_snapshot(page, f"wait_named_timeout_{name}")', SMOKE)
         self.assertIn("wait_named(page, 'atlas_workbench_visible'", SMOKE)
         self.assertIn("wait_named(page, 'workbench_collapse_available'", SMOKE)
+        self.assertIn("wait_named(page, 'atlas_start_tab_visible'", SMOKE)
+        self.assertIn("wait_named(page, 'atlas_activity_stream_visible'", SMOKE)
+        self.assertIn("wait_named(page, 'review_tab_has_approval'", SMOKE)
+
+    def test_activity_stream_contract_outside_workbench_and_persists_on_collapse(self):
+        self.assertIn('id="atlas-activity-stream"', UI)
+        self.assertIn("wait_named(page, 'atlas_activity_stream_outside_workbench'", SMOKE)
+        self.assertIn("wait_named(page, 'activity_stream_visible_when_collapsed'", SMOKE)
 
 
 if __name__ == '__main__':
