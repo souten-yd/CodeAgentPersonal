@@ -143,7 +143,9 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
         self.assertNotIn("atlas wait-plan did not complete successfully: {json.dumps(diag", SMOKE)
 
     def test_wait_plan_prompt_is_clear_non_destructive_and_ui_state_tracks_plan_result(self):
-        self.assertIn("Create a non-destructive implementation plan for adding a small UI label", SMOKE)
+        self.assertIn("ATLAS_APPROVAL_STABLE_PROMPT", SMOKE)
+        self.assertIn("Create a non-destructive implementation plan for adding a small UI label to the Atlas Start tab. Do not execute or modify files.", SMOKE)
+        self.assertIn("prepare_generated_plan_for_approval_tests", SMOKE)
         self.assertIn("lastPlanApiIds", UI)
         self.assertIn("generatedPlan", UI)
         self.assertIn("planMarkdown", UI)
@@ -180,6 +182,8 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
         self.assertIn("except Exception as exc", wait_named_body)
         self.assertIn("wait_named_timeout:", wait_named_body)
         self.assertIn("cause={type(exc).__name__}", wait_named_body)
+        click_named_body = SMOKE.split("async def click_named", 1)[1].split("async def open_atlas", 1)[0]
+        self.assertIn("click_named_timeout:", click_named_body)
 
 
 
