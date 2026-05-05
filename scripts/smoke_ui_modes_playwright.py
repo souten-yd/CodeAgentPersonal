@@ -481,6 +481,9 @@ async def collect_atlas_job_lifecycle_diag(page, preflight_status=None, base_url
     currentRunId: (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.currentRunId || (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.lastRunId || '',
     jobStatus: (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.jobStatus || '',
     workflowPhase: (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.workflowPhase || '',
+    planId: (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.planId || '',
+    lastPlanApiIds: (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.lastPlanApiIds || {},
+    hasGeneratedPlanState: !!((typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.generatedPlan || (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.planMarkdown || (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.planResult),
     approveButtonsPresent: !!document.querySelector("#approve-plan-btn, [data-action='approve-plan']"),
     executeButtonsPresent: !!document.querySelector("#execute-preview-btn, [data-action='execute-preview']"),
     patchApplyButtonsPresent: !!document.querySelector("#apply-patch-btn, [data-action='apply-patch']"),
@@ -513,11 +516,12 @@ async def collect_atlas_job_lifecycle_diag(page, preflight_status=None, base_url
       break
   if not current_job_id:
     current_job_id = str(atlas_data.get("currentJobId") or "")
-  if not current_job_id and isinstance(jobs_resp, dict):
+  inferred_active_job_id = ""
+  if isinstance(jobs_resp, dict):
     jobs_json = jobs_resp.get("json") if isinstance(jobs_resp.get("json"), dict) else {}
     for j in jobs_json.get("jobs", []):
       if isinstance(j, dict) and j.get("id"):
-        current_job_id = str(j.get("id"))
+        inferred_active_job_id = str(j.get("id"))
         break
   return {
     "baseUrl": base_url,
@@ -530,7 +534,12 @@ async def collect_atlas_job_lifecycle_diag(page, preflight_status=None, base_url
     "activeJobsResponse": _truncate_json(jobs_resp),
     "recentJobsResponse": _truncate_json(history_resp),
     "currentJobId": current_job_id,
+    "uiCurrentJobId": str(atlas_data.get("currentJobId") or ""),
+    "inferredActiveJobId": inferred_active_job_id,
     "currentRunId": str(atlas_data.get("currentRunId") or ""),
+    "apiAtlasJobId": str((atlas_data.get("lastPlanApiIds") or {}).get("atlas_job_id") or "") if isinstance(atlas_data.get("lastPlanApiIds"), dict) else "",
+    "apiAtlasRunId": str((atlas_data.get("lastPlanApiIds") or {}).get("atlas_run_id") or "") if isinstance(atlas_data.get("lastPlanApiIds"), dict) else "",
+    "planGeneratedStatePresent": bool(atlas_data.get("hasGeneratedPlanState") or atlas_data.get("planId")),
     "elapsedMs": elapsed_ms,
     "finalDecision": final_decision,
   }
@@ -545,6 +554,28 @@ async def _write_atlas_lifecycle_snapshot(diag: dict, label: str) -> None:
   except Exception:
     pass
 
+
+
+def compact_atlas_diag_reason(diag: dict, *, prefix: str = "atlas wait-plan failed") -> str:
+  final_decision = str(diag.get("finalDecision") or "unknown")
+  reason = str(diag.get("completionDecisionReason") or "unknown")
+  failure_signals = diag.get("failureSignals", [])
+  if not isinstance(failure_signals, list):
+    failure_signals = [str(failure_signals)]
+  current_job_id = str(diag.get("currentJobId") or "") or "-"
+  current_run_id = str(diag.get("currentRunId") or "") or "-"
+  last_error = str(diag.get("lastError") or "-").strip() or "-"
+  if len(last_error) > 120:
+    last_error = last_error[:119].rstrip() + "…"
+  signal_text = ",".join(str(x) for x in failure_signals[:4]) or "-"
+  return (
+    f"{prefix}: {reason}; final={final_decision}; "
+    f"signals={signal_text}; currentJobId={current_job_id}; currentRunId={current_run_id}; "
+    f"lastError={last_error}; artifact=atlas_lifecycle_final.json"
+  )
+
+def raise_compact_atlas_diag(diag: dict, *, prefix: str = "atlas wait-plan failed") -> None:
+  raise AssertionError(compact_atlas_diag_reason(diag, prefix=prefix))
 
 async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=None, base_url: str = "", console_errors=None, page_errors=None) -> dict:
   console_errors = console_errors or []
@@ -871,6 +902,9 @@ async def verify_atlas_plan_approval_gate_readiness(page, wait_diag: dict, conso
       "workbenchTextTail": "",
       "selectorErrors": [],
     }
+  if final_decision != "completed":
+    dep_diag = {**wait_diag, "finalDecision": final_decision, "completionDecisionReason": wait_diag.get("completionDecisionReason", "wait_plan_failed")}
+    raise AssertionError(compact_atlas_diag_reason(dep_diag, prefix="plan approval gate failed: wait_plan_failed"))
   gate_diag = await collect_atlas_plan_approval_gate_diag(page)
   gate_diag["finalDecision"] = final_decision
   gate_diag["completionDecisionReason"] = wait_diag.get("completionDecisionReason", "")
@@ -878,22 +912,19 @@ async def verify_atlas_plan_approval_gate_readiness(page, wait_diag: dict, conso
   gate_diag["pageErrors"] = list(page_errors)
   gate_diag["destructiveActionDetected"] = False
   gate_diag["skippedReason"] = ""
-  if final_decision != "completed":
-    gate_diag["skippedReason"] = f"plan_approval_gate_skipped_non_completed:{final_decision}"
-    return gate_diag
   if console_errors or page_errors:
-    raise AssertionError(f"plan approval readiness aborted due to page/console errors: {json.dumps(gate_diag, ensure_ascii=False)}")
+    raise AssertionError("plan approval gate failed: page_or_console_errors; artifact=atlas_lifecycle_final.json")
   if not gate_diag.get("planApprovalGatePresent"):
-    raise AssertionError(f"plan approval gate not present on completed state: {json.dumps(gate_diag, ensure_ascii=False)}")
+    raise AssertionError("plan approval gate failed: no_approval_required_signal; artifact=atlas_lifecycle_final.json")
   if not gate_diag.get("approveButtonPresent"):
     gate_diag["failureReason"] = "approval_required_but_approve_button_missing"
-    raise AssertionError(f"approve button missing on completed state: {json.dumps(gate_diag, ensure_ascii=False)}")
+    raise AssertionError("plan approval gate failed: approval_button_missing; artifact=atlas_lifecycle_final.json")
   if not gate_diag.get("execute_preview_locked"):
-    raise AssertionError(f"execute preview unlocked before approval: {json.dumps(gate_diag, ensure_ascii=False)}")
+    raise AssertionError("plan approval gate failed: execute_preview_unlocked_before_approval; artifact=atlas_lifecycle_final.json")
   if not gate_diag.get("patchApplyLocked"):
-    raise AssertionError(f"patch apply unlocked before approval: {json.dumps(gate_diag, ensure_ascii=False)}")
+    raise AssertionError("plan approval gate failed: patch_apply_unlocked_before_approval; artifact=atlas_lifecycle_final.json")
   if not (gate_diag.get("planGenerated") and gate_diag.get("reviewDone") and gate_diag.get("approvalRequired")):
-    raise AssertionError(f"plan/review/approval signals are inconsistent: {json.dumps(gate_diag, ensure_ascii=False)}")
+    raise AssertionError("plan approval gate failed: plan_review_approval_signals_inconsistent; artifact=atlas_lifecycle_final.json")
   return gate_diag
 
 
@@ -984,6 +1015,9 @@ async def verify_atlas_plan_approval_actionability(page, wait_diag: dict, consol
       "consoleErrors": list(console_errors),
       "pageErrors": list(page_errors),
     }
+  if final_decision != "completed":
+    dep_diag = {**wait_diag, "finalDecision": final_decision, "completionDecisionReason": wait_diag.get("completionDecisionReason", "wait_plan_failed")}
+    raise AssertionError(compact_atlas_diag_reason(dep_diag, prefix="plan approval actionability failed: wait_plan_failed"))
   gate_diag_before_open = await collect_atlas_plan_approval_gate_diag(page)
   open_diag = await open_atlas_approval_panel_for_inspection(page)
   action_diag = await collect_atlas_approval_panel_actionability_diag(page)
@@ -999,23 +1033,20 @@ async def verify_atlas_plan_approval_actionability(page, wait_diag: dict, consol
     "consoleErrors": list(console_errors),
     "pageErrors": list(page_errors),
   }
-  if final_decision != "completed":
-    diag["skippedReason"] = f"plan_approval_actionability_skipped_non_completed:{final_decision}"
-    return diag
   if console_errors or page_errors:
-    raise AssertionError(f"plan approval actionability aborted due to page/console errors: {json.dumps(diag, ensure_ascii=False)}")
+    raise AssertionError("plan approval actionability failed: page_or_console_errors; artifact=atlas_lifecycle_final.json")
   if not diag.get("openApprovalPanelButtonPresent"):
-    raise AssertionError(f"open approval panel button missing in completed state: {json.dumps(diag, ensure_ascii=False)}")
+    raise AssertionError("plan approval actionability failed: open_approval_panel_button_missing; artifact=atlas_lifecycle_final.json")
   if not diag.get("openApprovalPanelClicked"):
-    raise AssertionError(f"open approval panel click failed in completed state: {json.dumps(diag, ensure_ascii=False)}")
+    raise AssertionError("plan approval actionability failed: open_approval_panel_not_actionable; artifact=atlas_lifecycle_final.json")
   if not diag.get("approvalPanelVisible"):
-    raise AssertionError(f"approval panel not visible after open action: {json.dumps(diag, ensure_ascii=False)}")
+    raise AssertionError("plan approval actionability failed: approval_panel_not_visible; artifact=atlas_lifecycle_final.json")
   if not diag.get("approveButtonActionableCandidate"):
-    raise AssertionError(f"approve button is not actionable candidate after panel open: {json.dumps(diag, ensure_ascii=False)}")
+    raise AssertionError("plan approval actionability failed: approve_button_not_actionable_candidate; artifact=atlas_lifecycle_final.json")
   if not diag.get("executePreviewLocked"):
-    raise AssertionError(f"execute preview unlocked before approval: {json.dumps(diag, ensure_ascii=False)}")
+    raise AssertionError("plan approval actionability failed: execute_preview_unlocked_before_approval; artifact=atlas_lifecycle_final.json")
   if not diag.get("patchApplyLocked"):
-    raise AssertionError(f"patch apply unlocked before approval/preview: {json.dumps(diag, ensure_ascii=False)}")
+    raise AssertionError("plan approval actionability failed: patch_apply_unlocked_before_approval; artifact=atlas_lifecycle_final.json")
   return diag
 
 
@@ -1840,7 +1871,7 @@ async def main() -> None:
         if preflight_status.get("errors"):
           raise AssertionError(f"backend preflight failed before wait-plan e2e: {preflight_status}")
         base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip() or "mock-http-origin"
-        await start_atlas_backend_e2e_journey(page, "Phase 26.0 backend e2e smoke requirement")
+        await start_atlas_backend_e2e_journey(page, "Create a non-destructive implementation plan for adding a small UI label. Do not execute or modify files.")
         await page.wait_for_function(
           "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'",
           timeout=30_000,
@@ -1881,7 +1912,7 @@ async def main() -> None:
           wait_plan_diag["executeButtonsPresentBefore"] = diag.get("executeButtonsPresent", False)
           wait_plan_diag["patchApplyButtonsPresentBefore"] = diag.get("patchApplyButtonsPresent", False)
           if not wait_plan_diag["resolutionClickSucceeded"]:
-            raise AssertionError(f"clarification resolution requested but proceed-with-assumptions button was not clicked: {json.dumps(wait_plan_diag, ensure_ascii=False)}")
+            raise AssertionError("clarification resolution failed: proceed_with_assumptions_button_missing; artifact=atlas_lifecycle_final.json")
           post_diag = await wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=preflight_status, base_url=base_url, console_errors=console_errors, page_errors=page_errors)
           wait_plan_diag["postResolutionFinalDecision"] = post_diag.get("finalDecision")
           wait_plan_diag["postResolutionCompletionReason"] = post_diag.get("completionDecisionReason")
@@ -1906,7 +1937,7 @@ async def main() -> None:
           actionability_diag = await verify_atlas_plan_approval_actionability(page, diag, console_errors, page_errors)
           print("INFO: atlas plan-approval-actionability diagnostics:\n" + json.dumps(actionability_diag, ensure_ascii=False, indent=2))
         if diag.get("finalDecision") in ("failed", "timeout", "unknown"):
-          raise AssertionError(f"atlas wait-plan did not complete successfully: {json.dumps(diag, ensure_ascii=False)}")
+          raise_compact_atlas_diag(diag, prefix="atlas wait-plan failed")
         if run_backend_check_plan_approval_opt_in and diag.get("finalDecision") in ("needs_clarification", "needs_clarification_after_resolution"):
           print("INFO: plan_approval_gate_skipped_needs_clarification")
 

@@ -39,6 +39,13 @@ class Phase304PlaywrightArtifactPathAndSkipContract(unittest.TestCase):
         self.assertNotIn('apply_patch', MATRIX)
         self.assertNotIn('shell=True', MATRIX)
 
+    def test_wait_plan_and_approval_error_summaries_stay_short(self):
+        self.assertIn('def compact_atlas_diag_reason', SMOKE)
+        self.assertIn('artifact=atlas_lifecycle_final.json', SMOKE)
+        self.assertNotIn('atlas wait-plan did not complete successfully: {json.dumps(diag', SMOKE)
+        self.assertNotIn('approve button missing on completed state: {json.dumps', SMOKE)
+        self.assertNotIn('open approval panel button missing in completed state: {json.dumps', SMOKE)
+
 
 if __name__ == '__main__':
     unittest.main()
