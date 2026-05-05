@@ -175,8 +175,8 @@ async def open_atlas(page) -> None:
 
 
 async def wait_atlas_subview(page, name: str) -> None:
-  await page.wait_for_function("(subview) => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === subview", arg=name)
-  await page.wait_for_function("(subview) => { const panel = document.querySelector(`#atlas-workbench-card [data-atlas-subview-panel=\"${subview}\"]`); return !!panel && getComputedStyle(panel).display !== 'none'; }", arg=name)
+  await wait_named(page, f'atlas_subview_dataset_{name}', "(subview) => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === subview", arg=name)
+  await wait_named(page, f'atlas_subview_visible_{name}', "(subview) => { const panel = document.querySelector(`#atlas-workbench-card [data-atlas-subview-panel=\"${subview}\"]`); return !!panel && getComputedStyle(panel).display !== 'none'; }", arg=name)
 
 
 async def set_atlas_subview(page, name: str) -> None:
@@ -189,8 +189,8 @@ async def set_atlas_subview(page, name: str) -> None:
     await wait_atlas_subview(page, name)
 
 
-async def ensure_atlas_overview(page) -> None:
-  await set_atlas_subview(page, "overview")
+async def ensure_atlas_start(page) -> None:
+  await set_atlas_subview(page, "start")
 
 
 async def ensure_atlas_plan(page) -> None:
@@ -267,7 +267,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
   try:
     # A. Empty start feedback
     await set_chat_input(page, "")
-    await ensure_atlas_overview(page)
+    await ensure_atlas_start(page)
     await get_atlas_requirement_input(page).wait_for(state="visible")
     await fill_atlas_requirement(page, "")
     await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
@@ -289,7 +289,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
     # C. Atlas input Start
     expected_text = atlas_start_value
     await fill_atlas_requirement(page, expected_text)
-    await ensure_atlas_overview(page)
+    await ensure_atlas_start(page)
     await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
     await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'")
     await page.wait_for_function("""([atlasValue]) => {
@@ -297,7 +297,7 @@ async def verify_atlas_start_button_feedback(page) -> None:
       const workbench = document.getElementById('atlas-workbench-status')?.textContent || '';
       const flow = document.getElementById('atlas-plan-flow-summary')?.textContent || '';
       const planPanel = document.querySelector('[data-atlas-subview-panel="plan"]')?.textContent || '';
-      const overviewPanel = document.querySelector('[data-atlas-subview-panel="overview"]')?.textContent || '';
+      const overviewPanel = document.querySelector('[data-atlas-subview-panel="start"]')?.textContent || '';
       return (
         status.includes('Using Atlas requirement input.')
         || status.includes('Starting Atlas guided planning workflow...')
@@ -323,7 +323,7 @@ async def verify_atlas_guided_workflow_safe_journey(page) -> None:
 
   await set_chat_input(page, "")
   before_messages = await page.evaluate("""() => Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '')""")
-  await ensure_atlas_overview(page)
+  await ensure_atlas_start(page)
   await page.fill("#atlas-requirement-input", "Phase 25 smoke requirement text")
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='overview'] button.phase1-plan-btn")
   await page.wait_for_function("() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'")
@@ -1556,10 +1556,10 @@ async def verify_atlas_current_ui_smoke(page) -> None:
   }""")
   assert not stray_atlas_heading, "Atlas mode must not render a standalone Atlas heading above Workflow Workbench"
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-tab='legacy']").count() == 0
-  for tab in ["overview", "plan", "runs", "dashboard", "patch_review"]:
+  for tab in ["start", "plan", "runs", "dashboard", "patch_review"]:
     assert await page.locator(f"#atlas-workbench-card [data-atlas-subview-tab='{tab}']").count() == 1
 
-  await ensure_atlas_overview(page)
+  await ensure_atlas_start(page)
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='overview'] #atlas-requirement-input").count() == 1
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='overview'] button", has_text="Start Atlas").count() == 1
   await ensure_atlas_plan(page)
