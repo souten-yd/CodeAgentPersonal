@@ -56,6 +56,11 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
         self.assertIn('id="atlas-workflow-status"', UI)
         self.assertNotIn("Atlas Workflow Status", chat_block)
         self.assertNotIn("Atlas status mirror", chat_block)
+        self.assertIn("function isAtlasWorkflowLeakText", UI)
+        self.assertIn("appendAtlasActivityCard('blocked_chat_leak'", UI)
+        self.assertIn("await assert_no_atlas_chat_leak(page, \"backend_e2e\")", SMOKE)
+        self.assertIn("await assert_no_atlas_chat_leak(page, \"wait_plan\")", SMOKE)
+        self.assertIn("await assert_no_atlas_chat_leak(page, \"plan_approval_actionability\")", SMOKE)
 
     def test_phase314c_last_error_uses_state_dataset_not_text_split(self):
         diag_body = SMOKE.split("async def collect_atlas_job_lifecycle_diag", 1)[1].split("async def _write_atlas_lifecycle_snapshot", 1)[0]

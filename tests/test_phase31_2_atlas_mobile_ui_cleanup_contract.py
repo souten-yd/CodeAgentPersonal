@@ -97,6 +97,7 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
 
     def test_smoke_baseline_current_ui_and_legacy_informational(self):
         self.assertIn('async def verify_atlas_current_ui_smoke(page) -> None:', SMOKE)
+        self.assertIn('async def set_mode(page, mode: str) -> None:', SMOKE)
         self.assertIn('("atlas_current_ui_smoke", verify_atlas_current_ui_smoke)', SMOKE)
         self.assertIn('TestPreset("atlas_current_ui_smoke"', MATRIX)
         self.assertIn('LEGACY_TEST_PRESETS', MATRIX)
@@ -169,6 +170,8 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
         self.assertIn('for mode_name in ["chat", "echo", "agent", "nexus"]', SMOKE)
         self.assertIn('atlas_activity_stream_hidden_{mode_name}', SMOKE)
         self.assertIn("activity_stream_hidden_after_mode_switches_until_tab_selected", SMOKE)
+        self.assertIn('ATLAS_CHAT_LEAK_TOKENS = [', SMOKE)
+        self.assertIn('chat_atlas_leak_detected:', SMOKE)
 
 
 if __name__ == '__main__':

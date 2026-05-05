@@ -173,6 +173,40 @@ async def open_atlas(page) -> None:
   await wait_named(page, 'atlas_panel_visible', "() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
   await wait_named(page, 'atlas_workbench_visible', "() => document.getElementById('atlas-workbench-card') && getComputedStyle(document.getElementById('atlas-workbench-card')).display !== 'none'")
 
+async def set_mode(page, mode: str) -> None:
+  button_map = {
+    "chat": "#btn-chat",
+    "atlas": "#btn-atlas",
+    "agent": "#btn-agent",
+    "echo": "#btn-echo",
+    "nexus": "#btn-nexus",
+  }
+  selector = button_map.get(mode)
+  if not selector:
+    raise ValueError(f"unsupported mode: {mode}")
+  await page.click(selector)
+
+ATLAS_CHAT_LEAK_TOKENS = [
+  "Atlas Workflow Status",
+  "Requirement Source: atlas",
+  "Source: atlas",
+  "Workspace: Atlas",
+  "Clarification required before planning",
+  "Plan generated",
+  "Plan review detected",
+  "Approval status",
+  "Execution ready",
+  "Patch review",
+]
+
+async def assert_no_atlas_chat_leak(page, label: str) -> None:
+  leak = await page.evaluate("""(tokens) => {
+    const text = document.getElementById('messages')?.textContent || '';
+    return tokens.find((token) => text.includes(token)) || '';
+  }""", ATLAS_CHAT_LEAK_TOKENS)
+  if leak:
+    raise AssertionError(f"chat_atlas_leak_detected:{leak}; check={label}")
+
 
 async def wait_atlas_subview(page, name: str) -> None:
   await wait_named(page, f'atlas_subview_dataset_{name}', "(subview) => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === subview", arg=name)
@@ -490,26 +524,14 @@ async def verify_atlas_backend_e2e_journey(page) -> None:
 
     await page.wait_for_function("""() => {
       const status = document.getElementById('atlas-requirement-status')?.textContent || '';
-      const messages = Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n');
+      const flow = document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '';
+      const activityPlan = !!document.querySelector('#atlas-activity-stream [data-activity-type="plan_generated"]');
       return (
-        messages.includes('Atlas Workflow Status')
-        || messages.includes('Requirement Source: atlas')
-        || messages.includes('Source: atlas')
-        || messages.includes('Workspace: Atlas')
-        || status.includes('Using Atlas requirement input.')
-        || status.includes('Starting Atlas guided planning workflow')
+        (status.includes('Using Atlas requirement input.') || status.includes('Starting Atlas guided planning workflow'))
+        && (flow.includes('Requirement') || flow.includes('Plan') || activityPlan)
       );
     }""", timeout=45_000)
-    await page.wait_for_function("""() => {
-      const status = document.getElementById('atlas-requirement-status')?.textContent || '';
-      const messages = Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\\n');
-      return (
-        status.includes('Using Atlas requirement input.')
-        || messages.includes('Requirement Source: atlas')
-        || messages.includes('Source: atlas')
-        || messages.includes('Workspace: Atlas')
-      );
-    }""", timeout=45_000)
+    await assert_no_atlas_chat_leak(page, "backend_e2e")
   except Exception:
     await backend_e2e_diag_dump("failure")
     raise
@@ -789,7 +811,7 @@ async def collect_atlas_clarification_diag(page) -> dict:
     proceedWithAssumptionsButtonPresent: !!Array.from(document.querySelectorAll('#atlas-workbench-card button, #atlas-workbench-card [role="button"]')).find((el) => (el.textContent || '').includes('おまかせで進める')),
     clarificationSignals: {
       nextActionAnswerClarification: (document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '').includes('Next Action: answer clarification'),
-      clarificationKeyword: ((document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '') + '\n' + Array.from(document.querySelectorAll('#messages .msg')).map((el) => el.textContent || '').join('\n')).toLowerCase().includes('clarification'),
+      clarificationKeyword: (document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '').toLowerCase().includes('clarification'),
     },
     planFlowTextTail: (document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '').slice(-800),
     messagesTail: Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || '').slice(-240)).slice(-10),
@@ -1114,6 +1136,7 @@ async def verify_atlas_plan_approval_actionability(page, wait_diag: dict, consol
     raise AssertionError("plan approval actionability failed: execute_preview_unlocked_before_approval; artifact=atlas_lifecycle_final.json")
   if not diag.get("patchApplyLocked"):
     raise AssertionError("plan approval actionability failed: patch_apply_unlocked_before_approval; artifact=atlas_lifecycle_final.json")
+  await assert_no_atlas_chat_leak(page, "plan_approval_actionability")
   return diag
 
 
@@ -2087,6 +2110,7 @@ async def main() -> None:
             diag = {**diag, "finalDecision": "needs_clarification_after_resolution", "completionDecisionReason": "clarification_required_after_single_resolution_attempt"}
             wait_plan_diag["postResolutionFinalDecision"] = "needs_clarification_after_resolution"
         print("INFO: atlas backend wait-plan diagnostics:\n" + json.dumps({"waitPlan": diag, "resolution": wait_plan_diag}, ensure_ascii=False, indent=2))
+        await assert_no_atlas_chat_leak(page, "wait_plan")
         if run_backend_check_plan_approval_opt_in:
           approval_diag = await verify_atlas_plan_approval_gate_readiness(page, diag, console_errors, page_errors)
           print("INFO: atlas plan-approval-gate diagnostics:\n" + json.dumps(approval_diag, ensure_ascii=False, indent=2))

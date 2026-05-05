@@ -15877,7 +15877,30 @@ function renderMd(text) {
   catch(e) { return `<span style="white-space:pre-wrap">${esc(text)}</span>`; }
 }
 
-function addMsg(role, text) {
+function isAtlasWorkflowLeakText(text = '', source = '') {
+  const s = String(source || '').toLowerCase();
+  const t = String(text || '');
+  return s === 'atlas' || [
+    'Atlas Workflow Status',
+    'Requirement Source: atlas',
+    'Source: atlas',
+    'Workspace: Atlas',
+    'Clarification required before planning',
+    'Plan generated',
+    'Plan review detected',
+    'Approval status',
+    'Execution ready',
+    'Patch review',
+  ].some((token) => t.includes(token));
+}
+
+function addMsg(role, text, options = {}) {
+  const source = options?.source || options?.workspace || '';
+  if (isAtlasWorkflowLeakText(text, source)) {
+    console.warn('[atlas-leak-blocked] attempted to append Atlas workflow output to Chat');
+    appendAtlasActivityCard('blocked_chat_leak', { text: String(text || '').slice(0, 160) });
+    return null;
+  }
   const w = messages();
   const d = document.createElement('div');
   d.className = 'msg '+role;
