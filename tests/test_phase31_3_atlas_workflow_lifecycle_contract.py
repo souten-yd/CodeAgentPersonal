@@ -93,13 +93,27 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
             self.assertNotIn(forbidden, MATRIX)
 
     def test_approval_presets_depend_on_wait_plan_and_do_not_click_destructive_actions(self):
-        self.assertIn("plan_approval_gate_skipped_non_completed", SMOKE)
-        self.assertIn("plan_approval_actionability_skipped_non_completed", SMOKE)
+        self.assertIn("plan approval gate failed: wait_plan_failed", SMOKE)
+        self.assertIn("plan approval actionability failed: wait_plan_failed", SMOKE)
         self.assertIn("RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL requires", SMOKE)
         banned = ["approvePlan(", "executePreview(", "applyPatch(", "bulk approve", "bulk apply", "auto approve", "auto apply"]
         lowered_smoke = SMOKE.lower()
         for token in banned:
             self.assertNotIn(token.lower(), lowered_smoke)
+
+    def test_wait_plan_assertion_summary_is_compact_and_artifact_backed(self):
+        self.assertIn("def compact_atlas_diag_reason", SMOKE)
+        self.assertIn("artifact=atlas_lifecycle_final.json", SMOKE)
+        self.assertIn('raise_compact_atlas_diag(diag, prefix="atlas wait-plan failed")', SMOKE)
+        self.assertNotIn("atlas wait-plan did not complete successfully: {json.dumps(diag", SMOKE)
+
+    def test_wait_plan_prompt_is_clear_non_destructive_and_ui_state_tracks_plan_result(self):
+        self.assertIn("Create a non-destructive implementation plan for adding a small UI label", SMOKE)
+        self.assertIn("lastPlanApiIds", UI)
+        self.assertIn("generatedPlan", UI)
+        self.assertIn("planMarkdown", UI)
+        self.assertIn("apiAtlasJobId", SMOKE)
+        self.assertIn("apiAtlasRunId", SMOKE)
 
 
 if __name__ == "__main__":

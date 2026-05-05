@@ -371,7 +371,7 @@ html.logo-svg-ready .logo-text{display:none}
 .phase1-md-view,.phase1-md-view *{word-break:break-word;overflow-wrap:anywhere}
 .phase1-md-view pre,.phase1-md-view code{max-width:100%}
 .phase1-md-view pre{overflow-x:auto}
-.mode-wrap{display:flex;background:var(--bg2);border:1px solid var(--border);border-radius:6px;overflow:hidden;min-width:0}
+.mode-wrap{display:flex;background:var(--bg2);border:1px solid var(--border);border-radius:6px;overflow:hidden;min-width:0;max-width:100%}
 .hdr-right .mode-wrap{flex:0 1 auto}
 .mode-btn{padding:5px 12px;font-size:12px;font-weight:600;font-family:var(--font-ui);letter-spacing:.04em;cursor:pointer;border:none;background:transparent;color:var(--text2);transition:all .15s}
 .mode-btn{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
@@ -585,7 +585,7 @@ html.logo-svg-ready .logo-text{display:none}
 .atlas-panel-col #atlas-workbench-card-atlas-runs-list,.atlas-panel-col #atlas-workbench-card-patch-list{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
 @media(max-width:768px){
   .atlas-panel-col{padding:0;max-height:100%;}
-  .atlas-panel-col #atlas-workbench-card{width:auto!important;margin:8px!important;max-width:none!important}
+  .atlas-panel-col #atlas-workbench-card{width:calc(100% - 16px)!important;margin:8px!important;max-width:calc(100% - 16px)!important}
   .atlas-workbench-summary{display:grid;grid-template-columns:1fr;gap:2px;min-height:36px}
   .atlas-workbench-summary-item{display:flex;gap:4px;line-height:1.2}
   .atlas-workbench-summary-item:not(:last-child)::after{content:"";margin:0}
@@ -13731,6 +13731,10 @@ const planWorkflowState = {
   workflowPhase: 'idle',
   currentJobId: '',
   currentRunId: '',
+  lastPlanApiIds: {},
+  planMarkdown: '',
+  generatedPlan: null,
+  planResult: null,
   jobStatus: '',
   source: 'atlas',
   workspace: 'Atlas',
@@ -13848,7 +13852,7 @@ function deriveAtlasPlanFlowState() {
   ].some(atlasHasValue);
   const hasPlan = [
     state.planId, state.plan, state.planResult, state.planningResult,
-    state.generatedPlan, state.planMarkdown,
+    state.generatedPlan, state.planMarkdown, state.lastPlanApiIds?.plan_id,
   ].some(atlasHasValue);
   const hasReview = [
     state.reviewId, state.review, state.reviewResult, state.planReview,
@@ -15087,6 +15091,15 @@ function renderPhase1PlanCard(result, planMarkdown = '') {
     currentJobId: result?.atlas_job_id || result?.job_id || (result?.plan_id ? `sync-plan:${result.plan_id}` : ''),
     currentRunId: result?.atlas_run_id || result?.run_id || result?.plan_id || '',
     jobStatus: result?.job_status || 'completed',
+    lastPlanApiIds: {
+      atlas_job_id: result?.atlas_job_id || '',
+      atlas_run_id: result?.atlas_run_id || '',
+      plan_id: result?.plan_id || result?.plan?.plan_id || '',
+      requirement_id: result?.requirement_id || '',
+    },
+    generatedPlan: plan,
+    planResult: result,
+    planMarkdown: planMarkdown || '',
     requirementId: result?.requirement_id || '',
     planId: result?.plan_id || result?.plan?.plan_id || '',
     reviewId: reviewResult?.review_id || '',
@@ -15230,7 +15243,7 @@ async function generatePlanOnlyFromInput(options = {}) {
     ws.forEach((w) => addLog('warn', 'plan-only', String(w)));
 
     if (d.status === 'waiting_for_clarification') {
-      _updatePlanWorkflowState({ workflowPhase: 'requirement_ready', currentJobId: d.atlas_job_id || d.job_id || `sync-requirement:${d.requirement_id || 'unknown'}`, currentRunId: d.atlas_run_id || '', jobStatus: d.job_status || 'waiting_for_clarification', requirementId: d.requirement_id || '', lastError: '' });
+      _updatePlanWorkflowState({ workflowPhase: 'requirement_ready', currentJobId: d.atlas_job_id || d.job_id || `sync-requirement:${d.requirement_id || 'unknown'}`, currentRunId: d.atlas_run_id || '', jobStatus: d.job_status || 'waiting_for_clarification', lastPlanApiIds: { atlas_job_id: d.atlas_job_id || '', atlas_run_id: d.atlas_run_id || '', requirement_id: d.requirement_id || '' }, requirementId: d.requirement_id || '', lastError: '' });
       renderClarificationCard(d, { planningMode, requirementMode, executionMode });
       addLog('ok', 'plan-only', `Clarification required requirement_id=${d.requirement_id}`);
       return;

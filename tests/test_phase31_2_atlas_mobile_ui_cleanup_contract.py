@@ -61,7 +61,7 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
             'overflow-x:hidden;width:100%;max-width:100%',
             '.atlas-panel-col{overflow-y:auto;overflow-x:hidden',
             'min-width:0;max-width:100%',
-            'width:auto!important',
+            'width:calc(100% - 16px)!important',
             'max-width:100%;min-width:0;min-height:84px',
         ]:
             self.assertIn(token, UI)
