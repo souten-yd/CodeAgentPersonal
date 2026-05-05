@@ -1582,10 +1582,29 @@ async def verify_atlas_current_ui_smoke(page) -> None:
   for tab in ["start", "plan", "review", "execute", "patch", "runs", "activity"]:
     assert await page.locator(f"#atlas-workbench-card [data-atlas-subview-tab='{tab}']").count() == 1
 
+  await wait_named(page, 'atlas_panel_visible', """() => {
+    const panel = document.getElementById('atlas-panel-col');
+    return !!panel && getComputedStyle(panel).display !== 'none' && panel.getBoundingClientRect().height > 0;
+  }""")
+  await wait_named(page, 'atlas_workbench_visible', """() => {
+    const card = document.getElementById('atlas-workbench-card');
+    return !!card && getComputedStyle(card).display !== 'none' && card.getBoundingClientRect().height > 0;
+  }""")
+  await wait_named(page, 'activity_tab_exists', "() => document.querySelectorAll(\"#atlas-workbench-card [data-atlas-subview-tab='activity']\").length === 1")
+  await wait_named(page, 'activity_panel_exists', "() => document.querySelectorAll(\"#atlas-workbench-card [data-atlas-subview-panel='activity']\").length === 1")
+  await wait_named(page, 'activity_stream_singleton', "() => document.querySelectorAll('#atlas-activity-stream').length === 1")
+  await wait_named(page, 'activity_stream_inside_activity_panel', """() => {
+    const panel = document.querySelector("#atlas-workbench-card [data-atlas-subview-panel='activity']");
+    const stream = document.getElementById('atlas-activity-stream');
+    return !!panel && !!stream && panel.contains(stream);
+  }""")
   await wait_named(page, 'activity_stream_hidden_until_activity_tab_selected', """() => {
     const stream = document.getElementById('atlas-activity-stream');
-    const card = document.getElementById('atlas-workbench-card');
-    return !!stream && !!card && card.contains(stream) && (getComputedStyle(stream).display === 'none' || stream.offsetParent === null);
+    const panel = document.querySelector('[data-atlas-subview-panel="activity"]');
+    if (!panel || !stream) return false;
+    if (!panel.contains(stream)) return false;
+    const panelVisible = !panel.hidden && getComputedStyle(panel).display !== 'none' && panel.getBoundingClientRect().height > 0;
+    return !panelVisible;
   }""")
   for mode_name in ["chat", "echo", "agent", "nexus"]:
     await set_mode(page, mode_name)
@@ -1600,10 +1619,11 @@ async def verify_atlas_current_ui_smoke(page) -> None:
   await open_atlas(page)
   await wait_named(page, 'activity_stream_hidden_after_mode_switches_until_tab_selected', """() => {
     const stream = document.getElementById('atlas-activity-stream');
-    const atlas = document.getElementById('atlas-panel-col');
-    if (!stream || !atlas || !atlas.contains(stream)) return false;
-    const style = getComputedStyle(stream);
-    return style.display === 'none' || stream.offsetParent === null;
+    const panel = document.querySelector('[data-atlas-subview-panel="activity"]');
+    if (!panel || !stream) return false;
+    if (!panel.contains(stream)) return false;
+    const panelVisible = !panel.hidden && getComputedStyle(panel).display !== 'none' && panel.getBoundingClientRect().height > 0;
+    return !panelVisible;
   }""")
 
   await ensure_atlas_start(page)
@@ -1634,15 +1654,40 @@ async def verify_atlas_current_ui_smoke(page) -> None:
   await set_atlas_subview(page, "activity")
   await wait_named(page, 'activity_tab_stream_visible_after_select', """() => {
     const stream = document.getElementById('atlas-activity-stream');
-    return !!stream && getComputedStyle(stream).display !== 'none' && stream.offsetParent !== null;
+    const panel = document.querySelector('[data-atlas-subview-panel="activity"]');
+    if (!panel || !stream) return false;
+    if (!panel.contains(stream)) return false;
+    return (
+      !panel.hidden &&
+      getComputedStyle(panel).display !== 'none' &&
+      stream.getBoundingClientRect().height > 0
+    );
   }""")
+  await set_mode(page, "chat")
+  await wait_named(page, 'chat_hides_activity_stream', """() => {
+    const panel = document.querySelector('[data-atlas-subview-panel="activity"]');
+    const stream = document.getElementById('atlas-activity-stream');
+    if (!panel || !stream) return false;
+    return panel.hidden || getComputedStyle(panel).display === 'none' || stream.offsetParent === null;
+  }""")
+  await set_mode(page, "echo")
+  await wait_named(page, 'echo_hides_activity_stream', """() => {
+    const panel = document.querySelector('[data-atlas-subview-panel="activity"]');
+    const stream = document.getElementById('atlas-activity-stream');
+    if (!panel || !stream) return false;
+    return panel.hidden || getComputedStyle(panel).display === 'none' || stream.offsetParent === null;
+  }""")
+  await open_atlas(page)
+  await set_atlas_subview(page, "activity")
 
   collapse = page.locator("#atlas-workbench-collapse-btn")
   await collapse.click()
   await wait_named(page, 'workbench_collapsed', "() => document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
   await wait_named(page, 'activity_stream_hidden_when_collapsed_off_activity_tab', """() => {
     const stream = document.getElementById('atlas-activity-stream');
-    return !!stream && (getComputedStyle(stream).display === 'none' || stream.offsetParent === null);
+    const panel = document.querySelector('[data-atlas-subview-panel="activity"]');
+    if (!panel || !stream) return false;
+    return panel.hidden || getComputedStyle(panel).display === 'none' || stream.offsetParent === null;
   }""")
   await collapse.click()
   await wait_named(page, 'workbench_collapse_available', "() => !document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
@@ -1670,9 +1715,29 @@ async def verify_atlas_current_ui_smoke(page) -> None:
       };
     }).filter(x => x.overflowRight > 1).sort((a,b) => b.overflowRight - a.overflowRight).slice(0,20)""")
     raise AssertionError(f"mobile horizontal overflow detected: {overflow}; offenders: {offenders}")
+  await wait_named(page, 'mobile_no_horizontal_overflow', "() => document.documentElement.scrollWidth - document.documentElement.clientWidth <= 1 && document.body.scrollWidth - document.body.clientWidth <= 1")
+
+  await set_mode(page, "nexus")
+  await page.click("#nexus-col [data-nexus-tab='dashboard']")
+  await wait_named(page, 'nexus_dashboard_visible_on_dashboard_tab', """() => {
+    const dashboard = document.querySelector('[data-nexus-panel="dashboard"]');
+    return !!dashboard && !dashboard.hidden && getComputedStyle(dashboard).display !== 'none';
+  }""")
+  for tab in ["research", "sources", "evidence", "reports"]:
+    await page.click(f"#nexus-col [data-nexus-tab='{tab}']")
+    await wait_named(page, f'nexus_dashboard_hidden_on_{tab}', f"""() => {{
+      const dashboard = document.querySelector('[data-nexus-panel="dashboard"]');
+      const panel = document.querySelector('[data-nexus-panel="{tab}"]');
+      if (!dashboard || !panel) return false;
+      return (
+        (dashboard.hidden || getComputedStyle(dashboard).display === 'none') &&
+        !panel.hidden &&
+        getComputedStyle(panel).display !== 'none'
+      );
+    }}""")
 
   await page.click("#btn-agent")
-  await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display !== 'none'")
+  await wait_named(page, 'agent_panel_visible_from_atlas_smoke', "() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display !== 'none'")
   assert await page.locator("#agent-panel-col", has_text="Legacy Agent Advanced").count() > 0
 
 
