@@ -1556,19 +1556,14 @@ async def verify_atlas_current_ui_smoke(page) -> None:
   }""")
   assert not stray_atlas_heading, "Atlas mode must not render a standalone Atlas heading above Workflow Workbench"
   assert await page.locator("#atlas-workbench-card [data-atlas-subview-tab='legacy']").count() == 0
-  for tab in ["start", "plan", "review", "execute", "patch", "runs"]:
+  for tab in ["start", "plan", "review", "execute", "patch", "runs", "activity"]:
     assert await page.locator(f"#atlas-workbench-card [data-atlas-subview-tab='{tab}']").count() == 1
 
-  await wait_named(page, 'atlas_activity_stream_visible', """() => {
-    const stream = document.getElementById('atlas-activity-stream');
-    return !!stream && getComputedStyle(stream).display !== 'none';
-  }""")
-  await wait_named(page, 'atlas_activity_stream_outside_workbench', """() => {
+  await wait_named(page, 'activity_stream_hidden_until_activity_tab_selected', """() => {
     const stream = document.getElementById('atlas-activity-stream');
     const card = document.getElementById('atlas-workbench-card');
-    return !!stream && !!card && !card.contains(stream);
+    return !!stream && !!card && card.contains(stream) && (getComputedStyle(stream).display === 'none' || stream.offsetParent === null);
   }""")
-
   for mode_name in ["chat", "echo", "agent", "nexus"]:
     await set_mode(page, mode_name)
     await wait_named(page, f'atlas_activity_stream_hidden_{mode_name}', """() => {
@@ -1580,12 +1575,12 @@ async def verify_atlas_current_ui_smoke(page) -> None:
       return atlasHidden && stream.offsetParent === null;
     }""")
   await open_atlas(page)
-  await wait_named(page, 'atlas_activity_stream_visible_after_mode_switches', """() => {
+  await wait_named(page, 'activity_stream_hidden_after_mode_switches_until_tab_selected', """() => {
     const stream = document.getElementById('atlas-activity-stream');
     const atlas = document.getElementById('atlas-panel-col');
     if (!stream || !atlas || !atlas.contains(stream)) return false;
     const style = getComputedStyle(stream);
-    return style.display !== 'none' && stream.offsetParent !== null;
+    return style.display === 'none' || stream.offsetParent === null;
   }""")
 
   await ensure_atlas_start(page)
@@ -1613,13 +1608,18 @@ async def verify_atlas_current_ui_smoke(page) -> None:
   await wait_named(page, 'execute_tab_visible', "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'execute'")
   await set_atlas_subview(page, "patch")
   await wait_named(page, 'patch_tab_visible', "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'patch'")
+  await set_atlas_subview(page, "activity")
+  await wait_named(page, 'activity_tab_stream_visible_after_select', """() => {
+    const stream = document.getElementById('atlas-activity-stream');
+    return !!stream && getComputedStyle(stream).display !== 'none' && stream.offsetParent !== null;
+  }""")
 
   collapse = page.locator("#atlas-workbench-collapse-btn")
   await collapse.click()
   await wait_named(page, 'workbench_collapsed', "() => document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
-  await wait_named(page, 'activity_stream_visible_when_collapsed', """() => {
+  await wait_named(page, 'activity_stream_hidden_when_collapsed_off_activity_tab', """() => {
     const stream = document.getElementById('atlas-activity-stream');
-    return !!stream && getComputedStyle(stream).display !== 'none';
+    return !!stream && (getComputedStyle(stream).display === 'none' || stream.offsetParent === null);
   }""")
   await collapse.click()
   await wait_named(page, 'workbench_collapse_available', "() => !document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
