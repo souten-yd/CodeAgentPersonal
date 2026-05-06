@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from dataclasses import dataclass
 from pathlib import Path
 import os
 import re
@@ -2258,20 +2259,73 @@ def print_smoke_summary(results: list[dict[str, str]]) -> str:
 
 
 
-SMOKE_SCENARIOS: dict[str, callable] = {
-  "bootstrap_api_contract": verify_mode_switches,
-  "mode_switches": verify_mode_switches,
-  "atlas_current_ui_smoke": verify_atlas_current_ui_smoke,
-  "nexus_current_ui_smoke": verify_nexus_current_ui_smoke,
-  "atlas_plan_api_contract": verify_atlas_plan_api_contract,
-  "atlas_start_button_feedback": verify_atlas_start_button_feedback,
-  "atlas_guided_workflow_safe_journey": verify_atlas_guided_workflow_safe_journey,
-  "mode_specific_subtabs": verify_mode_specific_subtabs,
-  "nexus_tabs": verify_nexus_tabs,
-  "reference_card_actions": verify_reference_card_actions,
-  "chat_search_and_agent_web_tool_tts": verify_chat_search_and_agent_web_tool_tts,
-  "mobile_mode_switches": verify_mobile_mode_switches,
+@dataclass(frozen=True)
+class SmokeScenarioSpec:
+  id: str
+  fn: callable
+  kind: str
+  requires_backend: bool = False
+  allowed_in_preflight_only: bool = False
+  default_ui: bool = False
+  default_backend_e2e: bool = False
+
+
+SMOKE_SCENARIOS: dict[str, SmokeScenarioSpec] = {
+  "bootstrap_api_contract": SmokeScenarioSpec(id="bootstrap_api_contract", fn=verify_mode_switches, kind="ui", default_ui=True),
+  "mode_switches": SmokeScenarioSpec(id="mode_switches", fn=verify_mode_switches, kind="ui", default_ui=True),
+  "atlas_current_ui_smoke": SmokeScenarioSpec(id="atlas_current_ui_smoke", fn=verify_atlas_current_ui_smoke, kind="ui", default_ui=True),
+  "nexus_current_ui_smoke": SmokeScenarioSpec(id="nexus_current_ui_smoke", fn=verify_nexus_current_ui_smoke, kind="ui", default_ui=True),
+  "atlas_plan_api_contract": SmokeScenarioSpec(id="atlas_plan_api_contract", fn=verify_atlas_plan_api_contract, kind="backend_api", requires_backend=True, allowed_in_preflight_only=True),
+  "atlas_start_button_feedback": SmokeScenarioSpec(id="atlas_start_button_feedback", fn=verify_atlas_start_button_feedback, kind="ui", default_ui=True),
+  "atlas_guided_workflow_safe_journey": SmokeScenarioSpec(id="atlas_guided_workflow_safe_journey", fn=verify_atlas_guided_workflow_safe_journey, kind="ui", default_ui=True),
+  "mode_specific_subtabs": SmokeScenarioSpec(id="mode_specific_subtabs", fn=verify_mode_specific_subtabs, kind="ui", default_ui=True),
+  "nexus_tabs": SmokeScenarioSpec(id="nexus_tabs", fn=verify_nexus_tabs, kind="ui", default_ui=True),
+  "reference_card_actions": SmokeScenarioSpec(id="reference_card_actions", fn=verify_reference_card_actions, kind="ui", default_ui=True),
+  "chat_search_and_agent_web_tool_tts": SmokeScenarioSpec(id="chat_search_and_agent_web_tool_tts", fn=verify_chat_search_and_agent_web_tool_tts, kind="ui", default_ui=True),
+  "mobile_mode_switches": SmokeScenarioSpec(id="mobile_mode_switches", fn=verify_mobile_mode_switches, kind="ui"),
 }
+
+
+def _scenario_to_json(spec: SmokeScenarioSpec) -> dict:
+  return {
+    "id": spec.id,
+    "kind": spec.kind,
+    "requires_backend": spec.requires_backend,
+    "allowed_in_preflight_only": spec.allowed_in_preflight_only,
+    "default_ui": spec.default_ui,
+    "default_backend_e2e": spec.default_backend_e2e,
+  }
+
+
+def resolve_smoke_scenarios(*, only: list[str], preflight_only_mode: bool, run_backend_e2e: bool, run_wait_plan: bool, run_resolve_clarification: bool, run_check_plan_approval: bool, run_check_plan_approval_actionable: bool) -> list[str]:
+  if only:
+    unknown = [item for item in only if item not in SMOKE_SCENARIOS]
+    if unknown:
+      raise AssertionError(f"unknown scenarios: {unknown}")
+    if preflight_only_mode:
+      disallowed = [item for item in only if SMOKE_SCENARIOS[item].kind == "ui" and not SMOKE_SCENARIOS[item].allowed_in_preflight_only]
+      if disallowed:
+        raise AssertionError(f"scenario not allowed in current mode: {disallowed}")
+    selected = []
+    if any(SMOKE_SCENARIOS[item].requires_backend for item in only):
+      selected.append("atlas_backend_preflight")
+    selected.extend(only)
+    return list(dict.fromkeys(selected))
+
+  if preflight_only_mode:
+    return ["atlas_backend_preflight"]
+  if run_backend_e2e:
+    if run_check_plan_approval_actionable:
+      return ["atlas_backend_preflight", "atlas_backend_e2e_plan_approval_actionability"]
+    if run_check_plan_approval:
+      return ["atlas_backend_preflight", "atlas_backend_e2e_plan_approval_gate"]
+    if run_wait_plan and run_resolve_clarification:
+      return ["atlas_backend_preflight", "atlas_backend_e2e_resolve_clarification"]
+    if run_wait_plan:
+      return ["atlas_backend_preflight", "atlas_backend_e2e_wait_plan"]
+    return ["atlas_backend_preflight", "atlas_backend_e2e_journey"]
+  return [spec.id for spec in SMOKE_SCENARIOS.values() if spec.default_ui]
+
 
 
 async def main() -> None:
@@ -2279,7 +2333,7 @@ async def main() -> None:
   parser.add_argument("--list-scenarios", action="store_true")
   args, _ = parser.parse_known_args()
   if args.list_scenarios:
-    print(json.dumps({"scenarios": sorted(SMOKE_SCENARIOS.keys())}, ensure_ascii=False, indent=2))
+    print(json.dumps({"scenarios": [_scenario_to_json(SMOKE_SCENARIOS[name]) for name in sorted(SMOKE_SCENARIOS.keys())]}, ensure_ascii=False, indent=2))
     return
   if async_playwright is None:
     print("SKIP: playwright is not installed.")
@@ -2320,20 +2374,7 @@ async def main() -> None:
     base_url, mock_server = get_smoke_base_url(use_explicit_base_url=real_backend_opt_in)
     print(f"INFO: Playwright smoke base URL = {base_url}")
     results: list[dict[str, str]] = []
-    default_ui_scenarios = [(name, SMOKE_SCENARIOS[name]) for name in (
-      "bootstrap_api_contract",
-      "mode_switches",
-      "atlas_current_ui_smoke",
-      "nexus_current_ui_smoke",
-      "atlas_plan_api_contract",
-      "atlas_start_button_feedback",
-      "atlas_guided_workflow_safe_journey",
-      "mode_specific_subtabs",
-      "nexus_tabs",
-      "reference_card_actions",
-      "chat_search_and_agent_web_tool_tts",
-    )]
-
+    scenario_runners: dict[str, callable] = {name: spec.fn for name, spec in SMOKE_SCENARIOS.items()}
 
     if preflight_only_mode:
       print("INFO: preflight-only mode enabled (RUN_ATLAS_BACKEND_PREFLIGHT=1, RUN_ATLAS_BACKEND_E2E unset).")
@@ -2460,24 +2501,29 @@ async def main() -> None:
       print("INFO: backend preflight remains opt-in (set RUN_ATLAS_BACKEND_PREFLIGHT=1 to include).")
       print("SKIP: RUN_ATLAS_BACKEND_E2E is not set")
       print("INFO: backend E2E scenario remains opt-in (set RUN_ATLAS_BACKEND_E2E=1 to include).")
-      scenarios = list(default_ui_scenarios)
+      scenarios = []
 
       async def bootstrap_assertions(current_page) -> None:
         set_mode_type, switch_tab_type = await current_page.evaluate("() => [typeof window.setMode, typeof window.switchNexusTab]")
         assert set_mode_type == "function", f"window.setMode is {set_mode_type}"
         assert switch_tab_type == "function", f"window.switchNexusTab is {switch_tab_type}"
 
-      scenarios[0] = ("bootstrap_api_contract", bootstrap_assertions)
+      scenario_runners["bootstrap_api_contract"] = bootstrap_assertions
 
     only = [item.strip() for item in os.environ.get("PLAYWRIGHT_SMOKE_ONLY", "").split(",") if item.strip()]
-    if only:
-      unknown = [item for item in only if item not in SMOKE_SCENARIOS and item != "mobile_mode_switches"]
-      if unknown:
-        raise AssertionError(f"PLAYWRIGHT_SMOKE_ONLY selected no known scenarios: {unknown}")
-      allowed = set(only)
-      scenarios = [item for item in scenarios if item[0] in allowed]
-      if not scenarios and "mobile_mode_switches" not in allowed:
-        raise AssertionError(f"PLAYWRIGHT_SMOKE_ONLY selected no known scenarios: {only}")
+    selected_scenarios = resolve_smoke_scenarios(
+      only=only,
+      preflight_only_mode=preflight_only_mode,
+      run_backend_e2e=run_backend_e2e_opt_in,
+      run_wait_plan=run_backend_wait_plan_opt_in,
+      run_resolve_clarification=run_backend_resolve_clarification_opt_in,
+      run_check_plan_approval=run_backend_check_plan_approval_opt_in,
+      run_check_plan_approval_actionable=run_backend_check_plan_approval_actionable_opt_in,
+    )
+    if not selected_scenarios:
+      raise AssertionError("no scenarios selected after resolution: []")
+    print("INFO: selected scenarios: " + ", ".join(selected_scenarios))
+    scenarios = [(name, scenario_runners[name]) for name in selected_scenarios if name in scenario_runners]
 
     for scenario_name, scenario_fn in scenarios:
       await run_smoke_scenario(scenario_name, browser, base_url, scenario_fn, results, DEFAULT_DESKTOP_VIEWPORT)

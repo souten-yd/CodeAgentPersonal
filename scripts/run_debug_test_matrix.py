@@ -152,6 +152,31 @@ def _run_preflight_checks(run_dir: Path) -> dict[str, Any]:
         "stderr_log_path": str(stderr_log_path),
     }
 
+
+
+def _load_smoke_registry() -> set[str]:
+    proc = subprocess.run(
+        [sys.executable, "scripts/smoke_ui_modes_playwright.py", "--list-scenarios"],
+        cwd=str(REPO_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise AssertionError(f"matrix_preflight_failed: smoke --list-scenarios failed: {proc.stderr.strip() or proc.stdout.strip()}")
+    payload = json.loads(proc.stdout)
+    return {item.get("id", "") for item in payload.get("scenarios", []) if isinstance(item, dict)}
+
+
+def _validate_smoke_only_presets(registry: set[str]) -> None:
+    missing: dict[str, str] = {}
+    for preset in TEST_PRESETS:
+        scenario = preset.env.get("PLAYWRIGHT_SMOKE_ONLY", "").strip()
+        if scenario and scenario not in registry:
+            missing[preset.id] = scenario
+    if missing:
+        raise AssertionError(f"matrix_preflight_failed: PLAYWRIGHT_SMOKE_ONLY not in smoke registry: {missing}")
+
 def run_all_presets(run_id: str) -> dict[str, Any]:
     run_dir = DEBUG_RUN_ROOT / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -167,6 +192,8 @@ def run_all_presets(run_id: str) -> dict[str, Any]:
         _write_progress(run_dir, payload)
         return payload
     _write_progress(run_dir, payload)
+    smoke_registry = _load_smoke_registry()
+    _validate_smoke_only_presets(smoke_registry)
     for preset in TEST_PRESETS:
         payload["current_test"] = preset.id
         _write_progress(run_dir, payload)
