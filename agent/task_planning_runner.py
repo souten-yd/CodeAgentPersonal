@@ -6,6 +6,7 @@ from typing import Callable
 
 from agent.agent_prompts import PLAN_GENERATION_PROMPT, REQUIREMENT_ANALYSIS_PROMPT
 from agent.clarification_manager import ClarificationManager
+from agent.clarification_policy import ClarificationPolicy
 from agent.nexus_context_builder import NexusContextBuilder
 from agent.plan_reviewer import PlanReviewer
 from agent.plan_storage import PlanStorage
@@ -54,6 +55,7 @@ class TaskPlanningRunner:
         self.requirement_analyzer = RequirementAnalyzer(llm_json_fn=llm_json_fn)
         self.plan_reviewer = PlanReviewer()
         self.clarification_manager = ClarificationManager()
+        self.clarification_policy = ClarificationPolicy()
         self.nexus_builder = NexusContextBuilder(
             memory_search_fn=memory_search_fn,
             active_skills_fn=active_skills_fn,
@@ -110,8 +112,14 @@ class TaskPlanningRunner:
         clarification = self.clarification_manager.generate(requirement, requirement_mode, allow_derive=True)
         _req_json, req_md = self.storage.save_requirement(requirement)
 
+        decision = self.clarification_policy.classify(
+            user_input=user_input,
+            task_type=requirement.task_type,
+            requirement_mode=requirement_mode,
+            project_context=f"{project_name} {project_path}",
+        )
         unresolved_required = self.clarification_manager.unresolved_required_questions(requirement)
-        if unresolved_required:
+        if decision.decision == "required" and unresolved_required:
             warnings = _dedup_warnings(warnings)
             return {
                 "task_id": task_id,
@@ -128,6 +136,7 @@ class TaskPlanningRunner:
                 "nexus_context": nexus_context,
                 "repository_context": repository_context,
                 "requirement_markdown_path": str(req_md),
+                "clarification_policy": {"decision": decision.decision, "reason": decision.reason},
                 "warnings": warnings,
             }
 
@@ -206,6 +215,12 @@ class TaskPlanningRunner:
 
         clarification = self.clarification_manager.generate(requirement, requirement_mode, allow_derive=False)
         unresolved_required = self.clarification_manager.unresolved_required_questions(requirement)
+        decision = self.clarification_policy.classify(
+            user_input=requirement.user_input,
+            task_type=requirement.task_type,
+            requirement_mode=requirement_mode,
+            project_context=f"{project_name} {project_path}",
+        )
         self.storage.save_requirement(requirement)
 
         if nexus_context is None:
@@ -218,7 +233,7 @@ class TaskPlanningRunner:
             )
             warnings.extend([str(x) for x in (nexus_context.get("warnings") or []) if str(x).strip()])
 
-        if unresolved_required:
+        if decision.decision == "required" and unresolved_required:
             return {
                 "task_id": task_id or requirement.source_task_id,
                 "requirement_id": requirement.requirement_id,
@@ -233,6 +248,7 @@ class TaskPlanningRunner:
                 "requirement": requirement.model_dump(),
                 "nexus_context": nexus_context,
                 "resolved_project_path": resolved_project_path,
+                "clarification_policy": {"decision": decision.decision, "reason": decision.reason},
                 "warnings": _dedup_warnings(warnings),
             }
 

@@ -13659,7 +13659,7 @@ function _phase2QuestionControl(q) {
   }
   if (type === 'yes_no') {
     return `<div style="display:flex;gap:8px;flex-wrap:wrap">
-      ${['Yes','No','おまかせ'].map((opt)=>`<label style="font-size:12px;color:var(--text2);display:flex;gap:7px;align-items:center;padding:2px 4px;line-height:1.4"><input type="radio" style="transform:scale(1.1)" name="q_${qid}" data-qid="${qid}" data-qtype="yes_no" value="${esc(opt)}" ${String(q.default||'')===opt ? 'checked' : ''}/> <span>${esc(opt)}</span></label>`).join('')}
+      ${['はい','いいえ','おまかせ'].map((opt)=>`<label style="font-size:12px;color:var(--text2);display:flex;gap:7px;align-items:center;padding:2px 4px;line-height:1.4"><input type="radio" style="transform:scale(1.1)" name="q_${qid}" data-qid="${qid}" data-qtype="yes_no" value="${esc(opt)}" ${String(q.default||'')===opt ? 'checked' : ''}/> <span>${esc(opt)}</span></label>`).join('')}
     </div>`;
   }
   if (type === 'free_text') {
@@ -13680,16 +13680,23 @@ function _collectClarificationAnswers(card) {
     if (qtype === 'multiple_choice') {
       answer = Array.from(row.querySelectorAll('input[type="checkbox"][data-qid]:checked')).map((el) => el.value);
       if (!answer.length) answer = ['おまかせ'];
-    } else if (qtype === 'yes_no') {
+      answers.push({ question_id: qid, answer });
+      return;
+    }
+    const note = (row.querySelector('textarea[data-qnote]')?.value || '').trim();
+    let rawChoice = 'おまかせ';
+    if (qtype === 'yes_no') {
       const checked = row.querySelector(`input[type="radio"][name="q_${qid}"]:checked`);
-      answer = checked ? checked.value : 'おまかせ';
+      rawChoice = checked ? checked.value : 'おまかせ';
     } else if (qtype === 'free_text') {
       const input = row.querySelector('input[data-qid]');
-      answer = (input?.value || '').trim() || 'おまかせ';
+      rawChoice = (input?.value || '').trim() || 'おまかせ';
     } else {
       const sel = row.querySelector('select[data-qid]');
-      answer = sel?.value || 'おまかせ';
+      rawChoice = sel?.value || 'おまかせ';
     }
+    const mode = rawChoice === 'はい' ? 'accept' : rawChoice === 'いいえ' ? 'reject' : rawChoice === 'おまかせ' ? 'delegate' : 'custom';
+    answer = { mode, text: note, raw_choice: rawChoice };
     answers.push({ question_id: qid, answer });
   });
   return answers;
@@ -14544,6 +14551,7 @@ function renderClarificationCard(result, context = {}) {
         </div>
         <div style="font-size:11px;color:var(--text2);margin:6px 0">理由: ${esc(String(q.reason||'-'))}</div>
         ${_phase2QuestionControl(q)}
+        <textarea data-qnote="1" placeholder="補足・代替案（いいえ/その他時は入力推奨）" style="display:none;width:100%;margin-top:6px;min-height:62px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px"></textarea>
       </div>
     `).join('')
     : '<div style="font-size:11px;color:var(--text3)">質問はありません。</div>';
@@ -14555,7 +14563,7 @@ function renderClarificationCard(result, context = {}) {
     <div class="plan-card" id="${cardId}">
       <div class="plan-card-header"><span>${esc(result?.message || 'Clarification required before planning')}</span></div>
       <div class="plan-section">
-        <div class="plan-section-title">Questions</div>
+        <div class="plan-section-title">Questions</div><div style="font-size:11px;color:var(--text2);margin:4px 0 8px">「はい」は提示方針を採用。「いいえ」は代替案を入力。「おまかせ」はAtlasが安全側で判断します。</div>
         ${qHtml}
         ${_renderNexusContextSummary(result?.nexus_context, { title: "Nexus Context Summary", compact: true })}
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
@@ -14577,6 +14585,20 @@ function renderClarificationCard(result, context = {}) {
 
   const card = div.querySelector(`#${cardId}`);
   const submitBtn = card?.querySelector('[data-action="submit"]');
+  card?.querySelectorAll('[data-question-row="1"]').forEach((row) => {
+    const sync = () => {
+      const qid = row.getAttribute('data-qid');
+      const qtype = row.getAttribute('data-qtype');
+      const note = row.querySelector('textarea[data-qnote]');
+      if (!note) return;
+      let v = 'おまかせ';
+      if (qtype === 'yes_no') v = row.querySelector(`input[type="radio"][name="q_${qid}"]:checked`)?.value || 'おまかせ';
+      if (qtype === 'single_choice') v = row.querySelector('select[data-qid]')?.value || 'おまかせ';
+      note.style.display = (v === 'いいえ' || v === 'その他') ? '' : 'none';
+    };
+    row.addEventListener('change', sync);
+    sync();
+  });
   const skipBtn = card?.querySelector('[data-action="skip"]');
   const baseReq = result?.requirement_id;
   const setCardPending = (pending, label = '処理中...') => {
