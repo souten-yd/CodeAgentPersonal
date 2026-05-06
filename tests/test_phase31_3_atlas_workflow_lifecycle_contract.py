@@ -145,6 +145,7 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
     def test_wait_plan_prompt_is_clear_non_destructive_and_ui_state_tracks_plan_result(self):
         self.assertIn("ATLAS_APPROVAL_STABLE_PROMPT", SMOKE)
         self.assertIn("Create a non-destructive implementation plan for adding a small UI label to the Atlas Start tab. Do not execute or modify files.", SMOKE)
+        self.assertIn("async def prepare_generated_plan(", SMOKE)
         self.assertIn("prepare_generated_plan_for_approval_tests", SMOKE)
         self.assertIn("lastPlanApiIds", UI)
         self.assertIn("generatedPlan", UI)
@@ -169,9 +170,21 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
         self.assertNotIn("state.approvalId", derive_body)
         self.assertIn("const approvedByUser = action === 'approve'", bind_body)
         self.assertIn("userApprovedPlan: approvedByUser", bind_body)
-        self.assertIn('dependency_failed:no_plan_generated', SMOKE)
+        self.assertIn('plan_generated_false', SMOKE)
         self.assertIn('sync-plan:req_', SMOKE)
         self.assertNotIn('approveButton.click', SMOKE)
+
+    def test_phase314r_helper_scope_and_plan_generated_predicate(self):
+        wait_plan_body = SMOKE.split("async def verify_atlas_backend_e2e_wait_plan(page):", 1)[1].split("print(\"INFO: atlas backend wait-plan diagnostics:", 1)[0]
+        self.assertIn("prepare_generated_plan(", wait_plan_body)
+        self.assertNotIn("prepare_generated_plan_for_approval_tests(", wait_plan_body)
+        self.assertIn("def is_generated_plan_diag(diag: dict) -> bool:", SMOKE)
+        predicate_body = SMOKE.split("def is_generated_plan_diag(diag: dict) -> bool:", 1)[1].split("async def prepare_generated_plan(", 1)[0]
+        self.assertIn("current_job.startswith(\"sync-plan:plan_\")", predicate_body)
+        self.assertIn("current_run.startswith(\"plan_\")", predicate_body)
+        self.assertIn("current_job.startswith(\"sync-plan:req_\")", predicate_body)
+        self.assertIn("prefix=\"atlas wait-plan failed\"", SMOKE)
+        self.assertNotIn("plan approval setup failed", wait_plan_body)
 
     def test_phase314n_requirement_plan_id_separation_and_named_wait_wrapper(self):
         generate_body = UI.split("async function generatePlanOnlyFromInput", 1)[1].split("// ── PLAN APPROVAL", 1)[0]
