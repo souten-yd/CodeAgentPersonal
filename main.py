@@ -10732,19 +10732,58 @@ def api_task_plan(req: TaskPlanRequest):
         result_warnings = result.get("warnings") if isinstance(result.get("warnings"), list) else []
         result["warnings"] = list(dict.fromkeys([*api_warnings, *[str(x) for x in result_warnings if str(x).strip()]]))
         result["resolved_project_path"] = resolved_project_path
-        # Atlas planning is synchronous today. Expose stable lifecycle ids so the UI
-        # and debug harness can track the run without inventing an asynchronous job.
-        plan_id = str(result.get("plan_id") or result.get("plan", {}).get("plan_id") or "")
-        requirement_id = str(result.get("requirement_id") or "")
+        plan = result.get("plan") if isinstance(result.get("plan"), dict) else {}
+        status = str(result.get("status") or result.get("job_status") or plan.get("status") or "").strip().lower()
+        plan_id = str(result.get("plan_id") or plan.get("plan_id") or plan.get("id") or "").strip()
+        requirement_id = str(result.get("requirement_id") or plan.get("requirement_id") or "").strip()
+        result["atlas_requirement_job_id"] = f"sync-requirement:{requirement_id}" if requirement_id else ""
+        is_clarification = status == "waiting_for_clarification" or bool(result.get("clarification") or result.get("waiting_for_clarification"))
+        has_plan_payload = bool(plan or result.get("plan_markdown_path") or result.get("review_result") or result.get("plan_review"))
+        result["job_status"] = status or "completed"
+        if not plan_id.startswith("plan_"):
+            plan_id = ""
+        result["plan_generated"] = bool(plan_id)
         if plan_id:
             result["atlas_job_id"] = f"sync-plan:{plan_id}"
             result["atlas_run_id"] = plan_id
+        if is_clarification:
+            result.update({
+                "ok": True,
+                "status": "waiting_for_clarification",
+                "job_status": "waiting_for_clarification",
+                "plan_generated": False,
+                "plan_id": "",
+                "atlas_job_id": "",
+                "atlas_run_id": "",
+                "atlas_requirement_job_id": f"sync-requirement:{requirement_id}" if requirement_id else "",
+            })
+        elif plan_id or (status in {"planned", "needs_confirmation", "needs_revision", "rejected"} and has_plan_payload):
+            canonical_plan_id = plan_id or str(plan.get("plan_id") or "").strip()
+            result.update({
+                "ok": True,
+                "status": status or "planned",
+                "job_status": status or "planned",
+                "plan_generated": True,
+                "plan_id": canonical_plan_id,
+                "atlas_job_id": f"sync-plan:{canonical_plan_id}" if canonical_plan_id.startswith("plan_") else "",
+                "atlas_run_id": canonical_plan_id if canonical_plan_id.startswith("plan_") else "",
+                "atlas_requirement_job_id": f"sync-requirement:{requirement_id}" if requirement_id else "",
+            })
+            if isinstance(result.get("plan"), dict):
+                result["plan"]["plan_id"] = canonical_plan_id
+                result["plan"].setdefault("status", "planned")
         else:
-            result["atlas_job_id"] = ""
-            result["atlas_run_id"] = ""
-        result["atlas_requirement_job_id"] = f"sync-requirement:{requirement_id}" if requirement_id else ""
-        result["job_status"] = "waiting_for_clarification" if result.get("status") == "waiting_for_clarification" else "completed"
-        result["plan_generated"] = bool(plan_id)
+            result.update({
+                "ok": False,
+                "status": "failed",
+                "job_status": "failed",
+                "plan_generated": False,
+                "plan_id": "",
+                "atlas_job_id": "",
+                "atlas_run_id": "",
+                "atlas_requirement_job_id": f"sync-requirement:{requirement_id}" if requirement_id else "",
+                "error": str(result.get("error") or "unrecognized_plan_response"),
+            })
         return result
     except HTTPException:
         raise
