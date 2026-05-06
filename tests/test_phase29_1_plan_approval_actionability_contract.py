@@ -37,7 +37,7 @@ class TestPhase291PlanApprovalActionabilityContract(unittest.TestCase):
         self.assertNotIn("approvePlan(", self.smoke)
 
     def test_execute_patch_locked_checked(self):
-        self.assertIn("executePreviewLocked", self.smoke)
+        self.assertIn("execute_preview_locked", self.smoke)
         self.assertIn("patchApplyLocked", self.smoke)
 
     def test_no_destructive_automation_added(self):
