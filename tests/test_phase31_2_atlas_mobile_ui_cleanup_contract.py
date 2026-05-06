@@ -98,12 +98,14 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
     def test_smoke_baseline_current_ui_and_legacy_informational(self):
         self.assertIn('async def verify_atlas_current_ui_smoke(page) -> None:', SMOKE)
         self.assertIn('async def set_mode(page, mode: str) -> None:', SMOKE)
-        self.assertIn('("atlas_current_ui_smoke", verify_atlas_current_ui_smoke)', SMOKE)
+        self.assertIn('"atlas_current_ui_smoke"', SMOKE)
+        self.assertIn('verify_atlas_current_ui_smoke', SMOKE)
+        self.assertIn('SmokeScenarioSpec', SMOKE)
         self.assertIn('TestPreset("atlas_current_ui_smoke"', MATRIX)
-        self.assertIn('LEGACY_TEST_PRESETS', MATRIX)
+        self.assertIn('DIAGNOSTIC_TEST_PRESETS', MATRIX)
         self.assertIn('legacy_ui_9of9_mock', MATRIX)
         self.assertNotIn('TestPreset("ui_9of9_mock"', MATRIX)
-        default_list = MATRIX.split('TEST_PRESETS: list[TestPreset] = [', 1)[1].split(']\n\nLEGACY_TEST_PRESETS', 1)[0]
+        default_list = MATRIX.split('TEST_PRESETS: list[TestPreset] = [', 1)[1].split(']\n\nDIAGNOSTIC_TEST_PRESETS', 1)[0]
         self.assertNotIn('ui_9of9_mock', default_list)
         self.assertNotIn('legacy_ui_9of9_mock', default_list)
 
@@ -133,9 +135,9 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
 
 
     def test_debug_harness_separates_default_and_legacy_ui_presets(self):
-        self.assertIn('from scripts.run_debug_test_matrix import LEGACY_TEST_PRESETS, TEST_PRESETS', (ROOT / 'main.py').read_text(encoding='utf-8'))
+        self.assertIn('from scripts.run_debug_test_matrix import DIAGNOSTIC_TEST_PRESETS, TEST_PRESETS', (ROOT / 'main.py').read_text(encoding='utf-8'))
         self.assertIn('Default acceptance presets', (ROOT / 'main.py').read_text(encoding='utf-8'))
-        self.assertIn('Legacy / manual informational presets', (ROOT / 'main.py').read_text(encoding='utf-8'))
+        self.assertIn('Diagnostic presets', (ROOT / 'main.py').read_text(encoding='utf-8'))
         self.assertIn('not run by Run All Tests', (ROOT / 'main.py').read_text(encoding='utf-8'))
         self.assertIn('for preset in TEST_PRESETS:', MATRIX)
         self.assertNotIn('for preset in TEST_PRESETS + LEGACY_TEST_PRESETS', MATRIX)

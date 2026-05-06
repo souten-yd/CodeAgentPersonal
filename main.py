@@ -18122,11 +18122,11 @@ def debug_llama():
 def debug_tests_home():
     _debug_harness_guard()
     runs = _list_debug_runs()
-    from scripts.run_debug_test_matrix import LEGACY_TEST_PRESETS, TEST_PRESETS
+    from scripts.run_debug_test_matrix import DIAGNOSTIC_TEST_PRESETS, TEST_PRESETS
     preset_items = "".join([f"<li><b>{html.escape(p.id)}</b>: {html.escape(p.title)} - {html.escape(p.description)}</li>" for p in TEST_PRESETS])
-    legacy_items = "".join([f"<li><b>{html.escape(p.id)}</b>: {html.escape(p.title)} - {html.escape(p.description)} <em>(manual informational; not run by Run All Tests)</em></li>" for p in LEGACY_TEST_PRESETS]) or "<li>No legacy presets</li>"
+    diagnostic_items = "".join([f"<li><b>{html.escape(p.id)}</b>: {html.escape(p.title)} - {html.escape(p.description)} <em>(manual only; not run by Run All Tests)</em></li>" for p in DIAGNOSTIC_TEST_PRESETS]) or "<li>No diagnostic presets</li>"
     run_items = "".join([f"<li><a href='/debug/tests/runs/{html.escape(r['run_id'])}'>{html.escape(r['run_id'])}</a> - {html.escape(r.get('status','unknown'))}</li>" for r in runs]) or "<li>No runs yet</li>"
-    return f"""<html><body><h1>Debug Test Harness enabled</h1><form method='post' action='/api/debug/tests/run-all'><button type='submit'>Run All Tests</button></form><p>Run All Tests executes only the default acceptance presets below.</p><h2>Default acceptance presets</h2><ul>{preset_items}</ul><h2>Legacy / manual informational presets</h2><ul>{legacy_items}</ul><h2>Recent runs</h2><ul>{run_items}</ul></body></html>"""
+    return f"""<html><body><h1>Debug Test Harness enabled</h1><form method='post' action='/api/debug/tests/run-all'><button type='submit'>Run All Tests</button></form><p>Run All Tests executes only the default acceptance presets below.</p><h2>Default acceptance presets</h2><p>Stable, deterministic, blocking checks.</p><ul>{preset_items}</ul><h2>Diagnostic presets</h2><p>Optional checks. May depend on experimental fixture or live model behavior. Not blocking.</p><ul>{diagnostic_items}</ul><h2>Recent runs</h2><ul>{run_items}</ul></body></html>"""
 
 @app.post("/api/debug/tests/run-all")
 def debug_tests_run_all():
