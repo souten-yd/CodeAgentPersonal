@@ -1431,18 +1431,18 @@ class ModelManager:
             cmd += ["--batch-size", str(spec["batch_size"])]
         if spec.get("ubatch_size", -1) and spec.get("ubatch_size", -1) > 0:
             cmd += ["--ubatch-size", str(spec["ubatch_size"])]
-        append_llama_kv_cache_args(cmd, eff_ck or "f16", eff_cv or "f16")
         for arg in spec.get("extra_args", []):
             cmd.append(arg)
+        cmd = append_llama_kv_cache_args(cmd, eff_ck or "q8_0", eff_cv or "q8_0")
         cmd_text = (
             f"[ModelManager] starting:"
             f" model={spec.get('path','')}"
             f" -ngl={ngl_display}"
             f" --ctx-size={spec.get('ctx')}"
             f" --threads={spec.get('threads')}"
-            f" cache_k={eff_ck or 'f16(default)'}"
-            f" cache_v={eff_cv or 'f16(default)'}"
-            f" full_cmd={' '.join(cmd)}"
+                f" cache_k={eff_ck or 'q8_0(default)'}"
+                f" cache_v={eff_cv or 'q8_0(default)'}"
+                f" full_cmd={' '.join(cmd)}"
         )
         print(cmd_text)
         self._last_start_cmd = " ".join(cmd)
@@ -5940,23 +5940,40 @@ _ALLOWED_LLAMA_CACHE_TYPES = {"f16", "q8_0", "q4_0", "q4_1", "q5_0", "q5_1", "iq
 
 def _normalize_llama_cache_type(raw: str, env_key: str) -> str:
     v = (raw or "").strip().lower()
-    if v in {"", "none", "default", "f16"}:
-        return "f16"
+    if v in {"", "none", "default"}:
+        return "q8_0"
     if v in _ALLOWED_LLAMA_CACHE_TYPES:
         return v
     print(f"[LLM][WARN] Invalid {env_key}={raw!r}; fallback to q8_0")
     return "q8_0"
 
-def resolve_llama_cache_types(env: Mapping[str, str] | None = None) -> tuple[str, str]:
+def resolve_llama_cache_types(spec: Mapping[str, Any] | None = None, env: Mapping[str, str] | None = None) -> tuple[str, str]:
     src = env or os.environ
-    ck = _normalize_llama_cache_type(src.get("LLAMA_CACHE_TYPE_K", "q8_0"), "LLAMA_CACHE_TYPE_K")
-    cv = _normalize_llama_cache_type(src.get("LLAMA_CACHE_TYPE_V", "q8_0"), "LLAMA_CACHE_TYPE_V")
+    model_spec = spec or {}
+    ck = _normalize_llama_cache_type(src.get("LLAMA_CACHE_TYPE_K") or str(model_spec.get("cache_type_k") or "q8_0"), "LLAMA_CACHE_TYPE_K")
+    cv = _normalize_llama_cache_type(src.get("LLAMA_CACHE_TYPE_V") or str(model_spec.get("cache_type_v") or "q8_0"), "LLAMA_CACHE_TYPE_V")
     return ck, cv
 
+def remove_existing_llama_cache_args(args: list[str]) -> list[str]:
+    out: list[str] = []
+    skip_next = False
+    for a in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if a in {"--cache-type", "--cache-type-k", "--cache-type-v"}:
+            skip_next = True
+            continue
+        if a.startswith("--cache-type=") or a.startswith("--cache-type-k=") or a.startswith("--cache-type-v="):
+            continue
+        out.append(a)
+    return out
+
 def append_llama_kv_cache_args(cmd: list[str], cache_k: str, cache_v: str) -> list[str]:
-    if cache_k != "f16":
+    cmd = remove_existing_llama_cache_args(cmd)
+    if cache_k:
         cmd += ["--cache-type-k", cache_k]
-    if cache_v != "f16":
+    if cache_v:
         cmd += ["--cache-type-v", cache_v]
     return cmd
 
@@ -10759,19 +10776,32 @@ def api_task_plan(req: TaskPlanRequest):
             })
         elif plan_id or (status in {"planned", "needs_confirmation", "needs_revision", "rejected"} and has_plan_payload):
             canonical_plan_id = plan_id or str(plan.get("plan_id") or "").strip()
-            result.update({
-                "ok": True,
-                "status": status or "planned",
-                "job_status": status or "planned",
-                "plan_generated": True,
-                "plan_id": canonical_plan_id,
-                "atlas_job_id": f"sync-plan:{canonical_plan_id}" if canonical_plan_id.startswith("plan_") else "",
-                "atlas_run_id": canonical_plan_id if canonical_plan_id.startswith("plan_") else "",
-                "atlas_requirement_job_id": f"sync-requirement:{requirement_id}" if requirement_id else "",
-            })
-            if isinstance(result.get("plan"), dict):
-                result["plan"]["plan_id"] = canonical_plan_id
-                result["plan"].setdefault("status", "planned")
+            if canonical_plan_id.startswith("plan_"):
+                result.update({
+                    "ok": True,
+                    "status": status or "planned",
+                    "job_status": status or "planned",
+                    "plan_generated": True,
+                    "plan_id": canonical_plan_id,
+                    "atlas_job_id": f"sync-plan:{canonical_plan_id}",
+                    "atlas_run_id": canonical_plan_id,
+                    "atlas_requirement_job_id": f"sync-requirement:{requirement_id}" if requirement_id else "",
+                })
+                if isinstance(result.get("plan"), dict):
+                    result["plan"]["plan_id"] = canonical_plan_id
+                    result["plan"].setdefault("status", "planned")
+            else:
+                result.update({
+                    "ok": False,
+                    "status": "failed",
+                    "job_status": "failed",
+                    "plan_generated": False,
+                    "plan_id": "",
+                    "atlas_job_id": "",
+                    "atlas_run_id": "",
+                    "atlas_requirement_job_id": f"sync-requirement:{requirement_id}" if requirement_id else "",
+                    "error": "plan_payload_without_plan_id",
+                })
         else:
             result.update({
                 "ok": False,
