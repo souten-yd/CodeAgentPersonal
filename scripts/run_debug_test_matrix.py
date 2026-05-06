@@ -40,7 +40,7 @@ SMOKE_ENV_KEYS = [
 ]
 
 TEST_PRESETS: list[TestPreset] = [
-    TestPreset("static_contracts", "Static contract tests", "Representative phase contract tests", [sys.executable, "-m", "unittest", "tests.test_phase29_0_plan_approval_gate_readiness_contract", "tests.test_phase29_0c_plan_approval_invalid_selector_guard_contract", "tests.test_phase29_1_plan_approval_actionability_contract", "tests.test_phase31_2_atlas_mobile_ui_cleanup_contract", "tests.test_phase31_3_atlas_workflow_lifecycle_contract"], {}, 300),
+    TestPreset("static_contracts", "Static contract tests", "Representative phase contract tests", [sys.executable, "-m", "unittest", "tests.test_phase30_0_debug_test_harness_contract", "tests.test_phase29_0_plan_approval_gate_readiness_contract", "tests.test_phase29_0c_plan_approval_invalid_selector_guard_contract", "tests.test_phase29_1_plan_approval_actionability_contract", "tests.test_phase31_2_atlas_mobile_ui_cleanup_contract", "tests.test_phase31_3_atlas_workflow_lifecycle_contract"], {}, 300),
     TestPreset("atlas_current_ui_smoke", "Atlas current UI smoke", "Current mobile-first Atlas UI smoke with mocked backend", [sys.executable, "scripts/smoke_ui_modes_playwright.py"], {"PLAYWRIGHT_SMOKE_BASE_URL": "", "RUN_ATLAS_BACKEND_PREFLIGHT": "0", "RUN_ATLAS_BACKEND_E2E": "0", "PLAYWRIGHT_SMOKE_ONLY": "atlas_current_ui_smoke"}, 600),
     TestPreset("nexus_current_ui_smoke", "Nexus current UI smoke", "Current Nexus UI smoke with dashboard exclusivity checks", [sys.executable, "scripts/smoke_ui_modes_playwright.py"], {"PLAYWRIGHT_SMOKE_BASE_URL": "", "RUN_ATLAS_BACKEND_PREFLIGHT": "0", "RUN_ATLAS_BACKEND_E2E": "0", "PLAYWRIGHT_SMOKE_ONLY": "nexus_current_ui_smoke"}, 600),
     TestPreset("backend_preflight", "Backend preflight only", "Smoke with backend preflight only", [sys.executable, "scripts/smoke_ui_modes_playwright.py"], {"PLAYWRIGHT_SMOKE_BASE_URL": "http://127.0.0.1:8000", "RUN_ATLAS_BACKEND_PREFLIGHT": "1"}, 600),
@@ -54,6 +54,7 @@ TEST_PRESETS: list[TestPreset] = [
 
 LEGACY_TEST_PRESETS: list[TestPreset] = [
     TestPreset("legacy_ui_9of9_mock", "Legacy UI smoke 9/9 (mock, informational)", "Legacy compatibility UI smoke; not default acceptance for current Atlas UI", [sys.executable, "scripts/smoke_ui_modes_playwright.py"], {"PLAYWRIGHT_SMOKE_BASE_URL": "", "RUN_ATLAS_BACKEND_PREFLIGHT": "0", "RUN_ATLAS_BACKEND_E2E": "0"}, 600),
+    TestPreset("wait_plan_live_llm", "Wait plan (live LLM diagnostic)", "Diagnostic scenario that may return clarification", [sys.executable, "scripts/smoke_ui_modes_playwright.py"], {"PLAYWRIGHT_SMOKE_BASE_URL": "http://127.0.0.1:8000", "RUN_ATLAS_BACKEND_PREFLIGHT": "1", "RUN_ATLAS_BACKEND_E2E": "1", "RUN_ATLAS_BACKEND_E2E_WAIT_PLAN": "1", "PLAYWRIGHT_SMOKE_ONLY": "atlas_backend_e2e_wait_plan_live_llm"}, 900),
 ]
 
 
@@ -102,8 +103,23 @@ def _compact_tail(output: str, *, max_lines: int = 8, max_chars: int = 1600) -> 
 
 
 def _error_summary(stdout: str, stderr: str, status: str) -> str:
-    combined_lines = [line.strip() for line in f"{stderr}\n{stdout}".splitlines() if line.strip()]
-    priority_markers = ("AssertionError", "TimeoutError", "Error:", "FAIL", "Traceback", "SMOKE_STATUS")
+    raw_lines = f"{stderr}\n{stdout}".splitlines()
+    combined_lines = [line.rstrip() for line in raw_lines if line.strip()]
+    for idx, line in enumerate(raw_lines):
+        stripped = line.strip()
+        if stripped.startswith("FAIL: ") or stripped.startswith("ERROR: "):
+            snippet = raw_lines[idx:idx + 8]
+            return _markdown_cell("\n".join(snippet), limit=800)
+    for idx, line in enumerate(raw_lines):
+        if "AssertionError" in line:
+            lo = max(0, idx - 2)
+            hi = min(len(raw_lines), idx + 3)
+            return _markdown_cell("\n".join(raw_lines[lo:hi]), limit=800)
+    for idx, line in enumerate(raw_lines):
+        if line.strip().startswith("Traceback"):
+            hi = min(len(raw_lines), idx + 10)
+            return _markdown_cell("\n".join(raw_lines[idx:hi]), limit=800)
+    priority_markers = ("TimeoutError", "Error:", "FAIL", "Traceback", "SMOKE_STATUS")
     for line in reversed(combined_lines):
         if any(marker in line for marker in priority_markers):
             return _markdown_cell(line, limit=300)

@@ -1264,6 +1264,17 @@ async def load_debug_seed_plan(page) -> dict:
   return data
 
 
+async def load_debug_seed_clarification(page) -> dict:
+  base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+  res = await page.request.post(f"{base_url}/api/debug/atlas/seed-clarification", timeout=15_000)
+  if res.status in {403, 404}:
+    raise AssertionError("clarification resolution failed: debug_seed_unavailable")
+  data = await res.json()
+  if not isinstance(data, dict) or data.get("ok") is not True:
+    raise AssertionError("clarification resolution failed: debug_seed_invalid_response")
+  return data
+
+
 def has_requirement_id_leak_in_plan_lifecycle(diag: dict) -> bool:
   current_job = str(diag.get("currentJobId") or "").strip()
   current_run = str(diag.get("currentRunId") or "").strip()
@@ -1331,6 +1342,18 @@ async def prepare_generated_plan_for_approval_tests(
   )
   await set_atlas_subview(page, "review")
   return diag
+
+
+async def prepare_seeded_review_ready_plan(page) -> dict:
+  seed = await load_debug_seed_plan(page)
+  await open_atlas(page)
+  await set_atlas_subview(page, "plan")
+  await page.evaluate("""(seed) => {
+    if (typeof window.__atlasApplyDebugSeedPlanForTests !== 'function') throw new Error('missing_debug_seed_hook');
+    window.__atlasApplyDebugSeedPlanForTests(seed);
+  }""", seed)
+  await set_atlas_subview(page, "review")
+  return seed
 
 
 async def click_atlas_proceed_with_assumptions_once(page) -> tuple[bool, str]:
@@ -2268,15 +2291,20 @@ class SmokeScenarioSpec:
   allowed_in_preflight_only: bool = False
   default_ui: bool = False
   default_backend_e2e: bool = False
+  deterministic: bool = True
+  acceptance_default: bool = False
+  uses_live_llm: bool = False
+  destructive: bool = False
 
 
 SMOKE_SCENARIOS: dict[str, SmokeScenarioSpec] = {
   "atlas_backend_preflight": SmokeScenarioSpec(id="atlas_backend_preflight", fn=run_backend_preflight, kind="backend_preflight", requires_backend=True, allowed_in_preflight_only=True),
-  "atlas_backend_e2e_journey": SmokeScenarioSpec(id="atlas_backend_e2e_journey", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True),
-  "atlas_backend_e2e_wait_plan": SmokeScenarioSpec(id="atlas_backend_e2e_wait_plan", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True),
-  "atlas_backend_e2e_resolve_clarification": SmokeScenarioSpec(id="atlas_backend_e2e_resolve_clarification", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True),
-  "atlas_backend_e2e_plan_approval_gate": SmokeScenarioSpec(id="atlas_backend_e2e_plan_approval_gate", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True),
-  "atlas_backend_e2e_plan_approval_actionability": SmokeScenarioSpec(id="atlas_backend_e2e_plan_approval_actionability", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True),
+  "atlas_backend_e2e_journey": SmokeScenarioSpec(id="atlas_backend_e2e_journey", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True, deterministic=False, uses_live_llm=True),
+  "atlas_backend_e2e_wait_plan_live_llm": SmokeScenarioSpec(id="atlas_backend_e2e_wait_plan_live_llm", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True, deterministic=False, uses_live_llm=True),
+  "atlas_backend_e2e_wait_plan": SmokeScenarioSpec(id="atlas_backend_e2e_wait_plan", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True, acceptance_default=True),
+  "atlas_backend_e2e_resolve_clarification": SmokeScenarioSpec(id="atlas_backend_e2e_resolve_clarification", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True, acceptance_default=True),
+  "atlas_backend_e2e_plan_approval_gate": SmokeScenarioSpec(id="atlas_backend_e2e_plan_approval_gate", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True, acceptance_default=True),
+  "atlas_backend_e2e_plan_approval_actionability": SmokeScenarioSpec(id="atlas_backend_e2e_plan_approval_actionability", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True, acceptance_default=True),
   "bootstrap_api_contract": SmokeScenarioSpec(id="bootstrap_api_contract", fn=verify_mode_switches, kind="ui", default_ui=True),
   "mode_switches": SmokeScenarioSpec(id="mode_switches", fn=verify_mode_switches, kind="ui", default_ui=True),
   "atlas_current_ui_smoke": SmokeScenarioSpec(id="atlas_current_ui_smoke", fn=verify_atlas_current_ui_smoke, kind="ui", default_ui=True),
@@ -2300,6 +2328,10 @@ def _scenario_to_json(spec: SmokeScenarioSpec) -> dict:
     "allowed_in_preflight_only": spec.allowed_in_preflight_only,
     "default_ui": spec.default_ui,
     "default_backend_e2e": spec.default_backend_e2e,
+    "deterministic": spec.deterministic,
+    "acceptance_default": spec.acceptance_default,
+    "uses_live_llm": spec.uses_live_llm,
+    "destructive": spec.destructive,
   }
 
 
@@ -2400,18 +2432,39 @@ async def main() -> None:
           raise AssertionError(f"backend preflight failed before wait-plan e2e: {preflight_status}")
         base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip() or "mock-http-origin"
         if run_backend_check_plan_approval_actionable_opt_in:
+          await prepare_seeded_review_ready_plan(page)
           actionability_diag = await verify_atlas_plan_approval_actionability(page, {}, console_errors, page_errors)
           print("INFO: atlas plan-approval-actionability diagnostics:\n" + json.dumps(actionability_diag, ensure_ascii=False, indent=2))
           await assert_no_atlas_chat_leak(page, "plan_approval_actionability")
           return
-        diag = await prepare_generated_plan(
-          page,
-          prompt=ATLAS_APPROVAL_STABLE_PROMPT,
-          preflight_status=preflight_status,
-          base_url=base_url,
-          console_errors=console_errors,
-          page_errors=page_errors,
-        )
+        if run_backend_check_plan_approval_opt_in:
+          await prepare_seeded_review_ready_plan(page)
+          diag = await collect_atlas_plan_approval_gate_diag(page)
+          diag = {**diag, "finalDecision": "generated_plan_ready_for_review", "completionDecisionReason": "debug_seed_plan_applied"}
+        elif run_backend_wait_plan_opt_in and run_backend_resolve_clarification_opt_in:
+          clarification_seed = await load_debug_seed_clarification(page)
+          await start_atlas_backend_e2e_journey(page, "debug seeded clarification journey")
+          await page.evaluate("""(seed) => {
+            if (typeof window.__atlasApplyPlanResultForTests !== 'function') throw new Error('missing_plan_result_hook');
+            window.__atlasApplyPlanResultForTests(seed);
+          }""", clarification_seed)
+          resolution_diag = await resolve_atlas_clarification_once(page)
+          if not resolution_diag.get("resolutionClickSucceeded"):
+            raise AssertionError("clarification resolution failed: proceed_with_assumptions_button_missing; artifact=atlas_lifecycle_final.json")
+          await prepare_seeded_review_ready_plan(page)
+          diag = {**(await collect_atlas_plan_approval_gate_diag(page)), "finalDecision": "generated_plan_ready_for_review", "completionDecisionReason": "debug_seed_clarification_resolved"}
+        elif run_backend_wait_plan_opt_in:
+          await prepare_seeded_review_ready_plan(page)
+          diag = {**(await collect_atlas_plan_approval_gate_diag(page)), "finalDecision": "generated_plan_ready_for_review", "completionDecisionReason": "debug_seed_plan_applied"}
+        else:
+          diag = await prepare_generated_plan(
+            page,
+            prompt=ATLAS_APPROVAL_STABLE_PROMPT,
+            preflight_status=preflight_status,
+            base_url=base_url,
+            console_errors=console_errors,
+            page_errors=page_errors,
+          )
         wait_plan_diag = {
           "initialFinalDecision": diag.get("finalDecision"),
           "initialCompletionReason": diag.get("completionDecisionReason"),
@@ -2434,7 +2487,7 @@ async def main() -> None:
           "pageErrors": list(page_errors),
           "elapsedMs": diag.get("elapsedMs"),
         }
-        if diag.get("finalDecision") == "needs_clarification" and run_backend_resolve_clarification_opt_in:
+        if diag.get("finalDecision") == "needs_clarification" and run_backend_resolve_clarification_opt_in and not run_backend_wait_plan_opt_in:
           resolution_diag = await resolve_atlas_clarification_once(page)
           wait_plan_diag["resolutionAttempted"] = bool(resolution_diag.get("resolutionAttempted"))
           wait_plan_diag["resolutionAction"] = resolution_diag.get("resolutionAction", "none")
