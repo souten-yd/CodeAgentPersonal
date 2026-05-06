@@ -230,6 +230,12 @@ def _debug_harness_guard() -> None:
     if not DEBUG_TEST_HARNESS_ENABLED:
         raise HTTPException(status_code=404, detail="debug test harness disabled")
 
+def _atlas_debug_tests_enabled() -> bool:
+    for k in ("DEBUG_TESTS", "ATLAS_DEBUG_TESTS", "RUNPOD_DEBUG_TEST_MATRIX", "KASANE_DEBUG_TEST_HARNESS"):
+        if os.environ.get(k, "").strip() == "1":
+            return True
+    return False
+
 def _debug_run_result_path(run_id: str) -> Path:
     return DEBUG_TEST_RUNS_DIR / run_id / "result.json"
 
@@ -10827,6 +10833,38 @@ def api_get_plan(plan_id: str):
         return _phase1_planning_runner.storage.load_plan(plan_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="plan not found")
+
+
+@app.post("/api/debug/atlas/seed-plan")
+def api_debug_atlas_seed_plan():
+    if not _atlas_debug_tests_enabled():
+        raise HTTPException(status_code=404, detail="debug seed disabled")
+    requirement_id = "req_debug_actionability"
+    plan_id = "plan_debug_actionability"
+    return {
+        "ok": True,
+        "status": "planned",
+        "job_status": "planned",
+        "plan_generated": True,
+        "requirement_id": requirement_id,
+        "plan_id": plan_id,
+        "atlas_job_id": f"sync-plan:{plan_id}",
+        "atlas_run_id": plan_id,
+        "atlas_requirement_job_id": f"sync-requirement:{requirement_id}",
+        "requires_user_confirmation": True,
+        "plan": {
+            "plan_id": plan_id,
+            "status": "planned",
+            "title": "Debug approval actionability seed plan",
+            "steps": [{"title": "Review only", "description": "Deterministic seed plan for approval UI safety checks. No execution."}],
+        },
+        "review_result": {
+            "approval_required": True,
+            "execute_preview_locked": True,
+            "patch_apply_locked": True,
+            "requires_user_confirmation": True,
+        },
+    }
 
 
 @app.get("/api/plans/{plan_id}/markdown")

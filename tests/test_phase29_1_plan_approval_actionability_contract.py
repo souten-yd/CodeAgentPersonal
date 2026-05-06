@@ -19,6 +19,7 @@ class TestPhase291PlanApprovalActionabilityContract(unittest.TestCase):
 
     def test_actionability_scenario_exists(self):
         self.assertIn("atlas_backend_e2e_plan_approval_actionability", self.smoke)
+        self.assertIn("/api/debug/atlas/seed-plan", self.smoke)
 
     def test_actionability_helper_exists(self):
         self.assertTrue(
@@ -59,6 +60,12 @@ class TestPhase291PlanApprovalActionabilityContract(unittest.TestCase):
         self.assertNotIn("RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL_ACTIONABLE=1", self.workflow)
         self.assertNotIn("RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL=1", self.workflow)
         self.assertNotIn("RUN_ATLAS_BACKEND_E2E=1", self.workflow)
+
+    def test_actionability_does_not_depend_on_live_plan_generation(self):
+        actionability_block = self.smoke.split("async def verify_atlas_plan_approval_actionability", 1)[1].split("def is_generated_plan_diag", 1)[0]
+        self.assertIn("load_debug_seed_plan(page)", actionability_block)
+        self.assertNotIn("start_atlas_backend_e2e_journey", actionability_block)
+        self.assertNotIn("ATLAS_APPROVAL_STABLE_PROMPT", actionability_block)
 
 
 if __name__ == "__main__":
