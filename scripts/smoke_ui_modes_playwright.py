@@ -1174,15 +1174,40 @@ async def verify_atlas_plan_approval_actionability(page, wait_diag: dict, consol
   return diag
 
 
-async def prepare_generated_plan_for_approval_tests(
+def is_generated_plan_diag(diag: dict) -> bool:
+  current_job = str(diag.get("currentJobId") or "")
+  current_run = str(diag.get("currentRunId") or "")
+  plan_id = str(diag.get("planId") or diag.get("plan_id") or "")
+  final = str(diag.get("final") or diag.get("finalDecision") or "")
+  workflow_phase = str(diag.get("workflowPhase") or "").strip().lower()
+  last_error = str(diag.get("lastError") or "").strip()
+  if last_error and last_error != "-":
+    return False
+  if current_job.startswith("sync-plan:req_") or current_run.startswith("req_"):
+    return False
+  if workflow_phase == "waiting_for_clarification":
+    return False
+  if plan_id.startswith("plan_") or current_run.startswith("plan_") or current_job.startswith("sync-plan:plan_"):
+    return True
+  if final == "completed" and current_job.startswith("sync-plan:plan_"):
+    return True
+  if workflow_phase in {"plan_generated", "review_ready", "completed"}:
+    return True
+  if diag.get("generatedPlan") or diag.get("planMarkdown") or diag.get("planResult"):
+    return True
+  return False
+
+
+async def prepare_generated_plan(
   page,
   *,
+  prompt: str,
   preflight_status: dict,
   base_url: str,
   console_errors: list[str],
   page_errors: list[str],
 ) -> dict:
-  await start_atlas_backend_e2e_journey(page, ATLAS_APPROVAL_STABLE_PROMPT)
+  await start_atlas_backend_e2e_journey(page, prompt)
   await page.wait_for_function(
     "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'plan'",
     timeout=30_000,
@@ -1195,12 +1220,28 @@ async def prepare_generated_plan_for_approval_tests(
     console_errors=console_errors,
     page_errors=page_errors,
   )
-  if not diag.get("planGenerated"):
-    dep_diag = {
-      **diag,
-      "completionDecisionReason": "dependency_failed:no_plan_generated",
-    }
-    raise AssertionError(compact_atlas_diag_reason(dep_diag, prefix="plan approval setup failed"))
+  if not is_generated_plan_diag(diag):
+    dep_diag = {**diag, "completionDecisionReason": "plan_generated_false"}
+    raise AssertionError(compact_atlas_diag_reason(dep_diag, prefix="atlas wait-plan failed"))
+  return diag
+
+
+async def prepare_generated_plan_for_approval_tests(
+  page,
+  *,
+  preflight_status: dict,
+  base_url: str,
+  console_errors: list[str],
+  page_errors: list[str],
+) -> dict:
+  diag = await prepare_generated_plan(
+    page,
+    prompt=ATLAS_APPROVAL_STABLE_PROMPT,
+    preflight_status=preflight_status,
+    base_url=base_url,
+    console_errors=console_errors,
+    page_errors=page_errors,
+  )
   await set_atlas_subview(page, "review")
   return diag
 
@@ -2202,8 +2243,9 @@ async def main() -> None:
         if preflight_status.get("errors"):
           raise AssertionError(f"backend preflight failed before wait-plan e2e: {preflight_status}")
         base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip() or "mock-http-origin"
-        diag = await prepare_generated_plan_for_approval_tests(
+        diag = await prepare_generated_plan(
           page,
+          prompt=ATLAS_APPROVAL_STABLE_PROMPT,
           preflight_status=preflight_status,
           base_url=base_url,
           console_errors=console_errors,
