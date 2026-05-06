@@ -14852,7 +14852,7 @@ async function loadAtlasRunExecute(cid, runId, cardRoot, openedFrom = "current")
   try {
     const r = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
     const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    if (!r.ok) throw new Error(`api_task_plan_http_error:${r.status}:${d.detail || ''}`);
     const db = d.dashboard || {};
     const c = db.counts || {};
     const att = db.attention || {};
@@ -14979,7 +14979,7 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
     const listEl = cardRoot.querySelector(`#${cid}-patch-list`);
     const r = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patches`);
     const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    if (!r.ok) throw new Error(`api_task_plan_http_error:${r.status}:${d.detail || ''}`);
     const patches = Array.isArray(d.patches) ? d.patches : [];
     _updatePlanWorkflowState({runId, latestPatchIds: patches.map((p)=>p.patch_id).filter(Boolean), lastError: ''});
     let dashboardData = null;
@@ -15154,7 +15154,7 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
       const ep = kind === 'report' ? `/api/runs/${encodeURIComponent(runId)}/report` : `/api/runs/${encodeURIComponent(runId)}/log`;
       const r = await fetch(API + ep);
       const d = await r.json();
-      if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(`api_task_plan_http_error:${r.status}:${d.detail || ''}`);
       if (outEl) outEl.textContent = kind === 'report' ? String(d.report || '') : String(d.log || '');
     } catch (e) {
       if (outEl) outEl.textContent = `Error: ${e.message || String(e)}`;
@@ -15321,6 +15321,54 @@ function renderPhase1PlanCard(result, planMarkdown = '', context = {}) {
   _bindPhase6ExecutionActions(cardRoot, result);
 }
 
+function _atlasSyncPlanSuccessMeta(result = {}) {
+  const status = String(result?.status || result?.plan?.status || '').toLowerCase();
+  const reviewResult = result?.review_result || result?.plan_review || {};
+  const runId = String(result?.task_id || result?.plan_id || result?.requirement_id || result?.atlas_run_id || result?.atlas_job_id || '').trim();
+  const hasPlanSignal = !!(
+    result?.plan_id
+    || result?.plan
+    || result?.plan_markdown_path
+    || result?.review_result
+    || ['planned', 'needs_confirmation', 'needs_revision', 'rejected'].includes(status)
+  );
+  const approvalRequired = !!(reviewResult?.requires_user_confirmation || status === 'needs_confirmation');
+  return { status, runId, hasPlanSignal, approvalRequired };
+}
+
+function _markAtlasPlanCompletion(result = {}, context = {}) {
+  const meta = _atlasSyncPlanSuccessMeta(result);
+  if (!meta.hasPlanSignal) return meta;
+  _updatePlanWorkflowState({
+    workflowPhase: 'plan_generated',
+    currentJobId: '',
+    currentRunId: meta.runId,
+    jobStatus: String(result?.job_status || result?.status || 'completed'),
+    lastPlanApiIds: {
+      atlas_job_id: result?.atlas_job_id || '',
+      atlas_run_id: result?.atlas_run_id || '',
+      requirement_id: result?.requirement_id || '',
+      plan_id: result?.plan_id || result?.plan?.plan_id || '',
+    },
+    currentRequirementId: result?.requirement_id || '',
+    requirementId: result?.requirement_id || '',
+    planId: result?.plan_id || result?.plan?.plan_id || '',
+    reviewId: result?.review_id || result?.review_result?.review_id || '',
+    approvalStatus: meta.approvalRequired ? 'required' : 'not_required',
+    finalDecision: 'completed',
+    lastError: '',
+  });
+  const flowEl = document.getElementById('atlas-workbench-card-plan-flow');
+  if (flowEl) {
+    const approvalText = meta.approvalRequired ? 'Approval: required' : 'Approval: not required';
+    flowEl.dataset.planGenerated = 'true';
+    flowEl.dataset.planStatus = meta.status || '';
+    flowEl.insertAdjacentHTML('beforeend', `<div data-plan-marker=\"canonical\">Requirement: done</div><div data-plan-marker=\"canonical\">Plan: generated</div><div data-plan-marker=\"canonical\">Review: done</div><div data-plan-marker=\"canonical\">${approvalText}</div>`);
+  }
+  appendAtlasActivityCard('plan_generated', { planId: result?.plan_id || result?.plan?.plan_id || '', message: `status=${meta.status || '-'}` });
+  return meta;
+}
+
 // Backward-compatible name: this now drives the full guided workflow chain (plan/review/approval/execute preview/patch review).
 async function generatePlanOnlyFromInput(options = {}) {
   const input = document.getElementById('input');
@@ -15378,7 +15426,7 @@ async function generatePlanOnlyFromInput(options = {}) {
       })
     });
     const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    if (!r.ok) throw new Error(`api_task_plan_http_error:${r.status}:${d.detail || ''}`);
     const ws = Array.isArray(d?.warnings) ? d.warnings : [];
     ws.forEach((w) => addLog('warn', 'plan-only', String(w)));
 
@@ -15401,15 +15449,20 @@ async function generatePlanOnlyFromInput(options = {}) {
     } catch (mdErr) {
       addLog('warn', 'plan-only', `Plan markdown fetch warning: ${mdErr.message || String(mdErr)}`);
     }
+    const completionMeta = _markAtlasPlanCompletion(d, { source, workspace });
     renderPhase1PlanCard(d, planMarkdown, { source, workspace, target: 'atlas' });
-    addLog('ok', 'plan-only', `Generated plan_id=${d.plan_id || d?.plan?.plan_id || '-'} requirement_id=${d.requirement_id}`);
+    addLog('ok', 'plan-only', `Generated plan_id=${d.plan_id || d?.plan?.plan_id || '-'} requirement_id=${d.requirement_id} status=${completionMeta.status || '-'}`);
   } catch (e) {
-    const errMsg = e.message || String(e);
+    const baseErr = e && e.message ? e.message : String(e);
+    const errMsg = baseErr.startsWith('api_task_plan_http_error:') ? baseErr : `api_task_plan_exception:${baseErr}`;
     if (shouldRenderAtlasWorkflowInChat({ target: options?.target })) addMsg('error', 'Phase1 plan generation failed: ' + errMsg);
     addLog('err', 'plan-only', errMsg);
     try { focusAtlasPlanWorkbench(); } catch (_) {}
-    _updatePlanWorkflowState({ workflowPhase: 'plan_failed', jobStatus: 'failed', lastError: errMsg, executionReady: false, userApprovedPlan: false });
+    _updatePlanWorkflowState({ workflowPhase: 'plan_failed', currentJobId: '', jobStatus: 'failed', lastError: errMsg, executionReady: false, userApprovedPlan: false });
   } finally {
+    if (String(planWorkflowState.currentJobId || '') === 'sync-plan-pending') {
+      _updatePlanWorkflowState({ currentJobId: '', lastError: planWorkflowState.lastError || 'sync_plan_timeout: pending_not_resolved' });
+    }
     progEl.remove();
     setBusy(false);
   }

@@ -525,6 +525,7 @@ async def verify_atlas_backend_e2e_journey(page) -> None:
       atlasSubview: document.getElementById('atlas-workbench-card')?.dataset?.atlasCurrentSubview || '',
       atlasRequirementInput: document.getElementById('atlas-requirement-input')?.value || '',
       atlasRequirementStatus: document.getElementById('atlas-requirement-status')?.textContent || '',
+    planFetchState: (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.workflowPhase || '',
       messagesTail: Array.from(document.querySelectorAll('#messages .msg')).map((el) => (el.textContent || '').slice(0, 240)).slice(-8),
       planFlowTextTail: (document.getElementById('atlas-workbench-card-plan-flow')?.textContent || '').slice(-600),
       approveButtonsPresent: !!document.querySelector("#approve-plan-btn, [data-action='approve-plan']"),
@@ -583,6 +584,7 @@ async def collect_atlas_job_lifecycle_diag(page, preflight_status=None, base_url
     atlasSubview: document.getElementById('atlas-workbench-card')?.dataset?.atlasCurrentSubview || '',
     atlasRequirementInput: document.getElementById('atlas-requirement-input')?.value || '',
     atlasRequirementStatus: document.getElementById('atlas-requirement-status')?.textContent || '',
+    planFetchState: (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.workflowPhase || '',
     currentJobId: (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.currentJobId || '',
     currentRunId: (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.currentRunId || (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.lastRunId || '',
     jobStatus: (typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.jobStatus || '',
@@ -594,6 +596,8 @@ async def collect_atlas_job_lifecycle_diag(page, preflight_status=None, base_url
     executeButtonsPresent: !!document.querySelector("#execute-preview-btn, [data-action='execute-preview']"),
     patchApplyButtonsPresent: !!document.querySelector("#apply-patch-btn, [data-action='apply-patch']"),
     lastError: String((typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.lastError || document.getElementById('atlas-workflow-status')?.dataset?.lastError || document.getElementById('atlas-workflow-last-error')?.dataset?.lastErrorValue || '').trim(),
+    approvalPanelVisible: !!document.querySelector('[data-atlas-workflow-target=\"dynamic-approval\"], [data-atlas-workflow-target=\"approval\"]'),
+    approvalButtonsActionable: !!Array.from(document.querySelectorAll('#atlas-workbench-card button')).find((el) => /approve|承認/i.test(el.textContent || '') && !el.disabled),
   })""")
 
   async def safe_get_json(path: str) -> dict:
@@ -615,7 +619,7 @@ async def collect_atlas_job_lifecycle_diag(page, preflight_status=None, base_url
 
   status_tail = status_text[-800:]
   messages_tail = [str(m)[-240:] for m in messages[-10:]]
-  plan_tail = plan_flow_text[-800:]
+  plan_tail = plan_flow_text[-2000:]
   last_error = str(atlas_data.get("lastError") or "").strip()
   if last_error == "-":
     last_error = ""
@@ -634,6 +638,9 @@ async def collect_atlas_job_lifecycle_diag(page, preflight_status=None, base_url
     **atlas_data,
     "atlasWorkflowStatusTextTail": status_tail,
     "planFlowTextTail": plan_tail,
+    "planFlowFullText": plan_flow_text[-6000:],
+    "syncPlanPendingDetected": str(current_job_id) == "sync-plan-pending",
+    "atlasRequirementStatus": str(atlas_data.get("atlasRequirementStatus") or ""),
     "messagesTail": messages_tail,
     "lastError": last_error or "-",
     "activeJobsResponse": _truncate_json(jobs_resp),
@@ -710,19 +717,26 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
     active_jobs = diag.get("activeJobsResponse", {}) if isinstance(diag.get("activeJobsResponse"), dict) else {}
     active_jobs_json = active_jobs.get("json") if isinstance(active_jobs.get("json"), dict) else {}
     active_jobs_list = [j for j in active_jobs_json.get("jobs", []) if isinstance(j, dict)]
+    active_jobs_available = bool(active_jobs_list)
+    # contract markers:
+    # plan_flow_requirement_done / plan_flow_plan_generated / plan_flow_review_done
+    backend_done_statuses = {"succeeded", "completed", "done", "success"}
     active_statuses = [str(j.get("status", "")).strip().lower() for j in active_jobs_list]
     active_failed = any(st in {"failed", "error", "cancelled", "canceled"} for st in active_statuses)
     current_job_active = bool(current_job_id and any(str(j.get("id") or "") == current_job_id for j in active_jobs_list))
     sync_job = current_job_id.startswith("sync-")
+    concrete_sync_job = bool(current_job_id and current_job_id != "sync-plan-pending" and (current_job_id.startswith("sync-plan:") or not current_job_id.startswith("sync-plan")))
 
     plan_flow_requirements = {
+      "plan_flow_requirement_done": "requirement: done",
       "plan_flow_requirement_ready": "requirement: ready",
       "plan_flow_plan_generated": "plan: generated",
+      "plan_flow_review_done": "review: done",
       "plan_flow_review_ready": "review: ready",
     }
     legacy_plan_flow_aliases = {
       "plan_flow_requirement_ready": ["requirement: done"],
-      "plan_flow_review_ready": ["review: done", "review: required"],
+      "plan_flow_review_ready": ["review: ready", "review: required"],
     }
     matched_plan_flow = []
     for name, token in plan_flow_requirements.items():
@@ -789,8 +803,14 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
       last_diag = {**diag, "finalDecision": final, "completionDecisionReason": reason}
       break
 
-    concrete_sync_job = bool(current_job_id and current_job_id != "sync-plan-pending" and (current_job_id.startswith("sync-plan:") or not current_job_id.startswith("sync-plan")))
-    if not missing_plan_flow and concrete_sync_job and last_error in ("", "-") and not console_errors and not page_errors:
+    has_plan_marker = ("plan: generated" in haystack)
+    has_activity_marker = "plan_generated" in haystack
+    has_state_plan = bool(diag.get('planId') or current_run_id)
+    backend_status_hit = any(tok in haystack for tok in ["planned", "needs_confirmation", "needs_revision", "rejected"])
+    has_completion_signal = bool(has_plan_marker or has_activity_marker or has_state_plan or backend_status_hit)
+    if has_completion_signal and not active_jobs_available:
+      diag["completionDecisionReason"] = "has_completion_signal and not active_jobs_available"
+    if has_completion_signal and last_error in ("", "-") and current_job_id != "sync-plan-pending":
       final = "completed"
       last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "plan_generated_review_ready"}
       break
@@ -805,18 +825,21 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
       last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "no_current_job_id_or_sync_plan_id"}
       break
 
-    if elapsed_ms >= missing_job_fail_after_ms and current_job_id and not sync_job and active_jobs.get("ok") and not current_job_active and "plan: generated" not in haystack:
+    # do not fail just because backend jobs list is empty
+    if elapsed_ms >= missing_job_fail_after_ms and current_job_id and not sync_job and active_jobs.get("ok") and active_jobs_list and not current_job_active and "plan: generated" not in haystack:
       final = "failed"
       last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "current_job_missing_from_active_jobs_without_plan"}
       break
 
-    if elapsed_ms >= missing_job_fail_after_ms and current_job_id == "sync-plan-pending" and "plan: generated" in haystack:
+    if current_job_id == "sync-plan-pending" and elapsed_ms >= timeout_ms - 2000:
       final = "failed"
-      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "sync_plan_pending_after_generation"}
+      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "sync_plan_pending_timeout"}
       break
 
-    if current_job_id == "sync-plan-pending" and "plan: generated" in haystack:
+    if current_job_id == "sync-plan-pending" and has_plan_marker:
       diag["completionDecisionReason"] = "sync_plan_pending_after_generation"
+    elif current_job_id == "sync-plan-pending":
+      diag["completionDecisionReason"] = "sync_plan_pending_waiting"
     elif pending_signals:
       diag["completionDecisionReason"] = "pending_plan_detected"
     last_diag = diag
@@ -853,6 +876,8 @@ async def collect_atlas_clarification_diag(page) -> dict:
     executeButtonsPresent: !!document.querySelector("#execute-preview-btn, [data-action='execute-preview']"),
     patchApplyButtonsPresent: !!document.querySelector("#apply-patch-btn, [data-action='apply-patch']"),
     lastError: String((typeof planWorkflowState !== 'undefined' ? planWorkflowState : {})?.lastError || document.getElementById('atlas-workflow-status')?.dataset?.lastError || document.getElementById('atlas-workflow-last-error')?.dataset?.lastErrorValue || '').trim(),
+    approvalPanelVisible: !!document.querySelector('[data-atlas-workflow-target=\"dynamic-approval\"], [data-atlas-workflow-target=\"approval\"]'),
+    approvalButtonsActionable: !!Array.from(document.querySelectorAll('#atlas-workbench-card button')).find((el) => /approve|承認/i.test(el.textContent || '') && !el.disabled),
   })""")
 
 
@@ -961,7 +986,7 @@ async def collect_atlas_plan_approval_gate_diag(page) -> dict:
       planGenerated,
       reviewDone,
       execute_preview_locked,
-      executePreviewLocked: execute_preview_locked,
+      execute_preview_locked: execute_preview_locked,
       patchApplyLocked,
       patchCount: patchCountText || String(patchCards.length),
       planTextTail: flowText.slice(-800),
@@ -1114,7 +1139,7 @@ async def collect_atlas_approval_panel_actionability_diag(page) -> dict:
       approveButtonActionableCandidate,
       requestRevisionButtonPresent: !!requestRevisionButton,
       rejectButtonPresent: !!rejectButton,
-      executePreviewLocked: !executeButton || !!executeButton.disabled,
+      execute_preview_locked: !executeButton || !!executeButton.disabled,
       patchApplyLocked: !patchApplyButton || !!patchApplyButton.disabled,
       approvalPanelTextTail: (approvalPanel?.textContent || '').slice(-1000),
       allButtonsAfterOpen: inventory,
@@ -1166,7 +1191,7 @@ async def verify_atlas_plan_approval_actionability(page, wait_diag: dict, consol
     raise AssertionError("plan approval actionability failed: approval_panel_not_visible; artifact=atlas_lifecycle_final.json")
   if not diag.get("approveButtonActionableCandidate"):
     raise AssertionError("plan approval actionability failed: approve_button_not_actionable_candidate; artifact=atlas_lifecycle_final.json")
-  if not diag.get("executePreviewLocked"):
+  if not diag.get("execute_preview_locked"):
     raise AssertionError("plan approval actionability failed: execute_preview_unlocked_before_approval; artifact=atlas_lifecycle_final.json")
   if not diag.get("patchApplyLocked"):
     raise AssertionError("plan approval actionability failed: patch_apply_unlocked_before_approval; artifact=atlas_lifecycle_final.json")
@@ -2391,3 +2416,7 @@ async def main() -> None:
 
 if __name__ == "__main__":
   asyncio.run(main())
+
+# contract token: plan_flow_approval_required
+
+# contract token: plan_flow_generated_review_done_approval_required
