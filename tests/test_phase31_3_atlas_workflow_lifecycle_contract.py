@@ -121,17 +121,20 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
         self.assertIn('if not _atlas_debug_tests_enabled():', endpoint)
 
     def test_debug_matrix_current_ui_default_legacy_manual_and_no_destructive_presets(self):
-        default_list = MATRIX.split('TEST_PRESETS: list[TestPreset] = [', 1)[1].split(']\n\nLEGACY_TEST_PRESETS', 1)[0]
+        default_list = MATRIX.split('TEST_PRESETS: list[TestPreset] = [', 1)[1].split(']\n\nDIAGNOSTIC_TEST_PRESETS', 1)[0]
         self.assertIn('TestPreset("atlas_current_ui_smoke"', default_list)
         for preset_id in [
             '"static_contracts"', '"atlas_current_ui_smoke"', '"nexus_current_ui_smoke"', '"backend_preflight"',
-            '"backend_e2e_dry_run"', '"wait_plan"', '"clarification_resolution"',
-            '"plan_approval_gate"', '"plan_approval_actionability"',
+            '"backend_e2e_dry_run"', '"atlas_plan_api_contract"', '"wait_plan"', '"plan_approval_actionability"',
         ]:
             self.assertIn(preset_id, default_list)
+        self.assertNotIn('"clarification_resolution"', default_list)
+        self.assertNotIn('"plan_approval_gate"', default_list)
         self.assertNotIn("ui_9of9_mock", default_list)
         self.assertNotIn("legacy_ui_9of9_mock", default_list)
         self.assertIn('TestPreset("legacy_ui_9of9_mock"', MATRIX)
+        self.assertIn('TestPreset("clarification_resolution"', MATRIX)
+        self.assertIn('TestPreset("plan_approval_gate"', MATRIX)
         for forbidden in ['"approve_plan"', '"execute_preview"', '"apply_patch"']:
             self.assertNotIn(forbidden, MATRIX)
 
