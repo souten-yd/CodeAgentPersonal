@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from agent.requirement_schema import ClarificationQuestion, ClarificationResult, RequirementDefinition
 
@@ -30,7 +31,7 @@ class ClarificationManager:
             if q.question_id not in answer_map:
                 remaining.append(q)
                 continue
-            answer = answer_map[q.question_id]
+            answer = self._normalize_answer(answer_map[q.question_id])
             if answer is None:
                 remaining.append(q)
                 continue
@@ -52,6 +53,27 @@ class ClarificationManager:
             requirement.ready_for_planning = not has_required_open
         requirement.updated_at = now
         return requirement
+
+    def _normalize_answer(self, answer: Any) -> Any:
+        if isinstance(answer, dict):
+            mode = str(answer.get("mode") or "custom").strip().lower() or "custom"
+            text = str(answer.get("text") or "")
+            raw_choice = answer.get("raw_choice")
+            if mode == "custom" and isinstance(raw_choice, str):
+                if raw_choice == "はい":
+                    mode = "accept"
+                elif raw_choice == "いいえ":
+                    mode = "reject"
+                elif raw_choice == "おまかせ":
+                    mode = "delegate"
+            return {"mode": mode, "text": text, "raw_choice": raw_choice}
+        if answer == "はい":
+            return {"mode": "accept", "text": "", "raw_choice": "はい"}
+        if answer == "いいえ":
+            return {"mode": "reject", "text": "", "raw_choice": "いいえ"}
+        if answer == "おまかせ":
+            return {"mode": "delegate", "text": "", "raw_choice": "おまかせ"}
+        return answer
 
     def skip_with_defaults(self, requirement: RequirementDefinition) -> RequirementDefinition:
         payload = []
@@ -81,9 +103,11 @@ class ClarificationManager:
             nq = q.model_copy(deep=True)
             if not nq.question_id:
                 nq.question_id = f"q{i}"
-            if not nq.options:
+            if nq.type == "yes_no":
                 nq.options = ["はい", "いいえ", "おまかせ"]
-            if "おまかせ" not in nq.options:
+            elif not nq.options:
+                nq.options = ["おまかせ"]
+            elif "おまかせ" not in nq.options:
                 nq.options.append("おまかせ")
             if nq.default is None:
                 nq.default = "おまかせ" if nq.type != "multiple_choice" else ["おまかせ"]

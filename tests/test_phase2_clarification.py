@@ -11,6 +11,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from agent.requirement_schema import RequirementDefinition
+from agent.clarification_policy import ClarificationPolicy
 from agent.task_planning_runner import TaskPlanningRunner
 
 
@@ -183,6 +184,33 @@ class Phase2ClarificationTests(unittest.TestCase):
             data = json.loads(req_json.read_text(encoding="utf-8"))
             answer_text = json.dumps(data.get("answered_questions", []), ensure_ascii=False)
             self.assertIn("UI/UX品質を優先する", answer_text)
+
+    def test_legacy_what_question_is_not_yes_no(self) -> None:
+        req = RequirementDefinition(
+            requirement_id="req_legacy",
+            source_task_id="task_legacy",
+            user_input="x",
+            open_questions=["What level of fidelity is required?"],
+        )
+        self.assertEqual(req.open_questions[0].type, "free_text")
+        self.assertEqual(req.open_questions[0].options, ["おまかせ"])
+
+    def test_answer_backward_compatibility_string_normalization(self) -> None:
+        req = RequirementDefinition(
+            requirement_id="req_ans",
+            source_task_id="task_ans",
+            user_input="x",
+            open_questions=[{"question_id": "q1", "question": "必要ですか", "type": "yes_no", "options": ["はい", "いいえ", "おまかせ"], "default": "おまかせ"}],
+        )
+        from agent.clarification_manager import ClarificationManager
+        updated = ClarificationManager().apply_answers(req, [{"question_id": "q1", "answer": "おまかせ"}])
+        self.assertEqual(updated.answered_questions[0].answer.get("mode"), "delegate")
+
+    def test_clarification_policy_stable(self) -> None:
+        policy = ClarificationPolicy()
+        d1 = policy.classify(user_input="新規 project を設計する", task_type="project_generation", requirement_mode="ask_when_needed", project_context="")
+        d2 = policy.classify(user_input="新規 project を設計する", task_type="project_generation", requirement_mode="ask_when_needed", project_context="")
+        self.assertEqual(d1, d2)
 
 
 if __name__ == "__main__":

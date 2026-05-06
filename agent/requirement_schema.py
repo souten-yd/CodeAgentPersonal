@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -33,7 +33,7 @@ class ClarificationQuestion(BaseModel):
     options: list[str] = Field(default_factory=list)
     default: str | list[str] | None = None
     answered: bool = False
-    answer: str | list[str] | bool | None = None
+    answer: str | list[str] | bool | dict[str, Any] | None = None
     created_at: str = Field(default_factory=_utc_now_iso)
     answered_at: str | None = None
 
@@ -125,12 +125,12 @@ def _normalize_question_list(value, *, answered_default: bool = False) -> list[C
                         question_id=f"legacy_q_{i}",
                         question=text,
                         reason="Legacy migrated question",
-                        type="single_choice",
+                        type=_infer_legacy_question_type(text),
                         importance="recommended",
-                        options=["はい", "いいえ", "おまかせ"],
+                        options=["おまかせ"],
                         default="おまかせ",
                         answered=answered_default,
-                        answer="おまかせ" if answered_default else None,
+                        answer=_normalize_legacy_answer("おまかせ") if answered_default else None,
                     )
                 )
                 continue
@@ -139,12 +139,34 @@ def _normalize_question_list(value, *, answered_default: bool = False) -> list[C
                 q.setdefault("question_id", str(q.get("id") or f"legacy_q_{i}"))
                 q.setdefault("question", str(q.get("question") or q.get("text") or ""))
                 q.setdefault("reason", str(q.get("reason") or ""))
-                q.setdefault("type", "single_choice")
+                q.setdefault("type", "free_text")
                 q.setdefault("importance", "recommended")
                 q.setdefault("options", q.get("options") or ["おまかせ"])
                 q.setdefault("default", q.get("default", "おまかせ"))
                 q.setdefault("answered", bool(q.get("answered", answered_default)))
+                q["answer"] = _normalize_legacy_answer(q.get("answer"))
                 if q.get("answered") and q.get("answered_at") is None:
                     q["answered_at"] = _utc_now_iso()
                 normalized.append(ClarificationQuestion(**q))
     return normalized
+def _normalize_legacy_answer(answer: Any) -> Any:
+    if isinstance(answer, dict):
+        mode = str(answer.get("mode") or "custom").strip().lower() or "custom"
+        text = str(answer.get("text") or "")
+        raw_choice = answer.get("raw_choice")
+        return {"mode": mode, "text": text, "raw_choice": raw_choice}
+    if answer == "はい":
+        return {"mode": "accept", "text": "", "raw_choice": "はい"}
+    if answer == "いいえ":
+        return {"mode": "reject", "text": "", "raw_choice": "いいえ"}
+    if answer == "おまかせ":
+        return {"mode": "delegate", "text": "", "raw_choice": "おまかせ"}
+    return answer
+
+
+def _infer_legacy_question_type(text: str) -> str:
+    q = (text or "").strip().lower()
+    yes_no_prefixes = ("should ", "do you want", "is ", "are ", "必要ですか", "含めますか")
+    if q.startswith(yes_no_prefixes):
+        return "yes_no"
+    return "free_text"
