@@ -10867,6 +10867,35 @@ def api_debug_atlas_seed_plan():
     }
 
 
+@app.post("/api/debug/atlas/seed-clarification")
+def api_debug_atlas_seed_clarification():
+    if not _atlas_debug_tests_enabled():
+        raise HTTPException(status_code=404, detail="debug seed disabled")
+    requirement_id = "req_debug_clarification"
+    return {
+        "ok": True,
+        "status": "waiting_for_clarification",
+        "job_status": "waiting_for_clarification",
+        "plan_generated": False,
+        "requirement_id": requirement_id,
+        "plan_id": "",
+        "atlas_job_id": "",
+        "atlas_run_id": "",
+        "atlas_requirement_job_id": f"sync-requirement:{requirement_id}",
+        "requires_user_confirmation": True,
+        "clarification": {
+            "question": "Please confirm assumptions for deterministic clarification workflow test.",
+            "options": [],
+        },
+        "review_result": {
+            "approval_required": True,
+            "execute_preview_locked": True,
+            "patch_apply_locked": True,
+            "requires_user_confirmation": True,
+        },
+    }
+
+
 @app.get("/api/plans/{plan_id}/markdown")
 def api_get_plan_markdown(plan_id: str):
     try:
