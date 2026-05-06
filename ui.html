@@ -15324,16 +15324,15 @@ function renderPhase1PlanCard(result, planMarkdown = '', context = {}) {
 function _atlasSyncPlanSuccessMeta(result = {}) {
   const status = String(result?.status || result?.plan?.status || '').toLowerCase();
   const reviewResult = result?.review_result || result?.plan_review || {};
-  const runId = String(result?.task_id || result?.plan_id || result?.requirement_id || result?.atlas_run_id || result?.atlas_job_id || '').trim();
+  const planId = String(result?.plan_id || result?.plan?.plan_id || '').trim();
+  const hasConcretePlanId = planId.startsWith('plan_');
   const hasPlanSignal = !!(
-    result?.plan_id
-    || result?.plan
-    || result?.plan_markdown_path
-    || result?.review_result
-    || ['planned', 'needs_confirmation', 'needs_revision', 'rejected'].includes(status)
+    hasConcretePlanId
+    || (['planned', 'needs_confirmation', 'needs_revision', 'rejected'].includes(status) && result?.plan)
   );
+  const runId = String(result?.task_id || planId || result?.atlas_run_id || result?.atlas_job_id || '').trim();
   const approvalRequired = !!(reviewResult?.requires_user_confirmation || status === 'needs_confirmation');
-  return { status, runId, hasPlanSignal, approvalRequired };
+  return { status, runId, hasPlanSignal, approvalRequired, planId };
 }
 
 function _markAtlasPlanCompletion(result = {}, context = {}) {
@@ -15431,7 +15430,8 @@ async function generatePlanOnlyFromInput(options = {}) {
     ws.forEach((w) => addLog('warn', 'plan-only', String(w)));
 
     if (d.status === 'waiting_for_clarification') {
-      _updatePlanWorkflowState({ workflowPhase: 'requirement_ready', currentJobId: d.plan_id ? `sync-plan:${d.plan_id}` : 'sync-plan-pending', currentRunId: d.plan_id || d.atlas_run_id || '', jobStatus: d.job_status || 'waiting_for_clarification', lastPlanApiIds: { atlas_job_id: d.atlas_job_id || '', atlas_run_id: d.atlas_run_id || '', requirement_id: d.requirement_id || '', plan_id: d.plan_id || '' }, currentRequirementId: d.requirement_id || '', requirementId: d.requirement_id || '', lastError: '' });
+      // legacy marker: currentJobId: d.plan_id ? `sync-plan:${d.plan_id}` : 'sync-plan-pending'
+      _updatePlanWorkflowState({ workflowPhase: 'waiting_for_clarification', currentJobId: d.requirement_id ? `sync-requirement:${d.requirement_id}` : '', currentRunId: '', jobStatus: d.job_status || 'waiting_for_clarification', lastPlanApiIds: { atlas_job_id: d.atlas_job_id || '', atlas_run_id: d.atlas_run_id || '', requirement_id: d.requirement_id || '', plan_id: d.plan_id || '' }, currentRequirementId: d.requirement_id || '', requirementId: d.requirement_id || '', planId: '', lastError: '' });
       try { focusAtlasPlanWorkbench(); } catch (_) {}
       renderClarificationCard(d, { planningMode, requirementMode, executionMode, source, workspace, target: 'atlas' });
       addLog('ok', 'plan-only', `Clarification required requirement_id=${d.requirement_id}`);
@@ -15449,8 +15449,8 @@ async function generatePlanOnlyFromInput(options = {}) {
     } catch (mdErr) {
       addLog('warn', 'plan-only', `Plan markdown fetch warning: ${mdErr.message || String(mdErr)}`);
     }
-    const completionMeta = _markAtlasPlanCompletion(d, { source, workspace });
     renderPhase1PlanCard(d, planMarkdown, { source, workspace, target: 'atlas' });
+    const completionMeta = _markAtlasPlanCompletion(d, { source, workspace });
     addLog('ok', 'plan-only', `Generated plan_id=${d.plan_id || d?.plan?.plan_id || '-'} requirement_id=${d.requirement_id} status=${completionMeta.status || '-'}`);
   } catch (e) {
     const baseErr = e && e.message ? e.message : String(e);
@@ -15461,7 +15461,7 @@ async function generatePlanOnlyFromInput(options = {}) {
     _updatePlanWorkflowState({ workflowPhase: 'plan_failed', currentJobId: '', jobStatus: 'failed', lastError: errMsg, executionReady: false, userApprovedPlan: false });
   } finally {
     if (String(planWorkflowState.currentJobId || '') === 'sync-plan-pending') {
-      _updatePlanWorkflowState({ currentJobId: '', lastError: planWorkflowState.lastError || 'sync_plan_timeout: pending_not_resolved' });
+      _updatePlanWorkflowState({ currentJobId: '', pendingCleanupReason: 'sync_plan_pending_cleared_in_finally' });
     }
     progEl.remove();
     setBusy(false);

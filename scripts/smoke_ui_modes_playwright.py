@@ -505,7 +505,8 @@ async def start_atlas_backend_e2e_journey(page, atlas_requirement: str) -> None:
   await page.fill("#atlas-requirement-input", atlas_requirement)
   await page.click("#atlas-workbench-card [data-atlas-subview-panel='start'] button.phase1-plan-btn")
 
-ATLAS_APPROVAL_STABLE_PROMPT = "Create a non-destructive implementation plan for adding a small UI label to the Atlas Start tab. Do not execute or modify files."
+ATLAS_APPROVAL_STABLE_PROMPT_LEGACY = "Create a non-destructive implementation plan for adding a small UI label to the Atlas Start tab. Do not execute or modify files."
+ATLAS_APPROVAL_STABLE_PROMPT = "Create a concrete implementation plan for a small ui.html Atlas Start tab label update. Do not execute or modify files. Include target file ui.html, expected UI change, iPhone Safari regression checks, rollback notes, and require user confirmation before any execution."
 
 
 async def verify_atlas_backend_e2e_journey(page) -> None:
@@ -831,10 +832,6 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
       last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "current_job_missing_from_active_jobs_without_plan"}
       break
 
-    if current_job_id == "sync-plan-pending" and elapsed_ms >= timeout_ms - 2000:
-      final = "failed"
-      last_diag = {**diag, "finalDecision": final, "completionDecisionReason": "sync_plan_pending_timeout"}
-      break
 
     if current_job_id == "sync-plan-pending" and has_plan_marker:
       diag["completionDecisionReason"] = "sync_plan_pending_after_generation"
@@ -856,6 +853,9 @@ async def wait_atlas_plan_completion(page, timeout_ms=180000, preflight_status=N
     last_diag.setdefault("normalizedPlanFlowText", "")
     last_diag.setdefault("matchedCompletionSignals", [])
     last_diag.setdefault("missingCompletionSignals", ["plan_flow_requirement_ready", "plan_flow_plan_generated", "plan_flow_review_ready"])
+    last_diag["completionDecisionReason"] = "sync_plan_pending_timeout" if str(last_diag.get("currentJobId") or "") == "sync-plan-pending" else last_diag.get("completionDecisionReason", "timeout_without_completion")
+    if not str(last_diag.get("lastError") or "").strip():
+      last_diag["lastError"] = "sync_plan_timeout: pending_not_resolved"
   last_diag["finalDecision"] = final if final != "timeout" else last_diag.get("finalDecision", "timeout")
   await _write_atlas_lifecycle_snapshot(last_diag, "final")
   return last_diag
@@ -1253,7 +1253,19 @@ async def prepare_generated_plan(
   )
   if not is_generated_plan_diag(diag):
     reason = "plan_generated_false"
-    if has_requirement_id_leak_in_plan_lifecycle(diag):
+    workflow_phase = str(diag.get("workflowPhase") or "").strip().lower()
+    plan_id = str(diag.get("planId") or diag.get("plan_id") or "").strip()
+    last_error = str(diag.get("lastError") or "").strip()
+    completion_reason = str(diag.get("completionDecisionReason") or "").strip()
+    if workflow_phase in {"waiting_for_clarification", "requirement_ready"} and not plan_id:
+      reason = "plan_generated_false+waiting_for_clarification"
+    elif "api_task_plan_http_error" in last_error:
+      reason = "plan_generated_false+api_task_plan_http_error"
+    elif "api_task_plan_exception" in last_error:
+      reason = "plan_generated_false+api_task_plan_exception"
+    elif completion_reason == "sync_plan_pending_timeout":
+      reason = "plan_generated_false+sync_plan_pending_timeout"
+    elif has_requirement_id_leak_in_plan_lifecycle(diag):
       reason = "plan_generated_false+requirement_id_leaked_into_plan_lifecycle"
     dep_diag = {**diag, "completionDecisionReason": reason}
     raise AssertionError(compact_atlas_diag_reason(dep_diag, prefix="atlas wait-plan failed"))
