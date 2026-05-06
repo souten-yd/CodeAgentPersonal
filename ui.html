@@ -15365,10 +15365,13 @@ function _atlasSyncPlanSuccessMeta(result = {}) {
   const normalized = normalizeAtlasPlanResponse(result);
   const reviewResult = normalized.raw?.review_result || normalized.raw?.plan_review || {};
   const approvalRequired = !!(reviewResult?.requires_user_confirmation || normalized.status === 'needs_confirmation');
+  const hasConcretePlanId = String(normalized.planId || '').startsWith('plan_');
+  const hasStructuredPlanPayload = !!normalized.raw?.plan;
+  const statusIndicatesPlan = ['planned', 'needs_confirmation', 'needs_revision', 'rejected'].includes(normalized.status);
   return {
     status: normalized.status,
     runId: normalized.atlasRunId,
-    hasPlanSignal: normalized.planGenerated,
+    hasPlanSignal: hasConcretePlanId || (statusIndicatesPlan && hasStructuredPlanPayload),
     approvalRequired,
     planId: normalized.planId,
   };
@@ -15518,6 +15521,12 @@ async function generatePlanOnlyFromInput(options = {}) {
     try { focusAtlasPlanWorkbench(); } catch (_) {}
     _updatePlanWorkflowState({ workflowPhase: 'plan_failed', currentJobId: '', currentRunId: '', jobStatus: 'failed', lastError: errMsg, executionReady: false, userApprovedPlan: false, planFetchState: 'failed' });
   } finally {
+    if (String(planWorkflowState.currentJobId || '') === 'sync-plan-pending') {
+      _updatePlanWorkflowState({
+        currentJobId: '',
+        pendingCleanupReason: 'sync_plan_pending_cleared_in_finally',
+      });
+    }
     progEl.remove();
     setBusy(false);
   }
