@@ -104,5 +104,27 @@ class TestPhase300DebugTestHarnessContract(unittest.TestCase):
             self.assertIn(val, registry)
 
 
+
+    def test_matrix_uses_smoke_loader(self):
+        self.assertIn('def _load_smoke_module()', MATRIX)
+        self.assertNotIn('import smoke_ui_modes_playwright as smoke', MATRIX)
+        self.assertIn('smoke = _load_smoke_module()', MATRIX)
+
+    def test_run_all_presets_records_preflight_error(self):
+        self.assertIn('matrix_preflight_failed', MATRIX)
+        self.assertIn('payload["preflight_error"]', MATRIX)
+        self.assertIn('traceback.format_exc()', MATRIX)
+
+    def test_loader_works_without_scripts_in_sys_path(self):
+        matrix = _load_module(ROOT / 'scripts' / 'run_debug_test_matrix.py', 'matrix_contract')
+        original = list(sys.path)
+        try:
+            sys.path = [item for item in sys.path if not item.endswith('/scripts')]
+            smoke = matrix._load_smoke_module()
+        finally:
+            sys.path = original
+        self.assertIn('atlas_plan_api_contract', smoke.SMOKE_SCENARIOS)
+        self.assertIn('atlas_backend_preflight', smoke.SMOKE_SCENARIOS)
+
 if __name__ == '__main__':
     unittest.main()
