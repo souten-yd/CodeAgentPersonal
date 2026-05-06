@@ -72,6 +72,22 @@ class NexusContextBuilder:
             items.extend(self._collect_past_plans(query_terms=query_terms, warnings=warnings))
             items.extend(self._collect_run_logs(query_terms=query_terms, warnings=warnings))
             items.extend(
+                self._collect_nexus_evidence(
+                    user_input=user_input,
+                    project_name=project_name,
+                    query_terms=query_terms,
+                    warnings=warnings,
+                )
+            )
+            items.extend(
+                self._collect_nexus_research_reports(
+                    user_input=user_input,
+                    project_name=project_name,
+                    query_terms=query_terms,
+                    warnings=warnings,
+                )
+            )
+            items.extend(
                 self._collect_project_context(
                     project_path=selected_project_path,
                     query_terms=query_terms,
@@ -147,6 +163,90 @@ class NexusContextBuilder:
                 )
         except Exception as exc:  # noqa: BLE001
             self._warn(warnings, f"Memory collection warning: {exc}")
+        return out
+
+    def _collect_nexus_evidence(
+        self,
+        *,
+        user_input: str,
+        project_name: str,
+        query_terms: list[str],
+        warnings: list[str],
+    ) -> list[NexusContextItem]:
+        out: list[NexusContextItem] = []
+        root = self._ca_data_path("nexus")
+        if root is None or not root.exists() or not root.is_dir():
+            return out
+        files = sorted(
+            [*root.glob("**/answer.md"), *root.glob("**/answer.json"), *root.glob("**/*evidence*.json"), *root.glob("**/*chunk*.json")],
+            key=_mtime_key,
+            reverse=True,
+        )[:24]
+        for p in files:
+            text = _safe_read_text(p, max_chars=3000)
+            if not text or not _is_related_text(text, user_input=user_input, project_name=project_name, query_terms=query_terms):
+                continue
+            rel = str(p.relative_to(root)) if p.is_relative_to(root) else p.name
+            freshness = _freshness_label(p)
+            compact = f"[evidence] path={rel} source_id={p.stem} freshness={freshness}"
+            out.append(
+                NexusContextItem(
+                    item_id=f"nexus_evidence_{_short_hash(str(p))}",
+                    source_type="nexus_evidence",
+                    title=f"Nexus Evidence: {p.stem}",
+                    content=text,
+                    summary=f"{_summarize_text(text, 180)} | {compact}",
+                    source_path=str(p),
+                    source_id=p.stem,
+                    reason="Existing Nexus evidence can support planning without running deep research.",
+                    freshness=freshness,
+                    risk_level="low" if freshness != "old" else "medium",
+                    tags=["nexus_evidence", *query_terms[:3]],
+                    metadata={"compact_text": compact, "mtime": _mtime_iso(p)},
+                )
+            )
+            if len(out) >= 5:
+                break
+        return out
+
+    def _collect_nexus_research_reports(
+        self,
+        *,
+        user_input: str,
+        project_name: str,
+        query_terms: list[str],
+        warnings: list[str],
+    ) -> list[NexusContextItem]:
+        out: list[NexusContextItem] = []
+        root = self._ca_data_path("nexus")
+        if root is None or not root.exists() or not root.is_dir():
+            return out
+        files = sorted([*root.glob("**/*report*.md"), *root.glob("**/*report*.json")], key=_mtime_key, reverse=True)[:20]
+        for p in files:
+            text = _safe_read_text(p, max_chars=3200)
+            if not text or not _is_related_text(text, user_input=user_input, project_name=project_name, query_terms=query_terms):
+                continue
+            rel = str(p.relative_to(root)) if p.is_relative_to(root) else p.name
+            freshness = _freshness_label(p)
+            compact = f"[report] path={rel} report_id={p.stem} freshness={freshness}"
+            out.append(
+                NexusContextItem(
+                    item_id=f"nexus_report_{_short_hash(str(p))}",
+                    source_type="nexus_report",
+                    title=f"Nexus Report: {p.stem}",
+                    content=text,
+                    summary=f"{_summarize_text(text, 180)} | {compact}",
+                    source_path=str(p),
+                    source_id=p.stem,
+                    reason="Existing Nexus reports provide reusable research outcomes.",
+                    freshness=freshness,
+                    risk_level="low" if freshness != "old" else "medium",
+                    tags=["nexus_report", *query_terms[:3]],
+                    metadata={"compact_text": compact, "mtime": _mtime_iso(p)},
+                )
+            )
+            if len(out) >= 5:
+                break
         return out
 
     def _collect_skills(self, *, query_terms: list[str], warnings: list[str]) -> list[NexusContextItem]:
@@ -596,7 +696,7 @@ def _freshness_label(path: Path) -> str:
 
 
 def _build_compact_text(items: list[NexusContextItem], warnings: list[str], budget: int) -> tuple[str, bool]:
-    lines = ["# Nexus Context Summary", f"Collected {len(items)} relevant items.", ""]
+    lines = ["# Planning Context", f"Collected {len(items)} relevant items.", ""]
     grouped: dict[str, list[NexusContextItem]] = {}
     for item in items:
         grouped.setdefault(item.source_type, []).append(item)
@@ -611,6 +711,7 @@ def _build_compact_text(items: list[NexusContextItem], warnings: list[str], budg
         "project_file": "Project Context",
         "project_note": "Project Notes",
         "nexus_evidence": "Nexus Evidence",
+        "nexus_report": "Nexus Research Reports",
         "other": "Other",
     }
     for source, source_items in grouped.items():
@@ -636,3 +737,10 @@ def _build_compact_text(items: list[NexusContextItem], warnings: list[str], budg
 
 def _dedup_warnings(warnings: list[str]) -> list[str]:
     return list(dict.fromkeys([str(w).strip() for w in warnings if str(w).strip()]))
+
+
+def _is_related_text(text: str, *, user_input: str, project_name: str, query_terms: list[str]) -> bool:
+    hay = f"{text}\n{user_input}\n{project_name}".lower()
+    if project_name and project_name.lower() in hay:
+        return True
+    return any(t and t in hay for t in query_terms[:6])
