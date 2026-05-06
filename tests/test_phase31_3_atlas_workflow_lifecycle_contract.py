@@ -114,6 +114,12 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
         self.assertIn('result["job_status"]', endpoint_body)
         self.assertIn('result["plan_generated"] = bool(plan_id)', endpoint_body)
 
+    def test_debug_seed_plan_endpoint_is_guarded(self):
+        self.assertIn('def _atlas_debug_tests_enabled()', MAIN)
+        self.assertIn('@app.post("/api/debug/atlas/seed-plan")', MAIN)
+        endpoint = MAIN.split('@app.post("/api/debug/atlas/seed-plan")', 1)[1].split('@app.get("/api/plans/{plan_id}/markdown")', 1)[0]
+        self.assertIn('if not _atlas_debug_tests_enabled():', endpoint)
+
     def test_debug_matrix_current_ui_default_legacy_manual_and_no_destructive_presets(self):
         default_list = MATRIX.split('TEST_PRESETS: list[TestPreset] = [', 1)[1].split(']\n\nLEGACY_TEST_PRESETS', 1)[0]
         self.assertIn('TestPreset("atlas_current_ui_smoke"', default_list)
@@ -129,10 +135,16 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
         for forbidden in ['"approve_plan"', '"execute_preview"', '"apply_patch"']:
             self.assertNotIn(forbidden, MATRIX)
 
+    def test_playwright_smoke_only_presets_exist_in_smoke_registry(self):
+        self.assertIn("SMOKE_SCENARIOS", SMOKE)
+        for scenario in ["atlas_current_ui_smoke", "nexus_current_ui_smoke", "atlas_plan_api_contract"]:
+            self.assertIn(f'"{scenario}"', SMOKE)
+            self.assertIn(f'"PLAYWRIGHT_SMOKE_ONLY": "{scenario}"', MATRIX)
+
     def test_approval_presets_depend_on_wait_plan_and_do_not_click_destructive_actions(self):
         self.assertIn("plan approval gate failed: wait_plan_failed", SMOKE)
         self.assertIn("timeout_ms=45000", SMOKE)
-        self.assertIn("plan approval actionability failed: wait_plan_failed", SMOKE)
+        self.assertIn("plan approval actionability failed: debug_seed_unavailable", SMOKE)
         self.assertIn("RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL requires", SMOKE)
         banned = ["approvePlan(", "executePreview(", "applyPatch(", "bulk approve", "bulk apply", "auto approve", "auto apply"]
         lowered_smoke = SMOKE.lower()

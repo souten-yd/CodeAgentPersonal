@@ -15411,6 +15411,18 @@ function _markAtlasPlanCompletion(result = {}, context = {}) {
   return meta;
 }
 
+window.__atlasApplyDebugSeedPlanForTests = function(seedResponse = {}) {
+  const d = seedResponse || {};
+  const normalized = normalizeAtlasPlanResponse(d);
+  if (!normalized.planGenerated || !normalized.planId) {
+    throw new Error('debug seed missing generated plan');
+  }
+  renderPhase1PlanCard(d, '', { source: 'atlas-debug-seed', workspace: 'Atlas', target: 'atlas' });
+  _markAtlasPlanCompletion(d, { source: 'atlas-debug-seed', workspace: 'Atlas' });
+  _updatePlanWorkflowState({ completionDecisionReason: 'debug_seed_plan_applied', planFetchState: 'parsed' });
+  setAtlasSubview('review');
+};
+
 // Backward-compatible name: this now drives the full guided workflow chain (plan/review/approval/execute preview/patch review).
 async function generatePlanOnlyFromInput(options = {}) {
   const input = document.getElementById('input');

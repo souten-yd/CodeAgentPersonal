@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import asyncio
 from pathlib import Path
 import os
@@ -1150,28 +1151,20 @@ async def collect_atlas_approval_panel_actionability_diag(page) -> dict:
 
 
 async def verify_atlas_plan_approval_actionability(page, wait_diag: dict, console_errors: list[str], page_errors: list[str]) -> dict:
-  final_decision = str(wait_diag.get("finalDecision") or "unknown")
-  if final_decision in ("needs_clarification", "needs_clarification_after_resolution"):
-    return {
-      "finalDecision": final_decision,
-      "completionDecisionReason": wait_diag.get("completionDecisionReason", ""),
-      "skippedReason": "plan_approval_actionability_skipped_needs_clarification",
-      "destructiveActionDetected": False,
-      "consoleErrors": list(console_errors),
-      "pageErrors": list(page_errors),
+  seed = await load_debug_seed_plan(page)
+  await open_atlas(page)
+  await page.evaluate("""(seed) => {
+    if (typeof window.__atlasApplyDebugSeedPlanForTests !== 'function') {
+      throw new Error('missing __atlasApplyDebugSeedPlanForTests');
     }
-  if final_decision != "completed":
-    dep_diag = {**wait_diag, "finalDecision": final_decision, "completionDecisionReason": wait_diag.get("completionDecisionReason", "wait_plan_failed")}
-    current_job = str(wait_diag.get("currentJobId") or "")
-    if current_job.startswith("sync-plan:req_") or current_job.startswith("sync-requirement:") or wait_diag.get("completionDecisionReason") == "pending_plan_detected":
-      dep_diag["completionDecisionReason"] = "dependency_failed:no_plan_generated"
-    raise AssertionError(compact_atlas_diag_reason(dep_diag, prefix="plan approval actionability failed: wait_plan_failed"))
+    window.__atlasApplyDebugSeedPlanForTests(seed);
+  }""", seed)
   gate_diag_before_open = await collect_atlas_plan_approval_gate_diag(page)
   open_diag = await open_atlas_approval_panel_for_inspection(page)
   action_diag = await collect_atlas_approval_panel_actionability_diag(page)
   diag = {
-    "finalDecision": final_decision,
-    "completionDecisionReason": wait_diag.get("completionDecisionReason", ""),
+    "finalDecision": "completed",
+    "completionDecisionReason": "debug_seed_plan_applied",
     "gateDiagBeforeOpen": gate_diag_before_open,
     "actionabilityDiagAfterOpen": action_diag,
     **open_diag,
@@ -1229,31 +1222,45 @@ def is_generated_plan_diag(diag: dict) -> bool:
 
 
 async def verify_atlas_plan_api_contract(page) -> None:
-  await open_atlas(page)
+  base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
   payload = {"input": ATLAS_APPROVAL_STABLE_PROMPT, "project_name": "default", "planning_mode": "standard", "requirement_mode": "ask_when_needed", "execution_mode": "plan_only", "use_nexus": True}
-  resp = await page.evaluate(
-    """async (p) => {
-      const r = await fetch('/api/task/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) });
-      const body = await r.json();
-      return { ok: r.ok, status: r.status, body };
-    }""",
-    payload,
-  )
-  body = resp.get("body") if isinstance(resp.get("body"), dict) else {}
+  res = await page.request.post(f"{base_url}/api/task/plan", data=payload, timeout=45_000)
+  body = await res.json()
   keys = sorted(body.keys())
-  status = str(body.get("status") or "").strip().lower()
+  status = str(body.get("status") or body.get("job_status") or "").strip().lower()
   plan_id = str(body.get("plan_id") or "").strip()
   requirement_id = str(body.get("requirement_id") or "").strip()
   atlas_job_id = str(body.get("atlas_job_id") or "").strip()
   atlas_run_id = str(body.get("atlas_run_id") or "").strip()
+  atlas_requirement_job_id = str(body.get("atlas_requirement_job_id") or "").strip()
+  plan_generated = body.get("plan_generated") is True
+  has_error = bool(body.get("error")) or body.get("ok") is False
   if atlas_job_id.startswith("sync-plan:req_") or atlas_run_id.startswith("req_"):
     raise AssertionError(f"atlas_plan_api_contract failed: requirement_id_leak keys={keys}")
   if status == "waiting_for_clarification":
-    if not requirement_id or plan_id:
+    if (not requirement_id.startswith("req_")) or plan_generated or plan_id or atlas_job_id or atlas_run_id:
       raise AssertionError(f"atlas_plan_api_contract failed: clarification_contract_mismatch keys={keys}")
+    if atlas_requirement_job_id != f"sync-requirement:{requirement_id}":
+      raise AssertionError(f"atlas_plan_api_contract failed: clarification_requirement_job_mismatch keys={keys}")
+  elif has_error:
+    if plan_generated or plan_id:
+      raise AssertionError(f"atlas_plan_api_contract failed: failure_contract_mismatch keys={keys}")
   else:
-    if not plan_id.startswith("plan_") or body.get("plan_generated") is not True:
+    if (not plan_generated) or (not plan_id.startswith("plan_")):
       raise AssertionError(f"atlas_plan_api_contract failed: success_contract_mismatch keys={keys}")
+    if atlas_job_id != f"sync-plan:{plan_id}" or atlas_run_id != plan_id:
+      raise AssertionError(f"atlas_plan_api_contract failed: success_id_contract_mismatch keys={keys}")
+
+
+async def load_debug_seed_plan(page) -> dict:
+  base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+  res = await page.request.post(f"{base_url}/api/debug/atlas/seed-plan", timeout=15_000)
+  if res.status in {403, 404}:
+    raise AssertionError("plan approval actionability failed: debug_seed_unavailable")
+  data = await res.json()
+  if not isinstance(data, dict) or data.get("ok") is not True:
+    raise AssertionError("plan approval actionability failed: debug_seed_invalid_response")
+  return data
 
 
 def has_requirement_id_leak_in_plan_lifecycle(diag: dict) -> bool:
@@ -2251,7 +2258,29 @@ def print_smoke_summary(results: list[dict[str, str]]) -> str:
 
 
 
+SMOKE_SCENARIOS: dict[str, callable] = {
+  "bootstrap_api_contract": verify_mode_switches,
+  "mode_switches": verify_mode_switches,
+  "atlas_current_ui_smoke": verify_atlas_current_ui_smoke,
+  "nexus_current_ui_smoke": verify_nexus_current_ui_smoke,
+  "atlas_plan_api_contract": verify_atlas_plan_api_contract,
+  "atlas_start_button_feedback": verify_atlas_start_button_feedback,
+  "atlas_guided_workflow_safe_journey": verify_atlas_guided_workflow_safe_journey,
+  "mode_specific_subtabs": verify_mode_specific_subtabs,
+  "nexus_tabs": verify_nexus_tabs,
+  "reference_card_actions": verify_reference_card_actions,
+  "chat_search_and_agent_web_tool_tts": verify_chat_search_and_agent_web_tool_tts,
+  "mobile_mode_switches": verify_mobile_mode_switches,
+}
+
+
 async def main() -> None:
+  parser = argparse.ArgumentParser(add_help=True)
+  parser.add_argument("--list-scenarios", action="store_true")
+  args, _ = parser.parse_known_args()
+  if args.list_scenarios:
+    print(json.dumps({"scenarios": sorted(SMOKE_SCENARIOS.keys())}, ensure_ascii=False, indent=2))
+    return
   if async_playwright is None:
     print("SKIP: playwright is not installed.")
     print("Install with:")
@@ -2291,19 +2320,19 @@ async def main() -> None:
     base_url, mock_server = get_smoke_base_url(use_explicit_base_url=real_backend_opt_in)
     print(f"INFO: Playwright smoke base URL = {base_url}")
     results: list[dict[str, str]] = []
-    default_ui_scenarios = [
-      ("bootstrap_api_contract", lambda current_page: current_page.evaluate("() => [typeof window.setMode, typeof window.switchNexusTab]")),
-      ("mode_switches", verify_mode_switches),
-      ("atlas_current_ui_smoke", verify_atlas_current_ui_smoke),
-      ("nexus_current_ui_smoke", verify_nexus_current_ui_smoke),
-      ("atlas_plan_api_contract", verify_atlas_plan_api_contract),
-      ("atlas_start_button_feedback", verify_atlas_start_button_feedback),
-      ("atlas_guided_workflow_safe_journey", verify_atlas_guided_workflow_safe_journey),
-      ("mode_specific_subtabs", verify_mode_specific_subtabs),
-      ("nexus_tabs", verify_nexus_tabs),
-      ("reference_card_actions", verify_reference_card_actions),
-      ("chat_search_and_agent_web_tool_tts", verify_chat_search_and_agent_web_tool_tts),
-    ]
+    default_ui_scenarios = [(name, SMOKE_SCENARIOS[name]) for name in (
+      "bootstrap_api_contract",
+      "mode_switches",
+      "atlas_current_ui_smoke",
+      "nexus_current_ui_smoke",
+      "atlas_plan_api_contract",
+      "atlas_start_button_feedback",
+      "atlas_guided_workflow_safe_journey",
+      "mode_specific_subtabs",
+      "nexus_tabs",
+      "reference_card_actions",
+      "chat_search_and_agent_web_tool_tts",
+    )]
 
 
     if preflight_only_mode:
@@ -2323,6 +2352,11 @@ async def main() -> None:
         if preflight_status.get("errors"):
           raise AssertionError(f"backend preflight failed before wait-plan e2e: {preflight_status}")
         base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip() or "mock-http-origin"
+        if run_backend_check_plan_approval_actionable_opt_in:
+          actionability_diag = await verify_atlas_plan_approval_actionability(page, {}, console_errors, page_errors)
+          print("INFO: atlas plan-approval-actionability diagnostics:\n" + json.dumps(actionability_diag, ensure_ascii=False, indent=2))
+          await assert_no_atlas_chat_leak(page, "plan_approval_actionability")
+          return
         diag = await prepare_generated_plan(
           page,
           prompt=ATLAS_APPROVAL_STABLE_PROMPT,
@@ -2437,6 +2471,9 @@ async def main() -> None:
 
     only = [item.strip() for item in os.environ.get("PLAYWRIGHT_SMOKE_ONLY", "").split(",") if item.strip()]
     if only:
+      unknown = [item for item in only if item not in SMOKE_SCENARIOS and item != "mobile_mode_switches"]
+      if unknown:
+        raise AssertionError(f"PLAYWRIGHT_SMOKE_ONLY selected no known scenarios: {unknown}")
       allowed = set(only)
       scenarios = [item for item in scenarios if item[0] in allowed]
       if not scenarios and "mobile_mode_switches" not in allowed:

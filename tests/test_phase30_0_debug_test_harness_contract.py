@@ -34,6 +34,8 @@ class TestPhase300DebugTestHarnessContract(unittest.TestCase):
         self.assertIn('debug_test_runs', MATRIX)
         self.assertIn('PLAYWRIGHT_SMOKE_ARTIFACT_DIR', MATRIX)
         self.assertIn('PLAYWRIGHT_SMOKE_ARTIFACT_DIR', SMOKE)
+        self.assertIn('SMOKE_SCENARIOS', SMOKE)
+        self.assertIn('--list-scenarios', SMOKE)
 
     def test_no_destructive_presets(self):
         self.assertNotIn('approve_plan', MATRIX)
