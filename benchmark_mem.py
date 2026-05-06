@@ -29,6 +29,24 @@ BASE_URL = f"http://127.0.0.1:{PORT}"
 RESULT_DIR = Path(os.environ.get("CODEAGENT_BENCH_DIR", str(BASE_DIR / "ca_data" / "benchmark")))
 RESULT_DIR.mkdir(parents=True, exist_ok=True)
 CTX_SIZES = [4096, 8192, 16384, 32768]
+_ALLOWED_LLAMA_CACHE_TYPES = {"f16", "q8_0", "q4_0", "q4_1", "q5_0", "q5_1", "iq4_nl"}
+
+
+def _normalize_llama_cache_type(raw: str, env_key: str) -> str:
+    v = (raw or "").strip().lower()
+    if v in {"", "none", "default"}:
+        return "q8_0"
+    if v in _ALLOWED_LLAMA_CACHE_TYPES:
+        return v
+    print(f"[Benchmark][WARN] invalid {env_key}={raw!r}; fallback to q8_0")
+    return "q8_0"
+
+
+def resolve_llama_cache_types() -> tuple[str, str]:
+    return (
+        _normalize_llama_cache_type(os.environ.get("LLAMA_CACHE_TYPE_K", "q8_0"), "LLAMA_CACHE_TYPE_K"),
+        _normalize_llama_cache_type(os.environ.get("LLAMA_CACHE_TYPE_V", "q8_0"), "LLAMA_CACHE_TYPE_V"),
+    )
 
 
 def _get_llama_server_path() -> str:

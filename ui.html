@@ -15336,13 +15336,15 @@ function normalizeAtlasPlanResponse(result = {}) {
   const requirementId = String(raw?.requirement_id || raw?.plan?.requirement_id || '').trim();
   const isClarification = status === 'waiting_for_clarification' || !!raw?.waiting_for_clarification || !!raw?.clarification;
   const hasPlanPayload = !!(raw?.plan || raw?.plan_markdown || raw?.plan_markdown_path || raw?.review_result || raw?.plan_review);
-  const planGenerated = !!(raw?.plan_generated === true || planId || (['planned', 'needs_confirmation', 'needs_revision', 'rejected'].includes(status) && hasPlanPayload));
+  const planGenerated = !!planId;
   const ok = raw?.ok !== false && !(raw?.error || raw?.detail);
   const error = String(raw?.error || raw?.detail || '').trim();
+  const payloadWithoutPlanId = !planId && (raw?.plan_generated === true || (['planned', 'needs_confirmation', 'needs_revision', 'rejected'].includes(status) && hasPlanPayload));
   const completionDecisionReason = !ok ? 'api_failed'
+    : (payloadWithoutPlanId ? 'plan_payload_without_plan_id'
     : (planGenerated ? 'plan_generated'
       : (isClarification ? 'waiting_for_clarification'
-        : 'unrecognized_plan_response'));
+        : 'unrecognized_plan_response')));
   return {
     ok,
     status,
@@ -15489,7 +15491,8 @@ async function generatePlanOnlyFromInput(options = {}) {
       return;
     }
     if (!normalized.planGenerated || !normalized.planId) {
-      _updatePlanWorkflowState({ workflowPhase: 'plan_failed', currentJobId: '', currentRunId: '', jobStatus: 'unrecognized_response', lastError: 'unrecognized_plan_response', completionDecisionReason: 'unrecognized_plan_response', planFetchState: 'failed' });
+      const reason = normalized.completionDecisionReason === 'plan_payload_without_plan_id' ? 'plan_payload_without_plan_id' : 'unrecognized_plan_response';
+      _updatePlanWorkflowState({ workflowPhase: 'plan_failed', currentJobId: '', currentRunId: '', jobStatus: 'unrecognized_response', lastError: reason, completionDecisionReason: reason, planFetchState: 'failed' });
       throw new Error('unrecognized_plan_response');
     }
 
