@@ -1198,6 +1198,12 @@ def is_generated_plan_diag(diag: dict) -> bool:
   return False
 
 
+def has_requirement_id_leak_in_plan_lifecycle(diag: dict) -> bool:
+  current_job = str(diag.get("currentJobId") or "").strip()
+  current_run = str(diag.get("currentRunId") or "").strip()
+  return current_job.startswith("sync-plan:req_") or current_run.startswith("req_")
+
+
 async def prepare_generated_plan(
   page,
   *,
@@ -1221,7 +1227,10 @@ async def prepare_generated_plan(
     page_errors=page_errors,
   )
   if not is_generated_plan_diag(diag):
-    dep_diag = {**diag, "completionDecisionReason": "plan_generated_false"}
+    reason = "plan_generated_false"
+    if has_requirement_id_leak_in_plan_lifecycle(diag):
+      reason = "plan_generated_false+requirement_id_leaked_into_plan_lifecycle"
+    dep_diag = {**diag, "completionDecisionReason": reason}
     raise AssertionError(compact_atlas_diag_reason(dep_diag, prefix="atlas wait-plan failed"))
   return diag
 

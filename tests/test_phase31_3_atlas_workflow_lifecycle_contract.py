@@ -84,8 +84,9 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
     def test_phase314c_plan_response_updates_concrete_job_and_run_ids(self):
         render_body = UI.split("function renderPhase1PlanCard", 1)[1].split("// Backward-compatible name", 1)[0]
         self.assertIn("workflowPhase: 'plan_generated'", render_body)
-        self.assertIn("currentJobId: result?.atlas_job_id || result?.job_id || (resolvedPlanIdForState ? `sync-plan:${resolvedPlanIdForState}` : '')", render_body)
-        self.assertIn("currentRunId: result?.atlas_run_id || result?.run_id || resolvedPlanIdForState || ''", render_body)
+        self.assertIn("const lifecycleIds = _sanitizePlanLifecycleIds(", render_body)
+        self.assertIn("currentJobId: lifecycleIds.currentJobId", render_body)
+        self.assertIn("currentRunId: lifecycleIds.currentRunId", render_body)
         self.assertIn("const resolvedPlanIdForState = result?.plan_id || result?.plan?.plan_id || ''", render_body)
         self.assertIn("jobStatus: result?.job_status || 'completed'", render_body)
         self.assertIn("lastError: ''", render_body)
@@ -106,8 +107,10 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
 
     def test_backend_sync_plan_exposes_lifecycle_ids(self):
         endpoint_body = MAIN.split('@app.post("/api/task/plan")', 1)[1].split('@app.get("/api/plans/{plan_id}")', 1)[0]
-        self.assertIn('result["atlas_job_id"] = f"sync-plan:{sync_id}"', endpoint_body)
-        self.assertIn('result["atlas_run_id"] = sync_id', endpoint_body)
+        self.assertIn('if plan_id:', endpoint_body)
+        self.assertIn('result["atlas_job_id"] = f"sync-plan:{plan_id}"', endpoint_body)
+        self.assertIn('result["atlas_run_id"] = plan_id', endpoint_body)
+        self.assertIn('result["atlas_requirement_job_id"] = f"sync-requirement:{requirement_id}" if requirement_id else ""', endpoint_body)
         self.assertIn('result["job_status"]', endpoint_body)
         self.assertIn('result["plan_generated"] = bool(plan_id)', endpoint_body)
 
@@ -171,6 +174,7 @@ class Phase313AtlasWorkflowLifecycleContract(unittest.TestCase):
         self.assertIn("const approvedByUser = action === 'approve'", bind_body)
         self.assertIn("userApprovedPlan: approvedByUser", bind_body)
         self.assertIn('plan_generated_false', SMOKE)
+        self.assertIn('requirement_id_leaked_into_plan_lifecycle', SMOKE)
         self.assertIn('sync-plan:req_', SMOKE)
         self.assertNotIn('approveButton.click', SMOKE)
 

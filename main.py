@@ -10736,9 +10736,13 @@ def api_task_plan(req: TaskPlanRequest):
         # and debug harness can track the run without inventing an asynchronous job.
         plan_id = str(result.get("plan_id") or result.get("plan", {}).get("plan_id") or "")
         requirement_id = str(result.get("requirement_id") or "")
-        sync_id = plan_id or requirement_id or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-        result["atlas_job_id"] = f"sync-plan:{sync_id}"
-        result["atlas_run_id"] = sync_id
+        if plan_id:
+            result["atlas_job_id"] = f"sync-plan:{plan_id}"
+            result["atlas_run_id"] = plan_id
+        else:
+            result["atlas_job_id"] = ""
+            result["atlas_run_id"] = ""
+        result["atlas_requirement_job_id"] = f"sync-requirement:{requirement_id}" if requirement_id else ""
         result["job_status"] = "waiting_for_clarification" if result.get("status") == "waiting_for_clarification" else "completed"
         result["plan_generated"] = bool(plan_id)
         return result
@@ -11244,9 +11248,13 @@ def api_task_continue(req: TaskContinueRequest):
         # and debug harness can track the run without inventing an asynchronous job.
         plan_id = str(result.get("plan_id") or result.get("plan", {}).get("plan_id") or "")
         requirement_id = str(result.get("requirement_id") or "")
-        sync_id = plan_id or requirement_id or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-        result["atlas_job_id"] = f"sync-plan:{sync_id}"
-        result["atlas_run_id"] = sync_id
+        if plan_id:
+            result["atlas_job_id"] = f"sync-plan:{plan_id}"
+            result["atlas_run_id"] = plan_id
+        else:
+            result["atlas_job_id"] = ""
+            result["atlas_run_id"] = ""
+        result["atlas_requirement_job_id"] = f"sync-requirement:{requirement_id}" if requirement_id else ""
         result["job_status"] = "waiting_for_clarification" if result.get("status") == "waiting_for_clarification" else "completed"
         result["plan_generated"] = bool(plan_id)
         return result

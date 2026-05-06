@@ -13768,6 +13768,28 @@ const planWorkflowState = {
   workspace: 'Atlas',
 };
 
+function _isRequirementIdLeak(v = '') {
+  const s = String(v || '').trim();
+  return s.startsWith('req_') || s.startsWith('sync-plan:req_');
+}
+
+function _sanitizePlanLifecycleIds(jobId, runId, planId = '') {
+  const safePlanId = String(planId || '').trim();
+  const rawJob = String(jobId || '').trim();
+  const rawRun = String(runId || '').trim();
+  const safeJob = _isRequirementIdLeak(rawJob) ? '' : rawJob;
+  const safeRun = _isRequirementIdLeak(rawRun) ? '' : rawRun;
+  if ((rawJob && !safeJob) || (rawRun && !safeRun)) {
+    const msg = `Ignored leaked requirement lifecycle ids (job=${rawJob || '-'}, run=${rawRun || '-'})`;
+    try { console.warn('[atlas-plan-lifecycle]', msg); } catch (_) {}
+    try { appendAtlasActivityCard('warning', { message: msg }); } catch (_) {}
+  }
+  return {
+    currentJobId: safeJob || (safePlanId.startsWith('plan_') ? `sync-plan:${safePlanId}` : ''),
+    currentRunId: safeRun || (safePlanId.startsWith('plan_') ? safePlanId : ''),
+  };
+}
+
 function _computePlanWorkflowNextAction() {
   if (planWorkflowState.lastError) return `error: ${planWorkflowState.lastError}`;
   if (planWorkflowState.requirementId && !planWorkflowState.planId) return 'answer clarification';
@@ -14495,8 +14517,8 @@ function renderClarificationCard(result, context = {}) {
   const questions = Array.isArray(result?.questions) ? result.questions : [];
   _updatePlanWorkflowState({
     workflowPhase: 'requirement_ready',
-    currentJobId: result?.atlas_job_id || result?.job_id || (result?.requirement_id ? `sync-requirement:${result.requirement_id}` : ''),
-    currentRunId: result?.atlas_run_id || result?.run_id || result?.requirement_id || '',
+    currentJobId: 'sync-plan-pending',
+    currentRunId: '',
     jobStatus: result?.job_status || 'waiting_for_clarification',
     requirementId: result?.requirement_id || '',
     planId: '',
@@ -15188,10 +15210,15 @@ function renderPhase1PlanCard(result, planMarkdown = '', context = {}) {
   const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
   const reviewResult = result?.review_result || null;
   const resolvedPlanIdForState = result?.plan_id || result?.plan?.plan_id || '';
+  const lifecycleIds = _sanitizePlanLifecycleIds(
+    result?.atlas_job_id || result?.job_id || '',
+    result?.atlas_run_id || result?.run_id || '',
+    resolvedPlanIdForState,
+  );
   _updatePlanWorkflowState({
     workflowPhase: 'plan_generated',
-    currentJobId: result?.atlas_job_id || result?.job_id || (resolvedPlanIdForState ? `sync-plan:${resolvedPlanIdForState}` : ''),
-    currentRunId: result?.atlas_run_id || result?.run_id || resolvedPlanIdForState || '',
+    currentJobId: lifecycleIds.currentJobId,
+    currentRunId: lifecycleIds.currentRunId,
     jobStatus: result?.job_status || 'completed',
     lastPlanApiIds: {
       atlas_job_id: result?.atlas_job_id || '',
