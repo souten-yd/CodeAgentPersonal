@@ -13703,12 +13703,15 @@ function _collectClarificationAnswers(card) {
 }
 
 
-function _renderNexusContextSummary(nexusContext, { title = 'Nexus Context Summary', compact = false } = {}) {
+function _renderNexusContextSummary(nexusContext, { title = 'Planning Context', compact = false } = {}) {
   const nc = (nexusContext && typeof nexusContext === 'object') ? nexusContext : {};
   const available = !!nc.available;
-  const summary = String(nc.summary || 'Nexus context is empty.');
+  const summary = String(nc.summary || 'Planning context is empty.');
   const sourceCounts = (nc.source_counts && typeof nc.source_counts === 'object') ? nc.source_counts : {};
-  const items = Array.isArray(nc.items) ? nc.items.slice(0, 3) : [];
+  const items = Array.isArray(nc.items) ? nc.items : [];
+  const localItems = items.filter((it) => !['nexus_evidence', 'nexus_report'].includes(String(it?.source_type || it?.type || '')));
+  const evidenceItems = items.filter((it) => String(it?.source_type || it?.type || '') === 'nexus_evidence');
+  const researchItems = items.filter((it) => String(it?.source_type || it?.type || '') === 'nexus_report');
   const warnings = Array.isArray(nc.warnings) ? nc.warnings.slice(0, 5) : [];
   const truncated = !!nc.truncated;
   const sourceCountText = Object.keys(sourceCounts).length
@@ -13716,14 +13719,16 @@ function _renderNexusContextSummary(nexusContext, { title = 'Nexus Context Summa
     : '-';
 
   return `
-    <details style="margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--bg2);max-width:100%;overflow-wrap:anywhere">
+    <details style="margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--bg2);max-width:100%;overflow-wrap:anywhere" ${compact ? '' : 'open'}>
       <summary style="cursor:pointer;font-size:${compact ? '11px' : '12px'};color:var(--text);font-weight:700;line-height:1.4">${esc(title)}</summary>
       <div style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.5;word-break:break-word">
         <div><b>available</b>: ${available ? 'true' : 'false'}</div>
         <div><b>summary</b>: ${esc(summary)}</div>
         <div><b>source_counts</b>: ${sourceCountText}</div>
         ${truncated ? '<div style="color:var(--amber)"><b>truncated</b>: true (context budget reached)</div>' : ''}
-        ${items.length ? `<div style="margin-top:6px"><b>top items</b>${items.map((it)=>`<div style="margin-top:4px">• ${esc(String(it.title || it.name || '-'))} <span style="color:var(--text3)">(${esc(String(it.source_type || it.type || 'other'))})</span><br><span style="color:var(--text3)">${esc(String(it.summary || it.description || '')).slice(0,180)}</span></div>`).join('')}</div>` : ''}
+        <div style="margin-top:6px"><b>Local Context</b>${localItems.slice(0,3).map((it)=>`<div style="margin-top:4px">• ${esc(String(it.title || it.name || '-'))}<br><span style="color:var(--text3)">${esc(String(it.summary || it.description || '')).slice(0,180)}</span></div>`).join('') || '<div style="color:var(--text3)">-</div>'}</div>
+        <div style="margin-top:6px"><b>Existing Nexus Evidence</b>${evidenceItems.slice(0,3).map((it)=>`<div style="margin-top:4px">• ${esc(String(it.title || '-'))}<br><span style="color:var(--text3)">${esc(String(it.summary || '')).slice(0,180)}</span></div>`).join('') || '<div style="color:var(--text3)">No existing Nexus evidence.</div>'}</div>
+        <div style="margin-top:6px"><b>Research Results</b>${researchItems.slice(0,3).map((it)=>`<div style="margin-top:4px">• ${esc(String(it.title || '-'))}<br><span style="color:var(--text3)">${esc(String(it.summary || '')).slice(0,180)}</span></div>`).join('') || '<div style="color:var(--text3)">No Nexus Research used.</div>'}</div>
         ${warnings.length ? `<div style="margin-top:6px"><b>warnings</b>${warnings.map((w)=>`<div>• ${esc(String(w))}</div>`).join('')}</div>` : ''}
       </div>
     </details>`;
@@ -14565,7 +14570,7 @@ function renderClarificationCard(result, context = {}) {
       <div class="plan-section">
         <div class="plan-section-title">Questions</div><div style="font-size:11px;color:var(--text2);margin:4px 0 8px">「はい」は提示方針を採用。「いいえ」は代替案を入力。「おまかせ」はAtlasが安全側で判断します。</div>
         ${qHtml}
-        ${_renderNexusContextSummary(result?.nexus_context, { title: "Nexus Context Summary", compact: true })}
+        ${_renderNexusContextSummary(result?.nexus_context, { title: "Planning Context", compact: true })}
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
           <button class="phase1-plan-btn" data-action="submit">回答してPlan生成</button>
           <button class="phase1-tab-btn" data-action="skip">おまかせで進める</button>
@@ -15296,7 +15301,7 @@ function renderPhase1PlanCard(result, planMarkdown = '', context = {}) {
         ${_renderPhase1ReviewSection(reviewResult)}
         ${_renderPhase5ApprovalSection(result, cardId)}
         ${_renderPhase6ExecutionSection(result, cardId)}
-        ${_renderNexusContextSummary(result?.nexus_context, { title: "Nexus Context", compact: true })}
+        ${_renderNexusContextSummary(result?.nexus_context, { title: "Planning Context", compact: true })}
         <div class="phase1-tabs">
           <button class="phase1-tab-btn active" data-tab="requirements" onclick="_switchPhase1CardTab('${cardId}','requirements')">Requirements</button>
           <button class="phase1-tab-btn" data-tab="plan" onclick="_switchPhase1CardTab('${cardId}','plan')">Plan</button>
@@ -15310,7 +15315,7 @@ function renderPhase1PlanCard(result, planMarkdown = '', context = {}) {
           <div class="plan-section-title">仮定</div>${_phase1List(requirement.assumptions)}
           <div class="plan-section-title">完了条件</div>${_phase1List(requirement.done_definition)}
           <div class="plan-section-title">要件明確度スコア</div><div class="plan-approach-text">${esc(String(requirement.requirement_completeness_score ?? '-'))}</div>
-          ${_renderNexusContextSummary(result?.nexus_context, { title: "Nexus Context Summary", compact: false })}
+          ${_renderNexusContextSummary(result?.nexus_context, { title: "Planning Context", compact: false })}
         </div>
         <div class="phase1-tab-body" data-tab="plan" data-atlas-workflow-target="dynamic-plan-review">
           ${markdownSectionHtml}

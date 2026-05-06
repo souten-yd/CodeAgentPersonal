@@ -62,7 +62,19 @@ class Phase3NexusContextBuilderTests(unittest.TestCase):
         self.assertIn("source_counts", out)
         self.assertGreaterEqual(out["source_counts"].get("memory", 0), 1)
         self.assertGreaterEqual(out["source_counts"].get("skill", 0), 1)
-        self.assertIn("Nexus Context Summary", out.get("compact_text", ""))
+        self.assertIn("Planning Context", out.get("compact_text", ""))
+
+    def test_existing_nexus_evidence_collected_without_deep_research(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ca_data = root / "ca_data"
+            nx = ca_data / "nexus" / "jobs" / "job_1"
+            nx.mkdir(parents=True, exist_ok=True)
+            (nx / "answer.md").write_text("atlas planning context for warning solution", encoding="utf-8")
+            builder = NexusContextBuilder(ca_data_dir=str(ca_data))
+            out = builder.build("warning solution", use_nexus=True)
+            types = {str(i.get("source_type") or i.get("type")) for i in out.get("items", [])}
+            self.assertIn("nexus_evidence", types)
 
     def test_collect_past_requirements_and_plans(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -16,6 +16,7 @@ SourceType = Literal[
     "project_file",
     "project_note",
     "nexus_evidence",
+    "nexus_report",
     "other",
 ]
 RiskLevel = Literal["low", "medium", "high"]
