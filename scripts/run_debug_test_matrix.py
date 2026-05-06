@@ -130,11 +130,42 @@ def _refresh_counts_and_status(payload: dict[str, Any], *, final: bool = False) 
         payload["status"] = "passed"
 
 
+
+
+def _run_preflight_checks(run_dir: Path) -> dict[str, Any]:
+    preflight_cmd = [sys.executable, "-c", "import main; print('main import ok')"]
+    proc = subprocess.run(
+        preflight_cmd,
+        cwd=str(REPO_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    stdout_log_path = run_dir / "preflight_stdout.log"
+    stderr_log_path = run_dir / "preflight_stderr.log"
+    stdout_log_path.write_text(proc.stdout or "", encoding="utf-8", errors="replace")
+    stderr_log_path.write_text(proc.stderr or "", encoding="utf-8", errors="replace")
+    return {
+        "command": " ".join(preflight_cmd),
+        "exit_code": int(proc.returncode),
+        "stdout_log_path": str(stdout_log_path),
+        "stderr_log_path": str(stderr_log_path),
+    }
+
 def run_all_presets(run_id: str) -> dict[str, Any]:
     run_dir = DEBUG_RUN_ROOT / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     started = time.time()
     payload: dict[str, Any] = {"run_id": run_id, "status": "running", "current_test": None, "started_at": datetime.now(timezone.utc).isoformat(), "results": [], "total": 0, "passed": 0, "failed": 0, "skipped": 0, "timeout": 0}
+    preflight = _run_preflight_checks(run_dir)
+    payload["preflight"] = preflight
+    if preflight["exit_code"] != 0:
+        payload["status"] = "preflight_failed"
+        payload["current_test"] = None
+        payload["finished_at"] = datetime.now(timezone.utc).isoformat()
+        payload["duration_sec"] = round(time.time() - started, 3)
+        _write_progress(run_dir, payload)
+        return payload
     _write_progress(run_dir, payload)
     for preset in TEST_PRESETS:
         payload["current_test"] = preset.id
