@@ -15321,37 +15321,75 @@ function renderPhase1PlanCard(result, planMarkdown = '', context = {}) {
   _bindPhase6ExecutionActions(cardRoot, result);
 }
 
+function normalizeAtlasPlanResponse(result = {}) {
+  const raw = result || {};
+  const status = String(raw?.status || raw?.job_status || raw?.plan?.status || '').trim().toLowerCase();
+  const candidatePlanIds = [
+    raw?.plan_id,
+    raw?.plan?.plan_id,
+    raw?.plan?.id,
+    raw?.task_id,
+    raw?.atlas_run_id,
+    String(raw?.atlas_job_id || '').replace(/^sync-plan:/, ''),
+  ].map((v) => String(v || '').trim());
+  const planId = candidatePlanIds.find((v) => v.startsWith('plan_')) || '';
+  const requirementId = String(raw?.requirement_id || raw?.plan?.requirement_id || '').trim();
+  const isClarification = status === 'waiting_for_clarification' || !!raw?.waiting_for_clarification || !!raw?.clarification;
+  const hasPlanPayload = !!(raw?.plan || raw?.plan_markdown || raw?.plan_markdown_path || raw?.review_result || raw?.plan_review);
+  const planGenerated = !!(raw?.plan_generated === true || planId || (['planned', 'needs_confirmation', 'needs_revision', 'rejected'].includes(status) && hasPlanPayload));
+  const ok = raw?.ok !== false && !(raw?.error || raw?.detail);
+  const error = String(raw?.error || raw?.detail || '').trim();
+  const completionDecisionReason = !ok ? 'api_failed'
+    : (planGenerated ? 'plan_generated'
+      : (isClarification ? 'waiting_for_clarification'
+        : 'unrecognized_plan_response'));
+  return {
+    ok,
+    status,
+    requirementId,
+    planId,
+    planGenerated,
+    isClarification,
+    atlasJobId: planId ? `sync-plan:${planId}` : '',
+    atlasRunId: planId || '',
+    requirementJobId: requirementId ? `sync-requirement:${requirementId}` : '',
+    error,
+    completionDecisionReason,
+    raw,
+  };
+}
+
 function _atlasSyncPlanSuccessMeta(result = {}) {
-  const status = String(result?.status || result?.plan?.status || '').toLowerCase();
-  const reviewResult = result?.review_result || result?.plan_review || {};
-  const planId = String(result?.plan_id || result?.plan?.plan_id || '').trim();
-  const hasConcretePlanId = planId.startsWith('plan_');
-  const hasPlanSignal = !!(
-    hasConcretePlanId
-    || (['planned', 'needs_confirmation', 'needs_revision', 'rejected'].includes(status) && result?.plan)
-  );
-  const runId = String(result?.task_id || planId || result?.atlas_run_id || result?.atlas_job_id || '').trim();
-  const approvalRequired = !!(reviewResult?.requires_user_confirmation || status === 'needs_confirmation');
-  return { status, runId, hasPlanSignal, approvalRequired, planId };
+  const normalized = normalizeAtlasPlanResponse(result);
+  const reviewResult = normalized.raw?.review_result || normalized.raw?.plan_review || {};
+  const approvalRequired = !!(reviewResult?.requires_user_confirmation || normalized.status === 'needs_confirmation');
+  return {
+    status: normalized.status,
+    runId: normalized.atlasRunId,
+    hasPlanSignal: normalized.planGenerated,
+    approvalRequired,
+    planId: normalized.planId,
+  };
 }
 
 function _markAtlasPlanCompletion(result = {}, context = {}) {
+  const normalized = normalizeAtlasPlanResponse(result);
   const meta = _atlasSyncPlanSuccessMeta(result);
   if (!meta.hasPlanSignal) return meta;
   _updatePlanWorkflowState({
     workflowPhase: 'plan_generated',
-    currentJobId: '',
-    currentRunId: meta.runId,
-    jobStatus: String(result?.job_status || result?.status || 'completed'),
+    currentJobId: normalized.atlasJobId,
+    currentRunId: normalized.atlasRunId,
+    jobStatus: normalized.status || String(result?.job_status || result?.status || 'completed'),
     lastPlanApiIds: {
-      atlas_job_id: result?.atlas_job_id || '',
-      atlas_run_id: result?.atlas_run_id || '',
-      requirement_id: result?.requirement_id || '',
-      plan_id: result?.plan_id || result?.plan?.plan_id || '',
+      atlas_job_id: normalized.raw?.atlas_job_id || normalized.atlasJobId || '',
+      atlas_run_id: normalized.raw?.atlas_run_id || normalized.atlasRunId || '',
+      requirement_id: normalized.requirementId || '',
+      plan_id: normalized.planId || '',
     },
-    currentRequirementId: result?.requirement_id || '',
-    requirementId: result?.requirement_id || '',
-    planId: result?.plan_id || result?.plan?.plan_id || '',
+    currentRequirementId: normalized.requirementId || '',
+    requirementId: normalized.requirementId || '',
+    planId: normalized.planId || '',
     reviewId: result?.review_id || result?.review_result?.review_id || '',
     approvalStatus: meta.approvalRequired ? 'required' : 'not_required',
     finalDecision: 'completed',
@@ -15364,7 +15402,7 @@ function _markAtlasPlanCompletion(result = {}, context = {}) {
     flowEl.dataset.planStatus = meta.status || '';
     flowEl.insertAdjacentHTML('beforeend', `<div data-plan-marker=\"canonical\">Requirement: done</div><div data-plan-marker=\"canonical\">Plan: generated</div><div data-plan-marker=\"canonical\">Review: done</div><div data-plan-marker=\"canonical\">${approvalText}</div>`);
   }
-  appendAtlasActivityCard('plan_generated', { planId: result?.plan_id || result?.plan?.plan_id || '', message: `status=${meta.status || '-'}` });
+  appendAtlasActivityCard('plan_generated', { planId: normalized.planId || '', message: `status=${meta.status || '-'}` });
   return meta;
 }
 
@@ -15429,19 +15467,35 @@ async function generatePlanOnlyFromInput(options = {}) {
     const ws = Array.isArray(d?.warnings) ? d.warnings : [];
     ws.forEach((w) => addLog('warn', 'plan-only', String(w)));
 
-    if (d.status === 'waiting_for_clarification') {
+    const normalized = normalizeAtlasPlanResponse(d);
+    _updatePlanWorkflowState({
+      planFetchState: 'responded',
+      apiResponseKeys: Object.keys(d || {}),
+      normalizedPlanResponse: normalized,
+    });
+
+    if (!normalized.ok) {
+      throw new Error(normalized.error || 'api_task_plan_failed');
+    }
+
+    if (normalized.isClarification) {
       // legacy marker: currentJobId: d.plan_id ? `sync-plan:${d.plan_id}` : 'sync-plan-pending'
-      _updatePlanWorkflowState({ workflowPhase: 'waiting_for_clarification', currentJobId: d.requirement_id ? `sync-requirement:${d.requirement_id}` : '', currentRunId: '', jobStatus: d.job_status || 'waiting_for_clarification', lastPlanApiIds: { atlas_job_id: d.atlas_job_id || '', atlas_run_id: d.atlas_run_id || '', requirement_id: d.requirement_id || '', plan_id: d.plan_id || '' }, currentRequirementId: d.requirement_id || '', requirementId: d.requirement_id || '', planId: '', lastError: '' });
+      // legacy marker: currentRequirementId: d.requirement_id || ''
+      _updatePlanWorkflowState({ workflowPhase: 'waiting_for_clarification', currentJobId: normalized.requirementJobId, currentRunId: '', jobStatus: 'waiting_for_clarification', lastPlanApiIds: { atlas_job_id: normalized.raw?.atlas_job_id || '', atlas_run_id: normalized.raw?.atlas_run_id || '', requirement_id: normalized.requirementId || '', plan_id: normalized.planId || '' }, currentRequirementId: d.requirement_id || normalized.requirementId || '', requirementId: normalized.requirementId || '', planId: '', lastError: '', completionDecisionReason: normalized.completionDecisionReason, planFetchState: 'parsed' });
       try { focusAtlasPlanWorkbench(); } catch (_) {}
       renderClarificationCard(d, { planningMode, requirementMode, executionMode, source, workspace, target: 'atlas' });
-      addLog('ok', 'plan-only', `Clarification required requirement_id=${d.requirement_id}`);
-      appendAtlasActivityCard('clarification_required', { requirementId: d.requirement_id || '' });
+      addLog('ok', 'plan-only', `Clarification required requirement_id=${normalized.requirementId}`);
+      appendAtlasActivityCard('clarification_required', { requirementId: normalized.requirementId || '' });
       return;
+    }
+    if (!normalized.planGenerated || !normalized.planId) {
+      _updatePlanWorkflowState({ workflowPhase: 'plan_failed', currentJobId: '', currentRunId: '', jobStatus: 'unrecognized_response', lastError: 'unrecognized_plan_response', completionDecisionReason: 'unrecognized_plan_response', planFetchState: 'failed' });
+      throw new Error('unrecognized_plan_response');
     }
 
     let planMarkdown = '';
     try {
-      const resolvedPlanId = d.plan_id || d?.plan?.plan_id || '';
+      const resolvedPlanId = normalized.planId || '';
       const rm = await fetch(API + `/api/plans/${encodeURIComponent(resolvedPlanId)}/markdown`);
       const dm = await rm.json();
       if (!rm.ok) throw new Error(dm.detail || `HTTP ${rm.status}`);
@@ -15451,18 +15505,16 @@ async function generatePlanOnlyFromInput(options = {}) {
     }
     renderPhase1PlanCard(d, planMarkdown, { source, workspace, target: 'atlas' });
     const completionMeta = _markAtlasPlanCompletion(d, { source, workspace });
-    addLog('ok', 'plan-only', `Generated plan_id=${d.plan_id || d?.plan?.plan_id || '-'} requirement_id=${d.requirement_id} status=${completionMeta.status || '-'}`);
+    _updatePlanWorkflowState({ completionDecisionReason: normalized.completionDecisionReason, planFetchState: 'parsed' });
+    addLog('ok', 'plan-only', `Generated plan_id=${normalized.planId || '-'} requirement_id=${normalized.requirementId || ''} status=${completionMeta.status || '-'}`);
   } catch (e) {
     const baseErr = e && e.message ? e.message : String(e);
     const errMsg = baseErr.startsWith('api_task_plan_http_error:') ? baseErr : `api_task_plan_exception:${baseErr}`;
     if (shouldRenderAtlasWorkflowInChat({ target: options?.target })) addMsg('error', 'Phase1 plan generation failed: ' + errMsg);
     addLog('err', 'plan-only', errMsg);
     try { focusAtlasPlanWorkbench(); } catch (_) {}
-    _updatePlanWorkflowState({ workflowPhase: 'plan_failed', currentJobId: '', jobStatus: 'failed', lastError: errMsg, executionReady: false, userApprovedPlan: false });
+    _updatePlanWorkflowState({ workflowPhase: 'plan_failed', currentJobId: '', currentRunId: '', jobStatus: 'failed', lastError: errMsg, executionReady: false, userApprovedPlan: false, planFetchState: 'failed' });
   } finally {
-    if (String(planWorkflowState.currentJobId || '') === 'sync-plan-pending') {
-      _updatePlanWorkflowState({ currentJobId: '', pendingCleanupReason: 'sync_plan_pending_cleared_in_finally' });
-    }
     progEl.remove();
     setBusy(false);
   }

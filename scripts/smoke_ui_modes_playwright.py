@@ -1210,8 +1210,13 @@ def is_generated_plan_diag(diag: dict) -> bool:
     return False
   if current_job.startswith("sync-plan:req_") or current_run.startswith("req_"):
     return False
+  if current_job == "sync-plan-pending":
+    return False
   if workflow_phase == "waiting_for_clarification":
     return False
+  if diag.get("planGenerated") is True or diag.get("plan_generated") is True:
+    if plan_id.startswith("plan_") or current_run.startswith("plan_") or current_job.startswith("sync-plan:plan_"):
+      return True
   if plan_id.startswith("plan_") or current_run.startswith("plan_") or current_job.startswith("sync-plan:plan_"):
     return True
   if final == "completed" and current_job.startswith("sync-plan:plan_"):
@@ -1221,6 +1226,34 @@ def is_generated_plan_diag(diag: dict) -> bool:
   if diag.get("generatedPlan") or diag.get("planMarkdown") or diag.get("planResult"):
     return True
   return False
+
+
+async def verify_atlas_plan_api_contract(page) -> None:
+  await open_atlas(page)
+  payload = {"input": ATLAS_APPROVAL_STABLE_PROMPT, "project_name": "default", "planning_mode": "standard", "requirement_mode": "ask_when_needed", "execution_mode": "plan_only", "use_nexus": True}
+  resp = await page.evaluate(
+    """async (p) => {
+      const r = await fetch('/api/task/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) });
+      const body = await r.json();
+      return { ok: r.ok, status: r.status, body };
+    }""",
+    payload,
+  )
+  body = resp.get("body") if isinstance(resp.get("body"), dict) else {}
+  keys = sorted(body.keys())
+  status = str(body.get("status") or "").strip().lower()
+  plan_id = str(body.get("plan_id") or "").strip()
+  requirement_id = str(body.get("requirement_id") or "").strip()
+  atlas_job_id = str(body.get("atlas_job_id") or "").strip()
+  atlas_run_id = str(body.get("atlas_run_id") or "").strip()
+  if atlas_job_id.startswith("sync-plan:req_") or atlas_run_id.startswith("req_"):
+    raise AssertionError(f"atlas_plan_api_contract failed: requirement_id_leak keys={keys}")
+  if status == "waiting_for_clarification":
+    if not requirement_id or plan_id:
+      raise AssertionError(f"atlas_plan_api_contract failed: clarification_contract_mismatch keys={keys}")
+  else:
+    if not plan_id.startswith("plan_") or body.get("plan_generated") is not True:
+      raise AssertionError(f"atlas_plan_api_contract failed: success_contract_mismatch keys={keys}")
 
 
 def has_requirement_id_leak_in_plan_lifecycle(diag: dict) -> bool:
@@ -2263,6 +2296,7 @@ async def main() -> None:
       ("mode_switches", verify_mode_switches),
       ("atlas_current_ui_smoke", verify_atlas_current_ui_smoke),
       ("nexus_current_ui_smoke", verify_nexus_current_ui_smoke),
+      ("atlas_plan_api_contract", verify_atlas_plan_api_contract),
       ("atlas_start_button_feedback", verify_atlas_start_button_feedback),
       ("atlas_guided_workflow_safe_journey", verify_atlas_guided_workflow_safe_journey),
       ("mode_specific_subtabs", verify_mode_specific_subtabs),
