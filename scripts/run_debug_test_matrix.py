@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -54,6 +55,34 @@ TEST_PRESETS: list[TestPreset] = [
 LEGACY_TEST_PRESETS: list[TestPreset] = [
     TestPreset("legacy_ui_9of9_mock", "Legacy UI smoke 9/9 (mock, informational)", "Legacy compatibility UI smoke; not default acceptance for current Atlas UI", [sys.executable, "scripts/smoke_ui_modes_playwright.py"], {"PLAYWRIGHT_SMOKE_BASE_URL": "", "RUN_ATLAS_BACKEND_PREFLIGHT": "0", "RUN_ATLAS_BACKEND_E2E": "0"}, 600),
 ]
+
+
+_SMOKE_MODULE_CACHE = None
+
+
+def _load_smoke_module() -> Any:
+    global _SMOKE_MODULE_CACHE
+    if _SMOKE_MODULE_CACHE is not None:
+        return _SMOKE_MODULE_CACHE
+
+    scripts_dir = (REPO_ROOT / "scripts").resolve()
+    smoke_path = scripts_dir / "smoke_ui_modes_playwright.py"
+
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+
+    spec = importlib.util.spec_from_file_location(
+        "codeagent_smoke_ui_modes_playwright",
+        smoke_path,
+    )
+    if spec is None or spec.loader is None:
+        raise AssertionError(f"matrix_preflight_failed: cannot load smoke module from {smoke_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    _SMOKE_MODULE_CACHE = module
+    return module
 
 
 def _markdown_cell(value: Any, *, limit: int = 220) -> str:
@@ -179,7 +208,7 @@ def _validate_smoke_only_presets(registry: set[str]) -> None:
 
 
 def _validate_resolved_smoke_scenarios(registry: set[str]) -> None:
-    import smoke_ui_modes_playwright as smoke
+    smoke = _load_smoke_module()
 
     scenario_runners = {name: spec.fn for name, spec in smoke.SMOKE_SCENARIOS.items()}
     required_presets = {"atlas_plan_api_contract", "backend_preflight", "plan_approval_actionability"}
@@ -222,9 +251,24 @@ def run_all_presets(run_id: str) -> dict[str, Any]:
         _write_progress(run_dir, payload)
         return payload
     _write_progress(run_dir, payload)
-    smoke_registry = _load_smoke_registry()
-    _validate_smoke_only_presets(smoke_registry)
-    _validate_resolved_smoke_scenarios(smoke_registry)
+    try:
+        smoke_registry = _load_smoke_registry()
+        _validate_smoke_only_presets(smoke_registry)
+        _validate_resolved_smoke_scenarios(smoke_registry)
+    except Exception as exc:
+        import traceback
+
+        payload["status"] = "matrix_preflight_failed"
+        payload["current_test"] = None
+        payload["finished_at"] = datetime.now(timezone.utc).isoformat()
+        payload["duration_sec"] = round(time.time() - started, 3)
+        payload["preflight_error"] = {
+            "type": type(exc).__name__,
+            "message": str(exc),
+            "traceback": traceback.format_exc(),
+        }
+        _write_progress(run_dir, payload)
+        return payload
     for preset in TEST_PRESETS:
         payload["current_test"] = preset.id
         _write_progress(run_dir, payload)
