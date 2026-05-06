@@ -177,6 +177,36 @@ def _validate_smoke_only_presets(registry: set[str]) -> None:
     if missing:
         raise AssertionError(f"matrix_preflight_failed: PLAYWRIGHT_SMOKE_ONLY not in smoke registry: {missing}")
 
+
+def _validate_resolved_smoke_scenarios(registry: set[str]) -> None:
+    import smoke_ui_modes_playwright as smoke
+
+    scenario_runners = {name: spec.fn for name, spec in smoke.SMOKE_SCENARIOS.items()}
+    required_presets = {"atlas_plan_api_contract", "backend_preflight", "plan_approval_actionability"}
+    for preset in TEST_PRESETS:
+        if preset.id not in required_presets:
+            continue
+        only = [item.strip() for item in preset.env.get("PLAYWRIGHT_SMOKE_ONLY", "").split(",") if item.strip()]
+        run_backend_preflight_opt_in = preset.env.get("RUN_ATLAS_BACKEND_PREFLIGHT", "").strip() == "1"
+        run_backend_e2e_opt_in = preset.env.get("RUN_ATLAS_BACKEND_E2E", "").strip() == "1"
+        preflight_only_mode = run_backend_preflight_opt_in and not run_backend_e2e_opt_in
+        selected = smoke.resolve_smoke_scenarios(
+            only=only,
+            preflight_only_mode=preflight_only_mode,
+            run_backend_e2e=run_backend_e2e_opt_in,
+            run_wait_plan=preset.env.get("RUN_ATLAS_BACKEND_E2E_WAIT_PLAN", "").strip() == "1",
+            run_resolve_clarification=preset.env.get("RUN_ATLAS_BACKEND_E2E_RESOLVE_CLARIFICATION", "").strip() == "1",
+            run_check_plan_approval=preset.env.get("RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL", "").strip() == "1",
+            run_check_plan_approval_actionable=preset.env.get("RUN_ATLAS_BACKEND_E2E_CHECK_PLAN_APPROVAL_ACTIONABLE", "").strip() == "1",
+        )
+        missing_registry = [item for item in selected if item not in registry]
+        missing_runners = [item for item in selected if item not in scenario_runners]
+        if missing_registry or missing_runners:
+            raise AssertionError(
+                f"matrix_preflight_failed: preset={preset.id} resolved non-executable scenarios: "
+                f"missing_registry={missing_registry} missing_runners={missing_runners}"
+            )
+
 def run_all_presets(run_id: str) -> dict[str, Any]:
     run_dir = DEBUG_RUN_ROOT / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -194,6 +224,7 @@ def run_all_presets(run_id: str) -> dict[str, Any]:
     _write_progress(run_dir, payload)
     smoke_registry = _load_smoke_registry()
     _validate_smoke_only_presets(smoke_registry)
+    _validate_resolved_smoke_scenarios(smoke_registry)
     for preset in TEST_PRESETS:
         payload["current_test"] = preset.id
         _write_progress(run_dir, payload)

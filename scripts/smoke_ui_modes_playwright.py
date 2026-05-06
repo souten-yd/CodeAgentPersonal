@@ -2271,6 +2271,12 @@ class SmokeScenarioSpec:
 
 
 SMOKE_SCENARIOS: dict[str, SmokeScenarioSpec] = {
+  "atlas_backend_preflight": SmokeScenarioSpec(id="atlas_backend_preflight", fn=run_backend_preflight, kind="backend_preflight", requires_backend=True, allowed_in_preflight_only=True),
+  "atlas_backend_e2e_journey": SmokeScenarioSpec(id="atlas_backend_e2e_journey", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True),
+  "atlas_backend_e2e_wait_plan": SmokeScenarioSpec(id="atlas_backend_e2e_wait_plan", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True),
+  "atlas_backend_e2e_resolve_clarification": SmokeScenarioSpec(id="atlas_backend_e2e_resolve_clarification", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True),
+  "atlas_backend_e2e_plan_approval_gate": SmokeScenarioSpec(id="atlas_backend_e2e_plan_approval_gate", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True),
+  "atlas_backend_e2e_plan_approval_actionability": SmokeScenarioSpec(id="atlas_backend_e2e_plan_approval_actionability", fn=verify_atlas_backend_e2e_journey, kind="backend_e2e", requires_backend=True),
   "bootstrap_api_contract": SmokeScenarioSpec(id="bootstrap_api_contract", fn=verify_mode_switches, kind="ui", default_ui=True),
   "mode_switches": SmokeScenarioSpec(id="mode_switches", fn=verify_mode_switches, kind="ui", default_ui=True),
   "atlas_current_ui_smoke": SmokeScenarioSpec(id="atlas_current_ui_smoke", fn=verify_atlas_current_ui_smoke, kind="ui", default_ui=True),
@@ -2476,21 +2482,25 @@ async def main() -> None:
           ("atlas_backend_preflight", run_backend_preflight),
           ("atlas_backend_e2e_plan_approval_actionability", verify_atlas_backend_e2e_wait_plan),
         ]
+        scenario_runners["atlas_backend_e2e_plan_approval_actionability"] = verify_atlas_backend_e2e_wait_plan
       elif run_backend_check_plan_approval_opt_in:
         scenarios = [
           ("atlas_backend_preflight", run_backend_preflight),
           ("atlas_backend_e2e_plan_approval_gate", verify_atlas_backend_e2e_wait_plan),
         ]
+        scenario_runners["atlas_backend_e2e_plan_approval_gate"] = verify_atlas_backend_e2e_wait_plan
       elif run_backend_wait_plan_opt_in and run_backend_resolve_clarification_opt_in:
         scenarios = [
           ("atlas_backend_preflight", run_backend_preflight),
           ("atlas_backend_e2e_resolve_clarification", verify_atlas_backend_e2e_wait_plan),
         ]
+        scenario_runners["atlas_backend_e2e_resolve_clarification"] = verify_atlas_backend_e2e_wait_plan
       elif run_backend_wait_plan_opt_in:
         scenarios = [
           ("atlas_backend_preflight", run_backend_preflight),
           ("atlas_backend_e2e_wait_plan", verify_atlas_backend_e2e_wait_plan),
         ]
+        scenario_runners["atlas_backend_e2e_wait_plan"] = verify_atlas_backend_e2e_wait_plan
       else:
         scenarios = [
           ("atlas_backend_preflight", run_backend_preflight),
@@ -2523,7 +2533,10 @@ async def main() -> None:
     if not selected_scenarios:
       raise AssertionError("no scenarios selected after resolution: []")
     print("INFO: selected scenarios: " + ", ".join(selected_scenarios))
-    scenarios = [(name, scenario_runners[name]) for name in selected_scenarios if name in scenario_runners]
+    missing_runners = [name for name in selected_scenarios if name not in scenario_runners]
+    if missing_runners:
+      raise AssertionError(f"selected scenarios missing runners: {missing_runners}")
+    scenarios = [(name, scenario_runners[name]) for name in selected_scenarios]
 
     for scenario_name, scenario_fn in scenarios:
       await run_smoke_scenario(scenario_name, browser, base_url, scenario_fn, results, DEFAULT_DESKTOP_VIEWPORT)

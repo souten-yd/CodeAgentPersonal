@@ -68,6 +68,7 @@ class TestPhase300DebugTestHarnessContract(unittest.TestCase):
     def test_smoke_scenario_metadata_and_resolution(self):
         smoke = self.smoke_module
         self.assertIn('atlas_plan_api_contract', smoke.SMOKE_SCENARIOS)
+        self.assertIn('atlas_backend_preflight', smoke.SMOKE_SCENARIOS)
         spec = smoke.SMOKE_SCENARIOS['atlas_plan_api_contract']
         self.assertEqual(spec.kind, 'backend_api')
         self.assertTrue(spec.allowed_in_preflight_only)
@@ -80,8 +81,20 @@ class TestPhase300DebugTestHarnessContract(unittest.TestCase):
             run_check_plan_approval=False,
             run_check_plan_approval_actionable=False,
         )
-        self.assertIn('atlas_plan_api_contract', resolved)
-        self.assertNotEqual(resolved, [])
+        self.assertEqual(resolved, ['atlas_backend_preflight', 'atlas_plan_api_contract'])
+        self.assertTrue(all(item in smoke.SMOKE_SCENARIOS for item in resolved))
+        preflight_resolved = smoke.resolve_smoke_scenarios(
+            only=[],
+            preflight_only_mode=True,
+            run_backend_e2e=False,
+            run_wait_plan=False,
+            run_resolve_clarification=False,
+            run_check_plan_approval=False,
+            run_check_plan_approval_actionable=False,
+        )
+        self.assertEqual(preflight_resolved, ['atlas_backend_preflight'])
+        scenario_runners = {name: spec.fn for name, spec in smoke.SMOKE_SCENARIOS.items()}
+        self.assertTrue(all(item in scenario_runners for item in resolved + preflight_resolved))
 
     def test_matrix_presets_match_smoke_registry(self):
         smoke = self.smoke_module
