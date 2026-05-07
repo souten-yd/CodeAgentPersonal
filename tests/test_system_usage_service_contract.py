@@ -1,4 +1,5 @@
 import importlib
+import inspect
 import sys
 from typing import Any, get_type_hints
 
@@ -196,6 +197,54 @@ def test_collect_system_usage_info_exists_and_uses_ports_without_external_gpu_co
     assert diag["parse_source"] == "direct"
     assert diag["adopted_values"]["gpu_count"] == 1
 
+
+def test_system_usage_service_source_has_no_stale_mm_time_reference():
+    module = importlib.import_module("app.services.system_usage")
+
+    assert "_mm_time" not in inspect.getsource(module)
+
+
+def test_windows_counter_collection_falls_back_without_pdh_side_effects(monkeypatch):
+    module = importlib.import_module("app.services.system_usage")
+
+    settings = _FakeSettings()
+    settings.values["gpu_usage_backend"] = "windows-counter"
+    diagnostics = module.InMemoryUsageDiagnostics()
+    ports = module.UsageCollectorPorts(settings=settings, diagnostics=diagnostics)
+
+    class FakeVirtualMemory:
+        total = 8 * 1024 * 1024
+        available = 4 * 1024 * 1024
+        percent = 50.0
+
+    class FakePsutil:
+        @staticmethod
+        def cpu_percent(interval=0.15):
+            return 12.5
+
+        @staticmethod
+        def virtual_memory():
+            return FakeVirtualMemory()
+
+    def fake_run(*args, **kwargs):
+        raise FileNotFoundError("Windows probes are unavailable in this test")
+
+    monkeypatch.setattr(module.os, "name", "nt")
+    monkeypatch.setitem(sys.modules, "psutil", FakePsutil)
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    monkeypatch.setattr(module, "_probe_gpu_static", lambda backend: [])
+
+    payload = module.collect_system_usage_info(ports=ports, debug_mode=False)
+    diag = diagnostics.get_last_usage_diag()
+
+    assert payload["gpu_backend_selected"] == "windows-counter"
+    assert payload["gpu_backend"] == "windows-counter"
+    assert payload["gpus"] == []
+    assert payload["cpu_percent"] == 12.5
+    assert payload["ram_total_mb"] == 8
+    assert payload["ram_used_mb"] == 4
+    assert diag["gpu_backend_selected"] == "windows-counter"
+    assert diag["parse_source"] == "unknown"
 
 def test_system_usage_service_import_does_not_probe_or_persist(monkeypatch):
     sys.modules.pop("app.services.system_usage", None)

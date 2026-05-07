@@ -133,6 +133,9 @@ Current behavior and next-step notes:
 - `app/services/system_usage.py` now also includes `InMemoryUsageDiagnostics`, a
   side-effect-free adapter skeleton that satisfies the diagnostics port without
   referencing `main.py` globals.
+- PR4.16 follow-up repair is complete: the Windows PDH helper now uses the
+  service module's `time` import directly, and the service contract tests guard
+  against stale `_mm_time` references that Linux CI would not execute.
 - `main.py` now provides `MainSettingsPort` and `MainUsageDiagnosticsAdapter`
   as the live adapters for the service ports. The settings adapter delegates to
   the existing `settings_get()` / `settings_set()` helpers, and the diagnostics
@@ -180,9 +183,9 @@ ports together.
 
 The reason not to move debug before the provider contract was that it depends
 on the side effects of the usage collector. With the router/provider boundary and service collector in place, the
-usage/debug endpoint migration and collector extraction are complete. The next
-candidate is to providerize `/system/summary`, or to inventory the settings
-router boundary. Future work should continue treating settings persistence, GPU
-backend auto-detection, subprocess probes, OS probes, Windows
-DXDiag/WMI/PowerShell probes, and other platform side effects deliberately so
-endpoint contracts stay unchanged.
+usage/debug endpoint migration and collector extraction are complete. Future work
+should continue treating settings persistence, GPU backend auto-detection,
+subprocess probes, OS probes, Windows DXDiag/WMI/PowerShell probes, and other
+platform side effects deliberately so endpoint contracts stay unchanged. The
+next candidates remain `/system/summary` providerization or settings router
+inventory.
