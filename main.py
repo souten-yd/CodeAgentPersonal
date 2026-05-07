@@ -74,6 +74,9 @@ from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_venv_dir,
 )
 from app.services.system_usage import (
+    SettingsPort,
+    UsageCollectorPorts,
+    UsageDiagnosticsPort,
     _bytes_to_mb,
     _calculate_percent,
     _kb_to_mb,
@@ -438,6 +441,17 @@ def _set_last_usage_diag(diag: dict):
 def _get_last_usage_diag() -> dict:
     with _usage_diag_lock:
         return dict(_last_usage_diag)
+
+
+class MainUsageDiagnosticsAdapter(UsageDiagnosticsPort):
+    """Adapter from the usage diagnostics port to main.py diagnostics helpers."""
+
+    def set_last_usage_diag(self, diag: dict[str, Any]) -> None:
+        _set_last_usage_diag(diag)
+
+    def get_last_usage_diag(self) -> dict[str, Any]:
+        return _get_last_usage_diag()
+
 
 DEFAULT_MODEL_CATALOG = {}
 DEFAULT_TASK_MODEL_MAP = {}
@@ -4828,6 +4842,17 @@ def settings_set(key: str, value: str):
             conn.commit()
         finally:
             conn.close()
+
+
+class MainSettingsPort(SettingsPort):
+    """Adapter from the usage settings port to main.py settings helpers."""
+
+    def get_setting(self, key: str) -> str | None:
+        return settings_get(key)
+
+    def set_setting(self, key: str, value: str) -> None:
+        settings_set(key, value)
+
 
 def settings_get_all() -> dict:
     """全設定をdictで返す（未設定キーはデフォルト値で補完）"""
@@ -18263,7 +18288,12 @@ def system_readiness_payload():
 
 def system_usage_debug_payload():
     usage = get_system_usage_info()
-    diag = _get_last_usage_diag()
+    diagnostics = getattr(app.state, "system_usage_diagnostics", None)
+    diag = (
+        diagnostics.get_last_usage_diag()
+        if diagnostics is not None and hasattr(diagnostics, "get_last_usage_diag")
+        else _get_last_usage_diag()
+    )
     return {
         "gpu_backend_selected": diag.get(
             "gpu_backend_selected", usage.get("gpu_backend_selected", "auto")
@@ -18285,6 +18315,12 @@ def system_usage_debug_payload():
 
 
 app.state.system_readiness_provider = system_readiness_payload
+app.state.system_usage_settings = MainSettingsPort()
+app.state.system_usage_diagnostics = MainUsageDiagnosticsAdapter()
+app.state.system_usage_ports = UsageCollectorPorts(
+    settings=app.state.system_usage_settings,
+    diagnostics=app.state.system_usage_diagnostics,
+)
 app.state.system_usage_provider = get_system_usage_info
 app.state.system_usage_debug_provider = system_usage_debug_payload
 

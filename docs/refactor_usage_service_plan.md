@@ -129,24 +129,34 @@ Current behavior and next-step notes:
 - `app/services/system_usage.py` now also includes `InMemoryUsageDiagnostics`, a
   side-effect-free adapter skeleton that satisfies the diagnostics port without
   referencing `main.py` globals.
-- Connecting the diagnostics port to `main.py` `_last_usage_diag`,
-  `_usage_diag_lock`, `_set_last_usage_diag()`, and `_get_last_usage_diag()` is
-  deferred to a later PR.
+- `main.py` now provides `MainSettingsPort` and `MainUsageDiagnosticsAdapter`
+  as the live adapters for the service ports. The settings adapter delegates to
+  the existing `settings_get()` / `settings_set()` helpers, and the diagnostics
+  adapter delegates to the existing `_set_last_usage_diag()` /
+  `_get_last_usage_diag()` helpers.
+- `main.app.state.system_usage_ports` is now registered with the live settings
+  and diagnostics adapters so the next extraction step can receive one explicit
+  dependency container.
 - `get_system_usage_info()` remains in `main.py`; this step does not move its
   body, subprocess probes, OS probes, GPU backend detection, or debug endpoint
-  behavior.
+  behavior. Settings persistence side effects and GPU backend auto-detection
+  side effects also remain in `main.py` for now.
 
 ## Richer provider injection from `main.app`
 
 `main.app` now provides the compatibility implementation through app state:
 
+- `app.state.system_usage_settings = MainSettingsPort()`
+- `app.state.system_usage_diagnostics = MainUsageDiagnosticsAdapter()`
+- `app.state.system_usage_ports = UsageCollectorPorts(settings=..., diagnostics=...)`
 - `app.state.system_usage_provider = get_system_usage_info`
 - `app.state.system_usage_debug_provider = <wrapper that preserves the current
   debug handler shape>`
 
 The debug provider wrapper calls `get_system_usage_info()` before reading
-`_get_last_usage_diag()`, because that is the existing `/system/usage/debug`
-contract. It does not alter the `final_usage` shape or the fallback values.
+diagnostics through `app.state.system_usage_diagnostics.get_last_usage_diag()`,
+because that is the existing `/system/usage/debug` contract. It does not alter
+the `final_usage` shape or the fallback values.
 
 ## Move `/system/usage` and `/system/usage/debug` together or separately?
 
@@ -167,8 +177,10 @@ ports together.
 The reason not to move debug before the provider contract was that it depends
 on the side effects of the usage collector. With the router/provider boundary
 and service skeleton in place, the usage/debug endpoint migration is complete.
-The next PR should connect or continue extracting `main.py`
-`get_system_usage_info()` dependencies into the service boundary in small steps,
-keeping settings and diagnostics dependencies explicit. The diagnostics adapter
-skeleton is available, but the live `main.py` diagnostics globals and helper
-functions are not connected to it yet.
+The next PR should move the `get_system_usage_info()` body into
+`app/services/system_usage.py` behind `UsageCollectorPorts`, keeping the already
+registered `main.py` settings and diagnostics adapters as the compatibility
+boundary. That move should still treat settings persistence, GPU backend
+auto-detection, subprocess probes, OS probes, Windows DXDiag/WMI/PowerShell
+probes, and other platform side effects deliberately so endpoint contracts stay
+unchanged.
