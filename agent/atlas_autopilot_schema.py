@@ -30,10 +30,20 @@ class AtlasAutopilotTask(BaseModel):
     task_id: str
     title: str
     description: str = ""
-    task_type: str = "analysis"
+    goal: str = ""
+    rationale: str = ""
+    expected_output: str = ""
+    task_type: str = "other"
     priority: str = "medium"
     depends_on: list[str] = Field(default_factory=list)
     status: str = "planned"
+    suggested_planning_mode: str = "standard"
+    suggested_requirement_mode: str = "ask_when_needed"
+    risk_level: str = "medium"
+    estimated_complexity: str = "medium"
+    target_areas: list[str] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    blocked_reason: str = ""
     linked_requirement_id: str = ""
     linked_plan_id: str = ""
     linked_run_id: str = ""
@@ -42,12 +52,17 @@ class AtlasAutopilotTask(BaseModel):
 class AtlasAutopilotPlan(BaseModel):
     autopilot_id: str
     user_goal: str
-    interpreted_goal: str
+    interpreted_goal: str = ""
     tasks: list[AtlasAutopilotTask] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
     safety_constraints: list[str] = Field(default_factory=list)
     done_definition: list[str] = Field(default_factory=list)
+    deep_planning: dict | None = None
+    selected_architecture_summary: str = ""
+    task_decomposition_strategy: str = ""
+    execution_order: list[str] = Field(default_factory=list)
+    preview_only: bool = True
 
 
 class AtlasAutopilotRunState(BaseModel):
