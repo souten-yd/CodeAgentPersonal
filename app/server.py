@@ -2,11 +2,11 @@
 
 This module is a deliberately small step toward moving application construction
 out of ``main.py``.  The current production entrypoint remains ``main:app``;
-``/static`` mounting has moved here alongside the optional ``/ui`` and
-``/assets`` static mounts.  Only low-dependency health/system routers have
-moved so far; other route registration, lifespan handling, and middleware
-still live in ``main.py`` until later, focused refactors can move one concern
-at a time.
+``/workspace`` and ``/static`` mounting helpers now live here alongside
+the optional ``/ui`` and ``/assets`` static mounts.  Only low-dependency
+health/system routers have moved so far; other route registration, lifespan
+handling, and middleware still live in ``main.py`` until later, focused
+refactors can move one concern at a time.
 """
 
 from collections.abc import AsyncIterator, Callable
@@ -28,6 +28,7 @@ def create_app(
     web_dir: str | Path | None = None,
     ui_dir: str | Path | None = None,
     assets_dir: str | Path | None = None,
+    workspace_dir: str | Path | None = None,
 ) -> FastAPI:
     """Create a FastAPI app shell for the future app-factory migration.
 
@@ -39,6 +40,7 @@ def create_app(
 
     configure_middleware(app)
     include_routers(app)
+    configure_workspace_mount(app, workspace_dir=workspace_dir)
     configure_static_assets(
         app,
         ui_dir=ui_dir,
@@ -47,6 +49,26 @@ def create_app(
     )
 
     return app
+
+
+def configure_workspace_mount(
+    app: FastAPI,
+    *,
+    workspace_dir: str | Path | None = None,
+) -> None:
+    """Mount the optional workspace directory served by ``main.py``.
+
+    The workspace mount is intentionally separate from UI/static asset mounts
+    because it exposes user/project files rather than bundled application
+    assets. Missing directories are ignored so factory-based tests and callers
+    can opt in only when a workspace root exists.
+    """
+    if workspace_dir and Path(workspace_dir).is_dir():
+        app.mount(
+            "/workspace",
+            StaticFiles(directory=str(workspace_dir), html=True),
+            name="workspace",
+        )
 
 
 def configure_static_assets(
