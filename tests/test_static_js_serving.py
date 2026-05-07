@@ -29,6 +29,12 @@ MOVED_SETTINGS_MODAL_WINDOW_EXPORTS = (
     "window.openSettings = openSettings",
     "window.closeSettings = closeSettings",
 )
+MOVED_SETTINGS_TAB_FUNCTION_DEFINITIONS = (
+    "function switchTab",
+)
+MOVED_SETTINGS_TAB_WINDOW_EXPORTS = (
+    "window.switchTab = switchTab",
+)
 
 
 def test_app_js_is_served_with_expected_bootstrap_token():
@@ -54,6 +60,7 @@ def test_ui_html_does_not_redefine_moved_skills_memory_and_settings_functions():
     for function_definition in (
         *MOVED_SKILLS_AND_MEMORY_FUNCTION_DEFINITIONS,
         *MOVED_SETTINGS_MODAL_FUNCTION_DEFINITIONS,
+        *MOVED_SETTINGS_TAB_FUNCTION_DEFINITIONS,
     ):
         assert function_definition not in ui_html
 
@@ -68,6 +75,8 @@ def test_app_js_serves_moved_skills_memory_and_settings_tokens():
         *MOVED_SKILLS_AND_MEMORY_FUNCTION_DEFINITIONS,
         *MOVED_SETTINGS_MODAL_FUNCTION_DEFINITIONS,
         *MOVED_SETTINGS_MODAL_WINDOW_EXPORTS,
+        *MOVED_SETTINGS_TAB_FUNCTION_DEFINITIONS,
+        *MOVED_SETTINGS_TAB_WINDOW_EXPORTS,
         "window.refreshSkills",
         "window.renderMemory",
         "window.showTaskOptions",
