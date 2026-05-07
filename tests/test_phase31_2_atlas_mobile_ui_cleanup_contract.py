@@ -27,20 +27,21 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
     def test_legacy_removed_from_normal_workbench_tabs(self):
         tabs = UI.split('<div class="atlas-subview-tabs"', 1)[1].split('</div>', 1)[0]
         self.assertIn("data-atlas-subview-tab=\"start\"", tabs)
+        self.assertIn("data-atlas-subview-tab=\"autopilot\"", tabs)
         self.assertIn("data-atlas-subview-tab=\"plan\"", tabs)
-        self.assertIn("data-atlas-subview-tab=\"review\"", tabs)
-        self.assertIn("data-atlas-subview-tab=\"runs\"", tabs)
-        self.assertIn("data-atlas-subview-tab=\"execute\"", tabs)
-        self.assertIn("data-atlas-subview-tab=\"patch\"", tabs)
+        self.assertIn("data-atlas-subview-tab=\"history\"", tabs)
+        self.assertNotIn("data-atlas-subview-tab=\"review\"", tabs)
+        self.assertNotIn("data-atlas-subview-tab=\"runs\"", tabs)
+        self.assertNotIn("data-atlas-subview-tab=\"execute\"", tabs)
+        self.assertNotIn("data-atlas-subview-tab=\"patch\"", tabs)
         self.assertNotIn("data-atlas-subview-tab=\"legacy\"", tabs)
-        self.assertIn("const ATLAS_SUBVIEWS = ['start', 'plan', 'review', 'execute', 'patch', 'runs', 'activity'];", UI)
+        self.assertIn("const ATLAS_SUBVIEWS = ['start', 'autopilot', 'plan', 'history', 'activity'];", UI)
 
     def test_workbench_collapse_expand_and_compact_summary(self):
         atlas = self._atlas_block()
         self.assertIn('id="atlas-workbench-collapse-btn"', atlas)
         self.assertIn('onclick="toggleAtlasWorkbenchCollapse()"', atlas)
         self.assertIn('class="atlas-workbench-summary"', atlas)
-        self.assertIn('Current:', atlas)
         self.assertIn('Last Run:', atlas)
         self.assertIn('Status:', atlas)
         self.assertIn('atlas-workbench-summary-label', UI)
@@ -50,7 +51,7 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
 
     def test_start_owns_start_atlas_plan_is_view_only(self):
         start = UI.split('data-atlas-subview-panel="start"', 1)[1].split('data-atlas-subview-panel="plan"', 1)[0]
-        plan = UI.split('data-atlas-subview-panel="plan"', 1)[1].split('data-atlas-subview-panel="review"', 1)[0]
+        plan = UI.split('data-atlas-subview-panel="plan"', 1)[1].split('data-atlas-subview-panel="history"', 1)[0]
         self.assertIn('id="atlas-requirement-input"', start)
         self.assertIn('onclick="startAtlasWorkflow()"', start)
         self.assertIn('No plan yet', plan)
@@ -174,9 +175,8 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
 
     def test_activity_stream_contract_is_inside_activity_tab_and_mode_gated(self):
         self.assertIn('id="atlas-activity-stream"', UI)
-        self.assertIn('data-atlas-subview-tab="activity"', UI)
+        self.assertNotIn('data-atlas-subview-tab="activity"', UI)
         self.assertIn('data-atlas-subview-panel="activity"', UI)
-        self.assertIn("wait_named(page, 'activity_tab_stream_visible_after_select'", SMOKE)
         self.assertIn('for mode_name in ["chat", "echo", "agent", "nexus"]', SMOKE)
         self.assertIn('atlas_activity_stream_hidden_{mode_name}', SMOKE)
         self.assertIn("activity_stream_hidden_after_mode_switches_until_tab_selected", SMOKE)
