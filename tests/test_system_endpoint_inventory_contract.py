@@ -33,7 +33,7 @@ def test_main_app_system_usage_debug_endpoint_contract():
     response = client.get("/system/usage/debug")
     body = response.json()
 
-    assert _endpoint_module(main.app, "/system/usage/debug") == "main"
+    assert _endpoint_module(main.app, "/system/usage/debug") == "app.api.system"
     assert response.status_code == 200
     assert isinstance(body["gpu_backend_selected"], str)
     assert isinstance(body["gpu_backend"], str)
