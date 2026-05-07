@@ -2,6 +2,26 @@ APP_JS_PATH = "/static/js/app.js"
 SETTINGS_JS_PATH = "/static/js/settings.js"
 SKILLS_MEMORY_JS_PATH = "/static/js/skills_memory.js"
 PANELS_JS_PATH = "/static/js/panels.js"
+NEXUS_JS_PATH = "/static/js/nexus.js"
+
+MOVED_NEXUS_DISPLAY_HELPER_FUNCTION_DEFINITIONS = (
+    "function updateNexusJobBanner",
+    "function renderNexusDocumentDetail",
+    "function renderNexusTimeline",
+    "function pushNexusTimelineEvent",
+    "function renderNexusDocuments",
+    "function renderNexusJobs",
+    "function setNexusDropzoneActive",
+)
+MOVED_NEXUS_DISPLAY_HELPER_WINDOW_EXPORTS = (
+    "window.updateNexusJobBanner = updateNexusJobBanner",
+    "window.renderNexusDocumentDetail = renderNexusDocumentDetail",
+    "window.renderNexusTimeline = renderNexusTimeline",
+    "window.pushNexusTimelineEvent = pushNexusTimelineEvent",
+    "window.renderNexusDocuments = renderNexusDocuments",
+    "window.renderNexusJobs = renderNexusJobs",
+    "window.setNexusDropzoneActive = setNexusDropzoneActive",
+)
 
 MOVED_SKILLS_AND_MEMORY_FUNCTION_DEFINITIONS = (
     "function showTaskOptions",
