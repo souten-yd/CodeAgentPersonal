@@ -57,6 +57,18 @@ MOVED_SETTINGS_MODAL_WINDOW_EXPORTS = (
     "window.openSettings = openSettings",
     "window.closeSettings = closeSettings",
 )
+MOVED_SETTINGS_UI_HELPER_FUNCTION_DEFINITIONS = (
+    "function applyOrchFeatureModeUi",
+    "function updateCtxLabel",
+    "function applySearchUI",
+    "function applyStreamingUI",
+)
+MOVED_SETTINGS_UI_HELPER_WINDOW_EXPORTS = (
+    "window.applyOrchFeatureModeUi = applyOrchFeatureModeUi",
+    "window.updateCtxLabel = updateCtxLabel",
+    "window.applySearchUI = applySearchUI",
+    "window.applyStreamingUI = applyStreamingUI",
+)
 MOVED_SETTINGS_TAB_FUNCTION_DEFINITIONS = (
     "function switchTab",
 )
@@ -122,6 +134,7 @@ def test_ui_html_does_not_redefine_moved_skills_memory_and_settings_functions():
     for function_definition in (
         *MOVED_SKILLS_AND_MEMORY_FUNCTION_DEFINITIONS,
         *MOVED_SETTINGS_MODAL_FUNCTION_DEFINITIONS,
+        *MOVED_SETTINGS_UI_HELPER_FUNCTION_DEFINITIONS,
         *MOVED_SETTINGS_TAB_FUNCTION_DEFINITIONS,
     ):
         assert function_definition not in ui_html
@@ -138,6 +151,8 @@ def test_app_js_keeps_bootstrap_without_moved_feature_tokens():
     for token in (
         *MOVED_SETTINGS_MODAL_FUNCTION_DEFINITIONS,
         *MOVED_SETTINGS_MODAL_WINDOW_EXPORTS,
+        *MOVED_SETTINGS_UI_HELPER_FUNCTION_DEFINITIONS,
+        *MOVED_SETTINGS_UI_HELPER_WINDOW_EXPORTS,
         *MOVED_SKILLS_AND_MEMORY_FUNCTION_DEFINITIONS,
         *MOVED_SKILLS_AND_MEMORY_STATE_TOKENS,
         *MOVED_SKILLS_AND_MEMORY_WINDOW_EXPORTS,
@@ -156,6 +171,8 @@ def test_settings_js_serves_settings_modal_tokens_and_window_exports():
     for token in (
         *MOVED_SETTINGS_MODAL_FUNCTION_DEFINITIONS,
         *MOVED_SETTINGS_MODAL_WINDOW_EXPORTS,
+        *MOVED_SETTINGS_UI_HELPER_FUNCTION_DEFINITIONS,
+        *MOVED_SETTINGS_UI_HELPER_WINDOW_EXPORTS,
     ):
         assert token in response.text
 
@@ -187,6 +204,8 @@ def test_skills_memory_js_serves_skills_memory_tokens_and_window_exports():
         BOOTSTRAP_TOKEN,
         *MOVED_SETTINGS_MODAL_FUNCTION_DEFINITIONS,
         *MOVED_SETTINGS_MODAL_WINDOW_EXPORTS,
+        *MOVED_SETTINGS_UI_HELPER_FUNCTION_DEFINITIONS,
+        *MOVED_SETTINGS_UI_HELPER_WINDOW_EXPORTS,
         *MOVED_SETTINGS_TAB_FUNCTION_DEFINITIONS,
         *MOVED_SETTINGS_TAB_WINDOW_EXPORTS,
     ):
