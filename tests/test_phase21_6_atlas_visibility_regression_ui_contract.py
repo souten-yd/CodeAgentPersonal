@@ -1,12 +1,12 @@
 import re
 import unittest
-from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 
 class TestPhase21_6AtlasVisibilityRegressionUiContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ui = Path("ui.html").read_text(encoding="utf-8")
+        cls.ui = load_ui_contract_text()
 
     def test_atlas_button_exists_and_wires_set_mode(self):
         self.assertIn('id="btn-atlas"', self.ui)

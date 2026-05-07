@@ -1,4 +1,4 @@
-from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 from app.asr import service
 from app.asr import whisper_cpp_runtime
@@ -56,6 +56,6 @@ def test_resolve_ffmpeg_binary_order(monkeypatch, tmp_path):
 
 
 def test_ui_hides_runpod_whisper_cpp_controls():
-    ui = Path("ui.html").read_text(encoding="utf-8")
+    ui = load_ui_contract_text()
     assert "Advanced ASR override" in ui
     assert "asr_override" in ui

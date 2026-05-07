@@ -1,12 +1,13 @@
 import re
 import unittest
 from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 
 class TestPhase25AtlasGuidedWorkflowE2EContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ui = Path("ui.html").read_text(encoding="utf-8")
+        cls.ui = load_ui_contract_text()
         cls.smoke = Path("scripts/smoke_ui_modes_playwright.py").read_text(encoding="utf-8")
 
     def test_safe_journey_function_exists(self):

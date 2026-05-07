@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import re
 import unittest
-from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 
 class Phase22ChatSurfaceCleanupUiContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ui = Path('ui.html').read_text(encoding='utf-8')
+        cls.ui = load_ui_contract_text()
 
     def test_chat_role_copy_exists(self):
         self.assertIn('Chat is for lightweight conversation, Q&amp;A, and quick investigation.', self.ui)

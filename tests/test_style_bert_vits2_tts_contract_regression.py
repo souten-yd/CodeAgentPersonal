@@ -1,13 +1,14 @@
 import importlib.util
 import ast
 from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 from app.tts.language_router import resolve_tts_language_route
 from app.tts.text_normalizer import normalize_text_for_sbv2_jp_extra
 from app.tts import katakanaizer
 
 ROOT = Path(__file__).resolve().parents[1]
-UI_HTML = (ROOT / "ui.html").read_text(encoding="utf-8")
+UI_HTML = load_ui_contract_text()
 
 _SPEC = importlib.util.spec_from_file_location("main_module", ROOT / "main.py")
 main = importlib.util.module_from_spec(_SPEC)

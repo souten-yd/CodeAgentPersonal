@@ -1,8 +1,8 @@
-from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 
 def test_autopilot_ui_execution_preview_contract() -> None:
-    ui = Path("ui.html").read_text(encoding="utf-8").lower()
+    ui = load_ui_contract_text().lower()
     assert "prepare execution preview" in ui
     assert "requires approved atlas plan" in ui
     assert "preview only — no files will be changed" in ui

@@ -1,7 +1,7 @@
-from pathlib import Path
 import re
+from tests.helpers.ui_contract import load_ui_contract_text
 
-UI = Path('ui.html').read_text(encoding='utf-8')
+UI = load_ui_contract_text()
 
 def test_top_nav_still_has_atlas_but_no_agent():
     assert 'id="btn-chat"' in UI

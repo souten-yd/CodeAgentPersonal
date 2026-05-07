@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 
 class Phase12_6PlanButtonUiContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ui = Path('ui.html').read_text(encoding='utf-8')
+        cls.ui = load_ui_contract_text()
 
     def test_plan_button_calls_new_e2e_function(self):
         self.assertIn('onclick="startPlanWorkflow()"', self.ui)
