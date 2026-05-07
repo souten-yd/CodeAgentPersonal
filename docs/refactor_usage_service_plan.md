@@ -4,19 +4,19 @@ This plan records the service/provider boundary used to move `GET /system/usage`
 and `GET /system/usage/debug` out of `main.py` and into `app/api/system.py`.
 Conservative default payload helpers and app-state provider lookup helpers live
 in `app/api/system.py`, and `main.app` wires compatibility providers into
-`app.state`. `get_system_usage_info()`, settings behavior, diagnostics globals,
-the `create_app()` signature, middleware, lifespan, and UI assets stay
-unchanged. The usage/debug endpoint migration is complete; this PR adds a
-side-effect-free diagnostics adapter skeleton in `app/services/system_usage.py`
-as the next receiving-boundary step. `get_system_usage_info()` remains in
-`main.py` and its body has not been moved.
+`app.state`. The usage/debug endpoint migration is complete, and
+`collect_system_usage_info()` now lives in `app/services/system_usage.py` behind
+`UsageCollectorPorts`. `main.py` keeps `get_system_usage_info()` only as a
+compatibility wrapper for existing providers. The `create_app()` signature,
+middleware, lifespan, and UI assets stay unchanged.
 
-## Current `get_system_usage_info()` dependencies
+## Current collector dependencies
 
-`get_system_usage_info(debug_mode: bool = False)` currently combines collection,
-auto-detection, settings persistence, and diagnostics update work in one
-function. The endpoint should not be routerized until these dependencies are
-made explicit.
+`collect_system_usage_info(ports: UsageCollectorPorts, debug_mode: bool = False)`
+now combines collection, auto-detection, settings persistence, and diagnostics
+update work in the service module. `main.get_system_usage_info()` delegates to
+that function using `app.state.system_usage_ports`, preserving the provider
+contract while making the dependency boundary explicit.
 
 Runtime and standard-library dependencies:
 
@@ -25,7 +25,7 @@ Runtime and standard-library dependencies:
 - `/proc/meminfo` through `_read_meminfo_kb()` on Linux-like systems.
 - `subprocess.run()` for PowerShell, `nvidia-smi`, `rocm-smi`, and other backend
   probes.
-- `json`, `re`, `datetime.now()`, and `_mm_time.time()` for parsing,
+- `json`, `re`, `datetime.now()`, and `time.time()` for parsing,
   timestamps, and cache expiry.
 - Windows-only imports and APIs such as `winreg`, PowerShell counters, CIM/WMI,
   PNP device queries, `wmic`, and `dxdiag`.
@@ -39,29 +39,30 @@ Internal helper/global dependencies:
 - `_probe_gpu_static()` for fallback static GPU inventory.
 - `_windows_dxdiag_cache` guarded by `_usage_diag_lock` for Windows DXDiag VRAM
   cache state.
-- `_set_last_usage_diag()` to publish the latest parse/selection diagnostics.
+- `ports.diagnostics.set_last_usage_diag()` to publish the latest parse/selection diagnostics.
 
 ## Settings dependencies: `settings_get` / `settings_set`
 
 Usage collection depends on settings in two separate ways:
 
-1. It reads `settings_get("gpu_usage_backend")` to honor an explicit runtime GPU
-   usage backend selection.
+1. It reads `ports.settings.get_setting("gpu_usage_backend")` to honor an
+   explicit runtime GPU usage backend selection.
 2. If the selected backend is empty, `auto`, or `none`, it calls
-   `_select_working_gpu_backend("gpu_usage_backend", candidates)`. That helper
-   reads the same setting, probes candidate backends, and writes the detected
-   backend with `settings_set("gpu_usage_backend", backend)` or writes
-   `"none"` when no backend works.
+   `_select_working_gpu_backend(ports, "gpu_usage_backend", candidates)`. That
+   helper reads the same setting, probes candidate backends, and writes the
+   detected backend with `ports.settings.set_setting("gpu_usage_backend", backend)`
+   or writes `"none"` when no backend works.
 
 This means a read-only HTTP usage request can persist settings as a side effect.
-The future service boundary should therefore not hide settings access in a
-router. It should inject a small settings port, for example:
+The service boundary therefore does not hide settings access in a router. It
+injects a small settings port:
 
 - `get_setting(key: str) -> str | None`
 - `set_setting(key: str, value: str) -> None`
 
-The first provider skeleton can wrap existing `settings_get` and `settings_set`
-without changing their behavior.
+`MainSettingsPort` wraps the existing `settings_get` and `settings_set` helpers
+without changing their behavior, while the service module does not import those
+helpers directly.
 
 ## Diagnostics dependencies: `_last_usage_diag` helpers
 
@@ -72,19 +73,21 @@ The runtime diagnostics global is currently:
 - `_set_last_usage_diag(diag: dict)`
 - `_get_last_usage_diag() -> dict`
 
-`get_system_usage_info()` writes diagnostics on every usage collection. The
-`GET /system/usage/debug` provider first calls `get_system_usage_info()`
-and then reads `_get_last_usage_diag()` to return parse details plus a compact
-`final_usage` view.
+`collect_system_usage_info()` writes diagnostics on every usage collection via
+`ports.diagnostics.set_last_usage_diag()`. The `GET /system/usage/debug`
+provider first calls `get_system_usage_info()` and then reads
+`app.state.system_usage_diagnostics.get_last_usage_diag()` to return parse
+details plus a compact `final_usage` view.
 
-A future service should inject a diagnostics port rather than reaching into
-module globals from the router:
+The service injects a diagnostics port rather than reaching into module globals
+from the router:
 
 - `set_last_usage_diag(diag: dict[str, Any]) -> None`
 - `get_last_usage_diag() -> dict[str, Any]`
 
-The initial richer provider in `main.app` can delegate directly to the existing
-helpers so the lock and copy semantics remain unchanged.
+`MainUsageDiagnosticsAdapter` delegates directly to the existing helpers so the
+lock and copy semantics remain unchanged, while the service module does not
+import `_get_last_usage_diag()` or `_set_last_usage_diag()` directly.
 
 ## GPU backend auto-detection side effects
 
@@ -97,17 +100,17 @@ platform-dependent:
 When `gpu_usage_backend` is `auto`, empty, or `none`, usage collection probes
 those candidates and persists the first working backend. If no backend works, it
 persists `none`. The probes can also spawn external commands and use slow or
-cached Windows DXDiag paths. The service boundary should make this explicit in
-naming and docs, for example `collect_usage_with_backend_autodetect()`, rather
-than presenting it as a pure payload formatter.
+cached Windows DXDiag paths. These subprocess, GPU backend auto-detection, Windows DXDiag/WMI/PowerShell,
+and platform probe side effects now live in `app/services/system_usage.py` and
+can still occur through HTTP requests to `/system/usage` or
+`/system/usage/debug`, matching the previous behavior.
 
 ## `create_app()` default provider handling
 
-`create_app()` must keep its current signature. The router can eventually look
-for optional app-state hooks, matching the existing readiness pattern. This PR
-adds provider type aliases, conservative unavailable payload helpers, and
-provider lookup helpers in `app/api/system.py`, but it does not add the usage or
-debug usage routes to that router.
+`create_app()` must keep its current signature. The router uses
+optional app-state hooks, matching the existing readiness pattern. Earlier PRs
+added provider type aliases, conservative unavailable payload helpers, provider
+lookup helpers, and the usage/debug routes in `app/api/system.py`.
 
 Current behavior and next-step notes:
 
@@ -122,10 +125,11 @@ Current behavior and next-step notes:
 - `/system/usage/debug` now lives in `app/api/system.py`; bare `create_app()`
   returns `default_system_usage_debug_unavailable_payload()`, while `main.app`
   serves the existing debug payload via `app.state.system_usage_debug_provider`.
-- `app/services/system_usage.py` now exists as a side-effect-free skeleton with
-  settings and diagnostics ports. It intentionally does not import
-  `settings_get`, `settings_set`, `_get_last_usage_diag()`, or
-  `_set_last_usage_diag()`.
+- `app/services/system_usage.py` now owns `collect_system_usage_info()` and the
+  collector helpers while retaining the import side-effect contract. It
+  intentionally does not import `main.py`, `settings_get`, `settings_set`,
+  `_get_last_usage_diag()`, or `_set_last_usage_diag()`; subprocess/GPU probes
+  and settings writes happen only when the collector is called.
 - `app/services/system_usage.py` now also includes `InMemoryUsageDiagnostics`, a
   side-effect-free adapter skeleton that satisfies the diagnostics port without
   referencing `main.py` globals.
@@ -137,10 +141,10 @@ Current behavior and next-step notes:
 - `main.app.state.system_usage_ports` is now registered with the live settings
   and diagnostics adapters so the next extraction step can receive one explicit
   dependency container.
-- `get_system_usage_info()` remains in `main.py`; this step does not move its
-  body, subprocess probes, OS probes, GPU backend detection, or debug endpoint
-  behavior. Settings persistence side effects and GPU backend auto-detection
-  side effects also remain in `main.py` for now.
+- `get_system_usage_info()` remains in `main.py` as a compatibility wrapper
+  around `collect_system_usage_info(ports=app.state.system_usage_ports, ...)`.
+  Settings persistence and diagnostics updates now flow through
+  `UsageCollectorPorts`.
 
 ## Richer provider injection from `main.app`
 
@@ -175,12 +179,10 @@ ports together.
    fresh usage, read last diagnostics, then format the debug payload.
 
 The reason not to move debug before the provider contract was that it depends
-on the side effects of the usage collector. With the router/provider boundary
-and service skeleton in place, the usage/debug endpoint migration is complete.
-The next PR should move the `get_system_usage_info()` body into
-`app/services/system_usage.py` behind `UsageCollectorPorts`, keeping the already
-registered `main.py` settings and diagnostics adapters as the compatibility
-boundary. That move should still treat settings persistence, GPU backend
-auto-detection, subprocess probes, OS probes, Windows DXDiag/WMI/PowerShell
-probes, and other platform side effects deliberately so endpoint contracts stay
-unchanged.
+on the side effects of the usage collector. With the router/provider boundary and service collector in place, the
+usage/debug endpoint migration and collector extraction are complete. The next
+candidate is to providerize `/system/summary`, or to inventory the settings
+router boundary. Future work should continue treating settings persistence, GPU
+backend auto-detection, subprocess probes, OS probes, Windows
+DXDiag/WMI/PowerShell probes, and other platform side effects deliberately so
+endpoint contracts stay unchanged.
