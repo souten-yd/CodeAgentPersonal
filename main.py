@@ -9206,8 +9206,17 @@ class AtlasAutopilotPreviewRequest(BaseModel):
     use_nexus: bool = True
     safety_mode: str = "strict"
     autopilot_id: str = ""
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
 
+
+
+
+class AtlasAutopilotTaskPlanRequest(BaseModel):
+    project_path: str = ""
+    project_name: str = ""
+    planning_mode: str = ""
+    requirement_mode: str = ""
+    use_nexus: bool = True
 
 class RequirementAnswerItem(BaseModel):
     question_id: str
@@ -10869,6 +10878,38 @@ def api_atlas_autopilot_preview(req: AtlasAutopilotPreviewRequest):
     preview["resolved_project_path"] = resolved_project_path
     return preview
 
+
+
+
+@app.get("/api/atlas/autopilot/{autopilot_id}")
+def api_atlas_autopilot_get(autopilot_id: str):
+    state = _atlas_autopilot.get_state(autopilot_id)
+    plan = _atlas_autopilot.get_plan(autopilot_id)
+    status = str(plan.get("status") or state.get("status") or "draft")
+    return {
+        "autopilot_id": autopilot_id,
+        "status": status,
+        "state": state,
+        "autopilot_plan": plan.get("autopilot_plan", {}),
+    }
+
+
+@app.post("/api/atlas/autopilot/{autopilot_id}/tasks/{task_id}/plan")
+def api_atlas_autopilot_task_plan(autopilot_id: str, task_id: str, req: AtlasAutopilotTaskPlanRequest):
+    resolved_project_path, api_warnings = _resolve_project_path_for_phase_planning(req.project_path, req.project_name)
+    result = _atlas_autopilot.generate_plan_for_task(
+        autopilot_id=autopilot_id,
+        task_id=task_id,
+        project_path=resolved_project_path,
+        project_name=(req.project_name or "").strip(),
+        planning_mode=(req.planning_mode or "").strip() or None,
+        requirement_mode=(req.requirement_mode or "").strip() or None,
+        use_nexus=bool(req.use_nexus),
+    )
+    warnings = result.get("warnings") if isinstance(result.get("warnings"), list) else []
+    result["warnings"] = list(dict.fromkeys([*api_warnings, *[str(x) for x in warnings if str(x).strip()]]))
+    result["resolved_project_path"] = resolved_project_path
+    return result
 
 @app.get("/api/plans/{plan_id}")
 def api_get_plan(plan_id: str):
