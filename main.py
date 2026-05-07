@@ -309,6 +309,7 @@ def _clamp_docker_timeout(tool: str, requested: int | None) -> int:
 UI_DIR = "./ui"
 os.makedirs(UI_DIR, exist_ok=True)
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+WEB_DIR = os.path.join(BASE_DIR, "web")
 
 # =========================
 # Web検索 有効/無効フラグ（デフォルトON）
@@ -18327,6 +18328,8 @@ app.mount("/workspace", StaticFiles(directory=WORK_DIR, html=True), name="worksp
 app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
 if os.path.isdir(ASSETS_DIR):
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR, html=False), name="assets")
+if os.path.isdir(WEB_DIR):
+    app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
 def _apply_tts_language_routing(req: dict, *, model_version: str | None) -> dict:
     route = resolve_tts_language_route(req, model_version)
