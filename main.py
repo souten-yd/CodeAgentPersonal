@@ -18281,7 +18281,32 @@ def system_readiness_payload():
     return payload
 
 
+def system_usage_debug_payload():
+    usage = get_system_usage_info()
+    diag = _get_last_usage_diag()
+    return {
+        "gpu_backend_selected": diag.get(
+            "gpu_backend_selected", usage.get("gpu_backend_selected", "auto")
+        ),
+        "gpu_backend": diag.get("gpu_backend", usage.get("gpu_backend", "none")),
+        "raw_parse_summary": diag.get("raw_parse_summary", []),
+        "parse_source": diag.get("parse_source", "unknown"),
+        "nvidia_smi_failure_reason": diag.get("nvidia_smi_failure_reason", ""),
+        "adopted_values": diag.get("adopted_values", {}),
+        "final_usage": {
+            "gpus": usage.get("gpus", []),
+            "vram_confidence": usage.get("vram_confidence", "unknown"),
+            "vram_source_backend": usage.get(
+                "vram_source_backend", usage.get("gpu_backend", "none")
+            ),
+            "updated_at": usage.get("updated_at"),
+        },
+    }
+
+
 app.state.system_readiness_provider = system_readiness_payload
+app.state.system_usage_provider = get_system_usage_info
+app.state.system_usage_debug_provider = system_usage_debug_payload
 
 # =========================
 # 静的ファイル配信

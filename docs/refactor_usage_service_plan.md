@@ -1,10 +1,13 @@
 # Usage service/provider refactor plan
 
 This plan prepares the service/provider boundary for moving `GET /system/usage`
-out of `main.py` later. It is intentionally design-only: the current endpoint
-handlers, `get_system_usage_info()`, settings behavior, diagnostics globals,
-`create_app()` signature, middleware, lifespan, and UI assets stay unchanged in
-this PR.
+out of `main.py` later. The provider skeleton is now implemented: conservative
+default payload helpers and app-state provider lookup helpers live in
+`app/api/system.py`, and `main.app` wires compatibility providers into
+`app.state`. The current endpoint handlers, `get_system_usage_info()`, settings
+behavior, diagnostics globals, `create_app()` signature, middleware, lifespan,
+and UI assets stay unchanged in this PR. Endpoint migration is explicitly left
+for the next PR.
 
 ## Current `get_system_usage_info()` dependencies
 
@@ -99,42 +102,42 @@ than presenting it as a pure payload formatter.
 ## `create_app()` default provider handling
 
 `create_app()` must keep its current signature. The router can eventually look
-for optional app-state hooks, matching the existing readiness pattern, but this
-PR only adds provider type aliases in `app/api/system.py`.
+for optional app-state hooks, matching the existing readiness pattern. This PR
+adds provider type aliases, conservative unavailable payload helpers, and
+provider lookup helpers in `app/api/system.py`, but it does not add the usage or
+debug usage routes to that router.
 
 Recommended next-step behavior:
 
 - `create_app()` should not receive new arguments.
-- The system router can define a conservative default usage provider for factory
-  apps only after the service skeleton exists.
-- That default should avoid settings writes and expensive GPU auto-detection
-  unless the desired factory-app contract explicitly opts into those side
-  effects.
+- The system router now has conservative default usage/debug payload helpers for
+  future factory-app use.
+- Those defaults avoid settings writes and expensive GPU auto-detection unless
+  the desired factory-app contract explicitly opts into those side effects.
 - Until a safe default is agreed, `/system/usage` should remain unavailable from
   bare `create_app()` and continue to be served by `main.app` only.
 
 ## Richer provider injection from `main.app`
 
-`main.app` should provide the compatibility implementation through app state,
-for example:
+`main.app` now provides the compatibility implementation through app state:
 
 - `app.state.system_usage_provider = get_system_usage_info`
 - `app.state.system_usage_debug_provider = <wrapper that preserves the current
   debug handler shape>`
 
-The debug provider wrapper should call `get_system_usage_info()` before reading
+The debug provider wrapper calls `get_system_usage_info()` before reading
 `_get_last_usage_diag()`, because that is the existing `/system/usage/debug`
-contract. It should not alter the `final_usage` shape or the fallback values.
+contract. It does not alter the `final_usage` shape or the fallback values.
 
 ## Move `/system/usage` and `/system/usage/debug` together or separately?
 
 Move them in two staged implementation PRs, but design their service dependency
 ports together.
 
-1. Add the service/provider skeleton and `main.app` app-state wiring while the
-   inline endpoints still serve traffic. Keep endpoint behavior unchanged and
-   verify the inventory contract.
-2. Move `/system/usage` to the system router using the provider hook.
+1. Done: add the service/provider skeleton and `main.app` app-state wiring while
+   the inline endpoints still serve traffic. Keep endpoint behavior unchanged
+   and verify the inventory contract.
+2. Next PR: move `/system/usage` to the system router using the provider hook.
 3. Move `/system/usage/debug` after `/system/usage`, or in the same endpoint
    migration PR only if tests prove the debug wrapper exactly preserves the
    current sequence: collect fresh usage, read last diagnostics, then format the

@@ -57,6 +57,11 @@ def test_create_app_can_optionally_serve_workspace_index(tmp_path):
     assert "workspace ready" in response.text
 
 
+def test_main_app_system_usage_providers_are_callable():
+    assert callable(main.app.state.system_usage_provider)
+    assert callable(main.app.state.system_usage_debug_provider)
+
+
 def test_main_app_contract_remains_fastapi_app():
     assert hasattr(main, "app")
     assert isinstance(main.app, FastAPI)
