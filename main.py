@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, UploadFile, Form
 from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse, JSONResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import requests
@@ -82,7 +81,7 @@ os.makedirs(_STYLE_BERT_VITS2_MODELS_DIR, exist_ok=True)
 from app.nexus.router import router as nexus_router
 from app.nexus.web_scout import plan_web_queries, run_web_search
 from app.nexus.web_service import execute_nexus_web_search
-from app.server import configure_static_assets, include_routers
+from app.server import configure_static_assets, configure_workspace_mount, include_routers
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -18323,7 +18322,7 @@ def root():
 def ui_redirect():
     return RedirectResponse("/ui/")
 
-app.mount("/workspace", StaticFiles(directory=WORK_DIR, html=True), name="workspace")
+configure_workspace_mount(app, workspace_dir=WORK_DIR)
 configure_static_assets(
     app,
     ui_dir=UI_DIR,

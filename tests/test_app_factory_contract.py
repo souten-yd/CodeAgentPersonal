@@ -42,6 +42,21 @@ def test_create_app_can_optionally_serve_static_assets(tmp_path):
     assert ":root" in static_response.text
 
 
+def test_create_app_can_optionally_serve_workspace_index(tmp_path):
+    (tmp_path / "index.html").write_text(
+        "<!doctype html><title>Workspace</title><main>workspace ready</main>\n",
+        encoding="utf-8",
+    )
+    app = create_app(workspace_dir=tmp_path)
+    client = TestClient(app)
+
+    response = client.get("/workspace/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers.get("content-type", "").lower()
+    assert "workspace ready" in response.text
+
+
 def test_main_app_contract_remains_fastapi_app():
     assert hasattr(main, "app")
     assert isinstance(main.app, FastAPI)
@@ -74,6 +89,15 @@ def test_main_health_endpoint_still_returns_ok():
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_main_system_readiness_endpoint_still_returns_ready():
+    client = TestClient(main.app)
+
+    response = client.get("/system/readiness")
+
+    assert response.status_code == 200
+    assert response.json()["fastapi"] == "ready"
 
 
 def test_main_static_css_asset_still_serves_successfully():
