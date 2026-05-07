@@ -4,8 +4,9 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
-from agent.agent_prompts import PLAN_GENERATION_PROMPT, REQUIREMENT_ANALYSIS_PROMPT
+from agent.agent_prompts import DEEP_PLAN_GENERATION_PROMPT, PLAN_GENERATION_PROMPT, REQUIREMENT_ANALYSIS_PROMPT
 from agent.clarification_manager import ClarificationManager
+from agent.deep_planner import DeepPlanner
 from agent.clarification_policy import ClarificationPolicy
 from agent.nexus_context_builder import NexusContextBuilder
 from agent.plan_reviewer import PlanReviewer
@@ -52,6 +53,7 @@ class TaskPlanningRunner:
     ) -> None:
         self.storage = PlanStorage(ca_data_dir)
         self.planner = PlannerPhase1(llm_json_fn=llm_json_fn)
+        self.deep_planner = DeepPlanner(llm_json_fn=llm_json_fn)
         self.requirement_analyzer = RequirementAnalyzer(llm_json_fn=llm_json_fn)
         self.plan_reviewer = PlanReviewer()
         self.clarification_manager = ClarificationManager()
@@ -259,14 +261,38 @@ class TaskPlanningRunner:
             elif repository_context.startswith("Repository scan warning:"):
                 warnings.append("Repository scan failed partially. Repository context fallback was used.")
 
-        plan = self.planner.build_plan(
-            requirement=requirement,
-            planning_mode=planning_mode,
-            prompt=PLAN_GENERATION_PROMPT,
-            nexus_context=nexus_context,
-            repository_context=repository_context,
-        )
-        warnings.extend(self.planner.get_last_warnings())
+        if planning_mode == "deep_nexus":
+            plan = self.planner.build_plan(
+                requirement=requirement,
+                planning_mode=planning_mode,
+                prompt=PLAN_GENERATION_PROMPT,
+                nexus_context=nexus_context,
+                repository_context=repository_context,
+            )
+            deep_plan = self.deep_planner.build_deep_plan(
+                requirement=requirement,
+                prompt=DEEP_PLAN_GENERATION_PROMPT,
+                nexus_context=nexus_context,
+                repository_context=repository_context,
+            )
+            plan.deep_planning = deep_plan.model_dump()
+            plan.architecture_options = [f"[{o.option_id}] {o.title}: {o.summary}" for o in deep_plan.architecture_options]
+            selected = next((o for o in deep_plan.architecture_options if o.option_id == deep_plan.selected_option_id), None)
+            plan.selected_architecture = f"[{deep_plan.selected_option_id}] {selected.title}" if selected else deep_plan.selected_option_id
+            plan.rejected_architectures = [
+                f"[{o.option_id}] {o.title}: {o.why_rejected}" for o in deep_plan.architecture_options if o.option_id != deep_plan.selected_option_id
+            ]
+            warnings.extend(self.deep_planner.get_last_warnings())
+            warnings.extend(self.planner.get_last_warnings())
+        else:
+            plan = self.planner.build_plan(
+                requirement=requirement,
+                planning_mode=planning_mode,
+                prompt=PLAN_GENERATION_PROMPT,
+                nexus_context=nexus_context,
+                repository_context=repository_context,
+            )
+            warnings.extend(self.planner.get_last_warnings())
 
         review_result = self.plan_reviewer.review(
             requirement=requirement,

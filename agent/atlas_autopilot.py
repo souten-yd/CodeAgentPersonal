@@ -80,7 +80,9 @@ class AtlasAutopilot:
             warnings=["Preview only: execution is disabled in this PR."],
             summary="Atlas Autopilot preview generated. No files were changed.",
         )
-        # TODO: connect preview execution path to TaskPlanningRunner in a later PR.
+        # TODO: for larger goals, create_autopilot_plan should call DeepPlanner (deep_nexus) before execution stages.
+        # TODO: task decomposition should consume DeepPlanPayload architecture options in a follow-up PR.
+        # TODO: keep this PR preview-only; no implementation execution wiring here.
         self._states[request.autopilot_id] = state
         return {
             "autopilot_id": request.autopilot_id,
