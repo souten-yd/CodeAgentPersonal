@@ -10,7 +10,7 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-AutopilotStatus = Literal["draft", "planned", "preview_ready", "blocked", "failed", "task_plan_ready"]
+AutopilotStatus = Literal["draft", "planned", "preview_ready", "blocked", "failed", "task_plan_ready", "approval_required", "execution_preview_ready"]
 
 
 class AtlasAutopilotRequest(BaseModel):
@@ -52,6 +52,12 @@ class AtlasAutopilotTask(BaseModel):
     plan_markdown_path: str = ""
     requirement_markdown_path: str = ""
     last_plan_message: str = ""
+    approval_status: str = ""
+    execution_preview_status: str = ""
+    execution_preview_id: str = ""
+    execution_preview_summary: str = ""
+    execution_preview_markdown_path: str = ""
+    last_execution_preview_message: str = ""
 
 
 class AtlasAutopilotPlan(BaseModel):
@@ -68,6 +74,8 @@ class AtlasAutopilotPlan(BaseModel):
     task_decomposition_strategy: str = ""
     execution_order: list[str] = Field(default_factory=list)
     preview_only: bool = True
+    project_path: str = ""
+    project_name: str = ""
 
 
 class AtlasAutopilotRunState(BaseModel):
@@ -83,3 +91,6 @@ class AtlasAutopilotRunState(BaseModel):
     planned_task_ids: list[str] = Field(default_factory=list)
     task_plan_ids: dict[str, str] = Field(default_factory=dict)
     task_requirement_ids: dict[str, str] = Field(default_factory=dict)
+    execution_preview_task_ids: list[str] = Field(default_factory=list)
+    task_execution_preview_ids: dict[str, str] = Field(default_factory=dict)
+    approval_required_task_ids: list[str] = Field(default_factory=list)
