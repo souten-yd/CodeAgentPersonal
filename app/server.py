@@ -9,12 +9,17 @@ one concern at a time.
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None] | AsyncIterator[None]]
 
 
-def create_app(*, lifespan: Lifespan | None = None) -> FastAPI:
+def create_app(
+    *, lifespan: Lifespan | None = None, web_dir: str | Path | None = None
+) -> FastAPI:
     """Create a FastAPI app shell for the future app-factory migration.
 
     The returned app intentionally does not mirror ``main.app`` yet.  Keeping
@@ -25,18 +30,21 @@ def create_app(*, lifespan: Lifespan | None = None) -> FastAPI:
 
     configure_middleware(app)
     include_routers(app)
-    configure_static_assets(app)
+    configure_static_assets(app, web_dir=web_dir)
 
     return app
 
 
-def configure_static_assets(app: FastAPI) -> None:
-    """Placeholder for future static asset mounts.
+def configure_static_assets(
+    app: FastAPI, *, web_dir: str | Path | None = None
+) -> None:
+    """Mount optional web static assets under ``/static``.
 
-    Static file paths and mounts remain in ``main.py`` for this first PR so the
-    existing UI asset serving contract stays unchanged.
+    Passing ``web_dir`` lets callers opt in to the same static asset mount used
+    by ``main.py`` while keeping the app-factory shell lightweight by default.
     """
-    return None
+    if web_dir and Path(web_dir).is_dir():
+        app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")
 
 
 def include_routers(app: FastAPI) -> None:
