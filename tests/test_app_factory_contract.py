@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.server import create_app
+from app.services.system_usage import UsageCollectorPorts, UsageDiagnosticsPort
 import main
 
 
@@ -60,6 +61,52 @@ def test_create_app_can_optionally_serve_workspace_index(tmp_path):
 def test_main_app_system_usage_providers_are_callable():
     assert callable(main.app.state.system_usage_provider)
     assert callable(main.app.state.system_usage_debug_provider)
+
+
+def test_main_app_system_usage_ports_are_registered():
+    settings = main.app.state.system_usage_settings
+    diagnostics = main.app.state.system_usage_diagnostics
+    ports = main.app.state.system_usage_ports
+
+    assert callable(settings.get_setting)
+    assert callable(settings.set_setting)
+    assert isinstance(diagnostics, UsageDiagnosticsPort)
+    assert isinstance(ports, UsageCollectorPorts)
+    assert ports.settings is settings
+    assert ports.diagnostics is diagnostics
+
+
+def test_main_system_usage_settings_port_delegates_to_main_settings_helpers(monkeypatch):
+    calls = []
+
+    def fake_settings_get(key: str) -> str | None:
+        calls.append(("get", key))
+        return "fake-value"
+
+    def fake_settings_set(key: str, value: str) -> None:
+        calls.append(("set", key, value))
+
+    monkeypatch.setattr(main, "settings_get", fake_settings_get)
+    monkeypatch.setattr(main, "settings_set", fake_settings_set)
+
+    settings = main.app.state.system_usage_settings
+
+    assert settings.get_setting("gpu_usage_backend") == "fake-value"
+    settings.set_setting("gpu_usage_backend", "auto")
+    assert calls == [
+        ("get", "gpu_usage_backend"),
+        ("set", "gpu_usage_backend", "auto"),
+    ]
+
+
+def test_main_usage_diagnostics_adapter_roundtrips_via_main_helpers():
+    diagnostics = main.app.state.system_usage_diagnostics
+    expected = {"probe": "test", "ok": True}
+
+    diagnostics.set_last_usage_diag(expected)
+
+    assert diagnostics.get_last_usage_diag() == expected
+    assert main._get_last_usage_diag() == expected
 
 
 def test_main_app_contract_remains_fastapi_app():
