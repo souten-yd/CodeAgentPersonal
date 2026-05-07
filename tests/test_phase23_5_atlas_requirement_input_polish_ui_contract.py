@@ -1,12 +1,12 @@
 import re
 import unittest
-from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 
 class TestPhase23_5AtlasRequirementInputPolishUiContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ui = Path('ui.html').read_text(encoding='utf-8')
+        cls.ui = load_ui_contract_text()
 
     def test_persistence_key_exists(self):
         self.assertIn("const ATLAS_REQUIREMENT_INPUT_KEY = 'atlas:requirementInput';", self.ui)

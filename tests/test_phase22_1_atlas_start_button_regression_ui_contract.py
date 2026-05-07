@@ -1,12 +1,12 @@
 import re
 import unittest
-from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 
 class TestPhase22_1AtlasStartButtonRegressionUiContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ui = Path('ui.html').read_text(encoding='utf-8')
+        cls.ui = load_ui_contract_text()
 
     def test_start_atlas_workflow_is_async_safe(self):
         m = re.search(r'async function startAtlasWorkflow\(\) \{([\s\S]*?)\n\}', self.ui)

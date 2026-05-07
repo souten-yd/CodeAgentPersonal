@@ -1,8 +1,8 @@
-from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 
 def test_autopilot_button_wiring_and_status_copy() -> None:
-    ui = Path('ui.html').read_text(encoding='utf-8').lower()
+    ui = load_ui_contract_text().lower()
 
     assert 'onclick="generateautopilottaskplan(this)"' in ui
     assert 'onclick="prepareautopilotexecutionpreview(this)"' in ui

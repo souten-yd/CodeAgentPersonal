@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from tests.helpers.ui_contract import load_ui_contract_text
 
 import main
 
@@ -116,7 +117,7 @@ class EchoVaultUploadTranscriptionTests(unittest.TestCase):
             self.assertEqual([s["source_text"] for s in segs], ["最初に確認します。", "次にリスクを見ます。"])
 
     def test_ui_does_not_list_artifact_labels_for_upload_completion(self):
-        ui = Path("ui.html").read_text(encoding="utf-8")
+        ui = load_ui_contract_text()
         self.assertNotIn("Segments JSON", ui)
         self.assertNotIn("Japanese transcript", ui)
         self.assertNotIn("English transcript", ui)

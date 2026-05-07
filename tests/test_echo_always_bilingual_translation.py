@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from tests.helpers.ui_contract import load_ui_contract_text
 
 import main
 
@@ -86,7 +87,7 @@ class EchoAlwaysBilingualTranslationTests(unittest.TestCase):
         self.assertEqual(out["japanese_text"], "")
 
     def test_ui_tts_fallback_does_not_use_translation_failed_placeholder(self):
-        ui = Path("ui.html").read_text(encoding="utf-8")
+        ui = load_ui_contract_text()
         self.assertIn("translatedFailed = sentence?.translation_failed === true", ui)
         self.assertIn("ttsText === '[translation failed]'", ui)
         self.assertIn("translated !== '[translation failed]'", ui)

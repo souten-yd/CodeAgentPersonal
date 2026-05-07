@@ -1,8 +1,8 @@
-from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 
 def test_autopilot_ui_generate_plan_contract() -> None:
-    ui = Path("ui.html").read_text(encoding="utf-8").lower()
+    ui = load_ui_contract_text().lower()
     assert "generate plan" in ui
     assert "plan only — no files will be changed" in ui
     assert "open plan" in ui

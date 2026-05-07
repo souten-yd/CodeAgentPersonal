@@ -1,12 +1,12 @@
 import re
 import unittest
-from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 
 class TestPhase18AtlasSubviewPersistenceUIContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ui = Path('ui.html').read_text(encoding='utf-8')
+        cls.ui = load_ui_contract_text()
 
     def test_localstorage_key_exists(self):
         self.assertIn('const ATLAS_LAST_SUBVIEW_KEY = \'atlas:lastSubview\';', self.ui)

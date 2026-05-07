@@ -1,12 +1,12 @@
 import re
 import unittest
-from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 
 class TestPhase20GuidedPlanActionButtonsUiContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ui = Path('ui.html').read_text(encoding='utf-8')
+        cls.ui = load_ui_contract_text()
 
     def test_next_action_buttons_dom_exists(self):
         self.assertIn('id="atlas-workbench-card-plan-next-action-buttons"', self.ui)

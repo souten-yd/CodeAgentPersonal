@@ -1,8 +1,8 @@
-from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 
 def test_top_nav_agent_button_removed_and_core_modes_exist():
-    text = Path("ui.html").read_text(encoding="utf-8")
+    text = load_ui_contract_text()
     assert 'id="btn-chat"' in text
     assert 'id="btn-atlas"' in text
     assert 'id="btn-echo"' in text
@@ -11,13 +11,13 @@ def test_top_nav_agent_button_removed_and_core_modes_exist():
 
 
 def test_agent_advanced_and_compat_functions_remain():
-    text = Path("ui.html").read_text(encoding="utf-8")
+    text = load_ui_contract_text()
     assert "Legacy Agent Advanced" in text
     assert "startAgentGuidedWorkflow" in text
 
 
 def test_no_forbidden_auto_apply_or_approval_bypass_added():
-    text = Path("ui.html").read_text(encoding="utf-8").lower()
+    text = load_ui_contract_text().lower()
     assert "auto apply" not in text
     assert "auto approve" not in text
     assert "bulk apply" not in text

@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 UI_HTML = ROOT / "ui.html"
+WEB_JS_ROOT = ROOT / "web" / "js"
 SCRIPT_RE = re.compile(r"<script(?P<attrs>[^>]*)>(?P<body>[\s\S]*?)</script>", re.IGNORECASE)
 
 
@@ -52,6 +53,28 @@ def validate_node_runtime(node_bin: str) -> tuple[bool, str, str]:
   return True, node_path, version_text
 
 
+def iter_external_js_files() -> list[Path]:
+  if not WEB_JS_ROOT.exists():
+    return []
+  return sorted(path for path in WEB_JS_ROOT.glob("**/*.js") if path.is_file())
+
+
+def run_node_check(node_bin: str, path: Path) -> subprocess.CompletedProcess[str]:
+  return subprocess.run(
+    [node_bin, "--check", str(path)],
+    capture_output=True,
+    text=True,
+    check=False,
+  )
+
+
+def print_node_check_output(result: subprocess.CompletedProcess[str]) -> None:
+  if result.stdout.strip():
+    print(result.stdout.rstrip())
+  if result.stderr.strip():
+    print(result.stderr.rstrip())
+
+
 def main() -> int:
   node_bin = resolve_node_binary()
   ok, node_path, node_version = validate_node_runtime(node_bin)
@@ -70,33 +93,40 @@ def main() -> int:
     if body:
       inline_scripts.append(body)
 
+  external_js_files = iter_external_js_files()
+
   if not inline_scripts:
     print("No inline script blocks found in ui.html")
-    return 1
+    if not external_js_files:
+      return 1
 
   for idx, script_body in enumerate(inline_scripts, start=1):
     with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tmp:
       tmp.write(script_body)
       tmp_path = Path(tmp.name)
     try:
-      result = subprocess.run(
-        [node_bin, "--check", str(tmp_path)],
-        capture_output=True,
-        text=True,
-        check=False,
-      )
+      result = run_node_check(node_bin, tmp_path)
     finally:
       tmp_path.unlink(missing_ok=True)
 
     if result.returncode != 0:
-      if result.stdout.strip():
-        print(result.stdout.rstrip())
-      if result.stderr.strip():
-        print(result.stderr.rstrip())
+      print_node_check_output(result)
       print(f"Inline script #{idx} has syntax errors")
       return result.returncode
 
-  print(f"OK: {len(inline_scripts)} inline script block(s) passed node --check")
+  for js_path in external_js_files:
+    result = run_node_check(node_bin, js_path)
+    if result.returncode != 0:
+      print_node_check_output(result)
+      print(f"External script {js_path.relative_to(ROOT)} has syntax errors")
+      return result.returncode
+
+  checked_targets: list[str] = []
+  if inline_scripts:
+    checked_targets.append(f"{len(inline_scripts)} inline script block(s)")
+  if external_js_files:
+    checked_targets.append(f"{len(external_js_files)} external script file(s)")
+  print(f"OK: {' and '.join(checked_targets)} passed node --check")
   return 0
 
 

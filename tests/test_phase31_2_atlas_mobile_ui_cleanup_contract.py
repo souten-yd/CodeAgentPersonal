@@ -1,9 +1,10 @@
 import re
 import unittest
 from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 ROOT = Path(__file__).resolve().parents[1]
-UI = (ROOT / "ui.html").read_text(encoding="utf-8")
+UI = load_ui_contract_text()
 SMOKE = (ROOT / "scripts" / "smoke_ui_modes_playwright.py").read_text(encoding="utf-8")
 MATRIX = (ROOT / "scripts" / "run_debug_test_matrix.py").read_text(encoding="utf-8")
 

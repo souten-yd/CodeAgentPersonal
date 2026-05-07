@@ -1,11 +1,12 @@
 import unittest
 from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 
 class TestPhase12_9AtlasNamingUiContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ui = Path('ui.html').read_text(encoding='utf-8')
+        cls.ui = load_ui_contract_text()
         cls.doc = Path('docs/agent_guided_workflow_integration.md').read_text(encoding='utf-8')
 
     def test_atlas_label_and_start_button_exist(self):

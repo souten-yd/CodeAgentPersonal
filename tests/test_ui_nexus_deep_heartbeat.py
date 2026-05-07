@@ -1,8 +1,8 @@
-from pathlib import Path
+from tests.helpers.ui_contract import load_ui_contract_text
 
 
 def _ui_html() -> str:
-    return Path('ui.html').read_text(encoding='utf-8')
+    return load_ui_contract_text()
 
 
 def test_ui_uses_bundle_debug_and_events_endpoints() -> None:
