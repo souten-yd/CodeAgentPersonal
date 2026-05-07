@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Callable
 
 from agent.requirement_schema import RequirementCategoryScores, RequirementDefinition
+
+
+logger = logging.getLogger(__name__)
 
 
 class RequirementAnalyzer:
@@ -49,6 +53,9 @@ class RequirementAnalyzer:
 
         requirement_id = existing_requirement.requirement_id if existing_requirement else f"req_{uuid.uuid4().hex[:12]}"
         category_scores = payload.get("category_scores") or {}
+        if not isinstance(category_scores, dict):
+            warnings.append("Requirement payload category_scores was not a JSON object. Default category scores were used.")
+            category_scores = {}
         req = RequirementDefinition(
             requirement_id=requirement_id,
             source_task_id=source_task_id,
@@ -64,14 +71,14 @@ class RequirementAnalyzer:
             assumptions=_as_str_list(payload.get("assumptions")),
             open_questions=payload.get("open_questions") or [],
             answered_questions=existing_requirement.answered_questions if existing_requirement else [],
-            requirement_completeness_score=float(payload.get("requirement_completeness_score", 0.65) or 0.65),
+            requirement_completeness_score=_score(payload.get("requirement_completeness_score"), 0.65),
             category_scores=RequirementCategoryScores(
-                goal=float(category_scores.get("goal", 0.7) or 0.7),
-                scope=float(category_scores.get("scope", 0.6) or 0.6),
-                functional_requirements=float(category_scores.get("functional_requirements", 0.7) or 0.7),
-                non_functional_requirements=float(category_scores.get("non_functional_requirements", 0.6) or 0.6),
-                constraints=float(category_scores.get("constraints", 0.6) or 0.6),
-                done_definition=float(category_scores.get("done_definition", 0.65) or 0.65),
+                goal=_score(category_scores.get("goal"), 0.7),
+                scope=_score(category_scores.get("scope"), 0.6),
+                functional_requirements=_score(category_scores.get("functional_requirements"), 0.7),
+                non_functional_requirements=_score(category_scores.get("non_functional_requirements"), 0.6),
+                constraints=_score(category_scores.get("constraints"), 0.6),
+                done_definition=_score(category_scores.get("done_definition"), 0.65),
             ),
             priority=str(payload.get("priority", "medium")),
             done_definition=_as_str_list(payload.get("done_definition")),
@@ -89,6 +96,80 @@ class RequirementAnalyzer:
 
         self._last_warnings = warnings
         return req
+
+
+def _score(value, default: float) -> float:
+    """
+    Normalize LLM-provided score into 0.0 - 1.0.
+    Accepts floats, ints, numeric strings, percentages, labels, booleans, None.
+    Never raises.
+    """
+    try:
+        default_score = max(0.0, min(1.0, float(default)))
+    except Exception:  # noqa: BLE001
+        default_score = 0.0
+
+    if value is None:
+        return default_score
+
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+
+    if isinstance(value, (int, float)):
+        try:
+            n = float(value)
+            if n > 1.0 and n <= 100.0:
+                n = n / 100.0
+            return max(0.0, min(1.0, n))
+        except Exception:  # noqa: BLE001
+            return default_score
+
+    text = str(value).strip().lower()
+    if not text:
+        return default_score
+
+    label_map = {
+        "high": 0.85,
+        "higher": 0.85,
+        "good": 0.8,
+        "strong": 0.85,
+        "medium": 0.6,
+        "med": 0.6,
+        "moderate": 0.6,
+        "mid": 0.6,
+        "low": 0.35,
+        "weak": 0.35,
+        "poor": 0.3,
+        "unknown": default_score,
+        "n/a": default_score,
+        "na": default_score,
+        "none": default_score,
+    }
+    if text in label_map:
+        normalized = max(0.0, min(1.0, float(label_map[text])))
+        if normalized != default_score or text not in {"unknown", "n/a", "na", "none"}:
+            logger.warning('Requirement score "%s" normalized to %s.', value, normalized)
+        return normalized
+
+    try:
+        if text.endswith("%"):
+            normalized = max(0.0, min(1.0, float(text[:-1].strip()) / 100.0))
+            logger.warning('Requirement score "%s" normalized to %s.', value, normalized)
+            return normalized
+        if "/" in text:
+            left, right = text.split("/", 1)
+            denom = float(right.strip())
+            if denom:
+                normalized = max(0.0, min(1.0, float(left.strip()) / denom))
+                logger.warning('Requirement score "%s" normalized to %s.', value, normalized)
+                return normalized
+        n = float(text)
+        if n > 1.0 and n <= 100.0:
+            n = n / 100.0
+        return max(0.0, min(1.0, n))
+    except Exception:  # noqa: BLE001
+        logger.warning('Invalid requirement score "%s"; default %s used.', value, default_score)
+        return default_score
 
 
 def _as_str_list(value) -> list[str]:
