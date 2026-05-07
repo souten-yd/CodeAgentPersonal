@@ -181,3 +181,17 @@ def test_main_ui_serves_index_when_available():
 
     assert response.status_code == 200
     assert "text/html" in response.headers.get("content-type", "").lower()
+
+
+def test_main_system_usage_provider_delegates_to_service_collector(monkeypatch):
+    calls = []
+    expected = {"cpu_percent": 1, "gpus": [], "updated_at": "test"}
+
+    def fake_collect_system_usage_info(*, ports, debug_mode=False):
+        calls.append((ports, debug_mode))
+        return expected
+
+    monkeypatch.setattr(main, "collect_system_usage_info", fake_collect_system_usage_info)
+
+    assert main.get_system_usage_info(debug_mode=True) is expected
+    assert calls == [(main.app.state.system_usage_ports, True)]

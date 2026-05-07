@@ -132,3 +132,83 @@ def test_system_usage_static_gpu_normalizer_keeps_response_keys():
         "vram_total_mb": -1,
         "vram_percent": -1,
     }
+
+class _FakeSettings:
+    def __init__(self):
+        self.values = {"gpu_usage_backend": "auto"}
+        self.calls = []
+
+    def get_setting(self, key: str) -> str | None:
+        self.calls.append(("get", key))
+        return self.values.get(key)
+
+    def set_setting(self, key: str, value: str) -> None:
+        self.calls.append(("set", key, value))
+        self.values[key] = value
+
+
+def test_collect_system_usage_info_exists_and_uses_ports_without_external_gpu_commands(monkeypatch):
+    module = importlib.import_module("app.services.system_usage")
+
+    assert callable(module.collect_system_usage_info)
+
+    settings = _FakeSettings()
+    diagnostics = module.InMemoryUsageDiagnostics()
+    ports = module.UsageCollectorPorts(settings=settings, diagnostics=diagnostics)
+
+    def fake_probe(backend: str) -> list[dict[str, Any]]:
+        assert backend == "nvidia-smi"
+        return [{"name": "Static GPU", "memory_total_mb": 8192, "memory_free_mb": 4096}]
+
+    class FakeCompleted:
+        returncode = 0
+        stdout = "Test GPU, 42, 2048, 8192\n"
+        stderr = ""
+
+    def fake_run(cmd, *args, **kwargs):
+        assert cmd[0] == "nvidia-smi"
+        return FakeCompleted()
+
+    monkeypatch.setattr(module, "_probe_gpu_static", fake_probe)
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    payload = module.collect_system_usage_info(ports=ports, debug_mode=True)
+    diag = diagnostics.get_last_usage_diag()
+
+    assert payload["gpu_backend_selected"] == "nvidia-smi"
+    assert payload["gpu_backend"] == "nvidia-smi"
+    assert payload["vram_source_backend"] == "nvidia-smi"
+    assert payload["vram_confidence"] == "direct"
+    assert payload["gpus"] == [
+        {
+            "name": "Test GPU",
+            "util_percent": 42.0,
+            "vram_used_mb": 2048,
+            "vram_total_mb": 8192,
+            "vram_percent": 25.0,
+        }
+    ]
+    assert isinstance(payload["updated_at"], str)
+    assert ("get", "gpu_usage_backend") in settings.calls
+    assert ("set", "gpu_usage_backend", "nvidia-smi") in settings.calls
+    assert diag["gpu_backend_selected"] == "nvidia-smi"
+    assert diag["gpu_backend"] == "nvidia-smi"
+    assert diag["parse_source"] == "direct"
+    assert diag["adopted_values"]["gpu_count"] == 1
+
+
+def test_system_usage_service_import_does_not_probe_or_persist(monkeypatch):
+    sys.modules.pop("app.services.system_usage", None)
+    sys.modules.pop("main", None)
+
+    import subprocess
+
+    def fail_run(*args, **kwargs):
+        raise AssertionError("subprocess probe must not run during import")
+
+    monkeypatch.setattr(subprocess, "run", fail_run)
+
+    module = importlib.import_module("app.services.system_usage")
+
+    assert callable(module.collect_system_usage_info)
+    assert "main" not in sys.modules
