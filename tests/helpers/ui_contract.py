@@ -20,15 +20,21 @@ def _iter_static_asset_paths(root: Path, pattern: str) -> list[Path]:
     return sorted(path for path in root.glob(pattern) if path.is_file())
 
 
-def load_ui_contract_text(*, include_static_assets: bool = False) -> str:
+def load_root_ui_html_text() -> str:
+    """Load only the repository-root ``ui.html`` file."""
+    return _read_text(UI_HTML)
+
+
+def load_ui_contract_text(*, include_static_assets: bool = True) -> str:
     """Load the text used by UI contract tests.
 
-    Today the UI contract source is the root ``ui.html`` file.  The optional
-    static-asset path keeps this helper ready for a future split where
-    ``web/css/**/*.css`` and ``web/js/**/*.js`` become part of the contract text
-    without forcing each test to know where those files live.
+    The contract source includes the root ``ui.html`` file plus static assets
+    under ``web/css/**/*.css`` and ``web/js/**/*.js`` by default so tests keep
+    finding UI strings after CSS/JS are split out of the root HTML.  Set
+    ``include_static_assets`` to ``False`` or call ``load_root_ui_html_text``
+    when a test needs to inspect only ``ui.html``.
     """
-    parts = [_read_text(UI_HTML)]
+    parts = [load_root_ui_html_text()]
     if include_static_assets:
         for path in _iter_static_asset_paths(WEB_CSS_ROOT, "**/*.css"):
             parts.append(_read_text(path))
