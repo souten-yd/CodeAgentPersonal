@@ -3,6 +3,34 @@ SETTINGS_JS_PATH = "/static/js/settings.js"
 SKILLS_MEMORY_JS_PATH = "/static/js/skills_memory.js"
 PANELS_JS_PATH = "/static/js/panels.js"
 NEXUS_JS_PATH = "/static/js/nexus.js"
+ECHO_JS_PATH = "/static/js/echo.js"
+
+MOVED_ECHO_DISPLAY_HELPER_FUNCTION_DEFINITIONS = (
+    "function syncEchoTranslateUi",
+    "function _syncEchoMinutesButtonUi",
+    "function _renderAsrRuntimeUi",
+    "function _echoSetStatus",
+    "function _echoSyncBusyStatus",
+    "function _echoSetConn",
+    "function _echoUpdateSentenceCount",
+    "function _echoUpdateDuration",
+    "function _echoRefreshStatusLine",
+    "function _echoUploadSetStatus",
+    "function _echoVaultSetInfo",
+)
+MOVED_ECHO_DISPLAY_HELPER_WINDOW_EXPORTS = (
+    "window.syncEchoTranslateUi = syncEchoTranslateUi",
+    "window._syncEchoMinutesButtonUi = _syncEchoMinutesButtonUi",
+    "window._renderAsrRuntimeUi = _renderAsrRuntimeUi",
+    "window._echoSetStatus = _echoSetStatus",
+    "window._echoSyncBusyStatus = _echoSyncBusyStatus",
+    "window._echoSetConn = _echoSetConn",
+    "window._echoUpdateSentenceCount = _echoUpdateSentenceCount",
+    "window._echoUpdateDuration = _echoUpdateDuration",
+    "window._echoRefreshStatusLine = _echoRefreshStatusLine",
+    "window._echoUploadSetStatus = _echoUploadSetStatus",
+    "window._echoVaultSetInfo = _echoVaultSetInfo",
+)
 
 MOVED_NEXUS_DISPLAY_HELPER_FUNCTION_DEFINITIONS = (
     "function updateNexusJobBanner",

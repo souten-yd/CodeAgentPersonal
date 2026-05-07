@@ -4,6 +4,9 @@ import main
 from tests.helpers.ui_contract import load_root_ui_html_text
 from tests.helpers.ui_js_contract import (
     APP_JS_PATH,
+    ECHO_JS_PATH,
+    MOVED_ECHO_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
+    MOVED_ECHO_DISPLAY_HELPER_WINDOW_EXPORTS,
     MOVED_NEXUS_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
     MOVED_NEXUS_DISPLAY_HELPER_WINDOW_EXPORTS,
     MOVED_SETTINGS_MODAL_FUNCTION_DEFINITIONS,
@@ -32,7 +35,7 @@ def _fetch_js(path: str) -> str:
     return response.text
 
 
-def test_ui_html_loads_external_app_settings_skills_memory_panels_and_nexus_js_in_order():
+def test_ui_html_loads_external_app_settings_skills_memory_panels_nexus_and_echo_js_in_order():
     ui_html = load_root_ui_html_text()
 
     app_script = f'<script src="{APP_JS_PATH}"></script>'
@@ -40,15 +43,18 @@ def test_ui_html_loads_external_app_settings_skills_memory_panels_and_nexus_js_i
     skills_memory_script = f'<script src="{SKILLS_MEMORY_JS_PATH}"></script>'
     panels_script = f'<script src="{PANELS_JS_PATH}"></script>'
     nexus_script = f'<script src="{NEXUS_JS_PATH}"></script>'
+    echo_script = f'<script src="{ECHO_JS_PATH}"></script>'
     assert app_script in ui_html
     assert settings_script in ui_html
     assert skills_memory_script in ui_html
     assert panels_script in ui_html
     assert nexus_script in ui_html
+    assert echo_script in ui_html
     assert ui_html.index(app_script) < ui_html.index(settings_script)
     assert ui_html.index(settings_script) < ui_html.index(skills_memory_script)
     assert ui_html.index(skills_memory_script) < ui_html.index(panels_script)
     assert ui_html.index(panels_script) < ui_html.index(nexus_script)
+    assert ui_html.index(nexus_script) < ui_html.index(echo_script)
 
 
 def test_ui_html_does_not_redefine_moved_skills_memory_and_settings_functions():
@@ -60,6 +66,7 @@ def test_ui_html_does_not_redefine_moved_skills_memory_and_settings_functions():
         *MOVED_SETTINGS_UI_HELPER_FUNCTION_DEFINITIONS,
         *MOVED_SETTINGS_TAB_FUNCTION_DEFINITIONS,
         *MOVED_NEXUS_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
+        *MOVED_ECHO_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
     ):
         assert function_definition not in ui_html
 
@@ -81,6 +88,8 @@ def test_app_js_keeps_bootstrap_without_moved_feature_tokens():
         *MOVED_SETTINGS_TAB_WINDOW_EXPORTS,
         *MOVED_NEXUS_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
         *MOVED_NEXUS_DISPLAY_HELPER_WINDOW_EXPORTS,
+        *MOVED_ECHO_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
+        *MOVED_ECHO_DISPLAY_HELPER_WINDOW_EXPORTS,
     ):
         assert token not in app_js
 
@@ -105,6 +114,8 @@ def test_settings_js_owns_settings_modal_and_ui_helper_tokens_only():
         *MOVED_SETTINGS_TAB_WINDOW_EXPORTS,
         *MOVED_NEXUS_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
         *MOVED_NEXUS_DISPLAY_HELPER_WINDOW_EXPORTS,
+        *MOVED_ECHO_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
+        *MOVED_ECHO_DISPLAY_HELPER_WINDOW_EXPORTS,
     ):
         assert token not in settings_js
 
@@ -129,6 +140,8 @@ def test_skills_memory_js_owns_skills_memory_tokens_only():
         *MOVED_SETTINGS_TAB_WINDOW_EXPORTS,
         *MOVED_NEXUS_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
         *MOVED_NEXUS_DISPLAY_HELPER_WINDOW_EXPORTS,
+        *MOVED_ECHO_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
+        *MOVED_ECHO_DISPLAY_HELPER_WINDOW_EXPORTS,
     ):
         assert token not in skills_memory_js
 
@@ -145,6 +158,8 @@ def test_panels_js_owns_settings_tab_tokens_without_nexus_tokens():
     for token in (
         *MOVED_NEXUS_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
         *MOVED_NEXUS_DISPLAY_HELPER_WINDOW_EXPORTS,
+        *MOVED_ECHO_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
+        *MOVED_ECHO_DISPLAY_HELPER_WINDOW_EXPORTS,
     ):
         assert token not in panels_js
 
@@ -169,5 +184,33 @@ def test_nexus_js_owns_display_helper_tokens_only():
         *MOVED_SKILLS_AND_MEMORY_WINDOW_EXPORTS,
         *MOVED_SETTINGS_TAB_FUNCTION_DEFINITIONS,
         *MOVED_SETTINGS_TAB_WINDOW_EXPORTS,
+        *MOVED_ECHO_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
+        *MOVED_ECHO_DISPLAY_HELPER_WINDOW_EXPORTS,
     ):
         assert token not in nexus_js
+
+
+def test_echo_js_owns_display_helper_tokens_only():
+    echo_js = _fetch_js(ECHO_JS_PATH)
+
+    for token in (
+        *MOVED_ECHO_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
+        *MOVED_ECHO_DISPLAY_HELPER_WINDOW_EXPORTS,
+    ):
+        assert token in echo_js
+
+    for token in (
+        BOOTSTRAP_TOKEN,
+        *MOVED_SETTINGS_MODAL_FUNCTION_DEFINITIONS,
+        *MOVED_SETTINGS_MODAL_WINDOW_EXPORTS,
+        *MOVED_SETTINGS_UI_HELPER_FUNCTION_DEFINITIONS,
+        *MOVED_SETTINGS_UI_HELPER_WINDOW_EXPORTS,
+        *MOVED_SKILLS_AND_MEMORY_FUNCTION_DEFINITIONS,
+        *MOVED_SKILLS_AND_MEMORY_STATE_TOKENS,
+        *MOVED_SKILLS_AND_MEMORY_WINDOW_EXPORTS,
+        *MOVED_SETTINGS_TAB_FUNCTION_DEFINITIONS,
+        *MOVED_SETTINGS_TAB_WINDOW_EXPORTS,
+        *MOVED_NEXUS_DISPLAY_HELPER_FUNCTION_DEFINITIONS,
+        *MOVED_NEXUS_DISPLAY_HELPER_WINDOW_EXPORTS,
+    ):
+        assert token not in echo_js
