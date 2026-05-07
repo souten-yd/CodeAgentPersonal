@@ -9218,6 +9218,12 @@ class AtlasAutopilotTaskPlanRequest(BaseModel):
     requirement_mode: str = ""
     use_nexus: bool = True
 
+
+class AtlasAutopilotExecutionPreviewRequest(BaseModel):
+    project_path: str = ""
+    project_name: str = ""
+    require_approval: bool = True
+
 class RequirementAnswerItem(BaseModel):
     question_id: str
     answer: str | list[str] | bool | None = None
@@ -10730,7 +10736,7 @@ _phase6_run_storage = RunStorage(CA_DATA_DIR)
 _phase6_executor = ImplementationExecutor(_phase1_planning_runner.storage, _phase6_run_storage, llm_patch_fn=call_patch_llm)
 
 
-_atlas_autopilot = AtlasAutopilot(ca_data_dir=CA_DATA_DIR, planning_runner=_phase1_planning_runner)
+_atlas_autopilot = AtlasAutopilot(ca_data_dir=CA_DATA_DIR, planning_runner=_phase1_planning_runner, plan_storage=_phase1_planning_runner.storage)
 
 def _resolve_project_path_for_phase_planning(project_path: str, project_name: str) -> tuple[str, list[str]]:
     warnings: list[str] = []
@@ -10905,6 +10911,23 @@ def api_atlas_autopilot_task_plan(autopilot_id: str, task_id: str, req: AtlasAut
         planning_mode=(req.planning_mode or "").strip() or None,
         requirement_mode=(req.requirement_mode or "").strip() or None,
         use_nexus=bool(req.use_nexus),
+    )
+    warnings = result.get("warnings") if isinstance(result.get("warnings"), list) else []
+    result["warnings"] = list(dict.fromkeys([*api_warnings, *[str(x) for x in warnings if str(x).strip()]]))
+    result["resolved_project_path"] = resolved_project_path
+    return result
+
+
+
+@app.post("/api/atlas/autopilot/{autopilot_id}/tasks/{task_id}/execution-preview")
+def api_atlas_autopilot_task_execution_preview(autopilot_id: str, task_id: str, req: AtlasAutopilotExecutionPreviewRequest):
+    resolved_project_path, api_warnings = _resolve_project_path_for_phase_planning(req.project_path, req.project_name)
+    result = _atlas_autopilot.prepare_execution_preview_for_task(
+        autopilot_id=autopilot_id,
+        task_id=task_id,
+        project_path=resolved_project_path,
+        project_name=(req.project_name or "").strip(),
+        require_approval=bool(req.require_approval),
     )
     warnings = result.get("warnings") if isinstance(result.get("warnings"), list) else []
     result["warnings"] = list(dict.fromkeys([*api_warnings, *[str(x) for x in warnings if str(x).strip()]]))
