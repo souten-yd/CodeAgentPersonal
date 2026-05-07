@@ -18326,10 +18326,12 @@ def ui_redirect():
     return RedirectResponse("/ui/")
 
 app.mount("/workspace", StaticFiles(directory=WORK_DIR, html=True), name="workspace")
-app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
-if os.path.isdir(ASSETS_DIR):
-    app.mount("/assets", StaticFiles(directory=ASSETS_DIR, html=False), name="assets")
-configure_static_assets(app, web_dir=WEB_DIR)
+configure_static_assets(
+    app,
+    ui_dir=UI_DIR,
+    assets_dir=ASSETS_DIR,
+    web_dir=WEB_DIR,
+)
 
 def _apply_tts_language_routing(req: dict, *, model_version: str | None) -> dict:
     route = resolve_tts_language_route(req, model_version)
