@@ -23,3 +23,21 @@ def test_ui_html_loads_external_app_js():
     ui_html = load_root_ui_html_text()
 
     assert f'<script src="{JS_PATH}"></script>' in ui_html
+
+
+def test_app_js_serves_moved_skills_and_memory_tokens():
+    client = TestClient(main.app)
+
+    response = client.get(JS_PATH)
+
+    assert response.status_code == 200
+    tokens = [
+        "refreshSkills",
+        "renderMemory",
+        "showTaskOptions",
+        "window.refreshSkills",
+        "window.renderMemory",
+        "window.showTaskOptions",
+    ]
+    for token in tokens:
+        assert token in response.text
