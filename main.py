@@ -82,7 +82,7 @@ os.makedirs(_STYLE_BERT_VITS2_MODELS_DIR, exist_ok=True)
 from app.nexus.router import router as nexus_router
 from app.nexus.web_scout import plan_web_queries, run_web_search
 from app.nexus.web_service import execute_nexus_web_search
-from app.server import configure_static_assets
+from app.server import configure_static_assets, include_routers
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -139,6 +139,7 @@ async def lifespan(app):
     if cleanup: cleanup()
 
 app = FastAPI(lifespan=lifespan)
+include_routers(app)
 app.include_router(nexus_router, prefix="/nexus", tags=["nexus"])
 
 
@@ -18269,11 +18270,6 @@ def debug_tests_run_view(run_id: str):
     summary_path = DEBUG_TEST_RUNS_DIR / run_id / "summary.md"
     summary = summary_path.read_text(encoding="utf-8") if summary_path.exists() else "(summary pending)"
     return f"""<html><body><h1>Run {html.escape(run_id)}</h1><p>status: <b>{html.escape(str(result.get('status','')))}</b></p><p>started_at: {html.escape(str(result.get('started_at','')))}</p><p>finished_at: {html.escape(str(result.get('finished_at','')))}</p><p>duration: {html.escape(str(result.get('duration_sec','')))}</p><p>current_test: {html.escape(str(result.get('current_test','')))}</p><p>total:{html.escape(str(result.get('total',0)))} pass:{html.escape(str(result.get('passed',0)))} fail:{html.escape(str(result.get('failed',0)))} skip:{html.escape(str(result.get('skipped',0)))} timeout:{html.escape(str(result.get('timeout',0)))}</p><table border='1'><tr><th>id</th><th>title</th><th>status</th><th>exit_code</th><th>duration</th><th>error summary</th><th>artifact/log paths</th><th>stdout tail</th><th>stderr tail</th></tr>{''.join(rows)}</table><h2>summary.md</h2><pre>{html.escape(summary)}</pre></body></html>"""
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
 
 @app.get("/system/readiness")
 def system_readiness():

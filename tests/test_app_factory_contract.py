@@ -47,6 +47,16 @@ def test_main_app_contract_remains_fastapi_app():
     assert isinstance(main.app, FastAPI)
 
 
+def test_create_app_health_endpoint_returns_ok():
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_main_health_endpoint_still_returns_ok():
     client = TestClient(main.app)
 
