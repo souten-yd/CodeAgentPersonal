@@ -8,9 +8,9 @@ runtime collection side effects.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping, Protocol, runtime_checkable
 
 
 def _parse_int_maybe(value: Any) -> int:
@@ -68,6 +68,7 @@ class SettingsPort(Protocol):
         ...
 
 
+@runtime_checkable
 class UsageDiagnosticsPort(Protocol):
     """Diagnostics dependency used by usage collection and debug payloads."""
 
@@ -78,6 +79,26 @@ class UsageDiagnosticsPort(Protocol):
     def get_last_usage_diag(self) -> dict[str, Any]:
         """Return a copy or snapshot of the latest usage diagnostics payload."""
         ...
+
+
+@dataclass(slots=True)
+class InMemoryUsageDiagnostics:
+    """Side-effect-free in-memory diagnostics adapter skeleton.
+
+    This adapter is intentionally disconnected from ``main`` diagnostics globals.
+    It exists as a small implementation candidate for the future usage
+    collection service boundary.
+    """
+
+    _diag: dict[str, Any] = field(default_factory=dict)
+
+    def set_last_usage_diag(self, diag: dict[str, Any]) -> None:
+        """Store a shallow copy of the latest usage diagnostics payload."""
+        self._diag = dict(diag)
+
+    def get_last_usage_diag(self) -> dict[str, Any]:
+        """Return a shallow copy of the latest usage diagnostics payload."""
+        return dict(self._diag)
 
 
 @dataclass(frozen=True, slots=True)

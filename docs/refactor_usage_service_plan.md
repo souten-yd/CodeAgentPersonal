@@ -6,9 +6,10 @@ Conservative default payload helpers and app-state provider lookup helpers live
 in `app/api/system.py`, and `main.app` wires compatibility providers into
 `app.state`. `get_system_usage_info()`, settings behavior, diagnostics globals,
 the `create_app()` signature, middleware, lifespan, and UI assets stay
-unchanged. The usage/debug endpoint migration is complete; this PR adds the
-`app/services/system_usage.py` service module skeleton as the receiving boundary
-for the next extraction stage.
+unchanged. The usage/debug endpoint migration is complete; this PR adds a
+side-effect-free diagnostics adapter skeleton in `app/services/system_usage.py`
+as the next receiving-boundary step. `get_system_usage_info()` remains in
+`main.py` and its body has not been moved.
 
 ## Current `get_system_usage_info()` dependencies
 
@@ -125,6 +126,15 @@ Current behavior and next-step notes:
   settings and diagnostics ports. It intentionally does not import
   `settings_get`, `settings_set`, `_get_last_usage_diag()`, or
   `_set_last_usage_diag()`.
+- `app/services/system_usage.py` now also includes `InMemoryUsageDiagnostics`, a
+  side-effect-free adapter skeleton that satisfies the diagnostics port without
+  referencing `main.py` globals.
+- Connecting the diagnostics port to `main.py` `_last_usage_diag`,
+  `_usage_diag_lock`, `_set_last_usage_diag()`, and `_get_last_usage_diag()` is
+  deferred to a later PR.
+- `get_system_usage_info()` remains in `main.py`; this step does not move its
+  body, subprocess probes, OS probes, GPU backend detection, or debug endpoint
+  behavior.
 
 ## Richer provider injection from `main.app`
 
@@ -157,6 +167,8 @@ ports together.
 The reason not to move debug before the provider contract was that it depends
 on the side effects of the usage collector. With the router/provider boundary
 and service skeleton in place, the usage/debug endpoint migration is complete.
-The next PR should start moving `main.py` `get_system_usage_info()`
-dependencies into the service boundary in small steps, keeping settings and
-diagnostics dependencies explicit.
+The next PR should connect or continue extracting `main.py`
+`get_system_usage_info()` dependencies into the service boundary in small steps,
+keeping settings and diagnostics dependencies explicit. The diagnostics adapter
+skeleton is available, but the live `main.py` diagnostics globals and helper
+functions are not connected to it yet.

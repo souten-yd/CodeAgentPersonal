@@ -19,12 +19,15 @@ def test_system_usage_service_ports_exist_with_expected_methods():
 
     assert hasattr(module, "SettingsPort")
     assert hasattr(module, "UsageDiagnosticsPort")
+    assert hasattr(module, "InMemoryUsageDiagnostics")
     assert hasattr(module, "UsageCollectorPorts")
 
     assert callable(module.SettingsPort.get_setting)
     assert callable(module.SettingsPort.set_setting)
     assert callable(module.UsageDiagnosticsPort.set_last_usage_diag)
     assert callable(module.UsageDiagnosticsPort.get_last_usage_diag)
+    assert callable(module.InMemoryUsageDiagnostics.set_last_usage_diag)
+    assert callable(module.InMemoryUsageDiagnostics.get_last_usage_diag)
 
 
 def test_system_usage_service_port_type_contracts():
@@ -44,6 +47,41 @@ def test_system_usage_service_port_type_contracts():
         "settings": module.SettingsPort,
         "diagnostics": module.UsageDiagnosticsPort,
     }
+
+
+def test_in_memory_usage_diagnostics_satisfies_port_and_preserves_values():
+    module = importlib.import_module("app.services.system_usage")
+
+    diagnostics = module.InMemoryUsageDiagnostics()
+
+    assert isinstance(diagnostics, module.UsageDiagnosticsPort)
+
+    diagnostics.set_last_usage_diag({"backend": "nvidia-smi", "ok": True})
+
+    assert diagnostics.get_last_usage_diag() == {"backend": "nvidia-smi", "ok": True}
+
+
+def test_in_memory_usage_diagnostics_get_returns_copy():
+    module = importlib.import_module("app.services.system_usage")
+    diagnostics = module.InMemoryUsageDiagnostics()
+
+    diagnostics.set_last_usage_diag({"backend": "nvidia-smi", "ok": True})
+    snapshot = diagnostics.get_last_usage_diag()
+    snapshot["backend"] = "mutated"
+    snapshot["new"] = "external"
+
+    assert diagnostics.get_last_usage_diag() == {"backend": "nvidia-smi", "ok": True}
+
+
+def test_in_memory_usage_diagnostics_set_copies_input():
+    module = importlib.import_module("app.services.system_usage")
+    diagnostics = module.InMemoryUsageDiagnostics()
+    source = {"backend": "nvidia-smi", "ok": True}
+
+    diagnostics.set_last_usage_diag(source)
+    source["backend"] = "mutated"
+
+    assert diagnostics.get_last_usage_diag() == {"backend": "nvidia-smi", "ok": True}
 
 
 def test_system_usage_numeric_helpers_keep_existing_shapes():
