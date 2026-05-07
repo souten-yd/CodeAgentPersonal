@@ -3,12 +3,20 @@ from fastapi.testclient import TestClient
 import main
 
 
+def _endpoint_module(app, path: str) -> str:
+    for route in app.routes:
+        if getattr(route, "path", None) == path:
+            return route.endpoint.__module__
+    raise AssertionError(f"{path} route not found")
+
+
 def test_main_app_system_usage_endpoint_contract():
     client = TestClient(main.app)
 
     response = client.get("/system/usage")
     body = response.json()
 
+    assert _endpoint_module(main.app, "/system/usage") == "app.api.system"
     assert response.status_code == 200
     assert isinstance(body["cpu_percent"], (int, float))
     assert isinstance(body["ram_total_mb"], int)
@@ -25,6 +33,7 @@ def test_main_app_system_usage_debug_endpoint_contract():
     response = client.get("/system/usage/debug")
     body = response.json()
 
+    assert _endpoint_module(main.app, "/system/usage/debug") == "main"
     assert response.status_code == 200
     assert isinstance(body["gpu_backend_selected"], str)
     assert isinstance(body["gpu_backend"], str)

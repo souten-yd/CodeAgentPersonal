@@ -54,6 +54,31 @@ def test_create_app_system_readiness_response_contract():
     assert response.json() == SYSTEM_READINESS_DEFAULT_PAYLOAD
 
 
+def test_create_app_system_usage_response_contract():
+    client = TestClient(create_app())
+
+    response = client.get("/system/usage")
+
+    assert response.status_code == 200
+    assert response.json() == default_system_usage_unavailable_payload()
+
+
+def test_main_app_system_usage_response_contract():
+    client = TestClient(main.app)
+
+    response = client.get("/system/usage")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert isinstance(body["cpu_percent"], (int, float))
+    assert isinstance(body["ram_total_mb"], int)
+    assert isinstance(body["ram_used_mb"], int)
+    assert isinstance(body["gpu_backend"], str)
+    assert isinstance(body["gpu_backend_selected"], str)
+    assert isinstance(body["gpus"], list)
+    assert isinstance(body["updated_at"], str)
+
+
 def test_main_app_system_readiness_response_contract():
     client = TestClient(main.app)
 
