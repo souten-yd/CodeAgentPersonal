@@ -9,7 +9,51 @@ runtime collection side effects.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from datetime import datetime
+from typing import Any, Mapping, Protocol
+
+
+def _parse_int_maybe(value: Any) -> int:
+    """Parse a comma-formatted non-negative integer, returning ``-1`` on failure."""
+    text = str(value or "").strip().replace(",", "")
+    return int(text) if text.isdigit() else -1
+
+
+def _bytes_to_mb(value: Any) -> int:
+    """Convert a byte count to whole MiB, returning ``-1`` for non-numeric input."""
+    if not isinstance(value, (int, float)):
+        return -1
+    return int(value / (1024 * 1024))
+
+
+def _kb_to_mb(value: Any) -> int:
+    """Convert a KiB count to whole MiB, returning ``-1`` for non-numeric input."""
+    if not isinstance(value, (int, float)):
+        return -1
+    return int(value / 1024)
+
+
+def _calculate_percent(used: int | float, total: int | float) -> float:
+    """Return a usage percentage or ``-1.0`` when the ratio is not meaningful."""
+    if used >= 0 and total > 0:
+        return (used / total) * 100.0
+    return -1.0
+
+
+def _usage_updated_at() -> str:
+    """Return the usage payload timestamp in the existing ISO-8601 shape."""
+    return datetime.now().isoformat()
+
+
+def _normalize_static_gpu_usage(gpu: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize a static GPU probe row into the ``/system/usage`` GPU shape."""
+    return {
+        "name": gpu.get("name", "GPU"),
+        "util_percent": -1,
+        "vram_used_mb": -1,
+        "vram_total_mb": gpu.get("memory_total_mb", -1),
+        "vram_percent": -1,
+    }
 
 
 class SettingsPort(Protocol):
