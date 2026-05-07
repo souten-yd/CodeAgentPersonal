@@ -54,10 +54,10 @@ class AtlasTaskDecomposer:
             )
 
         if len(tasks) < 3:
-            tasks.extend(self._fallback_tasks(user_goal=user_goal, start_index=len(tasks) + 1, autopilot_id=autopilot_id))
+            tasks.extend(self._fallback_tasks(user_goal=user_goal, start_index=len(tasks) + 1, autopilot_id=autopilot_id, depends_on_first=(tasks[-1].task_id if tasks else "")))
         return tasks
 
-    def _fallback_tasks(self, *, user_goal: str, start_index: int = 1, autopilot_id: str = "fallback") -> list[AtlasAutopilotTask]:
+    def _fallback_tasks(self, *, user_goal: str, start_index: int = 1, autopilot_id: str = "fallback", depends_on_first: str = "") -> list[AtlasAutopilotTask]:
         titles = ["Requirement refinement", "Architecture and touchpoint planning", "Final review and handoff"]
         out: list[AtlasAutopilotTask] = []
         for i, t in enumerate(titles, start=start_index):
@@ -70,7 +70,7 @@ class AtlasTaskDecomposer:
                     rationale="Fallback decomposition when deep planning details are unavailable.",
                     expected_output="Atlas task candidate with constraints and dependencies.",
                     task_type="planning",
-                    depends_on=[] if i == start_index else [f"{autopilot_id}_task_{i-1}"],
+                    depends_on=([depends_on_first] if i == start_index and depends_on_first else ([] if i == start_index else [f"{autopilot_id}_task_{i-1}"])),
                     acceptance_criteria=["No file changes.", "Execution stays disabled in preview-only mode."],
                 )
             )

@@ -10,7 +10,7 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-AutopilotStatus = Literal["draft", "planned", "preview_ready", "blocked", "failed"]
+AutopilotStatus = Literal["draft", "planned", "preview_ready", "blocked", "failed", "task_plan_ready"]
 
 
 class AtlasAutopilotRequest(BaseModel):
@@ -47,6 +47,11 @@ class AtlasAutopilotTask(BaseModel):
     linked_requirement_id: str = ""
     linked_plan_id: str = ""
     linked_run_id: str = ""
+    plan_status: str = ""
+    review_status: str = ""
+    plan_markdown_path: str = ""
+    requirement_markdown_path: str = ""
+    last_plan_message: str = ""
 
 
 class AtlasAutopilotPlan(BaseModel):
@@ -75,3 +80,6 @@ class AtlasAutopilotRunState(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     summary: str = ""
+    planned_task_ids: list[str] = Field(default_factory=list)
+    task_plan_ids: dict[str, str] = Field(default_factory=dict)
+    task_requirement_ids: dict[str, str] = Field(default_factory=dict)
