@@ -57,6 +57,16 @@ def test_create_app_health_endpoint_returns_ok():
     assert response.json() == {"status": "ok"}
 
 
+def test_create_app_system_readiness_endpoint_returns_ready():
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/system/readiness")
+
+    assert response.status_code == 200
+    assert response.json()["fastapi"] == "ready"
+
+
 def test_main_health_endpoint_still_returns_ok():
     client = TestClient(main.app)
 
