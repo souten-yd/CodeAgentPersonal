@@ -92,6 +92,14 @@ def system_readiness(request: Request) -> dict[str, Any]:
     return default_system_readiness_payload()
 
 
+@router.get("/system/usage")
+def system_usage(request: Request) -> dict[str, Any]:
+    provider = get_system_usage_provider(request)
+    if callable(provider):
+        return provider()
+    return default_system_usage_unavailable_payload()
+
+
 @router.get("/system/env")
 def system_env() -> dict[str, Any]:
     """Runtime environment probe (must not raise HTTP 500)."""

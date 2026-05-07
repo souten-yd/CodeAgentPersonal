@@ -1,12 +1,12 @@
 # Usage service/provider refactor plan
 
-This plan prepares the service/provider boundary for moving `GET /system/usage`
-out of `main.py` later. The provider skeleton is now implemented: conservative
-default payload helpers and app-state provider lookup helpers live in
-`app/api/system.py`, and `main.app` wires compatibility providers into
-`app.state`. The current endpoint handlers, `get_system_usage_info()`, settings
-behavior, diagnostics globals, `create_app()` signature, middleware, lifespan,
-and UI assets stay unchanged in this PR. Endpoint migration is explicitly left
+This plan records the service/provider boundary used to move `GET /system/usage`
+out of `main.py` and into `app/api/system.py`. Conservative default payload
+helpers and app-state provider lookup helpers live in `app/api/system.py`, and
+`main.app` wires compatibility providers into `app.state`.
+`GET /system/usage/debug`, `get_system_usage_info()`, settings behavior,
+diagnostics globals, the `create_app()` signature, middleware, lifespan, and UI
+assets stay unchanged in this PR. Debug endpoint migration is explicitly left
 for the next PR.
 
 ## Current `get_system_usage_info()` dependencies
@@ -114,8 +114,9 @@ Recommended next-step behavior:
   future factory-app use.
 - Those defaults avoid settings writes and expensive GPU auto-detection unless
   the desired factory-app contract explicitly opts into those side effects.
-- Until a safe default is agreed, `/system/usage` should remain unavailable from
-  bare `create_app()` and continue to be served by `main.app` only.
+- `/system/usage` now lives in `app/api/system.py`; bare `create_app()` returns
+  the conservative unavailable payload, while `main.app` serves live data via
+  `app.state.system_usage_provider`.
 
 ## Richer provider injection from `main.app`
 
@@ -137,11 +138,13 @@ ports together.
 1. Done: add the service/provider skeleton and `main.app` app-state wiring while
    the inline endpoints still serve traffic. Keep endpoint behavior unchanged
    and verify the inventory contract.
-2. Next PR: move `/system/usage` to the system router using the provider hook.
-3. Move `/system/usage/debug` after `/system/usage`, or in the same endpoint
-   migration PR only if tests prove the debug wrapper exactly preserves the
-   current sequence: collect fresh usage, read last diagnostics, then format the
-   debug payload.
+2. Done: move `/system/usage` to `app/api/system.py` using the provider hook.
+   Provider-less factory apps return `default_system_usage_unavailable_payload()`,
+   while `main.app` preserves existing behavior through
+   `app.state.system_usage_provider = get_system_usage_info`.
+3. Next PR: move `/system/usage/debug` after the debug provider contract proves
+   the exact current sequence: collect fresh usage, read last diagnostics, then
+   format the debug payload. `/system/usage/debug` remains in `main.py` for now.
 
 The reason not to move debug first is that it depends on the side effects of the
 usage collector. The reason not to move both before extracting the provider

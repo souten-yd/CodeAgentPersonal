@@ -18032,10 +18032,6 @@ def trigger_memory_analysis(job_id: str, project: str = "default"):
     _t.Thread(target=_analyze_job_for_memory, args=(job_id, project, LLM_URL), daemon=True).start()
     return {"ok": True, "message": f"memory analysis triggered for job {job_id}"}
 
-@app.get("/system/usage")
-def system_usage_api():
-    return get_system_usage_info()
-
 @app.get("/system/usage/debug")
 def system_usage_debug_api():
     usage = get_system_usage_info()
