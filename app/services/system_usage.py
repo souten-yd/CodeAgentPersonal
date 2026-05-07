@@ -546,7 +546,7 @@ def collect_system_usage_info(*, ports: UsageCollectorPorts, debug_mode: bool = 
                     if add_rc != 0 or not hc.value:
                         continue
                     collect(hq)
-                    _mm_time.sleep(0.05)
+                    time.sleep(0.05)
                     collect(hq)
                     ctype = wintypes.DWORD(0)
                     val = _PDH_FMT_COUNTERVALUE()
