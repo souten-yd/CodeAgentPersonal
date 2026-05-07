@@ -77,6 +77,17 @@ SWITCH_TAB_GLOBAL_DEPENDENCY_TOKENS = (
     ("function refreshTtsTab", "async function refreshTtsTab"),
 )
 
+OPEN_SETTINGS_GLOBAL_DEPENDENCY_TOKENS = (
+    ("function loadSettingsFromDb", "async function loadSettingsFromDb"),
+    ("function loadOrchestrationSettings", "async function loadOrchestrationSettings"),
+    ("function loadGhRepoConfig", "async function loadGhRepoConfig"),
+    ("function refreshEnsembleVramStatus", "async function refreshEnsembleVramStatus"),
+    ("ensembleVramTimer",),
+    ("function _ttsInitSettingsUI", "async function _ttsInitSettingsUI"),
+    ("function _echoInitSettingsUI", "async function _echoInitSettingsUI"),
+    ("function applyUiFontSettings", "async function applyUiFontSettings"),
+)
+
 
 def test_app_js_is_served_with_expected_bootstrap_token():
     client = TestClient(main.app)
@@ -186,6 +197,13 @@ def test_ui_contract_keeps_switch_tab_global_dependencies_visible_after_js_split
     contract_text = load_ui_contract_text()
 
     for alternatives in SWITCH_TAB_GLOBAL_DEPENDENCY_TOKENS:
+        assert any(token in contract_text for token in alternatives), alternatives
+
+
+def test_ui_contract_keeps_open_settings_global_dependencies_visible_after_js_split():
+    contract_text = load_ui_contract_text()
+
+    for alternatives in OPEN_SETTINGS_GLOBAL_DEPENDENCY_TOKENS:
         assert any(token in contract_text for token in alternatives), alternatives
 
 
