@@ -19,6 +19,11 @@ need provider/service design before they can move.
 - `GET /system/env` has moved to `app/api/system.py` and is now served by
   both `create_app()` and `main.app` through `include_routers(app)` without a
   provider hook.
+- `GET /system/usage` remains in `main.py`. The current state is
+  service/provider design only: `app/api/system.py` defines usage provider type
+  aliases, and `docs/refactor_usage_service_plan.md` records the settings,
+  diagnostics, and GPU auto-detection side effects that must be isolated before
+  moving the endpoint.
 
 ## Endpoint inventory
 
@@ -26,8 +31,8 @@ need provider/service design before they can move.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `GET /system/readiness` | router handler in `app/api/system.py`; `main.py` provider is `system_readiness_payload()` | Low-cost readiness shape and optional model DB / LLM autoload probes | `model_db_exists()`, `model_db_status_summary()`, `_should_startup_autoload_llm()`, `_model_health_ok()`, `_model_manager.llm_port` via provider | No writes expected; performs probes | Yes | Already providerized | Baseline split endpoint. |
 | `GET /system/env` | router handler in `app/api/system.py` | Runtime environment profile: Runpod, OS, GPU, Style-Bert-VITS2 device env var | `os.environ`, `detect_runpod()`, `detect_os_profile()`, `detect_gpu_profile()` inside `app/api/system.py` | No writes expected; catches detector failures and returns fallback body | Yes | No provider required | Moved to `app/api/system.py`; `main.app` receives it through `include_routers(app)` with no duplicate inline route in `main.py`. |
-| `GET /system/usage` | `system_usage_api()` | CPU/RAM/GPU usage snapshot | `get_system_usage_info()`, which uses `psutil` when available, OS fallback probes, `_select_working_gpu_backend()`, `_probe_gpu_static()`, `settings_get()`, `settings_set()`, and `_set_last_usage_diag()` | Writes runtime diagnostics to `_last_usage_diag`; may persist `gpu_usage_backend` selection to settings when auto-detecting a backend | No | Yes, unless usage collection is first extracted into a service module with explicit settings/diag dependencies | Useful endpoint, but not the safest next move because the implementation currently couples status collection to settings persistence and diagnostic globals. |
-| `GET /system/usage/debug` | `system_usage_debug_api()` | Debug view for the last usage probe plus a fresh final usage snapshot | `get_system_usage_info()`, `_get_last_usage_diag()` | Same side effects as `/system/usage` because it calls `get_system_usage_info()`; also reads `_last_usage_diag` | No | Yes, or move together with a usage provider/service | Should move after `/system/usage`, not before it. |
+| `GET /system/usage` | `system_usage_api()` | CPU/RAM/GPU usage snapshot | `get_system_usage_info()`, which uses `psutil` when available, OS fallback probes, `_select_working_gpu_backend()`, `_probe_gpu_static()`, `settings_get()`, `settings_set()`, and `_set_last_usage_diag()` | Writes runtime diagnostics to `_last_usage_diag`; may persist `gpu_usage_backend` selection to settings when auto-detecting a backend | No | Yes; service/provider design in progress | Endpoint remains in `main.py`. Provider type aliases now exist in `app/api/system.py`, and the next implementation PR should add a usage service/provider skeleton before router migration. |
+| `GET /system/usage/debug` | `system_usage_debug_api()` | Debug view for the last usage probe plus a fresh final usage snapshot | `get_system_usage_info()`, `_get_last_usage_diag()` | Same side effects as `/system/usage` because it calls `get_system_usage_info()`; also reads `_last_usage_diag` | No | Yes; design together with usage provider | Keep in `main.py` until the usage provider skeleton preserves the current sequence of collecting fresh usage before reading diagnostics. |
 | `GET /system/summary` | `system_summary()` | Combined health, model status, and usage summary | `_model_manager.status_dict()`, `get_system_usage_info()`, `_get_lightweight_health_status()` | Same usage side effects as `/system/usage`; network probe to localhost LLM health; optional Docker CLI probe | No | Yes | Higher coupling: model manager state, usage collection, requests, Docker availability, and sandbox container constants. |
 | `GET /settings` | `get_settings_api()` | Full settings state; adjacent to system/runtime state because it exposes GPU/model/runtime configuration | `settings_get_all()`, `SETTINGS_DEFAULTS`, model DB lock/connection helpers | Read-only for GET | No | Yes, if moved into a router without moving settings storage | Keep out of `app/api/system.py` for now; better suited to a future settings router. |
 | `GET /settings/{key}` | `get_setting_api()` | Single setting lookup | `settings_get()` and related canonicalization/default helpers | Read-only for GET | No | Yes, if moved into a settings router | Route order currently places this before `/settings/defaults`, so `/settings/defaults` is handled as key `defaults`. Do not change route order in this inventory PR because it would alter behavior. |
@@ -48,15 +53,17 @@ concerns that are out of scope for this phase:
 
 ## Recommendation
 
-`GET /system/env` has now moved to `app/api/system.py`. The next candidate is
-not `/system/usage` yet; first design and extract a usage provider/service
-boundary with explicit settings persistence and diagnostics dependencies.
+`GET /system/env` has now moved to `app/api/system.py`. `/system/usage` is in
+service/provider design and remains in `main.py` for this PR. The next
+implementation PR should add the provider/service skeleton with explicit
+settings persistence and diagnostics dependencies before any route migration.
 
 Defer these endpoints:
 
-- Defer `/system/usage` and `/system/usage/debug` until usage collection is
-  extracted behind a provider/service boundary, because backend auto-selection
-  can write settings and debug state.
+- Defer `/system/usage` and `/system/usage/debug` until the usage
+  service/provider skeleton exists, because backend auto-selection can write
+  settings and debug state. Design both providers together, then move usage
+  first and debug only after the diagnostics sequence is covered by tests.
 - Defer `/system/summary`; it is still higher-coupling work and should remain
   deferred until model-manager, usage, and lightweight-health probes can be
   injected or separately modularized.

@@ -21,6 +21,8 @@ SYSTEM_READINESS_DEFAULT_PAYLOAD: dict[str, Any] = {
 }
 
 ReadinessProvider = Callable[[], dict[str, Any]]
+UsageProvider = Callable[[], dict[str, Any]]
+UsageDebugProvider = Callable[[], dict[str, Any]]
 
 
 def default_system_readiness_payload() -> dict[str, Any]:
