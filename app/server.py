@@ -3,9 +3,10 @@
 This module is a deliberately small step toward moving application construction
 out of ``main.py``.  The current production entrypoint remains ``main:app``;
 ``/static`` mounting has moved here alongside the optional ``/ui`` and
-``/assets`` static mounts.  Only the low-dependency health router has moved so
-far; other route registration, lifespan handling, and middleware still live in
-``main.py`` until later, focused refactors can move one concern at a time.
+``/assets`` static mounts.  Only low-dependency health/system routers have
+moved so far; other route registration, lifespan handling, and middleware
+still live in ``main.py`` until later, focused refactors can move one concern
+at a time.
 """
 
 from collections.abc import AsyncIterator, Callable
@@ -16,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api.health import router as health_router
+from app.api.system import router as system_router
 
 Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None] | AsyncIterator[None]]
 
@@ -79,6 +81,7 @@ def include_routers(app: FastAPI) -> None:
     included here.
     """
     app.include_router(health_router)
+    app.include_router(system_router)
 
 
 def configure_middleware(app: FastAPI) -> None:

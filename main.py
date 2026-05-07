@@ -18271,8 +18271,7 @@ def debug_tests_run_view(run_id: str):
     summary = summary_path.read_text(encoding="utf-8") if summary_path.exists() else "(summary pending)"
     return f"""<html><body><h1>Run {html.escape(run_id)}</h1><p>status: <b>{html.escape(str(result.get('status','')))}</b></p><p>started_at: {html.escape(str(result.get('started_at','')))}</p><p>finished_at: {html.escape(str(result.get('finished_at','')))}</p><p>duration: {html.escape(str(result.get('duration_sec','')))}</p><p>current_test: {html.escape(str(result.get('current_test','')))}</p><p>total:{html.escape(str(result.get('total',0)))} pass:{html.escape(str(result.get('passed',0)))} fail:{html.escape(str(result.get('failed',0)))} skip:{html.escape(str(result.get('skipped',0)))} timeout:{html.escape(str(result.get('timeout',0)))}</p><table border='1'><tr><th>id</th><th>title</th><th>status</th><th>exit_code</th><th>duration</th><th>error summary</th><th>artifact/log paths</th><th>stdout tail</th><th>stderr tail</th></tr>{''.join(rows)}</table><h2>summary.md</h2><pre>{html.escape(summary)}</pre></body></html>"""
 
-@app.get("/system/readiness")
-def system_readiness():
+def system_readiness_payload():
     payload = {
         "fastapi": "ready",
         "model_db_exists": False,
@@ -18303,6 +18302,9 @@ def system_readiness():
     except Exception:
         payload["llm_running"] = False
     return payload
+
+
+app.state.system_readiness_provider = system_readiness_payload
 
 # =========================
 # 静的ファイル配信
