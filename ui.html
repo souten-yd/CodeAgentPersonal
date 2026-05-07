@@ -1423,7 +1423,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
                 <div><b>Safety Mode</b><div>strict</div></div>
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;max-width:100%">
-                <button class="phase1-plan-btn" type="button">Create Autopilot Preview</button>
+                <button class="phase1-plan-btn" type="button" onclick="createAutopilotPreview()">Create Autopilot Preview</button>
               </div>
             </div>
             <div style="margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)">
@@ -1432,7 +1432,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <div style="margin-top:8px;font-size:12px;font-weight:700">Selected Architecture</div>
               <div id="atlas-autopilot-selected-architecture" style="margin-top:6px;font-size:11px;color:var(--text2)">No architecture selected yet.</div>
               <div style="margin-top:8px;font-size:12px;font-weight:700">Task Breakdown</div>
-              <div id="atlas-autopilot-task-breakdown" style="margin-top:6px;font-size:11px;color:var(--text2)">No tasks yet.<div style="margin-top:6px"><button type="button" class="phase1-tab-btn">Generate Plan</button> <span style="margin-left:6px">Plan only — no files will be changed.</span></div><div style="margin-top:6px">Plan: -</div><div style="margin-top:6px"><button type="button" class="phase1-tab-btn">Prepare Execution Preview</button> <span style="margin-left:6px">Requires approved Atlas Plan. Preview only — no files will be changed.</span></div><div style="margin-top:6px">Approval required before execution preview.<br>Open the Plan tab and approve the plan first.</div><div style="margin-top:6px">Execution Preview: execprev_xxx<br>Status: ready<br>No files were changed.</div><div style="margin-top:6px"><button type="button" class="phase1-tab-btn">Open Plan</button></div></div>
+              <div id="atlas-autopilot-task-breakdown" style="margin-top:6px;font-size:11px;color:var(--text2)">No tasks yet.</div>
               <div style="margin-top:8px;font-size:12px;font-weight:700">Execution Order</div>
               <div id="atlas-autopilot-execution-order" style="margin-top:6px;font-size:11px;color:var(--text2)">No execution order yet.</div>
               <div style="margin-top:8px;font-size:12px;font-weight:700">Safety Notes</div>
@@ -14059,6 +14059,85 @@ function focusAtlasWorkflowSection(kind) {
   return true;
 }
 
+
+let currentAutopilotId = '';
+let currentAutopilotPlan = null;
+let currentAutopilotTasks = [];
+
+function autopilotTaskStatusHtml(task) {
+  const plan = task.planResult || {};
+  const preview = task.previewResult || {};
+  return `<div style="margin-top:6px;padding:8px;border:1px solid var(--border);border-radius:8px" class="autopilot-task-card" data-autopilot-id="${esc(currentAutopilotId)}" data-task-id="${esc(task.task_id || '')}">
+    <div style="font-weight:700">${esc(task.title || task.task_id || 'Task')}</div>
+    <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px">
+      <button type="button" class="phase1-tab-btn" onclick="generateAutopilotTaskPlan(this)">Generate Plan</button>
+      <button type="button" class="phase1-tab-btn" onclick="prepareAutopilotExecutionPreview(this)">Prepare Execution Preview</button>
+    </div>
+    <div style="margin-top:6px;line-height:1.6;overflow-wrap:anywhere" data-role="task-status">${esc(task.statusMessage || 'Ready.')}</div>
+    <div style="margin-top:4px;color:var(--text3)">plan status: ${esc(plan.status || '-')} / preview status: ${esc(preview.status || '-')}</div>
+  </div>`;
+}
+
+function renderAutopilotTaskBreakdown() {
+  const host = document.getElementById('atlas-autopilot-task-breakdown');
+  if (!host) return;
+  if (!currentAutopilotTasks.length) { host.textContent = 'No tasks yet.'; return; }
+  host.innerHTML = currentAutopilotTasks.map(autopilotTaskStatusHtml).join('');
+}
+
+async function createAutopilotPreview() {
+  const goal = (document.getElementById('atlas-autopilot-goal-input')?.value || '').trim();
+  const previewEl = document.getElementById('atlas-autopilot-plan-preview');
+  if (previewEl) previewEl.textContent = 'Creating preview...';
+  try {
+    const r = await fetch('/api/atlas/autopilot/preview', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_goal: goal || 'Autopilot goal'})});
+    const data = await r.json();
+    currentAutopilotId = String(data.autopilot_id || '');
+    currentAutopilotPlan = data;
+    currentAutopilotTasks = Array.isArray(data.tasks) ? data.tasks.map(t => ({...t, statusMessage:'Ready.'})) : [];
+    if (previewEl) previewEl.textContent = `status: ${data.status || '-'} / autopilot_id: ${currentAutopilotId || '-'}`;
+  } catch (e) { if (previewEl) previewEl.textContent = `Preview error: ${e?.message || e}`; }
+  renderAutopilotTaskBreakdown();
+}
+
+function _findTaskFromButton(btn){
+  const card = btn?.closest('.autopilot-task-card');
+  const autopilotId = card?.dataset?.autopilotId || currentAutopilotId;
+  const taskId = card?.dataset?.taskId || '';
+  const task = currentAutopilotTasks.find(t => String(t.task_id||'')===String(taskId));
+  return {card, autopilotId, taskId, task};
+}
+
+async function generateAutopilotTaskPlan(btn){
+  const {card, autopilotId, taskId, task} = _findTaskFromButton(btn);
+  const statusEl = card?.querySelector('[data-role="task-status"]');
+  if (statusEl) statusEl.textContent = 'Generating plan...';
+  try {
+    const r = await fetch(`/api/atlas/autopilot/${encodeURIComponent(autopilotId)}/tasks/${encodeURIComponent(taskId)}/plan`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error || data?.message || `HTTP ${r.status}`);
+    const message = data.message || '';
+    if (statusEl) statusEl.innerHTML = `status: ${esc(data.status || '-')}<br>requirement_id: ${esc(data.requirement_id || '-')}<br>plan_id: ${esc(data.plan_id || '-')}<br>review_status: ${esc(data.review_status || '-')}<br>message: ${esc(message || '-')}`;
+    if (task) { task.planResult = data; task.statusMessage = `plan:${data.status || '-'}`; }
+  } catch (e) { if (statusEl) statusEl.textContent = `Plan generation failed: ${e?.message || e}`; }
+}
+
+async function prepareAutopilotExecutionPreview(btn){
+  const {card, autopilotId, taskId, task} = _findTaskFromButton(btn);
+  const statusEl = card?.querySelector('[data-role="task-status"]');
+  if (statusEl) statusEl.textContent = 'Preparing execution preview...';
+  try {
+    const r = await fetch(`/api/atlas/autopilot/${encodeURIComponent(autopilotId)}/tasks/${encodeURIComponent(taskId)}/execution-preview`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
+    const data = await r.json();
+    const st = String(data.status || '');
+    if (st === 'plan_required') { statusEl.innerHTML = 'Plan generation is required before execution preview.'; }
+    else if (st === 'approval_required') { statusEl.innerHTML = 'Approval required before execution preview. Open the Plan tab and approve the plan first.'; }
+    else if (st === 'execution_preview_ready') { statusEl.innerHTML = `status: ${esc(st)}<br>execution_preview_id: ${esc(data.execution_preview_id || '-')}<br>summary: ${esc((data.summary||''))}<br>planned_steps: ${esc(JSON.stringify(data.planned_steps || []))}<br>target_files: ${esc(JSON.stringify(data.target_files || []))}<br>safety_constraints: ${esc(JSON.stringify(data.safety_constraints || []))}`; }
+    else if (st === 'blocked') { statusEl.innerHTML = `status: blocked<br>risk/warnings: ${esc(JSON.stringify(data.risk || data.warnings || []))}`; }
+    else { statusEl.innerHTML = `status: ${esc(st || '-')}<br>message: ${esc(data.message || '-')}`; }
+    if (task) { task.previewResult = data; task.statusMessage = `preview:${st || '-'}`; }
+  } catch (e) { if (statusEl) statusEl.textContent = `Execution preview failed: ${e?.message || e}`; }
+}
 function renderAtlasPlanNextActionButtons(flow) {
   const buttonsEl = document.getElementById('atlas-workbench-card-plan-next-action-buttons');
   if (!buttonsEl) return;
