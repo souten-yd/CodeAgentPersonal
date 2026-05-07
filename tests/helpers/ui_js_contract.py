@@ -32,6 +32,18 @@ MOVED_ECHO_DISPLAY_HELPER_WINDOW_EXPORTS = (
     "window._echoVaultSetInfo = _echoVaultSetInfo",
 )
 
+ECHO_DISPLAY_HELPER_GLOBAL_DEPENDENCY_TOKENS = (
+    ("echo",),
+    ("asrRuntimeConfig",),
+    ("function esc", "const esc", "window.esc"),
+    (
+        "function _echoVaultGenerateMinutes",
+        "async function _echoVaultGenerateMinutes",
+    ),
+    ("function _syncEchoMinutesButtonUi", "window._syncEchoMinutesButtonUi"),
+    ("function _echoVaultSetInfo", "window._echoVaultSetInfo"),
+)
+
 MOVED_NEXUS_DISPLAY_HELPER_FUNCTION_DEFINITIONS = (
     "function updateNexusJobBanner",
     "function renderNexusDocumentDetail",
