@@ -5,6 +5,7 @@ from tests.helpers.ui_contract import load_root_ui_html_text, load_ui_contract_t
 
 
 APP_JS_PATH = "/static/js/app.js"
+SKILLS_MEMORY_JS_PATH = "/static/js/skills_memory.js"
 PANELS_JS_PATH = "/static/js/panels.js"
 BOOTSTRAP_TOKEN = "KASANE_UI_BOOTSTRAP_LOADED"
 MOVED_SKILLS_AND_MEMORY_FUNCTION_DEFINITIONS = (
@@ -21,6 +22,31 @@ MOVED_SKILLS_AND_MEMORY_FUNCTION_DEFINITIONS = (
     "function hideAddMemoryForm",
     "async function saveNewMemory",
     "async function editMemoryInline",
+)
+MOVED_SKILLS_AND_MEMORY_STATE_TOKENS = (
+    "var _taskOptionsMap",
+    "var _memSearchTimer",
+    "var _catColor",
+    "var _catLabel",
+)
+MOVED_SKILLS_AND_MEMORY_WINDOW_EXPORTS = (
+    "window.showTaskOptions = showTaskOptions",
+    "window.chooseTaskOption = chooseTaskOption",
+    "window._taskOptionsMap = _taskOptionsMap",
+    "window.refreshSkills = refreshSkills",
+    "window.renderSkills = renderSkills",
+    "window.deleteSkill = deleteSkill",
+    "window.refreshMemory = refreshMemory",
+    "window.searchMemory = searchMemory",
+    "window.renderMemory = renderMemory",
+    "window.deleteMemory = deleteMemory",
+    "window.showAddMemoryForm = showAddMemoryForm",
+    "window.hideAddMemoryForm = hideAddMemoryForm",
+    "window.saveNewMemory = saveNewMemory",
+    "window.editMemoryInline = editMemoryInline",
+    "window._memSearchTimer = _memSearchTimer",
+    "window._catColor = _catColor",
+    "window._catLabel = _catLabel",
 )
 MOVED_SETTINGS_MODAL_FUNCTION_DEFINITIONS = (
     "function openSettings",
@@ -62,14 +88,17 @@ def test_app_js_is_served_with_expected_bootstrap_token():
     assert BOOTSTRAP_TOKEN in response.text
 
 
-def test_ui_html_loads_external_app_and_panels_js_in_order():
+def test_ui_html_loads_external_app_skills_memory_and_panels_js_in_order():
     ui_html = load_root_ui_html_text()
 
     app_script = f'<script src="{APP_JS_PATH}"></script>'
+    skills_memory_script = f'<script src="{SKILLS_MEMORY_JS_PATH}"></script>'
     panels_script = f'<script src="{PANELS_JS_PATH}"></script>'
     assert app_script in ui_html
+    assert skills_memory_script in ui_html
     assert panels_script in ui_html
-    assert ui_html.index(app_script) < ui_html.index(panels_script)
+    assert ui_html.index(app_script) < ui_html.index(skills_memory_script)
+    assert ui_html.index(skills_memory_script) < ui_html.index(panels_script)
 
 
 def test_ui_html_does_not_redefine_moved_skills_memory_and_settings_functions():
@@ -83,7 +112,7 @@ def test_ui_html_does_not_redefine_moved_skills_memory_and_settings_functions():
         assert function_definition not in ui_html
 
 
-def test_app_js_serves_bootstrap_skills_memory_and_settings_open_close_tokens():
+def test_app_js_keeps_bootstrap_and_settings_open_close_without_skills_memory_tokens():
     client = TestClient(main.app)
 
     response = client.get(APP_JS_PATH)
@@ -91,17 +120,39 @@ def test_app_js_serves_bootstrap_skills_memory_and_settings_open_close_tokens():
     assert response.status_code == 200
     tokens = [
         BOOTSTRAP_TOKEN,
-        *MOVED_SKILLS_AND_MEMORY_FUNCTION_DEFINITIONS,
         *MOVED_SETTINGS_MODAL_FUNCTION_DEFINITIONS,
         *MOVED_SETTINGS_MODAL_WINDOW_EXPORTS,
-        "window.refreshSkills",
-        "window.renderMemory",
-        "window.showTaskOptions",
     ]
     for token in tokens:
         assert token in response.text
 
     for token in (
+        *MOVED_SKILLS_AND_MEMORY_FUNCTION_DEFINITIONS,
+        *MOVED_SKILLS_AND_MEMORY_STATE_TOKENS,
+        *MOVED_SKILLS_AND_MEMORY_WINDOW_EXPORTS,
+        *MOVED_SETTINGS_TAB_FUNCTION_DEFINITIONS,
+        *MOVED_SETTINGS_TAB_WINDOW_EXPORTS,
+    ):
+        assert token not in response.text
+
+
+def test_skills_memory_js_serves_skills_memory_tokens_and_window_exports():
+    client = TestClient(main.app)
+
+    response = client.get(SKILLS_MEMORY_JS_PATH)
+
+    assert response.status_code == 200
+    for token in (
+        *MOVED_SKILLS_AND_MEMORY_FUNCTION_DEFINITIONS,
+        *MOVED_SKILLS_AND_MEMORY_STATE_TOKENS,
+        *MOVED_SKILLS_AND_MEMORY_WINDOW_EXPORTS,
+    ):
+        assert token in response.text
+
+    for token in (
+        BOOTSTRAP_TOKEN,
+        *MOVED_SETTINGS_MODAL_FUNCTION_DEFINITIONS,
+        *MOVED_SETTINGS_MODAL_WINDOW_EXPORTS,
         *MOVED_SETTINGS_TAB_FUNCTION_DEFINITIONS,
         *MOVED_SETTINGS_TAB_WINDOW_EXPORTS,
     ):
