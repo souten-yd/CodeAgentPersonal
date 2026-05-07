@@ -2,9 +2,10 @@
 
 This module is a deliberately small step toward moving application construction
 out of ``main.py``.  The current production entrypoint remains ``main:app``;
-static asset mounts are centralized in this module, while route registration,
-lifespan handling, and middleware still live in ``main.py`` until later, focused
-refactors can move one concern at a time.
+``/static`` mounting has moved here alongside the optional ``/ui`` and
+``/assets`` static mounts, while route registration, lifespan handling, and
+middleware still live in ``main.py`` until later, focused refactors can move one
+concern at a time.
 """
 
 from collections.abc import AsyncIterator, Callable
