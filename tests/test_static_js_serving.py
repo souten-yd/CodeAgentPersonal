@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 import main
-from tests.helpers.ui_contract import load_root_ui_html_text
+from tests.helpers.ui_contract import load_root_ui_html_text, load_ui_contract_text
 
 
 JS_PATH = "/static/js/app.js"
@@ -34,6 +34,19 @@ MOVED_SETTINGS_TAB_FUNCTION_DEFINITIONS = (
 )
 MOVED_SETTINGS_TAB_WINDOW_EXPORTS = (
     "window.switchTab = switchTab",
+)
+
+SWITCH_TAB_GLOBAL_DEPENDENCY_TOKENS = (
+    ("function _setPanelTabActiveButton",),
+    ("function refreshFileBrowser", "async function refreshFileBrowser"),
+    ("function refreshProjectFileManager", "async function refreshProjectFileManager"),
+    ("function refreshSkills", "async function refreshSkills"),
+    ("function refreshMemory", "async function refreshMemory"),
+    ("function refreshModelDb", "async function refreshModelDb"),
+    ("function refreshModelRoles", "async function refreshModelRoles"),
+    ("function refreshEchoVault", "async function refreshEchoVault"),
+    ("function refreshAsrTab", "async function refreshAsrTab"),
+    ("function refreshTtsTab", "async function refreshTtsTab"),
 )
 
 
@@ -83,3 +96,21 @@ def test_app_js_serves_moved_skills_memory_and_settings_tokens():
     ]
     for token in tokens:
         assert token in response.text
+
+
+def test_ui_contract_keeps_switch_tab_global_dependencies_visible_after_js_split():
+    contract_text = load_ui_contract_text()
+
+    for alternatives in SWITCH_TAB_GLOBAL_DEPENDENCY_TOKENS:
+        assert any(token in contract_text for token in alternatives), alternatives
+
+
+def test_app_js_keeps_switch_tab_definition_and_window_export():
+    client = TestClient(main.app)
+
+    response = client.get(JS_PATH)
+
+    assert response.status_code == 200
+    assert "function switchTab" in response.text
+    assert "window.switchTab = switchTab" in response.text
+
