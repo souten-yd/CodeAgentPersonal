@@ -82,6 +82,7 @@ os.makedirs(_STYLE_BERT_VITS2_MODELS_DIR, exist_ok=True)
 from app.nexus.router import router as nexus_router
 from app.nexus.web_scout import plan_web_queries, run_web_search
 from app.nexus.web_service import execute_nexus_web_search
+from app.server import configure_static_assets
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -18328,8 +18329,7 @@ app.mount("/workspace", StaticFiles(directory=WORK_DIR, html=True), name="worksp
 app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
 if os.path.isdir(ASSETS_DIR):
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR, html=False), name="assets")
-if os.path.isdir(WEB_DIR):
-    app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+configure_static_assets(app, web_dir=WEB_DIR)
 
 def _apply_tts_language_routing(req: dict, *, model_version: str | None) -> dict:
     route = resolve_tts_language_route(req, model_version)
