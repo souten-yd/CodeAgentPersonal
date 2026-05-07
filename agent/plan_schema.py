@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
@@ -53,3 +53,4 @@ class Plan(BaseModel):
     destructive_change_detected: bool = False
     requires_user_confirmation: bool = False
     status: str = "planned"
+    deep_planning: dict[str, Any] | None = None

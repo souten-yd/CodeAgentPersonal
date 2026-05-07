@@ -721,3 +721,12 @@
 - All file modification must go through Atlas Plan → Review → Approval → Executor → Patch Review → Verification.
 - Top-level Agent remains temporarily for backward compatibility / Advanced access only.
 - Future target navigation remains Chat / Atlas / Echo / Nexus.
+
+
+## Phase 26 note (Top-level Agent nav removal / Atlas-internal runtime migration)
+- Top-level Agent button has been removed from the primary navigation.
+- Agent is no longer a primary top-level user-facing mode.
+- Agent remains available as Atlas Advanced / internal orchestrator access.
+- Atlas Autopilot is the recommended path for autonomous coding workflows.
+- Final target navigation is Chat / Atlas / Echo / Nexus.
+- Backward-compatible Agent runtime functions and APIs are preserved during migration.

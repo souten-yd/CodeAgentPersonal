@@ -223,6 +223,7 @@ class PlanStorage:
             ])
 
         review_section = self._plan_review_markdown_section(review_result)
+        deep_planning_section = self._deep_planning_markdown_section(plan)
         return "\n".join([
             f"# Plan: {plan.plan_id}",
             "",
@@ -249,6 +250,8 @@ class PlanStorage:
             "",
             "## 実装ステップ",
             *step_lines,
+            *deep_planning_section,
+            "",
             "## 対象ファイル",
             *[f"- {x}" for x in plan.target_files],
             "",
@@ -350,3 +353,39 @@ class PlanStorage:
                     f"  - recommendation: {finding.recommendation}",
                 ])
         return "\n".join(lines)
+
+
+    def _deep_planning_markdown_section(self, plan: Plan) -> list[str]:
+        deep = plan.deep_planning if isinstance(plan.deep_planning, dict) else None
+        if not deep:
+            return []
+        options = deep.get("architecture_options") if isinstance(deep.get("architecture_options"), list) else []
+        selected_id = str(deep.get("selected_option_id", "")).strip()
+        selected = next((o for o in options if isinstance(o, dict) and str(o.get("option_id", "")).strip() == selected_id), None)
+        lines = ["## Deep Planning", "### Architecture Options"]
+        for o in options:
+            if not isinstance(o, dict):
+                continue
+            oid = str(o.get("option_id", ""))
+            title = str(o.get("title", ""))
+            summary = str(o.get("summary", ""))
+            lines.append(f"- [{oid}] {title}: {summary}")
+        lines.append("")
+        lines.append("### Selected Option")
+        lines.append(f"- {selected_id}: {selected.get('title', '') if isinstance(selected, dict) else ''}")
+        lines.append("")
+        lines.append("### Rejected Options")
+        for o in options:
+            if not isinstance(o, dict) or str(o.get("option_id", "")).strip() == selected_id:
+                continue
+            lines.append(f"- [{o.get('option_id','')}] {o.get('title','')}: {o.get('why_rejected','')}")
+        reflection = deep.get("reflection") if isinstance(deep.get("reflection"), dict) else {}
+        lines.append("")
+        lines.append("### Safety Notes")
+        for note in (reflection.get("safety_notes") or []):
+            lines.append(f"- {note}")
+        lines.append("")
+        lines.append("### Verification Strategy")
+        for item in (deep.get("verification_strategy") or []):
+            lines.append(f"- {item}")
+        return lines
