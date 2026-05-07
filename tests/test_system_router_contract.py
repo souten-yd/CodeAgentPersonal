@@ -1,6 +1,10 @@
 from fastapi.testclient import TestClient
 
-from app.api.system import SYSTEM_READINESS_DEFAULT_PAYLOAD
+from app.api.system import (
+    SYSTEM_READINESS_DEFAULT_PAYLOAD,
+    default_system_usage_debug_unavailable_payload,
+    default_system_usage_unavailable_payload,
+)
 from app.server import create_app
 import main
 
@@ -14,6 +18,31 @@ def assert_system_env_response_contract(body):
     assert isinstance(body["os"], dict)
     assert isinstance(body["gpu"], dict)
     assert isinstance(body["style_bert_vits2_device"], str)
+
+
+def test_default_system_usage_unavailable_payload_has_representative_contract_keys():
+    payload = default_system_usage_unavailable_payload()
+
+    assert isinstance(payload["cpu_percent"], (int, float))
+    assert isinstance(payload["ram_total_mb"], int)
+    assert isinstance(payload["ram_used_mb"], int)
+    assert payload["gpu_backend"] == "unavailable"
+    assert payload["gpu_backend_selected"] == "unavailable"
+    assert payload["gpus"] == []
+    assert payload["updated_at"] == ""
+
+
+def test_default_system_usage_debug_unavailable_payload_has_representative_contract_keys():
+    payload = default_system_usage_debug_unavailable_payload()
+
+    assert payload["gpu_backend_selected"] == "unavailable"
+    assert payload["gpu_backend"] == "unavailable"
+    assert payload["raw_parse_summary"] == []
+    assert payload["parse_source"] == "unavailable"
+    assert payload["nvidia_smi_failure_reason"] == ""
+    assert payload["adopted_values"] == {}
+    assert isinstance(payload["final_usage"], dict)
+    assert payload["final_usage"]["gpus"] == []
 
 
 def test_create_app_system_readiness_response_contract():
