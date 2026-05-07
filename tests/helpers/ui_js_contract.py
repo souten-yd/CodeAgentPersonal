@@ -23,6 +23,20 @@ MOVED_NEXUS_DISPLAY_HELPER_WINDOW_EXPORTS = (
     "window.setNexusDropzoneActive = setNexusDropzoneActive",
 )
 
+NEXUS_DISPLAY_HELPER_GLOBAL_DEPENDENCY_TOKENS = (
+    ("function esc", "const esc", "window.esc"),
+    ("function formatBytes", "const formatBytes", "window.formatBytes"),
+    ("nexusEventTimeline",),
+    ("nexusSelectedDocumentId",),
+    ("function selectNexusDocument", "async function selectNexusDocument"),
+    ("function downloadNexusDocument", "async function downloadNexusDocument"),
+    (
+        "function downloadNexusExtractedText",
+        "async function downloadNexusExtractedText",
+    ),
+    ("function deleteNexusDocument", "async function deleteNexusDocument"),
+)
+
 MOVED_SKILLS_AND_MEMORY_FUNCTION_DEFINITIONS = (
     "function showTaskOptions",
     "async function chooseTaskOption",
