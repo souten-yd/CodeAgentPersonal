@@ -711,3 +711,13 @@
 - Chat non-mirroring is contract-locked.
 - Agent move remains Phase 31.1.
 - Destructive actions remain gated and not automated.
+
+
+## PR1 Atlas Autopilot foundation
+- Atlas is the primary code generation, planning, execution preview, patch review, verification, and run audit workbench.
+- Autopilot is an Atlas sub-mode for multi-step, large-scope, or project-generation workflows.
+- Agent runtime becomes an internal orchestrator used by Atlas Autopilot.
+- Agent must not directly edit files outside the Atlas Core execution path.
+- All file modification must go through Atlas Plan → Review → Approval → Executor → Patch Review → Verification.
+- Top-level Agent remains temporarily for backward compatibility / Advanced access only.
+- Future target navigation remains Chat / Atlas / Echo / Nexus.

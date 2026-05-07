@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, UploadFile
 from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import requests
 import subprocess
 import shutil
@@ -49,6 +49,8 @@ from agent.implementation_executor import ImplementationExecutor
 from agent.implementation_schema import ImplementationRunRequest
 from agent.run_storage import RunStorage
 from agent.task_planning_runner import TaskPlanningRunner
+from agent.atlas_autopilot import AtlasAutopilot
+from agent.atlas_autopilot_schema import AtlasAutopilotRequest
 from app.tts.engine_registry import EngineRegistry, TTSEngineRuntime
 from app.tts.style_bert_vits2_runtime import StyleBertVITS2Runtime, _read_model_version
 from app.tts.language_router import resolve_tts_language_route
@@ -9194,6 +9196,19 @@ class TaskPlanRequest(BaseModel):
     use_nexus: bool = True
 
 
+class AtlasAutopilotPreviewRequest(BaseModel):
+    user_goal: str
+    project_path: str = ""
+    project_name: str = ""
+    requirement_mode: str = "ask_when_needed"
+    planning_mode: str = "standard"
+    execution_mode: str = "preview_only"
+    use_nexus: bool = True
+    safety_mode: str = "strict"
+    autopilot_id: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
 class RequirementAnswerItem(BaseModel):
     question_id: str
     answer: str | list[str] | bool | None = None
@@ -10706,6 +10721,8 @@ _phase6_run_storage = RunStorage(CA_DATA_DIR)
 _phase6_executor = ImplementationExecutor(_phase1_planning_runner.storage, _phase6_run_storage, llm_patch_fn=call_patch_llm)
 
 
+_atlas_autopilot = AtlasAutopilot(ca_data_dir=CA_DATA_DIR, planning_runner=_phase1_planning_runner)
+
 def _resolve_project_path_for_phase_planning(project_path: str, project_name: str) -> tuple[str, list[str]]:
     warnings: list[str] = []
     resolved_project_path = ""
@@ -10825,6 +10842,32 @@ def api_task_plan(req: TaskPlanRequest):
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"plan generation failed: {exc}") from exc
+
+
+@app.post("/api/atlas/autopilot/preview")
+def api_atlas_autopilot_preview(req: AtlasAutopilotPreviewRequest):
+    user_goal = (req.user_goal or "").strip()
+    if not user_goal:
+        raise HTTPException(status_code=400, detail="user_goal is empty")
+    resolved_project_path, api_warnings = _resolve_project_path_for_phase_planning(req.project_path, req.project_name)
+    autopilot_id = (req.autopilot_id or "").strip() or f"auto_{uuid.uuid4().hex[:10]}"
+    request = AtlasAutopilotRequest(
+        autopilot_id=autopilot_id,
+        created_at=req.created_at,
+        user_goal=user_goal,
+        project_path=resolved_project_path,
+        project_name=(req.project_name or "").strip(),
+        requirement_mode=(req.requirement_mode or "ask_when_needed").strip(),
+        planning_mode=(req.planning_mode or "standard").strip().lower(),
+        execution_mode="preview_only",
+        use_nexus=bool(req.use_nexus),
+        safety_mode=(req.safety_mode or "strict").strip(),
+    )
+    preview = _atlas_autopilot.start_preview(request)
+    preview_warnings = preview.get("warnings") if isinstance(preview.get("warnings"), list) else []
+    preview["warnings"] = list(dict.fromkeys([*api_warnings, *[str(x) for x in preview_warnings if str(x).strip()]]))
+    preview["resolved_project_path"] = resolved_project_path
+    return preview
 
 
 @app.get("/api/plans/{plan_id}")
