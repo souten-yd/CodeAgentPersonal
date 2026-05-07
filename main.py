@@ -59,7 +59,6 @@ from app.tts.style_bert_vits2_manager import (
     ensure_model_exists,
     import_model_zip,
 )
-from app.env_detection import detect_gpu_profile, detect_os_profile, detect_runpod
 from app.asr.service import (
     transcribe_audio as asr_service_transcribe_audio,
     _normalize_asr_engine,
@@ -18079,27 +18078,6 @@ def _get_lightweight_health_status() -> dict:
     }
 
 
-
-@app.get("/system/env")
-def system_env():
-    """Runtime environment probe (must not raise HTTP 500)."""
-    style_bert_vits2_device = os.environ.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "")
-    try:
-        return {
-            "runpod": detect_runpod(),
-            "os": detect_os_profile(),
-            "gpu": detect_gpu_profile(),
-            "style_bert_vits2_device": style_bert_vits2_device,
-        }
-    except Exception as e:
-        return {
-            "error": "failed_to_detect_environment",
-            "detail": str(e),
-            "runpod": False,
-            "os": {},
-            "gpu": {},
-            "style_bert_vits2_device": style_bert_vits2_device,
-        }
 
 @app.get("/system/summary")
 def system_summary():

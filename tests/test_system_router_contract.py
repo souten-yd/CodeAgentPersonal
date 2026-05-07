@@ -5,6 +5,17 @@ from app.server import create_app
 import main
 
 
+def assert_system_env_response_contract(body):
+    assert "runpod" in body
+    assert "os" in body
+    assert "gpu" in body
+    assert "style_bert_vits2_device" in body
+    assert isinstance(body["runpod"], bool)
+    assert isinstance(body["os"], dict)
+    assert isinstance(body["gpu"], dict)
+    assert isinstance(body["style_bert_vits2_device"], str)
+
+
 def test_create_app_system_readiness_response_contract():
     client = TestClient(create_app())
 
@@ -29,3 +40,23 @@ def test_main_app_system_readiness_response_contract():
     assert isinstance(body["llm_autoload_eligible"], bool)
     assert isinstance(body["autoload_reason"], str)
     assert isinstance(body["llm_running"], bool)
+
+
+def test_create_app_system_env_response_contract():
+    client = TestClient(create_app())
+
+    response = client.get("/system/env")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert_system_env_response_contract(body)
+
+
+def test_main_app_system_env_response_contract():
+    client = TestClient(main.app)
+
+    response = client.get("/system/env")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert_system_env_response_contract(body)
