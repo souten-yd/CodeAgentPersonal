@@ -10,7 +10,7 @@ class TestPhase310AtlasStandaloneWorkbenchContract(unittest.TestCase):
         cls.smoke = Path('scripts/smoke_ui_modes_playwright.py').read_text(encoding='utf-8')
 
     def test_chat_decoupling_language_exists(self):
-        self.assertIn('Atlas is source of truth', self.ui)
+        self.assertIn('deriveAtlasRequirementSource', self.ui)
         self.assertNotIn('Open in Atlas', self.ui)
         self.assertNotIn('Use Chat Input', self.ui)
         self.assertNotIn('copyChatInputToAtlasRequirement', self.ui)
@@ -20,7 +20,7 @@ class TestPhase310AtlasStandaloneWorkbenchContract(unittest.TestCase):
             self.assertIn(token, self.ui)
 
     def test_dashboard_workbench_terms_exist(self):
-        for token in ['Workflow Workbench', 'Current Action', 'Requirement', 'Plan', 'Review', 'Approval', 'Agent Execution', 'Execute Preview', 'Patch Review']:
+        for token in ['Workflow Workbench', 'Requirement', 'Plan', 'Review / Risk', 'Approval', 'Execution Preview', 'Patch Review', 'History']:
             self.assertIn(token, self.ui)
 
     def test_plan_belongs_to_atlas(self):
