@@ -44,3 +44,53 @@ def test_system_usage_service_port_type_contracts():
         "settings": module.SettingsPort,
         "diagnostics": module.UsageDiagnosticsPort,
     }
+
+
+def test_system_usage_numeric_helpers_keep_existing_shapes():
+    module = importlib.import_module("app.services.system_usage")
+
+    assert module._parse_int_maybe("12,345") == 12345
+    assert module._parse_int_maybe(" 007 ") == 7
+    assert module._parse_int_maybe("12.3") == -1
+    assert module._parse_int_maybe("-5") == -1
+    assert module._parse_int_maybe(None) == -1
+
+    assert module._bytes_to_mb(2 * 1024 * 1024) == 2
+    assert module._bytes_to_mb(1536 * 1024) == 1
+    assert module._bytes_to_mb("1048576") == -1
+
+    assert module._kb_to_mb(2048) == 2
+    assert module._kb_to_mb(1536) == 1
+    assert module._kb_to_mb(None) == -1
+
+
+def test_system_usage_percent_and_timestamp_helpers_handle_edge_cases():
+    module = importlib.import_module("app.services.system_usage")
+
+    assert module._calculate_percent(25, 100) == 25.0
+    assert module._calculate_percent(1, 4) == 25.0
+    assert module._calculate_percent(-1, 100) == -1.0
+    assert module._calculate_percent(1, 0) == -1.0
+
+    timestamp = module._usage_updated_at()
+    assert isinstance(timestamp, str)
+    assert timestamp
+
+
+def test_system_usage_static_gpu_normalizer_keeps_response_keys():
+    module = importlib.import_module("app.services.system_usage")
+
+    assert module._normalize_static_gpu_usage({"name": "GPU 0", "memory_total_mb": 8192}) == {
+        "name": "GPU 0",
+        "util_percent": -1,
+        "vram_used_mb": -1,
+        "vram_total_mb": 8192,
+        "vram_percent": -1,
+    }
+    assert module._normalize_static_gpu_usage({}) == {
+        "name": "GPU",
+        "util_percent": -1,
+        "vram_used_mb": -1,
+        "vram_total_mb": -1,
+        "vram_percent": -1,
+    }

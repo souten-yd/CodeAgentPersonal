@@ -73,6 +73,14 @@ from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_site_packages_dir,
     resolve_style_bert_vits2_venv_dir,
 )
+from app.services.system_usage import (
+    _bytes_to_mb,
+    _calculate_percent,
+    _kb_to_mb,
+    _normalize_static_gpu_usage,
+    _parse_int_maybe,
+    _usage_updated_at,
+)
 
 _STYLE_BERT_VITS2_BASE_DIR = resolve_style_bert_vits2_base_dir()
 _STYLE_BERT_VITS2_MODELS_DIR = resolve_style_bert_vits2_models_dir()
@@ -5058,11 +5066,6 @@ def _read_meminfo_kb() -> tuple[int, int]:
     return 0, 0
 
 
-def _parse_int_maybe(v) -> int:
-    s = str(v or "").strip().replace(",", "")
-    return int(s) if s.isdigit() else -1
-
-
 def _probe_gpu_static(backend: str) -> list[dict]:
     gpus: list[dict] = []
     if backend == "nvidia-smi":
@@ -5100,8 +5103,8 @@ def _probe_gpu_static(backend: str) -> list[dict]:
                     total_b = info.get("VRAM Total Memory (B)") or info.get("VRAM Total Used Memory (B)")
                     used_b = info.get("VRAM Total Used Memory (B)")
                     if isinstance(total_b, (int, float)) and total_b > 0:
-                        total_mb = int(total_b / (1024 * 1024))
-                        used_mb = int((used_b or 0) / (1024 * 1024))
+                        total_mb = _bytes_to_mb(total_b)
+                        used_mb = _bytes_to_mb(used_b or 0)
                         gpus.append({"name": str(info.get("Card series") or info.get("Card SKU") or "AMD GPU"), "memory_total_mb": total_mb, "memory_free_mb": max(0, total_mb - used_mb)})
         except Exception:
             pass
@@ -5281,9 +5284,9 @@ def get_system_hardware_info() -> dict:
         else:
             t_kb, a_kb = _read_meminfo_kb()
             if t_kb > 0:
-                ram_total_mb = int(t_kb / 1024)
+                ram_total_mb = _kb_to_mb(t_kb)
             if a_kb > 0:
-                ram_available_mb = int(a_kb / 1024)
+                ram_available_mb = _kb_to_mb(a_kb)
     except Exception:
         pass
 
@@ -5348,9 +5351,9 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
                     cpu_percent = max(0.0, min(100.0, (load1 / c) * 100.0))
                 t_kb, a_kb = _read_meminfo_kb()
                 if t_kb > 0:
-                    ram_total_mb = int(t_kb / 1024)
+                    ram_total_mb = _kb_to_mb(t_kb)
                 if a_kb > 0 and ram_total_mb > 0:
-                    ram_used_mb = max(0, ram_total_mb - int(a_kb / 1024))
+                    ram_used_mb = max(0, ram_total_mb - _kb_to_mb(a_kb))
                     ram_percent = (ram_used_mb / ram_total_mb) * 100.0
         except Exception:
             pass
@@ -5565,7 +5568,7 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
                         util = float(re.sub(r'[^0-9.]', '', parts[1]) or -1)
                         used = _parse_int_maybe(re.sub(r'[^0-9]', '', parts[2]))
                         total = _parse_int_maybe(re.sub(r'[^0-9]', '', parts[3]))
-                        pct = (used / total * 100.0) if used >= 0 and total > 0 else -1.0
+                        pct = _calculate_percent(used, total)
                         gpus.append({"name": parts[0], "util_percent": util, "vram_used_mb": used, "vram_total_mb": total, "vram_percent": pct})
                         parsed_this_cmd += 1
                 parse_summary.append({
@@ -5614,25 +5617,25 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
                         total_b = info.get("VRAM Total Memory (B)")
                         used_b = info.get("VRAM Total Used Memory (B)")
                         if isinstance(total_b, (int, float)) and total_b > 0:
-                            vram_total_mb = int(total_b / (1024 * 1024))
+                            vram_total_mb = _bytes_to_mb(total_b)
                             if isinstance(used_b, (int, float)) and used_b >= 0:
-                                vram_used_mb = int(used_b / (1024 * 1024))
-                                vram_pct = (vram_used_mb / vram_total_mb * 100.0) if vram_total_mb > 0 else -1.0
+                                vram_used_mb = _bytes_to_mb(used_b)
+                                vram_pct = _calculate_percent(vram_used_mb, vram_total_mb)
                         # --showmemuse provides GPU memory use (%) only; try GTT as fallback for total
                         if vram_total_mb < 0:
                             for key_total in ("VRAM Total Memory (B)", "GTT Total Memory (B)"):
                                 tb = info.get(key_total)
                                 if isinstance(tb, (int, float)) and tb > 0:
-                                    vram_total_mb = int(tb / (1024 * 1024))
+                                    vram_total_mb = _bytes_to_mb(tb)
                                     break
                         if vram_used_mb < 0:
                             for key_used in ("VRAM Total Used Memory (B)", "GTT Total Used Memory (B)"):
                                 ub = info.get(key_used)
                                 if isinstance(ub, (int, float)) and ub >= 0:
-                                    vram_used_mb = int(ub / (1024 * 1024))
+                                    vram_used_mb = _bytes_to_mb(ub)
                                     break
                         if vram_pct < 0 and vram_used_mb >= 0 and vram_total_mb > 0:
-                            vram_pct = (vram_used_mb / vram_total_mb) * 100.0
+                            vram_pct = _calculate_percent(vram_used_mb, vram_total_mb)
                         gpus.append({"name": str(info.get("Card series") or info.get("Card SKU") or "AMD GPU"), "util_percent": util, "vram_used_mb": vram_used_mb, "vram_total_mb": vram_total_mb, "vram_percent": vram_pct})
                 else:
                     for line in out.splitlines():
@@ -5662,7 +5665,7 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
                 py_total_b = float(dx_mb * 1024 * 1024) if dx_mb > 0 else -1
         py_used_mb = int(round(py_used_b / (1024 * 1024))) if py_used_b >= 0 else -1
         py_total_mb = int(round(py_total_b / (1024 * 1024))) if py_total_b > 0 else -1
-        py_pct = (py_used_mb / py_total_mb * 100.0) if py_used_mb >= 0 and py_total_mb > 0 else -1.0
+        py_pct = _calculate_percent(py_used_mb, py_total_mb)
         if py_util >= 0 or py_used_mb >= 0 or py_total_mb > 0:
             gpus.append({
                 "name": reg_name or "Windows GPU",
@@ -5732,7 +5735,7 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
                             used = int(data.get("used_mb") or -1)
                             pct = float(data.get("vram_pct") or -1)
                             if pct < 0 and used >= 0 and total > 0:
-                                pct = (used / total) * 100.0
+                                pct = _calculate_percent(used, total)
                             gpus.append({
                                 "name": str(data.get("name") or data.get("Name") or "Windows GPU"),
                                 "util_percent": float(data.get("util") or -1),
@@ -5751,7 +5754,7 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
                     continue
     if not gpus:
         static_list = _probe_gpu_static(selected if selected != "none" else candidates[0])
-        gpus = [{"name": g.get("name","GPU"), "util_percent": -1, "vram_used_mb": -1, "vram_total_mb": g.get("memory_total_mb",-1), "vram_percent": -1} for g in static_list]
+        gpus = [_normalize_static_gpu_usage(g) for g in static_list]
         gpu_backend = selected
         if gpus:
             parse_source = "fallback"
@@ -5776,7 +5779,7 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
         "nvidia_smi_failure_reason": nvidia_fail_reason if selected == "nvidia-smi" else "",
         "raw_parse_summary": parse_summary,
         "adopted_values": adopted_values,
-        "updated_at": datetime.now().isoformat(),
+        "updated_at": _usage_updated_at(),
     }
     _set_last_usage_diag(diag)
 
@@ -5790,7 +5793,7 @@ def get_system_usage_info(debug_mode: bool = False) -> dict:
         "vram_source_backend": gpu_backend,
         "vram_confidence": vram_confidence,
         "gpus": gpus,
-        "updated_at": datetime.now().isoformat(),
+        "updated_at": _usage_updated_at(),
     }
 
 
