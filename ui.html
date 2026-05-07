@@ -1389,6 +1389,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
         </div>
         <div class="atlas-subview-tabs" aria-label="Atlas workbench tabs">
           <button class="atlas-subview-tab active" type="button" data-atlas-subview-tab="start" onclick="setAtlasSubview('start')">Start</button>
+          <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="autopilot" onclick="setAtlasSubview('autopilot')">Autopilot</button>
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="plan" onclick="setAtlasSubview('plan')">Plan</button>
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="review" onclick="setAtlasSubview('review')">Review</button>
           <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="execute" onclick="setAtlasSubview('execute')">Execute</button>
@@ -1417,6 +1418,32 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
               <button class="phase1-tab-btn" type="button" onclick="openLastAtlasExecuteFromWorkbench()">Open Last</button>
               <button class="phase1-tab-btn" type="button" onclick="loadRecentAtlasRunsFromWorkbench()">Load Recent</button>
               <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunExecuteFromWorkbench()">Open Run</button>
+            </div>
+          </div>
+          
+          <div class="atlas-subview" data-atlas-subview-panel="autopilot" style="display:none">
+            <div style="margin-top:6px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);max-width:100%;min-width:0;box-sizing:border-box">
+              <div style="font-size:12px;font-weight:700;color:var(--text)">Atlas Autopilot</div>
+              <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.5">Autopilot decomposes larger goals into Atlas tasks and will execute them through the Atlas planning, review, patch, and verification pipeline.</div>
+              <div style="margin-top:4px;font-size:11px;color:var(--warn)"><b>Preview only</b> — no file changes are executed in this mode.</div>
+              <textarea id="atlas-autopilot-goal-input" placeholder="Describe a larger autonomous coding goal..." rows="4" style="margin-top:8px;width:100%;max-width:100%;min-width:0;min-height:96px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;box-sizing:border-box"></textarea>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin-top:8px;font-size:11px;color:var(--text2)">
+                <div><b>Requirement Mode</b><div>ask_when_needed</div></div>
+                <div><b>Planning Mode</b><div>deep_nexus / standard</div></div>
+                <div><b>Execution Mode</b><div>preview_only</div></div>
+                <div><b>Safety Mode</b><div>strict</div></div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;max-width:100%">
+                <button class="phase1-plan-btn" type="button">Create Autopilot Preview</button>
+              </div>
+            </div>
+            <div style="margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)">
+              <div style="font-size:12px;font-weight:700">Autopilot Plan Preview</div>
+              <div id="atlas-autopilot-plan-preview" style="margin-top:6px;font-size:11px;color:var(--text2)">No preview yet.</div>
+              <div style="margin-top:8px;font-size:12px;font-weight:700">Task Breakdown</div>
+              <div id="atlas-autopilot-task-breakdown" style="margin-top:6px;font-size:11px;color:var(--text2)">No tasks yet.</div>
+              <div style="margin-top:8px;font-size:12px;font-weight:700">Safety Notes</div>
+              <div id="atlas-autopilot-safety-notes" style="margin-top:6px;font-size:11px;color:var(--text2)">Preview only. No auto-apply or auto-approve actions are available.</div>
             </div>
           </div>
           <div class="atlas-subview" data-atlas-subview-panel="plan" style="display:none">
@@ -13738,7 +13765,7 @@ const ATLAS_LAST_RUN_KEY = 'atlas:lastRunId';
 const ATLAS_LAST_DASHBOARD_RUN_KEY = 'atlas:lastExecuteRunId';
 const ATLAS_LAST_SUBVIEW_KEY = 'atlas:lastSubview';
 const ATLAS_REQUIREMENT_INPUT_KEY = 'atlas:requirementInput';
-const ATLAS_SUBVIEWS = ['start', 'plan', 'review', 'execute', 'patch', 'runs', 'activity'];
+const ATLAS_SUBVIEWS = ['start', 'autopilot', 'plan', 'review', 'execute', 'patch', 'runs', 'activity'];
 
 function _atlasLsGet(key) { try { return localStorage.getItem(key) || ''; } catch(_) { return ''; } }
 function _atlasLsSet(key, value) { try { localStorage.setItem(key, value || ''); } catch(_) {} }
