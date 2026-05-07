@@ -63,6 +63,15 @@ def test_create_app_system_usage_response_contract():
     assert response.json() == default_system_usage_unavailable_payload()
 
 
+def test_create_app_system_usage_debug_response_contract():
+    client = TestClient(create_app())
+
+    response = client.get("/system/usage/debug")
+
+    assert response.status_code == 200
+    assert response.json() == default_system_usage_debug_unavailable_payload()
+
+
 def test_main_app_system_usage_response_contract():
     client = TestClient(main.app)
 
@@ -77,6 +86,23 @@ def test_main_app_system_usage_response_contract():
     assert isinstance(body["gpu_backend_selected"], str)
     assert isinstance(body["gpus"], list)
     assert isinstance(body["updated_at"], str)
+
+
+def test_main_app_system_usage_debug_response_contract():
+    client = TestClient(main.app)
+
+    response = client.get("/system/usage/debug")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert isinstance(body["gpu_backend_selected"], str)
+    assert isinstance(body["gpu_backend"], str)
+    assert isinstance(body["raw_parse_summary"], list)
+    assert isinstance(body["parse_source"], str)
+    assert isinstance(body["nvidia_smi_failure_reason"], str)
+    assert isinstance(body["adopted_values"], dict)
+    assert isinstance(body["final_usage"], dict)
+    assert isinstance(body["final_usage"]["gpus"], list)
 
 
 def test_main_app_system_readiness_response_contract():

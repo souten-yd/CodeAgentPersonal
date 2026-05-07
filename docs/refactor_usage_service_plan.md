@@ -1,13 +1,13 @@
 # Usage service/provider refactor plan
 
 This plan records the service/provider boundary used to move `GET /system/usage`
-out of `main.py` and into `app/api/system.py`. Conservative default payload
-helpers and app-state provider lookup helpers live in `app/api/system.py`, and
-`main.app` wires compatibility providers into `app.state`.
-`GET /system/usage/debug`, `get_system_usage_info()`, settings behavior,
-diagnostics globals, the `create_app()` signature, middleware, lifespan, and UI
-assets stay unchanged in this PR. Debug endpoint migration is explicitly left
-for the next PR.
+and `GET /system/usage/debug` out of `main.py` and into `app/api/system.py`.
+Conservative default payload helpers and app-state provider lookup helpers live
+in `app/api/system.py`, and `main.app` wires compatibility providers into
+`app.state`. `get_system_usage_info()`, settings behavior, diagnostics globals,
+the `create_app()` signature, middleware, lifespan, and UI assets stay
+unchanged in this PR. The usage/debug endpoint migration is complete; the next
+step is separating the usage collection service itself.
 
 ## Current `get_system_usage_info()` dependencies
 
@@ -71,8 +71,8 @@ The runtime diagnostics global is currently:
 - `_get_last_usage_diag() -> dict`
 
 `get_system_usage_info()` writes diagnostics on every usage collection. The
-`GET /system/usage/debug` handler first calls `get_system_usage_info()` and then
-reads `_get_last_usage_diag()` to return parse details plus a compact
+The `GET /system/usage/debug` provider first calls `get_system_usage_info()`
+and then reads `_get_last_usage_diag()` to return parse details plus a compact
 `final_usage` view.
 
 A future service should inject a diagnostics port rather than reaching into
@@ -117,6 +117,9 @@ Recommended next-step behavior:
 - `/system/usage` now lives in `app/api/system.py`; bare `create_app()` returns
   the conservative unavailable payload, while `main.app` serves live data via
   `app.state.system_usage_provider`.
+- `/system/usage/debug` now lives in `app/api/system.py`; bare `create_app()`
+  returns `default_system_usage_debug_unavailable_payload()`, while `main.app`
+  serves the existing debug payload via `app.state.system_usage_debug_provider`.
 
 ## Richer provider injection from `main.app`
 
@@ -142,11 +145,12 @@ ports together.
    Provider-less factory apps return `default_system_usage_unavailable_payload()`,
    while `main.app` preserves existing behavior through
    `app.state.system_usage_provider = get_system_usage_info`.
-3. Next PR: move `/system/usage/debug` after the debug provider contract proves
-   the exact current sequence: collect fresh usage, read last diagnostics, then
-   format the debug payload. `/system/usage/debug` remains in `main.py` for now.
+3. Done: move `/system/usage/debug` to `app/api/system.py` using the debug
+   provider hook. The provider preserves the exact current sequence: collect
+   fresh usage, read last diagnostics, then format the debug payload.
 
-The reason not to move debug first is that it depends on the side effects of the
-usage collector. The reason not to move both before extracting the provider
-boundary is that both endpoints would otherwise import settings and diagnostics
-globals directly into the router.
+The reason not to move debug before the provider contract was that it depends
+on the side effects of the usage collector. With the router/provider boundary in
+place, the usage/debug endpoint migration is complete. The next step is to
+separate the usage collection service itself from `main.py`, keeping settings
+and diagnostics dependencies explicit.

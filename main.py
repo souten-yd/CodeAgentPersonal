@@ -18032,25 +18032,6 @@ def trigger_memory_analysis(job_id: str, project: str = "default"):
     _t.Thread(target=_analyze_job_for_memory, args=(job_id, project, LLM_URL), daemon=True).start()
     return {"ok": True, "message": f"memory analysis triggered for job {job_id}"}
 
-@app.get("/system/usage/debug")
-def system_usage_debug_api():
-    usage = get_system_usage_info()
-    diag = _get_last_usage_diag()
-    return {
-        "gpu_backend_selected": diag.get("gpu_backend_selected", usage.get("gpu_backend_selected", "auto")),
-        "gpu_backend": diag.get("gpu_backend", usage.get("gpu_backend", "none")),
-        "raw_parse_summary": diag.get("raw_parse_summary", []),
-        "parse_source": diag.get("parse_source", "unknown"),
-        "nvidia_smi_failure_reason": diag.get("nvidia_smi_failure_reason", ""),
-        "adopted_values": diag.get("adopted_values", {}),
-        "final_usage": {
-            "gpus": usage.get("gpus", []),
-            "vram_confidence": usage.get("vram_confidence", "unknown"),
-            "vram_source_backend": usage.get("vram_source_backend", usage.get("gpu_backend", "none")),
-            "updated_at": usage.get("updated_at"),
-        },
-    }
-
 def _get_lightweight_health_status() -> dict:
     try:
         res = requests.get(f"http://127.0.0.1:{_model_manager.llm_port}/health", timeout=3)
