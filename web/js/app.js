@@ -1,0 +1,1 @@
+window.KASANE_UI_BOOTSTRAP_LOADED = true;
