@@ -1,6 +1,9 @@
 from fastapi.testclient import TestClient
 
-from app.api.model_settings import default_model_orchestration_payload
+from app.api.model_settings import (
+    default_model_orchestration_payload,
+    default_model_roles_payload,
+)
 from app.server import create_app
 import main
 
@@ -68,6 +71,89 @@ def test_main_app_model_orchestration_returns_provider_payload(monkeypatch):
                 "name": "Coder A",
                 "enabled": 1,
                 "tok_per_sec": 12.5,
+            }
+        ],
+    }
+
+
+def test_create_app_model_roles_returns_default_payload():
+    client = TestClient(create_app())
+
+    response = client.get("/models/roles")
+
+    assert response.status_code == 200
+    assert response.json() == default_model_roles_payload()
+
+
+def test_main_app_model_roles_returns_provider_payload(monkeypatch):
+    monkeypatch.setattr(main, "MODEL_ROLE_OPTIONS", ("plan", "code", "chat"))
+    monkeypatch.setattr(
+        main,
+        "settings_get",
+        lambda key: "coder-a" if key == "role_model_plan" else "",
+    )
+    monkeypatch.setattr(
+        main,
+        "get_runtime_model_catalog",
+        lambda include_disabled=False: {
+            "coder-a": {"model_key": "coder-a"},
+            "coder-b": {"model_key": "coder-b"},
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "get_runtime_task_model_map",
+        lambda catalog, include_disabled=False: {
+            "plan": "coder-a",
+            "code": "coder-b",
+            "chat": "coder-a",
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "_get_auto_role_model_map",
+        lambda catalog: {"code": "coder-b"},
+    )
+    monkeypatch.setattr(
+        main,
+        "model_db_list",
+        lambda: [
+            {
+                "id": "m1",
+                "model_key": "coder-a",
+                "name": "Coder A",
+                "enabled": 1,
+                "vlm_enabled": 1,
+                "is_vlm": 0,
+                "ctx_size": "4096",
+                "auto_roles": "plan,chat",
+            }
+        ],
+    )
+    monkeypatch.setattr(main, "_resolve_ctx_size", lambda value=None: 4096)
+
+    response = TestClient(main.app).get("/models/roles")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body == {
+        "roles": ["plan", "code", "chat"],
+        "planner_key": "coder-a",
+        "assignments": {
+            "plan": {"model_key": "coder-a", "source": "explicit"},
+            "code": {"model_key": "coder-b", "source": "auto"},
+            "chat": {"model_key": "coder-a", "source": "planner_fallback"},
+        },
+        "models": [
+            {
+                "id": "m1",
+                "model_key": "coder-a",
+                "name": "Coder A",
+                "enabled": 1,
+                "vlm_enabled": 1,
+                "is_vlm": 0,
+                "ctx_size": 4096,
+                "auto_roles": ["plan", "chat"],
             }
         ],
     }

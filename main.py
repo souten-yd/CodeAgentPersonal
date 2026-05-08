@@ -17069,8 +17069,7 @@ def toggle_model_vlm_enabled(mid: str, req: dict):
     return {"ok": True, "vlm_enabled": bool(vlm_enabled)}
 
 
-@app.get("/models/roles")
-def get_model_role_assignments_api():
+def model_roles_payload() -> dict:
     catalog = get_runtime_model_catalog(include_disabled=True)
     models = model_db_list()
     task_map = get_runtime_task_model_map(catalog, include_disabled=True)
@@ -17268,6 +17267,7 @@ def settings_bulk_save_payload(req: dict) -> dict:
 
 
 app.state.model_orchestration_provider = model_orchestration_payload
+app.state.model_roles_provider = model_roles_payload
 app.state.settings_get_all_provider = settings_get_all_payload
 app.state.settings_get_provider = settings_get_payload
 app.state.settings_defaults_provider = settings_defaults_payload
