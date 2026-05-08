@@ -41,7 +41,12 @@ def test_model_settings_inventory_current_route_owners_are_split_as_expected():
             "get_model_orchestration_api",
         ),
         ("/models/orchestration", "POST", "main", "save_model_orchestration_api"),
-        ("/models/roles", "GET", "main", "get_model_role_assignments_api"),
+        (
+            "/models/roles",
+            "GET",
+            "app.api.model_settings",
+            "get_model_role_assignments_api",
+        ),
         ("/models/roles", "POST", "main", "save_model_role_assignments_api"),
         ("/ensemble/settings", "GET", "main", "get_ensemble_settings_api"),
         ("/ensemble/settings", "POST", "main", "save_ensemble_settings_api"),
