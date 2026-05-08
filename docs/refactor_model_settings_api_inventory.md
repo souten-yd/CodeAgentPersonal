@@ -1,10 +1,11 @@
 # PR4.30: Model Settings API Inventory
 
 This inventory tracks the model/settings router split after the system router
-and core settings router moves. PR4.32 continues the split by moving the
-read-only `GET /models/db/status` route into `app/api/model_settings.py` after
-`GET /models/orchestration` and `GET /models/roles`; write, list, scan,
-benchmark, GGUF, runtime, and UI endpoints remain in `main.py`.
+and core settings router moves. PR4.33 continues the split by moving the
+read-only `GET /model/status` route into `app/api/model_settings.py` after
+`GET /models/orchestration`, `GET /models/roles`, and
+`GET /models/db/status`; model switch, auto-load, list, scan, benchmark, GGUF,
+runtime write controls, and UI endpoints remain in `main.py`.
 
 ## Scope
 
@@ -17,13 +18,15 @@ The inventory covers endpoints that mix one or more of these concerns:
 - runtime global controls that are settings-adjacent but not fully persisted;
 - UI helper/status endpoints used by model settings screens.
 
-`current route owner` records the router that owns each endpoint after PR4.32.
-`GET /models/orchestration`, `GET /models/roles`, and `GET /models/db/status`
-are owned by `app/api/model_settings.py`; the production `main.app` preserves
-existing behavior by registering app-state providers, while `create_app()`
-returns conservative empty/default fallbacks without settings, DB, catalog, or
-hardware access. Future router PRs should update this document and the
-route-owner tests at the same time as endpoints are moved.
+`current route owner` records the router that owns each endpoint after PR4.33.
+`GET /models/orchestration`, `GET /models/roles`, `GET /models/db/status`,
+and `GET /model/status` are owned by `app/api/model_settings.py`; the
+production `main.app` preserves existing behavior by registering app-state
+providers, including `app.state.model_manager_status_provider` for the model
+manager status route. `create_app()` returns conservative empty/default
+fallbacks without settings, DB, catalog, model-manager, runtime, or hardware
+access. Future router PRs should update this document and the route-owner tests
+at the same time as endpoints are moved.
 
 ## Recommended categories
 
@@ -38,8 +41,8 @@ route-owner tests at the same time as endpoints are moved.
 
 ## Routerization recommendation summary
 
-1. Read-only orchestration/settings endpoints: `GET /models/orchestration`, `GET /models/roles`, and `GET /models/db/status` moved to `app/api/model_settings.py` behind app-state providers; `main.app` uses the providers for parity, and `create_app()` uses conservative fallbacks.
-2. Next candidates: move `GET /model/status` or `GET /models/db` after runtime/model-DB seams are stable.
+1. Read-only orchestration/settings/status endpoints: `GET /models/orchestration`, `GET /models/roles`, `GET /models/db/status`, and `GET /model/status` moved to `app/api/model_settings.py` behind app-state providers; `main.app` uses the providers for parity, and `create_app()` uses conservative fallbacks.
+2. Next candidates: move `GET /models/db` or runtime read-only controls after DB-list and runtime-state seams are stable.
 3. Write model roles/settings endpoint: move `POST /models/roles` and `POST /models/orchestration` only after a settings bulk-write provider and catalog validation provider are explicit.
 4. Ensemble read endpoint: move `GET /ensemble/settings` and `GET /ensemble/vram` with an ensemble resource-status provider.
 5. Ensemble write endpoint: move `POST /ensemble/settings` after settings writes, opencode JSON sync, and low-VRAM guard are providerized together.
@@ -71,7 +74,7 @@ route-owner tests at the same time as endpoints are moved.
 | `/models/db/benchmark/{mid}` | POST | `benchmark_model_api` | `main.py` | heavy probe/status endpoints | Starts benchmark job for one model. | Path param `mid`; no body. | Background job reads `settings_get("role_lock")`. | `model_db_list`, `benchmark_model_profiles`, `model_db_update`, `recommend_roles_with_planner`. | Background thread. | Nexus/Atlas indirectly through role recommendations and default load. | Yes in background. | No direct file write. | Starts benchmark thread, may write notes/metrics/auto_roles and schedule model load. | No. | Benchmark provider, DB providers, role planner provider, model-load scheduler. | 7 |
 | `/models/db/toggle/{mid}` | POST | `toggle_model_enabled` | `main.py` | write model catalog/status | Toggles model enabled flag. | `{ "enabled": bool }`. | None direct. | Direct `model_db_update`. | None. | UI helper only. | Yes. | No. | Updates model DB enabled flag. | No. | Model DB write provider. | 7 |
 | `/models/db/toggle_vlm/{mid}` | POST | `toggle_model_vlm_enabled` | `main.py` | write model catalog/status | Toggles VLM enabled flag. | `{ "vlm_enabled": bool }`. | None direct. | Direct `model_db_update`. | None. | UI helper only. | Yes. | No. | Updates model DB VLM flag. | No. | Model DB write provider. | 7 |
-| `/model/status` | GET | `model_status` | `main.py` | read-only model catalog/status | Returns current model-manager state and catalog. | None. | None direct. | Indirect catalog/model manager internals. | `_model_manager.status_dict()`. | Nexus/Atlas indirectly because active model affects planner/executor/chat. | No. | No. | Reads runtime model manager state. | Yes with model-manager provider. | Model manager status provider. | 2 |
+| `/model/status` | GET | `get_model_manager_status_api` | `app/api/model_settings.py` | read-only model catalog/status | Returns current model-manager state and catalog. | None. | None direct. | Indirect catalog/model manager internals through the main-app provider only. | `_model_manager.status_dict()` through `app.state.model_manager_status_provider`. | Nexus/Atlas indirectly because active model affects planner/executor/chat. | No. | No. | Reads runtime model manager state through the main-app provider only. | Yes; `create_app()` returns conservative unavailable/empty payload when provider is missing. | `ModelManagerStatusProvider` backed by main-app `_model_manager.status_dict()`. | done in PR4.33 |
 | `/model/switch` | POST | `model_switch` | `main.py` | runtime global controls | Starts asynchronous manual model switch. | `{ "model": optional model_key }`; falls back to chat role model. | None direct in handler; fallback role choice may read settings indirectly. | `choose_model_for_role`, `get_runtime_model_catalog`. | `_model_manager.ensure_model` in background thread. | Nexus/Atlas indirectly because active model changes. | No direct DB write. | No. | Starts background thread that may load/switch llama-server model. | No. | Model role chooser, catalog provider, model manager provider/thread runner. | 6 |
 | `/model/auto-load` | POST | `model_auto_load` | `main.py` | runtime global controls | Schedules default model load. | Optional `{ "reason": str, "force": bool }`. | None direct. | Indirect through scheduler/model catalog. | `schedule_default_model_load`. | Nexus/Atlas indirectly through active default model. | No direct DB write. | No. | May start model load scheduling. | No. | Model-load scheduler provider. | 6 |
 | `/llm/props` | GET | `llm_props` | `main.py` | heavy probe/status endpoints | Reads llama-server `/props` and reports context capability. | None. | None direct. | None direct. | `_model_manager.llm_port`, `_current_n_ctx`; HTTP request to local llama-server. | Nexus/Atlas indirectly through LLM runtime capacity. | No. | No. | Local HTTP probe with fallback to server default. | Yes with runtime props fallback. | Model manager/runtime props provider. | 7 |
@@ -107,6 +110,14 @@ route-owner tests at the same time as endpoints are moved.
 - `create_app()` has no provider and returns `default_model_db_status_payload()` without touching `model_db_exists`, `model_db_list`, `MODEL_DB_PATH`, settings, catalog, hardware probes, or runtime globals.
 - `/models/db` list/write endpoints, scan, benchmark, GGUF, model-manager runtime endpoints, and `GET /model/status` remain in `main.py`.
 - The next practical extraction candidate is `GET /model/status` or `GET /models/db`, depending on whether runtime-status or DB-list seams are stabilized first.
+
+## PR4.33 movement notes
+
+- `GET /model/status` moved to `app/api/model_settings.py`.
+- `main.app` registers `app.state.model_manager_status_provider = model_manager_status_payload`, which returns `_model_manager.status_dict()` so the existing response shape and runtime behavior are preserved through the provider seam.
+- `create_app()` has no provider and returns `default_model_manager_status_payload()` without touching the model manager, model DB, catalog, runtime probes, settings, hardware probes, or filesystem.
+- `POST /model/switch` and `POST /model/auto-load` remain in `main.py`; model DB list/write endpoints, scan, benchmark, GGUF, and runtime global controls also remain in `main.py`.
+- The next practical extraction candidate is `GET /models/db` or runtime read-only controls, depending on whether DB-list or runtime-state seams are stabilized first.
 
 ## Extraction notes
 

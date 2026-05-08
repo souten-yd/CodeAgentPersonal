@@ -15888,11 +15888,6 @@ def list_jobs(name: str, limit: int = 30):
     jobs = job_list(name, limit)
     return {"jobs": jobs}
 
-@app.get("/model/status")
-def model_status():
-    """現在のモデル状態とカタログを返す"""
-    return _model_manager.status_dict()
-
 @app.post("/model/switch")
 def model_switch(req: dict):
     """手動でモデルを切り替える。非同期で実行。"""
@@ -17236,6 +17231,11 @@ def asr_unload_api():
 
 
 
+def model_manager_status_payload() -> dict:
+    """Read provider payload for the model settings router."""
+    return _model_manager.status_dict()
+
+
 def settings_get_all_payload() -> dict:
     """Read provider payload for the settings router."""
     return settings_get_all()
@@ -17268,6 +17268,7 @@ def settings_bulk_save_payload(req: dict) -> dict:
 app.state.model_orchestration_provider = model_orchestration_payload
 app.state.model_roles_provider = model_roles_payload
 app.state.model_db_status_provider = model_db_status_payload
+app.state.model_manager_status_provider = model_manager_status_payload
 app.state.settings_get_all_provider = settings_get_all_payload
 app.state.settings_get_provider = settings_get_payload
 app.state.settings_defaults_provider = settings_defaults_payload

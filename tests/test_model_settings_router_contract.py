@@ -2,11 +2,41 @@ from fastapi.testclient import TestClient
 
 from app.api.model_settings import (
     default_model_db_status_payload,
+    default_model_manager_status_payload,
     default_model_orchestration_payload,
     default_model_roles_payload,
 )
 from app.server import create_app
 import main
+
+
+def test_create_app_model_manager_status_returns_default_payload():
+    client = TestClient(create_app())
+
+    response = client.get("/model/status")
+
+    assert response.status_code == 200
+    assert response.json() == default_model_manager_status_payload()
+
+
+def test_main_app_model_manager_status_returns_provider_payload(monkeypatch):
+    expected = {
+        "status": "ready",
+        "current_key": "coder-a",
+        "catalog": {"coder-a": {"model_key": "coder-a"}},
+        "extra": {"preserved": True},
+    }
+
+    class FakeModelManager:
+        def status_dict(self):
+            return expected
+
+    monkeypatch.setattr(main, "_model_manager", FakeModelManager())
+
+    response = TestClient(main.app).get("/model/status")
+
+    assert response.status_code == 200
+    assert response.json() == expected
 
 
 def test_create_app_model_orchestration_returns_default_payload():
