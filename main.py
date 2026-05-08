@@ -65,6 +65,7 @@ from app.asr.service import (
     resolve_effective_asr_config,
 )
 from app.asr.whisper_cpp_runtime import WHISPER_CPP_SERVER_RUNTIME, resolve_ffmpeg_binary, resolve_whisper_cpp_binary, resolve_whisper_cpp_model
+from app.env_detection import detect_gpu_profile, detect_os_profile, detect_runpod
 from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_base_dir,
     resolve_style_bert_vits2_models_dir,
@@ -208,7 +209,11 @@ def _is_runpod_runtime() -> bool:
         return has_workspace
     if forced in {"local", "default", "docker"}:
         return False
-    return has_runpod_env and has_workspace
+    try:
+        env_detection_runpod = bool(detect_runpod())
+    except Exception:
+        env_detection_runpod = False
+    return (has_runpod_env or env_detection_runpod) and has_workspace
 
 IS_RUNPOD_RUNTIME = _is_runpod_runtime()
 DEFAULT_CA_DATA_DIR = "/workspace/ca_data" if IS_RUNPOD_RUNTIME else os.path.join(BASE_DIR, "ca_data")
@@ -1019,6 +1024,10 @@ class ModelManager:
         self._switch_callbacks = []
         self._last_start_cmd = ""
         self._last_startup_hints: list[str] = []
+        self._last_llama_gpu_log: dict[str, Any] = {}
+        self._last_runtime_decision: dict[str, Any] = {}
+        self._last_nvidia_smi_before: list[dict[str, int | str]] = []
+        self._last_nvidia_smi_after: list[dict[str, int | str]] = []
         self._startup_log_fd = None
         self._load_guard_lock = _mm_thread.Lock()
         self._load_in_progress = False
@@ -1052,6 +1061,79 @@ class ModelManager:
                             return
         except Exception:
             pass  # llama-serverが未起動の場合はINITIAL_MODELのまま
+
+
+    def _runtime_probe(self) -> dict:
+        """Return the OS/Runpod/GPU facts that drive llama backend decisions."""
+        try:
+            os_profile = detect_os_profile()
+        except Exception:
+            os_profile = {"os_name": os.name, "system": platform.system(), "is_linux": os.name != "nt", "is_windows": os.name == "nt"}
+        try:
+            gpu_profile = detect_gpu_profile()
+        except Exception:
+            gpu_profile = {"vendor": _detect_gpu_vendor(), "backend_candidates": []}
+        try:
+            runpod_detected = bool(IS_RUNPOD_RUNTIME or detect_runpod())
+        except Exception:
+            runpod_detected = bool(IS_RUNPOD_RUNTIME)
+        is_windows = bool(os_profile.get("is_windows")) or os.name == "nt"
+        is_linux = bool(os_profile.get("is_linux")) or (os.name != "nt" and platform.system().lower() == "linux")
+        gpu_vendor = (gpu_profile.get("vendor") or _detect_gpu_vendor() or "unknown").lower()
+        cuda_candidate = bool(gpu_profile.get("cuda_candidate")) or gpu_vendor == "nvidia"
+        intended_backend = "cuda" if (runpod_detected and is_linux and cuda_candidate) else (gpu_profile.get("recommended_llama_backend") or "auto")
+        return {
+            "intended_backend": intended_backend,
+            "runpod_detected": runpod_detected,
+            "os_profile": os_profile,
+            "gpu_profile": gpu_profile,
+            "is_windows": is_windows,
+            "is_linux": is_linux,
+            "gpu_vendor": gpu_vendor,
+            "cuda_candidate": cuda_candidate,
+        }
+
+    def _is_runpod_linux_runtime(self, runtime: dict | None = None) -> bool:
+        runtime = runtime or self._runtime_probe()
+        return bool(runtime.get("runpod_detected") and runtime.get("is_linux") and not runtime.get("is_windows"))
+
+    def _runpod_initial_ngl(self, spec: dict) -> int:
+        for key in ("proven_ngl", "gpu_layers"):
+            try:
+                value = int(spec.get(key, 0) or 0)
+            except Exception:
+                value = 0
+            if value > 0:
+                return value
+        return 999
+
+    def _collect_nvidia_smi_memory(self) -> list[dict[str, int | str]]:
+        if shutil.which("nvidia-smi") is None:
+            return []
+        try:
+            cp = _sp.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=index,memory.used,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except Exception:
+            return []
+        rows: list[dict[str, int | str]] = []
+        for line in (cp.stdout or "").splitlines():
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) < 3:
+                continue
+            try:
+                rows.append({"index": parts[0], "memory_used_mib": int(parts[1]), "memory_total_mib": int(parts[2])})
+            except Exception:
+                continue
+        return rows
 
     @property
     def llm_url(self):
@@ -1226,14 +1308,25 @@ class ModelManager:
         calc_gpu_layers = gpu_cfg["gpu_layers"]
 
         proven_ngl = int(spec.get("proven_ngl", -1) or -1)
-        gpu_vendor = _detect_gpu_vendor()
+        runtime = self._runtime_probe()
+        gpu_vendor = runtime.get("gpu_vendor") or _detect_gpu_vendor()
+        self._last_runtime_decision = {
+            "intended_backend": runtime.get("intended_backend"),
+            "runpod_detected": runtime.get("runpod_detected"),
+            "os_profile": runtime.get("os_profile"),
+            "gpu_profile": runtime.get("gpu_profile"),
+            "is_linux": runtime.get("is_linux"),
+            "is_windows": runtime.get("is_windows"),
+            "gpu_vendor": runtime.get("gpu_vendor"),
+            "cuda_candidate": runtime.get("cuda_candidate"),
+        }
 
         # ─── プラットフォーム別の起動フロー ────────────────────
         if os.name == "nt":
             return self._start_windows(spec, eff_ck, eff_cv, gpu_vendor, emit)
         else:
             return self._start_linux(spec, eff_ck, eff_cv, gpu_vendor, emit,
-                                     calc_gpu_layers, proven_ngl)
+                                     calc_gpu_layers, proven_ngl, runtime)
 
     def _start_windows(self, spec, eff_ck, eff_cv, gpu_vendor, emit) -> bool:
         """Windows: auto-fit のみ（-ngl 省略、llama.cppに任せる）。"""
@@ -1251,7 +1344,7 @@ class ModelManager:
         return False
 
     def _start_linux(self, spec, eff_ck, eff_cv, gpu_vendor, emit,
-                     calc_gpu_layers, proven_ngl) -> bool:
+                     calc_gpu_layers, proven_ngl, runtime=None) -> bool:
         """
         Linux (Runpod/CUDA) 3フェーズ起動:
           Phase 0: ngl_ctx_profiles キャッシュヒット → 直接起動（Phase 1-3 スキップ）
@@ -1292,6 +1385,44 @@ class ModelManager:
             print(f"[ModelManager] Phase 0: キャッシュ値 ngl={cached_ngl} 失敗 → 通常探索へ")
             self._clear_ngl_ctx_profile(spec, ctx)
             self._kill_process()
+
+        # ─── Runpod/Linux: auto-fit禁止。初回から明示 -ngl で半減探索 ───
+        if self._is_runpod_linux_runtime(runtime):
+            gpu_layers = self._runpod_initial_ngl(spec)
+            first_fail_ngl = -1
+            ok_ngl = -1
+            attempt = 0
+            print(f"[ModelManager] Runpod/Linux: explicit -ngl probing starts at {gpu_layers} (auto-fit disabled)")
+            while True:
+                self._kill_process()
+                attempt += 1
+                print(f"[ModelManager] Runpod/Linux Phase 1: -ngl={gpu_layers} (explicit)")
+                emit("model_switching", f"Loading {spec['name']}... -ngl={gpu_layers} (Runpod explicit)", 15, 0)
+                result = self._try_start_once(
+                    spec, gpu_layers=gpu_layers, eff_ck=eff_ck, eff_cv=eff_cv,
+                    gpu_vendor=gpu_vendor, emit=emit,
+                )
+                if result == "ok":
+                    ok_ngl = gpu_layers
+                    break
+                if result != "oom":
+                    self._kill_process()
+                    print(f"[ModelManager] Runpod/Linux explicit -ngl={gpu_layers} failed without OOM; aborting")
+                    return False
+                if first_fail_ngl < 0:
+                    first_fail_ngl = gpu_layers
+                if gpu_layers <= 0:
+                    self._kill_process()
+                    print("[ModelManager] Runpod/Linux: explicit -ngl reached 0 and still failed; aborting")
+                    return False
+                prev = gpu_layers
+                gpu_layers = max(0, gpu_layers // 2)
+                print(f"[ModelManager] Runpod/Linux OOM → -ngl {prev} → {gpu_layers}")
+                emit("model_switching", f"Runpod VRAM不足: GPU層 {prev}→{gpu_layers} でリトライ中...", 20, 0)
+
+            self._save_proven_ngl(spec, ok_ngl)
+            self._save_ngl_ctx_profile(spec, ctx, ok_ngl)
+            return True
 
         # ─── Phase 1: auto-fit を試行 ────────────────────────
         autofit_oom = False
@@ -1429,6 +1560,16 @@ class ModelManager:
         gpu_layers=None の場合は -ngl を省略し、auto-fit に委ねる。
         Returns: "ok" | "oom" | "fail"
         """
+        self._last_llama_gpu_log = {}
+        self._last_nvidia_smi_before = []
+        self._last_nvidia_smi_after = []
+        runpod_linux = self._is_runpod_linux_runtime(self._last_runtime_decision or None)
+        if runpod_linux and gpu_layers is None:
+            msg = "Runpod/Linux requires explicit -ngl/--n-gpu-layers; refusing auto-fit command"
+            print(f"[ModelManager] {msg}")
+            self._last_startup_hints = [msg]
+            return "fail"
+
         # ─── コマンド構築 ─────────────────────────────────────
         cmd = [
             self.llama_path,
@@ -1478,6 +1619,11 @@ class ModelManager:
         )
         print(cmd_text)
         self._last_start_cmd = " ".join(cmd)
+        if runpod_linux and not any(arg in {"-ngl", "--n-gpu-layers"} for arg in cmd):
+            msg = f"Runpod/Linux command missing explicit -ngl/--n-gpu-layers: {self._last_start_cmd}"
+            print(f"[ModelManager] {msg}")
+            self._last_startup_hints = [msg]
+            return "fail"
 
         # ─── プロセス起動 ─────────────────────────────────────
         try:
@@ -1495,6 +1641,7 @@ class ModelManager:
             ).encode("utf-8", errors="replace")
             log_fd.write(header)
             log_fd.flush()
+            self._last_nvidia_smi_before = self._collect_nvidia_smi_memory()
             self._process = _sp.Popen(
                 cmd, stdout=log_fd, stderr=log_fd, creationflags=flags
             )
@@ -1520,6 +1667,19 @@ class ModelManager:
             emit("model_switching", f"Loading {spec['name']}... {elapsed}s", pct, remaining)
             try:
                 if _req.get(health, timeout=2).status_code == 200:
+                    self._last_nvidia_smi_after = self._collect_nvidia_smi_memory()
+                    self._last_llama_gpu_log = self._parse_llama_gpu_startup_log()
+                    if runpod_linux:
+                        parsed_ngl = self._last_llama_gpu_log.get("n_gpu_layers")
+                        if not isinstance(parsed_ngl, int) or parsed_ngl <= 0:
+                            msg = f"Runpod/Linux GPU validation failed: n_gpu_layers={parsed_ngl!r}"
+                            print(f"[ModelManager] {msg}")
+                            self._last_startup_hints = [msg]
+                            return "fail"
+                        if self._last_llama_gpu_log.get("cuda_buffer_mib") is None:
+                            msg = "Runpod/Linux warning: CUDA model buffer size was not detected in llama log"
+                            print(f"[ModelManager][WARN] {msg}")
+                            self._last_startup_hints = list(self._last_startup_hints or []) + [msg]
                     return "ok"
             except Exception:
                 pass
@@ -1537,6 +1697,35 @@ class ModelManager:
         if any(kw in hints_text for kw in _oom_keywords):
             return "oom"
         return "fail"
+
+
+    def _parse_llama_gpu_startup_log(self) -> dict[str, float | int | None]:
+        """Parse llama.cpp startup GPU placement details from the recent log tail."""
+        parsed: dict[str, float | int | None] = {
+            "n_gpu_layers": None,
+            "cuda_buffer_mib": None,
+            "cpu_buffer_mib": None,
+        }
+        try:
+            if not os.path.exists(LLAMA_STARTUP_LOG_PATH):
+                return parsed
+            with open(LLAMA_STARTUP_LOG_PATH, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()[-400:]
+        except Exception:
+            return parsed
+
+        for line in lines:
+            if parsed["n_gpu_layers"] is None:
+                m = re.search(r"n_gpu_layers\s*=\s*(\d+)", line, re.IGNORECASE)
+                if m:
+                    parsed["n_gpu_layers"] = int(m.group(1))
+            m_cuda = re.search(r"CUDA[^\n]*model buffer size\s*=\s*([0-9.]+)\s*MiB", line, re.IGNORECASE)
+            if m_cuda:
+                parsed["cuda_buffer_mib"] = float(m_cuda.group(1))
+            m_cpu = re.search(r"CPU[^\n]*model buffer size\s*=\s*([0-9.]+)\s*MiB", line, re.IGNORECASE)
+            if m_cpu:
+                parsed["cpu_buffer_mib"] = float(m_cpu.group(1))
+        return parsed
 
     def _parse_ngl_from_log(self) -> int | None:
         """起動ログから実際に使われた n_gpu_layers の値をパースする。"""
@@ -1756,6 +1945,22 @@ class ModelManager:
                     "available": bool(v["path"])}
                 for k, v in catalog.items()
             },
+            "runtime_cuda_debug": self.cuda_debug_dict(),
+        }
+
+    def cuda_debug_dict(self) -> dict:
+        runtime = self._last_runtime_decision or self._runtime_probe()
+        parsed = self._last_llama_gpu_log or self._parse_llama_gpu_startup_log()
+        return {
+            "intended_backend": runtime.get("intended_backend"),
+            "runpod_detected": runtime.get("runpod_detected"),
+            "os_profile": runtime.get("os_profile"),
+            "llama_cmd": self._last_start_cmd,
+            "parsed_n_gpu_layers": parsed.get("n_gpu_layers"),
+            "parsed_cuda_buffer_mib": parsed.get("cuda_buffer_mib"),
+            "parsed_cpu_buffer_mib": parsed.get("cpu_buffer_mib"),
+            "nvidia_smi_memory_before": self._last_nvidia_smi_before,
+            "nvidia_smi_memory_after": self._last_nvidia_smi_after,
         }
 
 
@@ -17669,7 +17874,14 @@ def debug_model_startup():
         "hints": hints,
         "log_path": LLAMA_STARTUP_LOG_PATH,
         "log_tail": log_tail,
+        "runtime_cuda_debug": _model_manager.cuda_debug_dict(),
     }
+
+@app.get("/runtime/cuda-debug")
+def runtime_cuda_debug():
+    """Return the llama CUDA/backend startup diagnostics used by ModelManager."""
+    return _model_manager.cuda_debug_dict()
+
 
 @app.get("/debug/llama")
 def debug_llama():
