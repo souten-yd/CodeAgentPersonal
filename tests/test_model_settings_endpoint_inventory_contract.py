@@ -70,7 +70,12 @@ def test_model_settings_inventory_current_route_owners_are_split_as_expected():
         ("/models/db/benchmark/{mid}", "POST", "main", "benchmark_model_api"),
         ("/models/db/toggle/{mid}", "POST", "main", "toggle_model_enabled"),
         ("/models/db/toggle_vlm/{mid}", "POST", "main", "toggle_model_vlm_enabled"),
-        ("/model/status", "GET", "main", "model_status"),
+        (
+            "/model/status",
+            "GET",
+            "app.api.model_settings",
+            "get_model_manager_status_api",
+        ),
         ("/model/switch", "POST", "main", "model_switch"),
         ("/model/auto-load", "POST", "main", "model_auto_load"),
         ("/llm/props", "GET", "main", "llm_props"),

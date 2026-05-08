@@ -4,7 +4,7 @@ This router owns the low-risk read-only model settings endpoints that have been
 split from ``main.py``. Provider lookups keep ``create_app()`` useful without
 threading new factory arguments through the app factory during the migration.
 When a provider is absent, fallback responses intentionally avoid model DB,
-catalog, settings, and hardware access.
+catalog, settings, model-manager, runtime, and hardware access.
 """
 
 from collections.abc import Callable
@@ -17,6 +17,7 @@ router = APIRouter()
 ModelOrchestrationProvider = Callable[[], dict[str, Any]]
 ModelRolesProvider = Callable[[], dict[str, Any]]
 ModelDbStatusProvider = Callable[[], dict[str, Any]]
+ModelManagerStatusProvider = Callable[[], dict[str, Any]]
 
 
 def default_model_orchestration_payload() -> dict[str, Any]:
@@ -55,6 +56,15 @@ def default_model_db_status_payload() -> dict[str, Any]:
     }
 
 
+def default_model_manager_status_payload() -> dict[str, Any]:
+    """Return conservative model manager status without runtime access."""
+    return {
+        "status": "unavailable",
+        "current_key": "",
+        "catalog": {},
+    }
+
+
 def get_model_orchestration_provider(
     request: Request,
 ) -> ModelOrchestrationProvider | None:
@@ -83,6 +93,16 @@ def get_model_db_status_provider(
     return None
 
 
+def get_model_manager_status_provider(
+    request: Request,
+) -> ModelManagerStatusProvider | None:
+    """Look up the optional app-state provider for model manager status reads."""
+    provider = getattr(request.app.state, "model_manager_status_provider", None)
+    if callable(provider):
+        return provider
+    return None
+
+
 @router.get("/models/orchestration")
 def get_model_orchestration_api(request: Request) -> dict[str, Any]:
     provider = get_model_orchestration_provider(request)
@@ -105,3 +125,11 @@ def get_model_db_status_api(request: Request) -> dict[str, Any]:
     if provider is not None:
         return provider()
     return default_model_db_status_payload()
+
+
+@router.get("/model/status")
+def get_model_manager_status_api(request: Request) -> dict[str, Any]:
+    provider = get_model_manager_status_provider(request)
+    if provider is not None:
+        return provider()
+    return default_model_manager_status_payload()
