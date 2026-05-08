@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.api.model_settings import (
+    default_model_db_list_payload,
     default_model_db_status_payload,
     default_model_manager_status_payload,
     default_model_orchestration_payload,
@@ -105,6 +106,58 @@ def test_main_app_model_orchestration_returns_provider_payload(monkeypatch):
             }
         ],
     }
+
+
+def test_create_app_model_db_list_returns_default_payload():
+    client = TestClient(create_app())
+
+    response = client.get("/models/db")
+
+    assert response.status_code == 200
+    assert response.json() == default_model_db_list_payload()
+
+
+def test_main_app_model_db_list_returns_provider_payload(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "model_db_list",
+        lambda: [
+            {
+                "id": "m1",
+                "model_key": "coder-a",
+                "name": "Coder A",
+                "ctx_size": "raw-ctx",
+                "tok_per_sec": 12.5,
+            },
+            {
+                "id": "m2",
+                "model_key": "coder-b",
+                "name": "Coder B",
+                "ctx_size": None,
+                "tok_per_sec": -1,
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        main,
+        "_resolve_ctx_size",
+        lambda value=None: 4096 if value == "raw-ctx" else 2048,
+    )
+
+    response = TestClient(main.app).get("/models/db")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["count"] == 2
+    assert len(body["models"]) == 2
+    assert body["models"][0] == {
+        "id": "m1",
+        "model_key": "coder-a",
+        "name": "Coder A",
+        "ctx_size": 4096,
+        "tok_per_sec": 12.5,
+    }
+    assert body["models"][1]["ctx_size"] == 2048
 
 
 def test_create_app_model_db_status_returns_default_payload():

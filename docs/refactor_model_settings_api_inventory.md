@@ -1,10 +1,10 @@
 # PR4.30: Model Settings API Inventory
 
 This inventory tracks the model/settings router split after the system router
-and core settings router moves. PR4.33 continues the split by moving the
-read-only `GET /model/status` route into `app/api/model_settings.py` after
-`GET /models/orchestration`, `GET /models/roles`, and
-`GET /models/db/status`; model switch, auto-load, list, scan, benchmark, GGUF,
+and core settings router moves. PR4.34 continues the split by moving the
+read-only `GET /models/db` route into `app/api/model_settings.py` after
+`GET /models/orchestration`, `GET /models/roles`, `GET /models/db/status`,
+and `GET /model/status`; model DB writes, toggle, scan, benchmark, GGUF,
 runtime write controls, and UI endpoints remain in `main.py`.
 
 ## Scope
@@ -18,14 +18,15 @@ The inventory covers endpoints that mix one or more of these concerns:
 - runtime global controls that are settings-adjacent but not fully persisted;
 - UI helper/status endpoints used by model settings screens.
 
-`current route owner` records the router that owns each endpoint after PR4.33.
-`GET /models/orchestration`, `GET /models/roles`, `GET /models/db/status`,
-and `GET /model/status` are owned by `app/api/model_settings.py`; the
-production `main.app` preserves existing behavior by registering app-state
-providers, including `app.state.model_manager_status_provider` for the model
-manager status route. `create_app()` returns conservative empty/default
-fallbacks without settings, DB, catalog, model-manager, runtime, or hardware
-access. Future router PRs should update this document and the route-owner tests
+`current route owner` records the router that owns each endpoint after PR4.34.
+`GET /models/orchestration`, `GET /models/roles`, `GET /models/db`,
+`GET /models/db/status`, and `GET /model/status` are owned by
+`app/api/model_settings.py`; the production `main.app` preserves existing
+behavior by registering app-state providers, including
+`app.state.model_db_list_provider` for the model DB list route and
+`app.state.model_manager_status_provider` for the model manager status route.
+`create_app()` returns conservative empty/default fallbacks without settings,
+DB, catalog, model-manager, runtime, or hardware access. Future router PRs should update this document and the route-owner tests
 at the same time as endpoints are moved.
 
 ## Recommended categories
@@ -41,8 +42,8 @@ at the same time as endpoints are moved.
 
 ## Routerization recommendation summary
 
-1. Read-only orchestration/settings/status endpoints: `GET /models/orchestration`, `GET /models/roles`, `GET /models/db/status`, and `GET /model/status` moved to `app/api/model_settings.py` behind app-state providers; `main.app` uses the providers for parity, and `create_app()` uses conservative fallbacks.
-2. Next candidates: move `GET /models/db` or runtime read-only controls after DB-list and runtime-state seams are stable.
+1. Read-only orchestration/settings/status endpoints: `GET /models/orchestration`, `GET /models/roles`, `GET /models/db`, `GET /models/db/status`, and `GET /model/status` moved to `app/api/model_settings.py` behind app-state providers; `main.app` uses the providers for parity, and `create_app()` uses conservative fallbacks.
+2. Next candidates: move runtime read-only controls or add a model DB write provider skeleton after runtime-state and DB-write seams are stable.
 3. Write model roles/settings endpoint: move `POST /models/roles` and `POST /models/orchestration` only after a settings bulk-write provider and catalog validation provider are explicit.
 4. Ensemble read endpoint: move `GET /ensemble/settings` and `GET /ensemble/vram` with an ensemble resource-status provider.
 5. Ensemble write endpoint: move `POST /ensemble/settings` after settings writes, opencode JSON sync, and low-VRAM guard are providerized together.
@@ -60,7 +61,7 @@ at the same time as endpoints are moved.
 | `/ensemble/settings` | GET | `get_ensemble_settings_api` | `main.py` | ensemble settings read/write | Returns configured execution mode, low-VRAM auto-switch flag, and resource status. | None. | Indirect `settings_get` in `get_ensemble_resource_status`. | Uses selected coder specs through ensemble status helpers; depends on model catalog/model DB indirectly. | Reads hardware/resource status. | No ASR/TTS/Echo direct; Nexus/Atlas may benefit from selected coder ensemble. | No. | No. | Resource/VRAM calculation; no mutation. | Yes with conservative serial/parallel status fallback. | Ensemble status provider. | 4 |
 | `/ensemble/settings` | POST | `save_ensemble_settings_api` | `main.py` | ensemble settings read/write | Persists ensemble execution mode and auto-switch behavior, then returns applied status. | `{ "execution_mode": "parallel|serial", "auto_switch_on_low_vram": bool }`. | Direct `settings_set_bulk`; response reads `settings_get("ensemble_execution_mode")`; guard may call `settings_set`. | Ensemble status may read catalog/model DB indirectly. | Reads hardware/resource status. | No ASR/TTS/Echo direct; Nexus/Atlas indirectly through ensemble coder execution. | Yes, settings table bulk upsert and possible guard single-key update. | Yes, `_sync_ensemble_settings_to_opencode_json()` writes/syncs opencode config. | Validates mode, syncs ensemble JSON, applies low-VRAM guard that may force serial. | No; write path requires real providers. | Settings write/read provider, ensemble sync provider, guard/status provider. | 5 |
 | `/ensemble/vram` | GET | `get_ensemble_vram_api` | `main.py` | heavy probe/status endpoints | Returns full ensemble resource/VRAM status. | None. | Indirect `settings_get` in `get_ensemble_resource_status`. | Indirect model catalog/model DB dependency through selected coder specs. | Hardware/resource status read. | No ASR/TTS/Echo direct; Nexus/Atlas indirectly through ensemble coder capacity. | No. | No. | Resource/VRAM probing; no mutation. | Yes with conservative unknown-resource fallback. | Ensemble status/resource provider. | 4 |
-| `/models/db` | GET | `list_models_db_api` | `main.py` | read-only model catalog/status | Returns model DB rows and count with normalized `ctx_size`. | None. | None direct. | Direct `model_db_list`; `_resolve_ctx_size`. | None. | No direct ASR/TTS/Echo/Nexus/Atlas. | No. | No. | Opens/reads model DB. | Yes with empty list fallback. | Model DB list provider, ctx resolver. | 2 |
+| `/models/db` | GET | `list_models_db_api` | `app/api/model_settings.py` | read-only model catalog/status | Returns model DB rows and count with normalized `ctx_size`. | None. | None direct. | `model_db_list` and `_resolve_ctx_size` through the main-app provider only. | None. | No direct ASR/TTS/Echo/Nexus/Atlas. | No. | No. | Reads model DB through provider in `main.app`; no DB access in `create_app()`. | Yes; `create_app()` returns `models: []` and `count: 0` when provider is missing. | `ModelDbListProvider` backed by main-app DB-list and ctx resolver helpers. | done in PR4.34 |
 | `/models/db` | POST | `add_model_db_api` | `main.py` | write model catalog/status | Adds one model record. | Model object requiring `name` and `path`; optional runtime/model fields including `ctx_size`. | None direct. | Direct `model_db_add`; `_resolve_ctx_size`. | Calls `schedule_default_model_load`. | Nexus/Atlas indirectly through available model catalog. | Yes, inserts/updates model DB. | No direct file write. | Validates required fields and schedules default model load. | No. | Model DB write provider, ctx resolver, model-load scheduler provider. | 7 |
 | `/models/db/{mid}` | PUT | `update_model_db_api` | `main.py` | write model catalog/status | Updates one model row. | Partial model update object; `ctx_size` normalized when present. | None direct. | Direct `model_db_update`; `_resolve_ctx_size`. | None. | No direct ASR/TTS/Echo/Nexus/Atlas. | Yes. | No. | Updates allowed DB columns only. | No. | Model DB write provider, ctx resolver. | 7 |
 | `/models/db/{mid}` | DELETE | `delete_model_db_api` | `main.py` | write model catalog/status | Deletes one model row. | None. | None direct. | Direct `model_db_delete`. | None. | No direct ASR/TTS/Echo/Nexus/Atlas. | Yes. | No. | Deletes DB row. | No. | Model DB write provider. | 7 |
@@ -130,3 +131,12 @@ at the same time as endpoints are moved.
   table writes, model DB writes, model-manager runtime actions, background job
   runners, hardware probes, external Hugging Face requests, and opencode JSON
   sync should remain independently replaceable.
+
+
+## PR4.34 movement notes
+
+- `GET /models/db` moved to `app/api/model_settings.py`.
+- `main.app` registers `app.state.model_db_list_provider = model_db_list_payload`, which preserves the existing model DB list response shape and `ctx_size` normalization through `model_db_list` and `_resolve_ctx_size`.
+- `create_app()` has no provider and returns `default_model_db_list_payload()` (`models: []`, `count: 0`) without touching the model DB, schema, catalog, settings, hardware probes, runtime globals, or filesystem.
+- `POST /models/db`, `PUT /models/db/{mid}`, `DELETE /models/db/{mid}`, model DB toggle endpoints, scan, benchmark, and GGUF endpoints remain in `main.py`.
+- The next practical extraction candidate is runtime read-only controls or a model DB write provider skeleton, depending on whether runtime-state or DB-write seams are stabilized first.

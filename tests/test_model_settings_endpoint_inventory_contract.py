@@ -51,7 +51,7 @@ def test_model_settings_inventory_current_route_owners_are_split_as_expected():
         ("/ensemble/settings", "GET", "main", "get_ensemble_settings_api"),
         ("/ensemble/settings", "POST", "main", "save_ensemble_settings_api"),
         ("/ensemble/vram", "GET", "main", "get_ensemble_vram_api"),
-        ("/models/db", "GET", "main", "list_models_db_api"),
+        ("/models/db", "GET", "app.api.model_settings", "list_models_db_api"),
         ("/models/db", "POST", "main", "add_model_db_api"),
         ("/models/db/{mid}", "PUT", "main", "update_model_db_api"),
         ("/models/db/{mid}", "DELETE", "main", "delete_model_db_api"),

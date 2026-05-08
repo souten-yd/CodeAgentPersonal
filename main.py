@@ -16548,13 +16548,6 @@ def mcp_info():
 # モデルデータベース API
 # =========================
 
-@app.get("/models/db")
-def list_models_db_api():
-    models = model_db_list()
-    for model in models:
-        model["ctx_size"] = _resolve_ctx_size(model.get("ctx_size"))
-    return {"models": models, "count": len(models)}
-
 @app.post("/models/db")
 def add_model_db_api(req: dict):
     if not req.get("name") or not req.get("path"):
@@ -17049,6 +17042,13 @@ def toggle_model_vlm_enabled(mid: str, req: dict):
     return {"ok": True, "vlm_enabled": bool(vlm_enabled)}
 
 
+def model_db_list_payload() -> dict:
+    models = model_db_list()
+    for model in models:
+        model["ctx_size"] = _resolve_ctx_size(model.get("ctx_size"))
+    return {"models": models, "count": len(models)}
+
+
 def model_db_status_payload() -> dict:
     models = model_db_list()
     benchmarked = [m for m in models if m.get("tok_per_sec", -1) > 0]
@@ -17265,6 +17265,7 @@ def settings_bulk_save_payload(req: dict) -> dict:
     return save_settings_api(req)
 
 
+app.state.model_db_list_provider = model_db_list_payload
 app.state.model_orchestration_provider = model_orchestration_payload
 app.state.model_roles_provider = model_roles_payload
 app.state.model_db_status_provider = model_db_status_payload
