@@ -1,8 +1,10 @@
-"""Read-only settings API router.
+"""Settings API router.
 
-This router owns the side-effect-free settings read endpoints while write routes
-remain in ``main.py``.  Provider lookups keep ``create_app()`` useful without
-threading new factory arguments through the app factory during the migration.
+This router owns the low-risk settings endpoints that have been split from
+``main.py``. Provider lookups keep ``create_app()`` useful without threading new
+factory arguments through the app factory during the migration. When the
+single-key write provider is absent, the fallback response intentionally does
+not write to the database.
 """
 
 from collections.abc import Callable
@@ -14,6 +16,7 @@ router = APIRouter()
 
 SettingsGetAllProvider = Callable[[], dict[str, Any]]
 SettingsGetProvider = Callable[[str], dict[str, Any]]
+SettingsSetProvider = Callable[[str, dict[str, Any]], dict[str, Any]]
 SettingsDefaultsProvider = Callable[[], dict[str, Any]]
 
 _SETTINGS_FALLBACK_DEFAULTS: dict[str, Any] = {
@@ -51,6 +54,16 @@ def default_setting_payload(key: str) -> dict[str, Any]:
     return {"key": key, "value": _SETTINGS_FALLBACK_DEFAULTS.get(key, "")}
 
 
+def default_setting_set_payload(key: str, req: dict[str, Any]) -> dict[str, Any]:
+    """Return a conservative write echo without persisting to the DB.
+
+    Factory-created apps do not install ``settings_set_provider`` yet. Keep the
+    historical response shape for callers, but intentionally avoid any storage
+    side effects in that provider-less mode.
+    """
+    return {"ok": True, "key": key, "value": req.get("value", "")}
+
+
 def get_settings_get_all_provider(request: Request) -> SettingsGetAllProvider | None:
     """Look up the optional app-state provider for the full settings map."""
     provider = getattr(request.app.state, "settings_get_all_provider", None)
@@ -70,6 +83,14 @@ def get_settings_get_provider(request: Request) -> SettingsGetProvider | None:
 def get_settings_defaults_provider(request: Request) -> SettingsDefaultsProvider | None:
     """Look up the optional app-state provider for the unshadowed defaults map."""
     provider = getattr(request.app.state, "settings_defaults_provider", None)
+    if callable(provider):
+        return provider
+    return None
+
+
+def get_settings_set_provider(request: Request) -> SettingsSetProvider | None:
+    """Look up the optional app-state provider for a single settings write."""
+    provider = getattr(request.app.state, "settings_set_provider", None)
     if callable(provider):
         return provider
     return None
@@ -102,3 +123,11 @@ def get_setting_api(key: str, request: Request) -> dict[str, Any]:
     if provider is not None:
         return provider(key)
     return default_setting_payload(key)
+
+
+@router.put("/settings/{key}")
+def set_setting_api(key: str, req: dict[str, Any], request: Request) -> dict[str, Any]:
+    provider = get_settings_set_provider(request)
+    if provider is not None:
+        return provider(key, req)
+    return default_setting_set_payload(key, req)

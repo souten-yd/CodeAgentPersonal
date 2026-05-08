@@ -17254,9 +17254,19 @@ def settings_defaults_payload() -> dict:
     return dict(SETTINGS_DEFAULTS)
 
 
+def settings_set_payload(key: str, req: dict) -> dict:
+    """Single-key write provider payload for the settings router."""
+    value = req.get("value", "")
+    if _canonicalize_setting_key(str(key)) == "ctx_size":
+        value = str(_resolve_ctx_size(value))
+    settings_set(key, value)
+    return {"ok": True, "key": key, "value": value}
+
+
 app.state.settings_get_all_provider = settings_get_all_payload
 app.state.settings_get_provider = settings_get_payload
 app.state.settings_defaults_provider = settings_defaults_payload
+app.state.settings_set_provider = settings_set_payload
 
 @app.post("/settings")
 def save_settings_api(req: dict):
@@ -17301,13 +17311,6 @@ def save_settings_api(req: dict):
             pass
     return {"ok": True, "saved": list(req.keys())}
 
-@app.put("/settings/{key}")
-def set_setting_api(key: str, req: dict):
-    value = req.get("value", "")
-    if _canonicalize_setting_key(str(key)) == "ctx_size":
-        value = str(_resolve_ctx_size(value))
-    settings_set(key, value)
-    return {"ok": True, "key": key, "value": value}
 
 @app.get("/settings/defaults")
 def get_settings_defaults():
