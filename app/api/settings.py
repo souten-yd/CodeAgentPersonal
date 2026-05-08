@@ -18,6 +18,7 @@ SettingsGetAllProvider = Callable[[], dict[str, Any]]
 SettingsGetProvider = Callable[[str], dict[str, Any]]
 SettingsSetProvider = Callable[[str, dict[str, Any]], dict[str, Any]]
 SettingsDefaultsProvider = Callable[[], dict[str, Any]]
+SettingsBulkSaveProvider = Callable[[dict[str, Any]], dict[str, Any]]
 
 _SETTINGS_FALLBACK_DEFAULTS: dict[str, Any] = {
     "llm_root_folder": "",
@@ -91,6 +92,14 @@ def get_settings_defaults_provider(request: Request) -> SettingsDefaultsProvider
 def get_settings_set_provider(request: Request) -> SettingsSetProvider | None:
     """Look up the optional app-state provider for a single settings write."""
     provider = getattr(request.app.state, "settings_set_provider", None)
+    if callable(provider):
+        return provider
+    return None
+
+
+def get_settings_bulk_save_provider(request: Request) -> SettingsBulkSaveProvider | None:
+    """Look up the optional app-state provider for the main-owned bulk write."""
+    provider = getattr(request.app.state, "settings_bulk_save_provider", None)
     if callable(provider):
         return provider
     return None

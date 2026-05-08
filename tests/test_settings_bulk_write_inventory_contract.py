@@ -1,6 +1,9 @@
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 import main
+from app.api.settings import get_settings_bulk_save_provider
 
 
 def _single_route(path: str, method: str):
@@ -19,6 +22,31 @@ def test_post_settings_route_owner_stays_in_main_before_provider_split():
 
     assert route.endpoint.__module__ == "main"
     assert route.endpoint.__name__ == "save_settings_api"
+
+
+def test_main_app_settings_bulk_save_provider_is_callable():
+    provider = getattr(main.app.state, "settings_bulk_save_provider", None)
+
+    assert callable(provider)
+    assert provider is main.settings_bulk_save_payload
+
+
+def test_settings_bulk_save_provider_lookup_reads_app_state_provider():
+    request = SimpleNamespace(app=main.app)
+
+    assert get_settings_bulk_save_provider(request) is main.settings_bulk_save_payload
+
+
+def test_settings_bulk_save_provider_direct_call_matches_save_response_shape(monkeypatch):
+    bulk_writes = []
+
+    monkeypatch.setattr(main, "settings_set_bulk", lambda req: bulk_writes.append(dict(req)))
+
+    provider = main.app.state.settings_bulk_save_provider
+    body = provider({"provider_contract_key": "provider-value", "max_output_tokens": "999"})
+
+    assert body == {"ok": True, "saved": ["provider_contract_key"]}
+    assert bulk_writes == [{"provider_contract_key": "provider-value"}]
 
 
 def test_post_settings_response_shape_and_side_effect_paths_without_db_write(monkeypatch):
