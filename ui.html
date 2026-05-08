@@ -60,7 +60,7 @@
   </div>
   <div class="hdr-right">
     <div class="mode-wrap">
-      <button class="mode-btn active" id="btn-chat" onclick="setMode('chat')">Chat</button>
+      <button class="mode-btn active" id="btn-chat" onclick="setMode('chat')">Lumen</button>
       <button class="mode-btn" id="btn-atlas" onclick="setMode('atlas')">Atlas</button>
             <button class="mode-btn" id="btn-echo" onclick="setMode('echo')">Echo</button>
       <button class="mode-btn" id="btn-nexus" onclick="setMode('nexus')">Nexus</button>
@@ -95,7 +95,7 @@
 
 <div class="mob-tabs">
   <!-- Chat/Task モード用タブ -->
-  <button class="mob-tab wide active" id="mob-chat" onclick="mobSwitch('chat')">Chat</button>
+  <button class="mob-tab wide active" id="mob-chat" onclick="mobSwitch('chat')">Lumen</button>
   <button class="mob-tab wide" id="mob-files" onclick="mobSwitch('files')">Files</button>
   <button class="mob-tab" id="mob-log" onclick="mobSwitch('log')">Log</button>
   <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skill</button>
@@ -5233,7 +5233,8 @@ _echoRefreshStatusLine();
   if (mode === 'task') mode = 'chat';
   syncChatTaskToggle();
   syncAllTtsToggles();
-  // UI navigation is restored after startup data/init work below.
+  // Restore persisted mode/subtab before async startup work can delay or abort later init.
+  restoreUiNavigationState();
   localStorage.removeItem('llm_endpoints'); // 旧LLMエンドポイント設定をクリーンアップ
   await loadSettingsFromDb();   // DBから設定を復元（localStorage優先ではなくDB優先）
   syncAllTtsToggles();
@@ -5555,30 +5556,35 @@ function getLastSubtabForMode(m) {
   return UI_MODE_DEFAULT_SUBTABS[m] || '';
 }
 
-function restoreLastSubtabForMode(m) {
+function restoreLastSubtabForMode(m, options = {}) {
   const subtab = getLastSubtabForMode(m);
   if (!subtab) return;
+  const shouldPersistSubtab = options.persist !== false;
   if (m === 'chat') {
-    if (window.innerWidth <= 768) mobSwitch(subtab, {restore: true});
+    if (window.innerWidth <= 768) mobSwitch(subtab, {restore: true, persist: shouldPersistSubtab});
     else if (subtab === 'chat') _setPanelTabActiveButton(document.querySelector('.tab-content.active')?.id?.replace('tab-','') || 'files');
-    else switchTab(subtab);
-    saveLastSubtab('chat', subtab);
+    else switchTab(subtab, {persist: shouldPersistSubtab});
+    if (shouldPersistSubtab) saveLastSubtab('chat', subtab);
     return;
   }
   if (m === 'echo') {
-    if (window.innerWidth <= 768) mobSwitch(subtab, {restore: true});
+    if (window.innerWidth <= 768) mobSwitch(subtab, {restore: true, persist: shouldPersistSubtab});
     else if (subtab === 'echo') _setPanelTabActiveButton(document.querySelector('.tab-content.active')?.id?.replace('tab-','') || 'vault');
-    else switchTab(subtab);
-    saveLastSubtab('echo', subtab);
+    else switchTab(subtab, {persist: shouldPersistSubtab});
+    if (shouldPersistSubtab) saveLastSubtab('echo', subtab);
     return;
   }
 }
 
 function restoreUiNavigationState() {
-  let savedMode = '';
-  try { savedMode = localStorage.getItem(UI_LAST_MODE_KEY) || ''; } catch (_) {}
-  const targetMode = isValidUiMode(savedMode) ? savedMode : 'chat';
-  setMode(targetMode, {restore: true, persist: isValidUiMode(savedMode)});
+  try {
+    const savedMode = localStorage.getItem(UI_LAST_MODE_KEY) || '';
+    const hasValidSavedMode = isValidUiMode(savedMode);
+    const targetMode = hasValidSavedMode ? savedMode : 'chat';
+    setMode(targetMode, {restore: true, persist: false});
+  } catch (err) {
+    console.warn('restoreUiNavigationState failed', err);
+  }
 }
 
 let agentSessionActive = false;
@@ -5951,7 +5957,7 @@ function setMode(m, options = {}) {
   }
 
   if (shouldRestoreSubtab && (m === 'chat' || m === 'echo')) {
-    restoreLastSubtabForMode(m);
+    restoreLastSubtabForMode(m, {persist: shouldPersistMode});
   }
 }
 
@@ -8831,9 +8837,11 @@ function mobSwitch(name, options = {}) {
   const nc = document.getElementById('nexus-col');
   const atc = document.getElementById('atlas-panel-col');
 
+  const shouldPersistSubtab = options.persist !== false;
+
   if (name === 'chat') {
-    if (mode !== 'chat') setMode('chat', {restore: false});
-    saveLastSubtab('chat', 'chat');
+    if (mode !== 'chat') setMode('chat', {restore: false, persist: shouldPersistSubtab});
+    if (shouldPersistSubtab) saveLastSubtab('chat', 'chat');
     cc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden');
     ec?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
@@ -8859,8 +8867,8 @@ function mobSwitch(name, options = {}) {
     nc?.classList.add('mob-hidden');
     atc?.classList.add('mob-hidden');
   } else if (name === 'echo') {
-    if (mode !== 'echo') setMode('echo', {restore: false});
-    saveLastSubtab('echo', 'echo');
+    if (mode !== 'echo') setMode('echo', {restore: false, persist: shouldPersistSubtab});
+    if (shouldPersistSubtab) saveLastSubtab('echo', 'echo');
     ec?.classList.remove('mob-hidden');
     cc?.classList.add('mob-hidden');
     pc?.classList.add('mob-hidden');
@@ -8888,38 +8896,40 @@ function mobSwitch(name, options = {}) {
     atc?.classList.add('mob-hidden');
     pc?.classList.add('mob-hidden');
   } else if (name === 'vault') {
-    if (mode !== 'echo') { setMode('echo', {restore: false}); }
-    saveLastSubtab('echo', 'vault');
+    if (mode !== 'echo') { setMode('echo', {restore: false, persist: shouldPersistSubtab}); }
+    if (shouldPersistSubtab) saveLastSubtab('echo', 'vault');
     ec?.classList.add('mob-hidden');
     cc?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
     ap?.classList.add('mob-hidden');
     nc?.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
-    switchTab('vault');
+    switchTab('vault', {persist: shouldPersistSubtab});
   } else if (name === 'asr') {
-    if (mode !== 'echo') { setMode('echo', {restore: false}); }
-    saveLastSubtab('echo', 'asr');
+    if (mode !== 'echo') { setMode('echo', {restore: false, persist: shouldPersistSubtab}); }
+    if (shouldPersistSubtab) saveLastSubtab('echo', 'asr');
     ec?.classList.add('mob-hidden');
     cc?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
     ap?.classList.add('mob-hidden');
     nc?.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
-    switchTab('asr');
+    switchTab('asr', {persist: shouldPersistSubtab});
   } else if (name === 'tts') {
-    if (mode !== 'echo') { setMode('echo', {restore: false}); }
-    saveLastSubtab('echo', 'tts');
+    if (mode !== 'echo') { setMode('echo', {restore: false, persist: shouldPersistSubtab}); }
+    if (shouldPersistSubtab) saveLastSubtab('echo', 'tts');
     ec?.classList.add('mob-hidden');
     cc?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
     ap?.classList.add('mob-hidden');
     nc?.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
-    switchTab('tts');
+    switchTab('tts', {persist: shouldPersistSubtab});
   } else {
-    if (mode === 'echo') saveLastSubtab('echo', name === 'models' ? 'models' : 'log');
-    else saveLastSubtab('chat', name === 'files' ? 'files' : name === 'skills' ? 'skills' : name === 'memory' ? 'memory' : name === 'models' ? 'models' : 'log');
+    if (shouldPersistSubtab) {
+      if (mode === 'echo') saveLastSubtab('echo', name === 'models' ? 'models' : 'log');
+      else saveLastSubtab('chat', name === 'files' ? 'files' : name === 'skills' ? 'skills' : name === 'memory' ? 'memory' : name === 'models' ? 'models' : 'log');
+    }
     cc.classList.add('mob-hidden');
     ec?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
@@ -8930,7 +8940,7 @@ function mobSwitch(name, options = {}) {
       : name === 'skills' ? 'skills'
       : name === 'memory' ? 'memory'
       : name === 'models' ? 'models'
-      : 'log');
+      : 'log', {persist: shouldPersistSubtab});
   }
 }
 

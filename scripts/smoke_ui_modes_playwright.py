@@ -1490,6 +1490,44 @@ async def verify_chat_echo_navigation_persistence(page) -> None:
     localStorage.removeItem('kasane:lastSubtabsByMode');
   }""")
 
+  await page.evaluate("""() => {
+    localStorage.setItem('kasane:lastMode', 'echo');
+    localStorage.setItem('kasane:lastSubtabsByMode', JSON.stringify({echo: 'vault'}));
+  }""")
+  await page.reload()
+  await page.wait_for_load_state("domcontentloaded")
+  await wait_named(page, "echo_vault_restored_from_seeded_storage", """() => {
+    const echo = document.getElementById('echo-col');
+    const chat = document.getElementById('chat-col');
+    return document.getElementById('btn-echo')?.classList.contains('active') &&
+      !document.getElementById('btn-chat')?.classList.contains('active') &&
+      !!echo && getComputedStyle(echo).display !== 'none' &&
+      (!chat || getComputedStyle(chat).display === 'none') &&
+      document.getElementById('tab-btn-vault')?.classList.contains('active') &&
+      document.getElementById('tab-vault')?.classList.contains('active') &&
+      localStorage.getItem('kasane:lastMode') === 'echo';
+  }""")
+
+  await page.evaluate("""() => {
+    localStorage.setItem('kasane:lastMode', 'chat');
+    localStorage.setItem('kasane:lastSubtabsByMode', JSON.stringify({chat: 'files'}));
+  }""")
+  await page.reload()
+  await page.wait_for_load_state("domcontentloaded")
+  await wait_named(page, "chat_files_restored_from_seeded_storage", """() => {
+    const chat = document.getElementById('chat-col');
+    return document.getElementById('btn-chat')?.classList.contains('active') &&
+      !!chat && getComputedStyle(chat).display !== 'none' &&
+      document.getElementById('tab-btn-files')?.classList.contains('active') &&
+      document.getElementById('tab-files')?.classList.contains('active') &&
+      localStorage.getItem('kasane:lastMode') === 'chat';
+  }""")
+
+  await page.evaluate("""() => {
+    localStorage.removeItem('kasane:lastMode');
+    localStorage.removeItem('kasane:lastSubtabsByMode');
+  }""")
+
   await page.click("#btn-echo")
   await wait_named(page, "echo_mode_visible_before_reload", """() => {
     const echo = document.getElementById('echo-col');
