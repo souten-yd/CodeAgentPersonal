@@ -64,6 +64,7 @@ from app.asr.service import (
     _normalize_asr_engine,
     resolve_effective_asr_config,
 )
+from app.audio.runtime_config import detect_audio_runtime
 from app.asr.whisper_cpp_runtime import WHISPER_CPP_SERVER_RUNTIME, resolve_ffmpeg_binary, resolve_whisper_cpp_binary, resolve_whisper_cpp_model
 from app.env_detection import detect_gpu_profile, detect_os_profile, detect_runpod
 from app.tts.style_bert_vits2_paths import (
@@ -9803,23 +9804,35 @@ except Exception:
 _voice_lock = threading.Lock()
 _voice_model = None
 _voice_model_name = os.environ.get("CODEAGENT_ASR_DEFAULT_MODEL", "large-v3-turbo")
-_voice_device = "cpu"
-_voice_compute_type = "int8"
+_voice_model_device = ""
+_voice_model_compute_type = ""
+_audio_runtime_initial = detect_audio_runtime()
+_voice_device = _audio_runtime_initial.asr_device
+_voice_compute_type = _audio_runtime_initial.asr_compute_type
+_last_asr_cuda_error = ""
+_last_asr_cuda_error_at = ""
 
-def _detect_voice_runtime_device() -> tuple[str, str]:
-    """
-    ASRの既定デバイスを自動判定する。
-    - CUDAが利用可能なら cuda/float16
-    - それ以外は cpu/int8
-    """
-    force = (os.environ.get("CODEAGENT_ASR_DEVICE", "") or "").strip().lower()
-    if force in {"cpu", "cuda"}:
-        return (force, "int8" if force == "cpu" else "float16")
-    if shutil.which("nvidia-smi"):
-        return ("cuda", "float16")
-    return ("cpu", "int8")
 
-_voice_device, _voice_compute_type = _detect_voice_runtime_device()
+def _refresh_voice_runtime_device() -> tuple[str, str]:
+    cfg = detect_audio_runtime()
+    return cfg.asr_device, cfg.asr_compute_type
+
+
+def _record_asr_cuda_error(exc: Exception) -> None:
+    global _last_asr_cuda_error, _last_asr_cuda_error_at
+    _last_asr_cuda_error = f"{type(exc).__name__}: {exc}"
+    _last_asr_cuda_error_at = datetime.utcnow().isoformat() + "Z"
+
+
+def _asr_fallback_to_cpu() -> None:
+    global _voice_model, _voice_model_device, _voice_model_compute_type, _voice_device, _voice_compute_type
+    _voice_model = None
+    _voice_model_device = ""
+    _voice_model_compute_type = ""
+    _voice_device = "cpu"
+    _voice_compute_type = "int8"
+    os.environ["CODEAGENT_ASR_DEVICE"] = "cpu"
+    os.environ["CODEAGENT_ASR_COMPUTE_TYPE"] = "int8"
 
 _VOICE_MODEL_CANDIDATES = [
     {"name": "large-v3-turbo", "priority": "accuracy", "note": "高精度・多言語対応（ローカル推奨）"},
@@ -9860,34 +9873,60 @@ def _voice_model_exists(model_name: str) -> bool:
         return True
     return False
 
-def voice_load(model_name: str = "small", device: str | None = None) -> dict:
-    """WhisperモデルをCPU/GPU(RAM)へオンデマンドロードする。"""
-    global _voice_model, _voice_model_name, _voice_device, _voice_compute_type
+def get_or_load_asr_model(model_name: str = "small", device: str | None = None) -> dict:
+    """Load the shared faster-whisper ASR model with unified CUDA/CPU fallback."""
+    global _voice_model, _voice_model_name, _voice_model_device, _voice_model_compute_type, _voice_device, _voice_compute_type
     if WhisperModel is None:
         raise RuntimeError("faster-whisper is not installed. install: pip install faster-whisper")
     if device is not None and device in ("cpu", "cuda"):
         _voice_device = device
         _voice_compute_type = "int8" if device == "cpu" else "float16"
+    else:
+        _voice_device, _voice_compute_type = _refresh_voice_runtime_device()
     with _voice_lock:
-        if _voice_model is not None and _voice_model_name == model_name and (device is None or _voice_device == device):
+        if (_voice_model is not None and _voice_model_name == model_name and _voice_model_device == _voice_device and _voice_model_compute_type == _voice_compute_type):
             return {"loaded": True, "model": _voice_model_name, "device": _voice_device, "compute_type": _voice_compute_type}
         model_ref = _resolve_asr_model_ref(model_name)
-        print(f"[ASR] loading model from: {model_ref}")
-        _voice_model = WhisperModel(
-            model_ref,
-            device=_voice_device,
-            compute_type=_voice_compute_type,
-            download_root=_voice_model_dir(),
-            local_files_only=_asr_local_files_only(),
-        )
+        print(f"[ASR] loading model from: {model_ref} device={_voice_device} compute_type={_voice_compute_type}")
+        try:
+            _voice_model = WhisperModel(
+                model_ref,
+                device=_voice_device,
+                compute_type=_voice_compute_type,
+                download_root=_voice_model_dir(),
+                local_files_only=_asr_local_files_only(),
+            )
+        except Exception as e:
+            if _voice_device == "cuda":
+                _record_asr_cuda_error(e)
+                logging.warning("ASR CUDA initialization failed; falling back to CPU/int8: %s", e)
+                _asr_fallback_to_cpu()
+                _voice_model = WhisperModel(
+                    model_ref,
+                    device=_voice_device,
+                    compute_type=_voice_compute_type,
+                    download_root=_voice_model_dir(),
+                    local_files_only=_asr_local_files_only(),
+                )
+            else:
+                raise
         _voice_model_name = model_name
+        _voice_model_device = _voice_device
+        _voice_model_compute_type = _voice_compute_type
         return {"loaded": True, "model": _voice_model_name, "device": _voice_device, "compute_type": _voice_compute_type}
+
+
+def voice_load(model_name: str = "small", device: str | None = None) -> dict:
+    """WhisperモデルをCPU/GPU(RAM)へオンデマンドロードする。"""
+    return get_or_load_asr_model(model_name=model_name, device=device)
 
 def voice_unload() -> dict:
     """WhisperモデルをアンロードしてRAMを解放する。"""
-    global _voice_model
+    global _voice_model, _voice_model_device, _voice_model_compute_type
     with _voice_lock:
         _voice_model = None
+        _voice_model_device = ""
+        _voice_model_compute_type = ""
     return {"loaded": False}
 
 def voice_status() -> dict:
@@ -9897,6 +9936,9 @@ def voice_status() -> dict:
             "model": _voice_model_name if _voice_model is not None else "",
             "device": _voice_device,
             "compute_type": _voice_compute_type,
+            "last_cuda_error": _last_asr_cuda_error,
+            "last_cuda_error_at": _last_asr_cuda_error_at,
+            "lock_locked": _voice_lock.locked(),
             "candidates": _VOICE_MODEL_CANDIDATES,
         }
 
@@ -10189,19 +10231,23 @@ def _apply_asr_runtime_settings(req: dict | None = None) -> dict:
     req_engine = str(req.get("asr_engine") or "").strip().lower() if req.get("asr_override") else ""
     req_fw = str(req.get("faster_whisper_device") or req.get("device") or "").strip().lower() if req.get("asr_override") else ""
     req_cpp = str(req.get("whisper_cpp_backend") or "").strip().lower() if req.get("asr_override") else ""
+    req_compute = str(req.get("compute_type") or req.get("asr_compute_type") or "").strip().lower() if req.get("asr_override") else ""
     engine = req_engine or saved_engine or _normalize_asr_engine(os.environ.get("CODEAGENT_ASR_ENGINE", "")) or "faster_whisper"
     if cfg.get("is_runpod"):
         engine = "faster_whisper"
     if engine not in {"faster_whisper", "whisper_cpp"}:
         engine = "faster_whisper"
-    fw = req_fw or saved_fw or str(os.environ.get("CODEAGENT_ASR_DEVICE", "cuda")).strip().lower()
-    if fw not in {"cpu", "cuda"}: fw = "cuda"
+    fw = req_fw or saved_fw or str(cfg.get("asr_device") or os.environ.get("CODEAGENT_ASR_DEVICE", "auto")).strip().lower()
+    if fw not in {"cpu", "cuda"}: fw = str(cfg.get("asr_device") or "cpu")
+    compute_type = req_compute or str(cfg.get("asr_compute_type") or os.environ.get("CODEAGENT_ASR_COMPUTE_TYPE", "auto")).strip().lower()
+    if compute_type not in {"float16", "int8_float16", "int8"}: compute_type = "float16" if fw == "cuda" else "int8"
     cpp = req_cpp or saved_cpp or str(os.environ.get("CODEAGENT_WHISPER_CPP_BACKEND", "vulkan")).strip().lower()
     if cpp not in {"cpu", "vulkan"}: cpp = "vulkan"
     os.environ["CODEAGENT_ASR_ENGINE"] = "faster_whisper" if cfg.get("is_runpod") else engine
     os.environ["CODEAGENT_WHISPER_CPP_BACKEND"] = cpp
     os.environ["CODEAGENT_ASR_DEVICE"] = fw
-    return {"engine": os.environ["CODEAGENT_ASR_ENGINE"], "faster_whisper_device": fw, "whisper_cpp_backend": cpp}
+    os.environ["CODEAGENT_ASR_COMPUTE_TYPE"] = compute_type
+    return {"engine": os.environ["CODEAGENT_ASR_ENGINE"], "faster_whisper_device": fw, "compute_type": compute_type, "whisper_cpp_backend": cpp}
 def voice_transcribe(
     audio_bytes: bytes,
     language: str = "auto",
@@ -11416,9 +11462,7 @@ from fastapi.responses import FileResponse as _FileResponse
 
 # Echo セッション状態（session_id → dict）
 _echo_sessions: dict = {}
-_echo_voice_lock = threading.Lock()   # voice_transcribe 専用ロック（Echo用）
-_echo_voice_model = None              # Echo用 Whisper モデル（通常ASRと分離）
-_echo_voice_model_name = ""
+# Echo ASR shares the normal ASR model/cache/lock to avoid divergent CUDA initialization.
 _echo_debug_lock = threading.Lock()
 _echo_debug_events: dict[str, list[dict]] = {}
 _echo_debug_last_updated: dict[str, str] = {}
@@ -11575,9 +11619,7 @@ def _echo_voice_transcribe(
     asr_post_filter: dict | None = None,
     initial_prompt: str | None = None,
 ) -> dict:
-    """Echo専用 voice_transcribe。_echo_voice_lock を使用し通常ASRと競合しない。"""
-    global _echo_voice_model, _echo_voice_model_name
-    from faster_whisper import WhisperModel  # type: ignore
+    """Echo ASR path using the shared faster-whisper model and lock."""
     import tempfile, re as _re
 
     fmt = (audio_format or "webm").strip().lower()
@@ -11607,18 +11649,8 @@ def _echo_voice_transcribe(
         audio_input = temp_path
     try:
         filter_cfg = _resolve_asr_post_filter_config(asr_post_filter)
-        with _echo_voice_lock:
-            if _echo_voice_model is None or _echo_voice_model_name != model_name:
-                model_ref = _resolve_asr_model_ref(model_name)
-                print(f"[ASR][Echo] loading model from: {model_ref}")
-                _echo_voice_model = WhisperModel(
-                    model_ref,
-                    device=_voice_device,
-                    compute_type=_voice_compute_type,
-                    download_root=_voice_model_dir(),
-                    local_files_only=_asr_local_files_only(),
-                )
-                _echo_voice_model_name = model_name
+        get_or_load_asr_model(model_name=model_name)
+        with _voice_lock:
             lang_arg = None if language == "auto" else language
             asr_profile = _resolve_asr_profile(asr_profile)
             transcribe_kwargs = _build_asr_transcribe_kwargs(
@@ -11632,7 +11664,7 @@ def _echo_voice_transcribe(
             prompt = str(initial_prompt or "").strip()
             if prompt:
                 transcribe_kwargs["initial_prompt"] = prompt
-            segments, info = _echo_voice_model.transcribe(
+            segments, info = _voice_model.transcribe(
                 audio_input,
                 language=lang_arg,
                 **transcribe_kwargs,
@@ -11650,7 +11682,7 @@ def _echo_voice_transcribe(
                     retry_kwargs["beam_size"] = max(1, int(retry_kwargs.get("beam_size", 1)) + int(filter_cfg.get("retry_beam_add", 2)))
                     retry_kwargs["best_of"] = max(1, int(retry_kwargs.get("best_of", 1)) + int(filter_cfg.get("retry_best_of_add", 2)))
                     retry_applied = True
-                    segments_retry, info = _echo_voice_model.transcribe(
+                    segments_retry, info = _voice_model.transcribe(
                         audio_input,
                         language=lang_arg,
                         **retry_kwargs,
@@ -12146,11 +12178,6 @@ async def echo_stream_ws(websocket: WebSocket):
                     if asr_device in {"cpu", "cuda"}:
                         try:
                             st = voice_load(model_name=model_name, device=asr_device)
-                            # Echo専用モデルは device 変更時に作り直す
-                            with _echo_voice_lock:
-                                global _echo_voice_model, _echo_voice_model_name
-                                _echo_voice_model = None
-                                _echo_voice_model_name = ""
                             await send({
                                 "type": "ui_log",
                                 "level": "info",
@@ -12323,6 +12350,21 @@ async def echo_stream_ws(websocket: WebSocket):
                             bytes=0,
                             ack_ts=_echo_debug_now_iso(),
                         )
+                    continue
+
+                min_asr_chunk_bytes = max(1, int(os.environ.get("CODEAGENT_ECHO_ASR_MIN_CHUNK_BYTES", "1024") or 1024))
+                if len(audio_bytes or b"") < min_asr_chunk_bytes:
+                    if seq is not None:
+                        await send({"type": "ack", "seq": seq, "skipped": True, "reason": "chunk_too_small"})
+                    _echo_debug_append(
+                        session_id=session_id,
+                        seq=seq,
+                        event_type="chunk_skip_too_small",
+                        receive_ts=chunk_receive_iso,
+                        bytes=len(audio_bytes or b""),
+                        min_bytes=min_asr_chunk_bytes,
+                        ack_ts=_echo_debug_now_iso(),
+                    )
                     continue
 
                 _echo_debug_append(
@@ -17407,6 +17449,91 @@ def get_ensemble_vram_api():
 # =========================
 # ユーザー設定 API
 # =========================
+
+
+
+def _probe_main_torch_cuda() -> dict:
+    try:
+        import torch  # type: ignore
+
+        return {
+            "available": bool(torch.cuda.is_available()),
+            "torch_version": str(getattr(torch, "__version__", "")),
+            "torch_file": str(getattr(torch, "__file__", "")),
+            "cuda_version": str(getattr(getattr(torch, "version", None), "cuda", "") or ""),
+            "device_count": int(torch.cuda.device_count()) if hasattr(torch.cuda, "device_count") else 0,
+            "error": "",
+        }
+    except Exception as e:
+        return {"available": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def _probe_sbv2_venv_cuda(timeout_sec: float = 8.0) -> dict:
+    py = resolve_style_bert_vits2_python_path()
+    if not os.path.isfile(py):
+        return {"available": False, "python_path": py, "error": "python_not_found"}
+    code = (
+        "import json\n"
+        "out={}\n"
+        "try:\n"
+        " import torch\n"
+        " out={'available': bool(torch.cuda.is_available()), 'torch_version': getattr(torch,'__version__',''), "
+        "'torch_file': getattr(torch,'__file__',''), 'cuda_version': getattr(getattr(torch,'version',None),'cuda','') or '', "
+        "'device_count': torch.cuda.device_count() if hasattr(torch.cuda,'device_count') else 0, 'error': ''}\n"
+        "except Exception as e:\n"
+        " out={'available': False, 'error': type(e).__name__ + ': ' + str(e)}\n"
+        "print(json.dumps(out, ensure_ascii=False))\n"
+    )
+    try:
+        proc = subprocess.run([py, "-c", code], capture_output=True, text=True, timeout=timeout_sec, env={**os.environ, "PYTHONNOUSERSITE": "1"})
+        stdout = (proc.stdout or "").strip()
+        parsed = json.loads(stdout.splitlines()[-1]) if stdout else {}
+        parsed["python_path"] = py
+        parsed["returncode"] = proc.returncode
+        parsed["stderr_tail"] = "\n".join((proc.stderr or "").splitlines()[-40:])
+        return parsed
+    except Exception as e:
+        return {"available": False, "python_path": py, "error": f"{type(e).__name__}: {e}"}
+
+
+@app.get("/audio/runtime/debug")
+def audio_runtime_debug_api():
+    runtime_cfg = detect_audio_runtime()
+    asr_cfg = _resolve_asr_runtime_config()
+    voice = voice_status()
+    try:
+        tts_status = _tts_engine_registry.get(raw_engine_key="style_bert_vits2").status()
+    except Exception as e:
+        tts_status = {"error": f"{type(e).__name__}: {e}"}
+    return {
+        "audio_runtime": runtime_cfg.to_dict(),
+        "main_venv_cuda": _probe_main_torch_cuda(),
+        "ctranslate2_cuda": {
+            "available": runtime_cfg.ctranslate2_cuda_available,
+        },
+        "sbv2_venv_cuda_probe": _probe_sbv2_venv_cuda(),
+        "asr_selected": {
+            "device": asr_cfg.get("asr_device") or voice.get("device"),
+            "compute_type": asr_cfg.get("asr_compute_type") or voice.get("compute_type"),
+            "effective_engine": asr_cfg.get("effective_engine"),
+            "effective_backend": asr_cfg.get("effective_backend"),
+            "loaded": voice.get("loaded"),
+        },
+        "tts_selected": {
+            "device": tts_status.get("selected_device") or tts_status.get("effective_device") or runtime_cfg.tts_device,
+            "requested_device": tts_status.get("requested_device") or tts_status.get("device_env") or "auto",
+            "effective_device": tts_status.get("effective_device") or runtime_cfg.tts_device,
+        },
+        "last_asr_cuda_error": {
+            "error": voice.get("last_cuda_error") or "",
+            "at": voice.get("last_cuda_error_at") or "",
+        },
+        "last_tts_worker_error": tts_status.get("last_worker_error") or {},
+        "audio_cuda_serialize_lock": {
+            "asr_lock_locked": bool(voice.get("lock_locked")),
+        },
+    }
+
 
 @app.get("/asr/config")
 def asr_config_api():
