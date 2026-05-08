@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api.health import router as health_router
+from app.api.settings import router as settings_router
 from app.api.system import router as system_router
 
 Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None] | AsyncIterator[None]]
@@ -104,6 +105,7 @@ def include_routers(app: FastAPI) -> None:
     """
     app.include_router(health_router)
     app.include_router(system_router)
+    app.include_router(settings_router)
 
 
 def configure_middleware(app: FastAPI) -> None:

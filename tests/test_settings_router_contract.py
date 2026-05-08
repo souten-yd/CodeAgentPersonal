@@ -1,0 +1,58 @@
+from fastapi.testclient import TestClient
+
+import main
+from app.server import create_app
+
+
+def test_create_app_settings_returns_conservative_fallback_payload():
+    client = TestClient(create_app())
+
+    response = client.get("/settings")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert isinstance(body, dict)
+    assert isinstance(body["llm_root_folder"], str)
+    assert body["search_enabled"] in {"true", "false"}
+    assert body["streaming_enabled"] in {"true", "false"}
+    assert str(body["ctx_size"]).isdigit()
+    assert body["feature_mode"] in {"model_orchestration", "ensemble"}
+    assert body["ensemble_execution_mode"] in {"parallel", "serial"}
+
+
+def test_main_app_settings_uses_existing_full_settings_provider():
+    client = TestClient(main.app)
+
+    response = client.get("/settings")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert isinstance(body, dict)
+    assert isinstance(body["llm_root_folder"], str)
+    assert body["search_enabled"] in {"true", "false"}
+    assert body["streaming_enabled"] in {"true", "false"}
+    assert str(body["ctx_size"]).isdigit()
+    assert body["feature_mode"] in {"model_orchestration", "ensemble"}
+    assert body["ensemble_execution_mode"] in {"parallel", "serial"}
+
+
+def test_create_app_setting_by_key_returns_conservative_fallback_payload():
+    client = TestClient(create_app())
+
+    response = client.get("/settings/ctx_size")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["key"] == "ctx_size"
+    assert str(body["value"]).isdigit()
+
+
+def test_main_app_setting_by_key_uses_existing_key_value_provider():
+    client = TestClient(main.app)
+
+    response = client.get("/settings/ctx_size")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["key"] == "ctx_size"
+    assert str(body["value"]).isdigit()
