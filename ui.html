@@ -1965,6 +1965,17 @@ function normalizeCtxSize(value, fallback = _settingsDefaultCtxSize) {
 }
 
 let mode = 'chat';
+const UI_LAST_MODE_KEY = 'kasane:lastMode';
+const UI_LAST_SUBTABS_KEY = 'kasane:lastSubtabsByMode';
+const UI_VALID_MODES = ['chat','atlas','echo','nexus','agent'];
+const UI_PRIMARY_MODES = ['chat','atlas','echo','nexus'];
+const UI_MODE_DEFAULT_SUBTABS = {chat: 'chat', echo: 'echo', atlas: 'start', nexus: 'dashboard'};
+const UI_MODE_SUBTABS = {
+  chat: ['chat','files','log','skills','memory','models'],
+  echo: ['echo','vault','log','models','asr','tts'],
+  atlas: ['start'],
+  nexus: ['dashboard'],
+};
 let asrRuntimeConfig = {is_windows:false,is_runpod:false,gpu_vendor:'unknown',asr_engine:'faster_whisper',whisper_cpp_ready:false};
 const CHAT_TASK_TOGGLE_KEY = 'chat_task_enabled';
 let isTaskEnabled = false; // Chat/Atlas separation: legacy Chat task planning is disabled.
@@ -5222,12 +5233,7 @@ _echoRefreshStatusLine();
   if (mode === 'task') mode = 'chat';
   syncChatTaskToggle();
   syncAllTtsToggles();
-  if (window.innerWidth <= 768) {
-    mobSwitch('chat');
-  } else {
-    // PC: Chat モードのデフォルトタブ表示を確保
-    _updateMobTabs('chat');
-  }
+  // UI navigation is restored after startup data/init work below.
   localStorage.removeItem('llm_endpoints'); // 旧LLMエンドポイント設定をクリーンアップ
   await loadSettingsFromDb();   // DBから設定を復元（localStorage優先ではなくDB優先）
   syncAllTtsToggles();
@@ -5254,6 +5260,7 @@ _echoRefreshStatusLine();
   _echoUpdateClearBtn();
   setAudioStatus('Ready');
   hideFloatingTtsPlayer();
+  restoreUiNavigationState();
   const floatingPlayBtn = document.getElementById('tts-floating-play');
   if (floatingPlayBtn) {
     floatingPlayBtn.addEventListener('touchend', async (ev) => {
@@ -5467,6 +5474,113 @@ const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-ech
 // Nexus モード用モバイルタブID（単一ビューのためタブ不要）
 const _NEXUS_MOB_TAB_IDS = ['mob-nexus'];
 
+const MODE_SUBTAB_BUTTON_IDS = {
+  chat: {
+    chat: 'mob-chat',
+    files: 'mob-files',
+    log: 'mob-log',
+    skills: 'mob-skills',
+    memory: 'mob-memory',
+    models: 'mob-models',
+  },
+  echo: {
+    echo: 'mob-echo',
+    vault: 'mob-vault',
+    log: 'mob-log-echo',
+    models: 'mob-models-echo',
+    asr: 'mob-asr',
+    tts: 'mob-tts',
+  },
+  atlas: { atlas: 'mob-atlas' },
+  nexus: { nexus: 'mob-nexus' },
+  agent: { agent_chat: 'mob-agent-chat', agent_tasks: 'mob-agent-tasks' },
+};
+const MODE_PANEL_TAB_BUTTON_IDS = {
+  chat: {
+    files: 'tab-btn-files',
+    log: 'tab-btn-log',
+    skills: 'tab-btn-skills',
+    memory: 'tab-btn-memory',
+    models: 'tab-btn-models',
+  },
+  echo: {
+    vault: 'tab-btn-vault',
+    log: 'tab-btn-log-echo',
+    models: 'tab-btn-models-echo',
+    asr: 'tab-btn-asr',
+    tts: 'tab-btn-tts',
+  },
+};
+
+function isValidUiMode(m) {
+  return UI_VALID_MODES.includes(String(m || ''));
+}
+
+function isValidSubtabForMode(m, name) {
+  return (UI_MODE_SUBTABS[m] || []).includes(String(name || ''));
+}
+
+function readLastSubtabsByMode() {
+  try {
+    const raw = localStorage.getItem(UI_LAST_SUBTABS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveLastSubtab(currentMode, name) {
+  const m = currentMode === 'task' ? 'chat' : String(currentMode || mode || 'chat');
+  const subtab = String(name || '');
+  if (!isValidSubtabForMode(m, subtab)) return;
+  try {
+    const subtabs = readLastSubtabsByMode();
+    subtabs[m] = subtab;
+    localStorage.setItem(UI_LAST_SUBTABS_KEY, JSON.stringify(subtabs));
+  } catch (_) {}
+}
+
+function saveLastMode(m) {
+  const normalized = m === 'task' ? 'chat' : String(m || '');
+  if (!isValidUiMode(normalized)) return;
+  try { localStorage.setItem(UI_LAST_MODE_KEY, normalized); } catch (_) {}
+}
+
+function getLastSubtabForMode(m) {
+  const subtabs = readLastSubtabsByMode();
+  const saved = String(subtabs[m] || '');
+  if (isValidSubtabForMode(m, saved)) return saved;
+  return UI_MODE_DEFAULT_SUBTABS[m] || '';
+}
+
+function restoreLastSubtabForMode(m) {
+  const subtab = getLastSubtabForMode(m);
+  if (!subtab) return;
+  if (m === 'chat') {
+    if (window.innerWidth <= 768) mobSwitch(subtab, {restore: true});
+    else if (subtab === 'chat') _setPanelTabActiveButton(document.querySelector('.tab-content.active')?.id?.replace('tab-','') || 'files');
+    else switchTab(subtab);
+    saveLastSubtab('chat', subtab);
+    return;
+  }
+  if (m === 'echo') {
+    if (window.innerWidth <= 768) mobSwitch(subtab, {restore: true});
+    else if (subtab === 'echo') _setPanelTabActiveButton(document.querySelector('.tab-content.active')?.id?.replace('tab-','') || 'vault');
+    else switchTab(subtab);
+    saveLastSubtab('echo', subtab);
+    return;
+  }
+}
+
+function restoreUiNavigationState() {
+  let savedMode = '';
+  try { savedMode = localStorage.getItem(UI_LAST_MODE_KEY) || ''; } catch (_) {}
+  const targetMode = isValidUiMode(savedMode) ? savedMode : 'chat';
+  setMode(targetMode, {restore: true, persist: isValidUiMode(savedMode)});
+}
+
 let agentSessionActive = false;
 let agentSessionId = '';
 let agentHistory = [];
@@ -5541,9 +5655,7 @@ function _updateMobTabs(m) {
 function _setPanelTabActiveButton(name) {
   const allBtnIds = [..._CHAT_PANEL_TAB_IDS, ..._ECHO_PANEL_TAB_IDS];
   allBtnIds.forEach(id => document.getElementById(id)?.classList.remove('active'));
-  const activeBtnId = (mode === 'echo' && name === 'log') ? 'tab-btn-log-echo'
-    : (mode === 'echo' && name === 'models') ? 'tab-btn-models-echo'
-    : 'tab-btn-' + name;
+  const activeBtnId = MODE_PANEL_TAB_BUTTON_IDS[mode]?.[name] || 'tab-btn-' + name;
   document.getElementById(activeBtnId)?.classList.add('active');
 }
 
@@ -5670,10 +5782,14 @@ function bindModeAndNexusTapHandlers() {
   });
 }
 
-function setMode(m) {
+function setMode(m, options = {}) {
   if (m === 'task') m = 'chat';
+  if (!isValidUiMode(m)) m = 'chat';
+  const shouldRestoreSubtab = options.restore !== false;
+  const shouldPersistMode = options.persist !== false;
   const prevMode = mode;
   mode = m;
+  if (shouldPersistMode) saveLastMode(m);
   ['chat','atlas','agent','echo','nexus'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
   syncChatTaskToggle();
   const chatCol  = document.getElementById('chat-col');
@@ -5705,8 +5821,6 @@ function setMode(m) {
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(true);
-    const vaultActive = document.getElementById('tab-vault')?.classList.contains('active');
-    if (!vaultActive) switchTab('vault');
   } else if (m === 'agent') {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
@@ -5773,12 +5887,6 @@ function setMode(m) {
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(false);
-    if (['vault','asr','tts'].some(n => document.getElementById('tab-'+n)?.classList.contains('active'))) {
-      switchTab('files');
-    } else {
-      const activeTab = document.querySelector('.tab-content.active')?.id?.replace('tab-','') || 'files';
-      _setPanelTabActiveButton(activeTab);
-    }
   }
 
   syncAgentSessionUi();
@@ -5793,8 +5901,10 @@ function setMode(m) {
       agentPanelCol?.classList.add('mob-hidden');
       atlasPanelCol?.classList.add('mob-hidden');
       nexusCol?.classList.add('mob-hidden');
-      allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
-      document.getElementById('mob-echo')?.classList.add('active');
+      if (!shouldRestoreSubtab) {
+        allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+        document.getElementById('mob-echo')?.classList.add('active');
+      }
     } else if (m === 'agent') {
       chatCol?.classList.add('mob-hidden');
       panelCol?.classList.add('mob-hidden');
@@ -5833,9 +5943,15 @@ function setMode(m) {
       agentPanelCol?.classList.add('mob-hidden');
       atlasPanelCol?.classList.add('mob-hidden');
       nexusCol?.classList.add('mob-hidden');
-      allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
-      document.getElementById('mob-chat')?.classList.add('active');
+      if (!shouldRestoreSubtab) {
+        allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+        document.getElementById('mob-chat')?.classList.add('active');
+      }
     }
+  }
+
+  if (shouldRestoreSubtab && (m === 'chat' || m === 'echo')) {
+    restoreLastSubtabForMode(m);
   }
 }
 
@@ -8695,13 +8811,16 @@ function sendAgentInput() {
 }
 
 // ── MOBILE ──
-function mobSwitch(name) {
+function mobSwitch(name, options = {}) {
   const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ATLAS_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS];
   allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
 
-  const activeId = (name === 'log' && mode === 'echo') ? 'mob-log-echo'
-    : (name === 'models' && mode === 'echo') ? 'mob-models-echo'
-    : 'mob-' + name;
+  const activeMode = mode === 'echo' ? 'echo'
+    : mode === 'agent' ? 'agent'
+    : mode === 'atlas' ? 'atlas'
+    : mode === 'nexus' ? 'nexus'
+    : 'chat';
+  const activeId = MODE_SUBTAB_BUTTON_IDS[activeMode]?.[name] || MODE_SUBTAB_BUTTON_IDS.chat[name] || ('mob-' + name);
   document.getElementById(activeId)?.classList.add('active');
 
   const cc = document.getElementById('chat-col');
@@ -8713,7 +8832,8 @@ function mobSwitch(name) {
   const atc = document.getElementById('atlas-panel-col');
 
   if (name === 'chat') {
-    setMode('chat');
+    if (mode !== 'chat') setMode('chat', {restore: false});
+    saveLastSubtab('chat', 'chat');
     cc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden');
     ec?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
@@ -8739,7 +8859,8 @@ function mobSwitch(name) {
     nc?.classList.add('mob-hidden');
     atc?.classList.add('mob-hidden');
   } else if (name === 'echo') {
-    setMode('echo');
+    if (mode !== 'echo') setMode('echo', {restore: false});
+    saveLastSubtab('echo', 'echo');
     ec?.classList.remove('mob-hidden');
     cc?.classList.add('mob-hidden');
     pc?.classList.add('mob-hidden');
@@ -8767,6 +8888,8 @@ function mobSwitch(name) {
     atc?.classList.add('mob-hidden');
     pc?.classList.add('mob-hidden');
   } else if (name === 'vault') {
+    if (mode !== 'echo') { setMode('echo', {restore: false}); }
+    saveLastSubtab('echo', 'vault');
     ec?.classList.add('mob-hidden');
     cc?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
@@ -8775,6 +8898,8 @@ function mobSwitch(name) {
     pc.classList.remove('mob-hidden');
     switchTab('vault');
   } else if (name === 'asr') {
+    if (mode !== 'echo') { setMode('echo', {restore: false}); }
+    saveLastSubtab('echo', 'asr');
     ec?.classList.add('mob-hidden');
     cc?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
@@ -8783,6 +8908,8 @@ function mobSwitch(name) {
     pc.classList.remove('mob-hidden');
     switchTab('asr');
   } else if (name === 'tts') {
+    if (mode !== 'echo') { setMode('echo', {restore: false}); }
+    saveLastSubtab('echo', 'tts');
     ec?.classList.add('mob-hidden');
     cc?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
@@ -8791,6 +8918,8 @@ function mobSwitch(name) {
     pc.classList.remove('mob-hidden');
     switchTab('tts');
   } else {
+    if (mode === 'echo') saveLastSubtab('echo', name === 'models' ? 'models' : 'log');
+    else saveLastSubtab('chat', name === 'files' ? 'files' : name === 'skills' ? 'skills' : name === 'memory' ? 'memory' : name === 'models' ? 'models' : 'log');
     cc.classList.add('mob-hidden');
     ec?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
