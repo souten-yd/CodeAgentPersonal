@@ -137,3 +137,16 @@ runtime-control endpoints rather than first-wave settings router candidates.
   Prefer app state or router dependency defaults that can be overridden in tests.
 - Keep runtime-global controls separate from persisted settings unless a later PR
   explicitly unifies persistence semantics.
+
+## PR4.29 follow-up: model/ensemble settings inventory
+
+The core settings route split is complete for the endpoints owned by
+`app/api/settings.py`: `GET /settings-defaults`, `GET /settings`,
+`POST /settings`, `GET /settings/defaults`, `GET /settings/{key}`, and
+`PUT /settings/{key}`. The next main.py split should follow
+`docs/refactor_model_settings_api_inventory.md` and move model orchestration,
+model role, ensemble, model catalog/status, and runtime-global settings-adjacent
+endpoints in the recommended staged order. This note is inventory-only; endpoint
+owners, route order, settings helper behavior, model DB schema/storage, runtime
+globals, ASR/TTS/Echo/Nexus/Atlas workflows, and UI persistence/display behavior
+remain unchanged in PR4.29.
