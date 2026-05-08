@@ -18,13 +18,13 @@ def _single_route(path: str, method: str):
     return routes[0]
 
 
-def test_main_app_settings_read_routes_are_owned_by_settings_router_while_writes_stay_in_main():
+def test_main_app_settings_routes_are_owned_by_settings_router_while_bulk_write_stays_in_main():
     expected = [
         ("/settings", "GET", "app.api.settings", "get_settings_api"),
         ("/settings", "POST", "main", "save_settings_api"),
         ("/settings-defaults", "GET", "app.api.settings", "get_settings_defaults_api"),
         ("/settings/{key}", "GET", "app.api.settings", "get_setting_api"),
-        ("/settings/{key}", "PUT", "main", "set_setting_api"),
+        ("/settings/{key}", "PUT", "app.api.settings", "set_setting_api"),
         ("/settings/defaults", "GET", "main", "get_settings_defaults"),
     ]
 
@@ -75,10 +75,10 @@ def test_get_setting_by_key_returns_safe_existing_key_without_db_write():
     assert str(body["value"]).isdigit()
 
 
-def test_put_setting_route_exists_but_contract_does_not_execute_write():
+def test_put_setting_route_is_owned_by_settings_router_without_executing_write():
     route = _single_route("/settings/{key}", "PUT")
 
-    assert route.endpoint.__module__ == "main"
+    assert route.endpoint.__module__ == "app.api.settings"
     assert route.endpoint.__name__ == "set_setting_api"
 
 
