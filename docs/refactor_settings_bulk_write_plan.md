@@ -1,4 +1,4 @@
-# PR4.23: Settings Bulk Write Side-Effect Inventory
+# PR4.24: Settings Bulk Write Provider Skeleton
 
 This document inventories the current `POST /settings` implementation before it
 is moved from `main.py` into `app/api/settings.py`. The endpoint is intentionally
@@ -9,8 +9,13 @@ configuration, and mutates module-level runtime globals.
 ## Current owner and non-goals
 
 - Current route owner: `main.save_settings_api` registered as `POST /settings`.
-- This PR does not move the endpoint into `app/api/settings.py`.
-- This PR does not add provider types or route handlers to `app/api/settings.py`.
+- This PR does not move the endpoint into `app/api/settings.py`; route ownership remains in `main.py`.
+- This PR adds only the `SettingsBulkSaveProvider` type alias and
+  `get_settings_bulk_save_provider(request)` lookup helper to
+  `app/api/settings.py`; it does not add a router handler for `POST /settings`.
+- `main.app.state.settings_bulk_save_provider` is now installed and points at
+  `main.settings_bulk_save_payload`, a thin wrapper around the unchanged
+  `save_settings_api(req)` implementation.
 - This PR does not change `save_settings_api`, `settings_set_bulk`, ASR runtime
   behavior, ensemble synchronization, runtime globals, route ordering, DB schema,
   or storage locations.
@@ -92,10 +97,23 @@ when it is eventually moved:
   `_sync_ensemble_settings_to_opencode_json` and
   `_apply_ensemble_execution_mode_guard`.
 
-## Proposed provider boundary design
+## Implemented provider skeleton
 
-These names describe future boundaries only. They are not implemented in this
-PR.
+- **`SettingsBulkSaveProvider`**
+  - Implemented in `app/api/settings.py` as
+    `Callable[[dict[str, Any]], dict[str, Any]]`.
+  - Looked up by `get_settings_bulk_save_provider(request)` from
+    `request.app.state.settings_bulk_save_provider`.
+  - Installed on `main.app` as `settings_bulk_save_payload`, which delegates to
+    `save_settings_api(req)` so the current runtime behavior and response shape
+    remain unchanged while the endpoint still lives in `main.py`.
+  - Not used by any router endpoint yet; it is a seam for the next PR.
+
+## Proposed future provider boundary design
+
+These names describe future, more granular boundaries only. Apart from the
+coarse `SettingsBulkSaveProvider` skeleton above, they are not implemented in
+this PR.
 
 - **`SettingsBulkSetProvider`**
   - Accepts the final filtered/normalized request dictionary.
@@ -125,6 +143,8 @@ PR.
 
 ## Suggested next PR
 
-The next PR should add provider skeletons and focused tests for the bulk-write
-boundary without moving the endpoint. Only after those seams exist should
-`POST /settings` be moved into `app/api/settings.py`.
+The next PR should move `POST /settings` into `app/api/settings.py` behind the
+new `settings_bulk_save_provider` seam, while preserving the existing response
+shape and side effects. If the route move needs finer-grained test isolation,
+the future ports listed above can be introduced incrementally after the coarse
+bulk-save provider is in use.

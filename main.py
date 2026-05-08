@@ -17263,6 +17263,11 @@ def settings_set_payload(key: str, req: dict) -> dict:
     return {"ok": True, "key": key, "value": value}
 
 
+def settings_bulk_save_payload(req: dict) -> dict:
+    """Bulk write provider payload while POST /settings remains in main.py."""
+    return save_settings_api(req)
+
+
 app.state.settings_get_all_provider = settings_get_all_payload
 app.state.settings_get_provider = settings_get_payload
 app.state.settings_defaults_provider = settings_defaults_payload
@@ -17310,6 +17315,9 @@ def save_settings_api(req: dict):
         except Exception:
             pass
     return {"ok": True, "saved": list(req.keys())}
+
+
+app.state.settings_bulk_save_provider = settings_bulk_save_payload
 
 
 @app.get("/settings/defaults")
