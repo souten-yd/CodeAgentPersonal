@@ -2,6 +2,7 @@ import os
 from typing import Callable
 
 from app.env_detection import detect_gpu_profile, detect_os_profile, detect_runpod
+from app.audio.runtime_config import detect_audio_runtime
 from app.asr.whisper_cpp_runtime import WHISPER_CPP_SERVER_RUNTIME, resolve_ffmpeg_binary, resolve_whisper_cpp_binary, resolve_whisper_cpp_model, resolve_whisper_cpp_server_binary, transcribe_with_whisper_cpp
 
 
@@ -39,15 +40,18 @@ def whisper_cpp_ready() -> bool:
 
 
 def resolve_effective_asr_config() -> dict:
-    is_runpod = bool(detect_runpod())
+    audio_runtime = detect_audio_runtime()
+    is_runpod = bool(audio_runtime.is_runpod)
     if is_runpod:
         return {
             "runtime": "runpod",
             "is_windows": False,
             "is_runpod": True,
-            "gpu_vendor": "nvidia",
+            "gpu_vendor": audio_runtime.gpu_vendor or "nvidia",
             "effective_engine": "faster_whisper",
-            "effective_backend": "cuda",
+            "effective_backend": audio_runtime.asr_device,
+            "asr_device": audio_runtime.asr_device,
+            "asr_compute_type": audio_runtime.asr_compute_type,
             "model": "large-v3-turbo",
             "whisper_cpp_visible": False,
             "whisper_cpp_ready": False,
@@ -56,6 +60,7 @@ def resolve_effective_asr_config() -> dict:
             "ffmpeg_available": bool(resolve_ffmpeg_binary()),
             "ffmpeg_binary": str(resolve_ffmpeg_binary() or ""),
             "warnings": [],
+            **audio_runtime.to_dict(),
         }
     os_profile = detect_os_profile()
     gpu = detect_gpu_profile()
@@ -111,7 +116,9 @@ def resolve_effective_asr_config() -> dict:
         "is_runpod": is_runpod,
         "gpu_vendor": vendor,
         "effective_engine": effective_engine,
-        "effective_backend": effective_backend,
+        "effective_backend": audio_runtime.asr_device if effective_engine == "faster_whisper" else effective_backend,
+        "asr_device": audio_runtime.asr_device,
+        "asr_compute_type": audio_runtime.asr_compute_type,
         "model": model,
         "whisper_cpp_visible": whisper_cpp_visible,
         "whisper_cpp_ready": whisper_cpp_ready_effective,
@@ -122,6 +129,7 @@ def resolve_effective_asr_config() -> dict:
         "ffmpeg_available": ffmpeg_available,
         "ffmpeg_binary": str(ffmpeg_bin) if ffmpeg_bin else "",
         "warnings": warnings,
+        **audio_runtime.to_dict(),
     }
 
 

@@ -25,6 +25,7 @@ from .style_bert_vits2_paths import (
 )
 from .text_normalizer import looks_japanese, preprocess_text_for_tts
 from .tts_debug import write_tts_debug_entry
+from app.audio.runtime_config import detect_audio_runtime
 
 _STYLE_BERT_VITS2_DEFAULT_REPO_DIR = "/app/Style-Bert-VITS2"
 _STYLE_BERT_VITS2_DEFAULT_VENV_DIR = "/app/Style-Bert-VITS2/.venv"
@@ -192,7 +193,6 @@ def _resolve_model_paths(model_id: str) -> tuple[str, str, str]:
 def _pick_device(req: dict) -> str:
     valid_devices = {"cpu", "cuda", "mps", "directml", "dml"}
     auto_values = {"", "auto"}
-    disabled_markers = {"", "-1", "none", "void"}
     windows_fallback_devices = {"cuda", "directml", "dml", "privateuseone", "privateuseone:0", "auto", ""}
     is_windows = os.name == "nt" or platform.system() == "Windows"
 
@@ -202,26 +202,14 @@ def _pick_device(req: dict) -> str:
     if requested in valid_devices:
         return requested
 
+    env_device = str(os.environ.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "")).strip().lower()
     if requested in auto_values:
-        env_device = str(os.environ.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "")).strip().lower()
         if is_windows and env_device in windows_fallback_devices:
             return "cpu"
         if env_device in valid_devices:
             return env_device
         if env_device in auto_values:
-            cuda_visible = str(os.environ.get("CUDA_VISIBLE_DEVICES", "")).strip().lower()
-            nvidia_visible = str(os.environ.get("NVIDIA_VISIBLE_DEVICES", "")).strip().lower()
-            has_cuda_visibility = cuda_visible not in disabled_markers or nvidia_visible not in disabled_markers
-            has_cuda_dir = os.path.isdir("/usr/local/cuda")
-            torch_cuda_available = False
-            try:
-                import torch
-
-                torch_cuda_available = bool(torch.cuda.is_available())
-            except Exception:
-                torch_cuda_available = False
-            if has_cuda_visibility or has_cuda_dir or torch_cuda_available:
-                return "cuda"
+            return detect_audio_runtime().tts_device
 
     if is_windows:
         return "cpu"
@@ -480,6 +468,7 @@ class StyleBertVITS2Runtime(TTSEngineRuntime):
         self._stderr_threads: list[threading.Thread | None] = []
         self._worker_rr_index = 0
         self._last_backend_diag: dict[str, object] = {}
+        self._last_worker_error: dict[str, object] = {}
 
     @staticmethod
     def _likely_reason_from_worker_error(returncode: int | None, stderr_tail: str) -> str:
@@ -892,12 +881,30 @@ def synth(req: dict) -> dict:
     effective_device = requested_device
     fallback_reason = ""
     directml_attempted = False
+    torch_cuda_available_worker = False
+    torch_cuda_probe_error = ""
+    if requested_device == "cuda":
+        try:
+            import torch
+
+            torch_cuda_available_worker = bool(torch.cuda.is_available())
+            if not torch_cuda_available_worker:
+                device = "cpu"
+                effective_device = "cpu"
+                fallback_reason = "worker_torch_cuda_unavailable"
+        except Exception as e:
+            torch_cuda_probe_error = f"{type(e).__name__}: {e}"
+            device = "cpu"
+            effective_device = "cpu"
+            fallback_reason = "worker_torch_cuda_probe_failed"
     if device == "auto":
         try:
             import torch
 
-            device = "cuda" if (sys.platform != "win32" and torch.cuda.is_available()) else "cpu"
-        except Exception:
+            torch_cuda_available_worker = bool(torch.cuda.is_available())
+            device = "cuda" if (sys.platform != "win32" and torch_cuda_available_worker) else "cpu"
+        except Exception as e:
+            torch_cuda_probe_error = f"{type(e).__name__}: {e}"
             device = "cpu"
     if sys.platform == "win32" and device in {"cuda", "directml", "dml", "privateuseone", "privateuseone:0", "auto"}:
         device = "cpu"
@@ -914,6 +921,7 @@ def synth(req: dict) -> dict:
     elif device not in {"cpu", "cuda", "mps"}:
         device = "cpu"
         effective_device = "cpu"
+    effective_device = device
     model_suffix = model_path.suffix.lower()
     is_onnx_model = model_suffix == ".onnx"
     selected_provider, available_providers, onnxruntime_version = ("", [], "")
@@ -968,8 +976,19 @@ def synth(req: dict) -> dict:
                         style_vec_path=style_vec_path,
                         device="cpu",
                     )
+                elif requested_device == "cuda" or device == "cuda":
+                    fallback_reason = f"cuda_model_load_failed:{type(e).__name__}:{e}"
+                    device = "cpu"
+                    effective_device = "cpu"
+                    loaded_model = TTSModel(
+                        model_path=model_path,
+                        config_path=config_path,
+                        style_vec_path=style_vec_path,
+                        device="cpu",
+                    )
                 else:
                     raise
+            signature = (str(model_path), str(config_path), str(style_vec_path), "onnx" if is_onnx_model else "pytorch", str(effective_device), selected_provider)
             loaded_signature = signature
         load_elapsed_ms = int((time.perf_counter() - load_started) * 1000)
         warmup_ms = 0
@@ -1115,6 +1134,8 @@ def synth(req: dict) -> dict:
         "effective_device": str(effective_device),
         "fallback_reason": str(fallback_reason),
         "directml_attempted": bool(directml_attempted),
+        "torch_cuda_available_worker": bool(torch_cuda_available_worker),
+        "torch_cuda_probe_error": str(torch_cuda_probe_error),
         "model_name": str(req.get("model_name", "")),
         "model_path": str(model_path),
         "config_path": str(config_path),
@@ -1450,6 +1471,10 @@ while True:
                 "cache_hit": bool(output.get("cache_hit")),
                 "warmup_ms": int(output.get("warmup_ms") or 0),
                 "last_inference_ms": int(output.get("infer_elapsed_ms") or 0),
+                "requested_device": str(output.get("requested_device") or payload.get("device") or ""),
+                "effective_device": str(output.get("effective_device") or output.get("device") or ""),
+                "torch_cuda_available_worker": bool(output.get("torch_cuda_available_worker")),
+                "torch_cuda_probe_error": str(output.get("torch_cuda_probe_error") or ""),
             }
             if not output.get("ok"):
                 err = output.get("error") or "unknown error"
@@ -1487,6 +1512,7 @@ while True:
         except Exception as e:
             worker_idx = (self._worker_rr_index - 1) % self._workers if self._workers > 0 else 0
             worker_debug = self._worker_failure_debug_info(worker_idx)
+            self._last_worker_error = {"error": f"{type(e).__name__}: {e}", **worker_debug}
             write_tts_debug_entry({
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "stage": "runtime_error",
@@ -1657,7 +1683,9 @@ while True:
         site_packages = _site_packages_dir()
         repo = _repo_dir()
         models = _models_dir()
+        audio_runtime = detect_audio_runtime()
         device_env = str(os.environ.get("CODEAGENT_STYLE_BERT_VITS2_DEVICE", "")).strip().lower() or "auto"
+        selected_device = audio_runtime.tts_device
         koharune_dir = Path(models) / "koharune-ami"
         koharune_ami_ready = all(
             (koharune_dir / fn).is_file() for fn in ("config.json", "style_vectors.npy", "koharune-ami.safetensors")
@@ -1741,6 +1769,9 @@ while True:
             "venv_python": py,
             "models_dir": models,
             "device_env": device_env,
+            "requested_device": device_env,
+            "effective_device": str(self._last_backend_diag.get("effective_device") or selected_device),
+            "selected_device": selected_device,
             "directml_available": _directml_available(),
             "torch_directml_available": _directml_available(),
             "koharune_ami_ready": koharune_ami_ready,
@@ -1761,5 +1792,6 @@ while True:
             "tokenizers_file": tokenizers_file,
             "onnxruntime_file": onnxruntime_file,
             "warning": onnxruntime_warning,
+            "last_worker_error": dict(self._last_worker_error),
             **self._last_backend_diag,
         }
