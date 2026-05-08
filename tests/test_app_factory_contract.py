@@ -63,6 +63,10 @@ def test_main_app_system_usage_providers_are_callable():
     assert callable(main.app.state.system_usage_debug_provider)
 
 
+def test_main_app_system_summary_provider_is_callable():
+    assert callable(main.app.state.system_summary_provider)
+
+
 def test_main_app_system_usage_ports_are_registered():
     settings = main.app.state.system_usage_settings
     diagnostics = main.app.state.system_usage_diagnostics

@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.api.system import (
     SYSTEM_READINESS_DEFAULT_PAYLOAD,
+    default_system_summary_payload,
     default_system_usage_debug_unavailable_payload,
     default_system_usage_unavailable_payload,
 )
@@ -45,6 +46,31 @@ def test_default_system_usage_debug_unavailable_payload_has_representative_contr
     assert payload["final_usage"]["gpus"] == []
 
 
+def test_default_system_summary_payload_has_representative_contract_keys():
+    payload = default_system_summary_payload()
+
+    assert payload["health"] == {"llm": "unavailable", "sandbox": "unavailable"}
+    assert set(payload["model"]) == {
+        "status",
+        "current_key",
+        "current_name",
+        "vram_gb",
+        "eta_sec",
+    }
+    assert payload["model"]["status"] == "unavailable"
+    assert set(payload["usage"]) == {
+        "cpu_percent",
+        "ram_used_mb",
+        "ram_total_mb",
+        "gpu_backend",
+        "vram_confidence",
+        "vram_source_backend",
+        "gpus",
+        "updated_at",
+    }
+    assert payload["usage"]["gpus"] == []
+
+
 def test_create_app_system_readiness_response_contract():
     client = TestClient(create_app())
 
@@ -70,6 +96,15 @@ def test_create_app_system_usage_debug_response_contract():
 
     assert response.status_code == 200
     assert response.json() == default_system_usage_debug_unavailable_payload()
+
+
+def test_create_app_system_summary_response_contract():
+    client = TestClient(create_app())
+
+    response = client.get("/system/summary")
+
+    assert response.status_code == 200
+    assert response.json() == default_system_summary_payload()
 
 
 def test_main_app_system_usage_response_contract():
@@ -120,6 +155,23 @@ def test_main_app_system_readiness_response_contract():
     assert isinstance(body["llm_autoload_eligible"], bool)
     assert isinstance(body["autoload_reason"], str)
     assert isinstance(body["llm_running"], bool)
+
+
+def test_main_app_system_summary_response_contract():
+    client = TestClient(main.app)
+
+    response = client.get("/system/summary")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert isinstance(body["health"], dict)
+    assert isinstance(body["health"]["llm"], str)
+    assert isinstance(body["health"]["sandbox"], str)
+    assert isinstance(body["model"], dict)
+    assert set(body["model"]) == set(default_system_summary_payload()["model"])
+    assert isinstance(body["usage"], dict)
+    assert set(body["usage"]) == set(default_system_summary_payload()["usage"])
+    assert isinstance(body["usage"]["gpus"], list)
 
 
 def test_create_app_system_env_response_contract():

@@ -64,6 +64,7 @@ def test_main_app_system_summary_endpoint_contract():
     response = client.get("/system/summary")
     body = response.json()
 
+    assert _endpoint_module(main.app, "/system/summary") == "app.api.system"
     assert response.status_code == 200
     assert isinstance(body["health"], dict)
     assert isinstance(body["health"]["llm"], str)
