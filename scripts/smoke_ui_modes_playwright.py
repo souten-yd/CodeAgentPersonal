@@ -1483,6 +1483,65 @@ async def verify_mode_specific_subtabs(page) -> None:
     assert not await is_visible(tab_id), f"{tab_id} should be hidden in nexus mode"
 
 
+
+async def verify_chat_echo_navigation_persistence(page) -> None:
+  await page.evaluate("""() => {
+    localStorage.removeItem('kasane:lastMode');
+    localStorage.removeItem('kasane:lastSubtabsByMode');
+  }""")
+
+  await page.click("#btn-echo")
+  await wait_named(page, "echo_mode_visible_before_reload", """() => {
+    const echo = document.getElementById('echo-col');
+    return document.getElementById('btn-echo')?.classList.contains('active') &&
+      !!echo && getComputedStyle(echo).display !== 'none';
+  }""")
+  await page.click("#tab-btn-vault")
+  await wait_named(page, "echo_vault_active_before_reload", """() =>
+    document.getElementById('tab-btn-vault')?.classList.contains('active') &&
+    document.getElementById('tab-vault')?.classList.contains('active')
+  """)
+  await page.reload()
+  await page.wait_for_load_state("domcontentloaded")
+  await wait_named(page, "echo_vault_restored_after_reload", """() => {
+    const echo = document.getElementById('echo-col');
+    const chat = document.getElementById('chat-col');
+    return document.getElementById('btn-echo')?.classList.contains('active') &&
+      !document.getElementById('btn-chat')?.classList.contains('active') &&
+      !!echo && getComputedStyle(echo).display !== 'none' &&
+      (!chat || getComputedStyle(chat).display === 'none') &&
+      document.getElementById('tab-btn-vault')?.classList.contains('active') &&
+      document.getElementById('tab-vault')?.classList.contains('active');
+  }""")
+
+  await page.click("#btn-chat")
+  await wait_named(page, "chat_mode_visible_before_reload", """() => {
+    const chat = document.getElementById('chat-col');
+    return document.getElementById('btn-chat')?.classList.contains('active') &&
+      !!chat && getComputedStyle(chat).display !== 'none';
+  }""")
+  await page.click("#tab-btn-files")
+  await wait_named(page, "chat_files_active_before_reload", """() =>
+    document.getElementById('tab-btn-files')?.classList.contains('active') &&
+    document.getElementById('tab-files')?.classList.contains('active')
+  """)
+  await page.reload()
+  await page.wait_for_load_state("domcontentloaded")
+  await wait_named(page, "chat_files_restored_after_reload", """() => {
+    const chat = document.getElementById('chat-col');
+    return document.getElementById('btn-chat')?.classList.contains('active') &&
+      !!chat && getComputedStyle(chat).display !== 'none' &&
+      document.getElementById('tab-btn-files')?.classList.contains('active') &&
+      document.getElementById('tab-files')?.classList.contains('active');
+  }""")
+
+  for selector in ["#btn-echo", "#tab-btn-vault", "#tab-btn-log-echo", "#tab-btn-models-echo", "#tab-btn-asr", "#tab-btn-tts"]:
+    await page.click(selector)
+    await page.wait_for_timeout(50)
+  for selector in ["#btn-chat", "#tab-btn-files", "#tab-btn-log", "#tab-btn-skills", "#tab-btn-memory", "#tab-btn-models"]:
+    await page.click(selector)
+    await page.wait_for_timeout(50)
+
 async def click_first_visible_button_by_names(container, names: list[str]) -> bool:
   for name in names:
     candidate = container.get_by_role("button", name=name)
@@ -2313,6 +2372,7 @@ SMOKE_SCENARIOS: dict[str, SmokeScenarioSpec] = {
   "atlas_start_button_feedback": SmokeScenarioSpec(id="atlas_start_button_feedback", fn=verify_atlas_start_button_feedback, kind="ui", default_ui=True),
   "atlas_guided_workflow_safe_journey": SmokeScenarioSpec(id="atlas_guided_workflow_safe_journey", fn=verify_atlas_guided_workflow_safe_journey, kind="ui", default_ui=True),
   "mode_specific_subtabs": SmokeScenarioSpec(id="mode_specific_subtabs", fn=verify_mode_specific_subtabs, kind="ui", default_ui=True),
+  "chat_echo_navigation_persistence": SmokeScenarioSpec(id="chat_echo_navigation_persistence", fn=verify_chat_echo_navigation_persistence, kind="ui", default_ui=True),
   "nexus_tabs": SmokeScenarioSpec(id="nexus_tabs", fn=verify_nexus_tabs, kind="ui", default_ui=True),
   "reference_card_actions": SmokeScenarioSpec(id="reference_card_actions", fn=verify_reference_card_actions, kind="ui", default_ui=True),
   "chat_search_and_agent_web_tool_tts": SmokeScenarioSpec(id="chat_search_and_agent_web_tool_tts", fn=verify_chat_search_and_agent_web_tool_tts, kind="ui", default_ui=True),
@@ -2369,6 +2429,7 @@ def resolve_smoke_scenarios(*, only: list[str], preflight_only_mode: bool, run_b
 async def main() -> None:
   parser = argparse.ArgumentParser(add_help=True)
   parser.add_argument("--list-scenarios", action="store_true")
+  parser.add_argument("--use-explicit-base-url", action="store_true", help="Run UI smoke against PLAYWRIGHT_SMOKE_BASE_URL instead of the mock server.")
   args, _ = parser.parse_known_args()
   if args.list_scenarios:
     print(json.dumps({"scenarios": [_scenario_to_json(SMOKE_SCENARIOS[name]) for name in sorted(SMOKE_SCENARIOS.keys())]}, ensure_ascii=False, indent=2))
@@ -2402,14 +2463,15 @@ async def main() -> None:
   full_backend_e2e_mode = run_backend_e2e_opt_in
   real_backend_opt_in = run_backend_preflight_opt_in or run_backend_e2e_opt_in
   explicit_base_url = os.environ.get("PLAYWRIGHT_SMOKE_BASE_URL", "").strip()
+  explicit_base_url_mode = bool(args.use_explicit_base_url)
 
   async with async_playwright() as p:
     browser = await launch_browser_with_retry(p, attempts=2)
-    if explicit_base_url and not real_backend_opt_in:
-      print("INFO: PLAYWRIGHT_SMOKE_BASE_URL is ignored in default mock-backed UI smoke. Set RUN_ATLAS_BACKEND_PREFLIGHT=1 or RUN_ATLAS_BACKEND_E2E=1 to target a real backend.")
-    if real_backend_opt_in and not explicit_base_url:
-      raise AssertionError("PLAYWRIGHT_SMOKE_BASE_URL is required when RUN_ATLAS_BACKEND_PREFLIGHT=1 or RUN_ATLAS_BACKEND_E2E=1.")
-    base_url, mock_server = get_smoke_base_url(use_explicit_base_url=real_backend_opt_in)
+    if explicit_base_url and not (real_backend_opt_in or explicit_base_url_mode):
+      print("INFO: PLAYWRIGHT_SMOKE_BASE_URL is ignored in default mock-backed UI smoke. Pass --use-explicit-base-url to target it.")
+    if (real_backend_opt_in or explicit_base_url_mode) and not explicit_base_url:
+      raise AssertionError("PLAYWRIGHT_SMOKE_BASE_URL is required when RUN_ATLAS_BACKEND_PREFLIGHT=1, RUN_ATLAS_BACKEND_E2E=1, or --use-explicit-base-url is used.")
+    base_url, mock_server = get_smoke_base_url(use_explicit_base_url=(real_backend_opt_in or explicit_base_url_mode))
     print(f"INFO: Playwright smoke base URL = {base_url}")
     results: list[dict[str, str]] = []
     scenario_runners: dict[str, callable] = {name: spec.fn for name, spec in SMOKE_SCENARIOS.items()}

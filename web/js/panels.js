@@ -1,5 +1,6 @@
 // ── PANEL TABS ──
 function switchTab(name) {
+  if (typeof saveLastSubtab === 'function') saveLastSubtab(mode === 'echo' ? 'echo' : 'chat', name);
   _setPanelTabActiveButton(name);
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   document.getElementById('tab-'+name)?.classList.add('active');
