@@ -96,6 +96,49 @@ def test_create_app_setting_write_returns_conservative_fallback_without_db_write
     assert body == {"ok": True, "key": "test_key", "value": "factory-value"}
 
 
+def test_create_app_bulk_settings_write_returns_conservative_fallback_without_db_write(monkeypatch):
+    unexpected_calls = []
+    monkeypatch.setattr(
+        main,
+        "settings_set_bulk",
+        lambda req: unexpected_calls.append(("settings_set_bulk", dict(req))),
+    )
+    monkeypatch.setattr(
+        main,
+        "_apply_asr_runtime_settings",
+        lambda req: unexpected_calls.append(("asr", dict(req))),
+    )
+    monkeypatch.setattr(
+        main,
+        "_sync_ensemble_settings_to_opencode_json",
+        lambda: unexpected_calls.append(("ensemble_sync", None)),
+    )
+    monkeypatch.setattr(
+        main,
+        "_apply_ensemble_execution_mode_guard",
+        lambda: unexpected_calls.append(("ensemble_guard", None)),
+    )
+    app = create_app()
+    assert not hasattr(app.state, "settings_bulk_save_provider")
+    client = TestClient(app)
+
+    response = client.post(
+        "/settings",
+        json={
+            "ctx_size": "not-normalized-in-fallback",
+            "asr_engine": "whisper_cpp",
+            "ensemble_execution_mode": "serial",
+        },
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body == {
+        "ok": True,
+        "saved": ["ctx_size", "asr_engine", "ensemble_execution_mode"],
+    }
+    assert unexpected_calls == []
+
 def test_main_app_setting_write_uses_existing_single_key_provider(monkeypatch):
     calls = []
     monkeypatch.setattr(

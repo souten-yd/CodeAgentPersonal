@@ -1,21 +1,26 @@
-# PR4.24: Settings Bulk Write Provider Skeleton
+# PR4.25: Settings Bulk Write Router Move
 
-This document inventories the current `POST /settings` implementation before it
-is moved from `main.py` into `app/api/settings.py`. The endpoint is intentionally
-not routerized in this PR because it does more than persist settings: it also
-normalizes request values, applies runtime settings, synchronizes ensemble
-configuration, and mutates module-level runtime globals.
+This document inventories the `POST /settings` implementation now that the route
+has moved from `main.py` into `app/api/settings.py`. The route is routerized
+behind the coarse bulk-save provider because the existing main-app behavior does
+more than persist settings: it also normalizes request values, applies runtime
+settings, synchronizes ensemble configuration, and mutates module-level runtime
+globals.
 
 ## Current owner and non-goals
 
-- Current route owner: `main.save_settings_api` registered as `POST /settings`.
-- This PR does not move the endpoint into `app/api/settings.py`; route ownership remains in `main.py`.
-- This PR adds only the `SettingsBulkSaveProvider` type alias and
-  `get_settings_bulk_save_provider(request)` lookup helper to
-  `app/api/settings.py`; it does not add a router handler for `POST /settings`.
-- `main.app.state.settings_bulk_save_provider` is now installed and points at
+- Current route owner: `app.api.settings.save_settings_api` registered as
+  `POST /settings`.
+- The settings router resolves `request.app.state.settings_bulk_save_provider`
+  with `get_settings_bulk_save_provider(request)`.
+- `main.app.state.settings_bulk_save_provider` remains installed and points at
   `main.settings_bulk_save_payload`, a thin wrapper around the unchanged
-  `save_settings_api(req)` implementation.
+  `main.save_settings_api(req)` implementation. This preserves main-app
+  filtering, normalization, `settings_set_bulk`, ASR application, ensemble
+  synchronization/guarding, and runtime-global mutations.
+- Provider-less `create_app()` receives a conservative router fallback that
+  returns `{"ok": True, "saved": list(req.keys())}` without DB writes or runtime
+  side effects.
 - This PR does not change `save_settings_api`, `settings_set_bulk`, ASR runtime
   behavior, ensemble synchronization, runtime globals, route ordering, DB schema,
   or storage locations.
@@ -97,7 +102,7 @@ when it is eventually moved:
   `_sync_ensemble_settings_to_opencode_json` and
   `_apply_ensemble_execution_mode_guard`.
 
-## Implemented provider skeleton
+## Implemented router/provider seam
 
 - **`SettingsBulkSaveProvider`**
   - Implemented in `app/api/settings.py` as
@@ -106,8 +111,16 @@ when it is eventually moved:
     `request.app.state.settings_bulk_save_provider`.
   - Installed on `main.app` as `settings_bulk_save_payload`, which delegates to
     `save_settings_api(req)` so the current runtime behavior and response shape
-    remain unchanged while the endpoint still lives in `main.py`.
-  - Not used by any router endpoint yet; it is a seam for the next PR.
+    remain unchanged while the endpoint is owned by `app/api/settings.py`.
+- **`default_settings_bulk_save_payload`**
+  - Implemented in `app/api/settings.py` for provider-less factory apps.
+  - Returns the existing bulk-save response shape without writing to the DB,
+    applying ASR settings, synchronizing ensemble config, or mutating runtime
+    globals.
+- **Router endpoint**
+  - `app.api.settings.save_settings_api` now owns `POST /settings`.
+  - The endpoint delegates to the app-state provider when present and otherwise
+    returns the conservative fallback payload.
 
 ## Proposed future provider boundary design
 
@@ -141,10 +154,11 @@ this PR.
   - Should be shared with the single-key write provider to avoid divergent
     context-size behavior.
 
-## Suggested next PR
+## Suggested next work
 
-The next PR should move `POST /settings` into `app/api/settings.py` behind the
-new `settings_bulk_save_provider` seam, while preserving the existing response
-shape and side effects. If the route move needs finer-grained test isolation,
-the future ports listed above can be introduced incrementally after the coarse
-bulk-save provider is in use.
+Future work should service-ize the bulk save payload and split the coarse
+provider into more granular ports when that reduces coupling: persistent bulk
+settings writes, runtime global state, ASR runtime application, ensemble sync and
+guard application, summary-token fallback, and context-size resolution. A
+separate PR may also address the `/settings/defaults` route-order issue if the
+intended behavior is to expose `SETTINGS_DEFAULTS` at that literal path.

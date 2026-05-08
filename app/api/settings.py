@@ -65,6 +65,11 @@ def default_setting_set_payload(key: str, req: dict[str, Any]) -> dict[str, Any]
     return {"ok": True, "key": key, "value": req.get("value", "")}
 
 
+def default_settings_bulk_save_payload(req: dict[str, Any]) -> dict[str, Any]:
+    """Return a conservative bulk-write echo without DB/runtime side effects."""
+    return {"ok": True, "saved": list(req.keys())}
+
+
 def get_settings_get_all_provider(request: Request) -> SettingsGetAllProvider | None:
     """Look up the optional app-state provider for the full settings map."""
     provider = getattr(request.app.state, "settings_get_all_provider", None)
@@ -124,6 +129,14 @@ def get_settings_api(request: Request) -> dict[str, Any]:
     if provider is not None:
         return provider()
     return default_settings_payload()
+
+
+@router.post("/settings")
+def save_settings_api(req: dict[str, Any], request: Request) -> dict[str, Any]:
+    provider = get_settings_bulk_save_provider(request)
+    if provider is not None:
+        return provider(req)
+    return default_settings_bulk_save_payload(req)
 
 
 @router.get("/settings/{key}")
