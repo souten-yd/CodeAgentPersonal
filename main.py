@@ -17131,8 +17131,7 @@ def save_model_role_assignments_api(req: dict):
     return {"ok": True, "saved_roles": [k.removeprefix("role_model_") for k in updates.keys()]}
 
 
-@app.get("/models/orchestration")
-def get_model_orchestration_api():
+def model_orchestration_payload() -> dict:
     catalog = get_runtime_model_catalog(include_disabled=True)
     ladder = get_coder_ladder_keys(catalog)
     return {
@@ -17268,6 +17267,7 @@ def settings_bulk_save_payload(req: dict) -> dict:
     return save_settings_api(req)
 
 
+app.state.model_orchestration_provider = model_orchestration_payload
 app.state.settings_get_all_provider = settings_get_all_payload
 app.state.settings_get_provider = settings_get_payload
 app.state.settings_defaults_provider = settings_defaults_payload

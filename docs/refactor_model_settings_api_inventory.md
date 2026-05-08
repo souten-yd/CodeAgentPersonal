@@ -1,9 +1,9 @@
-# PR4.29: Model Settings API Inventory
+# PR4.30: Model Settings API Inventory
 
-This inventory prepares the next `main.py` router split after the system router
-and core settings router moves. It intentionally records the current state only:
-no model, ensemble, orchestration, runtime, database, or UI endpoint is moved in
-this PR.
+This inventory tracks the model/settings router split after the system router
+and core settings router moves. PR4.30 starts the split by moving only the
+read-only `GET /models/orchestration` route into `app/api/model_settings.py`;
+write, roles, ensemble, runtime, database, and UI endpoints remain in `main.py`.
 
 ## Scope
 
@@ -16,9 +16,13 @@ The inventory covers endpoints that mix one or more of these concerns:
 - runtime global controls that are settings-adjacent but not fully persisted;
 - UI helper/status endpoints used by model settings screens.
 
-`current route owner` is `main.py` for every endpoint below. Keeping that owner
-fixed is the contract for this PR; future router PRs should update this document
-and the route-owner tests at the same time as endpoints are actually moved.
+`current route owner` records the router that owns each endpoint after PR4.30.
+`GET /models/orchestration` is owned by `app/api/model_settings.py`; the
+production `main.app` preserves existing behavior by registering
+`app.state.model_orchestration_provider`, while `create_app()` returns a
+conservative empty/default fallback without settings, DB, catalog, or hardware
+access. Future router PRs should update this document and the route-owner tests
+at the same time as endpoints are moved.
 
 ## Recommended categories
 
@@ -33,8 +37,8 @@ and the route-owner tests at the same time as endpoints are actually moved.
 
 ## Routerization recommendation summary
 
-1. Read-only orchestration/settings endpoint: move `GET /models/orchestration` first behind read providers for settings, model catalog, model DB list, coder ladder, and TPS extraction.
-2. Read-only model roles/status endpoint: move `GET /models/roles` and low-risk status reads (`GET /models/db/status`, optionally `GET /model/status`) after catalog/list seams are stable.
+1. Read-only orchestration/settings endpoint: `GET /models/orchestration` moved to `app/api/model_settings.py` behind `app.state.model_orchestration_provider`; `main.app` uses the provider for parity, and `create_app()` uses a conservative fallback.
+2. Next candidates: move `GET /models/roles` or `GET /models/db/status` after catalog/list seams are stable.
 3. Write model roles/settings endpoint: move `POST /models/roles` and `POST /models/orchestration` only after a settings bulk-write provider and catalog validation provider are explicit.
 4. Ensemble read endpoint: move `GET /ensemble/settings` and `GET /ensemble/vram` with an ensemble resource-status provider.
 5. Ensemble write endpoint: move `POST /ensemble/settings` after settings writes, opencode JSON sync, and low-VRAM guard are providerized together.
@@ -45,7 +49,7 @@ and the route-owner tests at the same time as endpoints are actually moved.
 
 | Path | Method | Current handler name | Current route owner | Category | Response role | Request body shape | settings dependency | Model DB / catalog dependency | Runtime globals dependency | ASR/TTS/Echo/Nexus/Atlas related? | DB write | File write | Side effects | `create_app()` fallback possible? | Provider needed? | Routerization order |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `/models/orchestration` | GET | `get_model_orchestration_api` | `main.py` | read-only model settings | Returns feature mode, orchestration policy, quality gate, coder ladder, and model list. | None. | Direct `settings_get` for `feature_mode`, `orchestration_policy`, `quality_check_enabled`, `coder_primary`, `coder_secondary`, `coder_tertiary`. | `get_runtime_model_catalog(include_disabled=True)`, `get_coder_ladder_keys`, `model_db_list`, `_model_text_tps`. | None direct. | Atlas/Nexus indirectly through planner/coder role selection; no ASR/TTS/Echo. | No. | No. | Reads settings and model DB/catalog. | Yes for conservative empty/default response if providers are missing, but main-app parity needs providers. | Settings read provider, catalog provider, model list provider, ladder provider. | 1 |
+| `/models/orchestration` | GET | `get_model_orchestration_api` | `app/api/model_settings.py` | read-only model settings | Returns feature mode, orchestration policy, quality gate, coder ladder, and model list. | None. | Direct `settings_get` for `feature_mode`, `orchestration_policy`, `quality_check_enabled`, `coder_primary`, `coder_secondary`, `coder_tertiary`. | `get_runtime_model_catalog(include_disabled=True)`, `get_coder_ladder_keys`, `model_db_list`, `_model_text_tps`. | None direct. | Atlas/Nexus indirectly through planner/coder role selection; no ASR/TTS/Echo. | No. | No. | Reads settings and model DB/catalog through the main-app provider only. | Yes; `create_app()` returns conservative empty/default response when provider is missing. | `ModelOrchestrationProvider` backed by main-app settings/catalog/model-list/ladder helpers. | done in PR4.30 |
 | `/models/orchestration` | POST | `save_model_orchestration_api` | `main.py` | write model settings | Saves feature mode, policy, quality gate, and coder ladder model keys. | Object with `feature_mode`, `policy`, `quality_check_enabled`, optional `coder_primary`, `coder_secondary`, `coder_tertiary`. | Direct `settings_set_bulk`. | Validates model keys with `get_runtime_model_catalog(include_disabled=True)`. | None direct. | Atlas/Nexus indirectly through model selection; no ASR/TTS/Echo. | Yes, settings table bulk upsert. | No. | Validates enum values and catalog keys. | No write fallback beyond no-op echo; avoid until providerized. | Settings bulk-write provider, catalog provider. | 3 |
 | `/models/roles` | GET | `get_model_role_assignments_api` | `main.py` | read-only model settings | Returns role options, planner key, assignment source, and model metadata. | None. | Direct `settings_get` per `role_model_*` key. | `get_runtime_model_catalog`, `model_db_list`, `get_runtime_task_model_map`, `_get_auto_role_model_map`, `MODEL_ROLE_OPTIONS`, `_resolve_ctx_size`. | None direct. | Atlas/Nexus indirectly through plan/coder/chat roles; no ASR/TTS/Echo. | No. | No. | Reads settings and model DB/catalog. | Yes for empty/default role payload if providers are missing. | Settings read provider, catalog/list/task-map/auto-role providers. | 2 |
 | `/models/roles` | POST | `save_model_role_assignments_api` | `main.py` | write model settings | Saves explicit model assignment keys per role. | `{ "assignments": { "<role>": "<model_key>" } }`. | Direct `settings_set_bulk` for `role_model_*` keys. | Validates keys against `get_runtime_model_catalog(include_disabled=True)` and `MODEL_ROLE_OPTIONS`. | None direct. | Atlas/Nexus indirectly through role routing; no ASR/TTS/Echo. | Yes, settings table bulk upsert. | No. | Ignores unknown role names; rejects unknown non-empty model keys. | No write fallback beyond no-op echo. | Settings bulk-write provider, role options provider, catalog provider. | 3 |
@@ -79,6 +83,14 @@ and the route-owner tests at the same time as endpoints are actually moved.
 | `/streaming/status` | GET | `streaming_status` | `main.py` | runtime global controls | Returns in-memory LLM streaming flag. | None. | None direct. | None direct. | `_llm_streaming`. | Chat/Nexus/Atlas indirectly through response streaming behavior; no ASR/TTS/Echo. | No. | No. | No mutation. | Yes with runtime-state provider. | Streaming runtime provider. | 6 |
 | `/streaming/enable` | POST | `streaming_enable` | `main.py` | runtime global controls | Enables in-memory LLM streaming. | None. | Does not persist `streaming_enabled`. | None. | Mutates `_llm_streaming`. | Chat/Nexus/Atlas indirectly; no ASR/TTS/Echo. | No. | No. | Prints status and mutates runtime flag. | No for write semantics without runtime provider. | Streaming runtime write provider. | 6 |
 | `/streaming/disable` | POST | `streaming_disable` | `main.py` | runtime global controls | Disables in-memory LLM streaming. | None. | Does not persist `streaming_enabled`. | None. | Mutates `_llm_streaming`. | Chat/Nexus/Atlas indirectly; no ASR/TTS/Echo. | No. | No. | Prints status and mutates runtime flag. | No for write semantics without runtime provider. | Streaming runtime write provider. | 6 |
+
+## PR4.30 movement notes
+
+- `GET /models/orchestration` moved to `app/api/model_settings.py`.
+- `main.app` registers `app.state.model_orchestration_provider = model_orchestration_payload` so the existing response shape and helper dependencies are preserved in production.
+- `create_app()` has no provider and returns `default_model_orchestration_payload()` without touching settings, model DB, catalog, hardware probes, or runtime globals.
+- `POST /models/orchestration` remains in `main.py`, along with roles, ensemble, model DB, runtime, and UI helper endpoints.
+- The next practical extraction candidate is `GET /models/roles` or `GET /models/db/status`, depending on whether role/catalog seams or DB-status seams are stabilized first.
 
 ## Extraction notes
 

@@ -25,46 +25,58 @@ def _assert_main_owner(path: str, method: str, handler_name: str):
     return route
 
 
-def test_model_settings_inventory_current_route_owners_are_still_main_py():
+def _assert_route_owner(path: str, method: str, module_name: str, handler_name: str):
+    route = _single_route(path, method)
+    assert route.endpoint.__module__ == module_name
+    assert route.endpoint.__name__ == handler_name
+    return route
+
+
+def test_model_settings_inventory_current_route_owners_are_split_as_expected():
     expected = [
-        ("/models/orchestration", "GET", "get_model_orchestration_api"),
-        ("/models/orchestration", "POST", "save_model_orchestration_api"),
-        ("/models/roles", "GET", "get_model_role_assignments_api"),
-        ("/models/roles", "POST", "save_model_role_assignments_api"),
-        ("/ensemble/settings", "GET", "get_ensemble_settings_api"),
-        ("/ensemble/settings", "POST", "save_ensemble_settings_api"),
-        ("/ensemble/vram", "GET", "get_ensemble_vram_api"),
-        ("/models/db", "GET", "list_models_db_api"),
-        ("/models/db", "POST", "add_model_db_api"),
-        ("/models/db/{mid}", "PUT", "update_model_db_api"),
-        ("/models/db/{mid}", "DELETE", "delete_model_db_api"),
-        ("/models/db/status", "GET", "model_db_status_api"),
-        ("/models/hardware", "GET", "model_hardware_api"),
-        ("/models/gguf/search", "GET", "search_gguf_models_api"),
-        ("/models/gguf/download", "POST", "download_gguf_api"),
-        ("/models/gguf/download/status", "GET", "gguf_download_status_api"),
-        ("/models/db/scan", "POST", "scan_model_folder_api"),
-        ("/models/db/scan/status", "GET", "model_scan_status_api"),
-        ("/models/db/benchmark/{mid}", "POST", "benchmark_model_api"),
-        ("/models/db/toggle/{mid}", "POST", "toggle_model_enabled"),
-        ("/models/db/toggle_vlm/{mid}", "POST", "toggle_model_vlm_enabled"),
-        ("/model/status", "GET", "model_status"),
-        ("/model/switch", "POST", "model_switch"),
-        ("/model/auto-load", "POST", "model_auto_load"),
-        ("/llm/props", "GET", "llm_props"),
-        ("/llm/ctx", "GET", "get_ctx"),
-        ("/llm/ctx", "POST", "set_ctx"),
-        ("/search/status", "GET", "search_status"),
-        ("/search/num", "POST", "search_set_num"),
-        ("/search/enable", "POST", "search_enable"),
-        ("/search/disable", "POST", "search_disable"),
-        ("/streaming/status", "GET", "streaming_status"),
-        ("/streaming/enable", "POST", "streaming_enable"),
-        ("/streaming/disable", "POST", "streaming_disable"),
+        (
+            "/models/orchestration",
+            "GET",
+            "app.api.model_settings",
+            "get_model_orchestration_api",
+        ),
+        ("/models/orchestration", "POST", "main", "save_model_orchestration_api"),
+        ("/models/roles", "GET", "main", "get_model_role_assignments_api"),
+        ("/models/roles", "POST", "main", "save_model_role_assignments_api"),
+        ("/ensemble/settings", "GET", "main", "get_ensemble_settings_api"),
+        ("/ensemble/settings", "POST", "main", "save_ensemble_settings_api"),
+        ("/ensemble/vram", "GET", "main", "get_ensemble_vram_api"),
+        ("/models/db", "GET", "main", "list_models_db_api"),
+        ("/models/db", "POST", "main", "add_model_db_api"),
+        ("/models/db/{mid}", "PUT", "main", "update_model_db_api"),
+        ("/models/db/{mid}", "DELETE", "main", "delete_model_db_api"),
+        ("/models/db/status", "GET", "main", "model_db_status_api"),
+        ("/models/hardware", "GET", "main", "model_hardware_api"),
+        ("/models/gguf/search", "GET", "main", "search_gguf_models_api"),
+        ("/models/gguf/download", "POST", "main", "download_gguf_api"),
+        ("/models/gguf/download/status", "GET", "main", "gguf_download_status_api"),
+        ("/models/db/scan", "POST", "main", "scan_model_folder_api"),
+        ("/models/db/scan/status", "GET", "main", "model_scan_status_api"),
+        ("/models/db/benchmark/{mid}", "POST", "main", "benchmark_model_api"),
+        ("/models/db/toggle/{mid}", "POST", "main", "toggle_model_enabled"),
+        ("/models/db/toggle_vlm/{mid}", "POST", "main", "toggle_model_vlm_enabled"),
+        ("/model/status", "GET", "main", "model_status"),
+        ("/model/switch", "POST", "main", "model_switch"),
+        ("/model/auto-load", "POST", "main", "model_auto_load"),
+        ("/llm/props", "GET", "main", "llm_props"),
+        ("/llm/ctx", "GET", "main", "get_ctx"),
+        ("/llm/ctx", "POST", "main", "set_ctx"),
+        ("/search/status", "GET", "main", "search_status"),
+        ("/search/num", "POST", "main", "search_set_num"),
+        ("/search/enable", "POST", "main", "search_enable"),
+        ("/search/disable", "POST", "main", "search_disable"),
+        ("/streaming/status", "GET", "main", "streaming_status"),
+        ("/streaming/enable", "POST", "main", "streaming_enable"),
+        ("/streaming/disable", "POST", "main", "streaming_disable"),
     ]
 
-    for path, method, handler_name in expected:
-        _assert_main_owner(path, method, handler_name)
+    for path, method, module_name, handler_name in expected:
+        _assert_route_owner(path, method, module_name, handler_name)
 
 
 def test_read_only_orchestration_endpoint_contract_without_db_writes(monkeypatch):
