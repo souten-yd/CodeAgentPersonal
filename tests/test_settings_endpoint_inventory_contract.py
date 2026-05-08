@@ -18,10 +18,10 @@ def _single_route(path: str, method: str):
     return routes[0]
 
 
-def test_main_app_settings_routes_are_owned_by_settings_router_while_bulk_write_stays_in_main():
+def test_main_app_settings_routes_are_owned_by_settings_router_while_defaults_stays_in_main():
     expected = [
         ("/settings", "GET", "app.api.settings", "get_settings_api"),
-        ("/settings", "POST", "main", "save_settings_api"),
+        ("/settings", "POST", "app.api.settings", "save_settings_api"),
         ("/settings-defaults", "GET", "app.api.settings", "get_settings_defaults_api"),
         ("/settings/{key}", "GET", "app.api.settings", "get_setting_api"),
         ("/settings/{key}", "PUT", "app.api.settings", "set_setting_api"),

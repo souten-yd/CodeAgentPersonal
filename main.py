@@ -17264,7 +17264,7 @@ def settings_set_payload(key: str, req: dict) -> dict:
 
 
 def settings_bulk_save_payload(req: dict) -> dict:
-    """Bulk write provider payload while POST /settings remains in main.py."""
+    """Bulk write provider payload for the settings router."""
     return save_settings_api(req)
 
 
@@ -17273,7 +17273,7 @@ app.state.settings_get_provider = settings_get_payload
 app.state.settings_defaults_provider = settings_defaults_payload
 app.state.settings_set_provider = settings_set_payload
 
-@app.post("/settings")
+
 def save_settings_api(req: dict):
     """複数設定を一括保存"""
     req = {k: v for k, v in req.items() if k not in ("max_output_tokens", "llm_port")}

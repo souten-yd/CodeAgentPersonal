@@ -17,10 +17,10 @@ def _single_route(path: str, method: str):
     return routes[0]
 
 
-def test_post_settings_route_owner_stays_in_main_before_provider_split():
+def test_post_settings_route_owner_is_settings_router_after_provider_split():
     route = _single_route("/settings", "POST")
 
-    assert route.endpoint.__module__ == "main"
+    assert route.endpoint.__module__ == "app.api.settings"
     assert route.endpoint.__name__ == "save_settings_api"
 
 
