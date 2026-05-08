@@ -1,9 +1,10 @@
 # PR4.30: Model Settings API Inventory
 
 This inventory tracks the model/settings router split after the system router
-and core settings router moves. PR4.30 starts the split by moving only the
-read-only `GET /models/orchestration` route into `app/api/model_settings.py`;
-write, roles, ensemble, runtime, database, and UI endpoints remain in `main.py`.
+and core settings router moves. PR4.32 continues the split by moving the
+read-only `GET /models/db/status` route into `app/api/model_settings.py` after
+`GET /models/orchestration` and `GET /models/roles`; write, list, scan,
+benchmark, GGUF, runtime, and UI endpoints remain in `main.py`.
 
 ## Scope
 
@@ -16,13 +17,13 @@ The inventory covers endpoints that mix one or more of these concerns:
 - runtime global controls that are settings-adjacent but not fully persisted;
 - UI helper/status endpoints used by model settings screens.
 
-`current route owner` records the router that owns each endpoint after PR4.30.
-`GET /models/orchestration` is owned by `app/api/model_settings.py`; the
-production `main.app` preserves existing behavior by registering
-`app.state.model_orchestration_provider`, while `create_app()` returns a
-conservative empty/default fallback without settings, DB, catalog, or hardware
-access. Future router PRs should update this document and the route-owner tests
-at the same time as endpoints are moved.
+`current route owner` records the router that owns each endpoint after PR4.32.
+`GET /models/orchestration`, `GET /models/roles`, and `GET /models/db/status`
+are owned by `app/api/model_settings.py`; the production `main.app` preserves
+existing behavior by registering app-state providers, while `create_app()`
+returns conservative empty/default fallbacks without settings, DB, catalog, or
+hardware access. Future router PRs should update this document and the
+route-owner tests at the same time as endpoints are moved.
 
 ## Recommended categories
 
@@ -37,8 +38,8 @@ at the same time as endpoints are moved.
 
 ## Routerization recommendation summary
 
-1. Read-only orchestration/settings endpoints: `GET /models/orchestration` and `GET /models/roles` moved to `app/api/model_settings.py` behind app-state providers; `main.app` uses the providers for parity, and `create_app()` uses conservative fallbacks.
-2. Next candidates: move `GET /models/db/status` or `GET /model/status` after DB-status/runtime seams are stable.
+1. Read-only orchestration/settings endpoints: `GET /models/orchestration`, `GET /models/roles`, and `GET /models/db/status` moved to `app/api/model_settings.py` behind app-state providers; `main.app` uses the providers for parity, and `create_app()` uses conservative fallbacks.
+2. Next candidates: move `GET /model/status` or `GET /models/db` after runtime/model-DB seams are stable.
 3. Write model roles/settings endpoint: move `POST /models/roles` and `POST /models/orchestration` only after a settings bulk-write provider and catalog validation provider are explicit.
 4. Ensemble read endpoint: move `GET /ensemble/settings` and `GET /ensemble/vram` with an ensemble resource-status provider.
 5. Ensemble write endpoint: move `POST /ensemble/settings` after settings writes, opencode JSON sync, and low-VRAM guard are providerized together.
@@ -60,7 +61,7 @@ at the same time as endpoints are moved.
 | `/models/db` | POST | `add_model_db_api` | `main.py` | write model catalog/status | Adds one model record. | Model object requiring `name` and `path`; optional runtime/model fields including `ctx_size`. | None direct. | Direct `model_db_add`; `_resolve_ctx_size`. | Calls `schedule_default_model_load`. | Nexus/Atlas indirectly through available model catalog. | Yes, inserts/updates model DB. | No direct file write. | Validates required fields and schedules default model load. | No. | Model DB write provider, ctx resolver, model-load scheduler provider. | 7 |
 | `/models/db/{mid}` | PUT | `update_model_db_api` | `main.py` | write model catalog/status | Updates one model row. | Partial model update object; `ctx_size` normalized when present. | None direct. | Direct `model_db_update`; `_resolve_ctx_size`. | None. | No direct ASR/TTS/Echo/Nexus/Atlas. | Yes. | No. | Updates allowed DB columns only. | No. | Model DB write provider, ctx resolver. | 7 |
 | `/models/db/{mid}` | DELETE | `delete_model_db_api` | `main.py` | write model catalog/status | Deletes one model row. | None. | None direct. | Direct `model_db_delete`. | None. | No direct ASR/TTS/Echo/Nexus/Atlas. | Yes. | No. | Deletes DB row. | No. | Model DB write provider. | 7 |
-| `/models/db/status` | GET | `model_db_status_api` | `main.py` | read-only model catalog/status | Reports DB existence, model count, benchmark count, VLM presence, and DB path. | None. | None direct. | `model_db_exists`, `model_db_list`, `MODEL_DB_PATH`. | None. | UI helper only; no direct ASR/TTS/Echo/Nexus/Atlas. | No. | No. | Opens/reads model DB and exposes DB path. | Yes with provider defaults. | Model DB status/list provider. | 2 |
+| `/models/db/status` | GET | `get_model_db_status_api` | `app/api/model_settings.py` | read-only model catalog/status | Reports DB existence, model count, benchmark count, VLM presence, and DB path. | None. | None direct. | `model_db_exists`, `model_db_list`, `MODEL_DB_PATH` through the main-app provider only. | None. | UI helper only; no direct ASR/TTS/Echo/Nexus/Atlas. | No. | No. | Reads model DB through provider in `main.app`; `create_app()` does not access DB. | Yes; `create_app()` returns conservative DB-absent defaults when provider is missing. | `ModelDbStatusProvider` backed by main-app DB existence/list/path helpers. | done in PR4.32 |
 | `/models/hardware` | GET | `model_hardware_api` | `main.py` | heavy probe/status endpoints | Returns system hardware information for model selection. | None. | None direct. | None direct. | `get_system_hardware_info`. | UI helper only; no direct ASR/TTS/Echo/Nexus/Atlas. | No. | No. | Hardware probing/status collection. | Yes with conservative unknown hardware fallback. | Hardware info provider. | 7 |
 | `/models/gguf/search` | GET | `search_gguf_models_api` | `main.py` | heavy probe/status endpoints | Searches Hugging Face GGUF models and estimates fit. | Query params `q`, `sort`, `limit`. | Direct `settings_get("llm_root_folder")`. | `_default_llm_root_folder`, `_disk_free_mb`, `_fetch_hf_repo_file_sizes`, `_infer_*`, `_estimate_fit`; no local DB write. | Hardware status via `get_system_hardware_info`. | UI helper only; no direct ASR/TTS/Echo/Nexus/Atlas. | No. | No. | External network call to Hugging Face; disk free-space check. | No meaningful fallback except empty/error response. | HTTP client/search provider, settings read provider, hardware/storage providers. | 7 |
 | `/models/gguf/download` | POST | `download_gguf_api` | `main.py` | heavy probe/status endpoints | Starts a background GGUF download job. | `{ "model_id": str, "filename": str, optional "folder": str, optional "ctx_size": int|str }`. | Direct `settings_get("llm_root_folder")`. | Download job later calls model DB add/update, benchmarking, auto-role recommendation, and model-load scheduling. | Background thread and in-memory `_gguf_dl_jobs`. | Nexus/Atlas indirectly through added models. | Yes in background post-processing. | Yes, creates target folder and writes downloaded GGUF file. | Starts background thread, downloads files, may benchmark, update roles, and schedule model load. | No. | Download job provider, settings read provider, filesystem provider, DB/model-load providers. | 7 |
@@ -97,7 +98,15 @@ at the same time as endpoints are moved.
 - `main.app` registers `app.state.model_roles_provider = model_roles_payload` so the existing response shape and helper dependencies are preserved in production.
 - `create_app()` has no provider and returns `default_model_roles_payload()` without touching settings, model DB, catalog, hardware probes, or runtime globals.
 - `POST /models/roles` remains in `main.py`, along with write model/orchestration, ensemble, model DB, runtime, and UI helper endpoints.
-- The next practical extraction candidate is `GET /models/db/status` or `GET /model/status`, depending on whether DB-status or model-runtime seams are stabilized first.
+- After PR4.31, `GET /models/db/status` was selected as the next read-only catalog/status extraction.
+
+## PR4.32 movement notes
+
+- `GET /models/db/status` moved to `app/api/model_settings.py`.
+- `main.app` registers `app.state.model_db_status_provider = model_db_status_payload` so the existing response shape and helper dependencies are preserved in production.
+- `create_app()` has no provider and returns `default_model_db_status_payload()` without touching `model_db_exists`, `model_db_list`, `MODEL_DB_PATH`, settings, catalog, hardware probes, or runtime globals.
+- `/models/db` list/write endpoints, scan, benchmark, GGUF, model-manager runtime endpoints, and `GET /model/status` remain in `main.py`.
+- The next practical extraction candidate is `GET /model/status` or `GET /models/db`, depending on whether runtime-status or DB-list seams are stabilized first.
 
 ## Extraction notes
 

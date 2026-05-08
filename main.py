@@ -16583,21 +16583,6 @@ def delete_model_db_api(mid: str):
     model_db_delete(mid)
     return {"ok": True}
 
-@app.get("/models/db/status")
-def model_db_status_api():
-    models = model_db_list()
-    benchmarked = [m for m in models if m.get("tok_per_sec", -1) > 0]
-    has_vlm = any(m.get("is_vlm") for m in models)
-    return {
-        "db_exists": model_db_exists(),
-        "has_models": len(models) > 0,
-        "total": len(models),
-        "benchmarked": len(benchmarked),
-        "has_vlm": has_vlm,
-        "db_path": MODEL_DB_PATH,
-    }
-
-
 @app.get("/models/hardware")
 def model_hardware_api():
     return get_system_hardware_info()
@@ -17069,6 +17054,20 @@ def toggle_model_vlm_enabled(mid: str, req: dict):
     return {"ok": True, "vlm_enabled": bool(vlm_enabled)}
 
 
+def model_db_status_payload() -> dict:
+    models = model_db_list()
+    benchmarked = [m for m in models if m.get("tok_per_sec", -1) > 0]
+    has_vlm = any(m.get("is_vlm") for m in models)
+    return {
+        "db_exists": model_db_exists(),
+        "has_models": len(models) > 0,
+        "total": len(models),
+        "benchmarked": len(benchmarked),
+        "has_vlm": has_vlm,
+        "db_path": MODEL_DB_PATH,
+    }
+
+
 def model_roles_payload() -> dict:
     catalog = get_runtime_model_catalog(include_disabled=True)
     models = model_db_list()
@@ -17268,6 +17267,7 @@ def settings_bulk_save_payload(req: dict) -> dict:
 
 app.state.model_orchestration_provider = model_orchestration_payload
 app.state.model_roles_provider = model_roles_payload
+app.state.model_db_status_provider = model_db_status_payload
 app.state.settings_get_all_provider = settings_get_all_payload
 app.state.settings_get_provider = settings_get_payload
 app.state.settings_defaults_provider = settings_defaults_payload

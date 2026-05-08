@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.api.model_settings import (
+    default_model_db_status_payload,
     default_model_orchestration_payload,
     default_model_roles_payload,
 )
@@ -73,6 +74,42 @@ def test_main_app_model_orchestration_returns_provider_payload(monkeypatch):
                 "tok_per_sec": 12.5,
             }
         ],
+    }
+
+
+def test_create_app_model_db_status_returns_default_payload():
+    client = TestClient(create_app())
+
+    response = client.get("/models/db/status")
+
+    assert response.status_code == 200
+    assert response.json() == default_model_db_status_payload()
+
+
+def test_main_app_model_db_status_returns_provider_payload(monkeypatch):
+    monkeypatch.setattr(main, "model_db_exists", lambda: True)
+    monkeypatch.setattr(
+        main,
+        "model_db_list",
+        lambda: [
+            {"id": "m1", "tok_per_sec": 12.5, "is_vlm": 0},
+            {"id": "m2", "tok_per_sec": 0, "is_vlm": 1},
+            {"id": "m3", "tok_per_sec": -1, "is_vlm": 0},
+        ],
+    )
+    monkeypatch.setattr(main, "MODEL_DB_PATH", "/tmp/test-models.db")
+
+    response = TestClient(main.app).get("/models/db/status")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body == {
+        "db_exists": True,
+        "has_models": True,
+        "total": 3,
+        "benchmarked": 1,
+        "has_vlm": True,
+        "db_path": "/tmp/test-models.db",
     }
 
 
