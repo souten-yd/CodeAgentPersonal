@@ -21,10 +21,11 @@ globals.
 - Provider-less `create_app()` receives a conservative router fallback that
   returns `{"ok": True, "saved": list(req.keys())}` without DB writes or runtime
   side effects.
-- This PR does not change `save_settings_api`, `settings_set_bulk`, ASR runtime
+- PR4.25 did not change `save_settings_api`, `settings_set_bulk`, ASR runtime
   behavior, ensemble synchronization, runtime globals, route ordering, DB schema,
   or storage locations.
-- The known `/settings/defaults` shadowing behavior is unchanged.
+- Follow-up PR4.26 fixed `/settings/defaults` route ordering in the settings
+  router; `POST /settings` remains router-owned and its behavior is unchanged.
 
 ## Current processing inventory
 
@@ -131,8 +132,8 @@ this PR.
 - **`SettingsBulkSetProvider`**
   - Accepts the final filtered/normalized request dictionary.
   - Owns the persistent `settings_set_bulk` call.
-  - Should be injectable through app state when `POST /settings` moves to the
-    settings router, with a provider-less factory fallback that avoids DB writes
+  - Should stay injectable through app state now that `POST /settings` is owned by
+    the settings router, with a provider-less factory fallback that avoids DB writes
     if behavior parity permits a safe echo path.
 - **`RuntimeSettingsStatePort`**
   - Owns in-memory mutations for search enabled, LLM streaming enabled, and
