@@ -22,6 +22,7 @@ def test_main_app_settings_read_routes_are_owned_by_settings_router_while_writes
     expected = [
         ("/settings", "GET", "app.api.settings", "get_settings_api"),
         ("/settings", "POST", "main", "save_settings_api"),
+        ("/settings-defaults", "GET", "app.api.settings", "get_settings_defaults_api"),
         ("/settings/{key}", "GET", "app.api.settings", "get_setting_api"),
         ("/settings/{key}", "PUT", "main", "set_setting_api"),
         ("/settings/defaults", "GET", "main", "get_settings_defaults"),
@@ -31,6 +32,20 @@ def test_main_app_settings_read_routes_are_owned_by_settings_router_while_writes
         route = _single_route(path, method)
         assert route.endpoint.__module__ == module_name
         assert route.endpoint.__name__ == handler_name
+
+
+def test_get_settings_defaults_alias_returns_representative_defaults_without_fixing_shadowed_route():
+    client = TestClient(main.app)
+
+    response = client.get("/settings-defaults")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert isinstance(body, dict)
+    assert str(body["ctx_size"]).isdigit()
+    assert body["search_enabled"] in {"true", "false"}
+    assert body["streaming_enabled"] in {"true", "false"}
+    assert body["feature_mode"] in {"model_orchestration", "ensemble"}
 
 
 def test_get_settings_returns_representative_default_keys_without_fixing_full_body():

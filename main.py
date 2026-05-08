@@ -17249,8 +17249,14 @@ def settings_get_payload(key: str) -> dict:
     return {"key": key, "value": settings_get(key)}
 
 
+def settings_defaults_payload() -> dict:
+    """Unshadowed defaults provider payload for the settings router."""
+    return dict(SETTINGS_DEFAULTS)
+
+
 app.state.settings_get_all_provider = settings_get_all_payload
 app.state.settings_get_provider = settings_get_payload
+app.state.settings_defaults_provider = settings_defaults_payload
 
 @app.post("/settings")
 def save_settings_api(req: dict):

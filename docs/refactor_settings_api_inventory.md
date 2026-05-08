@@ -1,29 +1,31 @@
-# PR4.20: Settings Read Router Split Inventory
+# PR4.21: Settings Defaults Alias Inventory
 
-This document tracks the settings-adjacent endpoint inventory after moving the
-read-only canonical settings routes into `app/api/settings.py`. This PR
-intentionally keeps write behavior and the known `/settings/defaults` shadowing
-unchanged: `settings_get` / `settings_set` / `settings_get_all` behavior is not
-changed, and no DB schema or storage location is changed.
+This document tracks the settings-adjacent endpoint inventory after adding an
+unshadowed defaults alias to `app/api/settings.py`. This PR intentionally keeps
+write behavior and the known `/settings/defaults` shadowing unchanged:
+`settings_get` / `settings_set` / `settings_get_all` behavior is not changed,
+and no DB schema or storage location is changed.
 
 ## Scope and important route-order finding
 
 The primary settings endpoints are currently registered in this effective order:
 
-1. `GET /settings` -> `app.api.settings.get_settings_api`
-2. `GET /settings/{key}` -> `app.api.settings.get_setting_api`
-3. `POST /settings` -> `main.save_settings_api`
-4. `PUT /settings/{key}` -> `main.set_setting_api`
-5. `GET /settings/defaults` -> `main.get_settings_defaults`
+1. `GET /settings-defaults` -> `app.api.settings.get_settings_defaults_api`
+2. `GET /settings` -> `app.api.settings.get_settings_api`
+3. `GET /settings/{key}` -> `app.api.settings.get_setting_api`
+4. `POST /settings` -> `main.save_settings_api`
+5. `PUT /settings/{key}` -> `main.set_setting_api`
+6. `GET /settings/defaults` -> `main.get_settings_defaults`
 
 Because `GET /settings/{key}` is declared before `GET /settings/defaults`, the
 literal `/settings/defaults` path is currently matched by the dynamic
 `/settings/{key}` route. In current behavior, `GET /settings/defaults` returns
 the same shape as `GET /settings/{key}` with `key == "defaults"`, not the
-`SETTINGS_DEFAULTS` dict. This PR preserves that route order by registering the
-settings router before the remaining inline `main.py` settings write/defaults
-routes. A future split should fix route order only in a dedicated
-behavior-changing PR if that is desired.
+`SETTINGS_DEFAULTS` dict. This PR preserves that route order and exposes
+`GET /settings-defaults` as a safe unshadowed alias for callers that need the
+explicit defaults map before any future route-order change. A future split can
+still fix `/settings/defaults` by registering a literal defaults route before
+`/{key}`, but that should be a dedicated behavior-changing PR if desired.
 
 ## Routerization recommendation summary
 
@@ -32,23 +34,27 @@ Recommended extraction order:
 1. **Read-only canonical settings reads**: `GET /settings`, `GET /settings/{key}`.
    Completed in PR4.20 via `app/api/settings.py` with app-state providers and a
    conservative factory fallback.
-2. **Document or separately fix defaults route ordering**: `GET /settings/defaults`.
+2. **Unshadowed defaults alias**: `GET /settings-defaults`. Completed in
+   PR4.21 via `app/api/settings.py` with a `settings_defaults_provider` and a
+   conservative factory fallback. The existing `GET /settings/defaults` behavior
+   is still shadowed and unchanged.
+3. **Document or separately fix defaults route ordering**: `GET /settings/defaults`.
    Move this only after deciding whether to preserve the current shadowed
    behavior or intentionally expose `SETTINGS_DEFAULTS` by registering the static
    route before `/{key}`.
-3. **Single-key write**: `PUT /settings/{key}`. This has DB writes and ctx-size
+4. **Single-key write**: `PUT /settings/{key}`. This has DB writes and ctx-size
    normalization but limited side effects.
-4. **Bulk write**: `POST /settings`. This should move last among core settings
+5. **Bulk write**: `POST /settings`. This should move last among core settings
    because it synchronizes runtime globals and invokes ASR/ensemble side effects.
-5. **Settings-table-backed feature endpoints**: model role/orchestration and
+6. **Settings-table-backed feature endpoints**: model role/orchestration and
    ensemble settings endpoints. Move after the core settings port is stable,
    because they need model catalog/resource-status providers in addition to
    settings helpers.
-6. **Runtime-global settings endpoints**: `/llm/ctx`, `/search/*`, and
+7. **Runtime-global settings endpoints**: `/llm/ctx`, `/search/*`, and
    `/streaming/*`. Move after deciding whether they belong in a settings router
    or a runtime-control router, because many of them do not persist changes to
    the settings table today.
-7. **ASR runtime config endpoints**: `/asr/config`, `/asr/status`, `/asr/load`,
+8. **ASR runtime config endpoints**: `/asr/config`, `/asr/status`, `/asr/load`,
    `/asr/unload`. These read persisted ASR keys but are coupled to runtime
    process management, so they should not be part of the first settings split.
 
@@ -56,11 +62,12 @@ Recommended extraction order:
 
 | Path | Method | Current handler | Response role | main.py globals/helpers used | settings helper dependency | DB write | Side effects | Can `create_app()` provide defaults? | Provider needed? | Routerization order |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `/settings-defaults` | GET | `app.api.settings.get_settings_defaults_api` | Returns the explicit settings defaults map through an unshadowed alias. | `main.settings_defaults_payload` provider returns `dict(SETTINGS_DEFAULTS)`. | None directly; reads defaults through the app-state provider on `main.app`. | No. | No mutation. | Yes. `create_app()` includes the settings router and receives the same conservative fallback map used by the read-only settings route when no provider is installed. | Done: `request.app.state.settings_defaults_provider`, falling back to `default_settings_payload()`. | 2 done |
 | `/settings` | GET | `app.api.settings.get_settings_api` | Returns the full effective settings map with defaults filled for unset keys. | `main.settings_get_all_payload` provider uses `settings_get_all`, `SETTINGS_DEFAULTS` indirectly, `_model_db_lock`, `_get_model_db`, `_canonicalize_settings_map` indirectly. | Direct `settings_get_all` through the app-state provider. | No. | Opens/closes model DB for reads when present; no runtime mutation. | Yes. `create_app()` includes the settings router and receives a conservative fallback map when no provider is installed. | Done: `request.app.state.settings_get_all_provider`, falling back to `default_settings_payload()`. | 1 done |
 | `/settings/{key}` | GET | `app.api.settings.get_setting_api` | Returns one setting as `{key, value}` with default fallback for known keys. | `main.settings_get_payload` provider uses `settings_get`, `SETTINGS_DEFAULTS` indirectly, `_canonicalize_setting_key` indirectly, `_resolve_ctx_size` indirectly for `ctx_size`, `_model_db_lock`, `_get_model_db`. | Direct `settings_get` through the app-state provider. | No. | Opens/closes model DB for reads when present; no runtime mutation. Also currently handles `/settings/defaults` because of route shadowing. | Yes. `create_app()` includes the settings router and receives a conservative single-key fallback when no provider is installed. | Done: `request.app.state.settings_get_provider`, falling back to `default_setting_payload(key)`. | 1 done, defaults shadowing explicitly preserved |
-| `/settings/{key}` | PUT | `set_setting_api` | Persists one value and echoes the saved key/value. | `_canonicalize_setting_key`, `_resolve_ctx_size`, `settings_set`. | Direct `settings_set`. | Yes: upsert into `settings`. | Normalizes `ctx_size` before saving. Does not synchronize `_current_n_ctx`, `_search_enabled`, `_llm_streaming`, ASR runtime, or ensemble JSON/guards. | No for writes without a settings write provider. | Yes: `set_setting(key, value)` provider/port plus ctx-size resolver if behavior stays identical. | 3 |
-| `/settings` | POST | `save_settings_api` | Bulk-save response listing saved keys. | `_resolve_ctx_size`, `_get_summary_token_limit`, `settings_set_bulk`, `_apply_asr_runtime_settings`, `_sync_ensemble_settings_to_opencode_json`, `_apply_ensemble_execution_mode_guard`, `_search_enabled`, `_llm_streaming`, `_current_n_ctx`. | Direct `settings_set_bulk`; indirect settings reads inside ASR/ensemble helpers. | Yes: bulk upsert into `settings`. | Filters `max_output_tokens` and `llm_port`; normalizes `ctx_size`, `summary_max_tokens`, `read_file_inject_max_chars`, `ensemble_execution_mode`, `ensemble_auto_switch_on_low_vram`; may apply ASR runtime config; may sync ensemble settings to `opencode.json`; may update ensemble execution guard; mutates `_search_enabled`, `_llm_streaming`, and `_current_n_ctx`. | No for full behavior without many runtime providers. | Yes: bulk settings write provider plus runtime-state, ASR, and ensemble providers. | 4 |
-| `/settings/defaults` | GET | `get_settings_defaults` | Intended to return the static `SETTINGS_DEFAULTS` map. Current request behavior is shadowed by `GET /settings/{key}`. | `SETTINGS_DEFAULTS`. | None in handler; current effective request path uses `settings_get("defaults")` because of shadowing. | No. | No handler side effects. Current request opens settings DB via the dynamic route. | Yes, if registered before `/{key}` or exposed under another unshadowed path. | Optional: a defaults provider is useful for factory tests. | 2, but decide preservation vs. route-order fix in a separate PR. |
+| `/settings/{key}` | PUT | `set_setting_api` | Persists one value and echoes the saved key/value. | `_canonicalize_setting_key`, `_resolve_ctx_size`, `settings_set`. | Direct `settings_set`. | Yes: upsert into `settings`. | Normalizes `ctx_size` before saving. Does not synchronize `_current_n_ctx`, `_search_enabled`, `_llm_streaming`, ASR runtime, or ensemble JSON/guards. | No for writes without a settings write provider. | Yes: `set_setting(key, value)` provider/port plus ctx-size resolver if behavior stays identical. | 4 |
+| `/settings` | POST | `save_settings_api` | Bulk-save response listing saved keys. | `_resolve_ctx_size`, `_get_summary_token_limit`, `settings_set_bulk`, `_apply_asr_runtime_settings`, `_sync_ensemble_settings_to_opencode_json`, `_apply_ensemble_execution_mode_guard`, `_search_enabled`, `_llm_streaming`, `_current_n_ctx`. | Direct `settings_set_bulk`; indirect settings reads inside ASR/ensemble helpers. | Yes: bulk upsert into `settings`. | Filters `max_output_tokens` and `llm_port`; normalizes `ctx_size`, `summary_max_tokens`, `read_file_inject_max_chars`, `ensemble_execution_mode`, `ensemble_auto_switch_on_low_vram`; may apply ASR runtime config; may sync ensemble settings to `opencode.json`; may update ensemble execution guard; mutates `_search_enabled`, `_llm_streaming`, and `_current_n_ctx`. | No for full behavior without many runtime providers. | Yes: bulk settings write provider plus runtime-state, ASR, and ensemble providers. | 5 |
+| `/settings/defaults` | GET | `get_settings_defaults` | Intended to return the static `SETTINGS_DEFAULTS` map. Current request behavior is shadowed by `GET /settings/{key}`. | `SETTINGS_DEFAULTS`. | None in handler; current effective request path uses `settings_get("defaults")` because of shadowing. | No. | No handler side effects. Current request opens settings DB via the dynamic route. | Yes, if registered before `/{key}` or exposed under another unshadowed path. | Optional: a defaults provider exists for the unshadowed `/settings-defaults` alias. | 3, but decide preservation vs. route-order fix in a separate PR. |
 
 ## Web-search, streaming, and LLM runtime settings endpoints
 
@@ -103,14 +110,17 @@ runtime-control endpoints rather than first-wave settings router candidates.
 
 ## Notes for the future settings router split
 
-- The settings router now owns `GET /settings` and `GET /settings/{key}` with
-  app-state providers for `settings_get_all` and `settings_get`.
+- The settings router now owns `GET /settings-defaults`, `GET /settings`, and
+  `GET /settings/{key}` with app-state providers for `SETTINGS_DEFAULTS`,
+  `settings_get_all`, and `settings_get`.
 - `POST /settings`, `PUT /settings/{key}`, and `GET /settings/defaults` still
   live in `main.py`.
-- Preserve current behavior in this move. If fixing `/settings/defaults`, do it
-  as a separate intentional route-order PR with a before/after contract.
-- Next candidates are deciding the `/settings/defaults` behavior or moving
-  `PUT /settings/{key}` behind a write provider.
+- Preserve current `/settings/defaults` shadowed behavior in this move. If
+  fixing `/settings/defaults`, do it as a separate intentional route-order PR
+  with a before/after contract that makes the literal route return defaults.
+- Next candidates are moving `PUT /settings/{key}` behind a write provider or
+  intentionally fixing `/settings/defaults` route order now that
+  `/settings-defaults` exists as a safe reference path.
 - Avoid adding `create_app()` parameters just for settings in the first step.
   Prefer app state or router dependency defaults that can be overridden in tests.
 - Keep runtime-global controls separate from persisted settings unless a later PR

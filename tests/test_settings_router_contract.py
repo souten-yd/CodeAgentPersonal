@@ -4,6 +4,14 @@ import main
 from app.server import create_app
 
 
+def _assert_representative_defaults_payload(body: dict) -> None:
+    assert isinstance(body, dict)
+    assert str(body["ctx_size"]).isdigit()
+    assert body["search_enabled"] in {"true", "false"}
+    assert body["streaming_enabled"] in {"true", "false"}
+    assert body["feature_mode"] in {"model_orchestration", "ensemble"}
+
+
 def test_create_app_settings_returns_conservative_fallback_payload():
     client = TestClient(create_app())
 
@@ -56,3 +64,23 @@ def test_main_app_setting_by_key_uses_existing_key_value_provider():
     assert response.status_code == 200
     assert body["key"] == "ctx_size"
     assert str(body["value"]).isdigit()
+
+
+def test_create_app_settings_defaults_alias_returns_conservative_fallback_payload():
+    client = TestClient(create_app())
+
+    response = client.get("/settings-defaults")
+    body = response.json()
+
+    assert response.status_code == 200
+    _assert_representative_defaults_payload(body)
+
+
+def test_main_app_settings_defaults_alias_uses_existing_defaults_provider():
+    client = TestClient(main.app)
+
+    response = client.get("/settings-defaults")
+    body = response.json()
+
+    assert response.status_code == 200
+    _assert_representative_defaults_payload(body)

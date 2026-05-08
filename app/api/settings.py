@@ -14,6 +14,7 @@ router = APIRouter()
 
 SettingsGetAllProvider = Callable[[], dict[str, Any]]
 SettingsGetProvider = Callable[[str], dict[str, Any]]
+SettingsDefaultsProvider = Callable[[], dict[str, Any]]
 
 _SETTINGS_FALLBACK_DEFAULTS: dict[str, Any] = {
     "llm_root_folder": "",
@@ -64,6 +65,27 @@ def get_settings_get_provider(request: Request) -> SettingsGetProvider | None:
     if callable(provider):
         return provider
     return None
+
+
+def get_settings_defaults_provider(request: Request) -> SettingsDefaultsProvider | None:
+    """Look up the optional app-state provider for the unshadowed defaults map."""
+    provider = getattr(request.app.state, "settings_defaults_provider", None)
+    if callable(provider):
+        return provider
+    return None
+
+
+def get_settings_defaults_payload(request: Request) -> dict[str, Any]:
+    """Return explicit settings defaults from provider or conservative fallback."""
+    provider = get_settings_defaults_provider(request)
+    if provider is not None:
+        return provider()
+    return default_settings_payload()
+
+
+@router.get("/settings-defaults")
+def get_settings_defaults_api(request: Request) -> dict[str, Any]:
+    return get_settings_defaults_payload(request)
 
 
 @router.get("/settings")
