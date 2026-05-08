@@ -17602,8 +17602,7 @@ def _get_lightweight_health_status() -> dict:
 
 
 
-@app.get("/system/summary")
-def system_summary():
+def system_summary_payload() -> dict:
     model = _model_manager.status_dict()
     usage = get_system_usage_info()
     health = _get_lightweight_health_status()
@@ -17841,6 +17840,7 @@ app.state.system_usage_ports = UsageCollectorPorts(
 )
 app.state.system_usage_provider = get_system_usage_info
 app.state.system_usage_debug_provider = system_usage_debug_payload
+app.state.system_summary_provider = system_summary_payload
 
 # =========================
 # 静的ファイル配信
