@@ -16,6 +16,7 @@ router = APIRouter()
 
 ModelOrchestrationProvider = Callable[[], dict[str, Any]]
 ModelRolesProvider = Callable[[], dict[str, Any]]
+ModelDbStatusProvider = Callable[[], dict[str, Any]]
 
 
 def default_model_orchestration_payload() -> dict[str, Any]:
@@ -42,6 +43,18 @@ def default_model_roles_payload() -> dict[str, Any]:
     }
 
 
+def default_model_db_status_payload() -> dict[str, Any]:
+    """Return a conservative model DB status payload without DB access."""
+    return {
+        "db_exists": False,
+        "has_models": False,
+        "total": 0,
+        "benchmarked": 0,
+        "has_vlm": False,
+        "db_path": "",
+    }
+
+
 def get_model_orchestration_provider(
     request: Request,
 ) -> ModelOrchestrationProvider | None:
@@ -55,6 +68,16 @@ def get_model_orchestration_provider(
 def get_model_roles_provider(request: Request) -> ModelRolesProvider | None:
     """Look up the optional app-state provider for model role reads."""
     provider = getattr(request.app.state, "model_roles_provider", None)
+    if callable(provider):
+        return provider
+    return None
+
+
+def get_model_db_status_provider(
+    request: Request,
+) -> ModelDbStatusProvider | None:
+    """Look up the optional app-state provider for model DB status reads."""
+    provider = getattr(request.app.state, "model_db_status_provider", None)
     if callable(provider):
         return provider
     return None
@@ -74,3 +97,11 @@ def get_model_role_assignments_api(request: Request) -> dict[str, Any]:
     if provider is not None:
         return provider()
     return default_model_roles_payload()
+
+
+@router.get("/models/db/status")
+def get_model_db_status_api(request: Request) -> dict[str, Any]:
+    provider = get_model_db_status_provider(request)
+    if provider is not None:
+        return provider()
+    return default_model_db_status_payload()

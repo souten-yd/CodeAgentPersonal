@@ -55,7 +55,12 @@ def test_model_settings_inventory_current_route_owners_are_split_as_expected():
         ("/models/db", "POST", "main", "add_model_db_api"),
         ("/models/db/{mid}", "PUT", "main", "update_model_db_api"),
         ("/models/db/{mid}", "DELETE", "main", "delete_model_db_api"),
-        ("/models/db/status", "GET", "main", "model_db_status_api"),
+        (
+            "/models/db/status",
+            "GET",
+            "app.api.model_settings",
+            "get_model_db_status_api",
+        ),
         ("/models/hardware", "GET", "main", "model_hardware_api"),
         ("/models/gguf/search", "GET", "main", "search_gguf_models_api"),
         ("/models/gguf/download", "POST", "main", "download_gguf_api"),
