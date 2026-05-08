@@ -18,18 +18,18 @@ def _single_route(path: str, method: str):
     return routes[0]
 
 
-def test_main_app_settings_routes_are_still_owned_by_main_before_router_split():
+def test_main_app_settings_read_routes_are_owned_by_settings_router_while_writes_stay_in_main():
     expected = [
-        ("/settings", "GET", "get_settings_api"),
-        ("/settings", "POST", "save_settings_api"),
-        ("/settings/{key}", "GET", "get_setting_api"),
-        ("/settings/{key}", "PUT", "set_setting_api"),
-        ("/settings/defaults", "GET", "get_settings_defaults"),
+        ("/settings", "GET", "app.api.settings", "get_settings_api"),
+        ("/settings", "POST", "main", "save_settings_api"),
+        ("/settings/{key}", "GET", "app.api.settings", "get_setting_api"),
+        ("/settings/{key}", "PUT", "main", "set_setting_api"),
+        ("/settings/defaults", "GET", "main", "get_settings_defaults"),
     ]
 
-    for path, method, handler_name in expected:
+    for path, method, module_name, handler_name in expected:
         route = _single_route(path, method)
-        assert route.endpoint.__module__ == "main"
+        assert route.endpoint.__module__ == module_name
         assert route.endpoint.__name__ == handler_name
 
 

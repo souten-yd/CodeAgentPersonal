@@ -17237,10 +17237,20 @@ def asr_unload_api():
     return {**cfg, **WHISPER_CPP_SERVER_RUNTIME.unload()}
 
 
-@app.get("/settings")
-def get_settings_api():
-    """全設定を返す（未設定はデフォルト値）"""
+
+
+def settings_get_all_payload() -> dict:
+    """Read provider payload for the settings router."""
     return settings_get_all()
+
+
+def settings_get_payload(key: str) -> dict:
+    """Single-key read provider payload for the settings router."""
+    return {"key": key, "value": settings_get(key)}
+
+
+app.state.settings_get_all_provider = settings_get_all_payload
+app.state.settings_get_provider = settings_get_payload
 
 @app.post("/settings")
 def save_settings_api(req: dict):
@@ -17284,10 +17294,6 @@ def save_settings_api(req: dict):
         except Exception:
             pass
     return {"ok": True, "saved": list(req.keys())}
-
-@app.get("/settings/{key}")
-def get_setting_api(key: str):
-    return {"key": key, "value": settings_get(key)}
 
 @app.put("/settings/{key}")
 def set_setting_api(key: str, req: dict):
