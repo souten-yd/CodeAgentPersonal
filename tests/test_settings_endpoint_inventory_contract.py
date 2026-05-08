@@ -18,14 +18,27 @@ def _single_route(path: str, method: str):
     return routes[0]
 
 
-def test_main_app_settings_routes_are_owned_by_settings_router_while_defaults_stays_in_main():
+def _assert_representative_defaults_payload(body: dict) -> None:
+    assert isinstance(body, dict)
+    assert str(body["ctx_size"]).isdigit()
+    assert body["search_enabled"] in {"true", "false"}
+    assert body["streaming_enabled"] in {"true", "false"}
+    assert body["feature_mode"] in {"model_orchestration", "ensemble"}
+
+
+def test_main_app_core_settings_routes_are_owned_by_settings_router():
     expected = [
+        ("/settings-defaults", "GET", "app.api.settings", "get_settings_defaults_api"),
         ("/settings", "GET", "app.api.settings", "get_settings_api"),
         ("/settings", "POST", "app.api.settings", "save_settings_api"),
-        ("/settings-defaults", "GET", "app.api.settings", "get_settings_defaults_api"),
+        (
+            "/settings/defaults",
+            "GET",
+            "app.api.settings",
+            "get_settings_defaults_legacy_api",
+        ),
         ("/settings/{key}", "GET", "app.api.settings", "get_setting_api"),
         ("/settings/{key}", "PUT", "app.api.settings", "set_setting_api"),
-        ("/settings/defaults", "GET", "main", "get_settings_defaults"),
     ]
 
     for path, method, module_name, handler_name in expected:
@@ -34,18 +47,14 @@ def test_main_app_settings_routes_are_owned_by_settings_router_while_defaults_st
         assert route.endpoint.__name__ == handler_name
 
 
-def test_get_settings_defaults_alias_returns_representative_defaults_without_fixing_shadowed_route():
+def test_get_settings_defaults_alias_returns_representative_defaults():
     client = TestClient(main.app)
 
     response = client.get("/settings-defaults")
     body = response.json()
 
     assert response.status_code == 200
-    assert isinstance(body, dict)
-    assert str(body["ctx_size"]).isdigit()
-    assert body["search_enabled"] in {"true", "false"}
-    assert body["streaming_enabled"] in {"true", "false"}
-    assert body["feature_mode"] in {"model_orchestration", "ensemble"}
+    _assert_representative_defaults_payload(body)
 
 
 def test_get_settings_returns_representative_default_keys_without_fixing_full_body():
@@ -82,11 +91,11 @@ def test_put_setting_route_is_owned_by_settings_router_without_executing_write()
     assert route.endpoint.__name__ == "set_setting_api"
 
 
-def test_settings_defaults_currently_matches_dynamic_key_route_due_to_order(monkeypatch):
-    settings_key_route = _single_route("/settings/{key}", "GET")
+def test_settings_defaults_literal_route_precedes_dynamic_key_route(monkeypatch):
     defaults_route = _single_route("/settings/defaults", "GET")
+    settings_key_route = _single_route("/settings/{key}", "GET")
 
-    assert main.app.routes.index(settings_key_route) < main.app.routes.index(defaults_route)
+    assert main.app.routes.index(defaults_route) < main.app.routes.index(settings_key_route)
 
     monkeypatch.setattr(main, "settings_get", lambda key: f"shadowed:{key}")
 
@@ -95,4 +104,21 @@ def test_settings_defaults_currently_matches_dynamic_key_route_due_to_order(monk
     body = response.json()
 
     assert response.status_code == 200
-    assert body == {"key": "defaults", "value": "shadowed:defaults"}
+    _assert_representative_defaults_payload(body)
+    assert body != {"key": "defaults", "value": "shadowed:defaults"}
+    assert "key" not in body
+    assert "value" not in body
+
+
+def test_settings_defaults_literal_matches_alias_for_representative_keys():
+    client = TestClient(main.app)
+
+    legacy_response = client.get("/settings/defaults")
+    alias_response = client.get("/settings-defaults")
+    legacy_body = legacy_response.json()
+    alias_body = alias_response.json()
+
+    assert legacy_response.status_code == 200
+    assert alias_response.status_code == 200
+    for key in ("ctx_size", "search_enabled", "streaming_enabled", "feature_mode"):
+        assert legacy_body[key] == alias_body[key]

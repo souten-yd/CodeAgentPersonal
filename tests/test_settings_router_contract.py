@@ -86,6 +86,30 @@ def test_main_app_settings_defaults_alias_uses_existing_defaults_provider():
     _assert_representative_defaults_payload(body)
 
 
+def test_create_app_settings_defaults_legacy_route_returns_conservative_fallback_payload():
+    client = TestClient(create_app())
+
+    response = client.get("/settings/defaults")
+    body = response.json()
+
+    assert response.status_code == 200
+    _assert_representative_defaults_payload(body)
+    assert body.get("key") != "defaults"
+    assert "value" not in body
+
+
+def test_main_app_settings_defaults_legacy_route_uses_existing_defaults_provider():
+    client = TestClient(main.app)
+
+    response = client.get("/settings/defaults")
+    body = response.json()
+
+    assert response.status_code == 200
+    _assert_representative_defaults_payload(body)
+    assert body.get("key") != "defaults"
+    assert "value" not in body
+
+
 def test_create_app_setting_write_returns_conservative_fallback_without_db_write():
     client = TestClient(create_app())
 
@@ -138,6 +162,7 @@ def test_create_app_bulk_settings_write_returns_conservative_fallback_without_db
         "saved": ["ctx_size", "asr_engine", "ensemble_execution_mode"],
     }
     assert unexpected_calls == []
+
 
 def test_main_app_setting_write_uses_existing_single_key_provider(monkeypatch):
     calls = []

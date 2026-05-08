@@ -17320,11 +17320,6 @@ def save_settings_api(req: dict):
 app.state.settings_bulk_save_provider = settings_bulk_save_payload
 
 
-@app.get("/settings/defaults")
-def get_settings_defaults():
-    return SETTINGS_DEFAULTS
-
-
 # =========================
 # リポジトリ管理 API
 # =========================

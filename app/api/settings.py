@@ -139,6 +139,11 @@ def save_settings_api(req: dict[str, Any], request: Request) -> dict[str, Any]:
     return default_settings_bulk_save_payload(req)
 
 
+@router.get("/settings/defaults")
+def get_settings_defaults_legacy_api(request: Request) -> dict[str, Any]:
+    return get_settings_defaults_payload(request)
+
+
 @router.get("/settings/{key}")
 def get_setting_api(key: str, request: Request) -> dict[str, Any]:
     provider = get_settings_get_provider(request)
