@@ -433,13 +433,16 @@ Current ownership after PR4.59:
 - Audio router production collection remains provider-backed from `main.py`, and debug payload shaping is delegated to `app/services/audio_runtime.py`.
 - PR4.57 extracts the non-streaming POST `/tts/synthesize` body into `run_tts_synthesize_service_body()` with injected production dependencies.
 - PR4.58 extracts the POST `/tts/synthesize-batch` body into `run_tts_synthesize_batch_service_body()` with injected production dependencies.
-- WebSocket `/echo/stream`, transcribe, voice load, and Echo write/delete bodies remain in `main.py`; SBV2 prepare route ownership remains `main.py` but its service body is extracted.
+- PR4.60 extracted the POST `/voice/load` service body while keeping route ownership in `main.py`.
+- WebSocket `/echo/stream`, transcribe, and Echo write/delete bodies remain in `main.py`; SBV2 prepare route ownership remains `main.py` but its service body is extracted.
 - The import-time CUDA probe ban continues: `app/services/audio_runtime.py` must not top-level import `torch`, `ctranslate2`, `faster_whisper`, or Style-Bert-VITS2 runtime modules, and must not call `detect_audio_runtime()` during import.
 
 Next candidates:
 
-1. PR4.60+: ASR棚卸しまたは POST `/voice/load` / POST `/voice/transcribe` extraction before route moves.
-2. Later: WebSocket `/echo/stream` remains high-risk and should stay last.
+1. PR4.61: Inventory and stabilize ASR transcribe seams before extraction.
+2. PR4.62: Extract `/voice/transcribe` service body without moving route.
+3. PR4.63: Stabilize Echo stream ASR reuse seam.
+4. PR4.64+: Echo WebSocket extraction last.
 
 
 ## PR4.56 low-risk audio read/status router move
@@ -447,4 +450,19 @@ Next candidates:
 - Moved GET `/voice/status`, GET `/asr/config`, GET `/audio/runtime/debug`, GET `/api/tts/style-bert-vits2/models`, and POST `/api/tts/style-bert-vits2/preview-normalization` to `app/api/audio.py`.
 - Production `main.app` registers providers for those routes so existing response shapes and runtime behavior are preserved.
 - `create_app()` fallbacks are side-effect-free: no model load, no CUDA probe, no heavy filesystem scan, and no direct LLM fallback.
-- Execution/high-risk audio routes remain `main.py`: POST `/voice/load`, POST `/voice/transcribe`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`, and WebSocket `/echo/stream`; TTS/SBV2 service bodies are extracted, while ASR load/transcribe and Echo streaming remain high-risk bodies.
+- Execution/high-risk audio routes remain `main.py`: POST `/voice/load`, POST `/voice/transcribe`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`, and WebSocket `/echo/stream`; TTS/SBV2 service bodies and the POST `/voice/load` service body are extracted, while ASR transcribe and Echo streaming remain high-risk bodies.
+
+
+## PR4.61 ASR transcribe seam inventory state
+
+- PR4.61時点: POST `/voice/load` は service body 抽出済みとして扱い、route owner は引き続き `main.py`。
+- PR4.61時点: POST `/voice/transcribe` は **high-risk execution route** として `main.py` に残留し、route owner も execution body も `main.py` のまま。
+- PR4.61時点: WebSocket `/echo/stream` は `main.py` に残留し、Echo session write/delete と合わせて今回未変更。
+- `docs/asr_transcribe_runtime_inventory.md` が、JSON input、base64 bytes handling、temporary file suffix、faster-whisper call、CUDA fallback、cpu-int8 fallback、degraded reason、response payload shape、error payload shape、debug/status fields、Echo共有点を固定する。
+- `app/services/audio_runtime.py` には `VoiceTranscribeInput` / `VoiceTranscribeResult` / `VoiceTranscribeDiagnostics` / `VoiceTranscribeServicePlan` と純粋helperだけを追加し、`run_voice_transcribe_service_body` はまだ作らない。
+
+Next sequence after PR4.61:
+
+1. PR4.62: Extract `/voice/transcribe` service body without moving route.
+2. PR4.63: Stabilize Echo stream ASR reuse seam.
+3. PR4.64+: Echo WebSocket extraction last.

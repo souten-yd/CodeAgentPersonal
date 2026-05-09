@@ -174,3 +174,22 @@
   - PR4.58: TTS/SBV2 synthesize-batch service body を route 移動なしで抽出。
   - PR4.59: SBV2 prepare service body を route 移動なしで抽出。
   - PR4.60+: ASR load/transcribe 棚卸しを先行し、Echo WebSocket は最後に扱う。
+
+## PR4.61 ASR transcribe seam recovery order
+
+PR4.61 does not move `POST /voice/transcribe`; it records the high-risk execution seam before PR4.62 extraction. If ASR breaks after this seam-freeze PR, check in this order:
+
+1. `POST /voice/load` — confirm the already-extracted ASR load service body still loads the expected model and reports device/compute type.
+2. `POST /voice/transcribe` — confirm the route owner and execution body are still `main.py`, the SSE event shape is unchanged, and request normalization/base64 handling still matches `docs/asr_transcribe_runtime_inventory.md`.
+3. `app/services/audio_runtime.py` — confirm PR4.61 added only route-neutral `VoiceTranscribeInput`, `VoiceTranscribeResult`, `VoiceTranscribeDiagnostics`, `VoiceTranscribeServicePlan`, and pure summarization/error helpers; it must not import `main.py`, declare routes, or top-level import torch / ctranslate2 / faster-whisper.
+4. `app/audio/runtime_config.py` — confirm effective ASR device and compute-type resolution did not regress and still avoids import-time CUDA probing.
+5. faster-whisper / ctranslate2 runtime — confirm `WhisperModel` construction and `.transcribe(...)` still work with the selected model cache.
+6. `/runtime/cuda-debug` — inspect CUDA availability, ctranslate2 status, and driver/runtime details.
+7. `/audio/runtime/debug` — inspect audio runtime status, degraded fields, last ASR CUDA error, and related debug/status snapshots.
+8. `KasaneCore_v2.8` baseline — compare against the known-good baseline if route ownership, CUDA fallback, or response shape differs.
+
+Recovery invariants for this PR:
+
+- CUDA fallback and cpu-int8 fallback behavior are unchanged.
+- Degraded reason visibility is preserved through `_last_asr_cuda_error`, `_last_asr_cuda_error_at`, `/voice/status`, `/audio/runtime/debug`, and `/runtime/cuda-debug`.
+- `POST /voice/transcribe` and WebSocket `/echo/stream` remain owned by `main.py`.

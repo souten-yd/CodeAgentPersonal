@@ -10995,7 +10995,10 @@ def voice_load_api(req: dict):
 def voice_unload_api():
     return voice_unload()
 
-# PR4.54: high-risk ASR execution endpoint; do not move or alter behavior before PR4.55.
+# PR4.61: ASR transcribe high-risk execution route.
+# Route owner and execution body intentionally remain in main.py.
+# Do not move before VoiceTranscribeServiceDependencies is introduced in PR4.62.
+# Preserve CUDA fallback, response shape, and debug entry format.
 @app.post("/voice/transcribe")
 def voice_transcribe_api(req: dict):
     audio_b64 = str(req.get("audio_base64", "")).strip()
