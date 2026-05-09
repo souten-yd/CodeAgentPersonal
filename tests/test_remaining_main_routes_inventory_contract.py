@@ -118,7 +118,7 @@ def test_already_moved_read_only_model_settings_and_runtime_routes_do_not_return
         _assert_route_owner(path, method, module_name, handler_name)
 
 
-def test_system_status_and_settings_router_routes_are_out_of_scope_for_this_pr():
+def test_system_status_and_settings_router_routes_keep_declared_owners():
     expected = [
         ("/health", "GET", "app.api.system_status", "health"),
         ("/system/summary", "GET", "app.api.system_status", "system_summary"),
@@ -127,6 +127,7 @@ def test_system_status_and_settings_router_routes_are_out_of_scope_for_this_pr()
         ("/settings-defaults", "GET", "app.api.settings", "get_settings_defaults_api"),
         ("/settings", "GET", "app.api.settings", "get_settings_api"),
         ("/settings", "POST", "app.api.settings", "save_settings_api"),
+        ("/settings/defaults", "GET", "app.api.settings", "get_settings_defaults_legacy_api"),
         ("/settings/{key}", "GET", "app.api.settings", "get_setting_api"),
         ("/settings/{key}", "PUT", "app.api.settings", "set_setting_api"),
     ]
@@ -190,3 +191,26 @@ def test_job_read_only_status_routes_moved_to_jobs_router_while_submit_stays_mai
         _assert_route_owner(path, method, module_name, handler_name)
 
     _assert_main_owner("/jobs/submit", "POST", "submit_job")
+
+
+def test_settings_routes_are_not_main_py_owned_and_do_not_shadow_defaults():
+    settings_routes = [
+        ("/settings-defaults", "GET"),
+        ("/settings", "GET"),
+        ("/settings", "POST"),
+        ("/settings/defaults", "GET"),
+        ("/settings/{key}", "GET"),
+        ("/settings/{key}", "PUT"),
+    ]
+
+    route_positions = []
+    for path, method in settings_routes:
+        route = _single_route(path, method)
+        assert route.endpoint.__module__ == "app.api.settings"
+        assert route.endpoint.__module__ != "main"
+        route_positions.append(main.app.routes.index(route))
+
+    assert route_positions == sorted(route_positions)
+    assert route_positions[settings_routes.index(("/settings/defaults", "GET"))] < route_positions[
+        settings_routes.index(("/settings/{key}", "GET"))
+    ]
