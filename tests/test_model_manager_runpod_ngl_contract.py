@@ -50,6 +50,7 @@ def _manager(tmp_path, monkeypatch):
     manager._last_runtime_decision = {}
     manager._last_nvidia_smi_before = []
     manager._last_nvidia_smi_after = []
+    manager._last_ngl_search_debug = {}
     manager._startup_log_fd = None
 
     monkeypatch.setattr(manager, "_collect_nvidia_smi_memory", lambda: [])
@@ -207,3 +208,109 @@ def test_runpod_linux_start_falls_back_to_999_without_row_ngl(tmp_path, monkeypa
 
     assert manager._start_linux(spec, "q8_0", "q8_0", "nvidia", lambda *a: None, 999, 0, runtime) is True
     assert calls == [999]
+
+
+def test_runpod_linux_high_oom_half_ok_then_binary_search_saves_max_success(tmp_path, monkeypatch):
+    manager, spec = _manager(tmp_path, monkeypatch)
+    spec["proven_ngl"] = 0
+    spec["gpu_layers"] = 0
+    runtime = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    manager._last_runtime_decision = runtime
+    calls = []
+    saved = []
+
+    monkeypatch.setattr(manager, "_predict_ngl_with_kv", lambda *args, **kwargs: -1)
+    monkeypatch.setattr(manager, "_load_ngl_ctx_profiles", lambda _spec: {})
+    monkeypatch.setattr(manager, "_ngl_from_profiles", lambda *args, **kwargs: -1)
+    monkeypatch.setattr(manager, "_save_proven_ngl", lambda _spec, ngl: saved.append(("proven", ngl)))
+    monkeypatch.setattr(manager, "_save_ngl_ctx_profile", lambda _spec, ctx, ngl: saved.append(("ctx", ctx, ngl)))
+    monkeypatch.setattr(main, "_read_gguf_metadata", lambda path: {})
+
+    def fake_try(_spec, gpu_layers, eff_ck, eff_cv, gpu_vendor, emit):
+        calls.append(gpu_layers)
+        if gpu_layers <= 624:
+            manager._last_llama_gpu_log = {"n_gpu_layers": gpu_layers, "cuda_buffer_mib": 100.0, "cpu_buffer_mib": 10.0}
+            return "ok"
+        return "oom"
+
+    monkeypatch.setattr(manager, "_try_start_once", fake_try)
+
+    assert manager._start_linux(spec, "q8_0", "q8_0", "nvidia", lambda *a: None, 999, 0, runtime) is True
+
+    assert calls[:4] == [999, 499, 749, 624]
+    assert calls[-1] == 624
+    assert 624 in calls
+    assert 499 != calls[-1]
+    assert saved[-2:] == [("proven", 624), ("ctx", 4096, 624)]
+    assert manager.cuda_debug_dict()["final_requested_ngl"] == 624
+
+
+def test_runpod_linux_saves_parsed_ngl_when_requested_differs(tmp_path, monkeypatch):
+    manager, spec = _manager(tmp_path, monkeypatch)
+    spec["proven_ngl"] = 0
+    spec["gpu_layers"] = 0
+    runtime = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    manager._last_runtime_decision = runtime
+    saved = []
+
+    monkeypatch.setattr(manager, "_predict_ngl_with_kv", lambda *args, **kwargs: -1)
+    monkeypatch.setattr(manager, "_load_ngl_ctx_profiles", lambda _spec: {})
+    monkeypatch.setattr(manager, "_ngl_from_profiles", lambda *args, **kwargs: -1)
+    monkeypatch.setattr(manager, "_save_proven_ngl", lambda _spec, ngl: saved.append(("proven", ngl)))
+    monkeypatch.setattr(manager, "_save_ngl_ctx_profile", lambda _spec, ctx, ngl: saved.append(("ctx", ctx, ngl)))
+    monkeypatch.setattr(main, "_read_gguf_metadata", lambda path: {})
+
+    def fake_try(_spec, gpu_layers, eff_ck, eff_cv, gpu_vendor, emit):
+        manager._last_llama_gpu_log = {"n_gpu_layers": 60, "cuda_buffer_mib": 100.0, "cpu_buffer_mib": 10.0}
+        return "ok"
+
+    monkeypatch.setattr(manager, "_try_start_once", fake_try)
+
+    assert manager._start_linux(spec, "q8_0", "q8_0", "nvidia", lambda *a: None, 999, 0, runtime) is True
+    assert saved[-2:] == [("proven", 60), ("ctx", 4096, 60)]
+    assert manager.cuda_debug_dict()["final_requested_ngl"] == 999
+    assert manager.cuda_debug_dict()["final_parsed_n_gpu_layers"] == 60
+
+
+def test_runpod_linux_uses_calc_gpu_layers_when_row_ngl_missing(tmp_path, monkeypatch):
+    manager, spec = _manager(tmp_path, monkeypatch)
+    spec["proven_ngl"] = 0
+    spec["gpu_layers"] = 0
+    runtime = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    manager._last_runtime_decision = runtime
+    calls = []
+
+    monkeypatch.setattr(manager, "_predict_ngl_with_kv", lambda *args, **kwargs: -1)
+    monkeypatch.setattr(manager, "_load_ngl_ctx_profiles", lambda _spec: {})
+    monkeypatch.setattr(manager, "_ngl_from_profiles", lambda *args, **kwargs: -1)
+    monkeypatch.setattr(manager, "_save_proven_ngl", lambda _spec, ngl: None)
+    monkeypatch.setattr(manager, "_save_ngl_ctx_profile", lambda _spec, ctx, ngl: None)
+    monkeypatch.setattr(main, "_read_gguf_metadata", lambda path: {})
+
+    def fake_try(_spec, gpu_layers, eff_ck, eff_cv, gpu_vendor, emit):
+        calls.append(gpu_layers)
+        manager._last_llama_gpu_log = {"n_gpu_layers": gpu_layers, "cuda_buffer_mib": 100.0, "cpu_buffer_mib": 10.0}
+        return "ok"
+
+    monkeypatch.setattr(manager, "_try_start_once", fake_try)
+
+    assert manager._start_linux(spec, "q8_0", "q8_0", "nvidia", lambda *a: None, 123, 0, runtime) is True
+    assert calls == [123]
