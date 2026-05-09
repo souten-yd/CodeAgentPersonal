@@ -48,35 +48,39 @@ def test_nexus_execution_service_has_no_main_import_or_http_route_ownership():
     assert "nexus_router" not in text
 
 
-def test_nexus_route_owner_remains_existing_router_for_write_research_ingest_routes():
+def test_nexus_write_research_ingest_routes_are_owned_by_api_router():
     expected = [
-        ("/nexus/upload", "POST", "nexus_upload"),
-        ("/nexus/search", "POST", "nexus_search"),
-        ("/nexus/web/search", "POST", "nexus_web_search"),
-        ("/nexus/web/research", "POST", "nexus_web_research"),
-        ("/nexus/research/run", "POST", "nexus_research_run"),
-        ("/nexus/web/collect", "POST", "nexus_web_collect"),
-        ("/nexus/evidence/add-from-chunks", "POST", "nexus_evidence_add_from_chunks"),
-        ("/nexus/documents/{document_id}", "DELETE", "nexus_delete_document"),
+        ("/nexus/upload", "POST", "nexus_upload_api"),
+        ("/nexus/search", "POST", "nexus_search_api"),
+        ("/nexus/web/search", "POST", "nexus_web_search_api"),
+        ("/nexus/web/research", "POST", "nexus_web_research_api"),
+        ("/nexus/research/run", "POST", "nexus_research_run_api"),
+        ("/nexus/web/collect", "POST", "nexus_web_collect_api"),
+        ("/nexus/evidence/add-from-chunks", "POST", "nexus_evidence_add_from_chunks_api"),
+        ("/nexus/report/build", "POST", "nexus_report_build_api"),
     ]
     for path, method, handler_name in expected:
         route = _route(path, method)
-        assert route.endpoint.__module__ == "app.nexus.router"
+        assert route.endpoint.__module__ == "app.api.nexus"
         assert route.endpoint.__name__ == handler_name
 
+    delete_route = _route("/nexus/documents/{document_id}", "DELETE")
+    assert delete_route.endpoint.__module__ == "app.nexus.router"
+    assert delete_route.endpoint.__name__ == "nexus_delete_document"
 
-def test_api_nexus_keeps_read_only_status_list_scope_only():
+
+def test_api_nexus_owns_read_and_write_routes_without_execution_service_body():
     text = API_NEXUS_PATH.read_text(encoding="utf-8")
 
     assert '@router.get("/nexus/summary")' in text
     assert '@router.get("/nexus/documents")' in text
     assert '@router.get("/nexus/jobs/active")' in text
     assert '@router.get("/nexus/web/status")' in text
-    assert "@router.post" not in text
-    assert "@router.delete" not in text
-    assert '"/nexus/research' not in text
-    assert '"/nexus/upload' not in text
-    assert '"/nexus/web/search' not in text
+    assert '@router.post("/nexus/upload")' in text
+    assert '@router.post("/nexus/research/run")' in text
+    assert '@router.post("/nexus/web/search")' in text
+    assert "from app.services.nexus_execution" not in text
+    assert "run_research_async" not in text
 
 
 def test_web_search_service_preserves_canonical_response_shape():

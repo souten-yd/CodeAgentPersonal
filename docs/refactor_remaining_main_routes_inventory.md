@@ -1,8 +1,8 @@
-# PR4.51: Nexus execution service extraction
+# PR4.52: Nexus write/research/ingest route move
 
 ## Scope and guardrails
 
-This document records PR4.51 Nexus execution service extraction, building on PR4.42 system status, PR4.43 project read-only router work, PR4.44 job read-only status extraction, PR4.45 settings ownership hardening, PR4.46 Nexus read-only status/list extraction, PR4.47 Echo read-only status/session extraction, PR4.48 lightweight runtime write-control endpoint extraction, PR4.49 job execution runtime extraction; job execution runtime extracted, and PR4.50 job submit route ownership. Nexus execution runtime extracted into `app/services/nexus_execution.py`; Nexus route owner remains unchanged for this PR, app/api/nexus.py owns only read-only/status/list Nexus endpoints, and Nexus write/research/ingest route movement is deferred to PR4.52. PR4.50 moved `POST /jobs/submit` route ownership to `app/api/jobs.py`; job execution runtime remains in `app/services/jobs.py`, and main.py keeps only the `job_submit_provider` dependency assembly for production `main.app`.
+This document records PR4.52 Nexus write/research/ingest route movement, building on PR4.42 system status, PR4.43 project read-only router work, PR4.44 job read-only status extraction, PR4.45 settings ownership hardening, PR4.46 Nexus read-only status/list extraction, PR4.47 Echo read-only status/session extraction, PR4.48 lightweight runtime write-control endpoint extraction, PR4.49 job execution runtime extraction; job execution runtime extracted, PR4.50 job submit route ownership, and PR4.51 Nexus execution service extraction. Nexus execution runtime extracted into `app/services/nexus_execution.py`; PR4.52 moved Nexus write/research/ingest route ownership to `app/api/nexus.py`. PR4.50 moved `POST /jobs/submit` route ownership to `app/api/jobs.py`; job execution runtime remains in `app/services/jobs.py`, and main.py keeps only the `job_submit_provider` dependency assembly for production `main.app`.
 
 Hard guardrails retained for this PR:
 
@@ -13,7 +13,7 @@ Hard guardrails retained for this PR:
 - Do not move settings provider implementations out of `main.py`; only route ownership belongs in `app/api/settings.py`.
 - Do not remove `/settings-defaults` or the legacy `/settings/defaults` compatibility path.
 - Do not place `/settings/{key}` before static defaults routes because it can shadow `/settings/defaults`.
-- Do not move job execution runtime out of `app/services/jobs.py`; PR4.50 only moves `POST /jobs/submit` route ownership into `app/api/jobs.py`. PR4.51 extracts Nexus execution runtime into `app/services/nexus_execution.py` without moving Nexus POST/write route ownership. Do not move Nexus research/ingest/write/POST routes to `app/api/nexus.py` until PR4.52, and do not move Echo write/streaming runtime behavior, ASR, TTS, or UI behavior.
+- Do not move job execution runtime out of `app/services/jobs.py`; PR4.50 only moves `POST /jobs/submit` route ownership into `app/api/jobs.py`. PR4.51 extracts Nexus execution runtime into `app/services/nexus_execution.py`; PR4.52 moves Nexus research/ingest/write/POST route ownership into `app/api/nexus.py` without changing the execution body. Do not move Echo write/streaming runtime behavior, ASR, TTS, or UI behavior.
 - Do not change UI assets, Echo WebSocket handling, `/model/switch`, `/model/auto-load`, `/debug/llama`, or `benchmark_mem.py`.
 
 ## Legend
@@ -119,7 +119,7 @@ PR4.43 moved the low-risk project read-only list/history/file endpoints to `app.
 
 ## E. Nexus candidates
 
-PR4.46 moved only the low-to-medium-risk Nexus read-only status/list endpoints into `app/api/nexus.py`. Production `main.app` registers `nexus_summary_provider`, `nexus_documents_provider`, `nexus_active_jobs_provider`, and `nexus_web_status_provider` on `app.state` to preserve the existing response shapes. `create_app()` serves lightweight fallbacks that do not touch the Nexus DB, filesystem, index, LLM, SearXNG process/network, job registry, or background execution. PR4.51 starts extracting Nexus execution runtime into `app/services/nexus_execution.py` for research, web search, ingest/upload delegation, source/evidence execution, and report-generation boundaries while keeping Nexus route owner unchanged. app/api/nexus.py owns only read-only/status/list Nexus endpoints. Nexus write/research/ingest route movement is deferred to PR4.52; upload, delete, write, export/report, source, news, market, and POST routes remain in the existing Nexus router.
+PR4.46 moved the low-to-medium-risk Nexus read-only status/list endpoints into `app/api/nexus.py`. Production `main.app` registers read providers on `app.state` to preserve the existing response shapes. `create_app()` serves lightweight fallbacks that do not touch the Nexus DB, filesystem, index, LLM, SearXNG process/network, job registry, or background execution. PR4.51 extracted Nexus execution runtime into `app/services/nexus_execution.py` for research, web search, ingest/upload delegation, source/evidence execution, and report-generation boundaries. PR4.52 moved Nexus write/research/ingest route ownership to `app/api/nexus.py`; Nexus execution runtime remains in `app/services/nexus_execution.py`, and main.py keeps only Nexus provider dependency assembly. Remaining `app.nexus.router` / subrouter endpoints are document delete/download/detail, research readbacks, source file/chunk readbacks, news/market MVP, watchlists, export, and read/report subrouter endpoints that were intentionally left out of PR4.52.
 
 | Method | Path | Handler | Current owner | Kind | Side effect | Globals/managers/registries | create_app fallback | Next move? | Move ban |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -127,7 +127,8 @@ PR4.46 moved only the low-to-medium-risk Nexus read-only status/list endpoints i
 | GET | `/nexus/documents` | `get_nexus_documents_api` | `app.api.nexus` | read-only / list | none through fallback; production reads Nexus DB | app-state documents provider | yes, empty list without filesystem/index scan | moved in PR4.46 | yes |
 | GET | `/nexus/jobs/active` | `get_nexus_active_jobs_api` | `app.api.nexus` | read-only / status | none through fallback; production reads Nexus active job list | app-state active jobs provider | yes, empty list without registry/background access | moved in PR4.46 | yes |
 | GET | `/nexus/web/status` | `get_nexus_web_status_api` | `app.api.nexus` | read-only / status | none through fallback; production may evaluate configured provider status | app-state web status provider | yes, conservative unavailable status without SearXNG/network probe | moved in PR4.46 | yes |
-| mixed | `/nexus/*` | remaining Nexus API routes | `app.nexus.router` / subrouters | write / heavy / research / ingest | research state, report/export files, uploads, source collection | Nexus stores/services through `app/services/nexus_execution.py` where extracted | no | PR4.52+ route move after service boundary | yes |
+| POST | `/nexus/upload`, `/nexus/search`, `/nexus/web/search`, `/nexus/web/research`, `/nexus/research/run`, `/nexus/sources/search`, `/nexus/evidence/add-from-chunks`, `/nexus/research/jobs/{job_id}/followup`, `/nexus/web/collect`, `/nexus/ask`, `/nexus/report/build` | `*_api` handlers | `app.api.nexus` | write / heavy / research / ingest | provider starts production work only on `main.app`; `create_app()` starts nothing | `app/services/nexus_execution.py` via production providers | yes, unavailable payloads | moved in PR4.52 | no |
+| mixed | `/nexus/*` remaining routes | remaining Nexus API routes | `app.nexus.router` / subrouters | read/write not in PR4.52 | document delete/download/detail, research readbacks, source files/chunks, news/market MVP, watchlists, export/report reads | Nexus stores/subrouters | no | later cleanup/inventory | yes for now |
 
 ## F. Echo / audio candidates
 
@@ -353,7 +354,7 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
    - Moved endpoints: `POST /search/enable`, `POST /search/disable`, `POST /search/num`, `POST /streaming/enable`, `POST /streaming/disable`, and `POST /llm/ctx`.
    - Production `main.app` installs runtime write providers to preserve existing response shapes and state-saving behavior.
    - `create_app()` uses lightweight fallbacks and does not touch llama-server, the model manager, LLM HTTP endpoints, SearXNG process management, ASR/TTS, filesystem scans, job execution, or WebSocket execution.
-   - Jobs submit/background execution, Nexus write/research/ingest, Echo WebSocket execution, TTS, ASR, model loading/switching, model scans/benchmarks/downloads, and model process lifecycle controls remain in `main.py` or their existing routers for dedicated plans and contract tests.
+   - Jobs submit/background execution, Nexus write/research/ingest, Echo WebSocket execution, TTS, ASR, model loading/switching, model scans/benchmarks/downloads, and model process lifecycle controls remained in `main.py` or their existing routers at this point for dedicated plans and contract tests.
 
 8. **PR4.49: Extract job execution runtime into `app/services/jobs.py`** — completed
    - Added `app/services/jobs.py` with `submit_job_service`, `run_job_background_service`, `append_job_event`, `finalize_job`, and `fail_job`; the service module has no HTTP decorators and does not import `main.py`.
@@ -372,7 +373,15 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
 10. **PR4.51: Extract Nexus execution runtime into `app/services/nexus_execution.py`** — completed
    - Added `app/services/nexus_execution.py` with route-neutral service functions for Nexus research, deep/recursive research delegation, document ingest/upload delegation, indexing/report boundaries, web search/SearXNG execution response shaping, source search, evidence addition, follow-up, and ask execution.
    - Nexus execution runtime extracted without importing `main.py`, without `APIRouter`, and without route decorators in the service module.
-   - Nexus route owner remains unchanged: POST/write/research/ingest routes stay in `app.nexus.router` for this PR.
-   - app/api/nexus.py owns only read-only/status/list Nexus endpoints: `GET /nexus/summary`, `GET /nexus/documents`, `GET /nexus/jobs/active`, and `GET /nexus/web/status`.
-   - Nexus write/research/ingest route movement is deferred to PR4.52, after this service boundary.
+   - Nexus route owner remained unchanged in PR4.51: POST/write/research/ingest routes stayed in `app.nexus.router` for this PR.
+   - app/api/nexus.py owned only read-only/status/list Nexus endpoints in PR4.51: `GET /nexus/summary`, `GET /nexus/documents`, `GET /nexus/jobs/active`, and `GET /nexus/web/status`.
+   - Nexus write/research/ingest route movement was deferred to PR4.52, after this service boundary.
    - Jobs submit stays owned by `app/api/jobs.py`; Echo / ASR / TTS execution routes and model auto-load / switch stay in `main.py`.
+
+11. **PR4.52: Move Nexus write/research/ingest routes into `app/api/nexus.py`** — completed
+   - `POST /nexus/upload`, `/nexus/search`, `/nexus/web/search`, `/nexus/web/research`, `/nexus/research/run`, `/nexus/sources/search`, `/nexus/evidence/add-from-chunks`, `/nexus/research/jobs/{job_id}/followup`, `/nexus/web/collect`, `/nexus/ask`, and `/nexus/report/build` are now owned by `app.api.nexus`.
+   - Production `main.app` registers Nexus write/research providers on `app.state`; main.py keeps only Nexus provider dependency assembly.
+   - The Nexus execution runtime remains in `app/services/nexus_execution.py`.
+   - `create_app()` exposes conservative unavailable fallbacks and does not touch LLM, SearXNG, filesystem heavy scans, indexing, persistence, or job execution for moved write/research routes.
+   - `app.nexus.router` intentionally still owns remaining non-moved Nexus routes such as document delete/download/detail, research readbacks, source file/chunk readbacks, news/market MVP, and watchlists.
+

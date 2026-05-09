@@ -24,11 +24,22 @@ App spec: `app.server:create_app()`
 | `/models/db/status` | `GET` | `get_model_db_status_api` | `app.api.model_settings` | `model-settings` |
 | `/models/orchestration` | `GET` | `get_model_orchestration_api` | `app.api.model_settings` | `model-settings` |
 | `/models/roles` | `GET` | `get_model_role_assignments_api` | `app.api.model_settings` | `model-settings` |
+| `/nexus/ask` | `POST` | `nexus_ask_api` | `app.api.nexus` | `nexus-read-only` |
 | `/nexus/dashboard/summary` | `GET` | `get_nexus_summary_api` | `app.api.nexus` | `nexus-read-only` |
 | `/nexus/documents` | `GET` | `get_nexus_documents_api` | `app.api.nexus` | `nexus-read-only` |
+| `/nexus/evidence/add-from-chunks` | `POST` | `nexus_evidence_add_from_chunks_api` | `app.api.nexus` | `nexus-read-only` |
 | `/nexus/jobs/active` | `GET` | `get_nexus_active_jobs_api` | `app.api.nexus` | `nexus-read-only` |
 | `/nexus/library/documents` | `GET` | `get_nexus_documents_api` | `app.api.nexus` | `nexus-read-only` |
+| `/nexus/report/build` | `POST` | `nexus_report_build_api` | `app.api.nexus` | `nexus-read-only` |
+| `/nexus/research/jobs/{job_id}/followup` | `POST` | `nexus_research_followup_api` | `app.api.nexus` | `nexus-read-only` |
+| `/nexus/research/run` | `POST` | `nexus_research_run_api` | `app.api.nexus` | `nexus-read-only` |
+| `/nexus/search` | `POST` | `nexus_search_api` | `app.api.nexus` | `nexus-read-only` |
+| `/nexus/sources/search` | `POST` | `nexus_sources_search_api` | `app.api.nexus` | `nexus-read-only` |
 | `/nexus/summary` | `GET` | `get_nexus_summary_api` | `app.api.nexus` | `nexus-read-only` |
+| `/nexus/upload` | `POST` | `nexus_upload_api` | `app.api.nexus` | `nexus-read-only` |
+| `/nexus/web/collect` | `POST` | `nexus_web_collect_api` | `app.api.nexus` | `nexus-read-only` |
+| `/nexus/web/research` | `POST` | `nexus_web_research_api` | `app.api.nexus` | `nexus-read-only` |
+| `/nexus/web/search` | `POST` | `nexus_web_search_api` | `app.api.nexus` | `nexus-read-only` |
 | `/nexus/web/status` | `GET` | `get_nexus_web_status_api` | `app.api.nexus` | `nexus-read-only` |
 | `/openapi.json` | `GET, HEAD` | `openapi` | `fastapi.applications` | `other` |
 | `/projects` | `GET` | `get_projects_api` | `app.api.projects` | `other` |
