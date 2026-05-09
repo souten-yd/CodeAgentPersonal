@@ -60,6 +60,7 @@
 | `/api/tts/style-bert-vits2/models` | GET | `app/api/audio.py` | provider-backed SBV2 model inventory | low | empty fallback; no heavy scan | yes | yes |
 | `/api/tts/style-bert-vits2/preview-normalization` | POST | `app/api/audio.py` | provider-backed SBV2 normalization preview | medium | no-op fallback; no LLM fallback | yes | yes |
 | `/tts/synthesize` | POST | `main.py` | TTS/SBV2 runtime via extracted service body | high | audio runtime through injected dependencies | no | n/a |
+| `/tts/synthesize-batch` | POST | `main.py` | TTS/SBV2 batch runtime via extracted service body | high | audio runtime through injected dependencies | no | n/a |
 | `/tts/load` | POST | `main.py` | TTS/SBV2 runtime | high | audio runtime | no | n/a |
 | `/tts/unload` | POST | `main.py` | TTS/SBV2 runtime | high | audio runtime | no | n/a |
 | `/echo/stream` | WebSocket | `main.py` | Echo/ASR/TTS runtime | high | high-risk runtime | no | n/a |
@@ -79,3 +80,9 @@
 - PR4.53 treats tag `KasaneCore_v2.8` (`e94c20dfe0d23e233f4dbc817af994408e739b80`) as the正常復旧済み baseline after Nexus/Lumen/ASR/TTS/LLM were confirmed healthy. Nexus route ownership is locked to `app/api/nexus.py` for moved routes, while execution bodies stay in `app/services/nexus_execution.py`; `app/nexus/router.py` retains only provider payload helpers and non-moved legacy Nexus routes.
 
 - PR4.56 moved low-risk audio read/status/config routes to `app/api/audio.py`; execution/high-risk audio routes remain in `main.py`.
+
+## PR4.58
+
+- POST `/tts/synthesize-batch` の service body を `app/services/audio_runtime.py` の `run_tts_synthesize_batch_service_body()` に抽出。route owner は `main.py` のまま。
+- POST `/tts/synthesize` と POST `/tts/synthesize-batch` は service body 抽出済み。
+- High-risk remaining: POST `/voice/transcribe`, POST `/voice/load`, POST `/api/tts/style-bert-vits2/prepare`, WebSocket `/echo/stream`.
