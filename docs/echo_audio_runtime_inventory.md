@@ -13,7 +13,7 @@ PR4.54 is a preparation-only PR after the healthy `KasaneCore_v2.8` baseline.  `
 
 ## PR4.55 helper extraction update
 
-PR4.55 extracted only safe ASR/TTS/SBV2 payload shaping and diagnostic shaping into `app/services/audio_runtime.py`. PR4.56 moves low-risk read/status/config ownership for GET `/voice/status`, GET `/asr/config`, GET `/audio/runtime/debug`, GET `/api/tts/style-bert-vits2/models`, and POST `/api/tts/style-bert-vits2/preview-normalization` to `app/api/audio.py`; production payload providers remain registered from `main.py`. PR4.57 extracts the non-streaming POST `/tts/synthesize` service body into `app/services/audio_runtime.py` behind injected production dependencies while keeping the route owner in `main.py`. PR4.58 extracts the POST `/tts/synthesize-batch` service body into the same route-neutral service module with injected production dependencies; route owner remains `main.py`. PR4.59 extracts the POST `/api/tts/style-bert-vits2/prepare` service body into `app/services/audio_runtime.py`; route owner remains `main.py`. POST `/voice/transcribe`, POST `/voice/load`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`, and WebSocket `/echo/stream` remain owned by `main.py`.
+PR4.55 extracted only safe ASR/TTS/SBV2 payload shaping and diagnostic shaping into `app/services/audio_runtime.py`. PR4.56 moves low-risk read/status/config ownership for GET `/voice/status`, GET `/asr/config`, GET `/audio/runtime/debug`, GET `/api/tts/style-bert-vits2/models`, and POST `/api/tts/style-bert-vits2/preview-normalization` to `app/api/audio.py`; production payload providers remain registered from `main.py`. PR4.57 extracts the non-streaming POST `/tts/synthesize` service body into `app/services/audio_runtime.py` behind injected production dependencies while keeping the route owner in `main.py`. PR4.58 extracts the POST `/tts/synthesize-batch` service body into the same route-neutral service module with injected production dependencies; route owner remains `main.py`. PR4.59 extracts the POST `/api/tts/style-bert-vits2/prepare` service body into `app/services/audio_runtime.py`; route owner remains `main.py`. PR4.62 extracts the POST `/voice/transcribe` service body into `app/services/audio_runtime.py`; route owner remains `main.py`. POST `/voice/transcribe`, POST `/voice/load`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`, and WebSocket `/echo/stream` remain owned by `main.py`.
 
 What moved in PR4.55:
 
@@ -24,7 +24,7 @@ What moved in PR4.55:
 
 What did **not** move:
 
-- Execution route ownership is still in `main.py`: POST `/voice/transcribe`, POST `/voice/load`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, and WebSocket `/echo/stream`. PR4.57 moved the non-streaming `/tts/synthesize` body, PR4.58 moved the `/tts/synthesize-batch` execution body, and PR4.59 moved the SBV2 prepare body into injected service helpers; Echo streaming and ASR execution/load bodies remain in `main.py`.
+- Execution route ownership is still in `main.py`: POST `/voice/transcribe`, POST `/voice/load`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, and WebSocket `/echo/stream`. PR4.57 moved the non-streaming `/tts/synthesize` body, PR4.58 moved the `/tts/synthesize-batch` execution body, and PR4.59 moved the SBV2 prepare body into injected service helpers; Echo streaming remains in `main.py`; ASR load and transcribe service bodies are extracted while route ownership stays in `main.py`.
 - SBV2 normalization / kana fallback / dictionary cache behavior is unchanged.
 - `detect_audio_runtime()` timing is unchanged; import-time CUDA probe remains forbidden.
 
@@ -116,3 +116,10 @@ What did **not** move:
 - `/api/tts/style-bert-vits2/models` -> `app/api/audio.py`
 - `/api/tts/style-bert-vits2/preview-normalization` -> `app/api/audio.py`
 - Execution/high-risk routes remain `main.py`: `/voice/load`, `/voice/transcribe`, `/tts/synthesize`, `/tts/synthesize-batch`, `/api/tts/style-bert-vits2/prepare`, and WebSocket `/echo/stream`; the three TTS/SBV2 service bodies now live in `app/services/audio_runtime.py`.
+
+
+## PR4.62 Echo guardrail
+
+- PR4.62 extracts only POST `/voice/transcribe` service body to `app/services/audio_runtime.py`.
+- Route owner for `/voice/transcribe` remains `main.py`; `/voice/load` and `/voice/transcribe` service bodies are extracted.
+- WebSocket `/echo/stream` remains in `main.py` and is not changed; Echo stream extraction is last after PR4.63 stabilizes ASR reuse.

@@ -456,13 +456,21 @@ Next candidates:
 ## PR4.61 ASR transcribe seam inventory state
 
 - PR4.61時点: POST `/voice/load` は service body 抽出済みとして扱い、route owner は引き続き `main.py`。
-- PR4.61時点: POST `/voice/transcribe` は **high-risk execution route** として `main.py` に残留し、route owner も execution body も `main.py` のまま。
+- PR4.62時点: POST `/voice/transcribe` は service body 抽出済みで、route owner は引き続き `main.py`。
 - PR4.61時点: WebSocket `/echo/stream` は `main.py` に残留し、Echo session write/delete と合わせて今回未変更。
 - `docs/asr_transcribe_runtime_inventory.md` が、JSON input、base64 bytes handling、temporary file suffix、faster-whisper call、CUDA fallback、cpu-int8 fallback、degraded reason、response payload shape、error payload shape、debug/status fields、Echo共有点を固定する。
-- `app/services/audio_runtime.py` には `VoiceTranscribeInput` / `VoiceTranscribeResult` / `VoiceTranscribeDiagnostics` / `VoiceTranscribeServicePlan` と純粋helperだけを追加し、`run_voice_transcribe_service_body` はまだ作らない。
+- `app/services/audio_runtime.py` には `VoiceTranscribeServiceDependencies` / `VoiceTranscribeServiceResponse` / `run_voice_transcribe_service_body` を追加済み。
 
-Next sequence after PR4.61:
+Next sequence after PR4.62:
 
-1. PR4.62: Extract `/voice/transcribe` service body without moving route.
-2. PR4.63: Stabilize Echo stream ASR reuse seam.
-3. PR4.64+: Echo WebSocket extraction last.
+1. PR4.63: Stabilize Echo stream ASR reuse seam before WebSocket extraction.
+2. PR4.64+: Echo WebSocket extraction last.
+
+
+## PR4.62 ASR transcribe service extraction state
+
+- PR4.62 で POST `/voice/transcribe` の service body を `app/services/audio_runtime.py` に抽出。
+- route owner は `main.py` のまま。
+- `/voice/load` と `/voice/transcribe` は service body 抽出済み。
+- WebSocket `/echo/stream` は `main.py` に残留。
+- Echo stream extraction は最後に回す。

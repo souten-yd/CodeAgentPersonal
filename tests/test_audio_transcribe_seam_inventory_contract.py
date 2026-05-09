@@ -38,8 +38,8 @@ def test_asr_transcribe_runtime_inventory_doc_exists_and_freezes_high_risk_route
     for required in [
         "POST /voice/transcribe",
         "high-risk execution route",
-        "route owner is `main.py`",
-        "execution body intentionally remains in `main.py`",
+        "route owner in `main.py`",
+        "service body into `app/services/audio_runtime.py`",
         "CUDA fallback",
         "cpu-int8 fallback",
         "degraded reason",
@@ -53,19 +53,20 @@ def test_asr_transcribe_runtime_inventory_doc_exists_and_freezes_high_risk_route
         assert required in text
 
 
-def test_audio_runtime_declares_transcribe_planning_types_only():
+def test_audio_runtime_declares_transcribe_service_types():
     for name in [
         "VoiceTranscribeInput",
         "VoiceTranscribeResult",
         "VoiceTranscribeDiagnostics",
         "VoiceTranscribeServicePlan",
+        "VoiceTranscribeServiceDependencies",
+        "VoiceTranscribeServiceResponse",
+        "run_voice_transcribe_service_body",
         "normalize_voice_transcribe_error",
         "summarize_voice_transcribe_result",
         "classify_voice_transcribe_failure",
     ]:
         assert hasattr(audio_runtime, name), name
-
-    assert not hasattr(audio_runtime, "run_voice_transcribe_service_body")
 
 
 def test_audio_runtime_transcribe_seam_remains_route_neutral_and_import_safe():
@@ -104,12 +105,12 @@ def test_voice_transcribe_and_echo_stream_route_owners_remain_main_py():
     assert echo_route.endpoint.__name__ == "echo_stream_ws"
 
 
-def test_main_py_contains_pr461_transcribe_seam_comment():
+def test_main_py_contains_pr462_transcribe_service_comment():
     text = MAIN.read_text(encoding="utf-8")
-    assert "PR4.61: ASR transcribe high-risk execution route." in text
-    assert "Route owner and execution body intentionally remain in main.py." in text
-    assert "Do not move before VoiceTranscribeServiceDependencies is introduced in PR4.62." in text
-    assert "Preserve CUDA fallback, response shape, and debug entry format." in text
+    assert "PR4.62: ASR transcribe service body extracted; route owner remains main.py." in text
+    assert "Preserve CUDA fallback, response shape, model load timing, and debug entry format." in text
+    assert "VoiceTranscribeServiceDependencies" in text
+    assert "run_voice_transcribe_service_body" in text
 
 
 def test_remaining_routes_doc_records_voice_load_extracted_and_next_sequence():
@@ -117,9 +118,9 @@ def test_remaining_routes_doc_records_voice_load_extracted_and_next_sequence():
 
     for required in [
         "POST `/voice/load` は service body 抽出済み",
-        "POST `/voice/transcribe` は **high-risk execution route** として `main.py` に残留",
+        "POST `/voice/transcribe` は service body 抽出済み",
         "WebSocket `/echo/stream` は `main.py` に残留",
-        "PR4.62: Extract `/voice/transcribe` service body without moving route",
+        "PR4.62 で POST `/voice/transcribe` の service body",
         "PR4.63: Stabilize Echo stream ASR reuse seam",
         "PR4.64+: Echo WebSocket extraction last",
     ]:

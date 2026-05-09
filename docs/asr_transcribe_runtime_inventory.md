@@ -1,25 +1,24 @@
-# PR4.61 ASR transcribe runtime inventory
+# PR4.61/PR4.62 ASR transcribe runtime inventory
 
-PR4.61 freezes the seam around `POST /voice/transcribe` before the ASR transcribe execution body is extracted. `POST /voice/transcribe` is a **high-risk execution route**: the route owner is `main.py`, the execution body intentionally remains in `main.py`, and no route move to `app/api/audio.py` is allowed in this PR.
+PR4.61 froze the seam around `POST /voice/transcribe` before extraction. PR4.62 extracts the POST `/voice/transcribe` service body into `app/services/audio_runtime.py` while keeping the route owner in `main.py`; no route move to `app/api/audio.py` is allowed in this PR.
 
 ## Current route ownership and scope
 
 - Route: `POST /voice/transcribe`
 - Handler: `voice_transcribe_api(req: dict)`
 - Route owner: `main.py`
-- Execution owner: `main.py`
-- Extraction status: inventory/type seam only in PR4.61; do not create or call `run_voice_transcribe_service_body` yet.
-- Next extraction target: PR4.62 may extract the service body after explicit dependencies are introduced.
+- Execution owner: `app/services/audio_runtime.py` via `run_voice_transcribe_service_body(...)`; the lower-level ASR model helper remains injected from `main.py` to preserve load timing and CUDA fallback.
+- Extraction status: service body extracted in PR4.62 with `VoiceTranscribeServiceDependencies` and `VoiceTranscribeServiceResponse`.
 - Related high-risk route left untouched: WebSocket `/echo/stream` remains owned by `main.py` and must be extracted last.
 
 ## Current processing flow
 
-1. `voice_transcribe_api` accepts a JSON request dictionary and reads `audio_base64`.
+1. `voice_transcribe_api` accepts a JSON request dictionary, assembles `VoiceTranscribeServiceDependencies`, and delegates to `run_voice_transcribe_service_body(...)`.
 2. Missing `audio_base64` raises HTTP 400 with detail `audio_base64 required` before streaming starts.
-3. The route normalizes request fields such as `language`, `model`, `audio_format`, `asr_profile`, beam/search thresholds, and `asr_post_filter`.
+3. The extracted service body normalizes request fields such as `language`, `model`, `audio_format`, `asr_profile`, beam/search thresholds, and `asr_post_filter`.
 4. `_apply_asr_runtime_settings(req)` applies ASR engine/device/compute settings from persisted settings, runtime config, environment, and request override fields.
-5. The route base64-decodes audio bytes. Invalid base64 raises HTTP 400 with detail prefixed by `invalid audio_base64:`.
-6. The route returns a `StreamingResponse` with `text/event-stream` media type.
+5. The extracted service body base64-decodes audio bytes. Invalid base64 raises HTTP 400 with detail prefixed by `invalid audio_base64:`.
+6. `main.py` maps `AudioRuntimeHttpError` to `HTTPException` and wraps the service response iterator in a `StreamingResponse` with `text/event-stream` media type.
 7. If the selected faster-whisper model does not exist locally, the stream first emits a `type=downloading` Server-Sent Event.
 8. The stream emits a `type=transcribing` Server-Sent Event.
 9. The stream calls `voice_transcribe(...)`, which delegates to `asr_service_transcribe_audio(...)` and the injected `_faster_whisper_transcribe(...)` callback.
@@ -125,7 +124,7 @@ Current success payload fields produced by `_faster_whisper_transcribe` are:
 4. `WhisperModel` is constructed again with `device="cpu"` and `compute_type="int8"`.
 5. The degraded reason to preserve for docs/tests is: CUDA initialization failure caused cpu-int8 fallback. In PR4.61 helper terminology this is `asr_cuda_init_failed_cpu_int8_fallback`.
 
-This PR must preserve CUDA fallback, cpu-int8 fallback, and degraded reason visibility. PR4.62 must not reorder model-load/fallback/transcribe calls.
+PR4.62 preserves CUDA fallback, cpu-int8 fallback, degraded reason visibility, and the existing model-load/fallback/transcribe call order through injected production callables.
 
 ## Echo `/echo/stream` shared points
 
@@ -135,9 +134,9 @@ This PR must preserve CUDA fallback, cpu-int8 fallback, and degraded reason visi
 - PR4.63 should stabilize Echo stream ASR reuse seams after `/voice/transcribe` service extraction.
 - PR4.64+ should extract Echo WebSocket last.
 
-## Safe PR4.62 service extraction boundary
+## PR4.62 service extraction boundary
 
-The next PR may extract only the route-neutral service body around:
+PR4.62 extracts the route-neutral service body around:
 
 - request normalization after `req` arrives;
 - base64 decode and temporary-file orchestration;
@@ -145,7 +144,7 @@ The next PR may extract only the route-neutral service body around:
 - transcribe kwargs construction and post-filter shaping;
 - success/error payload shaping for the existing SSE event contract.
 
-PR4.62 must inject dependencies explicitly and must keep the route owner as `main.py`.
+PR4.62 injects dependencies explicitly and keeps the route owner as `main.py`.
 
 ## Do not touch in PR4.61/PR4.62 without a dedicated plan
 
@@ -155,3 +154,12 @@ PR4.62 must inject dependencies explicitly and must keep the route owner as `mai
 - Do not change CUDA fallback or cpu-int8 fallback behavior.
 - Do not change response shape, error shape, temporary-file behavior, or audio decode assumptions.
 - Do not change model auto-load/switch, Runpod CUDA/llama NGL probing, TTS, SBV2, Nexus, Jobs, Lumen, UI, or Dockerfile behavior.
+
+
+## PR4.62 extraction note
+
+- PR4.62 moved the POST `/voice/transcribe` request normalization, base64 bytes handling, SSE event shaping, transcribe callable invocation, stream error event handling, and response metadata into `app/services/audio_runtime.py`.
+- Route owner remains `main.py`; `main.py` still owns `@app.post("/voice/transcribe")`, production dependency assembly, and `AudioRuntimeHttpError` to `HTTPException` mapping.
+- `/voice/load` and `/voice/transcribe` now have service bodies extracted while preserving ASR model load timing through injected production callables.
+- CUDA success and CUDA failure CPU/int8 fallback behavior remain in the injected lower-level ASR load/transcribe helpers.
+- WebSocket `/echo/stream` remains in `main.py`; Echo stream extraction is intentionally last after PR4.63 stabilizes the ASR reuse seam.
