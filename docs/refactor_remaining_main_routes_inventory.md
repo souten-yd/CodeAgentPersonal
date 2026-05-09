@@ -87,18 +87,18 @@ Settings endpoints are already router-owned. Treat them as out of scope for the 
 
 ## D. Project / file / job candidates
 
-Project read-only list/history/file endpoints are the second safest future group, but jobs and file writes remain coupled to background workers, streaming, and filesystem side effects.
+PR4.43 moved the low-risk project read-only list/history/file endpoints to `app.api.projects`. Jobs, background execution, project writes, downloads, and file-serving paths remain coupled to background workers, streaming, job registries, and filesystem side effects and therefore stay in `main.py`.
 
 | Method | Path | Handler | Current owner | Kind | Side effect | Globals/managers/registries | create_app fallback | Next move? | Move ban |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| GET | `/projects` | `list_projects` | `main` | read-only | lists projects | workspace/project filesystem | no | PR4.43 candidate | no move in PR4.41 |
+| GET | `/projects` | `get_projects_api` | `app.api.projects` | read-only | lists projects through provider | provider-backed workspace scan on `main.app` | yes: `{"projects": []}` | moved in PR4.43 | no |
 | POST | `/projects` | `create_project` | `main` | write | creates project | workspace/project filesystem | no | not next | yes |
 | DELETE | `/projects/{name}` | `delete_project` | `main` | write | deletes project | workspace/project filesystem | no | not next | yes |
-| GET | `/projects/{name}/files` | `project_files` | `main` | read-only | lists files | project filesystem | no | PR4.43 candidate | no move in PR4.41 |
+| GET | `/projects/{project}/files` | `get_project_files_api` | `app.api.projects` | read-only | lists files through provider | provider-backed project filesystem on `main.app` | yes: empty file list | moved in PR4.43 | no |
 | DELETE | `/projects/{name}/files/{path:path}` | `delete_project_file` | `main` | write | deletes file | project filesystem | no | not next | yes |
 | GET | `/projects/{name}/files/{path:path}/download` | `download_project_file` | `main` | read-only / file response | serves project file | project filesystem | no | later, after list/history | yes for now |
 | GET | `/projects/{name}/download` | `download_project` | `main` | read-only / heavy | zips/serves project | project filesystem/archive | no | later | yes |
-| GET | `/projects/{name}/history` | `project_history` | `main` | read-only | reads project history | project/history filesystem | no | PR4.43 candidate | no move in PR4.41 |
+| GET | `/projects/{project}/history` | `get_project_history_api` | `app.api.projects` | read-only | reads project history through provider | provider-backed project DB on `main.app` | yes: empty sessions | moved in PR4.43 | no |
 | GET | `/projects/{name}/jobs` | `list_jobs` | `main` | read-only | lists job metadata | job registry/store | no | later with jobs router | yes for now |
 | POST | `/jobs/submit` | `submit_job` | `main` | write / heavy | starts job | job manager, LLM/runtime globals | no | PR4.44+ | yes |
 | GET | `/jobs/{job_id}` | `get_job` | `main` | read-only | reads job state | job registry/store | no | PR4.44+ with jobs | yes |
@@ -294,12 +294,15 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
    - `create_app()` uses no-probe fallbacks.
    - `GET /system/usage/debug` remains in `main.py` because it is diagnostic-oriented.
 
-2. **PR4.43: Move project read-only list/history endpoints into `app/api/projects.py`**
-   - Candidate endpoints:
+2. **PR4.43: Move project read-only endpoints into `app/api/projects.py`** — completed
+   - Moved endpoints:
      - `GET /projects`
-     - `GET /projects/{project}/history` (current route parameter name is `{name}`)
-     - `GET /projects/{project}/files` (current route parameter name is `{name}`)
-   - Do not move project creation/deletion, project download/archive, job, or streaming routes in this PR.
+     - `GET /projects/{project}/history`
+     - `GET /projects/{project}/files`
+   - Production `main.app` installs app-state providers to preserve the existing filesystem/database-backed response shapes.
+   - `create_app()` uses lightweight fallbacks and does not scan the filesystem, touch `CA_DATA`, jobs, Nexus, or LLM/runtime state.
+   - Project creation/deletion, project download/archive, job, background execution, polling, and streaming routes remain in `main.py`.
 
 3. **PR4.44以降**
-   - Jobs, Nexus, Echo, TTS, ASR, model loading/switching, model scans/benchmarks/downloads, and WebSocket/streaming endpoints are heavy and should wait for dedicated plans and contract tests.
+   - Next candidate: evaluate whether `GET /projects/{name}/jobs` can move as a read-only project-jobs endpoint, or whether low-risk settings endpoint follow-ups should go first. The project jobs endpoint is read-only but depends on the job registry/store, so move it only after PR4.43 confirms the provider pattern is stable.
+   - Jobs submit/poll/background execution, Nexus, Echo, TTS, ASR, model loading/switching, model scans/benchmarks/downloads, and WebSocket/streaming endpoints are heavy and should wait for dedicated plans and contract tests.

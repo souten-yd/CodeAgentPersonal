@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api.model_settings import router as model_settings_router
+from app.api.projects import router as projects_router
 from app.api.runtime_controls import router as runtime_controls_router
 from app.api.settings import router as settings_router
 from app.api.system import router as system_router
@@ -110,6 +111,7 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(settings_router)
     app.include_router(model_settings_router)
     app.include_router(runtime_controls_router)
+    app.include_router(projects_router)
 
 
 def configure_middleware(app: FastAPI) -> None:
