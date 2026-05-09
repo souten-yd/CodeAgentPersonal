@@ -65,6 +65,7 @@ def test_remaining_main_routes_inventory_doc_exists_and_names_next_pr_sequence()
         "PR4.46: Move Nexus read-only status/list endpoints into `app/api/nexus.py`",
         "PR4.47: Move Echo read-only status/session endpoints into `app/api/echo.py`",
         "PR4.48: lightweight runtime write controls",
+        "PR4.49: Extract job execution runtime into `app/services/jobs.py`",
     ]
     for section in required_sections:
         assert section in text
@@ -101,6 +102,16 @@ def test_remaining_main_routes_inventory_doc_exists_and_names_next_pr_sequence()
     ]
     for path in required_paths:
         assert path in text
+
+
+def test_inventory_records_pr449_job_execution_service_extraction():
+    text = INVENTORY_DOC.read_text(encoding="utf-8")
+
+    assert "PR4.49: Extract job execution runtime into `app/services/jobs.py`" in text
+    assert "job execution runtime extracted" in text
+    assert "`POST /jobs/submit` route owner remains `main.py`" in text
+    assert "PR4.50 can move `POST /jobs/submit` to `app/api/jobs.py`" in text
+    _assert_main_owner("/jobs/submit", "POST", "submit_job")
 
 
 def test_already_moved_read_only_model_settings_and_runtime_routes_do_not_return_to_main_py():
