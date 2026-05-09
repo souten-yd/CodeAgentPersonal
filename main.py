@@ -16317,8 +16317,7 @@ def get_job(job_id: str, project: str = "default"):
     steps = job_get_steps(project, job_id)
     return {**info, "steps": steps, "step_count": len(steps)}
 
-@app.get("/jobs/{job_id}/poll")
-def poll_job(job_id: str, project: str = "default", after: int = -1):
+def job_poll_payload(job_id: str, project: str = "default", after: int = -1):
     """after より後の新しいステップのみ返す（差分ポーリング）"""
     info = job_get(project, job_id)
     if not info:
@@ -16357,11 +16356,14 @@ def stream_job(job_id: str, project: str = "default", after: int = -1):
     return StreamingResponse(generate(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-@app.get("/projects/{name}/jobs")
-def list_jobs(name: str, limit: int = 30):
+def project_jobs_payload(project: str, limit: int = 30):
     """プロジェクトのジョブ一覧を返す"""
-    jobs = job_list(name, limit)
+    jobs = job_list(project, limit)
     return {"jobs": jobs}
+
+
+app.state.project_jobs_provider = project_jobs_payload
+app.state.job_poll_provider = job_poll_payload
 
 @app.post("/model/switch")
 def model_switch(req: dict):

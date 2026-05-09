@@ -1,8 +1,8 @@
-# PR4.42: System read-only endpoints moved into `app/api/system_status.py`
+# PR4.44: Project/job read-only status endpoints moved into `app/api/jobs.py`
 
 ## Scope and guardrails
 
-This document records the PR4.42 extraction of low-risk system read-only endpoints into `app/api/system_status.py`. The move keeps production responses provider-backed while preserving lightweight app-factory fallbacks.
+This document records the PR4.44 extraction of job read-only status endpoints into `app/api/jobs.py`, building on PR4.42 system status and PR4.43 project read-only router work. The move keeps production responses provider-backed while preserving lightweight app-factory fallbacks.
 
 Hard guardrails retained for this PR:
 
@@ -10,6 +10,7 @@ Hard guardrails retained for this PR:
 - Do not change non-target `main.py` behavior.
 - Do not change LLM / ASR / TTS / SBV2 / Runpod llama search behavior.
 - Do not change `app/api/runtime_controls.py` or `app/api/model_settings.py`.
+- Do not move `POST /jobs/submit`, background job execution, Nexus, Echo, ASR, TTS, or UI behavior.
 - Do not change UI assets, Echo WebSocket handling, `/model/switch`, `/model/auto-load`, `/debug/llama`, or `benchmark_mem.py`.
 
 ## Legend
@@ -87,7 +88,7 @@ Settings endpoints are already router-owned. Treat them as out of scope for the 
 
 ## D. Project / file / job candidates
 
-PR4.43 moved the low-risk project read-only list/history/file endpoints to `app.api.projects`. Jobs, background execution, project writes, downloads, and file-serving paths remain coupled to background workers, streaming, job registries, and filesystem side effects and therefore stay in `main.py`.
+PR4.43 moved the low-risk project read-only list/history/file endpoints to `app.api.projects`. PR4.44 moved the job read-only status endpoints `GET /projects/{project}/jobs` and `GET /jobs/{job_id}/poll` to `app.api.jobs` with provider-backed production payloads and lightweight `create_app()` fallbacks. `POST /jobs/submit` remains in `main.py` because it is a write/heavy runtime execution endpoint that starts background job work.
 
 | Method | Path | Handler | Current owner | Kind | Side effect | Globals/managers/registries | create_app fallback | Next move? | Move ban |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -99,10 +100,10 @@ PR4.43 moved the low-risk project read-only list/history/file endpoints to `app.
 | GET | `/projects/{name}/files/{path:path}/download` | `download_project_file` | `main` | read-only / file response | serves project file | project filesystem | no | later, after list/history | yes for now |
 | GET | `/projects/{name}/download` | `download_project` | `main` | read-only / heavy | zips/serves project | project filesystem/archive | no | later | yes |
 | GET | `/projects/{project}/history` | `get_project_history_api` | `app.api.projects` | read-only | reads project history through provider | provider-backed project DB on `main.app` | yes: empty sessions | moved in PR4.43 | no |
-| GET | `/projects/{name}/jobs` | `list_jobs` | `main` | read-only | lists job metadata | job registry/store | no | later with jobs router | yes for now |
-| POST | `/jobs/submit` | `submit_job` | `main` | write / heavy | starts job | job manager, LLM/runtime globals | no | PR4.44+ | yes |
-| GET | `/jobs/{job_id}` | `get_job` | `main` | read-only | reads job state | job registry/store | no | PR4.44+ with jobs | yes |
-| GET | `/jobs/{job_id}/poll` | `poll_job` | `main` | read-only / polling | reads job state repeatedly | job registry/store | no | PR4.44+ with jobs | yes |
+| GET | `/projects/{project}/jobs` | `get_project_jobs_api` | `app.api.jobs` | read-only | lists job metadata through provider | provider-backed job registry/store on `main.app` | yes: `{"jobs": []}` | moved in PR4.44 | no |
+| POST | `/jobs/submit` | `submit_job` | `main` | write / heavy / runtime execution | starts background job execution | job manager, LLM/runtime globals | no | keep in `main.py` after PR4.44 | yes |
+| GET | `/jobs/{job_id}` | `get_job` | `main` | read-only | reads job state | job registry/store | no | later, separate from PR4.44 poll/list move | yes |
+| GET | `/jobs/{job_id}/poll` | `get_job_poll_api` | `app.api.jobs` | read-only / polling | reads job state through provider | provider-backed job registry/store on `main.app` | yes: empty done poll payload | moved in PR4.44 | no |
 | GET | `/jobs/{job_id}/stream` | `stream_job` | `main` | streaming | streams job events/logs | job registry/streaming response | no | PR4.44+ after non-streaming jobs | yes |
 | POST | `/jobs/{job_id}/respond` | `respond_to_job` | `main` | write | sends response to active job | job manager/queues | no | PR4.44+ | yes |
 | GET | `/jobs/{job_id}/logs` | `get_job_logs_api` | `main` | read-only | reads logs | job log filesystem | no | PR4.44+ | yes |
@@ -301,8 +302,15 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
      - `GET /projects/{project}/files`
    - Production `main.app` installs app-state providers to preserve the existing filesystem/database-backed response shapes.
    - `create_app()` uses lightweight fallbacks and does not scan the filesystem, touch `CA_DATA`, jobs, Nexus, or LLM/runtime state.
-   - Project creation/deletion, project download/archive, job, background execution, polling, and streaming routes remain in `main.py`.
+   - Project creation/deletion, project download/archive, job, background execution, polling, and streaming routes remained in `main.py` until PR4.44.
 
-3. **PR4.44以降**
-   - Next candidate: evaluate whether `GET /projects/{name}/jobs` can move as a read-only project-jobs endpoint, or whether low-risk settings endpoint follow-ups should go first. The project jobs endpoint is read-only but depends on the job registry/store, so move it only after PR4.43 confirms the provider pattern is stable.
-   - Jobs submit/poll/background execution, Nexus, Echo, TTS, ASR, model loading/switching, model scans/benchmarks/downloads, and WebSocket/streaming endpoints are heavy and should wait for dedicated plans and contract tests.
+3. **PR4.44: Move project/job read-only status endpoints into `app/api/jobs.py`** — completed
+   - Moved endpoints:
+     - `GET /projects/{project}/jobs`
+     - `GET /jobs/{job_id}/poll`
+   - Production `main.app` installs app-state providers to preserve the existing job list and poll response shapes.
+   - `create_app()` uses lightweight fallbacks and does not touch the filesystem, job registry, LLM, ASR, TTS, or background execution.
+   - `POST /jobs/submit` remains in `main.py` as a write/heavy runtime execution endpoint.
+
+4. **PR4.45以降**
+   - Jobs submit/background execution, Nexus, Echo, TTS, ASR, model loading/switching, model scans/benchmarks/downloads, and WebSocket/streaming endpoints are heavy and should wait for dedicated plans and contract tests.
