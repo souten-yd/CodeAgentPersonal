@@ -45,12 +45,15 @@ def test_jobs_service_does_not_import_main_or_own_http_routes():
         assert forbidden not in text
 
 
-def test_main_submit_route_stays_main_owned_and_uses_service_boundary():
+def test_submit_route_moves_to_jobs_router_and_main_keeps_service_provider():
     route = _single_route("/jobs/submit", "POST")
-    assert route.endpoint.__module__ == "main"
-    assert route.endpoint.__name__ == "submit_job"
+    assert route.endpoint.__module__ == "app.api.jobs"
+    assert route.endpoint.__name__ == "submit_job_api"
 
     text = MAIN_PATH.read_text(encoding="utf-8")
+    assert '@app.post("/jobs/submit")' not in text
+    assert "def job_submit_payload(" in text
+    assert "app.state.job_submit_provider = job_submit_payload" in text
     assert "submit_job_service(" in text
     assert "run_job_background_service(" in text
 

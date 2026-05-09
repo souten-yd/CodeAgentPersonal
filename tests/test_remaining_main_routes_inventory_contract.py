@@ -109,9 +109,10 @@ def test_inventory_records_pr449_job_execution_service_extraction():
 
     assert "PR4.49: Extract job execution runtime into `app/services/jobs.py`" in text
     assert "job execution runtime extracted" in text
-    assert "`POST /jobs/submit` route owner remains `main.py`" in text
-    assert "PR4.50 can move `POST /jobs/submit` to `app/api/jobs.py`" in text
-    _assert_main_owner("/jobs/submit", "POST", "submit_job")
+    assert "PR4.50 moved `POST /jobs/submit` route ownership to `app/api/jobs.py`" in text
+    assert "job execution runtime remains in `app/services/jobs.py`" in text
+    assert "main.py keeps only the `job_submit_provider` dependency assembly" in text
+    _assert_route_owner("/jobs/submit", "POST", "app.api.jobs", "submit_job_api")
 
 
 def test_already_moved_read_only_model_settings_and_runtime_routes_do_not_return_to_main_py():
@@ -189,7 +190,6 @@ def test_echo_audio_execution_and_write_routes_remain_in_main_py():
 
 def test_write_and_heavy_job_routes_remain_in_main_py():
     expected = [
-        ("/jobs/submit", "POST", "submit_job"),
         ("/jobs/{job_id}", "GET", "get_job"),
         ("/jobs/{job_id}/stream", "GET", "stream_job"),
         ("/jobs/{job_id}/respond", "POST", "respond_to_job"),
@@ -213,15 +213,14 @@ def test_project_read_only_routes_moved_to_projects_router_while_writes_stay_mai
     _assert_main_owner("/projects", "POST", "create_project")
 
 
-def test_job_read_only_status_routes_moved_to_jobs_router_while_submit_stays_main_owned():
+def test_jobs_router_owns_read_only_status_and_submit_route():
     moved_routes = [
         ("/projects/{project}/jobs", "GET", "app.api.jobs", "get_project_jobs_api"),
         ("/jobs/{job_id}/poll", "GET", "app.api.jobs", "get_job_poll_api"),
+        ("/jobs/submit", "POST", "app.api.jobs", "submit_job_api"),
     ]
     for path, method, module_name, handler_name in moved_routes:
         _assert_route_owner(path, method, module_name, handler_name)
-
-    _assert_main_owner("/jobs/submit", "POST", "submit_job")
 
 
 def test_nexus_read_only_status_routes_moved_to_nexus_router_while_heavy_routes_stay_put():
