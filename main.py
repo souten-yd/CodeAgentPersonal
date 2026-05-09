@@ -124,6 +124,12 @@ from app.api.runtime_controls import (
     CUDA_REGRESSION_BASELINE_REF,
     CUDA_REGRESSION_SUSPECTED_FILES,
 )
+from app.services.audio_runtime import (
+    build_asr_config_payload,
+    build_audio_runtime_debug_payload,
+    build_tts_status_payload,
+    build_voice_status_payload,
+)
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -9544,16 +9550,16 @@ def voice_unload() -> dict:
 def voice_status() -> dict:
     with _voice_lock:
         status_device, status_compute_type = _voice_runtime_device_for_status()
-        return {
-            "loaded": _voice_model is not None,
-            "model": _voice_model_name if _voice_model is not None else "",
-            "device": status_device,
-            "compute_type": status_compute_type,
-            "last_cuda_error": _last_asr_cuda_error,
-            "last_cuda_error_at": _last_asr_cuda_error_at,
-            "lock_locked": _voice_lock.locked(),
-            "candidates": _VOICE_MODEL_CANDIDATES,
-        }
+        return build_voice_status_payload(
+            loaded=_voice_model is not None,
+            model=_voice_model_name if _voice_model is not None else "",
+            device=status_device,
+            compute_type=status_compute_type,
+            last_cuda_error=_last_asr_cuda_error,
+            last_cuda_error_at=_last_asr_cuda_error_at,
+            lock_locked=_voice_lock.locked(),
+            candidates=_VOICE_MODEL_CANDIDATES,
+        )
 
 _ASR_PROFILE_PRESETS = {
     "fast": {"beam_size": 1, "best_of": 1},
@@ -12909,12 +12915,11 @@ _tts_startup_health_snapshot = {
 
 @app.get("/tts/status")
 def tts_status_api():
-    response = {
-        "jtalk_exists": _tts_jtalk_exists(),
-        "tts_startup_health": _tts_startup_health_snapshot,
-    }
-    response["engine_registry"] = _tts_engine_registry.collect_status()
-    return response
+    return build_tts_status_payload(
+        jtalk_exists=_tts_jtalk_exists(),
+        tts_startup_health=_tts_startup_health_snapshot,
+        engine_registry=_tts_engine_registry.collect_status(),
+    )
 
 
 @app.get("/debug/TTS")
@@ -17134,46 +17139,28 @@ def _probe_sbv2_venv_cuda(timeout_sec: float = 8.0) -> dict:
 
 def audio_runtime_debug_payload():
     runtime_cfg = detect_audio_runtime()
+    runtime_payload = runtime_cfg.to_dict()
     asr_cfg = _resolve_asr_runtime_config()
     voice = voice_status()
     try:
         tts_status = _tts_engine_registry.get(raw_engine_key="style_bert_vits2").status()
     except Exception as e:
         tts_status = {"error": f"{type(e).__name__}: {e}"}
-    return {
-        "audio_runtime": runtime_cfg.to_dict(),
-        "main_venv_cuda": _probe_main_torch_cuda(),
-        "ctranslate2_cuda": {
-            "available": runtime_cfg.ctranslate2_cuda_available,
-        },
-        "sbv2_venv_cuda_probe": _probe_sbv2_venv_cuda(),
-        "asr_selected": {
-            "device": asr_cfg.get("asr_device") or voice.get("device"),
-            "compute_type": asr_cfg.get("asr_compute_type") or voice.get("compute_type"),
-            "effective_engine": asr_cfg.get("effective_engine"),
-            "effective_backend": asr_cfg.get("effective_backend"),
-            "loaded": voice.get("loaded"),
-        },
-        "tts_selected": {
-            "device": tts_status.get("selected_device") or tts_status.get("effective_device") or runtime_cfg.tts_device,
-            "requested_device": tts_status.get("requested_device") or tts_status.get("device_env") or "auto",
-            "effective_device": tts_status.get("effective_device") or runtime_cfg.tts_device,
-        },
-        "last_asr_cuda_error": {
-            "error": voice.get("last_cuda_error") or "",
-            "at": voice.get("last_cuda_error_at") or "",
-        },
-        "last_tts_worker_error": tts_status.get("last_worker_error") or {},
-        "audio_cuda_serialize_lock": {
-            "asr_lock_locked": bool(voice.get("lock_locked")),
-        },
-    }
+    return build_audio_runtime_debug_payload(
+        runtime_config=runtime_payload,
+        main_venv_cuda=_probe_main_torch_cuda(),
+        ctranslate2_cuda_available=runtime_cfg.ctranslate2_cuda_available,
+        sbv2_venv_cuda_probe=_probe_sbv2_venv_cuda(),
+        asr_config=asr_cfg,
+        voice_status=voice,
+        tts_status=tts_status,
+    )
 
 
 # PR4.54: ASR config/status boundary; keep in main.py until low-risk route move PR4.56.
 @app.get("/asr/config")
 def asr_config_api():
-    return _resolve_asr_runtime_config()
+    return build_asr_config_payload(_resolve_asr_runtime_config())
 
 
 @app.get("/asr/status")

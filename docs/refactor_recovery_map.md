@@ -117,6 +117,25 @@
   - `app/api/nexus.py` に execution body import/call が戻っていないか。
   - `app/services/nexus_execution.py` に `APIRouter` / route decorator / `main.py` import が戻っていないか。
 
+
+## PR4.55
+
+- 変更:
+  - ASR/TTS/SBV2 の safe helper / payload shaping / diagnostic shaping を `app/services/audio_runtime.py` に分離。
+  - Route owner は変更なし。GET `/voice/status` と GET `/asr/config` の owner は `main.py`、GET `/audio/runtime/debug` は既存の runtime-controls route + `main.py` provider のまま。
+  - Execution body はまだ `main.py`: POST `/voice/transcribe`, POST `/voice/load`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, WebSocket `/echo/stream`。
+  - import-time CUDA probe 禁止は継続。
+- audio runtime で壊れた時に見る順番:
+  1. `main.py` route owner / production provider registration
+  2. `app/services/audio_runtime.py` payload/helper shaping
+  3. `app/audio/runtime_config.py` device detection
+  4. Style-Bert-VITS2 runtime
+  5. `scripts/collect_runtime_snapshot.sh` / `/runtime/cuda-debug` / `/audio/runtime/debug`
+- 次フェーズ:
+  - PR4.56: low-risk audio read/status route move.
+  - PR4.57: TTS/SBV2 non-streaming service body extraction.
+  - PR4.58+: Echo WebSocket last.
+
 ## Recovery invariants across all refactors
 
 - `main.py` import 時に `detect_audio_runtime()` を呼ばない。

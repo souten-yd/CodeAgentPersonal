@@ -10,6 +10,24 @@ PR4.54 is a preparation-only PR after the healthy `KasaneCore_v2.8` baseline.  `
 - Do not change WebSocket `/echo/stream`, POST `/voice/transcribe`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, SBV2 normalization, dictionary cache, katakana fallback, LLM fallback, model auto-load, or Runpod CUDA / llama NGL probing.
 - `create_app()` fallbacks must remain safe: no CUDA probe, no ASR/TTS model load, no SBV2 runtime prepare, no filesystem-heavy scan, and no LLM fallback generation.
 
+
+## PR4.55 helper extraction update
+
+PR4.55 extracts only safe ASR/TTS/SBV2 payload shaping and diagnostic shaping into `app/services/audio_runtime.py`.  Route ownership is unchanged: GET `/voice/status`, GET `/asr/config`, POST `/voice/transcribe`, POST `/voice/load`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, and WebSocket `/echo/stream` remain owned by `main.py`; GET `/audio/runtime/debug` continues to be exposed through the existing runtime-controls route with the production payload provider registered from `main.py`.
+
+What moved in PR4.55:
+
+- GET `/voice/status` response dict construction now delegates to `build_voice_status_payload(...)`.
+- GET `/asr/config` response dict construction now delegates to `build_asr_config_payload(...)`.
+- GET `/audio/runtime/debug` provider keeps runtime collection/probes in `main.py`, while final diagnostic dict construction delegates to `build_audio_runtime_debug_payload(...)`.
+- TTS/SBV2 status display helpers, degraded classification, device / `compute_type` summary, SBV2 runtime summary, and normalized error/reason formatting now live in `app/services/audio_runtime.py`.
+
+What did **not** move:
+
+- Execution bodies are still in `main.py`: POST `/voice/transcribe`, POST `/voice/load`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, and WebSocket `/echo/stream`.
+- SBV2 normalization / kana fallback / dictionary cache behavior is unchanged.
+- `detect_audio_runtime()` timing is unchanged; import-time CUDA probe remains forbidden.
+
 ## Endpoint inventory
 
 | Risk | Endpoint / feature | Current owner module | Related helpers / global state | Runtime load | CUDA probe | Filesystem write | LLM fallback | create_app fallback note | Move classification |

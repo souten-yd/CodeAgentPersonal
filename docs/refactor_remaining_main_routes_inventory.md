@@ -419,3 +419,20 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
      - PR4.56: Move low-risk audio status/config routes.
      - PR4.57: Move TTS/SBV2 non-streaming routes if safe.
      - PR4.58+: Echo WebSocket last.
+
+## PR4.55 audio runtime helper extraction state
+
+PR4.55 is complete when the audio runtime helper seam is `app/services/audio_runtime.py` and route ownership remains unchanged.  The seam contains payload/helper/diagnostic shaping only: voice status response construction, ASR config response construction, audio runtime debug response construction, ASR/TTS degraded status classification, ASR/TTS device and `compute_type` display formatting, SBV2 model/runtime status display formatting, normalized error/degraded reasons, and endpoint risk / ownership metadata.
+
+Current ownership after PR4.55:
+
+- `main.py` remains the owner for GET `/voice/status`, GET `/asr/config`, POST `/voice/load`, POST `/voice/transcribe`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, WebSocket `/echo/stream`, and SBV2 prepare/models/preview/upload routes.
+- The existing runtime-controls router still exposes GET `/audio/runtime/debug`; production collection remains provider-backed from `main.py`, and only the debug payload shaping is delegated to `app/services/audio_runtime.py`.
+- Audio execution bodies are not moved: WebSocket `/echo/stream`, transcribe, synthesize, and synthesize-batch remain in `main.py`.
+- The import-time CUDA probe ban continues: `app/services/audio_runtime.py` must not top-level import `torch`, `ctranslate2`, `faster_whisper`, or Style-Bert-VITS2 runtime modules, and must not call `detect_audio_runtime()` during import.
+
+Next candidates:
+
+1. PR4.56: Move low-risk audio read/status routes.
+2. PR4.57: Extract TTS/SBV2 non-streaming service body.
+3. PR4.58+: Echo WebSocket last.

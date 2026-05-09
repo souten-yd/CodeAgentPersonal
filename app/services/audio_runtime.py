@@ -129,6 +129,139 @@ def normalize_audio_runtime_status_payload(payload: Mapping[str, Any] | None) ->
     return status.to_dict()
 
 
+def normalize_audio_runtime_error(value: Any) -> dict[str, str]:
+    """Normalize route-collected audio runtime errors without touching runtimes."""
+
+    if not value:
+        return {"error": "", "reason": ""}
+    if isinstance(value, Mapping):
+        error = str(value.get("error") or value.get("message") or "")
+        reason = str(value.get("reason") or value.get("code") or "")
+        if not error and value:
+            error = str(dict(value))
+        return {"error": error, "reason": reason}
+    return {"error": str(value), "reason": ""}
+
+
+def _clean_text(value: Any, default: str = "") -> str:
+    text = str(value if value is not None else default).strip()
+    return text if text else default
+
+
+def classify_audio_runtime_degraded(
+    *,
+    asr_state: Mapping[str, Any] | None = None,
+    tts_state: Mapping[str, Any] | None = None,
+    sbv2_state: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Classify degraded ASR/TTS/SBV2 status from already-collected state."""
+
+    reasons: list[str] = []
+    for prefix, state in (("asr", asr_state), ("tts", tts_state), ("sbv2", sbv2_state)):
+        source = dict(state or {})
+        error_info = normalize_audio_runtime_error(
+            source.get("error") or source.get("last_cuda_error") or source.get("last_worker_error")
+        )
+        reason = _clean_text(source.get("reason") or error_info.get("reason"))
+        if reason:
+            reasons.append(f"{prefix}:{reason}")
+        elif error_info.get("error"):
+            reasons.append(f"{prefix}:error")
+        if source.get("available") is False or (
+            source.get("loaded") is False and source.get("required") is True
+        ):
+            reasons.append(f"{prefix}:unavailable")
+    return {"degraded": bool(reasons), "reasons": reasons}
+
+
+def summarize_asr_runtime_state(
+    asr_config: Mapping[str, Any] | None = None,
+    voice_status: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Shape ASR device/backend display from values collected by the route owner."""
+
+    cfg = dict(asr_config or {})
+    voice = dict(voice_status or {})
+    return {
+        "device": cfg.get("asr_device") or voice.get("device"),
+        "compute_type": cfg.get("asr_compute_type") or voice.get("compute_type"),
+        "effective_engine": cfg.get("effective_engine"),
+        "effective_backend": cfg.get("effective_backend"),
+        "loaded": voice.get("loaded"),
+    }
+
+
+def summarize_tts_runtime_state(
+    tts_status: Mapping[str, Any] | None = None,
+    runtime_config: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Shape TTS device display from route-collected runtime status."""
+
+    status = dict(tts_status or {})
+    runtime = dict(runtime_config or {})
+    runtime_tts_device = runtime.get("tts_device")
+    return {
+        "device": status.get("selected_device") or status.get("effective_device") or runtime_tts_device,
+        "requested_device": status.get("requested_device") or status.get("device_env") or "auto",
+        "effective_device": status.get("effective_device") or runtime_tts_device,
+    }
+
+
+def summarize_sbv2_runtime_state(tts_status: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Shape SBV2 model/runtime status from already-collected TTS status."""
+
+    status = dict(tts_status or {})
+    error_info = normalize_audio_runtime_error(status.get("error") or status.get("last_worker_error"))
+    return {
+        "available": _coerce_bool(status.get("available", status.get("loaded", False))),
+        "loaded": _coerce_bool(status.get("loaded", status.get("available", False))),
+        "engine_key": _clean_text(status.get("engine_key"), "style_bert_vits2"),
+        "model_ready": _coerce_bool(status.get("koharune_ami_ready", False)),
+        "reason": _clean_text(status.get("reason") or error_info.get("reason")),
+        "error": _clean_text(error_info.get("error")),
+    }
+
+
+def build_voice_status_payload(
+    status: Mapping[str, Any] | None = None,
+    **overrides: Any,
+) -> dict[str, Any]:
+    """Build the GET /voice/status payload while preserving existing keys."""
+
+    source = dict(status or {})
+    source.update(overrides)
+    return {
+        "loaded": _coerce_bool(source.get("loaded", False)),
+        "model": str(source.get("model") or ""),
+        "device": str(source.get("device") or ""),
+        "compute_type": str(source.get("compute_type") or ""),
+        "last_cuda_error": str(source.get("last_cuda_error") or ""),
+        "last_cuda_error_at": str(source.get("last_cuda_error_at") or ""),
+        "lock_locked": _coerce_bool(source.get("lock_locked", False)),
+        "candidates": source.get("candidates") or [],
+    }
+
+
+def build_asr_config_payload(config: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Return the ASR config response shape from route-collected settings."""
+
+    return dict(config or {})
+
+
+def build_tts_status_payload(
+    *,
+    jtalk_exists: Any,
+    tts_startup_health: Mapping[str, Any] | None,
+    engine_registry: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Build GET /tts/status payload without querying any TTS runtime."""
+
+    return {
+        "jtalk_exists": _coerce_bool(jtalk_exists),
+        "tts_startup_health": dict(tts_startup_health or {}),
+        "engine_registry": dict(engine_registry or {}),
+    }
+
 def classify_audio_endpoint_risk(method_and_path: str) -> str:
     """Return the inventory risk label for a route-neutral method/path key."""
 
@@ -139,9 +272,52 @@ def classify_audio_endpoint_risk(method_and_path: str) -> str:
     return "unknown"
 
 
-def build_audio_runtime_debug_payload(extra: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """Build a static debug payload for contract tests and future route seams."""
+def build_audio_runtime_debug_payload(
+    extra: Mapping[str, Any] | None = None,
+    *,
+    runtime_config: Mapping[str, Any] | None = None,
+    main_venv_cuda: Mapping[str, Any] | None = None,
+    ctranslate2_cuda_available: Any = None,
+    sbv2_venv_cuda_probe: Mapping[str, Any] | None = None,
+    asr_config: Mapping[str, Any] | None = None,
+    voice_status: Mapping[str, Any] | None = None,
+    tts_status: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build audio runtime diagnostics from values collected by route owners."""
 
-    diagnostics = AudioRuntimeDiagnostics(details=dict(extra or {})).to_dict()
-    diagnostics["endpoints"] = {key: dict(value) for key, value in AUDIO_RUNTIME_ENDPOINT_OWNERSHIP.items()}
-    return diagnostics
+    if (
+        runtime_config is None
+        and main_venv_cuda is None
+        and sbv2_venv_cuda_probe is None
+        and asr_config is None
+        and voice_status is None
+        and tts_status is None
+    ):
+        diagnostics = AudioRuntimeDiagnostics(details=dict(extra or {})).to_dict()
+        diagnostics["endpoints"] = {key: dict(value) for key, value in AUDIO_RUNTIME_ENDPOINT_OWNERSHIP.items()}
+        return diagnostics
+
+    runtime = dict(runtime_config or {})
+    voice = dict(voice_status or {})
+    tts = dict(tts_status or {})
+    ctranslate2_available = ctranslate2_cuda_available
+    if ctranslate2_available is None:
+        ctranslate2_available = runtime.get("ctranslate2_cuda_available", False)
+    return {
+        "audio_runtime": runtime,
+        "main_venv_cuda": dict(main_venv_cuda or {}),
+        "ctranslate2_cuda": {
+            "available": _coerce_bool(ctranslate2_available),
+        },
+        "sbv2_venv_cuda_probe": dict(sbv2_venv_cuda_probe or {}),
+        "asr_selected": summarize_asr_runtime_state(asr_config, voice),
+        "tts_selected": summarize_tts_runtime_state(tts, runtime),
+        "last_asr_cuda_error": {
+            "error": str(voice.get("last_cuda_error") or ""),
+            "at": str(voice.get("last_cuda_error_at") or ""),
+        },
+        "last_tts_worker_error": tts.get("last_worker_error") or {},
+        "audio_cuda_serialize_lock": {
+            "asr_lock_locked": _coerce_bool(voice.get("lock_locked", False)),
+        },
+    }
