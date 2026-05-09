@@ -66,6 +66,7 @@ def test_remaining_main_routes_inventory_doc_exists_and_names_next_pr_sequence()
         "PR4.47: Move Echo read-only status/session endpoints into `app/api/echo.py`",
         "PR4.48: lightweight runtime write controls",
         "PR4.49: Extract job execution runtime into `app/services/jobs.py`",
+        "PR4.51: Extract Nexus execution runtime into `app/services/nexus_execution.py`",
     ]
     for section in required_sections:
         assert section in text
@@ -113,6 +114,24 @@ def test_inventory_records_pr449_job_execution_service_extraction():
     assert "job execution runtime remains in `app/services/jobs.py`" in text
     assert "main.py keeps only the `job_submit_provider` dependency assembly" in text
     _assert_route_owner("/jobs/submit", "POST", "app.api.jobs", "submit_job_api")
+
+
+def test_inventory_records_pr451_nexus_execution_service_extraction():
+    text = INVENTORY_DOC.read_text(encoding="utf-8")
+
+    assert "PR4.51: Extract Nexus execution runtime into `app/services/nexus_execution.py`" in text
+    assert "Nexus execution runtime extracted" in text
+    assert "Nexus route owner remains unchanged" in text
+    assert "app/api/nexus.py owns only read-only/status/list Nexus endpoints" in text
+    assert "Nexus write/research/ingest route movement is deferred to PR4.52" in text
+    _assert_route_owner("/nexus/web/search", "POST", "app.nexus.router", "nexus_web_search")
+    _assert_route_owner("/nexus/research/run", "POST", "app.nexus.router", "nexus_research_run")
+    _assert_route_owner("/nexus/upload", "POST", "app.nexus.router", "nexus_upload")
+    _assert_route_owner("/jobs/submit", "POST", "app.api.jobs", "submit_job_api")
+    _assert_main_owner("/voice/transcribe", "POST", "voice_transcribe_api")
+    _assert_main_owner("/tts/synthesize", "POST", "tts_synthesize_api")
+    _assert_main_owner("/model/auto-load", "POST", "model_auto_load")
+    _assert_main_owner("/model/switch", "POST", "model_switch")
 
 
 def test_already_moved_read_only_model_settings_and_runtime_routes_do_not_return_to_main_py():
