@@ -499,3 +499,11 @@ Next sequence:
 - WebSocket message shape must not change: status, ack, sentence, translation, error, and ui_log payload keys remain owned by the existing `main.py` WebSocket flow.
 - Echo session write/save/delete behavior is not moved in PR4.64 and remains high risk for a later PR.
 - Remaining high-risk areas after PR4.64: Echo WebSocket loop, Echo session write/save, and Echo TTS chain.
+
+## PR4.65 Root directory cleanup inventory pause
+
+- PR4.64 で Echo stream ASR helper body は `app/services/audio_runtime.py` に抽出済み。
+- PR4.65 は root directory cleanup inventory のみを扱い、実際の root直下ファイル移動は行わない。
+- WebSocket `/echo/stream` route移動はまだ保留し、route owner は `main.py` のまま固定する。
+- Audio/Echo runtime の route ownership は変更しない。
+- root cleanup 実移動後に Echo session write/save 抽出へ戻る。
