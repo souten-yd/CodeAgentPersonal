@@ -127,7 +127,7 @@
   - PR4.58 で POST `/tts/synthesize-batch` の batch service body は `app/services/audio_runtime.py` の `run_tts_synthesize_batch_service_body()` に分離。ただし route owner は `main.py` のまま。
   - PR4.59 で POST `/api/tts/style-bert-vits2/prepare` の service body は `app/services/audio_runtime.py` の `run_sbv2_prepare_service_body()` に分離。ただし route owner は `main.py` のまま。
   - TTS/SBV2 service body 抽出済み: POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`。
-  - Execution body がまだ `main.py`: POST `/voice/transcribe`, POST `/voice/load`, WebSocket `/echo/stream`。
+  - Route owner がまだ `main.py`: POST `/voice/transcribe`, POST `/voice/load`, WebSocket `/echo/stream`。`/voice/load` と `/voice/transcribe` は service body 抽出済み。
   - import-time CUDA probe 禁止は継続。
 - audio runtime で壊れた時に見る順番:
   1. `main.py` route owner / production provider registration
@@ -177,11 +177,11 @@
 
 ## PR4.61 ASR transcribe seam recovery order
 
-PR4.61 does not move `POST /voice/transcribe`; it records the high-risk execution seam before PR4.62 extraction. If ASR breaks after this seam-freeze PR, check in this order:
+PR4.62 does not move `POST /voice/transcribe`; it extracts the service body to `app/services/audio_runtime.py` while leaving the route owner in `main.py`. If ASR breaks after this extraction PR, check in this order:
 
 1. `POST /voice/load` — confirm the already-extracted ASR load service body still loads the expected model and reports device/compute type.
-2. `POST /voice/transcribe` — confirm the route owner and execution body are still `main.py`, the SSE event shape is unchanged, and request normalization/base64 handling still matches `docs/asr_transcribe_runtime_inventory.md`.
-3. `app/services/audio_runtime.py` — confirm PR4.61 added only route-neutral `VoiceTranscribeInput`, `VoiceTranscribeResult`, `VoiceTranscribeDiagnostics`, `VoiceTranscribeServicePlan`, and pure summarization/error helpers; it must not import `main.py`, declare routes, or top-level import torch / ctranslate2 / faster-whisper.
+2. `POST /voice/transcribe` — confirm the route owner is still `main.py`, the execution body is `run_voice_transcribe_service_body(...)`, the SSE event shape is unchanged, and request normalization/base64 handling still matches `docs/asr_transcribe_runtime_inventory.md`.
+3. `app/services/audio_runtime.py` — confirm PR4.62 added route-neutral `VoiceTranscribeServiceDependencies`, `VoiceTranscribeServiceResponse`, and `run_voice_transcribe_service_body(...)`; it must not import `main.py`, declare routes, or top-level import torch / ctranslate2 / faster-whisper.
 4. `app/audio/runtime_config.py` — confirm effective ASR device and compute-type resolution did not regress and still avoids import-time CUDA probing.
 5. faster-whisper / ctranslate2 runtime — confirm `WhisperModel` construction and `.transcribe(...)` still work with the selected model cache.
 6. `/runtime/cuda-debug` — inspect CUDA availability, ctranslate2 status, and driver/runtime details.
@@ -193,3 +193,10 @@ Recovery invariants for this PR:
 - CUDA fallback and cpu-int8 fallback behavior are unchanged.
 - Degraded reason visibility is preserved through `_last_asr_cuda_error`, `_last_asr_cuda_error_at`, `/voice/status`, `/audio/runtime/debug`, and `/runtime/cuda-debug`.
 - `POST /voice/transcribe` and WebSocket `/echo/stream` remain owned by `main.py`.
+
+
+## PR4.62 ASR transcribe service body recovery notes
+
+- POST `/voice/transcribe` route owner remains `main.py`; `AudioRuntimeHttpError` is mapped to `HTTPException` there.
+- The extracted service body in `app/services/audio_runtime.py` handles validation, base64 bytes handling, SSE event shaping, transcribe invocation, and stream error events.
+- `/voice/load` and `/voice/transcribe` service bodies are extracted; WebSocket `/echo/stream` remains in `main.py` and Echo extraction is last.

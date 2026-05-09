@@ -126,6 +126,7 @@ from app.api.runtime_controls import (
 )
 from app.services.audio_runtime import (
     AudioRuntimeHttpError,
+    VoiceTranscribeServiceDependencies,
     Sbv2PrepareServiceDependencies,
     TtsSynthesizeBatchServiceDependencies,
     TtsSynthesizeServiceDependencies,
@@ -136,6 +137,7 @@ from app.services.audio_runtime import (
     run_sbv2_prepare_service_body,
     run_tts_synthesize_batch_service_body,
     run_tts_synthesize_service_body,
+    run_voice_transcribe_service_body,
 )
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
@@ -10995,93 +10997,26 @@ def voice_load_api(req: dict):
 def voice_unload_api():
     return voice_unload()
 
-# PR4.61: ASR transcribe high-risk execution route.
-# Route owner and execution body intentionally remain in main.py.
-# Do not move before VoiceTranscribeServiceDependencies is introduced in PR4.62.
-# Preserve CUDA fallback, response shape, and debug entry format.
+# PR4.62: ASR transcribe service body extracted; route owner remains main.py.
+# Preserve CUDA fallback, response shape, model load timing, and debug entry format.
 @app.post("/voice/transcribe")
 def voice_transcribe_api(req: dict):
-    audio_b64 = str(req.get("audio_base64", "")).strip()
-    if not audio_b64:
-        raise HTTPException(status_code=400, detail="audio_base64 required")
-    language = str(req.get("language", "auto")).strip().lower() or "auto"
-    if language not in {"auto", "ja", "en"}:
-        language = "auto"
-    model_name = str(req.get("model", "large-v3-turbo")).strip() or "large-v3-turbo"
-    _apply_asr_runtime_settings(req)
-    # モデルはサーバー終了まで RAM に常駐させる（unload しない）
-    auto_unload = False
-    audio_format = str(req.get("audio_format", "webm")).strip() or "webm"
-    asr_profile = _resolve_asr_profile(req.get("asr_profile", "balanced"))
-    beam_size = req.get("beam_size")
-    best_of = req.get("best_of")
-    no_speech_threshold = req.get("no_speech_threshold")
-    log_prob_threshold = req.get("log_prob_threshold")
-    compression_ratio_threshold = req.get("compression_ratio_threshold")
-    asr_post_filter = req.get("asr_post_filter", {})
+    deps = VoiceTranscribeServiceDependencies(
+        apply_asr_runtime_settings=_apply_asr_runtime_settings,
+        resolve_asr_profile=_resolve_asr_profile,
+        voice_model_exists=_voice_model_exists,
+        transcribe_audio=voice_transcribe,
+        is_runpod_runtime=lambda: IS_RUNPOD_RUNTIME,
+        json_dumps=json.dumps,
+    )
     try:
-        beam_size = int(beam_size) if beam_size is not None else None
-    except Exception:
-        beam_size = None
-    try:
-        best_of = int(best_of) if best_of is not None else None
-    except Exception:
-        best_of = None
-    try:
-        no_speech_threshold = float(no_speech_threshold) if no_speech_threshold is not None else None
-    except Exception:
-        no_speech_threshold = None
-    try:
-        log_prob_threshold = float(log_prob_threshold) if log_prob_threshold is not None else None
-    except Exception:
-        log_prob_threshold = None
-    try:
-        compression_ratio_threshold = float(compression_ratio_threshold) if compression_ratio_threshold is not None else None
-    except Exception:
-        compression_ratio_threshold = None
-    try:
-        audio = base64.b64decode(audio_b64)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"invalid audio_base64: {e}")
-
-    def _sse(payload: dict) -> str:
-        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
-    def stream():
-        # モデル未キャッシュの場合はダウンロード通知を先に送信
-        if not _voice_model_exists(model_name):
-            storage_note = "（RunPod: 揮発ストレージ）" if IS_RUNPOD_RUNTIME else "（ローカル: models/ASRModels）"
-            yield _sse({
-                "type": "downloading",
-                "message": (
-                    f"Whisper {model_name} モデルをダウンロード中です {storage_note}。\n"
-                    "初回のみ数分かかる場合があります。しばらくお待ちください..."
-                ),
-            })
-        try:
-            yield _sse({"type": "transcribing", "message": "音声を文字変換中です。しばらくお待ちください..."})
-            result = voice_transcribe(
-                audio,
-                language=language,
-                model_name=model_name,
-                auto_unload=auto_unload,
-                audio_format=audio_format,
-                asr_profile=asr_profile,
-                beam_size=beam_size,
-                best_of=best_of,
-                no_speech_threshold=no_speech_threshold,
-                log_prob_threshold=log_prob_threshold,
-                compression_ratio_threshold=compression_ratio_threshold,
-                asr_post_filter=asr_post_filter if isinstance(asr_post_filter, dict) else {},
-            )
-            yield _sse({"type": "result", **result})
-        except Exception as e:
-            yield _sse({"type": "error", "detail": f"voice transcribe failed: {e}"})
-
+        response = run_voice_transcribe_service_body(req, deps)
+    except AudioRuntimeHttpError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
     return StreamingResponse(
-        stream(),
-        media_type="text/event-stream",
-        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+        response.body_iterator,
+        media_type=response.media_type,
+        headers=dict(response.headers),
     )
 
 # =========================

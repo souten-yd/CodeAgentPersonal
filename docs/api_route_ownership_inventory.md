@@ -54,7 +54,7 @@
 | `/model/switch` | POST | `main.py` | ModelManager runtime | high | high-risk runtime | no | n/a |
 | `/voice/status` | GET | `app/api/audio.py` | provider-backed ASR runtime state | low | audio status; fallback must not CUDA probe | yes | yes |
 | `/asr/config` | GET | `app/api/audio.py` | provider-backed ASR config | low | audio config; fallback unavailable | yes | yes |
-| `/voice/transcribe` | POST | `main.py` | ASR runtime | high | audio runtime | no | n/a |
+| `/voice/transcribe` | POST | `main.py` | ASR runtime | high | audio runtime | no | service body extracted in `app/services/audio_runtime.py` in PR4.62 |
 | `/voice/load` | POST | `main.py` | ASR runtime | high | audio runtime | no | n/a |
 | `/voice/unload` | POST | `main.py` | ASR runtime | high | audio runtime | no | n/a |
 | `/api/tts/style-bert-vits2/models` | GET | `app/api/audio.py` | provider-backed SBV2 model inventory | low | empty fallback; no heavy scan | yes | yes |
@@ -90,4 +90,4 @@
 
 - POST `/api/tts/style-bert-vits2/prepare` の service body を `app/services/audio_runtime.py` の `run_sbv2_prepare_service_body()` に抽出。route owner は `main.py` のまま。
 - TTS/SBV2 service body 抽出済み: POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`.
-- High-risk remaining: POST `/voice/transcribe`, POST `/voice/load`, WebSocket `/echo/stream`.
+- High-risk route owners remaining in `main.py`: POST `/voice/transcribe`, POST `/voice/load`, WebSocket `/echo/stream`; `/voice/load` and `/voice/transcribe` service bodies are extracted, Echo stream remains last.

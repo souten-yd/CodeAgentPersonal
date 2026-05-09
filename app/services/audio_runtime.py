@@ -149,10 +149,10 @@ class VoiceTranscribeResult:
 
 @dataclass(frozen=True)
 class VoiceTranscribeServicePlan:
-    """Planning-only seam for PR4.62; no service body is introduced in PR4.61."""
+    """Historical seam plan retained after PR4.62 service-body extraction."""
 
-    next_pr: str = "PR4.62"
-    allowed_scope: str = "Extract execution body behind explicit dependencies without moving the route."
+    next_pr: str = "PR4.63"
+    allowed_scope: str = "Stabilize Echo stream ASR reuse seam before WebSocket extraction."
     forbidden_scope: tuple[str, ...] = (
         "route move",
         "CUDA fallback behavior change",
@@ -160,6 +160,112 @@ class VoiceTranscribeServicePlan:
         "temporary file or decode behavior change",
         "Echo WebSocket changes",
     )
+
+
+@dataclass(frozen=True)
+class VoiceTranscribeServiceDependencies:
+    """Injected production seams for POST /voice/transcribe without importing main.py."""
+
+    apply_asr_runtime_settings: Callable[[Mapping[str, Any]], Mapping[str, Any]]
+    resolve_asr_profile: Callable[[Any], str]
+    voice_model_exists: Callable[[str], bool]
+    transcribe_audio: Callable[..., Mapping[str, Any]]
+    is_runpod_runtime: Callable[[], bool]
+    json_dumps: Callable[..., str] = json.dumps
+
+
+@dataclass(frozen=True)
+class VoiceTranscribeServiceResponse:
+    """Route-neutral streaming response data for POST /voice/transcribe."""
+
+    body_iterator: Any
+    media_type: str = "text/event-stream"
+    headers: Mapping[str, str] = field(
+        default_factory=lambda: {
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+        }
+    )
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except Exception:
+        return None
+
+
+def _coerce_optional_float(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except Exception:
+        return None
+
+
+def run_voice_transcribe_service_body(
+    req: Mapping[str, Any] | None,
+    deps: VoiceTranscribeServiceDependencies,
+) -> VoiceTranscribeServiceResponse:
+    """Run the POST /voice/transcribe body behind explicit route-neutral dependencies."""
+
+    request = dict(req or {})
+    audio_b64 = str(request.get("audio_base64", "")).strip()
+    if not audio_b64:
+        raise AudioRuntimeHttpError(status_code=400, detail="audio_base64 required")
+
+    language = str(request.get("language", "auto")).strip().lower() or "auto"
+    if language not in {"auto", "ja", "en"}:
+        language = "auto"
+    model_name = str(request.get("model", "large-v3-turbo")).strip() or "large-v3-turbo"
+    deps.apply_asr_runtime_settings(request)
+    auto_unload = False
+    audio_format = str(request.get("audio_format", "webm")).strip() or "webm"
+    asr_profile = deps.resolve_asr_profile(request.get("asr_profile", "balanced"))
+    beam_size = _coerce_optional_int(request.get("beam_size"))
+    best_of = _coerce_optional_int(request.get("best_of"))
+    no_speech_threshold = _coerce_optional_float(request.get("no_speech_threshold"))
+    log_prob_threshold = _coerce_optional_float(request.get("log_prob_threshold"))
+    compression_ratio_threshold = _coerce_optional_float(request.get("compression_ratio_threshold"))
+    asr_post_filter = request.get("asr_post_filter", {})
+    try:
+        audio = base64.b64decode(audio_b64)
+    except Exception as e:
+        raise AudioRuntimeHttpError(status_code=400, detail=f"invalid audio_base64: {e}")
+
+    def _sse(payload: dict[str, Any]) -> str:
+        return f"data: {deps.json_dumps(payload, ensure_ascii=False)}\n\n"
+
+    def stream():
+        if not deps.voice_model_exists(model_name):
+            storage_note = "（RunPod: 揮発ストレージ）" if deps.is_runpod_runtime() else "（ローカル: models/ASRModels）"
+            yield _sse({
+                "type": "downloading",
+                "message": (
+                    f"Whisper {model_name} モデルをダウンロード中です {storage_note}。\n"
+                    "初回のみ数分かかる場合があります。しばらくお待ちください..."
+                ),
+            })
+        try:
+            yield _sse({"type": "transcribing", "message": "音声を文字変換中です。しばらくお待ちください..."})
+            result = deps.transcribe_audio(
+                audio,
+                language=language,
+                model_name=model_name,
+                auto_unload=auto_unload,
+                audio_format=audio_format,
+                asr_profile=asr_profile,
+                beam_size=beam_size,
+                best_of=best_of,
+                no_speech_threshold=no_speech_threshold,
+                log_prob_threshold=log_prob_threshold,
+                compression_ratio_threshold=compression_ratio_threshold,
+                asr_post_filter=asr_post_filter if isinstance(asr_post_filter, dict) else {},
+            )
+            yield _sse({"type": "result", **dict(result)})
+        except Exception as e:
+            yield _sse({"type": "error", "detail": f"voice transcribe failed: {e}"})
+
+    return VoiceTranscribeServiceResponse(body_iterator=stream())
 
 
 def normalize_voice_transcribe_error(error: Any) -> dict[str, str]:
