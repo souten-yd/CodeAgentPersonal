@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
+import os
+import traceback
 from dataclasses import asdict, dataclass, field
-from typing import Any, Mapping
+from datetime import datetime
+from typing import Any, Callable, Mapping
 
 
 AUDIO_RUNTIME_ENDPOINT_OWNERSHIP: dict[str, dict[str, str]] = {
@@ -63,7 +67,7 @@ AUDIO_RUNTIME_ENDPOINT_OWNERSHIP: dict[str, dict[str, str]] = {
         "owner": "main.py",
         "domain": "TTS/SBV2 execution",
         "risk": "high-risk execution",
-        "next_step": "Do not move before PR4.55 helper extraction",
+        "next_step": "PR4.57 extracted the non-streaming service body; keep route owner in main.py",
     },
     "POST /tts/synthesize-batch": {
         "owner": "main.py",
@@ -72,6 +76,30 @@ AUDIO_RUNTIME_ENDPOINT_OWNERSHIP: dict[str, dict[str, str]] = {
         "next_step": "Do not move before single synthesize seam is stable",
     },
 }
+
+
+class AudioRuntimeHttpError(Exception):
+    """Route-neutral HTTP error raised by audio service-body helpers."""
+
+    def __init__(self, status_code: int, detail: Any):
+        super().__init__(str(detail))
+        self.status_code = int(status_code)
+        self.detail = detail
+
+
+@dataclass(frozen=True)
+class TtsSynthesizeServiceDependencies:
+    """Injected production seams for POST /tts/synthesize without importing main.py."""
+
+    engine_registry: Any
+    logger: Any
+    write_tts_debug_entry: Callable[[Mapping[str, Any]], Any]
+    ensure_model_exists: Callable[[str, str], Any]
+    read_model_version: Callable[[str], str]
+    apply_tts_language_routing: Callable[..., Any]
+    style_bert_vits2_models_dir: str
+    request_id_factory: Callable[[], str]
+    utcnow_factory: Callable[[], datetime] = datetime.utcnow
 
 
 @dataclass(frozen=True)
@@ -260,6 +288,134 @@ def build_tts_status_payload(
         "jtalk_exists": _coerce_bool(jtalk_exists),
         "tts_startup_health": dict(tts_startup_health or {}),
         "engine_registry": dict(engine_registry or {}),
+    }
+
+
+def run_tts_synthesize_service_body(
+    req: Mapping[str, Any] | None,
+    deps: TtsSynthesizeServiceDependencies,
+) -> dict[str, Any]:
+    """Run the POST /tts/synthesize body while keeping the FastAPI route in main.py."""
+
+    source_req = dict(req or {})
+    request_id = str(source_req.get("request_id") or deps.request_id_factory())
+    route_req = dict(source_req)
+    engine = "style_bert_vits2"
+    route_req["engine"] = engine
+    route_req["engine_key"] = engine
+    text = str(route_req.get("text", "")).strip()
+    if not text:
+        raise AudioRuntimeHttpError(status_code=400, detail="text required")
+
+    try:
+        deps.write_tts_debug_entry(
+            {
+                "timestamp": deps.utcnow_factory().isoformat() + "Z",
+                "stage": "route_enter",
+                "route": "/tts/synthesize",
+                "request_id": request_id,
+                "engine": engine,
+                "model": str(route_req.get("model", "")).strip(),
+                "text_preview": text[:100],
+            }
+        )
+    except Exception:
+        deps.logger.warning("[TTS][synthesize:%s] route_enter debug write failed", request_id, exc_info=True)
+
+    deps.logger.info(
+        "[TTS][synthesize:%s] request engine=%s text_len=%d model=%s speaker=%s",
+        request_id,
+        engine,
+        len(text),
+        str(route_req.get("model", "")).strip(),
+        str(route_req.get("speaker_name", "")).strip() or str(route_req.get("speaker", "")).strip(),
+    )
+    route_req["request_id"] = request_id
+    normalized_key = deps.engine_registry.resolve_engine_key(engine, route_req.get("engine_key"))
+    if normalized_key == "style_bert_vits2":
+        model = str(route_req.get("model", "")).strip() or "koharune-ami"
+        route_req["model"] = model
+        deps.ensure_model_exists(model, deps.style_bert_vits2_models_dir)
+        model_config_path = os.path.join(deps.style_bert_vits2_models_dir, model, "config.json")
+        model_version = deps.read_model_version(model_config_path)
+        route = deps.apply_tts_language_routing(route_req, model_version=model_version)
+        deps.logger.info(
+            "[TTS][synthesize:%s] original_text=%r translated_text=%r final_text=%r route=%s needs_translation=%s translation_target_language=%s",
+            request_id,
+            route_req.get("original_text", ""),
+            route_req.get("translated_text", ""),
+            route_req.get("final_text", ""),
+            route,
+            route_req.get("needs_translation"),
+            route_req.get("translation_target_language"),
+        )
+    try:
+        runtime = deps.engine_registry.get(raw_engine_key="style_bert_vits2")
+    except KeyError:
+        raise AudioRuntimeHttpError(status_code=400, detail=f"不明なエンジン: {engine}")
+
+    try:
+        audio_bytes, media_type = runtime.synthesize(route_req)
+        deps.logger.info(
+            "[TTS][synthesize:%s] success engine=%s media_type=%s bytes=%d",
+            request_id,
+            normalized_key,
+            media_type,
+            len(audio_bytes or b""),
+        )
+    except ValueError as e:
+        error_message = str(e)
+        try:
+            err_payload = json.loads(error_message)
+        except Exception:
+            err_payload = None
+        if isinstance(err_payload, dict) and int(err_payload.get("status_code") or 0) == 422:
+            deps.logger.warning("[TTS][synthesize:%s] unprocessable_entity: %s", request_id, err_payload.get("error"))
+            raise AudioRuntimeHttpError(
+                status_code=422,
+                detail={
+                    "error": err_payload.get("error") or "Unprocessable TTS input",
+                    "text_preview": err_payload.get("text_preview") or "",
+                    "effective_language": err_payload.get("effective_language") or "JP",
+                    "model_version": err_payload.get("model_version") or "",
+                },
+            )
+        if "worker protocol error" in error_message.lower():
+            deps.logger.error("[TTS][synthesize:%s] worker_protocol_error: %s", request_id, e)
+            raise AudioRuntimeHttpError(status_code=500, detail=error_message)
+        deps.logger.warning("[TTS][synthesize:%s] validation_error: %s", request_id, e)
+        raise AudioRuntimeHttpError(status_code=400, detail=error_message)
+    except Exception as e:
+        try:
+            deps.write_tts_debug_entry(
+                {
+                    "timestamp": deps.utcnow_factory().isoformat() + "Z",
+                    "stage": "route_error",
+                    "route": "/tts/synthesize",
+                    "request_id": request_id,
+                    "engine": normalized_key,
+                    "model": str(route_req.get("model", "")).strip(),
+                    "text": text,
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
+        except Exception:
+            deps.logger.warning("[TTS][synthesize:%s] route_error debug write failed", request_id, exc_info=True)
+        deps.logger.error(
+            "[TTS][synthesize:%s] failed engine=%s error=%s",
+            request_id,
+            normalized_key,
+            e,
+            exc_info=True,
+        )
+        raise AudioRuntimeHttpError(status_code=500, detail=str(e))
+
+    return {
+        "audio_bytes": audio_bytes,
+        "media_type": media_type,
+        "request_id": request_id,
+        "engine": normalized_key,
     }
 
 def classify_audio_endpoint_risk(method_and_path: str) -> str:

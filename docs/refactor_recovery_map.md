@@ -123,7 +123,8 @@
 - 変更:
   - ASR/TTS/SBV2 の safe helper / payload shaping / diagnostic shaping を `app/services/audio_runtime.py` に分離。
   - PR4.56 で low-risk audio read/status/config route を `app/api/audio.py` に移動。GET `/voice/status`、GET `/asr/config`、GET `/audio/runtime/debug`、GET `/api/tts/style-bert-vits2/models`、POST `/api/tts/style-bert-vits2/preview-normalization` の owner は `app/api/audio.py`、production payload は `main.py` provider のまま。
-  - Execution body はまだ `main.py`: POST `/voice/transcribe`, POST `/voice/load`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`, WebSocket `/echo/stream`。
+  - PR4.57 で POST `/tts/synthesize` の non-streaming service body は `app/services/audio_runtime.py` の `run_tts_synthesize_service_body()` に分離。ただし route owner は `main.py` のまま。
+  - Execution body がまだ `main.py`: POST `/voice/transcribe`, POST `/voice/load`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`, WebSocket `/echo/stream`。
   - import-time CUDA probe 禁止は継続。
 - audio runtime で壊れた時に見る順番:
   1. `main.py` route owner / production provider registration
@@ -133,7 +134,7 @@
   5. `scripts/collect_runtime_snapshot.sh` / `/runtime/cuda-debug` / `/audio/runtime/debug`
 - 次フェーズ:
   - PR4.56: low-risk audio read/status route move.
-  - PR4.57: TTS/SBV2 non-streaming service body extraction.
+  - PR4.57: TTS/SBV2 non-streaming service body extraction (complete; route owner unchanged).
   - PR4.58+: Echo WebSocket last.
 
 ## Recovery invariants across all refactors
@@ -164,5 +165,5 @@
 - 次フェーズ:
   - PR4.55: ASR/TTS service functions を route 移動なしで抽出。
   - PR4.56: low-risk audio status/config route を移動。
-  - PR4.57: 安全なら TTS/SBV2 non-streaming route を移動。
+  - PR4.57: TTS/SBV2 non-streaming service body を route 移動なしで抽出。
   - PR4.58+: Echo WebSocket を最後に扱う。

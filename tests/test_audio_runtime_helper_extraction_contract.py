@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import main
 from app.services import audio_runtime
@@ -19,6 +20,7 @@ HELPERS = [
     "summarize_asr_runtime_state",
     "summarize_tts_runtime_state",
     "summarize_sbv2_runtime_state",
+    "run_tts_synthesize_service_body",
 ]
 
 
@@ -77,6 +79,88 @@ def test_audio_runtime_service_remains_route_neutral_and_import_safe():
         assert forbidden not in top_level_imports
 
     assert "detect_audio_runtime()" not in text
+
+
+class _DummyRuntime:
+    def __init__(self):
+        self.seen_req = None
+
+    def synthesize(self, req):
+        self.seen_req = dict(req)
+        return b"RIFFdummy", "audio/wav"
+
+
+class _DummyRegistry:
+    def __init__(self):
+        self.runtime = _DummyRuntime()
+
+    def resolve_engine_key(self, raw_engine_key, requested_engine_key=None):
+        assert raw_engine_key == "style_bert_vits2"
+        assert requested_engine_key == "style_bert_vits2"
+        return "style_bert_vits2"
+
+    def get(self, raw_engine_key):
+        assert raw_engine_key == "style_bert_vits2"
+        return self.runtime
+
+
+def test_tts_synthesize_service_body_uses_injected_dependencies_without_moving_route():
+    debug_entries = []
+    model_checks = []
+    routed = []
+    registry = _DummyRegistry()
+    deps = audio_runtime.TtsSynthesizeServiceDependencies(
+        engine_registry=registry,
+        logger=SimpleNamespace(
+            info=lambda *a, **k: None,
+            warning=lambda *a, **k: None,
+            error=lambda *a, **k: None,
+        ),
+        write_tts_debug_entry=lambda payload: debug_entries.append(dict(payload)),
+        ensure_model_exists=lambda model, models_dir: model_checks.append((model, models_dir)),
+        read_model_version=lambda _model_config_path: "2.0",
+        apply_tts_language_routing=lambda req, model_version: routed.append((req, model_version))
+        or "ja",
+        style_bert_vits2_models_dir="/tmp/sbv2-models",
+        request_id_factory=lambda: "req-fixed",
+    )
+
+    result = audio_runtime.run_tts_synthesize_service_body({"text": " hello "}, deps)
+
+    assert result["audio_bytes"] == b"RIFFdummy"
+    assert result["media_type"] == "audio/wav"
+    assert result["request_id"] == "req-fixed"
+    assert model_checks == [("koharune-ami", "/tmp/sbv2-models")]
+    assert routed and routed[0][1] == "2.0"
+    assert registry.runtime.seen_req["request_id"] == "req-fixed"
+    assert registry.runtime.seen_req["engine"] == "style_bert_vits2"
+    assert registry.runtime.seen_req["model"] == "koharune-ami"
+    assert debug_entries[0]["stage"] == "route_enter"
+
+
+def test_tts_synthesize_service_body_preserves_http_error_mapping():
+    deps = audio_runtime.TtsSynthesizeServiceDependencies(
+        engine_registry=_DummyRegistry(),
+        logger=SimpleNamespace(
+            info=lambda *a, **k: None,
+            warning=lambda *a, **k: None,
+            error=lambda *a, **k: None,
+        ),
+        write_tts_debug_entry=lambda _payload: None,
+        ensure_model_exists=lambda _model, _models_dir: None,
+        read_model_version=lambda _model_config_path: "2.0",
+        apply_tts_language_routing=lambda _req, _model_version: "ja",
+        style_bert_vits2_models_dir="/tmp/sbv2-models",
+        request_id_factory=lambda: "req-fixed",
+    )
+
+    try:
+        audio_runtime.run_tts_synthesize_service_body({"text": ""}, deps)
+    except audio_runtime.AudioRuntimeHttpError as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "text required"
+    else:
+        raise AssertionError("expected AudioRuntimeHttpError")
 
 
 def test_audio_read_routes_move_to_audio_router_while_execution_stays_main():

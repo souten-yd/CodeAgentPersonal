@@ -59,7 +59,7 @@
 | `/voice/unload` | POST | `main.py` | ASR runtime | high | audio runtime | no | n/a |
 | `/api/tts/style-bert-vits2/models` | GET | `app/api/audio.py` | provider-backed SBV2 model inventory | low | empty fallback; no heavy scan | yes | yes |
 | `/api/tts/style-bert-vits2/preview-normalization` | POST | `app/api/audio.py` | provider-backed SBV2 normalization preview | medium | no-op fallback; no LLM fallback | yes | yes |
-| `/tts/synthesize` | POST | `main.py` | TTS/SBV2 runtime | high | audio runtime | no | n/a |
+| `/tts/synthesize` | POST | `main.py` | TTS/SBV2 runtime via extracted service body | high | audio runtime through injected dependencies | no | n/a |
 | `/tts/load` | POST | `main.py` | TTS/SBV2 runtime | high | audio runtime | no | n/a |
 | `/tts/unload` | POST | `main.py` | TTS/SBV2 runtime | high | audio runtime | no | n/a |
 | `/echo/stream` | WebSocket | `main.py` | Echo/ASR/TTS runtime | high | high-risk runtime | no | n/a |
