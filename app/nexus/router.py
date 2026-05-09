@@ -422,6 +422,9 @@ def nexus_list_evidence(
     )
 
 
+# Kept for legacy production provider registration: app/api/nexus.py owns the
+# moved HTTP routes, while these payload helpers assemble existing Nexus
+# dependencies; non-moved Nexus route handlers below remain here for now.
 async def nexus_upload_payload(*, file, project: str = "default") -> dict:
     """アップロードを受け付け、抽出ジョブをバックグラウンドで開始する。"""
     try:
