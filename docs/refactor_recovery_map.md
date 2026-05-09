@@ -229,3 +229,18 @@ Recovery invariants:
 - WebSocket message shape must not change: status, ack, sentence, translation, error, and ui_log payload keys remain owned by the existing `main.py` WebSocket flow.
 - Echo session write/save/delete behavior is not moved in PR4.64 and remains high risk for a later PR.
 - Remaining high-risk areas after PR4.64: Echo WebSocket loop, Echo session write/save, and Echo TTS chain.
+
+## PR4.65 Root directory inventory only
+
+- 変更:
+  - `docs/root_directory_inventory.md` を追加し、repository root 直下ファイルの root維持 / scripts候補 / tools候補 / docs/runbooks候補 / docs/refactor候補 / tests候補 / 要調査 の判断基準を固定。
+  - `scripts/inventory_root_files.py` を追加し、`docs/generated/root_directory_inventory.json` を生成して root直下ファイルと直接参照元を機械可読に記録。
+  - 実移動は PR4.66 以降に延期。PR4.65 では root直下ファイル、Dockerfile COPY、GitHub Actions 実行パス、Runpod launcher、app import path、Audio/Echo/ASR/TTS/SBV2 runtime、WebSocket `/echo/stream` は変更しない。
+- root cleanup で壊れた場合の確認順:
+  1. `docs/root_directory_inventory.md`
+  2. `docs/generated/root_directory_inventory.json`
+  3. `.github/workflows/*`
+  4. `Dockerfile`
+  5. startup / launcher scripts
+  6. `scripts/export_route_inventory.py`
+  7. `python -m py_compile ...` / `pytest`
