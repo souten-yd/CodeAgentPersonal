@@ -1,8 +1,8 @@
-# PR4.52: Nexus write/research/ingest route move
+# PR4.53: Nexus residue cleanup and route ownership verification
 
 ## Scope and guardrails
 
-This document records PR4.52 Nexus write/research/ingest route movement, building on PR4.42 system status, PR4.43 project read-only router work, PR4.44 job read-only status extraction, PR4.45 settings ownership hardening, PR4.46 Nexus read-only status/list extraction, PR4.47 Echo read-only status/session extraction, PR4.48 lightweight runtime write-control endpoint extraction, PR4.49 job execution runtime extraction; job execution runtime extracted, PR4.50 job submit route ownership, and PR4.51 Nexus execution service extraction. Nexus execution runtime extracted into `app/services/nexus_execution.py`; PR4.52 moved Nexus write/research/ingest route ownership to `app/api/nexus.py`. PR4.50 moved `POST /jobs/submit` route ownership to `app/api/jobs.py`; job execution runtime remains in `app/services/jobs.py`, and main.py keeps only the `job_submit_provider` dependency assembly for production `main.app`.
+This document records PR4.53 Nexus residue cleanup and route ownership verification after PR4.52 Nexus write/research/ingest route movement, building on PR4.42 system status, PR4.43 project read-only router work, PR4.44 job read-only status extraction, PR4.45 settings ownership hardening, PR4.46 Nexus read-only status/list extraction, PR4.47 Echo read-only status/session extraction, PR4.48 lightweight runtime write-control endpoint extraction, PR4.49 job execution runtime extraction; job execution runtime extracted, PR4.50 job submit route ownership, and PR4.51 Nexus execution service extraction. Nexus execution runtime extracted into `app/services/nexus_execution.py`; PR4.52 moved Nexus write/research/ingest route ownership to `app/api/nexus.py`. PR4.50 moved `POST /jobs/submit` route ownership to `app/api/jobs.py`; job execution runtime remains in `app/services/jobs.py`, and main.py keeps only the `job_submit_provider` dependency assembly for production `main.app`.
 
 Hard guardrails retained for this PR:
 
@@ -14,6 +14,7 @@ Hard guardrails retained for this PR:
 - Do not remove `/settings-defaults` or the legacy `/settings/defaults` compatibility path.
 - Do not place `/settings/{key}` before static defaults routes because it can shadow `/settings/defaults`.
 - Do not move job execution runtime out of `app/services/jobs.py`; PR4.50 only moves `POST /jobs/submit` route ownership into `app/api/jobs.py`. PR4.51 extracts Nexus execution runtime into `app/services/nexus_execution.py`; PR4.52 moves Nexus research/ingest/write/POST route ownership into `app/api/nexus.py` without changing the execution body. Do not move Echo write/streaming runtime behavior, ASR, TTS, or UI behavior.
+- Treat `KasaneCore_v2.8` (`e94c20dfe0d23e233f4dbc817af994408e739b80`) as the normal recovery baseline; PR4.52後、Nexus/Lumen/ASR/TTS/LLM are considered healthy. PR4.53 only verifies Nexus residue/ownership and must not change execution behavior.
 - Do not change UI assets, Echo WebSocket handling, `/model/switch`, `/model/auto-load`, `/debug/llama`, or `benchmark_mem.py`.
 
 ## Legend
@@ -385,3 +386,10 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
    - `create_app()` exposes conservative unavailable fallbacks and does not touch LLM, SearXNG, filesystem heavy scans, indexing, persistence, or job execution for moved write/research routes.
    - `app.nexus.router` intentionally still owns remaining non-moved Nexus routes such as document delete/download/detail, research readbacks, source file/chunk readbacks, news/market MVP, and watchlists.
 
+12. **PR4.53: Clean up Nexus routing residue and lock route ownership after v2.8 baseline** — completed
+   - `KasaneCore_v2.8` (`e94c20dfe0d23e233f4dbc817af994408e739b80`) is the normal recovery baseline for this cleanup pass.
+   - PR4.52後、Nexus / Lumen / ASR / TTS / LLM are recorded as healthy; this PR intentionally does not touch LLM, ASR, TTS, Runpod CUDA, UI, jobs execution, model auto-load, or model switch behavior.
+   - Moved Nexus HTTP route ownership is locked to `app/api/nexus.py`: read-only Nexus status/list routes plus POST write/research/ingest/provider-dispatch routes live there.
+   - Nexus execution body ownership is locked to `app/services/nexus_execution.py`; the service module must not import `main.py` or define `APIRouter` / route decorators.
+   - `app/nexus/router.py` remains only for provider payload helper / legacy wrapper dependency assembly and non-moved Nexus routes: document health/detail/delete/download, job/research/source readbacks, news/market MVP, watchlists, export, and report subrouters. Moved Nexus POST route decorators must not return there.
+   - Route inventory was regenerated with `python scripts/export_route_inventory.py`; duplicate path/method entries are forbidden.

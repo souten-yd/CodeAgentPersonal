@@ -100,6 +100,20 @@
   - `app/nexus/router.py`: production provider の依存組み立てと、残留 route（news / market / watchlist / document delete など今回の移動対象外）。
   - `main.py` の Nexus provider registration。
 
+
+## PR4.53
+
+- 変更:
+  - `KasaneCore_v2.8` (`e94c20dfe0d23e233f4dbc817af994408e739b80`) を正常復旧済み baseline として記録。
+  - PR4.52 後に Nexus / Lumen / ASR / TTS / LLM が正常確認済みであることを前提に、Nexus 残骸整理と route ownership を固定。
+  - moved Nexus route owner は `app/api/nexus.py`、Nexus execution body は `app/services/nexus_execution.py`。
+  - `app/nexus/router.py` は provider payload helper / legacy wrapper / non-moved Nexus route（document delete/download/detail、research/source readback、news/market/watchlist、export/report subrouter）だけを残す。
+- 壊れた時に見る場所:
+  - `tests/test_nexus_residue_cleanup_contract.py`。
+  - `docs/generated/route_inventory.md` / `.json` の duplicate path/method。
+  - `app/api/nexus.py` に execution body import/call が戻っていないか。
+  - `app/services/nexus_execution.py` に `APIRouter` / route decorator / `main.py` import が戻っていないか。
+
 ## Recovery invariants across all refactors
 
 - `main.py` import 時に `detect_audio_runtime()` を呼ばない。
@@ -109,3 +123,5 @@
 - ASR/TTS/LLM CUDA probe は明示操作時だけ。
 - `create_app()` fallback は CUDA / filesystem heavy scan / model load をしない。
 - Nexus write/research fallback は LLM / SearXNG / filesystem heavy scan / indexing / job execution を開始しない。
+- `KasaneCore_v2.8` は `e94c20dfe0d23e233f4dbc817af994408e739b80` の正常復旧済み baseline として扱う。
+- moved Nexus route owner は `app/api/nexus.py`、execution body owner は `app/services/nexus_execution.py` に固定する。

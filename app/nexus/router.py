@@ -1,3 +1,20 @@
+"""Legacy Nexus router residue and provider dependency assembly.
+
+PR4.52 moved Nexus write/research/ingest HTTP route ownership to
+``app/api/nexus.py``. This module intentionally remains because production
+``main.app`` still imports its provider payload helpers (for example upload,
+search, research, collect, ask, and report-build payload functions) and because
+it still owns Nexus routes that were not part of the PR4.52 move: document
+health/detail/delete/download routes, job/research/source readbacks,
+news/market MVP routes, watchlists, and export/report subrouters.
+
+Do not re-add moved POST route decorators here. The canonical owner for moved
+``/nexus/upload``, ``/nexus/search``, ``/nexus/web/*``,
+``/nexus/research/run``, source/evidence/followup, ask, and report-build HTTP
+routes is ``app/api/nexus.py``; execution bodies remain in
+``app/services/nexus_execution.py`` via production providers.
+"""
+
 from __future__ import annotations
 
 import json

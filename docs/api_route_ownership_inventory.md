@@ -73,3 +73,4 @@
 - `production provider 有無 = yes` means `main.app` wires a provider that preserves production behavior.
 - High-risk runtime routes must not be moved casually in this recovery PR.
 - PR4.52 moved Nexus POST/write/research/ingest route ownership to `app/api/nexus.py`; production behavior is still assembled through `main.py` providers and implemented in `app/services/nexus_execution.py`.
+- PR4.53 treats tag `KasaneCore_v2.8` (`e94c20dfe0d23e233f4dbc817af994408e739b80`) as the正常復旧済み baseline after Nexus/Lumen/ASR/TTS/LLM were confirmed healthy. Nexus route ownership is locked to `app/api/nexus.py` for moved routes, while execution bodies stay in `app/services/nexus_execution.py`; `app/nexus/router.py` retains only provider payload helpers and non-moved legacy Nexus routes.
