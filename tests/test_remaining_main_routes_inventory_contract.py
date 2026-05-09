@@ -61,7 +61,8 @@ def test_remaining_main_routes_inventory_doc_exists_and_names_next_pr_sequence()
         "H. UI/static candidates",
         "PR4.42: Move low-risk system read-only endpoints into `app/api/system_status.py`",
         "PR4.43: Move project read-only endpoints into `app/api/projects.py`",
-        "PR4.44以降",
+        "PR4.44: Move project/job read-only status endpoints into `app/api/jobs.py`",
+        "PR4.45以降",
     ]
     for section in required_sections:
         assert section in text
@@ -77,6 +78,7 @@ def test_remaining_main_routes_inventory_doc_exists_and_names_next_pr_sequence()
         "/projects",
         "/projects/{project}/history",
         "/projects/{project}/files",
+        "/projects/{project}/jobs",
         "/jobs/submit",
         "/jobs/{job_id}/poll",
         "/nexus/*",
@@ -157,7 +159,6 @@ def test_write_and_heavy_job_routes_remain_in_main_py():
     expected = [
         ("/jobs/submit", "POST", "submit_job"),
         ("/jobs/{job_id}", "GET", "get_job"),
-        ("/jobs/{job_id}/poll", "GET", "poll_job"),
         ("/jobs/{job_id}/stream", "GET", "stream_job"),
         ("/jobs/{job_id}/respond", "POST", "respond_to_job"),
         ("/jobs/{job_id}/logs", "GET", "get_job_logs_api"),
@@ -168,7 +169,7 @@ def test_write_and_heavy_job_routes_remain_in_main_py():
         _assert_main_owner(path, method, handler_name)
 
 
-def test_project_read_only_routes_moved_to_projects_router_while_write_and_jobs_stay_main_owned():
+def test_project_read_only_routes_moved_to_projects_router_while_writes_stay_main_owned():
     moved_routes = [
         ("/projects", "GET", "app.api.projects", "get_projects_api"),
         ("/projects/{project}/files", "GET", "app.api.projects", "get_project_files_api"),
@@ -177,9 +178,15 @@ def test_project_read_only_routes_moved_to_projects_router_while_write_and_jobs_
     for path, method, module_name, handler_name in moved_routes:
         _assert_route_owner(path, method, module_name, handler_name)
 
-    main_owned = [
-        ("/projects", "POST", "create_project"),
-        ("/projects/{name}/jobs", "GET", "list_jobs"),
+    _assert_main_owner("/projects", "POST", "create_project")
+
+
+def test_job_read_only_status_routes_moved_to_jobs_router_while_submit_stays_main_owned():
+    moved_routes = [
+        ("/projects/{project}/jobs", "GET", "app.api.jobs", "get_project_jobs_api"),
+        ("/jobs/{job_id}/poll", "GET", "app.api.jobs", "get_job_poll_api"),
     ]
-    for path, method, handler_name in main_owned:
-        _assert_main_owner(path, method, handler_name)
+    for path, method, module_name, handler_name in moved_routes:
+        _assert_route_owner(path, method, module_name, handler_name)
+
+    _assert_main_owner("/jobs/submit", "POST", "submit_job")

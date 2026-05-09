@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from app.api.jobs import router as jobs_router
 from app.api.model_settings import router as model_settings_router
 from app.api.projects import router as projects_router
 from app.api.runtime_controls import router as runtime_controls_router
@@ -106,6 +107,7 @@ def include_routers(app: FastAPI) -> None:
     only low-dependency routers that already have factory contracts should be
     included here.
     """
+    app.include_router(jobs_router)
     app.include_router(system_router)
     app.include_router(system_status_router)
     app.include_router(settings_router)
