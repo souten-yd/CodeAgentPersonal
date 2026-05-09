@@ -15591,8 +15591,7 @@ app.state.streaming_disable_provider = streaming_disable_payload
 # ジョブ API（DB永続化・ブラウザ閉じても継続）
 # =========================
 
-@app.post("/jobs/submit")
-def submit_job(req: JobRequest):
+def job_submit_payload(req: JobRequest):
     """
     ジョブ登録。LFMでタスク分類 → 必要ならモデル切り替え → バックグラウンドで実行。
     """
@@ -15660,6 +15659,7 @@ def project_jobs_payload(project: str, limit: int = 30):
 
 app.state.project_jobs_provider = project_jobs_payload
 app.state.job_poll_provider = job_poll_payload
+app.state.job_submit_provider = job_submit_payload
 
 @app.post("/model/switch")
 def model_switch(req: dict):

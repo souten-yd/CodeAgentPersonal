@@ -1,6 +1,10 @@
 from fastapi.testclient import TestClient
 
-from app.api.jobs import default_job_poll_payload, default_project_jobs_payload
+from app.api.jobs import (
+    default_job_poll_payload,
+    default_job_submit_payload,
+    default_project_jobs_payload,
+)
 from app.server import create_app
 import main
 
@@ -10,11 +14,14 @@ def test_create_app_job_read_only_endpoints_return_fallback_payloads():
 
     jobs = client.get("/projects/default/jobs")
     poll = client.get("/jobs/dummy/poll?project=default&after=-1")
+    submit = client.post("/jobs/submit", json={"message": "safe fallback"})
 
     assert jobs.status_code == 200
     assert jobs.json() == default_project_jobs_payload()
     assert poll.status_code == 200
     assert poll.json() == default_job_poll_payload()
+    assert submit.status_code == 200
+    assert submit.json() == default_job_submit_payload()
 
 
 def test_create_app_job_fallbacks_do_not_touch_runtime_storage_or_execution(monkeypatch):
@@ -23,6 +30,7 @@ def test_create_app_job_fallbacks_do_not_touch_runtime_storage_or_execution(monk
 
     assert not hasattr(app.state, "project_jobs_provider")
     assert not hasattr(app.state, "job_poll_provider")
+    assert not hasattr(app.state, "job_submit_provider")
 
     def forbidden(*args, **kwargs):
         raise AssertionError(
@@ -35,6 +43,7 @@ def test_create_app_job_fallbacks_do_not_touch_runtime_storage_or_execution(monk
     monkeypatch.setattr("os.makedirs", forbidden)
     monkeypatch.setattr("builtins.open", forbidden)
     monkeypatch.setattr(main, "get_db", forbidden)
+    monkeypatch.setattr(main, "job_create", forbidden)
     monkeypatch.setattr(main, "job_list", forbidden)
     monkeypatch.setattr(main, "job_get", forbidden)
     monkeypatch.setattr(main, "job_get_steps", forbidden)
@@ -50,11 +59,18 @@ def test_create_app_job_fallbacks_do_not_touch_runtime_storage_or_execution(monk
         "status": "done",
         "steps": [],
     }
+    assert client.post("/jobs/submit", json={"message": "safe fallback"}).json() == {
+        "ok": False,
+        "status": "unavailable",
+        "job_id": None,
+        "message": "job submit provider unavailable",
+    }
 
 
-def test_main_app_registers_job_read_only_providers():
+def test_main_app_registers_job_providers():
     assert main.app.state.project_jobs_provider is main.project_jobs_payload
     assert main.app.state.job_poll_provider is main.job_poll_payload
+    assert main.app.state.job_submit_provider is main.job_submit_payload
 
 
 def test_main_app_job_read_only_routes_use_provider_backed_existing_shapes(monkeypatch):

@@ -1,8 +1,8 @@
-# PR4.49: Job execution service extraction
+# PR4.50: Move job submit route into jobs router
 
 ## Scope and guardrails
 
-This document records PR4.49 job execution runtime extraction, building on PR4.42 system status, PR4.43 project read-only router work, PR4.44 job read-only status extraction, PR4.45 settings ownership hardening, PR4.46 Nexus read-only status/list extraction, PR4.47 Echo read-only status/session extraction, and PR4.48 lightweight runtime write-control endpoint extraction. `POST /jobs/submit` route owner remains `main.py`, but the job execution runtime extracted into `app/services/jobs.py` now owns the submit/background execution service boundary. PR4.50 can move `POST /jobs/submit` to `app/api/jobs.py` because the heavy runtime body is no longer embedded in the route handler.
+This document records PR4.50 job submit route ownership, building on PR4.42 system status, PR4.43 project read-only router work, PR4.44 job read-only status extraction, PR4.45 settings ownership hardening, PR4.46 Nexus read-only status/list extraction, PR4.47 Echo read-only status/session extraction, PR4.48 lightweight runtime write-control endpoint extraction, and PR4.49 job execution runtime extraction; job execution runtime extracted into the service boundary. PR4.50 moved `POST /jobs/submit` route ownership to `app/api/jobs.py`; job execution runtime remains in `app/services/jobs.py`, and main.py keeps only the `job_submit_provider` dependency assembly for production `main.app`.
 
 Hard guardrails retained for this PR:
 
@@ -13,7 +13,7 @@ Hard guardrails retained for this PR:
 - Do not move settings provider implementations out of `main.py`; only route ownership belongs in `app/api/settings.py`.
 - Do not remove `/settings-defaults` or the legacy `/settings/defaults` compatibility path.
 - Do not place `/settings/{key}` before static defaults routes because it can shadow `/settings/defaults`.
-- Do not move `POST /jobs/submit`; PR4.49 only extracts its submit/background execution body into `app/services/jobs.py`. Do not move Nexus research/ingest/write/POST behavior, Echo write/streaming runtime behavior, ASR, TTS, or UI behavior.
+- Do not move job execution runtime out of `app/services/jobs.py`; PR4.50 only moves `POST /jobs/submit` route ownership into `app/api/jobs.py`. Do not move Nexus research/ingest/write/POST behavior, Echo write/streaming runtime behavior, ASR, TTS, or UI behavior.
 - Do not change UI assets, Echo WebSocket handling, `/model/switch`, `/model/auto-load`, `/debug/llama`, or `benchmark_mem.py`.
 
 ## Legend
@@ -96,7 +96,7 @@ Settings API ownership is complete as of PR4.45. The route owner is `app/api/set
 
 ## D. Project / file / job candidates
 
-PR4.43 moved the low-risk project read-only list/history/file endpoints to `app.api.projects`. PR4.44 moved the job read-only status endpoints `GET /projects/{project}/jobs` and `GET /jobs/{job_id}/poll` to `app.api.jobs` with provider-backed production payloads and lightweight `create_app()` fallbacks. PR4.49 keeps `POST /jobs/submit` in `main.py` while extracting the job execution runtime into `app/services/jobs.py`; the route handler now delegates job creation/background startup through `submit_job_service`, and the existing `run_job_background` entry point delegates the heavy execution body to `run_job_background_service`.
+PR4.43 moved the low-risk project read-only list/history/file endpoints to `app.api.projects`. PR4.44 moved the job read-only status endpoints `GET /projects/{project}/jobs` and `GET /jobs/{job_id}/poll` to `app.api.jobs` with provider-backed production payloads and lightweight `create_app()` fallbacks. PR4.49 extracted the job execution runtime into `app/services/jobs.py`. PR4.50 moved `POST /jobs/submit` route ownership to `app/api/jobs.py`; the router delegates production submits through `app.state.job_submit_provider`, and main.py keeps only the `job_submit_provider` dependency assembly that calls `submit_job_service`.
 
 | Method | Path | Handler | Current owner | Kind | Side effect | Globals/managers/registries | create_app fallback | Next move? | Move ban |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -109,7 +109,7 @@ PR4.43 moved the low-risk project read-only list/history/file endpoints to `app.
 | GET | `/projects/{name}/download` | `download_project` | `main` | read-only / heavy | zips/serves project | project filesystem/archive | no | later | yes |
 | GET | `/projects/{project}/history` | `get_project_history_api` | `app.api.projects` | read-only | reads project history through provider | provider-backed project DB on `main.app` | yes: empty sessions | moved in PR4.43 | no |
 | GET | `/projects/{project}/jobs` | `get_project_jobs_api` | `app.api.jobs` | read-only | lists job metadata through provider | provider-backed job registry/store on `main.app` | yes: `{"jobs": []}` | moved in PR4.44 | no |
-| POST | `/jobs/submit` | `submit_job` | `main` | write / heavy / runtime execution | starts background job execution through `app/services/jobs.py` | job manager, LLM/runtime globals passed as service dependencies | no | PR4.50 can move `POST /jobs/submit` to `app/api/jobs.py` | yes: owner stays `main.py` in PR4.49 |
+| POST | `/jobs/submit` | `submit_job_api` | `app.api.jobs` | write / heavy / runtime execution in production provider | starts background job execution only through `main.py` `job_submit_provider` and `app/services/jobs.py`; `create_app()` fallback starts nothing | provider-backed job manager, LLM/runtime globals passed as service dependencies | yes: unavailable payload, no side effects | moved in PR4.50 | no |
 | GET | `/jobs/{job_id}` | `get_job` | `main` | read-only | reads job state | job registry/store | no | later, separate from PR4.44 poll/list move | yes |
 | GET | `/jobs/{job_id}/poll` | `get_job_poll_api` | `app.api.jobs` | read-only / polling | reads job state through provider | provider-backed job registry/store on `main.app` | yes: empty done poll payload | moved in PR4.44 | no |
 | GET | `/jobs/{job_id}/stream` | `stream_job` | `main` | streaming | streams job events/logs | job registry/streaming response | no | PR4.44+ after non-streaming jobs | yes |
@@ -322,7 +322,7 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
      - `GET /jobs/{job_id}/poll`
    - Production `main.app` installs app-state providers to preserve the existing job list and poll response shapes.
    - `create_app()` uses lightweight fallbacks and does not touch the filesystem, job registry, LLM, ASR, TTS, or background execution.
-   - `POST /jobs/submit` remains in `main.py` as a write/heavy runtime execution endpoint.
+   - `POST /jobs/submit` remained in `main.py` at this point as a write/heavy runtime execution endpoint.
 
 4. **PR4.45: Harden settings router ownership and route-shadowing contracts** — completed
    - Confirmed `app/api/settings.py` owns `GET /settings`, `POST /settings`, `GET /settings-defaults`, `GET /settings/defaults`, `GET /settings/{key}`, and `PUT /settings/{key}`.
@@ -357,7 +357,14 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
 
 8. **PR4.49: Extract job execution runtime into `app/services/jobs.py`** — completed
    - Added `app/services/jobs.py` with `submit_job_service`, `run_job_background_service`, `append_job_event`, `finalize_job`, and `fail_job`; the service module has no HTTP decorators and does not import `main.py`.
-   - `POST /jobs/submit` route owner remains `main.py`; the route handler only delegates to `submit_job_service` and returns the existing queued response shape.
-   - `main.py` keeps a backward-compatible `run_job_background` wrapper so existing background task registration and tests keep using the same entry point while the runtime body lives in `run_job_background_service`.
-   - `GET /jobs/{job_id}/poll` and `GET /projects/{project}/jobs` remain owned by `app.api.jobs`; this PR does not change read-only job routes.
-   - PR4.50 can move `POST /jobs/submit` to `app/api/jobs.py` because job submit/background execution is now behind an explicit service boundary.
+   - `POST /jobs/submit` route owner remained `main.py` for PR4.49; the route handler only delegated to `submit_job_service` and returned the existing queued response shape.
+   - `main.py` kept a backward-compatible `run_job_background` wrapper so existing background task registration and tests kept using the same entry point while the runtime body lives in `run_job_background_service`.
+   - `GET /jobs/{job_id}/poll` and `GET /projects/{project}/jobs` remained owned by `app.api.jobs`; this PR did not change read-only job routes.
+   - PR4.50 could move `POST /jobs/submit` to `app/api/jobs.py` because job submit/background execution was behind an explicit service boundary.
+
+9. **PR4.50: Move job submit route into jobs router** — completed
+   - `POST /jobs/submit` is now owned by `app.api.jobs` through `submit_job_api`.
+   - `create_app()` exposes a conservative unavailable fallback for submit requests and does not touch background tasks, LLM/runtime state, filesystem writes, or the job registry.
+   - Production `main.app` registers `app.state.job_submit_provider = job_submit_payload`; main.py keeps only the `job_submit_provider` dependency assembly that calls `submit_job_service`.
+   - The job execution runtime remains in `app/services/jobs.py`, with the background body still delegated to `run_job_background_service`.
+   - Nexus execution, Echo/ASR/TTS runtime routes, model auto-load/switch, llama-server lifecycle, and UI behavior remain out of scope.
