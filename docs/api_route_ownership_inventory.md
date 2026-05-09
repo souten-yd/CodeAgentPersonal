@@ -36,7 +36,7 @@
 | `/llm/ctx` | GET/POST | `app/api/runtime_controls.py` | provider-backed | medium | runtime control/status | yes | yes |
 | `/llm/props` | GET | `app/api/runtime_controls.py` | provider-backed | low | read-only | yes | yes |
 | `/runtime/cuda-debug` | GET | `app/api/runtime_controls.py` | provider-backed | medium | diagnostic read | yes | yes |
-| `/audio/runtime/debug` | GET | `app/api/runtime_controls.py` | provider-backed | medium | diagnostic read | yes | yes |
+| `/audio/runtime/debug` | GET | `app/api/audio.py` | provider-backed | medium | audio diagnostic read | yes | yes |
 | `/debug/model-startup` | GET | `app/api/runtime_controls.py` | provider-backed | medium | diagnostic read | yes | yes |
 | `/search/status` | GET | `app/api/runtime_controls.py` | provider-backed | low | read-only | yes | yes |
 | `/search/enable` | POST | `app/api/runtime_controls.py` | provider-backed | medium | runtime control | yes | yes |
@@ -52,10 +52,13 @@
 | `/models/orchestration` | GET | `app/api/model_settings.py` | provider-backed | low | read-only | yes | yes |
 | `/model/auto-load` | POST | `main.py` | ModelManager runtime | high | high-risk runtime | no | n/a |
 | `/model/switch` | POST | `main.py` | ModelManager runtime | high | high-risk runtime | no | n/a |
-| `/voice/status` | GET | `main.py` | ASR runtime state | medium | audio status; must not CUDA probe | no | n/a |
+| `/voice/status` | GET | `app/api/audio.py` | provider-backed ASR runtime state | low | audio status; fallback must not CUDA probe | yes | yes |
+| `/asr/config` | GET | `app/api/audio.py` | provider-backed ASR config | low | audio config; fallback unavailable | yes | yes |
 | `/voice/transcribe` | POST | `main.py` | ASR runtime | high | audio runtime | no | n/a |
 | `/voice/load` | POST | `main.py` | ASR runtime | high | audio runtime | no | n/a |
 | `/voice/unload` | POST | `main.py` | ASR runtime | high | audio runtime | no | n/a |
+| `/api/tts/style-bert-vits2/models` | GET | `app/api/audio.py` | provider-backed SBV2 model inventory | low | empty fallback; no heavy scan | yes | yes |
+| `/api/tts/style-bert-vits2/preview-normalization` | POST | `app/api/audio.py` | provider-backed SBV2 normalization preview | medium | no-op fallback; no LLM fallback | yes | yes |
 | `/tts/synthesize` | POST | `main.py` | TTS/SBV2 runtime | high | audio runtime | no | n/a |
 | `/tts/load` | POST | `main.py` | TTS/SBV2 runtime | high | audio runtime | no | n/a |
 | `/tts/unload` | POST | `main.py` | TTS/SBV2 runtime | high | audio runtime | no | n/a |
@@ -74,3 +77,5 @@
 - High-risk runtime routes must not be moved casually in this recovery PR.
 - PR4.52 moved Nexus POST/write/research/ingest route ownership to `app/api/nexus.py`; production behavior is still assembled through `main.py` providers and implemented in `app/services/nexus_execution.py`.
 - PR4.53 treats tag `KasaneCore_v2.8` (`e94c20dfe0d23e233f4dbc817af994408e739b80`) as the正常復旧済み baseline after Nexus/Lumen/ASR/TTS/LLM were confirmed healthy. Nexus route ownership is locked to `app/api/nexus.py` for moved routes, while execution bodies stay in `app/services/nexus_execution.py`; `app/nexus/router.py` retains only provider payload helpers and non-moved legacy Nexus routes.
+
+- PR4.56 moved low-risk audio read/status/config routes to `app/api/audio.py`; execution/high-risk audio routes remain in `main.py`.

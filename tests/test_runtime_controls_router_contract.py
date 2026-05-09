@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 import main
+from app.api.audio import default_audio_runtime_debug_payload
 from app.api.runtime_controls import default_runtime_cuda_debug_payload
 from app.server import create_app
 
@@ -40,12 +41,7 @@ def test_create_app_runtime_controls_fallbacks_return_safe_payloads():
     assert cuda_response.json() == default_runtime_cuda_debug_payload()
 
     assert audio_response.status_code == 200
-    assert audio_response.json() == {
-        "runtime": "unavailable",
-        "asr": {},
-        "tts": {},
-        "note": "audio runtime provider unavailable",
-    }
+    assert audio_response.json() == default_audio_runtime_debug_payload()
 
     assert model_startup_response.status_code == 200
     assert model_startup_response.json() == {

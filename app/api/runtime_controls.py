@@ -24,7 +24,6 @@ StreamingEnableProvider = Callable[[], dict[str, Any]]
 StreamingDisableProvider = Callable[[], dict[str, Any]]
 RuntimeLlmCtxSetProvider = Callable[[int], dict[str, Any]]
 RuntimeCudaDebugProvider = Callable[[], dict[str, Any]]
-AudioRuntimeDebugProvider = Callable[[], dict[str, Any]]
 ModelStartupDebugProvider = Callable[[], dict[str, Any]]
 
 
@@ -126,16 +125,6 @@ def default_runtime_cuda_debug_payload() -> dict[str, Any]:
     }
 
 
-def default_audio_runtime_debug_payload() -> dict[str, Any]:
-    """Return conservative audio diagnostics without live ASR/TTS probes."""
-    return {
-        "runtime": "unavailable",
-        "asr": {},
-        "tts": {},
-        "note": "audio runtime provider unavailable",
-    }
-
-
 def default_model_startup_debug_payload() -> dict[str, Any]:
     """Return conservative model startup diagnostics without model-manager access."""
     return {
@@ -229,14 +218,6 @@ def get_runtime_llm_ctx_set_provider(request: Request) -> RuntimeLlmCtxSetProvid
 def get_runtime_cuda_debug_provider(request: Request) -> RuntimeCudaDebugProvider | None:
     """Look up the optional app-state provider for CUDA diagnostic reads."""
     provider = getattr(request.app.state, "runtime_cuda_debug_provider", None)
-    if callable(provider):
-        return provider
-    return None
-
-
-def get_audio_runtime_debug_provider(request: Request) -> AudioRuntimeDebugProvider | None:
-    """Look up the optional app-state provider for audio diagnostic reads."""
-    provider = getattr(request.app.state, "audio_runtime_debug_provider", None)
     if callable(provider):
         return provider
     return None
@@ -338,14 +319,6 @@ def get_runtime_cuda_debug_api(request: Request) -> dict[str, Any]:
     if provider is not None:
         return provider()
     return default_runtime_cuda_debug_payload()
-
-
-@router.get("/audio/runtime/debug")
-def get_audio_runtime_debug_api(request: Request) -> dict[str, Any]:
-    provider = get_audio_runtime_debug_provider(request)
-    if provider is not None:
-        return provider()
-    return default_audio_runtime_debug_payload()
 
 
 @router.get("/debug/model-startup")

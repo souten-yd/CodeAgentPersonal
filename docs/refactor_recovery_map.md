@@ -122,8 +122,8 @@
 
 - 変更:
   - ASR/TTS/SBV2 の safe helper / payload shaping / diagnostic shaping を `app/services/audio_runtime.py` に分離。
-  - Route owner は変更なし。GET `/voice/status` と GET `/asr/config` の owner は `main.py`、GET `/audio/runtime/debug` は既存の runtime-controls route + `main.py` provider のまま。
-  - Execution body はまだ `main.py`: POST `/voice/transcribe`, POST `/voice/load`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, WebSocket `/echo/stream`。
+  - PR4.56 で low-risk audio read/status/config route を `app/api/audio.py` に移動。GET `/voice/status`、GET `/asr/config`、GET `/audio/runtime/debug`、GET `/api/tts/style-bert-vits2/models`、POST `/api/tts/style-bert-vits2/preview-normalization` の owner は `app/api/audio.py`、production payload は `main.py` provider のまま。
+  - Execution body はまだ `main.py`: POST `/voice/transcribe`, POST `/voice/load`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`, WebSocket `/echo/stream`。
   - import-time CUDA probe 禁止は継続。
 - audio runtime で壊れた時に見る順番:
   1. `main.py` route owner / production provider registration

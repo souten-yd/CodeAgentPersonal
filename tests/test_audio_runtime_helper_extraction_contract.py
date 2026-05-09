@@ -6,7 +6,7 @@ from app.services import audio_runtime
 
 SERVICE = Path("app/services/audio_runtime.py")
 MAIN = Path("main.py")
-RUNTIME_CONTROLS = Path("app/api/runtime_controls.py")
+AUDIO_ROUTER = Path("app/api/audio.py")
 
 
 HELPERS = [
@@ -79,10 +79,20 @@ def test_audio_runtime_service_remains_route_neutral_and_import_safe():
     assert "detect_audio_runtime()" not in text
 
 
-def test_audio_routes_keep_current_owners_while_shaping_moves_to_service():
-    expected_main_routes = [
+def test_audio_read_routes_move_to_audio_router_while_execution_stays_main():
+    expected_audio_routes = [
         ("/voice/status", "GET", "voice_status_api"),
         ("/asr/config", "GET", "asr_config_api"),
+        ("/audio/runtime/debug", "GET", "get_audio_runtime_debug_api"),
+        ("/api/tts/style-bert-vits2/models", "GET", "api_style_bert_vits2_models"),
+        ("/api/tts/style-bert-vits2/preview-normalization", "POST", "api_style_bert_vits2_preview_normalization"),
+    ]
+    for path, method, handler_name in expected_audio_routes:
+        route = _single_http_route(path, method)
+        assert route.endpoint.__module__ == "app.api.audio"
+        assert route.endpoint.__name__ == handler_name
+
+    expected_main_routes = [
         ("/voice/transcribe", "POST", "voice_transcribe_api"),
         ("/tts/synthesize", "POST", "tts_synthesize_api"),
         ("/tts/synthesize-batch", "POST", "tts_synthesize_batch_api"),
@@ -96,11 +106,10 @@ def test_audio_routes_keep_current_owners_while_shaping_moves_to_service():
     assert route.endpoint.__module__ == "main"
     assert route.endpoint.__name__ == "echo_stream_ws"
 
-    audio_debug_route = _single_http_route("/audio/runtime/debug", "GET")
-    assert audio_debug_route.endpoint.__module__ == "app.api.runtime_controls"
-    assert audio_debug_route.endpoint.__name__ == "get_audio_runtime_debug_api"
-    assert "audio_runtime_debug_provider" in MAIN.read_text(encoding="utf-8")
-    assert '@router.get("/audio/runtime/debug")' in RUNTIME_CONTROLS.read_text(encoding="utf-8")
+    main_text = MAIN.read_text(encoding="utf-8")
+    assert "audio_runtime_debug_provider" in main_text
+    assert "voice_status_provider" in main_text
+    assert '@router.get("/audio/runtime/debug")' in AUDIO_ROUTER.read_text(encoding="utf-8")
 
 
 def test_response_shape_key_contract_for_extracted_helpers():
