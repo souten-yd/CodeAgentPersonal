@@ -125,10 +125,13 @@ from app.api.runtime_controls import (
     CUDA_REGRESSION_SUSPECTED_FILES,
 )
 from app.services.audio_runtime import (
+    AudioRuntimeHttpError,
+    TtsSynthesizeServiceDependencies,
     build_asr_config_payload,
     build_audio_runtime_debug_payload,
     build_tts_status_payload,
     build_voice_status_payload,
+    run_tts_synthesize_service_body,
 )
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
@@ -13724,117 +13727,25 @@ def tts_ref_audio_delete(filename: str):
 @app.post("/tts/synthesize")
 def tts_synthesize_api(req: dict):
     from fastapi.responses import Response as FastAPIResponse
-    request_id = str(req.get("request_id") or uuid.uuid4().hex[:8])
-    req = dict(req or {})
-    engine = "style_bert_vits2"
-    req["engine"] = engine
-    req["engine_key"] = engine
-    text = str(req.get("text", "")).strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="text required")
-    try:
-        _write_tts_debug_entry(
-            {
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "stage": "route_enter",
-                "route": "/tts/synthesize",
-                "request_id": request_id,
-                "engine": engine,
-                "model": str(req.get("model", "")).strip(),
-                "text_preview": text[:100],
-            }
-        )
-    except Exception:
-        _style_bert_vits2_logger.warning("[TTS][synthesize:%s] route_enter debug write failed", request_id, exc_info=True)
-    _style_bert_vits2_logger.info(
-        "[TTS][synthesize:%s] request engine=%s text_len=%d model=%s speaker=%s",
-        request_id,
-        engine,
-        len(text),
-        str(req.get("model", "")).strip(),
-        str(req.get("speaker_name", "")).strip() or str(req.get("speaker", "")).strip(),
-    )
-    req["request_id"] = request_id
-    normalized_key = _tts_engine_registry.resolve_engine_key(engine, req.get("engine_key"))
-    if normalized_key == "style_bert_vits2":
-        model = str(req.get("model", "")).strip() or "koharune-ami"
-        req["model"] = model
-        ensure_model_exists(model, _STYLE_BERT_VITS2_MODELS_DIR)
-        model_config_path = os.path.join(_STYLE_BERT_VITS2_MODELS_DIR, model, "config.json")
-        model_version = _read_model_version(model_config_path)
-        route = _apply_tts_language_routing(req, model_version=model_version)
-        _style_bert_vits2_logger.info(
-            "[TTS][synthesize:%s] original_text=%r translated_text=%r final_text=%r route=%s needs_translation=%s translation_target_language=%s",
-            request_id,
-            req.get("original_text", ""),
-            req.get("translated_text", ""),
-            req.get("final_text", ""),
-            route,
-            req.get("needs_translation"),
-            req.get("translation_target_language"),
-        )
-    try:
-        runtime = _tts_engine_registry.get(raw_engine_key="style_bert_vits2")
-    except KeyError:
-        raise HTTPException(status_code=400, detail=f"不明なエンジン: {engine}")
 
     try:
-        audio_bytes, media_type = runtime.synthesize(req)
-        _style_bert_vits2_logger.info(
-            "[TTS][synthesize:%s] success engine=%s media_type=%s bytes=%d",
-            request_id,
-            normalized_key,
-            media_type,
-            len(audio_bytes or b""),
+        result = run_tts_synthesize_service_body(
+            req,
+            TtsSynthesizeServiceDependencies(
+                engine_registry=_tts_engine_registry,
+                logger=_style_bert_vits2_logger,
+                write_tts_debug_entry=_write_tts_debug_entry,
+                ensure_model_exists=ensure_model_exists,
+                read_model_version=_read_model_version,
+                apply_tts_language_routing=_apply_tts_language_routing,
+                style_bert_vits2_models_dir=_STYLE_BERT_VITS2_MODELS_DIR,
+                request_id_factory=lambda: uuid.uuid4().hex[:8],
+                utcnow_factory=datetime.utcnow,
+            ),
         )
-    except ValueError as e:
-        error_message = str(e)
-        try:
-            err_payload = json.loads(error_message)
-        except Exception:
-            err_payload = None
-        if isinstance(err_payload, dict) and int(err_payload.get("status_code") or 0) == 422:
-            _style_bert_vits2_logger.warning("[TTS][synthesize:%s] unprocessable_entity: %s", request_id, err_payload.get("error"))
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error": err_payload.get("error") or "Unprocessable TTS input",
-                    "text_preview": err_payload.get("text_preview") or "",
-                    "effective_language": err_payload.get("effective_language") or "JP",
-                    "model_version": err_payload.get("model_version") or "",
-                },
-            )
-        if "worker protocol error" in error_message.lower():
-            _style_bert_vits2_logger.error("[TTS][synthesize:%s] worker_protocol_error: %s", request_id, e)
-            raise HTTPException(status_code=500, detail=error_message)
-        _style_bert_vits2_logger.warning("[TTS][synthesize:%s] validation_error: %s", request_id, e)
-        raise HTTPException(status_code=400, detail=error_message)
-    except Exception as e:
-        try:
-            _write_tts_debug_entry(
-                {
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                    "stage": "route_error",
-                    "route": "/tts/synthesize",
-                    "request_id": request_id,
-                    "engine": normalized_key,
-                    "model": str(req.get("model", "")).strip(),
-                    "text": text,
-                    "error": str(e),
-                    "traceback": traceback.format_exc(),
-                }
-            )
-        except Exception:
-            _style_bert_vits2_logger.warning("[TTS][synthesize:%s] route_error debug write failed", request_id, exc_info=True)
-        _style_bert_vits2_logger.error(
-            "[TTS][synthesize:%s] failed engine=%s error=%s",
-            request_id,
-            normalized_key,
-            e,
-            exc_info=True,
-        )
-        raise HTTPException(status_code=500, detail=str(e))
-    return FastAPIResponse(content=audio_bytes, media_type=media_type)
+    except AudioRuntimeHttpError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return FastAPIResponse(content=result["audio_bytes"], media_type=result["media_type"])
 
 
 def _sample_rate_from_wav_bytes(audio_bytes: bytes) -> int:
