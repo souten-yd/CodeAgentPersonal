@@ -200,3 +200,23 @@ Recovery invariants for this PR:
 - POST `/voice/transcribe` route owner remains `main.py`; `AudioRuntimeHttpError` is mapped to `HTTPException` there.
 - The extracted service body in `app/services/audio_runtime.py` handles validation, base64 bytes handling, SSE event shaping, transcribe invocation, and stream error events.
 - `/voice/load` and `/voice/transcribe` service bodies are extracted; WebSocket `/echo/stream` remains in `main.py` and Echo extraction is last.
+
+## PR4.63 Echo stream ASR reuse seam recovery order
+
+If Echo stream breaks after PR4.63, inspect in this order:
+
+1. `main.py` WebSocket `/echo/stream` route and `echo_stream_ws` websocket loop.
+2. `_echo_voice_transcribe(...)` in `main.py`.
+3. `app/services/audio_runtime.py` transcribe helpers for POST `/voice/transcribe` service-body reuse seams.
+4. `app/services/audio_runtime.py` Echo stream seam helpers (`EchoStreamAsrInput`, `EchoStreamAsrResult`, `EchoStreamAsrDiagnostics`, `EchoStreamAsrPlan`, `build_echo_stream_asr_input(...)`, `summarize_echo_stream_asr_result(...)`, `normalize_echo_stream_asr_error(...)`).
+5. `app/api/audio.py` read/status routes.
+6. `/audio/runtime/debug`.
+7. `/runtime/cuda-debug`.
+8. `KasaneCore_v2.8` baseline.
+
+Recovery invariants:
+
+- WebSocket `/echo/stream` route owner and websocket execution body remain in `main.py`.
+- `_echo_voice_transcribe(...)` remains the active Echo ASR call target for this PR.
+- POST `/voice/load` and POST `/voice/transcribe` service bodies are extracted, but their route owners remain `main.py`.
+- Echo websocket message shape, Echo session write/save/delete behavior, TTS playback chain, CUDA fallback, and debug log field names must be preserved.

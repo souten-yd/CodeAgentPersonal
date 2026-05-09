@@ -474,3 +474,19 @@ Next sequence after PR4.62:
 - `/voice/load` と `/voice/transcribe` は service body 抽出済み。
 - WebSocket `/echo/stream` は `main.py` に残留。
 - Echo stream extraction は最後に回す。
+
+## PR4.63 Echo stream ASR reuse seam status
+
+PR4.63 records the Echo stream ASR reuse seam before moving any WebSocket code:
+
+- POST `/voice/load` は service body 抽出済み。
+- POST `/voice/transcribe` は service body 抽出済み。
+- WebSocket `/echo/stream` は `main.py` に残留。
+- Echo stream ASR reuse seam を棚卸し済み。
+- Route owner and `echo_stream_ws` websocket loop remain in `main.py`; websocket message shape, Echo session writes, CUDA fallback, and debug entry format are frozen.
+
+Next sequence:
+
+- PR4.64: Extract Echo stream ASR helper body without moving WebSocket.
+- PR4.65: Extract Echo session write/save helper body.
+- PR4.66+: WebSocket route extraction last.

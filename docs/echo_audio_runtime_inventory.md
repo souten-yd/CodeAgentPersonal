@@ -123,3 +123,12 @@ What did **not** move:
 - PR4.62 extracts only POST `/voice/transcribe` service body to `app/services/audio_runtime.py`.
 - Route owner for `/voice/transcribe` remains `main.py`; `/voice/load` and `/voice/transcribe` service bodies are extracted.
 - WebSocket `/echo/stream` remains in `main.py` and is not changed; Echo stream extraction is last after PR4.63 stabilizes ASR reuse.
+
+## PR4.63 Echo stream ASR reuse seam
+
+- PR4.63 fixes the Echo stream ASR reuse seam before any WebSocket extraction.
+- WebSocket `/echo/stream` route owner is still `main.py`, and `echo_stream_ws` remains in `main.py`.
+- Echo stream extraction is last; PR4.64 may extract only the Echo stream ASR helper body without moving the WebSocket route.
+- `/voice/load` and `/voice/transcribe` are service body extracted, with route ownership still in `main.py`.
+- `app/services/audio_runtime.py` now contains only lightweight Echo stream ASR seam types/helpers for input snapshots, result summaries, diagnostics, and normalized error payload data.
+- The Echo websocket message shape, session writes, TTS playback chain, CUDA fallback / CPU fallback, and debug entry format remain unchanged.
