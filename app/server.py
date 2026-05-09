@@ -16,11 +16,11 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from app.api.health import router as health_router
 from app.api.model_settings import router as model_settings_router
 from app.api.runtime_controls import router as runtime_controls_router
 from app.api.settings import router as settings_router
 from app.api.system import router as system_router
+from app.api.system_status import router as system_status_router
 
 Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None] | AsyncIterator[None]]
 
@@ -105,8 +105,8 @@ def include_routers(app: FastAPI) -> None:
     only low-dependency routers that already have factory contracts should be
     included here.
     """
-    app.include_router(health_router)
     app.include_router(system_router)
+    app.include_router(system_status_router)
     app.include_router(settings_router)
     app.include_router(model_settings_router)
     app.include_router(runtime_controls_router)

@@ -1,8 +1,6 @@
 """System status API router."""
 
 import os
-from collections.abc import Callable
-from copy import deepcopy
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -21,105 +19,12 @@ SYSTEM_READINESS_DEFAULT_PAYLOAD: dict[str, Any] = {
     "llm_running": False,
 }
 
-SYSTEM_USAGE_DEFAULT_PAYLOAD: dict[str, Any] = {
-    "cpu_percent": 0.0,
-    "ram_total_mb": 0,
-    "ram_used_mb": 0,
-    "gpu_backend": "unavailable",
-    "gpu_backend_selected": "unavailable",
-    "gpus": [],
-    "updated_at": "",
-}
-
-SYSTEM_USAGE_DEBUG_FINAL_USAGE_DEFAULT_PAYLOAD: dict[str, Any] = {
-    "gpus": [],
-    "vram_confidence": "unknown",
-    "vram_source_backend": "unavailable",
-    "updated_at": "",
-}
-
-SYSTEM_USAGE_DEBUG_DEFAULT_PAYLOAD: dict[str, Any] = {
-    "gpu_backend_selected": "unavailable",
-    "gpu_backend": "unavailable",
-    "raw_parse_summary": [],
-    "parse_source": "unavailable",
-    "nvidia_smi_failure_reason": "",
-    "adopted_values": {},
-    "final_usage": SYSTEM_USAGE_DEBUG_FINAL_USAGE_DEFAULT_PAYLOAD,
-}
-
-SYSTEM_SUMMARY_DEFAULT_PAYLOAD: dict[str, Any] = {
-    "health": {
-        "llm": "unavailable",
-        "sandbox": "unavailable",
-    },
-    "model": {
-        "status": "unavailable",
-        "current_key": "",
-        "current_name": "",
-        "vram_gb": 0,
-        "eta_sec": 0,
-    },
-    "usage": {
-        "cpu_percent": 0.0,
-        "ram_used_mb": 0,
-        "ram_total_mb": 0,
-        "gpu_backend": "unavailable",
-        "vram_confidence": "unknown",
-        "vram_source_backend": "unavailable",
-        "gpus": [],
-        "updated_at": "",
-    },
-}
-
-ReadinessProvider = Callable[[], dict[str, Any]]
-UsageProvider = Callable[[], dict[str, Any]]
-UsageDebugProvider = Callable[[], dict[str, Any]]
-SystemSummaryProvider = Callable[[], dict[str, Any]]
 
 
 def default_system_readiness_payload() -> dict[str, Any]:
     """Return the stable readiness response shape without app-specific probes."""
     return dict(SYSTEM_READINESS_DEFAULT_PAYLOAD)
 
-
-def default_system_usage_unavailable_payload() -> dict[str, Any]:
-    """Return a conservative usage response shape for provider-less apps."""
-    return deepcopy(SYSTEM_USAGE_DEFAULT_PAYLOAD)
-
-
-def default_system_usage_debug_unavailable_payload() -> dict[str, Any]:
-    """Return a conservative usage debug response shape for provider-less apps."""
-    return deepcopy(SYSTEM_USAGE_DEBUG_DEFAULT_PAYLOAD)
-
-
-def default_system_summary_payload() -> dict[str, Any]:
-    """Return a conservative summary response shape for provider-less apps."""
-    return deepcopy(SYSTEM_SUMMARY_DEFAULT_PAYLOAD)
-
-
-def get_system_usage_provider(request: Request) -> UsageProvider | None:
-    """Look up the optional app-state system usage provider."""
-    provider = getattr(request.app.state, "system_usage_provider", None)
-    if callable(provider):
-        return provider
-    return None
-
-
-def get_system_usage_debug_provider(request: Request) -> UsageDebugProvider | None:
-    """Look up the optional app-state system usage debug provider."""
-    provider = getattr(request.app.state, "system_usage_debug_provider", None)
-    if callable(provider):
-        return provider
-    return None
-
-
-def get_system_summary_provider(request: Request) -> SystemSummaryProvider | None:
-    """Look up the optional app-state system summary provider."""
-    provider = getattr(request.app.state, "system_summary_provider", None)
-    if callable(provider):
-        return provider
-    return None
 
 
 @router.get("/system/readiness")
@@ -129,29 +34,6 @@ def system_readiness(request: Request) -> dict[str, Any]:
         return provider()
     return default_system_readiness_payload()
 
-
-@router.get("/system/usage")
-def system_usage(request: Request) -> dict[str, Any]:
-    provider = get_system_usage_provider(request)
-    if callable(provider):
-        return provider()
-    return default_system_usage_unavailable_payload()
-
-
-@router.get("/system/usage/debug")
-def system_usage_debug(request: Request) -> dict[str, Any]:
-    provider = get_system_usage_debug_provider(request)
-    if callable(provider):
-        return provider()
-    return default_system_usage_debug_unavailable_payload()
-
-
-@router.get("/system/summary")
-def system_summary(request: Request) -> dict[str, Any]:
-    provider = get_system_summary_provider(request)
-    if callable(provider):
-        return provider()
-    return default_system_summary_payload()
 
 
 @router.get("/system/env")
