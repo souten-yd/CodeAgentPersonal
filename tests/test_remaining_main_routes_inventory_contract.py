@@ -63,7 +63,8 @@ def test_remaining_main_routes_inventory_doc_exists_and_names_next_pr_sequence()
         "PR4.43: Move project read-only endpoints into `app/api/projects.py`",
         "PR4.44: Move project/job read-only status endpoints into `app/api/jobs.py`",
         "PR4.46: Move Nexus read-only status/list endpoints into `app/api/nexus.py`",
-        "PR4.47以降",
+        "PR4.47: Move Echo read-only status/session endpoints into `app/api/echo.py`",
+        "PR4.48: lightweight runtime write controls",
     ]
     for section in required_sections:
         assert section in text
@@ -83,6 +84,9 @@ def test_remaining_main_routes_inventory_doc_exists_and_names_next_pr_sequence()
         "/jobs/submit",
         "/jobs/{job_id}/poll",
         "/nexus/*",
+        "/echo/save-status",
+        "/echo/sessions",
+        "/echo/sessions/{filename:path}",
         "/echo/stream",
         "/voice/transcribe",
         "/tts/synthesize",
@@ -113,6 +117,9 @@ def test_already_moved_read_only_model_settings_and_runtime_routes_do_not_return
         ("/runtime/cuda-debug", "GET", "app.api.runtime_controls", "get_runtime_cuda_debug_api"),
         ("/audio/runtime/debug", "GET", "app.api.runtime_controls", "get_audio_runtime_debug_api"),
         ("/debug/model-startup", "GET", "app.api.runtime_controls", "get_model_startup_debug_api"),
+        ("/echo/save-status", "GET", "app.api.echo", "get_echo_save_status_api"),
+        ("/echo/sessions", "GET", "app.api.echo", "get_echo_sessions_api"),
+        ("/echo/sessions/{filename:path}", "GET", "app.api.echo", "get_echo_session_api"),
     ]
 
     for path, method, module_name, handler_name in moved_routes:
@@ -155,6 +162,18 @@ def test_echo_stream_websocket_remains_in_main_py():
     route = _single_websocket_route("/echo/stream")
     assert route.endpoint.__module__ == "main"
     assert route.endpoint.__name__ == "echo_stream_ws"
+
+
+def test_echo_audio_execution_and_write_routes_remain_in_main_py():
+    expected = [
+        ("/voice/transcribe", "POST", "voice_transcribe_api"),
+        ("/tts/synthesize", "POST", "tts_synthesize_api"),
+        ("/tts/synthesize-batch", "POST", "tts_synthesize_batch_api"),
+        ("/echo/sessions/{filename:path}", "DELETE", "echo_delete_session"),
+    ]
+
+    for path, method, handler_name in expected:
+        _assert_main_owner(path, method, handler_name)
 
 
 def test_write_and_heavy_job_routes_remain_in_main_py():

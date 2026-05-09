@@ -1,8 +1,8 @@
-# PR4.46: Nexus read-only status router ownership
+# PR4.47: Echo read-only status/session router ownership
 
 ## Scope and guardrails
 
-This document records PR4.46 Nexus read-only status/list endpoint extraction, building on PR4.42 system status, PR4.43 project read-only router work, PR4.44 job read-only status extraction, and PR4.45 settings ownership hardening. `GET /nexus/summary`, `GET /nexus/documents`, `GET /nexus/jobs/active`, and `GET /nexus/web/status` are now owned by `app/api/nexus.py`; production behavior remains provider-backed through `main.app.state`, and app-factory fallbacks stay conservative and side-effect-free.
+This document records PR4.47 Echo read-only status/session endpoint extraction, building on PR4.42 system status, PR4.43 project read-only router work, PR4.44 job read-only status extraction, PR4.45 settings ownership hardening, and PR4.46 Nexus read-only status/list extraction. `GET /echo/save-status`, `GET /echo/sessions`, and `GET /echo/sessions/{filename:path}` are now owned by `app/api/echo.py`; production behavior remains provider-backed through `main.app.state`, and app-factory fallbacks stay conservative and side-effect-free.
 
 Hard guardrails retained for this PR:
 
@@ -13,7 +13,7 @@ Hard guardrails retained for this PR:
 - Do not move settings provider implementations out of `main.py`; only route ownership belongs in `app/api/settings.py`.
 - Do not remove `/settings-defaults` or the legacy `/settings/defaults` compatibility path.
 - Do not place `/settings/{key}` before static defaults routes because it can shadow `/settings/defaults`.
-- Do not move `POST /jobs/submit`, background job execution, Nexus research/ingest/write/POST behavior, Echo, ASR, TTS, or UI behavior.
+- Do not move `POST /jobs/submit`, background job execution, Nexus research/ingest/write/POST behavior, Echo write/streaming runtime behavior, ASR, TTS, or UI behavior.
 - Do not change UI assets, Echo WebSocket handling, `/model/switch`, `/model/auto-load`, `/debug/llama`, or `benchmark_mem.py`.
 
 ## Legend
@@ -138,15 +138,15 @@ Echo, voice, ASR, and TTS routes are high-risk because they touch streaming, Web
 | GET | `/asr/status` | `asr_status_api` | `main` | read-only | reads ASR status | ASR runtime | no | later | yes |
 | POST | `/asr/load` | `asr_load_api` | `main` | write / heavy | loads ASR engine | ASR runtime | no | later | yes |
 | POST | `/asr/unload` | `asr_unload_api` | `main` | write / heavy | unloads ASR engine | ASR runtime | no | later | yes |
-| GET | `/echo/save-status` | `echo_save_status` | `main` | read-only | reads save state | Echo globals/files | no | later | yes |
+| GET | `/echo/save-status` | `get_echo_save_status_api` | `app.api.echo` | read-only | none through fallback; production reads save/minutes state | app-state Echo save-status provider | yes, no filesystem/audio/runtime scan | moved in PR4.47 | yes |
 | GET | `/echo/runtime-status` | `echo_runtime_status` | `main` | read-only | reads runtime state | Echo/audio runtime | no | later | yes |
 | WEBSOCKET | `/echo/stream` | `echo_stream_ws` | `main` | websocket / streaming | bidirectional audio session | Echo session/runtime managers | no | not until dedicated WebSocket PR | yes |
 | GET | `/debug/echo` | `debug_echo` | `main` | read-only / diagnostic | reads diagnostics | Echo runtime/files | no | later | yes |
 | GET | `/debu/echo` | `debug_echo_typo_redirect` | `main` | read-only | compatibility redirect/payload | Echo debug path | no | later | yes |
 | POST | `/echo/generate-minutes` | `echo_generate_minutes` | `main` | write / heavy | generates minutes | Echo, LLM, files | no | later | yes |
 | POST | `/echo/import-audio-transcript` | `echo_import_audio_transcript` | `main` | write / heavy | imports transcript/audio metadata | Echo files/stores | no | later | yes |
-| GET | `/echo/sessions` | `echo_list_sessions` | `main` | read-only | lists sessions | Echo session filesystem | no | later | yes |
-| GET | `/echo/sessions/{filename:path}` | `echo_download_session` | `main` | read-only / file response | serves session file | Echo session filesystem | no | later | yes |
+| GET | `/echo/sessions` | `get_echo_sessions_api` | `app.api.echo` | read-only | none through fallback; production lists EchoVault files | app-state Echo sessions provider | yes, empty list without filesystem/audio access | moved in PR4.47 | yes |
+| GET | `/echo/sessions/{filename:path}` | `get_echo_session_api` | `app.api.echo` | read-only / file response | none through fallback; production serves EchoVault file | app-state Echo session provider | yes, conservative 404 without file read | moved in PR4.47 | yes |
 | DELETE | `/echo/sessions/{filename:path}` | `echo_delete_session` | `main` | write | deletes session file | Echo session filesystem | no | later | yes |
 | POST | `/echo/voice-ref` | `echo_voice_ref_post` | `main` | write | uploads voice reference | Echo voice-ref storage | no | later | yes |
 | GET | `/echo/voice-ref` | `echo_voice_ref_get` | `main` | read-only / file response | serves voice reference | Echo voice-ref storage | no | later | yes |
@@ -334,6 +334,16 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
    - `create_app()` uses lightweight fallbacks and does not touch Nexus DB/filesystem/index, LLM, SearXNG process/network probes, job registries, or background execution.
    - Nexus research, ingest, upload, delete, write, source, news, market, and POST routes remain in the existing Nexus router.
 
-6. **PR4.47以降**
-   - Natural next candidates are Echo read-only status endpoints (for example `/echo/save-status`, `/echo/runtime-status`, and related audio status routes) or a dedicated Nexus write/research/ingest inventory before any further Nexus move.
-   - Jobs submit/background execution, Nexus write/research, Echo streaming, TTS, ASR, model loading/switching, model scans/benchmarks/downloads, and WebSocket/streaming endpoints are heavy and should wait for dedicated plans and contract tests.
+6. **PR4.47: Move Echo read-only status/session endpoints into `app/api/echo.py`** — completed
+   - Moved endpoints:
+     - `GET /echo/save-status`
+     - `GET /echo/sessions`
+     - `GET /echo/sessions/{filename:path}`
+   - Production `main.app` installs app-state providers to preserve the existing Echo save-status/session-list/session-download response shapes.
+   - `create_app()` uses lightweight fallbacks and does not touch EchoVault directories, audio files, ASR/TTS/SBV2 runtime, WebSocket handling, or LLM calls.
+   - WebSocket `/echo/stream` remains in `main.py` because it is streaming/runtime execution.
+   - `POST /voice/transcribe`, `POST /tts/synthesize`, and `POST /tts/synthesize-batch` remain in `main.py` because they are audio runtime execution endpoints.
+
+7. **PR4.48: lightweight runtime write controls** — next candidate
+   - Candidate endpoints: `POST /search/enable`, `POST /search/disable`, `POST /search/num`, `POST /streaming/enable`, `POST /streaming/disable`, and `POST /llm/ctx`.
+   - Jobs submit/background execution, Nexus write/research, Echo streaming/write paths, TTS, ASR, model loading/switching, model scans/benchmarks/downloads, and WebSocket/streaming endpoints are heavy and should wait for dedicated plans and contract tests.
