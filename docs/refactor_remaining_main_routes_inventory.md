@@ -14,8 +14,16 @@ Hard guardrails retained for this PR:
 - Do not remove `/settings-defaults` or the legacy `/settings/defaults` compatibility path.
 - Do not place `/settings/{key}` before static defaults routes because it can shadow `/settings/defaults`.
 - Do not move job execution runtime out of `app/services/jobs.py`; PR4.50 only moves `POST /jobs/submit` route ownership into `app/api/jobs.py`. PR4.51 extracts Nexus execution runtime into `app/services/nexus_execution.py`; PR4.52 moves Nexus research/ingest/write/POST route ownership into `app/api/nexus.py` without changing the execution body. Do not move Echo write/streaming runtime behavior, ASR, TTS, or UI behavior.
-- Treat `KasaneCore_v2.8` (`e94c20dfe0d23e233f4dbc817af994408e739b80`) as the normal recovery baseline; PR4.52後、Nexus/Lumen/ASR/TTS/LLM are considered healthy. PR4.53 only verifies Nexus residue/ownership and must not change execution behavior.
+- Treat `KasaneCore_v2.8 == main at e94c20dfe0d23e233f4dbc817af994408e739b80` as the normal recovery baseline; PR4.52後、Nexus/Lumen/ASR/TTS/LLM are considered healthy. PR4.53 only verifies Nexus residue/ownership and must not change execution behavior.
+- v2.8 health confirmation: LLM / ASR / TTS / Nexus / Lumen 正常確認済み; Runpod LLM `-ngl=999 -> OK`, `parsed_n_gpu_layers=43`, `LLM ready`, warm-up complete; ASR OK; TTS/SBV2 OK; Nexus write/research/ingest route移動後も機能OK.
 - Do not change UI assets, Echo WebSocket handling, `/model/switch`, `/model/auto-load`, `/debug/llama`, or `benchmark_mem.py`.
+
+## PR4.53 remaining `main.py` endpoint classification
+
+- **model runtime high-risk**: `/model/auto-load`, `/model/switch`, llama lifecycle/debug endpoints including `/debug/llama`, Runpod/Linux NGL探索 endpoints/diagnostics, Windows auto-fit/model sizing, model scan/download/benchmark routes. These remain in `main.py` and are not next-move candidates.
+- **audio runtime high-risk**: ASR routes such as `/voice/status` and `/voice/transcribe`, TTS/SBV2 routes such as `/tts/synthesize` and `/api/tts/style-bert-vits2/*`, and Echo WebSocket `/echo/stream`. These remain in `main.py`; Echo/ASR/TTS read/write route separation is the safer next phase.
+- **app orchestration**: Lumen/Chat execution (`/chat` and related LLM orchestration), job background execution routes still in `main.py`, and remaining project/history/files read/write/archive routes that need separate provider boundaries.
+- **already extracted**: jobs router (`app/api/jobs.py`), jobs service (`app/services/jobs.py`), Nexus router owner for moved routes (`app/api/nexus.py`), Nexus execution service (`app/services/nexus_execution.py`), Echo read-only router (`app/api/echo.py`), and runtime controls router (`app/api/runtime_controls.py`).
 
 ## Legend
 

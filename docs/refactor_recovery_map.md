@@ -104,7 +104,10 @@
 ## PR4.53
 
 - 変更:
-  - `KasaneCore_v2.8` (`e94c20dfe0d23e233f4dbc817af994408e739b80`) を正常復旧済み baseline として記録。
+  - `KasaneCore_v2.8 == main at e94c20dfe0d23e233f4dbc817af994408e739b80` を正常復旧済み baseline として記録。
+  - v2.8 時点で LLM / ASR / TTS / Nexus / Lumen 正常確認済み。
+  - Runpod LLM は `-ngl=999 -> OK`, `parsed_n_gpu_layers=43`, `LLM ready`, warm-up complete を確認済み。
+  - ASR OK、TTS/SBV2 OK、Nexus write/research/ingest route移動後も機能OK。
   - PR4.52 後に Nexus / Lumen / ASR / TTS / LLM が正常確認済みであることを前提に、Nexus 残骸整理と route ownership を固定。
   - moved Nexus route owner は `app/api/nexus.py`、Nexus execution body は `app/services/nexus_execution.py`。
   - `app/nexus/router.py` は provider payload helper / legacy wrapper / non-moved Nexus route（document delete/download/detail、research/source readback、news/market/watchlist、export/report subrouter）だけを残す。

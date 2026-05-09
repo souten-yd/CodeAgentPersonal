@@ -4,6 +4,11 @@ These endpoints are intentionally routed through providers stored on
 ``app.state``. The production ``main.app`` registers providers that preserve
 current Nexus behavior, while ``create_app()`` can serve lightweight fallback
 payloads without touching Nexus storage, SearXNG, LLMs, or background jobs.
+
+PR4.53 responsibility lock: this module owns HTTP routes, request parsing,
+provider dispatch, and app-factory fallback payloads only. LLM calls, SearXNG
+execution, indexing, recursive/deep research loops, and report generation stay
+outside this route layer.
 """
 
 from __future__ import annotations

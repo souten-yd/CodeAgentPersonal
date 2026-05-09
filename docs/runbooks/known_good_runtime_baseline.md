@@ -5,9 +5,18 @@
 ## Baseline identity
 
 - Baseline name: `post-PR4.50.1`
+- Current locked safe split baseline: `KasaneCore_v2.8 == main at e94c20dfe0d23e233f4dbc817af994408e739b80`.
+- `KasaneCore_v2.8` is the normal recovery baseline for PR4.53 and later safe route-splitting work.
 - Recovery references:
   - `KasaneCore_v2.7`: CUDA 正常基準
   - `PR4.50.1 / #963`: LLM / ASR / TTS 正常復旧ポイント
+  - `KasaneCore_v2.8`: LLM / ASR / TTS / Nexus / Lumen 正常確認済み baseline
+- v2.8 health confirmation:
+  - LLM / ASR / TTS / Nexus / Lumen 正常確認済み。
+  - Runpod LLM: `-ngl=999 -> OK`, `parsed_n_gpu_layers=43`, `LLM ready`, warm-up complete.
+  - ASR OK.
+  - TTS/SBV2 OK.
+  - Nexus write/research/ingest route移動後も機能OK。
 - Snapshot command:
 
 ```bash
