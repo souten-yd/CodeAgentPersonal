@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import os
+import subprocess
 import tempfile
 import time
 import traceback
@@ -54,7 +55,7 @@ AUDIO_RUNTIME_ENDPOINT_OWNERSHIP: dict[str, dict[str, str]] = {
         "owner": "main.py",
         "domain": "SBV2 runtime prepare/load",
         "risk": "medium-risk write/runtime-load",
-        "next_step": "Keep in main.py until SBV2 runtime seam is explicit",
+        "next_step": "PR4.59 extracted the prepare service body; keep route owner in main.py",
     },
     "GET /api/tts/style-bert-vits2/models": {
         "owner": "app/api/audio.py",
@@ -122,6 +123,52 @@ class TtsSynthesizeBatchServiceDependencies:
     sample_rate_from_wav_bytes: Callable[[bytes], int]
     merge_wav_bytes: Callable[[list[bytes]], bytes]
     perf_counter: Callable[[], float] = time.perf_counter
+
+
+@dataclass(frozen=True)
+class Sbv2PrepareServiceResponse:
+    """Route-neutral response wrapper for POST /api/tts/style-bert-vits2/prepare."""
+
+    content: dict[str, Any]
+    status_code: int = 200
+
+
+@dataclass(frozen=True)
+class Sbv2PrepareServiceDependencies:
+    """Injected production seams for SBV2 prepare without importing main.py or runtimes."""
+
+    logger: Any
+    prepare_id_factory: Callable[[], str]
+    default_model: Callable[[], str]
+    repo_dir: str
+    venv_dir: str
+    models_dir: str
+    init_flag: str
+    legacy_models_dir: str
+    models_dir_env: str
+    upstream_models_dir_envs: tuple[str, ...]
+    python_path: Callable[[], str]
+    site_packages_dir: Callable[[], str]
+    validate_prerequisites: Callable[[], tuple[bool, str]]
+    ensure_pth_file: Callable[[], tuple[bool, str]]
+    prepare_status: Callable[[], dict[str, Any]]
+    models_ready: Callable[[], tuple[bool, list[Any], str]]
+    runtime_importable: Callable[[], tuple[bool, str]]
+    run_initialize: Callable[..., Any]
+    log_model_locations: Callable[[str, str], Any]
+    migrate_legacy_models_if_needed: Callable[[str], tuple[bool, list[Any]]]
+    is_valid_model_dir_name: Callable[[str], bool]
+    ensure_model_exists: Callable[[str, str], Any]
+    runtime_prepare: Callable[[dict[str, Any]], Any]
+    style_error_factory: Callable[..., Exception]
+    style_error_types: tuple[type[BaseException], ...] = ()
+    setup_hint_factory: Callable[[], str] = lambda: ""
+    utcnow_factory: Callable[[], datetime] = datetime.utcnow
+    makedirs: Callable[..., Any] = os.makedirs
+    isfile: Callable[[str], bool] = os.path.isfile
+    dirname: Callable[[str], str] = os.path.dirname
+    write_text_file: Callable[[str, str], Any] | None = None
+    format_exc: Callable[[], str] = traceback.format_exc
 
 
 @dataclass(frozen=True)
@@ -311,6 +358,270 @@ def build_tts_status_payload(
         "tts_startup_health": dict(tts_startup_health or {}),
         "engine_registry": dict(engine_registry or {}),
     }
+
+
+def run_sbv2_prepare_service_body(
+    req: Mapping[str, Any] | None,
+    deps: Sbv2PrepareServiceDependencies,
+) -> Sbv2PrepareServiceResponse:
+    """Run the SBV2 prepare body while keeping the FastAPI route in main.py."""
+
+    source_req = dict(req or {})
+    requested_model = str(source_req.get("model", "") or "").strip()
+    requested_device = str(source_req.get("device", "") or "").strip().lower()
+    prepare_id = str(deps.prepare_id_factory())
+    deps.logger.info(
+        "[Style-Bert-VITS2][prepare:%s] start repo=%s venv=%s models=%s init_flag=%s",
+        prepare_id,
+        deps.repo_dir,
+        deps.venv_dir,
+        deps.models_dir,
+        deps.init_flag,
+    )
+
+    ok, validation_error = deps.validate_prerequisites()
+    if not ok:
+        return Sbv2PrepareServiceResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "available": False,
+                "reason": "style_bert_vits2_prepare_failed",
+                "message": "初期準備失敗: 実行環境を確認してください。",
+                "detail": validation_error,
+                "setup_hint": deps.setup_hint_factory(),
+                "repo_dir": deps.repo_dir,
+                "venv_dir": deps.venv_dir,
+                "python_path": deps.python_path(),
+                "models_dir": deps.models_dir,
+            },
+        )
+
+    ok, pth_error = deps.ensure_pth_file()
+    if not ok:
+        return Sbv2PrepareServiceResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "available": False,
+                "reason": "style_bert_vits2_site_packages_missing",
+                "message": "Style-Bert-VITS2 の実行環境が未構築です。",
+                "detail": pth_error,
+                "setup_hint": deps.setup_hint_factory(),
+                "repo_dir": deps.repo_dir,
+                "venv_dir": deps.venv_dir,
+                "python_path": deps.python_path(),
+                "site_packages": deps.site_packages_dir(),
+                "models_dir": deps.models_dir,
+            },
+        )
+
+    status = deps.prepare_status()
+    initialized_now = False
+    initialize_action = "already_initialized"
+    models_ready, models, model_check_error = deps.models_ready()
+    status["models"] = models
+    status["models_ready"] = models_ready
+    if not status["init_flag_exists"] or not models_ready:
+        initialize_script = os.path.join(deps.repo_dir, "initialize.py")
+        runtime_ok, runtime_error = deps.runtime_importable()
+        needs_initialize = (not runtime_ok) or (not models_ready)
+        if needs_initialize:
+            if not deps.isfile(initialize_script):
+                raise deps.style_error_factory(
+                    status_code=500,
+                    user_message="initialize失敗: initialize.py が見つかりません。",
+                    log_detail=(
+                        f"initialize.py not found: {initialize_script}\n"
+                        f"runtime import check error: {runtime_error}\n"
+                        f"model readiness error: {model_check_error}"
+                    ),
+                )
+            python_path = deps.python_path()
+            cmd = [python_path, "initialize.py"]
+            initialize_env = {**os.environ, "CI": "1", deps.models_dir_env: deps.models_dir}
+            for env_name in deps.upstream_models_dir_envs:
+                initialize_env[env_name] = deps.models_dir
+            initialize_action = "executed"
+            deps.logger.info(
+                "[Style-Bert-VITS2][prepare:%s] running initialize.py cmd=%s cwd=%s reason(runtime_ok=%s, models_ready=%s) models_dir_env=%s",
+                prepare_id,
+                cmd,
+                deps.repo_dir,
+                runtime_ok,
+                models_ready,
+                deps.models_dir,
+            )
+            try:
+                proc = deps.run_initialize(
+                    cmd,
+                    cwd=deps.repo_dir,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    env=initialize_env,
+                    timeout=900,
+                )
+                deps.logger.info(
+                    "[Style-Bert-VITS2][prepare:%s] initialize.py completed code=0",
+                    prepare_id,
+                )
+                if getattr(proc, "stdout", None):
+                    deps.logger.info(
+                        "[Style-Bert-VITS2][prepare:%s] initialize.py stdout:\n%s",
+                        prepare_id,
+                        proc.stdout,
+                    )
+                if getattr(proc, "stderr", None):
+                    deps.logger.info(
+                        "[Style-Bert-VITS2][prepare:%s] initialize.py stderr:\n%s",
+                        prepare_id,
+                        proc.stderr,
+                    )
+            except subprocess.TimeoutExpired as e:
+                raise deps.style_error_factory(
+                    status_code=500,
+                    user_message="initialize失敗: 初期化スクリプトがタイムアウトしました。",
+                    log_detail=f"initialize.py timeout: {e}",
+                )
+            except subprocess.CalledProcessError as e:
+                raise deps.style_error_factory(
+                    status_code=500,
+                    user_message="initialize失敗: 初期化スクリプトの実行に失敗しました。",
+                    log_detail=(
+                        "initialize.py failed: "
+                        f"code={e.returncode}\nstdout:\n{e.stdout}\nstderr:\n{e.stderr}\n"
+                        f"runtime import check error(before initialize): {runtime_error}\n"
+                        f"model readiness error(before initialize): {model_check_error}"
+                    ),
+                )
+            except Exception as e:
+                raise deps.style_error_factory(
+                    status_code=500,
+                    user_message="initialize失敗: 初期化処理で予期しないエラーが発生しました。",
+                    log_detail=f"initialize.py failed unexpectedly: {e}\n{deps.format_exc()}",
+                )
+        else:
+            initialize_action = "skipped_importable_and_models_ready"
+            deps.logger.info(
+                "[Style-Bert-VITS2][prepare:%s] skip initialize.py because runtime import check and model assets check passed.",
+                prepare_id,
+            )
+
+        deps.log_model_locations(prepare_id, "after_initialize_before_ready_check")
+        models_ready_after, models_after, model_check_error_after = deps.models_ready()
+        if not models_ready_after:
+            migrated, migrated_paths = deps.migrate_legacy_models_if_needed(prepare_id)
+            if migrated:
+                deps.logger.info(
+                    "[Style-Bert-VITS2][prepare:%s] legacy fallback migrated models=%s",
+                    prepare_id,
+                    migrated_paths,
+                )
+                deps.log_model_locations(prepare_id, "after_legacy_fallback")
+                models_ready_after, models_after, model_check_error_after = deps.models_ready()
+        status["models"] = models_after
+        status["models_ready"] = models_ready_after
+        if not models_ready_after:
+            raise deps.style_error_factory(
+                status_code=500,
+                user_message=(
+                    "initialize失敗: モデルアセットの準備が完了しませんでした。"
+                    f"検査先: {deps.models_dir}（legacy: {deps.legacy_models_dir}）"
+                ),
+                log_detail=(
+                    "model assets not ready after prepare. "
+                    f"before={model_check_error}, after={model_check_error_after}, models={models_after}"
+                ),
+            )
+        deps.makedirs(deps.dirname(deps.init_flag), exist_ok=True)
+        if deps.write_text_file is not None:
+            deps.write_text_file(deps.init_flag, deps.utcnow_factory().isoformat())
+        else:
+            with open(deps.init_flag, "w", encoding="utf-8") as f:
+                f.write(deps.utcnow_factory().isoformat())
+        initialized_now = True
+        status["init_flag_exists"] = True
+    status["initialized_now"] = initialized_now
+    status["prepare_id"] = prepare_id
+    status["initialize_action"] = initialize_action
+    setup_ready = bool(
+        status["repo_exists"]
+        and status["venv_exists"]
+        and (status["python_exists"] or status["python_executable"])
+        and status["site_packages_exists"]
+        and status.get("models_ready", False)
+        and status.get("initialize_action") in {"already_initialized", "initialized", "executed", "skipped_importable_and_models_ready"}
+    ) or bool(status.get("init_flag_exists") and status.get("models_ready"))
+    status["setup_ready"] = setup_ready
+    status["runtime_ready"] = False
+    status["ready"] = setup_ready
+    if not setup_ready:
+        reason_parts = []
+        if not status["repo_exists"]:
+            reason_parts.append("repo_missing")
+        if not status["venv_exists"]:
+            reason_parts.append("venv_missing")
+        if not (status["python_exists"] or status["python_executable"]):
+            reason_parts.append("python_missing")
+        if not status["site_packages_exists"]:
+            reason_parts.append("site_packages_missing")
+        if not status.get("models_ready", False):
+            reason_parts.append("models_not_ready")
+        if status.get("initialize_action") not in {"already_initialized", "initialized", "executed", "skipped_importable_and_models_ready"}:
+            reason_parts.append("initialize_incomplete")
+        status["reason"] = status.get("reason") or "style_bert_vits2_setup_not_ready"
+        status["detail"] = status.get("detail") or ",".join(reason_parts) or "setup requirements not met"
+    if setup_ready:
+        status["runtime_prepare"] = None
+        try:
+            preload_model = requested_model
+            if preload_model and not deps.is_valid_model_dir_name(preload_model):
+                preload_model = ""
+            if preload_model:
+                deps.ensure_model_exists(preload_model, deps.models_dir)
+            elif status.get("models"):
+                default_model = str(deps.default_model() or "").strip()
+                if default_model and default_model in status["models"]:
+                    preload_model = default_model
+                else:
+                    preload_model = status["models"][0]
+            prepare_payload = {"model": preload_model} if preload_model else {}
+            if requested_device:
+                prepare_payload["device"] = requested_device
+            preload_result = deps.runtime_prepare(prepare_payload)
+            status["runtime_prepare"] = preload_result
+            status["runtime_ready"] = bool(
+                isinstance(preload_result, dict) and str(preload_result.get("status", "")).lower() == "ready"
+            )
+            if isinstance(status["runtime_prepare"], dict):
+                status["runtime_prepare"]["device"] = preload_result.get("device")
+                status["runtime_prepare"]["warmup_elapsed_ms"] = preload_result.get("warmup_elapsed_ms")
+                status["runtime_prepare"]["cache_hit"] = preload_result.get("cache_hit")
+            deps.logger.info(
+                "[Style-Bert-VITS2][prepare:%s] worker_prepare result=%s",
+                prepare_id,
+                preload_result,
+            )
+        except deps.style_error_types:
+            raise
+        except Exception as preload_error:
+            deps.logger.info(
+                "[Style-Bert-VITS2][prepare:%s] worker prepare info: %s",
+                prepare_id,
+                preload_error,
+            )
+
+    deps.logger.info(
+        "[Style-Bert-VITS2][prepare:%s] done ready=%s initialized_now=%s action=%s",
+        prepare_id,
+        status["ready"],
+        initialized_now,
+        initialize_action,
+    )
+    return Sbv2PrepareServiceResponse(content=status)
 
 
 def run_tts_synthesize_service_body(
