@@ -31,13 +31,13 @@ AUDIO_RUNTIME_ENDPOINT_OWNERSHIP: dict[str, dict[str, str]] = {
         "owner": "main.py",
         "domain": "ASR runtime load",
         "risk": "medium-risk write/runtime-load",
-        "next_step": "Keep in main.py until ASR runtime helpers are extracted",
+        "next_step": "PR4.60 extracted the service body; keep route owner in main.py",
     },
     "POST /voice/transcribe": {
         "owner": "main.py",
         "domain": "ASR execution",
-        "risk": "high-risk execution",
-        "next_step": "Do not move before PR4.55 service extraction validates helpers",
+        "risk": "high-risk execution route",
+        "next_step": "PR4.61 seam is documentation/type-only; extract service body in PR4.62 without moving route",
     },
     "WebSocket /echo/stream": {
         "owner": "main.py",
@@ -91,6 +91,127 @@ class AudioRuntimeHttpError(Exception):
         super().__init__(str(detail))
         self.status_code = int(status_code)
         self.detail = detail
+
+
+@dataclass(frozen=True)
+class VoiceTranscribeInput:
+    """Route-neutral snapshot of POST /voice/transcribe request inputs for PR4.62 extraction planning."""
+
+    audio_base64_present: bool
+    audio_format: str = "webm"
+    language: str = "auto"
+    model: str = "large-v3-turbo"
+    device: str = ""
+    compute_type: str = ""
+    asr_profile: str = "balanced"
+    beam_size: int | None = None
+    best_of: int | None = None
+    no_speech_threshold: float | None = None
+    log_prob_threshold: float | None = None
+    compression_ratio_threshold: float | None = None
+    asr_post_filter: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class VoiceTranscribeDiagnostics:
+    """Diagnostics that must stay stable while POST /voice/transcribe remains in main.py."""
+
+    route_owner: str = "main.py"
+    execution_owner: str = "main.py"
+    route_risk: str = "high-risk execution route"
+    cuda_fallback: str = "cuda/float16 falls back to cpu/int8 on CUDA initialization failure"
+    degraded_reason: str = "asr_cuda_init_failed_cpu_int8_fallback"
+    debug_status_fields: tuple[str, ...] = (
+        "last_cuda_error",
+        "last_cuda_error_at",
+        "device",
+        "compute_type",
+        "metrics",
+        "post_filter",
+    )
+
+
+@dataclass(frozen=True)
+class VoiceTranscribeResult:
+    """Stable result envelope documented before moving the transcribe body."""
+
+    text: str
+    language: str
+    duration: float
+    model: str
+    auto_unloaded: bool = False
+    asr_profile: str = "balanced"
+    post_filter: Mapping[str, Any] = field(default_factory=dict)
+    asr_params: Mapping[str, Any] = field(default_factory=dict)
+    metrics: Mapping[str, Any] = field(default_factory=dict)
+    segments: tuple[Mapping[str, Any], ...] = ()
+
+
+@dataclass(frozen=True)
+class VoiceTranscribeServicePlan:
+    """Planning-only seam for PR4.62; no service body is introduced in PR4.61."""
+
+    next_pr: str = "PR4.62"
+    allowed_scope: str = "Extract execution body behind explicit dependencies without moving the route."
+    forbidden_scope: tuple[str, ...] = (
+        "route move",
+        "CUDA fallback behavior change",
+        "response shape change",
+        "temporary file or decode behavior change",
+        "Echo WebSocket changes",
+    )
+
+
+def normalize_voice_transcribe_error(error: Any) -> dict[str, str]:
+    """Normalize ASR transcribe failures without importing ASR runtimes."""
+
+    if error is None:
+        return {"reason": "", "error": ""}
+    if isinstance(error, Mapping):
+        raw_reason = error.get("reason") or error.get("type") or error.get("code") or "voice_transcribe_failed"
+        raw_error = error.get("detail") or error.get("error") or error.get("message") or raw_reason
+    else:
+        raw_reason = type(error).__name__ if not isinstance(error, str) else "voice_transcribe_failed"
+        raw_error = str(error)
+    reason = str(raw_reason or "voice_transcribe_failed").strip()
+    message = str(raw_error or reason).strip()
+    return {"reason": reason, "error": message}
+
+
+def classify_voice_transcribe_failure(error: Any) -> str:
+    """Classify known transcribe failure classes for docs/tests without probing CUDA."""
+
+    info = normalize_voice_transcribe_error(error)
+    blob = f"{info.get('reason', '')} {info.get('error', '')}".lower()
+    if "cuda" in blob and ("fail" in blob or "error" in blob or "initialization" in blob or "out of memory" in blob):
+        return "cuda_failure_cpu_int8_fallback_candidate"
+    if "audio_base64" in blob or "invalid audio" in blob or "decode" in blob:
+        return "invalid_audio_input"
+    if "faster-whisper" in blob or "faster_whisper" in blob or "ctranslate2" in blob:
+        return "asr_runtime_dependency_failure"
+    if not blob.strip():
+        return "none"
+    return "voice_transcribe_failed"
+
+
+def summarize_voice_transcribe_result(result: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Summarize the stable transcribe payload shape without changing route behavior."""
+
+    source = dict(result or {})
+    text = str(source.get("text") or "")
+    post_filter = source.get("post_filter") if isinstance(source.get("post_filter"), Mapping) else {}
+    metrics = source.get("metrics") if isinstance(source.get("metrics"), Mapping) else {}
+    return {
+        "has_text": bool(text),
+        "text_chars": len(text),
+        "language": str(source.get("language") or ""),
+        "duration": source.get("duration", 0.0),
+        "model": str(source.get("model") or ""),
+        "asr_profile": str(source.get("asr_profile") or ""),
+        "post_filter_rejected": bool(post_filter.get("rejected", False)),
+        "reject_reason": str(post_filter.get("reject_reason") or ""),
+        "segment_count": metrics.get("segment_count"),
+    }
 
 
 @dataclass(frozen=True)
