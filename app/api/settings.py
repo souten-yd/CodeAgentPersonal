@@ -118,6 +118,8 @@ def get_settings_defaults_payload(request: Request) -> dict[str, Any]:
     return default_settings_payload()
 
 
+# Route order is an ownership contract: keep all static settings paths before
+# ``/settings/{key}`` so ``/settings/defaults`` cannot be shadowed.
 @router.get("/settings-defaults")
 def get_settings_defaults_api(request: Request) -> dict[str, Any]:
     return get_settings_defaults_payload(request)

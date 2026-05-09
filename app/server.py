@@ -110,6 +110,8 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(jobs_router)
     app.include_router(system_router)
     app.include_router(system_status_router)
+    # Settings owns /settings*, including static defaults aliases that must be
+    # registered before the /settings/{key} dynamic route inside the router.
     app.include_router(settings_router)
     app.include_router(model_settings_router)
     app.include_router(runtime_controls_router)

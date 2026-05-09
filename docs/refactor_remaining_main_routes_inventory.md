@@ -1,8 +1,8 @@
-# PR4.44: Project/job read-only status endpoints moved into `app/api/jobs.py`
+# PR4.45: Settings router ownership and route-shadowing contracts
 
 ## Scope and guardrails
 
-This document records the PR4.44 extraction of job read-only status endpoints into `app/api/jobs.py`, building on PR4.42 system status and PR4.43 project read-only router work. The move keeps production responses provider-backed while preserving lightweight app-factory fallbacks.
+This document records the PR4.45 hardening of settings router ownership and route-shadowing contracts, building on PR4.42 system status, PR4.43 project read-only router work, and PR4.44 job read-only status extraction. Settings endpoints remain `app/api/settings.py` owned, production behavior remains provider-backed through `main.app.state`, and app-factory fallbacks stay conservative and side-effect-free.
 
 Hard guardrails retained for this PR:
 
@@ -10,6 +10,9 @@ Hard guardrails retained for this PR:
 - Do not change non-target `main.py` behavior.
 - Do not change LLM / ASR / TTS / SBV2 / Runpod llama search behavior.
 - Do not change `app/api/runtime_controls.py` or `app/api/model_settings.py`.
+- Do not move settings provider implementations out of `main.py`; only route ownership belongs in `app/api/settings.py`.
+- Do not remove `/settings-defaults` or the legacy `/settings/defaults` compatibility path.
+- Do not place `/settings/{key}` before static defaults routes because it can shadow `/settings/defaults`.
 - Do not move `POST /jobs/submit`, background job execution, Nexus, Echo, ASR, TTS, or UI behavior.
 - Do not change UI assets, Echo WebSocket handling, `/model/switch`, `/model/auto-load`, `/debug/llama`, or `benchmark_mem.py`.
 
@@ -75,16 +78,16 @@ PR4.42 moved the low-risk system read-only endpoints into `app/api/system_status
 
 ## C. Settings candidates
 
-Settings endpoints are already router-owned. Treat them as out of scope for the next split because write/update paths require persistence-provider care.
+Settings API ownership is complete as of PR4.45. The route owner is `app/api/settings.py`; `main.py` keeps only provider implementations registered on `app.state` for production persistence/runtime behavior. `/settings-defaults` is the unshadowed defaults alias, `/settings/defaults` is the legacy compatibility path, and both static defaults routes must remain registered before `/settings/{key}` to prevent route shadowing. Factory-created apps use conservative fallback payloads; fallback writes echo the request without database or runtime side effects.
 
 | Method | Path | Handler | Current owner | Kind | Side effect | Globals/managers/registries | create_app fallback | Next move? | Move ban |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| GET | `/settings` | `get_settings_api` | `app.api.settings` | read-only | none | settings provider | yes | already moved | yes in PR4.41 |
-| POST | `/settings` | `save_settings_api` | `app.api.settings` | write | persists settings when provider exists | settings provider/database | fallback echo only | not next | yes |
-| GET | `/settings-defaults` | `get_settings_defaults_api` | `app.api.settings` | read-only | none | settings provider | yes | already moved | yes |
-| GET | `/settings/defaults` | `get_settings_defaults_legacy_api` | `app.api.settings` | read-only | none | settings provider | yes | already moved | yes |
-| GET | `/settings/{key}` | `get_setting_api` | `app.api.settings` | read-only | none | settings provider | yes | already moved | yes |
-| PUT | `/settings/{key}` | `set_setting_api` | `app.api.settings` | write | persists one setting when provider exists | settings provider/database | fallback echo only | not next | yes |
+| GET | `/settings` | `get_settings_api` | `app.api.settings` | read-only | none | settings_get_all_provider or fallback map | yes | ownership complete in PR4.45 | yes |
+| POST | `/settings` | `save_settings_api` | `app.api.settings` | write | persists settings only through production provider | settings_bulk_save_provider/database | fallback echo only, no DB/runtime side effect | ownership complete in PR4.45 | yes |
+| GET | `/settings-defaults` | `get_settings_defaults_api` | `app.api.settings` | read-only | none | settings_defaults_provider or fallback map | yes | unshadowed defaults alias; ownership complete in PR4.45 | yes |
+| GET | `/settings/defaults` | `get_settings_defaults_legacy_api` | `app.api.settings` | read-only | none | settings_defaults_provider or fallback map | yes | legacy compatibility path; must precede `/settings/{key}` | yes |
+| GET | `/settings/{key}` | `get_setting_api` | `app.api.settings` | read-only | none | settings_get_provider or fallback single-key payload | yes | ownership complete in PR4.45; must follow static defaults routes | yes |
+| PUT | `/settings/{key}` | `set_setting_api` | `app.api.settings` | write | persists one setting only through production provider | settings_set_provider/database | fallback echo only, no DB/runtime side effect | ownership complete in PR4.45 | yes |
 
 ## D. Project / file / job candidates
 
@@ -312,5 +315,10 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
    - `create_app()` uses lightweight fallbacks and does not touch the filesystem, job registry, LLM, ASR, TTS, or background execution.
    - `POST /jobs/submit` remains in `main.py` as a write/heavy runtime execution endpoint.
 
-4. **PR4.45以降**
+4. **PR4.45: Harden settings router ownership and route-shadowing contracts** — completed
+   - Confirmed `app/api/settings.py` owns `GET /settings`, `POST /settings`, `GET /settings-defaults`, `GET /settings/defaults`, `GET /settings/{key}`, and `PUT /settings/{key}`.
+   - Locked the static defaults routes ahead of `/settings/{key}` so `/settings/defaults` cannot be captured as a dynamic key.
+   - Production `main.app` keeps settings provider implementations in `main.py` and registers them on `app.state`; `create_app()` keeps conservative fallback reads and echo-only fallback writes.
+
+5. **PR4.45以降**
    - Jobs submit/background execution, Nexus, Echo, TTS, ASR, model loading/switching, model scans/benchmarks/downloads, and WebSocket/streaming endpoints are heavy and should wait for dedicated plans and contract tests.
