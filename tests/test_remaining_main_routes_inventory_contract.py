@@ -62,7 +62,8 @@ def test_remaining_main_routes_inventory_doc_exists_and_names_next_pr_sequence()
         "PR4.42: Move low-risk system read-only endpoints into `app/api/system_status.py`",
         "PR4.43: Move project read-only endpoints into `app/api/projects.py`",
         "PR4.44: Move project/job read-only status endpoints into `app/api/jobs.py`",
-        "PR4.45以降",
+        "PR4.46: Move Nexus read-only status/list endpoints into `app/api/nexus.py`",
+        "PR4.47以降",
     ]
     for section in required_sections:
         assert section in text
@@ -191,6 +192,27 @@ def test_job_read_only_status_routes_moved_to_jobs_router_while_submit_stays_mai
         _assert_route_owner(path, method, module_name, handler_name)
 
     _assert_main_owner("/jobs/submit", "POST", "submit_job")
+
+
+def test_nexus_read_only_status_routes_moved_to_nexus_router_while_heavy_routes_stay_put():
+    moved_routes = [
+        ("/nexus/summary", "GET", "app.api.nexus", "get_nexus_summary_api"),
+        ("/nexus/documents", "GET", "app.api.nexus", "get_nexus_documents_api"),
+        ("/nexus/jobs/active", "GET", "app.api.nexus", "get_nexus_active_jobs_api"),
+        ("/nexus/web/status", "GET", "app.api.nexus", "get_nexus_web_status_api"),
+    ]
+    for path, method, module_name, handler_name in moved_routes:
+        _assert_route_owner(path, method, module_name, handler_name)
+
+    heavy_routes = [
+        ("/nexus/upload", "POST", "app.nexus.router", "nexus_upload"),
+        ("/nexus/search", "POST", "app.nexus.router", "nexus_search"),
+        ("/nexus/web/search", "POST", "app.nexus.router", "nexus_web_search"),
+        ("/nexus/research/run", "POST", "app.nexus.router", "nexus_research_run"),
+        ("/nexus/documents/{document_id}", "DELETE", "app.nexus.router", "nexus_delete_document"),
+    ]
+    for path, method, module_name, handler_name in heavy_routes:
+        _assert_route_owner(path, method, module_name, handler_name)
 
 
 def test_settings_routes_are_not_main_py_owned_and_do_not_shadow_defaults():
