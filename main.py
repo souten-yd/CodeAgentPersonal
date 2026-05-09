@@ -1029,6 +1029,7 @@ class ModelManager:
         self._last_runtime_decision: dict[str, Any] = {}
         self._last_nvidia_smi_before: list[dict[str, int | str]] = []
         self._last_nvidia_smi_after: list[dict[str, int | str]] = []
+        self._last_ngl_search_debug: dict[str, Any] = {}
         self._startup_log_fd = None
         self._load_guard_lock = _mm_thread.Lock()
         self._load_in_progress = False
@@ -1098,7 +1099,7 @@ class ModelManager:
         runtime = runtime or self._runtime_probe()
         return bool(runtime.get("runpod_detected") and runtime.get("is_linux") and not runtime.get("is_windows"))
 
-    def _runpod_initial_ngl(self, spec: dict) -> int:
+    def _runpod_initial_ngl(self, spec: dict, calc_gpu_layers: int = 0) -> int:
         for key in ("proven_ngl", "gpu_layers"):
             try:
                 value = int(spec.get(key, 0) or 0)
@@ -1106,7 +1107,28 @@ class ModelManager:
                 value = 0
             if value > 0:
                 return value
+        try:
+            calc_value = int(calc_gpu_layers or 0)
+        except Exception:
+            calc_value = 0
+        if calc_value > 0:
+            return calc_value
         return 999
+
+    def _last_successful_ngl_for_save(self, requested_ngl: int, *, runpod_linux: bool = False) -> int:
+        parsed = (self._last_llama_gpu_log or {}).get("n_gpu_layers")
+        if isinstance(parsed, int) and parsed > 0:
+            return parsed
+        if runpod_linux:
+            msg = f"Runpod/Linux warning: could not parse n_gpu_layers; saving requested_ngl={requested_ngl}"
+            print(f"[ModelManager][WARN] {msg}")
+            self._last_startup_hints = list(self._last_startup_hints or []) + [msg]
+        return requested_ngl
+
+    def _record_ngl_search_debug(self, **kwargs) -> None:
+        debug = dict(getattr(self, "_last_ngl_search_debug", {}) or {})
+        debug.update(kwargs)
+        self._last_ngl_search_debug = debug
 
     def _collect_nvidia_smi_memory(self) -> list[dict[str, int | str]]:
         if shutil.which("nvidia-smi") is None:
@@ -1380,38 +1402,69 @@ class ModelManager:
                 gpu_vendor=gpu_vendor, emit=emit,
             )
             if result == "ok":
-                self._save_proven_ngl(spec, cached_ngl)
+                save_ngl = self._last_successful_ngl_for_save(
+                    cached_ngl, runpod_linux=self._is_runpod_linux_runtime(runtime)
+                )
+                self._save_proven_ngl(spec, save_ngl)
+                self._save_ngl_ctx_profile(spec, ctx, save_ngl)
                 return True
             # キャッシュ値が失敗（VRAM 減少等）→ エントリ削除して通常探索へ
             print(f"[ModelManager] Phase 0: キャッシュ値 ngl={cached_ngl} 失敗 → 通常探索へ")
             self._clear_ngl_ctx_profile(spec, ctx)
             self._kill_process()
 
-        # ─── Runpod/Linux: auto-fit禁止。初回から明示 -ngl で半減探索 ───
+        # ─── Runpod/Linux: auto-fit禁止。明示 -ngl で最大成功値を探索 ───
         if self._is_runpod_linux_runtime(runtime):
-            gpu_layers = self._runpod_initial_ngl(spec)
-            first_fail_ngl = -1
-            ok_ngl = -1
-            attempt = 0
-            print(f"[ModelManager] Runpod/Linux: explicit -ngl probing starts at {gpu_layers} (auto-fit disabled)")
+            requested_initial = self._runpod_initial_ngl(spec, calc_gpu_layers)
+            search_attempts: list[dict[str, Any]] = []
+            fail_high = -1
+            ok_low = -1
+            current_running_ngl = None
+            final_parsed_ngl = None
+
+            def remember_attempt(ngl: int, result: str, *, binary: bool = False) -> None:
+                search_attempts.append({"ngl": ngl, "result": result, "binary": binary})
+                self._record_ngl_search_debug(
+                    runpod_detected=True,
+                    requested_ngl_initial=requested_initial,
+                    search_attempts=list(search_attempts),
+                    fail_high=fail_high,
+                    ok_low=ok_low,
+                    final_requested_ngl=None,
+                    final_parsed_n_gpu_layers=None,
+                    parsed_cuda_buffer_mib=(self._last_llama_gpu_log or {}).get("cuda_buffer_mib"),
+                    parsed_cpu_buffer_mib=(self._last_llama_gpu_log or {}).get("cpu_buffer_mib"),
+                )
+
+            print(f"[ModelManager] Runpod/Linux explicit search start high={requested_initial}")
+            emit("model_switching", f"Loading {spec['name']}... Runpod -ngl search high={requested_initial}", 10, 0)
+
+            # Phase 1/2: high から開始し、OOM の間は半減して最初の成功値を得る。
+            gpu_layers = requested_initial
             while True:
                 self._kill_process()
-                attempt += 1
-                print(f"[ModelManager] Runpod/Linux Phase 1: -ngl={gpu_layers} (explicit)")
-                emit("model_switching", f"Loading {spec['name']}... -ngl={gpu_layers} (Runpod explicit)", 15, 0)
+                current_running_ngl = None
                 result = self._try_start_once(
                     spec, gpu_layers=gpu_layers, eff_ck=eff_ck, eff_cv=eff_cv,
                     gpu_vendor=gpu_vendor, emit=emit,
                 )
+                print(f"[ModelManager] try -ngl={gpu_layers} -> {result.upper()}")
                 if result == "ok":
-                    ok_ngl = gpu_layers
+                    ok_low = gpu_layers
+                    current_running_ngl = gpu_layers
+                    remember_attempt(gpu_layers, result)
                     break
-                if result != "oom":
+                if result == "oom":
+                    if fail_high < 0:
+                        fail_high = gpu_layers
+                    else:
+                        fail_high = min(fail_high, gpu_layers)
+                    remember_attempt(gpu_layers, result)
+                else:
+                    remember_attempt(gpu_layers, result)
                     self._kill_process()
                     print(f"[ModelManager] Runpod/Linux explicit -ngl={gpu_layers} failed without OOM; aborting")
                     return False
-                if first_fail_ngl < 0:
-                    first_fail_ngl = gpu_layers
                 if gpu_layers <= 0:
                     self._kill_process()
                     print("[ModelManager] Runpod/Linux: explicit -ngl reached 0 and still failed; aborting")
@@ -1421,8 +1474,67 @@ class ModelManager:
                 print(f"[ModelManager] Runpod/Linux OOM → -ngl {prev} → {gpu_layers}")
                 emit("model_switching", f"Runpod VRAM不足: GPU層 {prev}→{gpu_layers} でリトライ中...", 20, 0)
 
-            self._save_proven_ngl(spec, ok_ngl)
-            self._save_ngl_ctx_profile(spec, ctx, ok_ngl)
+            # Phase 3: 最初の成功値で終了せず、成功値と失敗値の間を二分探索する。
+            if fail_high > ok_low:
+                print(f"[ModelManager] Runpod/Linux binary search range ok_low={ok_low} fail_high={fail_high}")
+            while fail_high > ok_low and fail_high - ok_low > 1:
+                mid = (ok_low + fail_high) // 2
+                self._kill_process()
+                current_running_ngl = None
+                emit("model_switching", f"Runpod GPU最適化中... -ngl={mid} ({ok_low}-{fail_high})", 25, 0)
+                result = self._try_start_once(
+                    spec, gpu_layers=mid, eff_ck=eff_ck, eff_cv=eff_cv,
+                    gpu_vendor=gpu_vendor, emit=emit,
+                )
+                print(f"[ModelManager] binary try -ngl={mid} -> {result.upper()}")
+                if result == "ok":
+                    ok_low = mid
+                    current_running_ngl = mid
+                    remember_attempt(mid, result, binary=True)
+                elif result == "oom":
+                    fail_high = mid
+                    remember_attempt(mid, result, binary=True)
+                else:
+                    remember_attempt(mid, result, binary=True)
+                    self._kill_process()
+                    print(f"[ModelManager] Runpod/Linux binary -ngl={mid} failed without OOM; aborting")
+                    return False
+
+            # Phase 4: 採用値で最終起動。最後に起動している成功プロセスが違う場合のみ再起動。
+            final_requested_ngl = ok_low
+            if final_requested_ngl < 0:
+                self._kill_process()
+                return False
+            if current_running_ngl != final_requested_ngl:
+                self._kill_process()
+                emit("model_switching", f"Loading {spec['name']}... final -ngl={final_requested_ngl}", 30, 0)
+                result = self._try_start_once(
+                    spec, gpu_layers=final_requested_ngl, eff_ck=eff_ck, eff_cv=eff_cv,
+                    gpu_vendor=gpu_vendor, emit=emit,
+                )
+                print(f"[ModelManager] final try -ngl={final_requested_ngl} -> {result.upper()}")
+                remember_attempt(final_requested_ngl, result)
+                if result != "ok":
+                    self._kill_process()
+                    return False
+                current_running_ngl = final_requested_ngl
+
+            save_ngl = self._last_successful_ngl_for_save(final_requested_ngl, runpod_linux=True)
+            final_parsed_ngl = (self._last_llama_gpu_log or {}).get("n_gpu_layers")
+            print(f"[ModelManager] final -ngl={final_requested_ngl} parsed_n_gpu_layers={final_parsed_ngl or save_ngl}")
+            self._record_ngl_search_debug(
+                runpod_detected=True,
+                requested_ngl_initial=requested_initial,
+                search_attempts=list(search_attempts),
+                fail_high=fail_high,
+                ok_low=ok_low,
+                final_requested_ngl=final_requested_ngl,
+                final_parsed_n_gpu_layers=final_parsed_ngl,
+                parsed_cuda_buffer_mib=(self._last_llama_gpu_log or {}).get("cuda_buffer_mib"),
+                parsed_cpu_buffer_mib=(self._last_llama_gpu_log or {}).get("cpu_buffer_mib"),
+            )
+            self._save_proven_ngl(spec, save_ngl)
+            self._save_ngl_ctx_profile(spec, ctx, save_ngl)
             return True
 
         # ─── Phase 1: auto-fit を試行 ────────────────────────
@@ -1670,6 +1782,7 @@ class ModelManager:
                 if _req.get(health, timeout=2).status_code == 200:
                     self._last_nvidia_smi_after = self._collect_nvidia_smi_memory()
                     self._last_llama_gpu_log = self._parse_llama_gpu_startup_log()
+                    self._last_llama_gpu_log["requested_ngl"] = gpu_layers
                     if runpod_linux:
                         parsed_ngl = self._last_llama_gpu_log.get("n_gpu_layers")
                         if not isinstance(parsed_ngl, int) or parsed_ngl <= 0:
@@ -1678,9 +1791,10 @@ class ModelManager:
                             self._last_startup_hints = [msg]
                             return "fail"
                         if self._last_llama_gpu_log.get("cuda_buffer_mib") is None:
-                            msg = "Runpod/Linux warning: CUDA model buffer size was not detected in llama log"
-                            print(f"[ModelManager][WARN] {msg}")
+                            msg = "Runpod/Linux GPU validation failed: CUDA model buffer size was not detected in llama log"
+                            print(f"[ModelManager] {msg}")
                             self._last_startup_hints = list(self._last_startup_hints or []) + [msg]
+                            return "fail"
                     return "ok"
             except Exception:
                 pass
@@ -1693,8 +1807,11 @@ class ModelManager:
         if self._last_startup_hints:
             print(f"[ModelManager] startup hints: {self._last_startup_hints}")
         hints_text = " ".join(self._last_startup_hints).lower()
-        _oom_keywords = ("vram", "out of memory", "cudamalloc", "oom", "failed to allocate",
-                         "ggml_cuda_device_malloc", "メモリ")
+        _oom_keywords = (
+            "vram", "out of memory", "cuda out of memory", "cudamalloc", "oom",
+            "failed to allocate", "cuda allocation", "allocation failed",
+            "ggml_cuda_device_malloc", "not enough memory", "メモリ",
+        )
         if any(kw in hints_text for kw in _oom_keywords):
             return "oom"
         return "fail"
@@ -1952,11 +2069,19 @@ class ModelManager:
     def cuda_debug_dict(self) -> dict:
         runtime = self._last_runtime_decision or self._runtime_probe()
         parsed = self._last_llama_gpu_log or self._parse_llama_gpu_startup_log()
+        search_debug = getattr(self, "_last_ngl_search_debug", {}) or {}
         return {
             "intended_backend": runtime.get("intended_backend"),
             "runpod_detected": runtime.get("runpod_detected"),
             "os_profile": runtime.get("os_profile"),
             "llama_cmd": self._last_start_cmd,
+            "requested_ngl": parsed.get("requested_ngl"),
+            "requested_ngl_initial": search_debug.get("requested_ngl_initial"),
+            "search_attempts": search_debug.get("search_attempts", []),
+            "fail_high": search_debug.get("fail_high"),
+            "ok_low": search_debug.get("ok_low"),
+            "final_requested_ngl": search_debug.get("final_requested_ngl"),
+            "final_parsed_n_gpu_layers": search_debug.get("final_parsed_n_gpu_layers"),
             "parsed_n_gpu_layers": parsed.get("n_gpu_layers"),
             "parsed_cuda_buffer_mib": parsed.get("cuda_buffer_mib"),
             "parsed_cpu_buffer_mib": parsed.get("cpu_buffer_mib"),
