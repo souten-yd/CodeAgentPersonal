@@ -128,20 +128,23 @@ def test_audio_runtime_service_is_route_neutral_and_import_safe():
     assert "voice_transcribe" not in text
 
 
-def test_main_audio_runtime_endpoint_owners_remain_main_py():
-    _assert_main_owner("/voice/status", "GET", "voice_status_api")
+def test_audio_read_endpoint_owners_move_to_audio_router_execution_remains_main_py():
+    for path, method, handler_name in [
+        ("/voice/status", "GET", "voice_status_api"),
+        ("/asr/config", "GET", "asr_config_api"),
+        ("/audio/runtime/debug", "GET", "get_audio_runtime_debug_api"),
+        ("/api/tts/style-bert-vits2/models", "GET", "api_style_bert_vits2_models"),
+        ("/api/tts/style-bert-vits2/preview-normalization", "POST", "api_style_bert_vits2_preview_normalization"),
+    ]:
+        route = _single_http_route(path, method)
+        assert route.endpoint.__module__ == "app.api.audio"
+        assert route.endpoint.__name__ == handler_name
+
     _assert_main_owner("/voice/load", "POST", "voice_load_api")
     _assert_main_owner("/voice/transcribe", "POST", "voice_transcribe_api")
-    _assert_main_owner("/asr/config", "GET", "asr_config_api")
     _assert_main_owner("/tts/synthesize", "POST", "tts_synthesize_api")
     _assert_main_owner("/tts/synthesize-batch", "POST", "tts_synthesize_batch_api")
     _assert_main_owner("/api/tts/style-bert-vits2/prepare", "POST", "api_style_bert_vits2_prepare")
-    _assert_main_owner("/api/tts/style-bert-vits2/models", "GET", "api_style_bert_vits2_models")
-    _assert_main_owner(
-        "/api/tts/style-bert-vits2/preview-normalization",
-        "POST",
-        "api_style_bert_vits2_preview_normalization",
-    )
     _assert_main_owner("/echo/sessions/{filename:path}", "DELETE", "echo_delete_session")
 
     route = _single_websocket_route("/echo/stream")
@@ -149,20 +152,16 @@ def test_main_audio_runtime_endpoint_owners_remain_main_py():
     assert route.endpoint.__name__ == "echo_stream_ws"
 
 
-def test_main_py_has_pr454_inventory_comments_near_audio_runtime_routes():
+def test_main_py_has_pr454_pr456_inventory_comments_near_remaining_audio_runtime_routes():
     text = MAIN.read_text(encoding="utf-8")
     for route_literal in [
-        '@app.get("/voice/status")',
         '@app.post("/voice/load")',
         '@app.post("/voice/transcribe")',
         '@app.websocket("/echo/stream")',
         '@app.delete("/echo/sessions/{filename:path}")',
         '@app.post("/api/tts/style-bert-vits2/prepare")',
-        '@app.get("/api/tts/style-bert-vits2/models")',
-        '@app.post("/api/tts/style-bert-vits2/preview-normalization")',
         '@app.post("/tts/synthesize")',
         '@app.post("/tts/synthesize-batch")',
-        '@app.get("/asr/config")',
     ]:
         index = text.index(route_literal)
         window = text[max(0, index - 220):index]

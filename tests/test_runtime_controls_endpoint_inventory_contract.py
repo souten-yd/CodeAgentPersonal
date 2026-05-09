@@ -100,15 +100,16 @@ def test_model_lifecycle_writes_still_belong_to_main_py_without_execution():
         _assert_main_owner(path, method, handler_name)
 
 
-def test_runtime_audio_cuda_diagnostics_belong_to_runtime_controls_router():
+def test_runtime_cuda_diagnostics_belong_to_runtime_controls_and_audio_debug_moves_to_audio_router():
     expected = [
         ("/runtime/cuda-debug", "GET", "get_runtime_cuda_debug_api"),
-        ("/audio/runtime/debug", "GET", "get_audio_runtime_debug_api"),
         ("/debug/model-startup", "GET", "get_model_startup_debug_api"),
     ]
 
     for path, method, handler_name in expected:
         _assert_route_owner(path, method, "app.api.runtime_controls", handler_name)
+
+    _assert_route_owner("/audio/runtime/debug", "GET", "app.api.audio", "get_audio_runtime_debug_api")
 
 
 def test_broad_llama_diagnostic_still_belongs_to_main_py():

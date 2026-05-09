@@ -6,7 +6,10 @@ App spec: `app.server:create_app()`
 
 | path | methods | endpoint name | module | owner分類 |
 |---|---|---|---|---|
-| `/audio/runtime/debug` | `GET` | `get_audio_runtime_debug_api` | `app.api.runtime_controls` | `runtime-controls` |
+| `/api/tts/style-bert-vits2/models` | `GET` | `api_style_bert_vits2_models` | `app.api.audio` | `audio-read-status` |
+| `/api/tts/style-bert-vits2/preview-normalization` | `POST` | `api_style_bert_vits2_preview_normalization` | `app.api.audio` | `audio-read-status` |
+| `/asr/config` | `GET` | `asr_config_api` | `app.api.audio` | `audio-read-status` |
+| `/audio/runtime/debug` | `GET` | `get_audio_runtime_debug_api` | `app.api.audio` | `audio-read-status` |
 | `/debug/model-startup` | `GET` | `get_model_startup_debug_api` | `app.api.runtime_controls` | `runtime-controls` |
 | `/docs` | `GET, HEAD` | `swagger_ui_html` | `fastapi.applications` | `other` |
 | `/docs/oauth2-redirect` | `GET, HEAD` | `swagger_ui_redirect` | `fastapi.applications` | `other` |
@@ -65,3 +68,4 @@ App spec: `app.server:create_app()`
 | `/system/readiness` | `GET` | `system_readiness` | `app.api.system` | `system` |
 | `/system/summary` | `GET` | `system_summary` | `app.api.system_status` | `system` |
 | `/system/usage` | `GET` | `system_usage` | `app.api.system_status` | `system` |
+| `/voice/status` | `GET` | `voice_status_api` | `app.api.audio` | `audio-read-status` |

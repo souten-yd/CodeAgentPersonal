@@ -6,16 +6,16 @@ from typing import Any, Mapping
 
 AUDIO_RUNTIME_ENDPOINT_OWNERSHIP: dict[str, dict[str, str]] = {
     "GET /voice/status": {
-        "owner": "main.py",
+        "owner": "app/api/audio.py",
         "domain": "ASR runtime status",
         "risk": "low-risk read/status",
-        "next_step": "PR4.56 low-risk route move candidate after service seams exist",
+        "next_step": "Moved to app/api/audio.py in PR4.56; production behavior remains provider-backed from main.py",
     },
     "GET /asr/config": {
-        "owner": "main.py",
+        "owner": "app/api/audio.py",
         "domain": "ASR runtime config",
         "risk": "low-risk read/status",
-        "next_step": "PR4.56 low-risk route move candidate after service seams exist",
+        "next_step": "Moved to app/api/audio.py in PR4.56; production behavior remains provider-backed from main.py",
     },
     "POST /voice/load": {
         "owner": "main.py",
@@ -48,16 +48,16 @@ AUDIO_RUNTIME_ENDPOINT_OWNERSHIP: dict[str, dict[str, str]] = {
         "next_step": "Keep in main.py until SBV2 runtime seam is explicit",
     },
     "GET /api/tts/style-bert-vits2/models": {
-        "owner": "main.py",
+        "owner": "app/api/audio.py",
         "domain": "SBV2 model inventory",
         "risk": "low-risk read/status",
-        "next_step": "Candidate after filesystem fallback rules are fixed",
+        "next_step": "Moved to app/api/audio.py in PR4.56 with side-effect-free create_app fallback",
     },
     "POST /api/tts/style-bert-vits2/preview-normalization": {
-        "owner": "main.py",
+        "owner": "app/api/audio.py",
         "domain": "SBV2 normalization / katakana fallback / dictionary cache",
         "risk": "low/medium-risk read-preview with LLM fallback caution",
-        "next_step": "Move only after LLM fallback behavior is contract-tested",
+        "next_step": "Moved to app/api/audio.py in PR4.56; LLM fallback remains provider-only in production",
     },
     "POST /tts/synthesize": {
         "owner": "main.py",

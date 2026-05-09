@@ -13,7 +13,7 @@ PR4.54 is a preparation-only PR after the healthy `KasaneCore_v2.8` baseline.  `
 
 ## PR4.55 helper extraction update
 
-PR4.55 extracts only safe ASR/TTS/SBV2 payload shaping and diagnostic shaping into `app/services/audio_runtime.py`.  Route ownership is unchanged: GET `/voice/status`, GET `/asr/config`, POST `/voice/transcribe`, POST `/voice/load`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, and WebSocket `/echo/stream` remain owned by `main.py`; GET `/audio/runtime/debug` continues to be exposed through the existing runtime-controls route with the production payload provider registered from `main.py`.
+PR4.55 extracted only safe ASR/TTS/SBV2 payload shaping and diagnostic shaping into `app/services/audio_runtime.py`. PR4.56 moves low-risk read/status/config ownership for GET `/voice/status`, GET `/asr/config`, GET `/audio/runtime/debug`, GET `/api/tts/style-bert-vits2/models`, and POST `/api/tts/style-bert-vits2/preview-normalization` to `app/api/audio.py`; production payload providers remain registered from `main.py`. POST `/voice/transcribe`, POST `/voice/load`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`, and WebSocket `/echo/stream` remain owned by `main.py`.
 
 What moved in PR4.55:
 
@@ -32,15 +32,15 @@ What did **not** move:
 
 | Risk | Endpoint / feature | Current owner module | Related helpers / global state | Runtime load | CUDA probe | Filesystem write | LLM fallback | create_app fallback note | Move classification |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| low-risk read/status | GET `/voice/status` | `main.py` | `voice_status()`, ASR runtime globals/status fields | No intentional load | Must not probe; status-only | No | No | Needs safe static/provider fallback before route move | Move candidate in PR4.56 after service seams |
+| low-risk read/status | GET `/voice/status` | `app/api/audio.py` | `voice_status()`, ASR runtime globals/status fields | No intentional load | Must not probe; status-only | No | No | Needs safe static/provider fallback before route move | Move candidate in PR4.56 after service seams |
 | medium-risk write/runtime-load | POST `/voice/load` | `main.py` | `_apply_asr_runtime_settings()`, `voice_load()`, ASR model manager | Yes, ASR runtime load | May use selected ASR device only during explicit load | No direct user file write | No | Fallback should report unavailable, not load | Keep in `main.py` until helper extraction |
 | high-risk execution | POST `/voice/transcribe` | `main.py` | `_apply_asr_runtime_settings()`, `_resolve_asr_profile()`, ASR decode/transcribe helpers, audio temp handling | May load/keep ASR model resident | CUDA/device behavior only during explicit transcription/load | Temporary audio decode/write path may be used | Post-filter path must stay unchanged | Fallback should reject without ASR execution | Do not move before PR4.55 helper contracts |
-| low-risk read/status | GET `/asr/config` | `main.py` | `_resolve_asr_runtime_config()`, `app/audio/runtime_config.py` configuration shape | No model load | Must not call heavy CUDA probe from fallback/import | No | No | Safe provider/static fallback needed | Move candidate in PR4.56 |
+| low-risk read/status | GET `/asr/config` | `app/api/audio.py` | `_resolve_asr_runtime_config()`, `app/audio/runtime_config.py` configuration shape | No model load | Must not call heavy CUDA probe from fallback/import | No | No | Safe provider/static fallback needed | Move candidate in PR4.56 |
 | high-risk execution/websocket | WebSocket `/echo/stream` | `main.py` | `_echo_sessions`, `_echo_debug_append()`, `_echo_save_lock`, `_echo_minutes_lock`, ASR chunk handling, TTS response flow | Can invoke ASR/TTS runtime during live session | Device/runtime behavior during explicit stream execution | Writes EchoVault sessions/debug/minutes | Possible through downstream response generation paths; keep unchanged | No WebSocket fallback until dedicated route plan | Move last in PR4.58+ |
 | medium-risk write/filesystem | DELETE `/echo/sessions/{filename:path}` | `main.py` | `ECHOVAULT_DIR`, Echo session path sanitizer, session providers | No | No | Deletes EchoVault files | No | Needs provider fallback and path-safety contract | Move only after write seam is explicit |
 | medium-risk write/runtime-load | POST `/api/tts/style-bert-vits2/prepare` | `main.py` | `_style_bert_vits2_init_lock`, `_tts_engine_registry`, `_STYLE_BERT_VITS2_*`, SBV2 prepare helpers | Yes, SBV2/TTS runtime prepare | Device choice may touch CUDA during explicit prepare | May initialize/download/prepare local runtime artifacts | No direct preview fallback | Fallback must not initialize runtime | Keep in `main.py` until SBV2 seam is explicit |
-| low-risk read/status | GET `/api/tts/style-bert-vits2/models` | `main.py` | `_style_bert_vits2_list_models()`, `_style_bert_vits2_describe_model()` | No | No | No | No | Fallback can be empty/static if it avoids heavy scans | Candidate after filesystem rules are fixed |
-| low/medium-risk read-preview with LLM fallback caution | POST `/api/tts/style-bert-vits2/preview-normalization` | `main.py` | `_tts_engine_registry`, `StyleBertVITS2Runtime.build_normalization_preview()`, normalization, katakana fallback, dictionary cache | No model load intended, but runtime object required | No import-time probe; runtime may already know device | May read/write dictionary/cache depending existing runtime behavior | **Yes/caution** if normalization path asks LLM fallback | Fallback must not invoke LLM or SBV2 runtime | Move only after LLM fallback is contract-tested |
+| low-risk read/status | GET `/api/tts/style-bert-vits2/models` | `app/api/audio.py` | `_style_bert_vits2_list_models()`, `_style_bert_vits2_describe_model()` | No | No | No | No | Fallback can be empty/static if it avoids heavy scans | Candidate after filesystem rules are fixed |
+| low/medium-risk read-preview with LLM fallback caution | POST `/api/tts/style-bert-vits2/preview-normalization` | `app/api/audio.py` | `_tts_engine_registry`, `StyleBertVITS2Runtime.build_normalization_preview()`, normalization, katakana fallback, dictionary cache | No model load intended, but runtime object required | No import-time probe; runtime may already know device | May read/write dictionary/cache depending existing runtime behavior | **Yes/caution** if normalization path asks LLM fallback | Fallback must not invoke LLM or SBV2 runtime | Move only after LLM fallback is contract-tested |
 | medium-risk write/filesystem | POST `/api/tts/style-bert-vits2/models/upload` | `main.py` | `import_model_zip()`, `_STYLE_BERT_VITS2_MODELS_DIR`, model list helpers | No TTS synthesis, but changes model inventory | No | Uploads/imports SBV2 model zip | No | Fallback should reject unavailable without writing | Not part of first low-risk move |
 | high-risk execution | POST `/tts/synthesize` | `main.py` | `_tts_engine_registry`, `StyleBertVITS2Runtime`, `_write_tts_debug_entry()`, ref audio helpers, normalization pipeline | Can prepare/load/use TTS/SBV2 runtime | Device/runtime behavior during explicit synthesis | Writes debug/ref/temp/output artifacts | Possible through SBV2 text normalization fallback path; keep unchanged | Fallback should reject without synthesis | Do not move before PR4.55 helper contracts |
 | high-risk execution | POST `/tts/synthesize-batch` | `main.py` | `_run_tts_synthesize_batch()`, job progress helpers, zip/wav streaming, TTS synthesize internals | Uses TTS/SBV2 runtime for every item | Device/runtime behavior during explicit batch synthesis | Writes job/progress/temp zip/wav artifacts | Same normalization fallback caution as single synthesis | Fallback should reject without synthesis | Move only after single synthesize seam is stable |
@@ -77,10 +77,10 @@ What did **not** move:
 
 ### Low-risk read/status candidates
 
-- GET `/voice/status`: low-risk read/status, but still `main.py` until PR4.56 because it reports live ASR state and must preserve the no-CUDA-probe invariant.
-- GET `/asr/config`: low-risk read/status, but still `main.py` until a provider fallback can return configuration without probing or loading.
-- GET `/api/tts/style-bert-vits2/models`: low-risk read/status if the fallback can avoid heavy filesystem scans.
-- POST `/api/tts/style-bert-vits2/preview-normalization`: only low/medium risk when LLM fallback is disabled or safely provider-gated; otherwise caution.
+- GET `/voice/status`: moved to `app/api/audio.py` in PR4.56; production reports live ASR state through a provider and `create_app()` returns a no-CUDA-probe fallback.
+- GET `/asr/config`: moved to `app/api/audio.py` in PR4.56; provider fallback returns unavailable config without probing or loading.
+- GET `/api/tts/style-bert-vits2/models`: moved to `app/api/audio.py` in PR4.56; fallback avoids heavy filesystem scans.
+- POST `/api/tts/style-bert-vits2/preview-normalization`: moved to `app/api/audio.py` in PR4.56; existing LLM fallback remains provider-gated in production and `create_app()` does not call LLM.
 
 ### Medium-risk write candidates
 
@@ -99,6 +99,16 @@ What did **not** move:
 ## Next PR sequence
 
 - PR4.55: Extract ASR/TTS service functions without moving routes.
-- PR4.56: Move low-risk audio status/config routes if provider fallbacks are safe.
+- PR4.56: Moved low-risk audio read/status/config routes to `app/api/audio.py` with provider-backed production behavior and safe `create_app()` fallbacks.
 - PR4.57: Move TTS/SBV2 non-streaming routes only if runtime, filesystem, and LLM fallback seams are proven safe.
 - PR4.58+: Move Echo WebSocket last.
+
+
+### PR4.56 route ownership
+
+- `/voice/status` -> `app/api/audio.py`
+- `/asr/config` -> `app/api/audio.py`
+- `/audio/runtime/debug` -> `app/api/audio.py`
+- `/api/tts/style-bert-vits2/models` -> `app/api/audio.py`
+- `/api/tts/style-bert-vits2/preview-normalization` -> `app/api/audio.py`
+- Execution/high-risk routes remain `main.py`: `/voice/load`, `/voice/transcribe`, `/tts/synthesize`, `/tts/synthesize-batch`, `/api/tts/style-bert-vits2/prepare`, and WebSocket `/echo/stream`.

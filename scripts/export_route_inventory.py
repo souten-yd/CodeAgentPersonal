@@ -42,6 +42,8 @@ def classify_owner(module_name: str, path: str) -> str:
         return "jobs-router"
     if module_name.startswith("app.api.runtime_controls"):
         return "runtime-controls"
+    if module_name.startswith("app.api.audio"):
+        return "audio-read-status"
     if module_name.startswith("app.api.model_settings"):
         return "model-settings"
     if module_name.startswith("app.api.system") or module_name.startswith("app.api.health"):

@@ -147,7 +147,7 @@ def test_already_moved_read_only_model_settings_and_runtime_routes_do_not_return
         ("/search/status", "GET", "app.api.runtime_controls", "get_search_status_api"),
         ("/streaming/status", "GET", "app.api.runtime_controls", "get_streaming_status_api"),
         ("/runtime/cuda-debug", "GET", "app.api.runtime_controls", "get_runtime_cuda_debug_api"),
-        ("/audio/runtime/debug", "GET", "app.api.runtime_controls", "get_audio_runtime_debug_api"),
+        ("/audio/runtime/debug", "GET", "app.api.audio", "get_audio_runtime_debug_api"),
         ("/debug/model-startup", "GET", "app.api.runtime_controls", "get_model_startup_debug_api"),
         ("/echo/save-status", "GET", "app.api.echo", "get_echo_save_status_api"),
         ("/echo/sessions", "GET", "app.api.echo", "get_echo_sessions_api"),

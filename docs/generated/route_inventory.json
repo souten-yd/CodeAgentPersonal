@@ -1,12 +1,39 @@
 [
   {
+    "path": "/api/tts/style-bert-vits2/models",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "api_style_bert_vits2_models",
+    "module": "app.api.audio",
+    "owner": "audio-read-status"
+  },
+  {
+    "path": "/api/tts/style-bert-vits2/preview-normalization",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "api_style_bert_vits2_preview_normalization",
+    "module": "app.api.audio",
+    "owner": "audio-read-status"
+  },
+  {
+    "path": "/asr/config",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "asr_config_api",
+    "module": "app.api.audio",
+    "owner": "audio-read-status"
+  },
+  {
     "path": "/audio/runtime/debug",
     "methods": [
       "GET"
     ],
     "endpoint_name": "get_audio_runtime_debug_api",
-    "module": "app.api.runtime_controls",
-    "owner": "runtime-controls"
+    "module": "app.api.audio",
+    "owner": "audio-read-status"
   },
   {
     "path": "/debug/model-startup",
@@ -533,5 +560,14 @@
     "endpoint_name": "system_usage",
     "module": "app.api.system_status",
     "owner": "system"
+  },
+  {
+    "path": "/voice/status",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "voice_status_api",
+    "module": "app.api.audio",
+    "owner": "audio-read-status"
   }
 ]

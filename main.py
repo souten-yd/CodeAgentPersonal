@@ -10970,10 +10970,8 @@ def plan_only(req: ChatRequest):
                     if bool(v.get("path"))},
     }
 
-# PR4.54: audio runtime endpoint; keep in main.py until PR4.55 service extraction.
-# Do not call detect_audio_runtime() at import time.
-@app.get("/voice/status")
-def voice_status_api():
+# PR4.56: provider payload for audio router; do not call detect_audio_runtime() at import time.
+def voice_status_payload():
     return voice_status()
 
 # PR4.54: ASR runtime load endpoint; route owner remains main.py for this preparation PR.
@@ -13648,17 +13646,15 @@ async def _handle_style_bert_vits2_error(_request: Request, exc: StyleBertVITS2E
     )
 
 
-# PR4.54: SBV2 model inventory endpoint; still main.py until safe fallback/provider seams exist.
-@app.get("/api/tts/style-bert-vits2/models")
-def api_style_bert_vits2_models():
+# PR4.56: provider payload for audio router; production behavior still scans the existing SBV2 model inventory.
+def sbv2_models_payload():
     models = _style_bert_vits2_list_models()
     detailed = [_style_bert_vits2_describe_model(model_id) for model_id in models]
     return {"models": models, "model_details": detailed}
 
 
-# PR4.54: SBV2 normalization preview endpoint; LLM fallback behavior must remain unchanged.
-@app.post("/api/tts/style-bert-vits2/preview-normalization")
-def api_style_bert_vits2_preview_normalization(req: dict):
+# PR4.56: provider payload for audio router; keep existing SBV2/LLM fallback behavior in production only.
+def sbv2_preview_normalization_payload(req: dict):
     try:
         runtime = _tts_engine_registry.get(raw_engine="style_bert_vits2")
     except KeyError:
@@ -17157,9 +17153,8 @@ def audio_runtime_debug_payload():
     )
 
 
-# PR4.54: ASR config/status boundary; keep in main.py until low-risk route move PR4.56.
-@app.get("/asr/config")
-def asr_config_api():
+# PR4.56: provider payload for audio router; keep runtime resolution in production main.py.
+def asr_config_payload():
     return build_asr_config_payload(_resolve_asr_runtime_config())
 
 
@@ -17635,7 +17630,11 @@ def runtime_cuda_debug_payload():
     return _model_manager.cuda_debug_dict()
 
 
+app.state.voice_status_provider = voice_status_payload
+app.state.asr_config_provider = asr_config_payload
 app.state.audio_runtime_debug_provider = audio_runtime_debug_payload
+app.state.sbv2_models_provider = sbv2_models_payload
+app.state.sbv2_preview_normalization_provider = sbv2_preview_normalization_payload
 app.state.model_startup_debug_provider = debug_model_startup_payload
 app.state.runtime_cuda_debug_provider = runtime_cuda_debug_payload
 
