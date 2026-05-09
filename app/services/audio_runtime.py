@@ -163,6 +163,179 @@ class VoiceTranscribeServicePlan:
 
 
 @dataclass(frozen=True)
+class EchoStreamAsrInput:
+    """Lightweight Echo WebSocket ASR input snapshot for PR4.63 seam documentation.
+
+    This type intentionally carries metadata and byte counts instead of owning
+    the WebSocket loop, session writes, or TTS playback chain.
+    """
+
+    audio_bytes_count: int
+    seq: int | None = None
+    mime: str = "audio/webm"
+    session_id: str = ""
+    audio_format: str = "webm"
+    sample_rate: int = 16000
+    channels: int = 1
+    language: str = "auto"
+    model_name: str = "large-v3-turbo"
+    asr_profile: str = "balanced"
+    no_speech_threshold: float | None = None
+    log_prob_threshold: float | None = None
+    compression_ratio_threshold: float | None = None
+    asr_post_filter: Mapping[str, Any] = field(default_factory=dict)
+    initial_prompt_present: bool = False
+
+
+@dataclass(frozen=True)
+class EchoStreamAsrDiagnostics:
+    """Stable diagnostic contract around Echo stream ASR reuse before extraction."""
+
+    route_owner: str = "main.py"
+    websocket_loop_owner: str = "main.py"
+    route_risk: str = "high-risk execution/websocket"
+    transcribe_service_body: str = "POST /voice/transcribe service body is extracted in app/services/audio_runtime.py"
+    cuda_fallback: str = "reuse current ASR model load/fallback behavior; do not probe at import time"
+    debug_events: tuple[str, ...] = (
+        "chunk_receive",
+        "asr_start",
+        "asr_end",
+        "asr_reject",
+        "chunk_error",
+        "ack_error",
+    )
+    websocket_message_shapes: tuple[str, ...] = (
+        "status",
+        "ack",
+        "sentence",
+        "translation",
+        "error",
+        "ui_log",
+    )
+
+
+@dataclass(frozen=True)
+class EchoStreamAsrResult:
+    """Lightweight summary of the Echo stream ASR result envelope."""
+
+    text: str = ""
+    language: str = "auto"
+    duration: float = 0.0
+    asr_profile: str = "balanced"
+    metrics: Mapping[str, Any] = field(default_factory=dict)
+    post_filter: Mapping[str, Any] = field(default_factory=dict)
+    result_chars: int = 0
+
+
+@dataclass(frozen=True)
+class EchoStreamAsrPlan:
+    """PR4.63/PR4.64 extraction guardrail for Echo stream ASR reuse."""
+
+    current_pr: str = "PR4.63"
+    next_pr: str = "PR4.64"
+    allowed_scope: str = "Extract Echo stream ASR helper body without moving WebSocket."
+    forbidden_scope: tuple[str, ...] = (
+        "WebSocket route move",
+        "echo_stream_ws main loop move",
+        "websocket message shape change",
+        "Echo session write/delete change",
+        "TTS playback chain change",
+        "CUDA fallback behavior change",
+    )
+
+
+def build_echo_stream_asr_input(
+    *,
+    audio_bytes: bytes | bytearray | memoryview | None,
+    seq: int | None = None,
+    mime: str = "audio/webm",
+    session_id: str = "",
+    audio_format: str = "webm",
+    sample_rate: int = 16000,
+    channels: int = 1,
+    language: str = "auto",
+    model_name: str = "large-v3-turbo",
+    asr_profile: str = "balanced",
+    no_speech_threshold: float | None = None,
+    log_prob_threshold: float | None = None,
+    compression_ratio_threshold: float | None = None,
+    asr_post_filter: Mapping[str, Any] | None = None,
+    initial_prompt: str | None = None,
+) -> EchoStreamAsrInput:
+    """Build a route-neutral Echo stream ASR metadata snapshot without importing main.py."""
+
+    return EchoStreamAsrInput(
+        audio_bytes_count=len(audio_bytes or b""),
+        seq=seq,
+        mime=str(mime or "audio/webm"),
+        session_id=str(session_id or ""),
+        audio_format=str(audio_format or "webm").strip().lower() or "webm",
+        sample_rate=int(sample_rate or 16000),
+        channels=int(channels or 1),
+        language=str(language or "auto").strip().lower() or "auto",
+        model_name=str(model_name or "large-v3-turbo").strip() or "large-v3-turbo",
+        asr_profile=str(asr_profile or "balanced").strip().lower() or "balanced",
+        no_speech_threshold=no_speech_threshold,
+        log_prob_threshold=log_prob_threshold,
+        compression_ratio_threshold=compression_ratio_threshold,
+        asr_post_filter=dict(asr_post_filter or {}),
+        initial_prompt_present=bool(str(initial_prompt or "").strip()),
+    )
+
+
+def summarize_echo_stream_asr_result(result: Mapping[str, Any] | EchoStreamAsrResult | None) -> EchoStreamAsrResult:
+    """Normalize Echo ASR result metadata for diagnostics without changing websocket payloads."""
+
+    if isinstance(result, EchoStreamAsrResult):
+        return result
+    data = dict(result or {})
+    text = str(data.get("text", "") or "")
+    metrics = data.get("metrics", {}) if isinstance(data.get("metrics", {}), Mapping) else {}
+    post_filter = data.get("post_filter", {}) if isinstance(data.get("post_filter", {}), Mapping) else {}
+    try:
+        duration = float(data.get("duration", 0.0) or 0.0)
+    except Exception:
+        duration = 0.0
+    return EchoStreamAsrResult(
+        text=text,
+        language=str(data.get("language", "auto") or "auto"),
+        duration=duration,
+        asr_profile=str(data.get("asr_profile", "balanced") or "balanced"),
+        metrics=dict(metrics),
+        post_filter=dict(post_filter),
+        result_chars=len(text.strip()),
+    )
+
+
+def normalize_echo_stream_asr_error(
+    error: Any,
+    *,
+    session_id: str = "",
+    seq: int | None = None,
+    audio_bytes_count: int = 0,
+    mime: str = "audio/webm",
+) -> dict[str, Any]:
+    """Return the existing Echo ASR error websocket/debug shape as route-neutral data."""
+
+    detail = f"ASR error: {error}"
+    summary = (
+        f"[Echo重大エラー] ASR decode失敗 session={session_id} seq={seq} "
+        f"bytes={int(audio_bytes_count or 0)} mime={mime}"
+    )
+    return {
+        "log_context": {
+            "session_id": session_id,
+            "seq": seq,
+            "bytes": int(audio_bytes_count or 0),
+            "mime": mime,
+        },
+        "websocket_error_payload": {"type": "error", "detail": detail, "summary": summary},
+        "ui_log_payload": {"type": "ui_log", "level": "error", "summary": summary},
+        "ack_error_payload": {"type": "ack", "seq": seq, "error": True} if seq is not None else None,
+    }
+
+
+@dataclass(frozen=True)
 class VoiceTranscribeServiceDependencies:
     """Injected production seams for POST /voice/transcribe without importing main.py."""
 

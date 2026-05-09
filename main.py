@@ -11169,6 +11169,13 @@ def _echo_trim_overlap_text(previous_text: str, current_text: str) -> tuple[str,
     return curr_norm, {"overlap_chars": 0, "mode": "none"}
 
 
+# PR4.63: Echo stream ASR reuse seam inventory.
+# Shared with POST /voice/transcribe: model load/reuse, ASR profile resolution,
+# faster-whisper transcribe kwargs, CUDA/CPU fallback side effects via get_or_load_asr_model,
+# and post-filter/metrics result fields.
+# Echo-specific and intentionally retained here: chunk audio conversion, recent prompt,
+# websocket error message shape, debug events, global _voice_model/_voice_lock state,
+# and session/TTS continuation performed by echo_stream_ws.
 def _echo_voice_transcribe(
     audio_bytes: bytes,
     language: str = "auto",
@@ -11672,6 +11679,10 @@ app.state.echo_save_status_provider = echo_save_status_payload
 
 
 # PR4.54: high-risk Echo streaming endpoint; keep in main.py until the final Echo WebSocket phase.
+# PR4.63: Echo WebSocket high-risk route.
+# Route owner and websocket loop intentionally remain in main.py.
+# ASR transcribe service body exists, but Echo stream extraction is deferred.
+# Preserve websocket message shape, session writes, CUDA fallback, and debug entry format.
 @app.websocket("/echo/stream")
 async def echo_stream_ws(websocket: WebSocket):
     import datetime as _dt, asyncio as _asyncio
