@@ -1116,14 +1116,54 @@ class ModelManager:
         return 999
 
     def _last_successful_ngl_for_save(self, requested_ngl: int, *, runpod_linux: bool = False) -> int:
-        parsed = (self._last_llama_gpu_log or {}).get("n_gpu_layers")
-        if isinstance(parsed, int) and parsed > 0:
-            return parsed
+        parsed_log = self._last_llama_gpu_log or {}
+        for key in ("n_gpu_layers", "gpu_offload_layers"):
+            parsed = parsed_log.get(key)
+            if isinstance(parsed, int) and parsed > 0:
+                return parsed
         if runpod_linux:
             msg = f"Runpod/Linux warning: could not parse n_gpu_layers; saving requested_ngl={requested_ngl}"
             print(f"[ModelManager][WARN] {msg}")
             self._last_startup_hints = list(self._last_startup_hints or []) + [msg]
         return requested_ngl
+
+    def _nvidia_smi_memory_delta_mib(self) -> int:
+        def _total(rows) -> int:
+            total = 0
+            for row in rows or []:
+                try:
+                    total += int(row.get("memory_used_mib", 0) or 0)
+                except Exception:
+                    continue
+            return total
+        return _total(self._last_nvidia_smi_after) - _total(self._last_nvidia_smi_before)
+
+    def _validate_runpod_linux_gpu_startup(self, parsed: dict | None = None) -> tuple[bool, str, str]:
+        parsed = parsed or self._last_llama_gpu_log or {}
+        parsed_ngl = parsed.get("n_gpu_layers")
+        offload_layers = parsed.get("gpu_offload_layers")
+        cuda_buffer = parsed.get("cuda_buffer_mib")
+        memory_delta = self._nvidia_smi_memory_delta_mib()
+
+        if isinstance(parsed_ngl, int) and parsed_ngl > 0:
+            return True, "ok", f"parsed_n_gpu_layers={parsed_ngl}"
+        if isinstance(offload_layers, int) and offload_layers > 0:
+            return True, "ok", f"parsed_gpu_offload_layers={offload_layers}"
+        if isinstance(cuda_buffer, (int, float)) and cuda_buffer > 0 and memory_delta > 0:
+            return True, "ok", f"cuda_buffer_mib={cuda_buffer} and nvidia_smi_memory_delta_mib={memory_delta}"
+
+        reasons = []
+        if not (isinstance(cuda_buffer, (int, float)) and cuda_buffer > 0):
+            reasons.append("CUDA buffer not detected")
+        if not (isinstance(offload_layers, int) and offload_layers > 0):
+            reasons.append("GPU offload layers not detected")
+        if memory_delta <= 0:
+            reasons.append(f"nvidia-smi memory did not increase (delta={memory_delta} MiB)")
+        if isinstance(parsed_ngl, int) and parsed_ngl <= 0:
+            reasons.append(f"n_gpu_layers={parsed_ngl}")
+        elif parsed_ngl is None:
+            reasons.append("n_gpu_layers not detected")
+        return False, "fail", "; ".join(reasons)
 
     def _record_ngl_search_debug(self, **kwargs) -> None:
         debug = dict(getattr(self, "_last_ngl_search_debug", {}) or {})
@@ -1434,6 +1474,9 @@ class ModelManager:
                     final_parsed_n_gpu_layers=None,
                     parsed_cuda_buffer_mib=(self._last_llama_gpu_log or {}).get("cuda_buffer_mib"),
                     parsed_cpu_buffer_mib=(self._last_llama_gpu_log or {}).get("cpu_buffer_mib"),
+                    parsed_gpu_offload_layers=(self._last_llama_gpu_log or {}).get("gpu_offload_layers"),
+                    parsed_total_layers=(self._last_llama_gpu_log or {}).get("total_layers"),
+                    parsed_offload_line=(self._last_llama_gpu_log or {}).get("offload_line"),
                 )
 
             print(f"[ModelManager] Runpod/Linux explicit search start high={requested_initial}")
@@ -1521,6 +1564,8 @@ class ModelManager:
 
             save_ngl = self._last_successful_ngl_for_save(final_requested_ngl, runpod_linux=True)
             final_parsed_ngl = (self._last_llama_gpu_log or {}).get("n_gpu_layers")
+            if final_parsed_ngl is None:
+                final_parsed_ngl = (self._last_llama_gpu_log or {}).get("gpu_offload_layers")
             print(f"[ModelManager] final -ngl={final_requested_ngl} parsed_n_gpu_layers={final_parsed_ngl or save_ngl}")
             self._record_ngl_search_debug(
                 runpod_detected=True,
@@ -1784,17 +1829,18 @@ class ModelManager:
                     self._last_llama_gpu_log = self._parse_llama_gpu_startup_log()
                     self._last_llama_gpu_log["requested_ngl"] = gpu_layers
                     if runpod_linux:
-                        parsed_ngl = self._last_llama_gpu_log.get("n_gpu_layers")
-                        if not isinstance(parsed_ngl, int) or parsed_ngl <= 0:
-                            msg = f"Runpod/Linux GPU validation failed: n_gpu_layers={parsed_ngl!r}"
+                        ok, status, reason = self._validate_runpod_linux_gpu_startup(self._last_llama_gpu_log)
+                        self._last_llama_gpu_log["gpu_validation_status"] = status
+                        self._last_llama_gpu_log["gpu_validation_reason"] = reason
+                        if not ok:
+                            msg = f"Runpod/Linux GPU validation failed: {reason}"
                             print(f"[ModelManager] {msg}")
                             self._last_startup_hints = [msg]
                             return "fail"
-                        if self._last_llama_gpu_log.get("cuda_buffer_mib") is None:
-                            msg = "Runpod/Linux GPU validation failed: CUDA model buffer size was not detected in llama log"
-                            print(f"[ModelManager] {msg}")
+                        if self._last_llama_gpu_log.get("n_gpu_layers") is None:
+                            msg = f"Runpod/Linux GPU validation accepted without n_gpu_layers: {reason}"
+                            print(f"[ModelManager][WARN] {msg}")
                             self._last_startup_hints = list(self._last_startup_hints or []) + [msg]
-                            return "fail"
                     return "ok"
             except Exception:
                 pass
@@ -1817,10 +1863,13 @@ class ModelManager:
         return "fail"
 
 
-    def _parse_llama_gpu_startup_log(self) -> dict[str, float | int | None]:
+    def _parse_llama_gpu_startup_log(self) -> dict[str, float | int | str | None]:
         """Parse llama.cpp startup GPU placement details from the recent log tail."""
-        parsed: dict[str, float | int | None] = {
+        parsed: dict[str, float | int | str | None] = {
             "n_gpu_layers": None,
+            "total_layers": None,
+            "gpu_offload_layers": None,
+            "offload_line": None,
             "cuda_buffer_mib": None,
             "cpu_buffer_mib": None,
         }
@@ -1833,10 +1882,37 @@ class ModelManager:
             return parsed
 
         for line in lines:
+            clean_line = line.strip()
             if parsed["n_gpu_layers"] is None:
                 m = re.search(r"n_gpu_layers\s*=\s*(\d+)", line, re.IGNORECASE)
                 if m:
                     parsed["n_gpu_layers"] = int(m.group(1))
+
+            m_offloaded = re.search(r"load_tensors:\s*offloaded\s+(\d+)\s*/\s*(\d+)\s+layers\s+to\s+GPU", line, re.IGNORECASE)
+            if m_offloaded:
+                offloaded = int(m_offloaded.group(1))
+                total = int(m_offloaded.group(2))
+                parsed["n_gpu_layers"] = offloaded
+                parsed["total_layers"] = total
+                parsed["gpu_offload_layers"] = offloaded
+                parsed["offload_line"] = clean_line
+
+            m_repeating = re.search(r"load_tensors:\s*offloading\s+(\d+)\s+repeating\s+layers\s+to\s+GPU", line, re.IGNORECASE)
+            if m_repeating and parsed["gpu_offload_layers"] is None:
+                parsed["gpu_offload_layers"] = int(m_repeating.group(1))
+                parsed["offload_line"] = clean_line
+
+            if re.search(r"load_tensors:\s*offloading\s+output\s+layer\s+to\s+GPU", line, re.IGNORECASE):
+                current = parsed.get("gpu_offload_layers")
+                if isinstance(current, int):
+                    parsed["gpu_offload_layers"] = current + 1
+                elif current is None:
+                    parsed["gpu_offload_layers"] = 1
+                if parsed.get("offload_line"):
+                    parsed["offload_line"] = f"{parsed['offload_line']} | {clean_line}"
+                else:
+                    parsed["offload_line"] = clean_line
+
             m_cuda = re.search(r"CUDA[^\n]*model buffer size\s*=\s*([0-9.]+)\s*MiB", line, re.IGNORECASE)
             if m_cuda:
                 parsed["cuda_buffer_mib"] = float(m_cuda.group(1))
@@ -1859,6 +1935,11 @@ class ModelManager:
                 if m:
                     val = int(m.group(1))
                     print(f"[ModelManager] ログからn_gpu_layers={val}を検出")
+                    return val
+                m = re.search(r"load_tensors:\s*offloaded\s+(\d+)\s*/\s*(\d+)\s+layers\s+to\s+GPU", line, re.IGNORECASE)
+                if m:
+                    val = int(m.group(1))
+                    print(f"[ModelManager] ログからoffloaded_layers={val}/{m.group(2)}を検出")
                     return val
         except Exception:
             pass
@@ -2070,6 +2151,16 @@ class ModelManager:
         runtime = self._last_runtime_decision or self._runtime_probe()
         parsed = self._last_llama_gpu_log or self._parse_llama_gpu_startup_log()
         search_debug = getattr(self, "_last_ngl_search_debug", {}) or {}
+        _validation_ok, validation_status, validation_reason = self._validate_runpod_linux_gpu_startup(parsed)
+        validation_status = parsed.get("gpu_validation_status") or validation_status
+        validation_reason = parsed.get("gpu_validation_reason") or validation_reason
+        log_tail = ""
+        if os.path.exists(LLAMA_STARTUP_LOG_PATH):
+            try:
+                with open(LLAMA_STARTUP_LOG_PATH, "r", encoding="utf-8", errors="ignore") as f:
+                    log_tail = "".join(f.readlines()[-120:])[-8000:]
+            except Exception:
+                log_tail = ""
         return {
             "intended_backend": runtime.get("intended_backend"),
             "runpod_detected": runtime.get("runpod_detected"),
@@ -2083,8 +2174,14 @@ class ModelManager:
             "final_requested_ngl": search_debug.get("final_requested_ngl"),
             "final_parsed_n_gpu_layers": search_debug.get("final_parsed_n_gpu_layers"),
             "parsed_n_gpu_layers": parsed.get("n_gpu_layers"),
+            "parsed_gpu_offload_layers": parsed.get("gpu_offload_layers"),
+            "parsed_total_layers": parsed.get("total_layers"),
+            "parsed_offload_line": parsed.get("offload_line"),
             "parsed_cuda_buffer_mib": parsed.get("cuda_buffer_mib"),
             "parsed_cpu_buffer_mib": parsed.get("cpu_buffer_mib"),
+            "gpu_validation_status": validation_status,
+            "gpu_validation_reason": validation_reason,
+            "llama_startup_log_tail": log_tail,
             "nvidia_smi_memory_before": self._last_nvidia_smi_before,
             "nvidia_smi_memory_after": self._last_nvidia_smi_after,
         }
