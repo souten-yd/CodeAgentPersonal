@@ -1,0 +1,438 @@
+[
+  {
+    "path": "/audio/runtime/debug",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_audio_runtime_debug_api",
+    "module": "app.api.runtime_controls",
+    "owner": "runtime-controls"
+  },
+  {
+    "path": "/debug/model-startup",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_model_startup_debug_api",
+    "module": "app.api.runtime_controls",
+    "owner": "runtime-controls"
+  },
+  {
+    "path": "/docs",
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "endpoint_name": "swagger_ui_html",
+    "module": "fastapi.applications",
+    "owner": "other"
+  },
+  {
+    "path": "/docs/oauth2-redirect",
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "endpoint_name": "swagger_ui_redirect",
+    "module": "fastapi.applications",
+    "owner": "other"
+  },
+  {
+    "path": "/echo/save-status",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_echo_save_status_api",
+    "module": "app.api.echo",
+    "owner": "echo-read-only"
+  },
+  {
+    "path": "/echo/sessions",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_echo_sessions_api",
+    "module": "app.api.echo",
+    "owner": "echo-read-only"
+  },
+  {
+    "path": "/echo/sessions/{filename:path}",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_echo_session_api",
+    "module": "app.api.echo",
+    "owner": "echo-read-only"
+  },
+  {
+    "path": "/health",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "health",
+    "module": "app.api.system_status",
+    "owner": "system"
+  },
+  {
+    "path": "/jobs/submit",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "submit_job_api",
+    "module": "app.api.jobs",
+    "owner": "jobs-router"
+  },
+  {
+    "path": "/jobs/{job_id}/poll",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_job_poll_api",
+    "module": "app.api.jobs",
+    "owner": "jobs-router"
+  },
+  {
+    "path": "/llm/ctx",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_runtime_llm_ctx_api",
+    "module": "app.api.runtime_controls",
+    "owner": "runtime-controls"
+  },
+  {
+    "path": "/llm/ctx",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "set_runtime_llm_ctx_api",
+    "module": "app.api.runtime_controls",
+    "owner": "runtime-controls"
+  },
+  {
+    "path": "/llm/props",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_runtime_llm_props_api",
+    "module": "app.api.runtime_controls",
+    "owner": "runtime-controls"
+  },
+  {
+    "path": "/model/status",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_model_manager_status_api",
+    "module": "app.api.model_settings",
+    "owner": "model-settings"
+  },
+  {
+    "path": "/models/db",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "list_models_db_api",
+    "module": "app.api.model_settings",
+    "owner": "model-settings"
+  },
+  {
+    "path": "/models/db/status",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_model_db_status_api",
+    "module": "app.api.model_settings",
+    "owner": "model-settings"
+  },
+  {
+    "path": "/models/orchestration",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_model_orchestration_api",
+    "module": "app.api.model_settings",
+    "owner": "model-settings"
+  },
+  {
+    "path": "/models/roles",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_model_role_assignments_api",
+    "module": "app.api.model_settings",
+    "owner": "model-settings"
+  },
+  {
+    "path": "/nexus/dashboard/summary",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_nexus_summary_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/nexus/documents",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_nexus_documents_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/nexus/jobs/active",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_nexus_active_jobs_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/nexus/library/documents",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_nexus_documents_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/nexus/summary",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_nexus_summary_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/nexus/web/status",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_nexus_web_status_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/openapi.json",
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "endpoint_name": "openapi",
+    "module": "fastapi.applications",
+    "owner": "other"
+  },
+  {
+    "path": "/projects",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_projects_api",
+    "module": "app.api.projects",
+    "owner": "other"
+  },
+  {
+    "path": "/projects/{project}/files",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_project_files_api",
+    "module": "app.api.projects",
+    "owner": "other"
+  },
+  {
+    "path": "/projects/{project}/history",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_project_history_api",
+    "module": "app.api.projects",
+    "owner": "other"
+  },
+  {
+    "path": "/projects/{project}/jobs",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_project_jobs_api",
+    "module": "app.api.jobs",
+    "owner": "jobs-router"
+  },
+  {
+    "path": "/redoc",
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "endpoint_name": "redoc_html",
+    "module": "fastapi.applications",
+    "owner": "other"
+  },
+  {
+    "path": "/runtime/cuda-debug",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_runtime_cuda_debug_api",
+    "module": "app.api.runtime_controls",
+    "owner": "runtime-controls"
+  },
+  {
+    "path": "/search/disable",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "disable_search_api",
+    "module": "app.api.runtime_controls",
+    "owner": "runtime-controls"
+  },
+  {
+    "path": "/search/enable",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "enable_search_api",
+    "module": "app.api.runtime_controls",
+    "owner": "runtime-controls"
+  },
+  {
+    "path": "/search/num",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "set_search_num_api",
+    "module": "app.api.runtime_controls",
+    "owner": "runtime-controls"
+  },
+  {
+    "path": "/search/status",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_search_status_api",
+    "module": "app.api.runtime_controls",
+    "owner": "runtime-controls"
+  },
+  {
+    "path": "/settings",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_settings_api",
+    "module": "app.api.settings",
+    "owner": "other"
+  },
+  {
+    "path": "/settings",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "save_settings_api",
+    "module": "app.api.settings",
+    "owner": "other"
+  },
+  {
+    "path": "/settings-defaults",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_settings_defaults_api",
+    "module": "app.api.settings",
+    "owner": "other"
+  },
+  {
+    "path": "/settings/defaults",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_settings_defaults_legacy_api",
+    "module": "app.api.settings",
+    "owner": "other"
+  },
+  {
+    "path": "/settings/{key}",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_setting_api",
+    "module": "app.api.settings",
+    "owner": "other"
+  },
+  {
+    "path": "/settings/{key}",
+    "methods": [
+      "PUT"
+    ],
+    "endpoint_name": "set_setting_api",
+    "module": "app.api.settings",
+    "owner": "other"
+  },
+  {
+    "path": "/streaming/disable",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "disable_streaming_api",
+    "module": "app.api.runtime_controls",
+    "owner": "runtime-controls"
+  },
+  {
+    "path": "/streaming/enable",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "enable_streaming_api",
+    "module": "app.api.runtime_controls",
+    "owner": "runtime-controls"
+  },
+  {
+    "path": "/streaming/status",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_streaming_status_api",
+    "module": "app.api.runtime_controls",
+    "owner": "runtime-controls"
+  },
+  {
+    "path": "/system/env",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "system_env",
+    "module": "app.api.system",
+    "owner": "system"
+  },
+  {
+    "path": "/system/readiness",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "system_readiness",
+    "module": "app.api.system",
+    "owner": "system"
+  },
+  {
+    "path": "/system/summary",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "system_summary",
+    "module": "app.api.system_status",
+    "owner": "system"
+  },
+  {
+    "path": "/system/usage",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "system_usage",
+    "module": "app.api.system_status",
+    "owner": "system"
+  }
+]
