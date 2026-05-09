@@ -1,8 +1,8 @@
-# PR4.45: Settings router ownership and route-shadowing contracts
+# PR4.46: Nexus read-only status router ownership
 
 ## Scope and guardrails
 
-This document records the PR4.45 hardening of settings router ownership and route-shadowing contracts, building on PR4.42 system status, PR4.43 project read-only router work, and PR4.44 job read-only status extraction. Settings endpoints remain `app/api/settings.py` owned, production behavior remains provider-backed through `main.app.state`, and app-factory fallbacks stay conservative and side-effect-free.
+This document records PR4.46 Nexus read-only status/list endpoint extraction, building on PR4.42 system status, PR4.43 project read-only router work, PR4.44 job read-only status extraction, and PR4.45 settings ownership hardening. `GET /nexus/summary`, `GET /nexus/documents`, `GET /nexus/jobs/active`, and `GET /nexus/web/status` are now owned by `app/api/nexus.py`; production behavior remains provider-backed through `main.app.state`, and app-factory fallbacks stay conservative and side-effect-free.
 
 Hard guardrails retained for this PR:
 
@@ -13,7 +13,7 @@ Hard guardrails retained for this PR:
 - Do not move settings provider implementations out of `main.py`; only route ownership belongs in `app/api/settings.py`.
 - Do not remove `/settings-defaults` or the legacy `/settings/defaults` compatibility path.
 - Do not place `/settings/{key}` before static defaults routes because it can shadow `/settings/defaults`.
-- Do not move `POST /jobs/submit`, background job execution, Nexus, Echo, ASR, TTS, or UI behavior.
+- Do not move `POST /jobs/submit`, background job execution, Nexus research/ingest/write/POST behavior, Echo, ASR, TTS, or UI behavior.
 - Do not change UI assets, Echo WebSocket handling, `/model/switch`, `/model/auto-load`, `/debug/llama`, or `benchmark_mem.py`.
 
 ## Legend
@@ -114,11 +114,15 @@ PR4.43 moved the low-risk project read-only list/history/file endpoints to `app.
 
 ## E. Nexus candidates
 
-There are no direct `@app.get('/nexus/...')` or `@app.post('/nexus/...')` decorators remaining in `main.py`; `main.py` mounts the existing Nexus router. Because Nexus includes read-only pages, write operations, exports, and heavy research jobs, do not split it further before project/system work is complete.
+PR4.46 moves only the low-to-medium-risk Nexus read-only status/list endpoints into `app/api/nexus.py`. Production `main.app` registers `nexus_summary_provider`, `nexus_documents_provider`, `nexus_active_jobs_provider`, and `nexus_web_status_provider` on `app.state` to preserve the existing response shapes. `create_app()` serves lightweight fallbacks that do not touch the Nexus DB, filesystem, index, LLM, SearXNG process/network, job registry, or background execution. Nexus research, ingest, upload, delete, write, export/report, source, news, market, and POST routes remain in the existing Nexus router for a dedicated follow-up inventory.
 
 | Method | Path | Handler | Current owner | Kind | Side effect | Globals/managers/registries | create_app fallback | Next move? | Move ban |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| mixed | `/nexus/*` | Nexus router handlers | `app.nexus.router` / subrouters | read-only / write / heavy | research state, report/export files | Nexus stores/services | no | PR4.44+ or later only after separate Nexus plan | yes |
+| GET | `/nexus/summary` | `get_nexus_summary_api` | `app.api.nexus` | read-only | none through fallback; production reads Nexus DB/job status | app-state summary provider | yes, no DB/filesystem/LLM/SearXNG/job execution touch | moved in PR4.46 | yes |
+| GET | `/nexus/documents` | `get_nexus_documents_api` | `app.api.nexus` | read-only / list | none through fallback; production reads Nexus DB | app-state documents provider | yes, empty list without filesystem/index scan | moved in PR4.46 | yes |
+| GET | `/nexus/jobs/active` | `get_nexus_active_jobs_api` | `app.api.nexus` | read-only / status | none through fallback; production reads Nexus active job list | app-state active jobs provider | yes, empty list without registry/background access | moved in PR4.46 | yes |
+| GET | `/nexus/web/status` | `get_nexus_web_status_api` | `app.api.nexus` | read-only / status | none through fallback; production may evaluate configured provider status | app-state web status provider | yes, conservative unavailable status without SearXNG/network probe | moved in PR4.46 | yes |
+| mixed | `/nexus/*` | remaining Nexus API routes | `app.nexus.router` / subrouters | write / heavy / research / ingest | research state, report/export files, uploads, source collection | Nexus stores/services | no | dedicated Nexus write/research inventory only | yes |
 
 ## F. Echo / audio candidates
 
@@ -320,5 +324,16 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
    - Locked the static defaults routes ahead of `/settings/{key}` so `/settings/defaults` cannot be captured as a dynamic key.
    - Production `main.app` keeps settings provider implementations in `main.py` and registers them on `app.state`; `create_app()` keeps conservative fallback reads and echo-only fallback writes.
 
-5. **PR4.45以降**
-   - Jobs submit/background execution, Nexus, Echo, TTS, ASR, model loading/switching, model scans/benchmarks/downloads, and WebSocket/streaming endpoints are heavy and should wait for dedicated plans and contract tests.
+5. **PR4.46: Move Nexus read-only status/list endpoints into `app/api/nexus.py`** — completed
+   - Moved endpoints:
+     - `GET /nexus/summary`
+     - `GET /nexus/documents`
+     - `GET /nexus/jobs/active`
+     - `GET /nexus/web/status`
+   - Production `main.app` installs app-state providers to preserve the existing Nexus response shapes.
+   - `create_app()` uses lightweight fallbacks and does not touch Nexus DB/filesystem/index, LLM, SearXNG process/network probes, job registries, or background execution.
+   - Nexus research, ingest, upload, delete, write, source, news, market, and POST routes remain in the existing Nexus router.
+
+6. **PR4.47以降**
+   - Natural next candidates are Echo read-only status endpoints (for example `/echo/save-status`, `/echo/runtime-status`, and related audio status routes) or a dedicated Nexus write/research/ingest inventory before any further Nexus move.
+   - Jobs submit/background execution, Nexus write/research, Echo streaming, TTS, ASR, model loading/switching, model scans/benchmarks/downloads, and WebSocket/streaming endpoints are heavy and should wait for dedicated plans and contract tests.

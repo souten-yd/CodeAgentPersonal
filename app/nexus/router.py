@@ -223,95 +223,6 @@ def nexus_health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@nexus_router.get("/summary")
-@nexus_router.get("/dashboard/summary")
-def nexus_summary(project: str = Query("default")) -> dict:
-    """Dashboardカード表示向けのサマリー。"""
-    with get_conn() as conn:
-        docs_row = conn.execute(
-            "SELECT COUNT(*) AS c FROM nexus_documents WHERE project = ?",
-            (project,),
-        ).fetchone()
-        chunks_row = conn.execute(
-            """
-            SELECT COUNT(*) AS c
-            FROM nexus_chunks c
-            JOIN nexus_documents d ON d.id = c.document_id
-            WHERE d.project = ?
-            """,
-            (project,),
-        ).fetchone()
-        reports_row = conn.execute(
-            "SELECT COUNT(*) AS c FROM nexus_reports WHERE project = ?",
-            (project,),
-        ).fetchone()
-
-    active_jobs = sum(1 for job in list_active_jobs(limit=500) if job.status in ("queued", "running"))
-    cfg = load_runtime_config()
-    return {
-        "documents": int(docs_row["c"] if docs_row else 0),
-        "chunks": int(chunks_row["c"] if chunks_row else 0),
-        "reports": int(reports_row["c"] if reports_row else 0),
-        "active_jobs": active_jobs,
-        "limits": {
-            "max_upload_mb": cfg.max_upload_mb,
-            "max_upload_bytes": cfg.max_upload_mb * 1024 * 1024,
-            "max_download_mb": cfg.max_download_mb,
-            "max_total_download_mb": cfg.max_total_download_mb,
-            "max_downloads": cfg.max_downloads,
-            "download_timeout_sec": cfg.download_timeout_sec,
-        },
-    }
-
-
-@nexus_router.get("/documents")
-@nexus_router.get("/library/documents")
-def nexus_list_documents(
-    project: str = Query("default"),
-    q: str = Query(""),
-    limit: int = Query(100, ge=1, le=500),
-) -> dict:
-    """Library文書一覧（検索つき）。"""
-    keyword = q.strip().lower()
-    with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT d.id, d.project, d.filename, d.size, d.content_type, d.path, d.extracted_text_path,
-                   d.markdown_path, d.sha256, d.created_at,
-                   COALESCE(COUNT(c.chunk_id), 0) AS chunk_count
-            FROM nexus_documents d
-            LEFT JOIN nexus_chunks c ON c.document_id = d.id
-            WHERE d.project = ?
-            GROUP BY d.id
-            ORDER BY d.created_at DESC
-            LIMIT ?
-            """,
-            (project, limit),
-        ).fetchall()
-
-    documents: list[dict] = []
-    for row in rows:
-        filename = str(row["filename"] or "")
-        if keyword and keyword not in filename.lower():
-            continue
-        documents.append(
-            {
-                "id": row["id"],
-                "project": row["project"],
-                "filename": filename,
-                "size": int(row["size"] or 0),
-                "content_type": row["content_type"],
-                "created_at": row["created_at"],
-                "chunk_count": int(row["chunk_count"] or 0),
-                "extracted_text_path": str(row["extracted_text_path"] or ""),
-                "markdown_path": str(row["markdown_path"] or ""),
-                "has_extracted_text": bool(row["extracted_text_path"]),
-                "has_markdown": bool(row["markdown_path"]),
-            }
-        )
-    return {"documents": documents}
-
-
 @nexus_router.get("/documents/{document_id}")
 def nexus_get_document(document_id: str, project: str = Query("default")) -> dict:
     with get_conn() as conn:
@@ -451,12 +362,6 @@ def nexus_download_extracted_markdown(document_id: str, project: str = Query("de
     return FileResponse(path, filename=f"{document_id}.md")
 
 
-@nexus_router.get("/jobs/active")
-def nexus_active_jobs(limit: int = Query(50, ge=1, le=500)) -> dict:
-    jobs = [job.model_dump(mode="json") for job in list_active_jobs(limit=limit)]
-    return {"jobs": jobs}
-
-
 @nexus_router.get("/jobs/{job_id}")
 def nexus_job_status(job_id: str) -> dict:
     return {"job": get_research_job(job_id)["job"]}
@@ -566,92 +471,6 @@ def nexus_web_search(payload: NexusWebSearchRequest) -> dict:
             "total_items": search.get("total_items", len(items)),
         },
     )
-
-
-@nexus_router.get("/web/status")
-def nexus_web_status() -> dict:
-    cfg = load_runtime_config()
-    last_search_status = get_last_web_search_status()
-    providers: list[str] = []
-    for provider_name in [cfg.web_search_provider, *cfg.search_fallback_providers]:
-        normalized = (provider_name or "").strip().lower()
-        if normalized and normalized not in providers:
-            providers.append(normalized)
-
-    active_provider = providers[0] if providers else (cfg.web_search_provider or "").strip().lower()
-
-    runpod_searxng_autostart_status = os.getenv("RUNPOD_SEARXNG_AUTOSTART_STATUS", "")
-    runpod_searxng_autostart_hint = os.getenv("RUNPOD_SEARXNG_AUTOSTART_HINT", "")
-    searxng_configured = bool(cfg.searxng_url.strip())
-    searxng_probe_ok = True
-    searxng_probe_message = "SearXNG 疎通確認をスキップしました。"
-    if searxng_configured:
-        searxng_probe_ok, searxng_probe_message = _check_searxng_connectivity(cfg.searxng_url)
-    searxng_state, searxng_state_message = _resolve_searxng_state(runpod_searxng_autostart_status, searxng_probe_ok)
-
-    provider_status: dict[str, dict[str, str | bool]] = {}
-    for provider_name in providers:
-        enabled = _is_provider_enabled(provider_name, cfg)
-        provider_configured, provider_message = _is_provider_configured(provider_name, cfg)
-        configured = provider_configured
-        message_parts = [provider_message]
-        if provider_name == "searxng":
-            configured = configured and searxng_probe_ok
-            message_parts = [searxng_state_message, searxng_probe_message]
-        if not enabled:
-            message_parts.append("free-only 設定のため有償/クォータ制プロバイダは無効です。")
-        provider_status[provider_name] = {
-            "kind": _provider_kind(provider_name),
-            "enabled": enabled,
-            "configured": configured,
-            "message": " ".join(part for part in message_parts if part),
-        }
-
-    active_provider_status = provider_status.get(
-        active_provider,
-        {
-            "kind": _provider_kind(active_provider),
-            "enabled": _is_provider_enabled(active_provider, cfg),
-            "configured": False,
-            "message": "プロバイダ状態を取得できませんでした。",
-        },
-    )
-
-    status_message = str(active_provider_status.get("message", ""))
-    if active_provider == "searxng":
-        status_message = searxng_state_message
-    status_non_fatal = not bool(active_provider_status.get("configured", False))
-    status_provider_errors: dict[str, list[str]] = {}
-    if status_non_fatal:
-        status_provider_errors[active_provider or "unknown"] = [status_message or "provider unavailable"]
-
-    return {
-        "enable_web": cfg.enable_web,
-        "provider": cfg.web_search_provider,
-        "fallback_providers": list(cfg.search_fallback_providers),
-        "free_only": cfg.search_free_only,
-        "paid_providers_enabled": cfg.search_paid_providers_enabled,
-        "brave_search_api_key_set": bool(cfg.brave_search_api_key),
-        "searxng_url": cfg.searxng_url,
-        "searxng_configured": searxng_configured,
-        "configured": bool(active_provider_status.get("configured", False)),
-        "active_provider": active_provider,
-        "provider_status": provider_status,
-        "provider_status_active": active_provider_status,
-        "message": status_message,
-        "searxng_state": searxng_state,
-        "searxng_state_message": searxng_state_message,
-        "non_fatal": status_non_fatal,
-        "stub": status_non_fatal,
-        "provider_errors": status_provider_errors,
-        "last_provider_errors": last_search_status.get("last_provider_errors") or {},
-        "last_selected_provider": last_search_status.get("last_selected_provider"),
-        "last_non_fatal": last_search_status.get("last_non_fatal"),
-        "last_message": last_search_status.get("last_message", ""),
-        "last_search_at": last_search_status.get("last_search_at"),
-        "runpod_searxng_autostart_status": runpod_searxng_autostart_status,
-        "runpod_searxng_autostart_hint": runpod_searxng_autostart_hint,
-    }
 
 
 @nexus_router.post("/web/research")
