@@ -12496,8 +12496,7 @@ def _echo_schedule_session_save(session_id: str, session: dict):
     t.start()
 
 
-@app.get("/echo/save-status")
-def echo_save_status():
+def echo_save_status_payload():
     with _echo_save_lock:
         sessions = sorted(_echo_saving_sessions)
     with _echo_minutes_lock:
@@ -12523,6 +12522,9 @@ def echo_runtime_status():
         "saving_sessions": saving_sessions[:20],
         "minutes_sessions": minutes_sessions[:20],
     }
+
+
+app.state.echo_save_status_provider = echo_save_status_payload
 
 
 @app.websocket("/echo/stream")
@@ -13418,8 +13420,7 @@ def echo_import_audio_transcript(req: dict):
     }
 
 
-@app.get("/echo/sessions")
-def echo_list_sessions():
+def echo_sessions_payload():
     """EchoVault フォルダのファイル一覧を返す。"""
     import datetime as _dt
 
@@ -13456,8 +13457,7 @@ def echo_list_sessions():
     return {"files": files}
 
 
-@app.get("/echo/sessions/{filename:path}")
-def echo_download_session(filename: str):
+def echo_session_payload(filename: str):
     """EchoVault ファイルをダウンロード。"""
     safe = os.path.normpath(filename).lstrip("/\\")
     fpath = os.path.join(ECHOVAULT_DIR, safe)
@@ -13466,6 +13466,10 @@ def echo_download_session(filename: str):
     if not os.path.isfile(fpath):
         raise HTTPException(status_code=404, detail="ファイルが見つかりません")
     return _FileResponse(fpath, filename=safe)
+
+
+app.state.echo_sessions_provider = echo_sessions_payload
+app.state.echo_session_provider = echo_session_payload
 
 
 @app.delete("/echo/sessions/{filename:path}")
