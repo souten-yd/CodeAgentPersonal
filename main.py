@@ -107,6 +107,10 @@ from app.nexus.router import (
 from app.nexus.web_scout import get_last_web_search_status, plan_web_queries, run_web_search
 from app.nexus.web_service import execute_nexus_web_search
 from app.server import configure_static_assets, configure_workspace_mount, include_routers
+from app.api.runtime_controls import (
+    CUDA_REGRESSION_BASELINE_REF,
+    CUDA_REGRESSION_SUSPECTED_FILES,
+)
 
 # Windows Proactor: SSE切断時のConnectionResetError警告を抑制
 if sys.platform == "win32":
@@ -2363,7 +2367,18 @@ class ModelManager:
                     log_tail = "".join(f.readlines()[-120:])[-8000:]
             except Exception:
                 log_tail = ""
+        torch_probe = _probe_cuda_debug_torch()
+        ct2_probe = _probe_cuda_debug_ctranslate2()
         return {
+            "baseline_ref": CUDA_REGRESSION_BASELINE_REF,
+            "changed_since_baseline": True,
+            "suspected_changed_files": list(CUDA_REGRESSION_SUSPECTED_FILES),
+            "import_time_probe_detected": False,
+            "torch_cuda_available": torch_probe.get("available", False),
+            "torch_cuda_error": torch_probe.get("error", ""),
+            "ctranslate2_cuda_available": ct2_probe.get("available", False),
+            "ctranslate2_cuda_error": ct2_probe.get("error", ""),
+            "llama_cuda_validation_reason": validation_reason,
             "intended_backend": runtime.get("intended_backend"),
             "runpod_detected": runtime.get("runpod_detected"),
             "os_profile": runtime.get("os_profile"),
@@ -2388,6 +2403,48 @@ class ModelManager:
             "nvidia_smi_memory_after": self._last_nvidia_smi_after,
         }
 
+
+
+def _probe_cuda_debug_torch() -> dict[str, Any]:
+    """Probe main-venv torch CUDA state only when /runtime/cuda-debug is called."""
+    try:
+        import torch  # type: ignore
+
+        available = bool(torch.cuda.is_available())
+        return {
+            "available": available,
+            "error": "",
+            "torch_version": str(getattr(torch, "__version__", "")),
+            "cuda_version": str(getattr(getattr(torch, "version", None), "cuda", "") or ""),
+            "device_count": int(torch.cuda.device_count()) if hasattr(torch.cuda, "device_count") else 0,
+        }
+    except Exception as exc:
+        return {"available": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _probe_cuda_debug_ctranslate2() -> dict[str, Any]:
+    """Probe ctranslate2 CUDA state only when /runtime/cuda-debug is called."""
+    try:
+        import ctranslate2  # type: ignore
+
+        device_count = None
+        supported_compute_types: list[str] = []
+        get_count = getattr(ctranslate2, "get_cuda_device_count", None)
+        if callable(get_count):
+            device_count = int(get_count())
+        get_supported = getattr(ctranslate2, "get_supported_compute_types", None)
+        if callable(get_supported):
+            supported_compute_types = [str(x) for x in (get_supported("cuda") or [])]
+        available = bool((device_count is not None and device_count > 0) or supported_compute_types)
+        return {
+            "available": available,
+            "error": "",
+            "version": str(getattr(ctranslate2, "__version__", "")),
+            "device_count": device_count,
+            "supported_compute_types": supported_compute_types,
+        }
+    except Exception as exc:
+        return {"available": False, "error": f"{type(exc).__name__}: {exc}"}
 
 _model_manager = ModelManager()
 
@@ -9320,9 +9377,11 @@ _voice_model = None
 _voice_model_name = os.environ.get("CODEAGENT_ASR_DEFAULT_MODEL", "large-v3-turbo")
 _voice_model_device = ""
 _voice_model_compute_type = ""
-_audio_runtime_initial = detect_audio_runtime()
-_voice_device = _audio_runtime_initial.asr_device
-_voice_compute_type = _audio_runtime_initial.asr_compute_type
+# Keep ASR device selection lazy.  KasaneCore_v2.7 did not need to probe
+# torch/ctranslate2 while importing ``main:app``; calling detect_audio_runtime()
+# here can initialize CUDA before uvicorn workers and before explicit voice use.
+_voice_device = ""
+_voice_compute_type = ""
 _last_asr_cuda_error = ""
 _last_asr_cuda_error_at = ""
 
@@ -9330,6 +9389,19 @@ _last_asr_cuda_error_at = ""
 def _refresh_voice_runtime_device() -> tuple[str, str]:
     cfg = detect_audio_runtime()
     return cfg.asr_device, cfg.asr_compute_type
+
+
+def _voice_runtime_device_for_status() -> tuple[str, str]:
+    """Return cached ASR device status without import-time CUDA probing.
+
+    The first real ASR load/transcribe path still calls ``detect_audio_runtime()``
+    through ``_refresh_voice_runtime_device()``. Status reads before explicit ASR
+    use report an uninitialized state instead of probing CUDA as a side effect of
+    importing or constructing the FastAPI app.
+    """
+    if _voice_device and _voice_compute_type:
+        return _voice_device, _voice_compute_type
+    return "uninitialized", "uninitialized"
 
 
 def _record_asr_cuda_error(exc: Exception) -> None:
@@ -9445,11 +9517,12 @@ def voice_unload() -> dict:
 
 def voice_status() -> dict:
     with _voice_lock:
+        status_device, status_compute_type = _voice_runtime_device_for_status()
         return {
             "loaded": _voice_model is not None,
             "model": _voice_model_name if _voice_model is not None else "",
-            "device": _voice_device,
-            "compute_type": _voice_compute_type,
+            "device": status_device,
+            "compute_type": status_compute_type,
             "last_cuda_error": _last_asr_cuda_error,
             "last_cuda_error_at": _last_asr_cuda_error_at,
             "lock_locked": _voice_lock.locked(),

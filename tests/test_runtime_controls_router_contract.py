@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 import main
+from app.api.runtime_controls import default_runtime_cuda_debug_payload
 from app.server import create_app
 
 
@@ -36,12 +37,7 @@ def test_create_app_runtime_controls_fallbacks_return_safe_payloads():
     assert streaming_response.json() == {"enabled": False}
 
     assert cuda_response.status_code == 200
-    assert cuda_response.json() == {
-        "intended_backend": "unknown",
-        "runpod_detected": False,
-        "gpu_validation_status": "unavailable",
-        "note": "runtime provider unavailable",
-    }
+    assert cuda_response.json() == default_runtime_cuda_debug_payload()
 
     assert audio_response.status_code == 200
     assert audio_response.json() == {
