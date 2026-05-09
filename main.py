@@ -17721,8 +17721,7 @@ def _probe_sbv2_venv_cuda(timeout_sec: float = 8.0) -> dict:
         return {"available": False, "python_path": py, "error": f"{type(e).__name__}: {e}"}
 
 
-@app.get("/audio/runtime/debug")
-def audio_runtime_debug_api():
+def audio_runtime_debug_payload():
     runtime_cfg = detect_audio_runtime()
     asr_cfg = _resolve_asr_runtime_config()
     voice = voice_status()
@@ -18204,8 +18203,7 @@ def system_summary_payload() -> dict:
         }
     }
 
-@app.get("/debug/model-startup")
-def debug_model_startup():
+def debug_model_startup_payload():
     """
     VRAM未使用・CPUフォールバック時の切り分け用。
     直近の起動コマンドとログ推定ヒントを返す。
@@ -18229,10 +18227,14 @@ def debug_model_startup():
         "runtime_cuda_debug": _model_manager.cuda_debug_dict(),
     }
 
-@app.get("/runtime/cuda-debug")
-def runtime_cuda_debug():
+def runtime_cuda_debug_payload():
     """Return the llama CUDA/backend startup diagnostics used by ModelManager."""
     return _model_manager.cuda_debug_dict()
+
+
+app.state.audio_runtime_debug_provider = audio_runtime_debug_payload
+app.state.model_startup_debug_provider = debug_model_startup_payload
+app.state.runtime_cuda_debug_provider = runtime_cuda_debug_payload
 
 
 @app.get("/debug/llama")

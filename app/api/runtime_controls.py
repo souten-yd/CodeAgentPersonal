@@ -17,6 +17,9 @@ RuntimeLlmCtxProvider = Callable[[], dict[str, Any]]
 RuntimeLlmPropsProvider = Callable[[], dict[str, Any]]
 SearchStatusProvider = Callable[[], dict[str, Any]]
 StreamingStatusProvider = Callable[[], dict[str, Any]]
+RuntimeCudaDebugProvider = Callable[[], dict[str, Any]]
+AudioRuntimeDebugProvider = Callable[[], dict[str, Any]]
+ModelStartupDebugProvider = Callable[[], dict[str, Any]]
 
 
 def default_runtime_llm_ctx_payload() -> dict[str, Any]:
@@ -53,6 +56,36 @@ def default_streaming_status_payload() -> dict[str, Any]:
     }
 
 
+def default_runtime_cuda_debug_payload() -> dict[str, Any]:
+    """Return conservative CUDA diagnostics without live GPU/model probes."""
+    return {
+        "intended_backend": "unknown",
+        "runpod_detected": False,
+        "gpu_validation_status": "unavailable",
+        "note": "runtime provider unavailable",
+    }
+
+
+def default_audio_runtime_debug_payload() -> dict[str, Any]:
+    """Return conservative audio diagnostics without live ASR/TTS probes."""
+    return {
+        "runtime": "unavailable",
+        "asr": {},
+        "tts": {},
+        "note": "audio runtime provider unavailable",
+    }
+
+
+def default_model_startup_debug_payload() -> dict[str, Any]:
+    """Return conservative model startup diagnostics without model-manager access."""
+    return {
+        "status": "unavailable",
+        "hints": [],
+        "log_tail": "",
+        "note": "model startup provider unavailable",
+    }
+
+
 def get_runtime_llm_ctx_provider(request: Request) -> RuntimeLlmCtxProvider | None:
     """Look up the optional app-state provider for LLM context status reads."""
     provider = getattr(request.app.state, "runtime_llm_ctx_provider", None)
@@ -80,6 +113,30 @@ def get_search_status_provider(request: Request) -> SearchStatusProvider | None:
 def get_streaming_status_provider(request: Request) -> StreamingStatusProvider | None:
     """Look up the optional app-state provider for streaming status reads."""
     provider = getattr(request.app.state, "streaming_status_provider", None)
+    if callable(provider):
+        return provider
+    return None
+
+
+def get_runtime_cuda_debug_provider(request: Request) -> RuntimeCudaDebugProvider | None:
+    """Look up the optional app-state provider for CUDA diagnostic reads."""
+    provider = getattr(request.app.state, "runtime_cuda_debug_provider", None)
+    if callable(provider):
+        return provider
+    return None
+
+
+def get_audio_runtime_debug_provider(request: Request) -> AudioRuntimeDebugProvider | None:
+    """Look up the optional app-state provider for audio diagnostic reads."""
+    provider = getattr(request.app.state, "audio_runtime_debug_provider", None)
+    if callable(provider):
+        return provider
+    return None
+
+
+def get_model_startup_debug_provider(request: Request) -> ModelStartupDebugProvider | None:
+    """Look up the optional app-state provider for model startup diagnostic reads."""
+    provider = getattr(request.app.state, "model_startup_debug_provider", None)
     if callable(provider):
         return provider
     return None
@@ -115,3 +172,27 @@ def get_streaming_status_api(request: Request) -> dict[str, Any]:
     if provider is not None:
         return provider()
     return default_streaming_status_payload()
+
+
+@router.get("/runtime/cuda-debug")
+def get_runtime_cuda_debug_api(request: Request) -> dict[str, Any]:
+    provider = get_runtime_cuda_debug_provider(request)
+    if provider is not None:
+        return provider()
+    return default_runtime_cuda_debug_payload()
+
+
+@router.get("/audio/runtime/debug")
+def get_audio_runtime_debug_api(request: Request) -> dict[str, Any]:
+    provider = get_audio_runtime_debug_provider(request)
+    if provider is not None:
+        return provider()
+    return default_audio_runtime_debug_payload()
+
+
+@router.get("/debug/model-startup")
+def get_model_startup_debug_api(request: Request) -> dict[str, Any]:
+    provider = get_model_startup_debug_provider(request)
+    if provider is not None:
+        return provider()
+    return default_model_startup_debug_payload()
