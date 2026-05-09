@@ -18154,6 +18154,10 @@ def trigger_memory_analysis(job_id: str, project: str = "default"):
     _t.Thread(target=_analyze_job_for_memory, args=(job_id, project, LLM_URL), daemon=True).start()
     return {"ok": True, "message": f"memory analysis triggered for job {job_id}"}
 
+def health_payload() -> dict:
+    return {"status": "ok"}
+
+
 def _get_lightweight_health_status() -> dict:
     try:
         res = requests.get(f"http://127.0.0.1:{_model_manager.llm_port}/health", timeout=3)
@@ -18389,6 +18393,7 @@ def system_readiness_payload():
     return payload
 
 
+@app.get("/system/usage/debug")
 def system_usage_debug_payload():
     usage = get_system_usage_info()
     diagnostics = getattr(app.state, "system_usage_diagnostics", None)
@@ -18417,6 +18422,7 @@ def system_usage_debug_payload():
     }
 
 
+app.state.health_provider = health_payload
 app.state.system_readiness_provider = system_readiness_payload
 app.state.system_usage_settings = MainSettingsPort()
 app.state.system_usage_diagnostics = MainUsageDiagnosticsAdapter()

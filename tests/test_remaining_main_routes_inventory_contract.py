@@ -52,7 +52,7 @@ def test_remaining_main_routes_inventory_doc_exists_and_names_next_pr_sequence()
 
     required_sections = [
         "A. Already moved / out of scope",
-        "B. System read-only candidates",
+        "B. System read-only status after PR4.42",
         "C. Settings candidates",
         "D. Project / file / job candidates",
         "E. Nexus candidates",
@@ -116,12 +116,12 @@ def test_already_moved_read_only_model_settings_and_runtime_routes_do_not_return
         _assert_route_owner(path, method, module_name, handler_name)
 
 
-def test_existing_health_system_and_settings_router_routes_are_out_of_scope_for_this_pr():
+def test_system_status_and_settings_router_routes_are_out_of_scope_for_this_pr():
     expected = [
-        ("/health", "GET", "app.api.health", "health"),
-        ("/system/summary", "GET", "app.api.system", "system_summary"),
-        ("/system/usage", "GET", "app.api.system", "system_usage"),
-        ("/system/usage/debug", "GET", "app.api.system", "system_usage_debug"),
+        ("/health", "GET", "app.api.system_status", "health"),
+        ("/system/summary", "GET", "app.api.system_status", "system_summary"),
+        ("/system/usage", "GET", "app.api.system_status", "system_usage"),
+        ("/system/usage/debug", "GET", "main", "system_usage_debug_payload"),
         ("/settings-defaults", "GET", "app.api.settings", "get_settings_defaults_api"),
         ("/settings", "GET", "app.api.settings", "get_settings_api"),
         ("/settings", "POST", "app.api.settings", "save_settings_api"),

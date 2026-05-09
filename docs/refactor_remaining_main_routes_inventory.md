@@ -1,13 +1,13 @@
-# PR4.41: Re-inventory remaining `main.py` routes after model/runtime router splits
+# PR4.42: System read-only endpoints moved into `app/api/system_status.py`
 
 ## Scope and guardrails
 
-This document is an inventory-only checkpoint after the PR4.30-PR4.40 router splits. It does **not** authorize endpoint moves, behavior changes, live runtime probes, or UI changes in PR4.41.
+This document records the PR4.42 extraction of low-risk system read-only endpoints into `app/api/system_status.py`. The move keeps production responses provider-backed while preserving lightweight app-factory fallbacks.
 
-Hard guardrails for this PR:
+Hard guardrails retained for this PR:
 
-- Do not move endpoints.
-- Do not change `main.py` behavior.
+- Do not move diagnostic/heavy system endpoints such as `/system/usage/debug`.
+- Do not change non-target `main.py` behavior.
 - Do not change LLM / ASR / TTS / SBV2 / Runpod llama search behavior.
 - Do not change `app/api/runtime_controls.py` or `app/api/model_settings.py`.
 - Do not change UI assets, Echo WebSocket handling, `/model/switch`, `/model/auto-load`, `/debug/llama`, or `benchmark_mem.py`.
@@ -26,15 +26,15 @@ Hard guardrails for this PR:
 
 ## A. Already moved / out of scope
 
-These routes are already router-owned and are out of scope for PR4.41. If they appear as `main`-owned routes again, that is a regression.
+These routes are already router-owned after PR4.42. If the PR4.42 system status routes appear as direct `main.py` decorators again, that is a regression.
 
 | Method | Path | Handler | Current owner | Kind | Side effect | Globals/managers/registries | create_app fallback | Next move? | Move ban |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| GET | `/health` | `health` | `app.api.health` | read-only | none | none | yes | Candidate name for PR4.42 only if consolidating system status routers | no behavior move in PR4.41 |
+| GET | `/health` | `health` | `app.api.system_status` | read-only | none | optional health provider | yes | moved in PR4.42 | yes |
 | GET | `/system/readiness` | `system_readiness_api` | `app.api.system` | read-only | none | optional providers | yes | already moved | yes in PR4.41 |
-| GET | `/system/summary` | `system_summary` | `app.api.system` | read-only | none | optional providers | yes | PR4.42 may consolidate into `system_status.py` if desired | yes in PR4.41 |
-| GET | `/system/usage` | `system_usage` | `app.api.system` | read-only | live/light probe possible through provider | optional providers | yes | PR4.42 candidate if only light provider path is retained | yes in PR4.41 |
-| GET | `/system/usage/debug` | `system_usage_debug` | `app.api.system` | read-only / diagnostic | debug probe | optional providers | yes | not PR4.42; keep debug/heavy separate | yes |
+| GET | `/system/summary` | `system_summary` | `app.api.system_status` | read-only | none | optional summary provider | yes | moved in PR4.42 | yes |
+| GET | `/system/usage` | `system_usage` | `app.api.system_status` | read-only | live/light probe possible only through production provider | optional usage provider | yes, no probe | moved in PR4.42 | yes |
+| GET | `/system/usage/debug` | `system_usage_debug_payload` | `main` | read-only / diagnostic | debug probe | usage diagnostics/provider | no factory route | intentionally left in `main.py` | yes |
 | GET | `/system/env` | `system_env_api` | `app.api.system` | read-only | none | environment detection | yes | already moved | yes |
 | GET | `/settings-defaults` | `get_settings_defaults_api` | `app.api.settings` | read-only | none | optional settings provider | yes | already moved | yes |
 | GET | `/settings` | `get_settings_api` | `app.api.settings` | read-only | none | optional settings provider | yes | already moved | yes |
@@ -61,16 +61,16 @@ These routes are already router-owned and are out of scope for PR4.41. If they a
 | `/static/*` | static files | Starlette static mount | `app.server.configure_static_assets` called by `main.py` | static | serves files | `WEB_DIR` | yes when directory provided | not next | yes |
 | `/favicon` | browser favicon request | covered by static/UI assets when present | static mount / UI assets | static | serves files | static dirs | yes when asset exists | not next | yes |
 
-## B. System read-only candidates
+## B. System read-only status after PR4.42
 
-Current repository state: the low-risk system endpoints are already outside direct `main.py` route decorators. They remain the safest next consolidation target because they have provider fallbacks and low coupling compared with project/jobs/audio/model routes.
+PR4.42 moved the low-risk system read-only endpoints into `app/api/system_status.py`. Production `main.app` keeps the existing provider-backed response shapes, while `create_app()` returns conservative fallback payloads without live GPU, llama, ASR, TTS, runtime, or model-manager probes. `/system/usage/debug` is diagnostic-oriented and intentionally remains a direct `main.py` route.
 
 | Method | Path | Handler | Current owner | Kind | Side effect | Globals/managers/registries | create_app fallback | Next move? | Move ban |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| GET | `/health` | `health` | `app.api.health` | read-only | none | none | yes | PR4.42 consolidation candidate | no move in PR4.41 |
-| GET | `/system/summary` | `system_summary` | `app.api.system` | read-only | none | provider-backed status | yes | PR4.42 candidate | no move in PR4.41 |
-| GET | `/system/usage` | `system_usage` | `app.api.system` | read-only | light usage probe via provider | provider-backed system usage | yes | PR4.42 candidate if live probe stays light | no move in PR4.41 |
-| GET | `/system/usage/debug` | `system_usage_debug` | `app.api.system` | read-only / diagnostic | debug probe | provider-backed debug details | yes | not PR4.42 | yes for now |
+| GET | `/health` | `health` | `app.api.system_status` | read-only | none | optional health provider | yes | moved in PR4.42 | yes |
+| GET | `/system/summary` | `system_summary` | `app.api.system_status` | read-only | none | provider-backed status | yes | moved in PR4.42 | yes |
+| GET | `/system/usage` | `system_usage` | `app.api.system_status` | read-only | light usage probe only via production provider | provider-backed system usage | yes, fallback does not probe | moved in PR4.42 | yes |
+| GET | `/system/usage/debug` | `system_usage_debug_payload` | `main` | read-only / diagnostic | debug probe | provider-backed debug details | no factory route | diagnostic; keep in `main.py` | yes |
 
 ## C. Settings candidates
 
@@ -285,13 +285,14 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
 
 ## Recommended next PR sequence
 
-1. **PR4.42: Move low-risk system read-only endpoints into `app/api/system_status.py`**
-   - Candidate endpoints:
+1. **PR4.42: Move low-risk system read-only endpoints into `app/api/system_status.py`** — completed
+   - Moved endpoints:
      - `GET /health`
      - `GET /system/summary`
      - `GET /system/usage`
-   - Limit this to lightweight, provider-backed/live-safe probes only.
-   - Exclude `GET /system/usage/debug` and other debug/heavy probes.
+   - Production `main.app` uses providers to preserve existing payload shapes.
+   - `create_app()` uses no-probe fallbacks.
+   - `GET /system/usage/debug` remains in `main.py` because it is diagnostic-oriented.
 
 2. **PR4.43: Move project read-only list/history endpoints into `app/api/projects.py`**
    - Candidate endpoints:

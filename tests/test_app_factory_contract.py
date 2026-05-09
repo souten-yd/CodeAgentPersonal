@@ -59,6 +59,7 @@ def test_create_app_can_optionally_serve_workspace_index(tmp_path):
 
 
 def test_main_app_system_usage_providers_are_callable():
+    assert callable(main.app.state.health_provider)
     assert callable(main.app.state.system_usage_provider)
     assert callable(main.app.state.system_usage_debug_provider)
 
@@ -125,7 +126,7 @@ def test_create_app_health_endpoint_returns_ok():
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"ok": True, "status": "ok"}
 
 
 def test_create_app_system_readiness_endpoint_returns_ready():
