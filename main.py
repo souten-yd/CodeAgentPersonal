@@ -15475,8 +15475,7 @@ async def stream(req: ChatRequest):
 # プロジェクト管理API
 # =========================
 
-@app.get("/projects")
-def list_projects():
+def projects_list_payload():
     """プロジェクト一覧を返す"""
     projects = []
     for name in sorted(os.listdir(WORK_DIR)):
@@ -15519,9 +15518,9 @@ def delete_project(name: str):
     shutil.rmtree(path)
     return {"deleted": name}
 
-@app.get("/projects/{name}/files")
-def project_files(name: str):
+def project_files_payload(project: str):
     """Project file list for preview / file manager tabs."""
+    name = project
     path = _project_root(name)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Project not found")
@@ -16154,9 +16153,9 @@ async def task_stream(req: TaskStreamRequest):
 # 履歴API
 # =========================
 
-@app.get("/projects/{name}/history")
-def project_history(name: str, limit: int = 50):
+def project_history_payload(project: str, limit: int = 50):
     """プロジェクトの会話履歴を返す（古い順）"""
+    name = project
     try:
         conn = get_db(name)
         rows = conn.execute(
@@ -16178,6 +16177,10 @@ def project_history(name: str, limit: int = 50):
         return {"sessions": sessions}
     except Exception as e:
         return {"sessions": [], "error": str(e)}
+
+app.state.projects_list_provider = projects_list_payload
+app.state.project_history_provider = project_history_payload
+app.state.project_files_provider = project_files_payload
 
 # =========================
 # llama.cpp プロパティ取得 (コンテキスト長など)

@@ -60,7 +60,7 @@ def test_remaining_main_routes_inventory_doc_exists_and_names_next_pr_sequence()
         "G. Model write/heavy candidates",
         "H. UI/static candidates",
         "PR4.42: Move low-risk system read-only endpoints into `app/api/system_status.py`",
-        "PR4.43: Move project read-only list/history endpoints into `app/api/projects.py`",
+        "PR4.43: Move project read-only endpoints into `app/api/projects.py`",
         "PR4.44以降",
     ]
     for section in required_sections:
@@ -75,8 +75,8 @@ def test_remaining_main_routes_inventory_doc_exists_and_names_next_pr_sequence()
         "/settings-defaults",
         "/settings/{key}",
         "/projects",
-        "/projects/{name}/history",
-        "/projects/{name}/files",
+        "/projects/{project}/history",
+        "/projects/{project}/files",
         "/jobs/submit",
         "/jobs/{job_id}/poll",
         "/nexus/*",
@@ -168,14 +168,18 @@ def test_write_and_heavy_job_routes_remain_in_main_py():
         _assert_main_owner(path, method, handler_name)
 
 
-def test_project_routes_remain_main_owned_until_project_router_followup():
-    expected = [
-        ("/projects", "GET", "list_projects"),
+def test_project_read_only_routes_moved_to_projects_router_while_write_and_jobs_stay_main_owned():
+    moved_routes = [
+        ("/projects", "GET", "app.api.projects", "get_projects_api"),
+        ("/projects/{project}/files", "GET", "app.api.projects", "get_project_files_api"),
+        ("/projects/{project}/history", "GET", "app.api.projects", "get_project_history_api"),
+    ]
+    for path, method, module_name, handler_name in moved_routes:
+        _assert_route_owner(path, method, module_name, handler_name)
+
+    main_owned = [
         ("/projects", "POST", "create_project"),
-        ("/projects/{name}/files", "GET", "project_files"),
-        ("/projects/{name}/history", "GET", "project_history"),
         ("/projects/{name}/jobs", "GET", "list_jobs"),
     ]
-
-    for path, method, handler_name in expected:
+    for path, method, handler_name in main_owned:
         _assert_main_owner(path, method, handler_name)
