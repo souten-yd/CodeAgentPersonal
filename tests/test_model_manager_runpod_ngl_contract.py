@@ -152,6 +152,164 @@ def test_windows_try_start_allows_autofit_ngl_omission(tmp_path, monkeypatch):
     assert "-ngl=auto(fit)" in Path(main.LLAMA_STARTUP_LOG_PATH).read_text(encoding="utf-8", errors="ignore")
 
 
+def test_llama_startup_parser_accepts_offloaded_layers_line(tmp_path, monkeypatch):
+    manager, _spec = _manager(tmp_path, monkeypatch)
+    Path(main.LLAMA_STARTUP_LOG_PATH).write_text(
+        "load_tensors: offloaded 43/43 layers to GPU\n"
+        "llama_model_load: n_ctx      = 4096\n",
+        encoding="utf-8",
+    )
+
+    parsed = manager._parse_llama_gpu_startup_log()
+
+    assert parsed["n_gpu_layers"] == 43
+    assert parsed["total_layers"] == 43
+    assert parsed["gpu_offload_layers"] == 43
+    assert parsed["offload_line"] == "load_tensors: offloaded 43/43 layers to GPU"
+
+
+def test_llama_startup_parser_counts_repeating_and_output_offload(tmp_path, monkeypatch):
+    manager, _spec = _manager(tmp_path, monkeypatch)
+    Path(main.LLAMA_STARTUP_LOG_PATH).write_text(
+        "load_tensors: offloading 41 repeating layers to GPU\n"
+        "load_tensors: offloading output layer to GPU\n",
+        encoding="utf-8",
+    )
+
+    parsed = manager._parse_llama_gpu_startup_log()
+
+    assert parsed["gpu_offload_layers"] == 42
+    assert "41 repeating layers" in parsed["offload_line"]
+    assert "output layer" in parsed["offload_line"]
+
+
+def test_runpod_linux_validation_ok_without_ngl_when_cuda_and_offload_present(tmp_path, monkeypatch):
+    manager, spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    monkeypatch.setattr(main, "IS_RUNPOD_RUNTIME", True)
+    monkeypatch.setattr(main._sp, "Popen", lambda cmd, stdout=None, stderr=None, creationflags=0: _FakePopen(cmd, stdout, stderr, creationflags))
+    monkeypatch.setattr(
+        manager,
+        "_parse_llama_gpu_startup_log",
+        lambda: {
+            "n_gpu_layers": None,
+            "gpu_offload_layers": 43,
+            "total_layers": 43,
+            "offload_line": "load_tensors: offloaded 43/43 layers to GPU",
+            "cuda_buffer_mib": 2883.51,
+            "cpu_buffer_mib": 2208.0,
+        },
+    )
+
+    result = manager._try_start_once(spec, gpu_layers=999, eff_ck="q8_0", eff_cv="q8_0", gpu_vendor="nvidia", emit=lambda *a: None)
+
+    assert result == "ok"
+    assert manager._last_llama_gpu_log["gpu_validation_status"] == "ok"
+    assert "parsed_gpu_offload_layers=43" in manager._last_llama_gpu_log["gpu_validation_reason"]
+
+
+def test_runpod_linux_validation_ok_with_cuda_buffer_and_vram_increase(tmp_path, monkeypatch):
+    manager, spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    memory_snapshots = [
+        [{"index": "0", "memory_used_mib": 4, "memory_total_mib": 24576}],
+        [{"index": "0", "memory_used_mib": 3956, "memory_total_mib": 24576}],
+    ]
+    monkeypatch.setattr(manager, "_collect_nvidia_smi_memory", lambda: memory_snapshots.pop(0))
+    monkeypatch.setattr(main, "IS_RUNPOD_RUNTIME", True)
+    monkeypatch.setattr(main._sp, "Popen", lambda cmd, stdout=None, stderr=None, creationflags=0: _FakePopen(cmd, stdout, stderr, creationflags))
+    monkeypatch.setattr(
+        manager,
+        "_parse_llama_gpu_startup_log",
+        lambda: {"n_gpu_layers": None, "cuda_buffer_mib": 2883.51, "cpu_buffer_mib": 2208.0},
+    )
+
+    result = manager._try_start_once(spec, gpu_layers=999, eff_ck="q8_0", eff_cv="q8_0", gpu_vendor="nvidia", emit=lambda *a: None)
+
+    assert result == "ok"
+    assert manager._last_llama_gpu_log["gpu_validation_status"] == "ok"
+    assert "nvidia_smi_memory_delta_mib=3952" in manager._last_llama_gpu_log["gpu_validation_reason"]
+
+
+def test_cuda_debug_fixture_with_offloaded_layers_is_not_failed(tmp_path, monkeypatch):
+    manager, _spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    manager._last_nvidia_smi_before = [{"index": "0", "memory_used_mib": 4, "memory_total_mib": 24576}]
+    manager._last_nvidia_smi_after = [{"index": "0", "memory_used_mib": 3956, "memory_total_mib": 24576}]
+    manager._last_llama_gpu_log = {
+        "requested_ngl": 999,
+        "n_gpu_layers": 43,
+        "gpu_offload_layers": 43,
+        "total_layers": 43,
+        "offload_line": "load_tensors: offloaded 43/43 layers to GPU",
+        "cuda_buffer_mib": 2883.51,
+        "cpu_buffer_mib": 2208.0,
+    }
+    manager._record_ngl_search_debug(
+        requested_ngl_initial=999,
+        search_attempts=[{"ngl": 999, "result": "ok", "binary": False}],
+        final_requested_ngl=999,
+        final_parsed_n_gpu_layers=43,
+    )
+    Path(main.LLAMA_STARTUP_LOG_PATH).write_text("load_tensors: offloaded 43/43 layers to GPU\n", encoding="utf-8")
+
+    debug = manager.cuda_debug_dict()
+
+    assert debug["gpu_validation_status"] == "ok"
+    assert debug["parsed_gpu_offload_layers"] == 43
+    assert debug["parsed_total_layers"] == 43
+    assert debug["final_requested_ngl"] == 999
+    assert debug["final_parsed_n_gpu_layers"] == 43
+    assert debug["search_attempts"][0]["result"] == "ok"
+    assert "offloaded 43/43" in debug["llama_startup_log_tail"]
+
+
+def test_runpod_linux_validation_fails_for_cpu_only_no_cuda_no_vram_increase(tmp_path, monkeypatch):
+    manager, spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    memory_snapshots = [
+        [{"index": "0", "memory_used_mib": 4, "memory_total_mib": 24576}],
+        [{"index": "0", "memory_used_mib": 4, "memory_total_mib": 24576}],
+    ]
+    monkeypatch.setattr(manager, "_collect_nvidia_smi_memory", lambda: memory_snapshots.pop(0))
+    monkeypatch.setattr(main, "IS_RUNPOD_RUNTIME", True)
+    monkeypatch.setattr(main._sp, "Popen", lambda cmd, stdout=None, stderr=None, creationflags=0: _FakePopen(cmd, stdout, stderr, creationflags))
+    monkeypatch.setattr(
+        manager,
+        "_parse_llama_gpu_startup_log",
+        lambda: {"n_gpu_layers": None, "cuda_buffer_mib": None, "cpu_buffer_mib": 2208.0},
+    )
+
+    result = manager._try_start_once(spec, gpu_layers=999, eff_ck="q8_0", eff_cv="q8_0", gpu_vendor="nvidia", emit=lambda *a: None)
+
+    assert result == "fail"
+    assert manager._last_llama_gpu_log["gpu_validation_status"] == "fail"
+    assert "CUDA buffer not detected" in manager._last_llama_gpu_log["gpu_validation_reason"]
+
 def test_runpod_linux_start_uses_proven_ngl_before_gpu_layers(tmp_path, monkeypatch):
     manager, spec = _manager(tmp_path, monkeypatch)
     calls = []
