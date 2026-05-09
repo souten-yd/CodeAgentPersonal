@@ -46,6 +46,7 @@ def test_runtime_controls_inventory_doc_exists_and_mentions_hotfix_diagnostics()
         "/audio/runtime/debug",
         "/runtime/cuda-debug",
         "/debug/model-startup",
+        "/debug/llama",
         "/model/switch",
         "/model/auto-load",
         "/models/gguf/search",
@@ -58,6 +59,7 @@ def test_runtime_controls_inventory_doc_exists_and_mentions_hotfix_diagnostics()
     assert "PR4.39: Move read-only runtime status endpoints" in text
     assert "PR4.40: Move runtime diagnostics endpoints with provider fallback" in text
     assert "PR4.39 moved only the read-only runtime status endpoints" in text
+    assert "PR4.40 moved the lower-risk read-only diagnostic endpoints" in text
 
 
 def test_read_only_runtime_status_endpoints_belong_to_runtime_controls_router():
@@ -88,15 +90,19 @@ def test_runtime_write_controls_still_belong_to_main_py_without_execution():
         _assert_main_owner(path, method, handler_name)
 
 
-def test_hotfix_runtime_audio_cuda_diagnostics_still_belong_to_main_py():
+def test_runtime_audio_cuda_diagnostics_belong_to_runtime_controls_router():
     expected = [
-        ("/runtime/cuda-debug", "GET", "runtime_cuda_debug"),
-        ("/audio/runtime/debug", "GET", "audio_runtime_debug_api"),
-        ("/debug/model-startup", "GET", "debug_model_startup"),
+        ("/runtime/cuda-debug", "GET", "get_runtime_cuda_debug_api"),
+        ("/audio/runtime/debug", "GET", "get_audio_runtime_debug_api"),
+        ("/debug/model-startup", "GET", "get_model_startup_debug_api"),
     ]
 
     for path, method, handler_name in expected:
-        _assert_main_owner(path, method, handler_name)
+        _assert_route_owner(path, method, "app.api.runtime_controls", handler_name)
+
+
+def test_broad_llama_diagnostic_still_belongs_to_main_py():
+    _assert_main_owner("/debug/llama", "GET", "debug_llama")
 
 
 def test_heavy_model_db_gguf_scan_and_benchmark_endpoints_remain_in_main_py():

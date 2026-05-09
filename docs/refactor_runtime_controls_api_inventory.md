@@ -1,24 +1,26 @@
-# PR4.39: Runtime Controls API Inventory
+# PR4.40: Runtime Controls API Inventory
 
 This inventory tracks the runtime-control and diagnostics endpoints after the
-low-risk read-only runtime status split and the Runpod llama, ASR, and TTS
-hotfixes. PR4.39 moved only the read-only runtime status endpoints into
-`app/api/runtime_controls.py`; no write, diagnostic, heavy, LLM/ASR/TTS/SBV2,
-Runpod llama layer search, CUDA validation/parser, UI, model DB schema, or
-benchmark behavior is modified.
+low-risk read-only runtime status split, the lower-risk read-only diagnostics
+split, and the Runpod llama, ASR, and TTS hotfixes. PR4.39 moved only the
+read-only runtime status endpoints into `app/api/runtime_controls.py`; PR4.40
+then moved the selected read-only diagnostics with provider fallbacks. No write,
+heavy, LLM/ASR/TTS/SBV2 runtime logic, Runpod llama layer search, CUDA
+validation/parser, UI, model DB schema, or benchmark behavior is modified.
 
 ## Scope and owner policy
 
-- **Current owner for read-only runtime status endpoints:** `app/api/runtime_controls.py`.
-- **Current owner for write, diagnostic, and heavy endpoints in this document:** `main.py`.
+- **Current owner for read-only runtime status and selected diagnostic endpoints:** `app/api/runtime_controls.py`.
+- **Current owner for write, broad heavy diagnostic, and heavy endpoints in this document:** `main.py`.
 - **Already moved model-settings endpoints are out of scope:** read-only
   `GET /models/orchestration`, `GET /models/roles`, `GET /models/db`,
   `GET /models/db/status`, and `GET /model/status` are owned by
   `app/api/model_settings.py` and are tracked in
   `docs/refactor_model_settings_api_inventory.md`.
 - **PR4.39 moved only the read-only runtime status endpoints.** The owner
-  contract test intentionally asserts that runtime write controls, audio,
-  CUDA/model-startup diagnostic, model-manager write, and heavy model DB/GGUF
+  contract test preserves that status split and PR4.40 extends runtime-controls
+  ownership to the selected CUDA/audio/model-startup diagnostics. Runtime write
+  controls, `GET /debug/llama`, model-manager write, and heavy model DB/GGUF
   endpoints listed here remain owned by `main.py`.
 - **`create_app()` fallback meaning:** whether a future router could expose a
   conservative default provider for isolated app-factory tests without touching
@@ -39,9 +41,9 @@ benchmark behavior is modified.
 | Streaming runtime controls | `GET /streaming/status` | `get_streaming_status_api` | `app/api/runtime_controls.py` | Read-only | No mutation. | `app.state.streaming_status_provider` in production; safe fallback in `create_app()`. | Implemented; returns streaming disabled by default. | Moved in PR4.39. | No. |
 | Streaming runtime controls | `POST /streaming/enable` | `streaming_enable` | `main.py` | Write | Mutates `_llm_streaming` and prints a status line. | `_llm_streaming`. | No for write semantics without a runtime write provider. | Later only. | Yes for PR4.39/PR4.40. |
 | Streaming runtime controls | `POST /streaming/disable` | `streaming_disable` | `main.py` | Write | Mutates `_llm_streaming` and prints a status line. | `_llm_streaming`. | No for write semantics without a runtime write provider. | Later only. | Yes for PR4.39/PR4.40. |
-| Audio runtime diagnostics | `GET /audio/runtime/debug` | `audio_runtime_debug_api` | `main.py` | Read-only diagnostic probe | No intentional mutation, but probes subprocess/Python/CUDA and reads runtime state. | `detect_audio_runtime`, `_resolve_asr_runtime_config`, `voice_status`, `_tts_engine_registry`, `_probe_main_torch_cuda`, `_probe_sbv2_venv_cuda`. | Yes, but only through an audio diagnostics provider that can return conservative defaults. | PR4.40 candidate. | No, but do not move in PR4.39. |
-| CUDA / model startup diagnostics | `GET /runtime/cuda-debug` | `runtime_cuda_debug` | `main.py` | Read-only diagnostic | No mutation; exposes model-manager CUDA/backend diagnostics. | `_model_manager.cuda_debug_dict()`. | Yes, through a model-manager diagnostics provider. | PR4.40 candidate. | No, but do not move in PR4.39. |
-| CUDA / model startup diagnostics | `GET /debug/model-startup` | `debug_model_startup` | `main.py` | Read-only diagnostic | No mutation; reads startup hints and log tail. | `_model_manager`, `_infer_startup_failure_hints`, `LLAMA_STARTUP_LOG_PATH`, filesystem log read. | Yes, through a diagnostics provider that avoids filesystem access by default. | PR4.40 candidate. | No, but do not move in PR4.39. |
+| Audio runtime diagnostics | `GET /audio/runtime/debug` | `get_audio_runtime_debug_api` | `app/api/runtime_controls.py` | Read-only diagnostic probe | No intentional mutation; production provider preserves existing subprocess/Python/CUDA probes and runtime-state reads. | `app.state.audio_runtime_debug_provider` in production; safe fallback in `create_app()`. | Implemented; fallback avoids live audio/CUDA/subprocess probes. | Moved in PR4.40. | No. |
+| CUDA / model startup diagnostics | `GET /runtime/cuda-debug` | `get_runtime_cuda_debug_api` | `app/api/runtime_controls.py` | Read-only diagnostic | No mutation; production provider exposes existing model-manager CUDA/backend diagnostics. | `app.state.runtime_cuda_debug_provider` in production; safe fallback in `create_app()`. | Implemented; fallback avoids model-manager/GPU access. | Moved in PR4.40. | No. |
+| CUDA / model startup diagnostics | `GET /debug/model-startup` | `get_model_startup_debug_api` | `app/api/runtime_controls.py` | Read-only diagnostic | No mutation; production provider preserves existing startup hints and log-tail reads. | `app.state.model_startup_debug_provider` in production; safe fallback in `create_app()`. | Implemented; fallback avoids model-manager and filesystem access. | Moved in PR4.40. | No. |
 | CUDA / model startup diagnostics | `GET /debug/llama` | `debug_llama` | `main.py` | Read-only heavy diagnostic | No intentional mutation; performs broad model, VRAM, process, health, and log probes. | `_model_manager`, `_get_total_free_vram_mb`, `_calc_safe_gpu_layers`, `_read_gguf_metadata`, runtime health/log helpers. | No until the broad debug payload is split into providers. | Not yet. | Yes; leave in `main.py`. |
 | Model manager write/runtime controls | `POST /model/switch` | `model_switch` | `main.py` | Write/runtime action | Starts a background thread that calls `_model_manager.ensure_model(key)`. | `_model_manager`, `choose_model_for_role`, `get_runtime_model_catalog`, `threading`. | No for write/thread semantics without a model-manager action provider. | Later only. | Yes for PR4.39/PR4.40. |
 | Model manager write/runtime controls | `POST /model/auto-load` | `model_auto_load` | `main.py` | Write/runtime action | Schedules default model load and may start background work. | `schedule_default_model_load`. | No for scheduler semantics without a provider. | Later only. | Yes for PR4.39/PR4.40. |
@@ -70,19 +72,21 @@ payloads registered from `main.py`, while `create_app()` returns safe fallback
 values without touching live model-manager state, live HTTP probes, or runtime
 globals directly.
 
-## Diagnostics candidates after read-only runtime controls
+## Read-only diagnostics moved in PR4.40
 
-These endpoints are the recommended PR4.40 migration set because they are
-read-only but need explicit provider fallback seams for CUDA/audio/model-startup
-probes:
+PR4.40 moved the lower-risk read-only diagnostic endpoints into
+`app/api/runtime_controls.py` behind explicit provider seams. Production
+`main.app` registers providers that preserve the existing CUDA/audio/model-startup
+payload shapes, while `create_app()` returns conservative fallbacks without live
+CUDA, audio, model-manager, subprocess, or log probes:
 
 - `GET /runtime/cuda-debug`
 - `GET /audio/runtime/debug`
 - `GET /debug/model-startup`
 
-`GET /debug/llama` is intentionally not included in PR4.40 because it is a broad
-heavy diagnostic that combines model catalog, GGUF metadata, VRAM/process,
-health-check, and log-tail concerns.
+`GET /debug/llama` remains in `main.py` because it is a broad heavy diagnostic
+that combines model catalog, GGUF metadata, VRAM/process, health-check, and
+log-tail concerns.
 
 ## Deferred write/runtime actions
 
@@ -107,21 +111,21 @@ side-effect providers are explicit and tested:
 2. **PR4.40: Move runtime diagnostics endpoints with provider fallback.** Move
    `GET /runtime/cuda-debug`, `GET /audio/runtime/debug`, and
    `GET /debug/model-startup` after each diagnostic provider has conservative
-   `create_app()` defaults.
+   `create_app()` defaults. Keep `GET /debug/llama` in `main.py` as a broad
+   heavy diagnostic.
 3. **Write endpoints stay later.** Defer `POST /llm/ctx`, `POST /model/switch`,
    `POST /model/auto-load`, and search/streaming write settings until write
    providers and side-effect contracts are isolated.
 
-## PR4.39 contract notes
+## PR4.39 / PR4.40 contract notes
 
 - The route-owner test fixes `app/api/runtime_controls.py` as the owner for
   `GET /llm/ctx`, `GET /llm/props`, `GET /search/status`, and
   `GET /streaming/status`.
-- The same test fixes `main.py` as the owner for runtime write controls, audio,
-  CUDA/model-startup diagnostic, model-manager write, and heavy model
+- PR4.40 extends that owner contract to `GET /runtime/cuda-debug`,
+  `GET /audio/runtime/debug`, and `GET /debug/model-startup`.
+- The same test fixes `main.py` as the owner for runtime write controls,
+  `GET /debug/llama`, model-manager write, and heavy model
   DB/GGUF/scan/benchmark endpoints listed in this document.
-- The test also verifies that the hotfix endpoints `GET /runtime/cuda-debug`,
-  `GET /audio/runtime/debug`, and `GET /debug/model-startup` are present in this
-  inventory.
 - The existing model-settings router contract remains the source of truth for
   endpoints already moved out of `main.py`.
