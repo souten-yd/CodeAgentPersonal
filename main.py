@@ -16183,8 +16183,7 @@ def project_history(name: str, limit: int = 50):
 # llama.cpp プロパティ取得 (コンテキスト長など)
 # =========================
 
-@app.get("/llm/props")
-def llm_props():
+def runtime_llm_props_payload():
     """llama-serverのプロパティ(最大コンテキスト長等)を返す"""
     ui_max_ctx = 65535
     try:
@@ -16218,8 +16217,7 @@ _current_n_ctx: int = _default_llm_ctx_size()             # コンテキスト�
 # Qwen3.5-9B        : 4096〜8192
 # gpt-oss-20b       : 8192〜16384
 
-@app.get("/llm/ctx")
-def get_ctx():
+def runtime_llm_ctx_payload():
     return {"n_ctx": _current_n_ctx}
 
 @app.post("/llm/ctx")
@@ -16234,8 +16232,7 @@ def set_ctx(req: dict):
 # Web検索 有効/無効 API
 # =========================
 
-@app.get("/search/status")
-def search_status():
+def search_status_payload():
     return {"enabled": _search_enabled, "num_results": _search_num_results}
 
 @app.post("/search/num")
@@ -16263,9 +16260,15 @@ def search_disable():
 # LLMストリーミング 有効/無効 API
 # =========================
 
-@app.get("/streaming/status")
-def streaming_status():
+def streaming_status_payload():
     return {"enabled": _llm_streaming}
+
+
+app.state.runtime_llm_ctx_provider = runtime_llm_ctx_payload
+app.state.runtime_llm_props_provider = runtime_llm_props_payload
+app.state.search_status_provider = search_status_payload
+app.state.streaming_status_provider = streaming_status_payload
+
 
 @app.post("/streaming/enable")
 def streaming_enable():

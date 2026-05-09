@@ -28,6 +28,13 @@ def _assert_main_owner(path: str, method: str, handler_name: str):
     return route
 
 
+def _assert_route_owner(path: str, method: str, module_name: str, handler_name: str):
+    route = _single_route(path, method)
+    assert route.endpoint.__module__ == module_name
+    assert route.endpoint.__name__ == handler_name
+    return route
+
+
 def test_runtime_controls_inventory_doc_exists_and_mentions_hotfix_diagnostics():
     text = INVENTORY_DOC.read_text(encoding="utf-8")
 
@@ -50,19 +57,19 @@ def test_runtime_controls_inventory_doc_exists_and_mentions_hotfix_diagnostics()
 
     assert "PR4.39: Move read-only runtime status endpoints" in text
     assert "PR4.40: Move runtime diagnostics endpoints with provider fallback" in text
-    assert "This PR does not move routes" in text
+    assert "PR4.39 moved only the read-only runtime status endpoints" in text
 
 
-def test_read_only_runtime_candidates_still_belong_to_main_py():
+def test_read_only_runtime_status_endpoints_belong_to_runtime_controls_router():
     expected = [
-        ("/llm/ctx", "GET", "get_ctx"),
-        ("/llm/props", "GET", "llm_props"),
-        ("/search/status", "GET", "search_status"),
-        ("/streaming/status", "GET", "streaming_status"),
+        ("/llm/ctx", "GET", "get_runtime_llm_ctx_api"),
+        ("/llm/props", "GET", "get_runtime_llm_props_api"),
+        ("/search/status", "GET", "get_search_status_api"),
+        ("/streaming/status", "GET", "get_streaming_status_api"),
     ]
 
     for path, method, handler_name in expected:
-        _assert_main_owner(path, method, handler_name)
+        _assert_route_owner(path, method, "app.api.runtime_controls", handler_name)
 
 
 def test_runtime_write_controls_still_belong_to_main_py_without_execution():

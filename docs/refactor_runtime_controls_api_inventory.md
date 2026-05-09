@@ -1,23 +1,25 @@
-# PR4.38: Runtime Controls API Inventory
+# PR4.39: Runtime Controls API Inventory
 
-This inventory freezes the runtime-control and diagnostics endpoints that still
-live in `main.py` after the model-settings router split and the Runpod llama,
-ASR, and TTS hotfixes. This PR is documentation and contract coverage only:
-no endpoint is moved, no runtime behavior is changed, and no LLM/ASR/TTS/SBV2,
+This inventory tracks the runtime-control and diagnostics endpoints after the
+low-risk read-only runtime status split and the Runpod llama, ASR, and TTS
+hotfixes. PR4.39 moved only the read-only runtime status endpoints into
+`app/api/runtime_controls.py`; no write, diagnostic, heavy, LLM/ASR/TTS/SBV2,
 Runpod llama layer search, CUDA validation/parser, UI, model DB schema, or
 benchmark behavior is modified.
 
 ## Scope and owner policy
 
-- **Current owner for all endpoints in this document:** `main.py`.
+- **Current owner for read-only runtime status endpoints:** `app/api/runtime_controls.py`.
+- **Current owner for write, diagnostic, and heavy endpoints in this document:** `main.py`.
 - **Already moved model-settings endpoints are out of scope:** read-only
   `GET /models/orchestration`, `GET /models/roles`, `GET /models/db`,
   `GET /models/db/status`, and `GET /model/status` are owned by
   `app/api/model_settings.py` and are tracked in
   `docs/refactor_model_settings_api_inventory.md`.
-- **This PR does not move routes.** The owner contract test intentionally
-  asserts that the runtime, audio, CUDA, model-manager write, and heavy model
-  DB/GGUF endpoints listed here remain owned by `main.py`.
+- **PR4.39 moved only the read-only runtime status endpoints.** The owner
+  contract test intentionally asserts that runtime write controls, audio,
+  CUDA/model-startup diagnostic, model-manager write, and heavy model DB/GGUF
+  endpoints listed here remain owned by `main.py`.
 - **`create_app()` fallback meaning:** whether a future router could expose a
   conservative default provider for isolated app-factory tests without touching
   the live global/manager/service. `No` means the endpoint should not be moved
@@ -27,19 +29,19 @@ benchmark behavior is modified.
 
 | Category | Method / path | Current handler | Current owner | Read-only or write | Runtime side effect | Global / manager / service dependencies | `create_app()` fallback needed? | Next routerizable? | Move forbidden now? |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| LLM runtime controls | `GET /llm/ctx` | `get_ctx` | `main.py` | Read-only | No mutation; reports in-memory context size. | `_current_n_ctx`. | Yes; a runtime-state provider can return a safe default. | Yes, PR4.39 candidate. | No, but do not move in PR4.38. |
+| LLM runtime controls | `GET /llm/ctx` | `get_runtime_llm_ctx_api` | `app/api/runtime_controls.py` | Read-only | No mutation; reports in-memory context size. | `app.state.runtime_llm_ctx_provider` in production; safe fallback in `create_app()`. | Implemented; returns safe defaults without runtime access. | Moved in PR4.39. | No. |
 | LLM runtime controls | `POST /llm/ctx` | `set_ctx` | `main.py` | Write | Mutates `_current_n_ctx` after clamping. | `_current_n_ctx`. | No for write semantics without a runtime write provider. | Later only. | Yes for PR4.39/PR4.40. |
-| LLM runtime controls | `GET /llm/props` | `llm_props` | `main.py` | Read-only probe | No local mutation; may call the live llama server. | `requests`, `_model_manager.llm_port`, `_current_n_ctx`. | Yes, but only via provider/fallback that avoids live HTTP in `create_app()`. | Yes, PR4.39 candidate with provider fallback. | No, but do not move in PR4.38. |
-| Search runtime controls | `GET /search/status` | `search_status` | `main.py` | Read-only | No mutation. | `_search_enabled`, `_search_num_results`. | Yes; a runtime-state provider can return defaults. | Yes, PR4.39 candidate. | No, but do not move in PR4.38. |
+| LLM runtime controls | `GET /llm/props` | `get_runtime_llm_props_api` | `app/api/runtime_controls.py` | Read-only probe | No local mutation; production provider preserves the existing live llama-server probe/fallback behavior. | `app.state.runtime_llm_props_provider` in production; safe fallback in `create_app()`. | Implemented; fallback avoids live HTTP. | Moved in PR4.39. | No. |
+| Search runtime controls | `GET /search/status` | `get_search_status_api` | `app/api/runtime_controls.py` | Read-only | No mutation. | `app.state.search_status_provider` in production; safe fallback in `create_app()`. | Implemented; returns search disabled/default result count. | Moved in PR4.39. | No. |
 | Search runtime controls | `POST /search/num` | `search_set_num` | `main.py` | Write | Mutates `_search_num_results`. | `_search_num_results`. | No for write semantics without a runtime write provider. | Later only. | Yes for PR4.39/PR4.40. |
 | Search runtime controls | `POST /search/enable` | `search_enable` | `main.py` | Write | Mutates `_search_enabled` and prints a status line. | `_search_enabled`. | No for write semantics without a runtime write provider. | Later only. | Yes for PR4.39/PR4.40. |
 | Search runtime controls | `POST /search/disable` | `search_disable` | `main.py` | Write | Mutates `_search_enabled` and prints a status line. | `_search_enabled`. | No for write semantics without a runtime write provider. | Later only. | Yes for PR4.39/PR4.40. |
-| Streaming runtime controls | `GET /streaming/status` | `streaming_status` | `main.py` | Read-only | No mutation. | `_llm_streaming`. | Yes; a runtime-state provider can return defaults. | Yes, PR4.39 candidate. | No, but do not move in PR4.38. |
+| Streaming runtime controls | `GET /streaming/status` | `get_streaming_status_api` | `app/api/runtime_controls.py` | Read-only | No mutation. | `app.state.streaming_status_provider` in production; safe fallback in `create_app()`. | Implemented; returns streaming disabled by default. | Moved in PR4.39. | No. |
 | Streaming runtime controls | `POST /streaming/enable` | `streaming_enable` | `main.py` | Write | Mutates `_llm_streaming` and prints a status line. | `_llm_streaming`. | No for write semantics without a runtime write provider. | Later only. | Yes for PR4.39/PR4.40. |
 | Streaming runtime controls | `POST /streaming/disable` | `streaming_disable` | `main.py` | Write | Mutates `_llm_streaming` and prints a status line. | `_llm_streaming`. | No for write semantics without a runtime write provider. | Later only. | Yes for PR4.39/PR4.40. |
-| Audio runtime diagnostics | `GET /audio/runtime/debug` | `audio_runtime_debug_api` | `main.py` | Read-only diagnostic probe | No intentional mutation, but probes subprocess/Python/CUDA and reads runtime state. | `detect_audio_runtime`, `_resolve_asr_runtime_config`, `voice_status`, `_tts_engine_registry`, `_probe_main_torch_cuda`, `_probe_sbv2_venv_cuda`. | Yes, but only through an audio diagnostics provider that can return conservative defaults. | PR4.40 candidate. | No, but do not move in PR4.38. |
-| CUDA / model startup diagnostics | `GET /runtime/cuda-debug` | `runtime_cuda_debug` | `main.py` | Read-only diagnostic | No mutation; exposes model-manager CUDA/backend diagnostics. | `_model_manager.cuda_debug_dict()`. | Yes, through a model-manager diagnostics provider. | PR4.40 candidate. | No, but do not move in PR4.38. |
-| CUDA / model startup diagnostics | `GET /debug/model-startup` | `debug_model_startup` | `main.py` | Read-only diagnostic | No mutation; reads startup hints and log tail. | `_model_manager`, `_infer_startup_failure_hints`, `LLAMA_STARTUP_LOG_PATH`, filesystem log read. | Yes, through a diagnostics provider that avoids filesystem access by default. | PR4.40 candidate. | No, but do not move in PR4.38. |
+| Audio runtime diagnostics | `GET /audio/runtime/debug` | `audio_runtime_debug_api` | `main.py` | Read-only diagnostic probe | No intentional mutation, but probes subprocess/Python/CUDA and reads runtime state. | `detect_audio_runtime`, `_resolve_asr_runtime_config`, `voice_status`, `_tts_engine_registry`, `_probe_main_torch_cuda`, `_probe_sbv2_venv_cuda`. | Yes, but only through an audio diagnostics provider that can return conservative defaults. | PR4.40 candidate. | No, but do not move in PR4.39. |
+| CUDA / model startup diagnostics | `GET /runtime/cuda-debug` | `runtime_cuda_debug` | `main.py` | Read-only diagnostic | No mutation; exposes model-manager CUDA/backend diagnostics. | `_model_manager.cuda_debug_dict()`. | Yes, through a model-manager diagnostics provider. | PR4.40 candidate. | No, but do not move in PR4.39. |
+| CUDA / model startup diagnostics | `GET /debug/model-startup` | `debug_model_startup` | `main.py` | Read-only diagnostic | No mutation; reads startup hints and log tail. | `_model_manager`, `_infer_startup_failure_hints`, `LLAMA_STARTUP_LOG_PATH`, filesystem log read. | Yes, through a diagnostics provider that avoids filesystem access by default. | PR4.40 candidate. | No, but do not move in PR4.39. |
 | CUDA / model startup diagnostics | `GET /debug/llama` | `debug_llama` | `main.py` | Read-only heavy diagnostic | No intentional mutation; performs broad model, VRAM, process, health, and log probes. | `_model_manager`, `_get_total_free_vram_mb`, `_calc_safe_gpu_layers`, `_read_gguf_metadata`, runtime health/log helpers. | No until the broad debug payload is split into providers. | Not yet. | Yes; leave in `main.py`. |
 | Model manager write/runtime controls | `POST /model/switch` | `model_switch` | `main.py` | Write/runtime action | Starts a background thread that calls `_model_manager.ensure_model(key)`. | `_model_manager`, `choose_model_for_role`, `get_runtime_model_catalog`, `threading`. | No for write/thread semantics without a model-manager action provider. | Later only. | Yes for PR4.39/PR4.40. |
 | Model manager write/runtime controls | `POST /model/auto-load` | `model_auto_load` | `main.py` | Write/runtime action | Schedules default model load and may start background work. | `schedule_default_model_load`. | No for scheduler semantics without a provider. | Later only. | Yes for PR4.39/PR4.40. |
@@ -53,20 +55,20 @@ benchmark behavior is modified.
 | Heavy model DB / GGUF / scan / benchmark | `POST /models/db/toggle/{mid}` | `toggle_model_enabled` | `main.py` | Write | Updates model enabled state. | `model_db_update` and model DB helpers. | No. | Not in runtime-controls split. | Yes; leave in `main.py`. |
 | Heavy model DB / GGUF / scan / benchmark | `POST /models/db/toggle_vlm/{mid}` | `toggle_model_vlm_enabled` | `main.py` | Write | Updates model VLM flag. | `model_db_update` and model DB helpers. | No. | Not in runtime-controls split. | Yes; leave in `main.py`. |
 
-## Read-only runtime candidates for the next split
+## Read-only runtime endpoints moved in PR4.39
 
-These endpoints are the recommended PR4.39 migration set because they are
-small read-only status/control surfaces with clear provider seams:
+These endpoints moved in PR4.39 because they are small read-only status/control
+surfaces with clear provider seams:
 
 - `GET /llm/ctx`
 - `GET /llm/props`
 - `GET /search/status`
 - `GET /streaming/status`
 
-A future `app/api/runtime_controls.py` should preserve production behavior by
-registering providers from `main.py`, while `create_app()` should return safe
-fallback values without touching live model-manager state, live HTTP probes, or
-runtime globals directly.
+`app/api/runtime_controls.py` preserves production behavior by reading provider
+payloads registered from `main.py`, while `create_app()` returns safe fallback
+values without touching live model-manager state, live HTTP probes, or runtime
+globals directly.
 
 ## Diagnostics candidates after read-only runtime controls
 
@@ -110,14 +112,16 @@ side-effect providers are explicit and tested:
    `POST /model/auto-load`, and search/streaming write settings until write
    providers and side-effect contracts are isolated.
 
-## PR4.38 contract notes
+## PR4.39 contract notes
 
-- The route-owner test fixes the current owner as `main.py` for all runtime,
-  audio, CUDA/model-startup diagnostic, model-manager write, and heavy
-  model DB/GGUF/scan/benchmark endpoints listed in this document.
-- The test also verifies that the new hotfix endpoints
-  `GET /runtime/cuda-debug`, `GET /audio/runtime/debug`, and
-  `GET /debug/model-startup` are present in this inventory.
+- The route-owner test fixes `app/api/runtime_controls.py` as the owner for
+  `GET /llm/ctx`, `GET /llm/props`, `GET /search/status`, and
+  `GET /streaming/status`.
+- The same test fixes `main.py` as the owner for runtime write controls, audio,
+  CUDA/model-startup diagnostic, model-manager write, and heavy model
+  DB/GGUF/scan/benchmark endpoints listed in this document.
+- The test also verifies that the hotfix endpoints `GET /runtime/cuda-debug`,
+  `GET /audio/runtime/debug`, and `GET /debug/model-startup` are present in this
+  inventory.
 - The existing model-settings router contract remains the source of truth for
-  endpoints already moved out of `main.py`; PR4.38 does not retest them as
-  runtime-controls migration targets.
+  endpoints already moved out of `main.py`.
