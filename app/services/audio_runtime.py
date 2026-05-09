@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
+import tempfile
+import time
 import traceback
+import zipfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Mapping
@@ -73,7 +78,7 @@ AUDIO_RUNTIME_ENDPOINT_OWNERSHIP: dict[str, dict[str, str]] = {
         "owner": "main.py",
         "domain": "TTS/SBV2 batch execution",
         "risk": "high-risk execution",
-        "next_step": "Do not move before single synthesize seam is stable",
+        "next_step": "PR4.58 extracted the batch service body; keep route owner in main.py",
     },
 }
 
@@ -100,6 +105,23 @@ class TtsSynthesizeServiceDependencies:
     style_bert_vits2_models_dir: str
     request_id_factory: Callable[[], str]
     utcnow_factory: Callable[[], datetime] = datetime.utcnow
+
+
+@dataclass(frozen=True)
+class TtsSynthesizeBatchServiceDependencies:
+    """Injected production seams for POST /tts/synthesize-batch without importing main.py."""
+
+    engine_registry: Any
+    logger: Any
+    ensure_model_exists: Callable[[str, str], Any]
+    style_bert_vits2_models_dir: str
+    request_id_factory: Callable[[], str]
+    job_create: Callable[..., str]
+    job_update_status: Callable[[str, str, str], Any]
+    job_append_step: Callable[[str, str, int, str, Mapping[str, Any]], Any]
+    sample_rate_from_wav_bytes: Callable[[bytes], int]
+    merge_wav_bytes: Callable[[list[bytes]], bytes]
+    perf_counter: Callable[[], float] = time.perf_counter
 
 
 @dataclass(frozen=True)
@@ -417,6 +439,343 @@ def run_tts_synthesize_service_body(
         "request_id": request_id,
         "engine": normalized_key,
     }
+
+
+def run_tts_synthesize_batch_service_body(
+    req: Mapping[str, Any] | None,
+    deps: TtsSynthesizeBatchServiceDependencies,
+) -> dict[str, Any]:
+    """Run the POST /tts/synthesize-batch body while keeping the FastAPI route in main.py."""
+
+    route_req = dict(req or {})
+    engine = "style_bert_vits2"
+    route_req["engine"] = engine
+    route_req["engine_key"] = engine
+    model = str(route_req.get("model", "")).strip()
+    device = str(route_req.get("device", "")).strip()
+    output_format = str(route_req.get("output", "json") or "json").strip().lower()
+    items = route_req.get("items")
+    request_id = str(route_req.get("request_id") or deps.request_id_factory())
+
+    if output_format not in {"json", "zip", "wav"}:
+        raise AudioRuntimeHttpError(status_code=400, detail='output must be "json", "zip", or "wav"')
+    if not isinstance(items, list) or not items:
+        raise AudioRuntimeHttpError(status_code=400, detail="items must be a non-empty list")
+
+    normalized_key = deps.engine_registry.resolve_engine_key(engine, route_req.get("engine_key"))
+    if normalized_key == "style_bert_vits2" and not model:
+        model = "koharune-ami"
+    if normalized_key == "style_bert_vits2":
+        deps.ensure_model_exists(model, deps.style_bert_vits2_models_dir)
+
+    try:
+        runtime = deps.engine_registry.get(raw_engine=engine, raw_engine_key=route_req.get("engine_key"))
+    except KeyError:
+        raise AudioRuntimeHttpError(status_code=400, detail=f"不明なエンジン: {engine}")
+
+    if normalized_key == "style_bert_vits2" and hasattr(runtime, "prepare"):
+        try:
+            runtime.prepare({"model": model, "device": device})
+        except Exception as e:
+            raise AudioRuntimeHttpError(status_code=500, detail=f"prepare failed: {e}")
+
+    common_payload = dict(route_req)
+    common_payload["engine"] = engine
+    common_payload["request_id"] = request_id
+    common_payload["model"] = model
+    common_payload["device"] = device
+
+    project = str(route_req.get("project", "default") or "default")
+    job_id = deps.job_create(
+        project=project,
+        message=f"tts_synthesize_batch request_id={request_id}",
+        mode="tts_batch",
+    )
+    deps.job_update_status(project, job_id, "running")
+    seq = 0
+    batch_started_at = deps.perf_counter()
+    item_elapsed_history_ms: list[int] = []
+    current_item_id: str | None = None
+    current_item_index = 0
+
+    def _batch_progress_data(
+        *,
+        total: int,
+        current: int,
+        current_id: str | None,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        elapsed_ms = int((deps.perf_counter() - batch_started_at) * 1000)
+        if current <= 0:
+            estimated_remaining_ms = None
+        elif current >= total:
+            estimated_remaining_ms = 0
+        elif item_elapsed_history_ms:
+            estimated_remaining_ms = int(sum(item_elapsed_history_ms) / len(item_elapsed_history_ms) * (total - current))
+        else:
+            estimated_remaining_ms = None
+        data: dict[str, Any] = {
+            "total": total,
+            "current": current,
+            "current_id": current_id,
+            "elapsed_ms": elapsed_ms,
+            "estimated_remaining_ms": estimated_remaining_ms,
+        }
+        if error:
+            data["error"] = error
+        return data
+
+    def _append_batch_step(event_type: str, data: Mapping[str, Any]) -> None:
+        nonlocal seq
+        deps.job_append_step(project, job_id, seq, event_type, data)
+        seq += 1
+
+    manifest: list[dict[str, Any]] = []
+    json_items: list[dict[str, Any]] = []
+    wav_chunks: list[bytes] = []
+    zip_buffer = io.BytesIO() if output_format == "zip" else None
+    zip_file = zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) if zip_buffer else None
+    zip_tempdir_ctx = tempfile.TemporaryDirectory(prefix=f"tts_batch_{request_id}_") if output_format == "zip" else None
+
+    try:
+        total = len(items)
+        _append_batch_step(
+            "tts_batch_started",
+            _batch_progress_data(total=total, current=0, current_id=None),
+        )
+        for index, raw_item in enumerate(items):
+            if not isinstance(raw_item, dict):
+                raise AudioRuntimeHttpError(status_code=400, detail=f"items[{index}] must be object")
+            text = str(raw_item.get("text", "")).strip()
+            if not text:
+                raise AudioRuntimeHttpError(status_code=400, detail=f"items[{index}].text required")
+
+            item_id = str(raw_item.get("id") or f"item-{index+1:03d}")
+            current = index + 1
+            current_item_id = item_id
+            current_item_index = current
+            _append_batch_step(
+                "tts_batch_item_started",
+                _batch_progress_data(total=total, current=current, current_id=item_id),
+            )
+            item_payload = dict(common_payload)
+            item_payload.update(raw_item)
+            item_payload["text"] = text
+            item_payload["model"] = model
+            item_payload["device"] = device
+            item_payload["request_id"] = f"{request_id}-{index+1:03d}"
+
+            item_infer_ms: int | None = None
+            item_total_ms: int | None = None
+            batch_route_mode = "legacy_b64"
+            audio_bytes = b""
+            sample_rate = 0
+            output_bytes = 0
+            started = deps.perf_counter()
+            if output_format == "zip" and normalized_key == "style_bert_vits2" and hasattr(runtime, "synthesize_batch_item_raw"):
+                assert zip_tempdir_ctx is not None
+                out_path = os.path.join(zip_tempdir_ctx.name, f"{index+1:03d}_{item_id}.wav")
+                item_payload["return_mode"] = "file"
+                item_payload["out_path"] = out_path
+                raw_result = runtime.synthesize_batch_item_raw(item_payload)
+                batch_route_mode = "raw_file"
+                item_total_ms = int(raw_result.get("total_elapsed_ms") or 0)
+                item_infer_ms = int(raw_result.get("infer_elapsed_ms") or 0)
+                sample_rate = int(raw_result.get("sample_rate") or 0)
+                output_bytes = int(raw_result.get("output_bytes") or 0)
+                audio_path = str(raw_result.get("out_path") or out_path)
+                if not audio_path or not os.path.isfile(audio_path):
+                    raise AudioRuntimeHttpError(status_code=500, detail=f"batch output file missing: {audio_path}")
+            else:
+                audio_bytes, _media_type = runtime.synthesize(item_payload)
+                sample_rate = deps.sample_rate_from_wav_bytes(audio_bytes)
+                output_bytes = len(audio_bytes)
+            if output_format == "wav":
+                if batch_route_mode == "raw_file":
+                    with open(audio_path, "rb") as f:
+                        wav_chunks.append(f.read())
+                else:
+                    wav_chunks.append(audio_bytes)
+            elapsed_ms = int((deps.perf_counter() - started) * 1000)
+            item_elapsed_history_ms.append(elapsed_ms)
+            filename = f"{index+1:03d}_{item_id}.wav"
+
+            row: dict[str, Any] = {
+                "id": item_id,
+                "filename": filename,
+                "text": text,
+                "elapsed_ms": elapsed_ms,
+                "infer_ms": item_infer_ms,
+                "total_ms": item_total_ms,
+                "sample_rate": sample_rate,
+                "output_bytes": output_bytes,
+            }
+            manifest.append(row)
+
+            if output_format == "json":
+                json_items.append(
+                    {
+                        **row,
+                        "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+                    }
+                )
+            elif output_format == "zip":
+                assert zip_file is not None
+                if batch_route_mode == "raw_file":
+                    zip_file.write(audio_path, arcname=filename)
+                else:
+                    zip_file.writestr(filename, audio_bytes)
+            deps.logger.info(
+                "[TTS][batch_item:%s] idx=%d id=%s route=%s elapsed_ms=%d infer_ms=%s total_ms=%s bytes=%d",
+                request_id,
+                current,
+                item_id,
+                batch_route_mode,
+                elapsed_ms,
+                "-" if item_infer_ms is None else str(item_infer_ms),
+                "-" if item_total_ms is None else str(item_total_ms),
+                output_bytes,
+            )
+            _append_batch_step(
+                "tts_batch_item_done",
+                {
+                    **_batch_progress_data(total=total, current=current, current_id=item_id),
+                    "item_elapsed_ms": elapsed_ms,
+                    "infer_ms": item_infer_ms,
+                    "total_ms": item_total_ms,
+                    "sample_rate": sample_rate,
+                    "output_bytes": output_bytes,
+                },
+            )
+            current_item_id = None
+
+        _append_batch_step(
+            "tts_batch_done",
+            _batch_progress_data(total=total, current=total, current_id=None),
+        )
+        deps.job_update_status(project, job_id, "done")
+
+        if output_format == "json":
+            return {
+                "request_id": request_id,
+                "engine": normalized_key,
+                "model": model,
+                "device": device,
+                "project": project,
+                "job_id": job_id,
+                "items": json_items,
+            }
+
+        if output_format == "wav":
+            merged_wav = deps.merge_wav_bytes(wav_chunks)
+            if not merged_wav:
+                raise AudioRuntimeHttpError(status_code=500, detail="batch synthesis returned empty audio")
+            return {
+                "wav_bytes": merged_wav,
+                "request_id": request_id,
+                "engine": normalized_key,
+                "model": model,
+                "device": device,
+                "project": project,
+                "job_id": job_id,
+            }
+
+        assert zip_file is not None and zip_buffer is not None
+        zip_file.writestr(
+            "manifest.json",
+            json.dumps(
+                {
+                    "request_id": request_id,
+                    "engine": normalized_key,
+                    "model": model,
+                    "device": device,
+                    "items": manifest,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+        zip_file.close()
+        zip_bytes = zip_buffer.getvalue()
+        return {
+            "zip_bytes": zip_bytes,
+            "request_id": request_id,
+            "engine": normalized_key,
+            "model": model,
+            "device": device,
+            "project": project,
+            "job_id": job_id,
+        }
+    except ValueError as e:
+        error_message = str(e)
+        err_payload = None
+        try:
+            err_payload = json.loads(error_message)
+        except Exception:
+            err_payload = None
+        if isinstance(err_payload, dict) and int(err_payload.get("status_code") or 0) == 422:
+            deps.logger.warning(
+                "[TTS][synthesize_batch:%s] unprocessable_entity: %s",
+                request_id,
+                err_payload.get("error"),
+            )
+            detail_payload = {
+                "error": err_payload.get("error") or "Unprocessable TTS input",
+                "text_preview": err_payload.get("text_preview") or "",
+                "effective_language": err_payload.get("effective_language") or "JP",
+                "model_version": err_payload.get("model_version") or "",
+            }
+            _append_batch_step(
+                "tts_batch_failed",
+                _batch_progress_data(
+                    total=len(items),
+                    current=current_item_index,
+                    current_id=current_item_id,
+                    error=str(detail_payload.get("error")),
+                ),
+            )
+            deps.job_update_status(project, job_id, "error")
+            raise AudioRuntimeHttpError(status_code=422, detail=detail_payload)
+        _append_batch_step(
+            "tts_batch_failed",
+            _batch_progress_data(
+                total=len(items),
+                current=current_item_index,
+                current_id=current_item_id,
+                error=error_message,
+            ),
+        )
+        deps.job_update_status(project, job_id, "error")
+        raise AudioRuntimeHttpError(status_code=400, detail=error_message)
+    except AudioRuntimeHttpError as e:
+        _append_batch_step(
+            "tts_batch_failed",
+            _batch_progress_data(
+                total=len(items),
+                current=current_item_index,
+                current_id=current_item_id,
+                error="http_exception",
+            ),
+        )
+        deps.job_update_status(project, job_id, "error")
+        raise
+    except Exception as e:
+        _append_batch_step(
+            "tts_batch_failed",
+            _batch_progress_data(
+                total=len(items),
+                current=current_item_index,
+                current_id=current_item_id,
+                error=str(e),
+            ),
+        )
+        deps.job_update_status(project, job_id, "error")
+        raise AudioRuntimeHttpError(status_code=500, detail=str(e))
+    finally:
+        if zip_file is not None:
+            zip_file.close()
+        if zip_tempdir_ctx is not None:
+            zip_tempdir_ctx.cleanup()
 
 def classify_audio_endpoint_risk(method_and_path: str) -> str:
     """Return the inventory risk label for a route-neutral method/path key."""
