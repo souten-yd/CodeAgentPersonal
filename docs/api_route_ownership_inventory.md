@@ -61,6 +61,7 @@
 | `/api/tts/style-bert-vits2/preview-normalization` | POST | `app/api/audio.py` | provider-backed SBV2 normalization preview | medium | no-op fallback; no LLM fallback | yes | yes |
 | `/tts/synthesize` | POST | `main.py` | TTS/SBV2 runtime via extracted service body | high | audio runtime through injected dependencies | no | n/a |
 | `/tts/synthesize-batch` | POST | `main.py` | TTS/SBV2 batch runtime via extracted service body | high | audio runtime through injected dependencies | no | n/a |
+| `/api/tts/style-bert-vits2/prepare` | POST | `main.py` | SBV2 prepare runtime via extracted service body | high | audio runtime through injected dependencies | no | n/a |
 | `/tts/load` | POST | `main.py` | TTS/SBV2 runtime | high | audio runtime | no | n/a |
 | `/tts/unload` | POST | `main.py` | TTS/SBV2 runtime | high | audio runtime | no | n/a |
 | `/echo/stream` | WebSocket | `main.py` | Echo/ASR/TTS runtime | high | high-risk runtime | no | n/a |
@@ -84,5 +85,9 @@
 ## PR4.58
 
 - POST `/tts/synthesize-batch` の service body を `app/services/audio_runtime.py` の `run_tts_synthesize_batch_service_body()` に抽出。route owner は `main.py` のまま。
-- POST `/tts/synthesize` と POST `/tts/synthesize-batch` は service body 抽出済み。
-- High-risk remaining: POST `/voice/transcribe`, POST `/voice/load`, POST `/api/tts/style-bert-vits2/prepare`, WebSocket `/echo/stream`.
+
+## PR4.59
+
+- POST `/api/tts/style-bert-vits2/prepare` の service body を `app/services/audio_runtime.py` の `run_sbv2_prepare_service_body()` に抽出。route owner は `main.py` のまま。
+- TTS/SBV2 service body 抽出済み: POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`.
+- High-risk remaining: POST `/voice/transcribe`, POST `/voice/load`, WebSocket `/echo/stream`.

@@ -126,12 +126,14 @@ from app.api.runtime_controls import (
 )
 from app.services.audio_runtime import (
     AudioRuntimeHttpError,
+    Sbv2PrepareServiceDependencies,
     TtsSynthesizeBatchServiceDependencies,
     TtsSynthesizeServiceDependencies,
     build_asr_config_payload,
     build_audio_runtime_debug_payload,
     build_tts_status_payload,
     build_voice_status_payload,
+    run_sbv2_prepare_service_body,
     run_tts_synthesize_batch_service_body,
     run_tts_synthesize_service_body,
 )
@@ -13369,259 +13371,58 @@ def api_tts_engines():
 
 
 # PR4.54: SBV2 runtime prepare endpoint; keep in main.py and avoid import-time CUDA probes.
+
+
+# PR4.59 production dependency wrapper for the PR4.54 SBV2 prepare route; no route move.
+def _style_bert_vits2_runtime_prepare(prepare_payload: dict):
+    runtime = _tts_engine_registry.get(raw_engine_key="style_bert_vits2")
+    if hasattr(runtime, "prepare"):
+        return runtime.prepare(prepare_payload)
+    return None
+
+
+# PR4.54/PR4.59: SBV2 runtime prepare endpoint; keep route owner in main.py.
 @app.post("/api/tts/style-bert-vits2/prepare")
 def api_style_bert_vits2_prepare(req: dict = {}):
-    req = req or {}
-    requested_model = str(req.get("model", "") or "").strip()
-    requested_device = str(req.get("device", "") or "").strip().lower()
     with _style_bert_vits2_init_lock:
-        prepare_id = uuid.uuid4().hex[:8]
-        _style_bert_vits2_logger.info(
-            "[Style-Bert-VITS2][prepare:%s] start repo=%s venv=%s models=%s init_flag=%s",
-            prepare_id,
-            _STYLE_BERT_VITS2_REPO_DIR,
-            _STYLE_BERT_VITS2_VENV_DIR,
-            _STYLE_BERT_VITS2_MODELS_DIR,
-            _STYLE_BERT_VITS2_INIT_FLAG,
-        )
-        ok, validation_error = _style_bert_vits2_validate_prerequisites()
-        if not ok:
-            setup_hint = "Run setup_style_bert_vits2_windows.bat" if os.name == "nt" else ""
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "ok": False,
-                    "available": False,
-                    "reason": "style_bert_vits2_prepare_failed",
-                    "message": "初期準備失敗: 実行環境を確認してください。",
-                    "detail": validation_error,
-                    "setup_hint": setup_hint,
-                    "repo_dir": _STYLE_BERT_VITS2_REPO_DIR,
-                    "venv_dir": _STYLE_BERT_VITS2_VENV_DIR,
-                    "python_path": _style_bert_vits2_python_path(),
-                    "models_dir": _STYLE_BERT_VITS2_MODELS_DIR,
-                },
+        try:
+            result = run_sbv2_prepare_service_body(
+                req,
+                Sbv2PrepareServiceDependencies(
+                    logger=_style_bert_vits2_logger,
+                    prepare_id_factory=lambda: uuid.uuid4().hex[:8],
+                    default_model=lambda: "koharune-ami",
+                    repo_dir=_STYLE_BERT_VITS2_REPO_DIR,
+                    venv_dir=_STYLE_BERT_VITS2_VENV_DIR,
+                    models_dir=_STYLE_BERT_VITS2_MODELS_DIR,
+                    init_flag=_STYLE_BERT_VITS2_INIT_FLAG,
+                    legacy_models_dir=_STYLE_BERT_VITS2_LEGACY_MODELS_DIR,
+                    models_dir_env=_STYLE_BERT_VITS2_MODELS_DIR_ENV,
+                    upstream_models_dir_envs=tuple(_STYLE_BERT_VITS2_UPSTREAM_MODELS_DIR_ENVS),
+                    python_path=_style_bert_vits2_python_path,
+                    site_packages_dir=_style_bert_vits2_site_packages_dir,
+                    validate_prerequisites=_style_bert_vits2_validate_prerequisites,
+                    ensure_pth_file=_style_bert_vits2_ensure_pth_file,
+                    prepare_status=_style_bert_vits2_prepare_status,
+                    models_ready=_style_bert_vits2_models_ready,
+                    runtime_importable=_style_bert_vits2_runtime_importable,
+                    run_initialize=subprocess.run,
+                    log_model_locations=_style_bert_vits2_log_model_locations,
+                    migrate_legacy_models_if_needed=_style_bert_vits2_migrate_legacy_models_if_needed,
+                    is_valid_model_dir_name=_style_bert_vits2_is_valid_model_dir_name,
+                    ensure_model_exists=ensure_model_exists,
+                    runtime_prepare=_style_bert_vits2_runtime_prepare,
+                    style_error_factory=StyleBertVITS2Error,
+                    style_error_types=(StyleBertVITS2Error,),
+                    setup_hint_factory=lambda: "Run setup_style_bert_vits2_windows.bat" if os.name == "nt" else "",
+                    utcnow_factory=datetime.utcnow,
+                ),
             )
-
-        ok, pth_error = _style_bert_vits2_ensure_pth_file()
-        if not ok:
-            setup_hint = "Run setup_style_bert_vits2_windows.bat" if os.name == "nt" else ""
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "ok": False,
-                    "available": False,
-                    "reason": "style_bert_vits2_site_packages_missing",
-                    "message": "Style-Bert-VITS2 の実行環境が未構築です。",
-                    "detail": pth_error,
-                    "setup_hint": setup_hint,
-                    "repo_dir": _STYLE_BERT_VITS2_REPO_DIR,
-                    "venv_dir": _STYLE_BERT_VITS2_VENV_DIR,
-                    "python_path": _style_bert_vits2_python_path(),
-                    "site_packages": _style_bert_vits2_site_packages_dir(),
-                    "models_dir": _STYLE_BERT_VITS2_MODELS_DIR,
-                },
-            )
-
-        status = _style_bert_vits2_prepare_status()
-        initialized_now = False
-        initialize_action = "already_initialized"
-        models_ready, models, model_check_error = _style_bert_vits2_models_ready()
-        status["models"] = models
-        status["models_ready"] = models_ready
-        if not status["init_flag_exists"] or not models_ready:
-            initialize_script = os.path.join(_STYLE_BERT_VITS2_REPO_DIR, "initialize.py")
-            runtime_ok, runtime_error = _style_bert_vits2_runtime_importable()
-            needs_initialize = (not runtime_ok) or (not models_ready)
-            if needs_initialize:
-                if not os.path.isfile(initialize_script):
-                    raise StyleBertVITS2Error(
-                        status_code=500,
-                        user_message="initialize失敗: initialize.py が見つかりません。",
-                        log_detail=(
-                            f"initialize.py not found: {initialize_script}\n"
-                            f"runtime import check error: {runtime_error}\n"
-                            f"model readiness error: {model_check_error}"
-                        ),
-                    )
-                python_path = _style_bert_vits2_python_path()
-                cmd = [python_path, "initialize.py"]
-                initialize_env = {**os.environ, "CI": "1", _STYLE_BERT_VITS2_MODELS_DIR_ENV: _STYLE_BERT_VITS2_MODELS_DIR}
-                for env_name in _STYLE_BERT_VITS2_UPSTREAM_MODELS_DIR_ENVS:
-                    initialize_env[env_name] = _STYLE_BERT_VITS2_MODELS_DIR
-                initialize_action = "executed"
-                _style_bert_vits2_logger.info(
-                    "[Style-Bert-VITS2][prepare:%s] running initialize.py cmd=%s cwd=%s reason(runtime_ok=%s, models_ready=%s) models_dir_env=%s",
-                    prepare_id,
-                    cmd,
-                    _STYLE_BERT_VITS2_REPO_DIR,
-                    runtime_ok,
-                    models_ready,
-                    _STYLE_BERT_VITS2_MODELS_DIR,
-                )
-                try:
-                    proc = subprocess.run(
-                        cmd,
-                        cwd=_STYLE_BERT_VITS2_REPO_DIR,
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        env=initialize_env,
-                        timeout=900,
-                    )
-                    _style_bert_vits2_logger.info(
-                        "[Style-Bert-VITS2][prepare:%s] initialize.py completed code=0",
-                        prepare_id,
-                    )
-                    if proc.stdout:
-                        _style_bert_vits2_logger.info(
-                            "[Style-Bert-VITS2][prepare:%s] initialize.py stdout:\n%s",
-                            prepare_id,
-                            proc.stdout,
-                        )
-                    if proc.stderr:
-                        _style_bert_vits2_logger.info(
-                            "[Style-Bert-VITS2][prepare:%s] initialize.py stderr:\n%s",
-                            prepare_id,
-                            proc.stderr,
-                        )
-                except subprocess.TimeoutExpired as e:
-                    raise StyleBertVITS2Error(
-                        status_code=500,
-                        user_message="initialize失敗: 初期化スクリプトがタイムアウトしました。",
-                        log_detail=f"initialize.py timeout: {e}",
-                    )
-                except subprocess.CalledProcessError as e:
-                    raise StyleBertVITS2Error(
-                        status_code=500,
-                        user_message="initialize失敗: 初期化スクリプトの実行に失敗しました。",
-                        log_detail=(
-                            "initialize.py failed: "
-                            f"code={e.returncode}\nstdout:\n{e.stdout}\nstderr:\n{e.stderr}\n"
-                            f"runtime import check error(before initialize): {runtime_error}\n"
-                            f"model readiness error(before initialize): {model_check_error}"
-                        ),
-                    )
-                except Exception as e:
-                    raise StyleBertVITS2Error(
-                        status_code=500,
-                        user_message="initialize失敗: 初期化処理で予期しないエラーが発生しました。",
-                        log_detail=f"initialize.py failed unexpectedly: {e}\n{traceback.format_exc()}",
-                    )
-            else:
-                initialize_action = "skipped_importable_and_models_ready"
-                _style_bert_vits2_logger.info(
-                    "[Style-Bert-VITS2][prepare:%s] skip initialize.py because runtime import check and model assets check passed.",
-                    prepare_id,
-                )
-
-            _style_bert_vits2_log_model_locations(prepare_id, "after_initialize_before_ready_check")
-            models_ready_after, models_after, model_check_error_after = _style_bert_vits2_models_ready()
-            if not models_ready_after:
-                migrated, migrated_paths = _style_bert_vits2_migrate_legacy_models_if_needed(prepare_id)
-                if migrated:
-                    _style_bert_vits2_logger.info(
-                        "[Style-Bert-VITS2][prepare:%s] legacy fallback migrated models=%s",
-                        prepare_id,
-                        migrated_paths,
-                    )
-                    _style_bert_vits2_log_model_locations(prepare_id, "after_legacy_fallback")
-                    models_ready_after, models_after, model_check_error_after = _style_bert_vits2_models_ready()
-            status["models"] = models_after
-            status["models_ready"] = models_ready_after
-            if not models_ready_after:
-                raise StyleBertVITS2Error(
-                    status_code=500,
-                    user_message=(
-                        "initialize失敗: モデルアセットの準備が完了しませんでした。"
-                        f"検査先: {_STYLE_BERT_VITS2_MODELS_DIR}（legacy: {_STYLE_BERT_VITS2_LEGACY_MODELS_DIR}）"
-                    ),
-                    log_detail=(
-                        "model assets not ready after prepare. "
-                        f"before={model_check_error}, after={model_check_error_after}, models={models_after}"
-                    ),
-                )
-            os.makedirs(os.path.dirname(_STYLE_BERT_VITS2_INIT_FLAG), exist_ok=True)
-            with open(_STYLE_BERT_VITS2_INIT_FLAG, "w", encoding="utf-8") as f:
-                f.write(datetime.utcnow().isoformat())
-            initialized_now = True
-            status["init_flag_exists"] = True
-        status["initialized_now"] = initialized_now
-        status["prepare_id"] = prepare_id
-        status["initialize_action"] = initialize_action
-        setup_ready = bool(
-            status["repo_exists"]
-            and status["venv_exists"]
-            and (status["python_exists"] or status["python_executable"])
-            and status["site_packages_exists"]
-            and status.get("models_ready", False)
-            and status.get("initialize_action") in {"already_initialized", "initialized", "executed", "skipped_importable_and_models_ready"}
-        ) or bool(status.get("init_flag_exists") and status.get("models_ready"))
-        status["setup_ready"] = setup_ready
-        status["runtime_ready"] = False
-        status["ready"] = setup_ready
-        if not setup_ready:
-            reason_parts = []
-            if not status["repo_exists"]:
-                reason_parts.append("repo_missing")
-            if not status["venv_exists"]:
-                reason_parts.append("venv_missing")
-            if not (status["python_exists"] or status["python_executable"]):
-                reason_parts.append("python_missing")
-            if not status["site_packages_exists"]:
-                reason_parts.append("site_packages_missing")
-            if not status.get("models_ready", False):
-                reason_parts.append("models_not_ready")
-            if status.get("initialize_action") not in {"already_initialized", "initialized", "executed", "skipped_importable_and_models_ready"}:
-                reason_parts.append("initialize_incomplete")
-            status["reason"] = status.get("reason") or "style_bert_vits2_setup_not_ready"
-            status["detail"] = status.get("detail") or ",".join(reason_parts) or "setup requirements not met"
-        if setup_ready:
-            status["runtime_prepare"] = None
-            try:
-                runtime = _tts_engine_registry.get(raw_engine_key="style_bert_vits2")
-                if hasattr(runtime, "prepare"):
-                    preload_model = requested_model
-                    if preload_model and not _style_bert_vits2_is_valid_model_dir_name(preload_model):
-                        preload_model = ""
-                    if preload_model:
-                        ensure_model_exists(preload_model, _STYLE_BERT_VITS2_MODELS_DIR)
-                    elif status.get("models"):
-                        preload_model = status["models"][0]
-                    prepare_payload = {"model": preload_model} if preload_model else {}
-                    if requested_device:
-                        prepare_payload["device"] = requested_device
-                    preload_result = runtime.prepare(prepare_payload)
-                    status["runtime_prepare"] = preload_result
-                    status["runtime_ready"] = bool(isinstance(preload_result, dict) and str(preload_result.get("status", "")).lower() == "ready")
-                    if isinstance(status["runtime_prepare"], dict):
-                        status["runtime_prepare"]["device"] = preload_result.get("device")
-                        status["runtime_prepare"]["warmup_elapsed_ms"] = preload_result.get("warmup_elapsed_ms")
-                        status["runtime_prepare"]["cache_hit"] = preload_result.get("cache_hit")
-                    _style_bert_vits2_logger.info(
-                        "[Style-Bert-VITS2][prepare:%s] worker_prepare result=%s",
-                        prepare_id,
-                        preload_result,
-                    )
-            except StyleBertVITS2Error:
-                raise
-            except Exception as preload_error:
-                _style_bert_vits2_logger.info(
-                    "[Style-Bert-VITS2][prepare:%s] worker prepare info: %s",
-                    prepare_id,
-                    preload_error,
-                )
-
-        _style_bert_vits2_logger.info(
-            "[Style-Bert-VITS2][prepare:%s] done ready=%s initialized_now=%s action=%s",
-            prepare_id,
-            status["ready"],
-            initialized_now,
-            initialize_action,
-        )
-        return status
+        except AudioRuntimeHttpError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.detail)
+        if result.status_code != 200:
+            return JSONResponse(status_code=result.status_code, content=result.content)
+        return result.content
     # NOTE: ここに到達するのはStyleBertVITS2Errorを握りつぶした場合のみ
     raise HTTPException(status_code=500, detail=_STYLE_BERT_VITS2_UI_ERROR)
 

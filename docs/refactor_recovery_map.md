@@ -125,7 +125,9 @@
   - PR4.56 で low-risk audio read/status/config route を `app/api/audio.py` に移動。GET `/voice/status`、GET `/asr/config`、GET `/audio/runtime/debug`、GET `/api/tts/style-bert-vits2/models`、POST `/api/tts/style-bert-vits2/preview-normalization` の owner は `app/api/audio.py`、production payload は `main.py` provider のまま。
   - PR4.57 で POST `/tts/synthesize` の non-streaming service body は `app/services/audio_runtime.py` の `run_tts_synthesize_service_body()` に分離。ただし route owner は `main.py` のまま。
   - PR4.58 で POST `/tts/synthesize-batch` の batch service body は `app/services/audio_runtime.py` の `run_tts_synthesize_batch_service_body()` に分離。ただし route owner は `main.py` のまま。
-  - Execution body がまだ `main.py`: POST `/voice/transcribe`, POST `/voice/load`, POST `/api/tts/style-bert-vits2/prepare`, WebSocket `/echo/stream`。
+  - PR4.59 で POST `/api/tts/style-bert-vits2/prepare` の service body は `app/services/audio_runtime.py` の `run_sbv2_prepare_service_body()` に分離。ただし route owner は `main.py` のまま。
+  - TTS/SBV2 service body 抽出済み: POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`。
+  - Execution body がまだ `main.py`: POST `/voice/transcribe`, POST `/voice/load`, WebSocket `/echo/stream`。
   - import-time CUDA probe 禁止は継続。
 - audio runtime で壊れた時に見る順番:
   1. `main.py` route owner / production provider registration
@@ -137,7 +139,8 @@
   - PR4.56: low-risk audio read/status route move.
   - PR4.57: TTS/SBV2 non-streaming service body extraction (complete; route owner unchanged).
   - PR4.58: TTS/SBV2 synthesize-batch service body extraction (complete; route owner unchanged).
-  - PR4.59+: SBV2 prepare helper first; Echo WebSocket last.
+  - PR4.59: SBV2 prepare service body extraction (complete; route owner unchanged).
+  - PR4.60+: ASR load/transcribe棚卸しを先行し、Echo WebSocket は最後に扱う。
 
 ## Recovery invariants across all refactors
 
@@ -169,4 +172,5 @@
   - PR4.56: low-risk audio status/config route を移動。
   - PR4.57: TTS/SBV2 non-streaming service body を route 移動なしで抽出。
   - PR4.58: TTS/SBV2 synthesize-batch service body を route 移動なしで抽出。
-  - PR4.59+: SBV2 prepare helper body を先に扱い、Echo WebSocket は最後に扱う。
+  - PR4.59: SBV2 prepare service body を route 移動なしで抽出。
+  - PR4.60+: ASR load/transcribe 棚卸しを先行し、Echo WebSocket は最後に扱う。

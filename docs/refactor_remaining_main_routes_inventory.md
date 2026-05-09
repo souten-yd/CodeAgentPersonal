@@ -26,7 +26,7 @@ Hard guardrails retained for this PR:
   - Echo stream/write: still `main.py` high-risk (`WebSocket /echo/stream`, `DELETE /echo/sessions/{filename:path}`).
   - ASR runtime: still `main.py` high-risk for execution/load (`POST /voice/transcribe`, `POST /voice/load`); status/config moved to `app/api/audio.py` in PR4.56 with provider-backed production payloads and safe `create_app()` fallbacks.
   - TTS/SBV2 runtime: still `main.py` high-risk (`POST /tts/synthesize`, `POST /tts/synthesize-batch`, SBV2 prepare / upload routes; low-risk models and preview-normalization moved to `app/api/audio.py` in PR4.56).
-  - PR4.56 moved low-risk audio read/status/config routes to `app/api/audio.py`; PR4.57 extracts the TTS/SBV2 non-streaming `/tts/synthesize` service body; PR4.58 extracts the `/tts/synthesize-batch` service body while keeping route ownership and WebSocket/Echo stream unchanged; PR4.59+ handles SBV2 prepare before Echo WebSocket last.
+  - PR4.56 moved low-risk audio read/status/config routes to `app/api/audio.py`; PR4.57 extracts the TTS/SBV2 non-streaming `/tts/synthesize` service body; PR4.58 extracts the `/tts/synthesize-batch` service body while keeping route ownership and WebSocket/Echo stream unchanged; PR4.59 extracts the SBV2 prepare service body while keeping route ownership; POST `/voice/load`, POST `/voice/transcribe`, and Echo WebSocket remain the high-risk audio execution bodies.
 - **app orchestration**: Lumen/Chat execution (`/chat` and related LLM orchestration), job background execution routes still in `main.py`, and remaining project/history/files read/write/archive routes that need separate provider boundaries.
 - **already extracted**: jobs router (`app/api/jobs.py`), jobs service (`app/services/jobs.py`), Nexus router owner for moved routes (`app/api/nexus.py`), Nexus execution service (`app/services/nexus_execution.py`), Echo read-only router (`app/api/echo.py`), and runtime controls router (`app/api/runtime_controls.py`).
 
@@ -178,7 +178,7 @@ Echo, voice, ASR, and TTS routes are high-risk because they touch streaming, Web
 | POST | `/tts/unload` | `tts_unload_api` | `main` | write / heavy | unloads TTS engine | TTS engine registry | no | later | yes |
 | POST | `/tts/translate-text` | `tts_translate_text_api` | `main` | write / heavy | translates text | TTS/translation runtime | no | later | yes |
 | GET | `/api/tts/engines` | `api_tts_engines` | `main` | read-only | lists engines | TTS registry | no | later | yes |
-| POST | `/api/tts/style-bert-vits2/prepare` | `api_style_bert_vits2_prepare` | `main` | write / heavy | prepares SBV2 runtime | SBV2 runtime/files | no | later | yes |
+| POST | `/api/tts/style-bert-vits2/prepare` | `api_style_bert_vits2_prepare` | `main` | write / heavy | prepares SBV2 runtime via extracted service body | injected SBV2 prepare/runtime helpers in `run_sbv2_prepare_service_body()` | no | PR4.59 service-body extracted; route later | yes |
 | GET | `/api/tts/style-bert-vits2/models` | `api_style_bert_vits2_models` | `app.api.audio` | read-only | provider-backed SBV2 model list; empty safe fallback | SBV2 filesystem via provider | yes | moved in PR4.56 | yes |
 | POST | `/api/tts/style-bert-vits2/preview-normalization` | `api_style_bert_vits2_preview_normalization` | `app.api.audio` | read-preview | provider-backed normalization; no-op safe fallback with no LLM call | SBV2/text processing via provider | yes | moved in PR4.56 | yes |
 | POST | `/api/tts/style-bert-vits2/models/upload` | `api_style_bert_vits2_models_upload` | `main` | write / heavy | uploads model files | SBV2 filesystem | no | later | yes |
@@ -413,32 +413,33 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
    - `app/services/audio_runtime.py` adds only route-neutral dataclasses, static endpoint ownership metadata, and pure payload helpers; it does not import `main.py`, define `APIRouter`, import audio runtime stacks, run CUDA probes, or load ASR/TTS/SBV2 models.
    - Echo read-only remains already extracted to `app/api/echo.py`; Echo stream/write remains `main.py` high-risk.
    - ASR runtime remains `main.py` high-risk for POST `/voice/transcribe` and POST `/voice/load`; GET `/voice/status` and GET `/asr/config` moved to `app/api/audio.py` in PR4.56 with provider-backed production payloads and safe fallbacks.
-   - TTS/SBV2 runtime route ownership remains `main.py` high-risk for POST `/tts/synthesize`, POST `/tts/synthesize-batch`, SBV2 prepare, and upload routes; PR4.57 delegates the POST `/tts/synthesize` non-streaming body and PR4.58 delegates the POST `/tts/synthesize-batch` batch body to `app/services/audio_runtime.py`, while SBV2 models and preview-normalization moved to `app/api/audio.py` in PR4.56.
+   - TTS/SBV2 runtime route ownership remains `main.py` high-risk for POST `/tts/synthesize`, POST `/tts/synthesize-batch`, SBV2 prepare, and upload routes; PR4.57 delegates the POST `/tts/synthesize` non-streaming body, PR4.58 delegates the POST `/tts/synthesize-batch` batch body, and PR4.59 delegates the POST `/api/tts/style-bert-vits2/prepare` body to `app/services/audio_runtime.py`, while SBV2 models and preview-normalization moved to `app/api/audio.py` in PR4.56.
    - Next planned sequence:
      - PR4.55: Extract ASR/TTS service functions without moving routes.
      - PR4.56: Move low-risk audio status/config routes to `app/api/audio.py` (complete).
      - PR4.57: Extract TTS/SBV2 non-streaming service body without moving WebSocket/Echo stream (complete).
      - PR4.58: Extract TTS/SBV2 synthesize-batch service body without moving routes (complete).
-     - PR4.59+: SBV2 prepare helper body next; Echo WebSocket last.
+     - PR4.59: Extract SBV2 prepare service body without moving routes (complete).
+     - PR4.60+: ASR load/transcribe inventory or extraction before Echo WebSocket last.
 
 ## PR4.55 audio runtime helper extraction state
 
 PR4.55 is complete when the audio runtime helper seam is `app/services/audio_runtime.py` and route ownership remains unchanged.  The seam contains payload/helper/diagnostic shaping only: voice status response construction, ASR config response construction, audio runtime debug response construction, ASR/TTS degraded status classification, ASR/TTS device and `compute_type` display formatting, SBV2 model/runtime status display formatting, normalized error/degraded reasons, and endpoint risk / ownership metadata.
 
-Current ownership after PR4.58:
+Current ownership after PR4.59:
 
 - PR4.56 moved GET `/voice/status`, GET `/asr/config`, GET `/audio/runtime/debug`, GET `/api/tts/style-bert-vits2/models`, and POST `/api/tts/style-bert-vits2/preview-normalization` to `app/api/audio.py`.
-- `main.py` remains the owner for POST `/voice/load`, POST `/voice/transcribe`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, WebSocket `/echo/stream`, and SBV2 prepare/upload routes.
+- `main.py` remains the owner for POST `/voice/load`, POST `/voice/transcribe`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`, WebSocket `/echo/stream`, and SBV2 upload routes.
 - Audio router production collection remains provider-backed from `main.py`, and debug payload shaping is delegated to `app/services/audio_runtime.py`.
 - PR4.57 extracts the non-streaming POST `/tts/synthesize` body into `run_tts_synthesize_service_body()` with injected production dependencies.
 - PR4.58 extracts the POST `/tts/synthesize-batch` body into `run_tts_synthesize_batch_service_body()` with injected production dependencies.
-- WebSocket `/echo/stream`, transcribe, voice load, SBV2 prepare, and Echo write/delete bodies remain in `main.py`.
+- WebSocket `/echo/stream`, transcribe, voice load, and Echo write/delete bodies remain in `main.py`; SBV2 prepare route ownership remains `main.py` but its service body is extracted.
 - The import-time CUDA probe ban continues: `app/services/audio_runtime.py` must not top-level import `torch`, `ctranslate2`, `faster_whisper`, or Style-Bert-VITS2 runtime modules, and must not call `detect_audio_runtime()` during import.
 
 Next candidates:
 
-1. PR4.59: Extract SBV2 prepare/runtime helper body without moving route.
-2. Later: POST `/voice/transcribe`, POST `/voice/load`, and WebSocket `/echo/stream` remain high-risk, with Echo WebSocket last.
+1. PR4.60+: ASR棚卸しまたは POST `/voice/load` / POST `/voice/transcribe` extraction before route moves.
+2. Later: WebSocket `/echo/stream` remains high-risk and should stay last.
 
 
 ## PR4.56 low-risk audio read/status router move
@@ -446,4 +447,4 @@ Next candidates:
 - Moved GET `/voice/status`, GET `/asr/config`, GET `/audio/runtime/debug`, GET `/api/tts/style-bert-vits2/models`, and POST `/api/tts/style-bert-vits2/preview-normalization` to `app/api/audio.py`.
 - Production `main.app` registers providers for those routes so existing response shapes and runtime behavior are preserved.
 - `create_app()` fallbacks are side-effect-free: no model load, no CUDA probe, no heavy filesystem scan, and no direct LLM fallback.
-- Execution/high-risk audio routes remain `main.py`: POST `/voice/load`, POST `/voice/transcribe`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`, and WebSocket `/echo/stream`.
+- Execution/high-risk audio routes remain `main.py`: POST `/voice/load`, POST `/voice/transcribe`, POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`, and WebSocket `/echo/stream`; TTS/SBV2 service bodies are extracted, while ASR load/transcribe and Echo streaming remain high-risk bodies.
