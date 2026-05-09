@@ -128,3 +128,22 @@
 - Nexus write/research fallback は LLM / SearXNG / filesystem heavy scan / indexing / job execution を開始しない。
 - `KasaneCore_v2.8` は `e94c20dfe0d23e233f4dbc817af994408e739b80` の正常復旧済み baseline として扱う。
 - moved Nexus route owner は `app/api/nexus.py`、execution body owner は `app/services/nexus_execution.py` に固定する。
+
+## PR4.54
+
+- 変更:
+  - `KasaneCore_v2.8 == main at e94c20dfe0d23e233f4dbc817af994408e739b80` baseline 後の次対象を Echo / ASR / TTS / SBV2 audio runtime として棚卸し。
+  - `docs/echo_audio_runtime_inventory.md` に WebSocket `/echo/stream`、ASR (`/voice/*`, `/asr/config`)、TTS (`/tts/synthesize`, `/tts/synthesize-batch`)、Style-Bert-VITS2 prepare / models / preview-normalization / upload、Echo session write/delete の runtime 境界を記録。
+  - `app/services/audio_runtime.py` を追加。ただし route-neutral な dataclass / metadata / pure helper のみで、route 移動・実行ロジック移動・CUDA probe・ASR/TTS/SBV2 model load は行わない。
+  - Echo read-only は `app/api/echo.py` に移動済み、Echo stream/write・ASR runtime・TTS/SBV2 runtime は引き続き `main.py` high-risk として固定。
+- audio runtime で壊れた時に見る場所:
+  - `main.py`
+  - `app/audio/runtime_config.py`
+  - `app/services/audio_runtime.py`
+  - `app/api/echo.py`
+  - `docs/echo_audio_runtime_inventory.md`
+- 次フェーズ:
+  - PR4.55: ASR/TTS service functions を route 移動なしで抽出。
+  - PR4.56: low-risk audio status/config route を移動。
+  - PR4.57: 安全なら TTS/SBV2 non-streaming route を移動。
+  - PR4.58+: Echo WebSocket を最後に扱う。

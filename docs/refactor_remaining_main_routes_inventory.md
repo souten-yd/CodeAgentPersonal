@@ -1,4 +1,4 @@
-# PR4.53: Nexus residue cleanup and route ownership verification
+# PR4.54: Echo/ASR/TTS runtime boundary inventory and safe service seams
 
 ## Scope and guardrails
 
@@ -21,7 +21,12 @@ Hard guardrails retained for this PR:
 ## PR4.53 remaining `main.py` endpoint classification
 
 - **model runtime high-risk**: `/model/auto-load`, `/model/switch`, llama lifecycle/debug endpoints including `/debug/llama`, Runpod/Linux NGL探索 endpoints/diagnostics, Windows auto-fit/model sizing, model scan/download/benchmark routes. These remain in `main.py` and are not next-move candidates.
-- **audio runtime high-risk**: ASR routes such as `/voice/status` and `/voice/transcribe`, TTS/SBV2 routes such as `/tts/synthesize` and `/api/tts/style-bert-vits2/*`, and Echo WebSocket `/echo/stream`. These remain in `main.py`; Echo/ASR/TTS read/write route separation is the safer next phase.
+- **audio runtime high-risk / next phase (PR4.54 inventory)**: Echo / ASR / TTS / SBV2 boundaries are documented in `docs/echo_audio_runtime_inventory.md` and represented by route-neutral helpers in `app/services/audio_runtime.py`; no routes move in PR4.54.
+  - Echo read-only: already extracted to `app/api/echo.py` (`GET /echo/save-status`, `GET /echo/sessions`, `GET /echo/sessions/{filename:path}`).
+  - Echo stream/write: still `main.py` high-risk (`WebSocket /echo/stream`, `DELETE /echo/sessions/{filename:path}`).
+  - ASR runtime: still `main.py` high-risk for execution/load (`POST /voice/transcribe`, `POST /voice/load`); status/config are lower-risk but remain in `main.py` until safe provider fallbacks exist.
+  - TTS/SBV2 runtime: still `main.py` high-risk (`POST /tts/synthesize`, `POST /tts/synthesize-batch`, SBV2 prepare / models / preview-normalization / upload routes).
+  - Next planned: PR4.55 extract ASR/TTS service functions without moving routes; PR4.56 move low-risk audio status/config routes; PR4.57 move TTS/SBV2 non-streaming routes if safe; PR4.58+ move Echo WebSocket last.
 - **app orchestration**: Lumen/Chat execution (`/chat` and related LLM orchestration), job background execution routes still in `main.py`, and remaining project/history/files read/write/archive routes that need separate provider boundaries.
 - **already extracted**: jobs router (`app/api/jobs.py`), jobs service (`app/services/jobs.py`), Nexus router owner for moved routes (`app/api/nexus.py`), Nexus execution service (`app/services/nexus_execution.py`), Echo read-only router (`app/api/echo.py`), and runtime controls router (`app/api/runtime_controls.py`).
 
@@ -401,3 +406,16 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
    - Nexus execution body ownership is locked to `app/services/nexus_execution.py`; the service module must not import `main.py` or define `APIRouter` / route decorators.
    - `app/nexus/router.py` remains only for provider payload helper / legacy wrapper dependency assembly and non-moved Nexus routes: document health/detail/delete/download, job/research/source readbacks, news/market MVP, watchlists, export, and report subrouters. Moved Nexus POST route decorators must not return there.
    - Route inventory was regenerated with `python scripts/export_route_inventory.py`; duplicate path/method entries are forbidden.
+
+
+13. **PR4.54: Inventory Echo/ASR/TTS runtime boundaries and prepare safe service seams** — in progress
+   - Echo / ASR / TTS / SBV2 endpoint and runtime boundaries are inventoried in `docs/echo_audio_runtime_inventory.md`.
+   - `app/services/audio_runtime.py` adds only route-neutral dataclasses, static endpoint ownership metadata, and pure payload helpers; it does not import `main.py`, define `APIRouter`, import audio runtime stacks, run CUDA probes, or load ASR/TTS/SBV2 models.
+   - Echo read-only remains already extracted to `app/api/echo.py`; Echo stream/write remains `main.py` high-risk.
+   - ASR runtime remains `main.py` high-risk for POST `/voice/transcribe` and POST `/voice/load`; GET `/voice/status` and GET `/asr/config` are lower-risk but still `main.py` until PR4.56 provider fallbacks are safe.
+   - TTS/SBV2 runtime remains `main.py` high-risk for POST `/tts/synthesize`, POST `/tts/synthesize-batch`, SBV2 prepare, preview-normalization, models, and upload routes.
+   - Next planned sequence:
+     - PR4.55: Extract ASR/TTS service functions without moving routes.
+     - PR4.56: Move low-risk audio status/config routes.
+     - PR4.57: Move TTS/SBV2 non-streaming routes if safe.
+     - PR4.58+: Echo WebSocket last.

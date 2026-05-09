@@ -10964,10 +10964,13 @@ def plan_only(req: ChatRequest):
                     if bool(v.get("path"))},
     }
 
+# PR4.54: audio runtime endpoint; keep in main.py until PR4.55 service extraction.
+# Do not call detect_audio_runtime() at import time.
 @app.get("/voice/status")
 def voice_status_api():
     return voice_status()
 
+# PR4.54: ASR runtime load endpoint; route owner remains main.py for this preparation PR.
 @app.post("/voice/load")
 def voice_load_api(req: dict):
     _apply_asr_runtime_settings(req)
@@ -10981,6 +10984,7 @@ def voice_load_api(req: dict):
 def voice_unload_api():
     return voice_unload()
 
+# PR4.54: high-risk ASR execution endpoint; do not move or alter behavior before PR4.55.
 @app.post("/voice/transcribe")
 def voice_transcribe_api(req: dict):
     audio_b64 = str(req.get("audio_base64", "")).strip()
@@ -11718,6 +11722,7 @@ def echo_runtime_status():
 app.state.echo_save_status_provider = echo_save_status_payload
 
 
+# PR4.54: high-risk Echo streaming endpoint; keep in main.py until the final Echo WebSocket phase.
 @app.websocket("/echo/stream")
 async def echo_stream_ws(websocket: WebSocket):
     import datetime as _dt, asyncio as _asyncio
@@ -12663,6 +12668,7 @@ app.state.echo_sessions_provider = echo_sessions_payload
 app.state.echo_session_provider = echo_session_payload
 
 
+# PR4.54: Echo filesystem write/delete endpoint; keep in main.py until write seams are explicit.
 @app.delete("/echo/sessions/{filename:path}")
 def echo_delete_session(filename: str):
     """EchoVault ファイルを削除。"""
@@ -13354,6 +13360,7 @@ def api_tts_engines():
     return {"engines": ["style_bert_vits2"]}
 
 
+# PR4.54: SBV2 runtime prepare endpoint; keep in main.py and avoid import-time CUDA probes.
 @app.post("/api/tts/style-bert-vits2/prepare")
 def api_style_bert_vits2_prepare(req: dict = {}):
     req = req or {}
@@ -13636,6 +13643,7 @@ async def _handle_style_bert_vits2_error(_request: Request, exc: StyleBertVITS2E
     )
 
 
+# PR4.54: SBV2 model inventory endpoint; still main.py until safe fallback/provider seams exist.
 @app.get("/api/tts/style-bert-vits2/models")
 def api_style_bert_vits2_models():
     models = _style_bert_vits2_list_models()
@@ -13643,6 +13651,7 @@ def api_style_bert_vits2_models():
     return {"models": models, "model_details": detailed}
 
 
+# PR4.54: SBV2 normalization preview endpoint; LLM fallback behavior must remain unchanged.
 @app.post("/api/tts/style-bert-vits2/preview-normalization")
 def api_style_bert_vits2_preview_normalization(req: dict):
     try:
@@ -13710,6 +13719,7 @@ def tts_ref_audio_delete(filename: str):
     return {"deleted": safe_name}
 
 
+# PR4.54: high-risk TTS/SBV2 execution endpoint; do not move or alter behavior before PR4.55.
 @app.post("/tts/synthesize")
 def tts_synthesize_api(req: dict):
     from fastapi.responses import Response as FastAPIResponse
@@ -14257,6 +14267,7 @@ def _run_tts_synthesize_batch(req: dict):
         if zip_tempdir_ctx is not None:
             zip_tempdir_ctx.cleanup()
 
+# PR4.54: high-risk TTS/SBV2 batch execution endpoint; keep route owner in main.py.
 @app.post("/tts/synthesize-batch")
 def tts_synthesize_batch_api(req: dict):
     result = _run_tts_synthesize_batch(req)
@@ -17159,6 +17170,7 @@ def audio_runtime_debug_payload():
     }
 
 
+# PR4.54: ASR config/status boundary; keep in main.py until low-risk route move PR4.56.
 @app.get("/asr/config")
 def asr_config_api():
     return _resolve_asr_runtime_config()
