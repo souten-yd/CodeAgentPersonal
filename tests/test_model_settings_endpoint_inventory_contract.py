@@ -80,14 +80,14 @@ def test_model_settings_inventory_current_route_owners_are_split_as_expected():
         ("/model/auto-load", "POST", "main", "model_auto_load"),
         ("/llm/props", "GET", "app.api.runtime_controls", "get_runtime_llm_props_api"),
         ("/llm/ctx", "GET", "app.api.runtime_controls", "get_runtime_llm_ctx_api"),
-        ("/llm/ctx", "POST", "main", "set_ctx"),
+        ("/llm/ctx", "POST", "app.api.runtime_controls", "set_runtime_llm_ctx_api"),
         ("/search/status", "GET", "app.api.runtime_controls", "get_search_status_api"),
-        ("/search/num", "POST", "main", "search_set_num"),
-        ("/search/enable", "POST", "main", "search_enable"),
-        ("/search/disable", "POST", "main", "search_disable"),
+        ("/search/num", "POST", "app.api.runtime_controls", "set_search_num_api"),
+        ("/search/enable", "POST", "app.api.runtime_controls", "enable_search_api"),
+        ("/search/disable", "POST", "app.api.runtime_controls", "disable_search_api"),
         ("/streaming/status", "GET", "app.api.runtime_controls", "get_streaming_status_api"),
-        ("/streaming/enable", "POST", "main", "streaming_enable"),
-        ("/streaming/disable", "POST", "main", "streaming_disable"),
+        ("/streaming/enable", "POST", "app.api.runtime_controls", "enable_streaming_api"),
+        ("/streaming/disable", "POST", "app.api.runtime_controls", "disable_streaming_api"),
     ]
 
     for path, method, module_name, handler_name in expected:

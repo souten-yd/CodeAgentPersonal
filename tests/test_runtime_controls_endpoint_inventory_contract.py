@@ -58,8 +58,10 @@ def test_runtime_controls_inventory_doc_exists_and_mentions_hotfix_diagnostics()
 
     assert "PR4.39: Move read-only runtime status endpoints" in text
     assert "PR4.40: Move runtime diagnostics endpoints with provider fallback" in text
+    assert "PR4.48: Move lightweight runtime write controls" in text
     assert "PR4.39 moved only the read-only runtime status endpoints" in text
     assert "PR4.40 moved the lower-risk read-only diagnostic endpoints" in text
+    assert "PR4.48 moved only lightweight runtime write/control endpoints" in text
 
 
 def test_read_only_runtime_status_endpoints_belong_to_runtime_controls_router():
@@ -74,14 +76,22 @@ def test_read_only_runtime_status_endpoints_belong_to_runtime_controls_router():
         _assert_route_owner(path, method, "app.api.runtime_controls", handler_name)
 
 
-def test_runtime_write_controls_still_belong_to_main_py_without_execution():
+def test_lightweight_runtime_write_controls_belong_to_runtime_controls_router():
     expected = [
-        ("/llm/ctx", "POST", "set_ctx"),
-        ("/search/num", "POST", "search_set_num"),
-        ("/search/enable", "POST", "search_enable"),
-        ("/search/disable", "POST", "search_disable"),
-        ("/streaming/enable", "POST", "streaming_enable"),
-        ("/streaming/disable", "POST", "streaming_disable"),
+        ("/llm/ctx", "POST", "set_runtime_llm_ctx_api"),
+        ("/search/num", "POST", "set_search_num_api"),
+        ("/search/enable", "POST", "enable_search_api"),
+        ("/search/disable", "POST", "disable_search_api"),
+        ("/streaming/enable", "POST", "enable_streaming_api"),
+        ("/streaming/disable", "POST", "disable_streaming_api"),
+    ]
+
+    for path, method, handler_name in expected:
+        _assert_route_owner(path, method, "app.api.runtime_controls", handler_name)
+
+
+def test_model_lifecycle_writes_still_belong_to_main_py_without_execution():
+    expected = [
         ("/model/switch", "POST", "model_switch"),
         ("/model/auto-load", "POST", "model_auto_load"),
     ]

@@ -1,15 +1,15 @@
-# PR4.47: Echo read-only status/session router ownership
+# PR4.48: Lightweight runtime write-control router ownership
 
 ## Scope and guardrails
 
-This document records PR4.47 Echo read-only status/session endpoint extraction, building on PR4.42 system status, PR4.43 project read-only router work, PR4.44 job read-only status extraction, PR4.45 settings ownership hardening, and PR4.46 Nexus read-only status/list extraction. `GET /echo/save-status`, `GET /echo/sessions`, and `GET /echo/sessions/{filename:path}` are now owned by `app/api/echo.py`; production behavior remains provider-backed through `main.app.state`, and app-factory fallbacks stay conservative and side-effect-free.
+This document records PR4.48 lightweight runtime write-control endpoint extraction, building on PR4.42 system status, PR4.43 project read-only router work, PR4.44 job read-only status extraction, PR4.45 settings ownership hardening, PR4.46 Nexus read-only status/list extraction, and PR4.47 Echo read-only status/session extraction. `POST /search/enable`, `POST /search/disable`, `POST /search/num`, `POST /streaming/enable`, `POST /streaming/disable`, and `POST /llm/ctx` are now owned by `app/api/runtime_controls.py`; production behavior remains provider-backed through `main.app.state`, and app-factory fallbacks stay conservative and side-effect-free.
 
 Hard guardrails retained for this PR:
 
 - Do not move diagnostic/heavy system endpoints such as `/system/usage/debug`.
 - Do not change non-target `main.py` behavior.
-- Do not change LLM / ASR / TTS / SBV2 / Runpod llama search behavior.
-- Do not change `app/api/runtime_controls.py` or `app/api/model_settings.py`.
+- Do not change LLM inference / ASR / TTS / SBV2 / Runpod llama search behavior.
+- Do not change non-target `app/api/model_settings.py`; only the targeted lightweight runtime write controls move into `app/api/runtime_controls.py`.
 - Do not move settings provider implementations out of `main.py`; only route ownership belongs in `app/api/settings.py`.
 - Do not remove `/settings-defaults` or the legacy `/settings/defaults` compatibility path.
 - Do not place `/settings/{key}` before static defaults routes because it can shadow `/settings/defaults`.
@@ -54,10 +54,15 @@ These routes are already router-owned after PR4.42. If the PR4.42 system status 
 | GET | `/models/db/status` | `get_model_db_status_api` | `app.api.model_settings` | read-only | none | model DB provider | yes | already moved | yes |
 | GET | `/model/status` | `get_model_manager_status_api` | `app.api.model_settings` | read-only | none | model manager provider | yes | already moved | yes |
 | GET | `/llm/ctx` | `get_runtime_llm_ctx_api` | `app.api.runtime_controls` | read-only | none | runtime provider | yes | already moved | yes |
-| POST | `/llm/ctx` | `set_ctx` | `main` | write | mutates runtime context setting | `_current_n_ctx`, settings | no | not next | yes |
+| POST | `/llm/ctx` | `set_runtime_llm_ctx_api` | `app.api.runtime_controls` | lightweight write | provider mutates runtime context setting in production; fallback echoes | runtime write provider | yes | moved in PR4.48 | yes |
 | GET | `/llm/props` | `get_runtime_llm_props_api` | `app.api.runtime_controls` | read-only / diagnostic | may inspect runtime | runtime provider | yes | already moved | yes |
 | GET | `/search/status` | `get_search_status_api` | `app.api.runtime_controls` | read-only | none | runtime provider | yes | already moved | yes |
+| POST | `/search/num` | `set_search_num_api` | `app.api.runtime_controls` | lightweight write | provider mutates search count in production; fallback echoes | runtime write provider | yes | moved in PR4.48 | yes |
+| POST | `/search/enable` | `enable_search_api` | `app.api.runtime_controls` | lightweight write | provider mutates search flag in production; fallback echoes | runtime write provider | yes | moved in PR4.48 | yes |
+| POST | `/search/disable` | `disable_search_api` | `app.api.runtime_controls` | lightweight write | provider mutates search flag in production; fallback echoes | runtime write provider | yes | moved in PR4.48 | yes |
 | GET | `/streaming/status` | `get_streaming_status_api` | `app.api.runtime_controls` | read-only | none | runtime provider | yes | already moved | yes |
+| POST | `/streaming/enable` | `enable_streaming_api` | `app.api.runtime_controls` | lightweight write | provider mutates streaming flag in production; fallback echoes | runtime write provider | yes | moved in PR4.48 | yes |
+| POST | `/streaming/disable` | `disable_streaming_api` | `app.api.runtime_controls` | lightweight write | provider mutates streaming flag in production; fallback echoes | runtime write provider | yes | moved in PR4.48 | yes |
 | GET | `/runtime/cuda-debug` | `get_runtime_cuda_debug_api` | `app.api.runtime_controls` | read-only / diagnostic | runtime diagnostics | runtime provider | yes | already moved | yes |
 | GET | `/audio/runtime/debug` | `get_audio_runtime_debug_api` | `app.api.runtime_controls` | read-only / diagnostic | audio runtime diagnostics | audio providers/registries | yes | already moved | yes |
 | GET | `/debug/model-startup` | `get_model_startup_debug_api` | `app.api.runtime_controls` | read-only / diagnostic | reads startup diagnostics | model manager provider | yes | already moved | yes |
@@ -344,6 +349,8 @@ These direct `main.py` routes remain outside the immediate PR4.42/PR4.43 path. T
    - WebSocket `/echo/stream` remains in `main.py` because it is streaming/runtime execution.
    - `POST /voice/transcribe`, `POST /tts/synthesize`, and `POST /tts/synthesize-batch` remain in `main.py` because they are audio runtime execution endpoints.
 
-7. **PR4.48: lightweight runtime write controls** — next candidate
-   - Candidate endpoints: `POST /search/enable`, `POST /search/disable`, `POST /search/num`, `POST /streaming/enable`, `POST /streaming/disable`, and `POST /llm/ctx`.
-   - Jobs submit/background execution, Nexus write/research, Echo streaming/write paths, TTS, ASR, model loading/switching, model scans/benchmarks/downloads, and WebSocket/streaming endpoints are heavy and should wait for dedicated plans and contract tests.
+7. **PR4.48: lightweight runtime write controls** — completed
+   - Moved endpoints: `POST /search/enable`, `POST /search/disable`, `POST /search/num`, `POST /streaming/enable`, `POST /streaming/disable`, and `POST /llm/ctx`.
+   - Production `main.app` installs runtime write providers to preserve existing response shapes and state-saving behavior.
+   - `create_app()` uses lightweight fallbacks and does not touch llama-server, the model manager, LLM HTTP endpoints, SearXNG process management, ASR/TTS, filesystem scans, job execution, or WebSocket execution.
+   - Jobs submit/background execution, Nexus write/research/ingest, Echo WebSocket execution, TTS, ASR, model loading/switching, model scans/benchmarks/downloads, and model process lifecycle controls remain in `main.py` or their existing routers for dedicated plans and contract tests.

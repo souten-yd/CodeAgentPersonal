@@ -16427,12 +16427,11 @@ _current_n_ctx: int = _default_llm_ctx_size()             # コンテキスト�
 def runtime_llm_ctx_payload():
     return {"n_ctx": _current_n_ctx}
 
-@app.post("/llm/ctx")
-def set_ctx(req: dict):
+
+def runtime_llm_ctx_set_payload(ctx_size: int):
     """UIからコンテキスト長を変更する（llm_urlのmax_tokensに反映）"""
     global _current_n_ctx
-    n = int(req.get("n_ctx", _current_n_ctx))
-    _current_n_ctx = max(512, min(65535, n))
+    _current_n_ctx = max(512, min(65535, int(ctx_size)))
     return {"n_ctx": _current_n_ctx}
 
 # =========================
@@ -16442,22 +16441,22 @@ def set_ctx(req: dict):
 def search_status_payload():
     return {"enabled": _search_enabled, "num_results": _search_num_results}
 
-@app.post("/search/num")
-def search_set_num(req: dict):
+
+def search_num_payload(num_results: int):
     global _search_num_results
-    n = max(1, min(20, int(req.get("num_results", 5))))
+    n = max(1, min(20, int(num_results)))
     _search_num_results = n
     return {"num_results": n}
 
-@app.post("/search/enable")
-def search_enable():
+
+def search_enable_payload():
     global _search_enabled
     _search_enabled = True
     print("[SEARCH] Web search ENABLED by user")
     return {"enabled": True}
 
-@app.post("/search/disable")
-def search_disable():
+
+def search_disable_payload():
     global _search_enabled
     _search_enabled = False
     print("[SEARCH] Web search DISABLED by user")
@@ -16471,25 +16470,30 @@ def streaming_status_payload():
     return {"enabled": _llm_streaming}
 
 
-app.state.runtime_llm_ctx_provider = runtime_llm_ctx_payload
-app.state.runtime_llm_props_provider = runtime_llm_props_payload
-app.state.search_status_provider = search_status_payload
-app.state.streaming_status_provider = streaming_status_payload
-
-
-@app.post("/streaming/enable")
-def streaming_enable():
+def streaming_enable_payload():
     global _llm_streaming
     _llm_streaming = True
     print("[STREAMING] LLM streaming ENABLED")
     return {"enabled": True}
 
-@app.post("/streaming/disable")
-def streaming_disable():
+
+def streaming_disable_payload():
     global _llm_streaming
     _llm_streaming = False
     print("[STREAMING] LLM streaming DISABLED")
     return {"enabled": False}
+
+
+app.state.runtime_llm_ctx_provider = runtime_llm_ctx_payload
+app.state.runtime_llm_props_provider = runtime_llm_props_payload
+app.state.runtime_llm_ctx_set_provider = runtime_llm_ctx_set_payload
+app.state.search_status_provider = search_status_payload
+app.state.search_enable_provider = search_enable_payload
+app.state.search_disable_provider = search_disable_payload
+app.state.search_num_provider = search_num_payload
+app.state.streaming_status_provider = streaming_status_payload
+app.state.streaming_enable_provider = streaming_enable_payload
+app.state.streaming_disable_provider = streaming_disable_payload
 
 # =========================
 # ジョブ API（DB永続化・ブラウザ閉じても継続）
