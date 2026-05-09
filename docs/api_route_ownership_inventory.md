@@ -91,3 +91,12 @@
 - POST `/api/tts/style-bert-vits2/prepare` の service body を `app/services/audio_runtime.py` の `run_sbv2_prepare_service_body()` に抽出。route owner は `main.py` のまま。
 - TTS/SBV2 service body 抽出済み: POST `/tts/synthesize`, POST `/tts/synthesize-batch`, POST `/api/tts/style-bert-vits2/prepare`.
 - High-risk route owners remaining in `main.py`: POST `/voice/transcribe`, POST `/voice/load`, WebSocket `/echo/stream`; `/voice/load` and `/voice/transcribe` service bodies are extracted, Echo stream remains last.
+
+## PR4.64 Echo stream ASR helper-body extraction
+
+- PR4.64 extracts the Echo stream ASR helper body around `_echo_voice_transcribe(...)` into `app/services/audio_runtime.py` as route-neutral service code with `EchoStreamAsrServiceDependencies`, `EchoStreamAsrServiceResponse`, and `run_echo_stream_asr_service_body(...)`.
+- WebSocket `/echo/stream` route owner remains `main.py`; the `echo_stream_ws` main loop remains in `main.py` and is not moved.
+- `_echo_voice_transcribe(...)` remains in `main.py` as a thin wrapper that assembles production dependencies and calls the service helper.
+- WebSocket message shape must not change: status, ack, sentence, translation, error, and ui_log payload keys remain owned by the existing `main.py` WebSocket flow.
+- Echo session write/save/delete behavior is not moved in PR4.64 and remains high risk for a later PR.
+- Remaining high-risk areas after PR4.64: Echo WebSocket loop, Echo session write/save, and Echo TTS chain.

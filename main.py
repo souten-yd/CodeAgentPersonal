@@ -126,6 +126,7 @@ from app.api.runtime_controls import (
 )
 from app.services.audio_runtime import (
     AudioRuntimeHttpError,
+    EchoStreamAsrServiceDependencies,
     VoiceTranscribeServiceDependencies,
     Sbv2PrepareServiceDependencies,
     TtsSynthesizeBatchServiceDependencies,
@@ -134,6 +135,7 @@ from app.services.audio_runtime import (
     build_audio_runtime_debug_payload,
     build_tts_status_payload,
     build_voice_status_payload,
+    run_echo_stream_asr_service_body,
     run_sbv2_prepare_service_body,
     run_tts_synthesize_batch_service_body,
     run_tts_synthesize_service_body,
@@ -11192,113 +11194,52 @@ def _echo_voice_transcribe(
     asr_post_filter: dict | None = None,
     initial_prompt: str | None = None,
 ) -> dict:
-    """Echo ASR path using the shared faster-whisper model and lock."""
-    import tempfile, re as _re
+    """Thin Echo ASR wrapper; service body lives in app/services/audio_runtime.py."""
 
-    fmt = (audio_format or "webm").strip().lower()
-    temp_path = None
-    audio_input = None
-    if fmt in {"pcm", "pcm_s16le", "s16le", "raw"}:
-        try:
-            import numpy as _np  # type: ignore
-
-            pcm = _np.frombuffer(audio_bytes or b"", dtype=_np.int16)
-            ch = max(1, int(channels or 1))
-            if ch > 1 and pcm.size >= ch:
-                frames = (pcm.size // ch) * ch
-                pcm = pcm[:frames].reshape(-1, ch).mean(axis=1).astype(_np.int16)
-            audio_input = pcm.astype(_np.float32) / 32768.0
-        except Exception:
-            # numpy未導入や異常データ時は従来どおりWAV経由へフォールバック
-            audio_input = _echo_pcm_s16le_to_wav_bytes(audio_bytes, sample_rate=sample_rate, channels=channels)
-            fmt = "wav"
-    else:
-        audio_input = audio_bytes
-    if isinstance(audio_input, (bytes, bytearray)):
-        suffix = "." + _re.sub(r"[^a-zA-Z0-9]", "", fmt or "webm")
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
-            tf.write(audio_input)
-            temp_path = tf.name
-        audio_input = temp_path
-    try:
-        filter_cfg = _resolve_asr_post_filter_config(asr_post_filter)
-        get_or_load_asr_model(model_name=model_name)
+    def _transcribe_echo_audio(audio_input, *, language, transcribe_kwargs):
         with _voice_lock:
-            lang_arg = None if language == "auto" else language
-            asr_profile = _resolve_asr_profile(asr_profile)
-            transcribe_kwargs = _build_asr_transcribe_kwargs(
-                asr_profile=asr_profile,
-                beam_size=beam_size,
-                best_of=best_of,
-                no_speech_threshold=no_speech_threshold,
-                log_prob_threshold=log_prob_threshold,
-                compression_ratio_threshold=compression_ratio_threshold,
-            )
-            prompt = str(initial_prompt or "").strip()
-            if prompt:
-                transcribe_kwargs["initial_prompt"] = prompt
-            segments, info = _voice_model.transcribe(
+            return _voice_model.transcribe(
                 audio_input,
-                language=lang_arg,
-                **transcribe_kwargs,
+                language=language,
+                **dict(transcribe_kwargs),
             )
-            segments = list(segments)
-            text = "".join(seg.text for seg in segments).strip()
-            metrics = _echo_asr_metrics(segments)
-            rejected = False
-            reject_reason = ""
-            retry_applied = False
-            looped, rep_detail = _detect_repetition_loop(text, filter_cfg)
-            if bool(filter_cfg.get("enabled", True)) and bool(filter_cfg.get("reject_repetition_loop", True)) and looped:
-                if bool(filter_cfg.get("retry_repetition_once", True)):
-                    retry_kwargs = dict(transcribe_kwargs)
-                    retry_kwargs["beam_size"] = max(1, int(retry_kwargs.get("beam_size", 1)) + int(filter_cfg.get("retry_beam_add", 2)))
-                    retry_kwargs["best_of"] = max(1, int(retry_kwargs.get("best_of", 1)) + int(filter_cfg.get("retry_best_of_add", 2)))
-                    retry_applied = True
-                    segments_retry, info = _voice_model.transcribe(
-                        audio_input,
-                        language=lang_arg,
-                        **retry_kwargs,
-                    )
-                    segments_retry = list(segments_retry)
-                    text = "".join(seg.text for seg in segments_retry).strip()
-                    metrics = _echo_asr_metrics(segments_retry)
-                    looped_retry, rep_detail = _detect_repetition_loop(text, filter_cfg)
-                    transcribe_kwargs = retry_kwargs
-                    if looped_retry:
-                        rejected = True
-                        reject_reason = "repetition_loop"
-                else:
-                    rejected = True
-                    reject_reason = "repetition_loop"
-            if rejected:
-                text = ""
-                logging.info(
-                    "echo_voice_transcribe rejected: reject_reason=%s profile=%s detail=%s",
-                    reject_reason, asr_profile, rep_detail,
-                )
-        detected = _echo_normalize_lang(getattr(info, "language", language), text)
-        return {
-            "text": text,
-            "language": detected,
-            "duration": getattr(info, "duration", 0.0),
-            "metrics": metrics,
+
+    deps = EchoStreamAsrServiceDependencies(
+        load_echo_asr_model=get_or_load_asr_model,
+        transcribe_echo_audio=_transcribe_echo_audio,
+        resolve_asr_profile=_resolve_asr_profile,
+        build_asr_transcribe_kwargs=_build_asr_transcribe_kwargs,
+        resolve_asr_post_filter_config=_resolve_asr_post_filter_config,
+        detect_repetition_loop=_detect_repetition_loop,
+        echo_asr_metrics=_echo_asr_metrics,
+        normalize_language=_echo_normalize_lang,
+        pcm_s16le_to_wav_bytes=_echo_pcm_s16le_to_wav_bytes,
+        rejection_logger=logging.info,
+    )
+    response = run_echo_stream_asr_service_body(
+        {
+            "audio_bytes": audio_bytes,
+            "audio_bytes_count": len(audio_bytes or b""),
+            "language": language,
+            "model_name": model_name,
+            "audio_format": audio_format,
+            "sample_rate": sample_rate,
+            "channels": channels,
             "asr_profile": asr_profile,
-            "post_filter": {
-                "enabled": bool(filter_cfg.get("enabled", True)),
-                "rejected": rejected,
-                "reject_reason": reject_reason,
-                "retry_applied": retry_applied,
-            },
-        }
-    finally:
-        if temp_path:
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
-
-
+            "beam_size": beam_size,
+            "best_of": best_of,
+            "no_speech_threshold": no_speech_threshold,
+            "log_prob_threshold": log_prob_threshold,
+            "compression_ratio_threshold": compression_ratio_threshold,
+            "asr_post_filter": asr_post_filter if isinstance(asr_post_filter, dict) else {},
+            "initial_prompt": initial_prompt,
+        },
+        deps,
+    )
+    if response.error_payloads:
+        detail = response.error_payloads.get("websocket_error_payload", {}).get("detail", "ASR error")
+        raise RuntimeError(str(detail).replace("ASR error: ", "", 1))
+    return dict(response.result)
 
 
 def _echo_normalize_lang(lang: str | None, text: str = "") -> str:

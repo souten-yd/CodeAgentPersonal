@@ -220,3 +220,12 @@ Recovery invariants:
 - `_echo_voice_transcribe(...)` remains the active Echo ASR call target for this PR.
 - POST `/voice/load` and POST `/voice/transcribe` service bodies are extracted, but their route owners remain `main.py`.
 - Echo websocket message shape, Echo session write/save/delete behavior, TTS playback chain, CUDA fallback, and debug log field names must be preserved.
+
+## PR4.64 Echo stream ASR helper-body extraction
+
+- PR4.64 extracts the Echo stream ASR helper body around `_echo_voice_transcribe(...)` into `app/services/audio_runtime.py` as route-neutral service code with `EchoStreamAsrServiceDependencies`, `EchoStreamAsrServiceResponse`, and `run_echo_stream_asr_service_body(...)`.
+- WebSocket `/echo/stream` route owner remains `main.py`; the `echo_stream_ws` main loop remains in `main.py` and is not moved.
+- `_echo_voice_transcribe(...)` remains in `main.py` as a thin wrapper that assembles production dependencies and calls the service helper.
+- WebSocket message shape must not change: status, ack, sentence, translation, error, and ui_log payload keys remain owned by the existing `main.py` WebSocket flow.
+- Echo session write/save/delete behavior is not moved in PR4.64 and remains high risk for a later PR.
+- Remaining high-risk areas after PR4.64: Echo WebSocket loop, Echo session write/save, and Echo TTS chain.

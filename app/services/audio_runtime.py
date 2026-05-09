@@ -171,6 +171,7 @@ class EchoStreamAsrInput:
     """
 
     audio_bytes_count: int
+    audio_bytes: bytes = b""
     seq: int | None = None
     mime: str = "audio/webm"
     session_id: str = ""
@@ -266,6 +267,7 @@ def build_echo_stream_asr_input(
 
     return EchoStreamAsrInput(
         audio_bytes_count=len(audio_bytes or b""),
+        audio_bytes=bytes(audio_bytes or b""),
         seq=seq,
         mime=str(mime or "audio/webm"),
         session_id=str(session_id or ""),
@@ -333,6 +335,174 @@ def normalize_echo_stream_asr_error(
         "ui_log_payload": {"type": "ui_log", "level": "error", "summary": summary},
         "ack_error_payload": {"type": "ack", "seq": seq, "error": True} if seq is not None else None,
     }
+
+
+@dataclass(frozen=True)
+class EchoStreamAsrServiceDependencies:
+    """Injected production seams for Echo stream ASR without importing main.py or moving the WebSocket."""
+
+    load_echo_asr_model: Callable[..., Mapping[str, Any]]
+    transcribe_echo_audio: Callable[..., tuple[Any, Any]]
+    resolve_asr_profile: Callable[[Any], str]
+    build_asr_transcribe_kwargs: Callable[..., Mapping[str, Any]]
+    resolve_asr_post_filter_config: Callable[[Mapping[str, Any] | None], Mapping[str, Any]]
+    detect_repetition_loop: Callable[[str, Mapping[str, Any] | None], tuple[bool, Mapping[str, Any]]]
+    echo_asr_metrics: Callable[[Any], Mapping[str, Any]]
+    normalize_language: Callable[[str | None, str], str]
+    pcm_s16le_to_wav_bytes: Callable[..., bytes]
+    rejection_logger: Callable[..., None] | None = None
+
+
+@dataclass(frozen=True)
+class EchoStreamAsrServiceResponse:
+    """Route-neutral Echo stream ASR response data returned to the main.py WebSocket wrapper."""
+
+    result: Mapping[str, Any] = field(default_factory=dict)
+    summary: EchoStreamAsrResult = field(default_factory=EchoStreamAsrResult)
+    error_payloads: Mapping[str, Any] = field(default_factory=dict)
+    debug_payload: Mapping[str, Any] = field(default_factory=dict)
+
+
+def run_echo_stream_asr_service_body(
+    request: EchoStreamAsrInput | Mapping[str, Any],
+    deps: EchoStreamAsrServiceDependencies,
+) -> EchoStreamAsrServiceResponse:
+    """Run the Echo stream ASR helper body behind route-neutral injected dependencies.
+
+    The WebSocket route, Echo session write/save, TTS chain, and client message
+    sending stay in main.py. This helper preserves the existing ASR model
+    load/reuse call, PCM conversion, transcribe kwargs, repetition retry, result
+    payload shape, and error-payload normalization without importing ASR runtimes.
+    """
+
+    if isinstance(request, EchoStreamAsrInput):
+        data: dict[str, Any] = asdict(request)
+    else:
+        data = dict(request or {})
+    audio_bytes = bytes(data.get("audio_bytes") or b"")
+    seq = data.get("seq")
+    session_id = str(data.get("session_id", "") or "")
+    mime = str(data.get("mime", "audio/webm") or "audio/webm")
+    fmt = str(data.get("audio_format", "webm") or "webm").strip().lower() or "webm"
+    sample_rate = int(data.get("sample_rate", 16000) or 16000)
+    channels = int(data.get("channels", 1) or 1)
+    language = str(data.get("language", "auto") or "auto").strip().lower() or "auto"
+    model_name = str(data.get("model_name", "large-v3-turbo") or "large-v3-turbo").strip() or "large-v3-turbo"
+    asr_profile_value = data.get("asr_profile", "balanced")
+    asr_post_filter = data.get("asr_post_filter", {})
+    initial_prompt = str(data.get("initial_prompt", "") or "")
+
+    temp_path = None
+    audio_input: Any
+    try:
+        if fmt in {"pcm", "pcm_s16le", "s16le", "raw"}:
+            try:
+                import numpy as _np  # type: ignore
+
+                pcm = _np.frombuffer(audio_bytes or b"", dtype=_np.int16)
+                ch = max(1, int(channels or 1))
+                if ch > 1 and pcm.size >= ch:
+                    frames = (pcm.size // ch) * ch
+                    pcm = pcm[:frames].reshape(-1, ch).mean(axis=1).astype(_np.int16)
+                audio_input = pcm.astype(_np.float32) / 32768.0
+            except Exception:
+                audio_input = deps.pcm_s16le_to_wav_bytes(audio_bytes, sample_rate=sample_rate, channels=channels)
+                fmt = "wav"
+        else:
+            audio_input = audio_bytes
+        if isinstance(audio_input, (bytes, bytearray)):
+            import re as _re
+
+            suffix = "." + _re.sub(r"[^a-zA-Z0-9]", "", fmt or "webm")
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
+                tf.write(audio_input)
+                temp_path = tf.name
+            audio_input = temp_path
+
+        filter_cfg = dict(deps.resolve_asr_post_filter_config(asr_post_filter if isinstance(asr_post_filter, Mapping) else {}))
+        deps.load_echo_asr_model(model_name=model_name)
+        lang_arg = None if language == "auto" else language
+        asr_profile = deps.resolve_asr_profile(asr_profile_value)
+        transcribe_kwargs = dict(deps.build_asr_transcribe_kwargs(
+            asr_profile=asr_profile,
+            beam_size=data.get("beam_size"),
+            best_of=data.get("best_of"),
+            no_speech_threshold=data.get("no_speech_threshold"),
+            log_prob_threshold=data.get("log_prob_threshold"),
+            compression_ratio_threshold=data.get("compression_ratio_threshold"),
+        ))
+        prompt = initial_prompt.strip()
+        if prompt:
+            transcribe_kwargs["initial_prompt"] = prompt
+        segments, info = deps.transcribe_echo_audio(audio_input, language=lang_arg, transcribe_kwargs=transcribe_kwargs)
+        segments = list(segments)
+        text = "".join(getattr(seg, "text", "") for seg in segments).strip()
+        metrics = dict(deps.echo_asr_metrics(segments))
+        rejected = False
+        reject_reason = ""
+        retry_applied = False
+        looped, rep_detail = deps.detect_repetition_loop(text, filter_cfg)
+        if bool(filter_cfg.get("enabled", True)) and bool(filter_cfg.get("reject_repetition_loop", True)) and looped:
+            if bool(filter_cfg.get("retry_repetition_once", True)):
+                retry_kwargs = dict(transcribe_kwargs)
+                retry_kwargs["beam_size"] = max(1, int(retry_kwargs.get("beam_size", 1)) + int(filter_cfg.get("retry_beam_add", 2)))
+                retry_kwargs["best_of"] = max(1, int(retry_kwargs.get("best_of", 1)) + int(filter_cfg.get("retry_best_of_add", 2)))
+                retry_applied = True
+                segments_retry, info = deps.transcribe_echo_audio(audio_input, language=lang_arg, transcribe_kwargs=retry_kwargs)
+                segments_retry = list(segments_retry)
+                text = "".join(getattr(seg, "text", "") for seg in segments_retry).strip()
+                metrics = dict(deps.echo_asr_metrics(segments_retry))
+                looped_retry, rep_detail = deps.detect_repetition_loop(text, filter_cfg)
+                transcribe_kwargs = retry_kwargs
+                if looped_retry:
+                    rejected = True
+                    reject_reason = "repetition_loop"
+            else:
+                rejected = True
+                reject_reason = "repetition_loop"
+        if rejected:
+            text = ""
+            if deps.rejection_logger is not None:
+                deps.rejection_logger(
+                    "echo_voice_transcribe rejected: reject_reason=%s profile=%s detail=%s",
+                    reject_reason,
+                    asr_profile,
+                    rep_detail,
+                )
+        result = {
+            "text": text,
+            "language": deps.normalize_language(getattr(info, "language", language), text),
+            "duration": getattr(info, "duration", 0.0),
+            "metrics": metrics,
+            "asr_profile": asr_profile,
+            "post_filter": {
+                "enabled": bool(filter_cfg.get("enabled", True)),
+                "rejected": rejected,
+                "reject_reason": reject_reason,
+                "retry_applied": retry_applied,
+            },
+        }
+        return EchoStreamAsrServiceResponse(result=result, summary=summarize_echo_stream_asr_result(result))
+    except Exception as e:
+        error_payloads = normalize_echo_stream_asr_error(
+            e,
+            session_id=session_id,
+            seq=seq if isinstance(seq, int) else None,
+            audio_bytes_count=len(audio_bytes or b""),
+            mime=mime,
+        )
+        return EchoStreamAsrServiceResponse(
+            result={},
+            summary=EchoStreamAsrResult(),
+            error_payloads=error_payloads,
+            debug_payload={"error": str(e), "session_id": session_id, "seq": seq, "bytes": len(audio_bytes or b""), "mime": mime},
+        )
+    finally:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
 
 
 @dataclass(frozen=True)
