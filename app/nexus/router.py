@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from urllib import parse, request
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -24,18 +24,21 @@ from app.nexus.news import (
     run_news_mvp,
     update_watchlist,
 )
-from app.nexus.report import nexus_report_router
+from app.nexus.report import BuildReportRequest, build_job_report, nexus_report_router
 from app.nexus.search import search_evidence
 from app.nexus.web_scout import get_last_web_search_status
 from app.nexus.web_service import execute_web_search_service
 from app.services.nexus_execution import (
     NexusExecutionError,
     add_nexus_evidence_from_chunks_service,
+    build_nexus_report_service,
     collect_nexus_web_sources_service,
     ingest_nexus_document_service,
     run_nexus_ask_service,
     run_nexus_research_followup_service,
     run_nexus_research_service,
+    run_nexus_deep_research_service,
+    run_nexus_recursive_research_service,
     run_nexus_search_service,
     run_nexus_sources_search_service,
     run_nexus_web_research_service,
@@ -402,8 +405,7 @@ def nexus_list_evidence(
     )
 
 
-@nexus_router.post("/upload")
-async def nexus_upload(file: UploadFile = File(...), project: str = Form("default")) -> dict:
+async def nexus_upload_payload(*, file, project: str = "default") -> dict:
     """アップロードを受け付け、抽出ジョブをバックグラウンドで開始する。"""
     try:
         return await ingest_nexus_document_service(file=file, project=project, accept_upload=accept_upload)
@@ -411,8 +413,7 @@ async def nexus_upload(file: UploadFile = File(...), project: str = Form("defaul
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@nexus_router.post("/search")
-def nexus_search(payload: NexusSearchRequest) -> dict:
+def nexus_search_payload(payload: NexusSearchRequest) -> dict:
     """FTS5 + BM25 でライブラリ内チャンクを検索する。"""
     try:
         return run_nexus_search_service(payload, search_evidence=search_evidence)
@@ -420,22 +421,27 @@ def nexus_search(payload: NexusSearchRequest) -> dict:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
-@nexus_router.post("/web/search")
-def nexus_web_search(payload: NexusWebSearchRequest) -> dict:
+def nexus_web_search_payload(payload: NexusWebSearchRequest) -> dict:
     try:
         return run_nexus_web_search_service(payload, execute_web_search=execute_web_search_service)
     except NexusExecutionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
-@nexus_router.post("/web/research")
-def nexus_web_research(payload: NexusWebSearchRequest) -> dict:
+def nexus_web_research_payload(payload: NexusWebSearchRequest) -> dict:
     return run_nexus_web_research_service(payload, run_research_async=run_research_async)
 
 
-@nexus_router.post("/research/run")
-def nexus_research_run(payload: ResearchRunRequest) -> dict:
+def nexus_research_payload(payload: ResearchRunRequest) -> dict:
     return run_nexus_research_service(payload, run_research_async=run_research_async)
+
+
+def nexus_deep_research_payload(payload: ResearchRunRequest) -> dict:
+    return run_nexus_deep_research_service(payload, run_research_async=run_research_async)
+
+
+def nexus_recursive_research_payload(payload: ResearchRunRequest) -> dict:
+    return run_nexus_recursive_research_service(payload, run_research_async=run_research_async)
 
 
 @nexus_router.get("/research/jobs/{job_id}")
@@ -541,8 +547,7 @@ def _search_chunks(payload: NexusSourceSearchRequest) -> list[dict]:
         return [dict(r) for r in conn.execute(sql, tuple(params)).fetchall()]
 
 
-@nexus_router.post("/sources/search")
-def nexus_sources_search(payload: NexusSourceSearchRequest) -> dict:
+def nexus_sources_search_payload(payload: NexusSourceSearchRequest) -> dict:
     return run_nexus_sources_search_service(payload, search_chunks=_search_chunks)
 
 
@@ -561,13 +566,11 @@ def _fetch_chunk_rows_for_evidence(chunk_ids: list[str]) -> list[dict]:
         return [dict(r) for r in conn.execute(sql, tuple(chunk_ids)).fetchall()]
 
 
-@nexus_router.post("/evidence/add-from-chunks")
-def nexus_evidence_add_from_chunks(payload: NexusEvidenceAddFromChunksRequest) -> dict:
+def nexus_evidence_add_from_chunks_payload(payload: NexusEvidenceAddFromChunksRequest) -> dict:
     return add_nexus_evidence_from_chunks_service(payload, fetch_chunk_rows=_fetch_chunk_rows_for_evidence)
 
 
-@nexus_router.post("/research/jobs/{job_id}/followup")
-def nexus_research_followup(job_id: str, payload: NexusResearchFollowupRequest) -> dict:
+def nexus_research_followup_payload(job_id: str, payload: NexusResearchFollowupRequest) -> dict:
     return run_nexus_research_followup_service(
         job_id,
         payload,
@@ -575,8 +578,8 @@ def nexus_research_followup(job_id: str, payload: NexusResearchFollowupRequest) 
         source_search_request_factory=NexusSourceSearchRequest,
     )
 
-@nexus_router.post("/web/collect")
-def nexus_web_collect(payload: CollectRequest) -> dict:
+
+def nexus_web_collect_payload(payload: CollectRequest) -> dict:
     return collect_nexus_web_sources_service(payload, collect_web_sources=collect_web_sources)
 
 
@@ -610,12 +613,15 @@ def nexus_market_mvp(payload: NexusMarketMvpRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@nexus_router.post("/ask")
-def nexus_ask(payload: NexusSearchRequest) -> dict:
+def nexus_ask_payload(payload: NexusSearchRequest) -> dict:
     try:
         return run_nexus_ask_service(payload, search_evidence=search_evidence)
     except NexusExecutionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+def nexus_report_build_payload(payload: BuildReportRequest) -> dict:
+    return build_nexus_report_service(payload, build_report=build_job_report)
 
 
 @nexus_router.get("/news/watchlists")

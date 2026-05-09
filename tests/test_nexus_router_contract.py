@@ -72,6 +72,17 @@ def test_main_app_registers_nexus_providers_as_callables():
     assert callable(main.app.state.nexus_documents_provider)
     assert callable(main.app.state.nexus_active_jobs_provider)
     assert callable(main.app.state.nexus_web_status_provider)
+    assert callable(main.app.state.nexus_upload_provider)
+    assert callable(main.app.state.nexus_search_provider)
+    assert callable(main.app.state.nexus_web_search_provider)
+    assert callable(main.app.state.nexus_web_research_provider)
+    assert callable(main.app.state.nexus_research_provider)
+    assert callable(main.app.state.nexus_sources_search_provider)
+    assert callable(main.app.state.nexus_evidence_add_from_chunks_provider)
+    assert callable(main.app.state.nexus_research_followup_provider)
+    assert callable(main.app.state.nexus_web_collect_provider)
+    assert callable(main.app.state.nexus_ask_provider)
+    assert callable(main.app.state.nexus_report_build_provider)
 
 
 def test_main_app_nexus_routes_are_owned_by_api_router():
@@ -80,6 +91,17 @@ def test_main_app_nexus_routes_are_owned_by_api_router():
         ("/nexus/documents", "GET", "get_nexus_documents_api"),
         ("/nexus/jobs/active", "GET", "get_nexus_active_jobs_api"),
         ("/nexus/web/status", "GET", "get_nexus_web_status_api"),
+        ("/nexus/upload", "POST", "nexus_upload_api"),
+        ("/nexus/search", "POST", "nexus_search_api"),
+        ("/nexus/web/search", "POST", "nexus_web_search_api"),
+        ("/nexus/web/research", "POST", "nexus_web_research_api"),
+        ("/nexus/research/run", "POST", "nexus_research_run_api"),
+        ("/nexus/sources/search", "POST", "nexus_sources_search_api"),
+        ("/nexus/evidence/add-from-chunks", "POST", "nexus_evidence_add_from_chunks_api"),
+        ("/nexus/research/jobs/{job_id}/followup", "POST", "nexus_research_followup_api"),
+        ("/nexus/web/collect", "POST", "nexus_web_collect_api"),
+        ("/nexus/ask", "POST", "nexus_ask_api"),
+        ("/nexus/report/build", "POST", "nexus_report_build_api"),
     ]
     for path, method, handler_name in expected:
         route = _route(path, method)

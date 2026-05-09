@@ -15,6 +15,17 @@
 | `/nexus/library/documents` | GET | `app/api/nexus.py` | provider-backed | low | read-only alias | yes | yes |
 | `/nexus/jobs/active` | GET | `app/api/nexus.py` | provider-backed | low | read-only | yes | yes |
 | `/nexus/web/status` | GET | `app/api/nexus.py` | provider-backed | low | read-only | yes | yes |
+| `/nexus/upload` | POST | `app/api/nexus.py` | `app/services/nexus_execution.py` via production provider | high | execution/write ingest | yes | yes |
+| `/nexus/search` | POST | `app/api/nexus.py` | `app/services/nexus_execution.py` via production provider | high | execution/write search | yes | yes |
+| `/nexus/web/search` | POST | `app/api/nexus.py` | `app/services/nexus_execution.py` via production provider | high | execution/write web search | yes | yes |
+| `/nexus/web/research` | POST | `app/api/nexus.py` | `app/services/nexus_execution.py` via production provider | high | execution/write research | yes | yes |
+| `/nexus/research/run` | POST | `app/api/nexus.py` | `app/services/nexus_execution.py` via production provider | high | execution/write research | yes | yes |
+| `/nexus/sources/search` | POST | `app/api/nexus.py` | `app/services/nexus_execution.py` via production provider | high | execution/write source search | yes | yes |
+| `/nexus/evidence/add-from-chunks` | POST | `app/api/nexus.py` | `app/services/nexus_execution.py` via production provider | high | execution/write evidence | yes | yes |
+| `/nexus/research/jobs/{job_id}/followup` | POST | `app/api/nexus.py` | `app/services/nexus_execution.py` via production provider | high | execution/write followup | yes | yes |
+| `/nexus/web/collect` | POST | `app/api/nexus.py` | `app/services/nexus_execution.py` via production provider | high | execution/write ingest | yes | yes |
+| `/nexus/ask` | POST | `app/api/nexus.py` | `app/services/nexus_execution.py` via production provider | high | execution/write ask | yes | yes |
+| `/nexus/report/build` | POST | `app/api/nexus.py` | `app/services/nexus_execution.py` via production provider | high | execution/write report | yes | yes |
 | `/echo/save-status` | GET | `app/api/echo.py` | provider-backed | low | read-only | yes | yes |
 | `/echo/sessions` | GET | `app/api/echo.py` | provider-backed | low | read-only | yes | yes |
 | `/echo/sessions/{filename:path}` | GET | `app/api/echo.py` | provider-backed | medium | read-only file access | yes | yes |
@@ -61,3 +72,4 @@
 - `create_app fallback 有無 = yes` means the app-factory shell can return a conservative payload without touching CUDA, model load, filesystem-heavy scans, ASR/TTS, or live LLM runtime.
 - `production provider 有無 = yes` means `main.app` wires a provider that preserves production behavior.
 - High-risk runtime routes must not be moved casually in this recovery PR.
+- PR4.52 moved Nexus POST/write/research/ingest route ownership to `app/api/nexus.py`; production behavior is still assembled through `main.py` providers and implemented in `app/services/nexus_execution.py`.

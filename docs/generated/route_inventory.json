@@ -164,6 +164,15 @@
     "owner": "model-settings"
   },
   {
+    "path": "/nexus/ask",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "nexus_ask_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
     "path": "/nexus/dashboard/summary",
     "methods": [
       "GET"
@@ -178,6 +187,15 @@
       "GET"
     ],
     "endpoint_name": "get_nexus_documents_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/nexus/evidence/add-from-chunks",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "nexus_evidence_add_from_chunks_api",
     "module": "app.api.nexus",
     "owner": "nexus-read-only"
   },
@@ -200,11 +218,92 @@
     "owner": "nexus-read-only"
   },
   {
+    "path": "/nexus/report/build",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "nexus_report_build_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/nexus/research/jobs/{job_id}/followup",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "nexus_research_followup_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/nexus/research/run",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "nexus_research_run_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/nexus/search",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "nexus_search_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/nexus/sources/search",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "nexus_sources_search_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
     "path": "/nexus/summary",
     "methods": [
       "GET"
     ],
     "endpoint_name": "get_nexus_summary_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/nexus/upload",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "nexus_upload_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/nexus/web/collect",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "nexus_web_collect_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/nexus/web/research",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "nexus_web_research_api",
+    "module": "app.api.nexus",
+    "owner": "nexus-read-only"
+  },
+  {
+    "path": "/nexus/web/search",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "nexus_web_search_api",
     "module": "app.api.nexus",
     "owner": "nexus-read-only"
   },

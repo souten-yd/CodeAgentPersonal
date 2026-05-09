@@ -78,6 +78,28 @@
   - 次に `docs/runbooks/runpod_cuda_recovery.md` と `docs/runbooks/known_good_runtime_baseline.md` を見る。
   - route ownership が怪しい場合は `docs/api_route_ownership_inventory.md` と `docs/generated/route_inventory.md` を比較する。
 
+## PR4.51
+
+- 変更:
+  - Nexus execution runtime を `app/services/nexus_execution.py` へ分離。
+  - search / web search / web research / research / upload / sources / evidence / followup / ask / report build の service 境界を作成。
+- 壊れた時に見る場所:
+  - `app/services/nexus_execution.py`
+  - service が `main.py` import や FastAPI route decorator を持っていないか
+  - recursive/deep research の実行条件・response shape が変わっていないか
+
+## PR4.52
+
+- 変更:
+  - Nexus POST/write/research/ingest route を `app/api/nexus.py` へ移動完了。
+  - production `main.app` は `app.state.nexus_*_provider` 経由で既存挙動を維持。
+  - `create_app()` は side-effect-free な unavailable fallback を返し、LLM / SearXNG / filesystem heavy scan / indexing / job execution を開始しない。
+- 壊れた時に見る場所:
+  - `app/api/nexus.py`: route / provider lookup / create_app fallback。
+  - `app/services/nexus_execution.py`: Nexus 実行本体。
+  - `app/nexus/router.py`: production provider の依存組み立てと、残留 route（news / market / watchlist / document delete など今回の移動対象外）。
+  - `main.py` の Nexus provider registration。
+
 ## Recovery invariants across all refactors
 
 - `main.py` import 時に `detect_audio_runtime()` を呼ばない。
@@ -86,3 +108,4 @@
 - `/voice/status` は CUDA probe しない。
 - ASR/TTS/LLM CUDA probe は明示操作時だけ。
 - `create_app()` fallback は CUDA / filesystem heavy scan / model load をしない。
+- Nexus write/research fallback は LLM / SearXNG / filesystem heavy scan / indexing / job execution を開始しない。

@@ -102,6 +102,19 @@ from app.nexus.router import (
     _is_provider_enabled,
     _provider_kind,
     _resolve_searxng_state,
+    nexus_ask_payload,
+    nexus_evidence_add_from_chunks_payload,
+    nexus_deep_research_payload,
+    nexus_recursive_research_payload,
+    nexus_report_build_payload,
+    nexus_research_followup_payload,
+    nexus_research_payload,
+    nexus_search_payload,
+    nexus_sources_search_payload,
+    nexus_upload_payload,
+    nexus_web_collect_payload,
+    nexus_web_research_payload,
+    nexus_web_search_payload,
     router as nexus_router,
 )
 from app.nexus.web_scout import get_last_web_search_status, plan_web_queries, run_web_search
@@ -359,6 +372,19 @@ app.state.nexus_summary_provider = nexus_summary_payload
 app.state.nexus_documents_provider = nexus_documents_payload
 app.state.nexus_active_jobs_provider = nexus_active_jobs_payload
 app.state.nexus_web_status_provider = nexus_web_status_payload
+app.state.nexus_upload_provider = nexus_upload_payload
+app.state.nexus_search_provider = nexus_search_payload
+app.state.nexus_web_search_provider = nexus_web_search_payload
+app.state.nexus_web_research_provider = nexus_web_research_payload
+app.state.nexus_research_provider = nexus_research_payload
+app.state.nexus_deep_research_provider = nexus_deep_research_payload
+app.state.nexus_recursive_research_provider = nexus_recursive_research_payload
+app.state.nexus_sources_search_provider = nexus_sources_search_payload
+app.state.nexus_evidence_add_from_chunks_provider = nexus_evidence_add_from_chunks_payload
+app.state.nexus_research_followup_provider = nexus_research_followup_payload
+app.state.nexus_web_collect_provider = nexus_web_collect_payload
+app.state.nexus_ask_provider = nexus_ask_payload
+app.state.nexus_report_build_provider = nexus_report_build_payload
 
 
 def build_agent_loop(

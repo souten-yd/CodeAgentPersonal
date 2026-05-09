@@ -336,7 +336,6 @@ def get_report_detail(report_id: str, project: str = Query("default")) -> dict:
     }
 
 
-@nexus_report_router.post("/report/build")
 def build_job_report(payload: BuildReportRequest) -> dict:
     job = get_job(payload.job_id)
     if job is None:

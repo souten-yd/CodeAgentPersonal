@@ -67,6 +67,7 @@ def test_remaining_main_routes_inventory_doc_exists_and_names_next_pr_sequence()
         "PR4.48: lightweight runtime write controls",
         "PR4.49: Extract job execution runtime into `app/services/jobs.py`",
         "PR4.51: Extract Nexus execution runtime into `app/services/nexus_execution.py`",
+        "PR4.52: Move Nexus write/research/ingest routes into `app/api/nexus.py`",
     ]
     for section in required_sections:
         assert section in text
@@ -116,17 +117,17 @@ def test_inventory_records_pr449_job_execution_service_extraction():
     _assert_route_owner("/jobs/submit", "POST", "app.api.jobs", "submit_job_api")
 
 
-def test_inventory_records_pr451_nexus_execution_service_extraction():
+def test_inventory_records_pr452_nexus_write_router_move():
     text = INVENTORY_DOC.read_text(encoding="utf-8")
 
     assert "PR4.51: Extract Nexus execution runtime into `app/services/nexus_execution.py`" in text
     assert "Nexus execution runtime extracted" in text
-    assert "Nexus route owner remains unchanged" in text
-    assert "app/api/nexus.py owns only read-only/status/list Nexus endpoints" in text
-    assert "Nexus write/research/ingest route movement is deferred to PR4.52" in text
-    _assert_route_owner("/nexus/web/search", "POST", "app.nexus.router", "nexus_web_search")
-    _assert_route_owner("/nexus/research/run", "POST", "app.nexus.router", "nexus_research_run")
-    _assert_route_owner("/nexus/upload", "POST", "app.nexus.router", "nexus_upload")
+    assert "PR4.52 moved Nexus write/research/ingest route ownership to `app/api/nexus.py`" in text
+    assert "Nexus execution runtime remains in `app/services/nexus_execution.py`" in text
+    assert "main.py keeps only Nexus provider dependency assembly" in text
+    _assert_route_owner("/nexus/web/search", "POST", "app.api.nexus", "nexus_web_search_api")
+    _assert_route_owner("/nexus/research/run", "POST", "app.api.nexus", "nexus_research_run_api")
+    _assert_route_owner("/nexus/upload", "POST", "app.api.nexus", "nexus_upload_api")
     _assert_route_owner("/jobs/submit", "POST", "app.api.jobs", "submit_job_api")
     _assert_main_owner("/voice/transcribe", "POST", "voice_transcribe_api")
     _assert_main_owner("/tts/synthesize", "POST", "tts_synthesize_api")
@@ -242,7 +243,7 @@ def test_jobs_router_owns_read_only_status_and_submit_route():
         _assert_route_owner(path, method, module_name, handler_name)
 
 
-def test_nexus_read_only_status_routes_moved_to_nexus_router_while_heavy_routes_stay_put():
+def test_nexus_read_only_and_write_research_routes_are_moved_to_api_router():
     moved_routes = [
         ("/nexus/summary", "GET", "app.api.nexus", "get_nexus_summary_api"),
         ("/nexus/documents", "GET", "app.api.nexus", "get_nexus_documents_api"),
@@ -252,15 +253,16 @@ def test_nexus_read_only_status_routes_moved_to_nexus_router_while_heavy_routes_
     for path, method, module_name, handler_name in moved_routes:
         _assert_route_owner(path, method, module_name, handler_name)
 
-    heavy_routes = [
-        ("/nexus/upload", "POST", "app.nexus.router", "nexus_upload"),
-        ("/nexus/search", "POST", "app.nexus.router", "nexus_search"),
-        ("/nexus/web/search", "POST", "app.nexus.router", "nexus_web_search"),
-        ("/nexus/research/run", "POST", "app.nexus.router", "nexus_research_run"),
-        ("/nexus/documents/{document_id}", "DELETE", "app.nexus.router", "nexus_delete_document"),
+    moved_write_routes = [
+        ("/nexus/upload", "POST", "app.api.nexus", "nexus_upload_api"),
+        ("/nexus/search", "POST", "app.api.nexus", "nexus_search_api"),
+        ("/nexus/web/search", "POST", "app.api.nexus", "nexus_web_search_api"),
+        ("/nexus/research/run", "POST", "app.api.nexus", "nexus_research_run_api"),
     ]
-    for path, method, module_name, handler_name in heavy_routes:
+    for path, method, module_name, handler_name in moved_write_routes:
         _assert_route_owner(path, method, module_name, handler_name)
+
+    _assert_route_owner("/nexus/documents/{document_id}", "DELETE", "app.nexus.router", "nexus_delete_document")
 
 
 def test_settings_routes_are_not_main_py_owned_and_do_not_shadow_defaults():
