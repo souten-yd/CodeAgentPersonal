@@ -92,12 +92,36 @@ def default_llm_ctx_set_payload(ctx_size: int) -> dict[str, Any]:
     return {"n_ctx": ctx_size}
 
 
+CUDA_REGRESSION_BASELINE_REF = "KasaneCore_v2.7"
+CUDA_REGRESSION_SUSPECTED_FILES = [
+    "app/server.py",
+    "main.py",
+    "app/api/runtime_controls.py",
+    "app/api/echo.py",
+    "app/api/jobs.py",
+    "app/api/nexus.py",
+    "app/services/jobs.py",
+    "app/audio/runtime_config.py",
+    "app/asr/service.py",
+    "app/tts/style_bert_vits2_runtime.py",
+]
+
+
 def default_runtime_cuda_debug_payload() -> dict[str, Any]:
     """Return conservative CUDA diagnostics without live GPU/model probes."""
     return {
+        "baseline_ref": CUDA_REGRESSION_BASELINE_REF,
+        "changed_since_baseline": True,
+        "suspected_changed_files": list(CUDA_REGRESSION_SUSPECTED_FILES),
+        "import_time_probe_detected": False,
         "intended_backend": "unknown",
         "runpod_detected": False,
         "gpu_validation_status": "unavailable",
+        "llama_cuda_validation_reason": "runtime provider unavailable",
+        "torch_cuda_available": False,
+        "torch_cuda_error": "runtime provider unavailable",
+        "ctranslate2_cuda_available": False,
+        "ctranslate2_cuda_error": "runtime provider unavailable",
         "note": "runtime provider unavailable",
     }
 
