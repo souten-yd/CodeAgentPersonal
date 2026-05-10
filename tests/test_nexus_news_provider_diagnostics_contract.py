@@ -16,8 +16,11 @@ def test_provider_status_and_overall_status_are_returned_for_each_provider():
     providers = {status["provider"] for status in result["provider_status"]}
     assert {"empty", "searxng"}.issubset(providers)
     searxng = next(status for status in result["provider_status"] if status["provider"] == "searxng")
+    empty = next(status for status in result["provider_status"] if status["provider"] == "empty")
+    assert empty["ok"] is False
+    assert empty["errors"] == []
     assert searxng["endpoint_configured"] is False
-    assert result["overall_status"] in {"degraded", "failed"}
+    assert result["overall_status"] == "failed"
 
 
 def test_provider_status_shape_matches_contract():
@@ -26,3 +29,4 @@ def test_provider_status_shape_matches_contract():
     status = result["provider_status"][0]
     for key in ["provider", "ok", "item_count", "error_count", "errors", "skipped", "skip_reason", "endpoint_configured", "retrieved_at"]:
         assert key in status
+    assert status["ok"] is False

@@ -93,13 +93,18 @@ def run_lumen_news_tool(request: LumenNewsRequest) -> LumenNewsResult:
                 "rights": item.rights,
             }
         )
-    retrieved_at = str((collected.get("search") or {}).get("retrieved_at") or _now_iso())
+    search = collected.get("search") or {}
+    provider_metadata = search.get("metadata") or {}
+    overall_status = str(search.get("overall_status") or "failed")
+    final_diversity = provider_metadata.get("final_diversity") or {}
+    provider_status = search.get("provider_status") or []
+    retrieved_at = str(search.get("retrieved_at") or _now_iso())
     summary = f"{topic} に関する軽量ニュース digest です。取得件数: {len(items)}。"
     notice = "複数ソースで偏りを下げていますが、完全な中立性は保証しません。"
     if personal_use_only_seen:
         notice += " Yahoo!ニュース RSS など personal_use_only の情報源は個人利用前提で、公開再配信には使えません。"
     return LumenNewsResult(
-        ok=True,
+        ok=overall_status != "failed",
         topic=topic,
         summary=summary,
         top_topics=top_topics,
@@ -107,19 +112,42 @@ def run_lumen_news_tool(request: LumenNewsRequest) -> LumenNewsResult:
         retrieved_at=retrieved_at,
         notice=notice,
         metadata={
+            "overall_status": overall_status,
+            "provider_status": provider_status,
+            "final_diversity": final_diversity,
+            "item_count": len(items),
             "save_evidence": False,
             "deep_research_started": False,
             "source_profile": "news",
             "queries": collected.get("queries", []),
-            "provider_metadata": (collected.get("search") or {}).get("metadata", {}),
-            "provider_status": (collected.get("search") or {}).get("provider_status", []),
-            "overall_status": (collected.get("search") or {}).get("overall_status", "failed"),
+            "provider_metadata": provider_metadata,
             "personal_use_only_seen": personal_use_only_seen,
         },
     )
 
 
+def _provider_status_summary(provider_status: list[dict[str, Any]]) -> str:
+    parts = []
+    for status in provider_status[:8]:
+        state = "ok" if status.get("ok") else ("skipped" if status.get("skipped") else "failed")
+        if not status.get("endpoint_configured", True):
+            state = "endpoint_missing"
+        parts.append(f"{status.get('provider')}={state}:{status.get('item_count', 0)}")
+    return ", ".join(parts)
+
+
 def compress_news_result_for_llm(result: LumenNewsResult) -> str:
+    provider_status = result.metadata.get("provider_status") or []
+    if result.metadata.get("overall_status") == "failed":
+        lines = [
+            "ニュースソースから有効な記事を取得できませんでした。",
+            "推測でニュース本文や見出しを作らず、取得失敗として回答してください。",
+            f"item_count={result.metadata.get('item_count', len(result.top_topics))}",
+        ]
+        if provider_status:
+            lines.append("provider status: " + _provider_status_summary(provider_status))
+        return "\n".join(lines).strip()
+
     lines = ["要約: " + result.summary, f"retrieved_at: {result.retrieved_at}", "主要トピック:"]
     for idx, item in enumerate(result.top_topics[:5], start=1):
         publisher = item.get("publisher") or item.get("source")
@@ -128,13 +156,8 @@ def compress_news_result_for_llm(result: LumenNewsResult) -> str:
         lines.append(f"   url: {item.get('url')}")
         if item.get("canonical_url"):
             lines.append(f"   canonical_url: {item.get('canonical_url')}")
-    provider_status = result.metadata.get("provider_status") or []
     if provider_status:
-        parts = []
-        for status in provider_status[:8]:
-            state = "ok" if status.get("ok") else ("skipped" if status.get("skipped") else "degraded")
-            parts.append(f"{status.get('provider')}={state}:{status.get('item_count', 0)}")
-        lines.append("provider status: " + ", ".join(parts))
+        lines.append("provider status: " + _provider_status_summary(provider_status))
     if result.sources:
         source_names = []
         seen = set()

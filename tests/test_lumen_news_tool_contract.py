@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from app.lumen.intent import detect_lumen_intent
-from app.lumen.news import build_nexus_news_handoff, compress_news_result_for_llm, run_lumen_news_tool
+from app.lumen.news import LumenNewsRequest, LumenNewsResult, build_nexus_news_handoff, compress_news_result_for_llm, run_lumen_news_tool
 from app.lumen.tools import execute_lumen_tool_plan, plan_lumen_tools
 from app.lumen.budgets import LumenNewsBudget
 
@@ -50,3 +50,42 @@ def test_yahoo_handoff_personal_use_metadata():
     data = json.loads(Path("config/lumen/rss_feeds.json").read_text(encoding="utf-8"))
     yahoo = next(feed for feed in data["feeds"] if "Yahoo" in feed["name"])
     assert yahoo["personal_use_only"] is True
+
+
+def test_lumen_news_metadata_shape_and_failed_context(monkeypatch):
+    def fake_collect(topic, *, profile=None):
+        return {
+            "queries": ["AI news"],
+            "items": [],
+            "search": {
+                "retrieved_at": "2026-05-10T00:00:00+00:00",
+                "provider_status": [{"provider": "searxng", "ok": False, "item_count": 0, "error_count": 1, "skipped": False, "endpoint_configured": False}],
+                "overall_status": "failed",
+                "metadata": {"final_diversity": {}, "deduped_union_count": 0, "evidence_metadata": {"full_text_scraped": False}},
+            },
+        }
+
+    monkeypatch.setattr("app.lumen.news.collect_news_research_sources", fake_collect)
+    result = run_lumen_news_tool(LumenNewsRequest(message="AI最新ニュース"))
+    assert result.ok is False
+    assert result.metadata["overall_status"] == "failed"
+    assert result.metadata["item_count"] == 0
+    assert result.metadata["final_diversity"] == {}
+    assert result.metadata["provider_status"][0]["endpoint_configured"] is False
+    context = compress_news_result_for_llm(result)
+    assert "推測でニュース本文や見出しを作らず" in context
+    assert "item_count=0" in context
+
+
+def test_lumen_news_result_metadata_defaults_for_display():
+    result = LumenNewsResult(metadata={
+        "overall_status": "failed",
+        "provider_status": [],
+        "final_diversity": {},
+        "item_count": 0,
+        "save_evidence": False,
+        "deep_research_started": False,
+        "source_profile": "news",
+    })
+    for key in ["overall_status", "provider_status", "final_diversity", "item_count", "save_evidence", "deep_research_started", "source_profile"]:
+        assert key in result.metadata

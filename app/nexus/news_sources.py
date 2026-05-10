@@ -115,11 +115,12 @@ def collect_news_research_sources(topic: str, *, profile: NewsResearchSourceProf
     # Re-run dedupe and final diversity across the full query union.
     deduped_union = dedupe_news_items(items)
     merged, final_diversity = apply_news_source_diversity(deduped_union, max_items=resolved.max_items)
-    overall_status = "ok"
     if not merged:
-        overall_status = "degraded" if provider_status else "failed"
+        overall_status = "failed"
     elif any(status.get("error_count", 0) or status.get("skipped") or not status.get("endpoint_configured", True) for status in provider_status):
         overall_status = "degraded"
+    else:
+        overall_status = "ok"
     return {
         "source_profile": resolved.source_profile,
         "queries": [query.query for query in queries],
@@ -139,6 +140,7 @@ def collect_news_research_sources(topic: str, *, profile: NewsResearchSourceProf
                 "overall_status": overall_status,
                 "final_diversity": final_diversity,
                 "deduped_union_count": len(deduped_union),
+                "evidence_metadata": {"full_text_scraped": False},
             },
         },
     }
