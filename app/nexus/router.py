@@ -604,7 +604,6 @@ def nexus_web_collect_payload(payload: CollectRequest) -> dict:
 
 
 
-@nexus_router.post("/search")
 def nexus_search_compat(payload: NexusSearchRequest) -> dict:
     return nexus_search_payload(payload)
 
@@ -662,17 +661,14 @@ def nexus_web_status_compat() -> dict:
     }
 
 
-@nexus_router.post("/web/search")
 def nexus_web_search_compat(payload: NexusWebSearchRequest) -> dict:
     return nexus_web_search_payload(payload)
 
 
-@nexus_router.post("/web/research")
 def nexus_web_research_compat(payload: NexusWebSearchRequest) -> dict:
     return nexus_web_research_payload(payload)
 
 
-@nexus_router.post("/research/run")
 def nexus_research_run_compat(payload: ResearchRunRequest) -> dict:
     if payload.recursive_search:
         return nexus_recursive_research_payload(payload)
@@ -693,12 +689,10 @@ def nexus_recursive_research_compat(payload: ResearchRunRequest) -> dict:
     return nexus_recursive_research_payload(payload)
 
 
-@nexus_router.post("/research/jobs/{job_id}/followup")
 def nexus_research_followup_compat(job_id: str, payload: NexusResearchFollowupRequest) -> dict:
     return nexus_research_followup_payload(job_id, payload)
 
 
-@nexus_router.post("/web/collect")
 def nexus_web_collect_compat(payload: CollectRequest) -> dict:
     return nexus_web_collect_payload(payload)
 

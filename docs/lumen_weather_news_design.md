@@ -36,3 +36,9 @@ News is deferred to PR4.68c or later. That later work may add no-key multi-sourc
 Lumen news is now a lightweight digest tool backed by the shared Nexus News Source layer rather than a Lumen-only implementation. Lumen may call GDELT DOC 2.0, SearXNG, and configured RSS feeds through `app/nexus/news_connectors.py`, but it does not save evidence, generate reports, or auto-start Nexus Deep Research.
 
 News-related deep research requests produce handoff metadata only. The handoff payload uses `source_profile="news"` and can be submitted to Nexus by an explicit user action. Yahoo!ニュース RSS entries keep `personal_use_only=true`, and Lumen responses must include a caution when personal-use-only sources are included.
+
+## PR4.68d direct Lumen tool API
+
+PR4.68d adds `app/api/lumen.py` as the Lumen route owner. `GET /lumen/tools/status` reports weather/news/web availability, `POST /lumen/tools/weather` runs the Open-Meteo weather tool directly without an LLM call, and `POST /lumen/tools/news` runs the lightweight news digest directly without Nexus evidence persistence or Deep Research auto-start.
+
+The direct endpoints call `app/services/lumen_runtime.py`, which delegates domain behavior to `app/lumen/weather.py`, `app/lumen/news.py`, and `app/lumen/tools.py`. News sources continue to come from the shared `app/nexus/news_connectors.py` layer, and full-text article scraping remains disabled. `/jobs/submit` remains a compatibility shim; `/lumen/submit` is the primary Lumen submit endpoint. UI module splitting remains planned for PR4.68e.

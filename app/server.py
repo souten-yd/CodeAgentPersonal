@@ -105,6 +105,7 @@ def include_routers(app: FastAPI) -> None:
     from app.api.audio import router as audio_router
     from app.api.echo import router as echo_router
     from app.api.jobs import router as jobs_router
+    from app.api.lumen import router as lumen_router
     from app.api.model_settings import router as model_settings_router
     from app.api.nexus import router as nexus_router
     from app.api.projects import router as projects_router
@@ -116,6 +117,7 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(audio_router)
     app.include_router(echo_router)
     app.include_router(jobs_router)
+    app.include_router(lumen_router)
     app.include_router(system_router)
     app.include_router(system_status_router)
     # Settings owns /settings*, including static defaults aliases that must be

@@ -110,3 +110,15 @@
 - Echo session save destination and filename format must not change, and the `/echo/sessions` view of saved files remains provider-backed from `main.py` through `app/api/echo.py`.
 - `/echo/save-status` and `/echo/sessions` route ownership remains `app/api/echo.py`.
 - Remaining high-risk: Echo TTS chain, Echo WebSocket loop, and WebSocket route extraction.
+### Lumen route ownership (PR4.68d)
+
+| Route | Method | Owner | Service/domain layer | Notes |
+| --- | --- | --- | --- | --- |
+| `/lumen/submit` | POST | `app/api/lumen.py` | `app/services/lumen_runtime.py` | Primary Lumen chat submit endpoint. |
+| `/lumen/tools/status` | GET | `app/api/lumen.py` | `app/services/lumen_runtime.py` | Reports weather/news/web availability. |
+| `/lumen/tools/weather` | POST | `app/api/lumen.py` | `app/services/lumen_runtime.py` -> `app/lumen/weather.py` | Direct weather tool endpoint; no LLM call. |
+| `/lumen/tools/news` | POST | `app/api/lumen.py` | `app/services/lumen_runtime.py` -> `app/lumen/news.py` | Direct lightweight news digest; no Nexus evidence save or Deep Research auto-start. |
+| `/jobs/submit` | POST | `app/api/jobs.py` | `app/services/lumen_runtime.py` | Compatibility shim for existing UI clients. |
+
+`app/lumen/*.py` remains the Lumen domain/tool layer. `app/nexus/news_connectors.py` is the shared Nexus/Lumen source layer. UI splitting is deferred to PR4.68e.
+
