@@ -10,7 +10,10 @@ from app.nexus.news_connectors import (
     DEFAULT_PROVIDERS,
     NewsSourceQuery,
     NormalizedNewsItem,
+    apply_news_source_diversity,
     collect_news_from_connectors,
+    dedupe_news_items,
+    resolve_news_provider_profile,
 )
 
 NewsMode = Literal["quick", "standard", "deep", "exhaustive"]
@@ -24,7 +27,7 @@ def _now_iso() -> str:
 @dataclass(slots=True)
 class NewsResearchSourceProfile:
     source_profile: SourceProfile = "news"
-    providers: list[str] = field(default_factory=lambda: list(DEFAULT_PROVIDERS))
+    providers: list[str] = field(default_factory=lambda: resolve_news_provider_profile("default") or list(DEFAULT_PROVIDERS))
     max_queries: int = 2
     max_items: int = 15
     save_evidence: bool = True
@@ -52,10 +55,17 @@ def _item_to_dict(item: NormalizedNewsItem) -> dict[str, Any]:
     return {
         "title": item.title,
         "url": item.url,
+        "summary": item.summary,
+        "canonical_url": item.canonical_url,
+        "source": item.source,
+        "publisher": item.publisher,
         "source_name": item.source_name,
         "source_domain": item.source_domain,
         "provider": item.provider,
         "published_at": item.published_at,
+        "fetched_at": item.fetched_at,
+        "retrieval_method": item.retrieval_method,
+        "license_note": item.license_note,
         "language": item.language,
         "country": item.country,
         "category": item.category,
@@ -70,6 +80,7 @@ def collect_news_research_sources(topic: str, *, profile: NewsResearchSourceProf
     resolved = profile or NewsResearchSourceProfile()
     query_results: list[dict[str, Any]] = []
     items: list[NormalizedNewsItem] = []
+    provider_status: list[dict[str, Any]] = []
     queries = build_news_research_queries(topic, profile=resolved)
     per_query_limit = max(1, resolved.max_items)
     for query in queries:
@@ -84,6 +95,7 @@ def collect_news_research_sources(topic: str, *, profile: NewsResearchSourceProf
             if resolved.include_personal_use_only or not bool(item.rights.get("personal_use_only"))
         ]
         items.extend(filtered)
+        provider_status.extend(collected.get("provider_status") or [])
         query_results.append(
             {
                 "query": query.query,
@@ -95,20 +107,19 @@ def collect_news_research_sources(topic: str, *, profile: NewsResearchSourceProf
                     }
                     for result in collected["results"]
                 },
+                "provider_status": collected.get("provider_status", []),
+                "overall_status": collected.get("overall_status", "failed"),
                 "metadata": collected["metadata"],
             }
         )
-    # Re-run diversity across query union through connector helper semantics.
-    seen: set[str] = set()
-    merged: list[NormalizedNewsItem] = []
-    for item in items:
-        key = item.url.lower().rstrip("/")
-        if key in seen:
-            continue
-        seen.add(key)
-        merged.append(item)
-        if len(merged) >= resolved.max_items:
-            break
+    # Re-run dedupe and final diversity across the full query union.
+    deduped_union = dedupe_news_items(items)
+    merged, final_diversity = apply_news_source_diversity(deduped_union, max_items=resolved.max_items)
+    overall_status = "ok"
+    if not merged:
+        overall_status = "degraded" if provider_status else "failed"
+    elif any(status.get("error_count", 0) or status.get("skipped") or not status.get("endpoint_configured", True) for status in provider_status):
+        overall_status = "degraded"
     return {
         "source_profile": resolved.source_profile,
         "queries": [query.query for query in queries],
@@ -117,11 +128,17 @@ def collect_news_research_sources(topic: str, *, profile: NewsResearchSourceProf
             "provider_results": query_results,
             "items": [_item_to_dict(item) for item in merged],
             "retrieved_at": _now_iso(),
+            "provider_status": provider_status,
+            "overall_status": overall_status,
             "metadata": {
                 "providers": resolved.providers,
                 "max_items": resolved.max_items,
                 "include_personal_use_only": resolved.include_personal_use_only,
                 "save_evidence": resolved.save_evidence,
+                "provider_status": provider_status,
+                "overall_status": overall_status,
+                "final_diversity": final_diversity,
+                "deduped_union_count": len(deduped_union),
             },
         },
     }
@@ -146,7 +163,7 @@ def convert_news_items_to_evidence(
                 url=item.url,
                 retrieved_at=retrieved_at,
                 title=item.title,
-                publisher=item.source_name,
+                publisher=item.publisher,
                 published_date=item.published_at or "",
                 relevance_score=0.5,
                 credibility_score=0.5,
@@ -154,14 +171,19 @@ def convert_news_items_to_evidence(
                 evidence_level="news_metadata",
                 citation_label=f"[S{index}]",
                 note=job_kind,
-                quote=item.snippet or item.title,
+                quote=item.summary or item.snippet or item.title,
                 metadata_json={
                     "source_type": "news",
                     "topic": topic,
                     "job_kind": job_kind,
                     "provider": item.provider,
+                    "retrieval_method": item.retrieval_method,
+                    "source": item.source,
+                    "publisher": item.publisher,
                     "source_domain": item.source_domain,
+                    "canonical_url": item.canonical_url,
                     "rights": item.rights,
+                    "license_note": item.license_note,
                     "full_text_scraped": False,
                     "raw": item.raw,
                 },

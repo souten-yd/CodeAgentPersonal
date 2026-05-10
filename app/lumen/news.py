@@ -68,20 +68,28 @@ def run_lumen_news_tool(request: LumenNewsRequest) -> LumenNewsResult:
         top_topics.append(
             {
                 "title": item.title,
-                "source": item.source_name,
+                "source": item.source,
+                "publisher": item.publisher,
                 "url": item.url,
+                "canonical_url": item.canonical_url,
                 "published_at": item.published_at,
+                "summary": item.summary,
                 "snippet": item.snippet,
+                "retrieval_method": item.retrieval_method,
+                "license_note": item.license_note,
                 "rights": rights,
             }
         )
     for item in items:
         sources.append(
             {
-                "name": item.source_name,
+                "name": item.source,
+                "publisher": item.publisher,
                 "domain": item.source_domain,
                 "provider": item.provider,
                 "url": item.url,
+                "canonical_url": item.canonical_url,
+                "retrieval_method": item.retrieval_method,
                 "rights": item.rights,
             }
         )
@@ -104,15 +112,29 @@ def run_lumen_news_tool(request: LumenNewsRequest) -> LumenNewsResult:
             "source_profile": "news",
             "queries": collected.get("queries", []),
             "provider_metadata": (collected.get("search") or {}).get("metadata", {}),
+            "provider_status": (collected.get("search") or {}).get("provider_status", []),
+            "overall_status": (collected.get("search") or {}).get("overall_status", "failed"),
             "personal_use_only_seen": personal_use_only_seen,
         },
     )
 
 
 def compress_news_result_for_llm(result: LumenNewsResult) -> str:
-    lines = [result.summary, f"取得時刻: {result.retrieved_at}", "主要トピック:"]
+    lines = ["要約: " + result.summary, f"retrieved_at: {result.retrieved_at}", "主要トピック:"]
     for idx, item in enumerate(result.top_topics[:5], start=1):
-        lines.append(f"{idx}. {item.get('title')} — {item.get('source')} ({item.get('url')})")
+        publisher = item.get("publisher") or item.get("source")
+        via = "（Google News経由）" if item.get("source") == "Google News" else ""
+        lines.append(f"{idx}. {item.get('title')} — {item.get('source')}/{publisher}{via}")
+        lines.append(f"   url: {item.get('url')}")
+        if item.get("canonical_url"):
+            lines.append(f"   canonical_url: {item.get('canonical_url')}")
+    provider_status = result.metadata.get("provider_status") or []
+    if provider_status:
+        parts = []
+        for status in provider_status[:8]:
+            state = "ok" if status.get("ok") else ("skipped" if status.get("skipped") else "degraded")
+            parts.append(f"{status.get('provider')}={state}:{status.get('item_count', 0)}")
+        lines.append("provider status: " + ", ".join(parts))
     if result.sources:
         source_names = []
         seen = set()
@@ -121,9 +143,9 @@ def compress_news_result_for_llm(result: LumenNewsResult) -> str:
             if key in seen:
                 continue
             seen.add(key)
-            source_names.append(f"{source.get('name')}[{source.get('provider')}]")
+            source_names.append(f"{source.get('name')}/{source.get('publisher')}[{source.get('provider')}]")
         lines.append("情報源一覧: " + ", ".join(source_names[:8]))
-    lines.append("注意: " + result.notice)
+    lines.append("注意: headline/summary only; full text not fetched; multiple sources reduce bias but do not guarantee neutrality. " + result.notice)
     return "\n".join(lines).strip()
 
 

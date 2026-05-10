@@ -1,24 +1,98 @@
 {
+  "profiles": {
+    "default": [
+      "google_news_rss",
+      "nhk_rss",
+      "yahoo_rss",
+      "cnbc_rss",
+      "bbc_rss",
+      "gdelt",
+      "searxng"
+    ],
+    "jp": [
+      "google_news_rss",
+      "nhk_rss",
+      "yahoo_rss",
+      "gdelt",
+      "searxng"
+    ],
+    "business": [
+      "google_news_rss",
+      "cnbc_rss",
+      "bbc_rss",
+      "gdelt",
+      "searxng"
+    ]
+  },
   "feeds": [
     {
+      "id": "google_news_rss",
+      "name": "Google News RSS Search",
+      "provider": "google_news_rss",
+      "url_template": "https://news.google.com/rss/search?q={query}&hl=ja&gl=JP&ceid=JP:ja",
+      "category": "search",
+      "language": "ja",
+      "country": "JP",
+      "retrieval_method": "rss",
+      "license_note": "aggregator headline/summary only; canonical source preferred when available",
+      "personal_use_only": false,
+      "allow_public_redistribution": false,
+      "full_text_allowed": false
+    },
+    {
+      "id": "nhk_rss",
+      "name": "NHK NEWS WEB",
+      "provider": "rss",
+      "url": "CONFIGURE_VALIDATED_NHK_RSS_URL",
+      "category": "jp_general",
+      "language": "ja",
+      "country": "JP",
+      "retrieval_method": "rss",
+      "license_note": "headline/summary only; validate feed URL before enabling",
+      "personal_use_only": false,
+      "allow_public_redistribution": false,
+      "full_text_allowed": false,
+      "enabled": false
+    },
+    {
+      "id": "yahoo_rss_top",
+      "name": "Yahoo!ニュース 主要",
+      "provider": "rss",
+      "url": "https://news.yahoo.co.jp/rss/topics/top-picks.xml",
+      "category": "jp_trending",
+      "language": "ja",
+      "country": "JP",
+      "retrieval_method": "rss",
+      "license_note": "personal use only; no redistribution; headline/summary only",
+      "personal_use_only": true,
+      "allow_public_redistribution": false,
+      "full_text_allowed": false
+    },
+    {
+      "id": "cnbc_rss",
       "name": "CNBC Latest",
       "provider": "rss",
       "url": "https://www.cnbc.com/?format=rss",
       "category": "business",
       "language": "en",
       "country": "US",
+      "retrieval_method": "rss",
+      "license_note": "headline/summary only",
       "personal_use_only": false,
       "allow_public_redistribution": false,
       "full_text_allowed": false
     },
     {
-      "name": "Yahoo!ニュース 主要",
+      "id": "bbc_rss",
+      "name": "BBC News",
       "provider": "rss",
-      "url": "https://news.yahoo.co.jp/rss/topics/top-picks.xml",
-      "category": "top",
-      "language": "ja",
-      "country": "JP",
-      "personal_use_only": true,
+      "url": "http://feeds.bbci.co.uk/news/rss.xml",
+      "category": "world",
+      "language": "en",
+      "country": "GB",
+      "retrieval_method": "rss",
+      "license_note": "headline/summary only; subject to BBC feed terms",
+      "personal_use_only": false,
       "allow_public_redistribution": false,
       "full_text_allowed": false
     }
