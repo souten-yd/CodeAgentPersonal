@@ -125,8 +125,8 @@ def run_research(payload: ResearchRunRequest) -> dict:
                 max_followup_queries=payload.max_followup_queries,
                 confidence_threshold=payload.confidence_threshold,
                 stop_when_sufficient=payload.stop_when_sufficient,
-                source_profile=payload.source_profile,
-                news_budget=payload.news_budget,
+                source_profile=getattr(payload, "source_profile", "web") or "web",
+                news_budget=getattr(payload, "news_budget", None),
             )
         )
     except ValueError as exc:
@@ -170,8 +170,8 @@ def run_research_async(payload: ResearchRunRequest) -> dict:
         max_followup_queries=payload.max_followup_queries,
         confidence_threshold=payload.confidence_threshold,
         stop_when_sufficient=payload.stop_when_sufficient,
-        source_profile=payload.source_profile,
-        news_budget=payload.news_budget,
+        source_profile=getattr(payload, "source_profile", "web") or "web",
+        news_budget=getattr(payload, "news_budget", None),
     )
     job_id = f"research_{uuid.uuid4().hex}"
     existing = get_job(job_id)
