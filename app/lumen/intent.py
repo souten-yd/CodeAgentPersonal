@@ -22,7 +22,7 @@ class LumenIntent(BaseModel):
 
 
 _GREETING_CHATS = {"こんちは", "こんにちは"}
-_WEATHER_KEYWORDS = ("天気", "気温", "雨", "降水", "台風", "weather", "forecast")
+_WEATHER_KEYWORDS = ("天気", "気温", "雨", "降水", "傘", "台風", "暑い", "寒い", "weather", "forecast", "temperature", "rain")
 _NEWS_KEYWORDS = ("ニュース", "最新情報", "速報", "今日の出来事", "headlines", "latest news", "cnbc", "yahooニュース")
 _DEEP_RESEARCH_KEYWORDS = ("詳しく調査", "レポート", "根拠付き", "深掘り", "複数回検索", "長文調査")
 _WEB_KEYWORDS = ("web", "ウェブ", "検索", "調べて", "サイト", "url", "http://", "https://")
@@ -32,6 +32,37 @@ def _contains_any(text: str, keywords: tuple[str, ...]) -> str | None:
     for keyword in keywords:
         if keyword in text:
             return keyword
+    return None
+
+
+def extract_weather_location_hint(message: str) -> str | None:
+    """Extract a lightweight location hint from common Japanese weather asks.
+
+    This intentionally avoids broad inference. The explicit request.location from
+    the submit payload should be preferred by callers when present.
+    """
+
+    import re
+
+    text = (message or "").strip()
+    if not text:
+        return None
+
+    weather_terms = "天気|気温|雨|降水|傘|台風|暑い|寒い"
+    cleanup_terms = (
+        "今日|明日|明後日|週末|今週|来週|の|は|で|に|を|教えて|教えてください|"
+        r"どう|ですか|かな|？|\?|weather|forecast|temperature|rain"
+    )
+    patterns = (
+        rf"^\s*(?P<loc>[^\sのはでにを、。！？?]+?)の(?:今日|明日|明後日|週末|今週|来週)?(?:{weather_terms})",
+        rf"^\s*(?P<loc>[^\s、。！？?]+?)\s+(?:今日|明日|明後日|週末|今週|来週)?(?:の)?(?:{weather_terms})",
+        rf"^\s*(?P<loc>[^\sのはでにを、。！？?]+?)(?:は|で|に)(?:今日|明日|明後日|週末|今週|来週)?(?:{weather_terms})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            loc = re.sub(cleanup_terms, "", match.group("loc"), flags=re.IGNORECASE).strip()
+            return loc or None
     return None
 
 

@@ -1,7 +1,7 @@
-"""Skeleton planner for future Lumen lightweight tools.
+"""Planner and executor for bounded Lumen lightweight tools.
 
-No network calls live here. The planner records what a later weather/news/web PR
-could call, while preserving chat-only execution in the current PR.
+Only weather executes in PR4.68b. News/web remain planned-only, and Nexus Deep
+Research remains a suggestion rather than an automatic handoff.
 """
 
 from __future__ import annotations
@@ -16,18 +16,23 @@ from app.lumen.budgets import (
     LumenWeatherBudget,
     normalize_lumen_tool_policy,
 )
-from app.lumen.intent import LumenIntent
+from app.lumen.intent import LumenIntent, extract_weather_location_hint
+from app.lumen.weather import (
+    LumenWeatherRequest,
+    compress_weather_result_for_llm,
+    run_lumen_weather_tool,
+)
 
 
 class LumenToolPlan(BaseModel):
-    """Non-executing plan for future Lumen tools."""
+    """Plan for bounded Lumen tools."""
 
     tools: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class LumenToolResult(BaseModel):
-    """Placeholder result shape for future Lumen tools."""
+    """Result shape for executed or skipped Lumen tools."""
 
     tool: str
     ok: bool = False
@@ -51,7 +56,7 @@ def plan_lumen_tools(
     news_budget: LumenNewsBudget | None = None,
     location: str | None = None,
 ) -> LumenToolPlan:
-    """Return future-tool metadata without executing any external provider."""
+    """Return tool metadata without executing any external provider."""
 
     normalized_tool_policy = normalize_lumen_tool_policy(tool_policy)
     metadata: dict[str, Any] = {
@@ -75,7 +80,8 @@ def plan_lumen_tools(
 
     metadata.update(
         {
-            "planned_only": True,
+            "planned_only": tool != "weather",
+            "executable": tool == "weather",
             "location": location,
             "search_budget": _budget_dump(search_budget),
             "weather_budget": _budget_dump(weather_budget),
@@ -95,3 +101,59 @@ def compress_lumen_tool_results_for_llm(results: list[LumenToolResult] | None) -
         status = "ok" if result.ok else "error"
         lines.append(f"[{result.tool}:{status}] {result.content}".strip())
     return "\n".join(lines)
+
+
+def execute_lumen_weather_if_needed(
+    *,
+    intent: LumenIntent,
+    tool_policy: str = "auto",
+    message: str = "",
+    location: str | None = None,
+    weather_budget: LumenWeatherBudget | dict[str, Any] | None = None,
+) -> LumenToolResult | None:
+    """Execute only the weather tool when policy and intent allow it."""
+
+    normalized_tool_policy = normalize_lumen_tool_policy(tool_policy)
+    if normalized_tool_policy == "off" or intent.kind != "weather":
+        return None
+
+    resolved_location = (location or "").strip() or extract_weather_location_hint(message)
+    result = run_lumen_weather_tool(
+        LumenWeatherRequest(
+            message=message,
+            location=resolved_location,
+            budget=weather_budget if isinstance(weather_budget, LumenWeatherBudget) else LumenWeatherBudget(**(weather_budget or {})),
+        )
+    )
+    content = compress_weather_result_for_llm(result)
+    metadata = result.model_dump() if hasattr(result, "model_dump") else result.dict()
+    metadata["context"] = content
+    metadata["location_hint"] = resolved_location
+    return LumenToolResult(tool="weather", ok=result.ok, content=content, metadata=metadata)
+
+
+def execute_lumen_tool_plan(
+    *,
+    plan: LumenToolPlan,
+    intent: LumenIntent,
+    tool_policy: str = "auto",
+    message: str = "",
+    location: str | None = None,
+    weather_budget: LumenWeatherBudget | dict[str, Any] | None = None,
+) -> list[LumenToolResult]:
+    """Execute the runnable subset of a Lumen tool plan.
+
+    PR4.68b runs weather only. News/web stay planned-only and Nexus Deep
+    Research suggestions are not executed from Lumen.
+    """
+
+    if "weather" not in plan.tools:
+        return []
+    weather = execute_lumen_weather_if_needed(
+        intent=intent,
+        tool_policy=tool_policy,
+        message=message,
+        location=location,
+        weather_budget=weather_budget,
+    )
+    return [weather] if weather is not None else []

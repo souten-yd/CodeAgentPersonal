@@ -284,3 +284,7 @@ Recovery invariants:
 - `/jobs/submit` remains the temporary Lumen chat-compatible endpoint for now; route separation into `app/api/lumen.py` is planned for PR4.68d.
 - UI splitting is intentionally deferred to PR4.68e.
 - Weather/news/web real provider calls are intentionally not implemented in PR4.68a.
+
+## PR4.68b Lumen weather note
+
+PR4.68b adds the no-key Open-Meteo weather tool under `app/lumen/weather.py` and connects it through the existing Lumen job service. Lumen remains chat-only, legacy task mode continues to return `legacy_task_mode_removed`, news connectors remain unimplemented, `app/api/lumen.py` route separation is deferred to PR4.68d, and UI splitting is deferred to PR4.68e.

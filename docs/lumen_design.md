@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-Lumen is CodeAgent's lightweight conversation surface. Its stable core is normal chat plus a future path for small, bounded, no-key tools such as weather, news, and one-shot Web assistance. In PR4.68a, Lumen remains chat-only at execution time: it may detect intent and emit a non-executing tool plan, but it does not call external weather/news/search providers.
+Lumen is CodeAgent's lightweight conversation surface. Its stable core is normal chat plus a future path for small, bounded, no-key tools such as weather, news, and one-shot Web assistance. In PR4.68b, Lumen remains chat-only for user-facing behavior while adding a bounded no-key weather tool: it may call Open-Meteo for weather context, but it still does not run legacy tasks, news connectors, recursive research, or autonomous execution.
 
 ## Lumen owns
 
@@ -11,7 +11,7 @@ Lumen is CodeAgent's lightweight conversation surface. Its stable core is normal
 - Request parsing and clamping for lightweight search, weather, and news budgets.
 - `tool_policy` and `search_policy` normalization to `off` / `auto` / `on`.
 - Lightweight intent detection for `chat`, `weather`, `news`, `web`, and `nexus_deep_research_suggestion`.
-- A skeleton tool plan that records future weather/news/web tools without executing network calls.
+- A tool plan that can execute only the bounded Open-Meteo weather tool; news/Web entries remain planned-only.
 - Clear user-facing errors when the LLM is not ready or Web search is unavailable.
 - A text-only handoff suggestion when a question is better suited to Nexus Deep Research.
 
@@ -27,7 +27,7 @@ Lumen is CodeAgent's lightweight conversation surface. Its stable core is normal
 - Model-switching orchestration.
 - Deep Research itself.
 - Recursive Research itself.
-- Weather/news/Web provider networking in PR4.68a.
+- News connectors, GDELT, RSS fetches, SearXNG news fetches, API route splitting to `app/api/lumen.py`, and UI splitting in PR4.68b.
 
 ## Legacy task mode removed
 
@@ -65,7 +65,7 @@ Invalid policy values are normalized to `auto`. The legacy `search_enabled` comp
 | `max_total_chars` | 12000 | 2000 | 30000 |
 | `timeout_sec` | 20 | 5 | 60 |
 
-`LumenWeatherBudget` is reserved for the next no-key Open-Meteo PR and is clamped as follows:
+`LumenWeatherBudget` bounds the no-key Open-Meteo weather tool and is clamped as follows:
 
 | Field | Default | Minimum | Maximum |
 | --- | ---: | ---: | ---: |
@@ -89,7 +89,7 @@ Lumen `max_steps` defaults to 8 and clamps to 1-20. In Lumen this is a chat/web-
 
 ## Weather/news/web tools
 
-PR4.68a adds only the Lumen tool skeleton. It does not perform Open-Meteo calls, GDELT calls, RSS fetches, SearXNG news fetches, or any other new provider networking. Weather, news, and Web tools are planned for later PRs and must keep the API-key-free policy unless a separate design explicitly changes that.
+PR4.68b adds the weather-only Open-Meteo tool. The tool uses Open-Meteo geocoding and forecast endpoints without API keys, stores a `tool_result` event, compresses the weather result before LLM injection, and instructs the model not to invent weather data. If neither `request.location` nor a lightweight message location hint is available, the tool returns `location_required` and asks the user to specify a region instead of guessing. News connectors, RSS, GDELT, SearXNG news providers, and route/UI splits are intentionally not implemented in this PR.
 
 ## Nexus Deep Research separation
 
@@ -102,6 +102,7 @@ Atlas / Agent owns autonomous execution, file edits, code execution, and multi-s
 ## API / service / domain / UI split plan
 
 - PR4.68a: keep `/jobs/submit` in `app/api/jobs.py` as the temporary Lumen chat-compatible endpoint, with Lumen domain primitives in `app/lumen/`.
+- PR4.68b: add the no-key Open-Meteo weather tool while keeping Lumen chat-only, legacy task mode rejected, and news/API/UI splits unimplemented.
 - PR4.68d: move Lumen route ownership to `app/api/lumen.py` after the chat-only contract is stable.
 - PR4.68e: split the UI after route/service/domain boundaries are stable.
 - Service code must continue to call only `execute_chat_with_optional_web_search` for Lumen response generation.
