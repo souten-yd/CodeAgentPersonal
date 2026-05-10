@@ -2,7 +2,6 @@
   const pollTimers = new Map();
   const jobState = new Map();
   const LUMEN_DEBUG_TOOL_CARDS = false;
-  // Weather/News/Search compact history remains active when !LUMEN_DEBUG_TOOL_CARDS.
 
   function getProject() {
     if (typeof currentProject !== 'undefined' && currentProject) return currentProject;
@@ -149,53 +148,6 @@
     return tool === 'weather' || tool === 'news';
   }
 
-  function rememberToolHistory(state, event) {
-    if (!state) return;
-    if (!Array.isArray(state.toolHistory)) state.toolHistory = [];
-    const tool = toolNameFromEvent(event);
-    if (!tool) return;
-    const result = window.LumenTools?.unwrapToolPayload
-      ? window.LumenTools.unwrapToolPayload(event)
-      : event;
-    const itemCount = Number(
-      result.item_count
-      ?? result.metadata?.item_count
-      ?? result.total
-      ?? result.total_results
-      ?? 0
-    );
-    let label = '';
-    if (tool === 'weather') {
-      const loc =
-        result.location?.name
-        || result.location_name
-        || result.resolved_location?.name
-        || result.location_hint
-        || result.query
-        || '';
-      label = `Weather ✓${loc ? ' ' + loc : ''}`;
-    } else if (tool === 'news') {
-      label = itemCount > 0 ? `News ✓ ${itemCount}件` : 'News 結果なし';
-    } else if (tool === 'search') {
-      label = itemCount > 0 ? `Search ✓ ${itemCount}件` : 'Search 結果なし';
-    } else {
-      label = `${tool} ✓`;
-    }
-    if (!state.toolHistory.includes(label)) {
-      state.toolHistory.push(label);
-    }
-  }
-
-  function renderToolHistory(state) {
-    if (!state?.toolHistory?.length) return;
-    const output = document.getElementById('output') || document.getElementById('chat');
-    if (!output) return;
-    const row = document.createElement('div');
-    row.className = 'lumen-tool-history';
-    row.textContent = `TOOLS: ${state.toolHistory.join(' / ')}`;
-    output.appendChild(row);
-  }
-
   function handleJobEvent(event, stateOverride) {
     const state = stateOverride || jobState.get(event?.job_id) || null;
     if (!event || !event.type) return;
@@ -207,30 +159,19 @@
       rememberStep(state, event);
       updateProgress(state, `🔧 ${(event.action || event.tool || 'tool')} 実行中...`);
     } else if (event.type === 'tool_result') {
-      rememberToolHistory(state, event);
-      if (state?.steps && typeof attachToolResult === 'function') {
-        attachToolResult(state.steps, event);
-      }
-      const tool = String(event.tool || event.action || event.name || '').toLowerCase();
-      if (tool === 'weather') {
-        updateProgress(state, '天気情報を取得しました');
-        return;
-      }
-      if (tool === 'news') {
-        updateProgress(state, 'ニュース情報を取得しました');
+      if (state?.steps && typeof attachToolResult === 'function') attachToolResult(state.steps, event);
+      const tool = toolNameFromEvent(event);
+      if (isHiddenUserFacingToolResult(event) && !LUMEN_DEBUG_TOOL_CARDS) {
+        updateProgress(state, tool === 'weather' ? '天気情報を取得しました' : 'ニュース情報を取得しました');
         return;
       }
       if (tool === 'search' || event.tool === 'search') {
-        const result = window.LumenTools?.unwrapToolPayload
-          ? window.LumenTools.unwrapToolPayload(event)
-          : event;
+        const result = window.LumenTools?.unwrapToolPayload ? window.LumenTools.unwrapToolPayload(event) : event;
         const count = Number(result.item_count ?? result.metadata?.item_count ?? 0);
         if (count === 0) {
           updateProgress(state, '検索結果なし');
           return;
         }
-        updateProgress(state, `検索結果 ${count}件`);
-        return;
       }
       const text = window.LumenTools?.renderToolResult ? window.LumenTools.renderToolResult(event) : 'tool_result received';
       if (text) renderSystemMessage(text);
@@ -262,7 +203,6 @@
     } else {
       const out = state?.result || '(no output)';
       const formattedOut = renderAssistantMessage(out);
-      renderToolHistory(state);
       if (typeof playTTS === 'function') playTTS(formattedOut, 'chat');
       if (state?.steps?.length) {
         if (typeof addStepsBlock === 'function') addStepsBlock(state.steps);
@@ -274,7 +214,7 @@
   }
 
   function startPolling(jobId, project) {
-    const state = jobState.get(jobId) || { steps: [], toolHistory: [], lastSeq: -1, pollCount: 0 };
+    const state = jobState.get(jobId) || { steps: [], lastSeq: -1, pollCount: 0 };
     jobState.set(jobId, state);
     const maxPoll = 480;
     const tick = async () => {
@@ -331,7 +271,7 @@
       const jobId = submitData.job_id;
       if (!jobId) throw new Error('Lumen submit did not return job_id');
       if (typeof _currentJobId !== 'undefined') _currentJobId = jobId;
-      const state = { progressCard, steps: [], toolHistory: [], lastSeq: -1, pollCount: 0, result: null, error: null };
+      const state = { progressCard, steps: [], lastSeq: -1, pollCount: 0, result: null, error: null };
       jobState.set(jobId, state);
       log('ok', 'lumen', `Chat job: ${jobId}`);
       startPolling(jobId, getProject());
@@ -357,8 +297,6 @@
     renderSystemMessage,
     formatAssistantOutput,
     isHiddenUserFacingToolResult,
-    rememberToolHistory,
-    renderToolHistory,
     handleJobEvent,
     startPolling,
     stopPolling,
