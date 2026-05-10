@@ -14685,12 +14685,7 @@ function addMsg(role, text, options = {}) {
   const d = document.createElement('div');
   d.className = 'msg '+role;
   d.dataset.msgText = text;
-  const labels = {user:'Boss', assistant:'Agent', system:'System', error:'Error', tool_history:'Tools'};
-  if (role === 'tool_history') {
-    d.className = 'msg tool_history lumen-tool-history';
-    d.textContent = String(text || '');
-    w.appendChild(d); scrollMsgs(); return d;
-  }
+  const labels = {user:'Boss', assistant:'Agent', system:'System', error:'Error'};
   const isMd = (role === 'assistant') && mdRenderer;
   const bubble = isMd
     ? `<div class="msg-bubble md">${renderMd(text)}</div>`

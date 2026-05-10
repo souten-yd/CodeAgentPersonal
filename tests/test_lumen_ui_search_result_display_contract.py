@@ -78,7 +78,7 @@ def test_search_renderer_reads_count_candidates_and_hides_zero_cards():
 def test_lumen_js_empty_search_tool_result_updates_progress_without_rendering_card():
     source = read(LUMEN_JS)
     assert "event.type === 'tool_result'" in source
-    assert "const tool = toolNameFromEvent(event);" in source
+    assert "event.tool === 'search'" in source
     assert "window.LumenTools.unwrapToolPayload(event)" in source
     assert "count === 0" in source
     assert "updateProgress(state, '検索結果なし')" in source
