@@ -32,7 +32,7 @@ The same comparison did **not** show changes to Docker/build/runtime image files
 - `docker/start-services.sh`: no diff in `832c5b5..HEAD` for the candidate comparison.
 - `setup_whisper_cpp_vulkan_windows.bat`: no diff in `832c5b5..HEAD` for the candidate comparison.
 - `setup_style_bert_vits2_windows.bat`: no diff in `832c5b5..HEAD` for the candidate comparison.
-- `DLllama.bat`: no diff in `832c5b5..HEAD` for the candidate comparison.
+- `tools/DLllama.bat` (root `DLllama.bat` before PR4.66): no diff in `832c5b5..HEAD` for the candidate comparison.
 
 Conclusion: the first suspect remains Python startup/import/provider timing, not Docker image construction.
 

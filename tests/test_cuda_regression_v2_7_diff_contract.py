@@ -43,7 +43,7 @@ def test_v2_7_diff_doc_states_docker_launcher_scope():
         "docker/start-services.sh",
         "setup_whisper_cpp_vulkan_windows.bat",
         "setup_style_bert_vits2_windows.bat",
-        "DLllama.bat",
+        "tools/DLllama.bat",
     ]:
         assert path in text
     assert "no diff" in text.lower()

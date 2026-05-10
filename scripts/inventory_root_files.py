@@ -60,6 +60,31 @@ class RootFileRecord:
     caution: str
 
 
+@dataclass(frozen=True)
+class MovedRootFileRecord:
+    original_path: str
+    current_path: str
+    category: str
+    reason: str
+    references: list[str]
+
+
+PR466_MOVED_ROOT_FILES = [
+    {
+        "original_path": "agent_runtime.py",
+        "current_path": "tools/agent_runtime.py",
+        "category": "low-risk-moved-to-tools",
+        "reason": "Unreferenced root Python helper moved to tools/ as a manual/operator utility.",
+    },
+    {
+        "original_path": "DLllama.bat",
+        "current_path": "tools/DLllama.bat",
+        "category": "low-risk-moved-to-tools",
+        "reason": "Windows llama.cpp download helper had only docs/test references and no Docker, Actions, app, or launcher execution dependency.",
+    },
+]
+
+
 def _iter_text_files(paths: Iterable[Path]) -> Iterable[Path]:
     for path in paths:
         if path.is_file():
@@ -208,13 +233,29 @@ def build_inventory() -> dict[str, object]:
             )
         )
 
+    moved_records = [
+        MovedRootFileRecord(
+            original_path=record["original_path"],
+            current_path=record["current_path"],
+            category=record["category"],
+            reason=record["reason"],
+            references=_find_references(
+                Path(record["original_path"]).name,
+                ROOT / record["current_path"],
+            ),
+        )
+        for record in PR466_MOVED_ROOT_FILES
+    ]
+    categories = {record.category for record in records} | {record.category for record in moved_records}
+
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_by": "scripts/inventory_root_files.py",
-        "policy": "PR4.65 inventory only; no root-level files are moved by this script.",
+        "policy": "PR4.66 records low-risk root utility moves while keeping runtime, Docker, Actions, launchers, app imports, and route ownership unchanged.",
         "reference_scan_scope": [*REFERENCE_FILES, *REFERENCE_ROOTS],
-        "categories": sorted({record.category for record in records}),
+        "categories": sorted(categories),
         "files": [asdict(record) for record in records],
+        "moved_files": [asdict(record) for record in moved_records],
     }
 
 
