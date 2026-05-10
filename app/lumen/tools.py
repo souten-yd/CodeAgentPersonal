@@ -16,7 +16,7 @@ from app.lumen.budgets import (
     LumenWeatherBudget,
     normalize_lumen_tool_policy,
 )
-from app.lumen.intent import LumenIntent, extract_weather_location_hint, extract_weather_time_hint
+from app.lumen.intent import LumenIntent, extract_weather_location_hint
 from app.lumen.news import LumenNewsRequest, build_nexus_news_handoff, compress_news_result_for_llm, run_lumen_news_tool
 from app.lumen.weather import (
     LumenWeatherRequest,
@@ -111,11 +111,9 @@ def compress_lumen_tool_results_for_llm(results: list[LumenToolResult] | None) -
     lines = []
     news_success_instruction = (
         "Do not answer in JSON.\n"
-        "Do not answer in Python dict, schema, or raw object format.\n"
-        "Do not output keys such as summary_title, news_topics, points.\n"
-        "Answer in natural Japanese prose with 3-5 concise bullet points.\n"
-        "If source names are available, mention them briefly in parentheses.\n"
-        "Use only the provided news context. Do not infer facts that are not present."
+        "Answer in natural Japanese prose.\n"
+        "Use concise bullet points.\n"
+        "Use only the provided news context."
     )
     news_zero_instruction = (
         "News tool returned item_count=0.\n"
@@ -151,7 +149,6 @@ def execute_lumen_weather_if_needed(
         return None
 
     resolved_location = (location or "").strip() or extract_weather_location_hint(message)
-    target_day = extract_weather_time_hint(message)
     result = run_lumen_weather_tool(
         LumenWeatherRequest(
             message=message,
@@ -163,10 +160,6 @@ def execute_lumen_weather_if_needed(
     metadata = result.model_dump() if hasattr(result, "model_dump") else result.dict()
     metadata["context"] = content
     metadata["location_hint"] = resolved_location
-    metadata["target_day"] = target_day
-    if target_day:
-        content = f"Target day: {target_day}\n{content}"
-        metadata["context"] = content
     return LumenToolResult(tool="weather", ok=result.ok, content=content, metadata=metadata)
 
 

@@ -6,7 +6,6 @@ weather/news/web assistance. It does not execute tools.
 
 from __future__ import annotations
 
-import re
 from typing import Literal
 
 from pydantic import BaseModel
@@ -36,43 +35,6 @@ def _contains_any(text: str, keywords: tuple[str, ...]) -> str | None:
     return None
 
 
-_WEATHER_TEMPORAL_TERMS = "今日|明日|明後日|週末|今週|来週|今夜|今朝"
-_WEATHER_TERMS_PATTERN = "天気予報|天気|気温|雨|降水|傘|台風|暑い|寒い|weather|forecast|temperature|rain"
-_WEATHER_TIME_HINTS = (
-    ("day_after_tomorrow", ("明後日",)),
-    ("tomorrow", ("明日",)),
-    ("today", ("今日", "今夜", "今朝")),
-    ("weekend", ("週末",)),
-    ("this_week", ("今週",)),
-    ("next_week", ("来週",)),
-)
-
-
-def _clean_weather_location_hint(location: str) -> str | None:
-    loc = (location or "").strip()
-    if not loc:
-        return None
-    loc = re.sub(rf"^(?:{_WEATHER_TEMPORAL_TERMS})の", "", loc)
-    loc = re.sub(rf"(?:の)?(?:{_WEATHER_TERMS_PATTERN}).*", "", loc, flags=re.IGNORECASE)
-    loc = re.sub(r"(?:を)?(?:教えてください|教えて|知りたい|お願いします).*", "", loc)
-    loc = re.sub(r"[、。！？?\s]+$", "", loc).strip()
-    if re.fullmatch(rf"(?:{_WEATHER_TEMPORAL_TERMS})", loc):
-        return None
-    return loc or None
-
-
-def extract_weather_time_hint(message: str) -> str | None:
-    """Extract a conservative temporal hint from common Japanese weather asks."""
-
-    text = (message or "").strip()
-    if not text:
-        return None
-    for hint, terms in _WEATHER_TIME_HINTS:
-        if any(term in text for term in terms):
-            return hint
-    return None
-
-
 def extract_weather_location_hint(message: str) -> str | None:
     """Extract a lightweight location hint from common Japanese weather asks.
 
@@ -80,28 +42,27 @@ def extract_weather_location_hint(message: str) -> str | None:
     the submit payload should be preferred by callers when present.
     """
 
+    import re
+
     text = (message or "").strip()
     if not text:
         return None
 
-    temporal_terms = _WEATHER_TEMPORAL_TERMS
-    weather_terms = _WEATHER_TERMS_PATTERN
+    weather_terms = "天気|気温|雨|降水|傘|台風|暑い|寒い"
+    cleanup_terms = (
+        "今日|明日|明後日|週末|今週|来週|の|は|で|に|を|教えて|教えてください|"
+        r"どう|ですか|かな|？|\?|weather|forecast|temperature|rain"
+    )
     patterns = (
-        # 明日の横浜の天気 / 今日の横浜の天気予報
-        rf"^\s*(?:{temporal_terms})の(?P<loc>[^\sのはでにを、。！？?]+?)の(?:{weather_terms})",
-        # 横浜の明日の天気
-        rf"^\s*(?P<loc>[^\sのはでにを、。！？?]+?)の(?:{temporal_terms})の(?:{weather_terms})",
-        # 横浜で明日雨降る？ / 横浜は今日寒い？
-        rf"^\s*(?P<loc>[^\sのはでにを、。！？?]+?)(?:は|で|に)(?:{temporal_terms})?(?:.*?)(?:{weather_terms})",
-        # 既存: 横浜の天気
-        rf"^\s*(?P<loc>[^\sのはでにを、。！？?]+?)の(?:{weather_terms})",
-        # Existing whitespace-separated style: Yokohama weather / 横浜 今日 天気
-        rf"^\s*(?P<loc>[^\s、。！？?]+?)\s+(?:{temporal_terms})?(?:の)?(?:{weather_terms})",
+        rf"^\s*(?P<loc>[^\sのはでにを、。！？?]+?)の(?:今日|明日|明後日|週末|今週|来週)?(?:{weather_terms})",
+        rf"^\s*(?P<loc>[^\s、。！？?]+?)\s+(?:今日|明日|明後日|週末|今週|来週)?(?:の)?(?:{weather_terms})",
+        rf"^\s*(?P<loc>[^\sのはでにを、。！？?]+?)(?:は|で|に)(?:今日|明日|明後日|週末|今週|来週)?(?:{weather_terms})",
     )
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
-            return _clean_weather_location_hint(match.group("loc"))
+            loc = re.sub(cleanup_terms, "", match.group("loc"), flags=re.IGNORECASE).strip()
+            return loc or None
     return None
 
 
