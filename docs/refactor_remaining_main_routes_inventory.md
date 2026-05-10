@@ -544,3 +544,7 @@ Next sequence:
 ## PR4.68b Lumen weather note
 
 PR4.68b adds the no-key Open-Meteo weather tool under `app/lumen/weather.py` and connects it through the existing Lumen job service. Lumen remains chat-only, legacy task mode continues to return `legacy_task_mode_removed`, news connectors remain unimplemented, `app/api/lumen.py` route separation is deferred to PR4.68d, and UI splitting is deferred to PR4.68e.
+
+## PR4.68c route inventory note
+
+No Lumen route split is performed in PR4.68c. Existing job submission and Nexus research/news routes keep their ownership while backend contracts add `source_profile="news"` / `"mixed"` support and lightweight Lumen news tool execution.

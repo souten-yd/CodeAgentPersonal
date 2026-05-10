@@ -218,6 +218,8 @@ def run_job_background_service(job_id: str, req: Any, deps: Any) -> None:
             message=getattr(req, "message", ""),
             location=getattr(req, "location", None),
             weather_budget=weather_budget,
+            news_budget=news_budget,
+            project=project,
         )
         for tool_result in tool_results:
             result_payload = tool_result.model_dump() if hasattr(tool_result, "model_dump") else tool_result.dict()

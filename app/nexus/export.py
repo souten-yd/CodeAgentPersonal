@@ -409,6 +409,7 @@ def create_research_bundle(job_id: str) -> Path:
                 original_name = Path(original_path).name or f"original{original_suffix}"
                 _zip_write_if_exists(zf, original_path, f"artifacts/{Path(original_path).stem}/original{original_suffix}")
                 _zip_write_if_exists(zf, original_path, f"downloads/{source_id}/original/{original_name}")
+                _zip_write_if_exists(zf, original_path, f"downloads/{source_id}/original{original_suffix}")
                 added_artifacts.add(original_path)
             _zip_write_if_exists(zf, str(source.get("local_text_path") or ""), f"{source_root}/text.txt")
             _zip_write_if_exists(zf, str(source.get("local_markdown_path") or ""), f"{source_root}/document.md")

@@ -8,7 +8,7 @@ from app.nexus.config import load_runtime_config
 from app.nexus.db import get_conn
 from app.nexus.evidence import save_evidence_items
 from app.nexus.jobs import create_job, update_job
-from app.nexus.web_scout import build_web_evidence, plan_web_queries, run_web_search
+from app.nexus.news_sources import NewsResearchSourceProfile, collect_news_research_sources, convert_news_items_to_evidence
 
 
 ALLOWED_SEARCH_MODES = {"quick", "standard", "deep", "exhaustive"}
@@ -217,12 +217,7 @@ def run_news_mvp(
     mode: str = "standard",
     max_results_per_query: int | None = None,
 ) -> dict[str, Any]:
-    """MVP: topic input -> web evidence save -> lightweight digest output.
-
-    Future extension points:
-    - GDELT connector for event-level global news timelines.
-    - Crossref connector for paper/news linkage and source quality checks.
-    """
+    """News MVP using the shared no-key News Source layer."""
     cfg = load_runtime_config()
     query_seed = (topic or "").strip()
     if not query_seed:
@@ -243,20 +238,21 @@ def run_news_mvp(
     create_job(job_id, title=f"news:{query_seed}", message="news_mvp")
     update_job(job_id, status="running")
 
-    queries = plan_web_queries(f"{query_seed} latest news", mode=normalized_mode)
-    search_output = run_web_search(
-        queries,
+    max_items = max_results_per_query or 15
+    profile = NewsResearchSourceProfile(
+        source_profile="news",
         mode=normalized_mode,
-        max_results_per_query=max_results_per_query,
+        max_queries=2,
+        max_items=max_items,
+        save_evidence=True,
+        include_personal_use_only=False,
     )
-    evidence_items = build_web_evidence(search_output, note="news_mvp")
-    for item in evidence_items:
-        item.source_type = "news"
-        metadata = dict(item.metadata_json or {})
-        metadata["source_type"] = "news"
-        metadata["topic"] = query_seed
-        metadata["job_kind"] = "news_mvp"
-        item.metadata_json = metadata
+    collected = collect_news_research_sources(query_seed, profile=profile)
+    evidence_items = convert_news_items_to_evidence(
+        collected["items"],
+        topic=query_seed,
+        job_kind="news_mvp",
+    )
     saved_count = save_evidence_items(job_id, evidence_items, project=project)
 
     headlines = [_evidence_title(item) for item in evidence_items[:5]]
@@ -265,19 +261,19 @@ def run_news_mvp(
         "topic": query_seed,
         "mode": normalized_mode,
         "key_points": headlines,
-        "risks": "TBD",
-        "watch_items": ["source freshness", "claim validation"],
+        "risks": "Source metadata only; validate claims before publication.",
+        "watch_items": ["source freshness", "claim validation", "rights metadata"],
     }
 
     update_job(job_id, status="completed", document_count=saved_count)
     return {
         "job_id": job_id,
         "mode": normalized_mode,
-        "queries": queries,
+        "queries": collected.get("queries", []),
         "saved_evidence": saved_count,
-        "search": search_output,
+        "search": collected.get("search", {}),
         "digest": {
-            "summary": f"{query_seed} の簡易ニュース要約（MVP）",
+            "summary": f"{query_seed} の簡易ニュース要約（News Source layer）",
             "template": template,
         },
     }

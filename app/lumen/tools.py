@@ -1,7 +1,7 @@
 """Planner and executor for bounded Lumen lightweight tools.
 
-Only weather executes in PR4.68b. News/web remain planned-only, and Nexus Deep
-Research remains a suggestion rather than an automatic handoff.
+Weather and lightweight news execute in Lumen. Web remains planned-only, and
+Nexus Deep Research remains a handoff suggestion rather than an automatic run.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from app.lumen.budgets import (
     normalize_lumen_tool_policy,
 )
 from app.lumen.intent import LumenIntent, extract_weather_location_hint
+from app.lumen.news import LumenNewsRequest, build_nexus_news_handoff, compress_news_result_for_llm, run_lumen_news_tool
 from app.lumen.weather import (
     LumenWeatherRequest,
     compress_weather_result_for_llm,
@@ -71,6 +72,7 @@ def plan_lumen_tools(
     if intent.kind == "nexus_deep_research_suggestion":
         metadata["handoff"] = "nexus_deep_research"
         metadata["message"] = "Nexus Deep Research can perform multiple searches and report generation."
+        metadata["news_budget"] = _budget_dump(news_budget)
         return LumenToolPlan(tools=[], metadata=metadata)
 
     future_tool_by_intent = {"weather": "weather", "news": "news", "web": "web"}
@@ -80,8 +82,8 @@ def plan_lumen_tools(
 
     metadata.update(
         {
-            "planned_only": tool != "weather",
-            "executable": tool == "weather",
+            "planned_only": tool == "web",
+            "executable": tool in {"weather", "news"},
             "location": location,
             "search_budget": _budget_dump(search_budget),
             "weather_budget": _budget_dump(weather_budget),
@@ -140,20 +142,51 @@ def execute_lumen_tool_plan(
     message: str = "",
     location: str | None = None,
     weather_budget: LumenWeatherBudget | dict[str, Any] | None = None,
+    news_budget: LumenNewsBudget | dict[str, Any] | None = None,
+    project: str = "default",
 ) -> list[LumenToolResult]:
     """Execute the runnable subset of a Lumen tool plan.
 
-    PR4.68b runs weather only. News/web stay planned-only and Nexus Deep
-    Research suggestions are not executed from Lumen.
+    Weather and lightweight news can run. Web stays planned-only. Nexus Deep
+    Research suggestions return handoff metadata only and are never auto-started.
     """
 
-    if "weather" not in plan.tools:
+    normalized_tool_policy = normalize_lumen_tool_policy(tool_policy)
+    if normalized_tool_policy == "off":
         return []
-    weather = execute_lumen_weather_if_needed(
-        intent=intent,
-        tool_policy=tool_policy,
-        message=message,
-        location=location,
-        weather_budget=weather_budget,
-    )
-    return [weather] if weather is not None else []
+
+    results: list[LumenToolResult] = []
+    if "weather" in plan.tools:
+        weather = execute_lumen_weather_if_needed(
+            intent=intent,
+            tool_policy=tool_policy,
+            message=message,
+            location=location,
+            weather_budget=weather_budget,
+        )
+        if weather is not None:
+            results.append(weather)
+
+    if "news" in plan.tools and intent.kind == "news":
+        resolved_budget = news_budget if isinstance(news_budget, LumenNewsBudget) else LumenNewsBudget(**(news_budget or {}))
+        news = run_lumen_news_tool(LumenNewsRequest(message=message, budget=resolved_budget, include_personal_use_only=True))
+        content = compress_news_result_for_llm(news)
+        metadata = news.model_dump() if hasattr(news, "model_dump") else news.dict()
+        metadata["context"] = content
+        results.append(LumenToolResult(tool="news", ok=news.ok, content=content, metadata=metadata))
+
+    if "nexus_deep_research_suggestion" in plan.tools and intent.kind == "nexus_deep_research_suggestion":
+        handoff = build_nexus_news_handoff(
+            message,
+            project=project,
+            news_budget=(news_budget.model_dump() if isinstance(news_budget, LumenNewsBudget) and hasattr(news_budget, "model_dump") else (news_budget.dict() if isinstance(news_budget, LumenNewsBudget) else news_budget)),
+        )
+        results.append(
+            LumenToolResult(
+                tool="nexus_deep_research_suggestion",
+                ok=True,
+                content=handoff["message"],
+                metadata={**handoff, "deep_research_started": False, "save_evidence": False},
+            )
+        )
+    return results
