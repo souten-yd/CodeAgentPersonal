@@ -42,7 +42,7 @@ def test_lumen_js_has_tool_history_helpers_and_compact_css():
     assert "function rememberToolHistory(state, event)" in source
     assert "function renderToolHistory(state)" in source
     assert "toolHistory: []" in source
-    assert "row.className = 'lumen-tool-history'" in source
+    assert "addMsg('tool_history', text);" in source
     assert "TOOLS: ${state.toolHistory.join(' / ')}" in source
     assert ".lumen-tool-history" in css
 
@@ -53,9 +53,9 @@ const state = { steps: [], progressCard: {} };
 window.Lumen.handleJobEvent({type:'tool_result', tool:'weather', result:{location:{name:'横浜'}}}, state);
 window.Lumen.renderToolHistory(state);
 """)
-    assert output["messages"] == []
+    assert output["messages"] == [["tool_history", "TOOLS: Weather ✓ 横浜"]]
     assert output["progress"] == ["天気情報を取得しました"]
-    assert output["rows"] == [{"className": "lumen-tool-history", "textContent": "TOOLS: Weather ✓ 横浜"}]
+    assert output["rows"] == []
 
 
 def test_news_tool_result_records_count_without_large_system_card():
@@ -64,9 +64,9 @@ const state = { steps: [], progressCard: {} };
 window.Lumen.handleJobEvent({type:'tool_result', tool:'news', result:{item_count:5}}, state);
 window.Lumen.renderToolHistory(state);
 """)
-    assert output["messages"] == []
+    assert output["messages"] == [["tool_history", "TOOLS: News ✓ 5件"]]
     assert output["progress"] == ["ニュース情報を取得しました"]
-    assert output["rows"] == [{"className": "lumen-tool-history", "textContent": "TOOLS: News ✓ 5件"}]
+    assert output["rows"] == []
 
 
 def test_search_tool_result_records_zero_count_without_large_system_card():
@@ -75,9 +75,9 @@ const state = { steps: [], progressCard: {} };
 window.Lumen.handleJobEvent({type:'tool_result', tool:'search', result:{item_count:0}}, state);
 window.Lumen.renderToolHistory(state);
 """)
-    assert output["messages"] == []
+    assert output["messages"] == [["tool_history", "TOOLS: Search 結果なし"]]
     assert output["progress"] == ["検索結果なし"]
-    assert output["rows"] == [{"className": "lumen-tool-history", "textContent": "TOOLS: Search 結果なし"}]
+    assert output["rows"] == []
 
 
 def test_assistant_finish_path_renders_tool_history_before_tts():
@@ -94,4 +94,5 @@ const state = { toolHistory: [] };
 window.Lumen.rememberToolHistory(state, {type:'tool_result', tool:'search', result:{item_count:3}});
 window.Lumen.renderToolHistory(state);
 """)
-    assert output["rows"] == [{"className": "lumen-tool-history", "textContent": "TOOLS: Search ✓ 3件"}]
+    assert output["messages"] == [["tool_history", "TOOLS: Search ✓ 3件"]]
+    assert output["rows"] == []
