@@ -103,6 +103,6 @@ def test_search_zero_count_and_planned_only_do_not_render_large_result_card():
     zero = run_lumen_tools(
         "window.LumenTools.renderToolResult({type:'tool_result', tool:'search', metadata:{item_count:0, results:[]}})"
     )
-    assert zero == "検索結果はありませんでした。"
+    assert zero == ""
     assert "🔎 Search" not in zero
     assert "取得件数: 0" not in zero

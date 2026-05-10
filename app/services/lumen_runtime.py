@@ -149,6 +149,106 @@ def _format_job_exception(ex: Exception) -> str:
     return str(ex)
 
 
+LUMEN_SEARCH_EVENT_TYPES = {"web_search", "search", "web_result", "search_result", "web_context"}
+LUMEN_SEARCH_ITEM_FIELDS = (
+    "items",
+    "results",
+    "sources",
+    "web_results",
+    "search_results",
+    "citations",
+    "context_sources",
+    "documents",
+    "evidence",
+)
+
+
+def _is_lumen_search_event(ev: dict[str, Any]) -> bool:
+    event_type = str(ev.get("type") or "").strip().lower()
+    action = str(ev.get("action") or "").strip().lower()
+    tool = str(ev.get("tool") or ev.get("name") or "").strip().lower()
+    if event_type in LUMEN_SEARCH_EVENT_TYPES or action in LUMEN_SEARCH_EVENT_TYPES:
+        return True
+    return event_type == "tool_result" and (tool == "search" or action == "search")
+
+
+def _as_event_items(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    return []
+
+
+def _normalize_lumen_search_item(item: Any) -> dict[str, Any]:
+    if isinstance(item, dict):
+        normalized = dict(item)
+        title = (
+            normalized.get("title")
+            or normalized.get("headline")
+            or normalized.get("name")
+            or normalized.get("display_name")
+        )
+        url = normalized.get("url") or normalized.get("link") or normalized.get("source_url") or normalized.get("href")
+        source = (
+            normalized.get("source")
+            or normalized.get("provider")
+            or normalized.get("domain")
+            or normalized.get("site")
+            or normalized.get("publisher")
+        )
+        snippet = (
+            normalized.get("snippet")
+            or normalized.get("summary")
+            or normalized.get("text")
+            or normalized.get("content")
+            or normalized.get("description")
+        )
+        normalized.update(
+            {"title": title or "", "url": url or "", "source": source or "", "snippet": snippet or ""}
+        )
+        return normalized
+    text = str(item)
+    return {"title": text, "url": "", "source": "", "snippet": text}
+
+
+def normalize_lumen_runtime_event(ev: dict[str, Any]) -> dict[str, Any]:
+    """Normalize web/search assist events to the Lumen tool_result contract."""
+    if not isinstance(ev, dict) or not _is_lumen_search_event(ev):
+        return ev
+
+    raw_items: list[Any] = []
+    for field in LUMEN_SEARCH_ITEM_FIELDS:
+        raw_items.extend(_as_event_items(ev.get(field)))
+
+    items = [_normalize_lumen_search_item(item) for item in raw_items]
+    metadata = dict(ev.get("metadata") or {})
+    ok = len(items) > 0
+    metadata.update(
+        {
+            "overall_status": "ok" if ok else "failed",
+            "provider": metadata.get("provider") or "web_assist",
+            "raw_event_type": ev.get("type", "chat_step"),
+            "item_count": len(items),
+        }
+    )
+    if not ok:
+        metadata["empty"] = True
+
+    return {
+        "type": "tool_result",
+        "tool": "search",
+        "action": "search",
+        "ok": ok,
+        "item_count": len(items),
+        "items": items,
+        "metadata": metadata,
+    }
+
+
+def _write_normalized_lumen_runtime_event(write: Callable[[str, dict[str, Any]], None], ev: dict[str, Any]) -> None:
+    normalized = normalize_lumen_runtime_event(ev)
+    write(normalized.get("type", ev.get("type", "chat_step")), normalized)
+
+
 def run_lumen_job_background_service(job_id: str, req: Any, deps: Any) -> None:
     """Run a Lumen chat job with bounded lightweight tools and chat executor."""
     validate_lumen_submit_request(req)
@@ -212,7 +312,7 @@ def run_lumen_job_background_service(job_id: str, req: Any, deps: Any) -> None:
             llm_url=exec_url,
             chat_history=getattr(req, "chat_history", []),
             internal_context=tool_context,
-            on_event=lambda ev: write(ev.get("type", "chat_step"), ev),
+            on_event=lambda ev: _write_normalized_lumen_runtime_event(write, ev),
         )
         chat_output = chat_result.get("output") or chat_result.get("error") or ""
         status = "done" if chat_result.get("status") == "done" else "error"
