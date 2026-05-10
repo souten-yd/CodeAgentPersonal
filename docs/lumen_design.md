@@ -110,3 +110,9 @@ Atlas / Agent owns autonomous execution, file edits, code execution, and multi-s
 ## Preventing JSON options leakage
 
 The removed task-mode branch previously mixed planning, retries, and options fallback into `/jobs/submit`, which allowed task-planning text such as 「JSON形式で出力」 to leak into Lumen chats. Lumen background execution now calls only `execute_chat_with_optional_web_search`; the service must not contain `options_prompt`, task retry stages, or `approved_tasks` execution paths. Contract tests scan `app/services/jobs.py` for these forbidden strings to prevent recurrence of “指定のJSON形式で出力します” and options JSON leakage.
+
+## PR4.68c Lumen lightweight news boundary
+
+Lumen may execute bounded lightweight news digest requests for prompts such as “今日のニュース” or “AIの最新ニュース”. The digest uses the shared News Source layer and returns summary topics, sources, retrieval time, diversity caution, and rights metadata. Evidence persistence and report generation remain Nexus responsibilities.
+
+For prompts requesting “詳しく調査”, “根拠付きレポート”, or “深掘り”, Lumen returns Nexus Deep Research handoff metadata with `source_profile="news"`; it does not automatically start a Nexus job.

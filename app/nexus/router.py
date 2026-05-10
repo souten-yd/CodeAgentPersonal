@@ -603,6 +603,105 @@ def nexus_web_collect_payload(payload: CollectRequest) -> dict:
     return collect_nexus_web_sources_service(payload, collect_web_sources=collect_web_sources)
 
 
+
+@nexus_router.post("/search")
+def nexus_search_compat(payload: NexusSearchRequest) -> dict:
+    return nexus_search_payload(payload)
+
+
+@nexus_router.get("/summary")
+def nexus_summary_compat(project: str = Query("default")) -> dict:
+    cfg = load_runtime_config()
+    return {
+        "project": project,
+        "limits": {
+            "max_upload_mb": getattr(cfg, "max_upload_mb", 100),
+            "max_upload_bytes": int(getattr(cfg, "max_upload_mb", 100)) * 1024 * 1024,
+            "max_downloads": cfg.max_downloads,
+            "max_download_mb": cfg.max_download_mb,
+            "max_total_download_mb": cfg.max_total_download_mb,
+            "download_timeout_sec": cfg.download_timeout_sec,
+            "download_concurrency": cfg.download_concurrency,
+            "pdf_extract_concurrency": cfg.pdf_extract_concurrency,
+        },
+        "active_jobs": list_active_jobs(limit=50),
+    }
+
+
+@nexus_router.get("/web/status")
+def nexus_web_status_compat() -> dict:
+    cfg = load_runtime_config()
+    searxng_configured, searxng_message = _is_provider_configured("searxng", cfg)
+    probe_ok = False
+    probe_message = searxng_message
+    if searxng_configured:
+        probe_ok, probe_message = _check_searxng_connectivity(cfg.searxng_url)
+    active_provider = str(cfg.web_search_provider or "").strip().lower() or "unknown"
+    return {
+        "enable_web": bool(cfg.enable_web),
+        "provider": active_provider,
+        "fallback_providers": list(cfg.search_fallback_providers or []),
+        "free_only": bool(cfg.search_free_only),
+        "paid_providers_enabled": bool(cfg.search_paid_providers_enabled),
+        "brave_search_api_key_set": bool(cfg.brave_search_api_key),
+        "searxng_url": cfg.searxng_url,
+        "searxng_configured": bool(searxng_configured),
+        "configured": bool(_is_provider_configured(active_provider, cfg)[0]),
+        "active_provider": active_provider,
+        "searxng": {"configured": searxng_configured, "probe_ok": probe_ok, "message": probe_message},
+        "non_fatal": not bool(probe_ok) if active_provider == "searxng" else False,
+        "stub": not bool(probe_ok) if active_provider == "searxng" else False,
+        "provider_errors": {active_provider: [probe_message]} if not probe_ok else {},
+        "last_provider_errors": get_last_web_search_status().get("last_provider_errors", {}),
+        "last_search_at": get_last_web_search_status().get("last_search_at"),
+        "last_selected_provider": get_last_web_search_status().get("last_selected_provider"),
+        "last_non_fatal": get_last_web_search_status().get("last_non_fatal"),
+        "last_message": get_last_web_search_status().get("last_message", ""),
+        "message": probe_message,
+        "last_search": get_last_web_search_status(),
+    }
+
+
+@nexus_router.post("/web/search")
+def nexus_web_search_compat(payload: NexusWebSearchRequest) -> dict:
+    return nexus_web_search_payload(payload)
+
+
+@nexus_router.post("/web/research")
+def nexus_web_research_compat(payload: NexusWebSearchRequest) -> dict:
+    return nexus_web_research_payload(payload)
+
+
+@nexus_router.post("/research/run")
+def nexus_research_run_compat(payload: ResearchRunRequest) -> dict:
+    if payload.recursive_search:
+        return nexus_recursive_research_payload(payload)
+    mode = str(payload.mode or "").strip().lower()
+    depth = str(payload.depth or "").strip().lower()
+    if mode == "deep" or depth == "deep" or str(getattr(payload, "source_profile", "web")).lower() in {"news", "mixed"}:
+        return nexus_deep_research_payload(payload)
+    return nexus_research_payload(payload)
+
+
+@nexus_router.post("/research/deep")
+def nexus_deep_research_compat(payload: ResearchRunRequest) -> dict:
+    return nexus_deep_research_payload(payload)
+
+
+@nexus_router.post("/research/recursive")
+def nexus_recursive_research_compat(payload: ResearchRunRequest) -> dict:
+    return nexus_recursive_research_payload(payload)
+
+
+@nexus_router.post("/research/jobs/{job_id}/followup")
+def nexus_research_followup_compat(job_id: str, payload: NexusResearchFollowupRequest) -> dict:
+    return nexus_research_followup_payload(job_id, payload)
+
+
+@nexus_router.post("/web/collect")
+def nexus_web_collect_compat(payload: CollectRequest) -> dict:
+    return nexus_web_collect_payload(payload)
+
 @nexus_router.post("/news/search")
 @nexus_router.post("/news/scan")
 @nexus_router.post("/news/mvp")

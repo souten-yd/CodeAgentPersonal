@@ -30,3 +30,9 @@ Provider failures are graceful. Geocoding misses return `location_not_found`; fo
 ## Later PRs
 
 News is deferred to PR4.68c or later. That later work may add no-key multi-source news connectors shared by Lumen and Nexus, but PR4.68b intentionally avoids RSS fetching, GDELT, SearXNG news providers, and automatic Nexus Deep Research handoff. `app/api/lumen.py` remains PR4.68d and UI splitting remains PR4.68e.
+
+## PR4.68c News Source layer update
+
+Lumen news is now a lightweight digest tool backed by the shared Nexus News Source layer rather than a Lumen-only implementation. Lumen may call GDELT DOC 2.0, SearXNG, and configured RSS feeds through `app/nexus/news_connectors.py`, but it does not save evidence, generate reports, or auto-start Nexus Deep Research.
+
+News-related deep research requests produce handoff metadata only. The handoff payload uses `source_profile="news"` and can be submitted to Nexus by an explicit user action. Yahoo!ニュース RSS entries keep `personal_use_only=true`, and Lumen responses must include a caution when personal-use-only sources are included.

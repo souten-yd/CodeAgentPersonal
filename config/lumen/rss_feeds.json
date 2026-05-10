@@ -1,0 +1,26 @@
+{
+  "feeds": [
+    {
+      "name": "CNBC Latest",
+      "provider": "rss",
+      "url": "https://www.cnbc.com/?format=rss",
+      "category": "business",
+      "language": "en",
+      "country": "US",
+      "personal_use_only": false,
+      "allow_public_redistribution": false,
+      "full_text_allowed": false
+    },
+    {
+      "name": "Yahoo!ニュース 主要",
+      "provider": "rss",
+      "url": "https://news.yahoo.co.jp/rss/topics/top-picks.xml",
+      "category": "top",
+      "language": "ja",
+      "country": "JP",
+      "personal_use_only": true,
+      "allow_public_redistribution": false,
+      "full_text_allowed": false
+    }
+  ]
+}

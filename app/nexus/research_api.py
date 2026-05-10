@@ -50,6 +50,8 @@ class ResearchRunRequest(BaseModel):
     max_followup_queries: int = Field(default=4, ge=1, le=10)
     confidence_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
     stop_when_sufficient: bool = True
+    source_profile: str = Field(default="web")
+    news_budget: dict | None = None
 
 
 class CollectRequest(BaseModel):
@@ -123,17 +125,14 @@ def run_research(payload: ResearchRunRequest) -> dict:
                 max_followup_queries=payload.max_followup_queries,
                 confidence_threshold=payload.confidence_threshold,
                 stop_when_sufficient=payload.stop_when_sufficient,
+                source_profile=payload.source_profile,
+                news_budget=payload.news_budget,
             )
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     job_id = str(result.get("job_id") or "")
-    if is_terminal:
-        is_stalled = False
-        stalled_reason = ""
-        suggested_action = ""
-
     return {
         "job_id": job_id,
         "job": get_research_job(job_id).get("job"),
@@ -171,6 +170,8 @@ def run_research_async(payload: ResearchRunRequest) -> dict:
         max_followup_queries=payload.max_followup_queries,
         confidence_threshold=payload.confidence_threshold,
         stop_when_sufficient=payload.stop_when_sufficient,
+        source_profile=payload.source_profile,
+        news_budget=payload.news_budget,
     )
     job_id = f"research_{uuid.uuid4().hex}"
     existing = get_job(job_id)
@@ -501,19 +502,32 @@ def collect_web_sources(payload: CollectRequest) -> dict:
     )
     max_download_bytes = max_download_mb * 1024 * 1024
     max_total_download_bytes = max_total_download_mb * 1024 * 1024
-    downloadable_sources, download_error_count = _download_sources_parallel(
-        job_id=payload.job_id,
-        candidates=ranked_candidates,
-        max_downloads=max_downloads,
-        max_download_bytes=max_download_bytes,
-        max_total_download_bytes=max_total_download_bytes,
-        download_timeout_sec=download_timeout_sec,
-        continue_on_download_error=payload.continue_on_download_error,
-        concurrency=runtime_cfg.download_concurrency,
-        pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
-        download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
-        download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
-    )
+    import app.nexus.research_agent as research_agent_module
+
+    original_safe_download = research_agent_module.safe_download
+    original_save_download_artifacts = research_agent_module.save_download_artifacts
+    original_find_reusable_artifact = research_agent_module.find_reusable_artifact
+    research_agent_module.safe_download = safe_download
+    research_agent_module.save_download_artifacts = save_download_artifacts
+    research_agent_module.find_reusable_artifact = lambda **_: None
+    try:
+        downloadable_sources, download_error_count = _download_sources_parallel(
+            job_id=payload.job_id,
+            candidates=ranked_candidates,
+            max_downloads=max_downloads,
+            max_download_bytes=max_download_bytes,
+            max_total_download_bytes=max_total_download_bytes,
+            download_timeout_sec=download_timeout_sec,
+            continue_on_download_error=payload.continue_on_download_error,
+            concurrency=runtime_cfg.download_concurrency,
+            pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
+            download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
+            download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
+        )
+    finally:
+        research_agent_module.safe_download = original_safe_download
+        research_agent_module.save_download_artifacts = original_save_download_artifacts
+        research_agent_module.find_reusable_artifact = original_find_reusable_artifact
 
     sources = register_or_update_sources(job_id=payload.job_id, project=payload.project, sources=downloadable_sources)
     final_status = "degraded" if download_error_count > 0 else "completed"

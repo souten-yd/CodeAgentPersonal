@@ -16,6 +16,7 @@ from app.nexus.config import load_runtime_config
 from app.nexus.downloader import safe_download, save_download_artifacts
 from app.nexus.evidence import EvidenceItem, replace_evidence_items_for_job, save_evidence_items
 from app.nexus.jobs import append_job_event, append_job_heartbeat, create_job, ensure_job_exists, update_job
+from app.nexus.news_sources import NewsResearchSourceProfile, collect_news_research_sources, convert_news_items_to_evidence
 from app.nexus.source_collector import collect_source_candidates, rank_source_candidates
 from app.nexus.source_registry import (
     canonicalize_source_url,
@@ -69,6 +70,8 @@ class ResearchAgentInput:
     max_followup_queries: int = 4
     confidence_threshold: float = 0.75
     stop_when_sufficient: bool = True
+    source_profile: str = "web"
+    news_budget: dict[str, Any] | None = None
 
 
 def _now_iso() -> str:
@@ -690,6 +693,96 @@ def _download_sources_parallel(
         raise ValueError(f"download failed and continue_on_download_error=false: {fatal_errors[0]}")
     return sources, download_error_count
 
+
+
+def _run_news_profile_research(payload: ResearchAgentInput, *, effective_job_id: str, query: str) -> dict:
+    """Run Deep Research with source_profile=news using the shared News Source layer."""
+
+    budget = payload.news_budget or {}
+    max_total_items = int(budget.get("max_total_items") or payload.max_sources or 15)
+    max_providers = int(budget.get("max_providers") or 3)
+    profile = NewsResearchSourceProfile(
+        source_profile="news",
+        mode=payload.mode if payload.mode in {"quick", "standard", "deep", "exhaustive"} else "standard",
+        max_queries=payload.max_queries or 2,
+        max_items=max(1, min(max_total_items, 50)),
+        save_evidence=True,
+        include_personal_use_only=False,
+    )
+    profile.providers = profile.providers[: max(1, min(max_providers, len(profile.providers)))]
+    _emit_phase(effective_job_id, "news_search_started", phase="web_search", message="news source search started", progress=0.22)
+    collected = collect_news_research_sources(query, profile=profile)
+    evidence_items = convert_news_items_to_evidence(collected["items"], topic=query, job_kind="deep_research_news")
+    save_evidence_items(effective_job_id, evidence_items, project=payload.project)
+    references = [
+        {
+            "source_id": item.source_id,
+            "citation_label": item.citation_label,
+            "title": item.title,
+            "url": item.url,
+            "publisher": item.publisher,
+            "source_type": item.source_type,
+        }
+        for item in evidence_items
+    ]
+    evidence_json = [
+        {
+            "source_id": item.source_id,
+            "source_type": item.source_type,
+            "url": item.url,
+            "title": item.title,
+            "publisher": item.publisher,
+            "snippet": item.quote,
+            "metadata_json": item.metadata_json,
+        }
+        for item in evidence_items
+    ]
+    source_chunks = [
+        {
+            "source_id": item.source_id,
+            "chunk_id": item.chunk_id,
+            "citation_label": item.citation_label,
+            "title": item.title,
+            "quote": item.quote or item.title,
+        }
+        for item in evidence_items
+    ]
+    summary = f"{query} に関するNews Deep Research結果です。News source profileで収集した根拠: " + " ".join(
+        ref["citation_label"] for ref in references[:5]
+    )
+    answer_payload = build_answer_payload(
+        question=query,
+        summary=summary,
+        references=references,
+        evidence=evidence_json,
+        evidence_chunks=source_chunks,
+        job_id=effective_job_id,
+        project=payload.project,
+    )
+    _emit_phase(effective_job_id, "news_search_finished", phase="web_search", message="news source search finished", progress=0.82, details={"result_count": len(evidence_items)})
+    update_job(effective_job_id, status="completed", progress=1.0, message="news research completed")
+    append_job_event(
+        effective_job_id,
+        "research_completed",
+        {
+            "status": "completed",
+            "phase": "completed",
+            "message": "news research completed",
+            "progress": 1.0,
+            "source_profile": "news",
+            "source_count": len(evidence_items),
+            "evidence_count": len(evidence_items),
+            "updated_at": _now_iso(),
+        },
+    )
+    return {
+        "job_id": effective_job_id,
+        "queries": collected.get("queries", []),
+        "search": collected.get("search", {}),
+        "sources": evidence_json,
+        "answer": answer_payload,
+    }
+
 def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) -> dict:
     query = payload.query.strip()
     if not query:
@@ -721,6 +814,10 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         create_job(effective_job_id, title=query, message="research queued", status="queued")
     else:
         ensure_job_exists(effective_job_id, title=query, message="research queued", status="queued")
+
+    normalized_source_profile = str(getattr(payload, "source_profile", "web") or "web").strip().lower()
+    if normalized_source_profile == "news":
+        return _run_news_profile_research(payload, effective_job_id=effective_job_id, query=query)
 
     try:
         _emit_phase(effective_job_id, "planning_started", phase="planning", message="planning started", progress=0.05)
