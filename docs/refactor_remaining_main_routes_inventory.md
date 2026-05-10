@@ -507,3 +507,13 @@ Next sequence:
 - WebSocket `/echo/stream` route移動はまだ保留し、route owner は `main.py` のまま固定する。
 - Audio/Echo runtime の route ownership は変更しない。
 - root cleanup 実移動後に Echo session write/save 抽出へ戻る。
+
+## PR4.66 Root cleanup low-risk move
+
+- PR4.66 は root cleanup の最初の実移動として、低リスク utility のみを移動する。
+- `agent_runtime.py` は `tools/agent_runtime.py` へ移動した。
+- `DLllama.bat` は `tools/DLllama.bat` へ移動した。
+- runtime route ownership には変更なし。
+- Audio/Echo/ASR/TTS/SBV2 実行コードには変更なし。
+- WebSocket `/echo/stream` は未移動で、route owner は `main.py` のまま。
+- Echo session write/save/delete と Echo TTS chain の高リスク領域は引き続き後続PRへ保留する。

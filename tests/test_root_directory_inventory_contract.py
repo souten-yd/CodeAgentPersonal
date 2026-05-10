@@ -9,10 +9,8 @@ JSON_DOC = Path("docs/generated/root_directory_inventory.json")
 EXPECTED_ROOT_FILES = {
     ".dockerignore",
     ".gitignore",
-    "DLllama.bat",
     "Dockerfile",
     "README.md",
-    "agent_runtime.py",
     "benchmark_mem.py",
     "main.py",
     "requirements-tts.txt",
@@ -90,12 +88,17 @@ def test_move_candidate_categories_are_documented():
         assert pattern in text
 
 
-def test_pr465_does_not_move_current_root_files():
+def test_pr466_root_inventory_keeps_required_root_files_and_records_moves():
     current_root_files = {path.name for path in Path(".").iterdir() if path.is_file()}
     assert EXPECTED_ROOT_FILES <= current_root_files
 
-    inventory_names = {record["name"] for record in _inventory_json()["files"]}
+    inventory = _inventory_json()
+    inventory_names = {record["name"] for record in inventory["files"]}
     assert EXPECTED_ROOT_FILES <= inventory_names
+
+    moved = {record["original_path"]: record["current_path"] for record in inventory["moved_files"]}
+    assert moved["agent_runtime.py"] == "tools/agent_runtime.py"
+    assert moved["DLllama.bat"] == "tools/DLllama.bat"
 
 
 def test_generated_inventory_records_classification_and_references():
@@ -107,7 +110,9 @@ def test_generated_inventory_records_classification_and_references():
     assert by_name["Dockerfile"]["category"] == "root-keep"
     assert by_name["requirements.txt"]["category"] == "root-keep"
     assert by_name["README.md"]["category"] == "root-keep"
-    assert by_name["agent_runtime.py"]["category"] == "needs-investigation"
+    moved = {record["original_path"]: record for record in inventory["moved_files"]}
+    assert moved["agent_runtime.py"]["current_path"] == "tools/agent_runtime.py"
+    assert moved["DLllama.bat"]["current_path"] == "tools/DLllama.bat"
     assert by_name["benchmark_mem.py"]["suggested_destination"] == "tools/"
     assert ".github/workflows/runpod-test.yml" in by_name["benchmark_mem.py"]["references"]
 
@@ -135,7 +140,7 @@ def test_websocket_echo_stream_and_audio_runtime_ownership_are_untouched():
     doc_text = DOC.read_text(encoding="utf-8")
     remaining_text = Path("docs/refactor_remaining_main_routes_inventory.md").read_text(encoding="utf-8")
 
-    assert "PR4.65 does not touch WebSocket `/echo/stream`" in doc_text
+    assert "PR4.66 does not touch WebSocket `/echo/stream`" in doc_text
     assert "Audio/Echo runtime route ownership" in doc_text
     assert "WebSocket `/echo/stream` route移動はまだ保留" in remaining_text
 

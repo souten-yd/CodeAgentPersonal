@@ -244,3 +244,19 @@ Recovery invariants:
   5. startup / launcher scripts
   6. `scripts/export_route_inventory.py`
   7. `python -m py_compile ...` / `pytest`
+
+## PR4.66 Low-risk root utility moves
+
+- 変更:
+  - `agent_runtime.py` を `tools/agent_runtime.py` へ移動。
+  - `DLllama.bat` を `tools/DLllama.bat` へ移動。
+  - `docs/root_directory_inventory.md` と `docs/generated/root_directory_inventory.json` に移動元 -> 移動先を記録。
+- 変更しないもの:
+  - `main.py`, `Dockerfile`, `README.md`, `requirements*.txt`, `.github/workflows/*`, Runpod launcher, app import path, Audio/Echo/ASR/TTS/SBV2 runtime, WebSocket `/echo/stream`。
+- root cleanup で壊れた場合の確認順:
+  1. `python scripts/inventory_root_files.py` を実行し、`docs/generated/root_directory_inventory.json` の root file count と `moved_files` を確認する。
+  2. `docs/root_directory_inventory.md` の PR4.66 moved files 表で移動元 -> 移動先を確認する。
+  3. `tools/agent_runtime.py` と `tools/DLllama.bat` が存在し、root 直下に `agent_runtime.py` / `DLllama.bat` が残っていないことを確認する。
+  4. `.github/workflows/*`, `Dockerfile`, `main.py`, `README.md`, `scripts/start_codeagent.py`, `scripts/runpod_start.sh` に移動対象を直接実行する参照が増えていないことを確認する。
+  5. `pytest -q tests/test_root_directory_inventory_contract.py tests/test_root_directory_low_risk_move_contract.py` で root cleanup contract を確認する。
+  6. route ownership regression が疑わしい場合は `pytest -q tests/test_echo_stream_asr_helper_extraction_contract.py tests/test_remaining_main_routes_inventory_contract.py` と `python scripts/export_route_inventory.py` を優先する。
