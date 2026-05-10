@@ -9,10 +9,11 @@ def test_news_connector_module_contract_exists():
     assert nc.GdeltDocNewsConnector
     assert nc.SearxngNewsConnector
     assert nc.RssNewsConnector
+    assert nc.GoogleNewsRssConnector
 
 
 def test_no_key_default_and_full_text_default_false():
-    assert set(nc.DEFAULT_PROVIDERS) == {"gdelt", "searxng", "rss"}
+    assert nc.DEFAULT_PROVIDERS == ["google_news_rss", "nhk_rss", "yahoo_rss", "cnbc_rss", "bbc_rss", "gdelt", "searxng"]
     assert nc.API_KEY_REQUIRED_PROVIDERS.isdisjoint(nc.DEFAULT_PROVIDERS)
     assert nc.default_rights("rss")["full_text_allowed"] is False
 
