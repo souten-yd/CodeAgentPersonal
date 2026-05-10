@@ -505,7 +505,6 @@ html.logo-svg-ready .logo-text{display:none}
 .msg-edit-send{padding:5px 14px;background:var(--blue);border:none;border-radius:6px;color:#fff;font-family:var(--font-ui);font-size:12px;font-weight:600;cursor:pointer}
 .msg-edit-cancel{padding:5px 10px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text2);font-family:var(--font-ui);font-size:12px;cursor:pointer}
 .msg-ts{font-size:10px;color:var(--text3);padding:0 4px;font-family:var(--font-mono)}
-.lumen-tool-history{margin:4px 28px 12px;font-size:12px;opacity:.65;color:var(--muted, #8f8aa8)}
 
 /* ── MARKDOWN RENDERING ── */
 .md h1,.md h2,.md h3,.md h4{font-weight:600;margin:.7em 0 .3em;color:var(--text)}
