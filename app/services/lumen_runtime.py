@@ -249,6 +249,45 @@ def _write_normalized_lumen_runtime_event(write: Callable[[str, dict[str, Any]],
     write(normalized.get("type", ev.get("type", "chat_step")), normalized)
 
 
+BAD_ASSISTANT_HISTORY_PATTERNS = (
+    "以降、回答は必ず有効なJSON",
+    "JSON形式のみで出力",
+    "必ず有効なJSON形式",
+)
+
+
+def sanitize_lumen_chat_history(history: Any) -> list[dict[str, Any]]:
+    """Keep compact Lumen history while dropping stale JSON-only assistant compliance."""
+
+    if not isinstance(history, list):
+        return []
+    sanitized: list[dict[str, Any]] = []
+    for item in history[-10:]:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "user")
+        text = item.get("text", item.get("content", ""))
+        text = "" if text is None else str(text)
+        if role == "assistant" and any(pattern in text for pattern in BAD_ASSISTANT_HISTORY_PATTERNS):
+            continue
+        sanitized.append({"role": role, "text": text, "content": text})
+    return sanitized[-10:]
+
+
+def should_enable_lumen_web_search(intent: Any, req: Any, tool_results: Any = None) -> bool:
+    """Keep Lumen lightweight tool intents from falling through to web assist."""
+
+    if getattr(req, "search_policy", "auto") == "off":
+        return False
+    if getattr(intent, "kind", None) == "weather":
+        return False
+    if getattr(intent, "kind", None) == "news":
+        return False
+    if getattr(intent, "kind", None) == "web":
+        return True
+    return getattr(req, "search_policy", "auto") == "on"
+
+
 def run_lumen_job_background_service(job_id: str, req: Any, deps: Any) -> None:
     """Run a Lumen chat job with bounded lightweight tools and chat executor."""
     validate_lumen_submit_request(req)
@@ -295,10 +334,31 @@ def run_lumen_job_background_service(job_id: str, req: Any, deps: Any) -> None:
             news_budget=req.news_budget,
             project=project,
         )
-        for tool_result in tool_results:
+        for index, tool_result in enumerate(tool_results):
+            tool_call_id = f"lumen-{tool_result.tool}-{index}"
+            write(
+                "tool_call",
+                {
+                    "id": tool_call_id,
+                    "tool": tool_result.tool,
+                    "action": tool_result.tool,
+                    "label": f"{tool_result.tool} tool",
+                    "status": "running",
+                    "source": "lumen",
+                },
+            )
             write(
                 "tool_result",
-                {**_dump_model(tool_result), "result_preview": (tool_result.content or "")[:500]},
+                {
+                    "id": tool_call_id,
+                    "tool": tool_result.tool,
+                    "action": tool_result.tool,
+                    "label": f"{tool_result.tool} result",
+                    "ok": tool_result.ok,
+                    **_dump_model(tool_result),
+                    "result_preview": (tool_result.content or "")[:500],
+                    "source": "lumen",
+                },
             )
 
         tool_context = compress_lumen_tool_results_for_llm(tool_results)
@@ -306,11 +366,11 @@ def run_lumen_job_background_service(job_id: str, req: Any, deps: Any) -> None:
         chat_result = deps.execute_chat_with_optional_web_search(
             req.message,
             max_steps=req.max_steps,
-            search_enabled=req.search_policy != "off",
+            search_enabled=should_enable_lumen_web_search(intent, req, tool_results),
             search_policy=req.search_policy,
             search_budget=req.search_budget,
             llm_url=exec_url,
-            chat_history=getattr(req, "chat_history", []),
+            chat_history=sanitize_lumen_chat_history(getattr(req, "chat_history", [])),
             internal_context=tool_context,
             on_event=lambda ev: _write_normalized_lumen_runtime_event(write, ev),
         )
@@ -414,6 +474,8 @@ __all__ = [
     "normalize_lumen_job_mode",
     "resolve_lumen_search_policy",
     "run_lumen_job_background_service",
+    "sanitize_lumen_chat_history",
+    "should_enable_lumen_web_search",
     "run_lumen_news_direct",
     "run_lumen_weather_direct",
     "submit_lumen_job_service",
