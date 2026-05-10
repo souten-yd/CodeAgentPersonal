@@ -1,6 +1,7 @@
 (function () {
   const pollTimers = new Map();
   const jobState = new Map();
+  const LUMEN_DEBUG_TOOL_CARDS = false;
 
   function getProject() {
     if (typeof currentProject !== 'undefined' && currentProject) return currentProject;
@@ -25,8 +26,51 @@
     if (typeof addToHistory === 'function') addToHistory('user', message);
   }
 
+  function looksLikePythonDictNewsOutput(raw) {
+    return raw.startsWith("{'") && /(summary_title|news_topics|points)/.test(raw);
+  }
+
+  function cleanupDictText(value) {
+    return String(value || '')
+      .replace(/\\n/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/^[\s:：,、。-]+|[\s,、。]+$/g, '')
+      .trim();
+  }
+
+  function formatPythonDictLikeNewsOutput(raw) {
+    const lines = [];
+    const titleMatch = raw.match(/['"]summary_title['"]\s*:\s*['"]([^'"]+)['"]/);
+    if (titleMatch?.[1]) lines.push(cleanupDictText(titleMatch[1]));
+
+    const topicPattern = /['"](?:title|headline|summary|detail|description|point)['"]\s*:\s*['"]([^'"]+)['"]/g;
+    const seen = new Set();
+    let match = topicPattern.exec(raw);
+    while (match) {
+      const value = cleanupDictText(match[1]);
+      if (value && !seen.has(value) && value !== lines[0]) {
+        seen.add(value);
+        lines.push(`- ${value}`);
+      }
+      match = topicPattern.exec(raw);
+    }
+
+    if (lines.length) return lines.join('\n');
+
+    const fallback = raw
+      .replace(/[{}\[\]]/g, ' ')
+      .replace(/['"](?:summary_title|news_topics|points|title|headline|summary|detail|description|point)['"]\s*:\s*/g, '')
+      .replace(/['"]/g, '')
+      .replace(/,\s*/g, '\n- ')
+      .split('\n')
+      .map((line) => cleanupDictText(line.replace(/^-\s*/, '')))
+      .filter(Boolean);
+    return fallback.length ? fallback.join('\n') : cleanupDictText(raw);
+  }
+
   function formatAssistantOutput(text) {
     const raw = String(text ?? '').trim();
+    if (looksLikePythonDictNewsOutput(raw)) return formatPythonDictLikeNewsOutput(raw);
     if (!raw.startsWith('{') || !raw.endsWith('}')) return text;
     try {
       const parsed = JSON.parse(raw);
@@ -95,6 +139,15 @@
     state.steps.push(event);
   }
 
+  function toolNameFromEvent(event) {
+    return String(event?.tool || event?.action || event?.name || '').toLowerCase();
+  }
+
+  function isHiddenUserFacingToolResult(event) {
+    const tool = toolNameFromEvent(event);
+    return tool === 'weather' || tool === 'news';
+  }
+
   function handleJobEvent(event, stateOverride) {
     const state = stateOverride || jobState.get(event?.job_id) || null;
     if (!event || !event.type) return;
@@ -106,7 +159,13 @@
       rememberStep(state, event);
       updateProgress(state, `🔧 ${(event.action || event.tool || 'tool')} 実行中...`);
     } else if (event.type === 'tool_result') {
-      if (event.tool === 'search') {
+      if (state?.steps && typeof attachToolResult === 'function') attachToolResult(state.steps, event);
+      const tool = toolNameFromEvent(event);
+      if (isHiddenUserFacingToolResult(event) && !LUMEN_DEBUG_TOOL_CARDS) {
+        updateProgress(state, tool === 'weather' ? '天気情報を取得しました' : 'ニュース情報を取得しました');
+        return;
+      }
+      if (tool === 'search' || event.tool === 'search') {
         const result = window.LumenTools?.unwrapToolPayload ? window.LumenTools.unwrapToolPayload(event) : event;
         const count = Number(result.item_count ?? result.metadata?.item_count ?? 0);
         if (count === 0) {
@@ -114,7 +173,6 @@
           return;
         }
       }
-      if (state?.steps && typeof attachToolResult === 'function') attachToolResult(state.steps, event);
       const text = window.LumenTools?.renderToolResult ? window.LumenTools.renderToolResult(event) : 'tool_result received';
       if (text) renderSystemMessage(text);
       updateProgress(state, `✓ ${(event.action || event.tool || 'tool')} 完了`);
@@ -238,6 +296,7 @@
     renderAssistantMessage,
     renderSystemMessage,
     formatAssistantOutput,
+    isHiddenUserFacingToolResult,
     handleJobEvent,
     startPolling,
     stopPolling,
