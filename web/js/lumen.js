@@ -25,9 +25,38 @@
     if (typeof addToHistory === 'function') addToHistory('user', message);
   }
 
+  function formatAssistantOutput(text) {
+    const raw = String(text ?? '').trim();
+    if (!raw.startsWith('{') || !raw.endsWith('}')) return text;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || (!Object.prototype.hasOwnProperty.call(parsed, 'summary') && !Object.prototype.hasOwnProperty.call(parsed, 'topics'))) return text;
+      const lines = [];
+      if (parsed.summary) lines.push(String(parsed.summary));
+      const topics = Array.isArray(parsed.topics) ? parsed.topics : [];
+      topics.forEach((topic) => {
+        if (typeof topic === 'string') {
+          lines.push(`- ${topic}`);
+          return;
+        }
+        if (topic && typeof topic === 'object') {
+          const title = topic.title || topic.headline || topic.topic || topic.summary || '';
+          const detail = topic.detail || topic.description || topic.summary || '';
+          const line = [title, detail && detail !== title ? detail : ''].filter(Boolean).join(': ');
+          if (line) lines.push(`- ${line}`);
+        }
+      });
+      return lines.length ? lines.join('\n') : text;
+    } catch (_err) {
+      return text;
+    }
+  }
+
   function renderAssistantMessage(message) {
-    if (typeof addMsg === 'function') addMsg('assistant', message);
-    if (typeof addToHistory === 'function') addToHistory('assistant', message);
+    const formatted = formatAssistantOutput(message);
+    if (typeof addMsg === 'function') addMsg('assistant', formatted);
+    if (typeof addToHistory === 'function') addToHistory('assistant', formatted);
+    return formatted;
   }
 
   function renderSystemMessage(message) {
@@ -79,7 +108,7 @@
     } else if (event.type === 'tool_result') {
       if (state?.steps && typeof attachToolResult === 'function') attachToolResult(state.steps, event);
       const text = window.LumenTools?.renderToolResult ? window.LumenTools.renderToolResult(event) : 'tool_result received';
-      renderSystemMessage(text);
+      if (text) renderSystemMessage(text);
       updateProgress(state, `✓ ${(event.action || event.tool || 'tool')} 完了`);
     } else if (event.type === 'chat_step' || event.type === 'llm_thinking') {
       updateProgress(state, event.label || event.message || `🤔 考え中... ${event.step_num || ''}/${event.max_steps || ''}`);
@@ -107,8 +136,8 @@
       if (typeof addMsg === 'function') addMsg('error', state.error);
     } else {
       const out = state?.result || '(no output)';
-      renderAssistantMessage(out);
-      if (typeof playTTS === 'function') playTTS(out, 'chat');
+      const formattedOut = renderAssistantMessage(out);
+      if (typeof playTTS === 'function') playTTS(formattedOut, 'chat');
       if (state?.steps?.length) {
         if (typeof addStepsBlock === 'function') addStepsBlock(state.steps);
         if (typeof renderStepsToOutput === 'function') renderStepsToOutput(state.steps);
@@ -200,6 +229,7 @@
     renderUserMessage,
     renderAssistantMessage,
     renderSystemMessage,
+    formatAssistantOutput,
     handleJobEvent,
     startPolling,
     stopPolling,
