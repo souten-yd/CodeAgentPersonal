@@ -111,6 +111,15 @@ class NexusResearchFollowupRequest(BaseModel):
     use_existing_sources_only: bool = True
     limit: int = Field(default=20, ge=1, le=100)
     collapse_duplicates: bool = False
+    project: str = Field(default="default")
+    mode: str = Field(default="deep")
+    max_queries: int | None = Field(default=None, ge=1, le=20)
+    max_results_per_query: int | None = Field(default=None, ge=1, le=20)
+    max_sources: int | None = Field(default=None, ge=1, le=200)
+    max_downloads: int | None = Field(default=None, ge=1, le=200)
+    max_iterations: int = Field(default=1, ge=1, le=5)
+    confidence_threshold: float = Field(default=0.78, ge=0.0, le=1.0)
+    source_profile: str = Field(default="web")
 
 
 class NexusCollectRequest(BaseModel):

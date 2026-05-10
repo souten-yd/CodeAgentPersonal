@@ -149,6 +149,8 @@ def collect_source_candidates(
         if not normalized_url or normalized_url in seen_urls:
             continue
         seen_urls.add(normalized_url)
+        metadata = dict(item.get("metadata") or {}) if isinstance(item.get("metadata"), dict) else {}
+        metadata["is_stub"] = bool(item.get("is_stub") or metadata.get("is_stub"))
         candidates.append(
             {
                 "url": normalized_url,
@@ -160,7 +162,7 @@ def collect_source_candidates(
                 "relevance_score": _safe_float(item.get("relevance_score"), 0.6),
                 "published_at": str(item.get("published_at") or item.get("published_date") or ""),
                 "content_type": str(item.get("content_type") or ""),
-                "metadata": item.get("metadata") if isinstance(item.get("metadata"), dict) else {},
+                "metadata": metadata,
             }
         )
 
