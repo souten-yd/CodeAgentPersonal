@@ -106,6 +106,14 @@
       rememberStep(state, event);
       updateProgress(state, `🔧 ${(event.action || event.tool || 'tool')} 実行中...`);
     } else if (event.type === 'tool_result') {
+      if (event.tool === 'search') {
+        const result = window.LumenTools?.unwrapToolPayload ? window.LumenTools.unwrapToolPayload(event) : event;
+        const count = Number(result.item_count ?? result.metadata?.item_count ?? 0);
+        if (count === 0) {
+          updateProgress(state, '検索結果なし');
+          return;
+        }
+      }
       if (state?.steps && typeof attachToolResult === 'function') attachToolResult(state.steps, event);
       const text = window.LumenTools?.renderToolResult ? window.LumenTools.renderToolResult(event) : 'tool_result received';
       if (text) renderSystemMessage(text);

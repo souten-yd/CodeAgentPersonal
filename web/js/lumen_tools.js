@@ -58,12 +58,12 @@
     const base = event?.result || event?.data || event?.tool_result || {};
     const metadata = event?.metadata || base?.metadata || {};
     if (typeof base === 'string') {
-      return Object.assign({}, metadata, {
+      return Object.assign({}, event || {}, metadata, {
         content: base,
         metadata,
       });
     }
-    return Object.assign({}, base, metadata, {
+    return Object.assign({}, event || {}, base, metadata, {
       content: base.content || event?.content || metadata.context || '',
       metadata,
     });
@@ -175,13 +175,13 @@
 
   function renderSearchResult(result, action) {
     const data = result || {};
-    const items = asArray(data.items || data.results || data.sources);
-    const itemCount = data.total ?? data.item_count ?? data.metadata?.item_count ?? items.length;
+    const items = asArray(data.items || data.results || data.sources || data.web_results || data.search_results || data.citations || data.context_sources || data.documents);
+    const itemCount = data.item_count ?? data.metadata?.item_count ?? data.total ?? data.total_results ?? data.result_count ?? items.length;
     if (isPlannedOnlySearch(data, action || '')) return '';
-    if (Number(itemCount) === 0) return '検索結果はありませんでした。';
+    if (Number(itemCount) === 0) return '';
     const lines = ['🔎 Search', `取得件数: ${itemCount}`];
     items.slice(0, 3).forEach((item, index) => {
-      const title = item.title || item.name || item.url || item.snippet || '(no title)';
+      const title = item.title || item.name || item.source || item.url || item.snippet || '(no title)';
       lines.push(`${index + 1}. ${String(title).slice(0, 160)}`);
     });
     return lines.join('\n');
@@ -192,7 +192,7 @@
     const action = String(event?.action || event?.tool || event?.name || result.tool || '').toLowerCase();
     if (action.includes('weather') || result.forecast || result.current_weather || result.current || result.weather_text || result.current_temperature !== undefined || result.location_name) return renderWeatherResult(result);
     if (action.includes('news') || result.top_topics || result.articles || result.headlines || result.metadata?.top_topics) return renderNewsResult(result);
-    if (action.includes('search') || action.includes('web') || result.sources || result.results) return renderSearchResult(result, action);
+    if (action.includes('search') || action.includes('web') || result.sources || result.results || result.web_results || result.search_results || result.citations || result.context_sources) return renderSearchResult(result, action);
     const providerSummary = renderProviderStatusSummary(result.provider_status || result.metadata?.provider_status || {});
     const summary = result.summary || result.message || event?.summary || event?.thought || 'tool_result received';
     return [`🔧 Tool result`, `tool: ${event?.action || event?.tool || result.tool || 'unknown'}`, String(summary).slice(0, 500), providerSummary ? `provider: ${providerSummary}` : ''].filter(Boolean).join('\n');
