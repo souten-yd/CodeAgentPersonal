@@ -122,3 +122,12 @@ For prompts requesting “詳しく調査”, “根拠付きレポート”, or
 PR4.68d makes `POST /lumen/submit` the primary Lumen submit endpoint and moves Lumen route ownership to `app/api/lumen.py`. The legacy `POST /jobs/submit` endpoint remains available only as a compatibility shim for the existing UI and calls the same Lumen submit service path.
 
 Lumen orchestration now lives in `app/services/lumen_runtime.py`: submit-time mode validation, budget clamping, intent detection, lightweight tool planning/execution, weather/news context injection, job event writing, and the `execute_chat_with_optional_web_search` call are handled there. `app/lumen/*.py` remains the domain/tool layer for budgets, intent, weather, news, and tool planning. `app/nexus/news_connectors.py` is the shared Nexus/Lumen news source layer. UI JavaScript splitting is intentionally deferred to PR4.68e.
+
+## PR4.68e UI module split
+
+PR4.68e splits Lumen-specific browser logic into dedicated JavaScript modules without a visual redesign. The existing Lumen chat DOM remains the display surface; no new weather/news tabs or panels are added.
+
+- `web/js/lumen_api.js` owns the browser Lumen API client. `POST /lumen/submit` is the primary submit endpoint, while `POST /jobs/submit` is retained only as the 404/405/network-error fallback.
+- `web/js/lumen_tools.js` formats `tool_result` events for compact chat display, including short weather/news/search summaries and provider-status summaries instead of long raw JSON dumps.
+- `web/js/lumen.js` owns the existing Lumen UI initialization, chat-history payload construction, submit handling, job polling, and rendering into the existing chat column.
+- Lumen UI payloads are chat-only: the browser forces `mode: "chat"` and does not send removed task fields such as `approved_tasks`, `recommended_model`, `auto_select_option`, or `auto_skill_generation`.

@@ -12094,125 +12094,18 @@ async function sendMessage(msg) {
     return;
   }
 
+  if (mode === 'chat' && window.Lumen && typeof window.Lumen.submitCurrentMessage === 'function') {
+    await window.Lumen.submitCurrentMessage(msg);
+    return;
+  }
+
   addMsg('user', msg);
   addToHistory('user', msg);
   addLog('info','send',`[${getChatModeBadge()}][${currentProject}] ${msg}`);
 
-  if (false && mode === 'chat' && isTaskEnabled) {
-    // Legacy task mode is intentionally unreachable: Chat is direct conversation only.
-    setBusy(true);
-    const progEl = addProgressCard('Generating plan...');
-    try {
-      const r = await fetch(API+'/plan', {method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({message:msg, project:currentProject, llm_url:activeLlmUrl})});
-      const d = await r.json();
-      progEl.remove();
-
-      // d.tasksがない・空・配列でない場合のフォールバック
-      // planData全体（requirements/approach/verificationを含む）を渡す
-      const planData = (d.tasks && d.tasks.length > 0)
-        ? d
-        : { tasks: [{ id: 1, title: '実行', detail: msg }], summary: msg };
-      showPlanApproval(msg, planData);
-    } catch(e) {
-      progEl.remove();
-      addMsg('error', 'Plan request failed: ' + (e.message || String(e)));
-      addLog('err', 'plan', e.message || String(e));
-    }
-    setBusy(false);
-  } else {
-    // Chat mode: direct execute
-    setBusy(true);
-    const progEl = addProgressCard('Working...');
-    startTimer();
-    try {
-      // chatもジョブキュー経由に（DB永続化）
-      const submitRes = await fetch(API+'/jobs/submit', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          project: currentProject,
-          mode: 'chat',
-          message: msg,
-          max_steps: maxSteps,
-          chat_history: chatHistory.slice(-10),
-          search_policy: searchEnabled ? 'auto' : 'off',
-          search_budget: {
-            max_queries: 3,
-            max_results_per_query: 5,
-            max_fetch_pages: 3
-          },
-          llm_url: ''
-        })});
-      const submitData = await submitRes.json();
-      const jobId = submitData.job_id;
-      _currentJobId = jobId;
-      addLog('ok','job', `Chat job: ${jobId}`);
-
-      // ポーリングで完了を待つ（SSEよりシンプルで確実）
-      let chatResult = null;
-      let chatSteps = [];
-      let lastSeq = -1;
-      let pollCount = 0;
-      const MAX_POLL = 480; // 最大4分 (500ms x 480)
-
-      while (pollCount < MAX_POLL) {
-        await new Promise(r => setTimeout(r, 500));
-        pollCount++;
-        try {
-          const pollRes = await fetch(
-            API+`/jobs/${jobId}/poll?project=${encodeURIComponent(currentProject)}&after=${lastSeq}`
-          );
-          const pollData = await pollRes.json();
-          for (const s of (pollData.steps || [])) {
-            lastSeq = s.seq;
-            const ev = {...s.data, type: s.type, seq: s.seq};
-            if (ev.type === 'llm_thinking') {
-              setCard(progEl, {action: `🤔 考え中... ${ev.step_num||''}/${ev.max_steps||''}`});
-            } else if (ev.type === 'tool_call') {
-              chatSteps.push(ev);
-              const isWebSearch = (ev.action||'') === 'nexus_web_search';
-              const actionText = isWebSearch
-                ? `🔎 Nexus Web検索中... ${(ev.input?.topic || ev.thought || '').slice(0, 80)}`
-                : `${ev.action}: ${(ev.thought||'')}`;
-              setCard(progEl, {action: actionText});
-            } else if (ev.type === 'tool_result') {
-              attachToolResult(chatSteps, ev);
-              const resultAction = (ev.action||'') === 'nexus_web_search'
-                ? '✓ Nexus Web検索 完了 → 次のアクションを生成中...'
-                : `✓ ${ev.action||'tool'} 完了 → 次のアクションを生成中...`;
-              setCard(progEl, {action: resultAction});
-            } else if (ev.type === 'progress') {
-              setCard(progEl, {action: ev.label || ''});
-            } else if (ev.type === 'model_switching') {
-              setCard(progEl, {label: ev.message || 'Switching model...', action: `eta ${ev.eta_sec||'?'}s`});
-            } else if (ev.type === 'model_ready') {
-              setCard(progEl, {label: 'Working...', action: ''});
-            } else if (ev.type === 'done') {
-              chatResult = ev;
-            } else if (ev.type === 'error') {
-              chatResult = {result: '[Error] ' + (ev.error || 'Unknown error')};
-            }
-          }
-          if (pollData.status === 'done' || pollData.status === 'error') break;
-        } catch(e) { console.warn('poll error', e); }
-      }
-
-      progEl.remove();
-      stopTimer();
-      if (!chatResult) { addMsg('error', 'Job timed out or failed'); }
-      else {
-        const out = chatResult.result || '(no output)';
-        addMsg('assistant', out);
-        addToHistory('assistant', out);
-        playTTS(out, 'chat');
-        if (chatSteps.length) { addStepsBlock(chatSteps); renderStepsToOutput(chatSteps); }
-      }
-    } catch(e) {
-      progEl.remove(); stopTimer();
-      addMsg('error','Request failed: '+e.message);
-    }
-    setBusy(false);
-  }
+  const guidance = 'Legacy task jobs were removed from Lumen. Use Atlas/Agent for autonomous task execution, file edits, code execution, and multi-step pipelines.';
+  addMsg('system', guidance);
+  addLog('warn', 'lumen', guidance);
 }
 
 // ── MODEL SELECTOR (in plan card) ──
@@ -15710,8 +15603,11 @@ function testSkill(skillName) {
 </script>
 <script src="/static/js/app.js"></script>
 <script src="/static/js/settings.js"></script>
-<script src="/static/js/skills_memory.js"></script>
 <script src="/static/js/panels.js"></script>
+<script src="/static/js/lumen_api.js"></script>
+<script src="/static/js/lumen_tools.js"></script>
+<script src="/static/js/lumen.js"></script>
+<script src="/static/js/skills_memory.js"></script>
 <script src="/static/js/nexus.js"></script>
 <script src="/static/js/echo.js"></script>
 </body>

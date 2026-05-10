@@ -300,3 +300,10 @@ News acquisition is centralized in `app/nexus/news_connectors.py` and `app/nexus
 - Lumen execution orchestration moves to `app/services/lumen_runtime.py`: submit validation, budget clamp, intent detection, tool plan/result events, weather/news context injection, and `execute_chat_with_optional_web_search` invocation.
 - `app/lumen/*.py` remains the domain/tool layer, and `app/nexus/news_connectors.py` remains the shared Nexus/Lumen source layer.
 - UI splitting is deliberately deferred to PR4.68e; no `app/static/js` Lumen module split is part of PR4.68d.
+
+## PR4.68e Lumen UI module recovery note
+
+- Recover Lumen browser regressions from `web/js/lumen.js` first for submit/poll/render behavior, then `web/js/lumen_tools.js` for compact weather/news/tool result formatting, then `web/js/lumen_api.js` for endpoint/fallback behavior.
+- The existing Lumen chat panel remains the only UI surface for weather/news/tool results. Do not add dedicated News or Weather tabs/panels when recovering this PR.
+- Normal submit traffic should be `POST /lumen/submit` followed by `GET /jobs/{job_id}/poll`; `POST /jobs/submit` should appear only for primary endpoint 404/405/network fallback.
+- If task-payload leakage returns, verify the browser sanitizer in `web/js/lumen_api.js` still forces `mode: "chat"` and strips removed task fields before checking backend services.
