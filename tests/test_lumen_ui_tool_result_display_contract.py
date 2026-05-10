@@ -46,6 +46,33 @@ def test_news_renderer_reads_top_topics_metadata_count_status_and_sources():
     assert "2. 見出しB" in output
 
 
+def test_news_zero_item_count_is_rendered_as_failed_without_headlines():
+    source = read(LUMEN_TOOLS)
+    assert "Number(itemCount) === 0 ? 'failed'" in source
+    assert "有効なニュース記事を取得できませんでした。" in source
+    assert "推測によるニュース要約は行いません。" in source
+
+    output = run_lumen_tools(
+        "window.LumenTools.renderToolResult({type:'tool_result', tool:'news', result:'ニュース取得結果', metadata:{overall_status:'ok', item_count:0, top_topics:[{title:'出してはいけない見出し'}], sources:[{provider:'rss'}]}})"
+    )
+    assert "📰 News" in output
+    assert "status: failed" in output
+    assert "取得件数: 0" in output
+    assert "有効なニュース記事を取得できませんでした。" in output
+    assert "推測によるニュース要約は行いません。" in output
+    assert "1. 出してはいけない見出し" not in output
+
+
+def test_tool_payload_unwraps_string_result_with_event_metadata():
+    output = run_lumen_tools(
+        "window.LumenTools.renderToolResult({type:'tool_result', tool:'news', result:'plain result text', metadata:{overall_status:'degraded', item_count:1, top_topics:[{title:'文字列resultでもmetadataを読む'}], provider_status:[{provider:'rss', status:'ok', item_count:1}]}})"
+    )
+    assert "status: degraded" in output
+    assert "取得件数: 1" in output
+    assert "provider: rss: ok (1)" in output
+    assert "1. 文字列resultでもmetadataを読む" in output
+
+
 def test_tool_payload_unwraps_event_metadata_for_weather_details():
     output = run_lumen_tools(
         "window.LumenTools.renderToolResult({type:'tool_result', tool:'weather', metadata:{location:{name:'横浜市', admin1:'神奈川県'}, current:{temperature_c:18.5, weather_text:'曇り', precipitation_probability:30}, fetched_at:'2026-05-10T00:00:00Z'}})"
