@@ -8072,6 +8072,7 @@ def execute_chat_with_optional_web_search(
     search_budget: LumenSearchBudget | dict | None = None,
     llm_url: str = "",
     chat_history: list | None = None,
+    internal_context: str = "",
     on_event=None,
 ) -> dict:
     """
@@ -8087,6 +8088,9 @@ def execute_chat_with_optional_web_search(
             history_msgs.append({"role": role, "content": text})
 
     safe_max_steps = clamp_lumen_max_steps(max_steps)
+    llm_message = message
+    if internal_context:
+        llm_message = f"{message}\n\n{internal_context}"
     safe_budget = clamp_lumen_search_budget(search_budget)
     effective_policy = resolve_lumen_search_policy(search_enabled, search_policy)
 
@@ -8115,7 +8119,7 @@ def execute_chat_with_optional_web_search(
         messages = [
             {"role": "system", "content": "あなたはLumenです。通常チャットとして丁寧に答えてください。必要なら、長時間の調査はNexus Deep Researchを案内してください。"},
             *history_msgs,
-            {"role": "user", "content": message},
+            {"role": "user", "content": llm_message},
         ]
         messages = _trim_messages(messages, _current_n_ctx, reserve_output=_calc_reserve_output(_current_n_ctx, ratio=0.22))
         chat_reply, usage = call_llm_chat(messages, llm_url=llm_url)
@@ -8143,7 +8147,7 @@ Rules:
     messages = [
         {"role": "system", "content": CHAT_SEARCH_PROMPT},
         *history_msgs,
-        {"role": "user", "content": message},
+        {"role": "user", "content": llm_message},
     ]
     steps = []
     agent_debug_logs: list[dict] = []

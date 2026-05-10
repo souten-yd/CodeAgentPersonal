@@ -32,7 +32,7 @@ from app.lumen.budgets import (
     normalize_lumen_tool_policy,
 )
 from app.lumen.intent import detect_lumen_intent
-from app.lumen.tools import plan_lumen_tools
+from app.lumen.tools import compress_lumen_tool_results_for_llm, execute_lumen_tool_plan, plan_lumen_tools
 
 
 def append_job_event(
@@ -211,6 +211,24 @@ def run_job_background_service(job_id: str, req: Any, deps: Any) -> None:
             "tool_plan",
             tool_plan.model_dump() if hasattr(tool_plan, "model_dump") else tool_plan.dict(),
         )
+        tool_results = execute_lumen_tool_plan(
+            plan=tool_plan,
+            intent=intent,
+            tool_policy=tool_policy,
+            message=getattr(req, "message", ""),
+            location=getattr(req, "location", None),
+            weather_budget=weather_budget,
+        )
+        for tool_result in tool_results:
+            result_payload = tool_result.model_dump() if hasattr(tool_result, "model_dump") else tool_result.dict()
+            write(
+                "tool_result",
+                {
+                    **result_payload,
+                    "result_preview": (tool_result.content or "")[:500],
+                },
+            )
+        tool_context = compress_lumen_tool_results_for_llm(tool_results)
         effective_search_enabled = search_policy != "off"
         exec_url = resolve_runtime_llm_url(getattr(req, "llm_url", ""))
 
@@ -222,6 +240,7 @@ def run_job_background_service(job_id: str, req: Any, deps: Any) -> None:
             search_budget=clamped_budget,
             llm_url=exec_url,
             chat_history=getattr(req, "chat_history", []),
+            internal_context=tool_context,
             on_event=lambda ev: write(ev.get("type", "chat_step"), ev),
         )
         chat_output = chat_result.get("output") or chat_result.get("error") or ""
@@ -237,6 +256,7 @@ def run_job_background_service(job_id: str, req: Any, deps: Any) -> None:
                 "search_policy": search_policy,
                 "intent": intent.model_dump() if hasattr(intent, "model_dump") else intent.dict(),
                 "tool_plan": tool_plan.model_dump() if hasattr(tool_plan, "model_dump") else tool_plan.dict(),
+                "tool_results": [tr.model_dump() if hasattr(tr, "model_dump") else tr.dict() for tr in tool_results],
                 "search_budget": clamped_budget.model_dump()
                 if hasattr(clamped_budget, "model_dump")
                 else clamped_budget.dict(),
@@ -261,6 +281,7 @@ def run_job_background_service(job_id: str, req: Any, deps: Any) -> None:
                 "search_policy": search_policy,
                 "intent": intent.kind,
                 "tool_plan": tool_plan.model_dump() if hasattr(tool_plan, "model_dump") else tool_plan.dict(),
+                "tool_results": [tr.model_dump() if hasattr(tr, "model_dump") else tr.dict() for tr in tool_results],
             },
         )
         if status == "done":
