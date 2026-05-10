@@ -77,7 +77,8 @@ from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_venv_dir,
 )
 from app.services.jobs import run_job_background_service, submit_job_service
-from app.api.jobs import LumenSearchBudget, clamp_lumen_max_steps, clamp_lumen_search_budget, resolve_lumen_search_policy
+from app.api.jobs import clamp_lumen_max_steps, resolve_lumen_search_policy
+from app.lumen.budgets import LumenNewsBudget, LumenSearchBudget, LumenWeatherBudget, clamp_lumen_search_budget
 from app.services.system_usage import (
     SettingsPort,
     collect_system_usage_info,
@@ -7897,8 +7898,12 @@ class JobRequest(BaseModel):
     mode: str = "chat"
     max_steps: int = 8
     search_enabled: bool | None = None
+    tool_policy: str = "auto"
     search_policy: str = "auto"
     search_budget: LumenSearchBudget = Field(default_factory=LumenSearchBudget)
+    weather_budget: LumenWeatherBudget = Field(default_factory=LumenWeatherBudget)
+    news_budget: LumenNewsBudget = Field(default_factory=LumenNewsBudget)
+    location: str | None = None
     llm_url: str = ""
     chat_history: list = Field(default_factory=list)
 

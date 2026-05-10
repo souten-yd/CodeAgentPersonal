@@ -15,6 +15,17 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from app.lumen.budgets import (
+    LumenNewsBudget,
+    LumenSearchBudget,
+    LumenWeatherBudget,
+    clamp_lumen_news_budget,
+    clamp_lumen_search_budget,
+    clamp_lumen_weather_budget,
+    normalize_lumen_search_policy,
+    normalize_lumen_tool_policy,
+)
+
 router = APIRouter()
 
 ProjectJobsProvider = Callable[..., Any]
@@ -31,7 +42,6 @@ JOB_SUBMIT_DEFAULT_PAYLOAD: dict[str, Any] = {
 }
 
 
-LUMEN_SEARCH_POLICIES = {"off", "auto", "on"}
 LUMEN_LEGACY_MODES = {"task", "agent_task", "legacy_task"}
 LUMEN_CHAT_MODES = {None, "", "chat", "lumen", "conversation"}
 
@@ -59,16 +69,7 @@ def normalize_lumen_job_mode(mode: str | None) -> str:
         raise ValueError("legacy_task_mode_removed")
     if normalized in {"", "chat", "lumen", "conversation"}:
         return "chat"
-    raise ValueError("unsupported_lumen_job_mode")
-
-
-def normalize_lumen_search_policy(search_policy: str | None) -> str:
-    if search_policy is None:
-        return "auto"
-    normalized = str(search_policy).strip().lower()
-    if normalized not in LUMEN_SEARCH_POLICIES:
-        raise ValueError("unsupported_lumen_search_policy")
-    return normalized
+    raise ValueError("invalid_lumen_mode")
 
 
 def resolve_lumen_search_policy(search_enabled: bool | None, search_policy: str | None = "auto") -> str:
@@ -96,35 +97,6 @@ def clamp_lumen_max_steps(value: Any) -> int:
     )
 
 
-class LumenSearchBudget(BaseModel):
-    """One-shot lightweight web-assist limits for Lumen chat jobs."""
-
-    max_queries: int = 3
-    max_results_per_query: int = 5
-    max_fetch_pages: int = 3
-    max_total_chars: int = 12000
-    timeout_sec: int = 20
-
-
-def clamp_lumen_search_budget(budget: LumenSearchBudget | dict[str, Any] | None) -> LumenSearchBudget:
-    raw: dict[str, Any]
-    if budget is None:
-        raw = {}
-    elif isinstance(budget, LumenSearchBudget):
-        raw = budget.model_dump() if hasattr(budget, "model_dump") else budget.dict()
-    elif isinstance(budget, dict):
-        raw = budget
-    else:
-        raw = {}
-    return LumenSearchBudget(
-        max_queries=_clamp_int(raw.get("max_queries"), default=3, min_value=0, max_value=5),
-        max_results_per_query=_clamp_int(raw.get("max_results_per_query"), default=5, min_value=1, max_value=10),
-        max_fetch_pages=_clamp_int(raw.get("max_fetch_pages"), default=3, min_value=0, max_value=5),
-        max_total_chars=_clamp_int(raw.get("max_total_chars"), default=12000, min_value=2000, max_value=30000),
-        timeout_sec=_clamp_int(raw.get("timeout_sec"), default=20, min_value=5, max_value=60),
-    )
-
-
 class JobSubmitRequest(BaseModel):
     """Request body accepted by POST /jobs/submit for Lumen chat jobs."""
 
@@ -133,8 +105,12 @@ class JobSubmitRequest(BaseModel):
     mode: str = "chat"
     max_steps: int = LUMEN_MAX_STEPS_DEFAULT
     search_enabled: bool | None = None
+    tool_policy: str = "auto"
     search_policy: str = "auto"
     search_budget: LumenSearchBudget = Field(default_factory=LumenSearchBudget)
+    weather_budget: LumenWeatherBudget = Field(default_factory=LumenWeatherBudget)
+    news_budget: LumenNewsBudget = Field(default_factory=LumenNewsBudget)
+    location: str | None = None
     llm_url: str = ""
     chat_history: list[Any] = Field(default_factory=list)
 
@@ -182,9 +158,12 @@ def get_job_submit_provider(request: Request) -> JobSubmitProvider | None:
 def submit_job_api(req: JobSubmitRequest, request: Request) -> Any:
     try:
         req.mode = normalize_lumen_job_mode(req.mode)
+        req.tool_policy = normalize_lumen_tool_policy(req.tool_policy)
         req.search_policy = resolve_lumen_search_policy(req.search_enabled, req.search_policy)
         req.max_steps = clamp_lumen_max_steps(req.max_steps)
         req.search_budget = clamp_lumen_search_budget(req.search_budget)
+        req.weather_budget = clamp_lumen_weather_budget(req.weather_budget)
+        req.news_budget = clamp_lumen_news_budget(req.news_budget)
     except ValueError as exc:
         if str(exc) == "legacy_task_mode_removed":
             return JSONResponse(status_code=410, content=legacy_task_mode_removed_payload())
