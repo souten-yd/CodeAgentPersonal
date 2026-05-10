@@ -77,6 +77,7 @@ from app.tts.style_bert_vits2_paths import (
     resolve_style_bert_vits2_venv_dir,
 )
 from app.services.jobs import run_job_background_service, submit_job_service
+from app.api.jobs import LumenSearchBudget, clamp_lumen_max_steps, clamp_lumen_search_budget, resolve_lumen_search_policy
 from app.services.system_usage import (
     SettingsPort,
     collect_system_usage_info,
@@ -4582,6 +4583,32 @@ def _run_lightweight_prefetch_nexus_search_for_context(
     }
 
 
+def _run_nexus_search_for_context(
+    query: str,
+    *,
+    num_results: int,
+    mode: str = "quick",
+    depth: str = "quick",
+    max_queries: int = 1,
+    scope: str | list[str] | None = None,
+    language: str | None = None,
+) -> dict:
+    """Backward-compatible lightweight context search wrapper.
+
+    This is not Deep Research and does not create Nexus evidence; it is used by
+    Lumen/Agent chat context tests and quick prefetch flows.
+    """
+    return _run_lightweight_prefetch_nexus_search_for_context(
+        query,
+        num_results=num_results,
+        mode=mode,
+        depth=depth,
+        max_queries=max_queries,
+        scope=scope,
+        language=language,
+    )
+
+
 def _run_nexus_web_search_tool_with_evidence(
     topic: str,
     *,
@@ -7867,15 +7894,13 @@ class LLMTestRequest(BaseModel):
 class JobRequest(BaseModel):
     message: str
     project: str = "default"
-    mode: str = "task"
-    max_steps: int = 20
+    mode: str = "chat"
+    max_steps: int = 8
     search_enabled: bool | None = None
+    search_policy: str = "auto"
+    search_budget: LumenSearchBudget = Field(default_factory=LumenSearchBudget)
     llm_url: str = ""
-    approved_tasks: list = None
-    chat_history: list = []
-    recommended_model: str = ""   # planが推奨したモデルキー（空なら自動判断）
-    auto_select_option: bool = True  # True: プランナーLLMが対応案を自動選択 / False: ユーザー手動選択
-    auto_skill_generation: bool = True  # True: 失敗時に不足スキルを自動生成して再試行
+    chat_history: list = Field(default_factory=list)
 
 
 class AgentTaskDecisionRequest(BaseModel):
@@ -8036,16 +8061,18 @@ def _resolve_effective_search_enabled(requested: bool | str | int | None) -> boo
 def execute_chat_with_optional_web_search(
     message: str,
     *,
-    max_steps: int = 6,
+    max_steps: int = 8,
     search_enabled: bool = False,
+    search_policy: str = "auto",
+    search_budget: LumenSearchBudget | dict | None = None,
     llm_url: str = "",
     chat_history: list | None = None,
     on_event=None,
 ) -> dict:
     """
-    chatモード専用の軽量実行。
-    - search_enabled=False: 1回の通常チャット応答
-    - search_enabled=True: nexus_web_searchのみを使える最小ループ（タスク実行ツールは使わない）
+    Lumen chat execution with optional one-shot lightweight web assistance.
+    Lumen does not run recursive research, Deep Research, file edits, shell
+    commands, or task plans; those remain owned by Nexus and Atlas/Agent.
     """
     history_msgs = []
     for h in (chat_history or [])[-8:]:
@@ -8054,15 +8081,40 @@ def execute_chat_with_optional_web_search(
         if role in ("user", "assistant") and text:
             history_msgs.append({"role": role, "content": text})
 
-    if not search_enabled:
+    safe_max_steps = clamp_lumen_max_steps(max_steps)
+    safe_budget = clamp_lumen_search_budget(search_budget)
+    effective_policy = resolve_lumen_search_policy(search_enabled, search_policy)
+
+    deep_research_terms = (
+        "deep research", "deepresearch", "徹底調査", "詳細調査", "長時間",
+        "複数回検索", "レポート", "網羅的", "recursive", "再帰",
+    )
+    if any(term in message.lower() for term in deep_research_terms):
+        guidance = (
+            "この質問は長時間の調査が必要になる可能性があります。"
+            "Nexus の Deep Research を使うと、複数回検索とレポート生成ができます。"
+            "Lumen では通常チャットと軽量Web補助のみで回答します。"
+        )
+        if on_event:
+            on_event({"type": "nexus_guidance", "message": guidance})
+
+    auto_search_terms = (
+        "最新", "今日", "昨日", "現在", "ニュース", "価格", "株価", "天気",
+        "release", "latest", "today", "current", "news", "price", "schedule", "2026",
+    )
+    auto_wants_search = any(term in message.lower() for term in auto_search_terms)
+    should_search = effective_policy == "on" or (effective_policy == "auto" and auto_wants_search)
+    should_search = should_search and safe_budget.max_queries > 0 and safe_budget.max_fetch_pages >= 0
+
+    if not should_search:
         messages = [
-            {"role": "system", "content": "あなたはCodeAgentです。ユーザーの質問に丁寧に答えてください。コードが必要な場合はmarkdownで記述してください。"},
+            {"role": "system", "content": "あなたはLumenです。通常チャットとして丁寧に答えてください。必要なら、長時間の調査はNexus Deep Researchを案内してください。"},
             *history_msgs,
             {"role": "user", "content": message},
         ]
         messages = _trim_messages(messages, _current_n_ctx, reserve_output=_calc_reserve_output(_current_n_ctx, ratio=0.22))
         chat_reply, usage = call_llm_chat(messages, llm_url=llm_url)
-        return {"status": "done", "output": chat_reply, "usage": usage, "steps": []}
+        return {"status": "done", "output": chat_reply, "usage": usage, "steps": [], "search_policy": effective_policy}
 
     CHAT_SEARCH_PROMPT = """You are CodeAgent in agent mode.
 Return valid JSON object only. No markdown. No pseudo tags like <|tool_call> or call:nexus_web_search.
@@ -8092,7 +8144,8 @@ Rules:
     agent_debug_logs: list[dict] = []
     searches_used = 0
     last_stub_only_non_fatal = False
-    safe_max_steps = max(2, min(int(max_steps or 6), 8))
+    max_queries = safe_budget.max_queries
+    max_results_per_query = safe_budget.max_results_per_query
 
     for step in range(safe_max_steps):
         messages = _trim_messages(messages, _current_n_ctx, reserve_output=_calc_reserve_output(_current_n_ctx, ratio=0.22))
@@ -8146,19 +8199,19 @@ Rules:
             agent_debug_logs.append(debug_item)
             return {"status": "done", "output": out, "usage": usage, "steps": steps, "logs": agent_debug_logs}
 
-        if searches_used >= 2:
-            debug_item["parse_error"] = "nexus_web_search_limit_reached"
+        if searches_used >= max_queries:
+            debug_item["parse_error"] = "lumen_lightweight_web_search_limit_reached"
             agent_debug_logs.append(debug_item)
             messages.append({"role": "assistant", "content": _sanitize_special_tokens(raw_reply)})
             messages.append({
                 "role": "user",
-                "content": "Tool call上限(2回)に達しました。final JSONで回答してください。",
+                "content": f"Lumen lightweight web assist の検索上限({max_queries}回)に達しました。final JSONで回答してください。",
             })
             continue
 
         tool_input = validated_obj.get("arguments", {}) or {}
         query = str(tool_input.get("topic", "") or "").strip()
-        num_results = int(tool_input.get("max_results_per_query", 3) or 3)
+        num_results = min(max_results_per_query, max(1, int(tool_input.get("max_results_per_query", max_results_per_query) or max_results_per_query)))
 
         if on_event:
             on_event({
@@ -14949,9 +15002,7 @@ app.state.streaming_disable_provider = streaming_disable_payload
 # =========================
 
 def job_submit_payload(req: JobRequest):
-    """
-    ジョブ登録。LFMでタスク分類 → 必要ならモデル切り替え → バックグラウンドで実行。
-    """
+    """Register a chat-only Lumen job and run it in the background."""
     return submit_job_service(
         req,
         create_job=job_create,

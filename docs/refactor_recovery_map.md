@@ -270,3 +270,9 @@ Recovery invariants:
 - Echo session save destination and filename format must not change: EchoVault directory, base filename, wav/webm choice, transcript markdown, minutes markdown, and metadata shape are preserved for `/echo/sessions`.
 - `/echo/save-status` and `/echo/sessions` route ownership remains `app/api/echo.py`.
 - Remaining high-risk: Echo TTS chain, Echo WebSocket loop, and WebSocket route extraction.
+
+## PR4.68 Lumen role redesign
+
+- `/jobs/submit` is chat-only for Lumen and rejects removed legacy task modes at submit time.
+- The job background service no longer has a task execution branch, task retry orchestration, options JSON fallback, or `approved_tasks` execution route.
+- Lumen lightweight Web assist is separated from Nexus Deep Research and Recursive Research via explicit policy and budget limits.

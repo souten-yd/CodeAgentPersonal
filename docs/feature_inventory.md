@@ -102,3 +102,11 @@
 - `scripts/collect_runtime_snapshot.sh`: 診断情報一括取得。
 - `scripts/check_runtime_baseline.py`: lightweight endpoint baseline check。
 - `scripts/export_route_inventory.py`: FastAPI route inventory export。
+
+## PR4.68 Lumen chat-only jobs
+
+- `POST /jobs/submit` is the Lumen chat submit endpoint: normal chat plus optional lightweight Web assist.
+- Legacy task mode is removed from Lumen; `task`, `agent_task`, and `legacy_task` submit modes fail before job creation.
+- Lumen Web assist is controlled by `search_policy` (`off` / `auto` / `on`) and a clamped `LumenSearchBudget`.
+- Nexus remains responsible for Deep Research, Recursive Research, report generation, and knowledge accumulation.
+- Atlas / Agent remains responsible for autonomous execution, file edits, code execution, and multi-step pipelines.

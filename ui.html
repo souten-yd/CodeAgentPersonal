@@ -12129,9 +12129,20 @@ async function sendMessage(msg) {
       // chatもジョブキュー経由に（DB永続化）
       const submitRes = await fetch(API+'/jobs/submit', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({message:msg, max_steps:maxSteps, project:currentProject,
-          search_enabled:searchEnabled, llm_url:'',
-          mode:'chat', chat_history:chatHistory.slice(-10)})});
+        body:JSON.stringify({
+          project: currentProject,
+          mode: 'chat',
+          message: msg,
+          max_steps: maxSteps,
+          chat_history: chatHistory.slice(-10),
+          search_policy: searchEnabled ? 'auto' : 'off',
+          search_budget: {
+            max_queries: 3,
+            max_results_per_query: 5,
+            max_fetch_pages: 3
+          },
+          llm_url: ''
+        })});
       const submitData = await submitRes.json();
       const jobId = submitData.job_id;
       _currentJobId = jobId;
@@ -14620,35 +14631,13 @@ async function executePlan() {
   pendingPlan = null;
 
   setBusy(true);
-  compressDuplicateLogsByTimestamp();
-  const progCard = addProgressCard(`Starting ${tasks.length} tasks...`, tasks.length);
-  startTimer();
-
   try {
-    // ジョブをDBに登録（即座に返る）
-    const submitRes = await fetch(API+'/jobs/submit', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        message: msg, project: currentProject,
-        approved_tasks: tasks, max_steps: maxSteps,
-        search_enabled: searchEnabled,
-        llm_url: taskLlmUrl,
-        recommended_model: forcedModel,
-        auto_select_option: autoSelectOption,
-        auto_skill_generation: autoSkillGeneration,
-        mode: 'task', chat_history: chatHistory.slice(-10)
-      })
-    });
-    const {job_id: jobId} = await submitRes.json();
-    addLog('ok','job', `Job submitted: ${jobId}`);
-    await _watchJobPolling(jobId, [...tasks], {savedRequirements, savedApproach, savedVerification, savedSummary}, progCard, false);
-
-  } catch(e) {
-    progCard.remove(); stopTimer();
-    addMsg('error', 'Job error: '+e.message);
-    addLog('err','job', e.message);
+    const guidance = 'Legacy task jobs were removed from Lumen. Use Atlas/Agent for autonomous task execution, file edits, code execution, and multi-step pipelines.';
+    addMsg('system', guidance);
+    addLog('warn', 'lumen', guidance);
+  } finally {
+    setBusy(false);
   }
-  setBusy(false);
   loadProjects();
   refreshFileBrowser();
   refreshProjectFileManager();
