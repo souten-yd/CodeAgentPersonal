@@ -45,7 +45,7 @@ def _safe_quote(text: str | None, max_len: int = 200) -> str:
 
 
 
-def build_report(job_id: str, report_type: str, title: str, sections: list[dict]) -> dict:
+def build_report(job_id: str, report_type: str, title: str, sections: list[dict], metadata: dict | None = None) -> dict:
     """Generate report.md + report.json (+ optional HTML) using standard template."""
     if not job_id:
         raise ValueError("job_id is required")
@@ -121,6 +121,7 @@ def build_report(job_id: str, report_type: str, title: str, sections: list[dict]
         "report_type": report_type,
         "title": title,
         "generated_at": generated_at,
+        "metadata": metadata or {},
         "sections": normalized_sections,
     }
 
@@ -176,6 +177,7 @@ def build_report(job_id: str, report_type: str, title: str, sections: list[dict]
         "report_json_path": str(report_json_path),
         "report_html_path": str(report_html_path),
         "generated_at": generated_at,
+        "metadata": metadata or {},
     }
 
 
@@ -206,7 +208,7 @@ def save_report_record(report: dict) -> None:
                 report["report_json_path"],
                 report["report_html_path"],
                 str(report.get("summary") or ""),
-                "{}",
+                json.dumps(report.get("metadata") or {}, ensure_ascii=False),
                 report["generated_at"],
                 created_at,
             ),
@@ -259,6 +261,71 @@ def _build_sections_from_evidence(evidence_items: list[dict]) -> list[dict]:
             }
         )
     return sections
+
+
+def _load_latest_research_answer(job_id: str) -> dict:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT answer_id, question, answer_markdown, evidence_json, answer_json, created_at
+            FROM nexus_research_answers
+            WHERE job_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (job_id,),
+        ).fetchone()
+    if row is None:
+        return {}
+    answer: dict = {}
+    raw = str(row["answer_json"] or "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            parsed = {}
+        if isinstance(parsed, dict):
+            answer.update(parsed)
+    answer.setdefault("answer_id", row["answer_id"])
+    answer.setdefault("question", row["question"])
+    answer.setdefault("answer_markdown", row["answer_markdown"])
+    answer.setdefault("created_at", row["created_at"])
+    return answer
+
+
+def _build_sections_from_research_answer(job_id: str, answer: dict, evidence_items: list[dict]) -> list[dict]:
+    question = str(answer.get("question") or answer.get("query") or job_id)
+    answer_markdown = str(answer.get("answer_markdown") or answer.get("answer") or answer.get("summary") or "")
+    conclusion = answer_markdown.strip().split("\n\n", 1)[0] if answer_markdown.strip() else str(answer.get("summary") or "")
+    claim_analysis = answer.get("claim_analysis") if isinstance(answer.get("claim_analysis"), dict) else {}
+    claims = list(claim_analysis.get("claims") or [])
+    if claims:
+        claim_lines = []
+        for claim in claims[:20]:
+            status = claim.get("status") or "candidate"
+            text = claim.get("claim") or claim.get("text") or ""
+            citations = " ".join(claim.get("citations") or [])
+            claim_lines.append(f"- {status}: {text} {citations}".strip())
+        claims_summary = "\n".join(claim_lines)
+    else:
+        claims_summary = "Claim-level analysis is not available for this answer."
+    unresolved = list(claim_analysis.get("unresolved_items") or answer.get("unresolved_items") or [])
+    refs = list(answer.get("references") or [])
+    uncertainty_bits = []
+    if answer.get("stub_sources_filtered"):
+        uncertainty_bits.append("stub search results were filtered")
+    if int(claim_analysis.get("unsupported_claim_count") or 0):
+        uncertainty_bits.append(f"unsupported_claims={claim_analysis.get('unsupported_claim_count')}")
+    if int(claim_analysis.get("unresolved_claim_count") or 0):
+        uncertainty_bits.append(f"unresolved_claims={claim_analysis.get('unresolved_claim_count')}")
+    return [
+        {"heading": "調査目的", "summary": question, "evidence": []},
+        {"heading": "結論", "summary": conclusion, "evidence": []},
+        {"heading": "主要主張と根拠", "summary": claims_summary, "evidence": []},
+        {"heading": "追加確認が必要な点", "summary": "\n".join(f"- {item}" for item in unresolved) if unresolved else "追加確認項目は検出されていません。", "evidence": []},
+        {"heading": "Sources / Evidence", "summary": f"references={len(refs)}, evidence_count={len(evidence_items)}", "evidence": evidence_items or refs},
+        {"heading": "不確実性", "summary": "; ".join(uncertainty_bits) if uncertainty_bits else "重大な不確実性は検出されていません。", "evidence": []},
+    ]
 
 
 class BuildReportRequest(BaseModel):
@@ -342,14 +409,35 @@ def build_job_report(payload: BuildReportRequest) -> dict:
         raise HTTPException(status_code=404, detail="job not found")
 
     evidence_items = list_evidence_items(payload.job_id)
-    sections = _build_sections_from_evidence(evidence_items)
+    answer = _load_latest_research_answer(payload.job_id)
+    if answer:
+        sections = _build_sections_from_research_answer(payload.job_id, answer, evidence_items)
+        metadata_source = "research_answer"
+    else:
+        sections = _build_sections_from_evidence(evidence_items)
+        metadata_source = "evidence_only"
     title = payload.title or f"Nexus Report ({payload.job_id})"
+    claim_analysis = answer.get("claim_analysis") if isinstance(answer.get("claim_analysis"), dict) else {}
+    report_metadata = {
+        "source": metadata_source,
+        "answer_id": answer.get("answer_id"),
+        "claim_analysis": {
+            "claim_count": claim_analysis.get("claim_count", 0),
+            "supported_claim_count": claim_analysis.get("supported_claim_count", 0),
+            "unsupported_claim_count": claim_analysis.get("unsupported_claim_count", 0),
+            "unresolved_claim_count": claim_analysis.get("unresolved_claim_count", 0),
+            "gaps": claim_analysis.get("gaps", []),
+        },
+        "evidence_count": len(evidence_items),
+        "generated_at": _now_iso(),
+    }
 
     report = build_report(
         job_id=payload.job_id,
         report_type=payload.report_type,
         title=title,
         sections=sections,
+        metadata=report_metadata,
     )
     report["project"] = "default"
     save_report_record(report)

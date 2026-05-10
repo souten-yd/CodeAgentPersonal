@@ -16,10 +16,49 @@ class NexusExecutionError(Exception):
         self.status_code = status_code
 
 
-def _payload_dict(payload: Any) -> dict[str, Any]:
+def _payload_to_dict(payload: Any) -> dict[str, Any]:
     if hasattr(payload, "model_dump"):
         return dict(payload.model_dump())
-    return dict(payload)
+    if hasattr(payload, "dict"):
+        return dict(payload.dict())
+    try:
+        return dict(payload)
+    except (TypeError, ValueError):
+        return dict(getattr(payload, "__dict__", {}) or {})
+
+
+def _payload_dict(payload: Any) -> dict[str, Any]:
+    return _payload_to_dict(payload)
+
+
+def _value_or_default(payload: Any, name: str, default: Any) -> Any:
+    value = getattr(payload, name, None)
+    return default if value is None else value
+
+
+def _clone_research_request(payload: Any, **overrides: Any) -> ResearchRunRequest:
+    data = _payload_to_dict(payload)
+    data.update({k: v for k, v in overrides.items() if v is not None})
+    return ResearchRunRequest(**data)
+
+
+def _build_deep_research_payload(payload: Any, **overrides: Any) -> ResearchRunRequest:
+    deep_defaults = {
+        "mode": "deep",
+        "depth": "deep",
+        "max_queries": _value_or_default(payload, "max_queries", 6),
+        "max_results_per_query": _value_or_default(payload, "max_results_per_query", 8),
+        "max_sources": _value_or_default(payload, "max_sources", 40),
+        "max_downloads": _value_or_default(payload, "max_downloads", 16),
+        "prefer_pdf": True,
+        "official_first": True,
+        "continue_on_download_error": True,
+        "source_profile": _value_or_default(payload, "source_profile", "web"),
+        "confidence_threshold": _value_or_default(payload, "confidence_threshold", 0.78),
+        "stop_when_sufficient": _value_or_default(payload, "stop_when_sufficient", True),
+    }
+    deep_defaults.update(overrides)
+    return _clone_research_request(payload, **deep_defaults)
 
 
 def _as_canonical_payload(operation: str, request: Mapping[str, Any], result: Mapping[str, Any]) -> dict[str, Any]:
@@ -158,7 +197,8 @@ def run_nexus_deep_research_service(
     *,
     run_research_async: Callable[[ResearchRunRequest], dict[str, Any]],
 ) -> dict[str, Any]:
-    return run_research_async(payload)
+    deep_payload = _build_deep_research_payload(payload)
+    return run_research_async(deep_payload)
 
 
 def run_nexus_recursive_research_service(
@@ -166,7 +206,15 @@ def run_nexus_recursive_research_service(
     *,
     run_research_async: Callable[[ResearchRunRequest], dict[str, Any]],
 ) -> dict[str, Any]:
-    return run_research_async(payload)
+    recursive_payload = _build_deep_research_payload(
+        payload,
+        recursive_search=True,
+        max_iterations=_value_or_default(payload, "max_iterations", 2),
+        max_followup_queries=_value_or_default(payload, "max_followup_queries", 4),
+    )
+    if recursive_payload.max_iterations < 2:
+        recursive_payload = _clone_research_request(recursive_payload, max_iterations=2)
+    return run_research_async(recursive_payload)
 
 
 async def ingest_nexus_document_service(
@@ -247,26 +295,65 @@ def run_nexus_research_followup_service(
     *,
     search_chunks: Callable[[Any], list[dict[str, Any]]],
     source_search_request_factory: Callable[..., Any],
+    run_research_async: Callable[[ResearchRunRequest], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    results = search_chunks(
-        source_search_request_factory(
-            query=getattr(payload, "question"),
-            scope="current_research_job",
-            job_id=job_id,
-            limit=getattr(payload, "limit", 20),
+    question = getattr(payload, "question")
+    if getattr(payload, "use_existing_sources_only", True):
+        results = search_chunks(
+            source_search_request_factory(
+                query=question,
+                scope="current_research_job",
+                job_id=job_id,
+                limit=getattr(payload, "limit", 20),
+            )
         )
+        top = results[: min(5, len(results))]
+        answer = "該当箇所が見つかりませんでした。"
+        if top:
+            bullets = [f"- {r.get('citation_label','[S]')} {r.get('title','')} / {r.get('snippet','')}" for r in top]
+            answer = "収集済みソースのみを検索した結果:\n" + "\n".join(bullets)
+        return {
+            "job_id": job_id,
+            "parent_job_id": job_id,
+            "question": question,
+            "use_existing_sources_only": True,
+            "mode": "existing_sources",
+            "answer": answer,
+            "results": results,
+        }
+
+    if run_research_async is None:
+        raise NexusExecutionError("run_research_async is required for deep-search follow-up")
+
+    max_iterations = int(getattr(payload, "max_iterations", 1) or 1)
+    request = ResearchRunRequest(
+        query=question,
+        project=getattr(payload, "project", None) or "default",
+        mode="deep",
+        depth="deep",
+        max_queries=getattr(payload, "max_queries", None),
+        max_results_per_query=getattr(payload, "max_results_per_query", None),
+        max_sources=getattr(payload, "max_sources", None),
+        max_downloads=getattr(payload, "max_downloads", None),
+        manual_urls=None,
+        prefer_pdf=True,
+        official_first=True,
+        continue_on_download_error=True,
+        recursive_search=max_iterations > 1,
+        max_iterations=max_iterations,
+        confidence_threshold=getattr(payload, "confidence_threshold", 0.78),
+        source_profile=getattr(payload, "source_profile", None) or "web",
     )
-    top = results[: min(5, len(results))]
-    answer = "該当箇所が見つかりませんでした。"
-    if top:
-        bullets = [f"- {r.get('citation_label','[S]')} {r.get('title','')} / {r.get('snippet','')}" for r in top]
-        answer = "収集済みソースのみを検索した結果:\n" + "\n".join(bullets)
+    delegated = run_research_async(request)
+    new_job_id = str(delegated.get("job_id") or (delegated.get("job") or {}).get("job_id") or "")
     return {
-        "job_id": job_id,
-        "question": getattr(payload, "question"),
-        "use_existing_sources_only": True,
-        "answer": answer,
-        "results": results,
+        **delegated,
+        "job_id": new_job_id,
+        "parent_job_id": job_id,
+        "question": question,
+        "use_existing_sources_only": False,
+        "mode": "deep_search",
+        "followup_job": delegated.get("job"),
     }
 
 

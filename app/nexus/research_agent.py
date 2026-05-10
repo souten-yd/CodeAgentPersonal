@@ -4,6 +4,7 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from hashlib import sha256
 from datetime import datetime, timezone
+import json
 import re
 import threading
 import time
@@ -17,6 +18,7 @@ from app.nexus.downloader import safe_download, save_download_artifacts
 from app.nexus.evidence import EvidenceItem, replace_evidence_items_for_job, save_evidence_items
 from app.nexus.jobs import append_job_event, append_job_heartbeat, create_job, ensure_job_exists, update_job
 from app.nexus.news_sources import NewsResearchSourceProfile, collect_news_research_sources, convert_news_items_to_evidence
+from app.nexus.research_gaps import analyze_claim_level_gaps
 from app.nexus.source_collector import collect_source_candidates, rank_source_candidates
 from app.nexus.source_registry import (
     canonicalize_source_url,
@@ -273,6 +275,12 @@ def _analyze_research_gaps(*, sources: list[dict], evidence_chunks: list[dict], 
     confidence += 0.15 if has_official_or_pdf else 0.0
     confidence += min(0.25, citation_count / 12.0)
     confidence -= min(0.25, failed_ratio * 0.25 + (0.1 if unverified_mentions else 0.0))
+
+    claim_analysis = analyze_claim_level_gaps(answer_payload, evidence_chunks, sources)
+    support_ratio = float(claim_analysis.get("support_ratio") or 0.0)
+    confidence += min(0.20, support_ratio * 0.20)
+    confidence -= min(0.20, int(claim_analysis.get("unsupported_claim_count") or 0) * 0.03)
+    confidence -= min(0.10, int(claim_analysis.get("unresolved_claim_count") or 0) * 0.02)
     confidence = max(0.0, min(1.0, confidence))
 
     gaps: list[str] = []
@@ -292,15 +300,22 @@ def _analyze_research_gaps(*, sources: list[dict], evidence_chunks: list[dict], 
         gaps.append("high_degraded_or_failed_ratio")
     if citation_count < 2:
         gaps.append("citation_count_low")
+    for gap in claim_analysis.get("gaps") or []:
+        if gap not in gaps:
+            gaps.append(str(gap))
+    for item in claim_analysis.get("unresolved_items") or []:
+        if item and item not in unresolved_items:
+            unresolved_items.append(str(item))
     return {
         "confidence": confidence,
         "sufficient": len(gaps) == 0,
         "gaps": gaps,
         "unresolved_items": unresolved_items,
+        "claim_analysis": claim_analysis,
     }
 
 
-def _generate_followup_queries(*, original_query: str, gaps: list[str], max_followup_queries: int) -> list[str]:
+def _generate_followup_queries(*, original_query: str, gaps: list[str], max_followup_queries: int, claim_analysis: dict | None = None) -> list[str]:
     gap_hints = {
         "source_count_low": "最新 統計 公式データ",
         "evidence_chunks_low": "詳細 レポート PDF",
@@ -308,6 +323,9 @@ def _generate_followup_queries(*, original_query: str, gaps: list[str], max_foll
         "answer_contains_unverified": "検証 ファクトチェック 一次情報",
         "high_degraded_or_failed_ratio": "ミラー 公的機関 代替ソース",
         "citation_count_low": "根拠 出典",
+        "unsupported_claims": "根拠 一次資料 検証",
+        "unresolved_claims": "未確認事項 公式 発表",
+        "low_evidence_diversity": "independent sources analysis",
     }
     queries: list[str] = []
     seen: set[str] = set()
@@ -334,6 +352,55 @@ def _should_stop_recursive_research(*, analysis: dict, iteration: int, payload: 
 
 
 
+
+
+
+def _persist_latest_answer_json(job_id: str, answer_payload: dict) -> None:
+    if not job_id or not answer_payload:
+        return
+    try:
+        with get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT answer_id
+                FROM nexus_research_answers
+                WHERE job_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (job_id,),
+            ).fetchone()
+            if row is None:
+                return
+            conn.execute(
+                "UPDATE nexus_research_answers SET answer_json = ? WHERE answer_id = ?",
+                (json.dumps(answer_payload, ensure_ascii=False), row["answer_id"]),
+            )
+            conn.commit()
+    except Exception:  # noqa: BLE001
+        return
+
+
+def _candidate_is_stub(candidate: dict) -> bool:
+    metadata = candidate.get("metadata") if isinstance(candidate.get("metadata"), dict) else {}
+    return bool(candidate.get("is_stub") or metadata.get("is_stub"))
+
+
+def _should_filter_stub_sources(payload: ResearchAgentInput) -> bool:
+    source_profile = str(getattr(payload, "source_profile", "web") or "web").lower()
+    return (
+        str(getattr(payload, "mode", "") or "").lower() == "deep"
+        or str(getattr(payload, "depth", "") or "").lower() == "deep"
+        or bool(getattr(payload, "recursive_search", False))
+        or source_profile in {"news", "mixed"}
+    )
+
+
+def _filter_stub_candidates(candidates: list[dict], payload: ResearchAgentInput) -> tuple[list[dict], int]:
+    if not _should_filter_stub_sources(payload):
+        return candidates, 0
+    filtered = [candidate for candidate in candidates if not _candidate_is_stub(candidate)]
+    return filtered, len(candidates) - len(filtered)
 
 def _download_progress_payload(*, stats: dict[str, Any], now_iso: str, status: str = "running") -> dict[str, Any]:
     total = max(0, int(stats.get("total", 0)))
@@ -870,6 +937,46 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             prefer_pdf=payload.prefer_pdf,
             official_first=payload.official_first,
         )
+        ranked_candidates, stub_filtered_count = _filter_stub_candidates(ranked_candidates, payload)
+        if stub_filtered_count:
+            append_job_event(
+                effective_job_id,
+                "stub_sources_filtered",
+                {
+                    "status": "running",
+                    "phase": "source_collection",
+                    "message": "stub search results filtered from deep research evidence",
+                    "filtered_count": stub_filtered_count,
+                    "updated_at": _now_iso(),
+                },
+            )
+        if stub_filtered_count and not ranked_candidates:
+            message = "Web検索 provider が有効な実ソースを返せなかったため、根拠付き回答は生成できません"
+            answer_payload = {
+                "question": query,
+                "answer": message,
+                "summary": message,
+                "answer_markdown": message,
+                "references": [],
+                "evidence": [],
+                "stub_sources_filtered": stub_filtered_count,
+            }
+            update_job(effective_job_id, status="degraded", progress=1.0, message="no real web results")
+            append_job_event(
+                effective_job_id,
+                "research_completed",
+                {
+                    "status": "degraded",
+                    "phase": "completed",
+                    "message": "no real web results",
+                    "reason": "stub_sources_filtered",
+                    "filtered_count": stub_filtered_count,
+                    "source_count": 0,
+                    "evidence_count": 0,
+                    "updated_at": _now_iso(),
+                },
+            )
+            return {"job_id": effective_job_id, "queries": queries, "search": search, "sources": [], "answer": answer_payload}
         if len(ranked_candidates) > max_sources:
             append_job_event(
                 effective_job_id,
@@ -1044,6 +1151,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     original_query=query,
                     gaps=list(analysis.get("gaps") or []),
                     max_followup_queries=payload.max_followup_queries,
+                    claim_analysis=analysis.get("claim_analysis"),
                 )
                 followup_queries_count += len(followup_queries)
                 append_job_event(effective_job_id, "recursive_followup_queries_generated", {"iteration": iteration, "queries": followup_queries, "status": "running", "updated_at": _now_iso()})
@@ -1070,6 +1178,9 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 followup_search = run_web_search(followup_queries, mode=payload.mode, depth=payload.depth, max_results_per_query=payload.max_results_per_query, scope=payload.scope, language=payload.language)
                 followup_candidates = collect_source_candidates(search_items=list(followup_search.get("items") or []), manual_urls=[])
                 followup_ranked = rank_source_candidates(followup_candidates, prefer_pdf=payload.prefer_pdf, official_first=payload.official_first)
+                followup_ranked, followup_stub_filtered_count = _filter_stub_candidates(followup_ranked, payload)
+                if followup_stub_filtered_count:
+                    append_job_event(effective_job_id, "stub_sources_filtered", {"iteration": iteration, "status": "running", "filtered_count": followup_stub_filtered_count, "updated_at": _now_iso()})
                 existing_canonicals = {
                     canonicalize_source_url(str(s.get("canonical_url") or s.get("final_url") or s.get("url") or ""))
                     for s in registered_sources
@@ -1173,6 +1284,8 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             final_confidence = float(analysis.get("confidence") or 0.0)
             unresolved_items = list(analysis.get("unresolved_items") or [])
             iterations = []
+        if isinstance(analysis, dict) and analysis.get("claim_analysis") is not None:
+            answer_payload["claim_analysis"] = analysis.get("claim_analysis")
         answer_payload["recursive_search"] = bool(payload.recursive_search)
         answer_payload["iterations"] = iterations
         answer_payload["confidence"] = final_confidence
@@ -1182,6 +1295,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         answer_payload["followup_search_count"] = followup_search_count
         answer_payload["followup_queries_count"] = followup_queries_count
         answer_payload["added_sources_total"] = added_sources_total
+        _persist_latest_answer_json(effective_job_id, answer_payload)
         generation = answer_payload.get("generation") or {}
         generation_mode = (
             answer_payload.get("generation_mode")
