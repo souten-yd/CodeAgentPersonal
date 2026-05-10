@@ -99,9 +99,18 @@ def compress_lumen_tool_results_for_llm(results: list[LumenToolResult] | None) -
     if not results:
         return ""
     lines = []
+    news_answer_instruction = (
+        "Do not answer in JSON.\n"
+        "Do not output raw schema.\n"
+        "Answer in natural Japanese prose with concise bullet points.\n"
+        "Use the provided news context only.\n"
+        "If item_count is 0, say that no valid articles were retrieved."
+    )
     for result in results:
         status = "ok" if result.ok else "error"
         lines.append(f"[{result.tool}:{status}] {result.content}".strip())
+        if result.tool == "news":
+            lines.append(news_answer_instruction)
     return "\n".join(lines)
 
 
