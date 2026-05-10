@@ -49,3 +49,6 @@ def test_collect_news_research_sources_reapplies_final_diversity(monkeypatch):
     final = collected["search"]["metadata"]["final_diversity"]
     assert len(collected["items"]) <= 5
     assert final["provider_counts"]["google_news_rss"] <= final["provider_cap"]
+    assert collected["search"]["overall_status"] in {"ok", "degraded", "failed"}
+    assert collected["search"]["metadata"]["deduped_union_count"] >= len(collected["items"])
+    assert collected["search"]["metadata"]["evidence_metadata"]["full_text_scraped"] is False

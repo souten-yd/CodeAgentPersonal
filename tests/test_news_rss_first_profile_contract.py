@@ -34,7 +34,7 @@ def test_nhk_unvalidated_feed_is_skipped_degraded():
     assert status["provider"] == "nhk_rss"
     assert status["skipped"] is True
     assert status["error_count"] >= 1
-    assert result["overall_status"] == "degraded"
+    assert result["overall_status"] == "failed"
 
 
 def test_yahoo_cnbc_bbc_rss_rights_metadata():

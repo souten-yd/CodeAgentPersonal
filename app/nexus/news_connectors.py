@@ -521,11 +521,13 @@ def _provider_status(result: NewsSourceResult | None, provider: str, *, skipped:
     skipped_feeds = list((result.metadata or {}).get("skipped_feeds") or []) if result is not None else []
     is_skipped = skipped or bool(skipped_feeds)
     reason = skip_reason or ("; ".join(skipped_feeds) if skipped_feeds else "")
+    item_count = len(result.items) if result is not None else 0
+    error_count = len(errors)
     return {
         "provider": provider,
-        "ok": bool(result is not None and result.items and not errors),
-        "item_count": len(result.items) if result is not None else 0,
-        "error_count": len(errors),
+        "ok": bool(item_count > 0 and error_count == 0 and not is_skipped and configured),
+        "item_count": item_count,
+        "error_count": error_count,
         "errors": errors,
         "skipped": is_skipped,
         "skip_reason": reason,
@@ -535,11 +537,16 @@ def _provider_status(result: NewsSourceResult | None, provider: str, *, skipped:
 
 
 def _overall_status(provider_status: list[dict[str, Any]]) -> str:
-    if any(status.get("item_count", 0) > 0 for status in provider_status):
-        if any(status.get("error_count", 0) or status.get("skipped") or not status.get("endpoint_configured", True) for status in provider_status):
-            return "degraded"
-        return "ok"
-    return "degraded" if provider_status else "failed"
+    total_items = sum(int(status.get("item_count") or 0) for status in provider_status)
+    if total_items <= 0:
+        return "failed"
+    has_problem = any(
+        bool(status.get("error_count"))
+        or bool(status.get("skipped"))
+        or not bool(status.get("endpoint_configured", True))
+        for status in provider_status
+    )
+    return "degraded" if has_problem else "ok"
 
 
 def collect_news_from_connectors(
