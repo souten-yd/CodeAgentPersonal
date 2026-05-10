@@ -51,7 +51,7 @@ def test_news_tool_result_updates_progress_without_rendering_system_card():
 
 def test_search_zero_result_card_remains_hidden():
     source = read(LUMEN_JS)
-    assert "event.tool === 'search'" in source
+    assert "const tool = toolNameFromEvent(event);" in source
     assert "count === 0" in source
     assert "updateProgress(state, '検索結果なし')" in source
     output = json.loads(run_lumen("window.Lumen.handleJobEvent({type:'tool_result', tool:'search', item_count:0}, {steps: [], progressCard: {}});"))
