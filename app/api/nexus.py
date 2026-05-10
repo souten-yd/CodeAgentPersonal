@@ -14,6 +14,7 @@ outside this route layer.
 from __future__ import annotations
 
 import inspect
+import traceback
 from collections.abc import Callable
 from typing import Any
 
@@ -84,6 +85,9 @@ class NexusResearchRunRequest(BaseModel):
     max_followup_queries: int = Field(default=4, ge=1, le=10)
     confidence_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
     stop_when_sufficient: bool = True
+    # Restore source-profile contract used by app/nexus/research_api.py.
+    source_profile: str = Field(default="web")
+    news_budget: dict | None = None
 
 
 class NexusSourceSearchRequest(BaseModel):
@@ -421,12 +425,28 @@ def nexus_research_run_api(request: Request, payload: NexusResearchRunRequest) -
     mode = str(payload.mode or "").strip().lower()
     depth = str(payload.depth or "").strip().lower()
     if payload.recursive_search:
-        provider = _provider(request, "nexus_recursive_research_provider", default_nexus_recursive_research_payload)
+        provider_name = "nexus_recursive_research_provider"
+        provider = _provider(request, provider_name, default_nexus_recursive_research_payload)
     elif mode == "deep" or depth == "deep":
-        provider = _provider(request, "nexus_deep_research_provider", default_nexus_deep_research_payload)
+        provider_name = "nexus_deep_research_provider"
+        provider = _provider(request, provider_name, default_nexus_deep_research_payload)
     else:
-        provider = _provider(request, "nexus_research_provider", default_nexus_research_payload)
-    return provider(payload)
+        provider_name = "nexus_research_provider"
+        provider = _provider(request, provider_name, default_nexus_research_payload)
+    try:
+        return provider(payload)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[NexusResearch] /nexus/research/run failed provider={provider_name} error={exc!r}")
+        print(traceback.format_exc())
+        request_payload = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
+        return {
+            "ok": False,
+            "status": "error",
+            "error": "nexus_research_run_failed",
+            "provider": provider_name,
+            "message": str(exc),
+            "request": request_payload,
+        }
 
 
 @router.post("/nexus/sources/search")
