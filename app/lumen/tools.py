@@ -16,7 +16,7 @@ from app.lumen.budgets import (
     LumenWeatherBudget,
     normalize_lumen_tool_policy,
 )
-from app.lumen.intent import LumenIntent, extract_weather_location_hint
+from app.lumen.intent import LumenIntent, extract_weather_location_hint, extract_weather_time_hint
 from app.lumen.news import LumenNewsRequest, build_nexus_news_handoff, compress_news_result_for_llm, run_lumen_news_tool
 from app.lumen.weather import (
     LumenWeatherRequest,
@@ -110,9 +110,16 @@ def compress_lumen_tool_results_for_llm(results: list[LumenToolResult] | None) -
         return ""
     lines = []
     news_success_instruction = (
-        "Do not answer in JSON.\n"
-        "Answer in natural Japanese prose.\n"
-        "Use concise bullet points.\n"
+        "News answer instructions:\n"
+        "- 回答は日本語の自然文のみ\n"
+        "- JSON / Python dict / schema / raw object を出力しない\n"
+        "- summary_title / news_topics / trump_news_summary / points / details などのキー名を出力しない\n"
+        "- 3〜5個の箇条書きで要点を説明する\n"
+        "- 各箇条書きは「見出し: 説明」の自然文にする\n"
+        "- tool context にない事実を推測で補わない\n"
+        "Do not answer in JSON, Python dict, schema, or raw object format.\n"
+        "Do not output keys such as summary_title, news_topics, trump_news_summary, points, details.\n"
+        "Answer in natural Japanese prose with concise bullet points.\n"
         "Use only the provided news context."
     )
     news_zero_instruction = (
@@ -149,6 +156,7 @@ def execute_lumen_weather_if_needed(
         return None
 
     resolved_location = (location or "").strip() or extract_weather_location_hint(message)
+    target_day = extract_weather_time_hint(message)
     result = run_lumen_weather_tool(
         LumenWeatherRequest(
             message=message,
@@ -158,6 +166,9 @@ def execute_lumen_weather_if_needed(
     )
     content = compress_weather_result_for_llm(result)
     metadata = result.model_dump() if hasattr(result, "model_dump") else result.dict()
+    metadata["target_day"] = target_day
+    if target_day:
+        content = f"Target day: {target_day}\n{content}"
     metadata["context"] = content
     metadata["location_hint"] = resolved_location
     return LumenToolResult(tool="weather", ok=result.ok, content=content, metadata=metadata)

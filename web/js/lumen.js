@@ -27,29 +27,62 @@
 
   function formatAssistantOutput(text) {
     const raw = String(text ?? '').trim();
-    if (!raw.startsWith('{') || !raw.endsWith('}')) return text;
-    try {
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== 'object' || (!Object.prototype.hasOwnProperty.call(parsed, 'summary') && !Object.prototype.hasOwnProperty.call(parsed, 'topics'))) return text;
+    if (!raw) return text;
+
+    const stringifyDetail = (value) => {
+      if (Array.isArray(value)) return value.map((item) => stringifyDetail(item)).filter(Boolean).join('、');
+      if (value && typeof value === 'object') {
+        return [value.detail, value.description, value.text, value.summary]
+          .map((item) => stringifyDetail(item))
+          .find(Boolean) || '';
+      }
+      return value == null ? '' : String(value).trim();
+    };
+
+    const formatItem = (item) => {
+      if (typeof item === 'string') return item.trim();
+      if (!item || typeof item !== 'object') return '';
+      const title = stringifyDetail(item.topic || item.title || item.headline || item.name || item.summary_title || item.summary);
+      const detail = stringifyDetail(item.details || item.detail || item.points || item.description || item.text);
+      if (title && detail && detail !== title) return `${title}: ${detail}`;
+      return title || detail;
+    };
+
+    const formatParsedObject = (parsed) => {
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return '';
       const lines = [];
-      if (parsed.summary) lines.push(String(parsed.summary));
-      const topics = Array.isArray(parsed.topics) ? parsed.topics : [];
-      topics.forEach((topic) => {
-        if (typeof topic === 'string') {
-          lines.push(`- ${topic}`);
-          return;
-        }
-        if (topic && typeof topic === 'object') {
-          const title = topic.title || topic.headline || topic.topic || topic.summary || '';
-          const detail = topic.detail || topic.description || topic.summary || '';
-          const line = [title, detail && detail !== title ? detail : ''].filter(Boolean).join(': ');
+      const summary = stringifyDetail(parsed.summary || parsed.summary_title);
+      if (summary) lines.push(summary);
+      const arrayKeys = ['topics', 'news_topics', 'trump_news_summary', 'items', 'results'];
+      const arrayValue = Array.isArray(parsed.topics)
+        ? parsed.topics
+        : arrayKeys.map((key) => parsed[key]).find((value) => Array.isArray(value));
+      if (arrayValue) {
+        arrayValue.forEach((item) => {
+          const line = formatItem(item);
           if (line) lines.push(`- ${line}`);
-        }
-      });
-      return lines.length ? lines.join('\n') : text;
-    } catch (_err) {
-      return text;
+        });
+      }
+      return lines.length ? lines.join('\n') : '';
+    };
+
+    if (raw.startsWith('{') && raw.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(raw);
+        const formatted = formatParsedObject(parsed);
+        if (formatted) return formatted;
+      } catch (_err) {
+        if (!raw.includes("'")) return text;
+        const cleaned = raw
+          .replace(/[{}]/g, '')
+          .replace(/['\"]/g, '')
+          .replace(/\b(summary_title|news_topics|trump_news_summary|points|details|topics|items|results|summary|title|headline|topic|detail)\b\s*:/g, '')
+          .replace(/\s*,\s*/g, '\n- ')
+          .trim();
+        if (cleaned && cleaned !== raw) return cleaned.startsWith('- ') ? cleaned : cleaned;
+      }
     }
+    return text;
   }
 
   function renderAssistantMessage(message) {
@@ -119,8 +152,13 @@
       rememberStep(state, event);
       updateProgress(state, `🔧 ${(event.action || event.tool || 'tool')} 実行中...`);
     } else if (event.type === 'tool_result') {
-      if (state?.steps && typeof attachToolResult === 'function') attachToolResult(state.steps, event);
-      rememberToolResultStep(state, event);
+      let attached = false;
+      if (state?.steps && typeof attachToolResult === 'function') {
+        const before = JSON.stringify(state.steps);
+        attachToolResult(state.steps, event);
+        attached = JSON.stringify(state.steps) !== before;
+      }
+      if (!attached) rememberToolResultStep(state, event);
       const tool = String(event.tool || event.action || event.name || '').toLowerCase();
       if (tool === 'weather') {
         updateProgress(state, '天気情報を取得しました');
@@ -164,6 +202,9 @@
       if (typeof addMsg === 'function') addMsg('error', state.error);
     } else {
       const out = state?.result || '(no output)';
+      log('info', 'lumen', `steps_count: ${state?.steps?.length || 0}`);
+      log('info', 'lumen', `steps_types: ${(state?.steps || []).map(s => s.type + ':' + (s.tool || s.action || '')).join(', ')}`);
+      log('info', 'lumen', `steps_renderers: addStepsBlock=${typeof addStepsBlock}, renderStepsToOutput=${typeof renderStepsToOutput}`);
       const formattedOut = renderAssistantMessage(out);
       if (typeof playTTS === 'function') playTTS(formattedOut, 'chat');
       if (state?.steps?.length) {
