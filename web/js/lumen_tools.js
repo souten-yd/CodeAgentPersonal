@@ -55,11 +55,17 @@
   }
 
   function unwrapToolPayload(event) {
-    const base = event?.result || event?.data || event?.tool_result || event || {};
-    const metadata = Object.assign({}, event?.metadata || {}, base.metadata || {});
+    const base = event?.result || event?.data || event?.tool_result || {};
+    const metadata = event?.metadata || base?.metadata || {};
+    if (typeof base === 'string') {
+      return Object.assign({}, metadata, {
+        content: base,
+        metadata,
+      });
+    }
     return Object.assign({}, base, metadata, {
-      metadata,
       content: base.content || event?.content || metadata.context || '',
+      metadata,
     });
   }
 
@@ -131,18 +137,24 @@
   function renderNewsResult(result) {
     const data = result || {};
     const items = newsItems(data);
-    const status = data.overall_status || data.metadata?.overall_status || data.status || (items.length ? 'unknown' : 'failed');
-    const providerStatus = data.provider_status || data.metadata?.provider_status || {};
+    const rawStatus = data.overall_status || data.metadata?.overall_status || data.status || 'unknown';
+    const itemCount = data.item_count ?? data.metadata?.item_count ?? items.length;
+    const status = Number(itemCount) === 0 ? 'failed' : rawStatus;
+    const providerStatus = data.provider_status || data.metadata?.provider_status || [];
     const providerSummary = renderProviderStatusSummary(providerStatus);
-    const sources = asArray(data.sources || data.metadata?.sources);
+    const sources = asArray(data.sources || data.metadata?.sources || []);
     const providers = asArray(data.providers || data.provider_names)
       .concat(sources.map((source) => source.provider || source.name || source.domain).filter(Boolean))
       .concat(Array.isArray(providerStatus) ? providerStatus.map((item) => item.provider || item.name).filter(Boolean) : Object.keys(providerStatus || {}));
     const uniqueProviders = Array.from(new Set(providers)).filter(Boolean);
-    const itemCount = data.item_count ?? data.metadata?.item_count ?? items.length;
     const lines = ['📰 News', `status: ${status}`, `取得件数: ${itemCount}`];
+    if (providerSummary) lines.push(`provider: ${providerSummary}`);
     if (uniqueProviders.length) lines.push(`主なprovider: ${uniqueProviders.slice(0, 6).join(', ')}`);
-    else if (providerSummary) lines.push(`provider: ${providerSummary}`);
+    if (Number(itemCount) === 0) {
+      lines.push('有効なニュース記事を取得できませんでした。');
+      lines.push('推測によるニュース要約は行いません。');
+      return lines.join('\n');
+    }
     items.slice(0, 3).forEach((item, index) => {
       const title = item.title || item.headline || item.summary || item.text || '(no headline)';
       lines.push(`${index + 1}. ${String(title).slice(0, 160)}`);

@@ -93,24 +93,44 @@ def plan_lumen_tools(
     return LumenToolPlan(tools=[tool], metadata=metadata)
 
 
+def _news_item_count(metadata: dict[str, Any]) -> int | None:
+    value = metadata.get("item_count")
+    if value is None and isinstance(metadata.get("metadata"), dict):
+        value = metadata["metadata"].get("item_count")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def compress_lumen_tool_results_for_llm(results: list[LumenToolResult] | None) -> str:
     """Compress future tool results into a small text block for the LLM."""
 
     if not results:
         return ""
     lines = []
-    news_answer_instruction = (
+    news_success_instruction = (
         "Do not answer in JSON.\n"
-        "Do not output raw schema.\n"
-        "Answer in natural Japanese prose with concise bullet points.\n"
-        "Use the provided news context only.\n"
-        "If item_count is 0, say that no valid articles were retrieved."
+        "Answer in natural Japanese prose.\n"
+        "Use concise bullet points.\n"
+        "Use only the provided news context."
+    )
+    news_zero_instruction = (
+        "News tool returned item_count=0.\n"
+        "Do not invent headlines, facts, or summaries.\n"
+        "Tell the user that no valid news articles were retrieved.\n"
+        "Do not answer from memory."
     )
     for result in results:
-        status = "ok" if result.ok else "error"
+        metadata = result.metadata or {}
+        item_count = _news_item_count(metadata)
+        if result.tool == "news" and item_count == 0:
+            status = "error"
+        else:
+            status = "ok" if result.ok else "error"
         lines.append(f"[{result.tool}:{status}] {result.content}".strip())
         if result.tool == "news":
-            lines.append(news_answer_instruction)
+            lines.append(news_zero_instruction if item_count == 0 else news_success_instruction)
     return "\n".join(lines)
 
 
