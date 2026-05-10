@@ -78,8 +78,8 @@ def test_search_renderer_reads_count_candidates_and_hides_zero_cards():
 def test_lumen_js_empty_search_tool_result_updates_progress_without_rendering_card():
     source = read(LUMEN_JS)
     assert "event.type === 'tool_result'" in source
-    assert "event.tool === 'search'" in source
+    assert "tool === 'search'" in source
     assert "window.LumenTools.unwrapToolPayload(event)" in source
-    assert "count === 0" in source
-    assert "updateProgress(state, '検索結果なし')" in source
+    assert "count > 0 ? `検索結果 ${count}件` : '検索結果なし'" in source
+    assert "renderSystemMessage" not in source.split("event.type === 'tool_result'", 1)[1].split("event.type === 'chat_step'", 1)[0]
     assert "return;" in source

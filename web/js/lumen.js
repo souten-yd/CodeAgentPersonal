@@ -95,6 +95,19 @@
     state.steps.push(event);
   }
 
+  function rememberToolResultStep(state, event) {
+    if (!state) return;
+    if (!Array.isArray(state.steps)) state.steps = [];
+    const tool = String(event?.tool || event?.action || event?.name || event?.metadata?.tool || '').toLowerCase();
+    const normalized = Object.assign({}, event, {
+      type: 'tool_result',
+      tool: tool || event.tool || 'tool',
+      action: event.action || tool || event.tool || 'tool',
+      label: event.label || `${tool || 'tool'} result`,
+    });
+    state.steps.push(normalized);
+  }
+
   function handleJobEvent(event, stateOverride) {
     const state = stateOverride || jobState.get(event?.job_id) || null;
     if (!event || !event.type) return;
@@ -106,18 +119,25 @@
       rememberStep(state, event);
       updateProgress(state, `🔧 ${(event.action || event.tool || 'tool')} 実行中...`);
     } else if (event.type === 'tool_result') {
-      if (event.tool === 'search') {
+      if (state?.steps && typeof attachToolResult === 'function') attachToolResult(state.steps, event);
+      rememberToolResultStep(state, event);
+      const tool = String(event.tool || event.action || event.name || '').toLowerCase();
+      if (tool === 'weather') {
+        updateProgress(state, '天気情報を取得しました');
+        return;
+      }
+      if (tool === 'news') {
+        updateProgress(state, 'ニュース情報を取得しました');
+        return;
+      }
+      if (tool === 'search') {
         const result = window.LumenTools?.unwrapToolPayload ? window.LumenTools.unwrapToolPayload(event) : event;
         const count = Number(result.item_count ?? result.metadata?.item_count ?? 0);
-        if (count === 0) {
-          updateProgress(state, '検索結果なし');
-          return;
-        }
+        updateProgress(state, count > 0 ? `検索結果 ${count}件` : '検索結果なし');
+        return;
       }
-      if (state?.steps && typeof attachToolResult === 'function') attachToolResult(state.steps, event);
-      const text = window.LumenTools?.renderToolResult ? window.LumenTools.renderToolResult(event) : 'tool_result received';
-      if (text) renderSystemMessage(text);
-      updateProgress(state, `✓ ${(event.action || event.tool || 'tool')} 完了`);
+      updateProgress(state, `✓ ${tool || 'tool'} 完了`);
+      return;
     } else if (event.type === 'chat_step' || event.type === 'llm_thinking') {
       updateProgress(state, event.label || event.message || `🤔 考え中... ${event.step_num || ''}/${event.max_steps || ''}`);
     } else if (event.type === 'progress') {
@@ -239,6 +259,7 @@
     renderSystemMessage,
     formatAssistantOutput,
     handleJobEvent,
+    rememberToolResultStep,
     startPolling,
     stopPolling,
   };
