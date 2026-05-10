@@ -17,13 +17,22 @@ from app.api.jobs import (
     LUMEN_MAX_STEPS_DEFAULT,
     LUMEN_MAX_STEPS_MAX,
     LUMEN_MAX_STEPS_MIN,
-    LumenSearchBudget,
     clamp_lumen_max_steps,
-    clamp_lumen_search_budget,
     legacy_task_mode_removed_payload,
     normalize_lumen_job_mode,
     resolve_lumen_search_policy,
 )
+from app.lumen.budgets import (
+    LumenNewsBudget,
+    LumenSearchBudget,
+    LumenWeatherBudget,
+    clamp_lumen_news_budget,
+    clamp_lumen_search_budget,
+    clamp_lumen_weather_budget,
+    normalize_lumen_tool_policy,
+)
+from app.lumen.intent import detect_lumen_intent
+from app.lumen.tools import plan_lumen_tools
 
 
 def append_job_event(
@@ -178,8 +187,29 @@ def run_job_background_service(job_id: str, req: Any, deps: Any) -> None:
             getattr(req, "search_enabled", None),
             getattr(req, "search_policy", "auto"),
         )
+        tool_policy = normalize_lumen_tool_policy(getattr(req, "tool_policy", "auto"))
         clamped_budget = clamp_lumen_search_budget(
             getattr(req, "search_budget", None) or LumenSearchBudget()
+        )
+        weather_budget = clamp_lumen_weather_budget(
+            getattr(req, "weather_budget", None) or LumenWeatherBudget()
+        )
+        news_budget = clamp_lumen_news_budget(
+            getattr(req, "news_budget", None) or LumenNewsBudget()
+        )
+        intent = detect_lumen_intent(getattr(req, "message", ""))
+        tool_plan = plan_lumen_tools(
+            intent=intent,
+            tool_policy=tool_policy,
+            search_policy=search_policy,
+            search_budget=clamped_budget,
+            weather_budget=weather_budget,
+            news_budget=news_budget,
+            location=getattr(req, "location", None),
+        )
+        write(
+            "tool_plan",
+            tool_plan.model_dump() if hasattr(tool_plan, "model_dump") else tool_plan.dict(),
         )
         effective_search_enabled = search_policy != "off"
         exec_url = resolve_runtime_llm_url(getattr(req, "llm_url", ""))
@@ -203,10 +233,19 @@ def run_job_background_service(job_id: str, req: Any, deps: Any) -> None:
                 "status": status,
                 "usage": chat_result.get("usage", {}),
                 "steps": chat_result.get("steps", []),
+                "tool_policy": tool_policy,
                 "search_policy": search_policy,
+                "intent": intent.model_dump() if hasattr(intent, "model_dump") else intent.dict(),
+                "tool_plan": tool_plan.model_dump() if hasattr(tool_plan, "model_dump") else tool_plan.dict(),
                 "search_budget": clamped_budget.model_dump()
                 if hasattr(clamped_budget, "model_dump")
                 else clamped_budget.dict(),
+                "weather_budget": weather_budget.model_dump()
+                if hasattr(weather_budget, "model_dump")
+                else weather_budget.dict(),
+                "news_budget": news_budget.model_dump()
+                if hasattr(news_budget, "model_dump")
+                else news_budget.dict(),
             },
         )
         save_session(
@@ -218,7 +257,10 @@ def run_job_background_service(job_id: str, req: Any, deps: Any) -> None:
                 "output": chat_output,
                 "status": chat_result.get("status", "done"),
                 "steps": chat_result.get("steps", []),
+                "tool_policy": tool_policy,
                 "search_policy": search_policy,
+                "intent": intent.kind,
+                "tool_plan": tool_plan.model_dump() if hasattr(tool_plan, "model_dump") else tool_plan.dict(),
             },
         )
         if status == "done":

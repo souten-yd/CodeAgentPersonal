@@ -532,3 +532,11 @@ Next sequence:
 - `POST /jobs/submit` remains owned by `app.api.jobs`, but its production provider now creates only Lumen chat jobs.
 - Legacy task payloads are rejected before job creation so stale UI payloads cannot start background work.
 - Main still assembles runtime dependencies for Lumen chat execution; Atlas/Agent and Nexus keep autonomous execution and research ownership respectively.
+
+## PR4.68a Lumen chat-only core note
+
+- PR4.68a adds Lumen's chat-only core and `app/lumen/` domain skeleton for future lightweight tools.
+- Legacy task mode is deleted/rejected for the Lumen `/jobs/submit` path; `task`, `legacy_task`, and `agent_task` payloads must fail before job creation.
+- `/jobs/submit` is currently a Lumen chat-compatible endpoint owned by `app/api/jobs.py`.
+- Moving the Lumen submit route to `app/api/lumen.py` is planned for PR4.68d, not this PR.
+- UI splitting is planned for PR4.68e, not this PR.

@@ -2,14 +2,16 @@
 
 ## Responsibility
 
-Lumen is the lightweight conversation surface for CodeAgent. Its job is normal chat plus optional one-shot lightweight web assist. It is not an autonomous executor and it is not the Deep Research system.
+Lumen is CodeAgent's lightweight conversation surface. Its stable core is normal chat plus a future path for small, bounded, no-key tools such as weather, news, and one-shot Web assistance. In PR4.68a, Lumen remains chat-only at execution time: it may detect intent and emit a non-executing tool plan, but it does not call external weather/news/search providers.
 
 ## Lumen owns
 
-- Normal chat.
+- Normal chat through `/jobs/submit` while the route remains the Lumen-compatible submit endpoint.
 - Conversation continuation with `chat_history`.
-- Optional lightweight Web search.
-- Explicit limits for Web query count, results per query, fetched pages, total fetched characters, timeout, and LLM chat/web-assist steps.
+- Request parsing and clamping for lightweight search, weather, and news budgets.
+- `tool_policy` and `search_policy` normalization to `off` / `auto` / `on`.
+- Lightweight intent detection for `chat`, `weather`, `news`, `web`, and `nexus_deep_research_suggestion`.
+- A skeleton tool plan that records future weather/news/web tools without executing network calls.
 - Clear user-facing errors when the LLM is not ready or Web search is unavailable.
 - A text-only handoff suggestion when a question is better suited to Nexus Deep Research.
 
@@ -25,22 +27,33 @@ Lumen is the lightweight conversation surface for CodeAgent. Its job is normal c
 - Model-switching orchestration.
 - Deep Research itself.
 - Recursive Research itself.
+- Weather/news/Web provider networking in PR4.68a.
 
-## Web search policy
+## Legacy task mode removed
 
-Lumen Web policy is explicit:
+`/jobs/submit` is now a Lumen chat-only submit path. `mode` aliases `chat`, `lumen`, and `conversation` normalize to `chat`; missing and empty modes also normalize to `chat`. Removed modes `task`, `agent_task`, and `legacy_task` are rejected with `legacy_task_mode_removed` before a job is created or a background thread starts. Unknown modes are rejected as invalid Lumen modes rather than being silently converted to chat.
+
+## Tool and search policy
+
+Lumen tool policy is explicit:
+
+- `off`: do not plan or run lightweight tools.
+- `auto`: allow Lumen to plan a future lightweight tool when intent detection indicates it.
+- `on`: force-enable future lightweight tool planning within the Lumen budget.
+
+Lumen search policy uses the same values:
 
 - `off`: do not perform Web search.
 - `auto`: perform lightweight search only when the prompt appears to need current external information.
 - `on`: perform lightweight search within the Lumen budget.
 
-The legacy `search_enabled` compatibility field is interpreted before `search_policy`:
+Invalid policy values are normalized to `auto`. The legacy `search_enabled` compatibility field is interpreted before `search_policy`:
 
 - `search_enabled == false` maps to `search_policy = "off"`.
 - `search_enabled == true` maps to `search_policy = "on"`.
 - `search_enabled is None` leaves `search_policy` in control; the default is `"auto"`.
 
-## Web search budget
+## Lightweight budgets
 
 `LumenSearchBudget` is clamped at submit/execution boundaries:
 
@@ -52,20 +65,47 @@ The legacy `search_enabled` compatibility field is interpreted before `search_po
 | `max_total_chars` | 12000 | 2000 | 30000 |
 | `timeout_sec` | 20 | 5 | 60 |
 
-Lumen `max_steps` defaults to 8 and clamps to 1-20. In Lumen this is a chat/web-assist event budget, not an agent task-step budget.
+`LumenWeatherBudget` is reserved for the next no-key Open-Meteo PR and is clamped as follows:
+
+| Field | Default | Minimum | Maximum |
+| --- | ---: | ---: | ---: |
+| `max_geocoding_results` | 3 | 1 | 5 |
+| `forecast_days` | 3 | 1 | 7 |
+| `timeout_sec` | 10 | 5 | 30 |
+
+`LumenNewsBudget` is reserved for future no-key news providers and is clamped as follows:
+
+| Field | Default | Minimum | Maximum |
+| --- | ---: | ---: | ---: |
+| `max_providers` | 3 | 1 | 5 |
+| `max_queries` | 2 | 1 | 5 |
+| `max_results_per_provider` | 5 | 1 | 10 |
+| `max_total_items` | 15 | 3 | 30 |
+| `max_fetch_pages` | 0 | 0 | 3 |
+| `timeout_sec` | 20 | 5 | 60 |
+| `save_to_nexus` | false | n/a | n/a |
+
+Lumen `max_steps` defaults to 8 and clamps to 1-20. In Lumen this is a chat/web-assist event budget, not an agent task-step budget. Lumen has recursive depth = 0.
+
+## Weather/news/web tools
+
+PR4.68a adds only the Lumen tool skeleton. It does not perform Open-Meteo calls, GDELT calls, RSS fetches, SearXNG news fetches, or any other new provider networking. Weather, news, and Web tools are planned for later PRs and must keep the API-key-free policy unless a separate design explicitly changes that.
 
 ## Nexus Deep Research separation
 
-Lumen uses one-shot lightweight web assist only; recursive depth = 0. Lumen does not own recursive research. Nexus owns Deep Research, Recursive Research, report generation, knowledge inspection, and document accumulation. If a Lumen prompt looks like a long-running investigation, Lumen may say: “This question may require long-running research. Nexus Deep Research can perform multiple searches and report generation.” Lumen must not automatically start a Nexus job.
+Lumen uses one-shot lightweight web assist only; recursive depth = 0. Lumen does not own recursive research. Nexus owns Deep Research, Recursive Research, report generation, knowledge inspection, and document accumulation. If a Lumen prompt looks like a long-running investigation, Lumen may say: “This question may require long-running research. Nexus Deep Research can perform multiple searches and report generation.” Lumen must not automatically start a Nexus job and must not mix Nexus Deep Research controls into Lumen budgets.
 
 ## Atlas / Agent separation
 
-Atlas / Agent owns autonomous execution, file edits, code execution, and multi-step agent pipelines. Lumen must not run shell commands, edit files, execute code, approve task plans, or operate the old task runner.
+Atlas / Agent owns autonomous execution, file edits, code execution, and multi-step agent pipelines. Lumen must not run shell commands, edit files, execute code, approve task plans, or operate the old task runner. Removing legacy task mode from `/jobs/submit` does not remove Atlas/Agent routes or Nexus routes.
 
-## Legacy task mode removed
+## API / service / domain / UI split plan
 
-`/jobs/submit` is now a Lumen chat-only submit path. `mode` aliases `chat`, `lumen`, and `conversation` normalize to `chat`; `task`, `agent_task`, and `legacy_task` are rejected with `legacy_task_mode_removed` before a job is created or a background thread starts.
+- PR4.68a: keep `/jobs/submit` in `app/api/jobs.py` as the temporary Lumen chat-compatible endpoint, with Lumen domain primitives in `app/lumen/`.
+- PR4.68d: move Lumen route ownership to `app/api/lumen.py` after the chat-only contract is stable.
+- PR4.68e: split the UI after route/service/domain boundaries are stable.
+- Service code must continue to call only `execute_chat_with_optional_web_search` for Lumen response generation.
 
 ## Preventing JSON options leakage
 
-The removed task-mode branch previously mixed planning, retries, and options fallback into `/jobs/submit`, which allowed task-planning text such as 「JSON形式で出力」 to leak into Lumen chats. Lumen background execution now calls only `execute_chat_with_optional_web_search`; the service must not contain `options_prompt`, task retry stages, or `approved_tasks` execution paths.
+The removed task-mode branch previously mixed planning, retries, and options fallback into `/jobs/submit`, which allowed task-planning text such as 「JSON形式で出力」 to leak into Lumen chats. Lumen background execution now calls only `execute_chat_with_optional_web_search`; the service must not contain `options_prompt`, task retry stages, or `approved_tasks` execution paths. Contract tests scan `app/services/jobs.py` for these forbidden strings to prevent recurrence of “指定のJSON形式で出力します” and options JSON leakage.

@@ -276,3 +276,11 @@ Recovery invariants:
 - `/jobs/submit` is chat-only for Lumen and rejects removed legacy task modes at submit time.
 - The job background service no longer has a task execution branch, task retry orchestration, options JSON fallback, or `approved_tasks` execution route.
 - Lumen lightweight Web assist is separated from Nexus Deep Research and Recursive Research via explicit policy and budget limits.
+
+## PR4.68a Lumen chat-only core and legacy task removal
+
+- PR4.68a adds the Lumen chat-only core under `app/lumen/` with budget, intent, and future-tool skeleton primitives.
+- Legacy task mode is removed from the Lumen submit path: `/jobs/submit` rejects `task`, `legacy_task`, and `agent_task` with `legacy_task_mode_removed` before job creation or background thread startup.
+- `/jobs/submit` remains the temporary Lumen chat-compatible endpoint for now; route separation into `app/api/lumen.py` is planned for PR4.68d.
+- UI splitting is intentionally deferred to PR4.68e.
+- Weather/news/web real provider calls are intentionally not implemented in PR4.68a.
