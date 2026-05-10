@@ -165,6 +165,7 @@
         "tests/test_audio_voice_load_service_extraction_contract.py",
         "tests/test_audio_voice_transcribe_service_extraction_contract.py",
         "tests/test_cuda_regression_v2_7_diff_contract.py",
+        "tests/test_echo_session_write_helper_extraction_contract.py",
         "tests/test_echo_stream_asr_helper_extraction_contract.py",
         "tests/test_echo_stream_asr_seam_contract.py",
         "tests/test_jobs_service_extraction_contract.py",

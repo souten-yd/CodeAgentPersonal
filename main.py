@@ -127,6 +127,8 @@ from app.api.runtime_controls import (
 from app.services.audio_runtime import (
     AudioRuntimeHttpError,
     EchoStreamAsrServiceDependencies,
+    EchoSessionWriteInput,
+    EchoSessionWriteServiceDependencies,
     VoiceTranscribeServiceDependencies,
     Sbv2PrepareServiceDependencies,
     TtsSynthesizeBatchServiceDependencies,
@@ -135,6 +137,7 @@ from app.services.audio_runtime import (
     build_audio_runtime_debug_payload,
     build_tts_status_payload,
     build_voice_status_payload,
+    run_echo_session_write_service_body,
     run_echo_stream_asr_service_body,
     run_sbv2_prepare_service_body,
     run_tts_synthesize_batch_service_body,
@@ -11481,77 +11484,27 @@ def _echo_generate_minutes(session: dict) -> dict:
     return data
 
 
+def _echo_session_write_deps() -> EchoSessionWriteServiceDependencies:
+    """Assemble production EchoVault write dependencies; route owner remains main.py."""
+    return EchoSessionWriteServiceDependencies(
+        echovault_dir=ECHOVAULT_DIR,
+        guess_title_from_sentences=_echo_guess_title_from_sentences,
+        generate_minutes=_echo_generate_minutes,
+    )
+
+
 def _echovault_save_session(session: dict) -> str:
-    """EchoVault にセッションファイルを保存。保存した主要ファイル名を返す。"""
-    import datetime as _dt
-
-    sentences = session.get("sentences", [])
-    audio_buf: bytearray = session.get("buffer", bytearray())
-    started_at: _dt.datetime = session.get("started_at", _dt.datetime.now())
-    session_id: str = session.get("session_id", "unknown")
-
-    create_minutes = bool(session.get("create_minutes", True))
-    # タイトルは文字起こしから推定し、議事録生成の有無に依存しない
-    title = _echo_guess_title_from_sentences(sentences)
-    # ファイル名に使えない文字を除去
-    import re as _re2
-    safe_title = _re2.sub(r'[\\/:*?"<>|]', "_", title)[:40]
-    safe_title = _re2.sub(r"[\s._-]+", "", safe_title)
-    if not safe_title:
-        safe_title = "会議録"
-    ts = started_at.strftime("%Y-%m-%d_%H-%M")
-    base = f"{ts}_{safe_title}"
-
-    # 録音ファイル保存
-    if audio_buf:
-        buffer_format = str(session.get("buffer_format", "webm")).strip().lower()
-        ext = "wav" if buffer_format in {"pcm", "pcm_s16le", "wav"} else "webm"
-        audio_path = os.path.join(ECHOVAULT_DIR, f"{base}.{ext}")
-        with open(audio_path, "wb") as f:
-            f.write(bytes(audio_buf))
-
-    # 文字起こしファイル保存
-    transcript_lines = ["| # | 言語 | 原文 | 翻訳 |", "|---|------|------|------|"]
-    for i, s in enumerate(sentences, 1):
-        flag = "🇯🇵" if s.get("lang") == "ja" else "🇺🇸"
-        orig = s.get("text", "").replace("|", "｜")
-        trans = s.get("translated", "").replace("|", "｜")
-        transcript_lines.append(f"| {i} | {flag} | {orig} | {trans} |")
-    transcript_path = os.path.join(ECHOVAULT_DIR, f"{base}_transcript.md")
-    with open(transcript_path, "w", encoding="utf-8") as f:
-        f.write(f"# 文字起こし — {title}\n\n")
-        f.write(f"**日付:** {started_at.strftime('%Y-%m-%d %H:%M')}  \n")
-        f.write(f"**セッション:** {session_id}\n\n")
-        f.write("\n".join(transcript_lines) + "\n")
-
-    if not create_minutes:
-        return os.path.basename(transcript_path)
-
-    # 議事録Markdown保存
-    minutes_data = _echo_generate_minutes(session)
-    minutes_path = os.path.join(ECHOVAULT_DIR, f"{base}_minutes.md")
-    duration_sec = session.get("duration_sec", 0)
-    dur_str = f"{int(duration_sec//3600):02d}:{int((duration_sec%3600)//60):02d}:{int(duration_sec%60):02d}"
-    with open(minutes_path, "w", encoding="utf-8") as f:
-        f.write(f"# 議事録 — {title}\n\n")
-        f.write(f"**日付:** {started_at.strftime('%Y-%m-%d %H:%M')}  \n")
-        f.write(f"**録音時間:** {dur_str}  \n")
-        f.write(f"**セッション:** {session_id}\n\n")
-        if isinstance(minutes_data, dict):
-            f.write(f"## サマリー\n{minutes_data.get('summary','')}\n\n")
-            topics = minutes_data.get("topics", [])
-            if topics:
-                f.write("## 議題\n" + "\n".join(f"- {t}" for t in topics) + "\n\n")
-            ais = minutes_data.get("action_items", [])
-            if ais:
-                f.write("## アクションアイテム\n" + "\n".join(f"- [ ] {a}" for a in ais) + "\n\n")
-            cons = minutes_data.get("conclusions", [])
-            if cons:
-                f.write("## 結論\n" + "\n".join(f"- {c}" for c in cons) + "\n\n")
-        f.write("---\n## 文字起こし\n\n")
-        f.write("\n".join(transcript_lines) + "\n")
-
-    return os.path.basename(minutes_path)
+    """Thin wrapper for EchoVault session writes; service body lives in app/services/audio_runtime.py."""
+    response = run_echo_session_write_service_body(
+        EchoSessionWriteInput(
+            session=dict(session or {}),
+            session_id=str((session or {}).get("session_id", "unknown")),
+        ),
+        _echo_session_write_deps(),
+    )
+    if response.error_payload:
+        raise RuntimeError(str(response.error_payload.get("error", "Echo session save failed")))
+    return response.result.filename
 
 
 def _echo_schedule_session_save(session_id: str, session: dict):
@@ -11563,22 +11516,26 @@ def _echo_schedule_session_save(session_id: str, session: dict):
 
     def _worker():
         try:
-            fname = _echovault_save_session(session)
-            _echo_debug_append(
-                session_id=sid,
-                seq=None,
-                event_type="session_saved",
-                filename=fname,
-                sentence_count=len(session.get("sentences", [])),
+            response = run_echo_session_write_service_body(
+                EchoSessionWriteInput(session=dict(session or {}), session_id=sid),
+                _echo_session_write_deps(),
             )
-        except Exception as e:
-            _echo_debug_append(
-                session_id=sid,
-                seq=None,
-                event_type="session_save_error",
-                error=str(e),
-                traceback=traceback.format_exc(),
-            )
+            if response.error_payload:
+                payload = dict(response.error_payload)
+                _echo_debug_append(
+                    session_id=str(payload.pop("session_id", sid)),
+                    seq=payload.pop("seq", None),
+                    event_type=str(payload.pop("event_type", "session_save_error")),
+                    **payload,
+                )
+            else:
+                payload = dict(response.debug_payload)
+                _echo_debug_append(
+                    session_id=str(payload.pop("session_id", sid)),
+                    seq=payload.pop("seq", None),
+                    event_type=str(payload.pop("event_type", "session_saved")),
+                    **payload,
+                )
         finally:
             with _echo_save_lock:
                 _echo_saving_sessions.discard(sid)

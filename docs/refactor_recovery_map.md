@@ -260,3 +260,13 @@ Recovery invariants:
   4. `.github/workflows/*`, `Dockerfile`, `main.py`, `README.md`, `scripts/start_codeagent.py`, `scripts/runpod_start.sh` に移動対象を直接実行する参照が増えていないことを確認する。
   5. `pytest -q tests/test_root_directory_inventory_contract.py tests/test_root_directory_low_risk_move_contract.py` で root cleanup contract を確認する。
   6. route ownership regression が疑わしい場合は `pytest -q tests/test_echo_stream_asr_helper_extraction_contract.py tests/test_remaining_main_routes_inventory_contract.py` と `python scripts/export_route_inventory.py` を優先する。
+
+## PR4.67 Echo session write/save helper-body extraction
+
+- PR4.67 extracts the Echo session write/save helper body into `app/services/audio_runtime.py` as route-neutral code.
+- WebSocket `/echo/stream` route owner remains `main.py`; `echo_stream_ws` main loop remains in `main.py`.
+- Echo ASR helper and session write/save helper bodies are extracted, while WebSocket message shape, ASR result payloads, TTS chain, CUDA fallback, UI, and llama runtime behavior remain frozen.
+- WebSocket message shape must not change.
+- Echo session save destination and filename format must not change: EchoVault directory, base filename, wav/webm choice, transcript markdown, minutes markdown, and metadata shape are preserved for `/echo/sessions`.
+- `/echo/save-status` and `/echo/sessions` route ownership remains `app/api/echo.py`.
+- Remaining high-risk: Echo TTS chain, Echo WebSocket loop, and WebSocket route extraction.

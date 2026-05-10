@@ -141,3 +141,12 @@ What did **not** move:
 - WebSocket message shape must not change: status, ack, sentence, translation, error, and ui_log payload keys remain owned by the existing `main.py` WebSocket flow.
 - Echo session write/save/delete behavior is not moved in PR4.64 and remains high risk for a later PR.
 - Remaining high-risk areas after PR4.64: Echo WebSocket loop, Echo session write/save, and Echo TTS chain.
+
+## PR4.67 Echo session write/save helper-body extraction
+
+- PR4.67 extracts the Echo session write/save helper body into `app/services/audio_runtime.py`; production dependency assembly remains in `main.py`.
+- WebSocket `/echo/stream` route owner remains `main.py`, and `echo_stream_ws` main loop remains in `main.py`.
+- Echo ASR helper and session write/save helper bodies are extracted. The ASR result payload, TTS chain, CUDA fallback, UI, and llama runtime behavior are unchanged.
+- WebSocket message shape must not change.
+- Echo session save destination and filename format must not change, including the EchoVault save directory, audio/transcript/minutes filenames, and transcript/minutes metadata shape visible through `/echo/sessions`.
+- Remaining high-risk: Echo TTS chain, Echo WebSocket loop, and WebSocket route extraction.

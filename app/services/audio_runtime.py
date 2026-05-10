@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -503,6 +504,215 @@ def run_echo_stream_asr_service_body(
                 os.remove(temp_path)
             except Exception:
                 pass
+
+
+@dataclass(frozen=True)
+class EchoSessionWriteInput:
+    """Route-neutral Echo session persistence request for PR4.67.
+
+    Carries a snapshot of the session that the WebSocket loop already built in
+    ``main.py``.  The service body owns filename/path/content shaping only; it
+    does not own the WebSocket route, receive/send loop, ASR result payload, or
+    TTS chain.
+    """
+
+    session: Mapping[str, Any]
+    session_id: str = ""
+    seq: int | None = None
+
+
+@dataclass(frozen=True)
+class EchoSessionWriteResult:
+    """Stable summary of a completed Echo session write."""
+
+    filename: str = ""
+    base: str = ""
+    transcript_filename: str = ""
+    minutes_filename: str = ""
+    audio_filename: str = ""
+    audio_format: str = ""
+    sentence_count: int = 0
+    create_minutes: bool = True
+
+
+@dataclass(frozen=True)
+class EchoSessionWriteDiagnostics:
+    """Guardrails for Echo session persistence extraction."""
+
+    route_owner: str = "main.py"
+    websocket_loop_owner: str = "main.py"
+    save_status_route_owner: str = "app/api/echo.py"
+    sessions_route_owner: str = "app/api/echo.py"
+    storage_contract: str = "Echo session save directory, filename format, transcript/minutes metadata shape must not change."
+    websocket_contract: str = "WebSocket message shape must not change; /echo/stream remains in main.py."
+    debug_events: tuple[str, ...] = ("session_saved", "session_save_error")
+
+
+@dataclass(frozen=True)
+class EchoSessionWriteServiceDependencies:
+    """Injected production seams for EchoVault session writes."""
+
+    echovault_dir: str
+    guess_title_from_sentences: Callable[[Any], str]
+    generate_minutes: Callable[[Mapping[str, Any]], Any]
+
+
+@dataclass(frozen=True)
+class EchoSessionWriteServiceResponse:
+    """Route-neutral response for Echo session persistence."""
+
+    result: EchoSessionWriteResult = field(default_factory=EchoSessionWriteResult)
+    debug_payload: Mapping[str, Any] = field(default_factory=dict)
+    error_payload: Mapping[str, Any] = field(default_factory=dict)
+
+
+def _echo_session_started_at(value: Any) -> datetime:
+    if hasattr(value, "strftime"):
+        return value  # datetime-compatible object from main.py
+    return datetime.now()
+
+
+def _echo_session_safe_title(title: Any) -> str:
+    safe_title = re.sub(r'[\\/:*?"<>|]', "_", str(title or ""))[:40]
+    safe_title = re.sub(r"[\s._-]+", "", safe_title)
+    return safe_title or "会議録"
+
+
+def normalize_echo_session_write_error(
+    error: Exception,
+    *,
+    session_id: str,
+    seq: int | None = None,
+) -> dict[str, Any]:
+    """Normalize Echo session write errors without importing main.py."""
+
+    return {
+        "session_id": str(session_id or "unknown"),
+        "seq": seq,
+        "event_type": "session_save_error",
+        "error": str(error),
+        "traceback": traceback.format_exc(),
+    }
+
+
+def run_echo_session_write_service_body(
+    request: EchoSessionWriteInput | Mapping[str, Any],
+    deps: EchoSessionWriteServiceDependencies,
+) -> EchoSessionWriteServiceResponse:
+    """Persist an Echo session using the pre-existing EchoVault file contract.
+
+    PR4.67 extracts only the write/save body from ``main.py``.  The WebSocket
+    owner, main loop, status messages, ASR payloads, and TTS playback chain stay
+    in ``main.py``; dependencies supply the production EchoVault directory and
+    existing title/minutes helpers.
+    """
+
+    if isinstance(request, EchoSessionWriteInput):
+        session = dict(request.session or {})
+        session_id = str(request.session_id or session.get("session_id", "unknown") or "unknown")
+        seq = request.seq
+    else:
+        raw = dict(request or {})
+        session = dict(raw.get("session") or {})
+        session_id = str(raw.get("session_id") or session.get("session_id", "unknown") or "unknown")
+        seq = raw.get("seq") if isinstance(raw.get("seq"), int) else None
+
+    try:
+        echo_vault_dir = str(deps.echovault_dir)
+        os.makedirs(echo_vault_dir, exist_ok=True)
+        sentences = list(session.get("sentences", []) or [])
+        audio_buf = session.get("buffer", bytearray())
+        started_at = _echo_session_started_at(session.get("started_at"))
+        create_minutes = bool(session.get("create_minutes", True))
+
+        title = str(deps.guess_title_from_sentences(sentences) or "会議録")
+        safe_title = _echo_session_safe_title(title)
+        ts = started_at.strftime("%Y-%m-%d_%H-%M")
+        base = f"{ts}_{safe_title}"
+
+        audio_filename = ""
+        audio_format = ""
+        if audio_buf:
+            buffer_format = str(session.get("buffer_format", "webm")).strip().lower()
+            ext = "wav" if buffer_format in {"pcm", "pcm_s16le", "wav"} else "webm"
+            audio_filename = f"{base}.{ext}"
+            audio_format = ext
+            audio_path = os.path.join(echo_vault_dir, audio_filename)
+            with open(audio_path, "wb") as f:
+                f.write(bytes(audio_buf))
+
+        transcript_lines = ["| # | 言語 | 原文 | 翻訳 |", "|---|------|------|------|"]
+        for i, s in enumerate(sentences, 1):
+            row = dict(s or {})
+            flag = "🇯🇵" if row.get("lang") == "ja" else "🇺🇸"
+            orig = str(row.get("text", "")).replace("|", "｜")
+            trans = str(row.get("translated", "")).replace("|", "｜")
+            transcript_lines.append(f"| {i} | {flag} | {orig} | {trans} |")
+
+        transcript_filename = f"{base}_transcript.md"
+        transcript_path = os.path.join(echo_vault_dir, transcript_filename)
+        with open(transcript_path, "w", encoding="utf-8") as f:
+            f.write(f"# 文字起こし — {title}\n\n")
+            f.write(f"**日付:** {started_at.strftime('%Y-%m-%d %H:%M')}  \n")
+            f.write(f"**セッション:** {session_id}\n\n")
+            f.write("\n".join(transcript_lines) + "\n")
+
+        filename = transcript_filename
+        minutes_filename = ""
+        if create_minutes:
+            minutes_data = deps.generate_minutes(session)
+            minutes_filename = f"{base}_minutes.md"
+            minutes_path = os.path.join(echo_vault_dir, minutes_filename)
+            duration_sec = session.get("duration_sec", 0)
+            try:
+                duration_value = float(duration_sec or 0)
+            except Exception:
+                duration_value = 0.0
+            dur_str = f"{int(duration_value//3600):02d}:{int((duration_value%3600)//60):02d}:{int(duration_value%60):02d}"
+            with open(minutes_path, "w", encoding="utf-8") as f:
+                f.write(f"# 議事録 — {title}\n\n")
+                f.write(f"**日付:** {started_at.strftime('%Y-%m-%d %H:%M')}  \n")
+                f.write(f"**録音時間:** {dur_str}  \n")
+                f.write(f"**セッション:** {session_id}\n\n")
+                if isinstance(minutes_data, Mapping):
+                    f.write(f"## サマリー\n{minutes_data.get('summary','')}\n\n")
+                    topics = minutes_data.get("topics", [])
+                    if topics:
+                        f.write("## 議題\n" + "\n".join(f"- {t}" for t in topics) + "\n\n")
+                    action_items = minutes_data.get("action_items", [])
+                    if action_items:
+                        f.write("## アクションアイテム\n" + "\n".join(f"- [ ] {a}" for a in action_items) + "\n\n")
+                    conclusions = minutes_data.get("conclusions", [])
+                    if conclusions:
+                        f.write("## 結論\n" + "\n".join(f"- {c}" for c in conclusions) + "\n\n")
+                f.write("---\n## 文字起こし\n\n")
+                f.write("\n".join(transcript_lines) + "\n")
+            filename = minutes_filename
+
+        result = EchoSessionWriteResult(
+            filename=filename,
+            base=base,
+            transcript_filename=transcript_filename,
+            minutes_filename=minutes_filename,
+            audio_filename=audio_filename,
+            audio_format=audio_format,
+            sentence_count=len(sentences),
+            create_minutes=create_minutes,
+        )
+        return EchoSessionWriteServiceResponse(
+            result=result,
+            debug_payload={
+                "session_id": session_id,
+                "seq": seq,
+                "event_type": "session_saved",
+                "filename": filename,
+                "sentence_count": len(sentences),
+            },
+        )
+    except Exception as e:
+        return EchoSessionWriteServiceResponse(
+            error_payload=normalize_echo_session_write_error(e, session_id=session_id, seq=seq),
+        )
 
 
 @dataclass(frozen=True)

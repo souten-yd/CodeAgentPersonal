@@ -517,3 +517,12 @@ Next sequence:
 - Audio/Echo/ASR/TTS/SBV2 実行コードには変更なし。
 - WebSocket `/echo/stream` は未移動で、route owner は `main.py` のまま。
 - Echo session write/save/delete と Echo TTS chain の高リスク領域は引き続き後続PRへ保留する。
+
+## PR4.67 Echo session write/save helper-body extraction
+
+- PR4.67 extracts the Echo session write/save helper body into `app/services/audio_runtime.py` without moving WebSocket `/echo/stream`.
+- WebSocket `/echo/stream` route owner remains `main.py`; `echo_stream_ws` main loop remains in `main.py`.
+- Echo ASR helper and session write/save helper bodies are extracted. The route still owns WebSocket accept/receive/send/close, ASR result sends, and the Echo TTS chain.
+- WebSocket message shape must not change.
+- Echo session save destination and filename format must not change, and `/echo/save-status` plus `/echo/sessions` read ownership remains unchanged in `app/api/echo.py`.
+- Remaining high-risk: Echo TTS chain, Echo WebSocket loop, and WebSocket route extraction.
