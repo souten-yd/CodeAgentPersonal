@@ -556,3 +556,10 @@ No Lumen route split is performed in PR4.68c. Existing job submission and Nexus 
 - Lumen orchestration is no longer a responsibility of `main.py`; `main.py` only wires routers and production providers for the existing job runtime.
 - `app/lumen/*.py` is the Lumen domain/tool layer. `app/nexus/news_connectors.py` is the shared Nexus/Lumen news source layer.
 - Lumen UI splitting remains planned for PR4.68e.
+
+## PR4.68e Lumen UI split route note
+
+- PR4.68e changes only the browser-side Lumen UI ownership. Backend route ownership remains unchanged from PR4.68d.
+- `POST /lumen/submit` remains the primary Lumen UI submit route, and `POST /jobs/submit` remains the compatibility fallback.
+- `GET /lumen/tools/status`, `POST /lumen/tools/weather`, and `POST /lumen/tools/news` remain owned by `app/api/lumen.py`; the UI modules only consume them.
+- Weather/news/search `tool_result` events are rendered into the existing Lumen chat area with compact summaries. No new tabs, panels, providers, Nexus behavior, Echo behavior, Docker behavior, or main-route moves are introduced.
