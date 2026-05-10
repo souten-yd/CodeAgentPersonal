@@ -31,7 +31,7 @@ from app.nexus.config import load_runtime_config
 from app.nexus.evidence import search_evidence_items
 from app.nexus.export import nexus_export_router
 from app.nexus.ingest import accept_upload
-from app.nexus.jobs import list_active_jobs
+from app.nexus.jobs import append_job_event, list_active_jobs
 from app.nexus.market import run_market_mvp
 from app.nexus.news import (
     create_watchlist,
@@ -600,12 +600,23 @@ def nexus_evidence_add_from_chunks_payload(payload: NexusEvidenceAddFromChunksRe
 
 
 def nexus_research_followup_payload(job_id: str, payload: NexusResearchFollowupRequest) -> dict:
+    def _append_parent_event(child_job_id: str, event_payload: dict) -> None:
+        append_job_event(
+            child_job_id,
+            "followup_parent_linked",
+            {
+                **event_payload,
+                "status": "running",
+            },
+        )
+
     return run_nexus_research_followup_service(
         job_id,
         payload,
         search_chunks=_search_chunks,
         source_search_request_factory=NexusSourceSearchRequest,
         run_research_async=run_research_async,
+        append_followup_parent_event=_append_parent_event,
     )
 
 

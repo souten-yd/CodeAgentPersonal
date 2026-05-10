@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import html
 import json
+import re
 from pathlib import Path
 import uuid
 
@@ -293,10 +294,71 @@ def _load_latest_research_answer(job_id: str) -> dict:
     return answer
 
 
+
+def _section_between_headings(markdown: str, heading_pattern: str, stop_pattern: str | None = None) -> str:
+    lines = str(markdown or "").splitlines()
+    start: int | None = None
+    heading_re = re.compile(heading_pattern, re.IGNORECASE)
+    stop_re = re.compile(stop_pattern, re.IGNORECASE) if stop_pattern else None
+    for idx, line in enumerate(lines):
+        if heading_re.match(line.strip()):
+            start = idx + 1
+            break
+    if start is None:
+        return ""
+    end = len(lines)
+    for idx in range(start, len(lines)):
+        stripped = lines[idx].strip()
+        if stop_re and stop_re.match(stripped):
+            end = idx
+            break
+        if not stop_re and re.match(r"^#{1,6}\s+", stripped):
+            end = idx
+            break
+    return "\n".join(lines[start:end]).strip()
+
+
+def _extract_structured_answer_section(markdown: str) -> str:
+    raw = str(markdown or "")
+    answer_section = _section_between_headings(
+        raw,
+        r"^##\s+Answer\s*$",
+        r"^##\s+(References|Sources|参考|出典)\s*$",
+    )
+    if answer_section:
+        return answer_section
+    return _section_between_headings(raw, r"^##\s+結論\s*$")
+
+
+def _extract_answer_section(markdown: str) -> str:
+    """Extract the substantive conclusion from an answer markdown document."""
+    raw = str(markdown or "")
+    structured = _extract_structured_answer_section(raw)
+    if structured:
+        return structured
+
+    paragraph_lines: list[str] = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            if paragraph_lines:
+                break
+            continue
+        if re.match(r"^#{1,6}\s+", stripped):
+            if paragraph_lines:
+                break
+            continue
+        paragraph_lines.append(stripped)
+    return "\n".join(paragraph_lines).strip()
+
 def _build_sections_from_research_answer(job_id: str, answer: dict, evidence_items: list[dict]) -> list[dict]:
     question = str(answer.get("question") or answer.get("query") or job_id)
-    answer_markdown = str(answer.get("answer_markdown") or answer.get("answer") or answer.get("summary") or "")
-    conclusion = answer_markdown.strip().split("\n\n", 1)[0] if answer_markdown.strip() else str(answer.get("summary") or "")
+    answer_markdown = str(answer.get("answer_markdown") or answer.get("answer") or "")
+    conclusion = (
+        _extract_structured_answer_section(answer_markdown)
+        or str(answer.get("summary") or "")
+        or _extract_answer_section(answer_markdown)
+    )
     claim_analysis = answer.get("claim_analysis") if isinstance(answer.get("claim_analysis"), dict) else {}
     claims = list(claim_analysis.get("claims") or [])
     if claims:

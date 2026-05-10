@@ -42,3 +42,25 @@ def test_research_gap_analysis_includes_claim_analysis():
     )
     assert "claim_analysis" in analysis
     assert analysis["claim_analysis"]["claim_count"] >= 1
+
+
+def test_followup_needed_section_does_not_pollute_claim_counts():
+    markdown = """
+制度は発表済みです [S1]
+
+## 追加確認が必要な点
+- 実施日程の一次資料を確認する
+- 対象範囲を確認する
+
+## References
+- [S1] source
+"""
+    analysis = analyze_claim_level_gaps(
+        {"answer_markdown": markdown, "references": [{"citation_label": "[S1]"}]},
+        [{"source_id": "src1", "citation_label": "[S1]"}],
+        [],
+    )
+    assert analysis["claim_count"] == 1
+    assert analysis["supported_claim_count"] == 1
+    assert analysis["unsupported_claim_count"] == 0
+    assert "実施日程の一次資料を確認する" in analysis["unresolved_items"]
