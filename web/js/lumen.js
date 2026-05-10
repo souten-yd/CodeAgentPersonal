@@ -141,20 +141,7 @@
   }
 
   function toolNameFromEvent(event) {
-    const result = window.LumenTools?.unwrapToolPayload
-      ? window.LumenTools.unwrapToolPayload(event)
-      : event;
-    return String(
-      event?.tool
-      || event?.action
-      || event?.name
-      || event?.metadata?.tool
-      || event?.metadata?.intent
-      || result?.tool
-      || result?.metadata?.tool
-      || result?.metadata?.intent
-      || ''
-    ).toLowerCase();
+    return String(event?.tool || event?.action || event?.name || '').toLowerCase();
   }
 
   function isHiddenUserFacingToolResult(event) {
@@ -201,23 +188,11 @@
 
   function renderToolHistory(state) {
     if (!state?.toolHistory?.length) return;
-    const text = `TOOLS: ${state.toolHistory.join(' / ')}`;
-    if (typeof addMsg === 'function') {
-      addMsg('tool_history', text);
-      return;
-    }
-    const output =
-      document.getElementById('chat-log')
-      || document.getElementById('messages')
-      || document.getElementById('output')
-      || document.getElementById('chat')
-      || document.querySelector('[data-chat-log]')
-      || document.querySelector('.chat-log')
-      || document.querySelector('.messages');
+    const output = document.getElementById('output') || document.getElementById('chat');
     if (!output) return;
     const row = document.createElement('div');
-    row.className = 'msg tool_history lumen-tool-history';
-    row.textContent = text;
+    row.className = 'lumen-tool-history';
+    row.textContent = `TOOLS: ${state.toolHistory.join(' / ')}`;
     output.appendChild(row);
   }
 
@@ -236,7 +211,7 @@
       if (state?.steps && typeof attachToolResult === 'function') {
         attachToolResult(state.steps, event);
       }
-      const tool = toolNameFromEvent(event);
+      const tool = String(event.tool || event.action || event.name || '').toLowerCase();
       if (tool === 'weather') {
         updateProgress(state, '天気情報を取得しました');
         return;
@@ -245,7 +220,7 @@
         updateProgress(state, 'ニュース情報を取得しました');
         return;
       }
-      if (tool === 'search') {
+      if (tool === 'search' || event.tool === 'search') {
         const result = window.LumenTools?.unwrapToolPayload
           ? window.LumenTools.unwrapToolPayload(event)
           : event;
@@ -259,7 +234,7 @@
       }
       const text = window.LumenTools?.renderToolResult ? window.LumenTools.renderToolResult(event) : 'tool_result received';
       if (text) renderSystemMessage(text);
-      updateProgress(state, `✓ ${(event.action || event.tool || event.name || 'tool')} 完了`);
+      updateProgress(state, `✓ ${(event.action || event.tool || 'tool')} 完了`);
     } else if (event.type === 'chat_step' || event.type === 'llm_thinking') {
       updateProgress(state, event.label || event.message || `🤔 考え中... ${event.step_num || ''}/${event.max_steps || ''}`);
     } else if (event.type === 'progress') {
@@ -287,7 +262,6 @@
     } else {
       const out = state?.result || '(no output)';
       const formattedOut = renderAssistantMessage(out);
-      log('info', 'lumen', `tool_history: ${state?.toolHistory?.join(' / ') || 'none'}`);
       renderToolHistory(state);
       if (typeof playTTS === 'function') playTTS(formattedOut, 'chat');
       if (state?.steps?.length) {
