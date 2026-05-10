@@ -355,6 +355,45 @@ def _should_stop_recursive_research(*, analysis: dict, iteration: int, payload: 
 
 
 
+
+def save_minimal_research_answer(
+    *,
+    job_id: str,
+    project: str,
+    question: str,
+    answer_payload: dict,
+) -> str:
+    """Persist a minimal research answer row when normal answer building is skipped."""
+    answer_id = str(uuid.uuid4())
+    answer_markdown = str(
+        answer_payload.get("answer_markdown")
+        or answer_payload.get("answer")
+        or answer_payload.get("summary")
+        or ""
+    )
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO nexus_research_answers(
+                answer_id, job_id, project, question,
+                answer_markdown, evidence_json, answer_json, source_ids_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                answer_id,
+                job_id,
+                project,
+                question,
+                answer_markdown,
+                "[]",
+                json.dumps(answer_payload, ensure_ascii=False),
+                "[]",
+                _now_iso(),
+            ),
+        )
+        conn.commit()
+    return answer_id
+
 def _persist_latest_answer_json(job_id: str, answer_payload: dict) -> None:
     if not job_id or not answer_payload:
         return
@@ -959,8 +998,17 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 "answer_markdown": message,
                 "references": [],
                 "evidence": [],
+                "output_incomplete": True,
+                "generation_mode": "stub_filtered_no_real_sources",
                 "stub_sources_filtered": stub_filtered_count,
             }
+            answer_payload["claim_analysis"] = analyze_claim_level_gaps(answer_payload, [], [])
+            save_minimal_research_answer(
+                job_id=effective_job_id,
+                project=payload.project,
+                question=query,
+                answer_payload=answer_payload,
+            )
             update_job(effective_job_id, status="degraded", progress=1.0, message="no real web results")
             append_job_event(
                 effective_job_id,

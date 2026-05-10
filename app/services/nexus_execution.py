@@ -296,6 +296,7 @@ def run_nexus_research_followup_service(
     search_chunks: Callable[[Any], list[dict[str, Any]]],
     source_search_request_factory: Callable[..., Any],
     run_research_async: Callable[[ResearchRunRequest], dict[str, Any]] | None = None,
+    append_followup_parent_event: Callable[[str, dict[str, Any]], Any] | None = None,
 ) -> dict[str, Any]:
     question = getattr(payload, "question")
     if getattr(payload, "use_existing_sources_only", True):
@@ -346,6 +347,15 @@ def run_nexus_research_followup_service(
     )
     delegated = run_research_async(request)
     new_job_id = str(delegated.get("job_id") or (delegated.get("job") or {}).get("job_id") or "")
+    if new_job_id and append_followup_parent_event is not None:
+        append_followup_parent_event(
+            new_job_id,
+            {
+                "parent_job_id": job_id,
+                "question": question,
+                "mode": "deep_search",
+            },
+        )
     return {
         **delegated,
         "job_id": new_job_id,

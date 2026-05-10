@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from app.nexus.research_agent import ResearchAgentInput, _filter_stub_candidates, run_research_job
+from app.nexus.research_api import get_research_job_answer
 from app.nexus.source_collector import collect_source_candidates
 
 
@@ -45,3 +46,8 @@ def test_stub_only_deep_job_degrades_without_citing_stub():
     assert "[S1]" not in result["answer"]["answer_markdown"]
     assert any(call.kwargs.get("status") == "degraded" for call in mocked_update.call_args_list)
     assert any(call.args[1] == "stub_sources_filtered" for call in mocked_event.call_args_list if len(call.args) > 1)
+    persisted_answer = get_research_job_answer("job-stub")["answer"]
+    assert persisted_answer
+    assert persisted_answer["output_incomplete"] is True
+    assert persisted_answer["generation_mode"] == "stub_filtered_no_real_sources"
+    assert persisted_answer["claim_analysis"]

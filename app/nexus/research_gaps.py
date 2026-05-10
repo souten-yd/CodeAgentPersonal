@@ -27,16 +27,41 @@ def _is_excluded(text: str) -> bool:
     return False
 
 
+
+def extract_unresolved_section_items(answer_text: str) -> list[str]:
+    """Return bullet/text items under the follow-up-needed section without treating them as claims."""
+    items: list[str] = []
+    in_section = False
+    for raw_line in str(answer_text or "").splitlines():
+        stripped = raw_line.strip()
+        if re.match(r"^#{1,6}\s*追加確認が必要な点\s*$", stripped):
+            in_section = True
+            continue
+        if in_section and re.match(r"^#{1,6}\s+", stripped):
+            break
+        if not in_section:
+            continue
+        text = _clean_line(stripped)
+        if text and not _is_excluded(text):
+            items.append(text)
+    return items
+
 def extract_claim_candidates(answer_text: str) -> list[dict[str, Any]]:
     """Extract lightweight claim candidates without invoking an LLM."""
     candidates: list[dict[str, Any]] = []
     in_references = False
+    in_unresolved_section = False
     for raw_line in str(answer_text or "").splitlines():
         stripped = raw_line.strip()
         if re.match(r"^#{1,6}\s*(References|Sources|参考|出典)\b", stripped, re.IGNORECASE):
             in_references = True
             continue
-        if in_references:
+        if re.match(r"^#{1,6}\s*追加確認が必要な点\s*$", stripped):
+            in_unresolved_section = True
+            continue
+        if in_unresolved_section and re.match(r"^#{1,6}\s+", stripped):
+            in_unresolved_section = False
+        if in_references or in_unresolved_section:
             continue
         text = _clean_line(stripped)
         if _is_excluded(text):
@@ -120,6 +145,7 @@ def analyze_claim_level_gaps(answer_payload: dict, evidence_chunks: list[dict], 
     )
     references = list((answer_payload or {}).get("references") or sources or [])
     claims = extract_claim_candidates(answer_text)
+    section_unresolved_items = extract_unresolved_section_items(answer_text)
     support = evaluate_claim_support(claims, evidence_chunks or [], references)
     claim_count = len(claims)
     supported_count = int(support["supported_claim_count"])
@@ -143,7 +169,10 @@ def analyze_claim_level_gaps(answer_payload: dict, evidence_chunks: list[dict], 
         "unresolved_claim_count": unresolved_count,
         "low_diversity": bool(support.get("low_diversity")),
         "gaps": gaps,
-        "unresolved_items": [c.get("claim") or c.get("text") for c in support["claims"] if c.get("status") == "unresolved"],
+        "unresolved_items": [
+            *[c.get("claim") or c.get("text") for c in support["claims"] if c.get("status") == "unresolved"],
+            *section_unresolved_items,
+        ],
         "support_ratio": support_ratio,
         "confidence_adjustment": confidence_adjustment,
         "claims": support["claims"],

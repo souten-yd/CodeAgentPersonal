@@ -77,3 +77,37 @@ def test_report_falls_back_to_evidence_only_without_answer():
     data = json.loads(Path(report["json_path"]).read_text(encoding="utf-8"))
     assert data["metadata"]["source"] == "evidence_only"
     assert {"markdown_path", "json_path", "html_path", "report_md_path", "report_json_path", "report_html_path"} <= set(report)
+
+
+def test_report_extracts_answer_section_instead_of_top_answer_heading():
+    job_id = f"job-report-answer-heading-{uuid.uuid4().hex[:8]}"
+    create_job(job_id, title="report", status="completed", message="done")
+    markdown = "# Answer\n\n## Question\n調査質問\n\n## Answer\n実質的な結論本文 [S1]\n\n## References\n- [S1] source"
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO nexus_research_answers(
+                answer_id, job_id, project, question, answer_markdown,
+                evidence_json, answer_json, source_ids_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"answer-{uuid.uuid4().hex[:8]}",
+                job_id,
+                "default",
+                "調査質問",
+                markdown,
+                "[]",
+                json.dumps({"question": "調査質問", "answer_markdown": markdown}, ensure_ascii=False),
+                "[]",
+                "2026-01-01T00:00:00+00:00",
+            ),
+        )
+        conn.commit()
+
+    report = build_job_report(BuildReportRequest(job_id=job_id, report_type="deep_research", title="Deep Report"))
+
+    data = json.loads(Path(report["json_path"]).read_text(encoding="utf-8"))
+    conclusion = next(section["summary"] for section in data["sections"] if section["heading"] == "結論")
+    assert conclusion != "# Answer"
+    assert "実質的な結論本文" in conclusion
