@@ -526,3 +526,9 @@ Next sequence:
 - WebSocket message shape must not change.
 - Echo session save destination and filename format must not change, and `/echo/save-status` plus `/echo/sessions` read ownership remains unchanged in `app/api/echo.py`.
 - Remaining high-risk: Echo TTS chain, Echo WebSocket loop, and WebSocket route extraction.
+
+## PR4.68 Lumen / Jobs boundary update
+
+- `POST /jobs/submit` remains owned by `app.api.jobs`, but its production provider now creates only Lumen chat jobs.
+- Legacy task payloads are rejected before job creation so stale UI payloads cannot start background work.
+- Main still assembles runtime dependencies for Lumen chat execution; Atlas/Agent and Nexus keep autonomous execution and research ownership respectively.
