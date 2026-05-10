@@ -155,3 +155,13 @@ Do not move or change these areas in PR4.63:
 - WebSocket message shape must not change: status, ack, sentence, translation, error, and ui_log payload keys remain owned by the existing `main.py` WebSocket flow.
 - Echo session write/save/delete behavior is not moved in PR4.64 and remains high risk for a later PR.
 - Remaining high-risk areas after PR4.64: Echo WebSocket loop, Echo session write/save, and Echo TTS chain.
+
+## PR4.67 Echo session write/save helper-body extraction
+
+- PR4.67 extracts the Echo session write/save helper body into `app/services/audio_runtime.py` as route-neutral service code with `EchoSessionWriteInput`, `EchoSessionWriteResult`, `EchoSessionWriteDiagnostics`, `EchoSessionWriteServiceDependencies`, and `run_echo_session_write_service_body(...)`.
+- WebSocket `/echo/stream` route owner remains `main.py`; `echo_stream_ws` main loop remains in `main.py` and is not moved.
+- Echo ASR helper and session write/save helper bodies are extracted, but the WebSocket route, accept/receive/send/close handling, ASR result sends, and TTS chain stay in `main.py`.
+- WebSocket message shape must not change: status, session_stopping, ack, sentence, translation, error, and ui_log payload keys remain owned by the existing `main.py` WebSocket flow.
+- Echo session save destination and filename format must not change: EchoVault directory resolution, `YYYY-MM-DD_HH-MM_<safe-title>` base names, audio extension selection, transcript markdown, minutes markdown, and metadata lines remain compatible with `/echo/sessions`.
+- `/echo/save-status` and `/echo/sessions` route ownership remains `app/api/echo.py` with production providers wired by `main.py`.
+- Remaining high-risk after PR4.67: Echo TTS chain, Echo WebSocket loop, and WebSocket route extraction.
