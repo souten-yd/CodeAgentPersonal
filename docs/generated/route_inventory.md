@@ -22,6 +22,10 @@ App spec: `app.server:create_app()`
 | `/llm/ctx` | `GET` | `get_runtime_llm_ctx_api` | `app.api.runtime_controls` | `runtime-controls` |
 | `/llm/ctx` | `POST` | `set_runtime_llm_ctx_api` | `app.api.runtime_controls` | `runtime-controls` |
 | `/llm/props` | `GET` | `get_runtime_llm_props_api` | `app.api.runtime_controls` | `runtime-controls` |
+| `/lumen/submit` | `POST` | `submit_lumen_api` | `app.api.lumen` | `other` |
+| `/lumen/tools/news` | `POST` | `post_lumen_news_tool_api` | `app.api.lumen` | `other` |
+| `/lumen/tools/status` | `GET` | `get_lumen_tools_status_api` | `app.api.lumen` | `other` |
+| `/lumen/tools/weather` | `POST` | `post_lumen_weather_tool_api` | `app.api.lumen` | `other` |
 | `/model/status` | `GET` | `get_model_manager_status_api` | `app.api.model_settings` | `model-settings` |
 | `/models/db` | `GET` | `list_models_db_api` | `app.api.model_settings` | `model-settings` |
 | `/models/db/status` | `GET` | `get_model_db_status_api` | `app.api.model_settings` | `model-settings` |

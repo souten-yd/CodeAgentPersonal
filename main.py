@@ -8605,7 +8605,7 @@ def _job_execution_service_dependencies():
 def run_job_background(job_id: str, req: "JobRequest"):
     """
     Backward-compatible wrapper for background job execution.
-    The runtime body lives in app.services.jobs for PR4.49.
+    The runtime body lives in app.services.lumen_runtime via the jobs compatibility wrapper.
     """
     return run_job_background_service(job_id, req, _job_execution_service_dependencies())
 

@@ -146,6 +146,42 @@
     "owner": "runtime-controls"
   },
   {
+    "path": "/lumen/submit",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "submit_lumen_api",
+    "module": "app.api.lumen",
+    "owner": "other"
+  },
+  {
+    "path": "/lumen/tools/news",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "post_lumen_news_tool_api",
+    "module": "app.api.lumen",
+    "owner": "other"
+  },
+  {
+    "path": "/lumen/tools/status",
+    "methods": [
+      "GET"
+    ],
+    "endpoint_name": "get_lumen_tools_status_api",
+    "module": "app.api.lumen",
+    "owner": "other"
+  },
+  {
+    "path": "/lumen/tools/weather",
+    "methods": [
+      "POST"
+    ],
+    "endpoint_name": "post_lumen_weather_tool_api",
+    "module": "app.api.lumen",
+    "owner": "other"
+  },
+  {
     "path": "/model/status",
     "methods": [
       "GET"

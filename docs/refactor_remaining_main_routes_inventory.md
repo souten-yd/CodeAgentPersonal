@@ -548,3 +548,11 @@ PR4.68b adds the no-key Open-Meteo weather tool under `app/lumen/weather.py` and
 ## PR4.68c route inventory note
 
 No Lumen route split is performed in PR4.68c. Existing job submission and Nexus research/news routes keep their ownership while backend contracts add `source_profile="news"` / `"mixed"` support and lightweight Lumen news tool execution.
+
+## PR4.68d Lumen route owner update
+
+- `POST /lumen/submit`, `GET /lumen/tools/status`, `POST /lumen/tools/weather`, and `POST /lumen/tools/news` are owned by `app/api/lumen.py`.
+- `POST /jobs/submit` remains owned by `app/api/jobs.py` as a compatibility shim for existing UI payloads, but its Lumen submit behavior goes through `app/services/lumen_runtime.py`.
+- Lumen orchestration is no longer a responsibility of `main.py`; `main.py` only wires routers and production providers for the existing job runtime.
+- `app/lumen/*.py` is the Lumen domain/tool layer. `app/nexus/news_connectors.py` is the shared Nexus/Lumen news source layer.
+- Lumen UI splitting remains planned for PR4.68e.

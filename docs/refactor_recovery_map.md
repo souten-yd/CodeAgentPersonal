@@ -292,3 +292,11 @@ PR4.68b adds the no-key Open-Meteo weather tool under `app/lumen/weather.py` and
 ## PR4.68c recovery note
 
 News acquisition is centralized in `app/nexus/news_connectors.py` and `app/nexus/news_sources.py`. If Lumen news, Nexus News MVP, or Deep Research news regress, recover the shared connector/source-profile layer first, then verify Lumen remains digest-only and Nexus remains responsible for evidence/report workflows.
+
+## PR4.68d Lumen API / service split
+
+- Lumen route ownership moves to `app/api/lumen.py` for `POST /lumen/submit`, `GET /lumen/tools/status`, `POST /lumen/tools/weather`, and `POST /lumen/tools/news`.
+- `POST /lumen/submit` is the primary Lumen chat submit endpoint. `POST /jobs/submit` remains as a compatibility shim for existing UI clients and still rejects removed legacy task modes before job creation.
+- Lumen execution orchestration moves to `app/services/lumen_runtime.py`: submit validation, budget clamp, intent detection, tool plan/result events, weather/news context injection, and `execute_chat_with_optional_web_search` invocation.
+- `app/lumen/*.py` remains the domain/tool layer, and `app/nexus/news_connectors.py` remains the shared Nexus/Lumen source layer.
+- UI splitting is deliberately deferred to PR4.68e; no `app/static/js` Lumen module split is part of PR4.68d.

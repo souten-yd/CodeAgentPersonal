@@ -116,3 +116,9 @@ The removed task-mode branch previously mixed planning, retries, and options fal
 Lumen may execute bounded lightweight news digest requests for prompts such as “今日のニュース” or “AIの最新ニュース”. The digest uses the shared News Source layer and returns summary topics, sources, retrieval time, diversity caution, and rights metadata. Evidence persistence and report generation remain Nexus responsibilities.
 
 For prompts requesting “詳しく調査”, “根拠付きレポート”, or “深掘り”, Lumen returns Nexus Deep Research handoff metadata with `source_profile="news"`; it does not automatically start a Nexus job.
+
+## PR4.68d API / service split
+
+PR4.68d makes `POST /lumen/submit` the primary Lumen submit endpoint and moves Lumen route ownership to `app/api/lumen.py`. The legacy `POST /jobs/submit` endpoint remains available only as a compatibility shim for the existing UI and calls the same Lumen submit service path.
+
+Lumen orchestration now lives in `app/services/lumen_runtime.py`: submit-time mode validation, budget clamping, intent detection, lightweight tool planning/execution, weather/news context injection, job event writing, and the `execute_chat_with_optional_web_search` call are handled there. `app/lumen/*.py` remains the domain/tool layer for budgets, intent, weather, news, and tool planning. `app/nexus/news_connectors.py` is the shared Nexus/Lumen news source layer. UI JavaScript splitting is intentionally deferred to PR4.68e.
