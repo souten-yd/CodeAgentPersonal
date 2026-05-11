@@ -5266,6 +5266,7 @@ _echoRefreshStatusLine();
   loadNexusDeepResearchForm();
   onNexusResearchTypeChange();
   document.getElementById('nexus-research-type')?.addEventListener('change', onNexusResearchTypeChange);
+  if (typeof bindNexusAdvancedSettingsToggleState === 'function') bindNexusAdvancedSettingsToggleState();
   loadNexusSettingsTab();
   bindNexusDeepResearchFormPersistence();
   refreshModelDb();
@@ -8011,72 +8012,33 @@ async function runNexusDeepResearch() {
   const topic = (document.getElementById('nexus-deep-topic')?.value || '').trim();
   const depth = (document.getElementById('nexus-deep-depth')?.value || 'standard').trim().toLowerCase();
   const researchType = (document.getElementById('nexus-research-type')?.value || 'general').trim().toLowerCase();
-  const advancedOpen = document.getElementById('nexus-research-advanced')?.open === true;
   const autoSettings = (typeof resolveNexusResearchAutoSettings === 'function')
     ? resolveNexusResearchAutoSettings({ searchType: researchType, depth })
     : { scope: 'web', source_profile: 'web', max_queries: 4, max_results_per_query: 6, max_sources: 24, max_downloads: 10, recursive_search: false, max_iterations: 1, max_followup_queries: 4, confidence_threshold: 0.76, prefer_pdf: true, official_first: true, continue_on_download_error: true, stop_when_sufficient: true };
-  const scope = (advancedOpen ? (document.getElementById('nexus-deep-scope')?.value || autoSettings.scope || 'web') : (autoSettings.scope || 'web')).trim().toLowerCase();
-  const maxDownloadMbEl = document.getElementById('nexus-deep-max-download-mb');
-  const maxTotalDownloadMbEl = document.getElementById('nexus-deep-max-total-download-mb');
-  const maxQueriesEl = document.getElementById('nexus-deep-max-queries');
-  const maxResultsPerQueryEl = document.getElementById('nexus-deep-max-results-per-query');
-  const maxSourcesEl = document.getElementById('nexus-deep-max-sources');
-  const maxDownloadsEl = document.getElementById('nexus-deep-max-downloads');
-  const downloadTimeoutSecEl = document.getElementById('nexus-deep-download-timeout-sec');
-  const continueOnDownloadError = advancedOpen ? document.getElementById('nexus-deep-continue-on-download-error')?.checked !== false : autoSettings.continue_on_download_error !== false;
-  const preferPdf = advancedOpen ? document.getElementById('nexus-deep-prefer-pdf')?.checked !== false : autoSettings.prefer_pdf !== false;
-  const officialFirst = advancedOpen ? document.getElementById('nexus-deep-official-first')?.checked !== false : autoSettings.official_first !== false;
-  const recursiveSearch = advancedOpen ? document.getElementById('nexus-deep-recursive-search')?.checked === true : autoSettings.recursive_search === true;
-  const maxIterationsEl = document.getElementById('nexus-deep-max-iterations');
-  const maxFollowupQueriesEl = document.getElementById('nexus-deep-max-followup-queries');
-  const confidenceThresholdEl = document.getElementById('nexus-deep-confidence-threshold');
-  const stopWhenSufficientEl = document.getElementById('nexus-deep-stop-when-sufficient');
-
-  const maxQueries = advancedOpen ? (clampInt(maxQueriesEl?.value, 1, 50) ?? autoSettings.max_queries) : autoSettings.max_queries;
-  const maxResultsPerQuery = advancedOpen ? (clampInt(maxResultsPerQueryEl?.value, 1, 100) ?? autoSettings.max_results_per_query) : autoSettings.max_results_per_query;
-  const maxSources = advancedOpen ? (clampInt(maxSourcesEl?.value, 1, 200) ?? autoSettings.max_sources) : autoSettings.max_sources;
-  const maxDownloadMb = advancedOpen ? clampInt(maxDownloadMbEl?.value, 1, 500) : null;
-  const maxTotalDownloadMb = advancedOpen ? clampInt(maxTotalDownloadMbEl?.value, 1, 2048) : null;
-  const maxDownloads = advancedOpen ? (clampInt(maxDownloadsEl?.value, 1, 200) ?? autoSettings.max_downloads) : autoSettings.max_downloads;
-  const downloadTimeoutSec = advancedOpen ? clampInt(downloadTimeoutSecEl?.value, 1, 600) : null;
-  if (maxQueriesEl) maxQueriesEl.value = maxQueries == null ? '' : String(maxQueries);
-  if (maxResultsPerQueryEl) maxResultsPerQueryEl.value = maxResultsPerQuery == null ? '' : String(maxResultsPerQuery);
-  if (maxSourcesEl) maxSourcesEl.value = maxSources == null ? '' : String(maxSources);
-  if (maxDownloadMbEl) maxDownloadMbEl.value = maxDownloadMb == null ? '' : String(maxDownloadMb);
-  if (maxTotalDownloadMbEl) maxTotalDownloadMbEl.value = maxTotalDownloadMb == null ? '' : String(maxTotalDownloadMb);
-  if (maxDownloadsEl) maxDownloadsEl.value = maxDownloads == null ? '' : String(maxDownloads);
-  if (downloadTimeoutSecEl) downloadTimeoutSecEl.value = downloadTimeoutSec == null ? '' : String(downloadTimeoutSec);
-  const recursiveSettings = normalizeNexusRecursiveSettings({
-    recursiveSearch,
-    maxIterations: advancedOpen ? maxIterationsEl?.value : autoSettings.max_iterations,
-    maxFollowupQueries: advancedOpen ? maxFollowupQueriesEl?.value : autoSettings.max_followup_queries,
-    confidenceThreshold: advancedOpen ? confidenceThresholdEl?.value : autoSettings.confidence_threshold,
-    stopWhenSufficient: advancedOpen ? stopWhenSufficientEl?.checked !== false : autoSettings.stop_when_sufficient !== false,
-  });
-  if (maxIterationsEl) maxIterationsEl.value = String(recursiveSettings.max_iterations);
-  if (maxFollowupQueriesEl) maxFollowupQueriesEl.value = String(recursiveSettings.max_followup_queries);
-  if (confidenceThresholdEl) confidenceThresholdEl.value = String(recursiveSettings.confidence_threshold);
-  if (stopWhenSufficientEl) stopWhenSufficientEl.checked = recursiveSettings.stop_when_sufficient;
+  const advancedOverrides = (typeof collectNexusAdvancedOverrides === 'function')
+    ? collectNexusAdvancedOverrides()
+    : {};
+  const effectiveSettings = { ...autoSettings, ...advancedOverrides };
 
   saveNexusDeepResearchForm({
     topic,
     depth,
-    scope,
-    maxDownloadMb,
-    maxTotalDownloadMb,
-    maxQueries,
-    maxResultsPerQuery,
-    maxSources,
-    maxDownloads,
-    downloadTimeoutSec,
-    continueOnDownloadError,
-    preferPdf,
-    officialFirst,
-    recursiveSearch: recursiveSettings.recursive_search,
-    maxIterations: recursiveSettings.max_iterations,
-    maxFollowupQueries: recursiveSettings.max_followup_queries,
-    confidenceThreshold: recursiveSettings.confidence_threshold,
-    stopWhenSufficient: recursiveSettings.stop_when_sufficient,
+    scope: effectiveSettings.scope || 'web',
+    maxDownloadMb: effectiveSettings.max_download_mb,
+    maxTotalDownloadMb: effectiveSettings.max_total_download_mb,
+    maxQueries: effectiveSettings.max_queries,
+    maxResultsPerQuery: effectiveSettings.max_results_per_query,
+    maxSources: effectiveSettings.max_sources,
+    maxDownloads: effectiveSettings.max_downloads,
+    downloadTimeoutSec: effectiveSettings.download_timeout_sec,
+    continueOnDownloadError: effectiveSettings.continue_on_download_error !== false,
+    preferPdf: effectiveSettings.prefer_pdf !== false,
+    officialFirst: effectiveSettings.official_first !== false,
+    recursiveSearch: effectiveSettings.recursive_search === true,
+    maxIterations: effectiveSettings.max_iterations,
+    maxFollowupQueries: effectiveSettings.max_followup_queries,
+    confidenceThreshold: effectiveSettings.confidence_threshold,
+    stopWhenSufficient: effectiveSettings.stop_when_sufficient !== false,
   });
 
   const btn = document.getElementById('nexus-deep-run-btn');
@@ -8104,31 +8066,19 @@ async function runNexusDeepResearch() {
       setNexusDeepStatus('research job を起動中...');
     }
 
-    const effectiveScope = scope;
     const payload = {
       query: topic,
       project: currentProject || 'default',
       mode: depth,
       depth,
-      scope: [effectiveScope],
-      source_profile: autoSettings.source_profile || effectiveScope,
       research_type: researchType,
-      max_queries: maxQueries,
-      max_results_per_query: maxResultsPerQuery,
-      max_sources: maxSources,
-      max_download_mb: maxDownloadMb,
-      max_total_download_mb: maxTotalDownloadMb,
-      max_downloads: maxDownloads,
-      download_timeout_sec: downloadTimeoutSec,
-      continue_on_download_error: continueOnDownloadError,
-      prefer_pdf: preferPdf,
-      official_first: officialFirst,
-      recursive_search: recursiveSettings.recursive_search,
-      max_iterations: recursiveSettings.max_iterations,
-      max_followup_queries: recursiveSettings.max_followup_queries,
-      confidence_threshold: recursiveSettings.confidence_threshold,
-      stop_when_sufficient: recursiveSettings.stop_when_sufficient,
+      ...autoSettings,
+      ...advancedOverrides,
     };
+    const effectiveScope = String(payload.scope || 'web').trim().toLowerCase();
+    payload.scope = [effectiveScope];
+    payload.source_profile = payload.source_profile || effectiveScope;
+    if (Object.keys(advancedOverrides).length === 0) window.__nexusAdvancedOverridesEnabled = false;
     const runEndpoint = nexusApi('/nexus/research/run');
     const runRes = await fetch(runEndpoint, {
       method: 'POST',

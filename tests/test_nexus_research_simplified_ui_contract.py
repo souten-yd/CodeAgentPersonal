@@ -70,3 +70,51 @@ def test_fallback_role_warning_removed_from_normal_ui() -> None:
     text = load_ui_contract_text()
     assert 'role_model_search を設定してください。' not in text
     assert 'hasRoleWarning' not in text
+
+def test_advanced_override_helpers_exist_and_guard_closed_details() -> None:
+    text = load_ui_contract_text()
+    assert 'function isNexusAdvancedSettingsOpen()' in text
+    assert 'function collectNexusAdvancedOverrides()' in text
+    helper = text.split('function collectNexusAdvancedOverrides()', 1)[1].split('\n}\n', 1)[0]
+    assert 'if (!isNexusAdvancedSettingsOpen()) return {};' in helper
+    assert "readInt('nexus-deep-max-queries', 1, 50)" in helper
+    assert "readInt('nexus-deep-max-sources', 1, 200)" in helper
+    assert "readInt('nexus-deep-max-downloads', 1, 200)" in helper
+
+
+def test_run_deep_research_merges_auto_settings_before_advanced_overrides() -> None:
+    text = load_ui_contract_text()
+    run_body = text.split('async function runNexusDeepResearch()', 1)[1].split('\n}\n', 1)[0]
+    auto_idx = run_body.index('const autoSettings')
+    override_idx = run_body.index('const advancedOverrides')
+    payload_idx = run_body.index('const payload = {')
+    assert auto_idx < override_idx < payload_idx
+    payload_block = run_body[payload_idx:run_body.index('};', payload_idx)]
+    assert '...autoSettings' in payload_block
+    assert '...advancedOverrides' in payload_block
+    assert payload_block.index('...autoSettings') < payload_block.index('...advancedOverrides')
+
+
+def test_run_deep_research_payload_does_not_always_include_advanced_fields_directly() -> None:
+    text = load_ui_contract_text()
+    run_body = text.split('async function runNexusDeepResearch()', 1)[1].split('\n}\n', 1)[0]
+    payload_block = run_body.split('const payload = {', 1)[1].split('\n    };', 1)[0]
+    for key in [
+        'max_queries:',
+        'max_results_per_query:',
+        'max_sources:',
+        'max_downloads:',
+        'recursive_search:',
+        'max_iterations:',
+        'max_followup_queries:',
+        'confidence_threshold:',
+    ]:
+        assert key not in payload_block
+
+
+def test_closed_advanced_details_hidden_values_are_not_payload_sources() -> None:
+    text = load_ui_contract_text()
+    assert 'if (!isNexusAdvancedSettingsOpen()) return {};' in text
+    assert 'const advancedOverrides = (typeof collectNexusAdvancedOverrides === \'function\')' in text
+    assert 'window.__nexusAdvancedOverridesEnabled = false' in text
+    assert "el.addEventListener('toggle'" in text
