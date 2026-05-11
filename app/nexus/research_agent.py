@@ -10,6 +10,7 @@ import threading
 import time
 import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 from app.nexus.answer_builder import build_answer_payload
 from app.nexus.citation_mapper import build_citation_map, normalize_reference_labels
@@ -20,6 +21,16 @@ from app.nexus.jobs import append_job_event, append_job_heartbeat, create_job, e
 from app.nexus.news_sources import NewsResearchSourceProfile, collect_news_research_sources, convert_news_items_to_evidence
 from app.nexus.research_gaps import analyze_claim_level_gaps
 from app.nexus.source_collector import collect_source_candidates, get_curated_domain_hints, rank_source_candidates
+from app.nexus.research_planner import (
+    build_coverage_matrix,
+    build_focused_research_plan,
+    build_report_outline,
+    build_source_mix,
+    classify_source_type,
+    get_screening_settings,
+    infer_research_intent,
+    summarize_screening_candidates,
+)
 from app.nexus.source_registry import (
     canonicalize_source_url,
     find_reusable_artifact,
@@ -186,6 +197,10 @@ def _retrieval_summary(
     registered_sources: list[dict],
     evidence_chunks: list[dict],
     skipped_due_to_download_limit_count: int,
+    intent: dict | None = None,
+    screening_summary: dict | None = None,
+    focused_research_plan: dict | None = None,
+    coverage_matrix: list[dict] | None = None,
 ) -> dict[str, Any]:
     def _url(item: dict) -> str:
         return str(item.get("url") or item.get("final_url") or "").lower()
@@ -208,7 +223,135 @@ def _retrieval_summary(
     _, unsatisfied = should_expand_retrieval(summary, {**targets, "max_retrieval_rounds": 999}, 0)
     summary["targets_satisfied"] = not unsatisfied
     summary["unsatisfied_targets"] = unsatisfied
+    source_mix = build_source_mix(valid, evidence_chunks)
+    source_mix_targets = dict((focused_research_plan or {}).get("source_mix_targets") or {})
+    unsatisfied_mix = [key for key, target in source_mix_targets.items() if int(source_mix.get(key, 0)) < int(target or 0)]
+    summary.update({
+        "intent": intent or {},
+        "screening_summary": screening_summary or {},
+        "focused_research_plan": focused_research_plan or {},
+        "source_mix": source_mix,
+        "source_mix_targets": source_mix_targets,
+        "source_mix_satisfied": not unsatisfied_mix,
+        "unsatisfied_source_mix": unsatisfied_mix,
+        "coverage_matrix": coverage_matrix or [],
+    })
     return summary
+
+
+def _screening_candidates_from_search_items(items: list[dict]) -> list[dict]:
+    candidates: list[dict] = []
+    seen: set[str] = set()
+    for item in items:
+        url = str(item.get("url") or "").strip()
+        canonical = canonicalize_source_url(url) or url
+        if not canonical or canonical in seen:
+            continue
+        seen.add(canonical)
+        row = {
+            "url": canonical,
+            "title": str(item.get("title") or ""),
+            "snippet": str(item.get("snippet") or ""),
+            "domain": re.sub(r"^www\.", "", urlparse(canonical).netloc.lower()),
+            "publishedDate": str(item.get("published_at") or item.get("published_date") or item.get("age") or ""),
+            "engine": str(item.get("engine") or item.get("provider") or ""),
+            "provider": str(item.get("provider") or ""),
+            "source_type": str(item.get("source_type") or "web"),
+            "screening_stage": "broad_screening",
+        }
+        row["source_type"] = classify_source_type(row)
+        candidates.append(row)
+    return candidates
+
+
+def run_broad_screening(
+    intent: dict,
+    *,
+    target_screening_candidates: int,
+    max_screening_queries: int,
+    max_results_per_query: int,
+) -> dict:
+    topic = str(intent.get("normalized_topic") or intent.get("original_query") or "").strip()
+    base_queries = plan_web_queries(topic, mode="deep", depth="deep", max_queries=max_screening_queries, scope=intent.get("source_profile"), language=intent.get("language"))
+    dimension_queries = [f"{topic} {dim.replace('_', ' ')}" for dim in intent.get("required_dimensions") or []]
+    queries: list[str] = []
+    for q in [*base_queries, *dimension_queries]:
+        q = " ".join(str(q).split())
+        if q and q not in queries:
+            queries.append(q)
+        if len(queries) >= max_screening_queries:
+            break
+    search = run_web_search(queries, mode="deep", depth="deep", max_results_per_query=max_results_per_query, scope=intent.get("source_profile"), language=intent.get("language"))
+    raw_items = list(search.get("items") or [])
+    candidates = _screening_candidates_from_search_items(raw_items)[:target_screening_candidates]
+    summary = summarize_screening_candidates(candidates, intent)
+    payload = {
+        "target_screening_candidates": target_screening_candidates,
+        "screening_query_count": len(queries),
+        "raw_candidate_count": len(raw_items),
+        "unique_candidate_count": len(candidates),
+        "domain_count": summary.get("domain_count", 0),
+        "fresh_candidate_count": int((summary.get("freshness_counts") or {}).get("current_year", 0)) + int((summary.get("freshness_counts") or {}).get("last_12_months", 0)),
+        "official_candidate_count": int((summary.get("source_type_counts") or {}).get("official", 0)),
+        "pdf_candidate_count": int((summary.get("source_type_counts") or {}).get("pdf", 0)),
+        "academic_candidate_count": int((summary.get("source_type_counts") or {}).get("academic", 0)),
+    }
+    return {"queries": queries, "search": search, "candidates": candidates, "summary": summary, "payload": payload}
+
+
+def _select_download_candidates(ranked_candidates: list[dict], attempted: set[str], max_count: int, source_mix_targets: dict | None = None) -> list[dict]:
+    if max_count <= 0:
+        return []
+    selected: list[dict] = []
+    domain_counts: dict[str, int] = {}
+    targets = dict(source_mix_targets or {})
+    wanted_order = ["official", "report_pdf", "recent_news", "academic", "company_ir", "industry_association"]
+
+    def bucket(candidate: dict) -> str:
+        stype = classify_source_type(candidate)
+        if stype == "official" or candidate.get("is_official"):
+            return "official"
+        if stype in {"pdf", "report"} or candidate.get("is_pdf"):
+            return "report_pdf"
+        if stype == "news":
+            return "recent_news"
+        if stype == "academic":
+            return "academic"
+        if stype == "company_ir":
+            return "company_ir"
+        if stype == "industry_association":
+            return "industry_association"
+        return "other"
+
+    def try_add(candidate: dict) -> bool:
+        canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
+        if not canonical or canonical in attempted or any((canonicalize_source_url(str(x.get("url") or "")) or str(x.get("url") or "")) == canonical for x in selected):
+            return False
+        domain = urlparse(canonical).netloc.lower()
+        if domain and domain_counts.get(domain, 0) >= (4 if candidate.get("is_official") else 3):
+            return False
+        selected.append(candidate)
+        if domain:
+            domain_counts[domain] = domain_counts.get(domain, 0) + 1
+        return True
+
+    for key in wanted_order:
+        need = min(int(targets.get(key) or 0), max_count - len(selected))
+        if need <= 0:
+            continue
+        added = 0
+        for candidate in ranked_candidates:
+            if bucket(candidate) == key and try_add(candidate):
+                added += 1
+                if added >= need or len(selected) >= max_count:
+                    break
+        if len(selected) >= max_count:
+            break
+    for candidate in ranked_candidates:
+        if len(selected) >= max_count:
+            break
+        try_add(candidate)
+    return selected
 
 def _extract_http_status(exc: Exception) -> int | None:
     candidates: list[Exception | BaseException] = [exc]
@@ -1106,7 +1249,23 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
     try:
         _emit_phase(effective_job_id, "planning_started", phase="planning", message="planning started", progress=0.05)
         _record_state(effective_job_id, "planning", message="query planning", progress=0.1)
-        queries = plan_web_queries(
+        depth_key = str(payload.depth or payload.mode or "standard").strip().lower()
+        intent = infer_research_intent(query, payload.source_profile, depth_key)
+        screening_settings = get_screening_settings(depth_key)
+        screening_result: dict[str, Any] = {"candidates": [], "summary": {}, "payload": {}}
+        if screening_settings.get("enabled"):
+            append_job_event(effective_job_id, "screening_started", {"status": "running", "phase": "broad_screening", **screening_settings, "updated_at": _now_iso()})
+            screening_result = run_broad_screening(
+                intent,
+                target_screening_candidates=int(screening_settings.get("target_screening_candidates") or 0),
+                max_screening_queries=int(screening_settings.get("max_screening_queries") or 1),
+                max_results_per_query=int(screening_settings.get("max_results_per_query") or 10),
+            )
+            append_job_event(effective_job_id, "screening_completed", {"status": "running", "phase": "broad_screening", **dict(screening_result.get("payload") or {}), "updated_at": _now_iso()})
+        screening_summary = dict(screening_result.get("summary") or {})
+        focused_research_plan = build_focused_research_plan(intent, screening_summary, depth=depth_key)
+        focused_queries = [str(item.get("query") or "").strip() for item in focused_research_plan.get("focused_queries") or [] if str(item.get("query") or "").strip()]
+        queries = focused_queries or plan_web_queries(
             query,
             mode=payload.mode,
             depth=payload.depth,
@@ -1120,15 +1279,20 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             phase="planning",
             message="planning finished",
             progress=0.2,
-            details={"queries": len(queries)},
+            details={"queries": len(queries), "screening_candidates": int((screening_result.get("payload") or {}).get("unique_candidate_count") or 0), "focused_queries": len(focused_queries)},
         )
         update_job(effective_job_id, status="running", progress=0.2, message="searching web")
 
         targets = build_retrieval_targets(payload)
+        if depth_key == "deep" and payload.max_downloads is None:
+            max_downloads = max(max_downloads, 60)
+        if depth_key == "exhaustive" and payload.max_downloads is None:
+            max_downloads = max(max_downloads, 90)
         adaptive_enabled = bool(targets.get("adaptive_retrieval_enabled", True))
         max_rounds = int(targets.get("max_retrieval_rounds") or 1) if adaptive_enabled else 1
         max_rounds = max(1, min(max_rounds, 8))
         base_queries = list(queries)
+        query_purpose_by_query = {str(item.get("query") or "").strip(): str(item.get("purpose") or "") for item in focused_research_plan.get("focused_queries") or []}
         all_items: list[dict] = []
         candidate_by_url: dict[str, dict] = {}
         attempted_canonical_urls: set[str] = set()
@@ -1142,7 +1306,10 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
 
         for round_index in range(max_rounds):
             strategy = build_retrieval_strategy(payload.source_profile, str(payload.depth or payload.mode or "standard"), round_index, {"reasons": last_expand_reasons})
-            round_queries = _retrieval_strategy_queries(base_queries, strategy, query, payload.source_profile, max(1, payload.max_queries or len(base_queries) or 1) + (round_index * 6))
+            if focused_queries and round_index == 0:
+                round_queries = focused_queries[: max(1, payload.max_queries or len(focused_queries))]
+            else:
+                round_queries = _retrieval_strategy_queries(base_queries, strategy, query, payload.source_profile, max(1, payload.max_queries or len(base_queries) or 1) + (round_index * 6))
             append_job_event(
                 effective_job_id,
                 "retrieval_round_started",
@@ -1169,6 +1336,8 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             else:
                 search.setdefault("retrieval_round_searches", []).append(round_search)
             round_items = list(round_search.get("items") or [])
+            for _item in round_items:
+                _item["query_purpose"] = query_purpose_by_query.get(str(_item.get("query") or "").strip(), "")
             all_items.extend(round_items)
             round_candidates = collect_source_candidates(search_items=all_items, manual_urls=payload.manual_urls if round_index == 0 else [])
             ranked_all = rank_source_candidates(
@@ -1226,14 +1395,11 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             remaining_downloads = max(0, max_downloads - len(attempted_canonical_urls))
             to_download: list[dict] = []
             if remaining_downloads > 0:
-                for candidate in ranked_candidates:
+                to_download = _select_download_candidates(ranked_candidates, attempted_canonical_urls, remaining_downloads, focused_research_plan.get("source_mix_targets"))
+                for candidate in to_download:
                     canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
-                    if not canonical or canonical in attempted_canonical_urls:
-                        continue
-                    to_download.append(candidate)
-                    attempted_canonical_urls.add(canonical)
-                    if len(to_download) >= remaining_downloads:
-                        break
+                    if canonical:
+                        attempted_canonical_urls.add(canonical)
             skipped_due_to_download_limit_count = max(0, len(ranked_candidates) - len(attempted_canonical_urls))
 
             if to_download:
@@ -1273,6 +1439,9 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 registered_sources=registered_sources,
                 evidence_chunks=source_chunks,
                 skipped_due_to_download_limit_count=skipped_due_to_download_limit_count,
+                intent=intent,
+                screening_summary=screening_summary,
+                focused_research_plan=focused_research_plan,
             )
             expand, reasons = should_expand_retrieval(current_summary, targets, round_index + 1)
             round_payload = {
@@ -1348,6 +1517,8 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             progress=0.82,
         )
 
+        coverage_matrix = build_coverage_matrix(focused_research_plan, source_chunks, registered_sources)
+        report_outline = build_report_outline(intent, focused_research_plan)
         _record_state(effective_job_id, "answering", message="building answer", progress=0.85)
         _emit_phase(
             effective_job_id,
@@ -1364,6 +1535,10 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             registered_sources=registered_sources,
             evidence_chunks=source_chunks,
             skipped_due_to_download_limit_count=skipped_due_to_download_limit_count,
+            intent=intent,
+            screening_summary=screening_summary,
+            focused_research_plan=focused_research_plan,
+            coverage_matrix=coverage_matrix,
         )
         if references:
             labels = [f"[S{i + 1}]" for i in range(len(references))]
@@ -1379,6 +1554,9 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             job_id=effective_job_id,
             project=payload.project,
             retrieval_summary=retrieval_summary,
+            report_outline=report_outline,
+            coverage_matrix=coverage_matrix,
+            source_mix_summary=retrieval_summary.get("source_mix", {}),
         )
         iterations: list[dict] = []
         final_confidence = 0.0

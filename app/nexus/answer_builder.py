@@ -659,6 +659,9 @@ def build_answer_payload(
     project: str = "default",
     citation_support_verifier: CitationSupportVerifier | None = None,
     retrieval_summary: dict | None = None,
+    report_outline: list[str] | None = None,
+    coverage_matrix: list[dict] | None = None,
+    source_mix_summary: dict | None = None,
 ) -> dict:
     normalized = normalize_reference_labels(
         references=references,
@@ -1101,6 +1104,9 @@ def build_answer_payload(
         "user_visible_warning": user_visible_warning,
         "user_visible_warning_reason": user_visible_warning_reason,
         "retrieval_summary": retrieval_summary or {},
+        "report_outline": report_outline or (retrieval_summary or {}).get("report_outline") or [],
+        "coverage_matrix": coverage_matrix or (retrieval_summary or {}).get("coverage_matrix") or [],
+        "source_mix_summary": source_mix_summary or (retrieval_summary or {}).get("source_mix") or {},
     }
 
     if job_id:
