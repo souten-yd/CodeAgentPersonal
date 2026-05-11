@@ -52,6 +52,25 @@ def _is_long_context_deep_research() -> bool:
     except (TypeError, ValueError):
         return False
 
+
+def build_deep_research_retrieval_targets(depth: str | None, *, long_context: bool = False, payload: Any | None = None) -> dict[str, Any]:
+    resolved = str(depth or "standard").strip().lower()
+    if resolved not in {"quick", "standard", "deep", "exhaustive"}:
+        resolved = "standard"
+    defaults: dict[str, dict[str, Any]] = {
+        "quick": {"target_candidate_count": 30, "target_valid_source_count": 8, "target_evidence_count": 25, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 1, "adaptive_retrieval_enabled": True},
+        "standard": {"target_candidate_count": 80, "target_valid_source_count": 18, "target_evidence_count": 50, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 2, "adaptive_retrieval_enabled": True},
+        "deep": {"target_candidate_count": 180, "target_valid_source_count": 35, "target_evidence_count": 120 if long_context else 100, "target_high_quality_source_count": 10, "target_official_source_count": 6, "target_pdf_source_count": 6, "max_retrieval_rounds": 4, "adaptive_retrieval_enabled": True},
+        "exhaustive": {"target_candidate_count": 300, "target_valid_source_count": 55, "target_evidence_count": 180 if long_context else 160, "target_high_quality_source_count": 16, "target_official_source_count": 10, "target_pdf_source_count": 10, "max_retrieval_rounds": 5, "adaptive_retrieval_enabled": True},
+    }
+    targets = dict(defaults[resolved])
+    if payload is not None:
+        for key in list(targets):
+            value = getattr(payload, key, None)
+            if value is not None:
+                targets[key] = value
+    return targets
+
 def _clone_research_request(payload: Any, **overrides: Any) -> ResearchRunRequest:
     data = _payload_to_dict(payload)
     data.update({k: v for k, v in overrides.items() if v is not None})
@@ -65,8 +84,8 @@ def _build_deep_research_payload(payload: Any, **overrides: Any) -> ResearchRunR
         "depth": "deep",
         "max_queries": _value_or_default(payload, "max_queries", 8 if long_context else 6),
         "max_results_per_query": _value_or_default(payload, "max_results_per_query", 10 if long_context else 8),
-        "max_sources": _value_or_default(payload, "max_sources", 60 if long_context else 40),
-        "max_downloads": _value_or_default(payload, "max_downloads", 24 if long_context else 16),
+        "max_sources": _value_or_default(payload, "max_sources", 100),
+        "max_downloads": _value_or_default(payload, "max_downloads", 48),
         "max_followup_queries": _value_or_default(payload, "max_followup_queries", 6 if long_context else 4),
         "prefer_pdf": _value_or_default(payload, "prefer_pdf", True),
         "official_first": _value_or_default(payload, "official_first", True),
@@ -75,6 +94,11 @@ def _build_deep_research_payload(payload: Any, **overrides: Any) -> ResearchRunR
         "confidence_threshold": _value_or_default(payload, "confidence_threshold", 0.82 if long_context else 0.78),
         "stop_when_sufficient": _value_or_default(payload, "stop_when_sufficient", True),
     }
+    depth_key = str(deep_defaults.get("depth") or deep_defaults.get("mode") or "deep").lower()
+    if depth_key == "exhaustive":
+        deep_defaults["max_sources"] = _value_or_default(payload, "max_sources", 160)
+        deep_defaults["max_downloads"] = _value_or_default(payload, "max_downloads", 72)
+    deep_defaults.update(build_deep_research_retrieval_targets(depth_key, long_context=long_context, payload=payload))
     deep_defaults.update(overrides)
     return _clone_research_request(payload, **deep_defaults)
 

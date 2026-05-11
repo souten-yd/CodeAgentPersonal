@@ -55,10 +55,10 @@ PROFILES: dict[str, CompressionProfile] = {
     ),
     "long_64k": CompressionProfile(
         "long_64k",
-        max_evidence_tokens=46000,
-        max_evidence_chunks=96,
+        max_evidence_tokens=52000,
+        max_evidence_chunks=160,
         max_chars_per_chunk=2400,
-        max_evidence_chars=90000,
+        max_evidence_chars=110000,
         max_source_tokens=14000,
     ),
 }
@@ -302,6 +302,8 @@ def compress_large_source(query: str, source: dict, chunks: list[dict], budget: 
             "title": str(source.get("title") or ""),
             "url": str(source.get("url") or source.get("final_url") or ""),
             "source_note": f"compressed:{len(chunks)}->{len(picked)}",
+            "is_official": bool(source.get("is_official") or any(chunk.get("is_official") for chunk in chunks)),
+            "is_pdf": bool(source.get("is_pdf") or any("pdf" in str(chunk.get("content_type") or source.get("content_type") or "").lower() for chunk in chunks)),
         },
         "chunks": picked,
         "tokens": used_tokens,

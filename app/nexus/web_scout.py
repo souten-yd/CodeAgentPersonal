@@ -44,7 +44,7 @@ def _resolve_searxng_engines_param() -> str:
     if explicit:
         return ",".join(_split_engine_csv(explicit))
     profile = os.getenv("SEARXNG_ENGINE_PROFILE", "safe_research").strip().lower()
-    if profile in {"safe_research", "safe_docs"}:
+    if profile in {"safe_research", "safe_docs", "adaptive_research"}:
         return ",".join(
             _split_engine_csv(
                 os.getenv(
@@ -53,7 +53,16 @@ def _resolve_searxng_engines_param() -> str:
                 )
             )
         )
-    return ""
+    if profile == "broad_unsafe" and os.getenv("NEXUS_ALLOW_BROAD_UNSAFE_SEARCH", "").strip().lower() in {"1", "true", "yes"}:
+        return ""
+    return ",".join(
+        _split_engine_csv(
+            os.getenv(
+                "SEARXNG_SAFE_KEEP_ONLY_ENGINES",
+                "wikipedia,wikidata,arxiv,crossref,openalex,semantic scholar,github,stackoverflow",
+            )
+        )
+    )
 
 
 def get_searxng_engine_status() -> dict[str, Any]:

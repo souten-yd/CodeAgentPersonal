@@ -47,7 +47,7 @@ def test_auto_settings_helper_exists_and_maps_depths() -> None:
     assert 'function resolveNexusResearchAutoSettings' in text
     assert re.search(r'deep:\s*\{[^}]*recursive_search:\s*true', text, re.S)
     assert re.search(r'quick:\s*\{[^}]*recursive_search:\s*false', text, re.S)
-    assert 'max_sources: long64k ? 60 : 40' in text
+    assert 'max_sources: 100' in text
 
 
 def test_compact_status_helper_hides_job_id_from_compact_lines() -> None:
