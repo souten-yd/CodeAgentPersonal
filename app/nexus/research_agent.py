@@ -282,6 +282,9 @@ def _analyze_research_gaps(*, sources: list[dict], evidence_chunks: list[dict], 
     confidence -= min(0.12, int(claim_analysis.get("weakly_supported_claim_count") or 0) * 0.02)
     confidence -= min(0.20, int(claim_analysis.get("unsupported_claim_count") or 0) * 0.03)
     confidence -= min(0.10, int(claim_analysis.get("unresolved_claim_count") or 0) * 0.02)
+    confidence += min(0.05, float(claim_analysis.get("average_source_quality_score") or 0.0) * 0.05)
+    confidence -= min(0.08, int(claim_analysis.get("low_quality_supported_claim_count") or 0) * 0.03)
+    confidence -= min(0.12, int(claim_analysis.get("contradiction_count") or 0) * 0.04)
     confidence = max(0.0, min(1.0, confidence))
 
     gaps: list[str] = []
@@ -1242,6 +1245,10 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                             "unsupported_claim_count": int(claim_summary.get("unsupported_claim_count") or 0),
                             "unresolved_claim_count": int(claim_summary.get("unresolved_claim_count") or 0),
                             "average_support_score": float(claim_summary.get("average_support_score") or 0.0),
+                            "average_source_quality_score": float(claim_summary.get("average_source_quality_score") or 0.0),
+                            "high_quality_supported_claim_count": int(claim_summary.get("high_quality_supported_claim_count") or 0),
+                            "low_quality_supported_claim_count": int(claim_summary.get("low_quality_supported_claim_count") or 0),
+                            "contradiction_count": int(claim_summary.get("contradiction_count") or 0),
                             "gaps": list(claim_summary.get("gaps") or []),
                             "updated_at": _now_iso(),
                         },

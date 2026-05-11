@@ -546,6 +546,8 @@ class NexusResearchRecursiveTests(unittest.TestCase):
         verified = [payload for event_type, payload in captured if event_type == "claim_support_verified"]
         self.assertTrue(verified)
         self.assertEqual(verified[0]["weakly_supported_claim_count"], 1)
+        self.assertIn("average_source_quality_score", verified[0])
+        self.assertIn("contradiction_count", verified[0])
 
     def test_recursive_download_budget_exhaustion_stops(self) -> None:
         captured = []
