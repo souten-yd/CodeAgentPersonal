@@ -364,7 +364,7 @@ def _default_llm_ctx_size(*, runpod: bool, env: dict[str, str]) -> str:
         ]
     ).lower()
     if runpod or "gemma" in model_hint:
-        return "65535"
+        return "32768"
     return "16384"
 
 
@@ -373,6 +373,20 @@ def _ctx_is_long_context(ctx_value: str) -> bool:
         return int(str(ctx_value).strip()) >= 65535
     except (TypeError, ValueError):
         return False
+
+
+def _ctx_profile_for_default(ctx_value: str) -> str:
+    try:
+        ctx = int(str(ctx_value).strip())
+    except (TypeError, ValueError):
+        return "auto"
+    if ctx >= 60000:
+        return "long_64k"
+    if ctx >= 32768:
+        return "extended_32k"
+    if ctx >= 16384:
+        return "standard_16k"
+    return "auto"
 
 
 def main() -> int:
@@ -401,7 +415,7 @@ def main() -> int:
     env.setdefault("DEFAULT_LLM_CTX_SIZE", default_ctx)
     env.setdefault("LLAMA_CTX_SIZE", env.get("DEFAULT_LLM_CTX_SIZE", default_ctx))
     env.setdefault("NEXUS_ANSWER_LLM_MAX_CONTEXT_TOKENS", env.get("DEFAULT_LLM_CTX_SIZE", default_ctx))
-    env.setdefault("NEXUS_DEEP_RESEARCH_CONTEXT_PROFILE", "long_64k" if _ctx_is_long_context(default_ctx) else "auto")
+    env.setdefault("NEXUS_DEEP_RESEARCH_CONTEXT_PROFILE", _ctx_profile_for_default(default_ctx))
     env.setdefault("LLAMA_CACHE_TYPE_K", "q8_0")
     env.setdefault("LLAMA_CACHE_TYPE_V", "q8_0")
     print(f"[LLM] LLAMA_CACHE_TYPE_K={env.get('LLAMA_CACHE_TYPE_K')}")
