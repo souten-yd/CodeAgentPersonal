@@ -40,5 +40,15 @@ class TestRouterSearxng403Hint(unittest.TestCase):
             self.assertIn("json", msg)
 
 
+class TestWindowsSearxngSafeEngines(unittest.TestCase):
+    def test_windows_startup_source_uses_keep_only_force_safe_and_expanded_disabled_engines(self):
+        text = Path("scripts/start_searxng_windows.py").read_text(encoding="utf-8")
+        self.assertIn("keep_only", text)
+        self.assertIn("SEARXNG_FORCE_SAFE_SETTINGS", text)
+        self.assertIn("DEFAULT_SAFE_KEEP_ONLY_ENGINES", text)
+        for engine in ["duckduckgo", "startpage", "google", "bing", "brave", "karmasearch", "karmasearch videos"]:
+            self.assertIn(engine, text)
+
+
 if __name__ == "__main__":
     unittest.main()

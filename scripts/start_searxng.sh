@@ -8,11 +8,20 @@ SEARXNG_CONFIG_DIR="${SEARXNG_CONFIG_DIR:-/workspace/ca_data/searxng}"
 SEARXNG_TEMPLATE_PATH="${SEARXNG_TEMPLATE_PATH:-/app/config/searxng/settings.yml.template}"
 SEARXNG_SETTINGS_PATH="${SEARXNG_SETTINGS_PATH:-${SEARXNG_CONFIG_DIR}/settings.yml}"
 SEARXNG_SECRET_FILE="${SEARXNG_SECRET_FILE:-${SEARXNG_CONFIG_DIR}/secret_key}"
-SEARXNG_PROBE_URL="http://127.0.0.1:${SEARXNG_PORT}/search?format=json&q=healthcheck"
 SEARXNG_START_TIMEOUT_SEC="${SEARXNG_START_TIMEOUT_SEC:-12}"
 SEARXNG_LOG_FILE="${SEARXNG_LOG_FILE:-${SEARXNG_CONFIG_DIR}/searxng.log}"
 SEARXNG_ENGINE_PROFILE="${SEARXNG_ENGINE_PROFILE:-safe_research}"
-SEARXNG_DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES:-duckduckgo,startpage,google,bing}"
+SEARXNG_SAFE_KEEP_ONLY_ENGINES="${SEARXNG_SAFE_KEEP_ONLY_ENGINES:-wikipedia,wikidata,arxiv,crossref,openalex,semantic scholar,github,stackoverflow}"
+SEARXNG_DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES:-duckduckgo,startpage,google,bing,brave,karmasearch,karmasearch videos,qwant,mojeek,yahoo}"
+SEARXNG_HEALTH_ENGINE="${SEARXNG_HEALTH_ENGINE:-wikipedia}"
+SEARXNG_FORCE_SAFE_SETTINGS="${SEARXNG_FORCE_SAFE_SETTINGS:-false}"
+SEARXNG_HEALTH_ENGINE_ENCODED="$(HEALTH_ENGINE="${SEARXNG_HEALTH_ENGINE}" python3 - <<'PY_HEALTH_ENGINE'
+from urllib.parse import quote
+import os
+print(quote(os.environ.get("HEALTH_ENGINE", "wikipedia"), safe=""))
+PY_HEALTH_ENGINE
+)"
+SEARXNG_PROBE_URL="http://127.0.0.1:${SEARXNG_PORT}/search?format=json&q=healthcheck&engines=${SEARXNG_HEALTH_ENGINE_ENCODED}"
 SEARXNG_REPAIR_SETTINGS="${SEARXNG_REPAIR_SETTINGS:-true}"
 SEARXNG_STRICT_HEALTH="${SEARXNG_STRICT_HEALTH:-false}"
 SEARXNG_PYTHON="${SEARXNG_PYTHON:-/opt/searxng/searx-pyenv/bin/python}"
@@ -34,10 +43,33 @@ err() {
 }
 
 log "engine_profile=${SEARXNG_ENGINE_PROFILE}"
+log "safe_keep_only_engines=${SEARXNG_SAFE_KEEP_ONLY_ENGINES}"
+log "disabled_engines=${SEARXNG_DISABLED_ENGINES}"
+log "health_engine=${SEARXNG_HEALTH_ENGINE}"
+log "force_safe_settings=${SEARXNG_FORCE_SAFE_SETTINGS}"
 
 
 _safe_research_enabled() {
-  [[ "${SEARXNG_ENGINE_PROFILE}" == "safe_research" && "${SEARXNG_REPAIR_SETTINGS}" == "true" ]]
+  [[ ( "${SEARXNG_ENGINE_PROFILE}" == "safe_research" || "${SEARXNG_ENGINE_PROFILE}" == "safe_docs" ) && "${SEARXNG_REPAIR_SETTINGS}" == "true" ]]
+}
+
+render_searxng_settings_from_template() {
+  if [[ ! -f "${SEARXNG_TEMPLATE_PATH}" ]]; then
+    warn "Template not found: ${SEARXNG_TEMPLATE_PATH}"
+    return 1
+  fi
+  local secret_key
+  secret_key="$(cat "${SEARXNG_SECRET_FILE}")"
+  sed \
+    -e "s|__SEARXNG_BIND_ADDRESS__|${SEARXNG_BIND_ADDRESS}|g" \
+    -e "s|__SEARXNG_PORT__|${SEARXNG_PORT}|g" \
+    -e "s|__SEARXNG_BASE_URL__|${SEARXNG_BASE_URL}|g" \
+    -e "s|__SEARXNG_SECRET_KEY__|${secret_key}|g" \
+    "${SEARXNG_TEMPLATE_PATH}" > "${SEARXNG_SETTINGS_PATH}"
+}
+
+_force_safe_settings_enabled() {
+  [[ "${SEARXNG_FORCE_SAFE_SETTINGS}" == "true" || "${SEARXNG_FORCE_SAFE_SETTINGS}" == "1" || "${SEARXNG_FORCE_SAFE_SETTINGS}" == "yes" || "${SEARXNG_FORCE_SAFE_SETTINGS}" == "on" ]]
 }
 
 repair_searxng_settings() {
@@ -51,70 +83,112 @@ repair_searxng_settings() {
 
   local timestamp
   timestamp="$(date -u +%Y%m%d%H%M%S)"
-  SETTINGS_PATH="${SEARXNG_SETTINGS_PATH}" DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES}" REPAIR_TIMESTAMP="${timestamp}" python3 - <<'EOF_SAFE_REPAIR'
+  if _force_safe_settings_enabled; then
+    local backup_path="${SEARXNG_SETTINGS_PATH}.bak.${timestamp}"
+    cp -p "${SEARXNG_SETTINGS_PATH}" "${backup_path}" || warn "failed to backup existing settings before force reset: ${SEARXNG_SETTINGS_PATH}"
+    log "force safe settings reset requested; backup=${backup_path}"
+    if ! render_searxng_settings_from_template; then
+      warn "force safe settings reset failed; keeping startup non-fatal"
+      return 0
+    fi
+  fi
+
+  SETTINGS_PATH="${SEARXNG_SETTINGS_PATH}" \
+  DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES}" \
+  SAFE_KEEP_ONLY_ENGINES="${SEARXNG_SAFE_KEEP_ONLY_ENGINES}" \
+  REPAIR_TIMESTAMP="${timestamp}" \
+  SEARXNG_BIND_ADDRESS="${SEARXNG_BIND_ADDRESS}" \
+  SEARXNG_PORT="${SEARXNG_PORT}" \
+  SEARXNG_BASE_URL="${SEARXNG_BASE_URL}" \
+  SEARXNG_SECRET_FILE="${SEARXNG_SECRET_FILE}" \
+  python3 - <<'EOF_SAFE_REPAIR'
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import os
-import re
 import shutil
 from pathlib import Path
 
 settings_path = Path(os.environ["SETTINGS_PATH"])
+keep_only_engines = [item.strip() for item in os.environ.get("SAFE_KEEP_ONLY_ENGINES", "").split(",") if item.strip()]
 disabled_engines = [item.strip() for item in os.environ.get("DISABLED_ENGINES", "").split(",") if item.strip()]
 marker = "# CodeAgent safe_research engine overrides"
 text = settings_path.read_text(encoding="utf-8") if settings_path.exists() else ""
-
-missing = []
-for engine in disabled_engines:
-    pattern = re.compile(r"(?ms)^\s*-\s*name:\s*['\"]?" + re.escape(engine) + r"['\"]?\s*$.*?^\s*disabled:\s*true\s*$")
-    if not pattern.search(text):
-        missing.append(engine)
-
-if marker in text and not missing:
-    print("unchanged")
-    raise SystemExit(0)
-
 backup_path = settings_path.with_name(settings_path.name + ".bak." + os.environ.get("REPAIR_TIMESTAMP", "manual"))
-shutil.copy2(settings_path, backup_path)
 
-try:
-    import yaml  # type: ignore
-except Exception:
-    yaml = None
+def _safe_minimal_settings() -> str:
+    secret_file = Path(os.environ.get("SEARXNG_SECRET_FILE", ""))
+    secret = secret_file.read_text(encoding="utf-8").strip() if secret_file.exists() else "codeagent-searxng-development-key"
+    lines = [
+        marker,
+        "use_default_settings:",
+        "  engines:",
+        "    keep_only:",
+        *[f"      - {engine}" for engine in keep_only_engines],
+        "    remove:",
+        *[f"      - {engine}" for engine in disabled_engines],
+        "",
+        "general:",
+        '  instance_name: "CodeAgent SearXNG"',
+        "",
+        "search:",
+        "  formats:",
+        "    - html",
+        "    - json",
+        "",
+        "server:",
+        f'  bind_address: "{os.environ.get("SEARXNG_BIND_ADDRESS", "127.0.0.1")}"',
+        f'  port: {os.environ.get("SEARXNG_PORT", "8088")}',
+        f'  base_url: "{os.environ.get("SEARXNG_BASE_URL", "")}"',
+        f'  secret_key: "{secret}"',
+        "",
+        "botdetection:",
+        "  ip_limit:",
+        "    link_token: false",
+        "  ip_lists:",
+        "    block_ip: []",
+    ]
+    return "\n".join(lines).rstrip() + "\n"
 
-if yaml is not None:
+def _has_expected_yaml(data: object) -> bool:
+    if not isinstance(data, dict):
+        return False
+    uds = data.get("use_default_settings")
+    if not isinstance(uds, dict):
+        return False
+    engines = uds.get("engines")
+    if not isinstance(engines, dict):
+        return False
+    keep = engines.get("keep_only")
+    remove = engines.get("remove")
+    return keep == keep_only_engines and remove == disabled_engines
+
+if importlib.util.find_spec("yaml") is not None:
+    yaml = importlib.import_module("yaml")
     try:
         data = yaml.safe_load(text) or {}
-        engines = data.get("engines")
-        if not isinstance(engines, list):
-            engines = []
-            data["engines"] = engines
-        for engine in disabled_engines:
-            found = False
-            for entry in engines:
-                if isinstance(entry, dict) and str(entry.get("name", "")).strip().lower() == engine.lower():
-                    entry["disabled"] = True
-                    found = True
-            if not found:
-                engines.append({"name": engine, "disabled": True})
+        if not isinstance(data, dict):
+            data = {}
+        if marker in text and _has_expected_yaml(data):
+            print("unchanged")
+            raise SystemExit(0)
+        shutil.copy2(settings_path, backup_path)
+        data["use_default_settings"] = {"engines": {"keep_only": keep_only_engines, "remove": disabled_engines}}
+        data.pop("engines", None)
         rendered = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
-        if marker not in rendered:
-            rendered = rendered.rstrip() + "\n" + marker + "\n"
+        rendered = marker + "\n" + rendered.lstrip()
         settings_path.write_text(rendered, encoding="utf-8")
         print(f"repaired yaml backup={backup_path}")
         raise SystemExit(0)
+    except SystemExit:
+        raise
     except Exception as exc:
-        print(f"yaml_repair_failed={exc}; falling back to append")
+        print(f"yaml_repair_failed={exc}; falling back to safe regeneration")
 
-block = ["", marker]
-for engine in disabled_engines:
-    block.extend([f"  - name: {engine}", "    disabled: true"])
-if "\nengines:" in text or text.startswith("engines:"):
-    new_text = text.rstrip() + "\n" + "\n".join(block) + "\n"
-else:
-    new_text = text.rstrip() + "\n\nengines:\n" + "\n".join(block) + "\n"
-settings_path.write_text(new_text, encoding="utf-8")
-print(f"repaired text backup={backup_path}")
+shutil.copy2(settings_path, backup_path)
+settings_path.write_text(_safe_minimal_settings(), encoding="utf-8")
+print(f"repaired regenerated backup={backup_path}")
 EOF_SAFE_REPAIR
 }
 
@@ -195,13 +269,7 @@ if [[ ! -f "${SEARXNG_SETTINGS_PATH}" ]]; then
   fi
 
   log "Initializing config from template: ${SEARXNG_TEMPLATE_PATH} -> ${SEARXNG_SETTINGS_PATH}"
-  secret_key="$(cat "${SEARXNG_SECRET_FILE}")"
-  sed \
-    -e "s|__SEARXNG_BIND_ADDRESS__|${SEARXNG_BIND_ADDRESS}|g" \
-    -e "s|__SEARXNG_PORT__|${SEARXNG_PORT}|g" \
-    -e "s|__SEARXNG_BASE_URL__|${SEARXNG_BASE_URL}|g" \
-    -e "s|__SEARXNG_SECRET_KEY__|${secret_key}|g" \
-    "${SEARXNG_TEMPLATE_PATH}" > "${SEARXNG_SETTINGS_PATH}" || {
+  render_searxng_settings_from_template || {
       warn "Failed to render settings template"
       set_autostart_status "failed_render_settings" "SearXNG設定テンプレートの展開に失敗しました。"
       exit 0

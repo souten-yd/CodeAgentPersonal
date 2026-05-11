@@ -399,6 +399,41 @@ class WebScoutRunSearchTests(unittest.TestCase):
         self.assertIn("searxng", result.get("provider_errors", {}))
         self.assertGreaterEqual(len(result.get("provider_errors", {}).get("searxng", [])), 1)
 
+
+    def test_run_web_search_adds_configured_searxng_engines_param(self) -> None:
+        env = {
+            "NEXUS_ENABLE_WEB": "true",
+            "NEXUS_WEB_SEARCH_PROVIDER": "searxng",
+            "NEXUS_SEARCH_FALLBACK_PROVIDERS": "searxng",
+            "NEXUS_SEARXNG_URL": "http://127.0.0.1:65535",
+            "NEXUS_SEARXNG_ENGINES": "wikipedia,arxiv,github",
+        }
+        captured_urls: list[str] = []
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self) -> bytes:
+                return b'{"results":[{"title":"Safe","url":"https://example.test","content":"ok","engine":"wikipedia"}],"errors":[]}'
+
+        def fake_urlopen(req, timeout=20):
+            captured_urls.append(req.full_url)
+            return FakeResponse()
+
+        with patch.dict(os.environ, env, clear=False), patch("app.nexus.web_scout.request.urlopen", side_effect=fake_urlopen):
+            result = run_web_search(["integration test query"], mode="quick", depth="quick", max_results_per_query=2)
+
+        self.assertFalse(result.get("non_fatal"))
+        self.assertEqual(result.get("selected_provider"), "searxng")
+        self.assertTrue(captured_urls)
+        self.assertIn("engines=wikipedia%2Carxiv%2Cgithub", captured_urls[0])
+
     def test_run_web_search_reports_searxng_captcha_non_json_diagnostics(self) -> None:
         env = {
             "NEXUS_ENABLE_WEB": "true",

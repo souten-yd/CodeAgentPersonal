@@ -43,7 +43,7 @@ from app.nexus.news import (
 )
 from app.nexus.report import BuildReportRequest, build_job_report, nexus_report_router
 from app.nexus.search import search_evidence
-from app.nexus.web_scout import get_last_web_search_status
+from app.nexus.web_scout import get_last_web_search_status, get_searxng_engine_status
 from app.nexus.web_service import execute_web_search_service
 from app.services.nexus_execution import (
     NexusExecutionError,
@@ -218,7 +218,9 @@ def _check_searxng_connectivity(url: str) -> tuple[bool, str]:
     if not base_url:
         return False, "NEXUS_SEARXNG_URL が未設定のため疎通確認をスキップしました。"
 
-    params = parse.urlencode({"q": "healthcheck", "format": "json"})
+    params = parse.urlencode(
+        {"q": "healthcheck", "format": "json", "engines": os.getenv("SEARXNG_HEALTH_ENGINE", "wikipedia")}
+    )
     req = request.Request(
         f"{base_url}/search?{params}",
         headers={"Accept": "application/json"},
@@ -657,6 +659,7 @@ def nexus_web_status_compat() -> dict:
     if searxng_configured:
         probe_ok, probe_message = _check_searxng_connectivity(cfg.searxng_url)
     active_provider = str(cfg.web_search_provider or "").strip().lower() or "unknown"
+    searxng_engine_status = get_searxng_engine_status()
     return {
         "enable_web": bool(cfg.enable_web),
         "provider": active_provider,
@@ -678,6 +681,7 @@ def nexus_web_status_compat() -> dict:
         "last_non_fatal": get_last_web_search_status().get("last_non_fatal"),
         "last_message": get_last_web_search_status().get("last_message", ""),
         "last_diagnostics": get_last_web_search_status().get("last_diagnostics", []),
+        **searxng_engine_status,
         "message": probe_message,
         "last_search": get_last_web_search_status(),
     }

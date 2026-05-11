@@ -203,7 +203,11 @@ def default_nexus_web_status_payload() -> dict[str, Any]:
         "last_selected_provider": None,
         "last_non_fatal": None,
         "last_message": "",
+        "last_diagnostics": [],
         "last_search_at": None,
+        "searxng_engine_profile": "safe_research",
+        "searxng_keep_only_engines": [],
+        "searxng_health_engine": "wikipedia",
         "runpod_searxng_autostart_status": "",
         "runpod_searxng_autostart_hint": "",
     }

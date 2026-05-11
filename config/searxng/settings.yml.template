@@ -1,4 +1,26 @@
-use_default_settings: true
+# CodeAgent safe_research engine overrides
+use_default_settings:
+  engines:
+    keep_only:
+      - wikipedia
+      - wikidata
+      - arxiv
+      - crossref
+      - openalex
+      - semantic scholar
+      - github
+      - stackoverflow
+    remove:
+      - duckduckgo
+      - startpage
+      - google
+      - bing
+      - brave
+      - karmasearch
+      - karmasearch videos
+      - qwant
+      - mojeek
+      - yahoo
 
 general:
   instance_name: "CodeAgent SearXNG"
@@ -21,18 +43,3 @@ botdetection:
     link_token: false
   ip_lists:
     block_ip: []
-
-# Nexus Deep Research safe_research profile:
-# keep JSON enabled while disabling CAPTCHA/rate-limit prone general engines by default.
-engines:
-  # CodeAgent safe_research engine overrides
-  - name: duckduckgo
-    disabled: true
-  - name: startpage
-    disabled: true
-  - name: google
-    disabled: true
-  - name: bing
-    disabled: true
-  - name: brave
-    disabled: true

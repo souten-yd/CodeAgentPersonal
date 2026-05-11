@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import os
 from typing import Any
 from urllib import error as urllib_error
 from urllib import parse, request
@@ -14,7 +15,7 @@ _BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 _SEARXNG_ENDPOINT_PATH = "/search"
 _SEARXNG_DEGRADED_ERROR_CATEGORY = "searxng_engine_captcha_or_non_json"
 _SEARXNG_DEGRADED_HINT = "Disable CAPTCHA-prone engines or use safe_research profile"
-_SEARXNG_DEGRADED_KEYWORDS = ("captcha", "jsondecodeerror", "json decode", "non-json", "non json", "extra data", "duckduckgo", "startpage")
+_SEARXNG_DEGRADED_KEYWORDS = ("captcha", "jsondecodeerror", "json decode", "non-json", "non json", "extra data", "duckduckgo", "startpage", "google", "brave", "karmasearch", "too many", "403")
 _QUOTA_ERROR_KEYWORDS = ("quota", "billing", "payment", "plan", "subscription", "rate limit")
 _TEMPORARILY_DISABLED_PROVIDERS: dict[str, float] = {}
 _LAST_WEB_SEARCH_STATUS: dict[str, Any] = {
@@ -33,6 +34,35 @@ _SEARCH_MODE_SETTINGS: dict[str, dict[str, int]] = {
     "exhaustive": {"max_queries": 8, "max_results_per_query": 12},
 }
 
+
+def _split_engine_csv(value: str | None) -> list[str]:
+    return [item.strip() for item in (value or "").split(",") if item.strip()]
+
+
+def _resolve_searxng_engines_param() -> str:
+    explicit = os.getenv("NEXUS_SEARXNG_ENGINES", "").strip()
+    if explicit:
+        return ",".join(_split_engine_csv(explicit))
+    profile = os.getenv("SEARXNG_ENGINE_PROFILE", "safe_research").strip().lower()
+    if profile in {"safe_research", "safe_docs"}:
+        return ",".join(
+            _split_engine_csv(
+                os.getenv(
+                    "SEARXNG_SAFE_KEEP_ONLY_ENGINES",
+                    "wikipedia,wikidata,arxiv,crossref,openalex,semantic scholar,github,stackoverflow",
+                )
+            )
+        )
+    return ""
+
+
+def get_searxng_engine_status() -> dict[str, Any]:
+    engines = _split_engine_csv(_resolve_searxng_engines_param())
+    return {
+        "searxng_engine_profile": os.getenv("SEARXNG_ENGINE_PROFILE", "safe_research"),
+        "searxng_keep_only_engines": engines,
+        "searxng_health_engine": os.getenv("SEARXNG_HEALTH_ENGINE", "wikipedia"),
+    }
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -321,14 +351,16 @@ def _run_searxng_search(
     diagnostics: list[dict[str, Any]] = []
 
     for query in queries:
-        params = parse.urlencode(
-            {
-                "q": query,
-                "format": "json",
-                "language": search_lang,
-                "categories": "general",
-            }
-        )
+        query_params = {
+            "q": query,
+            "format": "json",
+            "language": search_lang,
+            "categories": "general",
+        }
+        engines_param = _resolve_searxng_engines_param()
+        if engines_param:
+            query_params["engines"] = engines_param
+        params = parse.urlencode(query_params)
         req = request.Request(f"{base_url}{_SEARXNG_ENDPOINT_PATH}?{params}", headers={"Accept": "application/json"}, method="GET")
         try:
             with request.urlopen(req, timeout=20) as resp:

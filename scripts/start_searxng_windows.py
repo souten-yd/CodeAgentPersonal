@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import json
 import os
 import re
@@ -19,7 +21,8 @@ HOST_BIND = "127.0.0.1"
 HOST_PORT = "8088"
 CONTAINER_PORT = "8080"
 SAFE_RESEARCH_MARKER = "# CodeAgent safe_research engine overrides"
-DEFAULT_DISABLED_ENGINES = "duckduckgo,startpage,google,bing"
+DEFAULT_DISABLED_ENGINES = "duckduckgo,startpage,google,bing,brave,karmasearch,karmasearch videos,qwant,mojeek,yahoo"
+DEFAULT_SAFE_KEEP_ONLY_ENGINES = "wikipedia,wikidata,arxiv,crossref,openalex,semantic scholar,github,stackoverflow"
 
 
 def _is_windows() -> bool:
@@ -86,58 +89,75 @@ def _resolve_secret(config_dir: Path) -> str:
     return secret
 
 
+def _csv_list(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 def _disabled_engines_from_env(env: dict[str, str]) -> list[str]:
-    raw = env.get("SEARXNG_DISABLED_ENGINES", DEFAULT_DISABLED_ENGINES)
-    return [item.strip() for item in raw.split(",") if item.strip()]
+    return _csv_list(env.get("SEARXNG_DISABLED_ENGINES", DEFAULT_DISABLED_ENGINES))
 
 
-def _safe_research_block(disabled_engines: list[str]) -> str:
-    lines = ["", SAFE_RESEARCH_MARKER]
-    for engine in disabled_engines:
-        lines.extend([f"  - name: {engine}", "    disabled: true"])
+def _safe_keep_only_from_env(env: dict[str, str]) -> list[str]:
+    return _csv_list(env.get("SEARXNG_SAFE_KEEP_ONLY_ENGINES", DEFAULT_SAFE_KEEP_ONLY_ENGINES))
+
+
+def _safe_research_block(disabled_engines: list[str], keep_only_engines: list[str]) -> str:
+    lines = [SAFE_RESEARCH_MARKER, "use_default_settings:", "  engines:", "    keep_only:"]
+    lines.extend(f"      - {engine}" for engine in keep_only_engines)
+    lines.append("    remove:")
+    lines.extend(f"      - {engine}" for engine in disabled_engines)
     return "\n".join(lines).rstrip() + "\n"
 
 
-def repair_safe_research_settings(settings_file: Path, disabled_engines: list[str], log_file: Path) -> bool:
+def repair_safe_research_settings(settings_file: Path, disabled_engines: list[str], keep_only_engines: list[str], log_file: Path) -> bool:
     try:
         if not settings_file.exists():
             return False
         text = settings_file.read_text(encoding="utf-8")
-        missing = [
-            engine
-            for engine in disabled_engines
-            if not re.search(
-                r"(?ms)^\s*-\s*name:\s*['\"]?" + re.escape(engine) + r"['\"]?\s*$.*?^\s*disabled:\s*true\s*$",
-                text,
-            )
-        ]
-        if SAFE_RESEARCH_MARKER in text and not missing:
-            _log(log_file, "[SearXNG][windows] safe_research settings repair unchanged")
+        has_keep_only = "keep_only:" in text and all(f"- {engine}" in text for engine in keep_only_engines)
+        has_remove = "remove:" in text and all(engine in text for engine in disabled_engines)
+        if SAFE_RESEARCH_MARKER in text and has_keep_only and has_remove:
+            _log(log_file, "[SearXNG][windows] safe_research keep_only settings repair unchanged")
             return False
         backup = settings_file.with_name(f"{settings_file.name}.bak.{time.strftime('%Y%m%d%H%M%S', time.gmtime())}")
         shutil.copy2(settings_file, backup)
-        block = _safe_research_block(disabled_engines)
-        if "\nengines:" in text or text.startswith("engines:"):
-            new_text = text.rstrip() + "\n" + block
-        else:
-            new_text = text.rstrip() + "\n\nengines:\n" + block
-        settings_file.write_text(new_text, encoding="utf-8")
-        _log(log_file, f"[SearXNG][windows] safe_research settings repaired backup={backup}")
+        if importlib.util.find_spec("yaml") is not None:
+            yaml = importlib.import_module("yaml")
+            try:
+                data = yaml.safe_load(text) or {}
+                if not isinstance(data, dict):
+                    data = {}
+                data["use_default_settings"] = {"engines": {"keep_only": keep_only_engines, "remove": disabled_engines}}
+                data.pop("engines", None)
+                rendered = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+                settings_file.write_text(SAFE_RESEARCH_MARKER + "\n" + rendered.lstrip(), encoding="utf-8")
+                _log(log_file, f"[SearXNG][windows] safe_research keep_only settings repaired backup={backup}")
+                return True
+            except Exception as exc:  # noqa: BLE001
+                _log(log_file, f"[SearXNG][windows][WARN] yaml repair failed, regenerating safe settings: {exc}")
+        settings_file.write_text(_safe_research_block(disabled_engines, keep_only_engines), encoding="utf-8")
+        _log(log_file, f"[SearXNG][windows] safe_research settings regenerated backup={backup}")
         return True
     except Exception as exc:  # noqa: BLE001
         _log(log_file, f"[SearXNG][windows][WARN] safe_research settings repair failed: {exc}")
         return False
-
 
 def ensure_settings(config_dir: Path, env: dict[str, str] | None = None, log_file: Path | None = None) -> Path:
     env = env or os.environ.copy()
     config_dir.mkdir(parents=True, exist_ok=True)
     settings_file = config_dir / "settings.yml"
     secret = _resolve_secret(config_dir)
+    force_safe_settings = env.get("SEARXNG_FORCE_SAFE_SETTINGS", "false").lower() in {"1", "true", "yes", "on"}
+    if force_safe_settings and settings_file.exists():
+        backup = settings_file.with_name(f"{settings_file.name}.bak.{time.strftime('%Y%m%d%H%M%S', time.gmtime())}")
+        shutil.copy2(settings_file, backup)
+        settings_file.unlink()
+        if log_file is not None:
+            _log(log_file, f"[SearXNG][windows] force safe settings reset backup={backup}")
     if not settings_file.exists():
         body = (
-            "use_default_settings: true\n\n"
-            "server:\n"
+            _safe_research_block(_disabled_engines_from_env(env), _safe_keep_only_from_env(env))
+            + "\nserver:\n"
             f"  secret_key: \"{secret}\"\n"
             "  bind_address: \"0.0.0.0\"\n"
             "  port: 8080\n"
@@ -153,8 +173,8 @@ def ensure_settings(config_dir: Path, env: dict[str, str] | None = None, log_fil
         settings_file.write_text(body, encoding="utf-8")
     engine_profile = env.get("SEARXNG_ENGINE_PROFILE", "safe_research")
     repair_enabled = env.get("SEARXNG_REPAIR_SETTINGS", "true").lower() in {"1", "true", "yes", "on"}
-    if engine_profile == "safe_research" and repair_enabled:
-        repair_safe_research_settings(settings_file, _disabled_engines_from_env(env), log_file or (config_dir / "searxng.log"))
+    if engine_profile in {"safe_research", "safe_docs"} and repair_enabled:
+        repair_safe_research_settings(settings_file, _disabled_engines_from_env(env), _safe_keep_only_from_env(env), log_file or (config_dir / "searxng.log"))
     elif log_file is not None:
         _log(log_file, f"[SearXNG][windows] settings repair skipped engine_profile={engine_profile} repair={repair_enabled}")
     return settings_file
@@ -208,12 +228,15 @@ def main() -> int:
     config_dir = Path(env.get("CODEAGENT_SEARXNG_CONFIG_DIR", str(base_dir / "ca_data" / "searxng"))).expanduser()
     log_file = Path(env.get("CODEAGENT_SEARXNG_LOG_FILE", str(config_dir / "searxng.log"))).expanduser()
     base = (env.get("NEXUS_SEARXNG_URL") or f"http://{HOST_BIND}:{HOST_PORT}").strip().rstrip("/")
-    health_url = f"{base}/search?{urllib.parse.urlencode({'format':'json','q':'healthcheck'})}"
+    health_engine = env.get("SEARXNG_HEALTH_ENGINE", "wikipedia")
+    health_url = f"{base}/search?{urllib.parse.urlencode({'format':'json','q':'healthcheck','engines':health_engine})}"
 
     engine_profile = env.get("SEARXNG_ENGINE_PROFILE", "safe_research")
+    keep_only_engines = env.get("SEARXNG_SAFE_KEEP_ONLY_ENGINES", DEFAULT_SAFE_KEEP_ONLY_ENGINES)
     disabled_engines = env.get("SEARXNG_DISABLED_ENGINES", DEFAULT_DISABLED_ENGINES)
     repair_settings = env.get("SEARXNG_REPAIR_SETTINGS", "true")
-    print(f"[SearXNG][windows] engine_profile={engine_profile} disabled_engines={disabled_engines} repair={repair_settings}")
+    force_safe_settings = env.get("SEARXNG_FORCE_SAFE_SETTINGS", "false")
+    print(f"[SearXNG][windows] engine_profile={engine_profile} keep_only={keep_only_engines} disabled_engines={disabled_engines} health_engine={health_engine} force_safe_settings={force_safe_settings} repair={repair_settings}")
 
     ok, _, _ = _health_probe(health_url)
     if ok:
