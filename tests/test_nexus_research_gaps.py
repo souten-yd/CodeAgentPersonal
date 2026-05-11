@@ -8,13 +8,15 @@ def test_uncited_assertion_is_unsupported():
     assert analysis["unsupported_claim_count"] == 1
 
 
-def test_citation_matching_reference_is_supported():
+def test_citation_matching_reference_without_text_is_weakly_supported():
     analysis = analyze_claim_level_gaps(
         {"answer_markdown": "制度は発表済みです [S1]", "references": [{"citation_label": "[S1]"}]},
         [{"source_id": "src1", "citation_label": "[S1]"}],
         [],
     )
-    assert analysis["supported_claim_count"] == 1
+    assert analysis["supported_claim_count"] == 0
+    assert analysis["weakly_supported_claim_count"] == 1
+    assert "weakly_supported_claims" in analysis["gaps"]
     assert "unsupported_claims" not in analysis["gaps"]
 
 
@@ -61,6 +63,6 @@ def test_followup_needed_section_does_not_pollute_claim_counts():
         [],
     )
     assert analysis["claim_count"] == 1
-    assert analysis["supported_claim_count"] == 1
+    assert analysis["weakly_supported_claim_count"] == 1
     assert analysis["unsupported_claim_count"] == 0
     assert "実施日程の一次資料を確認する" in analysis["unresolved_items"]
