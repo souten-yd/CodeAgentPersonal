@@ -5184,7 +5184,7 @@ def seed_default_model_catalog():
         "has_mmproj": 0,
         "parser": "json",
         "auto_roles": "chat,translate,reason,search",
-        "ctx_size": 65535,
+        "ctx_size": 32768,
         "gpu_layers": 999,
         "threads": 8,
         "description": "Bundled Unsloth Gemma 4 E4B IT GGUF Q4_K_M model for initial setup and benchmarking.",
@@ -5196,7 +5196,7 @@ def seed_default_model_catalog():
         "llm_url": "",
         "quantization": "Q4_K_M",
     }
-    default_info["ctx_size"] = 65535
+    default_info["ctx_size"] = 32768
 
     if not IS_RUNPOD_RUNTIME:
         print("[ModelDB] skip bundled Gemma seed outside Runpod runtime.")
@@ -5231,8 +5231,9 @@ def seed_default_model_catalog():
         patch["auto_roles"] = default_info["auto_roles"]
     if not str(existing.get("parser") or "").strip():
         patch["parser"] = default_info["parser"]
-    if int(existing.get("ctx_size") or 0) < 65535:
-        patch["ctx_size"] = default_info["ctx_size"]
+    current_ctx = int(existing.get("ctx_size") or 0)
+    if current_ctx <= 0 or current_ctx < 16384:
+        patch["ctx_size"] = 32768
     if int(existing.get("gpu_layers") or 0) <= 0:
         patch["gpu_layers"] = default_info["gpu_layers"]
     if int(existing.get("threads") or 0) <= 0:
@@ -6118,7 +6119,7 @@ def _infer_ctx_size_from_name(name: str, default_ctx: int | None = None) -> int:
         default_ctx = _resolve_default_ctx_size()
     text = (name or "").lower()
     if "gemma-4" in text or "gemma_4" in text or "gemma 4" in text or "gemma4" in text:
-        return 65535
+        return 32768
     # 例: 32k / 128k / ctx4096
     mk = re.search(r"(\d{1,4})k(?:[^a-z0-9]|$)", text)
     if mk:
@@ -6671,8 +6672,8 @@ def _infer_model_db_metadata(info: dict) -> dict:
             current_ctx = int(str(inferred_ctx).strip())
         except (TypeError, ValueError):
             current_ctx = 0
-        if current_ctx <= 0 or current_ctx < 65535:
-            inferred_ctx = 65535
+        if current_ctx <= 0 or current_ctx < 16384:
+            inferred_ctx = 32768
     return {
         **info,
         "ctx_size": inferred_ctx,
