@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import os
 from typing import Any, Callable, Mapping
 
 from app.nexus.evidence import EvidenceItem, build_library_evidence, save_evidence_items
@@ -36,6 +37,21 @@ def _value_or_default(payload: Any, name: str, default: Any) -> Any:
     return default if value is None else value
 
 
+
+def _is_long_context_deep_research() -> bool:
+    profile = os.environ.get("NEXUS_DEEP_RESEARCH_CONTEXT_PROFILE", "").strip().lower()
+    if profile == "long_64k":
+        return True
+    raw_ctx = (
+        os.environ.get("NEXUS_ANSWER_LLM_MAX_CONTEXT_TOKENS")
+        or os.environ.get("LLAMA_CTX_SIZE")
+        or "0"
+    )
+    try:
+        return int(str(raw_ctx).strip()) >= 60000
+    except (TypeError, ValueError):
+        return False
+
 def _clone_research_request(payload: Any, **overrides: Any) -> ResearchRunRequest:
     data = _payload_to_dict(payload)
     data.update({k: v for k, v in overrides.items() if v is not None})
@@ -43,18 +59,20 @@ def _clone_research_request(payload: Any, **overrides: Any) -> ResearchRunReques
 
 
 def _build_deep_research_payload(payload: Any, **overrides: Any) -> ResearchRunRequest:
+    long_context = _is_long_context_deep_research()
     deep_defaults = {
         "mode": "deep",
         "depth": "deep",
-        "max_queries": _value_or_default(payload, "max_queries", 6),
-        "max_results_per_query": _value_or_default(payload, "max_results_per_query", 8),
-        "max_sources": _value_or_default(payload, "max_sources", 40),
-        "max_downloads": _value_or_default(payload, "max_downloads", 16),
-        "prefer_pdf": True,
-        "official_first": True,
+        "max_queries": _value_or_default(payload, "max_queries", 8 if long_context else 6),
+        "max_results_per_query": _value_or_default(payload, "max_results_per_query", 10 if long_context else 8),
+        "max_sources": _value_or_default(payload, "max_sources", 60 if long_context else 40),
+        "max_downloads": _value_or_default(payload, "max_downloads", 24 if long_context else 16),
+        "max_followup_queries": _value_or_default(payload, "max_followup_queries", 6 if long_context else 4),
+        "prefer_pdf": _value_or_default(payload, "prefer_pdf", True),
+        "official_first": _value_or_default(payload, "official_first", True),
         "continue_on_download_error": True,
         "source_profile": _value_or_default(payload, "source_profile", "web"),
-        "confidence_threshold": _value_or_default(payload, "confidence_threshold", 0.78),
+        "confidence_threshold": _value_or_default(payload, "confidence_threshold", 0.82 if long_context else 0.78),
         "stop_when_sufficient": _value_or_default(payload, "stop_when_sufficient", True),
     }
     deep_defaults.update(overrides)
@@ -210,7 +228,7 @@ def run_nexus_recursive_research_service(
         payload,
         recursive_search=True,
         max_iterations=_value_or_default(payload, "max_iterations", 2),
-        max_followup_queries=_value_or_default(payload, "max_followup_queries", 4),
+        max_followup_queries=_value_or_default(payload, "max_followup_queries", 6 if _is_long_context_deep_research() else 4),
     )
     if recursive_payload.max_iterations < 2:
         recursive_payload = _clone_research_request(recursive_payload, max_iterations=2)

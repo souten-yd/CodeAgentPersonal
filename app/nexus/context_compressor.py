@@ -7,7 +7,7 @@ import re
 from collections import defaultdict
 
 
-PROFILE_ORDER = ["compact_8k", "standard_16k", "high_24k", "extended_32k"]
+PROFILE_ORDER = ["compact_8k", "standard_16k", "high_24k", "extended_32k", "long_64k"]
 
 
 @dataclass(frozen=True)
@@ -53,6 +53,14 @@ PROFILES: dict[str, CompressionProfile] = {
         max_evidence_chars=42000,
         max_source_tokens=7600,
     ),
+    "long_64k": CompressionProfile(
+        "long_64k",
+        max_evidence_tokens=46000,
+        max_evidence_chunks=96,
+        max_chars_per_chunk=2400,
+        max_evidence_chars=90000,
+        max_source_tokens=14000,
+    ),
 }
 
 
@@ -89,9 +97,9 @@ def _tokenize(text: str) -> set[str]:
 def _source_quality_weight(source_type: str) -> float:
     key = str(source_type or "").strip().lower()
     if key == "official":
+        return 1.35
+    if key in {"paper", "report"}:
         return 1.25
-    if key == "paper":
-        return 1.2
     if key == "news":
         return 1.05
     if key == "market":
@@ -101,12 +109,53 @@ def _source_quality_weight(source_type: str) -> float:
     return 0.9
 
 
+def _safe_float(value: object, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _evidence_quality_weight(source: dict, chunk: dict) -> float:
+    score = 0.0
+    source_type = str(source.get("source_type") or chunk.get("source_type") or "").lower()
+    content_type = str(
+        chunk.get("content_type")
+        or source.get("content_type")
+        or chunk.get("mime_type")
+        or source.get("mime_type")
+        or ""
+    ).lower()
+    status = str(chunk.get("status") or source.get("status") or "").lower()
+    quote = str(chunk.get("quote") or chunk.get("text") or "")
+    citation_label = str(chunk.get("citation_label") or source.get("citation_label") or "").strip()
+
+    if source.get("is_official") or chunk.get("is_official") or source_type == "official":
+        score += 0.4
+    if source_type in {"paper", "report"}:
+        score += 0.25
+    if "pdf" in content_type or str(source.get("url") or "").lower().endswith(".pdf"):
+        score += 0.25
+    if citation_label:
+        score += 0.15
+    if status in {"degraded", "failed", "fallback_without_chunks"}:
+        score -= 0.6
+    if len(quote) > 300:
+        score += 0.1
+    explicit_score = _safe_float(chunk.get("source_quality_score", source.get("source_quality_score", 0.0)))
+    if explicit_score:
+        score += max(-0.4, min(0.4, explicit_score * 0.4))
+    return score
+
+
 def _normalize_quote(text: str) -> str:
     q = re.sub(r"\s+", " ", str(text or "").strip().lower())
     return q[:400]
 
 
 def choose_profile_name(ctx_tokens: int) -> str:
+    if ctx_tokens >= 60000:
+        return "long_64k"
     if ctx_tokens >= 32768:
         return "extended_32k"
     if ctx_tokens >= 24576:
@@ -185,6 +234,7 @@ def compress_large_source(query: str, source: dict, chunks: list[dict], budget: 
         score = float(overlap)
         score += min(1.0, len(quote) / 1200.0)
         score += _source_quality_weight(str(source.get("source_type") or chunk.get("source_type") or "web"))
+        score += _evidence_quality_weight(source, chunk)
         score += (0.0001 * (len(chunks) - idx))
         row = dict(chunk)
         row["_score"] = score
@@ -280,7 +330,11 @@ def compress_global_evidence(query: str, references: list[dict], evidence_chunks
         stype = str(packet["source"].get("source_type") or "web").lower()
         text = " ".join(str(c.get("quote") or c.get("text") or "") for c in packet.get("chunks", []))
         overlap = len(q_terms & _tokenize(text))
-        packet["_rank"] = overlap + _source_quality_weight(stype)
+        quality = sum(
+            _evidence_quality_weight(packet.get("source", {}), c)
+            for c in packet.get("chunks", [])
+        )
+        packet["_rank"] = overlap + _source_quality_weight(stype) + quality
 
     packets.sort(key=lambda p: p.get("_rank", 0.0), reverse=True)
 
@@ -410,6 +464,7 @@ def compress_global_evidence(query: str, references: list[dict], evidence_chunks
         "max_chars_per_chunk": budget.max_chars_per_chunk,
         "compression_empty_fallback_used": compression_empty_fallback_used,
         "selected_source_types": selected_source_types,
+        "compression_profile": budget.compression_profile,
     }
     return {
         "references": selected_refs,

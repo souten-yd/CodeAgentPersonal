@@ -20,12 +20,16 @@ class TestPhase303LlamaKvCacheQ8Contract(unittest.TestCase):
         self.assertIn('--cache-type-k', b)
         self.assertIn('--cache-type-v', b)
 
-    def test_ctx_stays_16k(self):
+    def test_ctx_defaults_are_runpod_gemma_64k_but_local_safe(self):
         d = Path('Dockerfile').read_text(encoding='utf-8')
         s = Path('scripts/start_codeagent.py').read_text(encoding='utf-8')
-        self.assertIn('DEFAULT_LLM_CTX_SIZE=16384', d)
-        self.assertIn('LLAMA_CTX_SIZE=16384', d)
-        self.assertIn('env.setdefault("DEFAULT_LLM_CTX_SIZE", "16384")', s)
+        r = Path('scripts/runpod_start.sh').read_text(encoding='utf-8')
+        self.assertIn('LLAMA_CACHE_TYPE_K=q8_0', d)
+        self.assertIn('LLAMA_CACHE_TYPE_V=q8_0', d)
+        self.assertIn('DEFAULT_LLM_CTX_SIZE="${DEFAULT_LLM_CTX_SIZE:-65535}"', r)
+        self.assertIn('def _default_llm_ctx_size', s)
+        self.assertIn('return "16384"', s)
+        self.assertIn('return "65535"', s)
 
     def test_no_aggressive_defaults(self):
         m = Path('main.py').read_text(encoding='utf-8')
