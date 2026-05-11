@@ -224,6 +224,9 @@ window.pushNexusTimelineEvent = pushNexusTimelineEvent;
 window.renderNexusDocuments = renderNexusDocuments;
 window.renderNexusJobs = renderNexusJobs;
 window.setNexusDropzoneActive = setNexusDropzoneActive;
+window.isNexusAdvancedSettingsOpen = isNexusAdvancedSettingsOpen;
+window.collectNexusAdvancedOverrides = collectNexusAdvancedOverrides;
+window.bindNexusAdvancedSettingsToggleState = bindNexusAdvancedSettingsToggleState;
 
 function detectNexusLongContext() {
   if (typeof window !== 'undefined' && window.__nexusLongContext === true) return true;
@@ -255,6 +258,86 @@ function resolveNexusResearchAutoSettings({ searchType, depth } = {}) {
     official: { scope: 'official', source_profile: 'official', prefer_pdf: true, official_first: true },
   };
   return { ...(byDepth[key] || byDepth.standard), ...(typeMap[type] || typeMap.general) };
+}
+
+
+function isNexusAdvancedSettingsOpen() {
+  const el = document.getElementById('nexus-research-advanced');
+  return !!(el && el.open);
+}
+
+function collectNexusAdvancedOverrides() {
+  if (!isNexusAdvancedSettingsOpen()) return {};
+
+  const readInt = (id, min, max) => {
+    const value = document.getElementById(id)?.value;
+    if (typeof clampInt === 'function') return clampInt(value, min, max);
+    const num = parseInt(String(value ?? '').trim(), 10);
+    if (!Number.isFinite(num)) return null;
+    return Math.min(max, Math.max(min, num));
+  };
+  const readFloat = (id, min, max) => {
+    const value = document.getElementById(id)?.value;
+    if (typeof clampFloat === 'function') return clampFloat(value, min, max);
+    const num = Number.parseFloat(String(value ?? '').trim());
+    if (!Number.isFinite(num)) return null;
+    return Math.min(max, Math.max(min, num));
+  };
+  const readChecked = (id, defaultValue = true) => {
+    const el = document.getElementById(id);
+    return el ? el.checked === true : defaultValue;
+  };
+  const setIfPresent = (target, key, value) => {
+    if (value !== null && value !== undefined && value !== '') target[key] = value;
+  };
+
+  const overrides = {};
+  const scope = (document.getElementById('nexus-deep-scope')?.value || '').trim().toLowerCase();
+  setIfPresent(overrides, 'scope', scope);
+  setIfPresent(overrides, 'max_queries', readInt('nexus-deep-max-queries', 1, 50));
+  setIfPresent(overrides, 'max_results_per_query', readInt('nexus-deep-max-results-per-query', 1, 100));
+  setIfPresent(overrides, 'max_sources', readInt('nexus-deep-max-sources', 1, 200));
+  setIfPresent(overrides, 'max_download_mb', readInt('nexus-deep-max-download-mb', 1, 500));
+  setIfPresent(overrides, 'max_total_download_mb', readInt('nexus-deep-max-total-download-mb', 1, 2048));
+  setIfPresent(overrides, 'max_downloads', readInt('nexus-deep-max-downloads', 1, 200));
+  setIfPresent(overrides, 'download_timeout_sec', readInt('nexus-deep-download-timeout-sec', 1, 600));
+  overrides.continue_on_download_error = readChecked('nexus-deep-continue-on-download-error', true);
+  overrides.prefer_pdf = readChecked('nexus-deep-prefer-pdf', true);
+  overrides.official_first = readChecked('nexus-deep-official-first', true);
+
+  const recursiveSearch = readChecked('nexus-deep-recursive-search', false);
+  const recursiveSettings = (typeof normalizeNexusRecursiveSettings === 'function')
+    ? normalizeNexusRecursiveSettings({
+      recursiveSearch,
+      maxIterations: document.getElementById('nexus-deep-max-iterations')?.value,
+      maxFollowupQueries: document.getElementById('nexus-deep-max-followup-queries')?.value,
+      confidenceThreshold: document.getElementById('nexus-deep-confidence-threshold')?.value,
+      stopWhenSufficient: readChecked('nexus-deep-stop-when-sufficient', true),
+    })
+    : {
+      recursive_search: recursiveSearch,
+      max_iterations: recursiveSearch ? (readInt('nexus-deep-max-iterations', 1, 5) ?? 2) : 1,
+      max_followup_queries: recursiveSearch ? (readInt('nexus-deep-max-followup-queries', 1, 10) ?? 4) : 4,
+      confidence_threshold: recursiveSearch ? (readFloat('nexus-deep-confidence-threshold', 0, 1) ?? 0.75) : 0.75,
+      stop_when_sufficient: readChecked('nexus-deep-stop-when-sufficient', true),
+    };
+  overrides.recursive_search = recursiveSettings.recursive_search;
+  overrides.max_iterations = recursiveSettings.max_iterations;
+  overrides.max_followup_queries = recursiveSettings.max_followup_queries;
+  overrides.confidence_threshold = recursiveSettings.confidence_threshold;
+  overrides.stop_when_sufficient = recursiveSettings.stop_when_sufficient;
+  window.__nexusAdvancedOverridesEnabled = true;
+  return overrides;
+}
+
+function bindNexusAdvancedSettingsToggleState() {
+  const el = document.getElementById('nexus-research-advanced');
+  if (!el || el.dataset.nexusAdvancedToggleBound === 'true') return;
+  el.dataset.nexusAdvancedToggleBound = 'true';
+  el.addEventListener('toggle', () => {
+    window.__nexusAdvancedOverridesEnabled = el.open === true;
+    if (!el.open) window.__nexusAdvancedOverridesEnabled = false;
+  });
 }
 
 function classifyNexusAnswerGenerationNotice(answerJson = {}) {
