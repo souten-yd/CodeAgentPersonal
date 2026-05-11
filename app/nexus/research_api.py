@@ -51,6 +51,14 @@ class ResearchRunRequest(BaseModel):
     confidence_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
     stop_when_sufficient: bool = True
     source_profile: str = Field(default="web")
+    target_candidate_count: int | None = Field(default=None, ge=1, le=500)
+    target_valid_source_count: int | None = Field(default=None, ge=1, le=200)
+    target_evidence_count: int | None = Field(default=None, ge=1, le=300)
+    target_high_quality_source_count: int | None = Field(default=None, ge=0, le=200)
+    target_official_source_count: int | None = Field(default=None, ge=0, le=200)
+    target_pdf_source_count: int | None = Field(default=None, ge=0, le=200)
+    max_retrieval_rounds: int | None = Field(default=None, ge=1, le=8)
+    adaptive_retrieval_enabled: bool | None = None
     news_budget: dict | None = None
 
 

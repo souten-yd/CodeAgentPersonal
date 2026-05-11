@@ -24,8 +24,8 @@ def test_deep_research_service_applies_deep_defaults():
     assert payload.depth == "deep"
     assert payload.max_queries == 6
     assert payload.max_results_per_query == 8
-    assert payload.max_sources == 40
-    assert payload.max_downloads == 16
+    assert payload.max_sources == 100
+    assert payload.max_downloads == 48
     assert payload.prefer_pdf is True
     assert payload.official_first is True
     assert payload.continue_on_download_error is True

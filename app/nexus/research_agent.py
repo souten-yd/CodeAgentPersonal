@@ -19,7 +19,7 @@ from app.nexus.evidence import EvidenceItem, replace_evidence_items_for_job, sav
 from app.nexus.jobs import append_job_event, append_job_heartbeat, create_job, ensure_job_exists, update_job
 from app.nexus.news_sources import NewsResearchSourceProfile, collect_news_research_sources, convert_news_items_to_evidence
 from app.nexus.research_gaps import analyze_claim_level_gaps
-from app.nexus.source_collector import collect_source_candidates, rank_source_candidates
+from app.nexus.source_collector import collect_source_candidates, get_curated_domain_hints, rank_source_candidates
 from app.nexus.source_registry import (
     canonicalize_source_url,
     find_reusable_artifact,
@@ -73,6 +73,14 @@ class ResearchAgentInput:
     confidence_threshold: float = 0.75
     stop_when_sufficient: bool = True
     source_profile: str = "web"
+    target_candidate_count: int | None = None
+    target_valid_source_count: int | None = None
+    target_evidence_count: int | None = None
+    target_high_quality_source_count: int | None = None
+    target_official_source_count: int | None = None
+    target_pdf_source_count: int | None = None
+    max_retrieval_rounds: int | None = None
+    adaptive_retrieval_enabled: bool | None = None
     news_budget: dict[str, Any] | None = None
 
 
@@ -80,6 +88,127 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+
+
+_RETRIEVAL_TARGET_DEFAULTS: dict[str, dict[str, Any]] = {
+    "quick": {"target_candidate_count": 30, "target_valid_source_count": 8, "target_evidence_count": 25, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 1, "adaptive_retrieval_enabled": True},
+    "standard": {"target_candidate_count": 80, "target_valid_source_count": 18, "target_evidence_count": 50, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 2, "adaptive_retrieval_enabled": True},
+    "deep": {"target_candidate_count": 180, "target_valid_source_count": 35, "target_evidence_count": 100, "target_high_quality_source_count": 10, "target_official_source_count": 6, "target_pdf_source_count": 6, "max_retrieval_rounds": 4, "adaptive_retrieval_enabled": True},
+    "exhaustive": {"target_candidate_count": 300, "target_valid_source_count": 55, "target_evidence_count": 160, "target_high_quality_source_count": 16, "target_official_source_count": 10, "target_pdf_source_count": 10, "max_retrieval_rounds": 5, "adaptive_retrieval_enabled": True},
+}
+
+
+def build_retrieval_targets(payload: ResearchAgentInput, *, long_64k: bool = False) -> dict[str, Any]:
+    depth = str(payload.depth or payload.mode or "standard").strip().lower()
+    if depth not in _RETRIEVAL_TARGET_DEFAULTS:
+        depth = "standard"
+    targets = dict(_RETRIEVAL_TARGET_DEFAULTS[depth])
+    if long_64k and depth == "deep":
+        targets["target_evidence_count"] = 120
+    if long_64k and depth == "exhaustive":
+        targets["target_evidence_count"] = 180
+    for key in list(targets):
+        value = getattr(payload, key, None)
+        if value is not None:
+            targets[key] = value
+    return targets
+
+
+def should_expand_retrieval(summary: dict, targets: dict, round_index: int) -> tuple[bool, list[str]]:
+    max_rounds = int(targets.get("max_retrieval_rounds") or 1)
+    if round_index >= max_rounds:
+        return False, []
+    checks = [
+        ("valid_source_count", "target_valid_source_count", "valid_sources_below_target"),
+        ("evidence_count", "target_evidence_count", "evidence_below_target"),
+        ("high_quality_source_count", "target_high_quality_source_count", "high_quality_sources_below_target"),
+        ("official_source_count", "target_official_source_count", "official_sources_below_target"),
+        ("pdf_source_count", "target_pdf_source_count", "pdf_sources_below_target"),
+        ("candidate_count", "target_candidate_count", "candidate_pool_below_target"),
+    ]
+    reasons: list[str] = []
+    for current_key, target_key, reason in checks:
+        target_value = int(targets.get(target_key) or 0)
+        if target_value > 0 and int(summary.get(current_key) or 0) < target_value:
+            reasons.append(reason)
+    return bool(reasons), reasons
+
+
+def build_retrieval_strategy(source_profile: str, depth: str, round_index: int, gaps: dict | None = None) -> dict:
+    profile = str(source_profile or "web").strip().lower()
+    strategies = ["safe_research", "official_pdf_report", "curated_domains", "broad_safe_fallback", "claim_gap_followup"]
+    name = strategies[min(max(round_index, 0), len(strategies) - 1)]
+    query_suffixes: list[str] = []
+    use_curated_domains = False
+    if name == "official_pdf_report":
+        query_suffixes = ["official", "PDF", "report", "white paper", "market report", "government", "industry association", "公式", "PDF", "報告書", "白書", "市場調査", "業界団体", "官公庁"]
+    elif name == "curated_domains":
+        use_curated_domains = True
+        query_suffixes = ["official report", "technical report", "industry association", "annual report"]
+    elif name == "broad_safe_fallback":
+        query_suffixes = ["analysis", "outlook", "forecast", "roadmap", "risks opportunities", "latest", "事例", "動向", "見通し"]
+    elif name == "claim_gap_followup":
+        query_suffixes = ["evidence", "source", "data", "statistics", "根拠", "統計", "データ"]
+    return {
+        "name": name,
+        "searxng_engine_profile": "adaptive_research" if round_index > 0 else "safe_research",
+        "query_suffixes": query_suffixes,
+        "use_curated_domains": use_curated_domains,
+        "source_profile": profile,
+        "depth": depth,
+        "gaps": gaps or {},
+    }
+
+
+def _retrieval_strategy_queries(base_queries: list[str], strategy: dict, query: str, source_profile: str, cap: int) -> list[str]:
+    queries: list[str] = []
+    for q in base_queries or [query]:
+        if q and q not in queries:
+            queries.append(q)
+    for suffix in strategy.get("query_suffixes") or []:
+        variant = f"{query} {suffix}".strip()
+        if variant not in queries:
+            queries.append(variant)
+    if strategy.get("use_curated_domains"):
+        for hint in get_curated_domain_hints(query, source_profile)[:24]:
+            variant = f"{query} {hint}".strip()
+            if variant not in queries:
+                queries.append(variant)
+    return queries[: max(1, cap)]
+
+
+def _retrieval_summary(
+    *,
+    targets: dict,
+    retrieval_rounds: list[dict],
+    candidate_count: int,
+    attempted_download_count: int,
+    registered_sources: list[dict],
+    evidence_chunks: list[dict],
+    skipped_due_to_download_limit_count: int,
+) -> dict[str, Any]:
+    def _url(item: dict) -> str:
+        return str(item.get("url") or item.get("final_url") or "").lower()
+    valid = [s for s in registered_sources if str(s.get("status") or "") in {"downloaded", "degraded", "reused", "ingested", ""}]
+    official_count = sum(1 for s in valid if s.get("is_official") or any(token in _url(s) for token in (".gov", ".go.jp", ".europa.eu", ".int", ".edu", ".ac.jp", "nasa.gov", "faa.gov", "easa.europa.eu", "icao.int", "iata.org")))
+    pdf_count = sum(1 for s in valid if s.get("is_pdf") or "pdf" in str(s.get("content_type") or "").lower() or _url(s).endswith(".pdf"))
+    high_quality = sum(1 for s in valid if s.get("is_official") or s.get("is_pdf") or float(s.get("retrieval_score") or s.get("source_score") or 0) >= 3.0)
+    summary = {
+        "retrieval_rounds": retrieval_rounds,
+        "candidate_count": candidate_count,
+        "attempted_download_count": attempted_download_count,
+        "valid_source_count": len(valid),
+        "evidence_count": len(evidence_chunks),
+        "high_quality_source_count": high_quality,
+        "official_source_count": official_count,
+        "pdf_source_count": pdf_count,
+        "skipped_due_to_download_limit_count": skipped_due_to_download_limit_count,
+    }
+    summary.update({k: targets.get(k) for k in targets if k.startswith("target_") or k in {"max_retrieval_rounds", "adaptive_retrieval_enabled"}})
+    _, unsatisfied = should_expand_retrieval(summary, {**targets, "max_retrieval_rounds": 999}, 0)
+    summary["targets_satisfied"] = not unsatisfied
+    summary["unsatisfied_targets"] = unsatisfied
+    return summary
 
 def _extract_http_status(exc: Exception) -> int | None:
     candidates: list[Exception | BaseException] = [exc]
@@ -995,157 +1124,194 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         )
         update_job(effective_job_id, status="running", progress=0.2, message="searching web")
 
+        targets = build_retrieval_targets(payload)
+        adaptive_enabled = bool(targets.get("adaptive_retrieval_enabled", True))
+        max_rounds = int(targets.get("max_retrieval_rounds") or 1) if adaptive_enabled else 1
+        max_rounds = max(1, min(max_rounds, 8))
+        base_queries = list(queries)
+        all_items: list[dict] = []
+        candidate_by_url: dict[str, dict] = {}
+        attempted_canonical_urls: set[str] = set()
+        retrieval_rounds: list[dict] = []
+        skipped_due_to_download_limit_count = 0
+        last_expand_reasons: list[str] = []
+        cumulative_downloaded_bytes = 0
+
         _emit_phase(effective_job_id, "web_search_started", phase="web_search", message="web search started", progress=0.22)
         _record_state(effective_job_id, "searching", message="running web search", progress=0.25)
-        search = run_web_search(
-            queries,
-            mode=payload.mode,
-            depth=payload.depth,
-            max_results_per_query=payload.max_results_per_query,
-            scope=payload.scope,
-            language=payload.language,
-        )
-        items = list(search.get("items") or [])
-        _emit_phase(
-            effective_job_id,
-            "web_search_finished",
-            phase="web_search",
-            message="web search finished",
-            progress=0.35,
-            details={"result_count": len(items)},
-        )
 
-        _emit_phase(
-            effective_job_id, "source_collection_started", phase="source_collection", message="source collection started", progress=0.36
-        )
-        _record_state(effective_job_id, "collecting_sources", message="normalizing source candidates", progress=0.4)
-        candidates = collect_source_candidates(search_items=items, manual_urls=payload.manual_urls)
-        ranked_candidates = rank_source_candidates(
-            candidates,
-            prefer_pdf=payload.prefer_pdf,
-            official_first=payload.official_first,
-        )
-        ranked_candidates, stub_filtered_count = _filter_stub_candidates(ranked_candidates, payload)
-        if stub_filtered_count:
+        for round_index in range(max_rounds):
+            strategy = build_retrieval_strategy(payload.source_profile, str(payload.depth or payload.mode or "standard"), round_index, {"reasons": last_expand_reasons})
+            round_queries = _retrieval_strategy_queries(base_queries, strategy, query, payload.source_profile, max(1, payload.max_queries or len(base_queries) or 1) + (round_index * 6))
             append_job_event(
                 effective_job_id,
-                "stub_sources_filtered",
+                "retrieval_round_started",
                 {
+                    "round": round_index + 1,
+                    "strategy": strategy.get("name"),
+                    "query_count": len(round_queries),
+                    "expand_reasons": last_expand_reasons,
                     "status": "running",
-                    "phase": "source_collection",
-                    "message": "stub search results filtered from deep research evidence",
-                    "filtered_count": stub_filtered_count,
+                    "phase": "web_search",
                     "updated_at": _now_iso(),
                 },
             )
-        if stub_filtered_count and not ranked_candidates:
-            message = "Web検索 provider が有効な実ソースを返せなかったため、根拠付き回答は生成できません"
-            answer_payload = {
-                "question": query,
-                "answer": message,
-                "summary": message,
-                "answer_markdown": message,
-                "references": [],
-                "evidence": [],
-                "output_incomplete": True,
-                "generation_mode": "stub_filtered_no_real_sources",
-                "stub_sources_filtered": stub_filtered_count,
+            round_search = run_web_search(
+                round_queries,
+                mode=payload.mode,
+                depth=payload.depth,
+                max_results_per_query=payload.max_results_per_query,
+                scope=payload.scope,
+                language=payload.language,
+            )
+            if round_index == 0:
+                search = round_search
+            else:
+                search.setdefault("retrieval_round_searches", []).append(round_search)
+            round_items = list(round_search.get("items") or [])
+            all_items.extend(round_items)
+            round_candidates = collect_source_candidates(search_items=all_items, manual_urls=payload.manual_urls if round_index == 0 else [])
+            ranked_all = rank_source_candidates(
+                round_candidates,
+                prefer_pdf=payload.prefer_pdf,
+                official_first=payload.official_first,
+                query=query,
+                trusted_domain_hints=get_curated_domain_hints(query, payload.source_profile),
+            )
+            ranked_all, stub_filtered_count = _filter_stub_candidates(ranked_all, payload)
+            if stub_filtered_count:
+                append_job_event(
+                    effective_job_id,
+                    "stub_sources_filtered",
+                    {
+                        "status": "running",
+                        "phase": "source_collection",
+                        "message": "stub search results filtered from deep research evidence",
+                        "filtered_count": stub_filtered_count,
+                        "updated_at": _now_iso(),
+                    },
+                )
+            for candidate in ranked_all:
+                canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
+                if canonical and canonical not in candidate_by_url:
+                    candidate_by_url[canonical] = candidate
+            ranked_candidates = list(candidate_by_url.values())
+            ranked_candidates = rank_source_candidates(
+                ranked_candidates,
+                prefer_pdf=payload.prefer_pdf,
+                official_first=payload.official_first,
+                query=query,
+                trusted_domain_hints=get_curated_domain_hints(query, payload.source_profile),
+            )[:max_sources]
+
+            if stub_filtered_count and not ranked_candidates and round_index == max_rounds - 1:
+                message = "Web検索 provider が有効な実ソースを返せなかったため、根拠付き回答は生成できません"
+                answer_payload = {
+                    "question": query,
+                    "answer": message,
+                    "summary": message,
+                    "answer_markdown": message,
+                    "references": [],
+                    "evidence": [],
+                    "output_incomplete": True,
+                    "generation_mode": "stub_filtered_no_real_sources",
+                    "stub_sources_filtered": stub_filtered_count,
+                }
+                answer_payload["claim_analysis"] = analyze_claim_level_gaps(answer_payload, [], [])
+                save_minimal_research_answer(job_id=effective_job_id, project=payload.project, question=query, answer_payload=answer_payload)
+                update_job(effective_job_id, status="degraded", progress=1.0, message="no real web results")
+                append_job_event(effective_job_id, "research_completed", {"status": "degraded", "phase": "completed", "message": "no real web results", "reason": "stub_sources_filtered", "filtered_count": stub_filtered_count, "source_count": 0, "evidence_count": 0, "updated_at": _now_iso()})
+                return {"job_id": effective_job_id, "queries": queries, "search": search, "sources": [], "answer": answer_payload}
+
+            remaining_downloads = max(0, max_downloads - len(attempted_canonical_urls))
+            to_download: list[dict] = []
+            if remaining_downloads > 0:
+                for candidate in ranked_candidates:
+                    canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
+                    if not canonical or canonical in attempted_canonical_urls:
+                        continue
+                    to_download.append(candidate)
+                    attempted_canonical_urls.add(canonical)
+                    if len(to_download) >= remaining_downloads:
+                        break
+            skipped_due_to_download_limit_count = max(0, len(ranked_candidates) - len(attempted_canonical_urls))
+
+            if to_download:
+                if round_index == 0:
+                    _emit_phase(effective_job_id, "download_phase_started", phase="downloading", message="download phase started", progress=0.55, details={"total_candidates": len(ranked_candidates), "max_downloads": max_downloads})
+                remaining_total_bytes = max(0, max_total_download_bytes - cumulative_downloaded_bytes)
+                round_downloaded, round_download_errors = _download_sources_parallel(
+                    job_id=effective_job_id,
+                    candidates=to_download,
+                    max_downloads=len(to_download),
+                    max_download_bytes=max_download_bytes,
+                    max_total_download_bytes=remaining_total_bytes,
+                    download_timeout_sec=download_timeout_sec,
+                    continue_on_download_error=payload.continue_on_download_error,
+                    concurrency=runtime_cfg.download_concurrency,
+                    pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
+                    download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
+                    download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
+                )
+                downloadable_sources.extend(round_downloaded)
+                download_error_count += round_download_errors
+                cumulative_downloaded_bytes += sum(max(0, int(item.get("size") or 0)) for item in round_downloaded if str(item.get("status") or "") in {"downloaded", "degraded", "reused"})
+                round_registered = register_or_update_sources(job_id=effective_job_id, project=payload.project, sources=round_downloaded)
+                existing = {str(item.get("source_id") or ""): item for item in registered_sources if str(item.get("source_id") or "")}
+                for item in round_registered:
+                    sid = str(item.get("source_id") or "")
+                    if sid:
+                        existing[sid] = item
+                registered_sources = list(existing.values())
+
+            source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
+            current_summary = _retrieval_summary(
+                targets=targets,
+                retrieval_rounds=retrieval_rounds,
+                candidate_count=len(ranked_candidates),
+                attempted_download_count=len(attempted_canonical_urls),
+                registered_sources=registered_sources,
+                evidence_chunks=source_chunks,
+                skipped_due_to_download_limit_count=skipped_due_to_download_limit_count,
+            )
+            expand, reasons = should_expand_retrieval(current_summary, targets, round_index + 1)
+            round_payload = {
+                "round": round_index + 1,
+                "strategy": strategy.get("name"),
+                "query_count": len(round_queries),
+                "candidate_count": len(ranked_candidates),
+                "new_candidate_count": len(to_download),
+                "attempted_download_count": len(attempted_canonical_urls),
+                "valid_source_count": current_summary.get("valid_source_count", 0),
+                "evidence_count": current_summary.get("evidence_count", 0),
+                "high_quality_source_count": current_summary.get("high_quality_source_count", 0),
+                "official_source_count": current_summary.get("official_source_count", 0),
+                "pdf_source_count": current_summary.get("pdf_source_count", 0),
+                "skipped_due_to_download_limit_count": skipped_due_to_download_limit_count,
+                "expand_reasons": reasons,
+                "status": "running",
+                "phase": "web_search",
+                "updated_at": _now_iso(),
             }
-            answer_payload["claim_analysis"] = analyze_claim_level_gaps(answer_payload, [], [])
-            save_minimal_research_answer(
-                job_id=effective_job_id,
-                project=payload.project,
-                question=query,
-                answer_payload=answer_payload,
-            )
-            update_job(effective_job_id, status="degraded", progress=1.0, message="no real web results")
-            append_job_event(
-                effective_job_id,
-                "research_completed",
-                {
-                    "status": "degraded",
-                    "phase": "completed",
-                    "message": "no real web results",
-                    "reason": "stub_sources_filtered",
-                    "filtered_count": stub_filtered_count,
-                    "source_count": 0,
-                    "evidence_count": 0,
-                    "updated_at": _now_iso(),
-                },
-            )
-            return {"job_id": effective_job_id, "queries": queries, "search": search, "sources": [], "answer": answer_payload}
-        if len(ranked_candidates) > max_sources:
-            append_job_event(
-                effective_job_id,
-                "constraint_applied",
-                {
-                    "status": "running",
-                    "progress": 0.45,
-                    "message": f"candidate limit reached: max_sources={max_sources}",
-                    "reason": "max_sources_exceeded",
-                    "max_download_mb": max_download_mb,
-                    "max_download_bytes": max_download_bytes,
-                    "max_sources": max_sources,
-                    "candidate_count": len(ranked_candidates),
-                },
-            )
-            ranked_candidates = ranked_candidates[:max_sources]
-        _emit_phase(
-            effective_job_id,
-            "source_collection_finished",
-            phase="source_collection",
-            message="source collection finished",
-            progress=0.5,
-            details={"candidate_count": len(ranked_candidates)},
-        )
-        _record_state(effective_job_id, "downloading", message="downloading source content", progress=0.55)
-        _emit_phase(
-            effective_job_id,
-            "download_phase_started",
-            phase="downloading",
-            message="download phase started",
-            progress=0.55,
-            details={"total_candidates": len(ranked_candidates)},
-        )
-        downloadable_sources, download_error_count = _download_sources_parallel(
-            job_id=effective_job_id,
-            candidates=ranked_candidates,
-            max_downloads=max_downloads,
-            max_download_bytes=max_download_bytes,
-            max_total_download_bytes=max_total_download_bytes,
-            download_timeout_sec=download_timeout_sec,
-            continue_on_download_error=payload.continue_on_download_error,
-            concurrency=runtime_cfg.download_concurrency,
-            pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
-            download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
-            download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
-        )
-        _emit_phase(
-            effective_job_id,
-            "download_phase_finished",
-            phase="downloading",
-            message="download phase finished",
-            progress=0.65,
-            details={"download_count": sum(1 for s in downloadable_sources if str(s.get("status")) in {"downloaded", "ingested"}), "download_errors": download_error_count},
-        )
+            retrieval_rounds.append(round_payload)
+            append_job_event(effective_job_id, "retrieval_round_completed", round_payload)
+            last_expand_reasons = reasons
+            if not adaptive_enabled or not expand:
+                break
+
+        ranked_candidates = list(candidate_by_url.values())[:max_sources]
+        _emit_phase(effective_job_id, "web_search_finished", phase="web_search", message="web search finished", progress=0.35, details={"result_count": len(all_items), "retrieval_rounds": len(retrieval_rounds)})
+        _emit_phase(effective_job_id, "source_collection_started", phase="source_collection", message="source collection started", progress=0.36)
+        _record_state(effective_job_id, "collecting_sources", message="normalizing source candidates", progress=0.4)
+        if len(candidate_by_url) >= max_sources:
+            append_job_event(effective_job_id, "constraint_applied", {"status": "running", "progress": 0.45, "message": f"candidate limit reached: max_sources={max_sources}", "reason": "max_sources_exceeded", "max_download_mb": max_download_mb, "max_download_bytes": max_download_bytes, "max_sources": max_sources, "candidate_count": len(candidate_by_url)})
+        _emit_phase(effective_job_id, "source_collection_finished", phase="source_collection", message="source collection finished", progress=0.5, details={"candidate_count": len(ranked_candidates), "attempted_download_count": len(attempted_canonical_urls), "skipped_due_to_download_limit_count": skipped_due_to_download_limit_count})
+        _emit_phase(effective_job_id, "download_phase_finished", phase="downloading", message="download phase finished", progress=0.65, details={"download_count": sum(1 for s in downloadable_sources if str(s.get("status")) in {"downloaded", "ingested", "reused", "degraded"}), "download_errors": download_error_count, "skipped_due_to_download_limit_count": skipped_due_to_download_limit_count})
 
         _emit_phase(effective_job_id, "source_ingest_started", phase="source_ingest", message="source ingest started", progress=0.66)
-        registered_sources = register_or_update_sources(
-            job_id=effective_job_id,
-            project=payload.project,
-            sources=downloadable_sources,
-        )
-
         evidence_items = _build_evidence_from_sources(effective_job_id, registered_sources)
         save_evidence_items(effective_job_id, evidence_items)
-        _emit_phase(
-            effective_job_id,
-            "source_ingest_finished",
-            phase="source_ingest",
-            message="source ingest finished",
-            progress=0.69,
-            details={"source_count": len(registered_sources)},
-        )
+        _emit_phase(effective_job_id, "source_ingest_finished", phase="source_ingest", message="source ingest finished", progress=0.69, details={"source_count": len(registered_sources)})
 
         _emit_phase(effective_job_id, "evidence_retrieval_started", phase="evidence_retrieval", message="evidence retrieval started", progress=0.7)
         _record_state(effective_job_id, "retrieving_evidence", message="mapping citations", progress=0.7)
@@ -1190,6 +1356,15 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             message="answer llm request started",
             progress=0.84,
         )
+        retrieval_summary = _retrieval_summary(
+            targets=targets,
+            retrieval_rounds=retrieval_rounds,
+            candidate_count=len(ranked_candidates),
+            attempted_download_count=len(attempted_canonical_urls),
+            registered_sources=registered_sources,
+            evidence_chunks=source_chunks,
+            skipped_due_to_download_limit_count=skipped_due_to_download_limit_count,
+        )
         if references:
             labels = [f"[S{i + 1}]" for i in range(len(references))]
             summary = f"{query} に関する調査結果です。確認済みソース: {' '.join(labels)}"
@@ -1203,6 +1378,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             evidence_chunks=source_chunks,
             job_id=effective_job_id,
             project=payload.project,
+            retrieval_summary=retrieval_summary,
         )
         iterations: list[dict] = []
         final_confidence = 0.0
@@ -1374,6 +1550,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     evidence_chunks=source_chunks,
                     job_id=effective_job_id,
                     project=payload.project,
+                    retrieval_summary=retrieval_summary,
                 )
                 added_count = len(followup_registered)
                 added_sources_total += added_count

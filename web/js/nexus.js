@@ -246,8 +246,8 @@ function resolveNexusResearchAutoSettings({ searchType, depth } = {}) {
   const byDepth = {
     quick: { max_queries: 2, max_results_per_query: 5, max_sources: 12, max_downloads: 6, recursive_search: false, max_iterations: 1, max_followup_queries: 4, confidence_threshold: 0.72, continue_on_download_error: true, stop_when_sufficient: true },
     standard: { max_queries: 4, max_results_per_query: 6, max_sources: 24, max_downloads: 10, recursive_search: false, max_iterations: 1, max_followup_queries: 4, confidence_threshold: 0.76, continue_on_download_error: true, stop_when_sufficient: true },
-    deep: { max_queries: long64k ? 8 : 6, max_results_per_query: long64k ? 10 : 8, max_sources: long64k ? 60 : 40, max_downloads: long64k ? 24 : 16, recursive_search: true, max_iterations: 2, max_followup_queries: long64k ? 6 : 4, confidence_threshold: long64k ? 0.82 : 0.78, continue_on_download_error: true, stop_when_sufficient: true },
-    exhaustive: { max_queries: long64k ? 10 : 8, max_results_per_query: 12, max_sources: long64k ? 80 : 50, max_downloads: long64k ? 32 : 20, recursive_search: true, max_iterations: 3, max_followup_queries: long64k ? 8 : 5, confidence_threshold: 0.85, continue_on_download_error: true, stop_when_sufficient: true },
+    deep: { max_queries: long64k ? 8 : 6, max_results_per_query: long64k ? 10 : 8, max_sources: 100, max_downloads: 48, target_candidate_count: 180, target_valid_source_count: 35, target_evidence_count: long64k ? 120 : 100, target_high_quality_source_count: 10, target_official_source_count: 6, target_pdf_source_count: 6, max_retrieval_rounds: 4, adaptive_retrieval_enabled: true, recursive_search: true, max_iterations: 2, max_followup_queries: long64k ? 6 : 4, confidence_threshold: long64k ? 0.82 : 0.78, continue_on_download_error: true, stop_when_sufficient: true },
+    exhaustive: { max_queries: long64k ? 10 : 8, max_results_per_query: 12, max_sources: 160, max_downloads: 72, target_candidate_count: 300, target_valid_source_count: 55, target_evidence_count: long64k ? 180 : 160, target_high_quality_source_count: 16, target_official_source_count: 10, target_pdf_source_count: 10, max_retrieval_rounds: 5, adaptive_retrieval_enabled: true, recursive_search: true, max_iterations: 3, max_followup_queries: long64k ? 8 : 5, confidence_threshold: 0.85, continue_on_download_error: true, stop_when_sufficient: true },
   };
   const typeMap = {
     general: { scope: 'web', source_profile: 'web', prefer_pdf: true, official_first: true },
@@ -383,8 +383,11 @@ function formatNexusResearchStatusCompact(job = {}, bundle = {}, answer = {}) {
   const degraded = Number(health.download_degraded ?? dl.degraded ?? 0);
   const failed = Number(health.download_failed ?? dl.failed ?? 0);
   const skipped = Number(health.download_skipped ?? dl.skipped ?? 0);
-  const sources = Array.isArray(bundle.sources) ? bundle.sources.length : Number(health.sources_count ?? 0);
-  const chunks = Number(answer?.generation?.compression?.chunks_used ?? answer?.compression_stats?.chunks_used ?? 0);
+  const retrieval = (answer?.retrieval_summary && typeof answer.retrieval_summary === 'object') ? answer.retrieval_summary : {};
+  const sources = Number(retrieval.valid_source_count ?? (Array.isArray(bundle.sources) ? bundle.sources.length : Number(health.sources_count ?? 0)));
+  const chunks = Number(retrieval.evidence_count ?? answer?.generation?.compression?.chunks_used ?? answer?.compression_stats?.chunks_used ?? 0);
+  const downloadLimited = Number(retrieval.skipped_due_to_download_limit_count ?? 0);
+  const retrievalRounds = Array.isArray(retrieval.retrieval_rounds) ? retrieval.retrieval_rounds.length : 0;
   const terminal = ['completed', 'complete', 'done', 'degraded', 'failed', 'cancelled'].includes(state);
   const hasNotice = degraded + failed + skipped > 0 || state === 'degraded';
   let title = terminal ? '完了しました' : '調査中';
@@ -393,7 +396,13 @@ function formatNexusResearchStatusCompact(job = {}, bundle = {}, answer = {}) {
   const phaseLabel = phase.includes('download') ? 'ダウンロードと根拠抽出' : phase.includes('answer') || phase.includes('report') ? 'レポート生成' : phase.includes('source') || phase.includes('search') ? 'ソース収集中' : '調査を進行中';
   const progressText = terminal ? 'レポート生成まで完了' : (total > 0 ? `ソース収集中 ${completed}/${total}` : `${phaseLabel}${progress ? ` ${progress}%` : ''}`);
   const collection = `ソース${sources || completed || 0}件${chunks ? ` / 根拠${chunks}件` : ''}`;
-  const notice = failed + skipped + degraded > 0 ? `${failed + skipped + degraded}件の取得が不完全でした。Evidenceで確認できます。` : '';
+  const problemCount = Math.max(0, failed + degraded);
+  const limitText = downloadLimited > 0 ? `取得上限で未取得${downloadLimited}件` : '';
+  const problemText = problemCount > 0 ? `取得問題${problemCount}件` : '';
+  const targetNotice = retrieval.targets_satisfied === false
+    ? (retrievalRounds > 1 ? '目標件数に届かなかったため、追加検索を実行しました。一部の目標件数には届きませんでした。' : '一部の目標件数には届きませんでした。')
+    : (retrievalRounds > 1 ? '目標件数に届かなかったため、追加検索を実行しました。' : '');
+  const notice = [problemText, limitText, targetNotice].filter(Boolean).join(' / ');
   const severity = state === 'failed' ? 'error' : (hasNotice ? 'warning' : 'info');
   return { title, progress: progressText, collection, notice, severity };
 }

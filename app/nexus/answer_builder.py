@@ -658,6 +658,7 @@ def build_answer_payload(
     job_id: str | None = None,
     project: str = "default",
     citation_support_verifier: CitationSupportVerifier | None = None,
+    retrieval_summary: dict | None = None,
 ) -> dict:
     normalized = normalize_reference_labels(
         references=references,
@@ -1099,6 +1100,7 @@ def build_answer_payload(
         "output_generation_status": output_generation_status,
         "user_visible_warning": user_visible_warning,
         "user_visible_warning_reason": user_visible_warning_reason,
+        "retrieval_summary": retrieval_summary or {},
     }
 
     if job_id:

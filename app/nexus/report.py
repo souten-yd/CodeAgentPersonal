@@ -84,7 +84,8 @@ def build_report(job_id: str, report_type: str, title: str, sections: list[dict]
 
         if evidence:
             md_lines.append("### Evidence")
-            for ev in evidence:
+            display_evidence = evidence[:40] if heading.lower().startswith(("sources", "references")) else evidence
+            for ev in display_evidence:
                 citation_label = ev.get("citation_label") or "[citation missing]"
                 source_url = ev.get("url") or ev.get("source_url") or ""
                 retrieved_at = ev.get("retrieved_at") or ""
@@ -124,6 +125,7 @@ def build_report(job_id: str, report_type: str, title: str, sections: list[dict]
         "generated_at": generated_at,
         "metadata": metadata or {},
         "sections": normalized_sections,
+        "appendix_sources": (metadata or {}).get("appendix_sources", []),
     }
 
     report_md_path = report_dir / "report.md"
@@ -143,6 +145,13 @@ def build_report(job_id: str, report_type: str, title: str, sections: list[dict]
         ]
     )
     html_body.append("</ul>")
+    retrieval_summary = (metadata or {}).get("retrieval_summary") if isinstance(metadata, dict) else None
+    if isinstance(retrieval_summary, dict) and retrieval_summary:
+        html_body.append("<h2>調査範囲</h2>")
+        html_body.append("<ul>")
+        for key in ("candidate_count", "valid_source_count", "evidence_count", "official_source_count", "pdf_source_count", "high_quality_source_count"):
+            html_body.append(f"<li>{html.escape(key)}: {html.escape(str(retrieval_summary.get(key, 0)))}</li>")
+        html_body.append("</ul>")
     for section in normalized_sections:
         html_body.append(f"<h2>{html.escape(section['heading'])}</h2>")
         if section["summary"]:
@@ -359,6 +368,7 @@ def _build_sections_from_research_answer(job_id: str, answer: dict, evidence_ite
         or str(answer.get("summary") or "")
         or _extract_answer_section(answer_markdown)
     )
+    retrieval_summary = answer.get("retrieval_summary") if isinstance(answer.get("retrieval_summary"), dict) else {}
     claim_analysis = answer.get("claim_analysis") if isinstance(answer.get("claim_analysis"), dict) else {}
     claims = list(claim_analysis.get("claims") or [])
     if claims:
@@ -388,8 +398,22 @@ def _build_sections_from_research_answer(job_id: str, answer: dict, evidence_ite
         uncertainty_bits.append(f"possible_contradictions={claim_analysis.get('contradiction_count')}")
     for warning in list(claim_analysis.get("source_quality_warnings") or [])[:3]:
         uncertainty_bits.append(str(warning))
+    scope_summary = "Retrieval summary is not available."
+    if retrieval_summary:
+        unsatisfied = ", ".join(retrieval_summary.get("unsatisfied_targets") or [])
+        scope_summary = (
+            f"候補件数={retrieval_summary.get('candidate_count', 0)} / "
+            f"有効ソース件数={retrieval_summary.get('valid_source_count', 0)} / "
+            f"Evidence件数={retrieval_summary.get('evidence_count', 0)} / "
+            f"公式={retrieval_summary.get('official_source_count', 0)} / "
+            f"PDF={retrieval_summary.get('pdf_source_count', 0)} / "
+            f"高品質={retrieval_summary.get('high_quality_source_count', 0)}"
+        )
+        if unsatisfied:
+            scope_summary += f"\n未達成target: {unsatisfied}"
     return [
         {"heading": "調査目的", "summary": question, "evidence": []},
+        {"heading": "調査範囲", "summary": scope_summary, "evidence": []},
         {"heading": "結論", "summary": conclusion, "evidence": []},
         {"heading": "主要主張と根拠", "summary": claims_summary, "evidence": []},
         {"heading": "追加確認が必要な点", "summary": "\n".join(f"- {item}" for item in unresolved) if unresolved else "追加確認項目は検出されていません。", "evidence": []},
@@ -487,10 +511,13 @@ def build_job_report(payload: BuildReportRequest) -> dict:
         sections = _build_sections_from_evidence(evidence_items)
         metadata_source = "evidence_only"
     title = payload.title or f"Nexus Report ({payload.job_id})"
+    retrieval_summary = answer.get("retrieval_summary") if isinstance(answer.get("retrieval_summary"), dict) else {}
     claim_analysis = answer.get("claim_analysis") if isinstance(answer.get("claim_analysis"), dict) else {}
     report_metadata = {
         "source": metadata_source,
         "answer_id": answer.get("answer_id"),
+        "retrieval_summary": answer.get("retrieval_summary") if isinstance(answer.get("retrieval_summary"), dict) else {},
+        "appendix_sources": list(answer.get("evidence_json") or answer.get("evidence") or [])[:500],
         "claim_analysis": {
             "claim_count": claim_analysis.get("claim_count", 0),
             "supported_claim_count": claim_analysis.get("supported_claim_count", 0),
