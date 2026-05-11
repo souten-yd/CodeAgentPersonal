@@ -6,7 +6,7 @@ from unittest.mock import patch
 from app.nexus.db import get_conn
 from app.nexus.evidence import EvidenceItem, list_evidence_items, replace_evidence_items_for_job, save_evidence_items
 from app.nexus.jobs import create_job
-from app.nexus.research_agent import ResearchAgentInput, _download_sources_parallel, _should_stop_recursive_research, run_research_job
+from app.nexus.research_agent import ResearchAgentInput, _download_sources_parallel, _generate_followup_queries, _should_stop_recursive_research, run_research_job
 
 
 class NexusResearchAgentTests(unittest.TestCase):
@@ -447,6 +447,26 @@ class NexusResearchParallelDownloadTests(unittest.TestCase):
 
 
 class NexusResearchRecursiveTests(unittest.TestCase):
+    def test_generate_followup_queries_prefers_claim_analysis_text(self) -> None:
+        queries = _generate_followup_queries(
+            original_query="q",
+            gaps=["unsupported_claims"],
+            max_followup_queries=2,
+            claim_analysis={"claims": [{"claim": "重要な未検証の主張 [S1]", "status": "unsupported"}]},
+        )
+        self.assertEqual(len(queries), 1)
+        self.assertIn("重要な未検証の主張", queries[0])
+        self.assertNotIn("[S1]", queries[0])
+
+    def test_generate_followup_queries_falls_back_to_gap_hints(self) -> None:
+        queries = _generate_followup_queries(
+            original_query="q",
+            gaps=["source_count_low"],
+            max_followup_queries=2,
+            claim_analysis={"claims": []},
+        )
+        self.assertEqual(queries, ["q 最新 統計 公式データ"])
+
     def test_recursive_search_false_keeps_existing_path(self) -> None:
         with patch("app.nexus.research_agent.plan_web_queries", return_value=["q"]), patch(
             "app.nexus.research_agent.run_web_search", return_value={"items": []}
@@ -465,6 +485,7 @@ class NexusResearchRecursiveTests(unittest.TestCase):
     def test_recursive_followup_uses_string_queries_and_updates_evidence(self) -> None:
         search_calls: list[list] = []
         replace_calls: list[list] = []
+        captured: list[tuple[str, dict]] = []
 
         def _mock_search(queries, **kwargs):
             search_calls.append(list(queries))
@@ -486,11 +507,45 @@ class NexusResearchRecursiveTests(unittest.TestCase):
             "app.nexus.research_agent._load_source_chunks", return_value=[]
         ), patch("app.nexus.research_agent.build_citation_map", return_value=[]), patch(
             "app.nexus.research_agent._analyze_research_gaps",
-            side_effect=[{"confidence": 0.1, "gaps": ["source_count_low"], "unresolved_items": []}, {"confidence": 0.9, "gaps": [], "unresolved_items": []}],
-        ), patch("app.nexus.research_agent.build_answer_payload", return_value={"answer": "ok"}):
+            side_effect=[
+                {
+                    "confidence": 0.1,
+                    "gaps": ["source_count_low"],
+                    "unresolved_items": [],
+                    "claim_analysis": {
+                        "claim_count": 1,
+                        "supported_claim_count": 0,
+                        "weakly_supported_claim_count": 1,
+                        "unsupported_claim_count": 0,
+                        "unresolved_claim_count": 0,
+                        "average_support_score": 0.0,
+                        "gaps": ["weakly_supported_claims"],
+                    },
+                },
+                {
+                    "confidence": 0.9,
+                    "gaps": [],
+                    "unresolved_items": [],
+                    "claim_analysis": {
+                        "claim_count": 0,
+                        "supported_claim_count": 0,
+                        "weakly_supported_claim_count": 0,
+                        "unsupported_claim_count": 0,
+                        "unresolved_claim_count": 0,
+                        "average_support_score": 0.0,
+                        "gaps": [],
+                    },
+                },
+            ],
+        ), patch("app.nexus.research_agent.build_answer_payload", return_value={"answer": "ok"}), patch(
+            "app.nexus.research_agent.append_job_event", side_effect=lambda _jid, et, payload: captured.append((et, payload))
+        ):
             run_research_job(ResearchAgentInput(query="q", recursive_search=True, max_iterations=2), job_id="job-r1")
         self.assertTrue(all(isinstance(q, str) for q in search_calls[-1]))
         self.assertTrue(replace_calls)
+        verified = [payload for event_type, payload in captured if event_type == "claim_support_verified"]
+        self.assertTrue(verified)
+        self.assertEqual(verified[0]["weakly_supported_claim_count"], 1)
 
     def test_recursive_download_budget_exhaustion_stops(self) -> None:
         captured = []

@@ -279,6 +279,7 @@ def _analyze_research_gaps(*, sources: list[dict], evidence_chunks: list[dict], 
     claim_analysis = analyze_claim_level_gaps(answer_payload, evidence_chunks, sources)
     support_ratio = float(claim_analysis.get("support_ratio") or 0.0)
     confidence += min(0.20, support_ratio * 0.20)
+    confidence -= min(0.12, int(claim_analysis.get("weakly_supported_claim_count") or 0) * 0.02)
     confidence -= min(0.20, int(claim_analysis.get("unsupported_claim_count") or 0) * 0.03)
     confidence -= min(0.10, int(claim_analysis.get("unresolved_claim_count") or 0) * 0.02)
     confidence = max(0.0, min(1.0, confidence))
@@ -315,7 +316,50 @@ def _analyze_research_gaps(*, sources: list[dict], evidence_chunks: list[dict], 
     }
 
 
+def _claim_text_for_query(text: str, max_len: int = 120) -> str:
+    cleaned = re.sub(r"\[(?:S\d+)\]", " ", str(text or ""))
+    cleaned = re.sub(r"https?://\S+|www\.\S+", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"[`*_~>#|]+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -:;、。")
+    if len(cleaned) <= max_len:
+        return cleaned
+    return cleaned[:max_len].rstrip() + "…"
+
+
+def _generate_claim_followup_queries(original_query: str, claim_analysis: dict, max_queries: int) -> list[str]:
+    suffix_by_status = {
+        "unsupported": "根拠 一次資料",
+        "weakly_supported": "公式資料 検証",
+        "unresolved": "未確認 公式 発表",
+    }
+    queries: list[str] = []
+    seen: set[str] = set()
+    for claim in (claim_analysis or {}).get("claims") or []:
+        if not isinstance(claim, dict):
+            continue
+        status = str(claim.get("status") or "")
+        suffix = suffix_by_status.get(status)
+        if not suffix:
+            continue
+        claim_text = _claim_text_for_query(str(claim.get("claim") or claim.get("text") or ""))
+        if not claim_text:
+            continue
+        query = f"{original_query} {claim_text} {suffix}".strip()
+        dedupe_key = re.sub(r"\s+", " ", query).lower()
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        queries.append(query)
+        if len(queries) >= max_queries:
+            break
+    return queries
+
+
 def _generate_followup_queries(*, original_query: str, gaps: list[str], max_followup_queries: int, claim_analysis: dict | None = None) -> list[str]:
+    claim_queries = _generate_claim_followup_queries(original_query, claim_analysis or {}, max_followup_queries)
+    if claim_queries:
+        return claim_queries[:max_followup_queries]
+
     gap_hints = {
         "source_count_low": "最新 統計 公式データ",
         "evidence_chunks_low": "詳細 レポート PDF",
@@ -323,6 +367,7 @@ def _generate_followup_queries(*, original_query: str, gaps: list[str], max_foll
         "answer_contains_unverified": "検証 ファクトチェック 一次情報",
         "high_degraded_or_failed_ratio": "ミラー 公的機関 代替ソース",
         "citation_count_low": "根拠 出典",
+        "weakly_supported_claims": "公式資料 検証",
         "unsupported_claims": "根拠 一次資料 検証",
         "unresolved_claims": "未確認事項 公式 発表",
         "low_evidence_diversity": "independent sources analysis",
@@ -334,9 +379,10 @@ def _generate_followup_queries(*, original_query: str, gaps: list[str], max_foll
         if not hint:
             continue
         q = f"{original_query} {hint}".strip()
-        if q in seen:
+        key = re.sub(r"\s+", " ", q).lower()
+        if key in seen:
             continue
-        seen.add(q)
+        seen.add(key)
         queries.append(q)
         if len(queries) >= max_followup_queries:
             break
@@ -1183,6 +1229,25 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     "recursive_gap_analysis_finished",
                     {"iteration": iteration, "status": "running", "analysis": analysis, "updated_at": _now_iso()},
                 )
+                try:
+                    claim_summary = analysis.get("claim_analysis") or {}
+                    append_job_event(
+                        effective_job_id,
+                        "claim_support_verified",
+                        {
+                            "iteration": iteration,
+                            "claim_count": int(claim_summary.get("claim_count") or 0),
+                            "supported_claim_count": int(claim_summary.get("supported_claim_count") or 0),
+                            "weakly_supported_claim_count": int(claim_summary.get("weakly_supported_claim_count") or 0),
+                            "unsupported_claim_count": int(claim_summary.get("unsupported_claim_count") or 0),
+                            "unresolved_claim_count": int(claim_summary.get("unresolved_claim_count") or 0),
+                            "average_support_score": float(claim_summary.get("average_support_score") or 0.0),
+                            "gaps": list(claim_summary.get("gaps") or []),
+                            "updated_at": _now_iso(),
+                        },
+                    )
+                except Exception:
+                    pass
                 final_confidence = float(analysis.get("confidence") or 0.0)
                 unresolved_items = list(analysis.get("unresolved_items") or [])
                 should_stop, reason = _should_stop_recursive_research(analysis=analysis, iteration=iteration, payload=payload)
