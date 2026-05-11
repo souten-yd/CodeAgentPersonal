@@ -9,11 +9,13 @@ class TestPhase2542PlaywrightRemainingSmokeFailuresContract(unittest.TestCase):
 
     def test_nexus_tabs_wait_for_function_uses_arg_keyword(self):
         self.assertIn("arg=tab", self.smoke)
-        self.assertNotIn("\n      tab,\n    )", self.smoke)
+        self.assertIn('NEXUS_TABS = [\n  "research",\n  "library",\n  "evidence",\n  "reports",\n  "settings",\n]', self.smoke)
+        self.assertIn('nexus_dashboard_alias_opens_research', self.smoke)
+        self.assertIn('nexus_sources_alias_opens_evidence', self.smoke)
 
-    def test_atlas_use_chat_selector_scoped_under_atlas_workbench(self):
-        self.assertIn("overview_panel = page.locator(\"#atlas-workbench-card [data-atlas-subview-panel='overview']\")", self.smoke)
-        self.assertIn("use_chat_btn = overview_panel.locator('#atlas-requirement-use-chat-btn')", self.smoke)
+    def test_atlas_selectors_are_scoped_under_atlas_workbench(self):
+        self.assertIn("#atlas-workbench-card [data-atlas-subview-panel='start'] button.phase1-plan-btn", self.smoke)
+        self.assertIn("#atlas-workbench-card #atlas-requirement-input", self.smoke)
 
     def test_chat_input_helper_hidden_fallback_exists(self):
         self.assertIn("async def set_chat_input", self.smoke)
@@ -25,7 +27,7 @@ class TestPhase2542PlaywrightRemainingSmokeFailuresContract(unittest.TestCase):
 
     def test_reference_card_actions_does_not_hard_require_stale_button(self):
         self.assertIn("if await web_scout_tab.count() > 0", self.smoke)
-        self.assertIn("await page.click(\"#nexus-btn-sources\")", self.smoke)
+        self.assertIn("await page.click(\"#nexus-btn-evidence\")", self.smoke)
 
     def test_summary_has_scenario_name_escaping_and_artifact(self):
         self.assertIn('escaped_name = scenario_name.replace("|"', self.smoke)

@@ -265,10 +265,8 @@ async def ensure_atlas_plan(page) -> None:
   await set_atlas_subview(page, "plan")
 
 NEXUS_TABS = [
-  "dashboard",
-  "library",
   "research",
-  "sources",
+  "library",
   "evidence",
   "reports",
   "settings",
@@ -1422,24 +1420,39 @@ async def verify_nexus_current_ui_smoke(page) -> None:
     const root = document.querySelector(rootSel) || document;
     return Array.from(root.querySelectorAll('[data-nexus-tab]')).map((el) => String(el.dataset.nexusTab || '').trim()).filter(Boolean);
   }""", root)
-  if "dashboard" not in tabs:
-    raise AssertionError(f"nexus_dashboard_tab_missing; tabs={tabs}")
-  for required in ["research", "sources", "evidence", "reports", "settings"]:
-    if required not in tabs:
-      print(f"INFO: nexus_smoke_missing_expected_tab_name:{required}; tabs={tabs}")
+  expected_tabs = ["research", "library", "evidence", "reports", "settings"]
+  if tabs != expected_tabs:
+    raise AssertionError(f"nexus_visible_tabs_mismatch; tabs={tabs}; expected={expected_tabs}")
+  for legacy in ["dashboard", "sources"]:
+    if legacy in tabs:
+      raise AssertionError(f"nexus_legacy_tab_still_visible:{legacy}; tabs={tabs}")
   await click_nexus_tab(page, "dashboard")
-  await wait_named(page, "nexus_dashboard_visible_on_dashboard_tab", """() => {
-    const panel = document.querySelector('[data-nexus-panel="dashboard"]');
-    return !!panel && !panel.hidden && getComputedStyle(panel).display !== 'none';
+  await wait_named(page, "nexus_dashboard_alias_opens_research", """() => {
+    const activeTab = document.querySelector('[data-nexus-tab].active')?.dataset?.nexusTab;
+    const research = document.querySelector('[data-nexus-panel="research"]');
+    const dashboard = document.querySelector('[data-nexus-panel="dashboard"]');
+    return activeTab === 'research'
+      && !!research && !research.hidden && getComputedStyle(research).display !== 'none'
+      && (!dashboard || dashboard.hidden || getComputedStyle(dashboard).display === 'none');
   }""")
-  for tab in ["research", "sources", "evidence", "reports", "settings"]:
+  await click_nexus_tab(page, "sources")
+  await wait_named(page, "nexus_sources_alias_opens_evidence", """() => {
+    const activeTab = document.querySelector('[data-nexus-tab].active')?.dataset?.nexusTab;
+    const evidence = document.querySelector('[data-nexus-panel="evidence"]');
+    const sources = document.querySelector('[data-nexus-panel="sources"]');
+    return activeTab === 'evidence'
+      && !!evidence && !evidence.hidden && getComputedStyle(evidence).display !== 'none'
+      && (!sources || sources.hidden || getComputedStyle(sources).display === 'none');
+  }""")
+  for tab in expected_tabs:
     await click_nexus_tab(page, tab)
-    await wait_named(page, f"nexus_dashboard_hidden_on_{tab}", f"""() => {{
-      const dashboard = document.querySelector('[data-nexus-panel="dashboard"]');
+    await wait_named(page, f"nexus_active_panel_on_{tab}", f"""() => {{
       const active = document.querySelector('[data-nexus-panel="{tab}"]');
-      if (!dashboard || !active) return false;
-      return (dashboard.hidden || getComputedStyle(dashboard).display === 'none')
-        && !active.hidden && getComputedStyle(active).display !== 'none';
+      const dashboard = document.querySelector('[data-nexus-panel="dashboard"]');
+      const sources = document.querySelector('[data-nexus-panel="sources"]');
+      return !!active && !active.hidden && getComputedStyle(active).display !== 'none'
+        && (!dashboard || dashboard.hidden || getComputedStyle(dashboard).display === 'none')
+        && (!sources || sources.hidden || getComputedStyle(sources).display === 'none');
     }}""")
   await wait_named(page, "nexus_active_tab_matches_visible_panel", """() => {
     const activeTab = document.querySelector('[data-nexus-tab].active')?.dataset?.nexusTab;
@@ -1743,7 +1756,7 @@ async def verify_reference_card_actions(page) -> None:
   if await web_scout_tab.count() > 0:
     await web_scout_tab.click()
   else:
-    await page.click("#nexus-btn-sources")
+    await page.click("#nexus-btn-evidence")
     await page.click("#nexus-btn-research")
 
   await page.evaluate(
