@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import html
 import json
+import os
 import re
 from pathlib import Path
 import uuid
+from urllib import error, request
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -100,22 +102,23 @@ def build_report(job_id: str, report_type: str, title: str, sections: list[dict]
                     md_lines.append(f"  - 引用（抜粋）: {quote}")
         md_lines.append("")
 
-        normalized_sections.append(
-            {
-                "heading": heading,
-                "summary": summary,
-                "evidence": [
-                    {
-                        "citation_label": ev.get("citation_label"),
-                        "source_url": ev.get("url") or ev.get("source_url"),
-                        "retrieved_at": ev.get("retrieved_at"),
-                        "quote": _safe_quote(ev.get("quote")),
-                        "note": ev.get("note"),
-                    }
-                    for ev in evidence
-                ],
-            }
-        )
+        normalized_section = {
+            "heading": heading,
+            "summary": summary,
+            "evidence": [
+                {
+                    "citation_label": ev.get("citation_label"),
+                    "source_url": ev.get("url") or ev.get("source_url"),
+                    "retrieved_at": ev.get("retrieved_at"),
+                    "quote": _safe_quote(ev.get("quote")),
+                    "note": ev.get("note"),
+                }
+                for ev in evidence
+            ],
+        }
+        if isinstance(section.get("coverage"), dict):
+            normalized_section["coverage"] = section.get("coverage")
+        normalized_sections.append(normalized_section)
 
     report_json = {
         "report_id": report_id,
@@ -304,6 +307,275 @@ def _load_latest_research_answer(job_id: str) -> dict:
 
 
 
+
+_MARKET_HEADING_DIMENSIONS: dict[str, list[str]] = {
+    "executive summary": ["market_size", "key_players", "technology_trends", "regulation", "investment", "risks", "timeline"],
+    "要約": ["market_size", "key_players", "technology_trends", "regulation", "investment", "risks", "timeline"],
+    "市場概況": ["market_size"],
+    "主要ドライバー": ["market_size", "technology_trends", "regulation", "investment"],
+    "技術動向": ["technology_trends", "academic_evidence"],
+    "主要プレイヤー": ["key_players"],
+    "政策・規制": ["regulation", "official_policy"],
+    "政策/規制": ["regulation", "official_policy"],
+    "投資・提携": ["investment"],
+    "リスク・制約": ["risks"],
+    "今後12〜36か月の見通し": ["timeline", "market_size"],
+    "根拠と不確実性": ["risks", "market_size", "key_players", "technology_trends", "regulation", "investment", "timeline"],
+    "追加調査項目": ["risks", "timeline"],
+}
+
+_DIMENSION_LABELS: dict[str, str] = {
+    "market_size": "市場規模・成長性",
+    "key_players": "主要プレイヤー",
+    "technology_trends": "技術動向",
+    "regulation": "政策・規制",
+    "supply_chain": "サプライチェーン",
+    "risks": "リスク・制約",
+    "timeline": "今後12〜36か月の見通し",
+    "investment": "投資・提携",
+    "official_policy": "公式政策",
+    "academic_evidence": "学術・技術根拠",
+}
+
+_DIMENSION_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "market_size": ("市場", "規模", "market", "size", "forecast", "予測", "cagr", "growth"),
+    "key_players": ("企業", "players", "oem", "supplier", "メーカー", "competition", "share", "主要"),
+    "technology_trends": ("技術", "battery", "propulsion", "semiconductor", "materials", "technology", "roadmap"),
+    "regulation": ("規制", "認証", "policy", "regulation", "certification", "官公庁", "standard"),
+    "supply_chain": ("供給", "supply", "chain", "manufacturing", "調達"),
+    "risks": ("risk", "課題", "制約", "safety", "安全", "bottleneck", "uncertain", "リスク"),
+    "timeline": ("timeline", "roadmap", "期限", "実用化", "launch", "12", "36", "見通し"),
+    "investment": ("投資", "funding", "investment", "提携", "partnership", "subsidy", "資金"),
+    "official_policy": ("official", "政策", "政府", "ministry", "agency", "官公庁"),
+    "academic_evidence": ("論文", "study", "research", "journal", "academic", "研究"),
+}
+
+
+def _coerce_list(value: object) -> list:
+    return value if isinstance(value, list) else []
+
+
+def _focused_plan_from_answer(answer: dict, retrieval_summary: dict) -> dict:
+    plan = answer.get("focused_research_plan") if isinstance(answer.get("focused_research_plan"), dict) else {}
+    if plan:
+        return plan
+    return retrieval_summary.get("focused_research_plan") if isinstance(retrieval_summary.get("focused_research_plan"), dict) else {}
+
+
+def _normalize_evidence_pool(answer: dict, evidence_items: list[dict]) -> list[dict]:
+    pool: list[dict] = []
+    for source in (evidence_items, _coerce_list(answer.get("evidence_json")), _coerce_list(answer.get("evidence")), _coerce_list(answer.get("references"))):
+        for raw in source:
+            if isinstance(raw, dict):
+                pool.append(raw)
+    seen: set[str] = set()
+    normalized: list[dict] = []
+    for idx, ev in enumerate(pool, start=1):
+        label = str(ev.get("citation_label") or ev.get("source_label") or ev.get("label") or "").strip()
+        if not label:
+            label = f"[S{idx}]"
+        url = str(ev.get("url") or ev.get("source_url") or ev.get("final_url") or "").strip()
+        title = str(ev.get("title") or ev.get("name") or ev.get("publisher") or "").strip()
+        quote = str(ev.get("quote") or ev.get("text") or ev.get("snippet") or ev.get("summary") or "").strip()
+        key = f"{label}|{url}|{title}|{quote[:60]}"
+        if key in seen:
+            continue
+        seen.add(key)
+        item = dict(ev)
+        item["citation_label"] = label
+        if url:
+            item["url"] = url
+            item.setdefault("source_url", url)
+        if title:
+            item["title"] = title
+        if quote:
+            item["quote"] = quote
+        normalized.append(item)
+    return normalized
+
+
+def _coverage_by_dimension(coverage_matrix: list[dict]) -> dict[str, dict]:
+    rows: dict[str, dict] = {}
+    for row in coverage_matrix:
+        if not isinstance(row, dict):
+            continue
+        dim = str(row.get("dimension") or row.get("name") or "").strip()
+        if dim:
+            rows[dim] = row
+    return rows
+
+
+def _map_heading_to_dimensions(heading: str, focused_plan: dict, coverage_matrix: list[dict]) -> list[str]:
+    heading_text = str(heading or "").strip()
+    lowered = heading_text.lower()
+    for key, dims in _MARKET_HEADING_DIMENSIONS.items():
+        if lowered == key.lower() or heading_text == key:
+            return [dim for dim in dims if dim]
+    available = list(dict.fromkeys(list(focused_plan.get("must_cover_dimensions") or []) + [str(row.get("dimension")) for row in coverage_matrix if isinstance(row, dict) and row.get("dimension")]))
+    matched: list[str] = []
+    haystack = lowered + " " + heading_text
+    for dim in available:
+        label = _DIMENSION_LABELS.get(dim, dim.replace("_", " "))
+        if dim.replace("_", " ").lower() in haystack or label.lower() in haystack or label in heading_text:
+            matched.append(dim)
+            continue
+        if any(str(keyword).lower() in haystack for keyword in _DIMENSION_KEYWORDS.get(dim, (dim,))):
+            matched.append(dim)
+    if not matched and "不確実" in heading_text:
+        matched = [dim for dim in available if str(_coverage_by_dimension(coverage_matrix).get(dim, {}).get("status") or "") in {"weak", "missing"}]
+    return matched[:8]
+
+
+def _evidence_matches_dimension(ev: dict, dim: str) -> bool:
+    text = f"{ev.get('title','')} {ev.get('quote','')} {ev.get('text','')} {ev.get('snippet','')} {ev.get('note','')} {ev.get('url','')}".lower()
+    return any(keyword.lower() in text for keyword in _DIMENSION_KEYWORDS.get(dim, (dim.replace("_", " "),)))
+
+
+def _select_section_evidence(heading: str, dimensions: list[str], evidence_pool: list[dict], coverage_rows: dict[str, dict], *, limit: int = 7) -> list[dict]:
+    if not evidence_pool:
+        return []
+    preferred_labels: list[str] = []
+    for dim in dimensions:
+        for label in coverage_rows.get(dim, {}).get("best_sources") or []:
+            if str(label) not in preferred_labels:
+                preferred_labels.append(str(label))
+    scored: list[tuple[int, int, dict]] = []
+    heading_lower = str(heading or "").lower()
+    for idx, ev in enumerate(evidence_pool):
+        label = str(ev.get("citation_label") or "")
+        score = 0
+        if label in preferred_labels:
+            score += 50 - min(preferred_labels.index(label), 30)
+        for dim in dimensions:
+            if _evidence_matches_dimension(ev, dim):
+                score += 15
+        text = f"{ev.get('title','')} {ev.get('quote','')} {ev.get('snippet','')}".lower()
+        for token in re.findall(r"[\w\u3040-\u30ff\u3400-\u9fff]+", heading_lower):
+            if len(token) >= 2 and token in text:
+                score += 2
+        if score > 0 or not dimensions:
+            scored.append((score, -idx, ev))
+    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    selected = [ev for score, _idx, ev in scored if score > 0][:limit]
+    if not selected and dimensions:
+        selected = evidence_pool[: min(limit, len(evidence_pool))]
+    if not dimensions and heading_lower in {"executive summary", "要約"}:
+        selected = evidence_pool[: min(limit, len(evidence_pool))]
+    return selected
+
+
+def _compact_evidence_sentence(ev: dict) -> str:
+    label = str(ev.get("citation_label") or "[citation missing]").strip()
+    title = _safe_quote(str(ev.get("title") or ev.get("publisher") or "根拠資料"), 90)
+    quote = _safe_quote(str(ev.get("quote") or ev.get("snippet") or ev.get("text") or ""), 180)
+    if quote:
+        return f"{title} は「{quote}」という範囲の情報を示している {label}。"
+    return f"{title} を根拠として確認できる {label}。"
+
+
+def _deterministic_section_summary(*, heading: str, question: str, dimensions: list[str], section_evidence: list[dict], coverage_rows: dict[str, dict], conclusion: str) -> str:
+    labels = [_DIMENSION_LABELS.get(dim, dim.replace("_", " ")) for dim in dimensions]
+    status_bits = []
+    for dim in dimensions:
+        row = coverage_rows.get(dim, {})
+        if row:
+            status_bits.append(f"{_DIMENSION_LABELS.get(dim, dim)}={row.get('status', 'unknown')}({row.get('evidence_count', 0)}件)")
+    if str(heading).lower() in {"executive summary", "要約"} and conclusion:
+        intro = f"本章では、{question}について、後続章の根拠を横断して要点をまとめる。{_safe_quote(conclusion, 260)}"
+    else:
+        intro = f"本章（{heading}）では、{question}のうち{ '、'.join(labels) if labels else '関連論点' }を中心に、収集済みEvidenceから確認できる事実と解釈を分けて整理する。"
+    evidence_sentences = [_compact_evidence_sentence(ev) for ev in section_evidence[:5]]
+    if evidence_sentences:
+        body = " ".join(evidence_sentences)
+    else:
+        body = "この章に直接対応するEvidenceは十分ではないため、既存の回答本文とCoverage Matrixに基づく限定的な整理に留める。"
+    uncertainty_rows = [coverage_rows.get(dim, {}) for dim in dimensions if str(coverage_rows.get(dim, {}).get("status") or "") in {"weak", "missing"}]
+    uncertainty = ""
+    if uncertainty_rows:
+        bits = []
+        for row in uncertainty_rows:
+            dim = str(row.get("dimension") or "")
+            bits.append(f"{_DIMENSION_LABELS.get(dim, dim)}は{row.get('status')}（{row.get('notes') or '根拠が限定的'}）")
+        uncertainty = " 不確実性: " + "、".join(bits) + "。"
+    elif status_bits:
+        uncertainty = " Coverage Matrix上の確認状況は " + " / ".join(status_bits) + "。"
+    synthesis = " ".join(part for part in (intro, body, uncertainty) if part).strip()
+    if len(synthesis) < 300 and section_evidence:
+        synthesis += " したがって、本章の結論は単一資料の断片ではなく、複数の出典に共通する方向性を優先して読む必要がある。ただし、数値・時点・地域範囲が資料ごとに異なる場合は、本文中のcitationを起点に原典で前提を確認することが望ましい。"
+    return synthesis[:1200]
+
+
+def _report_section_llm_settings() -> dict:
+    enabled = str(os.environ.get("NEXUS_REPORT_SECTION_LLM_ENABLED", "")).strip().lower() in {"1", "true", "yes", "on"}
+    endpoint = str(os.environ.get("NEXUS_REPORT_SECTION_LLM_ENDPOINT") or os.environ.get("ANSWER_LLM_ENDPOINT") or os.environ.get("DEEP_RESEARCH_LLM_ENDPOINT") or "").strip()
+    model = str(os.environ.get("NEXUS_REPORT_SECTION_LLM_MODEL") or os.environ.get("ANSWER_LLM_MODEL") or "local-llm").strip() or "local-llm"
+    return {"enabled": enabled, "endpoint": endpoint, "model": model}
+
+
+def _synthesize_section_with_llm(*, heading: str, question: str, dimensions: list[str], section_evidence: list[dict], coverage_rows: dict[str, dict], fallback: str) -> tuple[str, dict]:
+    settings = _report_section_llm_settings()
+    if not settings["enabled"] or not settings["endpoint"] or not section_evidence:
+        return fallback, {"mode": "deterministic", "reason": "section_llm_disabled_or_no_evidence"}
+    evidence_text = "\n".join(_compact_evidence_sentence(ev) for ev in section_evidence[:8])
+    coverage_text = json.dumps([coverage_rows.get(dim, {"dimension": dim}) for dim in dimensions], ensure_ascii=False)
+    prompt = (
+        "日本語で300〜800字程度のレポート章本文を作成してください。"
+        "Evidence以外の断定は避け、重要な文に[S1]形式のcitationを付け、missing/weak coverageは不確実性として明示してください。\n"
+        f"質問: {question}\n章: {heading}\n対応dimension: {', '.join(dimensions)}\nCoverage: {coverage_text}\nEvidence:\n{evidence_text}"
+    )
+    payload = {"model": settings["model"], "messages": [{"role": "system", "content": "You write grounded Japanese research report sections."}, {"role": "user", "content": prompt}], "temperature": 0.2, "max_tokens": 900, "stream": False}
+    req = request.Request(settings["endpoint"], data=json.dumps(payload, ensure_ascii=False).encode("utf-8"), method="POST")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with request.urlopen(req, timeout=float(os.environ.get("NEXUS_REPORT_SECTION_LLM_TIMEOUT_SEC", "8"))) as resp:
+            parsed = json.loads(resp.read().decode("utf-8"))
+        choices = parsed.get("choices") if isinstance(parsed, dict) else None
+        message = choices[0].get("message") if isinstance(choices, list) and choices and isinstance(choices[0], dict) else None
+        content = str(message.get("content") or "").strip() if isinstance(message, dict) else ""
+        if len(content) >= 120:
+            return content, {"mode": "llm", "model": settings["model"], "endpoint": settings["endpoint"]}
+    except (TimeoutError, error.HTTPError, error.URLError, ValueError, TypeError, OSError) as exc:
+        return fallback, {"mode": "deterministic", "reason": f"section_llm_failed:{exc}"}
+    return fallback, {"mode": "deterministic", "reason": "section_llm_empty_or_short"}
+
+
+def _build_section_wise_outline_sections(job_id: str, answer: dict, evidence_items: list[dict], question: str, conclusion: str, scope_summary: str) -> tuple[list[dict], list[dict]]:
+    retrieval_summary = answer.get("retrieval_summary") if isinstance(answer.get("retrieval_summary"), dict) else {}
+    focused_plan = _focused_plan_from_answer(answer, retrieval_summary)
+    coverage_matrix = answer.get("coverage_matrix") if isinstance(answer.get("coverage_matrix"), list) else retrieval_summary.get("coverage_matrix") if isinstance(retrieval_summary.get("coverage_matrix"), list) else []
+    outline = [str(item).strip() for item in list(answer.get("report_outline") or retrieval_summary.get("report_outline") or []) if str(item).strip()]
+    evidence_pool = _normalize_evidence_pool(answer, evidence_items)
+    coverage_rows = _coverage_by_dimension(coverage_matrix)
+    sections: list[dict] = [
+        {"heading": "調査目的", "summary": question, "evidence": []},
+        {"heading": "調査範囲", "summary": scope_summary, "evidence": []},
+    ]
+    section_coverage: list[dict] = []
+    for heading in outline:
+        dims = _map_heading_to_dimensions(heading, focused_plan, coverage_matrix)
+        section_evidence = _select_section_evidence(heading, dims, evidence_pool, coverage_rows)
+        fallback = _deterministic_section_summary(heading=heading, question=question or job_id, dimensions=dims, section_evidence=section_evidence, coverage_rows=coverage_rows, conclusion=conclusion)
+        summary, generation = _synthesize_section_with_llm(heading=heading, question=question or job_id, dimensions=dims, section_evidence=section_evidence, coverage_rows=coverage_rows, fallback=fallback)
+        statuses = [str(coverage_rows.get(dim, {}).get("status") or "unknown") for dim in dims]
+        weak_or_missing = [dim for dim in dims if str(coverage_rows.get(dim, {}).get("status") or "") in {"weak", "missing"}]
+        coverage_entry = {
+            "heading": heading,
+            "dimensions": dims,
+            "status": "missing" if "missing" in statuses else "weak" if "weak" in statuses else "covered" if dims else "unmapped",
+            "evidence_count": len(section_evidence),
+            "citations": [ev.get("citation_label") for ev in section_evidence if ev.get("citation_label")],
+            "weak_or_missing_dimensions": weak_or_missing,
+            "generation": generation,
+        }
+        section_coverage.append(coverage_entry)
+        sections.append({"heading": heading, "summary": summary, "evidence": section_evidence, "coverage": coverage_entry})
+    source_mix = answer.get("source_mix_summary") if isinstance(answer.get("source_mix_summary"), dict) else retrieval_summary.get("source_mix", {})
+    sections.extend([
+        {"heading": "Coverage Matrix", "summary": json.dumps(coverage_matrix, ensure_ascii=False, indent=2), "evidence": []},
+        {"heading": "Source Mix", "summary": json.dumps(source_mix, ensure_ascii=False, indent=2), "evidence": []},
+    ])
+    return sections, section_coverage
+
 def _section_between_headings(markdown: str, heading_pattern: str, stop_pattern: str | None = None) -> str:
     lines = str(markdown or "").splitlines()
     start: int | None = None
@@ -411,19 +683,11 @@ def _build_sections_from_research_answer(job_id: str, answer: dict, evidence_ite
         )
         if unsatisfied:
             scope_summary += f"\n未達成target: {unsatisfied}"
-    outline = list(answer.get("report_outline") or [])
+    outline = list(answer.get("report_outline") or retrieval_summary.get("report_outline") or [])
     if outline:
-        coverage = answer.get("coverage_matrix") if isinstance(answer.get("coverage_matrix"), list) else []
-        source_mix = answer.get("source_mix_summary") if isinstance(answer.get("source_mix_summary"), dict) else retrieval_summary.get("source_mix", {})
-        sections = [{"heading": "調査目的", "summary": question, "evidence": []}, {"heading": "調査範囲", "summary": scope_summary, "evidence": []}]
-        for heading in outline:
-            summary = conclusion if str(heading).lower() in {"executive summary", "要約"} else "Focused research plan と Evidence に基づき、この論点を整理します。"
-            sections.append({"heading": str(heading), "summary": summary, "evidence": []})
-        sections.extend([
-            {"heading": "Coverage Matrix", "summary": json.dumps(coverage, ensure_ascii=False, indent=2), "evidence": []},
-            {"heading": "Source Mix", "summary": json.dumps(source_mix, ensure_ascii=False, indent=2), "evidence": []},
-            {"heading": "Sources / Evidence", "summary": f"references={len(refs)}, evidence_count={len(evidence_items)}", "evidence": evidence_items or refs},
-        ])
+        sections, section_coverage = _build_section_wise_outline_sections(job_id, answer, evidence_items, question, conclusion, scope_summary)
+        answer["section_coverage"] = section_coverage
+        sections.append({"heading": "Sources / Evidence", "summary": f"references={len(refs)}, evidence_count={len(evidence_items)}", "evidence": _normalize_evidence_pool(answer, evidence_items)[:80]})
         return sections
     return [
         {"heading": "調査目的", "summary": question, "evidence": []},
@@ -532,6 +796,9 @@ def build_job_report(payload: BuildReportRequest) -> dict:
         "answer_id": answer.get("answer_id"),
         "retrieval_summary": answer.get("retrieval_summary") if isinstance(answer.get("retrieval_summary"), dict) else {},
         "appendix_sources": list(answer.get("evidence_json") or answer.get("evidence") or [])[:500],
+        "section_coverage": list(answer.get("section_coverage") or []),
+        "focused_research_plan": (retrieval_summary.get("focused_research_plan") if isinstance(retrieval_summary, dict) else {}) or {},
+        "coverage_matrix": answer.get("coverage_matrix") if isinstance(answer.get("coverage_matrix"), list) else (retrieval_summary.get("coverage_matrix") if isinstance(retrieval_summary, dict) else []),
         "claim_analysis": {
             "claim_count": claim_analysis.get("claim_count", 0),
             "supported_claim_count": claim_analysis.get("supported_claim_count", 0),
