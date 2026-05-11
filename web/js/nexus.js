@@ -2,6 +2,110 @@
 // Display-only Nexus DOM helpers split out of ui.html.
 // Keep API/job/research execution logic in ui.html.
 
+function ensureNexusMobileMarkdownContainmentStyles() {
+  if (document.getElementById('nexus-mobile-markdown-containment-style')) return;
+  const style = document.createElement('style');
+  style.id = 'nexus-mobile-markdown-containment-style';
+  style.textContent = `
+    .nexus-col,
+    .nexus-col * {
+      min-width: 0;
+      box-sizing: border-box;
+    }
+    .nexus-body,
+    .nexus-tab,
+    .nexus-card,
+    .nexus-result-panel,
+    .nexus-result-item,
+    .nexus-detail-panel,
+    .nexus-report-preview,
+    .nexus-markdown,
+    .nexus-answer,
+    .nexus-answer-markdown,
+    .nexus-research-answer,
+    .nexus-research-answer-markdown,
+    [data-nexus-answer],
+    [data-nexus-markdown] {
+      max-width: 100%;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: normal;
+    }
+    .nexus-body :where(h1, h2, h3, h4, h5, h6) {
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: normal;
+      line-height: 1.28;
+      margin: 0.72em 0 0.38em;
+    }
+    .nexus-body :where(h1) { font-size: 18px; }
+    .nexus-body :where(h2) { font-size: 16px; }
+    .nexus-body :where(h3) { font-size: 14px; }
+    .nexus-body :where(h4, h5, h6) { font-size: 12px; }
+    .nexus-body :where(p, li, blockquote, dd, dt) {
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: normal;
+      line-height: 1.65;
+    }
+    .nexus-body :where(img, svg, canvas, video) {
+      max-width: 100%;
+      height: auto;
+    }
+    .nexus-body :where(pre, table, .nexus-table-wrap, .nexus-source-list, .nexus-reference-list, .nexus-sources, .nexus-references) {
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+    }
+    .nexus-body :where(pre) {
+      white-space: pre;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .nexus-body :where(code) {
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      font-size: 0.92em;
+    }
+    .nexus-body :where(pre code) {
+      overflow-wrap: normal;
+      word-break: normal;
+      white-space: pre;
+    }
+    .nexus-body :where(table) {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: collapse;
+    }
+    @media (max-width: 768px) {
+      .nexus-body {
+        width: 100%;
+        max-width: 100vw;
+        overflow-x: hidden;
+        padding-left: 8px;
+        padding-right: 8px;
+      }
+      .nexus-topbar,
+      .nexus-subtabs {
+        max-width: 100%;
+        min-width: 0;
+      }
+      .nexus-body :where(h1) { font-size: 16px; }
+      .nexus-body :where(h2) { font-size: 15px; }
+      .nexus-body :where(h3) { font-size: 13px; }
+      .nexus-body :where(p, li, blockquote) { font-size: 12px; }
+      .nexus-body :where(pre, table, .nexus-table-wrap, .nexus-source-list, .nexus-reference-list, .nexus-sources, .nexus-references) {
+        max-width: calc(100vw - 24px);
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+ensureNexusMobileMarkdownContainmentStyles();
+
 function updateNexusJobBanner(text, isErr = false) {
   const el = document.getElementById('nexus-lib-job');
   if (!el) return;
@@ -112,6 +216,7 @@ function setNexusDropzoneActive(active) {
   dz.classList.toggle('active', !!active);
 }
 
+window.ensureNexusMobileMarkdownContainmentStyles = ensureNexusMobileMarkdownContainmentStyles;
 window.updateNexusJobBanner = updateNexusJobBanner;
 window.renderNexusDocumentDetail = renderNexusDocumentDetail;
 window.renderNexusTimeline = renderNexusTimeline;
