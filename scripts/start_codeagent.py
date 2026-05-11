@@ -351,6 +351,30 @@ def _ensure_local_bootstrap_venv(base_dir: Path, env: dict[str, str]) -> tuple[s
     return str(venv_python), created
 
 
+def _default_llm_ctx_size(*, runpod: bool, env: dict[str, str]) -> str:
+    explicit = str(env.get("DEFAULT_LLM_CTX_SIZE", "")).strip()
+    if explicit:
+        return explicit
+    model_hint = " ".join(
+        [
+            env.get("LLM_MODEL", ""),
+            env.get("NEXUS_ANSWER_LLM_MODEL", ""),
+            env.get("DEEP_RESEARCH_LLM_MODEL", ""),
+            env.get("CODEAGENT_INITIAL_MODEL", ""),
+        ]
+    ).lower()
+    if runpod or "gemma" in model_hint:
+        return "65535"
+    return "16384"
+
+
+def _ctx_is_long_context(ctx_value: str) -> bool:
+    try:
+        return int(str(ctx_value).strip()) >= 65535
+    except (TypeError, ValueError):
+        return False
+
+
 def main() -> int:
     args = parse_args()
     base_dir = Path(__file__).resolve().parent.parent
@@ -373,9 +397,11 @@ def main() -> int:
     env["CODEAGENT_LLM_CHAT"] = f"http://127.0.0.1:{args.primary_port}/v1/chat/completions"
     env["CODEAGENT_LLM_LIGHT"] = f"http://127.0.0.1:{args.primary_port}/v1/chat/completions"
     env["CODEAGENT_LLM_MODE"] = mode_num
-    env.setdefault("DEFAULT_LLM_CTX_SIZE", "16384")
-    env.setdefault("LLAMA_CTX_SIZE", env.get("DEFAULT_LLM_CTX_SIZE", "16384"))
-    env.setdefault("NEXUS_ANSWER_LLM_MAX_CONTEXT_TOKENS", env.get("DEFAULT_LLM_CTX_SIZE", "16384"))
+    default_ctx = _default_llm_ctx_size(runpod=runpod, env=env)
+    env.setdefault("DEFAULT_LLM_CTX_SIZE", default_ctx)
+    env.setdefault("LLAMA_CTX_SIZE", env.get("DEFAULT_LLM_CTX_SIZE", default_ctx))
+    env.setdefault("NEXUS_ANSWER_LLM_MAX_CONTEXT_TOKENS", env.get("DEFAULT_LLM_CTX_SIZE", default_ctx))
+    env.setdefault("NEXUS_DEEP_RESEARCH_CONTEXT_PROFILE", "long_64k" if _ctx_is_long_context(default_ctx) else "auto")
     env.setdefault("LLAMA_CACHE_TYPE_K", "q8_0")
     env.setdefault("LLAMA_CACHE_TYPE_V", "q8_0")
     print(f"[LLM] LLAMA_CACHE_TYPE_K={env.get('LLAMA_CACHE_TYPE_K')}")

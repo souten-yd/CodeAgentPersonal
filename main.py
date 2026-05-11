@@ -5183,8 +5183,8 @@ def seed_default_model_catalog():
         "vlm_enabled": 0,
         "has_mmproj": 0,
         "parser": "json",
-        "auto_roles": "chat,translate,reason",
-        "ctx_size": _resolve_default_ctx_size(),
+        "auto_roles": "chat,translate,reason,search",
+        "ctx_size": 65535,
         "gpu_layers": 999,
         "threads": 8,
         "description": "Bundled Unsloth Gemma 4 E4B IT GGUF Q4_K_M model for initial setup and benchmarking.",
@@ -5196,7 +5196,7 @@ def seed_default_model_catalog():
         "llm_url": "",
         "quantization": "Q4_K_M",
     }
-    default_info["ctx_size"] = 16384 if int(default_info["ctx_size"] or 0) >= 16384 else 8192
+    default_info["ctx_size"] = 65535
 
     if not IS_RUNPOD_RUNTIME:
         print("[ModelDB] skip bundled Gemma seed outside Runpod runtime.")
@@ -5231,7 +5231,7 @@ def seed_default_model_catalog():
         patch["auto_roles"] = default_info["auto_roles"]
     if not str(existing.get("parser") or "").strip():
         patch["parser"] = default_info["parser"]
-    if int(existing.get("ctx_size") or 0) <= 0:
+    if int(existing.get("ctx_size") or 0) < 65535:
         patch["ctx_size"] = default_info["ctx_size"]
     if int(existing.get("gpu_layers") or 0) <= 0:
         patch["gpu_layers"] = default_info["gpu_layers"]
@@ -6117,6 +6117,8 @@ def _infer_ctx_size_from_name(name: str, default_ctx: int | None = None) -> int:
     if default_ctx is None:
         default_ctx = _resolve_default_ctx_size()
     text = (name or "").lower()
+    if "gemma-4" in text or "gemma_4" in text or "gemma 4" in text or "gemma4" in text:
+        return 65535
     # 例: 32k / 128k / ctx4096
     mk = re.search(r"(\d{1,4})k(?:[^a-z0-9]|$)", text)
     if mk:
@@ -6662,8 +6664,18 @@ def _infer_model_db_metadata(info: dict) -> dict:
     extra_args = info.get("extra_args", "")
     if isinstance(extra_args, list):
         extra_args = json.dumps(extra_args, ensure_ascii=False)
+    inferred_ctx = info.get("ctx_size")
+    model_text = " ".join(str(info.get(key, "") or "") for key in ("name", "model_key", "path", "notes")).lower()
+    if "gemma-4" in model_text or "gemma_4" in model_text or "gemma 4" in model_text or "gemma4" in model_text:
+        try:
+            current_ctx = int(str(inferred_ctx).strip())
+        except (TypeError, ValueError):
+            current_ctx = 0
+        if current_ctx <= 0 or current_ctx < 65535:
+            inferred_ctx = 65535
     return {
         **info,
+        "ctx_size": inferred_ctx,
         "model_key": model_key,
         "parser": (info.get("parser") or "").strip() or _infer_parser_name(
             info.get("name", ""),
