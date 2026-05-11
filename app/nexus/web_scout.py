@@ -12,6 +12,9 @@ from app.nexus.evidence import EvidenceItem
 
 _BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 _SEARXNG_ENDPOINT_PATH = "/search"
+_SEARXNG_DEGRADED_ERROR_CATEGORY = "searxng_engine_captcha_or_non_json"
+_SEARXNG_DEGRADED_HINT = "Disable CAPTCHA-prone engines or use safe_research profile"
+_SEARXNG_DEGRADED_KEYWORDS = ("captcha", "jsondecodeerror", "json decode", "non-json", "non json", "extra data", "duckduckgo", "startpage")
 _QUOTA_ERROR_KEYWORDS = ("quota", "billing", "payment", "plan", "subscription", "rate limit")
 _TEMPORARILY_DISABLED_PROVIDERS: dict[str, float] = {}
 _LAST_WEB_SEARCH_STATUS: dict[str, Any] = {
@@ -19,6 +22,7 @@ _LAST_WEB_SEARCH_STATUS: dict[str, Any] = {
     "last_selected_provider": None,
     "last_non_fatal": None,
     "last_message": "",
+    "last_diagnostics": [],
     "last_search_at": None,
 }
 
@@ -41,6 +45,7 @@ def _store_last_web_search_status(search_output: dict[str, Any]) -> None:
             "last_selected_provider": search_output.get("selected_provider"),
             "last_non_fatal": bool(search_output.get("non_fatal", False)),
             "last_message": str(search_output.get("message") or ""),
+            "last_diagnostics": list(search_output.get("diagnostics") or []),
             "last_search_at": _now_iso(),
         }
     )
@@ -267,17 +272,53 @@ def _should_skip_provider(provider: str, cfg: Any) -> bool:
     return False
 
 
+
+def _is_searxng_captcha_or_non_json_error(message: str) -> bool:
+    normalized = (message or "").lower()
+    return any(keyword in normalized for keyword in _SEARXNG_DEGRADED_KEYWORDS)
+
+
+def _build_searxng_degraded_diagnostic(messages: list[str]) -> dict[str, Any] | None:
+    if not messages:
+        return None
+    joined = " | ".join(str(item) for item in messages if str(item).strip())
+    if not joined:
+        return None
+    category = _SEARXNG_DEGRADED_ERROR_CATEGORY if _is_searxng_captcha_or_non_json_error(joined) else "searxng_provider_degraded"
+    message = joined
+    if category == _SEARXNG_DEGRADED_ERROR_CATEGORY:
+        message = (
+            "SearXNG returned CAPTCHA/non-JSON-prone engine diagnostics; "
+            "duckduckgo/startpage CAPTCHA or malformed JSON may be involved. "
+            f"Details: {joined}"
+        )
+    return {
+        "provider": "searxng",
+        "provider_status": "degraded",
+        "error_category": category,
+        "message": message,
+        "hint": _SEARXNG_DEGRADED_HINT,
+        "event_type": "web_search_provider_degraded",
+        "payload": {
+            "provider": "searxng",
+            "error_category": category,
+            "hint": _SEARXNG_DEGRADED_HINT,
+        },
+    }
+
+
 def _run_searxng_search(
     *,
     cfg: Any,
     queries: list[str],
     result_cap: int,
     search_lang: str,
-) -> tuple[list[dict[str, Any]], list[str], bool]:
+) -> tuple[list[dict[str, Any]], list[str], bool, list[dict[str, Any]]]:
     base_url = cfg.searxng_url.rstrip("/")
     items: list[dict[str, Any]] = []
     errors: list[str] = []
     had_connection_failure = False
+    diagnostics: list[dict[str, Any]] = []
 
     for query in queries:
         params = parse.urlencode(
@@ -291,13 +332,47 @@ def _run_searxng_search(
         req = request.Request(f"{base_url}{_SEARXNG_ENDPOINT_PATH}?{params}", headers={"Accept": "application/json"}, method="GET")
         try:
             with request.urlopen(req, timeout=20) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
+                body = resp.read().decode("utf-8", errors="replace")
+                payload = json.loads(body)
+        except json.JSONDecodeError as exc:
+            had_connection_failure = True
+            error_message = f"{query}: JSONDecodeError/non-JSON response: {exc}"
+            errors.append(error_message)
+            diagnostic = _build_searxng_degraded_diagnostic([error_message])
+            if diagnostic:
+                diagnostics.append(diagnostic)
+            continue
+        except urllib_error.HTTPError as exc:
+            had_connection_failure = True
+            body = exc.read().decode("utf-8", errors="replace")
+            error_message = f"{query}: HTTP {exc.code} {exc.reason} {body[:500]}"
+            errors.append(error_message)
+            diagnostic = _build_searxng_degraded_diagnostic([error_message])
+            if diagnostic:
+                diagnostics.append(diagnostic)
+            continue
         except Exception as exc:  # noqa: BLE001
             had_connection_failure = True
-            errors.append(f"{query}: {exc}")
+            error_message = f"{query}: {exc}"
+            errors.append(error_message)
+            diagnostic = _build_searxng_degraded_diagnostic([error_message])
+            if diagnostic:
+                diagnostics.append(diagnostic)
             continue
 
+        payload_errors = payload.get("errors") if isinstance(payload, dict) else None
+        if payload_errors:
+            payload_error_messages = [f"{query}: SearXNG engine error: {payload_errors}"]
+            errors.extend(payload_error_messages)
+            diagnostic = _build_searxng_degraded_diagnostic(payload_error_messages)
+            if diagnostic:
+                diagnostics.append(diagnostic)
+
         results = payload.get("results") or []
+        if not results and payload_errors:
+            diagnostic = _build_searxng_degraded_diagnostic([f"{query}: zero results with SearXNG errors: {payload_errors}"])
+            if diagnostic:
+                diagnostics.append(diagnostic)
         for idx, entry in enumerate(results[:result_cap], start=1):
             items.append(
                 _normalize_provider_result(
@@ -311,7 +386,7 @@ def _run_searxng_search(
                     engine=entry.get("engine"),
                 )
             )
-    return items, errors, had_connection_failure
+    return items, errors, had_connection_failure, diagnostics
 
 
 def _run_brave_search(
@@ -485,9 +560,10 @@ def _run_web_search(
         errors: list[str] = []
         had_connection_failure = False
         should_cooldown = False
+        diagnostics: list[dict[str, Any]] = []
 
         if provider == "searxng":
-            items, errors, had_connection_failure = _run_searxng_search(
+            items, errors, had_connection_failure, diagnostics = _run_searxng_search(
                 cfg=cfg,
                 queries=normalized_queries,
                 result_cap=result_cap,
@@ -533,10 +609,16 @@ def _run_web_search(
             }
             if errors:
                 response["errors"] = errors
+            if diagnostics:
+                response["provider_status"] = "degraded"
+                response["diagnostics"] = diagnostics
+                response["events"] = diagnostics
             _store_last_web_search_status(response)
             return response
 
         provider_errors[provider] = errors or ["結果が空のため、次の provider にフォールバックしました。"]
+        if diagnostics:
+            provider_errors[provider].extend(diag.get("message", "") for diag in diagnostics if diag.get("message"))
         if not had_connection_failure and not errors:
             provider_errors[provider].append("空結果フォールバック")
 
@@ -544,6 +626,12 @@ def _run_web_search(
     selected_provider = attempted_providers[-1] if attempted_providers else (ordered_providers[0] if ordered_providers else cfg.web_search_provider)
     primary_provider = ordered_providers[0] if ordered_providers else cfg.web_search_provider
     stub_items = _build_stub_items(normalized_queries, reason=message)
+    degraded_diagnostics = [
+        diag
+        for provider_errors_list in provider_errors.values()
+        for diag in [_build_searxng_degraded_diagnostic([str(item) for item in provider_errors_list])]
+        if diag
+    ]
     response = {
         "provider": primary_provider,
         "selected_provider": selected_provider,
@@ -560,6 +648,11 @@ def _run_web_search(
         "provider_errors": provider_errors,
         "skipped_providers": skip_reasons,
     }
+    if degraded_diagnostics:
+        response["provider_status"] = "degraded"
+        response["error_category"] = degraded_diagnostics[0].get("error_category")
+        response["diagnostics"] = degraded_diagnostics
+        response["events"] = degraded_diagnostics
     _store_last_web_search_status(response)
     return response
 

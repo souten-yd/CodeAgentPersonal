@@ -21,3 +21,18 @@ botdetection:
     link_token: false
   ip_lists:
     block_ip: []
+
+# Nexus Deep Research safe_research profile:
+# keep JSON enabled while disabling CAPTCHA/rate-limit prone general engines by default.
+engines:
+  # CodeAgent safe_research engine overrides
+  - name: duckduckgo
+    disabled: true
+  - name: startpage
+    disabled: true
+  - name: google
+    disabled: true
+  - name: bing
+    disabled: true
+  - name: brave
+    disabled: true

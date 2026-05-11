@@ -27,6 +27,7 @@ class NexusRuntimeConfig:
     enable_market: bool
     web_search_provider: str
     searxng_url: str
+    searxng_engine_profile: str
     search_fallback_providers: tuple[str, ...]
     search_free_only: bool
     search_paid_providers_enabled: bool
@@ -111,6 +112,7 @@ def load_runtime_config() -> NexusRuntimeConfig:
         enable_market=_env_bool("NEXUS_ENABLE_MARKET", default=True),
         web_search_provider=provider,
         searxng_url=searxng_url,
+        searxng_engine_profile=(os.environ.get("SEARXNG_ENGINE_PROFILE") or "safe_research").strip().lower() or "safe_research",
         search_fallback_providers=_env_csv(
             "NEXUS_SEARCH_FALLBACK_PROVIDERS",
             default=("searxng",),
