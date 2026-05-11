@@ -438,6 +438,9 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-status-badge{height:24px;max-width:180px;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nexus-timeline-panel{max-height:260px;overflow-y:auto;min-height:120px}
 .nexus-sources-table-wrap{overflow-x:auto;max-width:100%}
+.nexus-evidence-scroll{max-width:100%;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+.nexus-evidence-scroll table{width:max-content;min-width:100%}
+.nexus-evidence-scroll pre,.nexus-evidence-scroll code{white-space:pre}
 .nexus-sources-table{min-width:720px;table-layout:fixed}
 .nexus-sources-table td,.nexus-sources-table th{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nexus-answer-markdown h1,.nexus-answer-markdown h2,.nexus-answer-markdown h3{font-size:1rem;line-height:1.4;margin:.75em 0 .35em}
@@ -445,11 +448,17 @@ html.logo-svg-ready .logo-text{display:none}
 .nexus-answer-markdown pre,.nexus-answer-markdown code{white-space:pre-wrap;word-break:break-word}
 
 @media(max-width:768px){
-  .nexus-topbar{flex-direction:column;align-items:stretch}
-  .nexus-subtabs{padding-bottom:2px}
+  .nexus-topbar{flex-direction:column;align-items:stretch;gap:8px;padding:10px 8px;max-width:100%;overflow:hidden}
+  .nexus-title{font-size:12px;line-height:1.2;white-space:nowrap}
+  .nexus-subtabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;width:100%;max-width:100%;overflow:visible;padding-bottom:2px}
+  .nexus-subtab{min-width:0;width:100%;padding:7px 4px;font-size:10px;line-height:1.15;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .nexus-deep-grid{grid-template-columns:1fr}
   .nexus-form-grid.cols-2,.nexus-form-grid.cols-3{grid-template-columns:1fr}
   .nexus-input[type="number"]{max-width:100%;box-sizing:border-box}
+}
+@media(max-width:360px){
+  .nexus-subtabs{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .nexus-subtab{font-size:9px}
 }
 .chat-topbar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0}
 .chat-control-row{display:flex;align-items:center;gap:10px;width:100%;min-width:0}

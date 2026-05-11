@@ -353,21 +353,19 @@
   </div>
 
   <!-- NEXUS MODE -->
-  <div class="nexus-col mob-hidden" id="nexus-col" style="display:none" data-mode-panel="nexus" data-nexus-current-tab="dashboard">
+  <div class="nexus-col mob-hidden" id="nexus-col" style="display:none" data-mode-panel="nexus" data-nexus-current-tab="research">
     <div class="nexus-topbar">
       <div class="nexus-title">Nexus Workspace</div>
       <div class="nexus-subtabs">
-        <button class="nexus-subtab active" id="nexus-btn-dashboard" data-nexus-tab="dashboard" onclick="switchNexusTab('dashboard')">Dashboard</button>
+        <button class="nexus-subtab active" id="nexus-btn-research" data-nexus-tab="research" onclick="switchNexusTab('research')">Research</button>
         <button class="nexus-subtab" id="nexus-btn-library" data-nexus-tab="library" onclick="switchNexusTab('library')">Library</button>
-        <button class="nexus-subtab" id="nexus-btn-research" data-nexus-tab="research" onclick="switchNexusTab('research')">Research</button>
-        <button class="nexus-subtab" id="nexus-btn-sources" data-nexus-tab="sources" onclick="switchNexusTab('sources')">Sources</button>
         <button class="nexus-subtab" id="nexus-btn-evidence" data-nexus-tab="evidence" onclick="switchNexusTab('evidence')">Evidence</button>
         <button class="nexus-subtab" id="nexus-btn-reports" data-nexus-tab="reports" onclick="switchNexusTab('reports')">Reports</button>
         <button class="nexus-subtab" id="nexus-btn-settings" data-nexus-tab="settings" onclick="switchNexusTab('settings')">Settings</button>
       </div>
     </div>
     <div class="nexus-body">
-      <div class="nexus-tab active" id="nexus-tab-dashboard" data-nexus-panel="dashboard">
+      <div class="nexus-tab" id="nexus-tab-dashboard" data-nexus-panel="dashboard" hidden style="display:none">
         <div class="nexus-dashboard-grid">
           <div class="nexus-metric-card"><div class="nexus-metric-label">Documents</div><div class="nexus-metric-value" id="nexus-metric-documents">-</div></div>
           <div class="nexus-metric-card"><div class="nexus-metric-label">Chunks</div><div class="nexus-metric-value" id="nexus-metric-chunks">-</div></div>
@@ -473,7 +471,7 @@
           </div>
         </div>
       </div>
-      <div class="nexus-tab" id="nexus-tab-deep-research" data-nexus-panel="research" hidden style="display:none">
+      <div class="nexus-tab active" id="nexus-tab-deep-research" data-nexus-panel="research">
         <div class="nexus-deep-grid nexus-research-layout nexus-research-layout--wide">
           <div class="nexus-card nexus-deep-panel">
             <div class="nexus-card-title">Deep Research</div>
@@ -582,14 +580,14 @@
             </div>
             <div class="nexus-card">
               <div class="nexus-card-title">Sources</div>
-              <div id="nexus-deep-sources-table" class="nexus-table-wrap nexus-sources-table-wrap">
+              <div id="nexus-deep-sources-table" class="nexus-table-wrap nexus-sources-table-wrap nexus-evidence-scroll">
                 <div class="nexus-empty" style="padding:10px">Sources テーブルは research 開始後に更新されます。</div>
               </div>
             </div>
             <div class="nexus-card">
               <div class="nexus-card-title">Search this Run</div>
-              <div class="nexus-phase-note">現在のResearch Runで収集した資料だけをSourcesタブで検索します。</div>
-              <div class="nexus-actions"><button class="settings-btn" onclick="openCurrentRunInSources()">Open in Sources</button></div>
+              <div class="nexus-phase-note">現在のResearch Runで収集した資料だけをEvidence内のCollected Sourcesで検索します。</div>
+              <div class="nexus-actions"><button class="settings-btn" onclick="openCurrentRunInSources()">Open in Evidence</button></div>
             </div>
           </div>
         </div>
@@ -641,24 +639,55 @@
         </div>
       </div>
       <div class="nexus-tab" id="nexus-tab-evidence" data-nexus-panel="evidence" hidden style="display:none">
+        <div class="nexus-card">
+          <div class="nexus-card-title">Evidence</div>
+          <div class="nexus-phase-note">Sources are collected URLs/documents. Evidence is the subset of source chunks used as citations in answers.</div>
+          <div class="nexus-phase-note">Sources: collected documents/URLs · Evidence: cited chunks used in answers</div>
+        </div>
         <div class="nexus-lib-grid">
           <div class="nexus-card">
-            <div class="nexus-card-title">Evidence MVP (Phase 1)</div>
-            <div style="display:grid;grid-template-columns:minmax(180px,1.1fr) minmax(160px,1fr) auto;gap:8px">
-              <input id="nexus-evidence-source-type" type="text" placeholder="source_type (news / market / web / library / 空欄で全件)">
-              <input id="nexus-evidence-filter" type="text" placeholder="filter (citation/url/snippet)">
-              <button class="settings-btn primary" id="nexus-evidence-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusEvidenceMvp()">Run MVP</button>
+            <div class="nexus-card-title">Used Evidence</div>
+            <div class="nexus-phase-note">引用根拠として使われた citation chunks を表示します。</div>
+            <div class="nexus-evidence-scroll">
+              <div id="nexus-evidence-result" class="nexus-result-panel" style="min-height:100px">
+                <div class="nexus-empty">未実行: 入力受付 + 一覧表示（title/source_type/job_id/source_id/citation_label/url/quote/created_at）</div>
+              </div>
             </div>
-            <div style="display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:8px;margin-top:8px">
-              <input id="nexus-evidence-job-id-adv" type="text" placeholder="advanced: job_id (必要時のみ)">
-            </div>
-            <div style="font-size:10px;color:var(--text3)">`/nexus/evidence` を source_type/filter(+advanced job_id) で検索し一覧表示します。</div>
           </div>
           <div class="nexus-card">
-            <div class="nexus-card-title">Evidence Result</div>
-            <div id="nexus-evidence-result" class="nexus-result-panel" style="min-height:100px">
-              <div class="nexus-empty">未実行: 入力受付 + 一覧表示（title/source_type/job_id/citation_label/url/quote/created_at）</div>
+            <div class="nexus-card-title">Collected Sources</div>
+            <div class="nexus-phase-note">収集ソース（URL / title / status / source_score / content_type）を検索します。新しいWeb検索は行いません。</div>
+            <div class="nexus-form-grid cols-2">
+              <input id="nexus-sources-query" class="nexus-input" type="text" placeholder="Query">
+              <select id="nexus-sources-scope" class="nexus-select">
+                <option value="current_research_job">Current Research Job</option><option value="selected_sources">Selected Sources</option><option value="all_collected_sources">All Collected Sources</option><option value="library">All Nexus Library</option><option value="evidence">Evidence only</option>
+              </select>
             </div>
+            <div class="nexus-form-grid cols-3">
+              <label class="nexus-check"><input id="nexus-sources-type-pdf" type="checkbox" checked> PDF</label>
+              <label class="nexus-check"><input id="nexus-sources-type-html" type="checkbox" checked> HTML/Web pages</label>
+              <label class="nexus-check"><input id="nexus-sources-evidence-only" type="checkbox"> Evidence only</label>
+            </div>
+            <div class="nexus-evidence-scroll">
+              <div id="nexus-sources-results" class="nexus-result-panel"><div class="nexus-empty">検索結果はここに表示されます。</div></div>
+            </div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Actions</div>
+            <div class="nexus-form-grid cols-2">
+              <input id="nexus-evidence-source-type" type="text" placeholder="source_type (news / market / web / library / 空欄で全件)">
+              <input id="nexus-evidence-filter" type="text" placeholder="filter (citation/url/snippet)">
+            </div>
+            <div class="nexus-form-grid cols-2">
+              <input id="nexus-evidence-job-id-adv" type="text" placeholder="advanced: job_id (必要時のみ)">
+              <input id="nexus-sources-limit" class="nexus-input" type="number" value="20" min="1" max="100">
+            </div>
+            <div class="nexus-actions">
+              <button class="settings-btn primary" id="nexus-evidence-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusEvidenceMvp()">Refresh Evidence</button>
+              <button class="settings-btn primary" onclick="searchInSourcesWorkspace()">Refresh Sources</button>
+              <button class="settings-btn" disabled title="Coming soon">Add selected chunks to evidence</button>
+            </div>
+            <div class="nexus-phase-note">`/nexus/evidence` と `/nexus/sources` 系API名は変更せず、UI表示だけEvidenceに統合しています。</div>
           </div>
         </div>
       </div>
@@ -688,24 +717,8 @@
       </div>
       <div class="nexus-tab" id="nexus-tab-sources" data-nexus-panel="sources" hidden style="display:none">
         <div class="nexus-card">
-          <div class="nexus-card-title">Search in Sources</div>
-          <div class="nexus-phase-note">収集済み資料内検索です。新しいWeb検索は行いません。</div>
-          <div class="nexus-form-grid cols-2">
-            <input id="nexus-sources-query" class="nexus-input" type="text" placeholder="Query">
-            <select id="nexus-sources-scope" class="nexus-select">
-              <option value="current_research_job">Current Research Job</option><option value="selected_sources">Selected Sources</option><option value="all_collected_sources">All Collected Sources</option><option value="library">All Nexus Library</option><option value="evidence">Evidence only</option>
-            </select>
-          </div>
-          <div class="nexus-form-grid cols-3">
-            <label class="nexus-check"><input id="nexus-sources-type-pdf" type="checkbox" checked> PDF</label>
-            <label class="nexus-check"><input id="nexus-sources-type-html" type="checkbox" checked> HTML/Web pages</label>
-            <label class="nexus-check"><input id="nexus-sources-evidence-only" type="checkbox"> Evidence only</label>
-          </div>
-          <div class="nexus-form-grid cols-2">
-            <input id="nexus-sources-limit" class="nexus-input" type="number" value="20" min="1" max="100">
-            <button class="settings-btn primary" onclick="searchInSourcesWorkspace()">Search</button>
-          </div>
-          <div id="nexus-sources-results" class="nexus-result-panel"><div class="nexus-empty">検索結果はここに表示されます。</div></div>
+          <div class="nexus-card-title">Sources compatibility panel</div>
+          <div class="nexus-phase-note">Sources is now shown inside Evidence. Existing calls to show/switch the sources tab are normalized to Evidence.</div>
         </div>
       </div>
       <div class="nexus-tab" id="nexus-tab-settings" data-nexus-panel="settings" hidden style="display:none">
@@ -5878,7 +5891,7 @@ function setMode(m, options = {}) {
     if (nexusCol) nexusCol.style.display = '';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
-    switchNexusTab(window._nexusTab || 'dashboard');
+    switchNexusTab(window._nexusTab || 'research');
     startNexusPolling();
   } else {
     appBody?.classList.remove('echo-active');
@@ -5961,9 +5974,17 @@ function setMode(m, options = {}) {
   }
 }
 
+function normalizeNexusTabName(name) {
+  const raw = String(name || '').trim();
+  if (raw === 'sources') return 'evidence';
+  if (raw === 'dashboard') return 'research';
+  return raw || 'research';
+}
+
 function switchNexusTab(name) {
-  const tabs = ['dashboard','library','research','sources','evidence','reports','settings'];
-  const target = tabs.includes(name) ? name : 'dashboard';
+  const tabs = ['research','library','evidence','reports','settings'];
+  const normalized = normalizeNexusTabName(name);
+  const target = tabs.includes(normalized) ? normalized : 'research';
   window._nexusTab = target;
   document.querySelectorAll('[data-nexus-tab]').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.nexusTab === target);
@@ -5989,7 +6010,6 @@ function switchNexusTab(name) {
     document.getElementById('nexus-tab-' + old)?.classList.remove('active');
     document.getElementById('nexus-btn-' + old)?.classList.remove('active');
   });
-  if (target === 'dashboard') refreshNexusExecuteSummary();
   if (target === 'library') {
     refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
     refreshNexusJobs();
@@ -6000,6 +6020,10 @@ function switchNexusTab(name) {
   }
   if (target === 'evidence') runNexusEvidenceMvp();
   if (target === 'reports') runNexusReportMvp();
+}
+
+function showNexusTab(name) {
+  return switchNexusTab(name);
 }
 
 
@@ -8116,7 +8140,11 @@ async function searchInSourcesWorkspace() {
     if (!res.ok) throw new Error(buildNexusApiErrorMessage('/nexus/sources/search', res, parsed));
     const rows = parsed?.data?.results || [];
     if (!rows.length) { root.innerHTML = '<div class="nexus-empty">ヒットなし。</div>'; return; }
-    root.innerHTML = rows.map(r => `<div class="nexus-result-item"><div><b>${esc(r.title || '-')}</b></div><div class="nexus-result-meta">${esc(r.source_type||'-')} / source_score:${esc(String(r.source_score??'-'))} / score:${esc(String(r.score??'-'))} / p.${esc(String(r.page_start||'-'))}-${esc(String(r.page_end||'-'))}</div><div style="font-size:11px">${esc(r.snippet || '')}</div><div class="nexus-result-meta">${esc(r.citation_label || '-') } / ${esc(r.url || '-')}</div><div class="nexus-doc-actions"><button disabled title="Coming soon">Evidenceに追加</button><button disabled title="Coming soon">この結果で再回答</button></div></div>`).join('');
+    root.innerHTML = rows.map(r => {
+      const status = r.status || r.fetch_status || r.download_status || '-';
+      const contentType = r.content_type || r.source_type || '-';
+      return `<div class="nexus-result-item"><div><b>${esc(r.title || '-')}</b></div><div class="nexus-result-meta">URL: ${esc(r.url || '-')}</div><div class="nexus-result-meta">status:${esc(status)} / source_score:${esc(String(r.source_score??'-'))} / content_type:${esc(contentType)} / score:${esc(String(r.score??'-'))} / p.${esc(String(r.page_start||'-'))}-${esc(String(r.page_end||'-'))}</div><div style="font-size:11px">${esc(r.snippet || '')}</div><div class="nexus-result-meta">${esc(r.citation_label || '-')}</div><div class="nexus-doc-actions"><button disabled title="Coming soon">Add selected chunks to evidence</button><button disabled title="Coming soon">この結果で再回答</button></div></div>`;
+    }).join('');
   } catch (e) {
     root.innerHTML = `<div class="nexus-empty">検索失敗: ${esc(e.message || String(e))}</div>`;
   }
@@ -8186,13 +8214,14 @@ function renderNexusEvidenceRows(rows = []) {
     return;
   }
   root.innerHTML = `
-    <div class="nexus-table-wrap">
+    <div class="nexus-evidence-scroll">
       <table class="nexus-table">
         <thead>
           <tr>
             <th>title</th>
             <th>source_type</th>
             <th>job_id</th>
+            <th>source_id</th>
             <th>citation_label</th>
             <th>url</th>
             <th>quote snippet</th>
@@ -8207,6 +8236,7 @@ function renderNexusEvidenceRows(rows = []) {
               <td title="${esc(row.title || '-')}">${esc((row.title || '-').slice(0, 120))}</td>
               <td>${esc(row.source_type || '-')}</td>
               <td>${esc(row.job_id || '-')}</td>
+              <td>${esc(row.source_id || '-')}</td>
               <td>${esc(row.citation_label || '-')}</td>
               <td title="${esc(row.url || '-')}">${esc((row.url || '-').slice(0, 120))}</td>
               <td title="${esc(quoteSnippet || '-')}">${esc((quoteSnippet || '-').slice(0, 120))}</td>
