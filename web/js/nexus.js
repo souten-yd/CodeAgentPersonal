@@ -395,7 +395,11 @@ function formatNexusResearchStatusCompact(job = {}, bundle = {}, answer = {}) {
   if (terminal && hasNotice) title = '完了しました（注意あり）';
   const phaseLabel = phase.includes('download') ? 'ダウンロードと根拠抽出' : phase.includes('answer') || phase.includes('report') ? 'レポート生成' : phase.includes('source') || phase.includes('search') ? 'ソース収集中' : '調査を進行中';
   const progressText = terminal ? 'レポート生成まで完了' : (total > 0 ? `ソース収集中 ${completed}/${total}` : `${phaseLabel}${progress ? ` ${progress}%` : ''}`);
-  const collection = `ソース${sources || completed || 0}件${chunks ? ` / 根拠${chunks}件` : ''}`;
+  const screeningCount = Number(retrieval?.screening_summary?.candidate_count ?? retrieval?.screening_summary?.unique_candidate_count ?? 0);
+  const focusedCount = Array.isArray(retrieval?.focused_research_plan?.focused_queries) ? retrieval.focused_research_plan.focused_queries.length : 0;
+  const screeningText = screeningCount ? `一次スクリーニング:${screeningCount}候補` : '';
+  const planText = focusedCount ? `再検索計画:${focusedCount}クエリ` : '';
+  const collection = [screeningText, planText, `有効ソース:${sources || completed || 0}件${chunks ? ` / 根拠:${chunks}件` : ''}`].filter(Boolean).join(' / ');
   const problemCount = Math.max(0, failed + degraded);
   const limitText = downloadLimited > 0 ? `取得上限で未取得${downloadLimited}件` : '';
   const problemText = problemCount > 0 ? `取得問題${problemCount}件` : '';

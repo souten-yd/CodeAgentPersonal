@@ -411,6 +411,20 @@ def _build_sections_from_research_answer(job_id: str, answer: dict, evidence_ite
         )
         if unsatisfied:
             scope_summary += f"\n未達成target: {unsatisfied}"
+    outline = list(answer.get("report_outline") or [])
+    if outline:
+        coverage = answer.get("coverage_matrix") if isinstance(answer.get("coverage_matrix"), list) else []
+        source_mix = answer.get("source_mix_summary") if isinstance(answer.get("source_mix_summary"), dict) else retrieval_summary.get("source_mix", {})
+        sections = [{"heading": "調査目的", "summary": question, "evidence": []}, {"heading": "調査範囲", "summary": scope_summary, "evidence": []}]
+        for heading in outline:
+            summary = conclusion if str(heading).lower() in {"executive summary", "要約"} else "Focused research plan と Evidence に基づき、この論点を整理します。"
+            sections.append({"heading": str(heading), "summary": summary, "evidence": []})
+        sections.extend([
+            {"heading": "Coverage Matrix", "summary": json.dumps(coverage, ensure_ascii=False, indent=2), "evidence": []},
+            {"heading": "Source Mix", "summary": json.dumps(source_mix, ensure_ascii=False, indent=2), "evidence": []},
+            {"heading": "Sources / Evidence", "summary": f"references={len(refs)}, evidence_count={len(evidence_items)}", "evidence": evidence_items or refs},
+        ])
+        return sections
     return [
         {"heading": "調査目的", "summary": question, "evidence": []},
         {"heading": "調査範囲", "summary": scope_summary, "evidence": []},
