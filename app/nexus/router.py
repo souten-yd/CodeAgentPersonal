@@ -677,6 +677,7 @@ def nexus_web_status_compat() -> dict:
         "last_selected_provider": get_last_web_search_status().get("last_selected_provider"),
         "last_non_fatal": get_last_web_search_status().get("last_non_fatal"),
         "last_message": get_last_web_search_status().get("last_message", ""),
+        "last_diagnostics": get_last_web_search_status().get("last_diagnostics", []),
         "message": probe_message,
         "last_search": get_last_web_search_status(),
     }

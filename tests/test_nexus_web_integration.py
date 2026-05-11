@@ -8,15 +8,23 @@ from fastapi.testclient import TestClient
 
 from agent.tools.registry import create_default_registry
 from agent.tools.nexus_tools import nexus_web_search
+from app.api.nexus import router as nexus_api_router
 from app.nexus.export import nexus_export_router
-from app.nexus.router import nexus_router
+from app.nexus.router import nexus_router, nexus_web_research_payload, nexus_web_search_payload
 from app.nexus.web_scout import run_web_search
+
+
+def _install_nexus_test_routes(app: FastAPI) -> None:
+    app.include_router(nexus_router, prefix="/nexus")
+    app.include_router(nexus_api_router)
+    app.state.nexus_web_search_provider = nexus_web_search_payload
+    app.state.nexus_web_research_provider = nexus_web_research_payload
 
 
 class NexusWebIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         app = FastAPI()
-        app.include_router(nexus_router, prefix="/nexus")
+        _install_nexus_test_routes(app)
         self.client = TestClient(app)
 
     def test_web_status_returns_non_fatal_fields_when_searxng_unreachable(self) -> None:
@@ -359,7 +367,7 @@ class NexusToolsWebSearchTests(unittest.TestCase):
             tool_result = nexus_web_search(topic="fallback", max_queries=1, max_results_per_query=2)
 
         app = FastAPI()
-        app.include_router(nexus_router, prefix="/nexus")
+        _install_nexus_test_routes(app)
         api_client = TestClient(app)
         with patch("app.nexus.router.execute_web_search_service", return_value=shared_service_result):
             api_response = api_client.post("/nexus/web/search", json={"query": "fallback", "max_queries": 1})
@@ -390,6 +398,25 @@ class WebScoutRunSearchTests(unittest.TestCase):
         self.assertIn("provider_errors", result)
         self.assertIn("searxng", result.get("provider_errors", {}))
         self.assertGreaterEqual(len(result.get("provider_errors", {}).get("searxng", [])), 1)
+
+    def test_run_web_search_reports_searxng_captcha_non_json_diagnostics(self) -> None:
+        env = {
+            "NEXUS_ENABLE_WEB": "true",
+            "NEXUS_WEB_SEARCH_PROVIDER": "searxng",
+            "NEXUS_SEARCH_FALLBACK_PROVIDERS": "searxng",
+            "NEXUS_SEARXNG_URL": "http://127.0.0.1:65535",
+        }
+        with patch.dict(os.environ, env, clear=False), patch(
+            "app.nexus.web_scout.request.urlopen", side_effect=ValueError("duckduckgo CAPTCHA JSONDecodeError Extra data")
+        ):
+            result = run_web_search(["integration test query"], mode="quick", depth="quick", max_results_per_query=2)
+
+        self.assertTrue(result.get("non_fatal"))
+        self.assertEqual(result.get("provider_status"), "degraded")
+        self.assertEqual(result.get("error_category"), "searxng_engine_captcha_or_non_json")
+        self.assertIn("diagnostics", result)
+        self.assertEqual(result["diagnostics"][0]["event_type"], "web_search_provider_degraded")
+        self.assertIn("safe_research", result["diagnostics"][0]["hint"])
 
 
 if __name__ == "__main__":

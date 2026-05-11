@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import time
 import urllib.error
@@ -17,6 +18,8 @@ IMAGE = "searxng/searxng:latest"
 HOST_BIND = "127.0.0.1"
 HOST_PORT = "8088"
 CONTAINER_PORT = "8080"
+SAFE_RESEARCH_MARKER = "# CodeAgent safe_research engine overrides"
+DEFAULT_DISABLED_ENGINES = "duckduckgo,startpage,google,bing"
 
 
 def _is_windows() -> bool:
@@ -83,26 +86,77 @@ def _resolve_secret(config_dir: Path) -> str:
     return secret
 
 
-def ensure_settings(config_dir: Path) -> Path:
+def _disabled_engines_from_env(env: dict[str, str]) -> list[str]:
+    raw = env.get("SEARXNG_DISABLED_ENGINES", DEFAULT_DISABLED_ENGINES)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _safe_research_block(disabled_engines: list[str]) -> str:
+    lines = ["", SAFE_RESEARCH_MARKER]
+    for engine in disabled_engines:
+        lines.extend([f"  - name: {engine}", "    disabled: true"])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def repair_safe_research_settings(settings_file: Path, disabled_engines: list[str], log_file: Path) -> bool:
+    try:
+        if not settings_file.exists():
+            return False
+        text = settings_file.read_text(encoding="utf-8")
+        missing = [
+            engine
+            for engine in disabled_engines
+            if not re.search(
+                r"(?ms)^\s*-\s*name:\s*['\"]?" + re.escape(engine) + r"['\"]?\s*$.*?^\s*disabled:\s*true\s*$",
+                text,
+            )
+        ]
+        if SAFE_RESEARCH_MARKER in text and not missing:
+            _log(log_file, "[SearXNG][windows] safe_research settings repair unchanged")
+            return False
+        backup = settings_file.with_name(f"{settings_file.name}.bak.{time.strftime('%Y%m%d%H%M%S', time.gmtime())}")
+        shutil.copy2(settings_file, backup)
+        block = _safe_research_block(disabled_engines)
+        if "\nengines:" in text or text.startswith("engines:"):
+            new_text = text.rstrip() + "\n" + block
+        else:
+            new_text = text.rstrip() + "\n\nengines:\n" + block
+        settings_file.write_text(new_text, encoding="utf-8")
+        _log(log_file, f"[SearXNG][windows] safe_research settings repaired backup={backup}")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        _log(log_file, f"[SearXNG][windows][WARN] safe_research settings repair failed: {exc}")
+        return False
+
+
+def ensure_settings(config_dir: Path, env: dict[str, str] | None = None, log_file: Path | None = None) -> Path:
+    env = env or os.environ.copy()
     config_dir.mkdir(parents=True, exist_ok=True)
     settings_file = config_dir / "settings.yml"
     secret = _resolve_secret(config_dir)
-    body = (
-        "use_default_settings: true\n\n"
-        "server:\n"
-        f"  secret_key: \"{secret}\"\n"
-        "  bind_address: \"0.0.0.0\"\n"
-        "  port: 8080\n"
-        "  base_url: false\n\n"
-        "search:\n"
-        "  safe_search: 0\n"
-        "  formats:\n"
-        "    - html\n"
-        "    - json\n\n"
-        "ui:\n"
-        "  static_use_hash: true\n"
-    )
-    settings_file.write_text(body, encoding="utf-8")
+    if not settings_file.exists():
+        body = (
+            "use_default_settings: true\n\n"
+            "server:\n"
+            f"  secret_key: \"{secret}\"\n"
+            "  bind_address: \"0.0.0.0\"\n"
+            "  port: 8080\n"
+            "  base_url: false\n\n"
+            "search:\n"
+            "  safe_search: 0\n"
+            "  formats:\n"
+            "    - html\n"
+            "    - json\n\n"
+            "ui:\n"
+            "  static_use_hash: true\n"
+        )
+        settings_file.write_text(body, encoding="utf-8")
+    engine_profile = env.get("SEARXNG_ENGINE_PROFILE", "safe_research")
+    repair_enabled = env.get("SEARXNG_REPAIR_SETTINGS", "true").lower() in {"1", "true", "yes", "on"}
+    if engine_profile == "safe_research" and repair_enabled:
+        repair_safe_research_settings(settings_file, _disabled_engines_from_env(env), log_file or (config_dir / "searxng.log"))
+    elif log_file is not None:
+        _log(log_file, f"[SearXNG][windows] settings repair skipped engine_profile={engine_profile} repair={repair_enabled}")
     return settings_file
 
 
@@ -156,12 +210,17 @@ def main() -> int:
     base = (env.get("NEXUS_SEARXNG_URL") or f"http://{HOST_BIND}:{HOST_PORT}").strip().rstrip("/")
     health_url = f"{base}/search?{urllib.parse.urlencode({'format':'json','q':'healthcheck'})}"
 
+    engine_profile = env.get("SEARXNG_ENGINE_PROFILE", "safe_research")
+    disabled_engines = env.get("SEARXNG_DISABLED_ENGINES", DEFAULT_DISABLED_ENGINES)
+    repair_settings = env.get("SEARXNG_REPAIR_SETTINGS", "true")
+    print(f"[SearXNG][windows] engine_profile={engine_profile} disabled_engines={disabled_engines} repair={repair_settings}")
+
     ok, _, _ = _health_probe(health_url)
     if ok:
         print("SearXNG already running")
         return 0
 
-    ensure_settings(config_dir)
+    ensure_settings(config_dir, env=env, log_file=log_file)
 
     if _run(["docker", "--version"]).returncode != 0:
         if not try_install_docker(log_file):
@@ -178,7 +237,7 @@ def main() -> int:
     if state == "running":
         logs = _run(["docker", "logs", CONTAINER_NAME, "--tail", "100"]).stdout
         if any(s in logs for s in ["server.secret_key is not changed", "ultrasecretkey", "403 Forbidden"]):
-            ensure_settings(config_dir)
+            ensure_settings(config_dir, env=env, log_file=log_file)
             _run(["docker", "rm", "-f", CONTAINER_NAME])
             state = ""
 
@@ -206,7 +265,7 @@ def main() -> int:
             print(f"[SearXNG][windows] Ready: {health_url}")
             return 0
         if status == 403:
-            ensure_settings(config_dir)
+            ensure_settings(config_dir, env=env, log_file=log_file)
             _run(["docker", "rm", "-f", CONTAINER_NAME])
             _run([
                 "docker", "run", "-d", "--name", CONTAINER_NAME, "-p", f"{HOST_BIND}:{HOST_PORT}:{CONTAINER_PORT}",
