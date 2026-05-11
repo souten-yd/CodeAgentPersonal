@@ -380,6 +380,14 @@ def _build_sections_from_research_answer(job_id: str, answer: dict, evidence_ite
         uncertainty_bits.append(f"unsupported_claims={claim_analysis.get('unsupported_claim_count')}")
     if int(claim_analysis.get("unresolved_claim_count") or 0):
         uncertainty_bits.append(f"unresolved_claims={claim_analysis.get('unresolved_claim_count')}")
+    if int(claim_analysis.get("weakly_supported_claim_count") or 0):
+        uncertainty_bits.append(f"weakly_supported_claims={claim_analysis.get('weakly_supported_claim_count')}")
+    if int(claim_analysis.get("low_quality_supported_claim_count") or 0):
+        uncertainty_bits.append(f"low_quality_supported_claims={claim_analysis.get('low_quality_supported_claim_count')}")
+    if int(claim_analysis.get("contradiction_count") or 0):
+        uncertainty_bits.append(f"possible_contradictions={claim_analysis.get('contradiction_count')}")
+    for warning in list(claim_analysis.get("source_quality_warnings") or [])[:3]:
+        uncertainty_bits.append(str(warning))
     return [
         {"heading": "調査目的", "summary": question, "evidence": []},
         {"heading": "結論", "summary": conclusion, "evidence": []},
@@ -486,8 +494,15 @@ def build_job_report(payload: BuildReportRequest) -> dict:
         "claim_analysis": {
             "claim_count": claim_analysis.get("claim_count", 0),
             "supported_claim_count": claim_analysis.get("supported_claim_count", 0),
+            "weakly_supported_claim_count": claim_analysis.get("weakly_supported_claim_count", 0),
             "unsupported_claim_count": claim_analysis.get("unsupported_claim_count", 0),
             "unresolved_claim_count": claim_analysis.get("unresolved_claim_count", 0),
+            "average_source_quality_score": claim_analysis.get("average_source_quality_score", 0.0),
+            "high_quality_supported_claim_count": claim_analysis.get("high_quality_supported_claim_count", 0),
+            "low_quality_supported_claim_count": claim_analysis.get("low_quality_supported_claim_count", 0),
+            "contradiction_count": claim_analysis.get("contradiction_count", 0),
+            "source_quality_warnings": claim_analysis.get("source_quality_warnings", []),
+            "contradictions": list(claim_analysis.get("contradictions") or [])[:5],
             "gaps": claim_analysis.get("gaps", []),
         },
         "evidence_count": len(evidence_items),
