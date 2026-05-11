@@ -476,53 +476,62 @@
           <div class="nexus-card nexus-deep-panel">
             <div class="nexus-card-title">Deep Research</div>
             <div class="nexus-form-grid">
-              <input id="nexus-deep-topic" class="nexus-input" type="text" placeholder="調査テーマ (例: 2026年のAI推論半導体サプライチェーン)">
-              <select id="nexus-research-type" class="nexus-select">
-                <option value="general">General Research</option>
-                <option value="source_search">Source Search</option>
-                <option value="news_scan">News Scan</option>
-                <option value="market_research">Market Research</option>
-                <option value="standards_legal">Standards / Legal</option>
-                <option value="technical_research">Technical Research</option>
-                <option value="compare_sources">Compare Sources</option>
-                <option value="formula_check">Formula Check</option>
-              </select>
-              <div class="nexus-form-grid cols-2">
-                <select id="nexus-deep-depth" class="nexus-select">
-                  <option value="quick">depth: Quick</option>
-                  <option value="standard" selected>depth: Standard</option>
-                  <option value="deep">depth: Deep</option>
-                  <option value="exhaustive">depth: Exhaustive</option>
-                </select>
-                <select id="nexus-deep-scope" class="nexus-select">
-                  <option value="library">scope: Library</option>
-                  <option value="web" selected>scope: Web</option>
-                  <option value="official">scope: Official</option>
-                  <option value="pdf">scope: PDF</option>
-                  <option value="news">scope: News</option>
-                  <option value="academic">scope: Academic</option>
-                  <option value="market">scope: Market</option>
-                </select>
+              <div class="nexus-research-basic-grid">
+                <label class="nexus-field-label">Query
+                  <input id="nexus-deep-topic" class="nexus-input" type="text" placeholder="調査テーマ (例: 2026年のAI推論半導体サプライチェーン)">
+                </label>
+                <label class="nexus-field-label">Search Type
+                  <select id="nexus-research-type" class="nexus-select">
+                    <option value="general">General Research</option>
+                    <option value="technical_research">Technical / Academic</option>
+                    <option value="news_scan">News / Market</option>
+                    <option value="standards_legal">Official Sources</option>
+                  </select>
+                </label>
+                <label class="nexus-field-label">Depth
+                  <select id="nexus-deep-depth" class="nexus-select">
+                    <option value="quick">Quick</option>
+                    <option value="standard" selected>Standard</option>
+                    <option value="deep">Deep</option>
+                    <option value="exhaustive">Exhaustive</option>
+                  </select>
+                </label>
               </div>
-              <div class="nexus-form-grid cols-2">
-                <input id="nexus-deep-max-download-mb" class="nexus-input" type="number" min="1" max="500" step="1" placeholder="max_download_mb (1-500)">
-                <input id="nexus-deep-max-total-download-mb" class="nexus-input" type="number" min="1" max="2048" step="1" placeholder="max_total_download_mb (1-2048)">
-              </div>
-              <div class="nexus-form-grid cols-2">
-                <input id="nexus-deep-max-downloads" class="nexus-input" type="number" min="1" max="200" step="1" placeholder="max_downloads (1-200)">
-                <input id="nexus-deep-download-timeout-sec" class="nexus-input" type="number" min="1" max="600" step="1" placeholder="download_timeout_sec (1-600)">
-              </div>
-              <div class="nexus-form-grid cols-2">
-                <label class="nexus-check"><input id="nexus-deep-continue-on-download-error" type="checkbox" checked> continue_on_download_error</label>
-                <label class="nexus-check"><input id="nexus-deep-prefer-pdf" type="checkbox" checked> prefer_pdf</label>
-              </div>
-              <div class="nexus-form-grid cols-2">
-                <label class="nexus-check"><input id="nexus-deep-official-first" type="checkbox" checked> official_first</label>
-              </div>
-              <div class="nexus-card" style="margin-top:6px">
-                <div class="nexus-card-title">Advanced Settings: Recursive Research</div>
-                <div class="nexus-form-grid">
-                  <label class="nexus-check"><input id="nexus-deep-recursive-search" type="checkbox"> Recursive Research</label>
+              <details id="nexus-research-advanced" class="nexus-advanced-settings">
+                <summary>Advanced Settings</summary>
+                <div class="nexus-form-grid" style="margin-top:8px">
+                  <div class="nexus-form-grid cols-2">
+                    <input id="nexus-deep-max-queries" class="nexus-input" type="number" min="1" max="50" step="1" placeholder="max_queries">
+                    <input id="nexus-deep-max-results-per-query" class="nexus-input" type="number" min="1" max="100" step="1" placeholder="max_results_per_query">
+                  </div>
+                  <div class="nexus-form-grid cols-2">
+                    <input id="nexus-deep-max-sources" class="nexus-input" type="number" min="1" max="200" step="1" placeholder="max_sources">
+                    <select id="nexus-deep-scope" class="nexus-select">
+                      <option value="library">scope: Library</option>
+                      <option value="web" selected>scope: Web</option>
+                      <option value="official">scope: Official</option>
+                      <option value="pdf">scope: PDF</option>
+                      <option value="news">scope: News</option>
+                      <option value="academic">scope: Academic</option>
+                      <option value="market">scope: Market</option>
+                    </select>
+                  </div>
+                  <div class="nexus-form-grid cols-2">
+                    <input id="nexus-deep-max-download-mb" class="nexus-input" type="number" min="1" max="500" step="1" placeholder="max_download_mb (1-500)">
+                    <input id="nexus-deep-max-total-download-mb" class="nexus-input" type="number" min="1" max="2048" step="1" placeholder="max_total_download_mb (1-2048)">
+                  </div>
+                  <div class="nexus-form-grid cols-2">
+                    <input id="nexus-deep-max-downloads" class="nexus-input" type="number" min="1" max="200" step="1" placeholder="max_downloads (1-200)">
+                    <input id="nexus-deep-download-timeout-sec" class="nexus-input" type="number" min="1" max="600" step="1" placeholder="download_timeout_sec (1-600)">
+                  </div>
+                  <div class="nexus-form-grid cols-2">
+                    <label class="nexus-check"><input id="nexus-deep-continue-on-download-error" type="checkbox" checked> continue_on_download_error</label>
+                    <label class="nexus-check"><input id="nexus-deep-prefer-pdf" type="checkbox" checked> prefer_pdf</label>
+                  </div>
+                  <div class="nexus-form-grid cols-2">
+                    <label class="nexus-check"><input id="nexus-deep-official-first" type="checkbox" checked> official_first</label>
+                    <label class="nexus-check"><input id="nexus-deep-recursive-search" type="checkbox"> Recursive Research</label>
+                  </div>
                   <div class="nexus-form-grid cols-2">
                     <input id="nexus-deep-max-iterations" class="nexus-input" type="number" min="1" max="5" step="1" value="1" placeholder="max_iterations (1-5)" disabled>
                     <input id="nexus-deep-max-followup-queries" class="nexus-input" type="number" min="1" max="10" step="1" value="4" placeholder="max_followup_queries (1-10)" disabled>
@@ -532,10 +541,10 @@
                     <label class="nexus-check"><input id="nexus-deep-stop-when-sufficient" type="checkbox" checked disabled> stop_when_sufficient</label>
                   </div>
                   <div style="font-size:10px;color:var(--text3);line-height:1.4">
-                    When enabled, recursive search may stop before running follow-up searches if confidence is already high.
+                    Detailed values are auto-selected from Search Type and Depth. Open this section only when you need to override them.
                   </div>
                 </div>
-              </div>
+              </details>
               <div class="nexus-actions">
                 <button class="settings-btn primary" id="nexus-deep-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusDeepResearch()">Start Research</button>
                 <button class="settings-btn" id="nexus-deep-bundle-btn" style="padding:5px 12px;font-size:11px" onclick="downloadNexusDeepBundle()" disabled>Download Bundle</button>
@@ -6794,6 +6803,18 @@ function setNexusDeepStatus(message, isErr = false, isStub = false) {
   if (!el) return;
   const prefix = isStub ? '[非致命 stub] ' : '';
   el.style.color = isErr ? 'var(--red)' : (isStub ? 'var(--amber)' : 'var(--text2)');
+  if (message && typeof message === 'object') {
+    const compact = message;
+    const notice = compact.notice ? `<div>注意: ${esc(String(compact.notice))}</div>` : '';
+    const debug = compact.debug ? `<details class="nexus-debug-details"><summary>Debug Details</summary><pre>${esc(String(compact.debug))}</pre></details>` : '';
+    el.innerHTML = `<div class="nexus-status-compact severity-${esc(String(compact.severity || 'info'))}">
+      <div>状態: ${esc(prefix)}${esc(String(compact.title || '-'))}</div>
+      <div>進捗: ${esc(String(compact.progress || '-'))}</div>
+      <div>収集: ${esc(String(compact.collection || '-'))}</div>
+      ${notice}
+    </div>${debug}`;
+    return;
+  }
   el.textContent = `状態: ${prefix}${message || '-'}`;
 }
 
@@ -6949,9 +6970,17 @@ function renderNexusDeepAnswer(answer = {}) {
     <div class="nexus-answer-section">
       <div class="nexus-answer-subtitle">Markdown</div>
       ${md ? `<div class="md">${renderMd(md)}</div>` : '<div class="nexus-empty">回答はまだ生成されていません</div>'}
+      ${(() => {
+        const notice = (typeof classifyNexusAnswerGenerationNotice === 'function')
+          ? classifyNexusAnswerGenerationNotice(answer)
+          : { severity: (outputTruncated ? 'warning' : 'none'), message: '', showToUser: outputTruncated };
+        if (!notice.showToUser || !notice.message) return '';
+        const color = notice.severity === 'warning' ? 'var(--amber)' : 'var(--text2)';
+        return `<div class="nexus-generation-notice severity-${esc(String(notice.severity || 'info'))}" style="color:${color}">${esc(notice.message)}</div>`;
+      })()}
     </div>
     <div class="nexus-answer-section">
-      <div class="nexus-answer-subtitle">Generation</div>
+      <details class="nexus-debug-details"><summary>Debug Details</summary>
       <pre class="nexus-answer-json">${esc(hasGeneration ? JSON.stringify(generation, null, 2) : 'generation unavailable')}</pre>
       ${generation ? `<div style="font-size:10px;color:var(--text3);display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">
         <span>max_tokens: <b style="color:var(--text2)">${esc(String(generation?.max_tokens ?? '-'))}</b></span>
@@ -6965,28 +6994,26 @@ function renderNexusDeepAnswer(answer = {}) {
       </div>` : ''}
       ${compressionHtml}
       ${(() => {
-        const finishReason = String(generation?.final_finish_reason || generation?.finish_reason || answer?.finish_reason || '').trim();
-        const generationError = String(generation?.error || answer?.error || '').trim();
-        const hasWarning = outputIncomplete || outputTruncated || (finishReason && finishReason !== 'stop') || Boolean(generationError);
-        const selectedReason = String(generation?.selected_reason || answer?.selected_reason || '').trim();
-        const hasRoleWarning = selectedReason.includes('role_model_search_unset_fallback_to_models_api');
-        if (!hasWarning && !hasRoleWarning) return '';
-        const incompleteWarning = hasWarning ? `⚠ 回答生成が途中終了した可能性があります。output_incomplete=${esc(String(outputIncomplete))} / output_truncated=${esc(String(outputTruncated))} / finish_reason=${esc(finishReason || '-')} / error=${esc(generationError || '-')}。max_tokensまたはtimeoutを増やしてください。` : '';
-        const roleWarning = hasRoleWarning ? `⚠ SEARCHロールモデル未設定のためfallback modelを使用しました（selected_reason=${esc(selectedReason)}）。role_model_search を設定してください。` : '';
-        return `<div class="nexus-generation-notice" style="border-color:rgba(255,170,0,.4);color:var(--amber)">
-            ${incompleteWarning}${incompleteWarning && roleWarning ? '<br>' : ''}${roleWarning}
-          </div>`;
+        const notice = (typeof classifyNexusAnswerGenerationNotice === 'function')
+          ? classifyNexusAnswerGenerationNotice(answer)
+          : { severity: (outputTruncated ? 'warning' : 'none'), message: '', showToUser: outputTruncated };
+        if (!notice.showToUser || !notice.message) return '';
+        const color = notice.severity === 'warning' ? 'var(--amber)' : 'var(--text2)';
+        return `<div class="nexus-generation-notice severity-${esc(String(notice.severity || 'info'))}" style="color:${color}">${esc(notice.message)}</div>`;
       })()}
       ${(generationMode === 'template_fallback' || generationNotice)
         ? `<div class="nexus-generation-notice">${
           esc(generationNotice || 'Answer LLM is disabled. Deep Research generated a template fallback answer. Citation quality may be weak because no LLM synthesis was performed. Check DEEP_RESEARCH_LLM_ENABLED and endpoint settings.')
         }</div>`
         : ''}
+      </details>
     </div>
-    <div class="nexus-answer-section">
-      <div class="nexus-answer-subtitle">Citation verification</div>
-      ${warningsHtml || '<div class="nexus-empty">warnings はありません</div>'}
-      <pre class="nexus-answer-json">${esc(JSON.stringify(verification, null, 2) || '{}')}</pre>
+    <div class="nexus-answer-section nexus-citation-verification">
+      <details>
+        <summary>Citation Verification: ${esc(String(Array.isArray(verification?.warnings) ? verification.warnings.filter((item) => String(item?.sentence || item?.claim || '').trim() && String(item?.sentence || item?.claim || '').trim() !== '---').length : 0))} issues</summary>
+        ${warningsHtml || '<div class="nexus-empty">warnings はありません</div>'}
+        <pre class="nexus-answer-json">${esc(JSON.stringify(verification, null, 2) || '{}')}</pre>
+      </details>
     </div>
     ${recursiveMetaHtml}`;
   renderNexusDeepCitationWarnings(answer, { shouldMount: true, forceEmpty: true });
@@ -6996,7 +7023,11 @@ function renderNexusDeepCitationWarnings(answer = {}, options = {}) {
   const root = document.getElementById('nexus-deep-citation-warnings');
   const shouldMount = options?.shouldMount !== false;
   const forceEmpty = options?.forceEmpty === true;
-  const warnings = Array.isArray(answer?.citation_verification?.warnings) ? answer.citation_verification.warnings : [];
+  const warnings = (Array.isArray(answer?.citation_verification?.warnings) ? answer.citation_verification.warnings : [])
+    .filter((item) => {
+      const sentence = String(item?.sentence || item?.claim || '').trim();
+      return sentence && sentence !== '---';
+    });
   const html = warnings
     .map((item, idx) => {
       const status = String(item?.status || '').trim().toLowerCase();
@@ -7520,9 +7551,11 @@ function formatNexusDeepProgressStatus() {
   const activeSummary = srcTitle ? ` / 処理中:${srcTitle}` : '';
   const finishReason = String(generation?.final_finish_reason || generation?.finish_reason || nexusDeepResearchAnswer?.finish_reason || '').trim();
   const generationError = String(generation?.error || nexusDeepResearchAnswer?.error || '').trim();
-  const outputWarn = outputIncomplete || outputTruncated || (finishReason && finishReason !== 'stop') || Boolean(generationError);
-  const outWarn = outputWarn
-    ? ` / ⚠ 回答生成が途中終了した可能性があります（finish_reason=${finishReason || '-'} / error=${generationError || '-' }）。max_tokensまたはtimeoutを増やしてください。`
+  const notice = (typeof classifyNexusAnswerGenerationNotice === 'function')
+    ? classifyNexusAnswerGenerationNotice(nexusDeepResearchAnswer || {})
+    : { showToUser: outputTruncated || (finishReason && finishReason !== 'stop') || Boolean(generationError), message: '回答生成の確認が必要です。' };
+  const outWarn = notice.showToUser && notice.message
+    ? ` / ${notice.severity === 'warning' ? '⚠ ' : ''}${notice.message}`
     : '';
   const stallReason = String(h.stalled_reason || '-').trim();
   const suggestedAction = String(h.suggested_action || '-').trim();
@@ -7580,9 +7613,15 @@ async function pollNexusDeepResearch(jobId, maxTicks = 300) {
     const stallReason = String(health.stalled_reason || 'heartbeat停止').trim();
     const suggestedAction = String(health.suggested_action || '').trim();
     const stallMsg = stalled
-      ? ` / 警告: heartbeatが120秒以上更新されていません。サーバー処理停止の可能性があります。（${stallReason}${suggestedAction ? ` / ${suggestedAction}` : ''}）`
+      ? `警告: heartbeatが120秒以上更新されていません。サーバー処理停止の可能性があります。（${stallReason}${suggestedAction ? ` / ${suggestedAction}` : ''}）`
       : '';
-    setNexusDeepStatus(`job:${id} / state:${state || '-'} / ${formatNexusDeepProgressStatus()}${stallMsg}`, state === 'failed' || stalled, nexusDeepResearchStubMode);
+    const compactStatus = (typeof formatNexusResearchStatusCompact === 'function')
+      ? formatNexusResearchStatusCompact({ status: state || 'running', progress: health.progress }, { ...health, sources: nexusDeepResearchSources }, nexusDeepResearchAnswer)
+      : { title: state || 'running', progress: formatNexusDeepProgressStatus(), collection: `ソース${nexusDeepResearchSources.length}件`, notice: '', severity: 'info' };
+    compactStatus.notice = [compactStatus.notice, stallMsg].filter(Boolean).join(' / ');
+    compactStatus.severity = state === 'failed' || stalled ? 'error' : compactStatus.severity;
+    compactStatus.debug = `job:${id} / state:${state || '-'} / ${formatNexusDeepProgressStatus()}`;
+    setNexusDeepStatus(compactStatus, state === 'failed' || stalled, nexusDeepResearchStubMode);
     updateNexusDeepCurrentStatus(state || 'running');
     if (TERMINAL_RESEARCH_STATUSES.has(String(state || '').toLowerCase())) {
       stopNexusDeepResearchPolling();
@@ -7961,49 +8000,58 @@ function onNexusResearchTypeChange() {
   const noteEl = document.getElementById('nexus-deep-status');
   const btn = document.getElementById('nexus-deep-run-btn');
   if (!noteEl || !btn) return;
-  const comingSoon = ['news_scan','market_research','compare_sources','formula_check','source_search'];
-  if (comingSoon.includes(type)) {
-    btn.disabled = true;
-    noteEl.textContent = '状態: この Research Type は Coming soon です';
-    return;
-  }
   btn.disabled = false;
-  if (type === 'technical_research') noteEl.textContent = '状態: Technical priority: PDF/whitepaper/academic';
-  else if (type === 'standards_legal') noteEl.textContent = '状態: Standards/Legal mode (official_first=true, prefer_pdf=true)';
+  if (type === 'technical_research') noteEl.textContent = '状態: Technical / Academic sources を優先します';
+  else if (type === 'standards_legal') noteEl.textContent = '状態: Official Sources を優先します';
+  else if (type === 'news_scan' || type === 'market_research') noteEl.textContent = '状態: News / Market sources を優先します';
+  else noteEl.textContent = '状態: 未実行';
 }
 
 async function runNexusDeepResearch() {
   const topic = (document.getElementById('nexus-deep-topic')?.value || '').trim();
   const depth = (document.getElementById('nexus-deep-depth')?.value || 'standard').trim().toLowerCase();
-  const scope = (document.getElementById('nexus-deep-scope')?.value || 'web').trim().toLowerCase();
   const researchType = (document.getElementById('nexus-research-type')?.value || 'general').trim().toLowerCase();
+  const advancedOpen = document.getElementById('nexus-research-advanced')?.open === true;
+  const autoSettings = (typeof resolveNexusResearchAutoSettings === 'function')
+    ? resolveNexusResearchAutoSettings({ searchType: researchType, depth })
+    : { scope: 'web', source_profile: 'web', max_queries: 4, max_results_per_query: 6, max_sources: 24, max_downloads: 10, recursive_search: false, max_iterations: 1, max_followup_queries: 4, confidence_threshold: 0.76, prefer_pdf: true, official_first: true, continue_on_download_error: true, stop_when_sufficient: true };
+  const scope = (advancedOpen ? (document.getElementById('nexus-deep-scope')?.value || autoSettings.scope || 'web') : (autoSettings.scope || 'web')).trim().toLowerCase();
   const maxDownloadMbEl = document.getElementById('nexus-deep-max-download-mb');
   const maxTotalDownloadMbEl = document.getElementById('nexus-deep-max-total-download-mb');
+  const maxQueriesEl = document.getElementById('nexus-deep-max-queries');
+  const maxResultsPerQueryEl = document.getElementById('nexus-deep-max-results-per-query');
+  const maxSourcesEl = document.getElementById('nexus-deep-max-sources');
   const maxDownloadsEl = document.getElementById('nexus-deep-max-downloads');
   const downloadTimeoutSecEl = document.getElementById('nexus-deep-download-timeout-sec');
-  const continueOnDownloadError = document.getElementById('nexus-deep-continue-on-download-error')?.checked !== false;
-  const preferPdf = document.getElementById('nexus-deep-prefer-pdf')?.checked !== false;
-  const officialFirst = document.getElementById('nexus-deep-official-first')?.checked !== false;
-  const recursiveSearch = document.getElementById('nexus-deep-recursive-search')?.checked === true;
+  const continueOnDownloadError = advancedOpen ? document.getElementById('nexus-deep-continue-on-download-error')?.checked !== false : autoSettings.continue_on_download_error !== false;
+  const preferPdf = advancedOpen ? document.getElementById('nexus-deep-prefer-pdf')?.checked !== false : autoSettings.prefer_pdf !== false;
+  const officialFirst = advancedOpen ? document.getElementById('nexus-deep-official-first')?.checked !== false : autoSettings.official_first !== false;
+  const recursiveSearch = advancedOpen ? document.getElementById('nexus-deep-recursive-search')?.checked === true : autoSettings.recursive_search === true;
   const maxIterationsEl = document.getElementById('nexus-deep-max-iterations');
   const maxFollowupQueriesEl = document.getElementById('nexus-deep-max-followup-queries');
   const confidenceThresholdEl = document.getElementById('nexus-deep-confidence-threshold');
   const stopWhenSufficientEl = document.getElementById('nexus-deep-stop-when-sufficient');
 
-  const maxDownloadMb = clampInt(maxDownloadMbEl?.value, 1, 500);
-  const maxTotalDownloadMb = clampInt(maxTotalDownloadMbEl?.value, 1, 2048);
-  const maxDownloads = clampInt(maxDownloadsEl?.value, 1, 200);
-  const downloadTimeoutSec = clampInt(downloadTimeoutSecEl?.value, 1, 600);
+  const maxQueries = advancedOpen ? (clampInt(maxQueriesEl?.value, 1, 50) ?? autoSettings.max_queries) : autoSettings.max_queries;
+  const maxResultsPerQuery = advancedOpen ? (clampInt(maxResultsPerQueryEl?.value, 1, 100) ?? autoSettings.max_results_per_query) : autoSettings.max_results_per_query;
+  const maxSources = advancedOpen ? (clampInt(maxSourcesEl?.value, 1, 200) ?? autoSettings.max_sources) : autoSettings.max_sources;
+  const maxDownloadMb = advancedOpen ? clampInt(maxDownloadMbEl?.value, 1, 500) : null;
+  const maxTotalDownloadMb = advancedOpen ? clampInt(maxTotalDownloadMbEl?.value, 1, 2048) : null;
+  const maxDownloads = advancedOpen ? (clampInt(maxDownloadsEl?.value, 1, 200) ?? autoSettings.max_downloads) : autoSettings.max_downloads;
+  const downloadTimeoutSec = advancedOpen ? clampInt(downloadTimeoutSecEl?.value, 1, 600) : null;
+  if (maxQueriesEl) maxQueriesEl.value = maxQueries == null ? '' : String(maxQueries);
+  if (maxResultsPerQueryEl) maxResultsPerQueryEl.value = maxResultsPerQuery == null ? '' : String(maxResultsPerQuery);
+  if (maxSourcesEl) maxSourcesEl.value = maxSources == null ? '' : String(maxSources);
   if (maxDownloadMbEl) maxDownloadMbEl.value = maxDownloadMb == null ? '' : String(maxDownloadMb);
   if (maxTotalDownloadMbEl) maxTotalDownloadMbEl.value = maxTotalDownloadMb == null ? '' : String(maxTotalDownloadMb);
   if (maxDownloadsEl) maxDownloadsEl.value = maxDownloads == null ? '' : String(maxDownloads);
   if (downloadTimeoutSecEl) downloadTimeoutSecEl.value = downloadTimeoutSec == null ? '' : String(downloadTimeoutSec);
   const recursiveSettings = normalizeNexusRecursiveSettings({
     recursiveSearch,
-    maxIterations: maxIterationsEl?.value,
-    maxFollowupQueries: maxFollowupQueriesEl?.value,
-    confidenceThreshold: confidenceThresholdEl?.value,
-    stopWhenSufficient: stopWhenSufficientEl?.checked !== false,
+    maxIterations: advancedOpen ? maxIterationsEl?.value : autoSettings.max_iterations,
+    maxFollowupQueries: advancedOpen ? maxFollowupQueriesEl?.value : autoSettings.max_followup_queries,
+    confidenceThreshold: advancedOpen ? confidenceThresholdEl?.value : autoSettings.confidence_threshold,
+    stopWhenSufficient: advancedOpen ? stopWhenSufficientEl?.checked !== false : autoSettings.stop_when_sufficient !== false,
   });
   if (maxIterationsEl) maxIterationsEl.value = String(recursiveSettings.max_iterations);
   if (maxFollowupQueriesEl) maxFollowupQueriesEl.value = String(recursiveSettings.max_followup_queries);
@@ -8016,6 +8064,9 @@ async function runNexusDeepResearch() {
     scope,
     maxDownloadMb,
     maxTotalDownloadMb,
+    maxQueries,
+    maxResultsPerQuery,
+    maxSources,
     maxDownloads,
     downloadTimeoutSec,
     continueOnDownloadError,
@@ -8053,26 +8104,25 @@ async function runNexusDeepResearch() {
       setNexusDeepStatus('research job を起動中...');
     }
 
-    const typeToScope = { technical_research:'academic', standards_legal:'official' };
-    const effectiveScope = typeToScope[researchType] || scope;
-    if (['news_scan','market_research','compare_sources','formula_check','source_search'].includes(researchType)) { setNexusDeepStatus('このResearch TypeはComing soonです', true); return; }
-    const conf = nexusDepthToConfig(depth);
+    const effectiveScope = scope;
     const payload = {
       query: topic,
       project: currentProject || 'default',
       mode: depth,
       depth,
       scope: [effectiveScope],
+      source_profile: autoSettings.source_profile || effectiveScope,
       research_type: researchType,
-      max_queries: conf.maxQueries,
-      max_results_per_query: conf.maxResultsPerQuery,
+      max_queries: maxQueries,
+      max_results_per_query: maxResultsPerQuery,
+      max_sources: maxSources,
       max_download_mb: maxDownloadMb,
       max_total_download_mb: maxTotalDownloadMb,
       max_downloads: maxDownloads,
       download_timeout_sec: downloadTimeoutSec,
       continue_on_download_error: continueOnDownloadError,
-      prefer_pdf: researchType === 'standards_legal' ? true : preferPdf,
-      official_first: researchType === 'standards_legal' ? true : officialFirst,
+      prefer_pdf: preferPdf,
+      official_first: officialFirst,
       recursive_search: recursiveSettings.recursive_search,
       max_iterations: recursiveSettings.max_iterations,
       max_followup_queries: recursiveSettings.max_followup_queries,

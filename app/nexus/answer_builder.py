@@ -849,7 +849,7 @@ def build_answer_payload(
             )
             output_truncated = final_finish_reason.lower() == "length"
             llm_answer = final_answer_text
-            generation_mode = "llm_answer_truncated" if (output_incomplete or output_truncated) else "llm_answer"
+            generation_mode = "llm_answer_truncated" if output_truncated else "llm_answer"
         except Exception as exc:  # noqa: BLE001
             llm_answer = None
             generation_mode = "template_fallback"
@@ -892,7 +892,7 @@ def build_answer_payload(
                     final_finish_reason = str(llm_result.get("finish_reason") or "")
                     output_truncated = final_finish_reason == "length"
                     output_incomplete = _looks_incomplete_answer(llm_answer, final_finish_reason)
-                    generation_mode = "llm_answer_truncated" if (output_incomplete or output_truncated) else "llm_answer"
+                    generation_mode = "llm_answer_truncated" if output_truncated else "llm_answer"
                     llm_error = None
                     context_budget = retry_budget
                     refs_for_llm = retry_refs
@@ -920,7 +920,7 @@ def build_answer_payload(
     if continuation_finish_reason.lower() == "length":
         output_truncated = True
         output_incomplete = True
-    if output_incomplete and llm_answer:
+    if output_truncated and llm_answer:
         final_summary = (final_summary.rstrip() + _build_incomplete_warning()).strip()
     if continuation_finish_reason.lower() == "length":
         top_warning = _build_truncated_after_continuation_warning().strip()
@@ -938,8 +938,44 @@ def build_answer_payload(
         verifier=citation_support_verifier,
     )
 
-    initial_usage = initial_result.get("usage", {}) if isinstance(locals().get("initial_result"), dict) else {}
     final_finish_reason = final_finish_reason or str(llm_result.get("finish_reason") or "")
+    output_incomplete_reasons: list[str] = []
+    if output_truncated or str(final_finish_reason or "").strip().lower() == "length":
+        output_incomplete_reasons.append("output_truncated")
+    if llm_error:
+        err_lower = str(llm_error).lower()
+        if "timeout" in err_lower or "timed out" in err_lower:
+            output_incomplete_reasons.append("timeout")
+        elif _looks_like_context_overflow_error(llm_error):
+            output_incomplete_reasons.append("context_overflow")
+        else:
+            output_incomplete_reasons.append("llm_error")
+    if output_incomplete and not output_incomplete_reasons:
+        output_incomplete_reasons.append("quality_check_failed")
+    citation_warnings = citation_verification.get("warnings") if isinstance(citation_verification, dict) else []
+    if isinstance(citation_warnings, list) and citation_warnings:
+        statuses = {str(item.get("status") or "").lower() for item in citation_warnings if isinstance(item, dict)}
+        if {"unsupported", "weak"} & statuses and "quality_check_failed" not in output_incomplete_reasons and not output_truncated:
+            output_incomplete_reasons.append("quality_check_failed")
+            output_incomplete = True
+    if output_truncated or str(final_finish_reason or "").strip().lower() == "length":
+        output_generation_status = "truncated"
+    elif any(reason == "timeout" for reason in output_incomplete_reasons):
+        output_generation_status = "timeout"
+    elif generation_mode == "template_fallback":
+        output_generation_status = "fallback_template"
+    elif "quality_check_failed" in output_incomplete_reasons:
+        output_generation_status = "quality_check_failed"
+    else:
+        output_generation_status = "complete"
+    user_visible_warning = output_generation_status in {"truncated", "timeout"}
+    user_visible_warning_reason = ""
+    if output_generation_status == "truncated":
+        user_visible_warning_reason = "回答が出力上限で途中終了しました。出力上限を増やすか再生成してください。"
+    elif output_generation_status == "timeout":
+        user_visible_warning_reason = "回答生成がタイムアウトしました。timeoutを増やすか再実行してください。"
+
+    initial_usage = initial_result.get("usage", {}) if isinstance(locals().get("initial_result"), dict) else {}
     generation = {
         "mode": generation_mode,
         "llm_enabled": llm_enabled,
@@ -984,6 +1020,10 @@ def build_answer_payload(
         "final_finish_reason": final_finish_reason,
         "final_output_incomplete": output_incomplete,
         "final_output_truncated": output_truncated,
+        "output_incomplete_reasons": output_incomplete_reasons,
+        "output_generation_status": output_generation_status,
+        "user_visible_warning": user_visible_warning,
+        "user_visible_warning_reason": user_visible_warning_reason,
         "max_tokens": max_tokens,
         "context_budget": {
             "max_context_tokens": context_budget.max_context_tokens,
@@ -1055,6 +1095,10 @@ def build_answer_payload(
         "llm_error": llm_error,
         "output_incomplete": output_incomplete,
         "output_truncated": output_truncated,
+        "output_incomplete_reasons": output_incomplete_reasons,
+        "output_generation_status": output_generation_status,
+        "user_visible_warning": user_visible_warning,
+        "user_visible_warning_reason": user_visible_warning_reason,
     }
 
     if job_id:
