@@ -178,7 +178,7 @@ class NexusAnswerBuilderTests(unittest.TestCase):
                 evidence_chunks=chunks,
                 job_id="job-hb-success",
             )
-        self.assertEqual(payload["generation_mode"], "llm_answer_truncated")
+        self.assertEqual(payload["generation_mode"], "llm_answer")
         self.assertGreaterEqual(mocked_hb.call_count, 1)
 
     def test_heartbeat_worker_stops_on_llm_exception(self) -> None:
@@ -273,7 +273,7 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         self.assertGreaterEqual(mocked.call_count, 1)
         self.assertEqual(payload["references"][0]["citation_label"], "[S1]")
         self.assertIn("- [S1] Source 1 (https://example.com/1)", payload["answer_markdown"])
-        self.assertEqual(payload["generation_mode"], "llm_answer_truncated")
+        self.assertEqual(payload["generation_mode"], "llm_answer")
         self.assertTrue(payload["llm_enabled"])
         self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:8080/v1/chat/completions")
         self.assertEqual(payload["llm_model"], "local-llm")
@@ -526,7 +526,7 @@ class NexusAnswerBuilderTests(unittest.TestCase):
 
         self.assertTrue(payload["llm_enabled"])
         self.assertEqual(payload["llm_endpoint"], "http://127.0.0.1:18080/v1/chat/completions")
-        self.assertEqual(payload["generation_mode"], "llm_answer_truncated")
+        self.assertEqual(payload["generation_mode"], "llm_answer")
 
     def test_build_answer_payload_persists_llm_metadata_in_answer_json(self) -> None:
         references = [{"citation_label": "legacy-label", "title": "Source 1", "source_id": "src-1"}]
@@ -749,7 +749,7 @@ class NexusAnswerBuilderTests(unittest.TestCase):
             payload = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
         self.assertEqual(mocked.call_count, 2)
         self.assertEqual(payload["generation"]["retry_count"], 1)
-        self.assertEqual(payload["generation"]["mode"], "llm_answer_truncated")
+        self.assertEqual(payload["generation"]["mode"], "llm_answer")
         self.assertIn(payload["generation"]["notice"], ("", "Evidence was compressed to fit the model context."))
 
     def test_context_overflow_retry_failure_sets_notice(self) -> None:
@@ -837,6 +837,39 @@ class NexusAnswerBuilderTests(unittest.TestCase):
             p16["generation"]["compression"]["max_evidence_chars"],
         )
 
+
+    def test_output_generation_status_complete_stop_has_no_user_warning(self) -> None:
+        references = [{"citation_label": "s1", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"text": "fact " * 80, "source_id": "src-1", "citation_label": "s1"}]
+        answer = (
+            "## Answer\n"
+            + "十分な本文です。" * 80
+            + " [S1]\n\n## 追加確認が必要な点\n- なし\n\n## References\n- [S1] Source 1"
+        )
+        with patch("app.nexus.answer_builder._generate_answer_with_llm", return_value={"text": answer, "finish_reason": "stop", "response_length_chars": len(answer)}), patch(
+            "app.nexus.answer_builder.verify_citation_labels", return_value={"warnings": []}
+        ):
+            payload = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
+        self.assertEqual(payload["output_generation_status"], "complete")
+        self.assertFalse(payload["output_truncated"])
+        self.assertFalse(payload["user_visible_warning"])
+
+    def test_output_generation_status_truncated_for_length_finish(self) -> None:
+        references = [{"citation_label": "s1", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "s1"}]
+        with patch("app.nexus.answer_builder._generate_answer_with_llm", return_value={"text": "途中 [S1]", "finish_reason": "length", "response_length_chars": 8}):
+            payload = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
+        self.assertEqual(payload["output_generation_status"], "truncated")
+        self.assertTrue(payload["user_visible_warning"])
+
+    def test_quality_check_failed_is_not_user_visible_warning(self) -> None:
+        references = [{"citation_label": "s1", "title": "Source 1", "source_id": "src-1"}]
+        chunks = [{"text": "fact", "source_id": "src-1", "citation_label": "s1"}]
+        with patch("app.nexus.answer_builder._generate_answer_with_llm", return_value={"text": "短い回答 [S1]", "finish_reason": "stop", "response_length_chars": 9}):
+            payload = build_answer_payload(question="質問", summary="fallback", references=references, evidence_chunks=chunks)
+        self.assertEqual(payload["output_generation_status"], "quality_check_failed")
+        self.assertTrue(payload["output_incomplete"])
+        self.assertFalse(payload["user_visible_warning"])
 
 if __name__ == "__main__":
     unittest.main()

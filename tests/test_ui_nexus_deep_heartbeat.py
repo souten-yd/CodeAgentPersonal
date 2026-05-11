@@ -22,7 +22,8 @@ def test_ui_shows_download_phase_progress_and_breakdown() -> None:
     assert 'download_degraded' in html
     assert 'download_failed' in html
     assert 'download_skipped' in html
-    assert 'ダウンロード中 ${completed}/${total} 件完了' in html
+    assert 'download_completed' in html
+    assert 'ソース収集中 ${completed}/${total}' in html
 
 
 def test_ui_shows_stalled_warning_message_from_health() -> None:
@@ -38,5 +39,6 @@ def test_ui_shows_incomplete_output_warning() -> None:
     assert 'output_incomplete' in html
     assert 'output_truncated' in html
     assert 'finish_reason' in html
-    assert 'max_tokensまたはtimeoutを増やしてください。' in html
-    assert 'role_model_search を設定してください。' in html
+    assert '回答が出力上限で途中終了しました' in html
+    assert '回答生成がタイムアウトしました' in html
+    assert 'role_model_search を設定してください。' not in html

@@ -224,3 +224,93 @@ window.pushNexusTimelineEvent = pushNexusTimelineEvent;
 window.renderNexusDocuments = renderNexusDocuments;
 window.renderNexusJobs = renderNexusJobs;
 window.setNexusDropzoneActive = setNexusDropzoneActive;
+
+function detectNexusLongContext() {
+  if (typeof window !== 'undefined' && window.__nexusLongContext === true) return true;
+  if (typeof document === 'undefined') return false;
+  const text = [
+    document.getElementById('nexus-deep-status')?.textContent || '',
+    document.getElementById('nexus-deep-answer')?.textContent || '',
+  ].join(' ');
+  const match = text.match(/(?:ctx|max_context_tokens|context)\D{0,12}(\d{5,6})/i);
+  return Boolean(match && Number(match[1]) >= 60000);
+}
+
+function resolveNexusResearchAutoSettings({ searchType, depth } = {}) {
+  const type = String(searchType || 'general').trim().toLowerCase();
+  const key = String(depth || 'standard').trim().toLowerCase();
+  const long64k = detectNexusLongContext();
+  const byDepth = {
+    quick: { max_queries: 2, max_results_per_query: 5, max_sources: 12, max_downloads: 6, recursive_search: false, max_iterations: 1, max_followup_queries: 4, confidence_threshold: 0.72, continue_on_download_error: true, stop_when_sufficient: true },
+    standard: { max_queries: 4, max_results_per_query: 6, max_sources: 24, max_downloads: 10, recursive_search: false, max_iterations: 1, max_followup_queries: 4, confidence_threshold: 0.76, continue_on_download_error: true, stop_when_sufficient: true },
+    deep: { max_queries: long64k ? 8 : 6, max_results_per_query: long64k ? 10 : 8, max_sources: long64k ? 60 : 40, max_downloads: long64k ? 24 : 16, recursive_search: true, max_iterations: 2, max_followup_queries: long64k ? 6 : 4, confidence_threshold: long64k ? 0.82 : 0.78, continue_on_download_error: true, stop_when_sufficient: true },
+    exhaustive: { max_queries: long64k ? 10 : 8, max_results_per_query: 12, max_sources: long64k ? 80 : 50, max_downloads: long64k ? 32 : 20, recursive_search: true, max_iterations: 3, max_followup_queries: long64k ? 8 : 5, confidence_threshold: 0.85, continue_on_download_error: true, stop_when_sufficient: true },
+  };
+  const typeMap = {
+    general: { scope: 'web', source_profile: 'web', prefer_pdf: true, official_first: true },
+    technical_research: { scope: 'academic', source_profile: 'academic', prefer_pdf: true, official_first: true },
+    news_scan: { scope: 'news', source_profile: 'news', prefer_pdf: false, official_first: false },
+    market_research: { scope: 'news', source_profile: 'news', prefer_pdf: false, official_first: false },
+    standards_legal: { scope: 'official', source_profile: 'official', prefer_pdf: true, official_first: true },
+    official: { scope: 'official', source_profile: 'official', prefer_pdf: true, official_first: true },
+  };
+  return { ...(byDepth[key] || byDepth.standard), ...(typeMap[type] || typeMap.general) };
+}
+
+function classifyNexusAnswerGenerationNotice(answerJson = {}) {
+  const answer = (answerJson && typeof answerJson === 'object') ? answerJson : {};
+  const generation = (answer.generation && typeof answer.generation === 'object') ? answer.generation : {};
+  const finishReason = String(generation.final_finish_reason || generation.finish_reason || answer.finish_reason || '').trim().toLowerCase();
+  const error = String(generation.error || answer.error || answer.llm_error || '').trim();
+  const errorLower = error.toLowerCase();
+  const outputTruncated = Boolean(answer.output_truncated ?? generation.final_output_truncated ?? generation.output_truncated);
+  const outputIncomplete = Boolean(answer.output_incomplete ?? generation.final_output_incomplete ?? generation.output_incomplete);
+  const generationMode = String(generation.mode || answer.generation_mode || '').trim().toLowerCase();
+  const status = String(answer.output_generation_status || generation.output_generation_status || '').trim().toLowerCase();
+  const hasAnswer = Boolean(String(answer.answer_markdown || answer.answer || '').trim());
+  const explicitTimeout = /timeout|timed out|タイムアウト/.test(errorLower) || status === 'timeout';
+  const explicitLimit = /max[_ -]?tokens|context overflow|context length|maximum context|出力上限/.test(errorLower);
+  if (explicitTimeout) return { severity: 'warning', message: '回答生成がタイムアウトしました。timeoutを増やすか再実行してください。', showToUser: true };
+  if (outputTruncated || finishReason === 'length' || explicitLimit || (generationMode === 'llm_answer_truncated' && finishReason !== 'stop')) {
+    return { severity: 'warning', message: '回答が出力上限で途中終了しました。出力上限を増やすか再生成してください。', showToUser: true };
+  }
+  if (answer.user_visible_warning === true && String(answer.user_visible_warning_reason || '').trim()) {
+    return { severity: 'warning', message: String(answer.user_visible_warning_reason).trim(), showToUser: true };
+  }
+  if (finishReason === 'stop' && !outputTruncated && !error && hasAnswer) {
+    if (outputIncomplete || status === 'quality_check_failed') {
+      return { severity: 'info', message: '回答品質チェックで未確認または根拠不足の項目があります。Evidence/Citation Verificationを確認してください。', showToUser: true };
+    }
+    return { severity: 'none', message: '', showToUser: false };
+  }
+  if (outputIncomplete || status === 'quality_check_failed') {
+    return { severity: 'info', message: '回答品質チェックで未確認または根拠不足の項目があります。', showToUser: true };
+  }
+  return { severity: 'none', message: '', showToUser: false };
+}
+
+function formatNexusResearchStatusCompact(job = {}, bundle = {}, answer = {}) {
+  const health = (bundle.health && typeof bundle.health === 'object') ? bundle.health : bundle;
+  const state = String(job.status || health.job_status || health.state || '').toLowerCase();
+  const phase = String(health.current_phase || health.phase || '').toLowerCase();
+  const progress = Math.round(Number(job.progress ?? health.progress ?? 0) * 100);
+  const dl = (health.latest_download_progress && typeof health.latest_download_progress === 'object') ? health.latest_download_progress : {};
+  const total = Number(health.download_total ?? dl.total ?? answer.max_sources ?? 0);
+  const completed = Number(health.download_completed ?? dl.completed ?? 0);
+  const degraded = Number(health.download_degraded ?? dl.degraded ?? 0);
+  const failed = Number(health.download_failed ?? dl.failed ?? 0);
+  const skipped = Number(health.download_skipped ?? dl.skipped ?? 0);
+  const sources = Array.isArray(bundle.sources) ? bundle.sources.length : Number(health.sources_count ?? 0);
+  const chunks = Number(answer?.generation?.compression?.chunks_used ?? answer?.compression_stats?.chunks_used ?? 0);
+  const terminal = ['completed', 'complete', 'done', 'degraded', 'failed', 'cancelled'].includes(state);
+  const hasNotice = degraded + failed + skipped > 0 || state === 'degraded';
+  let title = terminal ? '完了しました' : '調査中';
+  if (state === 'failed') title = '失敗しました';
+  if (terminal && hasNotice) title = '完了しました（注意あり）';
+  const phaseLabel = phase.includes('download') ? 'ダウンロードと根拠抽出' : phase.includes('answer') || phase.includes('report') ? 'レポート生成' : phase.includes('source') || phase.includes('search') ? 'ソース収集中' : '調査を進行中';
+  const progressText = terminal ? 'レポート生成まで完了' : (total > 0 ? `ソース収集中 ${completed}/${total}` : `${phaseLabel}${progress ? ` ${progress}%` : ''}`);
+  const collection = `ソース${sources || completed || 0}件${chunks ? ` / 根拠${chunks}件` : ''}`;
+  const notice = failed + skipped + degraded > 0 ? `${failed + skipped + degraded}件の取得が不完全でした。Evidenceで確認できます。` : '';
+  const severity = state === 'failed' ? 'error' : (hasNotice ? 'warning' : 'info');
+  return { title, progress: progressText, collection, notice, severity };
+}
