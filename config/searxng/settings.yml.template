@@ -1,16 +1,6 @@
-# CodeAgent adaptive broad research engine overrides
-# safe_research is still supported by startup scripts via SEARXNG_SAFE_KEEP_ONLY_ENGINES.
+# CodeAgent adaptive broad research engine defaults
 use_default_settings:
   engines:
-    keep_only:
-      - wikipedia
-      - wikidata
-      - arxiv
-      - crossref
-      - openalex
-      - semantic scholar
-      - github
-      - stackoverflow
     remove:
       - startpage
       - bing
