@@ -488,7 +488,7 @@ def _determine_final_research_outcome(*, retrieval_summary: dict[str, Any] | Non
     if valid_source_count <= 0 or len(sources) <= 0:
         return {"status": "failed", "reason": "no_sources", "phase": "no_sources", "message": "検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。"}
     if evidence_count <= 0 or len(chunks) <= 0:
-        return {"status": "degraded", "reason": "no_evidence", "phase": "no_evidence", "message": "検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。"}
+        return {"status": "degraded", "reason": "no_evidence", "phase": "no_evidence", "message": "根拠を抽出できませんでした。対象ソースの本文取得や抽出設定を確認してください。"}
     if generation_mode == "template_fallback" and valid_source_count <= 0:
         return {"status": "failed", "reason": "no_sources", "phase": "no_sources", "message": "検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。"}
     if targets_satisfied is False:
@@ -1590,7 +1590,9 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 answer_payload["claim_analysis"] = analyze_claim_level_gaps(answer_payload, [], [])
                 save_minimal_research_answer(job_id=effective_job_id, project=payload.project, question=query, answer_payload=answer_payload)
                 update_job(effective_job_id, status="failed", progress=1.0, message="検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。")
-                append_job_event(effective_job_id, "research_completed", {"status": "failed", "phase": "no_sources", "message": "検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。", "reason": "no_sources", "filtered_count": stub_filtered_count, "source_count": 0, "evidence_count": 0, "updated_at": _now_iso()})
+                no_sources_payload = {"status": "failed", "phase": "no_sources", "message": "検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。", "reason": "no_sources", "filtered_count": stub_filtered_count, "source_count": 0, "evidence_count": 0, "updated_at": _now_iso()}
+                append_job_event(effective_job_id, "research_completed", no_sources_payload)
+                append_job_event(effective_job_id, "research_failed", no_sources_payload)
                 return {"job_id": effective_job_id, "queries": queries, "search": search, "sources": [], "answer": answer_payload}
 
             remaining_downloads = max(0, max_downloads - len(attempted_canonical_urls))
@@ -2183,21 +2185,26 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             source_has_degraded_or_failed=source_has_degraded_or_failed,
         )
         update_job(effective_job_id, status=final_outcome["status"], progress=1.0, message=final_outcome["message"])
+        completion_payload = {
+            "status": final_outcome["status"],
+            "phase": final_outcome["phase"],
+            "reason": final_outcome["reason"],
+            "message": final_outcome["message"],
+            "progress": 1.0,
+            "answer_exists": bool(answer_payload),
+            "source_count": len(registered_sources),
+            "evidence_count": len(final_evidence or []),
+            "updated_at": _now_iso(),
+        }
         append_job_event(
             effective_job_id,
             "research_completed",
-            {
-                "status": final_outcome["status"],
-                "phase": final_outcome["phase"],
-                "reason": final_outcome["reason"],
-                "message": final_outcome["message"],
-                "progress": 1.0,
-                "answer_exists": bool(answer_payload),
-                "source_count": len(registered_sources),
-                "evidence_count": len(final_evidence or []),
-                "updated_at": _now_iso(),
-            },
+            completion_payload,
         )
+        if final_outcome["status"] == "failed":
+            append_job_event(effective_job_id, "research_failed", completion_payload)
+        elif final_outcome["status"] == "degraded":
+            append_job_event(effective_job_id, "research_degraded", completion_payload)
 
         return {
             "job_id": effective_job_id,
