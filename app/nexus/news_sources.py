@@ -123,9 +123,15 @@ def collect_news_research_sources(topic: str, *, profile: NewsResearchSourceProf
         overall_status = "ok"
     return {
         "source_profile": resolved.source_profile,
+        "effective_news_providers": list(resolved.providers),
+        "execution_path": "news_source_layer_rss_gdelt",
         "queries": [query.query for query in queries],
         "items": merged,
         "search": {
+            "request_path": "/nexus/news/sources",
+            "source_profile": resolved.source_profile,
+            "execution_path": "news_source_layer_rss_gdelt",
+            "effective_news_providers": list(resolved.providers),
             "provider_results": query_results,
             "items": [_item_to_dict(item) for item in merged],
             "retrieved_at": _now_iso(),

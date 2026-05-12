@@ -1348,7 +1348,15 @@ def _run_news_profile_research(payload: ResearchAgentInput, *, effective_job_id:
     return {
         "job_id": effective_job_id,
         "queries": collected.get("queries", []),
-        "search": collected.get("search", {}),
+        "search": {
+            **(collected.get("search", {}) or {}),
+            "request_path": "/nexus/research/run",
+            "source_profile": "news",
+            "execution_path": "news_source_layer_rss_gdelt",
+            "effective_engines": [],
+            "effective_engines_news": [],
+            "effective_news_providers": list(profile.providers),
+        },
         "sources": evidence_json,
         "answer": answer_payload,
     }
