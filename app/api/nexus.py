@@ -87,7 +87,22 @@ class NexusResearchRunRequest(BaseModel):
     stop_when_sufficient: bool = True
     # Restore source-profile contract used by app/nexus/research_api.py.
     source_profile: str = Field(default="web")
+    target_candidate_count: int | None = Field(default=None, ge=1, le=500)
+    target_valid_source_count: int | None = Field(default=None, ge=1, le=200)
+    target_evidence_count: int | None = Field(default=None, ge=1, le=300)
+    target_high_quality_source_count: int | None = Field(default=None, ge=0, le=200)
+    target_official_source_count: int | None = Field(default=None, ge=0, le=200)
+    target_pdf_source_count: int | None = Field(default=None, ge=0, le=200)
+    max_retrieval_rounds: int | None = Field(default=None, ge=1, le=8)
+    adaptive_retrieval_enabled: bool | None = None
     news_budget: dict | None = None
+    replenishment_enabled: bool = True
+    target_replacement_ratio: float = Field(default=1.0, ge=0.0, le=3.0)
+    max_replenishment_rounds: int | None = Field(default=None, ge=0, le=8)
+    max_replenishment_candidates: int | None = Field(default=None, ge=0, le=300)
+    max_replenishment_downloads: int | None = Field(default=None, ge=0, le=300)
+    min_valid_source_count: int | None = Field(default=None, ge=1, le=200)
+    min_evidence_count: int | None = Field(default=None, ge=1, le=300)
 
 
 class NexusSourceSearchRequest(BaseModel):

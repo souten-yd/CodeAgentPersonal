@@ -64,6 +64,7 @@ class ResearchRunRequest(BaseModel):
     target_replacement_ratio: float = Field(default=1.0, ge=0.0, le=3.0)
     max_replenishment_rounds: int | None = Field(default=None, ge=0, le=8)
     max_replenishment_candidates: int | None = Field(default=None, ge=0, le=300)
+    max_replenishment_downloads: int | None = Field(default=None, ge=0, le=300)
     min_valid_source_count: int | None = Field(default=None, ge=1, le=200)
     min_evidence_count: int | None = Field(default=None, ge=1, le=300)
 
@@ -139,20 +140,21 @@ def run_research(payload: ResearchRunRequest) -> dict:
                 max_followup_queries=payload.max_followup_queries,
                 confidence_threshold=payload.confidence_threshold,
                 stop_when_sufficient=payload.stop_when_sufficient,
-                target_candidate_count=payload.target_candidate_count,
-                target_valid_source_count=payload.target_valid_source_count,
-                target_evidence_count=payload.target_evidence_count,
-                target_high_quality_source_count=payload.target_high_quality_source_count,
-                target_official_source_count=payload.target_official_source_count,
-                target_pdf_source_count=payload.target_pdf_source_count,
-                max_retrieval_rounds=payload.max_retrieval_rounds,
-                adaptive_retrieval_enabled=payload.adaptive_retrieval_enabled,
-                replenishment_enabled=payload.replenishment_enabled,
-                target_replacement_ratio=payload.target_replacement_ratio,
-                max_replenishment_rounds=payload.max_replenishment_rounds,
-                max_replenishment_candidates=payload.max_replenishment_candidates,
-                min_valid_source_count=payload.min_valid_source_count,
-                min_evidence_count=payload.min_evidence_count,
+                target_candidate_count=getattr(payload, "target_candidate_count", None),
+                target_valid_source_count=getattr(payload, "target_valid_source_count", None),
+                target_evidence_count=getattr(payload, "target_evidence_count", None),
+                target_high_quality_source_count=getattr(payload, "target_high_quality_source_count", None),
+                target_official_source_count=getattr(payload, "target_official_source_count", None),
+                target_pdf_source_count=getattr(payload, "target_pdf_source_count", None),
+                max_retrieval_rounds=getattr(payload, "max_retrieval_rounds", None),
+                adaptive_retrieval_enabled=getattr(payload, "adaptive_retrieval_enabled", None),
+                replenishment_enabled=getattr(payload, "replenishment_enabled", True),
+                target_replacement_ratio=getattr(payload, "target_replacement_ratio", 1.0),
+                max_replenishment_rounds=getattr(payload, "max_replenishment_rounds", None),
+                max_replenishment_candidates=getattr(payload, "max_replenishment_candidates", None),
+                max_replenishment_downloads=getattr(payload, "max_replenishment_downloads", None),
+                min_valid_source_count=getattr(payload, "min_valid_source_count", None),
+                min_evidence_count=getattr(payload, "min_evidence_count", None),
                 source_profile=getattr(payload, "source_profile", "web") or "web",
                 news_budget=getattr(payload, "news_budget", None),
             )
