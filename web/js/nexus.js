@@ -390,11 +390,16 @@ function formatNexusResearchStatusCompact(job = {}, bundle = {}, answer = {}) {
   const retrievalRounds = Array.isArray(retrieval.retrieval_rounds) ? retrieval.retrieval_rounds.length : 0;
   const terminal = ['completed', 'complete', 'done', 'degraded', 'failed', 'cancelled'].includes(state);
   const hasNotice = degraded + failed + skipped > 0 || state === 'degraded';
+  const reason = String(job.reason || health.reason || '').toLowerCase();
+  const generationMode = String(answer?.generation_mode || answer?.generation?.mode || '').toLowerCase();
   let title = terminal ? '完了しました' : '調査中';
-  if (state === 'failed') title = '失敗しました';
-  if (terminal && hasNotice) title = '完了しました（注意あり）';
+  if (state === 'degraded') title = '完了しました（注意あり）';
+  if (state === 'failed' && reason === 'no_sources') title = '検索結果を取得できませんでした';
+  else if (state === 'failed' && reason === 'no_evidence') title = '根拠を抽出できませんでした';
+  else if (state === 'failed') title = '失敗しました';
+  else if (terminal && hasNotice) title = '完了しました（注意あり）';
   const phaseLabel = phase.includes('download') ? 'ダウンロードと根拠抽出' : phase.includes('answer') || phase.includes('report') ? 'レポート生成' : phase.includes('source') || phase.includes('search') ? 'ソース収集中' : '調査を進行中';
-  const progressText = terminal ? 'レポート生成まで完了' : (total > 0 ? `ソース収集中 ${completed}/${total}` : `${phaseLabel}${progress ? ` ${progress}%` : ''}`);
+  const progressText = (terminal && state === 'completed') ? 'レポート生成まで完了' : (total > 0 ? `ソース収集中 ${completed}/${total}` : `${phaseLabel}${progress ? ` ${progress}%` : ''}`);
   const screeningCount = Number(retrieval?.screening_summary?.candidate_count ?? retrieval?.screening_summary?.unique_candidate_count ?? 0);
   const focusedCount = Array.isArray(retrieval?.focused_research_plan?.focused_queries) ? retrieval.focused_research_plan.focused_queries.length : 0;
   const screeningText = screeningCount ? `一次スクリーニング:${screeningCount}候補` : '';
@@ -406,7 +411,8 @@ function formatNexusResearchStatusCompact(job = {}, bundle = {}, answer = {}) {
   const targetNotice = retrieval.targets_satisfied === false
     ? (retrievalRounds > 1 ? '目標件数に届かなかったため、追加検索を実行しました。一部の目標件数には届きませんでした。' : '一部の目標件数には届きませんでした。')
     : (retrievalRounds > 1 ? '目標件数に届かなかったため、追加検索を実行しました。' : '');
-  const notice = [problemText, limitText, targetNotice].filter(Boolean).join(' / ');
+  const fallbackNotice = generationMode === 'template_fallback' ? '回答生成はfallbackです。根拠付き回答ではありません。' : '';
+  const notice = [problemText, limitText, targetNotice, fallbackNotice].filter(Boolean).join(' / ');
   const severity = state === 'failed' ? 'error' : (hasNotice ? 'warning' : 'info');
   return { title, progress: progressText, collection, notice, severity };
 }

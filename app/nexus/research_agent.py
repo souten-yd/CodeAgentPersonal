@@ -473,6 +473,29 @@ def _select_download_candidates(ranked_candidates: list[dict], attempted: set[st
         try_add(candidate)
     return selected
 
+
+
+def _determine_final_research_outcome(*, retrieval_summary: dict[str, Any] | None, registered_sources: list[dict] | None, evidence_chunks: list[dict] | None, answer_payload: dict[str, Any] | None, download_error_count: int, source_has_degraded_or_failed: bool) -> dict[str, Any]:
+    summary = retrieval_summary or {}
+    sources = list(registered_sources or [])
+    chunks = list(evidence_chunks or [])
+    answer = answer_payload or {}
+    generation_mode = str(answer.get("generation_mode") or ((answer.get("generation") or {}).get("mode") if isinstance(answer.get("generation"), dict) else "") or "").strip().lower()
+    valid_source_count = int(summary.get("valid_source_count") or 0)
+    evidence_count = int(summary.get("evidence_count") or 0)
+    targets_satisfied = summary.get("targets_satisfied")
+
+    if valid_source_count <= 0 or len(sources) <= 0:
+        return {"status": "failed", "reason": "no_sources", "phase": "no_sources", "message": "検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。"}
+    if evidence_count <= 0 or len(chunks) <= 0:
+        return {"status": "degraded", "reason": "no_evidence", "phase": "no_evidence", "message": "検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。"}
+    if generation_mode == "template_fallback" and valid_source_count <= 0:
+        return {"status": "failed", "reason": "no_sources", "phase": "no_sources", "message": "検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。"}
+    if targets_satisfied is False:
+        return {"status": "degraded", "reason": "targets_unsatisfied", "phase": "completed", "message": "research completed with unmet retrieval targets"}
+    if download_error_count > 0 or source_has_degraded_or_failed:
+        return {"status": "degraded", "reason": "degraded_sources", "phase": "completed", "message": "research completed with degraded sources"}
+    return {"status": "completed", "reason": "", "phase": "completed", "message": "research completed"}
 def _extract_http_status(exc: Exception) -> int | None:
     candidates: list[Exception | BaseException] = [exc]
     seen: set[int] = set()
@@ -1566,8 +1589,8 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 }
                 answer_payload["claim_analysis"] = analyze_claim_level_gaps(answer_payload, [], [])
                 save_minimal_research_answer(job_id=effective_job_id, project=payload.project, question=query, answer_payload=answer_payload)
-                update_job(effective_job_id, status="degraded", progress=1.0, message="no real web results")
-                append_job_event(effective_job_id, "research_completed", {"status": "degraded", "phase": "completed", "message": "no real web results", "reason": "stub_sources_filtered", "filtered_count": stub_filtered_count, "source_count": 0, "evidence_count": 0, "updated_at": _now_iso()})
+                update_job(effective_job_id, status="failed", progress=1.0, message="検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。")
+                append_job_event(effective_job_id, "research_completed", {"status": "failed", "phase": "no_sources", "message": "検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。", "reason": "no_sources", "filtered_count": stub_filtered_count, "source_count": 0, "evidence_count": 0, "updated_at": _now_iso()})
                 return {"job_id": effective_job_id, "queries": queries, "search": search, "sources": [], "answer": answer_payload}
 
             remaining_downloads = max(0, max_downloads - len(attempted_canonical_urls))
@@ -2150,17 +2173,24 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         source_has_degraded_or_failed = any(
             str(source.get("status") or "") in {"degraded", "failed"} for source in registered_sources
         )
-        final_status = "degraded" if download_error_count > 0 or source_has_degraded_or_failed else "completed"
-        final_message = "research completed with degraded sources" if final_status == "degraded" else "research completed"
         final_evidence = final_evidence_items if payload.recursive_search else evidence_items
-        update_job(effective_job_id, status=final_status, progress=1.0, message=final_message)
+        final_outcome = _determine_final_research_outcome(
+            retrieval_summary=retrieval_summary,
+            registered_sources=registered_sources,
+            evidence_chunks=source_chunks,
+            answer_payload=answer_payload,
+            download_error_count=download_error_count,
+            source_has_degraded_or_failed=source_has_degraded_or_failed,
+        )
+        update_job(effective_job_id, status=final_outcome["status"], progress=1.0, message=final_outcome["message"])
         append_job_event(
             effective_job_id,
             "research_completed",
             {
-                "status": final_status,
-                "phase": "completed",
-                "message": final_message,
+                "status": final_outcome["status"],
+                "phase": final_outcome["phase"],
+                "reason": final_outcome["reason"],
+                "message": final_outcome["message"],
                 "progress": 1.0,
                 "answer_exists": bool(answer_payload),
                 "source_count": len(registered_sources),

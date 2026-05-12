@@ -128,3 +128,11 @@ def test_previous_runs_default_collapsed_and_show_more_controls() -> None:
     text = load_ui_contract_text()
     assert 'nexusDeepPreviousRunsCollapsed = true' in text
     assert 'slice(0, nexusDeepPreviousRunsVisibleCount)' in text
+
+
+def test_compact_status_helper_zero_source_and_fallback_labels() -> None:
+    text = load_ui_contract_text()
+    helper = text.split('function formatNexusResearchStatusCompact', 1)[1].split('\n}\n', 1)[0]
+    assert '検索結果を取得できませんでした' in helper
+    assert '根拠を抽出できませんでした' in helper
+    assert '回答生成はfallbackです。根拠付き回答ではありません。' in helper
