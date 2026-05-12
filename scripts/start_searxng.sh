@@ -8,7 +8,7 @@ SEARXNG_CONFIG_DIR="${SEARXNG_CONFIG_DIR:-/workspace/ca_data/searxng}"
 SEARXNG_TEMPLATE_PATH="${SEARXNG_TEMPLATE_PATH:-/app/config/searxng/settings.yml.template}"
 SEARXNG_SETTINGS_PATH="${SEARXNG_SETTINGS_PATH:-${SEARXNG_CONFIG_DIR}/settings.yml}"
 SEARXNG_SECRET_FILE="${SEARXNG_SECRET_FILE:-${SEARXNG_CONFIG_DIR}/secret_key}"
-SEARXNG_START_TIMEOUT_SEC="${SEARXNG_START_TIMEOUT_SEC:-12}"
+SEARXNG_START_TIMEOUT_SEC="${SEARXNG_START_TIMEOUT_SEC:-30}"
 SEARXNG_LOG_FILE="${SEARXNG_LOG_FILE:-${SEARXNG_CONFIG_DIR}/searxng.log}"
 SEARXNG_ENGINE_PROFILE="${SEARXNG_ENGINE_PROFILE:-adaptive_broad_research}"
 SEARXNG_SAFE_KEEP_ONLY_ENGINES="${SEARXNG_SAFE_KEEP_ONLY_ENGINES:-wikipedia,wikidata,arxiv,crossref,openalex,semantic scholar,github,stackoverflow}"
@@ -23,6 +23,7 @@ PY_HEALTH_ENGINE
 )"
 SEARXNG_PROBE_URL="http://127.0.0.1:${SEARXNG_PORT}/search?format=json&q=healthcheck&engines=${SEARXNG_HEALTH_ENGINE_ENCODED}"
 SEARXNG_REPAIR_SETTINGS="${SEARXNG_REPAIR_SETTINGS:-true}"
+SEARXNG_TEMPLATE_VERSION="${SEARXNG_TEMPLATE_VERSION:-2}"
 SEARXNG_STRICT_HEALTH="${SEARXNG_STRICT_HEALTH:-false}"
 SEARXNG_PYTHON="${SEARXNG_PYTHON:-/opt/searxng/searx-pyenv/bin/python}"
 SEARXNG_SRC="${SEARXNG_SRC:-/opt/searxng/searxng-src}"
@@ -72,6 +73,12 @@ render_searxng_settings_from_template() {
     -e "s|__SEARXNG_BASE_URL__|${SEARXNG_BASE_URL}|g" \
     -e "s|__SEARXNG_SECRET_KEY__|${secret_key}|g" \
     "${SEARXNG_TEMPLATE_PATH}" > "${SEARXNG_SETTINGS_PATH}"
+  {
+    echo "# CodeAgent SearXNG profile: ${SEARXNG_ENGINE_PROFILE}"
+    echo "# CodeAgent SearXNG template version: ${SEARXNG_TEMPLATE_VERSION}"
+    cat "${SEARXNG_SETTINGS_PATH}"
+  } > "${SEARXNG_SETTINGS_PATH}.tmp.$$"
+  mv "${SEARXNG_SETTINGS_PATH}.tmp.$$" "${SEARXNG_SETTINGS_PATH}"
 }
 
 _force_safe_settings_enabled() {
@@ -198,32 +205,108 @@ print(f"repaired regenerated backup={backup_path}")
 EOF_SAFE_REPAIR
 }
 
-sanitize_non_safe_profile_settings() {
-  if _safe_research_enabled; then
-    return 0
+ensure_profile_settings() {
+  if [[ ! -f "${SEARXNG_SETTINGS_PATH}" ]]; then
+    log "profile settings missing; generating from template"
+    render_searxng_settings_from_template
+    return $?
   fi
+  SETTINGS_PATH="${SEARXNG_SETTINGS_PATH}" PROFILE="${SEARXNG_ENGINE_PROFILE}" TEMPLATE_VERSION="${SEARXNG_TEMPLATE_VERSION}" python3 - <<'EOF_ENSURE_PROFILE'
+from pathlib import Path
+import datetime
+import os
+import shutil
+
+settings_path = Path(os.environ["SETTINGS_PATH"])
+profile = os.environ["PROFILE"]
+template_version = os.environ["TEMPLATE_VERSION"]
+text = settings_path.read_text(encoding="utf-8")
+want_profile = f"# CodeAgent SearXNG profile: {profile}"
+want_version = f"# CodeAgent SearXNG template version: {template_version}"
+if want_profile in text and want_version in text:
+    raise SystemExit(0)
+ts = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
+backup = settings_path.with_name(settings_path.name + f".bak.{ts}.profile")
+shutil.copy2(settings_path, backup)
+print(f"profile marker mismatch or missing; backup={backup}")
+raise SystemExit(10)
+EOF_ENSURE_PROFILE
+  local ensure_code=$?
+  if [[ "${ensure_code}" == "10" ]]; then
+    render_searxng_settings_from_template
+    return $?
+  fi
+  return ${ensure_code}
+}
+
+validate_or_repair_settings_for_current_profile() {
   if [[ ! -f "${SEARXNG_SETTINGS_PATH}" ]]; then
     return 0
   fi
-  SETTINGS_PATH="${SEARXNG_SETTINGS_PATH}" python3 - <<'EOF_NON_SAFE_SANITIZE'
+  if _safe_research_enabled; then
+    repair_searxng_settings
+    return $?
+  fi
+  SETTINGS_PATH="${SEARXNG_SETTINGS_PATH}" DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES}" PROFILE="${SEARXNG_ENGINE_PROFILE}" python3 - <<'EOF_VALIDATE_ADAPTIVE'
 from pathlib import Path
+import datetime
+import importlib.util
 import os
 import shutil
-import re
+import sys
 
-settings_path = Path(os.environ["SETTINGS_PATH"])
-text = settings_path.read_text(encoding="utf-8")
-safe_marker = "# CodeAgent safe_research engine overrides"
-if safe_marker not in text and "keep_only:" not in text:
+sp = Path(os.environ["SETTINGS_PATH"])
+profile = os.environ["PROFILE"]
+disabled = [i.strip() for i in os.environ.get("DISABLED_ENGINES","").split(",") if i.strip()]
+text = sp.read_text(encoding="utf-8")
+reason = None
+if "# CodeAgent SearXNG profile: safe_research" in text:
+    reason = "safe_research marker remains"
+elif importlib.util.find_spec("yaml") is None:
+    reason = "yaml parser unavailable"
+else:
+    import yaml
+    try:
+        data = yaml.safe_load(text) or {}
+    except Exception as exc:
+        reason = f"yaml parse failed: {exc}"
+    if reason is None:
+        try:
+            formats = data["search"]["formats"]
+            server = data["server"]
+            engines = data.get("use_default_settings", {}).get("engines", {})
+        except Exception as exc:
+            reason = f"missing required structure: {exc}"
+        if reason is None:
+            if "json" not in formats:
+                reason = "search.formats missing json"
+            elif not server.get("bind_address"):
+                reason = "server.bind_address missing"
+            elif not server.get("port"):
+                reason = "server.port missing"
+            elif not server.get("secret_key"):
+                reason = "server.secret_key missing"
+            elif "keep_only" in engines:
+                reason = "use_default_settings.engines.keep_only exists"
+            else:
+                remove = engines.get("remove")
+                if not isinstance(remove, list) or any(item not in remove for item in disabled):
+                    reason = "use_default_settings.engines.remove missing disabled engines defaults"
+if reason is None:
+    print(f"validated profile={profile}")
     raise SystemExit(0)
-timestamp = __import__("datetime").datetime.utcnow().strftime("%Y%m%d%H%M%S")
-backup = settings_path.with_name(settings_path.name + f".bak.{timestamp}.adaptive")
-shutil.copy2(settings_path, backup)
-text = text.replace(safe_marker + "\n", "")
-text = re.sub(r"(?ms)^\s*use_default_settings:\s*\n\s*engines:\s*\n\s*keep_only:\s*\n(?:\s*-\s*.*\n)+\s*remove:\s*\n(?:\s*-\s*.*\n)+", "", text).lstrip()
-settings_path.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
-print(f"sanitized existing safe settings backup={backup}")
-EOF_NON_SAFE_SANITIZE
+ts = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
+backup = sp.with_name(sp.name + f".bak.{ts}.invalid")
+shutil.copy2(sp, backup)
+print(f"invalid settings reason={reason}; backup={backup}")
+raise SystemExit(20)
+EOF_VALIDATE_ADAPTIVE
+  local code=$?
+  if [[ "${code}" == "20" ]]; then
+    render_searxng_settings_from_template
+    return $?
+  fi
+  return ${code}
 }
 
 probe_searxng_json() {
@@ -310,13 +393,9 @@ if [[ ! -f "${SEARXNG_SETTINGS_PATH}" ]]; then
     }
 fi
 
-if ! repair_searxng_settings; then
-  warn "settings repair failed; continuing startup with existing settings: ${SEARXNG_SETTINGS_PATH}"
-else
-  log "settings repair completed or not needed: ${SEARXNG_SETTINGS_PATH}"
-fi
-
-sanitize_non_safe_profile_settings || warn "failed to sanitize safe marker for non-safe profile; continuing"
+ensure_profile_settings || warn "profile settings ensure failed; continuing startup with existing settings: ${SEARXNG_SETTINGS_PATH}"
+validate_or_repair_settings_for_current_profile || warn "settings validate/repair failed; continuing startup with existing settings: ${SEARXNG_SETTINGS_PATH}"
+log "settings profile ready: ${SEARXNG_ENGINE_PROFILE} / path=${SEARXNG_SETTINGS_PATH}"
 
 if command -v curl >/dev/null 2>&1; then
   existing_probe_body="$(curl -fsS --max-time 2 "${SEARXNG_PROBE_URL}" 2>/dev/null || true)"
@@ -360,6 +439,14 @@ if command -v curl >/dev/null 2>&1; then
     if (( elapsed >= SEARXNG_START_TIMEOUT_SEC )); then
       warn "Health probe failed: ${SEARXNG_PROBE_URL}"
       warn "See logs: ${SEARXNG_LOG_FILE}"
+      warn "debug probe_url=${SEARXNG_PROBE_URL}"
+      warn "debug process list:"; ps aux | grep -i '[s]earx' || true
+      warn "debug listening sockets:"; ss -ltnp 2>/dev/null | grep ':8088' || true
+      warn "debug last searxng logs:"; tail -n 80 "${SEARXNG_LOG_FILE}" 2>/dev/null || true
+      http_status="$(curl -sS -o /tmp/searxng_probe_resp.$$ -w '%{http_code}' --max-time 2 "${SEARXNG_PROBE_URL}" 2>/dev/null || true)"
+      warn "debug curl_status=${http_status:-curl_failed}"
+      warn "debug curl_head=$(head -c 200 /tmp/searxng_probe_resp.$$ 2>/dev/null || true)"
+      rm -f /tmp/searxng_probe_resp.$$ || true
       set_autostart_status "failed_timeout" "SearXNGの起動確認がタイムアウトしました。ログを確認してください: ${SEARXNG_LOG_FILE}"
       break
     fi
@@ -388,3 +475,4 @@ else
 fi
 
 exit 0
+SEARXNG_TEMPLATE_VERSION="${SEARXNG_TEMPLATE_VERSION:-2}"
