@@ -200,6 +200,152 @@ def build_curated_direct_source_candidates(query: str, source_profile: str, inte
     return candidates
 
 
+_DYNAMIC_DIRECT_PATHS = ("/", "/news", "/newsroom", "/press", "/press-releases", "/media", "/investors", "/investor-relations", "/ir", "/reports", "/annual-report", "/resources")
+_EXCLUDED_DYNAMIC_DOMAINS = ("wikipedia.org", "github.com", "stackoverflow.com", "youtube.com", "youtu.be", "x.com", "twitter.com", "facebook.com", "instagram.com", "linkedin.com", "amazon.", "jobs.")
+_COMPANY_ENTITY_RE = re.compile(r"\b([A-Z][A-Za-z0-9&.-]*(?:\s+[A-Z][A-Za-z0-9&.-]*){0,4}\s+(?:Inc|Corp|Corporation|Ltd|Limited|Group|Technologies|Technology|Aerospace|Energy|Semiconductor|Semiconductors|Systems|Holdings|Motors|Aviation))\b")
+
+
+def _domain_from_candidate(candidate: dict) -> str:
+    raw = str(candidate.get("domain") or "").strip().lower()
+    if raw:
+        return raw.removeprefix("www.")
+    parsed = urlparse(str(candidate.get("url") or candidate.get("final_url") or ""))
+    return parsed.netloc.lower().removeprefix("www.")
+
+
+def _anchor_terms_from_query(query: str) -> list[str]:
+    terms = [term for term in _query_terms(query) if len(term) >= 3]
+    return list(dict.fromkeys(terms))[:20]
+
+
+def _domain_kind(domain: str, url: str = "") -> str:
+    lowered = f"{domain} {url}".lower()
+    if domain.endswith((".gov", ".go.jp", ".mil")) or ".gov." in domain:
+        return "government_agency"
+    if domain.endswith((".edu", ".ac.jp")) or "arxiv.org" in domain or "openalex" in domain or "crossref" in domain:
+        return "research_institute"
+    if domain.endswith((".org", ".int")) or ".europa.eu" in domain:
+        return "industry_association"
+    if any(token in lowered for token in ("investor", "/ir", "annual")):
+        return "investor_relations"
+    if any(token in lowered for token in ("newsroom", "press", "news")):
+        return "company_newsroom"
+    return "company_newsroom"
+
+
+def extract_dynamic_topic_anchors_from_screening(query: str, screening_candidates: list[dict], intent: dict | None = None) -> dict:
+    """Extract a job-local topic/entity/domain registry from broad screening results."""
+    query_anchors = _anchor_terms_from_query(query)
+    intent_text = " ".join(str(v) for v in (intent or {}).values() if isinstance(v, (str, int, float)))
+    domain_counts: dict[str, int] = {}
+    source_type_candidates: dict[str, int] = {}
+    entities: list[str] = []
+    official_domains: list[str] = []
+    company_domains: list[str] = []
+    industry_domains: list[str] = []
+    government_domains: list[str] = []
+    research_domains: list[str] = []
+    for item in screening_candidates or []:
+        url = str(item.get("url") or item.get("final_url") or "")
+        domain = _domain_from_candidate(item)
+        if not domain or any(excluded in domain for excluded in _EXCLUDED_DYNAMIC_DOMAINS):
+            continue
+        text = f"{item.get('title') or ''} {item.get('snippet') or item.get('content') or ''} {url} {intent_text}"
+        domain_counts[domain] = domain_counts.get(domain, 0) + 1
+        for match in _COMPANY_ENTITY_RE.findall(text):
+            if match not in entities:
+                entities.append(match)
+        kind = _domain_kind(domain, url)
+        source_type_candidates[kind] = source_type_candidates.get(kind, 0) + 1
+        if kind == "government_agency":
+            government_domains.append(domain)
+            official_domains.append(domain)
+        elif kind == "research_institute":
+            research_domains.append(domain)
+            official_domains.append(domain)
+        elif kind == "industry_association":
+            industry_domains.append(domain)
+            official_domains.append(domain)
+        else:
+            company_domains.append(domain)
+            if any(token in url.lower() for token in ("news", "newsroom", "press", "investor", "/ir", "report", "annual")):
+                official_domains.append(domain)
+    top_domains = [d for d, _ in sorted(domain_counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+    return {
+        "query_anchors": query_anchors,
+        "entities": entities[:24],
+        "domains": top_domains[:40],
+        "official_domains": list(dict.fromkeys(official_domains))[:30],
+        "company_domains": list(dict.fromkeys(company_domains))[:30],
+        "industry_domains": list(dict.fromkeys(industry_domains))[:30],
+        "government_domains": list(dict.fromkeys(government_domains))[:30],
+        "research_domains": list(dict.fromkeys(research_domains))[:30],
+        "source_type_candidates": source_type_candidates,
+        "excluded_patterns": list(_EXCLUDED_DYNAMIC_DOMAINS),
+    }
+
+
+def _dynamic_domain_matches_query(domain: str, candidate_text: str, anchors: list[str]) -> bool:
+    if _is_official_domain(domain) or domain.endswith((".org", ".int", ".edu", ".ac.jp")):
+        return True
+    haystack = f"{domain} {candidate_text}".lower()
+    return any(anchor.lower() in haystack for anchor in anchors) if anchors else True
+
+
+def build_dynamic_direct_source_candidates(query: str, source_profile: str, screening_candidates: list[dict], intent: dict | None = None, screening_summary: dict | None = None) -> list[dict]:
+    """Generate job-local direct-source candidates from broad screening domains; never persists globally."""
+    profile = str(source_profile or "web").strip().lower()
+    if profile not in _CURATED_DIRECT_PROFILES | {"official"}:
+        return []
+    registry = extract_dynamic_topic_anchors_from_screening(query, screening_candidates, intent)
+    anchors = list(registry.get("query_anchors") or [])
+    by_domain_text: dict[str, str] = {}
+    for item in screening_candidates or []:
+        domain = _domain_from_candidate(item)
+        if not domain or any(excluded in domain for excluded in _EXCLUDED_DYNAMIC_DOMAINS):
+            continue
+        by_domain_text[domain] = f"{by_domain_text.get(domain, '')} {item.get('title') or ''} {item.get('snippet') or item.get('content') or ''} {item.get('url') or ''}"
+    priority_domains = list(dict.fromkeys([*(registry.get("official_domains") or []), *(registry.get("company_domains") or []), *(registry.get("industry_domains") or []), *(registry.get("government_domains") or []), *(registry.get("research_domains") or []), *(registry.get("domains") or [])]))
+    candidates: list[dict] = []
+    seen: set[str] = set()
+    for domain in priority_domains[:12]:
+        if not _dynamic_domain_matches_query(domain, by_domain_text.get(domain, ""), anchors):
+            continue
+        kind = _domain_kind(domain, by_domain_text.get(domain, ""))
+        path_limit = 5 if domain in set(registry.get("official_domains") or []) else 3
+        for path in _DYNAMIC_DIRECT_PATHS[:path_limit]:
+            url = _normalize_url(f"https://{domain}{path}")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            candidates.append({
+                "url": url,
+                "title": f"{domain} {path.strip('/') or 'root'}",
+                "snippet": "Generated from broad screening candidate domain/entity.",
+                "provider": "dynamic_curated_direct_source",
+                "source_type": "web",
+                "origin": "dynamic_curated_direct_source",
+                "relevance_score": 0.82 if path != "/" else 0.7,
+                "published_at": "",
+                "content_type": "text/html",
+                "source_type_hint": kind,
+                "curated_reason": "Generated from broad screening candidate domain/entity",
+                "expected_freshness": "latest_or_current" if any(token in path for token in ("news", "press", "ir", "investor")) else "current_or_reference",
+                "dynamic_anchor_terms": anchors,
+                "dynamic_screening_registry": registry,
+                "metadata": {
+                    "curated_direct_source": True,
+                    "dynamic_curated_direct_source": True,
+                    "source_type_hint": kind,
+                    "curated_reason": "Generated from broad screening candidate domain/entity",
+                    "expected_freshness": "latest_or_current" if any(token in path for token in ("news", "press", "ir", "investor")) else "current_or_reference",
+                    "dynamic_anchor_terms": anchors,
+                    "source_profile": profile,
+                },
+            })
+    return candidates
+
+
 def _normalize_url(raw_url: str) -> str:
     parsed = urlparse((raw_url or "").strip())
     if parsed.scheme not in {"http", "https"}:
@@ -378,7 +524,20 @@ def compute_source_score(candidate: dict, prefer_pdf: bool, official_first: bool
     citation_like = 0.35 if any(token in haystack for token in ("doi", "citation", "abstract", "journal", "proceedings")) else 0.0
     profile_match = 0.3 if any(token in haystack for token in ("market", "technical", "industry", "research", "forecast", "roadmap")) else 0.0
     curated_direct_boost = 0.0
-    if str(candidate.get("origin") or "") == "curated_direct_source" or bool((candidate.get("metadata") if isinstance(candidate.get("metadata"), dict) else {}).get("curated_direct_source")):
+    dynamic_direct_boost = 0.0
+    metadata = candidate.get("metadata") if isinstance(candidate.get("metadata"), dict) else {}
+    origin = str(candidate.get("origin") or "")
+    if origin == "dynamic_curated_direct_source" or bool(metadata.get("dynamic_curated_direct_source")):
+        anchor_terms = [str(t).lower() for t in (candidate.get("dynamic_anchor_terms") or metadata.get("dynamic_anchor_terms") or []) if str(t).strip()]
+        dynamic_match = bool(anchor_terms and any(term in haystack or term in str(query or "").lower() for term in anchor_terms))
+        dynamic_direct_boost = 0.65 if dynamic_match else -2.0
+        if official or any(token in lowered_url for token in ("newsroom", "/news", "press", "investor", "/ir", "report", "annual")):
+            dynamic_direct_boost += 0.3
+        if any(token in lowered_url for token in ("/news", "press", "/ir", "investor", "report")):
+            dynamic_direct_boost += 0.2
+        if lowered_url.rstrip("/").count("/") <= 2:
+            dynamic_direct_boost -= 0.15
+    elif origin == "curated_direct_source" or bool(metadata.get("curated_direct_source")):
         curated_direct_boost = 0.85 if _curated_candidate_matches_topic(candidate, query) else -2.0
     penalties = 0.0
     if any(term in haystack for term in _PAYWALL_TERMS):
@@ -400,13 +559,23 @@ def compute_source_score(candidate: dict, prefer_pdf: bool, official_first: bool
         quality_reasons.append("query_overlap")
     if citation_like:
         quality_reasons.append("citation_like")
+    if dynamic_direct_boost > 0:
+        quality_reasons.append("dynamic_curated_direct_source_boost")
+        if any(term in haystack or term in str(query or "").lower() for term in [str(t).lower() for t in (candidate.get("dynamic_anchor_terms") or metadata.get("dynamic_anchor_terms") or [])]):
+            quality_reasons.append("dynamic_topic_anchor_match")
+        if official:
+            quality_reasons.append("dynamic_official_domain")
+        if any(token in lowered_url for token in ("newsroom", "/news", "press", "investor", "/ir", "report")):
+            quality_reasons.append("dynamic_newsroom_or_ir_path")
+    elif dynamic_direct_boost < 0:
+        quality_reasons.append("dynamic_topic_anchor_mismatch")
     if curated_direct_boost > 0:
         quality_reasons.append("curated_direct_source_boost")
     elif curated_direct_boost < 0:
         quality_reasons.append("curated_topic_anchor_mismatch")
     quality_reasons.extend(freshness_reasons)
 
-    score = relevance + authority + freshness + content_type_priority + (0.65 if is_pdf else 0.0) + (0.45 if report_like else 0.0) + query_overlap + hint_match + citation_like + profile_match + curated_direct_boost - penalties
+    score = relevance + authority + freshness + content_type_priority + (0.65 if is_pdf else 0.0) + (0.45 if report_like else 0.0) + query_overlap + hint_match + citation_like + profile_match + curated_direct_boost + dynamic_direct_boost - penalties
     rounded = round(score, 4)
     return {
         "source_score": rounded,
@@ -423,6 +592,7 @@ def compute_source_score(candidate: dict, prefer_pdf: bool, official_first: bool
             "content_type_priority": round(content_type_priority, 4),
             "query_overlap": round(query_overlap, 4),
             "trusted_hint": round(hint_match, 4),
+            "dynamic_direct_boost": round(dynamic_direct_boost, 4),
             "penalties": round(penalties, 4),
         },
     }
@@ -467,7 +637,9 @@ def collect_source_candidates(
             continue
         seen_urls.add(normalized_url)
         metadata = dict(item.get("metadata") or {}) if isinstance(item.get("metadata"), dict) else {}
-        metadata["curated_direct_source"] = bool(item.get("origin") == "curated_direct_source" or metadata.get("curated_direct_source"))
+        metadata["curated_direct_source"] = bool(item.get("origin") in {"curated_direct_source", "dynamic_curated_direct_source"} or metadata.get("curated_direct_source"))
+        if item.get("origin") == "dynamic_curated_direct_source":
+            metadata["dynamic_curated_direct_source"] = True
         candidates.append(
             {
                 **item,

@@ -29,6 +29,8 @@ _LAST_WEB_SEARCH_STATUS: dict[str, Any] = {
 
 
 _NOISY_SEARXNG_ENGINES = {"duckduckgo", "startpage", "google", "bing", "brave", "karmasearch", "yahoo", "qwant", "mojeek"}
+_BROAD_WEB_ENGINES = ("google", "brave", "duckduckgo")
+_SAFE_FALLBACK_ENGINES = ("wikipedia", "wikidata", "arxiv", "crossref", "openalex", "github")
 _PROFILE_SEARXNG_DEFAULTS: dict[str, str] = {
     "general": "wikipedia,wikidata,github,stackoverflow",
     "web": "wikipedia,wikidata,github,stackoverflow",
@@ -37,6 +39,16 @@ _PROFILE_SEARXNG_DEFAULTS: dict[str, str] = {
     "source": "wikipedia,wikidata,arxiv,crossref,openalex,github",
     "news": "wikipedia,wikidata",
     "market": "wikipedia,wikidata,github",
+    "technical": "arxiv,crossref,openalex,semantic scholar,wikipedia,github",
+}
+_BROAD_PROFILE_SEARXNG_DEFAULTS: dict[str, str] = {
+    "general": "brave,duckduckgo,wikipedia,wikidata,github,stackoverflow",
+    "web": "brave,duckduckgo,wikipedia,wikidata,github,stackoverflow",
+    "academic": "arxiv,crossref,openalex,semantic scholar,wikipedia",
+    "official": "google,brave,duckduckgo,wikidata,wikipedia,github",
+    "source": "google,brave,duckduckgo,wikipedia,wikidata,arxiv,crossref,openalex,github",
+    "news": "google,brave,duckduckgo,wikipedia,wikidata",
+    "market": "google,brave,duckduckgo,wikipedia,wikidata,github",
     "technical": "arxiv,crossref,openalex,semantic scholar,wikipedia,github",
 }
 _PROFILE_ENGINE_ENV: dict[str, str] = {
@@ -62,6 +74,78 @@ def _split_engine_csv(value: str | None) -> list[str]:
     return [item.strip() for item in (value or "").split(",") if item.strip()]
 
 
+def _allow_broad_web_engines() -> bool:
+    return os.getenv("NEXUS_ALLOW_BROAD_WEB_ENGINES", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+class EngineHealthTracker:
+    """Job-local circuit breaker for CAPTCHA/rate-limit-prone broad SearXNG engines."""
+
+    def __init__(self, broad_engines: list[str] | None = None, safe_fallback_engines: list[str] | None = None) -> None:
+        self.broad_engines = _dedupe_engines(broad_engines or _split_engine_csv(os.getenv("NEXUS_BROAD_WEB_ENGINES", ",".join(_BROAD_WEB_ENGINES))), allow_noisy=True)
+        self.safe_fallback_engines = _dedupe_engines(safe_fallback_engines or list(_SAFE_FALLBACK_ENGINES), allow_noisy=True)
+        self.failures: dict[str, dict[str, Any]] = {}
+
+    def is_suspended(self, engine: str) -> bool:
+        state = self.failures.get(str(engine or "").lower()) or {}
+        return bool(state.get("suspended_until"))
+
+    def filter_engines(self, engines: list[str]) -> tuple[list[str], bool]:
+        filtered = [engine for engine in engines if not self.is_suspended(engine)]
+        requested_broad = [engine for engine in engines if engine.lower() in {b.lower() for b in self.broad_engines}]
+        active_broad = [engine for engine in requested_broad if not self.is_suspended(engine)]
+        fallback = bool(requested_broad and not active_broad)
+        if fallback:
+            safe = [engine for engine in engines if engine.lower() not in {b.lower() for b in self.broad_engines}]
+            filtered = _dedupe_engines([*safe, *self.safe_fallback_engines], allow_noisy=False)
+        return filtered, fallback
+
+    def record_error(self, engine: str | None, message: str) -> None:
+        if not engine:
+            return
+        key = str(engine).strip().lower()
+        if not key:
+            return
+        state = self.failures.setdefault(key, {"engine_name": key, "failures": 0, "last_error": "", "suspended_until": None, "captcha_count": 0, "http_403_count": 0, "http_429_count": 0, "timeout_count": 0})
+        normalized = str(message or "").lower()
+        state["failures"] = int(state.get("failures") or 0) + 1
+        state["last_error"] = str(message or "")[:500]
+        suspend = False
+        if "captcha" in normalized or "access denied" in normalized or "too many requests" in normalized:
+            state["captcha_count"] = int(state.get("captcha_count") or 0) + (1 if "captcha" in normalized else 0)
+            suspend = True
+        if "403" in normalized:
+            state["http_403_count"] = int(state.get("http_403_count") or 0) + 1
+            suspend = True
+        if "429" in normalized or "too many requests" in normalized:
+            state["http_429_count"] = int(state.get("http_429_count") or 0) + 1
+            suspend = True
+        if "timeout" in normalized or "timed out" in normalized:
+            state["timeout_count"] = int(state.get("timeout_count") or 0) + 1
+            suspend = int(state.get("timeout_count") or 0) >= 2
+        if "jsondecodeerror" in normalized or "non-json" in normalized or "non json" in normalized:
+            suspend = True
+        if key not in {b.lower() for b in self.broad_engines}:
+            suspend = False
+        if suspend:
+            state["suspended_until"] = "job_end"
+
+    def record_payload_errors(self, payload_errors: Any) -> None:
+        text = str(payload_errors or "")
+        for engine in self.broad_engines:
+            if engine.lower() in text.lower():
+                self.record_error(engine, text)
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "broad_web_enabled": _allow_broad_web_engines(),
+            "broad_web_engines": list(self.broad_engines),
+            "suspended_engines": [engine for engine in self.broad_engines if self.is_suspended(engine)],
+            "engine_failures": {k: dict(v) for k, v in self.failures.items()},
+            "fallback_to_safe_engines": bool(self.broad_engines and all(self.is_suspended(engine) for engine in self.broad_engines)),
+        }
+
+
 def _allow_broad_unsafe_search() -> bool:
     return os.getenv("NEXUS_ALLOW_BROAD_UNSAFE_SEARCH", "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -84,7 +168,7 @@ def _resolve_searxng_engines_param() -> str:
     explicit = os.getenv("NEXUS_SEARXNG_ENGINES", "").strip()
     if explicit:
         return ",".join(_dedupe_engines(_split_engine_csv(explicit), allow_noisy=_allow_broad_unsafe_search()))
-    profile = os.getenv("SEARXNG_ENGINE_PROFILE", "safe_research").strip().lower()
+    profile = os.getenv("SEARXNG_ENGINE_PROFILE", "adaptive_broad_research").strip().lower()
     if profile == "broad_unsafe" and _allow_broad_unsafe_search():
         return ""
     return ",".join(
@@ -106,7 +190,7 @@ def resolve_searxng_engines_for_profile(source_profile: str | None, depth: str |
         profile = "general"
     if profile not in _PROFILE_SEARXNG_DEFAULTS:
         profile = "general"
-    engine_profile = os.getenv("SEARXNG_ENGINE_PROFILE", "safe_research").strip().lower()
+    engine_profile = os.getenv("SEARXNG_ENGINE_PROFILE", "adaptive_broad_research").strip().lower()
     if engine_profile == "broad_unsafe" and _allow_broad_unsafe_search():
         return {
             "source_profile": profile,
@@ -119,13 +203,17 @@ def resolve_searxng_engines_for_profile(source_profile: str | None, depth: str |
 
     env_name = _PROFILE_ENGINE_ENV.get(profile, "NEXUS_SEARXNG_ENGINES_GENERAL")
     configured = os.getenv(env_name, "").strip()
-    engines = _split_engine_csv(configured or _PROFILE_SEARXNG_DEFAULTS[profile])
+    broad_enabled = _allow_broad_web_engines() and engine_profile in {"adaptive_broad_research", "broad_research", "broad", ""}
+    defaults = _BROAD_PROFILE_SEARXNG_DEFAULTS if broad_enabled else _PROFILE_SEARXNG_DEFAULTS
+    engines = _split_engine_csv(configured or defaults[profile])
     if not configured and os.getenv("NEXUS_SEARXNG_ENGINES", "").strip():
         engines = _split_engine_csv(_resolve_searxng_engines_param())
-    engines = _dedupe_engines(engines, allow_noisy=False)
+    engines = _dedupe_engines(engines, allow_noisy=broad_enabled)
     return {
         "source_profile": profile,
-        "engine_priority": "profile_safe",
+        "engine_priority": "profile_broad" if broad_enabled and any(e.lower() in _BROAD_WEB_ENGINES for e in engines) else "profile_safe",
+        "broad_web_enabled": broad_enabled,
+        "broad_web_engines": [e for e in engines if e.lower() in _BROAD_WEB_ENGINES],
         "searxng_engines": engines,
         "searxng_engines_param": ",".join(engines),
         "freshness_policy": _freshness_policy_for_profile(profile, freshness),
@@ -150,7 +238,7 @@ def get_searxng_engine_status() -> dict[str, Any]:
     resolved = resolve_searxng_engines_for_profile("general", "standard", "balanced")
     engines = list(resolved.get("searxng_engines") or [])
     return {
-        "searxng_engine_profile": os.getenv("SEARXNG_ENGINE_PROFILE", "safe_research"),
+        "searxng_engine_profile": os.getenv("SEARXNG_ENGINE_PROFILE", "adaptive_broad_research"),
         "searxng_keep_only_engines": engines,
         "searxng_health_engine": os.getenv("SEARXNG_HEALTH_ENGINE", "wikipedia"),
         "source_profile": resolved.get("source_profile"),
@@ -443,6 +531,15 @@ def _build_searxng_degraded_diagnostic(messages: list[str]) -> dict[str, Any] | 
     }
 
 
+def _engine_list_from_param(engines_param: str | None) -> list[str]:
+    return _split_engine_csv(engines_param or "")
+
+
+def _extract_engine_names_from_error(message: str, engines: list[str]) -> list[str]:
+    normalized = str(message or "").lower()
+    return [engine for engine in engines if engine.lower() in normalized]
+
+
 def _run_searxng_search(
     *,
     cfg: Any,
@@ -450,22 +547,30 @@ def _run_searxng_search(
     result_cap: int,
     search_lang: str,
     engines_param: str | None = None,
-) -> tuple[list[dict[str, Any]], list[str], bool, list[dict[str, Any]]]:
+    engine_health_tracker: EngineHealthTracker | None = None,
+) -> tuple[list[dict[str, Any]], list[str], bool, list[dict[str, Any]], dict[str, Any]]:
     base_url = cfg.searxng_url.rstrip("/")
     items: list[dict[str, Any]] = []
     errors: list[str] = []
     had_connection_failure = False
     diagnostics: list[dict[str, Any]] = []
+    requested_engines = _engine_list_from_param(engines_param)
+    fallback_to_safe = False
 
     for query in queries:
+        query_engines = list(requested_engines)
+        if engine_health_tracker and query_engines:
+            query_engines, used_safe = engine_health_tracker.filter_engines(query_engines)
+            fallback_to_safe = fallback_to_safe or used_safe
+        effective_engines_param = ",".join(query_engines) if query_engines else (engines_param or "")
         query_params = {
             "q": query,
             "format": "json",
             "language": search_lang,
             "categories": "general",
         }
-        if engines_param:
-            query_params["engines"] = engines_param
+        if effective_engines_param:
+            query_params["engines"] = effective_engines_param
         params = parse.urlencode(query_params)
         req = request.Request(f"{base_url}{_SEARXNG_ENDPOINT_PATH}?{params}", headers={"Accept": "application/json"}, method="GET")
         try:
@@ -476,6 +581,9 @@ def _run_searxng_search(
             had_connection_failure = True
             error_message = f"{query}: JSONDecodeError/non-JSON response: {exc}"
             errors.append(error_message)
+            if engine_health_tracker:
+                for engine in query_engines or requested_engines:
+                    engine_health_tracker.record_error(engine, error_message)
             diagnostic = _build_searxng_degraded_diagnostic([error_message])
             if diagnostic:
                 diagnostics.append(diagnostic)
@@ -485,6 +593,9 @@ def _run_searxng_search(
             body = exc.read().decode("utf-8", errors="replace")
             error_message = f"{query}: HTTP {exc.code} {exc.reason} {body[:500]}"
             errors.append(error_message)
+            if engine_health_tracker:
+                for engine in _extract_engine_names_from_error(error_message, query_engines or requested_engines) or (query_engines or requested_engines):
+                    engine_health_tracker.record_error(engine, error_message)
             diagnostic = _build_searxng_degraded_diagnostic([error_message])
             if diagnostic:
                 diagnostics.append(diagnostic)
@@ -493,6 +604,9 @@ def _run_searxng_search(
             had_connection_failure = True
             error_message = f"{query}: {exc}"
             errors.append(error_message)
+            if engine_health_tracker:
+                for engine in _extract_engine_names_from_error(error_message, query_engines or requested_engines):
+                    engine_health_tracker.record_error(engine, error_message)
             diagnostic = _build_searxng_degraded_diagnostic([error_message])
             if diagnostic:
                 diagnostics.append(diagnostic)
@@ -502,6 +616,8 @@ def _run_searxng_search(
         if payload_errors:
             payload_error_messages = [f"{query}: SearXNG engine error: {payload_errors}"]
             errors.extend(payload_error_messages)
+            if engine_health_tracker:
+                engine_health_tracker.record_payload_errors(payload_errors)
             diagnostic = _build_searxng_degraded_diagnostic(payload_error_messages)
             if diagnostic:
                 diagnostics.append(diagnostic)
@@ -524,7 +640,15 @@ def _run_searxng_search(
                     engine=entry.get("engine"),
                 )
             )
-    return items, errors, had_connection_failure, diagnostics
+    health = engine_health_tracker.summary() if engine_health_tracker else {
+        "broad_web_enabled": _allow_broad_web_engines(),
+        "broad_web_engines": [e for e in requested_engines if e.lower() in _BROAD_WEB_ENGINES],
+        "suspended_engines": [],
+        "engine_failures": {},
+        "fallback_to_safe_engines": fallback_to_safe,
+    }
+    health["fallback_to_safe_engines"] = bool(health.get("fallback_to_safe_engines") or fallback_to_safe)
+    return items, errors, had_connection_failure, diagnostics, health
 
 
 def _run_brave_search(
@@ -606,6 +730,7 @@ def _run_web_search(
     search_lang: str | None = None,
     source_profile: str | None = None,
     freshness: str | None = None,
+    engine_health_tracker: EngineHealthTracker | None = None,
 ) -> dict[str, Any]:
     """Run configured web search provider and return a non-fatal normalized payload."""
     cfg = load_runtime_config()
@@ -632,6 +757,8 @@ def _run_web_search(
         "engine_priority": engine_resolution.get("engine_priority"),
         "searxng_engines": engine_resolution.get("searxng_engines"),
         "freshness_policy": engine_resolution.get("freshness_policy"),
+        "broad_web_enabled": engine_resolution.get("broad_web_enabled", False),
+        "broad_web_engines": engine_resolution.get("broad_web_engines", []),
         "queries": normalized_queries,
         "generated_queries": normalized_queries,
     }
@@ -716,14 +843,16 @@ def _run_web_search(
         had_connection_failure = False
         should_cooldown = False
         diagnostics: list[dict[str, Any]] = []
+        engine_health: dict[str, Any] = {}
 
         if provider == "searxng":
-            items, errors, had_connection_failure, diagnostics = _run_searxng_search(
+            items, errors, had_connection_failure, diagnostics, engine_health = _run_searxng_search(
                 cfg=cfg,
                 queries=normalized_queries,
                 result_cap=result_cap,
                 search_lang=effective_search_lang,
                 engines_param=str(engine_resolution.get("searxng_engines_param") or ""),
+                engine_health_tracker=engine_health_tracker,
             )
         elif provider == "brave":
             items, errors, had_connection_failure, should_cooldown = _run_brave_search(
@@ -763,6 +892,7 @@ def _run_web_search(
                 "engine_priority": engine_resolution.get("engine_priority"),
                 "searxng_engines": engine_resolution.get("searxng_engines"),
                 "freshness_policy": engine_resolution.get("freshness_policy"),
+                **(engine_health or {"broad_web_enabled": engine_resolution.get("broad_web_enabled", False), "broad_web_engines": engine_resolution.get("broad_web_engines", []), "suspended_engines": [], "engine_failures": {}, "fallback_to_safe_engines": False}),
                 "items": items,
                 "total_items": len(items),
                 "message": "ok",
@@ -805,6 +935,7 @@ def _run_web_search(
         "engine_priority": engine_resolution.get("engine_priority"),
         "searxng_engines": engine_resolution.get("searxng_engines"),
         "freshness_policy": engine_resolution.get("freshness_policy"),
+        **((engine_health_tracker.summary() if engine_health_tracker else {}) or {"broad_web_enabled": engine_resolution.get("broad_web_enabled", False), "broad_web_engines": engine_resolution.get("broad_web_engines", []), "suspended_engines": [], "engine_failures": {}, "fallback_to_safe_engines": False}),
         "items": stub_items,
         "total_items": len(stub_items),
         "message": message,
@@ -833,6 +964,7 @@ def run_web_search(
     search_lang: str | None = None,
     source_profile: str | None = None,
     freshness: str | None = None,
+    engine_health_tracker: EngineHealthTracker | None = None,
 ) -> dict[str, Any]:
     """内部用途の互換レイヤー（公開ツールではない）。実体は `_run_web_search(...)` を呼び出す。"""
     return _run_web_search(
@@ -846,6 +978,7 @@ def run_web_search(
         search_lang=search_lang,
         source_profile=source_profile,
         freshness=freshness,
+        engine_health_tracker=engine_health_tracker,
     )
 
 

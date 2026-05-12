@@ -154,6 +154,12 @@ def build_report(job_id: str, report_type: str, title: str, sections: list[dict]
         html_body.append("<ul>")
         for key in ("candidate_count", "valid_source_count", "evidence_count", "official_source_count", "pdf_source_count", "high_quality_source_count"):
             html_body.append(f"<li>{html.escape(key)}: {html.escape(str(retrieval_summary.get(key, 0)))}</li>")
+        html_body.append(f"<li>Broad Web: {html.escape('on' if retrieval_summary.get('broad_web_enabled') else 'off')}</li>")
+        html_body.append(f"<li>Screening candidates: {html.escape(str((retrieval_summary.get('screening_summary') or {}).get('candidate_count') or (retrieval_summary.get('screening_summary') or {}).get('unique_candidate_count') or 0))}</li>")
+        html_body.append(f"<li>Direct candidates: static {html.escape(str(retrieval_summary.get('static_curated_direct_candidate_count', 0)))} / dynamic {html.escape(str(retrieval_summary.get('dynamic_curated_direct_candidate_count', 0)))}</li>")
+        suspended = retrieval_summary.get('suspended_engines') or []
+        if suspended:
+            html_body.append(f"<li>Suspended engines: {html.escape(', '.join(str(item) for item in suspended))}</li>")
         html_body.append("</ul>")
     for section in normalized_sections:
         html_body.append(f"<h2>{html.escape(section['heading'])}</h2>")
@@ -505,21 +511,43 @@ def _deterministic_section_summary(*, heading: str, question: str, dimensions: l
     return synthesis[:1200]
 
 
-def _report_section_llm_settings() -> dict:
-    enabled = str(os.environ.get("NEXUS_REPORT_SECTION_LLM_ENABLED", "")).strip().lower() in {"1", "true", "yes", "on"}
-    endpoint = str(os.environ.get("NEXUS_REPORT_SECTION_LLM_ENDPOINT") or os.environ.get("ANSWER_LLM_ENDPOINT") or os.environ.get("DEEP_RESEARCH_LLM_ENDPOINT") or "").strip()
+def _default_models_endpoint(chat_endpoint: str) -> str:
+    if chat_endpoint.endswith("/chat/completions"):
+        return chat_endpoint[: -len("/chat/completions")] + "/models"
+    return chat_endpoint.rstrip("/") + "/models"
+
+
+def _models_endpoint_reachable(chat_endpoint: str) -> bool:
+    models_endpoint = str(os.environ.get("NEXUS_REPORT_SECTION_LLM_MODELS_ENDPOINT") or _default_models_endpoint(chat_endpoint)).strip()
+    try:
+        req = request.Request(models_endpoint, method="GET")
+        with request.urlopen(req, timeout=float(os.environ.get("NEXUS_REPORT_SECTION_LLM_PROBE_TIMEOUT_SEC", "1.5"))) as resp:
+            return 200 <= int(getattr(resp, "status", 200)) < 500
+    except (TimeoutError, error.HTTPError, error.URLError, ValueError, TypeError, OSError):
+        return False
+
+
+def _report_section_llm_settings(depth: str | None = None, retrieval_summary: dict | None = None) -> dict:
+    explicit_enabled = os.environ.get("NEXUS_REPORT_SECTION_LLM_ENABLED")
+    endpoint = str(os.environ.get("NEXUS_REPORT_SECTION_LLM_ENDPOINT") or os.environ.get("ANSWER_LLM_ENDPOINT") or os.environ.get("DEEP_RESEARCH_LLM_ENDPOINT") or "http://127.0.0.1:8080/v1/chat/completions").strip()
     model = str(os.environ.get("NEXUS_REPORT_SECTION_LLM_MODEL") or os.environ.get("ANSWER_LLM_MODEL") or "local-llm").strip() or "local-llm"
-    return {"enabled": enabled, "endpoint": endpoint, "model": model}
+    if explicit_enabled is not None:
+        enabled = str(explicit_enabled).strip().lower() in {"1", "true", "yes", "on"}
+        return {"enabled": enabled, "endpoint": endpoint, "model": model, "auto_enabled": False}
+    summary = retrieval_summary or {}
+    depth_key = str(depth or summary.get("depth") or summary.get("mode") or summary.get("resolved_depth") or "").strip().lower()
+    auto_enabled = depth_key in {"deep", "exhaustive"} and bool(endpoint) and _models_endpoint_reachable(endpoint)
+    return {"enabled": auto_enabled, "endpoint": endpoint, "model": model, "auto_enabled": auto_enabled}
 
 
-def _synthesize_section_with_llm(*, heading: str, question: str, dimensions: list[str], section_evidence: list[dict], coverage_rows: dict[str, dict], fallback: str) -> tuple[str, dict]:
-    settings = _report_section_llm_settings()
+def _synthesize_section_with_llm(*, heading: str, question: str, dimensions: list[str], section_evidence: list[dict], coverage_rows: dict[str, dict], fallback: str, depth: str | None = None, retrieval_summary: dict | None = None) -> tuple[str, dict]:
+    settings = _report_section_llm_settings(depth=depth, retrieval_summary=retrieval_summary)
     if not settings["enabled"] or not settings["endpoint"] or not section_evidence:
         return fallback, {"mode": "deterministic", "reason": "section_llm_disabled_or_no_evidence"}
     evidence_text = "\n".join(_compact_evidence_sentence(ev) for ev in section_evidence[:8])
     coverage_text = json.dumps([coverage_rows.get(dim, {"dimension": dim}) for dim in dimensions], ensure_ascii=False)
     prompt = (
-        "日本語で300〜800字程度のレポート章本文を作成してください。"
+        "日本語で500〜1200字程度のレポート章本文を作成してください。"
         "Evidence以外の断定は避け、重要な文に[S1]形式のcitationを付け、missing/weak coverageは不確実性として明示してください。\n"
         f"質問: {question}\n章: {heading}\n対応dimension: {', '.join(dimensions)}\nCoverage: {coverage_text}\nEvidence:\n{evidence_text}"
     )
@@ -555,7 +583,7 @@ def _build_section_wise_outline_sections(job_id: str, answer: dict, evidence_ite
         dims = _map_heading_to_dimensions(heading, focused_plan, coverage_matrix)
         section_evidence = _select_section_evidence(heading, dims, evidence_pool, coverage_rows)
         fallback = _deterministic_section_summary(heading=heading, question=question or job_id, dimensions=dims, section_evidence=section_evidence, coverage_rows=coverage_rows, conclusion=conclusion)
-        summary, generation = _synthesize_section_with_llm(heading=heading, question=question or job_id, dimensions=dims, section_evidence=section_evidence, coverage_rows=coverage_rows, fallback=fallback)
+        summary, generation = _synthesize_section_with_llm(heading=heading, question=question or job_id, dimensions=dims, section_evidence=section_evidence, coverage_rows=coverage_rows, fallback=fallback, depth=str(retrieval_summary.get("depth") or retrieval_summary.get("mode") or ""), retrieval_summary=retrieval_summary)
         statuses = [str(coverage_rows.get(dim, {}).get("status") or "unknown") for dim in dims]
         weak_or_missing = [dim for dim in dims if str(coverage_rows.get(dim, {}).get("status") or "") in {"weak", "missing"}]
         coverage_entry = {

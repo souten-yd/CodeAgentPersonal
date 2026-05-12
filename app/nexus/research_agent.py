@@ -20,7 +20,7 @@ from app.nexus.evidence import EvidenceItem, replace_evidence_items_for_job, sav
 from app.nexus.jobs import append_job_event, append_job_heartbeat, create_job, ensure_job_exists, update_job
 from app.nexus.news_sources import NewsResearchSourceProfile, collect_news_research_sources, convert_news_items_to_evidence
 from app.nexus.research_gaps import analyze_claim_level_gaps
-from app.nexus.source_collector import build_curated_direct_source_candidates, collect_source_candidates, get_curated_domain_hints, rank_source_candidates
+from app.nexus.source_collector import build_curated_direct_source_candidates, build_dynamic_direct_source_candidates, collect_source_candidates, extract_dynamic_topic_anchors_from_screening, get_curated_domain_hints, rank_source_candidates
 from app.nexus.research_planner import (
     build_coverage_matrix,
     build_focused_research_plan,
@@ -38,7 +38,7 @@ from app.nexus.source_registry import (
     upsert_source_artifact,
 )
 from app.nexus.db import get_conn
-from app.nexus.web_scout import plan_web_queries, resolve_searxng_engines_for_profile, run_web_search
+from app.nexus.web_scout import EngineHealthTracker, plan_web_queries, resolve_searxng_engines_for_profile, run_web_search
 
 
 RESEARCH_STATES = (
@@ -205,6 +205,11 @@ def _retrieval_summary(
     curated_direct_candidate_count: int = 0,
     curated_direct_downloaded_count: int = 0,
     curated_direct_domains: list[str] | None = None,
+    static_curated_direct_candidate_count: int | None = None,
+    dynamic_curated_direct_candidate_count: int = 0,
+    dynamic_curated_direct_domains: list[str] | None = None,
+    dynamic_screening_registry: dict | None = None,
+    engine_health: dict | None = None,
 ) -> dict[str, Any]:
     def _url(item: dict) -> str:
         return str(item.get("url") or item.get("final_url") or "").lower()
@@ -235,9 +240,23 @@ def _retrieval_summary(
         "fresh_source_count": fresh_count,
         "stale_source_count": stale_count,
         "curated_direct_candidate_count": max(0, int(curated_direct_candidate_count)),
+        "static_curated_direct_candidate_count": max(0, int(static_curated_direct_candidate_count if static_curated_direct_candidate_count is not None else curated_direct_candidate_count - dynamic_curated_direct_candidate_count)),
+        "dynamic_curated_direct_candidate_count": max(0, int(dynamic_curated_direct_candidate_count)),
         "curated_direct_downloaded_count": max(0, int(curated_direct_downloaded_count)),
         "curated_direct_domains": list(curated_direct_domains or []),
+        "dynamic_curated_direct_domains": list(dynamic_curated_direct_domains or []),
+        "dynamic_screening_registry": dynamic_screening_registry or {},
+        "dynamic_anchor_entities": list((dynamic_screening_registry or {}).get("entities") or []),
+        "dynamic_anchor_domains": list((dynamic_screening_registry or {}).get("domains") or []),
     }
+    summary.update({
+        "broad_web_enabled": policy.get("broad_web_enabled", False),
+        "broad_web_engines": policy.get("broad_web_engines", []),
+        "suspended_engines": [],
+        "engine_failures": {},
+        "fallback_to_safe_engines": False,
+    })
+    summary.update(engine_health or {})
     summary.update({k: targets.get(k) for k in targets if k.startswith("target_") or k in {"max_retrieval_rounds", "adaptive_retrieval_enabled"}})
     _, unsatisfied = should_expand_retrieval(summary, {**targets, "max_retrieval_rounds": 999}, 0)
     summary["targets_satisfied"] = not unsatisfied
@@ -1317,8 +1336,27 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         candidate_by_url: dict[str, dict] = {}
         attempted_canonical_urls: set[str] = set()
         retrieval_rounds: list[dict] = []
-        curated_direct_candidates = build_curated_direct_source_candidates(query, payload.source_profile, intent)
+        static_curated_direct_candidates = build_curated_direct_source_candidates(query, payload.source_profile, intent)
+        dynamic_screening_registry = extract_dynamic_topic_anchors_from_screening(query, list(screening_result.get("candidates") or []), intent)
+        dynamic_curated_direct_candidates = build_dynamic_direct_source_candidates(
+            query,
+            payload.source_profile,
+            screening_candidates=list(screening_result.get("candidates") or []),
+            intent=intent,
+            screening_summary=screening_summary,
+        )
+        curated_direct_candidates: list[dict] = []
+        seen_direct: set[str] = set()
+        for direct_candidate in [*static_curated_direct_candidates, *dynamic_curated_direct_candidates]:
+            canonical_direct = canonicalize_source_url(str(direct_candidate.get("url") or "")) or str(direct_candidate.get("url") or "")
+            if canonical_direct and canonical_direct not in seen_direct:
+                seen_direct.add(canonical_direct)
+                curated_direct_candidates.append(direct_candidate)
+        static_curated_direct_count = len(static_curated_direct_candidates)
+        dynamic_curated_direct_count = sum(1 for item in curated_direct_candidates if str(item.get("origin") or "") == "dynamic_curated_direct_source")
+        dynamic_curated_direct_domains = sorted({urlparse(str(item.get("url") or "")).netloc.lower() for item in curated_direct_candidates if str(item.get("origin") or "") == "dynamic_curated_direct_source" and str(item.get("url") or "")})
         curated_direct_domains = sorted({urlparse(str(item.get("url") or "")).netloc.lower() for item in curated_direct_candidates if str(item.get("url") or "")})
+        engine_health_tracker = EngineHealthTracker()
         skipped_due_to_download_limit_count = 0
         last_expand_reasons: list[str] = []
         cumulative_downloaded_bytes = 0
@@ -1354,6 +1392,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 language=payload.language,
                 source_profile=payload.source_profile,
                 freshness="recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced",
+                engine_health_tracker=engine_health_tracker,
             )
             if round_index == 0:
                 search = round_search
@@ -1474,8 +1513,13 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 focused_research_plan=focused_research_plan,
                 search_policy=resolve_searxng_engines_for_profile(payload.source_profile, str(payload.depth or payload.mode or "standard"), "recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced"),
                 curated_direct_candidate_count=len(curated_direct_candidates),
-                curated_direct_downloaded_count=sum(1 for item in downloadable_sources if str(item.get("origin") or "") == "curated_direct_source" and str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested"}),
+                static_curated_direct_candidate_count=static_curated_direct_count,
+                dynamic_curated_direct_candidate_count=dynamic_curated_direct_count,
+                curated_direct_downloaded_count=sum(1 for item in downloadable_sources if str(item.get("origin") or "") in {"curated_direct_source", "dynamic_curated_direct_source"} and str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested"}),
                 curated_direct_domains=curated_direct_domains,
+                dynamic_curated_direct_domains=dynamic_curated_direct_domains,
+                dynamic_screening_registry=dynamic_screening_registry,
+                engine_health=engine_health_tracker.summary(),
             )
             expand, reasons = should_expand_retrieval(current_summary, targets, round_index + 1)
             round_payload = {
@@ -1575,8 +1619,13 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             coverage_matrix=coverage_matrix,
             search_policy=resolve_searxng_engines_for_profile(payload.source_profile, str(payload.depth or payload.mode or "standard"), "recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced"),
             curated_direct_candidate_count=len(curated_direct_candidates),
-            curated_direct_downloaded_count=sum(1 for item in downloadable_sources if str(item.get("origin") or "") == "curated_direct_source" and str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested"}),
+            static_curated_direct_candidate_count=static_curated_direct_count,
+            dynamic_curated_direct_candidate_count=dynamic_curated_direct_count,
+            curated_direct_downloaded_count=sum(1 for item in downloadable_sources if str(item.get("origin") or "") in {"curated_direct_source", "dynamic_curated_direct_source"} and str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested"}),
             curated_direct_domains=curated_direct_domains,
+            dynamic_curated_direct_domains=dynamic_curated_direct_domains,
+            dynamic_screening_registry=dynamic_screening_registry,
+            engine_health=engine_health_tracker.summary(),
         )
         if references:
             labels = [f"[S{i + 1}]" for i in range(len(references))]

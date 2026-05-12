@@ -1,4 +1,5 @@
-# CodeAgent safe_research engine overrides
+# CodeAgent adaptive broad research engine overrides
+# safe_research is still supported by startup scripts via SEARXNG_SAFE_KEEP_ONLY_ENGINES.
 use_default_settings:
   engines:
     keep_only:
@@ -11,11 +12,8 @@ use_default_settings:
       - github
       - stackoverflow
     remove:
-      - duckduckgo
       - startpage
-      - google
       - bing
-      - brave
       - karmasearch
       - karmasearch videos
       - qwant
