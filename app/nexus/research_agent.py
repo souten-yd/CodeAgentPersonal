@@ -98,6 +98,7 @@ class ResearchAgentInput:
     target_replacement_ratio: float = 1.0
     max_replenishment_rounds: int | None = None
     max_replenishment_candidates: int | None = None
+    max_replenishment_downloads: int | None = None
     min_valid_source_count: int | None = None
     min_evidence_count: int | None = None
 
@@ -109,10 +110,10 @@ def _now_iso() -> str:
 
 
 _RETRIEVAL_TARGET_DEFAULTS: dict[str, dict[str, Any]] = {
-    "quick": {"target_candidate_count": 30, "target_valid_source_count": 8, "target_evidence_count": 25, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 1, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 1, "max_replenishment_candidates": 20},
-    "standard": {"target_candidate_count": 80, "target_valid_source_count": 18, "target_evidence_count": 50, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 2, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 1, "max_replenishment_candidates": 20},
-    "deep": {"target_candidate_count": 180, "target_valid_source_count": 35, "target_evidence_count": 100, "target_high_quality_source_count": 10, "target_official_source_count": 6, "target_pdf_source_count": 6, "max_retrieval_rounds": 4, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 3, "max_replenishment_candidates": 80},
-    "exhaustive": {"target_candidate_count": 300, "target_valid_source_count": 55, "target_evidence_count": 160, "target_high_quality_source_count": 16, "target_official_source_count": 10, "target_pdf_source_count": 10, "max_retrieval_rounds": 5, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 5, "max_replenishment_candidates": 140},
+    "quick": {"target_candidate_count": 30, "target_valid_source_count": 8, "target_evidence_count": 25, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 1, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 1, "max_replenishment_candidates": 20, "max_replenishment_downloads": 10},
+    "standard": {"target_candidate_count": 80, "target_valid_source_count": 18, "target_evidence_count": 50, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 2, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 1, "max_replenishment_candidates": 20, "max_replenishment_downloads": 10},
+    "deep": {"target_candidate_count": 180, "target_valid_source_count": 35, "target_evidence_count": 100, "target_high_quality_source_count": 10, "target_official_source_count": 6, "target_pdf_source_count": 6, "max_retrieval_rounds": 4, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 3, "max_replenishment_candidates": 80, "max_replenishment_downloads": 30},
+    "exhaustive": {"target_candidate_count": 300, "target_valid_source_count": 55, "target_evidence_count": 160, "target_high_quality_source_count": 16, "target_official_source_count": 10, "target_pdf_source_count": 10, "max_retrieval_rounds": 5, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 5, "max_replenishment_candidates": 140, "max_replenishment_downloads": 50},
 }
 
 
@@ -187,10 +188,12 @@ def compute_retrieval_deficit(summary: dict, targets: dict) -> dict:
     else:
         failure_classes = [classify_retrieval_failure(item) for item in failed_items]
         failed_count = sum(1 for cls in failure_classes if cls not in {"unknown", "skipped_limit"})
-        failed_count += sum(1 for cls in failure_classes if cls == "skipped_limit")
+        skipped_limit_count = sum(1 for cls in failure_classes if cls == "skipped_limit")
+        failed_count += skipped_limit_count
         duplicate_count = sum(1 for cls in failure_classes if cls == "duplicate")
         if duplicate_count > 1:
             failed_count -= duplicate_count - max(1, duplicate_count // 2)
+        quality_failure_count = max(0, failed_count - skipped_limit_count)
     ratio = float(targets.get("target_replacement_ratio") or 1.0)
     max_candidates = int(targets.get("max_replenishment_candidates") or 0)
     replacement_target = max(valid_deficit, int(__import__("math").ceil(failed_count * ratio)))
@@ -208,7 +211,9 @@ def compute_retrieval_deficit(summary: dict, targets: dict) -> dict:
         "replacement_target_count": max(0, replacement_target),
         "source_mix_deficits": {key: max(0, int(source_mix_targets.get(key) or 0) - int(source_mix.get(key) or 0)) for key in source_mix_targets},
     }
-    deficits["replacement_needed"] = bool(deficits["replacement_target_count"] > 0 and (valid_deficit > 0 or evidence_deficit > 0 or any(v > 0 for v in deficits["source_mix_deficits"].values()) or failed_count > 0))
+    if "quality_failure_count" not in locals():
+        quality_failure_count = failed_count
+    deficits["replacement_needed"] = bool(deficits["replacement_target_count"] > 0 and (valid_deficit > 0 or evidence_deficit > 0 or any(v > 0 for v in deficits["source_mix_deficits"].values()) or quality_failure_count > 0))
     return deficits
 
 def build_retrieval_strategy(source_profile: str, depth: str, round_index: int, gaps: dict | None = None) -> dict:
@@ -324,7 +329,7 @@ def _retrieval_summary(
         "fallback_to_safe_engines": False,
     })
     summary.update(engine_health or {})
-    summary["engine_replenishment"] = engine_replenishment or {"enabled": bool(targets.get("replenishment_enabled", True)), "attempted": False, "replacement_queries": 0, "replacement_candidates": 0, "replacement_downloads": 0, "replacement_valid_sources": 0, "suspended_engines": list((engine_health or {}).get("suspended_engines") or []), "fallback_to_safe_engines": bool((engine_health or {}).get("fallback_to_safe_engines", False)), "replenishment_rounds": [], "source_mix_deficits": {}}
+    summary["engine_replenishment"] = engine_replenishment or {"enabled": bool(targets.get("replenishment_enabled", True)), "attempted": False, "replacement_queries": 0, "replacement_candidates": 0, "replacement_downloads": 0, "replacement_valid_sources": 0, "suspended_engines": list((engine_health or {}).get("suspended_engines") or []), "fallback_to_safe_engines": bool((engine_health or {}).get("fallback_to_safe_engines", False)), "replenishment_rounds": [], "source_mix_deficits": {}, "max_replenishment_downloads": 0, "replenishment_download_attempts_used": 0, "replenishment_download_budget_remaining": 0}
     summary.update({k: targets.get(k) for k in targets if k.startswith("target_") or k in {"max_retrieval_rounds", "adaptive_retrieval_enabled"}})
     _, unsatisfied = should_expand_retrieval(summary, {**targets, "max_retrieval_rounds": 999}, 0)
     summary["targets_satisfied"] = not unsatisfied
@@ -1341,6 +1346,9 @@ def _init_replenishment_metrics(enabled: bool, engine_health_tracker: EngineHeal
         "failed_candidate_count": 0,
         "replacement_needed": False,
         "source_mix_deficits": {},
+        "max_replenishment_downloads": 0,
+        "replenishment_download_attempts_used": 0,
+        "replenishment_download_budget_remaining": 0,
         "stop_reason": "not_attempted" if enabled else "disabled",
     }
 
@@ -1651,7 +1659,12 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         if bool(targets.get("replenishment_enabled", True)):
             max_replenishment_rounds = max(0, int(targets.get("max_replenishment_rounds") or 0))
             max_replenishment_candidates = max(0, int(targets.get("max_replenishment_candidates") or 0))
+            max_replenishment_downloads = max(0, int(targets.get("max_replenishment_downloads") or 0))
             replacement_candidate_budget_used = 0
+            replenishment_download_attempts_used = 0
+            replenishment_metrics["max_replenishment_downloads"] = max_replenishment_downloads
+            replenishment_metrics["replenishment_download_attempts_used"] = replenishment_download_attempts_used
+            replenishment_metrics["replenishment_download_budget_remaining"] = max(0, max_replenishment_downloads - replenishment_download_attempts_used)
             for replenishment_round_index in range(max_replenishment_rounds):
                 source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
                 failed_sources = _collect_failed_retrieval_items(ranked_candidates, downloadable_sources)
@@ -1682,7 +1695,8 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 if remaining_replacement_budget <= 0:
                     replenishment_metrics["stop_reason"] = "candidate_budget_exhausted"
                     break
-                needed = min(int(deficit.get("replacement_target_count") or 0), remaining_replacement_budget, max(0, max_downloads - len(attempted_canonical_urls)))
+                remaining_replenishment_downloads = max(0, max_replenishment_downloads - replenishment_download_attempts_used)
+                needed = min(int(deficit.get("replacement_target_count") or 0), remaining_replacement_budget, remaining_replenishment_downloads)
                 if needed <= 0:
                     replenishment_metrics["stop_reason"] = "download_budget_exhausted"
                     break
@@ -1730,6 +1744,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
                     if canonical:
                         attempted_canonical_urls.add(canonical)
+                replenishment_download_attempts_used += len(selected)
                 remaining_total_bytes = max(0, max_total_download_bytes - cumulative_downloaded_bytes)
                 downloaded_before = len(downloadable_sources)
                 valid_before = sum(1 for item in registered_sources if str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested", ""})
@@ -1757,12 +1772,14 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                         existing[sid] = item
                 registered_sources = list(existing.values())
                 valid_after = sum(1 for item in registered_sources if str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested", ""})
-                replacement_candidate_budget_used += len(replacement_candidates)
+                replacement_candidate_budget_used += len(selected)
                 replenishment_metrics["attempted"] = True
                 replenishment_metrics["replacement_queries"] += len(replacement_queries)
-                replenishment_metrics["replacement_candidates"] += len(replacement_candidates)
+                replenishment_metrics["replacement_candidates"] += len(selected)
                 replenishment_metrics["replacement_downloads"] += max(0, len(downloadable_sources) - downloaded_before)
                 replenishment_metrics["replacement_valid_sources"] += max(0, valid_after - valid_before)
+                replenishment_metrics["replenishment_download_attempts_used"] = replenishment_download_attempts_used
+                replenishment_metrics["replenishment_download_budget_remaining"] = max(0, max_replenishment_downloads - replenishment_download_attempts_used)
                 health = engine_health_tracker.summary()
                 replenishment_metrics["suspended_engines"] = list(health.get("suspended_engines") or [])
                 replenishment_metrics["fallback_to_safe_engines"] = bool(health.get("fallback_to_safe_engines", False))
