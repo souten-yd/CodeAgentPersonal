@@ -549,17 +549,11 @@
                 <button class="settings-btn primary" id="nexus-deep-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusDeepResearch()">Start Research</button>
                 <button class="settings-btn" id="nexus-deep-bundle-btn" style="padding:5px 12px;font-size:11px" onclick="downloadNexusDeepBundle()" disabled>Download Bundle</button>
               </div>
-              <div id="nexus-deep-provider-health" class="nexus-result-meta">Provider: -</div>
-              <div id="nexus-deep-job-status" class="nexus-result-meta">Job: 状態: 未実行</div>
               <div id="nexus-deep-status" class="nexus-result-meta">状態: 未実行</div>
               <div class="nexus-result-meta">Deep Researchの結果はResearch Answerとして保存されます。Reportには自動保存されません。ダウンロードはResearch Bundleを使用してください。</div>
-              <div class="nexus-card nexus-current-run-card" style="margin-top:10px">
-                <div class="nexus-card-title">Current Run</div>
-                <div id="nexus-deep-current-run" class="nexus-result-panel"><div class="nexus-empty">No current run</div></div>
-              </div>
               <div class="nexus-card" style="margin-top:10px">
                 <div class="nexus-card-title" id="nexus-prev-runs-title">Previous Runs (0)</div>
-                <div id="nexus-deep-previous-runs" class="nexus-result-panel"><div class="nexus-empty">No previous runs</div></div>
+                <div id="nexus-deep-previous-runs" class="nexus-result-panel"><div class="nexus-doc-actions"><button onclick="toggleNexusPreviousRuns(false)">Show previous runs</button></div></div>
               </div>
             </div>
           </div>
@@ -6065,6 +6059,7 @@ let nexusDeepResearchCurrentRunMeta = null;
 let nexusDeepResearchPreviousRuns = [];
 let nexusDeepPreviousRunsCollapsed = true;
 let nexusDeepPreviousRunsVisibleCount = 3;
+let nexusDeepPreviousRunsLoaded = false;
 let nexusMaxUploadMb = 200;
 let nexusMaxUploadBytes = nexusMaxUploadMb * 1024 * 1024;
 const nexusAllowedUploadExt = new Set(['.pdf', '.txt', '.md', '.csv', '.html']);
@@ -6806,25 +6801,18 @@ async function runNexusWebScoutMvp() {
 
 function setNexusDeepStatus(message, isErr = false, isStub = false) {
   const el = document.getElementById('nexus-deep-status');
-  const providerEl = document.getElementById('nexus-deep-provider-health');
-  const jobEl = document.getElementById('nexus-deep-job-status');
   if (!el) return;
   const providerWarning = (typeof formatNexusProviderHealthWarning === 'function')
     ? formatNexusProviderHealthWarning(nexusDeepProviderHealthWarning || {})
     : { show: false, severity: 'info', message: '' };
-  if (providerEl) {
-    providerEl.style.color = providerWarning.show ? 'var(--amber)' : 'var(--text3)';
-    providerEl.textContent = providerWarning.show ? `Provider: ${providerWarning.message}` : 'Provider: healthy';
-  }
   el.style.color = isErr ? 'var(--red)' : 'var(--text2)';
   if (message && typeof message === 'object') {
     const compact = message;
-    const notice = compact.notice ? `<div>注意: ${esc(String(compact.notice))}</div>` : '';
+    const notices = [];
+    if (compact.notice) notices.push(String(compact.notice));
+    if (providerWarning.show && providerWarning.message) notices.push(String(providerWarning.message));
+    const notice = `<div>注意: ${esc(notices.join(' / ') || '-')}</div>`;
     const debug = compact.debug ? `<details class="nexus-debug-details"><summary>Debug Details</summary><pre>${esc(String(compact.debug))}</pre></details>` : '';
-    if (jobEl) {
-      jobEl.style.color = compact.severity === 'error' ? 'var(--red)' : 'var(--text2)';
-      jobEl.textContent = `Job: ${String(compact.title || '-')}`;
-    }
     el.innerHTML = `<div class="nexus-status-compact severity-${esc(String(compact.severity || 'info'))}">
       <div>状態: ${esc(String(compact.title || '-'))}</div>
       <div>進捗: ${esc(String(compact.progress || '-'))}</div>
@@ -6833,11 +6821,9 @@ function setNexusDeepStatus(message, isErr = false, isStub = false) {
     </div>${debug}`;
     return;
   }
-  if (jobEl) {
-    jobEl.style.color = isErr ? 'var(--red)' : 'var(--text2)';
-    jobEl.textContent = `Job: ${message || '-'}`;
-  }
-  el.textContent = `状態: ${message || '-'}`;
+  const statusMessage = String(message || '-');
+  const warn = providerWarning.show && providerWarning.message ? ` / 注意: ${providerWarning.message}` : '';
+  el.textContent = `状態: ${statusMessage}${warn}`;
 }
 
 const NEXUS_TIMELINE_STATE_META = {
@@ -7291,17 +7277,6 @@ function stopNexusDeepResearchPolling() {
   }
 }
 
-function renderNexusDeepCurrentRun() {
-  const root = document.getElementById('nexus-deep-current-run');
-  if (!root) return;
-  const row = nexusDeepResearchCurrentRunMeta;
-  if (!row) {
-    root.innerHTML = '<div class="nexus-empty">No current run</div>';
-    return;
-  }
-  root.innerHTML = `<div><b>${esc(row.job_id || '-')}</b></div><div class="nexus-result-meta">query: ${esc(row.query || '-')} / status: ${esc(row.status || '-')} / created_at: ${esc(row.created_at || '-')}</div>`;
-}
-
 function renderNexusDeepPreviousRuns() {
   const root = document.getElementById('nexus-deep-previous-runs');
   const title = document.getElementById('nexus-prev-runs-title');
@@ -7328,8 +7303,26 @@ function renderNexusDeepPreviousRuns() {
 
 function toggleNexusPreviousRuns(collapsed = true) {
   nexusDeepPreviousRunsCollapsed = Boolean(collapsed);
-  if (!nexusDeepPreviousRunsCollapsed) nexusDeepPreviousRunsVisibleCount = 3;
+  if (!nexusDeepPreviousRunsCollapsed) {
+    nexusDeepPreviousRunsVisibleCount = 3;
+    if (!nexusDeepPreviousRunsLoaded) refreshNexusDeepPreviousRuns();
+  }
   renderNexusDeepPreviousRuns();
+}
+
+async function refreshNexusDeepPreviousRuns() {
+  nexusDeepPreviousRunsLoaded = true;
+  try {
+    const endpoint = nexusApi('/nexus/research/jobs?limit=20');
+    const res = await fetch(endpoint);
+    const parsed = await parseNexusApiResponse(res);
+    if (!res.ok) return;
+    const rows = Array.isArray(parsed?.data?.items) ? parsed.data.items : [];
+    nexusDeepResearchPreviousRuns = rows
+      .filter((row) => String(row?.job_id || '').trim())
+      .map((row) => ({ job_id: row.job_id, query: row.query, status: row.status, created_at: row.created_at }));
+    renderNexusDeepPreviousRuns();
+  } catch (_err) {}
 }
 
 function showMoreNexusPreviousRuns() {
@@ -7381,13 +7374,11 @@ function resetNexusDeepResearchView(options = {}) {
 function setNexusDeepCurrentJob(jobMeta = null) {
   nexusDeepResearchCurrentRunMeta = jobMeta && jobMeta.job_id ? { ...jobMeta } : null;
   nexusDeepResearchJobId = String(jobMeta?.job_id || '');
-  renderNexusDeepCurrentRun();
 }
 
 function updateNexusDeepCurrentStatus(status) {
   if (!nexusDeepResearchCurrentRunMeta) return;
   nexusDeepResearchCurrentRunMeta.status = status || nexusDeepResearchCurrentRunMeta.status || '-';
-  renderNexusDeepCurrentRun();
 }
 
 function downloadNexusDeepBundleByJobId(jobIdEnc) {
@@ -8459,12 +8450,29 @@ async function previewNexusReportMarkdown(reportId) {
 
 function startNexusPolling() {
   stopNexusPolling();
-  refreshNexusExecuteSummary();
-  refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
-  refreshNexusJobs();
-  refreshNexusWebStatus();
+  const defer = (fn, timeout = 0) => {
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(() => fn(), { timeout: Math.max(50, timeout || 200) });
+      return;
+    }
+    setTimeout(() => fn(), timeout);
+  };
+  const withTimeout = async (promise, timeoutMs = 3000) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`timeout:${timeoutMs}`)), timeoutMs)),
+  ]);
+  Promise.allSettled([
+    withTimeout(refreshNexusWebStatus(), 3000),
+  ]);
+  defer(() => Promise.allSettled([
+    withTimeout(refreshNexusExecuteSummary(), 5000),
+    withTimeout(refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || ''), 5000),
+  ]), 100);
   renderNexusTimeline();
-  nexusJobsPollTimer = setInterval(refreshNexusJobs, NEXUS_POLL_MS);
+  if (nexusDeepResearchJobId) {
+    refreshNexusJobs();
+    nexusJobsPollTimer = setInterval(refreshNexusJobs, NEXUS_POLL_MS);
+  }
   nexusExecutePollTimer = setInterval(refreshNexusExecuteSummary, 5000);
 }
 
