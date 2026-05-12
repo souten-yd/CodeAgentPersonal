@@ -424,3 +424,28 @@ function formatNexusResearchStatusCompact(job = {}, bundle = {}, answer = {}) {
   const severity = state === 'failed' ? 'error' : (hasNotice ? 'warning' : 'info');
   return { title, progress: progressText, collection, notice, severity };
 }
+
+function formatNexusProviderHealthWarning(webStatus = {}) {
+  const nonFatal = Boolean(webStatus?.non_fatal);
+  const stub = Boolean(webStatus?.stub);
+  if (!nonFatal && !stub) return { show: false, severity: 'info', message: '' };
+  return {
+    show: true,
+    severity: 'warning',
+    message: '[Web provider warning] Web provider health check is degraded. News/RSS/GDELT sources may still work.',
+  };
+}
+
+function formatNexusProviderConfigurationDetails(providerStatus = {}) {
+  const braveApiConfigured = Boolean(providerStatus?.brave_api_configured);
+  const searxngBraveConfigured = Boolean(providerStatus?.searxng_engine_brave_configured);
+  return {
+    braveApi: braveApiConfigured ? 'Brave API provider: configured' : 'Brave API provider: not configured',
+    searxngBrave: searxngBraveConfigured
+      ? 'SearXNG engine brave: configured through SearXNG, no Brave API key required'
+      : 'SearXNG engine brave: unavailable in current SearXNG engine set',
+  };
+}
+
+window.formatNexusProviderHealthWarning = formatNexusProviderHealthWarning;
+window.formatNexusProviderConfigurationDetails = formatNexusProviderConfigurationDetails;

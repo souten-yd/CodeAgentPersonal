@@ -175,7 +175,13 @@ class SearxngNewsConnector(BaseNewsConnector):
     provider = "searxng"
 
     def __init__(self, endpoint: str | None = None) -> None:
-        self.endpoint = (endpoint or os.environ.get("SEARXNG_URL") or os.environ.get("SEARXNG_ENDPOINT") or "").rstrip("/")
+        self.endpoint = (
+            endpoint
+            or os.environ.get("SEARXNG_URL")
+            or os.environ.get("SEARXNG_ENDPOINT")
+            or os.environ.get("NEXUS_SEARXNG_URL")
+            or "http://127.0.0.1:8088"
+        ).rstrip("/")
 
     def search(self, query: NewsSourceQuery) -> NewsSourceResult:
         result = NewsSourceResult(provider=self.provider, query=query, metadata={"endpoint": self.endpoint})
@@ -587,12 +593,28 @@ def collect_news_from_connectors(
     deduped = dedupe_news_items(all_items)
     diversified, diversity = apply_news_source_diversity(deduped, max_items=max_items or query.max_items)
     overall = _overall_status(statuses)
+    successful = [s["provider"] for s in statuses if int(s.get("item_count") or 0) > 0 and not bool(s.get("error_count"))]
+    failed = [s["provider"] for s in statuses if int(s.get("item_count") or 0) <= 0 and (bool(s.get("error_count")) or bool(s.get("skipped")))]
+    degraded = [s["provider"] for s in statuses if s["provider"] not in successful and s["provider"] not in failed]
+    item_count_by_provider = {s["provider"]: int(s.get("item_count") or 0) for s in statuses}
+    searxng_endpoint_used = ""
+    for result in results:
+        if result.provider == "searxng":
+            searxng_endpoint_used = str((result.metadata or {}).get("endpoint") or "")
+            break
+    used_rss_or_gdelt_fallback = any(item.provider in {"gdelt", "google_news_rss", "nhk_rss", "yahoo_rss", "cnbc_rss", "bbc_rss", "rss"} for item in diversified)
     return {
         "query": query,
         "results": results,
         "items": diversified,
         "provider_status": statuses,
         "overall_status": overall,
+        "successful_providers": successful,
+        "failed_providers": failed,
+        "degraded_providers": degraded,
+        "item_count_by_provider": item_count_by_provider,
+        "searxng_endpoint_used": searxng_endpoint_used,
+        "used_rss_or_gdelt_fallback": used_rss_or_gdelt_fallback,
         "metadata": {
             "providers": provider_names,
             "default_providers": DEFAULT_PROVIDERS,
@@ -602,6 +624,12 @@ def collect_news_from_connectors(
             "diversity": diversity,
             "provider_status": statuses,
             "overall_status": overall,
+            "successful_providers": successful,
+            "failed_providers": failed,
+            "degraded_providers": degraded,
+            "item_count_by_provider": item_count_by_provider,
+            "searxng_endpoint_used": searxng_endpoint_used,
+            "used_rss_or_gdelt_fallback": used_rss_or_gdelt_fallback,
             "retrieved_at": _now_iso(),
         },
     }
