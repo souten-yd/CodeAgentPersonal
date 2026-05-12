@@ -10,9 +10,9 @@ SEARXNG_SETTINGS_PATH="${SEARXNG_SETTINGS_PATH:-${SEARXNG_CONFIG_DIR}/settings.y
 SEARXNG_SECRET_FILE="${SEARXNG_SECRET_FILE:-${SEARXNG_CONFIG_DIR}/secret_key}"
 SEARXNG_START_TIMEOUT_SEC="${SEARXNG_START_TIMEOUT_SEC:-12}"
 SEARXNG_LOG_FILE="${SEARXNG_LOG_FILE:-${SEARXNG_CONFIG_DIR}/searxng.log}"
-SEARXNG_ENGINE_PROFILE="${SEARXNG_ENGINE_PROFILE:-safe_research}"
+SEARXNG_ENGINE_PROFILE="${SEARXNG_ENGINE_PROFILE:-adaptive_broad_research}"
 SEARXNG_SAFE_KEEP_ONLY_ENGINES="${SEARXNG_SAFE_KEEP_ONLY_ENGINES:-wikipedia,wikidata,arxiv,crossref,openalex,semantic scholar,github,stackoverflow}"
-SEARXNG_DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES:-duckduckgo,startpage,google,bing,brave,karmasearch,karmasearch videos,qwant,mojeek,yahoo}"
+SEARXNG_DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES:-startpage,bing,karmasearch,karmasearch videos,qwant,mojeek,yahoo}"
 SEARXNG_HEALTH_ENGINE="${SEARXNG_HEALTH_ENGINE:-wikipedia}"
 SEARXNG_FORCE_SAFE_SETTINGS="${SEARXNG_FORCE_SAFE_SETTINGS:-false}"
 SEARXNG_HEALTH_ENGINE_ENCODED="$(HEALTH_ENGINE="${SEARXNG_HEALTH_ENGINE}" python3 - <<'PY_HEALTH_ENGINE'
@@ -43,8 +43,13 @@ err() {
 }
 
 log "engine_profile=${SEARXNG_ENGINE_PROFILE}"
+log "allow_broad_web_engines=${NEXUS_ALLOW_BROAD_WEB_ENGINES:-true}"
+log "broad_web_engines=${NEXUS_BROAD_WEB_ENGINES:-google,brave,duckduckgo}"
 log "safe_keep_only_engines=${SEARXNG_SAFE_KEEP_ONLY_ENGINES}"
 log "disabled_engines=${SEARXNG_DISABLED_ENGINES}"
+log "engines_news=${NEXUS_SEARXNG_ENGINES_NEWS:-}"
+log "engines_market=${NEXUS_SEARXNG_ENGINES_MARKET:-}"
+log "engines_source=${NEXUS_SEARXNG_ENGINES_SOURCE:-}"
 log "health_engine=${SEARXNG_HEALTH_ENGINE}"
 log "force_safe_settings=${SEARXNG_FORCE_SAFE_SETTINGS}"
 
@@ -192,6 +197,34 @@ print(f"repaired regenerated backup={backup_path}")
 EOF_SAFE_REPAIR
 }
 
+sanitize_non_safe_profile_settings() {
+  if _safe_research_enabled; then
+    return 0
+  fi
+  if [[ ! -f "${SEARXNG_SETTINGS_PATH}" ]]; then
+    return 0
+  fi
+  SETTINGS_PATH="${SEARXNG_SETTINGS_PATH}" python3 - <<'EOF_NON_SAFE_SANITIZE'
+from pathlib import Path
+import os
+import shutil
+import re
+
+settings_path = Path(os.environ["SETTINGS_PATH"])
+text = settings_path.read_text(encoding="utf-8")
+safe_marker = "# CodeAgent safe_research engine overrides"
+if safe_marker not in text and "keep_only:" not in text:
+    raise SystemExit(0)
+timestamp = __import__("datetime").datetime.utcnow().strftime("%Y%m%d%H%M%S")
+backup = settings_path.with_name(settings_path.name + f".bak.{timestamp}.adaptive")
+shutil.copy2(settings_path, backup)
+text = text.replace(safe_marker + "\n", "")
+text = re.sub(r"(?ms)^\s*use_default_settings:\s*\n\s*engines:\s*\n\s*keep_only:\s*\n(?:\s*-\s*.*\n)+\s*remove:\s*\n(?:\s*-\s*.*\n)+", "", text).lstrip()
+settings_path.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
+print(f"sanitized existing safe settings backup={backup}")
+EOF_NON_SAFE_SANITIZE
+}
+
 probe_searxng_json() {
   local probe_body="$1"
   PROBE_BODY="${probe_body}" DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES}" python3 - <<'EOF_SAFE_PROBE'
@@ -281,6 +314,8 @@ if ! repair_searxng_settings; then
 else
   log "settings repair completed or not needed: ${SEARXNG_SETTINGS_PATH}"
 fi
+
+sanitize_non_safe_profile_settings || warn "failed to sanitize safe marker for non-safe profile; continuing"
 
 if command -v curl >/dev/null 2>&1; then
   existing_probe_body="$(curl -fsS --max-time 2 "${SEARXNG_PROBE_URL}" 2>/dev/null || true)"

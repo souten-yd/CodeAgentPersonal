@@ -158,6 +158,16 @@ echo "[Style-Bert-VITS2] bundled model path: ${SBV2_BUNDLED_MODEL_PATH}"
 echo "[Style-Bert-VITS2] validate success: workspace koharune-ami is ready"
 
 if [ "${AUTO_START_SEARXNG}" = "true" ]; then
+  export SEARXNG_ENGINE_PROFILE="${SEARXNG_ENGINE_PROFILE:-adaptive_broad_research}"
+  export NEXUS_ALLOW_BROAD_WEB_ENGINES="${NEXUS_ALLOW_BROAD_WEB_ENGINES:-true}"
+  export NEXUS_BROAD_WEB_ENGINES="${NEXUS_BROAD_WEB_ENGINES:-google,brave,duckduckgo}"
+  export SEARXNG_DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES:-startpage,bing,karmasearch,karmasearch videos,qwant,mojeek,yahoo}"
+  export SEARXNG_HEALTH_ENGINE="${SEARXNG_HEALTH_ENGINE:-wikipedia}"
+  export SEARXNG_REPAIR_SETTINGS="${SEARXNG_REPAIR_SETTINGS:-true}"
+  export SEARXNG_FORCE_SAFE_SETTINGS="${SEARXNG_FORCE_SAFE_SETTINGS:-false}"
+  export NEXUS_SEARXNG_ENGINES_NEWS="${NEXUS_SEARXNG_ENGINES_NEWS:-google,brave,duckduckgo,wikipedia,wikidata}"
+  export NEXUS_SEARXNG_ENGINES_MARKET="${NEXUS_SEARXNG_ENGINES_MARKET:-google,brave,duckduckgo,wikipedia,wikidata,github}"
+  export NEXUS_SEARXNG_ENGINES_SOURCE="${NEXUS_SEARXNG_ENGINES_SOURCE:-google,brave,duckduckgo,wikipedia,wikidata,arxiv,crossref,openalex,github}"
   bash /app/scripts/start_searxng.sh || echo "[SearXNG][WARN] start_searxng.sh failed; continuing FastAPI startup."
 fi
 

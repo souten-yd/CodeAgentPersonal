@@ -28,13 +28,8 @@ def _keep_only_block(text: str) -> str:
 def test_template_uses_keep_only_for_safe_profile() -> None:
     text = _read(TEMPLATE)
     assert "use_default_settings:" in text
-    assert "keep_only:" in text
     assert "remove:" in text
-    keep_only = _keep_only_block(text)
-    for engine in SAFE_KEEP_ONLY_ENGINES:
-        assert f"- {engine}" in keep_only
-    for engine in OBSERVED_BAD_ENGINES:
-        assert f"- {engine}" not in keep_only
+    assert "keep_only:" not in text
 
 
 def test_disabled_list_includes_observed_bad_engines() -> None:
@@ -78,11 +73,13 @@ def test_windows_repair_supports_keep_only() -> None:
 
 def test_start_script_declares_safe_research_profile() -> None:
     text = _read(START_SCRIPT)
-    assert 'SEARXNG_ENGINE_PROFILE="${SEARXNG_ENGINE_PROFILE:-safe_research}"' in text
+    assert 'SEARXNG_ENGINE_PROFILE="${SEARXNG_ENGINE_PROFILE:-adaptive_broad_research}"' in text
     assert 'SEARXNG_SAFE_KEEP_ONLY_ENGINES="${SEARXNG_SAFE_KEEP_ONLY_ENGINES:-wikipedia,wikidata,arxiv,crossref,openalex,semantic scholar,github,stackoverflow}"' in text
     assert 'SEARXNG_REPAIR_SETTINGS="${SEARXNG_REPAIR_SETTINGS:-true}"' in text
     assert 'SEARXNG_STRICT_HEALTH="${SEARXNG_STRICT_HEALTH:-false}"' in text
     assert 'log "engine_profile=${SEARXNG_ENGINE_PROFILE}"' in text
+    assert 'log "allow_broad_web_engines=${NEXUS_ALLOW_BROAD_WEB_ENGINES:-true}"' in text
+    assert 'log "broad_web_engines=${NEXUS_BROAD_WEB_ENGINES:-google,brave,duckduckgo}"' in text
 
 
 def test_start_script_repairs_existing_settings() -> None:
