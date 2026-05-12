@@ -421,8 +421,13 @@ function formatNexusResearchStatusCompact(job = {}, bundle = {}, answer = {}) {
     : (retrievalRounds > 1 ? '目標件数に届かなかったため、追加検索を実行しました。' : '');
   const fallbackNotice = generationMode === 'template_fallback' ? '回答生成はfallbackです。根拠付き回答ではありません。' : '';
   const notice = [problemText, limitText, targetNotice, fallbackNotice].filter(Boolean).join(' / ');
-  const isHardFailed = state === 'failed' && reason === 'no_sources';
-  const severity = isHardFailed ? 'error' : (hasNotice ? 'warning' : 'info');
+  const hasProviderOnlyWarning = Boolean(health.non_fatal || health.stub || bundle?.non_fatal || bundle?.stub);
+  const isJobFailed = state === 'failed';
+  const isNoSources = reason === 'no_sources';
+  const isNoEvidence = reason === 'no_evidence';
+  const severity = (isJobFailed || isNoSources)
+    ? 'error'
+    : ((isNoEvidence || state === 'degraded' || (hasNotice && !hasProviderOnlyWarning)) ? 'warning' : 'info');
   return { title, progress: progressText, collection, notice, severity };
 }
 

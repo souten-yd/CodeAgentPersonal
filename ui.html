@@ -6816,8 +6816,7 @@ function setNexusDeepStatus(message, isErr = false, isStub = false) {
     providerEl.style.color = providerWarning.show ? 'var(--amber)' : 'var(--text3)';
     providerEl.textContent = providerWarning.show ? `Provider: ${providerWarning.message}` : 'Provider: healthy';
   }
-  const prefix = isStub ? '[非致命 stub] ' : '';
-  el.style.color = isErr ? 'var(--red)' : (isStub ? 'var(--amber)' : 'var(--text2)');
+  el.style.color = isErr ? 'var(--red)' : 'var(--text2)';
   if (message && typeof message === 'object') {
     const compact = message;
     const notice = compact.notice ? `<div>注意: ${esc(String(compact.notice))}</div>` : '';
@@ -6827,7 +6826,7 @@ function setNexusDeepStatus(message, isErr = false, isStub = false) {
       jobEl.textContent = `Job: ${String(compact.title || '-')}`;
     }
     el.innerHTML = `<div class="nexus-status-compact severity-${esc(String(compact.severity || 'info'))}">
-      <div>状態: ${esc(prefix)}${esc(String(compact.title || '-'))}</div>
+      <div>状態: ${esc(String(compact.title || '-'))}</div>
       <div>進捗: ${esc(String(compact.progress || '-'))}</div>
       <div>収集: ${esc(String(compact.collection || '-'))}</div>
       ${notice}
@@ -6836,9 +6835,9 @@ function setNexusDeepStatus(message, isErr = false, isStub = false) {
   }
   if (jobEl) {
     jobEl.style.color = isErr ? 'var(--red)' : 'var(--text2)';
-    jobEl.textContent = `Job: ${prefix}${message || '-'}`;
+    jobEl.textContent = `Job: ${message || '-'}`;
   }
-  el.textContent = `状態: ${prefix}${message || '-'}`;
+  el.textContent = `状態: ${message || '-'}`;
 }
 
 const NEXUS_TIMELINE_STATE_META = {
