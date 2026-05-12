@@ -20,7 +20,7 @@ def test_academic_profile_uses_academic_engines(monkeypatch):
 def test_news_profile_uses_requested_broad_engines_but_not_disabled_noise(monkeypatch):
     monkeypatch.setenv("SEARXNG_ENGINE_PROFILE", "adaptive_broad_research")
     monkeypatch.setenv("NEXUS_ALLOW_BROAD_WEB_ENGINES", "true")
-    monkeypatch.setenv("NEXUS_SEARXNG_ENGINES_NEWS", "wikipedia,duckduckgo,bing,wikidata")
+    monkeypatch.setenv("NEXUS_SEARXNG_ENGINES_NEWS", "google,bing,brave,duckduckgo,wikipedia,wikidata")
     resolved = resolve_searxng_engines_for_profile("news", "deep", "recent")
     assert "duckduckgo" in resolved["searxng_engines"]
     assert "bing" in resolved["searxng_engines"]
@@ -95,3 +95,9 @@ def test_retrieval_summary_contains_engine_priority_and_freshness_policy():
     assert summary["freshness_policy"]
     assert summary["fresh_source_count"] == 1
     assert summary["stale_source_count"] == 1
+
+
+def test_yahoo_not_in_default_profiles(monkeypatch):
+    monkeypatch.delenv("NEXUS_ENABLE_YAHOO_SEARCH", raising=False)
+    resolved = resolve_searxng_engines_for_profile("news", "deep", "recent")
+    assert "yahoo" not in resolved["searxng_engines"]

@@ -41,14 +41,16 @@ def test_skipped_limit_not_counted_as_quality_failure():
     assert deficit["replacement_target_count"] == 8
 
 
-def test_failed_google_query_retried_with_brave_or_duckduckgo():
+def test_failed_google_query_retried_with_bing_google_brave_duckduckgo():
     engines = choose_replacement_engines("market", "google", {"google"})
     assert "google" not in engines
+    assert engines[0] == "bing"
     assert {"brave", "duckduckgo"}.issubset(set(engines))
 
 
-def test_all_broad_engines_suspended_falls_back_to_safe():
-    engines = choose_replacement_engines("source", None, {"google", "brave", "duckduckgo"})
+def test_all_broad_engines_suspended_falls_back_to_safe(monkeypatch):
+    monkeypatch.setenv("NEXUS_EXPERIMENTAL_WEB_ENGINES", "")
+    engines = choose_replacement_engines("source", None, {"google", "bing", "brave", "duckduckgo"})
     assert "wikipedia" in engines
     assert "wikidata" in engines
     assert "arxiv" in engines
@@ -169,3 +171,8 @@ def test_skipped_limit_can_replenish_when_valid_sources_below_target():
     )
     assert deficit["valid_source_deficit"] == 8
     assert deficit["replacement_needed"] is True
+
+
+def test_mojeek_as_final_fallback_by_default():
+    engines = choose_replacement_engines("market", None, {"google", "bing", "brave", "duckduckgo"})
+    assert engines == ["mojeek"]
