@@ -28,8 +28,10 @@ def get_curated_domain_hints(query: str, source_profile: str = "web") -> list[st
     hints: list[str] = ["site:.gov", "site:.go.jp", "site:.europa.eu", "site:.int", "site:.org", "site:.edu", "site:.ac.jp"]
     if profile in {"market", "industry", "web", "news"}:
         hints.extend(["industry association", "market report", "annual report", "investor relations", "whitepaper", "roadmap", "forecast"])
-    if profile in {"technical", "science", "web"}:
-        hints.extend(["IEEE", "SAE", "NASA", "NEDO", "METI", "arxiv", "university", "research institute"])
+    if profile in {"official", "source"}:
+        hints.extend(["official", "government report", "white paper", "PDF", "site:go.jp", "site:.gov", "annual report", "investor relations"])
+    if profile in {"academic", "technical", "science", "web", "source"}:
+        hints.extend(["IEEE", "SAE", "NASA", "NEDO", "METI", "arxiv", "university", "research institute", "review paper"])
     if any(token in q for token in ("航空", "航空機", "electric aircraft", "evtol", "aam", "advanced air mobility")):
         hints.extend([
             "nasa.gov", "faa.gov", "easa.europa.eu", "icao.int", "iata.org", "energy.gov", "nrel.gov",
@@ -119,26 +121,64 @@ def _domain_authority_score(domain: str) -> float:
     return 0.35
 
 
-def _freshness_score(candidate: dict, now: datetime) -> float:
+def _freshness_score(candidate: dict, now: datetime, source_profile: str = "general") -> tuple[float, str, list[str]]:
     raw = (
         candidate.get("published_at")
         or candidate.get("published_date")
+        or candidate.get("publishedDate")
         or candidate.get("date")
+        or candidate.get("age")
         or candidate.get("retrieved_at")
     )
+    profile = str(source_profile or "general").strip().lower()
     dt = _coerce_datetime(raw)
+    reasons: list[str] = []
+    current_year = now.year
+    if dt is None and isinstance(raw, str) and str(current_year) in raw:
+        dt = datetime(current_year, 7, 1, tzinfo=timezone.utc)
+        reasons.append("current_year_text")
     if dt is None:
-        return 0.35
+        return 0.35, "unknown", reasons
+
     age_days = max((now - dt).total_seconds(), 0.0) / 86400.0
+    if dt.year == current_year:
+        reasons.append("current_year")
+    if age_days <= 366:
+        bucket = "fresh"
+        reasons.append("last_12_months")
+    elif age_days > 730:
+        bucket = "stale"
+    else:
+        bucket = "older"
+
     if age_days <= 7:
-        return 1.0
-    if age_days <= 30:
-        return 0.85
-    if age_days <= 90:
-        return 0.65
-    if age_days <= 365:
-        return 0.45
-    return 0.2
+        score = 1.0
+    elif age_days <= 30:
+        score = 0.85
+    elif age_days <= 90:
+        score = 0.65
+    elif age_days <= 365:
+        score = 0.5
+    elif age_days <= 730:
+        score = 0.32
+    else:
+        score = 0.12
+
+    if profile in {"news", "market"}:
+        if age_days <= 366:
+            score = min(1.15, score + 0.25)
+            reasons.append("recent_news_market_boost")
+        elif age_days > 730:
+            score = max(-0.25, score - 0.35)
+            reasons.append("older_than_2_years_news_market_penalty")
+    elif profile in {"official", "academic"}:
+        if age_days > 730:
+            score = max(0.2, score)
+            reasons.append("official_academic_stale_floor")
+    elif profile == "source" and age_days <= 730:
+        score = min(1.0, score + 0.1)
+        reasons.append("source_report_moderate_freshness")
+    return score, bucket, reasons
 
 
 def _content_type_score(candidate: dict, *, prefer_pdf: bool) -> float:
@@ -157,7 +197,7 @@ def _content_type_score(candidate: dict, *, prefer_pdf: bool) -> float:
     return 0.35
 
 
-def compute_source_score(candidate: dict, prefer_pdf: bool, official_first: bool, now: datetime, query: str = "", trusted_domain_hints: list[str] | None = None) -> dict:
+def compute_source_score(candidate: dict, prefer_pdf: bool, official_first: bool, now: datetime, query: str = "", trusted_domain_hints: list[str] | None = None, source_profile: str = "general") -> dict:
     """source候補の総合スコアを計算して内訳を返す。"""
     relevance = max(0.0, min(1.0, _safe_float(candidate.get("relevance_score"), 0.6)))
     url = str(candidate.get("url") or candidate.get("final_url") or "")
@@ -170,7 +210,7 @@ def compute_source_score(candidate: dict, prefer_pdf: bool, official_first: bool
     official = _is_official_domain(domain)
     if official_first and official:
         authority = min(1.2, authority + 0.2)
-    freshness = _freshness_score(candidate, now)
+    freshness, freshness_bucket, freshness_reasons = _freshness_score(candidate, now, source_profile)
     content_type_priority = _content_type_score(candidate, prefer_pdf=prefer_pdf)
     is_pdf = "pdf" in haystack or lowered_url.endswith(".pdf")
     report_like = any(term in haystack for term in _REPORT_TERMS)
@@ -207,6 +247,7 @@ def compute_source_score(candidate: dict, prefer_pdf: bool, official_first: bool
         quality_reasons.append("query_overlap")
     if citation_like:
         quality_reasons.append("citation_like")
+    quality_reasons.extend(freshness_reasons)
 
     score = relevance + authority + freshness + content_type_priority + (0.65 if is_pdf else 0.0) + (0.45 if report_like else 0.0) + query_overlap + hint_match + citation_like + profile_match - penalties
     rounded = round(score, 4)
@@ -216,6 +257,8 @@ def compute_source_score(candidate: dict, prefer_pdf: bool, official_first: bool
         "quality_reasons": quality_reasons,
         "is_official": official,
         "is_pdf": is_pdf,
+        "freshness_score": round(freshness, 4),
+        "freshness_bucket": freshness_bucket,
         "source_score_breakdown": {
             "relevance": round(relevance, 4),
             "authority": round(authority, 4),
@@ -253,7 +296,8 @@ def collect_source_candidates(
                 "source_type": "web",
                 "origin": "search",
                 "relevance_score": _safe_float(item.get("relevance_score"), 0.6),
-                "published_at": str(item.get("published_at") or item.get("published_date") or ""),
+                "published_at": str(item.get("published_at") or item.get("published_date") or item.get("publishedDate") or item.get("age") or ""),
+                "publishedDate": str(item.get("publishedDate") or item.get("published_at") or item.get("published_date") or item.get("age") or ""),
                 "content_type": str(item.get("content_type") or ""),
                 "metadata": metadata,
             }
@@ -291,6 +335,7 @@ def rank_source_candidates(
     query: str = "",
     trusted_domain_hints: list[str] | None = None,
     max_per_domain: int = 5,
+    source_profile: str = "general",
 ) -> list[dict]:
     current = now or datetime.now(timezone.utc)
     scored: list[dict] = []
@@ -300,7 +345,7 @@ def rank_source_candidates(
         normalized_url = _normalize_url(url) or url
         duplicate = normalized_url in seen_urls
         seen_urls.add(normalized_url)
-        metrics = compute_source_score(candidate, prefer_pdf=prefer_pdf, official_first=official_first, now=current, query=query, trusted_domain_hints=trusted_domain_hints)
+        metrics = compute_source_score(candidate, prefer_pdf=prefer_pdf, official_first=official_first, now=current, query=query, trusted_domain_hints=trusted_domain_hints, source_profile=source_profile)
         if duplicate:
             metrics["retrieval_score"] = round(_safe_float(metrics.get("retrieval_score")) - 1.0, 4)
             metrics.setdefault("quality_reasons", []).append("duplicate_url_penalty")

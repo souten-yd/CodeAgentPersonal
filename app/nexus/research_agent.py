@@ -38,7 +38,7 @@ from app.nexus.source_registry import (
     upsert_source_artifact,
 )
 from app.nexus.db import get_conn
-from app.nexus.web_scout import plan_web_queries, run_web_search
+from app.nexus.web_scout import plan_web_queries, resolve_searxng_engines_for_profile, run_web_search
 
 
 RESEARCH_STATES = (
@@ -201,6 +201,7 @@ def _retrieval_summary(
     screening_summary: dict | None = None,
     focused_research_plan: dict | None = None,
     coverage_matrix: list[dict] | None = None,
+    search_policy: dict | None = None,
 ) -> dict[str, Any]:
     def _url(item: dict) -> str:
         return str(item.get("url") or item.get("final_url") or "").lower()
@@ -208,6 +209,12 @@ def _retrieval_summary(
     official_count = sum(1 for s in valid if s.get("is_official") or any(token in _url(s) for token in (".gov", ".go.jp", ".europa.eu", ".int", ".edu", ".ac.jp", "nasa.gov", "faa.gov", "easa.europa.eu", "icao.int", "iata.org")))
     pdf_count = sum(1 for s in valid if s.get("is_pdf") or "pdf" in str(s.get("content_type") or "").lower() or _url(s).endswith(".pdf"))
     high_quality = sum(1 for s in valid if s.get("is_official") or s.get("is_pdf") or float(s.get("retrieval_score") or s.get("source_score") or 0) >= 3.0)
+    fresh_count = sum(1 for s in valid if str(s.get("freshness_bucket") or "").lower() == "fresh" or float(s.get("freshness_score") or 0) >= 0.65)
+    stale_count = sum(1 for s in valid if str(s.get("freshness_bucket") or "").lower() == "stale" or float(s.get("freshness_score") or 1) < 0.2)
+    policy = dict(search_policy or {})
+    if not policy:
+        inferred_profile = str((intent or {}).get("source_profile") or "general")
+        policy = resolve_searxng_engines_for_profile(inferred_profile, str((intent or {}).get("depth") or "standard"), str((intent or {}).get("time_horizon") or "balanced"))
     summary = {
         "retrieval_rounds": retrieval_rounds,
         "candidate_count": candidate_count,
@@ -218,6 +225,12 @@ def _retrieval_summary(
         "official_source_count": official_count,
         "pdf_source_count": pdf_count,
         "skipped_due_to_download_limit_count": skipped_due_to_download_limit_count,
+        "source_profile": policy.get("source_profile"),
+        "engine_priority": policy.get("engine_priority"),
+        "searxng_engines": policy.get("searxng_engines"),
+        "freshness_policy": policy.get("freshness_policy"),
+        "fresh_source_count": fresh_count,
+        "stale_source_count": stale_count,
     }
     summary.update({k: targets.get(k) for k in targets if k.startswith("target_") or k in {"max_retrieval_rounds", "adaptive_retrieval_enabled"}})
     _, unsatisfied = should_expand_retrieval(summary, {**targets, "max_retrieval_rounds": 999}, 0)
@@ -272,7 +285,7 @@ def run_broad_screening(
     max_results_per_query: int,
 ) -> dict:
     topic = str(intent.get("normalized_topic") or intent.get("original_query") or "").strip()
-    base_queries = plan_web_queries(topic, mode="deep", depth="deep", max_queries=max_screening_queries, scope=intent.get("source_profile"), language=intent.get("language"))
+    base_queries = plan_web_queries(topic, mode="deep", depth="deep", max_queries=max_screening_queries, scope=intent.get("source_profile"), language=intent.get("language"), source_profile=str(intent.get("source_profile") or "general"))
     dimension_queries = [f"{topic} {dim.replace('_', ' ')}" for dim in intent.get("required_dimensions") or []]
     queries: list[str] = []
     for q in [*base_queries, *dimension_queries]:
@@ -281,7 +294,7 @@ def run_broad_screening(
             queries.append(q)
         if len(queries) >= max_screening_queries:
             break
-    search = run_web_search(queries, mode="deep", depth="deep", max_results_per_query=max_results_per_query, scope=intent.get("source_profile"), language=intent.get("language"))
+    search = run_web_search(queries, mode="deep", depth="deep", max_results_per_query=max_results_per_query, scope=intent.get("source_profile"), language=intent.get("language"), source_profile=str(intent.get("source_profile") or "general"), freshness=str(intent.get("time_horizon") or "balanced"))
     raw_items = list(search.get("items") or [])
     candidates = _screening_candidates_from_search_items(raw_items)[:target_screening_candidates]
     summary = summarize_screening_candidates(candidates, intent)
@@ -1272,6 +1285,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             max_queries=payload.max_queries,
             scope=payload.scope,
             language=payload.language,
+            source_profile=payload.source_profile,
         )
         _emit_phase(
             effective_job_id,
@@ -1330,6 +1344,8 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 max_results_per_query=payload.max_results_per_query,
                 scope=payload.scope,
                 language=payload.language,
+                source_profile=payload.source_profile,
+                freshness="recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced",
             )
             if round_index == 0:
                 search = round_search
@@ -1346,6 +1362,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 official_first=payload.official_first,
                 query=query,
                 trusted_domain_hints=get_curated_domain_hints(query, payload.source_profile),
+                source_profile=payload.source_profile,
             )
             ranked_all, stub_filtered_count = _filter_stub_candidates(ranked_all, payload)
             if stub_filtered_count:
@@ -1371,6 +1388,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 official_first=payload.official_first,
                 query=query,
                 trusted_domain_hints=get_curated_domain_hints(query, payload.source_profile),
+                source_profile=payload.source_profile,
             )[:max_sources]
 
             if stub_filtered_count and not ranked_candidates and round_index == max_rounds - 1:
@@ -1442,6 +1460,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 intent=intent,
                 screening_summary=screening_summary,
                 focused_research_plan=focused_research_plan,
+                search_policy=resolve_searxng_engines_for_profile(payload.source_profile, str(payload.depth or payload.mode or "standard"), "recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced"),
             )
             expand, reasons = should_expand_retrieval(current_summary, targets, round_index + 1)
             round_payload = {
@@ -1539,6 +1558,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             screening_summary=screening_summary,
             focused_research_plan=focused_research_plan,
             coverage_matrix=coverage_matrix,
+            search_policy=resolve_searxng_engines_for_profile(payload.source_profile, str(payload.depth or payload.mode or "standard"), "recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced"),
         )
         if references:
             labels = [f"[S{i + 1}]" for i in range(len(references))]

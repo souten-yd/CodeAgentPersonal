@@ -25,6 +25,20 @@ _NEWS_HINTS = ("news", "reuters", "bloomberg", "nikkei", "nhk", "cnn", "bbc", "p
 _COMPANY_HINTS = ("ir.", "investor", "annual", "company", "corp", "inc", "airbus", "boeing", "infineon", "rohm", "toshiba")
 _REPORT_HINTS = ("report", "whitepaper", "white paper", "pdf", "調査", "報告書", "白書", "forecast")
 
+_PROFILE_QUERY_TERMS: dict[str, dict[str, str]] = {
+    "news": {"ja": "最新 今日 速報 news latest press release", "en": "latest today breaking news press release"},
+    "market": {"ja": "市場規模 CAGR 予測 主要企業 投資 partnership market outlook", "en": "market size CAGR forecast key companies investment partnership market outlook"},
+    "official": {"ja": "公式 官公庁 白書 報告書 site:go.jp site:.gov PDF", "en": "official government white paper report site:.gov site:go.jp PDF"},
+    "source": {"ja": "PDF report white paper annual report investor relations", "en": "PDF report white paper annual report investor relations"},
+    "academic": {"ja": "paper arxiv study review IEEE 論文", "en": "paper arxiv study review IEEE"},
+}
+
+
+def _profile_query_terms(profile: str, lang: str) -> str:
+    terms = _PROFILE_QUERY_TERMS.get(str(profile or "").lower()) or {}
+    return terms.get("ja" if lang == "ja" else "en", "")
+
+
 
 def _tokens(text: str) -> set[str]:
     return {m.group(0).lower() for m in re.finditer(r"[\w\u3040-\u30ff\u3400-\u9fff]+", str(text or "")) if len(m.group(0)) >= 2}
@@ -226,9 +240,10 @@ def build_focused_research_plan(intent: dict[str, Any], screening_summary: dict[
     for idx, dim in enumerate(dims):
         suffix = terms.get(dim, dim.replace("_", " "))
         profile, preferred = source_by_dim.get(dim, (str(intent.get("source_profile") or "general"), list(intent.get("preferred_source_types") or [])))
-        focused.append({"query": " ".join(f"{topic} {suffix}".split()), "purpose": dim, "source_profile": profile, "preferred_source_types": preferred, "freshness": "recent" if intent.get("time_horizon") in {"latest", "current_year", "last_12_months"} else "balanced", "priority": round(max(0.45, 0.95 - idx * 0.04), 2)})
+        profile_suffix = _profile_query_terms(profile, lang)
+        focused.append({"query": " ".join(f"{topic} {suffix} {profile_suffix}".split()), "purpose": dim, "source_profile": profile, "preferred_source_types": preferred, "freshness": "recent" if intent.get("time_horizon") in {"latest", "current_year", "last_12_months"} or profile in {"news", "market"} else "balanced", "priority": round(max(0.45, 0.95 - idx * 0.04), 2)})
     if str(intent.get("expected_output_type")) == "market_analysis":
-        extras = ["official statistics report", "industry association report", "company investor relations annual report"] if lang != "ja" else ["公式 統計 報告書", "業界団体 レポート", "企業 IR 統合報告書"]
+        extras = ["official statistics report", "industry association report", "company investor relations annual report", "market size CAGR forecast partnership market outlook"] if lang != "ja" else ["公式 統計 報告書", "業界団体 レポート", "企業 IR 統合報告書", "市場規模 CAGR 予測 主要企業 投資"]
         for extra in extras:
             focused.append({"query": " ".join(f"{topic} {extra}".split()), "purpose": "source_mix", "source_profile": "market", "preferred_source_types": ["official", "report", "company_ir"], "freshness": "balanced", "priority": 0.7})
     focused = [fq for fq in focused if len(_tokens(fq["query"])) > 1 and fq["query"].lower() not in {"web analysis", "analysis web"}]
