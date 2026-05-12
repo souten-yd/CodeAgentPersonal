@@ -29,7 +29,8 @@ _LAST_WEB_SEARCH_STATUS: dict[str, Any] = {
 
 
 _NOISY_SEARXNG_ENGINES = {"duckduckgo", "startpage", "google", "bing", "brave", "karmasearch", "yahoo", "qwant", "mojeek"}
-_BROAD_WEB_ENGINES = ("google", "brave", "duckduckgo")
+_BROAD_WEB_ENGINES = ("google", "bing", "brave", "duckduckgo")
+_EXPERIMENTAL_WEB_ENGINES = ("mojeek",)
 _SAFE_FALLBACK_ENGINES = ("wikipedia", "wikidata", "arxiv", "crossref", "openalex", "github")
 _PROFILE_SEARXNG_DEFAULTS: dict[str, str] = {
     "general": "wikipedia,wikidata,github,stackoverflow",
@@ -42,13 +43,13 @@ _PROFILE_SEARXNG_DEFAULTS: dict[str, str] = {
     "technical": "arxiv,crossref,openalex,semantic scholar,wikipedia,github",
 }
 _BROAD_PROFILE_SEARXNG_DEFAULTS: dict[str, str] = {
-    "general": "brave,duckduckgo,wikipedia,wikidata,github,stackoverflow",
-    "web": "brave,duckduckgo,wikipedia,wikidata,github,stackoverflow",
+    "general": "google,bing,brave,duckduckgo,wikipedia,wikidata,github,stackoverflow",
+    "web": "google,bing,brave,duckduckgo,wikipedia,wikidata,github,stackoverflow",
     "academic": "arxiv,crossref,openalex,semantic scholar,wikipedia",
-    "official": "google,brave,duckduckgo,wikidata,wikipedia,github",
-    "source": "google,brave,duckduckgo,wikipedia,wikidata,arxiv,crossref,openalex,github",
-    "news": "google,brave,duckduckgo,wikipedia,wikidata",
-    "market": "google,brave,duckduckgo,wikipedia,wikidata,github",
+    "official": "google,bing,brave,duckduckgo,wikidata,wikipedia,github",
+    "source": "google,bing,brave,duckduckgo,wikipedia,wikidata,arxiv,crossref,openalex,github",
+    "news": "google,bing,brave,duckduckgo,wikipedia,wikidata",
+    "market": "google,bing,brave,duckduckgo,wikipedia,wikidata,github",
     "technical": "arxiv,crossref,openalex,semantic scholar,wikipedia,github",
 }
 _PROFILE_ENGINE_ENV: dict[str, str] = {
@@ -78,11 +79,20 @@ def _allow_broad_web_engines() -> bool:
     return os.getenv("NEXUS_ALLOW_BROAD_WEB_ENGINES", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _experimental_web_engines() -> list[str]:
+    experimental = _split_engine_csv(os.getenv("NEXUS_EXPERIMENTAL_WEB_ENGINES", ",".join(_EXPERIMENTAL_WEB_ENGINES)))
+    if os.getenv("NEXUS_ENABLE_YAHOO_SEARCH", "").strip().lower() in {"1", "true", "yes", "on"} and "yahoo" not in [e.lower() for e in experimental]:
+        experimental.append("yahoo")
+    return _dedupe_engines(experimental, allow_noisy=True)
+
+
 class EngineHealthTracker:
     """Job-local circuit breaker for CAPTCHA/rate-limit-prone broad SearXNG engines."""
 
     def __init__(self, broad_engines: list[str] | None = None, safe_fallback_engines: list[str] | None = None) -> None:
         self.broad_engines = _dedupe_engines(broad_engines or _split_engine_csv(os.getenv("NEXUS_BROAD_WEB_ENGINES", ",".join(_BROAD_WEB_ENGINES))), allow_noisy=True)
+        self.experimental_engines = _experimental_web_engines()
+        self.track_engines = {e.lower() for e in [*self.broad_engines, *self.experimental_engines]}
         self.safe_fallback_engines = _dedupe_engines(safe_fallback_engines or list(_SAFE_FALLBACK_ENGINES), allow_noisy=True)
         self.failures: dict[str, dict[str, Any]] = {}
 
@@ -126,14 +136,14 @@ class EngineHealthTracker:
         if "jsondecodeerror" in normalized or "non-json" in normalized or "non json" in normalized:
             state["parse_error_count"] = int(state.get("parse_error_count") or 0) + 1
             suspend = int(state.get("parse_error_count") or 0) >= 2
-        if key not in {b.lower() for b in self.broad_engines}:
+        if key not in self.track_engines:
             suspend = False
         if suspend:
             state["suspended_until"] = "job_end"
 
     def record_payload_errors(self, payload_errors: Any) -> None:
         text = str(payload_errors or "")
-        for engine in self.broad_engines:
+        for engine in [*self.broad_engines, *self.experimental_engines]:
             if engine.lower() in text.lower():
                 self.record_error(engine, text)
 
@@ -141,6 +151,8 @@ class EngineHealthTracker:
         return {
             "broad_web_enabled": _allow_broad_web_engines(),
             "broad_web_engines": list(self.broad_engines),
+            "experimental_web_engines": list(self.experimental_engines),
+            "disabled_engines": _split_engine_csv(os.getenv("SEARXNG_DISABLED_ENGINES", "")),
             "suspended_engines": [engine for engine in self.broad_engines if self.is_suspended(engine)],
             "engine_failures": {k: dict(v) for k, v in self.failures.items()},
             "fallback_to_safe_engines": bool(self.broad_engines and all(self.is_suspended(engine) for engine in self.broad_engines)),
@@ -234,10 +246,13 @@ def choose_replacement_engines(
     failed = str(failed_engine or "").strip().lower()
     if failed:
         suspended.add(failed)
-    primary = ["google", "brave", "duckduckgo"]
+    primary = ["google", "bing", "brave", "duckduckgo"]
     active_primary = [engine for engine in primary if engine not in suspended]
     if active_primary:
         return active_primary
+    experimental = [engine for engine in _experimental_web_engines() if engine not in suspended]
+    if experimental:
+        return experimental
     safe = ["wikipedia", "wikidata", "github"]
     if profile in {"source", "academic", "technical"}:
         safe.extend(["arxiv", "crossref", "openalex"])
@@ -257,15 +272,36 @@ def _freshness_policy_for_profile(profile: str, freshness: str | None = None) ->
 
 
 def get_searxng_engine_status() -> dict[str, Any]:
-    resolved = resolve_searxng_engines_for_profile("general", "standard", "balanced")
-    engines = list(resolved.get("searxng_engines") or [])
+    general = resolve_searxng_engines_for_profile("general", "standard", "balanced")
+    news = resolve_searxng_engines_for_profile("news", "standard", "recent")
+    market = resolve_searxng_engines_for_profile("market", "standard", "recent")
+    source = resolve_searxng_engines_for_profile("source", "standard", "balanced")
+    academic = resolve_searxng_engines_for_profile("academic", "standard", "balanced")
+    disabled_engines = _split_engine_csv(os.getenv("SEARXNG_DISABLED_ENGINES", ""))
+    disabled_broad = {e.lower() for e in disabled_engines} & {"google", "bing", "brave", "duckduckgo", "mojeek"}
+    warning = ""
+    if os.getenv("SEARXNG_ENGINE_PROFILE", "adaptive_broad_research").strip().lower() == "safe_research":
+        warning = "SearXNG is running in safe_research; broad web engines are disabled."
+    elif disabled_broad:
+        warning = "Broad or experimental engines are disabled by environment."
+    elif not _allow_broad_web_engines():
+        warning = "NEXUS_ALLOW_BROAD_WEB_ENGINES is false."
     return {
         "searxng_engine_profile": os.getenv("SEARXNG_ENGINE_PROFILE", "adaptive_broad_research"),
-        "searxng_keep_only_engines": engines,
+        "broad_web_enabled": _allow_broad_web_engines(),
+        "broad_web_engines": _split_engine_csv(os.getenv("NEXUS_BROAD_WEB_ENGINES", ",".join(_BROAD_WEB_ENGINES))),
+        "experimental_web_engines": _experimental_web_engines(),
+        "disabled_engines": disabled_engines,
+        "effective_engines_general": general.get("searxng_engines", []),
+        "effective_engines_news": news.get("searxng_engines", []),
+        "effective_engines_market": market.get("searxng_engines", []),
+        "effective_engines_source": source.get("searxng_engines", []),
+        "effective_engines_academic": academic.get("searxng_engines", []),
+        "startup_contract_warning": warning,
         "searxng_health_engine": os.getenv("SEARXNG_HEALTH_ENGINE", "wikipedia"),
-        "source_profile": resolved.get("source_profile"),
-        "engine_priority": resolved.get("engine_priority"),
-        "freshness_policy": resolved.get("freshness_policy"),
+        "source_profile": general.get("source_profile"),
+        "engine_priority": general.get("engine_priority"),
+        "freshness_policy": general.get("freshness_policy"),
     }
 
 def _now_iso() -> str:

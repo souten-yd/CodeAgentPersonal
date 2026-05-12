@@ -3,11 +3,9 @@ use_default_settings:
   engines:
     remove:
       - startpage
-      - bing
       - karmasearch
       - karmasearch videos
       - qwant
-      - mojeek
       - yahoo
 
 general:

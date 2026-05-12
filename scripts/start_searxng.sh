@@ -12,7 +12,7 @@ SEARXNG_START_TIMEOUT_SEC="${SEARXNG_START_TIMEOUT_SEC:-12}"
 SEARXNG_LOG_FILE="${SEARXNG_LOG_FILE:-${SEARXNG_CONFIG_DIR}/searxng.log}"
 SEARXNG_ENGINE_PROFILE="${SEARXNG_ENGINE_PROFILE:-adaptive_broad_research}"
 SEARXNG_SAFE_KEEP_ONLY_ENGINES="${SEARXNG_SAFE_KEEP_ONLY_ENGINES:-wikipedia,wikidata,arxiv,crossref,openalex,semantic scholar,github,stackoverflow}"
-SEARXNG_DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES:-startpage,bing,karmasearch,karmasearch videos,qwant,mojeek,yahoo}"
+SEARXNG_DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES:-startpage,karmasearch,karmasearch videos,qwant,yahoo}"
 SEARXNG_HEALTH_ENGINE="${SEARXNG_HEALTH_ENGINE:-wikipedia}"
 SEARXNG_FORCE_SAFE_SETTINGS="${SEARXNG_FORCE_SAFE_SETTINGS:-false}"
 SEARXNG_HEALTH_ENGINE_ENCODED="$(HEALTH_ENGINE="${SEARXNG_HEALTH_ENGINE}" python3 - <<'PY_HEALTH_ENGINE'
@@ -44,7 +44,8 @@ err() {
 
 log "engine_profile=${SEARXNG_ENGINE_PROFILE}"
 log "allow_broad_web_engines=${NEXUS_ALLOW_BROAD_WEB_ENGINES:-true}"
-log "broad_web_engines=${NEXUS_BROAD_WEB_ENGINES:-google,brave,duckduckgo}"
+log "broad_web_engines=${NEXUS_BROAD_WEB_ENGINES:-google,bing,brave,duckduckgo}"
+log "experimental_web_engines=${NEXUS_EXPERIMENTAL_WEB_ENGINES:-mojeek}"
 log "safe_keep_only_engines=${SEARXNG_SAFE_KEEP_ONLY_ENGINES}"
 log "disabled_engines=${SEARXNG_DISABLED_ENGINES}"
 log "engines_news=${NEXUS_SEARXNG_ENGINES_NEWS:-}"
