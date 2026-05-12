@@ -96,3 +96,17 @@ def test_deep_enables_section_llm_by_default_when_model_reachable(monkeypatch):
     settings = _report_section_llm_settings(depth="deep", retrieval_summary={"depth": "deep"})
     assert settings["enabled"] is True
     assert settings["endpoint"].endswith("/v1/chat/completions")
+
+
+def test_retrieval_summary_contains_default_replenishment_metrics():
+    summary = _retrieval_summary(
+        targets={"replenishment_enabled": True},
+        retrieval_rounds=[],
+        candidate_count=0,
+        attempted_download_count=0,
+        registered_sources=[],
+        evidence_chunks=[],
+        skipped_due_to_download_limit_count=0,
+    )
+    assert summary["engine_replenishment"]["enabled"] is True
+    assert summary["engine_replenishment"]["replacement_queries"] == 0

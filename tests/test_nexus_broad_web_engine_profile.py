@@ -77,3 +77,12 @@ def test_retrieval_summary_contains_broad_engine_health(monkeypatch):
     assert {"google", "brave", "duckduckgo"}.issubset(set(summary["broad_web_engines"]))
     assert summary["suspended_engines"] == ["google"]
     assert summary["engine_failures"]["google"]["failures"] == 1
+
+
+def test_choose_replacement_engines_switches_failed_broad_engine():
+    from app.nexus.web_scout import choose_replacement_engines
+
+    engines = choose_replacement_engines("news", "brave", {"brave"})
+    assert "brave" not in engines
+    assert "google" in engines
+    assert "duckduckgo" in engines

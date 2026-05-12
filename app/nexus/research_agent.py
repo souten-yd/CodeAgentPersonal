@@ -20,10 +20,11 @@ from app.nexus.evidence import EvidenceItem, replace_evidence_items_for_job, sav
 from app.nexus.jobs import append_job_event, append_job_heartbeat, create_job, ensure_job_exists, update_job
 from app.nexus.news_sources import NewsResearchSourceProfile, collect_news_research_sources, convert_news_items_to_evidence
 from app.nexus.research_gaps import analyze_claim_level_gaps
-from app.nexus.source_collector import build_curated_direct_source_candidates, build_dynamic_direct_source_candidates, collect_source_candidates, extract_dynamic_topic_anchors_from_screening, get_curated_domain_hints, rank_source_candidates
+from app.nexus.source_collector import build_curated_direct_source_candidates, build_dynamic_direct_source_candidates, classify_retrieval_failure, collect_source_candidates, extract_dynamic_topic_anchors_from_screening, get_curated_domain_hints, rank_source_candidates
 from app.nexus.research_planner import (
     build_coverage_matrix,
     build_focused_research_plan,
+    build_replenishment_queries,
     build_report_outline,
     build_source_mix,
     classify_source_type,
@@ -38,7 +39,7 @@ from app.nexus.source_registry import (
     upsert_source_artifact,
 )
 from app.nexus.db import get_conn
-from app.nexus.web_scout import EngineHealthTracker, plan_web_queries, resolve_searxng_engines_for_profile, run_web_search
+from app.nexus.web_scout import EngineHealthTracker, choose_replacement_engines, plan_web_queries, resolve_searxng_engines_for_profile, run_web_search
 
 
 RESEARCH_STATES = (
@@ -93,6 +94,12 @@ class ResearchAgentInput:
     max_retrieval_rounds: int | None = None
     adaptive_retrieval_enabled: bool | None = None
     news_budget: dict[str, Any] | None = None
+    replenishment_enabled: bool = True
+    target_replacement_ratio: float = 1.0
+    max_replenishment_rounds: int | None = None
+    max_replenishment_candidates: int | None = None
+    min_valid_source_count: int | None = None
+    min_evidence_count: int | None = None
 
 
 def _now_iso() -> str:
@@ -102,10 +109,10 @@ def _now_iso() -> str:
 
 
 _RETRIEVAL_TARGET_DEFAULTS: dict[str, dict[str, Any]] = {
-    "quick": {"target_candidate_count": 30, "target_valid_source_count": 8, "target_evidence_count": 25, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 1, "adaptive_retrieval_enabled": True},
-    "standard": {"target_candidate_count": 80, "target_valid_source_count": 18, "target_evidence_count": 50, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 2, "adaptive_retrieval_enabled": True},
-    "deep": {"target_candidate_count": 180, "target_valid_source_count": 35, "target_evidence_count": 100, "target_high_quality_source_count": 10, "target_official_source_count": 6, "target_pdf_source_count": 6, "max_retrieval_rounds": 4, "adaptive_retrieval_enabled": True},
-    "exhaustive": {"target_candidate_count": 300, "target_valid_source_count": 55, "target_evidence_count": 160, "target_high_quality_source_count": 16, "target_official_source_count": 10, "target_pdf_source_count": 10, "max_retrieval_rounds": 5, "adaptive_retrieval_enabled": True},
+    "quick": {"target_candidate_count": 30, "target_valid_source_count": 8, "target_evidence_count": 25, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 1, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 1, "max_replenishment_candidates": 20},
+    "standard": {"target_candidate_count": 80, "target_valid_source_count": 18, "target_evidence_count": 50, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 2, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 1, "max_replenishment_candidates": 20},
+    "deep": {"target_candidate_count": 180, "target_valid_source_count": 35, "target_evidence_count": 100, "target_high_quality_source_count": 10, "target_official_source_count": 6, "target_pdf_source_count": 6, "max_retrieval_rounds": 4, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 3, "max_replenishment_candidates": 80},
+    "exhaustive": {"target_candidate_count": 300, "target_valid_source_count": 55, "target_evidence_count": 160, "target_high_quality_source_count": 16, "target_official_source_count": 10, "target_pdf_source_count": 10, "max_retrieval_rounds": 5, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 5, "max_replenishment_candidates": 140},
 }
 
 
@@ -122,6 +129,12 @@ def build_retrieval_targets(payload: ResearchAgentInput, *, long_64k: bool = Fal
         value = getattr(payload, key, None)
         if value is not None:
             targets[key] = value
+    if payload.min_valid_source_count is not None and payload.target_valid_source_count is None:
+        targets["target_valid_source_count"] = payload.min_valid_source_count
+    if payload.min_evidence_count is not None and payload.target_evidence_count is None:
+        targets["target_evidence_count"] = payload.min_evidence_count
+    targets["replenishment_enabled"] = bool(getattr(payload, "replenishment_enabled", True))
+    targets["target_replacement_ratio"] = float(getattr(payload, "target_replacement_ratio", 1.0) or 1.0)
     return targets
 
 
@@ -144,6 +157,59 @@ def should_expand_retrieval(summary: dict, targets: dict, round_index: int) -> t
             reasons.append(reason)
     return bool(reasons), reasons
 
+
+
+def _collect_failed_retrieval_items(candidates: list[dict] | None = None, sources: list[dict] | None = None) -> list[dict]:
+    failed: list[dict] = []
+    for item in list(candidates or []) + list(sources or []):
+        failure_class = classify_retrieval_failure(item)
+        status = str(item.get("status") or "").lower()
+        if failure_class != "unknown" or status in {"failed", "degraded", "off_topic", "duplicate", "skipped_download_limit", "skipped_size_limit"}:
+            failed.append({**item, "failure_class": failure_class})
+    return failed
+
+
+def compute_retrieval_deficit(summary: dict, targets: dict) -> dict:
+    """Compute source/evidence/source-mix gaps that should drive replenishment."""
+    target_valid = int(targets.get("target_valid_source_count") or targets.get("min_valid_source_count") or 0)
+    target_evidence = int(targets.get("target_evidence_count") or targets.get("min_evidence_count") or 0)
+    valid_deficit = max(0, target_valid - int(summary.get("valid_source_count") or 0))
+    evidence_deficit = max(0, target_evidence - int(summary.get("evidence_count") or 0))
+    source_mix = dict(summary.get("source_mix") or {})
+    source_mix_targets = dict(summary.get("source_mix_targets") or targets.get("source_mix_targets") or {})
+
+    def mix_deficit(*keys: str) -> int:
+        return max((max(0, int(source_mix_targets.get(key) or 0) - int(source_mix.get(key) or 0)) for key in keys), default=0)
+
+    failed_items = list(summary.get("failed_sources") or summary.get("failed_candidates") or [])
+    if not failed_items and int(summary.get("failed_candidate_count") or 0) > 0:
+        failed_count = int(summary.get("failed_candidate_count") or 0)
+    else:
+        failure_classes = [classify_retrieval_failure(item) for item in failed_items]
+        failed_count = sum(1 for cls in failure_classes if cls not in {"unknown", "skipped_limit"})
+        failed_count += sum(1 for cls in failure_classes if cls == "skipped_limit")
+        duplicate_count = sum(1 for cls in failure_classes if cls == "duplicate")
+        if duplicate_count > 1:
+            failed_count -= duplicate_count - max(1, duplicate_count // 2)
+    ratio = float(targets.get("target_replacement_ratio") or 1.0)
+    max_candidates = int(targets.get("max_replenishment_candidates") or 0)
+    replacement_target = max(valid_deficit, int(__import__("math").ceil(failed_count * ratio)))
+    if max_candidates > 0:
+        replacement_target = min(replacement_target, max_candidates)
+    deficits = {
+        "valid_source_deficit": valid_deficit,
+        "evidence_deficit": evidence_deficit,
+        "official_deficit": max(int(targets.get("target_official_source_count") or 0) - int(summary.get("official_source_count") or 0), mix_deficit("official"), 0),
+        "pdf_deficit": max(int(targets.get("target_pdf_source_count") or 0) - int(summary.get("pdf_source_count") or 0), mix_deficit("report_pdf"), 0),
+        "fresh_news_deficit": mix_deficit("recent_news", "news_recent"),
+        "company_ir_deficit": mix_deficit("company_ir"),
+        "academic_deficit": mix_deficit("academic"),
+        "failed_candidate_count": max(0, failed_count),
+        "replacement_target_count": max(0, replacement_target),
+        "source_mix_deficits": {key: max(0, int(source_mix_targets.get(key) or 0) - int(source_mix.get(key) or 0)) for key in source_mix_targets},
+    }
+    deficits["replacement_needed"] = bool(deficits["replacement_target_count"] > 0 and (valid_deficit > 0 or evidence_deficit > 0 or any(v > 0 for v in deficits["source_mix_deficits"].values()) or failed_count > 0))
+    return deficits
 
 def build_retrieval_strategy(source_profile: str, depth: str, round_index: int, gaps: dict | None = None) -> dict:
     profile = str(source_profile or "web").strip().lower()
@@ -210,6 +276,7 @@ def _retrieval_summary(
     dynamic_curated_direct_domains: list[str] | None = None,
     dynamic_screening_registry: dict | None = None,
     engine_health: dict | None = None,
+    engine_replenishment: dict | None = None,
 ) -> dict[str, Any]:
     def _url(item: dict) -> str:
         return str(item.get("url") or item.get("final_url") or "").lower()
@@ -257,6 +324,7 @@ def _retrieval_summary(
         "fallback_to_safe_engines": False,
     })
     summary.update(engine_health or {})
+    summary["engine_replenishment"] = engine_replenishment or {"enabled": bool(targets.get("replenishment_enabled", True)), "attempted": False, "replacement_queries": 0, "replacement_candidates": 0, "replacement_downloads": 0, "replacement_valid_sources": 0, "suspended_engines": list((engine_health or {}).get("suspended_engines") or []), "fallback_to_safe_engines": bool((engine_health or {}).get("fallback_to_safe_engines", False)), "replenishment_rounds": [], "source_mix_deficits": {}}
     summary.update({k: targets.get(k) for k in targets if k.startswith("target_") or k in {"max_retrieval_rounds", "adaptive_retrieval_enabled"}})
     _, unsatisfied = should_expand_retrieval(summary, {**targets, "max_retrieval_rounds": 999}, 0)
     summary["targets_satisfied"] = not unsatisfied
@@ -337,12 +405,21 @@ def run_broad_screening(
     return {"queries": queries, "search": search, "candidates": candidates, "summary": summary, "payload": payload}
 
 
-def _select_download_candidates(ranked_candidates: list[dict], attempted: set[str], max_count: int, source_mix_targets: dict | None = None) -> list[dict]:
+def _select_download_candidates(ranked_candidates: list[dict], attempted: set[str], max_count: int, source_mix_targets: dict | None = None, source_mix_deficits: dict | None = None) -> list[dict]:
     if max_count <= 0:
         return []
     selected: list[dict] = []
     domain_counts: dict[str, int] = {}
     targets = dict(source_mix_targets or {})
+    deficits = dict(source_mix_deficits or {})
+    if deficits:
+        nested = deficits.get("source_mix_deficits") if isinstance(deficits.get("source_mix_deficits"), dict) else deficits
+        for deficit_key, target_key in (("official_deficit", "official"), ("pdf_deficit", "report_pdf"), ("fresh_news_deficit", "recent_news"), ("company_ir_deficit", "company_ir"), ("academic_deficit", "academic")):
+            if int(deficits.get(deficit_key) or 0) > 0:
+                targets[target_key] = max(int(targets.get(target_key) or 0), int(deficits.get(deficit_key) or 0))
+        for key, value in dict(nested or {}).items():
+            if int(value or 0) > 0:
+                targets[key] = max(int(targets.get(key) or 0), int(value or 0))
     wanted_order = ["official", "report_pdf", "recent_news", "academic", "company_ir", "industry_association"]
 
     def bucket(candidate: dict) -> str:
@@ -1248,6 +1325,29 @@ def _run_news_profile_research(payload: ResearchAgentInput, *, effective_job_id:
         "answer": answer_payload,
     }
 
+
+def _init_replenishment_metrics(enabled: bool, engine_health_tracker: EngineHealthTracker | None = None) -> dict[str, Any]:
+    health = engine_health_tracker.summary() if engine_health_tracker else {}
+    return {
+        "enabled": bool(enabled),
+        "attempted": False,
+        "replacement_queries": 0,
+        "replacement_candidates": 0,
+        "replacement_downloads": 0,
+        "replacement_valid_sources": 0,
+        "suspended_engines": list(health.get("suspended_engines") or []),
+        "fallback_to_safe_engines": bool(health.get("fallback_to_safe_engines", False)),
+        "replenishment_rounds": [],
+        "failed_candidate_count": 0,
+        "replacement_needed": False,
+        "source_mix_deficits": {},
+        "stop_reason": "not_attempted" if enabled else "disabled",
+    }
+
+
+def _select_replenishment_candidates(ranked_candidates: list[dict], attempted: set[str], needed: int, deficits: dict) -> list[dict]:
+    return _select_download_candidates(ranked_candidates, attempted, needed, {}, deficits)
+
 def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) -> dict:
     query = payload.query.strip()
     if not query:
@@ -1360,6 +1460,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         skipped_due_to_download_limit_count = 0
         last_expand_reasons: list[str] = []
         cumulative_downloaded_bytes = 0
+        replenishment_metrics = _init_replenishment_metrics(bool(targets.get("replenishment_enabled", True)), engine_health_tracker)
 
         _emit_phase(effective_job_id, "web_search_started", phase="web_search", message="web search started", progress=0.22)
         _record_state(effective_job_id, "searching", message="running web search", progress=0.25)
@@ -1520,6 +1621,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 dynamic_curated_direct_domains=dynamic_curated_direct_domains,
                 dynamic_screening_registry=dynamic_screening_registry,
                 engine_health=engine_health_tracker.summary(),
+                engine_replenishment=replenishment_metrics,
             )
             expand, reasons = should_expand_retrieval(current_summary, targets, round_index + 1)
             round_payload = {
@@ -1546,8 +1648,133 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             if not adaptive_enabled or not expand:
                 break
 
+        if bool(targets.get("replenishment_enabled", True)):
+            max_replenishment_rounds = max(0, int(targets.get("max_replenishment_rounds") or 0))
+            max_replenishment_candidates = max(0, int(targets.get("max_replenishment_candidates") or 0))
+            replacement_candidate_budget_used = 0
+            for replenishment_round_index in range(max_replenishment_rounds):
+                source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
+                failed_sources = _collect_failed_retrieval_items(ranked_candidates, downloadable_sources)
+                current_summary = _retrieval_summary(
+                    targets=targets,
+                    retrieval_rounds=retrieval_rounds,
+                    candidate_count=len(ranked_candidates),
+                    attempted_download_count=len(attempted_canonical_urls),
+                    registered_sources=registered_sources,
+                    evidence_chunks=source_chunks,
+                    skipped_due_to_download_limit_count=skipped_due_to_download_limit_count,
+                    intent=intent,
+                    screening_summary=screening_summary,
+                    focused_research_plan=focused_research_plan,
+                    search_policy=resolve_searxng_engines_for_profile(payload.source_profile, str(payload.depth or payload.mode or "standard"), "recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced"),
+                    engine_health=engine_health_tracker.summary(),
+                    engine_replenishment=replenishment_metrics,
+                )
+                current_summary["failed_sources"] = failed_sources
+                deficit = compute_retrieval_deficit(current_summary, targets)
+                replenishment_metrics["failed_candidate_count"] = deficit.get("failed_candidate_count", 0)
+                replenishment_metrics["replacement_needed"] = deficit.get("replacement_needed", False)
+                replenishment_metrics["source_mix_deficits"] = deficit.get("source_mix_deficits", {})
+                if not deficit.get("replacement_needed"):
+                    replenishment_metrics["stop_reason"] = "targets_satisfied"
+                    break
+                remaining_replacement_budget = max(0, max_replenishment_candidates - replacement_candidate_budget_used)
+                if remaining_replacement_budget <= 0:
+                    replenishment_metrics["stop_reason"] = "candidate_budget_exhausted"
+                    break
+                needed = min(int(deficit.get("replacement_target_count") or 0), remaining_replacement_budget, max(0, max_downloads - len(attempted_canonical_urls)))
+                if needed <= 0:
+                    replenishment_metrics["stop_reason"] = "download_budget_exhausted"
+                    break
+                suspended = list(engine_health_tracker.summary().get("suspended_engines") or [])
+                replacement_query_objs = build_replenishment_queries(query, intent, focused_research_plan, deficit, failed_sources, suspended)
+                if not replacement_query_objs:
+                    replenishment_metrics["stop_reason"] = "no_replacement_queries"
+                    break
+                replacement_queries = [str(item.get("query") or "").strip() for item in replacement_query_objs if str(item.get("query") or "").strip()]
+                preferred_engines: list[str] = []
+                for item in replacement_query_objs:
+                    for engine in item.get("preferred_engines") or []:
+                        if str(engine).lower() not in [e.lower() for e in preferred_engines]:
+                            preferred_engines.append(str(engine))
+                if not preferred_engines:
+                    preferred_engines = choose_replacement_engines(payload.source_profile, None, set(suspended))
+                append_job_event(effective_job_id, "replenishment_round_started", {"round": replenishment_round_index + 1, "status": "running", "phase": "web_search", "message": "不足分を追加検索中", "replacement_target_count": needed, "updated_at": _now_iso()})
+                _emit_phase(effective_job_id, "replenishment_search_started", phase="web_search", message="不足分を追加検索中", progress=0.33, details={"round": replenishment_round_index + 1, "needed": needed})
+                replacement_search = run_web_search(
+                    replacement_queries,
+                    mode=payload.mode,
+                    depth=payload.depth,
+                    max_results_per_query=payload.max_results_per_query,
+                    scope=payload.scope,
+                    language=payload.language,
+                    source_profile=payload.source_profile,
+                    freshness="recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced",
+                    engine_health_tracker=engine_health_tracker,
+                )
+                replacement_items = list(replacement_search.get("items") or [])
+                for item in replacement_items:
+                    item["query_purpose"] = "replenish_failed_sources"
+                dynamic_direct = build_dynamic_direct_source_candidates(query, payload.source_profile, list(screening_result.get("candidates") or []), intent=intent, screening_summary=screening_summary)
+                replacement_candidates = collect_source_candidates(search_items=replacement_items, manual_urls=[], direct_source_candidates=dynamic_direct)
+                for candidate in replacement_candidates:
+                    canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
+                    if canonical and canonical not in candidate_by_url:
+                        candidate_by_url[canonical] = candidate
+                ranked_candidates = rank_source_candidates(list(candidate_by_url.values()), prefer_pdf=payload.prefer_pdf, official_first=payload.official_first, query=query, trusted_domain_hints=get_curated_domain_hints(query, payload.source_profile), source_profile=payload.source_profile)[:max_sources]
+                selected = _select_replenishment_candidates(ranked_candidates, attempted_canonical_urls, needed, deficit)
+                if not selected:
+                    replenishment_metrics["stop_reason"] = "no_new_candidates"
+                    break
+                for candidate in selected:
+                    canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
+                    if canonical:
+                        attempted_canonical_urls.add(canonical)
+                remaining_total_bytes = max(0, max_total_download_bytes - cumulative_downloaded_bytes)
+                downloaded_before = len(downloadable_sources)
+                valid_before = sum(1 for item in registered_sources if str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested", ""})
+                round_downloaded, round_download_errors = _download_sources_parallel(
+                    job_id=effective_job_id,
+                    candidates=selected,
+                    max_downloads=len(selected),
+                    max_download_bytes=max_download_bytes,
+                    max_total_download_bytes=remaining_total_bytes,
+                    download_timeout_sec=download_timeout_sec,
+                    continue_on_download_error=payload.continue_on_download_error,
+                    concurrency=runtime_cfg.download_concurrency,
+                    pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
+                    download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
+                    download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
+                )
+                downloadable_sources.extend(round_downloaded)
+                download_error_count += round_download_errors
+                cumulative_downloaded_bytes += sum(max(0, int(item.get("size") or 0)) for item in round_downloaded if str(item.get("status") or "") in {"downloaded", "degraded", "reused"})
+                round_registered = register_or_update_sources(job_id=effective_job_id, project=payload.project, sources=round_downloaded)
+                existing = {str(item.get("source_id") or ""): item for item in registered_sources if str(item.get("source_id") or "")}
+                for item in round_registered:
+                    sid = str(item.get("source_id") or "")
+                    if sid:
+                        existing[sid] = item
+                registered_sources = list(existing.values())
+                valid_after = sum(1 for item in registered_sources if str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested", ""})
+                replacement_candidate_budget_used += len(replacement_candidates)
+                replenishment_metrics["attempted"] = True
+                replenishment_metrics["replacement_queries"] += len(replacement_queries)
+                replenishment_metrics["replacement_candidates"] += len(replacement_candidates)
+                replenishment_metrics["replacement_downloads"] += max(0, len(downloadable_sources) - downloaded_before)
+                replenishment_metrics["replacement_valid_sources"] += max(0, valid_after - valid_before)
+                health = engine_health_tracker.summary()
+                replenishment_metrics["suspended_engines"] = list(health.get("suspended_engines") or [])
+                replenishment_metrics["fallback_to_safe_engines"] = bool(health.get("fallback_to_safe_engines", False))
+                round_payload = {"round": replenishment_round_index + 1, "status": "running", "phase": "web_search", "replacement_queries": len(replacement_queries), "replacement_candidates": len(replacement_candidates), "replacement_downloads": len(round_downloaded), "replacement_valid_sources": max(0, valid_after - valid_before), "deficit": deficit, "suspended_engines": replenishment_metrics["suspended_engines"], "updated_at": _now_iso()}
+                replenishment_metrics["replenishment_rounds"].append(round_payload)
+                append_job_event(effective_job_id, "replenishment_round_completed", {**round_payload, "message": f"補充: {len(round_downloaded)}件取得 / {max(0, valid_after - valid_before)}件有効"})
+            else:
+                if max_replenishment_rounds > 0:
+                    replenishment_metrics["stop_reason"] = "max_replenishment_rounds_reached"
+
         ranked_candidates = list(candidate_by_url.values())[:max_sources]
-        _emit_phase(effective_job_id, "web_search_finished", phase="web_search", message="web search finished", progress=0.35, details={"result_count": len(all_items), "retrieval_rounds": len(retrieval_rounds)})
+        _emit_phase(effective_job_id, "web_search_finished", phase="web_search", message="web search finished", progress=0.35, details={"result_count": len(all_items), "retrieval_rounds": len(retrieval_rounds), "engine_replenishment": replenishment_metrics})
         _emit_phase(effective_job_id, "source_collection_started", phase="source_collection", message="source collection started", progress=0.36)
         _record_state(effective_job_id, "collecting_sources", message="normalizing source candidates", progress=0.4)
         if len(candidate_by_url) >= max_sources:
@@ -1626,6 +1853,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             dynamic_curated_direct_domains=dynamic_curated_direct_domains,
             dynamic_screening_registry=dynamic_screening_registry,
             engine_health=engine_health_tracker.summary(),
+            engine_replenishment=replenishment_metrics,
         )
         if references:
             labels = [f"[S{i + 1}]" for i in range(len(references))]

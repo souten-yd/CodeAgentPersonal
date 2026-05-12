@@ -106,7 +106,7 @@ class EngineHealthTracker:
         key = str(engine).strip().lower()
         if not key:
             return
-        state = self.failures.setdefault(key, {"engine_name": key, "failures": 0, "last_error": "", "suspended_until": None, "captcha_count": 0, "http_403_count": 0, "http_429_count": 0, "timeout_count": 0})
+        state = self.failures.setdefault(key, {"engine_name": key, "failures": 0, "last_error": "", "suspended_until": None, "captcha_count": 0, "http_403_count": 0, "http_429_count": 0, "timeout_count": 0, "parse_error_count": 0})
         normalized = str(message or "").lower()
         state["failures"] = int(state.get("failures") or 0) + 1
         state["last_error"] = str(message or "")[:500]
@@ -124,7 +124,8 @@ class EngineHealthTracker:
             state["timeout_count"] = int(state.get("timeout_count") or 0) + 1
             suspend = int(state.get("timeout_count") or 0) >= 2
         if "jsondecodeerror" in normalized or "non-json" in normalized or "non json" in normalized:
-            suspend = True
+            state["parse_error_count"] = int(state.get("parse_error_count") or 0) + 1
+            suspend = int(state.get("parse_error_count") or 0) >= 2
         if key not in {b.lower() for b in self.broad_engines}:
             suspend = False
         if suspend:
@@ -220,6 +221,27 @@ def resolve_searxng_engines_for_profile(source_profile: str | None, depth: str |
         "depth": depth or "standard",
     }
 
+
+
+def choose_replacement_engines(
+    source_profile: str,
+    failed_engine: str | None,
+    suspended_engines: set[str],
+) -> list[str]:
+    """Choose alternate engines for a replenishment retry within one research job."""
+    profile = str(source_profile or "general").strip().lower()
+    suspended = {str(engine or "").strip().lower() for engine in (suspended_engines or set()) if str(engine or "").strip()}
+    failed = str(failed_engine or "").strip().lower()
+    if failed:
+        suspended.add(failed)
+    primary = ["google", "brave", "duckduckgo"]
+    active_primary = [engine for engine in primary if engine not in suspended]
+    if active_primary:
+        return active_primary
+    safe = ["wikipedia", "wikidata", "github"]
+    if profile in {"source", "academic", "technical"}:
+        safe.extend(["arxiv", "crossref", "openalex"])
+    return [engine for engine in _dedupe_engines(safe, allow_noisy=True) if engine.lower() not in suspended]
 
 def _freshness_policy_for_profile(profile: str, freshness: str | None = None) -> str:
     requested = str(freshness or "").strip().lower()

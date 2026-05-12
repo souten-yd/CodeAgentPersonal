@@ -119,3 +119,12 @@ def test_report_includes_retrieval_scope(tmp_path, monkeypatch):
     )
     assert "retrieval_summary" in report["metadata"]
     assert "調査範囲" in Path(report["markdown_path"]).read_text(encoding="utf-8")
+
+
+def test_deep_targets_include_replenishment_budget():
+    deep = build_retrieval_targets(ResearchAgentInput(query="q", mode="deep", depth="deep"))
+    exhaustive = build_retrieval_targets(ResearchAgentInput(query="q", mode="exhaustive", depth="exhaustive"))
+    assert deep["max_replenishment_rounds"] == 3
+    assert deep["max_replenishment_candidates"] == 80
+    assert exhaustive["max_replenishment_rounds"] == 5
+    assert exhaustive["max_replenishment_candidates"] == 140
