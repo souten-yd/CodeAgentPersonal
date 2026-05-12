@@ -17,11 +17,14 @@ def test_academic_profile_uses_academic_engines(monkeypatch):
     assert resolved["source_profile"] == "academic"
 
 
-def test_news_profile_does_not_use_noisy_engines_by_default(monkeypatch):
+def test_news_profile_uses_requested_broad_engines_but_not_disabled_noise(monkeypatch):
+    monkeypatch.setenv("SEARXNG_ENGINE_PROFILE", "adaptive_broad_research")
+    monkeypatch.setenv("NEXUS_ALLOW_BROAD_WEB_ENGINES", "true")
     monkeypatch.setenv("NEXUS_SEARXNG_ENGINES_NEWS", "wikipedia,duckduckgo,bing,wikidata")
-    monkeypatch.delenv("NEXUS_ALLOW_BROAD_UNSAFE_SEARCH", raising=False)
     resolved = resolve_searxng_engines_for_profile("news", "deep", "recent")
-    assert not (set(resolved["searxng_engines"]) & NOISY)
+    assert "duckduckgo" in resolved["searxng_engines"]
+    assert "bing" in resolved["searxng_engines"]
+    assert "startpage" not in resolved["searxng_engines"]
     assert resolved["freshness_policy"] == "prioritize_last_12_months"
 
 

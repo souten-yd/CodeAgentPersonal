@@ -105,10 +105,15 @@ def test_start_script_has_json_degraded_health_probe() -> None:
 
 def test_runpod_start_logs_engine_profile() -> None:
     text = _read(RUNPOD_START)
-    assert 'export SEARXNG_ENGINE_PROFILE="${SEARXNG_ENGINE_PROFILE:-safe_research}"' in text
+    assert 'export SEARXNG_ENGINE_PROFILE="${SEARXNG_ENGINE_PROFILE:-adaptive_broad_research}"' in text
     assert 'echo "[Runpod] SEARXNG_ENGINE_PROFILE=${SEARXNG_ENGINE_PROFILE}"' in text
     assert 'export SEARXNG_SAFE_KEEP_ONLY_ENGINES=' in text
     assert 'export SEARXNG_DISABLED_ENGINES=' in text
+    assert 'google' not in re.search(r'export SEARXNG_DISABLED_ENGINES="\$\{SEARXNG_DISABLED_ENGINES:-([^}]*)\}"', text).group(1)
+    assert 'brave' not in re.search(r'export SEARXNG_DISABLED_ENGINES="\$\{SEARXNG_DISABLED_ENGINES:-([^}]*)\}"', text).group(1)
+    assert 'duckduckgo' not in re.search(r'export SEARXNG_DISABLED_ENGINES="\$\{SEARXNG_DISABLED_ENGINES:-([^}]*)\}"', text).group(1)
+    assert 'export NEXUS_ALLOW_BROAD_WEB_ENGINES=' in text
+    assert 'export NEXUS_BROAD_WEB_ENGINES=' in text
     assert 'export SEARXNG_HEALTH_ENGINE=' in text
     assert 'export SEARXNG_FORCE_SAFE_SETTINGS=' in text
 
