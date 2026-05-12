@@ -29,7 +29,7 @@ def test_brave_api_and_searxng_brave_are_not_mixed():
 def test_web_provider_warning_formatter_does_not_mark_running_job_failed():
     text = open("web/js/nexus.js", encoding="utf-8").read()
     assert "[Web provider warning] Web provider health check is degraded. News/RSS/GDELT sources may still work." in text
-    assert "const severity = isHardFailed ? 'error' : (hasNotice ? 'warning' : 'info');" in text
+    assert "const hasProviderOnlyWarning = Boolean(health.non_fatal || health.stub || bundle?.non_fatal || bundle?.stub);" in text
 
 
 def test_ui_separates_provider_health_and_job_status_dom():
@@ -38,10 +38,6 @@ def test_ui_separates_provider_health_and_job_status_dom():
     assert "id=\"nexus-deep-job-status\"" in text
     assert "formatNexusProviderHealthWarning" in text
 
-
-def test_job_failed_no_sources_only_path_is_explicitly_handled():
-    text = open("web/js/nexus.js", encoding="utf-8").read()
-    assert "const isHardFailed = state === 'failed' && reason === 'no_sources';" in text
 
 
 def test_news_mvp_path_surfaces_effective_news_providers():
@@ -52,3 +48,37 @@ def test_news_mvp_path_surfaces_effective_news_providers():
 def test_no_legacy_brave_searxng_stub_phrase_left_in_ui():
     text = open("ui.html", encoding="utf-8").read()
     assert "Brave/SearXNG 未設定のため stub" not in text
+
+
+def test_ui_does_not_prefix_job_status_with_stub_wording():
+    text = open("ui.html", encoding="utf-8").read()
+    assert "[非致命 stub]" not in text
+
+
+def test_provider_warning_only_in_provider_health_dom():
+    text = open("ui.html", encoding="utf-8").read()
+    assert "providerEl.textContent = providerWarning.show ? `Provider: ${providerWarning.message}` : 'Provider: healthy';" in text
+    assert "jobEl.textContent = `Job: ${message || '-'}`;" in text
+
+
+def test_job_status_keeps_normal_running_text_even_if_stub_non_fatal():
+    text = open("ui.html", encoding="utf-8").read()
+    assert "setNexusDeepStatus('research job を起動中...', false, true);" in text
+    assert "jobEl.textContent = `Job: ${message || '-'}`;" in text
+
+
+def test_true_job_failure_marks_error_severity():
+    text = open("web/js/nexus.js", encoding="utf-8").read()
+    assert "const isJobFailed = state === 'failed';" in text
+    assert "const severity = (isJobFailed || isNoSources)" in text
+
+
+def test_no_sources_is_error_severity():
+    text = open("web/js/nexus.js", encoding="utf-8").read()
+    assert "const isNoSources = reason === 'no_sources';" in text
+
+
+def test_no_evidence_or_degraded_is_warning_severity():
+    text = open("web/js/nexus.js", encoding="utf-8").read()
+    assert "const isNoEvidence = reason === 'no_evidence';" in text
+    assert "isNoEvidence || state === 'degraded'" in text
