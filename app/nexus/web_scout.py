@@ -542,7 +542,7 @@ def _mark_provider_temporarily_disabled(provider: str, *, cooldown_sec: int, rea
 
 
 def _should_skip_provider(provider: str, cfg: Any) -> bool:
-    if provider == "brave" and cfg.search_free_only and not cfg.search_paid_providers_enabled:
+    if provider in {"brave", "braveapi", "brave_api"} and cfg.search_free_only and not cfg.search_paid_providers_enabled:
         return True
     disabled_until = _TEMPORARILY_DISABLED_PROVIDERS.get(provider)
     if disabled_until is None:
@@ -886,11 +886,11 @@ def _run_web_search(
     for provider in ordered_providers:
         if _should_skip_provider(provider, cfg):
             skip_reasons[provider] = "cooldown もしくは free-only 設定によりスキップされました。"
-            configured_by_provider[provider] = provider != "brave" or bool(cfg.brave_search_api_key)
+            configured_by_provider[provider] = provider not in {"brave","braveapi","brave_api"} or bool(cfg.brave_search_api_key)
             continue
 
-        if provider == "brave" and not cfg.brave_search_api_key:
-            provider_errors.setdefault(provider, []).append("BRAVE_SEARCH_API_KEY が未設定です。")
+        if provider in {"brave", "braveapi", "brave_api"} and not cfg.brave_search_api_key:
+            provider_errors.setdefault(provider, []).append("Brave API is not configured.")
             configured_by_provider[provider] = False
             continue
 
@@ -912,7 +912,7 @@ def _run_web_search(
                 engines_param=str(engine_resolution.get("searxng_engines_param") or ""),
                 engine_health_tracker=engine_health_tracker,
             )
-        elif provider == "brave":
+        elif provider in {"brave", "braveapi", "brave_api"}:
             items, errors, had_connection_failure, should_cooldown = _run_brave_search(
                 cfg=cfg,
                 queries=normalized_queries,

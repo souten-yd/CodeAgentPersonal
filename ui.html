@@ -556,7 +556,7 @@
                 <div id="nexus-deep-current-run" class="nexus-result-panel"><div class="nexus-empty">No current run</div></div>
               </div>
               <div class="nexus-card" style="margin-top:10px">
-                <div class="nexus-card-title">Previous Runs</div>
+                <div class="nexus-card-title" id="nexus-prev-runs-title">Previous Runs (0)</div>
                 <div id="nexus-deep-previous-runs" class="nexus-result-panel"><div class="nexus-empty">No previous runs</div></div>
               </div>
             </div>
@@ -6060,6 +6060,8 @@ let nexusDeepResearchHealth = {};
 let nexusDeepResearchPollTimer = null;
 let nexusDeepResearchCurrentRunMeta = null;
 let nexusDeepResearchPreviousRuns = [];
+let nexusDeepPreviousRunsCollapsed = true;
+let nexusDeepPreviousRunsVisibleCount = 3;
 let nexusMaxUploadMb = 200;
 let nexusMaxUploadBytes = nexusMaxUploadMb * 1024 * 1024;
 const nexusAllowedUploadExt = new Set(['.pdf', '.txt', '.md', '.csv', '.html']);
@@ -7283,16 +7285,37 @@ function renderNexusDeepCurrentRun() {
 
 function renderNexusDeepPreviousRuns() {
   const root = document.getElementById('nexus-deep-previous-runs');
+  const title = document.getElementById('nexus-prev-runs-title');
   if (!root) return;
-  if (!Array.isArray(nexusDeepResearchPreviousRuns) || !nexusDeepResearchPreviousRuns.length) {
+  const total = Array.isArray(nexusDeepResearchPreviousRuns) ? nexusDeepResearchPreviousRuns.length : 0;
+  if (title) title.textContent = `Previous Runs (${total})`;
+  if (!total) {
     root.innerHTML = '<div class="nexus-empty">No previous runs</div>';
     return;
   }
-  root.innerHTML = nexusDeepResearchPreviousRuns.map((row) => {
+  if (nexusDeepPreviousRunsCollapsed) {
+    root.innerHTML = '<div class="nexus-doc-actions"><button onclick="toggleNexusPreviousRuns(false)">Show previous runs</button></div>';
+    return;
+  }
+  const shown = nexusDeepResearchPreviousRuns.slice(0, nexusDeepPreviousRunsVisibleCount);
+  const rows = shown.map((row) => {
     const id = String(row?.job_id || '');
     const idEnc = encodeURIComponent(id);
     return `<div class="nexus-result-item"><div><b>${esc(id || '-')}</b></div><div class="nexus-result-meta">query: ${esc(row?.query || '-')} / status: ${esc(row?.status || '-')} / created_at: ${esc(row?.created_at || '-')}</div><div class="nexus-doc-actions"><button onclick="showNexusDeepPreviousRun('${idEnc}')">再表示</button><button onclick="downloadNexusDeepBundleByJobId('${idEnc}')">bundle download</button></div></div>`;
   }).join('');
+  const moreBtn = total > nexusDeepPreviousRunsVisibleCount ? `<button onclick="showMoreNexusPreviousRuns()">Show more</button>` : '';
+  root.innerHTML = `${rows}<div class="nexus-doc-actions"><button onclick="toggleNexusPreviousRuns(true)">Hide</button>${moreBtn}</div>`;
+}
+
+function toggleNexusPreviousRuns(collapsed = true) {
+  nexusDeepPreviousRunsCollapsed = Boolean(collapsed);
+  if (!nexusDeepPreviousRunsCollapsed) nexusDeepPreviousRunsVisibleCount = 3;
+  renderNexusDeepPreviousRuns();
+}
+
+function showMoreNexusPreviousRuns() {
+  nexusDeepPreviousRunsVisibleCount += 5;
+  renderNexusDeepPreviousRuns();
 }
 
 function pushNexusDeepPreviousRun(meta = null) {
@@ -8061,7 +8084,7 @@ async function runNexusDeepResearch() {
     const searxngUnavailable = !searxngState || searxngState !== 'connected';
     nexusDeepResearchStubMode = braveUnset && searxngUnavailable;
     if (nexusDeepResearchStubMode) {
-      setNexusDeepStatus('Brave/SearXNG 未設定のため stub で継続します（UIは継続）', false, true);
+      setNexusDeepStatus('Web検索に接続できません', true, true);
     } else {
       setNexusDeepStatus('research job を起動中...');
     }
