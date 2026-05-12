@@ -27,6 +27,29 @@ _LAST_WEB_SEARCH_STATUS: dict[str, Any] = {
     "last_search_at": None,
 }
 
+
+_NOISY_SEARXNG_ENGINES = {"duckduckgo", "startpage", "google", "bing", "brave", "karmasearch", "yahoo", "qwant", "mojeek"}
+_PROFILE_SEARXNG_DEFAULTS: dict[str, str] = {
+    "general": "wikipedia,wikidata,github,stackoverflow",
+    "web": "wikipedia,wikidata,github,stackoverflow",
+    "academic": "arxiv,crossref,openalex,semantic scholar,wikipedia",
+    "official": "wikidata,wikipedia,github",
+    "source": "wikipedia,wikidata,arxiv,crossref,openalex,github",
+    "news": "wikipedia,wikidata",
+    "market": "wikipedia,wikidata,github",
+    "technical": "arxiv,crossref,openalex,semantic scholar,wikipedia,github",
+}
+_PROFILE_ENGINE_ENV: dict[str, str] = {
+    "general": "NEXUS_SEARXNG_ENGINES_GENERAL",
+    "web": "NEXUS_SEARXNG_ENGINES_GENERAL",
+    "news": "NEXUS_SEARXNG_ENGINES_NEWS",
+    "market": "NEXUS_SEARXNG_ENGINES_MARKET",
+    "official": "NEXUS_SEARXNG_ENGINES_OFFICIAL",
+    "academic": "NEXUS_SEARXNG_ENGINES_ACADEMIC",
+    "technical": "NEXUS_SEARXNG_ENGINES_ACADEMIC",
+    "source": "NEXUS_SEARXNG_ENGINES_SOURCE",
+}
+
 _SEARCH_MODE_SETTINGS: dict[str, dict[str, int]] = {
     "quick": {"max_queries": 2, "max_results_per_query": 3},
     "standard": {"max_queries": 4, "max_results_per_query": 5},
@@ -39,13 +62,33 @@ def _split_engine_csv(value: str | None) -> list[str]:
     return [item.strip() for item in (value or "").split(",") if item.strip()]
 
 
+def _allow_broad_unsafe_search() -> bool:
+    return os.getenv("NEXUS_ALLOW_BROAD_UNSAFE_SEARCH", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _dedupe_engines(engines: list[str], *, allow_noisy: bool = False) -> list[str]:
+    unique: list[str] = []
+    for engine in engines:
+        normalized = str(engine or "").strip()
+        if not normalized:
+            continue
+        if not allow_noisy and normalized.lower() in _NOISY_SEARXNG_ENGINES:
+            continue
+        if normalized.lower() not in [item.lower() for item in unique]:
+            unique.append(normalized)
+    return unique
+
+
 def _resolve_searxng_engines_param() -> str:
+    """Resolve the legacy SearXNG engine allow-list without source-profile context."""
     explicit = os.getenv("NEXUS_SEARXNG_ENGINES", "").strip()
     if explicit:
-        return ",".join(_split_engine_csv(explicit))
+        return ",".join(_dedupe_engines(_split_engine_csv(explicit), allow_noisy=_allow_broad_unsafe_search()))
     profile = os.getenv("SEARXNG_ENGINE_PROFILE", "safe_research").strip().lower()
-    if profile in {"safe_research", "safe_docs", "adaptive_research"}:
-        return ",".join(
+    if profile == "broad_unsafe" and _allow_broad_unsafe_search():
+        return ""
+    return ",".join(
+        _dedupe_engines(
             _split_engine_csv(
                 os.getenv(
                     "SEARXNG_SAFE_KEEP_ONLY_ENGINES",
@@ -53,24 +96,66 @@ def _resolve_searxng_engines_param() -> str:
                 )
             )
         )
-    if profile == "broad_unsafe" and os.getenv("NEXUS_ALLOW_BROAD_UNSAFE_SEARCH", "").strip().lower() in {"1", "true", "yes"}:
-        return ""
-    return ",".join(
-        _split_engine_csv(
-            os.getenv(
-                "SEARXNG_SAFE_KEEP_ONLY_ENGINES",
-                "wikipedia,wikidata,arxiv,crossref,openalex,semantic scholar,github,stackoverflow",
-            )
-        )
     )
 
 
+def resolve_searxng_engines_for_profile(source_profile: str | None, depth: str | None = None, freshness: str | None = None) -> dict[str, Any]:
+    """Return source-profile aware SearXNG engine priority and request parameter."""
+    profile = str(source_profile or "general").strip().lower() or "general"
+    if profile == "web":
+        profile = "general"
+    if profile not in _PROFILE_SEARXNG_DEFAULTS:
+        profile = "general"
+    engine_profile = os.getenv("SEARXNG_ENGINE_PROFILE", "safe_research").strip().lower()
+    if engine_profile == "broad_unsafe" and _allow_broad_unsafe_search():
+        return {
+            "source_profile": profile,
+            "engine_priority": "broad_unsafe",
+            "searxng_engines": [],
+            "searxng_engines_param": "",
+            "freshness_policy": _freshness_policy_for_profile(profile, freshness),
+            "depth": depth or "standard",
+        }
+
+    env_name = _PROFILE_ENGINE_ENV.get(profile, "NEXUS_SEARXNG_ENGINES_GENERAL")
+    configured = os.getenv(env_name, "").strip()
+    engines = _split_engine_csv(configured or _PROFILE_SEARXNG_DEFAULTS[profile])
+    if not configured and os.getenv("NEXUS_SEARXNG_ENGINES", "").strip():
+        engines = _split_engine_csv(_resolve_searxng_engines_param())
+    engines = _dedupe_engines(engines, allow_noisy=False)
+    return {
+        "source_profile": profile,
+        "engine_priority": "profile_safe",
+        "searxng_engines": engines,
+        "searxng_engines_param": ",".join(engines),
+        "freshness_policy": _freshness_policy_for_profile(profile, freshness),
+        "depth": depth or "standard",
+    }
+
+
+def _freshness_policy_for_profile(profile: str, freshness: str | None = None) -> str:
+    requested = str(freshness or "").strip().lower()
+    if requested in {"latest", "recent", "current_year", "last_12_months"}:
+        return "prioritize_last_12_months"
+    if profile in {"news", "market"}:
+        return "prioritize_recent_and_penalize_older_than_2_years"
+    if profile in {"official", "academic"}:
+        return "balanced_no_harsh_stale_penalty"
+    if profile == "source":
+        return "prefer_reports_with_moderate_freshness"
+    return "balanced"
+
+
 def get_searxng_engine_status() -> dict[str, Any]:
-    engines = _split_engine_csv(_resolve_searxng_engines_param())
+    resolved = resolve_searxng_engines_for_profile("general", "standard", "balanced")
+    engines = list(resolved.get("searxng_engines") or [])
     return {
         "searxng_engine_profile": os.getenv("SEARXNG_ENGINE_PROFILE", "safe_research"),
         "searxng_keep_only_engines": engines,
         "searxng_health_engine": os.getenv("SEARXNG_HEALTH_ENGINE", "wikipedia"),
+        "source_profile": resolved.get("source_profile"),
+        "engine_priority": resolved.get("engine_priority"),
+        "freshness_policy": resolved.get("freshness_policy"),
     }
 
 def _now_iso() -> str:
@@ -176,25 +261,34 @@ _LANGUAGE_BASE_SEEDS: dict[str, list[str]] = {
 
 _SCOPE_EXTRA_SEEDS: dict[str, dict[str, list[str]]] = {
     "news": {
-        "ja": ["{topic} 速報", "{topic} ヘッドライン", "{topic} 今日"],
-        "en": ["{topic} breaking news", "{topic} headlines", "{topic} today"],
+        "ja": ["{topic} 最新", "{topic} 今日", "{topic} 速報", "{topic} news", "{topic} latest", "{topic} press release"],
+        "en": ["{topic} latest", "{topic} today", "{topic} breaking news", "{topic} news", "{topic} press release"],
+    },
+    "market": {
+        "ja": ["{topic} 市場規模 CAGR 予測", "{topic} 主要企業 投資", "{topic} partnership market outlook"],
+        "en": ["{topic} market size CAGR forecast", "{topic} key companies investment", "{topic} partnership market outlook"],
     },
     "official": {
-        "ja": ["{topic} 公式 発表", "{topic} IR", "{topic} プレスリリース"],
-        "en": ["{topic} official statement", "{topic} investor relations", "{topic} press release"],
+        "ja": ["{topic} 公式 官公庁 白書 報告書", "{topic} site:go.jp", "{topic} site:.gov", "{topic} PDF"],
+        "en": ["{topic} official government white paper report", "{topic} site:.gov", "{topic} site:go.jp", "{topic} PDF"],
+    },
+    "source": {
+        "ja": ["{topic} PDF report", "{topic} white paper", "{topic} annual report", "{topic} investor relations"],
+        "en": ["{topic} PDF report", "{topic} white paper", "{topic} annual report", "{topic} investor relations"],
     },
     "academic": {
-        "ja": ["{topic} 論文", "{topic} 研究", "{topic} 学術"],
-        "en": ["{topic} research paper", "{topic} study", "{topic} academic"],
+        "ja": ["{topic} paper arxiv", "{topic} study review", "{topic} IEEE", "{topic} 論文 研究"],
+        "en": ["{topic} paper arxiv", "{topic} study review", "{topic} IEEE", "{topic} research paper"],
     },
 }
 
 
-def _build_query_seeds(topic: str, *, language: str, scope_tokens: list[str]) -> list[str]:
+def _build_query_seeds(topic: str, *, language: str, scope_tokens: list[str], source_profile: str | None = None) -> list[str]:
     lang_key = "ja" if language == "ja" else "en"
     templates = _LANGUAGE_BASE_SEEDS[lang_key]
     seeds = [template.format(topic=topic) for template in templates]
-    for scope_token in scope_tokens:
+    profile_tokens = _normalize_scope(source_profile)
+    for scope_token in [*profile_tokens, *scope_tokens]:
         scoped_templates = (_SCOPE_EXTRA_SEEDS.get(scope_token) or {}).get(lang_key, [])
         seeds.extend(template.format(topic=topic) for template in scoped_templates)
     return seeds
@@ -208,6 +302,7 @@ def plan_web_queries(
     max_queries: int | None = None,
     scope: str | list[str] | None = None,
     language: str | None = None,
+    source_profile: str | None = None,
 ) -> list[str]:
     """Build lightweight web-search queries from one topic string."""
     topic = (topic or "").strip()
@@ -216,12 +311,14 @@ def plan_web_queries(
 
     normalized_mode = _resolve_depth(mode, depth)
     normalized_scope = _normalize_scope(scope)
+    if source_profile is None and len(normalized_scope) == 1 and normalized_scope[0] in _PROFILE_SEARXNG_DEFAULTS:
+        source_profile = normalized_scope[0]
     normalized_language = _normalize_language(language)
     suffix = _scope_suffix(normalized_scope)
     default_max_queries = _SEARCH_MODE_SETTINGS[normalized_mode]["max_queries"]
     query_cap = max(1, max_queries if max_queries is not None else default_max_queries)
 
-    seeds = _build_query_seeds(topic, language=normalized_language, scope_tokens=normalized_scope)
+    seeds = _build_query_seeds(topic, language=normalized_language, scope_tokens=normalized_scope, source_profile=source_profile)
 
     unique: list[str] = []
     for seed in seeds:
@@ -352,6 +449,7 @@ def _run_searxng_search(
     queries: list[str],
     result_cap: int,
     search_lang: str,
+    engines_param: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], bool, list[dict[str, Any]]]:
     base_url = cfg.searxng_url.rstrip("/")
     items: list[dict[str, Any]] = []
@@ -366,7 +464,6 @@ def _run_searxng_search(
             "language": search_lang,
             "categories": "general",
         }
-        engines_param = _resolve_searxng_engines_param()
         if engines_param:
             query_params["engines"] = engines_param
         params = parse.urlencode(query_params)
@@ -507,6 +604,8 @@ def _run_web_search(
     language: str | None = None,
     country: str = "US",
     search_lang: str | None = None,
+    source_profile: str | None = None,
+    freshness: str | None = None,
 ) -> dict[str, Any]:
     """Run configured web search provider and return a non-fatal normalized payload."""
     cfg = load_runtime_config()
@@ -515,8 +614,11 @@ def _run_web_search(
     result_cap = max_results_per_query if max_results_per_query is not None else mode_defaults["max_results_per_query"]
     result_cap = max(1, min(20, int(result_cap)))
     normalized_scope = _normalize_scope(scope)
+    if source_profile is None and len(normalized_scope) == 1 and normalized_scope[0] in _PROFILE_SEARXNG_DEFAULTS:
+        source_profile = normalized_scope[0]
     normalized_language = _normalize_language(language)
     effective_search_lang = _normalize_language(search_lang) if search_lang else normalized_language
+    engine_resolution = resolve_searxng_engines_for_profile(source_profile, normalized_mode, freshness)
 
     normalized_queries = [q.strip() for q in queries if (q or "").strip()]
     effective_query_plan = {
@@ -526,6 +628,10 @@ def _run_web_search(
         "requested_depth": depth if depth is not None else mode,
         "resolved_depth": normalized_mode,
         "search_lang": effective_search_lang,
+        "source_profile": engine_resolution.get("source_profile"),
+        "engine_priority": engine_resolution.get("engine_priority"),
+        "searxng_engines": engine_resolution.get("searxng_engines"),
+        "freshness_policy": engine_resolution.get("freshness_policy"),
         "queries": normalized_queries,
         "generated_queries": normalized_queries,
     }
@@ -546,6 +652,10 @@ def _run_web_search(
             "non_fatal": True,
             "effective_query_plan": effective_query_plan,
             "generated_queries": normalized_queries,
+            "source_profile": engine_resolution.get("source_profile"),
+            "engine_priority": engine_resolution.get("engine_priority"),
+            "searxng_engines": engine_resolution.get("searxng_engines"),
+            "freshness_policy": engine_resolution.get("freshness_policy"),
             "items": [],
             "total_items": 0,
             "message": "query が空です。",
@@ -566,6 +676,10 @@ def _run_web_search(
             "configured": False,
             "effective_query_plan": effective_query_plan,
             "generated_queries": normalized_queries,
+            "source_profile": engine_resolution.get("source_profile"),
+            "engine_priority": engine_resolution.get("engine_priority"),
+            "searxng_engines": engine_resolution.get("searxng_engines"),
+            "freshness_policy": engine_resolution.get("freshness_policy"),
             "items": _build_stub_items(normalized_queries, reason=message),
             "total_items": len(normalized_queries),
             "message": message,
@@ -609,6 +723,7 @@ def _run_web_search(
                 queries=normalized_queries,
                 result_cap=result_cap,
                 search_lang=effective_search_lang,
+                engines_param=str(engine_resolution.get("searxng_engines_param") or ""),
             )
         elif provider == "brave":
             items, errors, had_connection_failure, should_cooldown = _run_brave_search(
@@ -644,6 +759,10 @@ def _run_web_search(
                 "non_fatal": False,
                 "effective_query_plan": effective_query_plan,
                 "generated_queries": normalized_queries,
+                "source_profile": engine_resolution.get("source_profile"),
+                "engine_priority": engine_resolution.get("engine_priority"),
+                "searxng_engines": engine_resolution.get("searxng_engines"),
+                "freshness_policy": engine_resolution.get("freshness_policy"),
                 "items": items,
                 "total_items": len(items),
                 "message": "ok",
@@ -682,6 +801,10 @@ def _run_web_search(
         "configured": configured_by_provider.get(selected_provider, False),
         "effective_query_plan": effective_query_plan,
         "generated_queries": normalized_queries,
+        "source_profile": engine_resolution.get("source_profile"),
+        "engine_priority": engine_resolution.get("engine_priority"),
+        "searxng_engines": engine_resolution.get("searxng_engines"),
+        "freshness_policy": engine_resolution.get("freshness_policy"),
         "items": stub_items,
         "total_items": len(stub_items),
         "message": message,
@@ -708,6 +831,8 @@ def run_web_search(
     language: str | None = None,
     country: str = "US",
     search_lang: str | None = None,
+    source_profile: str | None = None,
+    freshness: str | None = None,
 ) -> dict[str, Any]:
     """内部用途の互換レイヤー（公開ツールではない）。実体は `_run_web_search(...)` を呼び出す。"""
     return _run_web_search(
@@ -719,6 +844,8 @@ def run_web_search(
         language=language,
         country=country,
         search_lang=search_lang,
+        source_profile=source_profile,
+        freshness=freshness,
     )
 
 
