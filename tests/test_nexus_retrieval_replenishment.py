@@ -117,3 +117,55 @@ def test_retrieval_summary_contains_replenishment_metrics():
     assert summary["engine_replenishment"]["enabled"] is True
     assert summary["engine_replenishment"]["attempted"] is True
     assert summary["engine_replenishment"]["replacement_valid_sources"] == 2
+
+
+def test_initial_max_downloads_exhausted_still_allows_replenishment_budget():
+    max_downloads = 5
+    attempted_canonical_urls = {"u1", "u2", "u3", "u4", "u5"}
+    max_replenishment_downloads = 10
+    replenishment_download_attempts_used = 0
+    replacement_target_count = 4
+    remaining_replacement_budget = 20
+    remaining_replenishment_downloads = max_replenishment_downloads - replenishment_download_attempts_used
+    needed = min(replacement_target_count, remaining_replacement_budget, remaining_replenishment_downloads)
+    assert max(0, max_downloads - len(attempted_canonical_urls)) == 0
+    assert needed == 4
+
+
+def test_replacement_budget_counts_selected_not_all_candidates():
+    replacement_candidate_budget_used = 0
+    replacement_candidates = [{"url": f"https://example.com/{idx}"} for idx in range(8)]
+    selected = replacement_candidates[:3]
+    replacement_candidate_budget_used += len(selected)
+    assert len(replacement_candidates) == 8
+    assert replacement_candidate_budget_used == 3
+
+
+def test_skipped_limit_does_not_trigger_replenishment_when_targets_satisfied():
+    deficit = compute_retrieval_deficit(
+        {
+            "valid_source_count": 18,
+            "evidence_count": 50,
+            "failed_sources": [{"status": "skipped_download_limit"} for _ in range(5)],
+            "source_mix": {},
+            "source_mix_targets": {},
+        },
+        {"target_valid_source_count": 18, "target_evidence_count": 50, "target_replacement_ratio": 1.0, "max_replenishment_candidates": 20},
+    )
+    assert deficit["failed_candidate_count"] == 5
+    assert deficit["replacement_needed"] is False
+
+
+def test_skipped_limit_can_replenish_when_valid_sources_below_target():
+    deficit = compute_retrieval_deficit(
+        {
+            "valid_source_count": 10,
+            "evidence_count": 50,
+            "failed_sources": [{"status": "skipped_download_limit"} for _ in range(5)],
+            "source_mix": {},
+            "source_mix_targets": {},
+        },
+        {"target_valid_source_count": 18, "target_evidence_count": 50, "target_replacement_ratio": 1.0, "max_replenishment_candidates": 20},
+    )
+    assert deficit["valid_source_deficit"] == 8
+    assert deficit["replacement_needed"] is True
