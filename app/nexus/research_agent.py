@@ -20,7 +20,7 @@ from app.nexus.evidence import EvidenceItem, replace_evidence_items_for_job, sav
 from app.nexus.jobs import append_job_event, append_job_heartbeat, create_job, ensure_job_exists, update_job
 from app.nexus.news_sources import NewsResearchSourceProfile, collect_news_research_sources, convert_news_items_to_evidence
 from app.nexus.research_gaps import analyze_claim_level_gaps
-from app.nexus.source_collector import collect_source_candidates, get_curated_domain_hints, rank_source_candidates
+from app.nexus.source_collector import build_curated_direct_source_candidates, collect_source_candidates, get_curated_domain_hints, rank_source_candidates
 from app.nexus.research_planner import (
     build_coverage_matrix,
     build_focused_research_plan,
@@ -202,6 +202,9 @@ def _retrieval_summary(
     focused_research_plan: dict | None = None,
     coverage_matrix: list[dict] | None = None,
     search_policy: dict | None = None,
+    curated_direct_candidate_count: int = 0,
+    curated_direct_downloaded_count: int = 0,
+    curated_direct_domains: list[str] | None = None,
 ) -> dict[str, Any]:
     def _url(item: dict) -> str:
         return str(item.get("url") or item.get("final_url") or "").lower()
@@ -231,6 +234,9 @@ def _retrieval_summary(
         "freshness_policy": policy.get("freshness_policy"),
         "fresh_source_count": fresh_count,
         "stale_source_count": stale_count,
+        "curated_direct_candidate_count": max(0, int(curated_direct_candidate_count)),
+        "curated_direct_downloaded_count": max(0, int(curated_direct_downloaded_count)),
+        "curated_direct_domains": list(curated_direct_domains or []),
     }
     summary.update({k: targets.get(k) for k in targets if k.startswith("target_") or k in {"max_retrieval_rounds", "adaptive_retrieval_enabled"}})
     _, unsatisfied = should_expand_retrieval(summary, {**targets, "max_retrieval_rounds": 999}, 0)
@@ -1311,6 +1317,8 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         candidate_by_url: dict[str, dict] = {}
         attempted_canonical_urls: set[str] = set()
         retrieval_rounds: list[dict] = []
+        curated_direct_candidates = build_curated_direct_source_candidates(query, payload.source_profile, intent)
+        curated_direct_domains = sorted({urlparse(str(item.get("url") or "")).netloc.lower() for item in curated_direct_candidates if str(item.get("url") or "")})
         skipped_due_to_download_limit_count = 0
         last_expand_reasons: list[str] = []
         cumulative_downloaded_bytes = 0
@@ -1355,7 +1363,11 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             for _item in round_items:
                 _item["query_purpose"] = query_purpose_by_query.get(str(_item.get("query") or "").strip(), "")
             all_items.extend(round_items)
-            round_candidates = collect_source_candidates(search_items=all_items, manual_urls=payload.manual_urls if round_index == 0 else [])
+            round_candidates = collect_source_candidates(
+                search_items=all_items,
+                manual_urls=payload.manual_urls if round_index == 0 else [],
+                direct_source_candidates=curated_direct_candidates if round_index == 0 else [],
+            )
             ranked_all = rank_source_candidates(
                 round_candidates,
                 prefer_pdf=payload.prefer_pdf,
@@ -1461,6 +1473,9 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 screening_summary=screening_summary,
                 focused_research_plan=focused_research_plan,
                 search_policy=resolve_searxng_engines_for_profile(payload.source_profile, str(payload.depth or payload.mode or "standard"), "recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced"),
+                curated_direct_candidate_count=len(curated_direct_candidates),
+                curated_direct_downloaded_count=sum(1 for item in downloadable_sources if str(item.get("origin") or "") == "curated_direct_source" and str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested"}),
+                curated_direct_domains=curated_direct_domains,
             )
             expand, reasons = should_expand_retrieval(current_summary, targets, round_index + 1)
             round_payload = {
@@ -1559,6 +1574,9 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             focused_research_plan=focused_research_plan,
             coverage_matrix=coverage_matrix,
             search_policy=resolve_searxng_engines_for_profile(payload.source_profile, str(payload.depth or payload.mode or "standard"), "recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced"),
+            curated_direct_candidate_count=len(curated_direct_candidates),
+            curated_direct_downloaded_count=sum(1 for item in downloadable_sources if str(item.get("origin") or "") == "curated_direct_source" and str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested"}),
+            curated_direct_domains=curated_direct_domains,
         )
         if references:
             labels = [f"[S{i + 1}]" for i in range(len(references))]
