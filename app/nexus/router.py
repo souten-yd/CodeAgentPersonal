@@ -201,7 +201,7 @@ def _is_provider_enabled(provider: str, cfg) -> bool:
 
 def _is_provider_configured(provider: str, cfg) -> tuple[bool, str]:
     normalized = (provider or "").strip().lower()
-    if normalized == "brave":
+    if normalized in {"brave", "braveapi", "brave_api"}:
         has_key = bool(cfg.brave_search_api_key)
         if not has_key:
             return False, "BRAVE_SEARCH_API_KEY が未設定です。"
@@ -658,23 +658,59 @@ def nexus_web_status_compat() -> dict:
     probe_message = searxng_message
     if searxng_configured:
         probe_ok, probe_message = _check_searxng_connectivity(cfg.searxng_url)
-    active_provider = str(cfg.web_search_provider or "").strip().lower() or "unknown"
+    requested_provider = str(cfg.web_search_provider or "").strip().lower() or "unknown"
+    active_provider = requested_provider
+    skipped_providers: list[str] = []
+    provider_errors: dict[str,list[str]] = {}
+    message = probe_message
+    stub = False
+    non_fatal = False
+    configured = bool(_is_provider_configured(active_provider, cfg)[0])
+
+    if requested_provider == "searxng":
+        active_provider = "searxng"
+        configured = bool(searxng_configured)
+        if probe_ok:
+            message = "SearXNG is connected."
+            stub = False
+            non_fatal = False
+        else:
+            stub = True
+            non_fatal = True
+            provider_errors = {"searxng": [probe_message]}
+    elif requested_provider in {"brave", "braveapi", "brave_api"}:
+        brave_ok, brave_msg = _is_provider_configured("braveapi", cfg)
+        configured = brave_ok
+        if not brave_ok:
+            if "searxng" in set(cfg.search_fallback_providers or ()) and probe_ok:
+                active_provider = "searxng"
+                stub = False
+                message = "Brave API is not configured; using SearXNG."
+                skipped_providers.append("braveapi_unconfigured")
+                configured = True
+            else:
+                stub = True
+                non_fatal = True
+                provider_errors = {"braveapi": [brave_msg]}
+                message = brave_msg
+
     searxng_engine_status = get_searxng_engine_status()
     return {
         "enable_web": bool(cfg.enable_web),
-        "provider": active_provider,
+        "provider": requested_provider,
         "fallback_providers": list(cfg.search_fallback_providers or []),
         "free_only": bool(cfg.search_free_only),
         "paid_providers_enabled": bool(cfg.search_paid_providers_enabled),
         "brave_search_api_key_set": bool(cfg.brave_search_api_key),
         "searxng_url": cfg.searxng_url,
         "searxng_configured": bool(searxng_configured),
-        "configured": bool(_is_provider_configured(active_provider, cfg)[0]),
+        "configured": bool(configured),
         "active_provider": active_provider,
         "searxng": {"configured": searxng_configured, "probe_ok": probe_ok, "message": probe_message},
-        "non_fatal": not bool(probe_ok) if active_provider == "searxng" else False,
-        "stub": not bool(probe_ok) if active_provider == "searxng" else False,
-        "provider_errors": {active_provider: [probe_message]} if not probe_ok else {},
+        "non_fatal": non_fatal,
+        "stub": stub,
+        "provider_errors": provider_errors,
+        "skipped_providers": skipped_providers,
         "last_provider_errors": get_last_web_search_status().get("last_provider_errors", {}),
         "last_search_at": get_last_web_search_status().get("last_search_at"),
         "last_selected_provider": get_last_web_search_status().get("last_selected_provider"),
@@ -682,7 +718,7 @@ def nexus_web_status_compat() -> dict:
         "last_message": get_last_web_search_status().get("last_message", ""),
         "last_diagnostics": get_last_web_search_status().get("last_diagnostics", []),
         **searxng_engine_status,
-        "message": probe_message,
+        "message": message,
         "last_search": get_last_web_search_status(),
     }
 

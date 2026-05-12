@@ -118,3 +118,13 @@ def test_closed_advanced_details_hidden_values_are_not_payload_sources() -> None
     assert 'const advancedOverrides = (typeof collectNexusAdvancedOverrides === \'function\')' in text
     assert 'window.__nexusAdvancedOverridesEnabled = false' in text
     assert "el.addEventListener('toggle'" in text
+
+
+def test_previous_runs_default_collapsed_and_show_more_controls() -> None:
+    html = load_root_ui_html_text()
+    assert 'Show previous runs' in html
+    assert 'Show more' in html
+    assert 'Previous Runs (0)' in html
+    text = load_ui_contract_text()
+    assert 'nexusDeepPreviousRunsCollapsed = true' in text
+    assert 'slice(0, nexusDeepPreviousRunsVisibleCount)' in text
