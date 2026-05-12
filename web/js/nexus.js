@@ -421,7 +421,8 @@ function formatNexusResearchStatusCompact(job = {}, bundle = {}, answer = {}) {
     : (retrievalRounds > 1 ? '目標件数に届かなかったため、追加検索を実行しました。' : '');
   const fallbackNotice = generationMode === 'template_fallback' ? '回答生成はfallbackです。根拠付き回答ではありません。' : '';
   const notice = [problemText, limitText, targetNotice, fallbackNotice].filter(Boolean).join(' / ');
-  const severity = state === 'failed' ? 'error' : (hasNotice ? 'warning' : 'info');
+  const isHardFailed = state === 'failed' && reason === 'no_sources';
+  const severity = isHardFailed ? 'error' : (hasNotice ? 'warning' : 'info');
   return { title, progress: progressText, collection, notice, severity };
 }
 
