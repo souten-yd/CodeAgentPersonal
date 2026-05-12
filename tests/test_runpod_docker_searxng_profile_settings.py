@@ -47,7 +47,7 @@ def test_start_timeout_default_is_30_seconds() -> None:
 
 def test_disabled_engines_default_contains_required_engines() -> None:
     text = _read(START_SCRIPT)
-    assert 'SEARXNG_DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES:-startpage,karmasearch,karmasearch videos,qwant,yahoo}"' in text
+    assert 'SEARXNG_DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES:-startpage,karmasearch,karmasearch videos,qwant,qwant images,qwant news,qwant videos,qwant web,yahoo}"' in text
 
 
 def test_docker_broad_engines_default_contains_google_bing_brave_duckduckgo() -> None:

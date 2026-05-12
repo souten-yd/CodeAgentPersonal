@@ -12,7 +12,7 @@ SEARXNG_START_TIMEOUT_SEC="${SEARXNG_START_TIMEOUT_SEC:-30}"
 SEARXNG_LOG_FILE="${SEARXNG_LOG_FILE:-${SEARXNG_CONFIG_DIR}/searxng.log}"
 SEARXNG_ENGINE_PROFILE="${SEARXNG_ENGINE_PROFILE:-adaptive_broad_research}"
 SEARXNG_SAFE_KEEP_ONLY_ENGINES="${SEARXNG_SAFE_KEEP_ONLY_ENGINES:-wikipedia,wikidata,arxiv,crossref,openalex,semantic scholar,github,stackoverflow}"
-SEARXNG_DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES:-startpage,karmasearch,karmasearch videos,qwant,yahoo}"
+SEARXNG_DISABLED_ENGINES="${SEARXNG_DISABLED_ENGINES:-startpage,karmasearch,karmasearch videos,qwant,qwant images,qwant news,qwant videos,qwant web,yahoo}"
 SEARXNG_HEALTH_ENGINE="${SEARXNG_HEALTH_ENGINE:-wikipedia}"
 SEARXNG_FORCE_SAFE_SETTINGS="${SEARXNG_FORCE_SAFE_SETTINGS:-false}"
 SEARXNG_HEALTH_ENGINE_ENCODED="$(HEALTH_ENGINE="${SEARXNG_HEALTH_ENGINE}" python3 - <<'PY_HEALTH_ENGINE'
@@ -239,6 +239,31 @@ EOF_ENSURE_PROFILE
   return ${ensure_code}
 }
 
+validate_searxng_boot_config() {
+  if [[ ! -f "${SEARXNG_SETTINGS_PATH}" ]]; then
+    return 0
+  fi
+  SETTINGS_PATH="${SEARXNG_SETTINGS_PATH}" python3 - <<'EOF_VALIDATE_BOOT'
+from pathlib import Path
+import os
+
+sp = Path(os.environ["SETTINGS_PATH"])
+text = sp.read_text(encoding="utf-8")
+required = ["qwant", "qwant images", "qwant news", "qwant videos", "qwant web"]
+missing = [name for name in required if f"- {name}" not in text]
+if missing:
+    print("missing_qwant_family=" + ",".join(missing))
+    raise SystemExit(41)
+print("validated boot qwant family")
+EOF_VALIDATE_BOOT
+  local code=$?
+  if [[ "${code}" == "41" ]]; then
+    warn "settings missing qwant family remove entries; regenerating from template"
+    render_searxng_settings_from_template || return $?
+  fi
+  return 0
+}
+
 validate_or_repair_settings_for_current_profile() {
   if [[ ! -f "${SEARXNG_SETTINGS_PATH}" ]]; then
     return 0
@@ -292,6 +317,12 @@ else:
                 remove = engines.get("remove")
                 if not isinstance(remove, list) or any(item not in remove for item in disabled):
                     reason = "use_default_settings.engines.remove missing disabled engines defaults"
+                if reason is None:
+                    if "qwant" in remove:
+                        qwant_family = ["qwant images", "qwant news", "qwant videos", "qwant web"]
+                        missing_family = [name for name in qwant_family if name not in remove]
+                        if missing_family:
+                            reason = "qwant family remove entries missing: " + ",".join(missing_family)
 if reason is None:
     print(f"validated profile={profile}")
     raise SystemExit(0)
@@ -395,6 +426,7 @@ fi
 
 ensure_profile_settings || warn "profile settings ensure failed; continuing startup with existing settings: ${SEARXNG_SETTINGS_PATH}"
 validate_or_repair_settings_for_current_profile || warn "settings validate/repair failed; continuing startup with existing settings: ${SEARXNG_SETTINGS_PATH}"
+validate_searxng_boot_config || warn "boot config validation failed; continuing startup with existing settings: ${SEARXNG_SETTINGS_PATH}"
 log "settings profile ready: ${SEARXNG_ENGINE_PROFILE} / path=${SEARXNG_SETTINGS_PATH}"
 
 if command -v curl >/dev/null 2>&1; then
@@ -447,7 +479,16 @@ if command -v curl >/dev/null 2>&1; then
       warn "debug curl_status=${http_status:-curl_failed}"
       warn "debug curl_head=$(head -c 200 /tmp/searxng_probe_resp.$$ 2>/dev/null || true)"
       rm -f /tmp/searxng_probe_resp.$$ || true
-      set_autostart_status "failed_timeout" "SearXNGの起動確認がタイムアウトしました。ログを確認してください: ${SEARXNG_LOG_FILE}"
+      if ps aux | grep -q "[s]earx/webapp.py"; then
+        set_autostart_status "failed_timeout" "SearXNGの起動確認がタイムアウトしました。ログを確認してください: ${SEARXNG_LOG_FILE}"
+      else
+        last_qwant_error="$(tail -n 120 "${SEARXNG_LOG_FILE}" 2>/dev/null | grep -m1 -F "KeyError: 'qwant'" || true)"
+        if [[ -n "${last_qwant_error}" ]]; then
+          set_autostart_status "failed_process_exited" "SearXNG process exited before health probe. Check searxng.log. Last error: KeyError: 'qwant'"
+        else
+          set_autostart_status "failed_process_exited" "SearXNG process exited before health probe. Check searxng.log."
+        fi
+      fi
       break
     fi
     sleep 2

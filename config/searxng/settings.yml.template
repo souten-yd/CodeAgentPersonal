@@ -6,6 +6,10 @@ use_default_settings:
       - karmasearch
       - karmasearch videos
       - qwant
+      - qwant images
+      - qwant news
+      - qwant videos
+      - qwant web
       - yahoo
 
 general:
