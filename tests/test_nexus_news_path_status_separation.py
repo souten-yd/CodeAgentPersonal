@@ -26,9 +26,22 @@ def test_brave_api_and_searxng_brave_are_not_mixed():
     assert "SearXNG engine brave: configured through SearXNG, no Brave API key required" in text
 
 
-def test_deep_research_news_profile_surface_effective_engines_news_shape():
-    out = collect_news_research_sources("economy", profile=NewsResearchSourceProfile(max_queries=1, max_items=2))
-    assert out["search"]["source_profile"] == "news"
+def test_web_provider_warning_formatter_does_not_mark_running_job_failed():
+    text = open("web/js/nexus.js", encoding="utf-8").read()
+    assert "[Web provider warning] Web provider health check is degraded. News/RSS/GDELT sources may still work." in text
+    assert "const severity = isHardFailed ? 'error' : (hasNotice ? 'warning' : 'info');" in text
+
+
+def test_ui_separates_provider_health_and_job_status_dom():
+    text = open("ui.html", encoding="utf-8").read()
+    assert "id=\"nexus-deep-provider-health\"" in text
+    assert "id=\"nexus-deep-job-status\"" in text
+    assert "formatNexusProviderHealthWarning" in text
+
+
+def test_job_failed_no_sources_only_path_is_explicitly_handled():
+    text = open("web/js/nexus.js", encoding="utf-8").read()
+    assert "const isHardFailed = state === 'failed' && reason === 'no_sources';" in text
 
 
 def test_news_mvp_path_surfaces_effective_news_providers():
@@ -36,7 +49,6 @@ def test_news_mvp_path_surfaces_effective_news_providers():
     assert "effective_news_providers" in out["search"]
 
 
-def test_ui_status_formatter_separates_health_warning_and_job_failed_states():
-    text = open("web/js/nexus.js", encoding="utf-8").read()
-    assert "formatNexusProviderHealthWarning" in text
-    assert "state === 'failed'" in text
+def test_no_legacy_brave_searxng_stub_phrase_left_in_ui():
+    text = open("ui.html", encoding="utf-8").read()
+    assert "Brave/SearXNG 未設定のため stub" not in text

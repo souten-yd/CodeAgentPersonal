@@ -549,6 +549,8 @@
                 <button class="settings-btn primary" id="nexus-deep-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusDeepResearch()">Start Research</button>
                 <button class="settings-btn" id="nexus-deep-bundle-btn" style="padding:5px 12px;font-size:11px" onclick="downloadNexusDeepBundle()" disabled>Download Bundle</button>
               </div>
+              <div id="nexus-deep-provider-health" class="nexus-result-meta">Provider: -</div>
+              <div id="nexus-deep-job-status" class="nexus-result-meta">Job: 状態: 未実行</div>
               <div id="nexus-deep-status" class="nexus-result-meta">状態: 未実行</div>
               <div class="nexus-result-meta">Deep Researchの結果はResearch Answerとして保存されます。Reportには自動保存されません。ダウンロードはResearch Bundleを使用してください。</div>
               <div class="nexus-card nexus-current-run-card" style="margin-top:10px">
@@ -6052,6 +6054,7 @@ let nexusDeepResearchJobId = '';
 let nexusDeepResearchAfterSeq = -1;
 let nexusDeepResearchEvents = [];
 let nexusDeepResearchStubMode = false;
+let nexusDeepProviderHealthWarning = { show: false, severity: "info", message: "" };
 let nexusDeepResearchSources = [];
 let nexusDeepResearchAnswer = {};
 let nexusDeepResearchEvidence = [];
@@ -6803,13 +6806,26 @@ async function runNexusWebScoutMvp() {
 
 function setNexusDeepStatus(message, isErr = false, isStub = false) {
   const el = document.getElementById('nexus-deep-status');
+  const providerEl = document.getElementById('nexus-deep-provider-health');
+  const jobEl = document.getElementById('nexus-deep-job-status');
   if (!el) return;
+  const providerWarning = (typeof formatNexusProviderHealthWarning === 'function')
+    ? formatNexusProviderHealthWarning(nexusDeepProviderHealthWarning || {})
+    : { show: false, severity: 'info', message: '' };
+  if (providerEl) {
+    providerEl.style.color = providerWarning.show ? 'var(--amber)' : 'var(--text3)';
+    providerEl.textContent = providerWarning.show ? `Provider: ${providerWarning.message}` : 'Provider: healthy';
+  }
   const prefix = isStub ? '[非致命 stub] ' : '';
   el.style.color = isErr ? 'var(--red)' : (isStub ? 'var(--amber)' : 'var(--text2)');
   if (message && typeof message === 'object') {
     const compact = message;
     const notice = compact.notice ? `<div>注意: ${esc(String(compact.notice))}</div>` : '';
     const debug = compact.debug ? `<details class="nexus-debug-details"><summary>Debug Details</summary><pre>${esc(String(compact.debug))}</pre></details>` : '';
+    if (jobEl) {
+      jobEl.style.color = compact.severity === 'error' ? 'var(--red)' : 'var(--text2)';
+      jobEl.textContent = `Job: ${String(compact.title || '-')}`;
+    }
     el.innerHTML = `<div class="nexus-status-compact severity-${esc(String(compact.severity || 'info'))}">
       <div>状態: ${esc(prefix)}${esc(String(compact.title || '-'))}</div>
       <div>進捗: ${esc(String(compact.progress || '-'))}</div>
@@ -6817,6 +6833,10 @@ function setNexusDeepStatus(message, isErr = false, isStub = false) {
       ${notice}
     </div>${debug}`;
     return;
+  }
+  if (jobEl) {
+    jobEl.style.color = isErr ? 'var(--red)' : 'var(--text2)';
+    jobEl.textContent = `Job: ${prefix}${message || '-'}`;
   }
   el.textContent = `状態: ${prefix}${message || '-'}`;
 }
@@ -8079,12 +8099,13 @@ async function runNexusDeepResearch() {
   if (btn) btn.disabled = true;
   try {
     const webStatus = await refreshNexusWebStatus();
+    nexusDeepProviderHealthWarning = webStatus || {};
     const braveUnset = webStatus?.brave_search_api_key_set === false;
     const searxngState = String(webStatus?.searxng_state || '').toLowerCase();
     const searxngUnavailable = !searxngState || searxngState !== 'connected';
     nexusDeepResearchStubMode = braveUnset && searxngUnavailable;
     if (nexusDeepResearchStubMode) {
-      setNexusDeepStatus('Web検索に接続できません', true, true);
+      setNexusDeepStatus('research job を起動中...', false, true);
     } else {
       setNexusDeepStatus('research job を起動中...');
     }
