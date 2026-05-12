@@ -71,6 +71,7 @@ def test_fallback_role_warning_removed_from_normal_ui() -> None:
     assert 'role_model_search を設定してください。' not in text
     assert 'hasRoleWarning' not in text
 
+
 def test_advanced_override_helpers_exist_and_guard_closed_details() -> None:
     text = load_ui_contract_text()
     assert 'function isNexusAdvancedSettingsOpen()' in text
@@ -136,3 +137,16 @@ def test_compact_status_helper_zero_source_and_fallback_labels() -> None:
     assert '検索結果を取得できませんでした' in helper
     assert '根拠を抽出できませんでした' in helper
     assert '回答生成はfallbackです。根拠付き回答ではありません。' in helper
+
+
+def test_compact_status_helper_reason_precedence_over_state() -> None:
+    text = load_ui_contract_text()
+    helper = text.split('function formatNexusResearchStatusCompact', 1)[1].split('\n}\n', 1)[0]
+    no_sources_idx = helper.index("reason === 'no_sources'")
+    no_evidence_idx = helper.index("reason === 'no_evidence'")
+    failed_idx = helper.index("state === 'failed'")
+    degraded_idx = helper.index("state === 'degraded' || (terminal && hasNotice)")
+    assert no_sources_idx < failed_idx
+    assert no_evidence_idx < failed_idx
+    assert no_evidence_idx < degraded_idx
+    assert '根拠を抽出できませんでした' in helper
