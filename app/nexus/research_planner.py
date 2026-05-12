@@ -256,6 +256,70 @@ def build_focused_research_plan(intent: dict[str, Any], screening_summary: dict[
     return {"research_questions": [f"{topic}: {dim}" for dim in dims], "focused_queries": focused[:cap], "must_cover_dimensions": dims, "source_mix_targets": targets, "exclusion_terms": list(screening_summary.get("off_topic_patterns") or [])[:10]}
 
 
+
+def build_replenishment_queries(
+    original_query: str,
+    intent: dict,
+    focused_plan: dict,
+    retrieval_deficit: dict,
+    failed_sources: list[dict],
+    suspended_engines: list[str],
+) -> list[dict]:
+    """Build anchored replacement queries to refill failed/degraded/off-topic retrieval slots."""
+    anchor = " ".join(str(original_query or "").split()).strip()
+    if not anchor:
+        return []
+    profile = str((intent or {}).get("source_profile") or (focused_plan or {}).get("source_profile") or "market").lower()
+    suspended = [str(engine).lower() for engine in suspended_engines or [] if str(engine).strip()]
+    failure_types = [str(item.get("failure_class") or item.get("failure_type") or item.get("status") or "").lower() for item in failed_sources or []]
+    off_topic_heavy = sum(1 for value in failure_types if "off" in value) >= 2
+    exclude_domains = sorted({_domain(str(item.get("url") or item.get("final_url") or "")) for item in failed_sources or [] if _domain(str(item.get("url") or item.get("final_url") or ""))})[:12]
+    exclusion_terms = list((focused_plan or {}).get("exclusion_terms") or [])[:8]
+    if off_topic_heavy:
+        exclusion_terms.extend(["semantic web", "web security", "unrelated", "definition only"])
+
+    def engines() -> list[str]:
+        primary = ["google", "brave", "duckduckgo"]
+        return [engine for engine in primary if engine not in suspended] or (["wikipedia", "wikidata", "github"] + (["arxiv", "crossref", "openalex"] if profile in {"source", "academic", "technical"} else []))
+
+    specs: list[tuple[str, str, list[str], float]] = []
+    if int(retrieval_deficit.get("official_deficit") or 0) > 0:
+        specs.append(("official government report PDF", "official_deficit", ["official", "report", "pdf"], 0.95))
+    if int(retrieval_deficit.get("pdf_deficit") or 0) > 0:
+        specs.append(("PDF report white paper", "pdf_deficit", ["pdf", "report"], 0.9))
+    if int(retrieval_deficit.get("fresh_news_deficit") or 0) > 0:
+        specs.append(("latest news press release 2026", "fresh_news_deficit", ["news", "press_release"], 0.86))
+    if int(retrieval_deficit.get("company_ir_deficit") or 0) > 0:
+        specs.append(("investor relations annual report company announcement", "company_ir_deficit", ["company_ir", "report"], 0.84))
+    if int(retrieval_deficit.get("academic_deficit") or 0) > 0:
+        specs.append(("paper arxiv study research", "academic_deficit", ["academic", "pdf"], 0.82))
+    if not specs:
+        specs.extend([
+            ("official report source", "valid_source_deficit", ["official", "report"], 0.78),
+            ("market outlook analysis evidence", "evidence_deficit", ["report", "news"], 0.72),
+        ])
+    queries: list[dict] = []
+    seen: set[str] = set()
+    for suffix, purpose_detail, preferred, priority in specs:
+        q = " ".join(f"{anchor} {suffix}".split())
+        key = q.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        queries.append({
+            "query": q,
+            "purpose": "replenish_failed_sources",
+            "purpose_detail": purpose_detail,
+            "source_profile": profile,
+            "preferred_source_types": preferred,
+            "exclude_domains": exclude_domains,
+            "exclusion_terms": exclusion_terms,
+            "preferred_engines": engines(),
+            "avoid_engines": suspended,
+            "priority": priority,
+        })
+    return queries[:12]
+
 def build_report_outline(intent: dict[str, Any], focused_research_plan: dict[str, Any] | None = None) -> list[str]:
     kind = str(intent.get("expected_output_type") or "report")
     if kind == "market_analysis":

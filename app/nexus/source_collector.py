@@ -679,6 +679,35 @@ def collect_source_candidates(
     return candidates
 
 
+
+def classify_retrieval_failure(candidate_or_source: dict) -> str:
+    """Classify retrieval/download failures for replenishment accounting."""
+    item = candidate_or_source or {}
+    status = str(item.get("status") or item.get("source_status") or item.get("failure_type") or "").strip().lower()
+    reason = " ".join(str(item.get(key) or "") for key in ("error", "reason", "message", "failure_reason", "diagnostic")).lower()
+    haystack = f"{status} {reason}"
+    if "skipped_download_limit" in haystack or status == "skipped_limit":
+        return "skipped_limit"
+    if "duplicate" in haystack or status == "duplicate":
+        return "duplicate"
+    if any(token in haystack for token in ("captcha", "jsondecodeerror", "non-json", "non json", "engine failure", "searxng engine")):
+        return "engine_failure"
+    if any(token in haystack for token in ("403", "429", "accessdenied", "access denied", "forbidden", "paywall", "too many requests")):
+        return "paywall_or_forbidden"
+    if "timeout" in haystack or "timed out" in haystack:
+        return "timeout"
+    if "off_topic" in haystack or "off-topic" in haystack or "topic drift" in haystack:
+        return "off_topic"
+    if "quality" in haystack and ("reject" in haystack or "low" in haystack):
+        return "quality_rejected"
+    if "degraded" in haystack or "body shortage" in haystack or "insufficient body" in haystack:
+        return "degraded_content"
+    if "download" in haystack and any(token in haystack for token in ("failed", "error", "fail")):
+        return "download_failed"
+    if status in {"failed", "error"}:
+        return "download_failed"
+    return "unknown"
+
 def rank_source_candidates(
     candidates: list[dict],
     *,
