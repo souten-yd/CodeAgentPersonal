@@ -392,12 +392,14 @@ function formatNexusResearchStatusCompact(job = {}, bundle = {}, answer = {}) {
   const hasNotice = degraded + failed + skipped > 0 || state === 'degraded';
   const reason = String(job.reason || health.reason || '').toLowerCase();
   const generationMode = String(answer?.generation_mode || answer?.generation?.mode || '').toLowerCase();
+  const answerGenerated = Boolean(answer?.answer_generated || String(answer?.answer_markdown || answer?.answer || '').trim());
   let title = terminal ? '完了しました' : '調査中';
   if (reason === 'no_sources') title = '検索結果を取得できませんでした';
   else if (reason === 'no_evidence') title = '根拠を抽出できませんでした';
   else if (state === 'failed') title = '失敗しました';
   else if (reason === 'targets_unsatisfied') title = '完了しました（目標未達）';
   else if (state === 'degraded' || (terminal && hasNotice)) title = '完了しました（注意あり）';
+  else if (!terminal && phase === 'reporting' && answerGenerated) title = '回答生成済み・検証中';
   const phaseLabel = phase.includes('download') ? 'ダウンロードと根拠抽出' : phase.includes('answer') || phase.includes('report') ? 'レポート生成' : phase.includes('source') || phase.includes('search') ? 'ソース収集中' : '調査を進行中';
   const progressText = reason === 'no_sources'
     ? '検索に失敗しました'
@@ -407,6 +409,8 @@ function formatNexusResearchStatusCompact(job = {}, bundle = {}, answer = {}) {
         ? '失敗しました'
         : (terminal && state === 'completed')
           ? 'レポート生成まで完了'
+          : (!terminal && phase === 'reporting' && answerGenerated)
+            ? '回答生成完了 / 根拠検証中 / 追加確認中'
           : (total > 0 ? `ソース収集中 ${completed}/${total}` : `${phaseLabel}${progress ? ` ${progress}%` : ''}`);
   const screeningCount = Number(retrieval?.screening_summary?.candidate_count ?? retrieval?.screening_summary?.unique_candidate_count ?? 0);
   const focusedCount = Array.isArray(retrieval?.focused_research_plan?.focused_queries) ? retrieval.focused_research_plan.focused_queries.length : 0;
