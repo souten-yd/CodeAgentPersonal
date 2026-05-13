@@ -6105,6 +6105,14 @@ function fetchWithTimeout(url, options = {}, timeoutMs = 3000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error(`timeout:${timeoutMs}`)), timeoutMs);
   return fetch(url, { ...options, signal: controller.signal })
+    .catch((err) => {
+      const errName = String(err?.name || '').toLowerCase();
+      const errMessage = String(err?.message || '').toLowerCase();
+      if (errName.includes('timeout') || errName.includes('abort') || errMessage.includes('timeout') || errMessage.includes('aborted')) {
+        err.timeout = true;
+      }
+      throw err;
+    })
     .finally(() => clearTimeout(timer));
 }
 
@@ -7418,7 +7426,9 @@ async function hydrateNexusDeepTerminalLatest(jobId) {
   const id = String(jobId || '').trim();
   if (!id) return;
   try { await refreshNexusDeepBundle(id); } catch (_err) {}
-  try { await refreshNexusDeepAnswer(id); } catch (_err) {}
+  if (typeof refreshNexusDeepAnswer === 'function') {
+    try { await refreshNexusDeepAnswer(id); } catch (_err) {}
+  }
 }
 
 async function resumeLatestNexusResearchJob() {
@@ -7461,9 +7471,17 @@ async function resumeLatestNexusResearchJob() {
       .filter((job) => isNexusResearchJobLike(job) && ['queued', 'running'].includes(String(job?.status || '').toLowerCase()))
       .sort((a, b) => rankNexusResearchJob(b) - rankNexusResearchJob(a))[0];
     restored = await tryRestore(runningCandidate, 'active');
+    if (restored) console.debug('[NexusDeep][resume] resume source: active');
     if (restored) { nexusDeepResearchResumeCompleted = true; return; }
   } catch (err) {
-    activeTimedOut = String(err?.name || '').toLowerCase().includes('timeout');
+    const errName = String(err?.name || '').toLowerCase();
+    const errMessage = String(err?.message || '').toLowerCase();
+    activeTimedOut = err?.timeout === true
+      || errName.includes('timeout')
+      || errName.includes('abort')
+      || errMessage.includes('timeout')
+      || errMessage.includes('aborted');
+    if (activeTimedOut) console.debug('[NexusDeep][resume] resume retry: active_timeout');
   }
   try {
     const latestUrl = API + '/nexus/jobs/latest?project=' + encodeURIComponent(currentProject || 'default') + '&limit=1&include_terminal=true';
@@ -7471,12 +7489,16 @@ async function resumeLatestNexusResearchJob() {
     const latestData = latestRes.ok ? await latestRes.json() : {};
     const latestItems = Array.isArray(latestData?.items) ? latestData.items : (latestData?.job ? [latestData.job] : []);
     restored = await tryRestore(latestItems[0], 'latest');
+    if (restored) console.debug('[NexusDeep][resume] resume source: latest');
     if (restored) { nexusDeepResearchResumeCompleted = true; return; }
   } catch (_err) {}
   try {
     const storageKey = 'nexus.deepResearch.lastJobId';
     const savedId = String(localStorage.getItem(storageKey) || '').trim();
-    if (savedId) restored = await tryRestore({ job_id: savedId, status: 'running', metadata: { is_research_job: true } }, 'localStorage');
+    if (savedId) {
+      restored = await tryRestore({ job_id: savedId, status: 'running', metadata: { is_research_job: true } }, 'localStorage');
+      if (restored) console.debug('[NexusDeep][resume] resume source: localStorage');
+    }
   } catch (_err) {}
   if (restored) { nexusDeepResearchResumeCompleted = true; return; }
   nexusDeepResearchResumeStarted = false;
@@ -7488,6 +7510,7 @@ async function resumeLatestNexusResearchJob() {
       resumeLatestNexusResearchJob();
     }, 7000);
   }
+  if (!restored) console.debug('[NexusDeep][resume] resume skipped: non_research_job');
 }
 
 
