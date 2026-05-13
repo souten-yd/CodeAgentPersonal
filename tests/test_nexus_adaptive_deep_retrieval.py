@@ -125,6 +125,6 @@ def test_deep_targets_include_replenishment_budget():
     deep = build_retrieval_targets(ResearchAgentInput(query="q", mode="deep", depth="deep"))
     exhaustive = build_retrieval_targets(ResearchAgentInput(query="q", mode="exhaustive", depth="exhaustive"))
     assert deep["max_replenishment_rounds"] == 3
-    assert deep["max_replenishment_candidates"] == 80
+    assert deep["max_replenishment_candidates"] == 120
     assert exhaustive["max_replenishment_rounds"] == 5
-    assert exhaustive["max_replenishment_candidates"] == 140
+    assert exhaustive["max_replenishment_candidates"] == 220
