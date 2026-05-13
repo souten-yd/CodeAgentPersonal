@@ -295,11 +295,11 @@ function collectNexusAdvancedOverrides() {
   const scope = (document.getElementById('nexus-deep-scope')?.value || '').trim().toLowerCase();
   setIfPresent(overrides, 'scope', scope);
   setIfPresent(overrides, 'max_queries', readInt('nexus-deep-max-queries', 1, 50));
-  setIfPresent(overrides, 'max_results_per_query', readInt('nexus-deep-max-results-per-query', 1, 100));
-  setIfPresent(overrides, 'max_sources', readInt('nexus-deep-max-sources', 1, 200));
-  setIfPresent(overrides, 'max_download_mb', readInt('nexus-deep-max-download-mb', 1, 500));
-  setIfPresent(overrides, 'max_total_download_mb', readInt('nexus-deep-max-total-download-mb', 1, 2048));
-  setIfPresent(overrides, 'max_downloads', readInt('nexus-deep-max-downloads', 1, 200));
+  setIfPresent(overrides, 'max_results_per_query', readInt('nexus-deep-max-results-per-query', 1, 50));
+  setIfPresent(overrides, 'max_sources', readInt('nexus-deep-max-sources', 1, 500));
+  setIfPresent(overrides, 'max_download_mb', readInt('nexus-deep-max-download-mb', 1, 1000));
+  setIfPresent(overrides, 'max_total_download_mb', readInt('nexus-deep-max-total-download-mb', 1, 8192));
+  setIfPresent(overrides, 'max_downloads', readInt('nexus-deep-max-downloads', 1, 500));
   setIfPresent(overrides, 'download_timeout_sec', readInt('nexus-deep-download-timeout-sec', 1, 600));
   overrides.continue_on_download_error = readChecked('nexus-deep-continue-on-download-error', true);
   overrides.prefer_pdf = readChecked('nexus-deep-prefer-pdf', true);
@@ -316,8 +316,8 @@ function collectNexusAdvancedOverrides() {
     })
     : {
       recursive_search: recursiveSearch,
-      max_iterations: recursiveSearch ? (readInt('nexus-deep-max-iterations', 1, 5) ?? 2) : 1,
-      max_followup_queries: recursiveSearch ? (readInt('nexus-deep-max-followup-queries', 1, 10) ?? 4) : 4,
+      max_iterations: recursiveSearch ? (readInt('nexus-deep-max-iterations', 1, 8) ?? 2) : 1,
+      max_followup_queries: recursiveSearch ? (readInt('nexus-deep-max-followup-queries', 1, 20) ?? 4) : 4,
       confidence_threshold: recursiveSearch ? (readFloat('nexus-deep-confidence-threshold', 0, 1) ?? 0.75) : 0.75,
       stop_when_sufficient: readChecked('nexus-deep-stop-when-sufficient', true),
     };
