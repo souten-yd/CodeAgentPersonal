@@ -400,7 +400,11 @@ function formatNexusResearchStatusCompact(job = {}, bundle = {}, answer = {}) {
   else if (reason === 'targets_unsatisfied') title = '完了しました（目標未達）';
   else if (state === 'degraded' || (terminal && hasNotice)) title = '完了しました（注意あり）';
   else if (!terminal && phase === 'reporting' && answerGenerated) title = '回答生成済み・検証中';
-  const phaseLabel = phase.includes('download') ? 'ダウンロードと根拠抽出' : phase.includes('answer') || phase.includes('report') ? 'レポート生成' : phase.includes('source') || phase.includes('search') ? 'ソース収集中' : '調査を進行中';
+  const phaseIndex = Number(health.phase_index ?? answer.phase_index ?? 0);
+  const phaseTotal = Number(health.phase_total ?? answer.phase_total ?? 10) || 10;
+  const phaseLabelRaw = String(health.phase_label || '').trim();
+  const phaseLabel = phaseLabelRaw || (phase.includes('download') ? '本文取得・抽出中' : phase.includes('answer') || phase.includes('report') ? '回答生成中' : phase.includes('source') || phase.includes('search') ? 'ソース収集中' : '調査を進行中');
+  const phaseStepText = (phaseIndex > 0 && phaseTotal > 0) ? `${phaseIndex}/${phaseTotal} ${phaseLabel}` : phaseLabel;
   const progressText = reason === 'no_sources'
     ? '検索に失敗しました'
     : reason === 'no_evidence'
@@ -411,7 +415,7 @@ function formatNexusResearchStatusCompact(job = {}, bundle = {}, answer = {}) {
           ? 'レポート生成まで完了'
           : (!terminal && phase === 'reporting' && answerGenerated)
             ? '回答生成完了 / 根拠検証中 / 追加確認中'
-          : (total > 0 ? `ソース収集中 ${completed}/${total}` : `${phaseLabel}${progress ? ` ${progress}%` : ''}`);
+          : (total > 0 ? `${phaseStepText} ${completed}/${total}` : `${phaseStepText}${progress ? ` ${progress}%` : ''}`);
   const screeningCount = Number(retrieval?.screening_summary?.candidate_count ?? retrieval?.screening_summary?.unique_candidate_count ?? 0);
   const focusedCount = Array.isArray(retrieval?.focused_research_plan?.focused_queries) ? retrieval.focused_research_plan.focused_queries.length : 0;
   const screeningText = screeningCount ? `一次スクリーニング:${screeningCount}候補` : '';
