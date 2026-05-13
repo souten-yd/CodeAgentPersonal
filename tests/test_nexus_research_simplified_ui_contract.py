@@ -37,6 +37,27 @@ def test_jobs_active_polling_not_started_only_by_nexus_tab_open() -> None:
     assert 'nexusJobsPollTimer = setInterval(refreshNexusJobs, NEXUS_POLL_MS);' in html
 
 
+def test_resume_latest_research_job_prefers_server_active_then_latest_then_localstorage() -> None:
+    html = _ui()
+    assert 'async function resumeLatestNexusResearchJob() {' in html
+    assert "const activeUrl = API + '/nexus/jobs/active?limit=20';" in html
+    assert "const latestUrl = API + '/nexus/jobs/latest?project=' + encodeURIComponent(currentProject || 'default') + '&limit=1&include_terminal=true';" in html
+    assert "const storageKey = 'nexus.deepResearch.lastJobId';" in html
+
+
+def test_resume_non_blocking_uses_timeout_and_all_settled() -> None:
+    html = _ui()
+    assert 'fetchWithTimeout(activeUrl, {}, 2200);' in html
+    assert 'fetchWithTimeout(latestUrl, {}, 2200);' in html
+    assert 'Promise.allSettled([' in html and 'resumeLatestNexusResearchJob(),' in html
+
+
+def test_terminal_latest_job_is_routed_to_previous_runs() -> None:
+    html = _ui()
+    assert 'if (isNexusResearchTerminalStatus(job)) {' in html
+    assert 'pushNexusDeepPreviousRun(normalized);' in html
+
+
 def test_advanced_settings_remains_inside_details() -> None:
     html = _ui()
     assert '<details id="nexus-research-advanced"' in html
