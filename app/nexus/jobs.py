@@ -160,6 +160,21 @@ def list_active_jobs(limit: int = 100) -> list[NexusJob]:
     return [_row_to_job(row) for row in rows]
 
 
+def list_latest_jobs(limit: int = 20) -> list[NexusJob]:
+    safe_limit = max(1, min(500, limit))
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM nexus_jobs
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        ).fetchall()
+    return [_row_to_job(row) for row in rows]
+
+
 def append_job_event(job_id: str, event_type: str, data: dict[str, Any]) -> NexusJobEvent:
     now = _now_iso()
     raw_status = data.get("status")

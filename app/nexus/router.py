@@ -31,7 +31,7 @@ from app.nexus.config import load_runtime_config
 from app.nexus.evidence import search_evidence_items
 from app.nexus.export import nexus_export_router
 from app.nexus.ingest import accept_upload
-from app.nexus.jobs import append_job_event, list_active_jobs
+from app.nexus.jobs import append_job_event, list_active_jobs, list_latest_jobs
 from app.nexus.market import run_market_mvp
 from app.nexus.news import (
     create_watchlist,
@@ -648,6 +648,20 @@ def nexus_summary_compat(project: str = Query("default")) -> dict:
         },
         "active_jobs": list_active_jobs(limit=50),
     }
+
+
+@nexus_router.get("/jobs/active")
+def nexus_active_jobs_compat(limit: int = Query(20, ge=1, le=500)) -> dict:
+    return {"jobs": list_active_jobs(limit=limit)}
+
+
+@nexus_router.get("/jobs/latest")
+def nexus_latest_jobs_compat(
+    project: str = Query("default"),
+    limit: int = Query(1, ge=1, le=50),
+) -> dict:
+    jobs = list_latest_jobs(limit=limit)
+    return {"project": project, "jobs": jobs, "job": jobs[0] if jobs else None}
 
 
 @nexus_router.get("/web/status")
