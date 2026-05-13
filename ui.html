@@ -6061,6 +6061,8 @@ let nexusDeepPreviousRunsCollapsed = true;
 let nexusDeepPreviousRunsVisibleCount = 3;
 let nexusDeepPreviousRunsLoaded = false;
 let nexusDeepResearchResumeStarted = false;
+let nexusDeepResearchResumeCompleted = false;
+let nexusDeepResearchResumeRetryScheduled = false;
 let nexusMaxUploadMb = 200;
 let nexusMaxUploadBytes = nexusMaxUploadMb * 1024 * 1024;
 const nexusAllowedUploadExt = new Set(['.pdf', '.txt', '.md', '.csv', '.html']);
@@ -7396,7 +7398,7 @@ function setNexusDeepCurrentJob(jobMeta = null) {
 function isNexusResearchJobLike(job = {}) {
   const id = String(job?.job_id || job?.id || '').trim();
   const meta = (job?.metadata && typeof job.metadata === 'object') ? job.metadata : {};
-  return meta.is_research_job === true || id.startsWith('research_');
+  return meta.is_research_job === true || meta.created_by === 'nexus_research' || id.startsWith('research_');
 }
 
 function isNexusResearchTerminalStatus(job = {}) {
@@ -7412,21 +7414,31 @@ function rankNexusResearchJob(job = {}) {
   return (typed * 100_000_000_000_000) + (running * 10_000_000_000_000) + updatedAt;
 }
 
+async function hydrateNexusDeepTerminalLatest(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return;
+  try { await refreshNexusDeepBundle(id); } catch (_err) {}
+  try { await refreshNexusDeepAnswer(id); } catch (_err) {}
+}
+
 async function resumeLatestNexusResearchJob() {
-  if (nexusDeepResearchResumeStarted) return;
+  if (nexusDeepResearchResumeStarted && !nexusDeepResearchResumeCompleted) return;
   nexusDeepResearchResumeStarted = true;
+  nexusDeepResearchResumeCompleted = false;
   const tryRestore = async (job, source = 'server') => {
+    if (!isNexusResearchJobLike(job)) return false;
     const id = String(job?.job_id || job?.id || '').trim();
     if (!id) return false;
     const status = String(job?.status || '').toLowerCase();
     const normalized = {
       job_id: id,
-      query: String(job?.query || job?.message || '').trim(),
+      query: String(job?.metadata?.query || job?.title || job?.query || job?.message || id).trim(),
       status: status || 'queued',
       created_at: String(job?.created_at || job?.updated_at || new Date().toISOString()).replace('T', ' ').slice(0, 19),
     };
     if (isNexusResearchTerminalStatus(job)) {
       pushNexusDeepPreviousRun(normalized);
+      await hydrateNexusDeepTerminalLatest(id);
       return false;
     }
     setNexusDeepCurrentJob(normalized);
@@ -7438,29 +7450,46 @@ async function resumeLatestNexusResearchJob() {
     await pollNexusDeepResearch(id, 50);
     return true;
   };
+  let restored = false;
+  let activeTimedOut = false;
   try {
     const activeUrl = API + '/nexus/jobs/active?limit=20';
     const activeRes = await fetchWithTimeout(activeUrl, {}, 2200);
     const activeData = activeRes.ok ? await activeRes.json() : {};
     const activeJobs = Array.isArray(activeData?.jobs) ? activeData.jobs : [];
     const runningCandidate = activeJobs
-      .filter((job) => ['queued', 'running'].includes(String(job?.status || '').toLowerCase()))
+      .filter((job) => isNexusResearchJobLike(job) && ['queued', 'running'].includes(String(job?.status || '').toLowerCase()))
       .sort((a, b) => rankNexusResearchJob(b) - rankNexusResearchJob(a))[0];
-    if (await tryRestore(runningCandidate, 'active')) return;
-  } catch (_err) {}
+    restored = await tryRestore(runningCandidate, 'active');
+    if (restored) { nexusDeepResearchResumeCompleted = true; return; }
+  } catch (err) {
+    activeTimedOut = String(err?.name || '').toLowerCase().includes('timeout');
+  }
   try {
     const latestUrl = API + '/nexus/jobs/latest?project=' + encodeURIComponent(currentProject || 'default') + '&limit=1&include_terminal=true';
     const latestRes = await fetchWithTimeout(latestUrl, {}, 2200);
     const latestData = latestRes.ok ? await latestRes.json() : {};
     const latestItems = Array.isArray(latestData?.items) ? latestData.items : (latestData?.job ? [latestData.job] : []);
-    if (await tryRestore(latestItems[0], 'latest')) return;
+    restored = await tryRestore(latestItems[0], 'latest');
+    if (restored) { nexusDeepResearchResumeCompleted = true; return; }
   } catch (_err) {}
   try {
     const storageKey = 'nexus.deepResearch.lastJobId';
     const savedId = String(localStorage.getItem(storageKey) || '').trim();
-    if (savedId) await tryRestore({ job_id: savedId, status: 'running' }, 'localStorage');
+    if (savedId) restored = await tryRestore({ job_id: savedId, status: 'running', metadata: { is_research_job: true } }, 'localStorage');
   } catch (_err) {}
+  if (restored) { nexusDeepResearchResumeCompleted = true; return; }
+  nexusDeepResearchResumeStarted = false;
+  nexusDeepResearchResumeCompleted = false;
+  if (activeTimedOut && !nexusDeepResearchResumeRetryScheduled) {
+    nexusDeepResearchResumeRetryScheduled = true;
+    setTimeout(() => {
+      nexusDeepResearchResumeRetryScheduled = false;
+      resumeLatestNexusResearchJob();
+    }, 7000);
+  }
 }
+
 
 function updateNexusDeepCurrentStatus(status) {
   if (!nexusDeepResearchCurrentRunMeta) return;
