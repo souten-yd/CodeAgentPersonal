@@ -22,3 +22,46 @@ def test_phase_helper_includes_expected_recursive_phase_metadata():
     meta = resolve_research_phase('followup_searching')
     assert meta['phase_index'] == 9
     assert meta['phase_total'] == 10
+
+
+def test_recursive_followup_execution_metrics_contract():
+    answer_payload = {
+        "recursive_search": True,
+        "followup_queries_generated": 2,
+        "followup_searches_executed": 1,
+        "recursive_reserved_downloads": 10,
+        "recursive_download_attempt_count": 3,
+        "recursive_downloaded_count": 2,
+        "recursive_download_budget_remaining": 7,
+    }
+    assert answer_payload["followup_searches_executed"] >= 1
+    assert answer_payload["recursive_download_budget_remaining"] == (
+        answer_payload["recursive_reserved_downloads"] - answer_payload["recursive_download_attempt_count"]
+    )
+
+
+def test_recursive_search_only_followup_contract():
+    answer_payload = {
+        "recursive_search": True,
+        "followup_queries_generated": 1,
+        "followup_searches_executed": 1,
+        "recursive_reserved_downloads": 0,
+        "recursive_download_attempt_count": 0,
+        "recursive_followup_skip_reason": "download_budget_no_download_allowed",
+        "recursive_stop_reason": "search_only_followup",
+    }
+    assert answer_payload["followup_searches_executed"] >= 1
+    assert answer_payload["recursive_followup_skip_reason"] == "download_budget_no_download_allowed"
+
+
+def test_recursive_followup_duplicate_sources_still_counts_execution():
+    answer_payload = {
+        "followup_queries_generated": 2,
+        "followup_searches_executed": 1,
+        "added_sources_total": 0,
+        "recursive_stop_reason": "no_new_followup_sources",
+        "recursive_followup_skip_reason": "duplicate_followup_sources",
+    }
+    assert answer_payload["followup_searches_executed"] >= 1
+    assert answer_payload["added_sources_total"] == 0
+    assert answer_payload["recursive_stop_reason"] in {"no_new_followup_sources", "duplicate_followup_sources"}
