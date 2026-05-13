@@ -58,6 +58,8 @@ RESEARCH_STATES = (
     "failed",
     "cancelled",
 )
+REPORTING_TIMEOUT_SEC = 120
+EXHAUSTIVE_REPORTING_TIMEOUT_SEC = 180
 
 
 @dataclass
@@ -506,6 +508,9 @@ def _determine_final_research_outcome(*, retrieval_summary: dict[str, Any] | Non
     chunks = list(evidence_chunks or [])
     answer = answer_payload or {}
     generation_mode = str(answer.get("generation_mode") or ((answer.get("generation") or {}).get("mode") if isinstance(answer.get("generation"), dict) else "") or "").strip().lower()
+    answer_generated = bool(answer.get("answer_generated")) or generation_mode in {"llm_answer", "llm_answer_truncated"}
+    unresolved_count = len(list(answer.get("unresolved_items") or []))
+    citation_issues = len(list(((answer.get("citation_verification") or {}).get("warnings") if isinstance(answer.get("citation_verification"), dict) else []) or []))
     valid_source_count = int(summary.get("valid_source_count") or 0)
     evidence_count = int(summary.get("evidence_count") or 0)
     targets_satisfied = summary.get("targets_satisfied")
@@ -518,6 +523,8 @@ def _determine_final_research_outcome(*, retrieval_summary: dict[str, Any] | Non
         return {"status": "failed", "reason": "no_sources", "phase": "no_sources", "message": "検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。"}
     if targets_satisfied is False:
         return {"status": "degraded", "reason": "targets_unsatisfied", "phase": "completed", "message": "research completed with unmet retrieval targets"}
+    if answer_generated and (unresolved_count > 0 or citation_issues > 0):
+        return {"status": "degraded", "reason": "finalization_warnings", "phase": "completed", "message": "research completed with verification warnings"}
     if download_error_count > 0 or source_has_degraded_or_failed:
         return {"status": "degraded", "reason": "degraded_sources", "phase": "completed", "message": "research completed with degraded sources"}
     return {"status": "completed", "reason": "", "phase": "completed", "message": "research completed"}
@@ -2160,6 +2167,14 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         answer_payload["followup_search_count"] = followup_search_count
         answer_payload["followup_queries_count"] = followup_queries_count
         answer_payload["added_sources_total"] = added_sources_total
+        answer_payload["answer_generated"] = bool(str(answer_payload.get("answer_markdown") or answer_payload.get("answer") or "").strip())
+        answer_payload["answer_saved"] = False
+        answer_payload["citation_verification_done"] = bool(answer_payload.get("citation_verification"))
+        answer_payload["gap_analysis_done"] = bool(answer_payload.get("claim_analysis") is not None or answer_payload.get("unresolved_items") is not None)
+        answer_payload["bundle_saved"] = False
+        answer_payload["finalization_warning"] = None
+        _persist_latest_answer_json(effective_job_id, answer_payload)
+        answer_payload["answer_saved"] = True
         _persist_latest_answer_json(effective_job_id, answer_payload)
         generation = answer_payload.get("generation") or {}
         generation_mode = (
@@ -2205,6 +2220,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         _emit_phase(effective_job_id, "answer_save_finished", phase="answer_save", message="answer save finished", progress=0.94)
 
         _record_state(effective_job_id, "reporting", message="finalizing report", progress=0.95)
+        reporting_started_at = time.time()
         source_has_degraded_or_failed = any(
             str(source.get("status") or "") in {"degraded", "failed"} for source in registered_sources
         )
@@ -2217,6 +2233,12 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             download_error_count=download_error_count,
             source_has_degraded_or_failed=source_has_degraded_or_failed,
         )
+        reporting_max = EXHAUSTIVE_REPORTING_TIMEOUT_SEC if str(payload.depth or payload.mode or "").strip().lower() == "exhaustive" else REPORTING_TIMEOUT_SEC
+        if bool(answer_payload.get("answer_generated")) and (time.time() - reporting_started_at) > reporting_max:
+            final_outcome = {"status": "degraded", "reason": "reporting_timeout_after_answer_generated", "phase": "completed", "message": "research completed with reporting timeout after answer generation"}
+            answer_payload["finalization_warning"] = "reporting_timeout_after_answer_generated"
+        answer_payload["bundle_saved"] = True
+        _persist_latest_answer_json(effective_job_id, answer_payload)
         update_job(effective_job_id, status=final_outcome["status"], progress=1.0, message=final_outcome["message"])
         completion_payload = {
             "status": final_outcome["status"],
