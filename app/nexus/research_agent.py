@@ -110,10 +110,10 @@ def _now_iso() -> str:
 
 
 _RETRIEVAL_TARGET_DEFAULTS: dict[str, dict[str, Any]] = {
-    "quick": {"target_candidate_count": 30, "target_valid_source_count": 8, "target_evidence_count": 25, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 1, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 1, "max_replenishment_candidates": 20, "max_replenishment_downloads": 10},
-    "standard": {"target_candidate_count": 80, "target_valid_source_count": 18, "target_evidence_count": 50, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 2, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 1, "max_replenishment_candidates": 20, "max_replenishment_downloads": 10},
-    "deep": {"target_candidate_count": 180, "target_valid_source_count": 35, "target_evidence_count": 100, "target_high_quality_source_count": 10, "target_official_source_count": 6, "target_pdf_source_count": 6, "max_retrieval_rounds": 4, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 3, "max_replenishment_candidates": 80, "max_replenishment_downloads": 30},
-    "exhaustive": {"target_candidate_count": 300, "target_valid_source_count": 55, "target_evidence_count": 160, "target_high_quality_source_count": 16, "target_official_source_count": 10, "target_pdf_source_count": 10, "max_retrieval_rounds": 5, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 5, "max_replenishment_candidates": 140, "max_replenishment_downloads": 50},
+    "quick": {"target_candidate_count": 40, "target_valid_source_count": 8, "target_evidence_count": 25, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 1, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 1, "max_replenishment_candidates": 20, "max_replenishment_downloads": 10},
+    "standard": {"target_candidate_count": 120, "target_valid_source_count": 25, "target_evidence_count": 80, "target_high_quality_source_count": 0, "target_official_source_count": 0, "target_pdf_source_count": 0, "max_retrieval_rounds": 2, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 1, "max_replenishment_candidates": 40, "max_replenishment_downloads": 20},
+    "deep": {"target_candidate_count": 300, "target_valid_source_count": 60, "target_evidence_count": 180, "target_high_quality_source_count": 16, "target_official_source_count": 8, "target_pdf_source_count": 8, "max_retrieval_rounds": 4, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 3, "max_replenishment_candidates": 120, "max_replenishment_downloads": 40},
+    "exhaustive": {"target_candidate_count": 500, "target_valid_source_count": 100, "target_evidence_count": 300, "target_high_quality_source_count": 24, "target_official_source_count": 14, "target_pdf_source_count": 14, "max_retrieval_rounds": 6, "adaptive_retrieval_enabled": True, "max_replenishment_rounds": 5, "max_replenishment_candidates": 220, "max_replenishment_downloads": 80},
 }
 
 
@@ -137,6 +137,31 @@ def build_retrieval_targets(payload: ResearchAgentInput, *, long_64k: bool = Fal
     targets["replenishment_enabled"] = bool(getattr(payload, "replenishment_enabled", True))
     targets["target_replacement_ratio"] = float(getattr(payload, "target_replacement_ratio", 1.0) or 1.0)
     return targets
+
+
+def compute_recursive_download_budget(depth: str, max_downloads: int) -> dict[str, int]:
+    import math
+    depth_key = str(depth or "standard").strip().lower()
+    total = max(0, int(max_downloads or 0))
+    reserved = 0
+    if depth_key == "deep":
+        reserved = max(20, int(math.ceil(total * 0.25)))
+    elif depth_key == "exhaustive":
+        reserved = max(50, int(math.ceil(total * 0.30)))
+    reserved = min(total, reserved)
+    return {"initial_download_limit": max(0, total - reserved), "recursive_reserved_downloads": reserved}
+
+
+def should_auto_expand_download_budget(summary: dict, targets: dict, unresolved_items: list[dict] | None = None) -> bool:
+    skipped = int(summary.get("skipped_due_to_download_limit_count") or 0)
+    if skipped <= 0:
+        return False
+    unresolved = bool(unresolved_items or summary.get("unresolved_items") or [])
+    return (
+        int(summary.get("valid_source_count") or 0) < int(targets.get("target_valid_source_count") or 0)
+        or int(summary.get("evidence_count") or 0) < int(targets.get("target_evidence_count") or 0)
+        or unresolved
+    )
 
 
 def should_expand_retrieval(summary: dict, targets: dict, round_index: int) -> tuple[bool, list[str]]:
