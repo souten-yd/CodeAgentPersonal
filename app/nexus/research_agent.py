@@ -593,6 +593,7 @@ def _load_source_chunks(source_ids: list[str]) -> list[dict]:
         ).fetchall()
     return [dict(row) for row in rows]
 def _record_state(job_id: str, state: str, *, message: str, progress: float) -> None:
+    phase_meta = resolve_research_phase(state)
     append_job_event(
         job_id,
         "state_transition",
@@ -602,10 +603,35 @@ def _record_state(job_id: str, state: str, *, message: str, progress: float) -> 
             "phase": state,
             "message": message,
             "progress": progress,
+            **phase_meta,
             "updated_at": _now_iso(),
         },
     )
-    append_job_heartbeat(job_id, state, message, progress, {"state": state})
+    append_job_heartbeat(job_id, state, message, progress, {"state": state, **phase_meta})
+
+
+PHASE_SEQUENCE: list[tuple[str, tuple[str, ...], str]] = [
+    ("preparing", ("preparing", "planning"), "事前調査中"),
+    ("broad_screening", ("broad_screening", "searching", "web_search"), "広域スクリーニング中"),
+    ("planning_queries", ("planning_queries", "focused_planning"), "再検索計画中"),
+    ("collecting_sources", ("collecting_sources", "source_collecting", "source_collection"), "ソース候補収集中"),
+    ("downloading", ("downloading", "extracting"), "本文取得・抽出中"),
+    ("retrieving_evidence", ("retrieving_evidence", "evidence"), "根拠抽出中"),
+    ("answering", ("answering", "answer_llm_generating"), "回答生成中"),
+    ("verifying", ("verifying", "citation_verification", "gap_analysis"), "根拠検証・不足確認中"),
+    ("recursive_followup", ("recursive_followup", "followup_searching"), "追加調査中"),
+    ("reporting", ("reporting", "finalizing"), "最終化中"),
+]
+
+
+def resolve_research_phase(phase: str | None) -> dict[str, Any]:
+    phase_text = str(phase or "").strip().lower()
+    if phase_text in {"completed", "degraded", "failed"}:
+        return {"current_phase": phase_text, "phase_label": "完了", "phase_index": 10, "phase_total": 10}
+    for index, (canonical, aliases, label) in enumerate(PHASE_SEQUENCE, start=1):
+        if phase_text == canonical or phase_text in aliases:
+            return {"current_phase": canonical, "phase_label": label, "phase_index": index, "phase_total": 10}
+    return {"current_phase": phase_text or "preparing", "phase_label": "事前調査中", "phase_index": 1, "phase_total": 10}
 
 
 def _emit_phase(
@@ -618,18 +644,22 @@ def _emit_phase(
     details: dict | None = None,
     status: str = "running",
 ) -> None:
+    phase_meta = resolve_research_phase(phase)
     payload = {
         "status": status,
         "phase": phase,
         "message": message,
         "progress": progress,
+        **phase_meta,
         "updated_at": _now_iso(),
     }
     if details:
         payload["details"] = details
+        payload["phase_detail"] = details
+        payload["active_operation"] = details.get("active_operation") or message
     append_job_event(job_id, event_type, payload)
     if status == "running":
-        append_job_heartbeat(job_id, phase, message, progress, details or {})
+        append_job_heartbeat(job_id, phase, message, progress, {**(details or {}), **phase_meta, "phase_detail": details or {}, "active_operation": message})
 
 
 def _build_evidence_from_sources(job_id: str, sources: list[dict]) -> list[EvidenceItem]:
@@ -1512,6 +1542,9 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             max_downloads = max(max_downloads, 60)
         if depth_key == "exhaustive" and payload.max_downloads is None:
             max_downloads = max(max_downloads, 90)
+        recursive_budget = compute_recursive_download_budget(depth_key, max_downloads)
+        initial_download_limit = int(recursive_budget.get("initial_download_limit") or max_downloads)
+        recursive_reserved_downloads = int(recursive_budget.get("recursive_reserved_downloads") or 0)
         adaptive_enabled = bool(targets.get("adaptive_retrieval_enabled", True))
         max_rounds = int(targets.get("max_retrieval_rounds") or 1) if adaptive_enabled else 1
         max_rounds = max(1, min(max_rounds, 8))
@@ -1649,7 +1682,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 append_job_event(effective_job_id, "research_failed", no_sources_payload)
                 return {"job_id": effective_job_id, "queries": queries, "search": search, "sources": [], "answer": answer_payload}
 
-            remaining_downloads = max(0, max_downloads - len(attempted_canonical_urls))
+            remaining_downloads = max(0, initial_download_limit - len(attempted_canonical_urls))
             to_download: list[dict] = []
             if remaining_downloads > 0:
                 to_download = _select_download_candidates(ranked_candidates, attempted_canonical_urls, remaining_downloads, focused_research_plan.get("source_mix_targets"))
@@ -1661,7 +1694,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
 
             if to_download:
                 if round_index == 0:
-                    _emit_phase(effective_job_id, "download_phase_started", phase="downloading", message="download phase started", progress=0.55, details={"total_candidates": len(ranked_candidates), "max_downloads": max_downloads})
+                    _emit_phase(effective_job_id, "download_phase_started", phase="downloading", message="download phase started", progress=0.55, details={"total_candidates": len(ranked_candidates), "max_downloads": initial_download_limit, "recursive_reserved_downloads": recursive_reserved_downloads})
                 remaining_total_bytes = max(0, max_total_download_bytes - cumulative_downloaded_bytes)
                 round_downloaded, round_download_errors = _download_sources_parallel(
                     job_id=effective_job_id,
@@ -2023,6 +2056,11 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                 final_confidence = float(analysis.get("confidence") or 0.0)
                 unresolved_items = list(analysis.get("unresolved_items") or [])
                 should_stop, reason = _should_stop_recursive_research(analysis=analysis, iteration=iteration, payload=payload)
+                must_attempt_followup = (
+                    bool(payload.recursive_search)
+                    and int(payload.max_iterations or 0) >= 2
+                    and (bool(unresolved_items) or final_confidence < float(payload.confidence_threshold or 0.0))
+                )
                 if should_stop:
                     completed_all_iterations = False
                     recursive_stop_reason = reason
@@ -2048,9 +2086,9 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": [], "followup_search_executed": False, "added_sources": 0, "stop_reason": stop_reason})
                     append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": False, "updated_at": _now_iso()})
                     break
-                remaining_downloads = max(0, max_downloads - cumulative_downloads)
+                remaining_downloads = max(0, recursive_reserved_downloads - followup_search_count)
                 remaining_total_bytes = max(0, max_total_download_bytes - cumulative_downloaded_bytes)
-                if remaining_downloads <= 0 or remaining_total_bytes <= 0:
+                if remaining_total_bytes <= 0:
                     completed_all_iterations = False
                     recursive_stop_reason = "download_budget_exhausted"
                     stop_reason = "download_budget_exhausted"
@@ -2058,6 +2096,17 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": False, "added_sources": 0, "stop_reason": stop_reason})
                     append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": False, "updated_at": _now_iso()})
                     break
+                if remaining_downloads <= 0:
+                    if must_attempt_followup and followup_search_count == 0:
+                        remaining_downloads = max(1, int(targets.get("max_replenishment_downloads") or 1))
+                    else:
+                        completed_all_iterations = False
+                        recursive_stop_reason = "recursive_followup_skipped_due_to_budget"
+                        stop_reason = "recursive_followup_skipped_due_to_budget"
+                        append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
+                        iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": False, "added_sources": 0, "stop_reason": stop_reason})
+                        append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": False, "updated_at": _now_iso()})
+                        break
                 append_job_event(effective_job_id, "recursive_followup_search_started", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
                 followup_search_count += 1
                 followup_search = run_web_search(followup_queries, mode=payload.mode, depth=payload.depth, max_results_per_query=payload.max_results_per_query, scope=payload.scope, language=payload.language)
@@ -2180,6 +2229,8 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         answer_payload["recursive_stop_reason"] = recursive_stop_reason
         answer_payload["followup_search_count"] = followup_search_count
         answer_payload["followup_queries_count"] = followup_queries_count
+        answer_payload["followup_queries_generated"] = followup_queries_count
+        answer_payload["followup_searches_executed"] = followup_search_count
         answer_payload["added_sources_total"] = added_sources_total
         answer_payload["answer_generated"] = bool(str(answer_payload.get("answer_markdown") or answer_payload.get("answer") or "").strip())
         answer_payload["answer_saved"] = False
