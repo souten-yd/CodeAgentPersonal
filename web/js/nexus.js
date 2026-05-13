@@ -461,5 +461,19 @@ function formatNexusProviderConfigurationDetails(providerStatus = {}) {
   };
 }
 
+function formatNexusRecursiveDebugDetails(answer = {}) {
+  const details = [];
+  details.push(`Follow-up queries generated: ${Number(answer?.followup_queries_generated ?? answer?.followup_queries_count ?? 0)}`);
+  details.push(`Follow-up searches executed: ${Number(answer?.followup_searches_executed ?? answer?.followup_search_count ?? 0)}`);
+  details.push(`Recursive download reserved: ${Number(answer?.recursive_reserved_downloads ?? 0)}`);
+  details.push(`Recursive downloads attempted: ${Number(answer?.recursive_download_attempt_count ?? 0)}`);
+  details.push(`Recursive downloads remaining: ${Number(answer?.recursive_download_budget_remaining ?? 0)}`);
+  if (String(answer?.recursive_followup_skip_reason || '').trim()) {
+    details.push(`Follow-up skip reason: ${String(answer.recursive_followup_skip_reason).trim()}`);
+  }
+  return details;
+}
+
 window.formatNexusProviderHealthWarning = formatNexusProviderHealthWarning;
 window.formatNexusProviderConfigurationDetails = formatNexusProviderConfigurationDetails;
+window.formatNexusRecursiveDebugDetails = formatNexusRecursiveDebugDetails;

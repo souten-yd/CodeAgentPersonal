@@ -2015,8 +2015,11 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             if str(item.get("status") or "") in {"downloaded", "degraded", "reused"}
         )
         followup_search_count = 0
+        recursive_download_attempt_count = 0
+        recursive_downloaded_count = 0
         followup_queries_count = 0
         added_sources_total = 0
+        recursive_followup_skip_reason = ""
         recursive_stop_reason = stop_reason
         if payload.recursive_search:
             recursive_stop_reason = "max_iterations_reached"
@@ -2061,6 +2064,9 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     and int(payload.max_iterations or 0) >= 2
                     and (bool(unresolved_items) or final_confidence < float(payload.confidence_threshold or 0.0))
                 )
+                stop_due_to_sufficient = reason in {"sufficient_confidence", "sufficient_evidence", "confidence_threshold_reached"}
+                if should_stop and must_attempt_followup and not stop_due_to_sufficient:
+                    should_stop = False
                 if should_stop:
                     completed_all_iterations = False
                     recursive_stop_reason = reason
@@ -2086,7 +2092,7 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": [], "followup_search_executed": False, "added_sources": 0, "stop_reason": stop_reason})
                     append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": False, "updated_at": _now_iso()})
                     break
-                remaining_downloads = max(0, recursive_reserved_downloads - followup_search_count)
+                remaining_downloads = max(0, recursive_reserved_downloads - recursive_download_attempt_count)
                 remaining_total_bytes = max(0, max_total_download_bytes - cumulative_downloaded_bytes)
                 if remaining_total_bytes <= 0:
                     completed_all_iterations = False
@@ -2096,13 +2102,16 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": False, "added_sources": 0, "stop_reason": stop_reason})
                     append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": False, "updated_at": _now_iso()})
                     break
+                search_only_followup = False
                 if remaining_downloads <= 0:
-                    if must_attempt_followup and followup_search_count == 0:
-                        remaining_downloads = max(1, int(targets.get("max_replenishment_downloads") or 1))
+                    if must_attempt_followup:
+                        search_only_followup = True
+                        recursive_followup_skip_reason = "download_budget_no_download_allowed"
                     else:
                         completed_all_iterations = False
                         recursive_stop_reason = "recursive_followup_skipped_due_to_budget"
                         stop_reason = "recursive_followup_skipped_due_to_budget"
+                        recursive_followup_skip_reason = "recursive_followup_skipped_due_to_budget"
                         append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
                         iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": False, "added_sources": 0, "stop_reason": stop_reason})
                         append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": False, "updated_at": _now_iso()})
@@ -2132,13 +2141,16 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     filtered_followup_ranked.append(candidate)
                 if not filtered_followup_ranked:
                     completed_all_iterations = False
-                    recursive_stop_reason = "no_new_sources"
-                    stop_reason = "no_new_sources"
+                    recursive_stop_reason = "no_new_followup_sources"
+                    stop_reason = "no_new_followup_sources"
+                    recursive_followup_skip_reason = "duplicate_followup_sources"
                     append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
                     iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": True, "added_sources": 0, "stop_reason": stop_reason})
                     append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": True, "updated_at": _now_iso()})
                     break
-                followup_downloaded, _ = _download_sources_parallel(
+                followup_downloaded: list[dict] = []
+                if not search_only_followup:
+                    followup_downloaded, _ = _download_sources_parallel(
                     job_id=effective_job_id,
                     candidates=filtered_followup_ranked,
                     max_downloads=remaining_downloads,
@@ -2150,13 +2162,23 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
                     pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
                     download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
                     download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
-                )
+                    )
+                recursive_download_attempt_count += len(followup_downloaded)
                 newly_downloaded = [
                     item for item in followup_downloaded if str(item.get("status") or "") in {"downloaded", "degraded", "reused"}
                 ]
+                recursive_downloaded_count += len(newly_downloaded)
                 cumulative_downloads += len(newly_downloaded)
                 cumulative_downloaded_bytes += sum(max(0, int(item.get("size") or 0)) for item in newly_downloaded)
                 followup_registered = register_or_update_sources(job_id=effective_job_id, project=payload.project, sources=followup_downloaded)
+                if search_only_followup:
+                    completed_all_iterations = False
+                    recursive_stop_reason = "search_only_followup"
+                    stop_reason = "search_only_followup"
+                    append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
+                    iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": True, "added_sources": 0, "stop_reason": stop_reason})
+                    append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": True, "updated_at": _now_iso()})
+                    break
                 if not followup_registered:
                     completed_all_iterations = False
                     recursive_stop_reason = "no_new_sources"
@@ -2231,6 +2253,11 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         answer_payload["followup_queries_count"] = followup_queries_count
         answer_payload["followup_queries_generated"] = followup_queries_count
         answer_payload["followup_searches_executed"] = followup_search_count
+        answer_payload["recursive_download_attempt_count"] = recursive_download_attempt_count
+        answer_payload["recursive_downloaded_count"] = recursive_downloaded_count
+        answer_payload["recursive_reserved_downloads"] = recursive_reserved_downloads
+        answer_payload["recursive_download_budget_remaining"] = max(0, recursive_reserved_downloads - recursive_download_attempt_count)
+        answer_payload["recursive_followup_skip_reason"] = recursive_followup_skip_reason
         answer_payload["added_sources_total"] = added_sources_total
         answer_payload["answer_generated"] = bool(str(answer_payload.get("answer_markdown") or answer_payload.get("answer") or "").strip())
         answer_payload["answer_saved"] = False
