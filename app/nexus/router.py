@@ -655,13 +655,14 @@ def nexus_active_jobs_compat(limit: int = Query(20, ge=1, le=500)) -> dict:
     return {"jobs": list_active_jobs(limit=limit)}
 
 
-@nexus_router.get("/jobs/latest")
+@nexus_router.get("/jobs/latest/compat")
 def nexus_latest_jobs_compat(
     project: str = Query("default"),
     limit: int = Query(1, ge=1, le=50),
+    include_terminal: bool = Query(True),
 ) -> dict:
-    jobs = list_latest_jobs(limit=limit)
-    return {"project": project, "jobs": jobs, "job": jobs[0] if jobs else None}
+    jobs = list_latest_jobs(project=project, limit=limit, include_terminal=include_terminal)
+    return {"ok": True, "project": project, "jobs": jobs, "job": jobs[0] if jobs else None, "count": len(jobs)}
 
 
 @nexus_router.get("/web/status")

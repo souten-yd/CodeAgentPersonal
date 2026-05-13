@@ -221,7 +221,21 @@ def run_research_async(payload: ResearchRunRequest) -> dict:
     job_id = f"research_{uuid.uuid4().hex}"
     existing = get_job(job_id)
     if existing is None:
-        create_job(job_id, title=query, message="research queued", status="queued")
+        create_job(
+            job_id,
+            title=query,
+            message="research queued",
+            status="queued",
+            metadata={
+                "project": payload.project,
+                "query": query,
+                "search_type": payload.mode,
+                "depth": payload.depth or payload.mode,
+                "source_profile": getattr(payload, "source_profile", "web") or "web",
+                "created_by": "nexus_research",
+                "is_research_job": True,
+            },
+        )
 
     def _worker() -> None:
         try:
