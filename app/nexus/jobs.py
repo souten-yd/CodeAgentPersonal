@@ -17,6 +17,7 @@ _EVENT_APPEND_LOCK = threading.RLock()
 
 ACTIVE_STATUSES: tuple[JobStatus, ...] = ("queued", "running")
 _VALID_JOB_STATUSES = {"queued", "running", "completed", "failed", "degraded"}
+TERMINAL_STATUSES = {"completed", "failed", "degraded", "cancelled"}
 
 
 def _now_iso() -> str:
@@ -35,12 +36,20 @@ def _normalize_event_status(value: Any) -> JobStatus | None:
 
 
 def _row_to_job(row: Any) -> NexusJob:
+    raw_metadata = row["metadata_json"] if "metadata_json" in row.keys() else "{}"
+    try:
+        parsed_metadata = json.loads(raw_metadata or "{}")
+    except (TypeError, ValueError):
+        parsed_metadata = {}
+    if not isinstance(parsed_metadata, dict):
+        parsed_metadata = {}
     return NexusJob(
         job_id=row["job_id"],
         status=row["status"],
         progress=float(row["progress"] or 0.0),
         message=row["message"],
         error=row["error"],
+        metadata=parsed_metadata,
         created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
         updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None,
     )
@@ -54,15 +63,17 @@ def create_job(
     document_count: int = 0,
     status: JobStatus = "queued",
     error: str | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> NexusJob:
     now = _now_iso()
+    metadata_json = json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True)
     with get_conn() as conn:
         conn.execute(
             """
-            INSERT INTO nexus_jobs(job_id, status, title, message, error, document_count, created_at, updated_at)
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO nexus_jobs(job_id, status, title, message, error, document_count, metadata_json, created_at, updated_at)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (job_id, status, title, message, error, max(0, document_count), now, now),
+            (job_id, status, title, message, error, max(0, document_count), metadata_json, now, now),
         )
         conn.commit()
         row = conn.execute("SELECT * FROM nexus_jobs WHERE job_id = ?", (job_id,)).fetchone()
@@ -143,6 +154,24 @@ def get_job(job_id: str) -> NexusJob | None:
     return _row_to_job(row)
 
 
+def _is_research_job(job: NexusJob) -> bool:
+    return bool(job.metadata.get("is_research_job")) or job.job_id.startswith("research_")
+
+
+def _with_health(job: NexusJob) -> NexusJob:
+    updated = job.updated_at or job.created_at
+    if not updated:
+        return job
+    age = (datetime.now(timezone.utc) - updated).total_seconds()
+    if job.status in ACTIVE_STATUSES and age > 180:
+        merged = dict(job.metadata or {})
+        health = dict(merged.get("health") or {})
+        health["stale_candidate"] = True
+        merged["health"] = health
+        job.metadata = merged
+    return job
+
+
 def list_active_jobs(limit: int = 100) -> list[NexusJob]:
     safe_limit = max(1, min(500, limit))
     placeholders = ", ".join("?" for _ in ACTIVE_STATUSES)
@@ -157,22 +186,26 @@ def list_active_jobs(limit: int = 100) -> list[NexusJob]:
             """,
             [*ACTIVE_STATUSES, safe_limit],
         ).fetchall()
-    return [_row_to_job(row) for row in rows]
+    jobs = [_with_health(_row_to_job(row)) for row in rows]
+    jobs.sort(key=lambda job: (0 if _is_research_job(job) else 1, -(job.updated_at.timestamp() if job.updated_at else 0)))
+    return jobs[:safe_limit]
 
 
-def list_latest_jobs(limit: int = 20) -> list[NexusJob]:
+def list_latest_jobs(limit: int = 20, project: str = "default", include_terminal: bool = True) -> list[NexusJob]:
     safe_limit = max(1, min(500, limit))
     with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT *
-            FROM nexus_jobs
-            ORDER BY updated_at DESC
-            LIMIT ?
-            """,
-            (safe_limit,),
-        ).fetchall()
-    return [_row_to_job(row) for row in rows]
+        rows = conn.execute("SELECT * FROM nexus_jobs ORDER BY updated_at DESC LIMIT 500").fetchall()
+    jobs = [_with_health(_row_to_job(row)) for row in rows]
+    filtered: list[NexusJob] = []
+    for job in jobs:
+        md = job.metadata or {}
+        if project and str(md.get("project") or "default") != project:
+            continue
+        if not include_terminal and job.status in TERMINAL_STATUSES:
+            continue
+        filtered.append(job)
+    filtered.sort(key=lambda job: (0 if job.status in ACTIVE_STATUSES else 1, 0 if _is_research_job(job) else 1, -(job.updated_at.timestamp() if job.updated_at else 0)))
+    return filtered[:safe_limit]
 
 
 def append_job_event(job_id: str, event_type: str, data: dict[str, Any]) -> NexusJobEvent:

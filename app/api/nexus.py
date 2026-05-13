@@ -187,9 +187,13 @@ def default_nexus_active_jobs_payload(limit: int = 50) -> dict[str, Any]:
     return {"jobs": []}
 
 
-def default_nexus_latest_jobs_payload(project: str = "default", limit: int = 1) -> dict[str, Any]:
+def default_nexus_latest_jobs_payload(
+    project: str = "default",
+    limit: int = 1,
+    include_terminal: bool = True,
+) -> dict[str, Any]:
     """Return an empty latest Nexus job payload without reading job registries."""
-    return {"project": project, "jobs": [], "job": None}
+    return {"ok": True, "project": project, "jobs": [], "job": None, "count": 0}
 
 
 def default_nexus_web_status_payload() -> dict[str, Any]:
@@ -428,9 +432,10 @@ def get_nexus_latest_jobs_api(
     request: Request,
     project: str = Query("default"),
     limit: int = Query(1, ge=1, le=50),
+    include_terminal: bool = Query(True),
 ) -> Any:
     provider = _provider(request, "nexus_latest_jobs_provider", default_nexus_latest_jobs_payload)
-    return provider(project=project, limit=limit)
+    return provider(project=project, limit=limit, include_terminal=include_terminal)
 
 
 @router.get("/nexus/web/status")

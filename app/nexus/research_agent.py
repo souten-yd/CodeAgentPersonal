@@ -1447,7 +1447,21 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         payload.download_timeout_sec if payload.download_timeout_sec is not None else runtime_cfg.download_timeout_sec
     )
     if not job_id:
-        create_job(effective_job_id, title=query, message="research queued", status="queued")
+        create_job(
+            effective_job_id,
+            title=query,
+            message="research queued",
+            status="queued",
+            metadata={
+                "project": payload.project,
+                "query": query,
+                "search_type": payload.mode,
+                "depth": payload.depth or payload.mode,
+                "source_profile": payload.source_profile,
+                "created_by": "nexus_research",
+                "is_research_job": True,
+            },
+        )
     else:
         ensure_job_exists(effective_job_id, title=query, message="research queued", status="queued")
 

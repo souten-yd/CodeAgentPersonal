@@ -16,6 +16,7 @@ class NexusJob(BaseModel):
     progress: float = Field(default=0.0, ge=0.0, le=1.0)
     message: str | None = None
     error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

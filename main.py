@@ -97,7 +97,7 @@ _STYLE_BERT_VITS2_MODELS_DIR = resolve_style_bert_vits2_models_dir()
 os.makedirs(_STYLE_BERT_VITS2_MODELS_DIR, exist_ok=True)
 from app.nexus.config import load_runtime_config
 from app.nexus.db import get_conn as get_nexus_conn
-from app.nexus.jobs import list_active_jobs as list_nexus_active_jobs
+from app.nexus.jobs import list_active_jobs as list_nexus_active_jobs, list_latest_jobs as list_nexus_latest_jobs
 from app.nexus.router import (
     _check_searxng_connectivity,
     _is_provider_configured,
@@ -301,6 +301,18 @@ def nexus_active_jobs_payload(limit: int = 50) -> dict[str, Any]:
     return {"jobs": jobs}
 
 
+def nexus_latest_jobs_payload(
+    project: str = "default",
+    limit: int = 1,
+    include_terminal: bool = True,
+) -> dict[str, Any]:
+    jobs = [
+        job.model_dump(mode="json")
+        for job in list_nexus_latest_jobs(project=project, limit=limit, include_terminal=include_terminal)
+    ]
+    return {"ok": True, "project": project, "jobs": jobs, "job": jobs[0] if jobs else None, "count": len(jobs)}
+
+
 def nexus_web_status_payload() -> dict[str, Any]:
     """Production payload for GET /nexus/web/status."""
     cfg = load_runtime_config()
@@ -393,6 +405,7 @@ def nexus_web_status_payload() -> dict[str, Any]:
 app.state.nexus_summary_provider = nexus_summary_payload
 app.state.nexus_documents_provider = nexus_documents_payload
 app.state.nexus_active_jobs_provider = nexus_active_jobs_payload
+app.state.nexus_latest_jobs_provider = nexus_latest_jobs_payload
 app.state.nexus_web_status_provider = nexus_web_status_payload
 app.state.nexus_upload_provider = nexus_upload_payload
 app.state.nexus_search_provider = nexus_search_payload
