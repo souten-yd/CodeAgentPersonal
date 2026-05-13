@@ -6060,6 +6060,7 @@ let nexusDeepResearchPreviousRuns = [];
 let nexusDeepPreviousRunsCollapsed = true;
 let nexusDeepPreviousRunsVisibleCount = 3;
 let nexusDeepPreviousRunsLoaded = false;
+let nexusDeepResearchResumeStarted = false;
 let nexusMaxUploadMb = 200;
 let nexusMaxUploadBytes = nexusMaxUploadMb * 1024 * 1024;
 const nexusAllowedUploadExt = new Set(['.pdf', '.txt', '.md', '.csv', '.html']);
@@ -7392,6 +7393,75 @@ function setNexusDeepCurrentJob(jobMeta = null) {
   nexusDeepResearchJobId = String(jobMeta?.job_id || '');
 }
 
+function isNexusResearchJobLike(job = {}) {
+  const id = String(job?.job_id || job?.id || '').trim();
+  const meta = (job?.metadata && typeof job.metadata === 'object') ? job.metadata : {};
+  return meta.is_research_job === true || id.startsWith('research_');
+}
+
+function isNexusResearchTerminalStatus(job = {}) {
+  const status = String(job?.status || '').toLowerCase();
+  return TERMINAL_RESEARCH_STATUSES.has(status);
+}
+
+function rankNexusResearchJob(job = {}) {
+  const updatedAt = Date.parse(job?.updated_at || job?.created_at || 0) || 0;
+  const status = String(job?.status || '').toLowerCase();
+  const running = status === 'running' ? 2 : (status === 'queued' ? 1 : 0);
+  const typed = isNexusResearchJobLike(job) ? 1 : 0;
+  return (typed * 100_000_000_000_000) + (running * 10_000_000_000_000) + updatedAt;
+}
+
+async function resumeLatestNexusResearchJob() {
+  if (nexusDeepResearchResumeStarted) return;
+  nexusDeepResearchResumeStarted = true;
+  const tryRestore = async (job, source = 'server') => {
+    const id = String(job?.job_id || job?.id || '').trim();
+    if (!id) return false;
+    const status = String(job?.status || '').toLowerCase();
+    const normalized = {
+      job_id: id,
+      query: String(job?.query || job?.message || '').trim(),
+      status: status || 'queued',
+      created_at: String(job?.created_at || job?.updated_at || new Date().toISOString()).replace('T', ' ').slice(0, 19),
+    };
+    if (isNexusResearchTerminalStatus(job)) {
+      pushNexusDeepPreviousRun(normalized);
+      return false;
+    }
+    setNexusDeepCurrentJob(normalized);
+    const bundleBtn = document.getElementById('nexus-deep-bundle-btn');
+    if (bundleBtn) bundleBtn.disabled = false;
+    setNexusDeepStatus(`復元中... (${source})`);
+    await refreshNexusDeepBundle(id);
+    await refreshNexusDeepDebug(id);
+    await pollNexusDeepResearch(id, 50);
+    return true;
+  };
+  try {
+    const activeUrl = API + '/nexus/jobs/active?limit=20';
+    const activeRes = await fetchWithTimeout(activeUrl, {}, 2200);
+    const activeData = activeRes.ok ? await activeRes.json() : {};
+    const activeJobs = Array.isArray(activeData?.jobs) ? activeData.jobs : [];
+    const runningCandidate = activeJobs
+      .filter((job) => ['queued', 'running'].includes(String(job?.status || '').toLowerCase()))
+      .sort((a, b) => rankNexusResearchJob(b) - rankNexusResearchJob(a))[0];
+    if (await tryRestore(runningCandidate, 'active')) return;
+  } catch (_err) {}
+  try {
+    const latestUrl = API + '/nexus/jobs/latest?project=' + encodeURIComponent(currentProject || 'default') + '&limit=1&include_terminal=true';
+    const latestRes = await fetchWithTimeout(latestUrl, {}, 2200);
+    const latestData = latestRes.ok ? await latestRes.json() : {};
+    const latestItems = Array.isArray(latestData?.items) ? latestData.items : (latestData?.job ? [latestData.job] : []);
+    if (await tryRestore(latestItems[0], 'latest')) return;
+  } catch (_err) {}
+  try {
+    const storageKey = 'nexus.deepResearch.lastJobId';
+    const savedId = String(localStorage.getItem(storageKey) || '').trim();
+    if (savedId) await tryRestore({ job_id: savedId, status: 'running' }, 'localStorage');
+  } catch (_err) {}
+}
+
 function updateNexusDeepCurrentStatus(status) {
   if (!nexusDeepResearchCurrentRunMeta) return;
   nexusDeepResearchCurrentRunMeta.status = status || nexusDeepResearchCurrentRunMeta.status || '-';
@@ -8475,6 +8545,7 @@ function startNexusPolling() {
   };
   Promise.allSettled([
     refreshNexusWebStatus({}, { initialLoad: true }),
+    resumeLatestNexusResearchJob(),
   ]);
   defer(() => Promise.allSettled([
     refreshNexusExecuteSummary({ initialLoad: true }),
