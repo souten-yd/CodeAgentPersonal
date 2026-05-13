@@ -6097,10 +6097,26 @@ async function fetchNexusCanonicalWithAlias(canonicalPath, aliasPath, init) {
   return fetch(aliasUrl, init);
 }
 
-async function refreshNexusDocuments(q = '') {
+
+function fetchWithTimeout(url, options = {}, timeoutMs = 3000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error(`timeout:${timeoutMs}`)), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
+async function fetchNexusCanonicalWithAliasWithTimeout(canonicalPath, aliasPath, init, timeoutMs = 5000) {
+  const canonicalUrl = API + canonicalPath;
+  const canonicalRes = await fetchWithTimeout(canonicalUrl, init, timeoutMs);
+  if (canonicalRes.ok || canonicalRes.status !== 404 || !aliasPath) return canonicalRes;
+  const aliasUrl = API + aliasPath;
+  return fetchWithTimeout(aliasUrl, init, timeoutMs);
+}
+
+async function refreshNexusDocuments(q = '', options = {}) {
   try {
     const query = '?project=' + encodeURIComponent(currentProject) + '&q=' + encodeURIComponent(q || '');
-    const r = await fetchNexusCanonicalWithAlias('/nexus/documents' + query, '/nexus/library/documents' + query);
+    const r = options.initialLoad ? await fetchNexusCanonicalWithAliasWithTimeout('/nexus/documents' + query, '/nexus/library/documents' + query, undefined, 5000) : await fetchNexusCanonicalWithAlias('/nexus/documents' + query, '/nexus/library/documents' + query);
     if (!r.ok) throw new Error(await r.text());
     const d = await r.json();
     renderNexusDocuments(d.documents || []);
@@ -6150,10 +6166,10 @@ async function refreshNexusJobs() {
   }
 }
 
-async function refreshNexusExecuteSummary() {
+async function refreshNexusExecuteSummary(options = {}) {
   try {
     const query = '?project=' + encodeURIComponent(currentProject);
-    const r = await fetchNexusCanonicalWithAlias('/nexus/summary' + query, '/nexus/dashboard/summary' + query);
+    const r = options.initialLoad ? await fetchNexusCanonicalWithAliasWithTimeout('/nexus/summary' + query, '/nexus/dashboard/summary' + query, undefined, 5000) : await fetchNexusCanonicalWithAlias('/nexus/summary' + query, '/nexus/dashboard/summary' + query);
     if (!r.ok) throw new Error(await r.text());
     const d = await r.json();
     document.getElementById('nexus-metric-documents').textContent = d.documents ?? 0;
@@ -6525,9 +6541,9 @@ function setNexusWebStatus(status = {}, runtimeMeta = {}, isErr = false) {
 }
 
 
-async function refreshNexusWebStatus(runtimeMeta = {}) {
+async function refreshNexusWebStatus(runtimeMeta = {}, options = {}) {
   try {
-    const r = await fetch(API + '/nexus/web/status');
+    const r = options.initialLoad ? await fetchWithTimeout(API + '/nexus/web/status', {}, 3000) : await fetch(API + '/nexus/web/status');
     const d = await r.json();
     if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
     setNexusWebStatus(d, runtimeMeta, false);
@@ -8457,23 +8473,21 @@ function startNexusPolling() {
     }
     setTimeout(() => fn(), timeout);
   };
-  const withTimeout = async (promise, timeoutMs = 3000) => Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(`timeout:${timeoutMs}`)), timeoutMs)),
-  ]);
   Promise.allSettled([
-    withTimeout(refreshNexusWebStatus(), 3000),
+    refreshNexusWebStatus({}, { initialLoad: true }),
   ]);
   defer(() => Promise.allSettled([
-    withTimeout(refreshNexusExecuteSummary(), 5000),
-    withTimeout(refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || ''), 5000),
+    refreshNexusExecuteSummary({ initialLoad: true }),
+    refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '', { initialLoad: true }),
   ]), 100);
   renderNexusTimeline();
   if (nexusDeepResearchJobId) {
     refreshNexusJobs();
     nexusJobsPollTimer = setInterval(refreshNexusJobs, NEXUS_POLL_MS);
   }
-  nexusExecutePollTimer = setInterval(refreshNexusExecuteSummary, 5000);
+  if (nexusDeepResearchJobId || (window.__atlasActivePanel && String(window.__atlasActivePanel).includes('execute'))) {
+    nexusExecutePollTimer = setInterval(refreshNexusExecuteSummary, 5000);
+  }
 }
 
 function stopNexusPolling() {
