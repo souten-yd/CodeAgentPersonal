@@ -436,7 +436,8 @@ function formatNexusResearchStatusCompact(job = {}, bundle = {}, answer = {}) {
   const severity = (isJobFailed || isNoSources)
     ? 'error'
     : ((isNoEvidence || state === 'degraded' || (hasNotice && !hasProviderOnlyWarning)) ? 'warning' : 'info');
-  return { title, progress: progressText, collection, notice, severity };
+  const debugDetails = formatNexusDebugDetails(bundle, answer);
+  return { title, progress: progressText, collection, notice, severity, debugDetails };
 }
 
 function formatNexusProviderHealthWarning(webStatus = {}) {
@@ -473,6 +474,19 @@ function formatNexusRecursiveDebugDetails(answer = {}) {
   }
   return details;
 }
+
+function formatNexusDebugDetails(bundle = {}, answer = {}) {
+  const details = [];
+  const providerStatus = (bundle?.provider_status && typeof bundle.provider_status === 'object') ? bundle.provider_status : {};
+  const providerConfig = formatNexusProviderConfigurationDetails(providerStatus);
+  details.push(providerConfig.braveApi);
+  details.push(providerConfig.searxngBrave);
+  const recursiveDetails = formatNexusRecursiveDebugDetails(answer);
+  recursiveDetails.forEach((line) => details.push(line));
+  return details;
+}
+
+window.formatNexusDebugDetails = formatNexusDebugDetails;
 
 window.formatNexusProviderHealthWarning = formatNexusProviderHealthWarning;
 window.formatNexusProviderConfigurationDetails = formatNexusProviderConfigurationDetails;
