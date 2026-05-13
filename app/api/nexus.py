@@ -56,8 +56,8 @@ class NexusWebSearchRequest(BaseModel):
     query: str = Field(min_length=1)
     mode: str = Field(default="standard")
     depth: str | None = None
-    max_queries: int | None = Field(default=None, ge=1, le=20)
-    max_results_per_query: int | None = Field(default=None, ge=1, le=20)
+    max_queries: int | None = Field(default=None, ge=1, le=50)
+    max_results_per_query: int | None = Field(default=None, ge=1, le=50)
     scope: str | list[str] | None = None
     language: str | None = None
 
@@ -67,12 +67,12 @@ class NexusResearchRunRequest(BaseModel):
     project: str = Field(default="default")
     mode: str = Field(default="standard")
     depth: str | None = None
-    max_queries: int | None = Field(default=None, ge=1, le=20)
-    max_results_per_query: int | None = Field(default=None, ge=1, le=20)
-    max_sources: int | None = Field(default=None, ge=1, le=200)
-    max_downloads: int | None = Field(default=None, ge=1, le=200)
-    max_download_mb: int | None = Field(default=None, ge=1, le=500)
-    max_total_download_mb: int | None = Field(default=None, ge=1, le=2048)
+    max_queries: int | None = Field(default=None, ge=1, le=50)
+    max_results_per_query: int | None = Field(default=None, ge=1, le=50)
+    max_sources: int | None = Field(default=None, ge=1, le=500)
+    max_downloads: int | None = Field(default=None, ge=1, le=500)
+    max_download_mb: int | None = Field(default=None, ge=1, le=1000)
+    max_total_download_mb: int | None = Field(default=None, ge=1, le=8192)
     scope: str | list[str] | None = None
     language: str | None = None
     manual_urls: list[str] | None = None
@@ -81,28 +81,28 @@ class NexusResearchRunRequest(BaseModel):
     download_timeout_sec: int | None = Field(default=None, ge=1, le=600)
     continue_on_download_error: bool = True
     recursive_search: bool = False
-    max_iterations: int = Field(default=1, ge=1, le=5)
-    max_followup_queries: int = Field(default=4, ge=1, le=10)
+    max_iterations: int = Field(default=1, ge=1, le=8)
+    max_followup_queries: int = Field(default=4, ge=1, le=20)
     confidence_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
     stop_when_sufficient: bool = True
     # Restore source-profile contract used by app/nexus/research_api.py.
     source_profile: str = Field(default="web")
-    target_candidate_count: int | None = Field(default=None, ge=1, le=500)
-    target_valid_source_count: int | None = Field(default=None, ge=1, le=200)
-    target_evidence_count: int | None = Field(default=None, ge=1, le=300)
-    target_high_quality_source_count: int | None = Field(default=None, ge=0, le=200)
-    target_official_source_count: int | None = Field(default=None, ge=0, le=200)
-    target_pdf_source_count: int | None = Field(default=None, ge=0, le=200)
-    max_retrieval_rounds: int | None = Field(default=None, ge=1, le=8)
+    target_candidate_count: int | None = Field(default=None, ge=1, le=2000)
+    target_valid_source_count: int | None = Field(default=None, ge=1, le=500)
+    target_evidence_count: int | None = Field(default=None, ge=1, le=1000)
+    target_high_quality_source_count: int | None = Field(default=None, ge=0, le=500)
+    target_official_source_count: int | None = Field(default=None, ge=0, le=500)
+    target_pdf_source_count: int | None = Field(default=None, ge=0, le=500)
+    max_retrieval_rounds: int | None = Field(default=None, ge=1, le=10)
     adaptive_retrieval_enabled: bool | None = None
     news_budget: dict | None = None
     replenishment_enabled: bool = True
     target_replacement_ratio: float = Field(default=1.0, ge=0.0, le=3.0)
-    max_replenishment_rounds: int | None = Field(default=None, ge=0, le=8)
-    max_replenishment_candidates: int | None = Field(default=None, ge=0, le=300)
-    max_replenishment_downloads: int | None = Field(default=None, ge=0, le=300)
-    min_valid_source_count: int | None = Field(default=None, ge=1, le=200)
-    min_evidence_count: int | None = Field(default=None, ge=1, le=300)
+    max_replenishment_rounds: int | None = Field(default=None, ge=0, le=10)
+    max_replenishment_candidates: int | None = Field(default=None, ge=0, le=1000)
+    max_replenishment_downloads: int | None = Field(default=None, ge=0, le=500)
+    min_valid_source_count: int | None = Field(default=None, ge=1, le=500)
+    min_evidence_count: int | None = Field(default=None, ge=1, le=1000)
 
 
 class NexusSourceSearchRequest(BaseModel):
@@ -128,11 +128,11 @@ class NexusResearchFollowupRequest(BaseModel):
     collapse_duplicates: bool = False
     project: str = Field(default="default")
     mode: str = Field(default="deep")
-    max_queries: int | None = Field(default=None, ge=1, le=20)
-    max_results_per_query: int | None = Field(default=None, ge=1, le=20)
-    max_sources: int | None = Field(default=None, ge=1, le=200)
-    max_downloads: int | None = Field(default=None, ge=1, le=200)
-    max_iterations: int = Field(default=1, ge=1, le=5)
+    max_queries: int | None = Field(default=None, ge=1, le=50)
+    max_results_per_query: int | None = Field(default=None, ge=1, le=50)
+    max_sources: int | None = Field(default=None, ge=1, le=500)
+    max_downloads: int | None = Field(default=None, ge=1, le=500)
+    max_iterations: int = Field(default=1, ge=1, le=8)
     confidence_threshold: float = Field(default=0.78, ge=0.0, le=1.0)
     source_profile: str = Field(default="web")
 
@@ -142,9 +142,9 @@ class NexusCollectRequest(BaseModel):
     project: str = Field(default="default")
     search_items: list[dict] = Field(default_factory=list)
     manual_urls: list[str] = Field(default_factory=list)
-    max_download_mb: int | None = Field(default=None, ge=1, le=2048)
-    max_total_download_mb: int | None = Field(default=None, ge=1, le=2048)
-    max_downloads: int | None = Field(default=None, ge=1, le=200)
+    max_download_mb: int | None = Field(default=None, ge=1, le=1000)
+    max_total_download_mb: int | None = Field(default=None, ge=1, le=8192)
+    max_downloads: int | None = Field(default=None, ge=1, le=500)
     download_timeout_sec: int | None = Field(default=None, ge=1, le=600)
     continue_on_download_error: bool = True
 
