@@ -54,3 +54,23 @@ def test_atlas_compatibility_functions_remain_available():
     ]
     for token in required_tokens:
         assert token in combined
+
+
+def test_atlas_ui_subviews_match_existing_panels():
+    html = load_root_ui_html_text()
+    source = read(ATLAS_UI)
+    allowed = ["start", "autopilot", "plan", "history", "activity"]
+    forbidden = ["runs", "execute", "patch", "review"]
+    for name in allowed:
+        assert f'<div class="atlas-subview" data-atlas-subview-panel="{name}"' in html
+        assert f'"{name}"' in source
+    for name in forbidden:
+        assert f'<div class="atlas-subview" data-atlas-subview-panel="{name}"' not in html
+        assert f'"{name}"' not in source
+
+
+def test_atlas_ui_apply_subview_has_missing_panel_fallback():
+    source = read(ATLAS_UI)
+    assert "querySelector" in source
+    assert "data-atlas-subview-panel" in source
+    assert "start" in source
