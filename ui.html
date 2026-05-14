@@ -1715,6 +1715,12 @@
       </div>
 
       <!-- Web検索 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🩺 Runtime Diagnostics</div>
+      <div style="padding:4px 0 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <button id="runtime-diagnostics-copy-btn" class="phase1-tab-btn" type="button" onclick="copyRuntimeDiagnosticsBundle()">Copy diagnostics</button>
+        <span id="runtime-diagnostics-status" style="font-size:11px;color:var(--text3)"></span>
+      </div>
+
       <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔍 Web検索</div>
       <div style="padding:4px 0 14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -2093,6 +2099,37 @@ function onThemeSelectChange(selectEl) {
 function initTheme() {
   const saved = localStorage.getItem(THEME_STORAGE_KEY) || 'cyber';
   setTheme(saved, false);
+}
+
+async function copyRuntimeDiagnosticsBundle(mode = "detailed") {
+  const statusEl = document.getElementById("runtime-diagnostics-status");
+  try {
+    if (statusEl) statusEl.textContent = "Collecting diagnostics...";
+    const diagnosticsApi = window.RuntimeDiagnostics;
+    if (!diagnosticsApi || typeof diagnosticsApi.collectDiagnostics !== "function" || typeof diagnosticsApi.formatDiagnosticBundle !== "function") {
+      throw new Error("RuntimeDiagnostics module is not available");
+    }
+    const bundle = await diagnosticsApi.collectDiagnostics({ timeoutMs: 3500 });
+    const text = diagnosticsApi.formatDiagnosticBundle(bundle, mode);
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const fallback = document.createElement("textarea");
+      fallback.value = text;
+      fallback.setAttribute("readonly", "readonly");
+      fallback.style.position = "fixed";
+      fallback.style.left = "-9999px";
+      document.body.appendChild(fallback);
+      fallback.select();
+      document.execCommand("copy");
+      document.body.removeChild(fallback);
+    }
+    if (statusEl) statusEl.textContent = "Diagnostics copied.";
+    return true;
+  } catch (error) {
+    if (statusEl) statusEl.textContent = `Diagnostics failed: ${error && error.message ? error.message : String(error)}`;
+    return false;
+  }
 }
 
 function updateSystemLlmName() {
