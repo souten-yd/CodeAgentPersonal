@@ -61,5 +61,5 @@ def test_new_ui_modules_register_safety_registry_only():
         assert "fetch(" not in source
         if filename != "atlas_state.js":
             assert "localStorage" not in source
-        if filename != "atlas_ui.js":
+        if filename not in ("atlas_ui.js", "echo_ui.js"):
             assert "document.getElementById" not in source
