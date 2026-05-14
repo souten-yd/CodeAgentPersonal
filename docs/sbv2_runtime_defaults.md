@@ -25,3 +25,11 @@
 - No model load at import time.
 - No model download at import time.
 - No warm-up at import time.
+
+## Runtime policy resolver
+- Side-effect-free resolver: `app/services/sbv2_runtime_policy.py`.
+- Use `resolve_sbv2_runtime_policy(env, platform=...)` to inspect intended behavior.
+- The resolver must not load torch, onnxruntime, SBV2 packages, models, or files at import time.
+- Runpod/Linux must not auto-prefer ONNX.
+- Windows ONNX is opt-in only via explicit env.
+- Dummy warm-up is opt-in only via `SBV2_DUMMY_WARMUP=1`.
