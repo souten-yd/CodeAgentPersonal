@@ -3576,10 +3576,12 @@ async function tryPlayTtsQueue({userGesture = false} = {}) {
   };
 
   player.onended = () => {
+    if (window.EchoStream?.setPlaybackState) window.EchoStream.setPlaybackState('ended');
     console.info(`[TTS][play_done] id=${id} reason=ended`);
     done({ok: true, reason: 'ended'});
   };
   player.onerror = () => {
+    if (window.EchoStream?.setPlaybackState) window.EchoStream.setPlaybackState('error');
     console.warn(`[TTS][play_error] id=${id} reason=audio_error`);
     _logTtsError(new Error('audio playback error'), item?.meta?.source || item?.meta?.context || 'chat', 'audio element error');
     done({ok: false, reason: 'audio_error'});
@@ -11318,11 +11320,13 @@ function _echoHandleEvent(ev) {
     _echoSetStatus(stateMap[ev.state] || ev.state);
   } else if (ev.type === 'summary_done') {
     echo._isStoppingOrSaving = false;
+    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(false);
     _echoSetStatus('✓ 保存完了: ' + (ev.filename || ''));
     _echoVaultSetInfo('');
     refreshEchoVault();
   } else if (ev.type === 'session_stopping') {
     echo._isStoppingOrSaving = true;
+    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(true);
     _echoSetStatus('✓ 停止完了（保存はバックグラウンドで継続）');
     _echoScheduleVaultRefresh();
   } else if (ev.type === 'error') {
@@ -11342,6 +11346,7 @@ function _echoScheduleVaultRefresh(attempt = 0) {
     const saving = await _echoHasPendingSave();
     if (!saving) {
       echo._isStoppingOrSaving = false;
+    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(false);
       if (!echo.recording) _echoSetStatus('Ready');
       _echoSyncBusyStatus(document.getElementById('echo-status')?.textContent || '');
       _syncEchoMinutesButtonUi();
@@ -11366,6 +11371,7 @@ function _echoScheduleReconnect() {
   const delay = Math.min(1000 * Math.pow(2, echo.reconnectCount), 8000);
   echo.reconnectCount++;
   _echoSetConn('reconnecting');
+  if (window.EchoStream?.setConnectionState) window.EchoStream.setConnectionState('reconnecting');
   _echoSetStatus(`再接続中... (${echo.reconnectCount}回目, ${delay/1000}秒後)`);
   echo._reconnectTimer = setTimeout(() => {
     echo._reconnectTimer = null;
@@ -11377,15 +11383,18 @@ function _echoConnectWs(wsMode) {
   if (echo.ws) {
     try { echo.ws.close(); } catch(e) {}
     echo.ws = null;
+    if (window.EchoStream?.setWebSocket) window.EchoStream.setWebSocket(null);
   }
   const ws = new WebSocket(_echoWsUrl());
   ws.binaryType = 'arraybuffer';
   echo.ws = ws;
+  if (window.EchoStream?.setWebSocket) window.EchoStream.setWebSocket(ws);
 
   ws.onopen = () => {
     if (echo.ws !== ws) return;
     echo.reconnectCount = 0;
     _echoSetConn('connected');
+    if (window.EchoStream?.setConnectionState) window.EchoStream.setConnectionState('connected');
     const payload = wsMode === 'resume'
       ? {type: 'resume', session_id: echo.sessionId}
       : {
@@ -11431,11 +11440,13 @@ function _echoConnectWs(wsMode) {
   ws.onclose = () => {
     if (echo.ws !== ws) return;
     _echoSetConn('disconnected');
+    if (window.EchoStream?.setConnectionState) window.EchoStream.setConnectionState('disconnected');
     if (echo.recording) _echoScheduleReconnect();
   };
   ws.onerror = () => {
     if (echo.ws !== ws) return;
     _echoSetConn('error');
+    if (window.EchoStream?.setConnectionState) window.EchoStream.setConnectionState('error');
     if (echo.recording) _echoScheduleReconnect();
   };
 }
@@ -11452,18 +11463,22 @@ async function _echoHasPendingSave() {
 async function _echoStart() {
   if (echo._isStoppingOrSaving || await _echoHasPendingSave()) {
     echo._isStoppingOrSaving = true;
+    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(true);
     _echoSetStatus('議事録作成中のため、開始できません。完了後に再度 Start を押してください。');
     _echoSetConn('disconnected');
+    if (window.EchoStream?.setConnectionState) window.EchoStream.setConnectionState('disconnected');
     _echoScheduleVaultRefresh();
     return;
   }
   echo._isStoppingOrSaving = false;
+    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(false);
   try {
     const selectedInput = String(echo.asrInputDeviceId || 'default');
     const audioConstraints = selectedInput && selectedInput !== 'default'
       ? {deviceId: {exact: selectedInput}}
       : true;
     echo.stream = await navigator.mediaDevices.getUserMedia({audio: audioConstraints});
+    if (window.EchoStream?.setMediaStream) window.EchoStream.setMediaStream(echo.stream);
   } catch(e) {
     _echoSetStatus('マイクのアクセスが拒否されました: ' + e.message);
     return;
@@ -11490,6 +11505,7 @@ async function _echoStart() {
   echo._highpassLastY = 0;
   echo.startTime  = Date.now();
   echo.recording  = true;
+  if (window.EchoStream?.setRecording) window.EchoStream.setRecording(true);
   _echoVaultSetInfo('');
   _echoAutoScroll = true;
   _echoPreviewMode = false;
@@ -11729,7 +11745,9 @@ async function _echoStart() {
 
 async function _echoStop() {
   echo.recording = false;
+  if (window.EchoStream?.setRecording) window.EchoStream.setRecording(false);
   echo._isStoppingOrSaving = true;
+    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(true);
   _echoAutoScroll = false;
   // タイマー停止
   if (echo.durationTimer) { clearInterval(echo.durationTimer); echo.durationTimer = null; }
@@ -11817,6 +11835,7 @@ async function _echoStop() {
   if (echo.stream) {
     echo.stream.getTracks().forEach(t => t.stop());
     echo.stream = null;
+    if (window.EchoStream?.setMediaStream) window.EchoStream.setMediaStream(null);
   }
   // UI更新
   const btn = document.getElementById('echo-record-btn');
@@ -11829,6 +11848,7 @@ async function _echoStop() {
   }
   _echoScheduleVaultRefresh();
   _echoSetConn('disconnected');
+    if (window.EchoStream?.setConnectionState) window.EchoStream.setConnectionState('disconnected');
   _echoUpdateClearBtn();
 }
 
@@ -12048,6 +12068,7 @@ async function _echoVaultGenerateMinutes(transcriptFilename) {
   }
   _echoVaultSetInfo('議事録を作成中です...', 'warn');
   echo._isStoppingOrSaving = true;
+    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(true);
   _syncEchoMinutesButtonUi();
   try {
     const resp = await fetch(API + '/echo/generate-minutes', {
@@ -12063,6 +12084,7 @@ async function _echoVaultGenerateMinutes(transcriptFilename) {
     _echoVaultSetInfo(`議事録作成に失敗しました: ${e.message || String(e)}`, 'warn');
   } finally {
     echo._isStoppingOrSaving = false;
+    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(false);
     _syncEchoMinutesButtonUi();
   }
 }
