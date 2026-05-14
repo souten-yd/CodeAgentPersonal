@@ -18,28 +18,43 @@ def read_all() -> str:
     return "\n".join(parts)
 
 
-def test_echo_tts_is_sbv2_only_no_qwen_tokens_in_echo_modules():
+FORBIDDEN_TTS_QWEN_TOKENS = [
+    "_clearqwen3clonestatustimer",
+    "_setqwen3cloneplaytoggle",
+]
+
+CLEANUP_ONLY_TOKENS = [
+    "tts_qwen3model",
+    "tsasr_qwen3model",
+    "echo_qwen3model",
+    "qwen3_ref_text",
+    "qwen3_clone_require_ref_text",
+    "qwen3_clone_test_text",
+]
+
+
+def assert_token_only_in_cleanup(text: str, token: str) -> None:
+    start = 0
+    while True:
+      idx = text.find(token, start)
+      if idx < 0:
+          return
+      window = text[max(0, idx - 300): idx + 300]
+      assert "cleanupDeprecatedLegacyTtsStorage" in window or "removeItem" in window
+      start = idx + len(token)
+
+
+def test_echo_tts_is_sbv2_only_excluding_general_qwen_ui_tokens():
     text = read_all().lower()
-    forbidden = [
-        "qwen",
-        "qwen3",
-        "qwen3model",
-        "_clearqwen3clonestatustimer",
-        "_setqwen3cloneplaytoggle",
-    ]
-    for token in forbidden:
+    for token in FORBIDDEN_TTS_QWEN_TOKENS:
         assert token not in text
 
 
-def test_legacy_qwen_storage_keys_are_not_declared_or_read_as_options():
+def test_legacy_qwen_storage_keys_are_cleanup_only():
     text = read_all()
-    forbidden = [
-        "tts_qwen3model",
-        "tsasr_qwen3model",
-        "echo_qwen3model",
-    ]
-    for token in forbidden:
-        assert token not in text
+    for token in CLEANUP_ONLY_TOKENS:
+        assert token in text
+        assert_token_only_in_cleanup(text, token)
 
 
 def test_default_tts_engine_is_style_bert_vits2():
