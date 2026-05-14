@@ -270,6 +270,7 @@ def test_response_shape_key_contract_for_extracted_helpers():
         "last_asr_cuda_error",
         "last_tts_worker_error",
         "audio_cuda_serialize_lock",
+        "sbv2_runtime_policy",
     ]
     assert debug_payload["asr_selected"] == {
         "device": "cuda",
