@@ -155,6 +155,15 @@ def test_sbv2_prepare_service_body_uses_dependency_injection_and_preserves_succe
     assert payload["runtime_prepare"]["cache_hit"] is False
     assert runtime_results == [{"model": "koharune-ami", "device": "cuda"}]
     assert model_checks == [("koharune-ami", "/tmp/sbv2/models")]
+    policy = payload["sbv2_runtime_policy"]
+    assert policy["engine"] == "style_bert_vits2"
+    assert policy["default_model"] == "koharune-ami"
+    assert policy["prefer_safetensors"] is True
+    assert policy["allow_onnx"] is False
+    assert policy["prefer_onnx"] is False
+    assert policy["force_pytorch_jit_zero"] is False
+    assert policy["dummy_warmup_enabled"] is False
+    assert policy["import_time_side_effects_allowed"] is False
 
 
 def test_sbv2_prepare_service_body_preserves_degraded_503_payload_shape():
@@ -184,3 +193,57 @@ def test_sbv2_prepare_main_keeps_audio_runtime_http_error_mapping():
     main_text = MAIN.read_text(encoding="utf-8")
     assert "except AudioRuntimeHttpError as e:" in main_text
     assert "raise HTTPException(status_code=e.status_code, detail=e.detail)" in main_text
+
+
+def test_sbv2_prepare_runpod_policy_does_not_pass_onnx_or_jit_flags(monkeypatch):
+    monkeypatch.setenv("RUNPOD_POD_ID", "pod")
+    monkeypatch.setenv("SBV2_ALLOW_ONNX", "1")
+    monkeypatch.setenv("SBV2_PREFER_ONNX", "1")
+    monkeypatch.setenv("PYTORCH_JIT", "0")
+    runtime_results = []
+
+    result = audio_runtime.run_sbv2_prepare_service_body(
+        {"model": "koharune-ami"},
+        _deps(runtime_results=runtime_results),
+    )
+
+    assert result.status_code == 200
+    runtime_payload = runtime_results[0]
+    assert runtime_payload["model"] == "koharune-ami"
+    assert "allow_onnx" not in runtime_payload
+    assert "prefer_onnx" not in runtime_payload
+    assert "pytorch_jit" not in runtime_payload
+    assert "force_pytorch_jit_zero" not in runtime_payload
+    assert "dummy_warmup" not in runtime_payload
+    assert "warmup" not in runtime_payload
+    policy = result.content["sbv2_runtime_policy"]
+    assert policy["runtime_profile"] == "runpod"
+    assert policy["allow_onnx"] is False
+    assert policy["prefer_onnx"] is False
+    assert policy["force_pytorch_jit_zero"] is False
+
+
+def test_sbv2_prepare_uses_policy_device_only_when_request_device_missing(monkeypatch):
+    monkeypatch.setenv("STYLE_BERT_VITS2_DEVICE", "cuda:0")
+    runtime_results = []
+
+    result = audio_runtime.run_sbv2_prepare_service_body(
+        {"model": "koharune-ami"},
+        _deps(runtime_results=runtime_results),
+    )
+
+    assert result.status_code == 200
+    assert runtime_results == [{"model": "koharune-ami", "device": "cuda:0"}]
+
+
+def test_sbv2_prepare_explicit_device_overrides_policy_device(monkeypatch):
+    monkeypatch.setenv("STYLE_BERT_VITS2_DEVICE", "cuda:0")
+    runtime_results = []
+
+    result = audio_runtime.run_sbv2_prepare_service_body(
+        {"model": "koharune-ami", "device": "cpu"},
+        _deps(runtime_results=runtime_results),
+    )
+
+    assert result.status_code == 200
+    assert runtime_results == [{"model": "koharune-ami", "device": "cpu"}]

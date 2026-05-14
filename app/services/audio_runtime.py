@@ -1148,8 +1148,26 @@ def run_sbv2_prepare_service_body(
     """Run the SBV2 prepare body while keeping the FastAPI route in main.py."""
 
     source_req = dict(req or {})
+    policy = resolve_sbv2_runtime_policy(os.environ)
+    policy_debug = {
+        "engine": policy.engine,
+        "default_model": policy.default_model,
+        "device": policy.device,
+        "runtime_profile": policy.runtime_profile,
+        "prefer_safetensors": policy.prefer_safetensors,
+        "allow_onnx": policy.allow_onnx,
+        "prefer_onnx": policy.prefer_onnx,
+        "force_pytorch_jit_zero": policy.force_pytorch_jit_zero,
+        "dummy_warmup_enabled": policy.dummy_warmup_enabled,
+        "import_time_side_effects_allowed": policy.import_time_side_effects_allowed,
+    }
     requested_model = str(source_req.get("model", "") or "").strip()
     requested_device = str(source_req.get("device", "") or "").strip().lower()
+    policy_default_model = str(policy_debug.get("default_model") or "").strip()
+    fallback_default_model = str(deps.default_model() or "").strip()
+    default_model = policy_default_model or fallback_default_model
+    policy_device = str(policy_debug.get("device") or "auto").strip().lower()
+    resolved_device = requested_device or policy_device or "auto"
     prepare_id = str(deps.prepare_id_factory())
     deps.logger.info(
         "[Style-Bert-VITS2][prepare:%s] start repo=%s venv=%s models=%s init_flag=%s",
@@ -1364,14 +1382,13 @@ def run_sbv2_prepare_service_body(
             if preload_model:
                 deps.ensure_model_exists(preload_model, deps.models_dir)
             elif status.get("models"):
-                default_model = str(deps.default_model() or "").strip()
                 if default_model and default_model in status["models"]:
                     preload_model = default_model
                 else:
                     preload_model = status["models"][0]
             prepare_payload = {"model": preload_model} if preload_model else {}
-            if requested_device:
-                prepare_payload["device"] = requested_device
+            if resolved_device:
+                prepare_payload["device"] = resolved_device
             preload_result = deps.runtime_prepare(prepare_payload)
             status["runtime_prepare"] = preload_result
             status["runtime_ready"] = bool(
@@ -1381,6 +1398,7 @@ def run_sbv2_prepare_service_body(
                 status["runtime_prepare"]["device"] = preload_result.get("device")
                 status["runtime_prepare"]["warmup_elapsed_ms"] = preload_result.get("warmup_elapsed_ms")
                 status["runtime_prepare"]["cache_hit"] = preload_result.get("cache_hit")
+            status["sbv2_runtime_policy"] = dict(policy_debug)
             deps.logger.info(
                 "[Style-Bert-VITS2][prepare:%s] worker_prepare result=%s",
                 prepare_id,
