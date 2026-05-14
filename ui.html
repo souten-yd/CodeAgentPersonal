@@ -2101,6 +2101,7 @@ function initTheme() {
   setTheme(saved, false);
 }
 
+// Compatibility shim: inline onclick handler delegates diagnostics collection to RuntimeDiagnostics module.
 async function copyRuntimeDiagnosticsBundle(mode = "detailed") {
   const statusEl = document.getElementById("runtime-diagnostics-status");
   try {
@@ -4023,6 +4024,7 @@ function _updateEchoSbv2LanguageNote() {
   if (jpExtraNote) jpExtraNote.style.display = isForced ? 'block' : 'none';
 }
 
+// Compatibility shim: legacy handlers still call this inline function; data/rendering is delegated to EchoAPI/EchoUI.
 async function refreshStyleBertVits2Models(context = 'echo') {
   const statusEl = document.getElementById('tsasr-style-bert-vits2-status');
   const refreshBtn = document.getElementById('tsasr-style-bert-vits2-refresh-btn');
@@ -12135,6 +12137,7 @@ async function _echoVaultGenerateMinutes(transcriptFilename) {
   }
 }
 
+// Compatibility shim: legacy refresh button and flows call this inline wrapper around EchoAPI/EchoUI.
 async function refreshEchoVault() {
   const el = document.getElementById('echovault-list');
   if (!el) return;
@@ -13251,6 +13254,7 @@ function restoreAtlasSubviewState() {
   }
 }
 
+// Compatibility shim: external inline handlers still call setAtlasSubview; implementation delegates to AtlasUI/AtlasState.
 function setAtlasSubview(name, options = {}) {
   const next = normalizeAtlasSubview(name);
   let applied = next;
