@@ -1,0 +1,237 @@
+{
+  "version": 1,
+  "app": "KasaneCore",
+  "description": "Static UI feature manifest for required tabs, root panels, controls, and storage keys.",
+  "tabs": [
+    {
+      "id": "btn-chat",
+      "name": "Lumen",
+      "selector": "#btn-chat",
+      "panel_selector": "#chat-col"
+    },
+    {
+      "id": "btn-atlas",
+      "name": "Atlas",
+      "selector": "#btn-atlas",
+      "panel_selector": "#atlas-panel-col"
+    },
+    {
+      "id": "btn-echo",
+      "name": "Echo",
+      "selector": "#btn-echo",
+      "panel_selector": "#echo-col"
+    },
+    {
+      "id": "btn-nexus",
+      "name": "Nexus",
+      "selector": "#btn-nexus",
+      "panel_selector": "#nexus-col"
+    }
+  ],
+  "root_panels": [
+    {
+      "id": "chat-col",
+      "name": "Lumen panel",
+      "selector": "#chat-col"
+    },
+    {
+      "id": "atlas-panel-col",
+      "name": "Atlas panel",
+      "selector": "#atlas-panel-col"
+    },
+    {
+      "id": "atlas-workbench-card",
+      "name": "Atlas workbench",
+      "selector": "#atlas-workbench-card"
+    },
+    {
+      "id": "echo-col",
+      "name": "Echo panel",
+      "selector": "#echo-col"
+    },
+    {
+      "id": "nexus-col",
+      "name": "Nexus panel",
+      "selector": "#nexus-col"
+    },
+    {
+      "id": "settings-modal",
+      "name": "Settings panel",
+      "selector": "#settings-modal"
+    }
+  ],
+  "required_controls": [
+    {
+      "id": "atlas-workbench-collapse-btn",
+      "feature": "atlas",
+      "label": "Atlas workbench collapse",
+      "selector": "#atlas-workbench-collapse-btn"
+    },
+    {
+      "id": "atlas-requirement-input",
+      "feature": "atlas",
+      "label": "Atlas requirement input",
+      "selector": "#atlas-requirement-input"
+    },
+    {
+      "id": "atlas-requirement-clear-btn",
+      "feature": "atlas",
+      "label": "Clear requirement",
+      "selector": "#atlas-requirement-clear-btn"
+    },
+    {
+      "id": "atlas-subview-tabs",
+      "feature": "atlas",
+      "label": "Atlas subview tabs",
+      "selector": "[data-atlas-subview-tab]"
+    },
+    {
+      "id": "atlas-subview-panels",
+      "feature": "atlas",
+      "label": "Atlas subview panels",
+      "selector": "[data-atlas-subview-panel]"
+    },
+    {
+      "id": "agent-guided-workflow-status",
+      "feature": "atlas",
+      "label": "Legacy task / advanced marker",
+      "selector": "#agent-guided-workflow-status"
+    },
+    {
+      "id": "echo-record-btn",
+      "feature": "echo",
+      "label": "Echo record button",
+      "selector": "#echo-record-btn"
+    },
+    {
+      "id": "sbv2-test-generate-btn",
+      "feature": "echo",
+      "label": "Echo TTS test generate",
+      "selector": "#sbv2-test-generate-btn"
+    },
+    {
+      "id": "tsasr-style-bert-vits2-model-sel",
+      "feature": "echo",
+      "label": "SBV2 model dropdown",
+      "selector": "#tsasr-style-bert-vits2-model-sel"
+    },
+    {
+      "id": "nexus-deep-run-btn",
+      "feature": "nexus",
+      "label": "Nexus deep research run",
+      "selector": "#nexus-deep-run-btn"
+    },
+    {
+      "id": "nexus-deep-recursive-search",
+      "feature": "nexus",
+      "label": "Nexus recursive research toggle",
+      "selector": "#nexus-deep-recursive-search"
+    },
+    {
+      "id": "nexus-evidence-run-btn",
+      "feature": "nexus",
+      "label": "Nexus evidence refresh",
+      "selector": "#nexus-evidence-run-btn"
+    },
+    {
+      "id": "runtime-diagnostics-copy-btn",
+      "feature": "runtime",
+      "label": "Copy diagnostics",
+      "selector": "#runtime-diagnostics-copy-btn"
+    },
+    {
+      "id": "echo-upload-btn",
+      "feature": "echo",
+      "label": "EchoVault upload control",
+      "selector": "#echo-upload-btn"
+    },
+    {
+      "id": "nexus-report-run-btn",
+      "feature": "nexus",
+      "label": "Nexus report generate",
+      "selector": "#nexus-report-run-btn"
+    }
+  ],
+  "storage_keys": [
+    {
+      "key": "atlas:lastSubview",
+      "feature": "atlas",
+      "purpose": "Last selected Atlas subview"
+    },
+    {
+      "key": "atlas:lastRunId",
+      "feature": "atlas",
+      "purpose": "Last Atlas run id"
+    },
+    {
+      "key": "atlas:requirementInput",
+      "feature": "atlas",
+      "purpose": "Atlas requirement draft"
+    },
+    {
+      "key": "nexus.deepResearch.lastJobId",
+      "feature": "nexus",
+      "purpose": "Last Nexus Deep Research job id"
+    },
+    {
+      "key": "echo_style_bert_vits2_model",
+      "feature": "echo",
+      "purpose": "Echo Style-Bert-VITS2 selected model"
+    },
+    {
+      "key": "tts_style_bert_vits2_model",
+      "feature": "echo",
+      "purpose": "TTS Style-Bert-VITS2 selected model"
+    }
+  ],
+  "modules": [
+    {
+      "name": "lumen_api",
+      "path": "/static/js/lumen_api.js",
+      "global": "LumenAPI",
+      "registry": "__kasaneModules.lumenApi"
+    },
+    {
+      "name": "atlas_api",
+      "path": "/static/js/atlas_api.js",
+      "global": "AtlasAPI",
+      "registry": "__kasaneModules.atlasApi"
+    },
+    {
+      "name": "atlas_state",
+      "path": "/static/js/atlas_state.js",
+      "global": "AtlasState",
+      "registry": "__kasaneModules.atlasState"
+    },
+    {
+      "name": "atlas_ui",
+      "path": "/static/js/atlas_ui.js",
+      "global": "AtlasUI",
+      "registry": "__kasaneModules.atlasUi"
+    },
+    {
+      "name": "echo_api",
+      "path": "/static/js/echo_api.js",
+      "global": "EchoAPI",
+      "registry": "__kasaneModules.echoApi"
+    },
+    {
+      "name": "echo_stream",
+      "path": "/static/js/echo_stream.js",
+      "global": "EchoStream",
+      "registry": "__kasaneModules.echoStream"
+    },
+    {
+      "name": "echo_ui",
+      "path": "/static/js/echo_ui.js",
+      "global": "EchoUI",
+      "registry": "__kasaneModules.echoUi"
+    },
+    {
+      "name": "runtime_diagnostics",
+      "path": "/static/js/runtime_diagnostics.js",
+      "global": "RuntimeDiagnostics",
+      "registry": "__kasaneModules.runtimeDiagnostics"
+    }
+  ]
+}
