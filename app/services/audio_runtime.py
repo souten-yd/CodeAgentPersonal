@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Mapping
 
+from app.services.sbv2_runtime_policy import resolve_sbv2_runtime_policy
 
 AUDIO_RUNTIME_ENDPOINT_OWNERSHIP: dict[str, dict[str, str]] = {
     "GET /voice/status": {
@@ -1878,6 +1879,27 @@ def classify_audio_endpoint_risk(method_and_path: str) -> str:
     return "unknown"
 
 
+def build_sbv2_runtime_policy_debug(
+    env: Mapping[str, str] | None = None,
+    *,
+    platform: str | None = None,
+) -> dict[str, Any]:
+    policy = resolve_sbv2_runtime_policy(env or os.environ, platform=platform)
+    data = asdict(policy)
+    return {
+        "engine": data["engine"],
+        "default_model": data["default_model"],
+        "device": data["device"],
+        "runtime_profile": data["runtime_profile"],
+        "prefer_safetensors": data["prefer_safetensors"],
+        "allow_onnx": data["allow_onnx"],
+        "prefer_onnx": data["prefer_onnx"],
+        "force_pytorch_jit_zero": data["force_pytorch_jit_zero"],
+        "dummy_warmup_enabled": data["dummy_warmup_enabled"],
+        "import_time_side_effects_allowed": data["import_time_side_effects_allowed"],
+    }
+
+
 def build_audio_runtime_debug_payload(
     extra: Mapping[str, Any] | None = None,
     *,
@@ -1901,6 +1923,7 @@ def build_audio_runtime_debug_payload(
     ):
         diagnostics = AudioRuntimeDiagnostics(details=dict(extra or {})).to_dict()
         diagnostics["endpoints"] = {key: dict(value) for key, value in AUDIO_RUNTIME_ENDPOINT_OWNERSHIP.items()}
+        diagnostics["sbv2_runtime_policy"] = build_sbv2_runtime_policy_debug()
         return diagnostics
 
     runtime = dict(runtime_config or {})
@@ -1926,4 +1949,5 @@ def build_audio_runtime_debug_payload(
         "audio_cuda_serialize_lock": {
             "asr_lock_locked": _coerce_bool(voice.get("lock_locked", False)),
         },
+        "sbv2_runtime_policy": build_sbv2_runtime_policy_debug(),
     }
