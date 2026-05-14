@@ -29,7 +29,7 @@
     const models = Array.isArray(opts?.models) ? opts.models : [];
     const details = Array.isArray(opts?.details) ? opts.details : [];
     const current = String(opts?.selectedModel || '');
-    const defaultModel = String(opts?.defaultModel || 'jvnv-F1-jp');
+    const defaultModel = String(opts?.defaultModel || 'koharune-ami');
     const resolved = Array.from(new Set([defaultModel, ...models.filter(Boolean)]));
     const detailMap = new Map(); details.forEach((d)=>{ if(d&&d.model) detailMap.set(d.model,d); });
     sel.innerHTML = '';
