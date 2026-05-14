@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 import traceback
@@ -1148,7 +1149,7 @@ def run_sbv2_prepare_service_body(
     """Run the SBV2 prepare body while keeping the FastAPI route in main.py."""
 
     source_req = dict(req or {})
-    policy = resolve_sbv2_runtime_policy(os.environ)
+    policy = resolve_sbv2_runtime_policy(os.environ, platform=sys.platform)
     policy_debug = {
         "engine": policy.engine,
         "default_model": policy.default_model,
@@ -1902,7 +1903,10 @@ def build_sbv2_runtime_policy_debug(
     *,
     platform: str | None = None,
 ) -> dict[str, Any]:
-    policy = resolve_sbv2_runtime_policy(env or os.environ, platform=platform)
+    policy = resolve_sbv2_runtime_policy(
+        env or os.environ,
+        platform=platform or sys.platform,
+    )
     data = asdict(policy)
     return {
         "engine": data["engine"],

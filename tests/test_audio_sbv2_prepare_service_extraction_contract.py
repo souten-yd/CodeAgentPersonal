@@ -247,3 +247,8 @@ def test_sbv2_prepare_explicit_device_overrides_policy_device(monkeypatch):
 
     assert result.status_code == 200
     assert runtime_results == [{"model": "koharune-ami", "device": "cpu"}]
+
+
+def test_sbv2_prepare_policy_resolution_uses_sys_platform():
+    text = SERVICE.read_text(encoding="utf-8")
+    assert "platform=sys.platform" in text
