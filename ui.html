@@ -13188,32 +13188,33 @@ function restoreAtlasSubviewState() {
 
 function setAtlasSubview(name, options = {}) {
   const next = normalizeAtlasSubview(name);
-  try {
-    if (window.AtlasState?.setLastSubview) window.AtlasState.setLastSubview(next);
-    else _atlasLsSet(ATLAS_LAST_SUBVIEW_KEY, next);
-  } catch (err) {
-    console.warn('Atlas subview persistence failed:', err);
-  }
+  let applied = next;
   if (window.AtlasUI?.applySubview) {
-    window.AtlasUI.applySubview(next, { lastRunId: getAtlasLastRunId(), focusSelector: options.focusSelector });
+    applied = window.AtlasUI.applySubview(next, { lastRunId: getAtlasLastRunId(), focusSelector: options.focusSelector });
   } else {
     const root = document.getElementById('atlas-workbench-card');
     if (!root) return next;
-    root.dataset.atlasCurrentSubview = next;
+    const hasPanel = !!root.querySelector(`[data-atlas-subview-panel="${next}"]`);
+    applied = hasPanel ? next : 'start';
+    root.dataset.atlasCurrentSubview = applied;
     root.querySelectorAll('[data-atlas-subview-panel]').forEach((el) => {
-      const active = el.getAttribute('data-atlas-subview-panel') === next;
+      const active = el.getAttribute('data-atlas-subview-panel') === applied;
       el.hidden = !active;
       el.style.display = active ? '' : 'none';
     });
     root.querySelectorAll('[data-atlas-subview-tab]').forEach((btn) => {
-      btn.classList.toggle('active', btn.getAttribute('data-atlas-subview-tab') === next);
+      btn.classList.toggle('active', btn.getAttribute('data-atlas-subview-tab') === applied);
     });
-    updateAtlasResumeNotice(next);
+    updateAtlasResumeNotice(applied);
   }
-  if (next === 'runs' || next === 'execute' || next === 'patch') {
-    try { ensureAtlasWorkbenchHost(); } catch (err) { console.warn('ensureAtlasWorkbenchHost failed:', err); }
+  const persisted = applied || next;
+  try {
+    if (window.AtlasState?.setLastSubview) window.AtlasState.setLastSubview(persisted);
+    else _atlasLsSet(ATLAS_LAST_SUBVIEW_KEY, persisted);
+  } catch (err) {
+    console.warn('Atlas subview persistence failed:', err);
   }
-  return next;
+  return persisted;
 }
 
 

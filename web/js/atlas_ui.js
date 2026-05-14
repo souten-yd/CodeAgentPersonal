@@ -2,7 +2,7 @@
   "use strict";
   const root = window;
   const registry = root.__kasaneModules || (root.__kasaneModules = {});
-  const SUBVIEWS = Object.freeze(["start", "autopilot", "plan", "history", "activity", "runs", "execute", "patch", "review"]);
+  const SUBVIEWS = Object.freeze(["start", "autopilot", "plan", "history", "activity"]);
 
   function byId(id) {
     return root.document ? root.document.getElementById(id) : null;
@@ -45,7 +45,11 @@
     if (!notice) return;
     const current = normalizeSubview(subview || options.lastSubview);
     const labelMap = {
-      start: "Start", plan: "Plan", runs: "Runs", execute: "Execute", patch: "Patch Review",
+      start: "Start",
+      autopilot: "Autopilot",
+      plan: "Plan",
+      history: "History",
+      activity: "Activity",
     };
     const label = labelMap[current] || "Start";
     const lastRun = String(options.lastRunId || "").trim();
@@ -57,9 +61,11 @@
   }
 
   function applySubview(subview, options = {}) {
-    const next = normalizeSubview(subview);
+    const requested = normalizeSubview(subview);
     const rootEl = getWorkbenchRoot();
-    if (!rootEl) return next;
+    if (!rootEl) return requested;
+    const hasPanel = !!rootEl.querySelector(`[data-atlas-subview-panel="${requested}"]`);
+    const next = hasPanel ? requested : "start";
     rootEl.dataset.atlasCurrentSubview = next;
     rootEl.querySelectorAll("[data-atlas-subview-panel]").forEach((el) => {
       const active = el.getAttribute("data-atlas-subview-panel") === next;
