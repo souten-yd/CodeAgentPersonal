@@ -69,3 +69,18 @@ def test_feature_manifest_includes_runtime_diagnostics_button():
     data = load_manifest()
     controls = data["required_controls"]
     assert any(c.get("selector") == "#runtime-diagnostics-copy-btn" for c in controls)
+
+
+def test_feature_manifest_lists_split_modules():
+    data = load_manifest()
+    module_names = {m.get("name") for m in data["modules"]}
+    expected = {
+        "atlas_api",
+        "atlas_state",
+        "atlas_ui",
+        "echo_api",
+        "echo_stream",
+        "echo_ui",
+        "runtime_diagnostics",
+    }
+    assert expected.issubset(module_names)
