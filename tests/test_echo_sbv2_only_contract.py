@@ -2,6 +2,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEXT_PATHS = [
+    ROOT / "ui.html",
     ROOT / "web" / "feature_manifest.json",
     ROOT / "web" / "js" / "echo_api.js",
     ROOT / "web" / "js" / "echo_stream.js",

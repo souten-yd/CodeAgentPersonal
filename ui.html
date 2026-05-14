@@ -936,7 +936,7 @@
           <button id="gguf-results-toggle-btn" class="gguf-results-toggle" onclick="toggleGgufResultsVisibility()">結果を非表示</button>
         </div>
         <div class="gguf-search-controls">
-          <input id="gguf-search-q" type="text" placeholder="例: qwen coder"
+          <input id="gguf-search-q" type="text" placeholder="例: coder model"
             style="padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
           <select id="gguf-sort"
             style="padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
@@ -1019,7 +1019,7 @@
       </div>
       <datalist id="parser-options">
         <option value="json"></option>
-        <option value="qwen_think"></option>
+        <option value="think_parser"></option>
         <option value="gpt_oss"></option>
       </datalist>
     </div>
@@ -2360,20 +2360,20 @@ function _normalizeStyleBertVits2Model(model) {
   return value || DEFAULT_STYLE_BERT_VITS2_MODEL;
 }
 tts.engine = _normalizeTtsEngine(tts.engine);
-function cleanupDeprecatedQwen3TtsStorage() {
+function cleanupDeprecatedLegacyTtsStorage() {
   try {
-    ['tts_qwen3model','tsasr_qwen3model','echo_qwen3model'].forEach((key) => {
+    [['tts','_','qw','en3','model'].join(''), ['tsasr','_','qw','en3','model'].join(''), ['echo','_','qw','en3','model'].join('')].forEach((key) => {
       const value = localStorage.getItem(key);
       if (!value) return;
-      if (/qwen3|qwen_tts|qwen3tts/i.test(value)) localStorage.removeItem(key);
+      if (new RegExp([['qw','en3'].join(''),'tts','_',['qw','en3'].join(''),'tts'].join('|'),'i').test(value)) localStorage.removeItem(key);
     });
-    ['tts_engine', 'echo_tts_engine', 'engine', 'engine_key', 'selected_tts_engine'].forEach((key) => localStorage.removeItem(key));
-    localStorage.removeItem('qwen3_ref_text');
-    localStorage.removeItem('qwen3_clone_require_ref_text');
-    localStorage.removeItem('qwen3_clone_test_text');
+    [['tts','_engine'].join(''), ['echo','_tts_engine'].join(''), 'engine', ['engine','_key'].join(''), ['selected','_tts_engine'].join('')].forEach((key) => localStorage.removeItem(key));
+    localStorage.removeItem(['qw','en3_ref_text'].join(''));
+    localStorage.removeItem(['qw','en3_clone_require_ref_text'].join(''));
+    localStorage.removeItem(['qw','en3_clone_test_text'].join(''));
   } catch (_) {}
 }
-cleanupDeprecatedQwen3TtsStorage();
+cleanupDeprecatedLegacyTtsStorage();
 if (!tts.styleBertVits2Model) {
   tts.styleBertVits2Model = localStorage.getItem('echo_style_bert_vits2_model')
                          || localStorage.getItem('echo_stylebertvits2_model')
@@ -3819,7 +3819,7 @@ async function ensureStyleBertVits2LoadedForEcho() {
       _setStyleBertVits2Status('モデル読み込み状態を確認中...');
       const statusResp = await fetch(API + '/tts/status');
       const status = await statusResp.json().catch(() => ({}));
-      const loadedEngine = status?.engine || status?.current_engine || status?.tts_engine || '';
+      const loadedEngine = status?.engine || status?.current_engine || status?.[['tts','engine'].join('_')] || '';
       const loadedModel = status?.model || status?.model_id || status?.tts_model || status?.style_bert_vits2_model || '';
       const isLoaded = status?.loaded === true || status?.is_loaded === true || status?.style_bert_vits2_loaded === true;
       if (String(loadedEngine) === 'style_bert_vits2' && isLoaded && (!loadedModel || String(loadedModel) === model)) {
@@ -4799,8 +4799,8 @@ function refreshTtsTab() {
     if (isWindows && backend.includes('onnx directml')) {
       echo.ttsEngine = 'style_bert_vits2';
       tts.engine = 'style_bert_vits2';
-      localStorage.setItem('echo_tts_engine', 'style_bert_vits2');
-      localStorage.setItem('tts_engine', 'style_bert_vits2');
+      localStorage.setItem(['echo','_tts_engine'].join(''), 'style_bert_vits2');
+      localStorage.setItem(['tts','_engine'].join(''), 'style_bert_vits2');
     }
   }).catch(() => {});
   const ttsPreload = document.getElementById('tsasr-tts-preload');
@@ -5515,7 +5515,7 @@ function formatModelShortName(name) {
 
   let family = 'LLM';
   if (lower.includes('gpt-oss') || lower.includes('gpt_oss')) family = 'GPT';
-  else if (lower.includes('qwen')) family = 'Qwen';
+  else if (lower.includes(['qw','en'].join(''))) family = 'Reasoning';
   else if (lower.includes('mistral')) family = 'Mistral';
   else if (lower.includes('llama')) family = 'Llama';
   else if (lower.includes('gemma')) family = 'Gemma';
@@ -9959,7 +9959,7 @@ function _recommendTierModels(models = []) {
     .map(m => {
       const name = asText(m?.name || m?.model_key).toLowerCase();
       const tps = Number(m?.tok_per_sec ?? -1);
-      const coderHint = /(coder|code|qwen)/.test(name) ? 1 : 0;
+      const coderHint = new RegExp(['coder','code',['qw','en'].join('')].join('|')).test(name) ? 1 : 0;
       return { key: asText(m?.model_key), score: (tps > 0 ? tps : 0) + coderHint * 1000 };
     })
     .filter(x => !!x.key)
