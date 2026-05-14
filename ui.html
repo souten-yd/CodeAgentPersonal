@@ -12484,10 +12484,23 @@ const ATLAS_LAST_SUBVIEW_KEY = 'atlas:lastSubview';
 const ATLAS_REQUIREMENT_INPUT_KEY = 'atlas:requirementInput';
 const ATLAS_SUBVIEWS = ['start', 'autopilot', 'plan', 'history', 'activity'];
 
-function _atlasLsGet(key) { try { return localStorage.getItem(key) || ''; } catch(_) { return ''; } }
-function _atlasLsSet(key, value) { try { localStorage.setItem(key, value || ''); } catch(_) {} }
+function _atlasLsGet(key, fallback = '') {
+  if (window.AtlasState?.safeGet) return window.AtlasState.safeGet(key, fallback);
+  try { return localStorage.getItem(key) || fallback; } catch(_) { return fallback; }
+}
+function _atlasLsSet(key, value) {
+  if (window.AtlasState?.safeSet) return window.AtlasState.safeSet(key, value);
+  try { localStorage.setItem(key, String(value ?? '')); return true; } catch(_) { return false; }
+}
+function _atlasLsRemove(key) {
+  if (window.AtlasState?.safeRemove) return window.AtlasState.safeRemove(key);
+  try { localStorage.removeItem(key); return true; } catch(_) { return false; }
+}
 
-function getAtlasLastRunId() { return _atlasLsGet(ATLAS_LAST_RUN_KEY) || ''; }
+function getAtlasLastRunId() {
+  if (window.AtlasState?.getLastRunId) return window.AtlasState.getLastRunId() || '';
+  return _atlasLsGet(ATLAS_LAST_RUN_KEY) || '';
+}
 
 function restoreAtlasLastRunState() {
   const lastRun = getAtlasLastRunId();
@@ -12523,6 +12536,7 @@ const planWorkflowState = {
   source: 'atlas',
   workspace: 'Atlas',
 };
+if (window.AtlasState?.setPlanWorkflowState) window.AtlasState.setPlanWorkflowState(planWorkflowState);
 
 function _isRequirementIdLeak(v = '') {
   const s = String(v || '').trim();
@@ -12964,13 +12978,16 @@ function updateAtlasRequirementCharCount() {
 function persistAtlasRequirementInput() {
   const input = document.getElementById('atlas-requirement-input');
   if (!input) return;
-  try { _atlasLsSet(ATLAS_REQUIREMENT_INPUT_KEY, input.value || ''); } catch (err) { console.warn('persistAtlasRequirementInput failed:', err); }
+  try {
+    if (window.AtlasState?.setRequirementInput) window.AtlasState.setRequirementInput(input.value || '');
+    else _atlasLsSet(ATLAS_REQUIREMENT_INPUT_KEY, input.value || '');
+  } catch (err) { console.warn('persistAtlasRequirementInput failed:', err); }
 }
 
 function restoreAtlasRequirementInput() {
   const input = document.getElementById('atlas-requirement-input');
   if (!input) return;
-  const saved = _atlasLsGet(ATLAS_REQUIREMENT_INPUT_KEY);
+  const saved = window.AtlasState?.getRequirementInput ? window.AtlasState.getRequirementInput() : _atlasLsGet(ATLAS_REQUIREMENT_INPUT_KEY);
   if (saved && !input.value) input.value = saved;
   updateAtlasRequirementCharCount();
   setAtlasRequirementStatus(input.value.trim() ? 'Requirement draft restored.' : 'Ready to start Atlas.');
@@ -12979,7 +12996,10 @@ function restoreAtlasRequirementInput() {
 function clearAtlasRequirementInput() {
   const input = document.getElementById('atlas-requirement-input');
   if (input) input.value = '';
-  try { _atlasLsSet(ATLAS_REQUIREMENT_INPUT_KEY, ''); } catch (err) { console.warn('clearAtlasRequirementInput failed:', err); }
+  try {
+    if (window.AtlasState?.clearRequirementInput) window.AtlasState.clearRequirementInput();
+    else _atlasLsSet(ATLAS_REQUIREMENT_INPUT_KEY, '');
+  } catch (err) { console.warn('clearAtlasRequirementInput failed:', err); }
   updateAtlasRequirementCharCount();
   setAtlasRequirementStatus('Requirement cleared.');
 }
@@ -13088,7 +13108,8 @@ function normalizeAtlasSubview(name) {
 }
 
 function getAtlasLastSubview() {
-  return normalizeAtlasSubview(_atlasLsGet(ATLAS_LAST_SUBVIEW_KEY));
+  const raw = window.AtlasState?.getLastSubview ? window.AtlasState.getLastSubview() : _atlasLsGet(ATLAS_LAST_SUBVIEW_KEY);
+  return normalizeAtlasSubview(raw);
 }
 
 function updateAtlasResumeNotice(subview) {
@@ -13155,7 +13176,8 @@ function setAtlasSubview(name) {
   if (!root) return next;
   root.dataset.atlasCurrentSubview = next;
   try {
-    _atlasLsSet(ATLAS_LAST_SUBVIEW_KEY, next);
+    if (window.AtlasState?.setLastSubview) window.AtlasState.setLastSubview(next);
+    else _atlasLsSet(ATLAS_LAST_SUBVIEW_KEY, next);
   } catch (err) {
     console.warn('Atlas subview persistence failed:', err);
   }
@@ -13245,7 +13267,8 @@ async function openManualAtlasRunExecuteFromWorkbench() {
   const runId = manual || getAtlasLastRunId();
   if (!runId) { addMsg('system', 'run_id is required. Run Atlas once, load recent runs, or enter run_id.'); return; }
   cardRoot.dataset.lastRunId = runId;
-  _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
+  if (window.AtlasState?.setLastRunId) window.AtlasState.setLastRunId(runId);
+  else _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
   await loadAtlasRunExecute(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');
   appendAtlasActivityCard('patch_review_ready', { runId });
 }
@@ -13266,7 +13289,8 @@ async function openPatchReviewFromWorkbench() {
   const runId = manual || getAtlasLastRunId();
   if (!runId) { addMsg('system', 'run_id is required for patch review. Run Atlas once, load recent runs, or enter run_id.'); return; }
   cardRoot.dataset.lastRunId = runId;
-  _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
+  if (window.AtlasState?.setLastRunId) window.AtlasState.setLastRunId(runId);
+  else _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
   await loadAtlasRunExecute(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');
   setTimeout(() => {
     const btn = cardRoot.querySelector('[data-atlas-dashboard-action="open-patch-review"]');
@@ -13719,7 +13743,8 @@ async function loadAtlasRunExecute(cid, runId, cardRoot, openedFrom = "current")
       ${renderList('Quality not evaluated patches', att.quality_not_evaluated_patch_ids || [])}
       ${renderList('Reproposal candidates', att.reproposal_needed_patch_ids || [])}
     `;
-    _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
+    if (window.AtlasState?.setLastRunId) window.AtlasState.setLastRunId(runId);
+  else _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
     _atlasLsSet(ATLAS_LAST_DASHBOARD_RUN_KEY, runId);
     if (root) root.dataset.lastRunId = runId;
     const lastEl = root?.querySelector(`#${cid}-atlas-last-run`);

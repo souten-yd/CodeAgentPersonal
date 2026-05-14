@@ -59,5 +59,6 @@ def test_new_ui_modules_register_safety_registry_only():
         assert "__kasaneModules" in source
         assert key in source
         assert "fetch(" not in source
-        assert "localStorage" not in source
+        if filename != "atlas_state.js":
+            assert "localStorage" not in source
         assert "document.getElementById" not in source
