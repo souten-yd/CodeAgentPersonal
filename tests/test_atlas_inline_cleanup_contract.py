@@ -92,3 +92,9 @@ def test_atlas_modules_keep_boundaries():
         assert token not in state
     for token in ["fetch(", "localStorage", "AtlasAPI.", "requestJson"]:
         assert token not in ui
+
+
+def test_ui_html_uses_response_helper_when_checking_dashboard_status():
+    html = load_root_ui_html_text()
+    if ".status === 404" in html and "patch-dashboard" in html:
+        assert "getRunPatchDashboardResponse" in html

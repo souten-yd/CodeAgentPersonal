@@ -60,8 +60,12 @@
     return requestJson(`/api/atlas/runs?limit=${encodeURIComponent(String(n))}`);
   }
 
-  async function getRunPatchDashboard(runId) {
+  async function getRunPatchDashboardResponse(runId) {
     return request(`/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
+  }
+
+  async function getRunPatchDashboard(runId) {
+    return requestJson(`/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
   }
 
   async function getRunPatches(runId) {
@@ -86,6 +90,7 @@
     prepareAutopilotExecutionPreview,
     listAtlasRuns,
     getRunPatchDashboard,
+    getRunPatchDashboardResponse,
     getRunPatches,
     getRunReport,
     getRunLog,
@@ -99,6 +104,7 @@
     prepareAutopilotExecutionPreview,
     listAtlasRuns,
     getRunPatchDashboard,
+    getRunPatchDashboardResponse,
     getRunPatches,
     getRunReport,
     getRunLog,
