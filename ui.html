@@ -3990,8 +3990,7 @@ async function refreshStyleBertVits2Models(context = 'echo') {
   if (refreshBtn) refreshBtn.disabled = true;
   if (statusEl) statusEl.textContent = 'モデル一覧を取得中...';
   try {
-    const resp = await fetch(API + '/api/tts/style-bert-vits2/models');
-    const data = await resp.json();
+    const data = await window.EchoAPI.listStyleBertVits2Models();
     const models = Array.isArray(data.models) ? data.models : [];
     const details = Array.isArray(data.model_details) ? data.model_details : [];
     _styleBertVits2ModelMeta.clear();
@@ -4117,7 +4116,7 @@ function _ttsSyncUnloadBtn(engine) {
   const unloadBtn = document.getElementById('tts-unload-btn');
   const loadBtn   = document.getElementById('tts-engine-load-btn');
   if (!unloadBtn || !loadBtn) return;
-  fetch(API + '/tts/status').then(r => r.json()).then(s => {
+  window.EchoAPI.getTtsStatus().then(s => {
     _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
     const loaded = false;
     unloadBtn.style.display = loaded ? '' : 'none';
@@ -4708,7 +4707,7 @@ function saveTtsTranslateSettings(context = 'echo') {
 function refreshAsrTab() {
   _echoInitSettingsUI();
   _loadAsrRuntimeConfig().then(()=>_renderAsrRuntimeUi());
-  fetch(API + '/voice/status').then(r => r.json()).then(s => {
+  window.EchoAPI.getVoiceStatus().then(s => {
     const statusEl = document.getElementById('tsasr-asr-status');
     const loadBtn  = document.getElementById('tsasr-asr-load-btn');
     const unloadBtn = document.getElementById('tsasr-asr-unload-btn');
@@ -4742,7 +4741,7 @@ function refreshTtsTab() {
   refreshStyleBertVits2Models('echo').finally(() => {
     setTimeout(() => { ensureStyleBertVits2LoadedForEcho().catch((e) => console.warn(e)); }, 0);
   });
-  fetch(API + '/tts/status').then(r => r.json()).then(s => {
+  window.EchoAPI.getTtsStatus().then(s => {
     _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
     const sb = s?.engines?.style_bert_vits2 || s?.style_bert_vits2 || {};
     const backend = String(sb?.selected_tts_backend || '').toLowerCase();
@@ -4834,8 +4833,7 @@ function _ttsInitSettingsUI() {
 
 async function _loadAsrRuntimeConfig() {
   try {
-    const r = await fetch(API + '/asr/config');
-    asrRuntimeConfig = await r.json();
+    asrRuntimeConfig = await window.EchoAPI.getAsrConfig();
   } catch(_) {}
 }
 
@@ -4847,7 +4845,7 @@ function _asrInitSettingsUI() {
   if (minSpeechEl) minSpeechEl.value = String(voiceAsrSettings.minSpeechMs);
   if (autoSendEl) autoSendEl.checked = !!voiceAsrSettings.autoSendAfterAsr;
   _loadAsrRuntimeConfig().then(()=>_renderAsrRuntimeUi());
-  fetch(API + '/voice/status').then(r => r.json()).then(s => {
+  window.EchoAPI.getVoiceStatus().then(s => {
     const statusTxt = document.getElementById('asr-status-txt');
     const unloadBtn = document.getElementById('asr-unload-btn');
     const loadBtn   = document.getElementById('asr-load-btn');
@@ -11444,9 +11442,7 @@ function _echoConnectWs(wsMode) {
 
 async function _echoHasPendingSave() {
   try {
-    const r = await fetch(API + '/echo/save-status');
-    if (!r.ok) return false;
-    const d = await r.json();
+    const d = await window.EchoAPI.getEchoSaveStatus();
     return !!d.saving;
   } catch (_) {
     return false;
@@ -12076,8 +12072,7 @@ async function refreshEchoVault() {
   if (!el) return;
   el.innerHTML = '<div style="font-size:11px;color:var(--text3);text-align:center;padding:12px;font-family:var(--font-mono)">読み込み中...</div>';
   try {
-    const r = await fetch(API + '/echo/sessions');
-    const d = await r.json();
+    const d = await window.EchoAPI.listEchoSessions();
     const files = d.files || [];
     if (!files.length) {
       el.innerHTML = '<div style="font-size:12px;color:var(--text3);text-align:center;padding:24px 0;font-family:var(--font-mono)">セッションデータはまだありません</div>';
