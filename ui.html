@@ -12816,8 +12816,7 @@ async function createAutopilotPreview() {
   const previewEl = document.getElementById('atlas-autopilot-plan-preview');
   if (previewEl) previewEl.textContent = 'Creating preview...';
   try {
-    const r = await fetch('/api/atlas/autopilot/preview', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_goal: goal || 'Autopilot goal'})});
-    const data = await r.json();
+    const data = await window.AtlasAPI.createAutopilotPreview({user_goal: goal || 'Autopilot goal'});
     currentAutopilotId = String(data.autopilot_id || '');
     currentAutopilotPlan = data;
     currentAutopilotTasks = Array.isArray(data.tasks) ? data.tasks.map(t => ({...t, statusMessage:'Ready.'})) : [];
@@ -12839,9 +12838,7 @@ async function generateAutopilotTaskPlan(btn){
   const statusEl = card?.querySelector('[data-role="task-status"]');
   if (statusEl) statusEl.textContent = 'Generating plan...';
   try {
-    const r = await fetch(`/api/atlas/autopilot/${encodeURIComponent(autopilotId)}/tasks/${encodeURIComponent(taskId)}/plan`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
-    const data = await r.json();
-    if (!r.ok) throw new Error(data?.error || data?.message || `HTTP ${r.status}`);
+    const data = await window.AtlasAPI.generateAutopilotTaskPlan(autopilotId, taskId);
     const message = data.message || '';
     if (statusEl) statusEl.innerHTML = `status: ${esc(data.status || '-')}<br>requirement_id: ${esc(data.requirement_id || '-')}<br>plan_id: ${esc(data.plan_id || '-')}<br>review_status: ${esc(data.review_status || '-')}<br>message: ${esc(message || '-')}`;
     if (task) { task.planResult = data; task.statusMessage = `plan:${data.status || '-'}`; }
@@ -12853,8 +12850,7 @@ async function prepareAutopilotExecutionPreview(btn){
   const statusEl = card?.querySelector('[data-role="task-status"]');
   if (statusEl) statusEl.textContent = 'Preparing execution preview...';
   try {
-    const r = await fetch(`/api/atlas/autopilot/${encodeURIComponent(autopilotId)}/tasks/${encodeURIComponent(taskId)}/execution-preview`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
-    const data = await r.json();
+    const data = await window.AtlasAPI.prepareAutopilotExecutionPreview(autopilotId, taskId);
     const st = String(data.status || '');
     if (st === 'plan_required') { statusEl.innerHTML = 'Plan generation is required before execution preview.'; }
     else if (st === 'approval_required') { statusEl.innerHTML = 'Approval required before execution preview. Open the Plan tab and approve the plan first.'; }
@@ -13700,9 +13696,7 @@ async function loadAtlasRunExecute(cid, runId, cardRoot, openedFrom = "current")
   const dashboardEl = root?.querySelector(`#${cid}-atlas-dashboard`);
   if (!dashboardEl || !runId) return;
   try {
-    const r = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
-    const d = await r.json();
-    if (!r.ok) throw new Error(`api_task_plan_http_error:${r.status}:${d.detail || ''}`);
+    const d = await window.AtlasAPI.requestJson(`/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
     const db = d.dashboard || {};
     const c = db.counts || {};
     const att = db.attention || {};
@@ -13750,9 +13744,7 @@ async function loadRecentAtlasRuns(cid, cardRoot) {
   const listEl = cardRoot.querySelector(`#${cid}-atlas-runs-list`);
   const lastEl = cardRoot.querySelector(`#${cid}-atlas-last-run`);
   if (lastEl) lastEl.textContent = _atlasLsGet(ATLAS_LAST_RUN_KEY) || '-';
-  const r = await fetch(API + '/api/atlas/runs?limit=20');
-  const d = await r.json();
-  if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+  const d = await window.AtlasAPI.listAtlasRuns(20);
   const runs = Array.isArray(d.runs) ? d.runs : [];
   listEl.innerHTML = runs.map((x)=>`<div style="margin-top:4px">- ${esc(x.run_id||'')} | patches=${esc(String(x.patch_count||0))} | blocked=${esc(String(x.blocked_count||0))} | failed=${esc(String(x.verification_failed_count||0))} | low_quality=${esc(String(x.low_quality_count||0))} | status=${esc(x.status||'unknown')} <button class="phase1-tab-btn" data-recent-open="${esc(x.run_id||'')}">Open Execute</button> <button class="phase1-tab-btn" data-recent-review="${esc(x.run_id||'')}">Open Patch Review</button></div>`).join('') || '<div style="color:var(--text3)">No runs.</div>';
   listEl.querySelectorAll('[data-recent-open]').forEach((b)=>b.addEventListener('click', async ()=>{ const runId=b.getAttribute('data-recent-open')||''; if(!runId)return; cardRoot.dataset.lastRunId=runId; _atlasLsSet(ATLAS_LAST_RUN_KEY, runId); await loadAtlasRunExecute(cid, runId, cardRoot, 'recentList'); }));
@@ -13827,15 +13819,13 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
 
   async function loadPhase8Patches(cid, runId) {
     const listEl = cardRoot.querySelector(`#${cid}-patch-list`);
-    const r = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patches`);
-    const d = await r.json();
-    if (!r.ok) throw new Error(`api_task_plan_http_error:${r.status}:${d.detail || ''}`);
+    const d = await window.AtlasAPI.getRunPatches(runId);
     const patches = Array.isArray(d.patches) ? d.patches : [];
     _updatePlanWorkflowState({runId, latestPatchIds: patches.map((p)=>p.patch_id).filter(Boolean), lastError: ''});
     let dashboardData = null;
     let dashboardNoteHtml = '';
     try {
-      const dr = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
+      const dr = await window.AtlasAPI.getRunPatchDashboard(runId);
       const dd = await dr.json();
       if (dr.ok) dashboardData = dd.dashboard || null;
       if (dr.status === 404) dashboardNoteHtml = '<div style="color:var(--text3);margin-bottom:6px">Execute not available yet</div>';
@@ -14002,9 +13992,9 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
       if (kind === 'open-last-atlas-dashboard') { const lastRun=_atlasLsGet(ATLAS_LAST_RUN_KEY); if (lastRun) { cardRoot.dataset.lastRunId=lastRun; await loadAtlasRunExecute(cid, lastRun, cardRoot, 'lastRun'); } return; }
       if (kind === 'open-run-dashboard') { const manual=(cardRoot.querySelector(`#${cid}-atlas-run-input`)?.value||'').trim(); if (manual) { cardRoot.dataset.lastRunId=manual; _atlasLsSet(ATLAS_LAST_RUN_KEY, manual); await loadAtlasRunExecute(cid, manual, cardRoot, 'manualInput'); } return; }
       const ep = kind === 'report' ? `/api/runs/${encodeURIComponent(runId)}/report` : `/api/runs/${encodeURIComponent(runId)}/log`;
-      const r = await fetch(API + ep);
-      const d = await r.json();
-      if (!r.ok) throw new Error(`api_task_plan_http_error:${r.status}:${d.detail || ''}`);
+      const d = kind === 'report'
+        ? await window.AtlasAPI.getRunReport(runId)
+        : await window.AtlasAPI.getRunLog(runId);
       if (outEl) outEl.textContent = kind === 'report' ? String(d.report || '') : String(d.log || '');
     } catch (e) {
       if (outEl) outEl.textContent = `Error: ${e.message || String(e)}`;
