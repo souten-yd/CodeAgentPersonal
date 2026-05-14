@@ -66,3 +66,20 @@ def test_audio_runtime_policy_debug_has_no_heavy_runtime_side_effects():
     ]
     for token in forbidden:
         assert token not in body
+
+
+def test_sbv2_runtime_policy_debug_defaults_to_current_platform(monkeypatch):
+    import sys
+
+    data = build_sbv2_runtime_policy_debug({}, platform=None)
+    if sys.platform.startswith("win"):
+        assert data["runtime_profile"] == "windows"
+    elif "linux" in sys.platform:
+        assert data["runtime_profile"] in {"generic", "linux_nvidia"}
+
+
+def test_audio_runtime_policy_resolution_passes_sys_platform():
+    source = AUDIO_RUNTIME.read_text(encoding="utf-8")
+    assert "import sys" in source
+    assert "platform=platform or sys.platform" in source
+    assert "platform=sys.platform" in source
