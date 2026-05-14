@@ -49,3 +49,25 @@ def test_atlas_api_module_has_fetch_with_timeout_fallback():
     source = read(ATLAS_API)
     assert "fetchWithTimeout" in source
     assert "root.fetch" in source
+
+
+def test_atlas_api_has_distinct_patch_dashboard_helpers():
+    source = read(ATLAS_API)
+    assert "function getRunPatchDashboard(" in source
+    assert "function getRunPatchDashboardResponse(" in source
+    assert "getRunPatchDashboardResponse" in source
+
+
+def test_get_run_patch_dashboard_returns_json_contract():
+    source = read(ATLAS_API)
+    start = source.index("function getRunPatchDashboard(")
+    body = source[start: source.index("function getRunPatches", start)]
+    assert "requestJson(" in body
+    assert "return request(" not in body
+
+
+def test_get_run_patch_dashboard_response_returns_response_contract():
+    source = read(ATLAS_API)
+    start = source.index("function getRunPatchDashboardResponse(")
+    body = source[start: source.index("function getRunPatchDashboard(", start)]
+    assert "return request(" in body
