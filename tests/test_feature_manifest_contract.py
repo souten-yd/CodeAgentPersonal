@@ -84,3 +84,16 @@ def test_feature_manifest_lists_split_modules():
         "runtime_diagnostics",
     }
     assert expected.issubset(module_names)
+
+
+def test_feature_manifest_does_not_declare_legacy_qwen_storage_keys():
+    data = load_manifest()
+    keys = {item["key"] for item in data["storage_keys"]}
+    forbidden = {
+        "tts_qwen3model",
+        "tsasr_qwen3model",
+        "echo_qwen3model",
+        "echo_tts_engine",
+        "tts_engine",
+    }
+    assert not (keys & forbidden)
