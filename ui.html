@@ -3999,9 +3999,18 @@ async function refreshStyleBertVits2Models(context = 'echo') {
     details.forEach((item) => {
       if (item && item.model) _styleBertVits2ModelMeta.set(item.model, item);
     });
-    _setStyleBertModelOptions(models);
+    const selectedModel = (echo.styleBertVits2Model || tts.styleBertVits2Model || DEFAULT_STYLE_BERT_VITS2_MODEL);
+    if (window.EchoUI?.renderStyleBertVits2Models) {
+      const chosen = window.EchoUI.renderStyleBertVits2Models({models, details, selectedModel, defaultModel: DEFAULT_STYLE_BERT_VITS2_MODEL});
+      echo.styleBertVits2Model = _normalizeStyleBertVits2Model(chosen);
+      tts.styleBertVits2Model = echo.styleBertVits2Model;
+      localStorage.setItem('echo_style_bert_vits2_model', echo.styleBertVits2Model);
+      localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model);
+    } else {
+      _setStyleBertModelOptions(models);
+      if (statusEl) statusEl.textContent = models.length ? `モデル ${models.length} 件` : 'モデルがありません';
+    }
     _updateEchoSbv2LanguageNote();
-    if (statusEl) statusEl.textContent = models.length ? `モデル ${models.length} 件` : 'モデルがありません';
   } catch (e) {
     if (statusEl) statusEl.textContent = `取得失敗: ${e.message}`;
   } finally {
@@ -12154,7 +12163,7 @@ async function refreshEchoVault() {
       </div>`;
     };
 
-    el.innerHTML = orderedGroups.map(g => {
+    const renderedHtml = orderedGroups.map(g => {
       const rows = [
         renderRow(g.files.audio, 'audio'),
         renderRow(g.files.transcript, 'transcript'),
@@ -12175,6 +12184,8 @@ async function refreshEchoVault() {
         ${rows}
       </div>`;
     }).filter(Boolean).join('');
+    if (window.EchoUI?.renderEchoVaultSessions) window.EchoUI.renderEchoVaultSessions(renderedHtml);
+    else el.innerHTML = renderedHtml;
     return orderedGroups.length;
   } catch(e) {
     el.innerHTML = `<div style="font-size:11px;color:var(--red)">エラー: ${esc(e.message)}</div>`;
@@ -15884,6 +15895,7 @@ function testSkill(skillName) {
 <script src="/static/js/echo_api.js"></script>
 <script src="/static/js/echo_stream.js"></script>
 <script src="/static/js/echo_ui.js"></script>
+<!-- EchoUI.setEchoStatus / EchoUI.setEchoConnectionState delegated via web/js/echo.js -->
 <script src="/static/js/runtime_diagnostics.js"></script>
 <script src="/static/js/echo.js"></script>
 </body>
