@@ -12961,6 +12961,7 @@ function _updatePlanWorkflowState(partial = {}) {
 }
 
 function setAtlasRequirementStatus(message) {
+  if (window.AtlasUI?.setRequirementStatus) return window.AtlasUI.setRequirementStatus(message);
   const status = document.getElementById('atlas-requirement-status');
   if (!status) return;
   status.textContent = message || 'Ready to start Atlas.';
@@ -12968,6 +12969,7 @@ function setAtlasRequirementStatus(message) {
 
 
 function updateAtlasRequirementCharCount() {
+  if (window.AtlasUI?.updateRequirementCharCount) return window.AtlasUI.updateRequirementCharCount();
   const input = document.getElementById('atlas-requirement-input');
   const counter = document.getElementById('atlas-requirement-char-count');
   if (!counter) return;
@@ -12994,14 +12996,17 @@ function restoreAtlasRequirementInput() {
 }
 
 function clearAtlasRequirementInput() {
-  const input = document.getElementById('atlas-requirement-input');
-  if (input) input.value = '';
+  if (window.AtlasUI?.clearRequirementInputDom) window.AtlasUI.clearRequirementInputDom('Requirement cleared.');
+  else {
+    const input = document.getElementById('atlas-requirement-input');
+    if (input) input.value = '';
+    updateAtlasRequirementCharCount();
+    setAtlasRequirementStatus('Requirement cleared.');
+  }
   try {
     if (window.AtlasState?.clearRequirementInput) window.AtlasState.clearRequirementInput();
     else _atlasLsSet(ATLAS_REQUIREMENT_INPUT_KEY, '');
   } catch (err) { console.warn('clearAtlasRequirementInput failed:', err); }
-  updateAtlasRequirementCharCount();
-  setAtlasRequirementStatus('Requirement cleared.');
 }
 
 function initAtlasRequirementInputHandlers() {
@@ -13082,7 +13087,12 @@ function updateAtlasWorkbenchCompactSummary() {
   const currentRun = planWorkflowState.currentRunId || planWorkflowState.lastRunId || lastRun;
   const currentJob = planWorkflowState.currentJobId || '';
   if (lastRunEl) lastRunEl.textContent = currentRun || '-';
-  if (statusEl) statusEl.textContent = `${flow.plan || 'pending'} / review ${flow.review || 'pending'} / approval ${flow.approval || 'locked'} / job ${currentJob || '-'}`;
+  const statusText = `${flow.plan || 'pending'} / review ${flow.review || 'pending'} / approval ${flow.approval || 'locked'} / job ${currentJob || '-'}`;
+  if (window.AtlasUI?.updateWorkbenchSummary) {
+    window.AtlasUI.updateWorkbenchSummary({ nextAction: flow.nextAction || 'Start Atlas', currentRun: currentRun || '-', statusText });
+    return;
+  }
+  if (statusEl) statusEl.textContent = statusText;
 }
 
 function setAtlasWorkbenchCollapsed(collapsed) {
@@ -13099,11 +13109,17 @@ function setAtlasWorkbenchCollapsed(collapsed) {
 }
 
 function toggleAtlasWorkbenchCollapse() {
+  if (window.AtlasUI?.toggleWorkbenchCollapse) {
+    const collapsed = window.AtlasUI.toggleWorkbenchCollapse();
+    updateAtlasWorkbenchCompactSummary();
+    return collapsed;
+  }
   const card = document.getElementById('atlas-workbench-card');
   setAtlasWorkbenchCollapsed(!(card?.classList.contains('is-collapsed')));
 }
 
 function normalizeAtlasSubview(name) {
+  if (window.AtlasUI?.normalizeSubview) return window.AtlasUI.normalizeSubview(name);
   return ATLAS_SUBVIEWS.includes(name) ? name : 'start';
 }
 
@@ -13113,9 +13129,11 @@ function getAtlasLastSubview() {
 }
 
 function updateAtlasResumeNotice(subview) {
+  const current = normalizeAtlasSubview(subview || getAtlasLastSubview());
+  const lastRun = getAtlasLastRunId();
+  if (window.AtlasUI?.updateResumeNotice) return window.AtlasUI.updateResumeNotice(current, { lastRunId: lastRun, lastSubview: current });
   const notice = document.getElementById('atlas-workbench-card-resume-notice');
   if (!notice) return;
-  const current = normalizeAtlasSubview(subview || getAtlasLastSubview());
   const labelMap = {
     start: 'Start',
     plan: 'Plan',
@@ -13124,7 +13142,6 @@ function updateAtlasResumeNotice(subview) {
     patch: 'Patch Review',
   };
   const label = labelMap[current] || 'Start';
-  const lastRun = getAtlasLastRunId();
   if (lastRun) {
     notice.textContent = `Atlas restored: ${label}. Last Run: ${lastRun}. Content is not auto-loaded. Use the resume buttons below.`;
   } else {
@@ -13169,31 +13186,32 @@ function restoreAtlasSubviewState() {
   }
 }
 
-function setAtlasSubview(name) {
-  const allowed = Array.isArray(ATLAS_SUBVIEWS) ? ATLAS_SUBVIEWS : ['start'];
-  const next = allowed.includes(name) ? name : 'start';
-  const root = document.getElementById('atlas-workbench-card');
-  if (!root) return next;
-  root.dataset.atlasCurrentSubview = next;
+function setAtlasSubview(name, options = {}) {
+  const next = normalizeAtlasSubview(name);
   try {
     if (window.AtlasState?.setLastSubview) window.AtlasState.setLastSubview(next);
     else _atlasLsSet(ATLAS_LAST_SUBVIEW_KEY, next);
   } catch (err) {
     console.warn('Atlas subview persistence failed:', err);
   }
-  root.querySelectorAll('[data-atlas-subview-panel]').forEach((el) => {
-    const active = el.getAttribute('data-atlas-subview-panel') === next;
-    el.hidden = !active;
-    el.style.display = active ? '' : 'none';
-  });
-  root.querySelectorAll('[data-atlas-subview-tab]').forEach((btn) => {
-    btn.classList.toggle('active', btn.getAttribute('data-atlas-subview-tab') === next);
-  });
+  if (window.AtlasUI?.applySubview) {
+    window.AtlasUI.applySubview(next, { lastRunId: getAtlasLastRunId(), focusSelector: options.focusSelector });
+  } else {
+    const root = document.getElementById('atlas-workbench-card');
+    if (!root) return next;
+    root.dataset.atlasCurrentSubview = next;
+    root.querySelectorAll('[data-atlas-subview-panel]').forEach((el) => {
+      const active = el.getAttribute('data-atlas-subview-panel') === next;
+      el.hidden = !active;
+      el.style.display = active ? '' : 'none';
+    });
+    root.querySelectorAll('[data-atlas-subview-tab]').forEach((btn) => {
+      btn.classList.toggle('active', btn.getAttribute('data-atlas-subview-tab') === next);
+    });
+    updateAtlasResumeNotice(next);
+  }
   if (next === 'runs' || next === 'execute' || next === 'patch') {
     try { ensureAtlasWorkbenchHost(); } catch (err) { console.warn('ensureAtlasWorkbenchHost failed:', err); }
-  }
-  if (typeof updateAtlasResumeNotice === 'function') {
-    try { updateAtlasResumeNotice(next); } catch (err) { console.warn('updateAtlasResumeNotice failed:', err); }
   }
   return next;
 }
