@@ -13136,10 +13136,10 @@ function updateAtlasResumeNotice(subview) {
   if (!notice) return;
   const labelMap = {
     start: 'Start',
+    autopilot: 'Autopilot',
     plan: 'Plan',
-    runs: 'Runs',
-    execute: 'Execute',
-    patch: 'Patch Review',
+    history: 'History',
+    activity: 'Activity',
   };
   const label = labelMap[current] || 'Start';
   if (lastRun) {
@@ -13739,7 +13739,7 @@ async function loadAtlasRunExecute(cid, runId, cardRoot, openedFrom = "current")
   const dashboardEl = root?.querySelector(`#${cid}-atlas-dashboard`);
   if (!dashboardEl || !runId) return;
   try {
-    const d = await window.AtlasAPI.requestJson(`/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
+    const d = await window.AtlasAPI.getRunPatchDashboard(runId);
     const db = d.dashboard || {};
     const c = db.counts || {};
     const att = db.attention || {};
