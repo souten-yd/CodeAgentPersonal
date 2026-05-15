@@ -41,6 +41,7 @@ def _manager(tmp_path, monkeypatch):
     manager = main.ModelManager.__new__(main.ModelManager)
     manager.llama_path = str(llama)
     manager.llm_port = 18080
+    manager.current_key = "test-model"
     manager._process = None
     manager._status = "ready"
     manager._switch_eta = 9999999999
@@ -51,6 +52,9 @@ def _manager(tmp_path, monkeypatch):
     manager._last_nvidia_smi_before = []
     manager._last_nvidia_smi_after = []
     manager._last_ngl_search_debug = {}
+    manager._auto_load_failed = False
+    manager._auto_load_failure_reason = ""
+    manager._auto_load_failure_detail = ""
     manager._startup_log_fd = None
 
     monkeypatch.setattr(manager, "_collect_nvidia_smi_memory", lambda: [])
@@ -310,6 +314,48 @@ def test_runpod_linux_validation_fails_for_cpu_only_no_cuda_no_vram_increase(tmp
     assert manager._last_llama_gpu_log["gpu_validation_status"] == "fail"
     assert "CUDA buffer not detected" in manager._last_llama_gpu_log["gpu_validation_reason"]
 
+
+def test_runpod_linux_validation_failure_is_exposed_in_cuda_debug(tmp_path, monkeypatch):
+    manager, spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    memory_snapshots = [
+        [{"index": "0", "memory_used_mib": 4, "memory_total_mib": 24576}],
+        [{"index": "0", "memory_used_mib": 4, "memory_total_mib": 24576}],
+    ]
+    monkeypatch.setattr(manager, "_collect_nvidia_smi_memory", lambda: memory_snapshots.pop(0))
+    monkeypatch.setattr(main, "IS_RUNPOD_RUNTIME", True)
+    monkeypatch.setattr(main._sp, "Popen", lambda cmd, stdout=None, stderr=None, creationflags=0: _FakePopen(cmd, stdout, stderr, creationflags))
+    monkeypatch.setattr(
+        manager,
+        "_parse_llama_gpu_startup_log",
+        lambda: {"n_gpu_layers": None, "cuda_buffer_mib": None, "cpu_buffer_mib": 2208.0},
+    )
+    result = manager._try_start_once(
+        spec,
+        gpu_layers=999,
+        eff_ck="q8_0",
+        eff_cv="q8_0",
+        gpu_vendor="nvidia",
+        emit=lambda *a: None,
+    )
+    assert result == "fail"
+    debug = manager.cuda_debug_dict()
+    assert debug["gpu_validation_status"] == "fail"
+    assert "CUDA buffer not detected" in debug["gpu_validation_reason"]
+    assert debug["final_requested_ngl"] == 999
+    assert debug["final_parsed_n_gpu_layers"] is None
+    assert debug["parsed_gpu_offload_layers"] is None
+    assert debug["parsed_cuda_buffer_mib"] is None
+    assert debug["nvidia_smi_memory_delta_mib"] == 0
+    assert "-ngl 999" in debug["last_start_cmd"]
+    assert "model-start" in debug["llama_startup_log_tail"]
+
 def test_runpod_linux_start_uses_proven_ngl_before_gpu_layers(tmp_path, monkeypatch):
     manager, spec = _manager(tmp_path, monkeypatch)
     calls = []
@@ -440,6 +486,47 @@ def test_runpod_linux_saves_parsed_ngl_when_requested_differs(tmp_path, monkeypa
     assert saved[-2:] == [("proven", 60), ("ctx", 4096, 60)]
     assert manager.cuda_debug_dict()["final_requested_ngl"] == 999
     assert manager.cuda_debug_dict()["final_parsed_n_gpu_layers"] == 60
+
+
+def test_runpod_linux_failed_without_oom_records_failed_autoload_state(tmp_path, monkeypatch):
+    manager, spec = _manager(tmp_path, monkeypatch)
+    spec["proven_ngl"] = 0
+    spec["gpu_layers"] = 0
+    runtime = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    manager._last_runtime_decision = runtime
+    monkeypatch.setattr(manager, "_predict_ngl_with_kv", lambda *args, **kwargs: -1)
+    monkeypatch.setattr(manager, "_load_ngl_ctx_profiles", lambda _spec: {})
+    monkeypatch.setattr(manager, "_ngl_from_profiles", lambda *args, **kwargs: -1)
+    monkeypatch.setattr(main, "_read_gguf_metadata", lambda path: {})
+
+    def fake_try(_spec, gpu_layers, eff_ck, eff_cv, gpu_vendor, emit):
+        assert gpu_layers == 999
+        manager._last_llama_gpu_log = {
+            "gpu_validation_status": "fail",
+            "gpu_validation_reason": "CUDA buffer not detected; GPU offload layers not detected",
+            "n_gpu_layers": None,
+            "cuda_buffer_mib": None,
+        }
+        return "fail"
+
+    monkeypatch.setattr(manager, "_try_start_once", fake_try)
+    ok = manager._start_linux(spec, "q8_0", "q8_0", "nvidia", lambda *a: None, 999, 0, runtime)
+    assert ok is False
+    debug = manager.cuda_debug_dict()
+    assert debug.get("gpu_validation_status") == "fail"
+    assert "CUDA buffer not detected" in debug.get("gpu_validation_reason", "")
+    assert debug.get("auto_load_failed") is True
+    assert debug.get("auto_load_failure_reason") == "runpod_gpu_validation_failed_without_oom"
+    assert "CUDA buffer not detected" in debug.get("auto_load_failure_detail", "")
+    status = manager.status_dict()
+    assert status["llm_ready"] is False
+    assert status["auto_load_failed"] is True
 
 
 def test_runpod_linux_uses_calc_gpu_layers_when_row_ngl_missing(tmp_path, monkeypatch):
