@@ -33,3 +33,17 @@
 - Runpod/Linux must not auto-prefer ONNX.
 - Windows ONNX is opt-in only via explicit env.
 - Dummy warm-up is opt-in only via `SBV2_DUMMY_WARMUP=1`.
+
+## HTTP runtime verification
+Use the HTTP verifier after the FastAPI server is running:
+```bash
+python scripts/verify_sbv2_runtime_http.py --base-url http://127.0.0.1:8000 --out /workspace/ca_data/sbv2_runtime_report.json
+```
+
+The script checks:
+
+* /audio/runtime/debug
+* /api/tts/style-bert-vits2/prepare
+* /tts/synthesize
+
+It does not import the SBV2 runtime directly and does not perform model downloads or import-time warm-up.
