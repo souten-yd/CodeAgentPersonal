@@ -140,13 +140,7 @@ def test_launcher_falls_back_to_llm_props_when_model_status_unavailable(monkeypa
 
     def fake_request_json(url):
         if url == "http://api/model/status":
-            return {
-                "status": "unavailable",
-                "current_key": "",
-                "catalog": {},
-                "last_model_load_status": "idle",
-                "gpu_validation_status": "unavailable",
-            }
+            return {"status": "unavailable", "current_key": "", "catalog": {}}
         if url == "http://api/llm/props":
             return {
                 "last_model_load_status": "error",

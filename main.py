@@ -15415,10 +15415,45 @@ app.state.project_files_provider = project_files_payload
 # llama.cpp プロパティ取得 (コンテキスト長など)
 # =========================
 
+_LLM_CACHED_STATUS_DEFAULTS: dict[str, Any] = {
+    "last_model_load_status": "idle",
+    "last_model_load_error": None,
+    "gpu_validation_status": "pending",
+    "last_gpu_validation_status": "pending",
+    "gpu_validation_reason": None,
+    "last_gpu_validation_reason": None,
+    "gpu_validation_path": None,
+    "last_gpu_validation_path": None,
+    "cuda_init_failed": False,
+    "no_usable_gpu": False,
+    "llama_log_parser_stale_suspected": False,
+    "llama_readiness_signals": {},
+    "last_start_cmd": "",
+    "requested_ngl": None,
+    "final_requested_ngl": None,
+}
+
+
+def _model_manager_cached_llm_status_payload(source: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return ModelManager cached LLM state with the launcher contract fields."""
+    if hasattr(_model_manager, "llm_cached_status_dict"):
+        cached = dict(_model_manager.llm_cached_status_dict())
+    else:
+        cached = dict(source or {})
+    payload = {**_LLM_CACHED_STATUS_DEFAULTS, **cached}
+    if payload.get("gpu_validation_status") == "fail":
+        payload["last_gpu_validation_status"] = "fail"
+        payload["last_model_load_status"] = "error"
+        if not payload.get("last_model_load_error"):
+            reason = payload.get("gpu_validation_reason") or "unknown reason"
+            payload["last_model_load_error"] = f"GPU validation failed: {reason}"
+    return payload
+
+
 def runtime_llm_props_payload():
     """Return lightweight cached LLM props/status without live llama or CUDA probes."""
     ui_max_ctx = 65535
-    cached = _model_manager.llm_cached_status_dict()
+    cached = _model_manager_cached_llm_status_payload()
     return {
         "n_ctx": max(int(_current_n_ctx or 0), ui_max_ctx),
         "n_ctx_runtime": int(_current_n_ctx or 0),
@@ -16993,8 +17028,16 @@ def asr_unload_api():
 
 
 def model_manager_status_payload() -> dict:
-    """Read provider payload for the model settings router."""
-    return _model_manager.status_dict()
+    """Read provider payload for the model settings router with launcher contract fields."""
+    status = dict(_model_manager.status_dict())
+    cached = _model_manager_cached_llm_status_payload(status)
+    return {
+        "status": getattr(_model_manager, "_status", status.get("status", "unavailable")),
+        "current_key": getattr(_model_manager, "current_key", status.get("current_key", "")),
+        "catalog": status.get("catalog", {}),
+        **cached,
+        **status,
+    }
 
 
 def settings_get_all_payload() -> dict:
