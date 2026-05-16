@@ -39,6 +39,14 @@ This PR is documentation and contract-test only. It does not change runtime beha
 - The current main branch after restoring the KasaneCore_v3.0 baseline is the source of truth.
 
 
+
+## Nexus Research Policy
+
+- Nexus Research RequestはPlanner/Autopilotが不足文脈を取得するための内部要求である。
+- ContextPackはPlanner/Autopilotへ渡す構造化文脈である。
+- Nexus未接続、空、失敗時もAtlasは停止せず、warning付きContextPackで継続する。
+- UIデザイン調査、技術仕様調査、意図理解補助、数式/スコアリング補助、ログ調査などを将来扱う。
+
 ## Atlas Journal / Recovery Policy
 
 - JSONを機械可読の正本とする。

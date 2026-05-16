@@ -27,14 +27,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-7: completed
 - PR-ATLAS-PIPE-8: completed
 - PR-ATLAS-PIPE-8B: completed
+- PR-ATLAS-PIPE-9: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-9
+PR-ATLAS-PIPE-10
 
 ## Next PR
 
-PR-ATLAS-PIPE-10: Nexus Research Request
+PR-ATLAS-PIPE-11: Research Item実行
 
 ## Important Constraints
 
@@ -64,6 +65,8 @@ PR-ATLAS-PIPE-10: Nexus Research Request
 - PR-ATLAS-PIPE-8 adds allowlisted TestCommandRunner only and does not add API/UI behavior.
 - PR-ATLAS-PIPE-8B adds Atlas Journal / Recovery checkpoint foundation only and does not add API/UI behavior.
 - PR-ATLAS-PIPE-9 adds DebugLoopRunner analysis/planning only and does not add automatic patch generation, safe_apply execution, TestCommand execution, API, or UI behavior.
+- PR-ATLAS-PIPE-10 adds Nexus ResearchRequest / ContextPack schema and adapter only and does not add API/UI behavior.
+- Nexus unavailable/empty/errors must not stop Atlas planning or pipeline flows.
 - DebugLoopRunner can write debug_notes.md and debug_attempt_recorded events through AtlasJournal.
 - Atlas Journal stores JSON state, Markdown summaries, and events.ndjson for reload/chat recovery.
 - TestCommandRunner uses shell=False and rejects non-allowlisted commands.
@@ -77,5 +80,5 @@ PR-ATLAS-PIPE-10: Nexus Research Request
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-10を実装する。
-Planner / Autopilot がNexusへResearch Requestを出し、ContextPackを受け取れるschema/adapterを追加する。
+PR-ATLAS-PIPE-11を実装する。
+PlanItem item_type=research をPipeline Runnerが処理し、AtlasNexusResearchAdapterを呼んでContextPackを保存できるようにする。ただし外部Web/Deep Research Jobはまだ起動しない。

@@ -348,6 +348,14 @@ NexusをAtlasのResearch Request / Context Pack基盤として接続する。
 
 ### 完了条件
 
+- `agent/atlas_nexus_research_schema.py` が存在する。
+- `agent/atlas_nexus_research_adapter.py` が存在する。
+- ResearchRequest / ContextPack / Finding schemaがある。
+- nexus_clientなしでもwarning付きContextPackを返せる。
+- client resultをContextPackに変換できる。
+- PlanItemからResearchRequestを生成できる。
+- JournalへContextPack JSON/Markdownを保存できる。
+- API/UI/Web/DeepResearch jobは追加しない。
 - Research RequestからContext Packを取得できる。
 - Nexusが空でもwarningで継続する。
 - Testsがpassする。
