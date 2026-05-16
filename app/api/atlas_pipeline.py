@@ -14,6 +14,8 @@ from agent.atlas_journal import AtlasJournal
 from agent.atlas_pipeline_runner import AtlasPipelineRunner
 from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
+from agent.atlas_planner_bridge import AtlasPlannerBridge
+from agent.atlas_planner_bridge_schema import AtlasPlannerBridgeRequest
 from agent.atlas_plan_pool_schema import AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_recovery_service import AtlasRecoveryService
@@ -29,6 +31,8 @@ class CreatePlanPoolRequest(BaseModel):
     planning_depth: str = "standard"
     automation_level: str = "plan_then_ask"
     execution_strategy: str = "sequential"
+    planner_mode: str = "auto"
+    requirement_mode: str = "ask_when_needed"
     use_nexus: bool = True
     pool_id: str = ""
     plan_payload: dict = Field(default_factory=dict)
@@ -44,6 +48,13 @@ class CreatePlanPoolResponse(BaseModel):
     checkpoint_path: str
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+    planner_status: str = ""
+    used_fallback: bool = False
+    fallback_reason: str = ""
+    questions: list[dict] = Field(default_factory=list)
+    requirement: dict = Field(default_factory=dict)
+    plan: dict = Field(default_factory=dict)
+    review_result: dict = Field(default_factory=dict)
 
 
 class PipelineDryRunRequest(BaseModel):
@@ -124,6 +135,21 @@ def _atlas_components(request: Request, workspace_id: str = "default") -> tuple[
     return root, AtlasPlanPoolStorage(root), AtlasJournal(root, workspace_id=workspace_id or "default")
 
 
+
+def _resolve_callable_state(request: Request, name: str) -> Any:
+    value = getattr(request.app.state, name, None)
+    return value if callable(value) else None
+
+
+def _resolve_atlas_llm_json_fn(request: Request) -> Any:
+    return _resolve_callable_state(request, "atlas_llm_json_fn")
+
+
+def _normalize_planner_mode(value: str) -> str:
+    candidate = str(value or "auto").strip().lower()
+    return candidate if candidate in {"auto", "real_planner", "fallback_only"} else "auto"
+
+
 def _checkpoint_next_action(status: str) -> str:
     if status == "completed":
         return "Review the completed Atlas dry-run and decide whether to continue with a gated follow-up."
@@ -140,11 +166,25 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
     if not root_goal:
         raise HTTPException(status_code=400, detail="input is empty")
 
-    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     builder = AtlasPlanPoolBuilder()
+    planner_status = "planned"
+    used_fallback = False
+    fallback_reason = ""
+    questions: list[dict] = []
+    requirement: dict = {}
+    plan: dict = {}
+    review_result: dict = {}
+    bridge_warnings: list[str] = []
+    bridge_errors: list[str] = []
+
     if req.plan_payload:
+        payload = dict(req.plan_payload)
+        payload.setdefault("metadata", {})
+        if isinstance(payload["metadata"], dict):
+            payload["metadata"].setdefault("source", "plan_payload")
         pool = builder.build_from_plan_payload(
-            req.plan_payload,
+            payload,
             root_goal=root_goal,
             project_path=req.project_path,
             project_name=req.project_name,
@@ -153,21 +193,70 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
             execution_strategy=req.execution_strategy,
             pool_id=req.pool_id,
         )
+        pool.metadata["source"] = "plan_payload"
+        planner_status = "skipped"
     else:
-        pool = builder.build_fallback_pool(
-            root_goal=root_goal,
-            project_path=req.project_path,
-            project_name=req.project_name,
-            planning_depth=req.planning_depth,
-            automation_level=req.automation_level,
-            execution_strategy=req.execution_strategy,
-            pool_id=req.pool_id,
+        bridge = AtlasPlannerBridge(
+            ca_data_dir=str(ca_data_root),
+            llm_json_fn=_resolve_atlas_llm_json_fn(request),
+            memory_search_fn=_resolve_callable_state(request, "atlas_memory_search_fn"),
+            active_skills_fn=_resolve_callable_state(request, "atlas_active_skills_fn"),
+            builder=builder,
         )
+        bridge_result = bridge.create_plan_pool(
+            AtlasPlannerBridgeRequest(
+                input=root_goal,
+                project_path=req.project_path,
+                project_name=req.project_name,
+                planning_depth=req.planning_depth,
+                automation_level=req.automation_level,
+                execution_strategy=req.execution_strategy,
+                requirement_mode=req.requirement_mode,
+                use_nexus=req.use_nexus,
+                mode=_normalize_planner_mode(req.planner_mode),
+                pool_id=req.pool_id,
+                workspace_id=req.workspace_id,
+                metadata=dict(req.metadata),
+            )
+        )
+        planner_status = bridge_result.status
+        used_fallback = bridge_result.used_fallback
+        fallback_reason = bridge_result.fallback_reason
+        questions = list(bridge_result.questions)
+        requirement = dict(bridge_result.requirement)
+        plan = dict(bridge_result.plan)
+        review_result = dict(bridge_result.review_result)
+        bridge_warnings = list(bridge_result.warnings)
+        bridge_errors = list(bridge_result.errors)
+        if bridge_result.status == "waiting_for_clarification" and bridge_result.pool is None:
+            return CreatePlanPoolResponse(
+                pool_id="",
+                status="waiting_for_clarification",
+                item_count=0,
+                plan_pool={},
+                checkpoint_path="",
+                warnings=bridge_warnings,
+                errors=bridge_errors,
+                planner_status=planner_status,
+                used_fallback=False,
+                fallback_reason="",
+                questions=questions,
+                requirement=requirement,
+                plan=plan,
+                review_result=review_result,
+            )
+        if bridge_result.pool is None:
+            raise HTTPException(status_code=500, detail="planner bridge did not return a PlanPool")
+        pool = bridge_result.pool
+
     pool.status = "ready"
     pool.metadata.update(
         {
             "api_created": True,
             "use_nexus_requested": bool(req.use_nexus),
+            "planner_status": planner_status,
+            "used_fallback": used_fallback,
+            "fallback_reason": fallback_reason,
             **dict(req.metadata),
         }
     )
@@ -178,14 +267,23 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
         pool=pool,
         next_action="Review the generated Atlas PlanPool before starting a dry-run.",
     )
+    warnings = list(dict.fromkeys([*bridge_warnings, *list(pool.warnings)]))
+    errors = list(dict.fromkeys([*bridge_errors, *list(pool.errors)]))
     return CreatePlanPoolResponse(
         pool_id=pool.pool_id,
         status=pool.status,
         item_count=len(pool.items),
         plan_pool=_model_dump(pool),
         checkpoint_path=str(checkpoint_path),
-        warnings=list(pool.warnings),
-        errors=list(pool.errors),
+        warnings=warnings,
+        errors=errors,
+        planner_status=planner_status,
+        used_fallback=used_fallback,
+        fallback_reason=fallback_reason,
+        questions=questions,
+        requirement=requirement,
+        plan=plan,
+        review_result=review_result,
     )
 
 

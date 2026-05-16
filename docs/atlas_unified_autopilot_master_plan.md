@@ -107,6 +107,12 @@ This PR is documentation and contract-test only. It does not change runtime beha
 - The initial Dashboard surface remains dry-run only and must not expose safe_apply, TestCommandRunner, DebugLoopRunner, external Web research, or Deep Research execution controls.
 - The next major Atlas planning task is moving Create Plan from fallback PlanPool-only behavior to a real planner bridge backed by existing Planner / DeepPlanner / Requirement Analyzer results.
 
+
+
+## Real Planner Bridge Direction
+
+Atlas Create Plan should move from fallback PlanPool-only behavior to a bridge that can reuse the existing TaskPlanningRunner planning stack. When an application-provided LLM JSON function is available, Atlas PlanPool creation may run Requirement analysis, Nexus context building, Planner / DeepPlanner, and PlanReviewer, then convert the planner result into PlanItems. If the planner is unavailable, asks for clarification, or fails, Atlas must not block the dashboard flow: unavailable or failed planner runs fall back to a warning-bearing fallback PlanPool, while clarification waits are returned as non-fatal Details/JSON state. This bridge remains planning-only and does not execute safe_apply, TestCommandRunner, DebugLoopRunner, or DeepResearch work.
+
 ## Target Architecture
 
 ```text

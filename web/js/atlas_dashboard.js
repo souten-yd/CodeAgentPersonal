@@ -29,6 +29,7 @@
     continuationSummary: null,
     continuationPrompt: '',
     continuationCopied: '',
+    lastPlanResponse: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -255,6 +256,7 @@
       pipelineState: normalizePipeline(state.pipelineState),
       recoverySummary: state.recoverySummary,
       continuationSummary: state.continuationSummary,
+      lastPlanResponse: state.lastPlanResponse,
     };
     json.recoveryWarning = state.recoveryWarning;
     if ($('atlas-json-panel')) $('atlas-json-panel').textContent = JSON.stringify(json, null, 2);
@@ -302,6 +304,7 @@
     const workspace = workspaceId();
     writeStorage(storageKeys.workspaceId, workspace);
     return {
+      planner_mode: $('atlas-planner-mode')?.value || 'auto',
       planning_depth: $('atlas-planning-depth')?.value || 'standard',
       automation_level: $('atlas-automation-level')?.value || 'plan_then_ask',
       execution_strategy: $('atlas-execution-strategy')?.value || 'sequential',
@@ -334,18 +337,37 @@
     setBusy(true);
     const data = await handleResult(await root.AtlasPipelineAPI.createPlanPool({ input, ...adv, metadata: { ui: 'atlas_dashboard' } }), 'Create Plan failed');
     if (data) {
-      state.currentPoolId = data.pool_id;
-      state.currentRunId = '';
-      state.planPool = data.plan_pool || data;
-      state.pipelineState = null;
-      state.recoveryWarning = '';
-      state.events = [];
-      removeStorage(storageKeys.runId);
-      showWarning(null);
-      state.checkpointPath = data.checkpoint_path || '';
-      writeStorage(storageKeys.poolId, state.currentPoolId);
-      await loadMarkdown();
-      await refreshContinuation();
+      state.lastPlanResponse = data;
+      if (data.status === 'waiting_for_clarification') {
+        state.currentPoolId = '';
+        state.currentRunId = '';
+        state.planPool = null;
+        state.pipelineState = { status: 'waiting_for_clarification', questions: arr(data.questions), warnings: arr(data.warnings) };
+        state.recoveryWarning = '';
+        state.events = [];
+        state.markdown = '';
+        state.checkpointPath = '';
+        removeStorage(storageKeys.poolId);
+        removeStorage(storageKeys.runId);
+        showWarning('追加確認が必要です。Detailsを確認してください。');
+      } else {
+        state.currentPoolId = data.pool_id;
+        state.currentRunId = '';
+        state.planPool = data.plan_pool || data;
+        state.pipelineState = null;
+        state.recoveryWarning = '';
+        state.events = [];
+        removeStorage(storageKeys.runId);
+        const warnings = arr(data.warnings);
+        const plannerMessage = data.used_fallback
+          ? `Planner fallback used: ${data.fallback_reason || warnings.join(', ') || 'real planner unavailable'}`
+          : (warnings.length ? `Planner warnings: ${warnings.join(', ')}` : '');
+        showWarning(plannerMessage || null);
+        state.checkpointPath = data.checkpoint_path || '';
+        writeStorage(storageKeys.poolId, state.currentPoolId);
+        await loadMarkdown();
+        await refreshContinuation();
+      }
     }
     setBusy(false);
     render();

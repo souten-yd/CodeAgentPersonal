@@ -184,7 +184,7 @@
             <button id="atlas-create-plan-btn" class="atlas-primary-btn" type="button" onclick="window.AtlasDashboard?.createPlanPool()">Create Plan</button>
             <button id="atlas-start-dry-run-btn" class="atlas-secondary-btn" type="button" onclick="window.AtlasDashboard?.startDryRun()">Start Dry-run</button>
           </div>
-          <p id="atlas-fallback-planpool-note" class="atlas-muted-note">現在のCreate Planは内部fallback PlanPoolを生成します。実Planner連携は次段階で追加予定です。</p>
+          <p id="atlas-fallback-planpool-note" class="atlas-muted-note">Plannerが利用できない場合はfallback PlanPoolを生成します。real Planner統合は段階的に有効化されます。</p>
           <div id="atlas-warning-card" class="atlas-warning-card" data-atlas-stale-recovery-warning="true" hidden>
             <div><b>Atlas warning</b></div>
             <div id="atlas-warning-message">前回のRun状態が見つかりませんでした。PlanPoolは復元できます。必要ならStart Dry-runを再実行してください。</div>
@@ -270,6 +270,7 @@
           <section id="atlas-advanced-settings" class="atlas-advanced-settings" data-atlas-advanced-settings="collapsed">
             <h3>Advanced Settings</h3>
             <div class="atlas-advanced-grid">
+              <label>planner_mode<select id="atlas-planner-mode"><option value="auto" selected>auto</option><option value="real_planner">real_planner</option><option value="fallback_only">fallback_only</option></select></label>
               <label>planning_depth<select id="atlas-planning-depth"><option value="quick">quick</option><option value="standard" selected>standard</option><option value="deep_nexus">deep_nexus</option></select></label>
               <label>automation_level<select id="atlas-automation-level"><option value="plan_only">plan_only</option><option value="plan_then_ask" selected>plan_then_ask</option><option value="auto_after_approval">auto_after_approval</option><option value="full_autopilot">full_autopilot</option></select></label>
               <label>execution_strategy<select id="atlas-execution-strategy"><option value="sequential" selected>sequential</option><option value="pause_after_each_item">pause_after_each_item</option><option value="manual_gated">manual_gated</option></select></label>
