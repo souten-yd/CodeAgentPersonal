@@ -66,7 +66,26 @@ class AtlasRecoveryService:
         except FileNotFoundError:
             if pool is None:
                 return self._empty_summary("no_pipeline_run", pool_id=pool_id, run_id=run_id)
-            return self.recover_pool(pool_id)
+            paths = self.journal.paths(pool_id=pool_id, run_id=run_id)
+            return AtlasRecoverySummary(
+                workspace_id=self.journal.workspace_id,
+                pool_id=pool_id,
+                run_id=run_id,
+                status="stale",
+                current_item_id=pool.current_item_id,
+                current_item_title=self._item_title(pool, pool.current_item_id),
+                completed_count=len(pool.completed_item_ids),
+                failed_count=len(pool.failed_item_ids),
+                blocked_count=len(pool.blocked_item_ids),
+                total_items=len(pool.items),
+                next_action="Start a new dry-run from the recovered PlanPool.",
+                checkpoint_md_path=paths.checkpoint_md,
+                state_json_path=paths.pipeline_state_json,
+                events_ndjson_path=paths.events_ndjson,
+                warnings=["pipeline_state_not_found", *list(pool.warnings)],
+                errors=list(pool.errors),
+                metadata={"source": "plan_pool", "stale_run_id": run_id},
+            )
         events = self.journal.read_events(pool_id, run_id)
         last_event = events[-1] if events else {}
         status = self._status_from_state(state, bool(last_event))
@@ -149,5 +168,5 @@ class AtlasRecoveryService:
         if status == "blocked":
             return "Inspect blocked items and resolve requirements before continuing."
         if status in {"stale", "interrupted"}:
-            return "Review the latest checkpoint and decide whether to resume or restart."
+            return "Start a new dry-run from the recovered PlanPool."
         return "Continue pipeline from the recovered checkpoint."

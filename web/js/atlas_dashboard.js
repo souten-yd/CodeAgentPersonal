@@ -16,6 +16,8 @@
     markdown: '',
     loading: false,
     error: null,
+    warning: null,
+    recoveryWarning: '',
     advancedOpen: false,
     logsOpen: false,
     markdownOpen: false,
@@ -35,6 +37,9 @@
   }
   function writeStorage(key, value) {
     try { if (value) localStorage.setItem(key, value); } catch (_err) {}
+  }
+  function removeStorage(key) {
+    try { localStorage.removeItem(key); } catch (_err) {}
   }
 
   function workspaceId() {
@@ -59,7 +64,7 @@
     if (s === 'completed' || s === 'success') return 'success';
     if (['ready', 'running', 'researching', 'executing', 'testing', 'created'].includes(s)) return 'active';
     if (s === 'queued' || s === 'idle' || !s) return 'muted';
-    if (s === 'approval_required' || s === 'paused') return 'warning';
+    if (s === 'approval_required' || s === 'paused' || s === 'stale') return 'warning';
     if (['failed', 'blocked', 'error'].includes(s)) return 'danger';
     return 'muted';
   }
@@ -103,6 +108,35 @@
     card.hidden = false;
   }
 
+  function showWarning(message) {
+    state.warning = message || null;
+    const card = $('atlas-warning-card');
+    if (!card) return;
+    if (!message) {
+      card.hidden = true;
+      return;
+    }
+    const text = $('atlas-warning-message');
+    if (text) text.textContent = message;
+    card.hidden = false;
+  }
+
+  function isPipelineStateNotFound(result) {
+    const detail = typeof result?.detail === 'string' ? result.detail : (result?.detail?.detail || result?.message || '');
+    return result?.status === 404 && (result?.code === 'pipeline_state_not_found' || String(detail).toLowerCase().includes('pipeline state not found'));
+  }
+
+  function markStaleRecovery() {
+    const message = '前回のRun状態が見つかりませんでした。PlanPoolは復元できます。必要ならStart Dry-runを再実行してください。';
+    state.recoveryWarning = message;
+    state.warning = message;
+    state.pipelineState = { status: 'stale', warnings: ['pipeline_state_not_found'] };
+    state.currentRunId = '';
+    removeStorage(storageKeys.runId);
+    showError(null);
+    showWarning(message);
+  }
+
   function updateSummary() {
     const pool = normalizePool(state.planPool);
     const pipeline = normalizePipeline(state.pipelineState);
@@ -110,7 +144,7 @@
     const event = lastEvent();
     const completed = arr(pipeline?.completed_item_ids).length || arr(pool?.completed_item_ids).length;
     const total = items.length;
-    const status = pipeline?.status || pool?.status || 'Ready';
+    const status = pipeline?.status || (state.recoveryWarning ? 'stale' : pool?.status || 'Ready');
     const fill = total ? Math.round((completed / total) * 100) : 0;
     const failed = arr(pipeline?.failed_item_ids).length || arr(pool?.failed_item_ids).length;
     const blocked = arr(pipeline?.blocked_item_ids).length || arr(pool?.blocked_item_ids).length;
@@ -120,7 +154,7 @@
     if ($('atlas-workbench-status')) $('atlas-workbench-status').textContent = state.loading ? 'Atlas is working...' : `PlanPool: ${pool?.status || 'not created'} / Pipeline: ${pipeline?.status || 'idle'}`;
     if ($('atlas-status-planpool')) $('atlas-status-planpool').textContent = pool?.status || 'not created';
     if ($('atlas-status-items')) $('atlas-status-items').textContent = String(total);
-    if ($('atlas-status-pipeline')) $('atlas-status-pipeline').textContent = pipeline?.status || 'idle';
+    if ($('atlas-status-pipeline')) $('atlas-status-pipeline').textContent = pipeline?.status || (state.recoveryWarning ? 'stale' : 'idle');
     if ($('atlas-status-last-event')) $('atlas-status-last-event').textContent = eventLabel(event);
     if ($('atlas-planpool-id')) $('atlas-planpool-id').textContent = state.currentPoolId || 'No pool';
     if ($('atlas-pipeline-run-id')) $('atlas-pipeline-run-id').textContent = state.currentRunId || 'No run';
@@ -130,11 +164,12 @@
     if ($('atlas-blocked-count')) $('atlas-blocked-count').textContent = String(blocked);
     if ($('atlas-current-item-id')) $('atlas-current-item-id').textContent = pipeline?.current_item_id || pool?.current_item_id || '-';
     if ($('atlas-next-action')) $('atlas-next-action').textContent = deriveNextAction(pool, pipeline);
-    renderPipelineStatusBadge(pipeline?.status || 'idle');
+    renderPipelineStatusBadge(pipeline?.status || (state.recoveryWarning ? 'stale' : 'idle'));
   }
 
   function deriveNextAction(pool, pipeline) {
     const recoveryNext = state.recoverySummary?.next_action;
+    if (state.recoveryWarning) return 'Start Dry-run to create a fresh pipeline state for the recovered PlanPool.';
     if (recoveryNext) return recoveryNext;
     const status = pipeline?.status || '';
     if (status === 'completed') return 'Review final report or start next plan.';
@@ -213,6 +248,7 @@
 
   function renderDetails() {
     const json = { planPool: normalizePool(state.planPool), pipelineState: normalizePipeline(state.pipelineState), recoverySummary: state.recoverySummary };
+    json.recoveryWarning = state.recoveryWarning;
     if ($('atlas-json-panel')) $('atlas-json-panel').textContent = JSON.stringify(json, null, 2);
     if ($('atlas-markdown-panel')) $('atlas-markdown-panel').textContent = state.markdown || 'No markdown loaded.';
     if ($('atlas-checkpoint-path')) $('atlas-checkpoint-path').textContent = state.checkpointPath || 'No checkpoint yet.';
@@ -226,8 +262,13 @@
     const shouldShow = recovery && !state.recoveryHidden && !['no_workspace', 'no_plan_pool', ''].includes(status);
     banner.hidden = !shouldShow;
     if (shouldShow && $('atlas-recovery-summary')) {
-      $('atlas-recovery-summary').textContent = `status: ${status} / pool_id: ${recovery.pool_id || '-'} / run_id: ${recovery.run_id || '-'} / next: ${recovery.next_action || '-'}`;
+      const warning = state.recoveryWarning ? ` / warning: ${state.recoveryWarning}` : '';
+      $('atlas-recovery-summary').textContent = `status: ${status} / pool_id: ${recovery.pool_id || '-'} / run_id: ${state.currentRunId || recovery.run_id || '-'} / next: ${recovery.next_action || '-'}${warning}`;
     }
+    const loadBtn = $('atlas-recovery-load-btn');
+    const refreshBtn = $('atlas-recovery-refresh-btn');
+    if (loadBtn) loadBtn.disabled = Boolean(state.loading || !recovery?.pool_id);
+    if (refreshBtn) refreshBtn.disabled = Boolean(state.loading || !state.currentRunId || state.recoveryWarning);
   }
 
   function render() {
@@ -281,7 +322,10 @@
       state.currentRunId = '';
       state.planPool = data.plan_pool || data;
       state.pipelineState = null;
+      state.recoveryWarning = '';
       state.events = [];
+      removeStorage(storageKeys.runId);
+      showWarning(null);
       state.checkpointPath = data.checkpoint_path || '';
       writeStorage(storageKeys.poolId, state.currentPoolId);
       await loadMarkdown();
@@ -312,6 +356,8 @@
       state.events = arr(data.events);
       state.checkpointPath = data.checkpoint_path || state.checkpointPath;
       writeStorage(storageKeys.runId, state.currentRunId);
+      state.recoveryWarning = '';
+      showWarning(null);
       await refreshStatus();
     }
     setBusy(false);
@@ -341,13 +387,23 @@
     state.lastAction = refreshStatus;
     if (state.currentPoolId) await loadPlan(state.currentPoolId);
     if (state.currentPoolId && state.currentRunId) {
-      const data = await handleResult(await root.AtlasPipelineAPI.getPipelineStatus(state.currentPoolId, state.currentRunId, workspaceId()), 'Refresh Status failed');
+      const result = await root.AtlasPipelineAPI.getPipelineStatus(state.currentPoolId, state.currentRunId, workspaceId());
+      if (isPipelineStateNotFound(result)) {
+        markStaleRecovery();
+        render();
+        return;
+      }
+      const data = await handleResult(result, 'Refresh Status failed');
       if (data) {
+        state.recoveryWarning = '';
+        showWarning(null);
         state.pipelineState = normalizePipeline(data);
         state.events = arr(data.events).length ? arr(data.events) : arr(state.pipelineState?.events);
       }
-      const events = await root.AtlasPipelineAPI.getPipelineEvents(state.currentPoolId, state.currentRunId, workspaceId());
-      if (events?.ok) state.events = arr(events.data?.events);
+      if (state.currentRunId) {
+        const events = await root.AtlasPipelineAPI.getPipelineEvents(state.currentPoolId, state.currentRunId, workspaceId());
+        if (events?.ok) state.events = arr(events.data?.events);
+      }
     }
     render();
   }
@@ -360,7 +416,8 @@
     const recoveredPool = recovery?.pool_id || readStorage(storageKeys.poolId);
     const recoveredRun = recovery?.run_id || readStorage(storageKeys.runId);
     if (recoveredPool) state.currentPoolId = recoveredPool;
-    if (recoveredRun) state.currentRunId = recoveredRun;
+    if (recoveredRun && recovery?.status !== 'stale') state.currentRunId = recoveredRun;
+    if (recovery?.status === 'stale') markStaleRecovery();
     if (recoveredPool || recoveredRun) state.restored = true;
     if (state.currentPoolId) await refreshStatus();
     render();
@@ -370,7 +427,7 @@
     state.recoveryHidden = false;
     const recovery = state.recoverySummary || {};
     if (recovery.pool_id) state.currentPoolId = recovery.pool_id;
-    if (recovery.run_id) state.currentRunId = recovery.run_id;
+    if (recovery.run_id && recovery.status !== 'stale') state.currentRunId = recovery.run_id;
     await refreshStatus();
   }
 

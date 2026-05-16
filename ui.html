@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-14b">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-14c">
 </head>
 <body>
 
@@ -183,6 +183,11 @@
           <div class="atlas-button-row" aria-label="Atlas primary actions">
             <button id="atlas-create-plan-btn" class="atlas-primary-btn" type="button" onclick="window.AtlasDashboard?.createPlanPool()">Create Plan</button>
             <button id="atlas-start-dry-run-btn" class="atlas-secondary-btn" type="button" onclick="window.AtlasDashboard?.startDryRun()">Start Dry-run</button>
+          </div>
+          <p id="atlas-fallback-planpool-note" class="atlas-muted-note">現在のCreate Planは内部fallback PlanPoolを生成します。実Planner連携は次段階で追加予定です。</p>
+          <div id="atlas-warning-card" class="atlas-warning-card" data-atlas-stale-recovery-warning="true" hidden>
+            <div><b>Atlas warning</b></div>
+            <div id="atlas-warning-message">前回のRun状態が見つかりませんでした。PlanPoolは復元できます。必要ならStart Dry-runを再実行してください。</div>
           </div>
           <div id="atlas-error-card" class="atlas-error-card" hidden>
             <div><b id="atlas-error-title">Atlas error</b></div>
@@ -15871,8 +15876,8 @@ function testSkill(skillName) {
 <script src="/static/js/lumen_tools.js"></script>
 <script src="/static/js/lumen.js"></script>
 <script src="/static/js/nexus.js"></script>
-<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-14b"></script>
-<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-14b"></script>
+<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-14c"></script>
+<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-14c"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>

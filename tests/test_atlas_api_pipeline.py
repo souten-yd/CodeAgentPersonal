@@ -98,6 +98,38 @@ def test_pipeline_status_returns_saved_state(tmp_path) -> None:
     assert body["events"]
 
 
+def test_pipeline_status_missing_state_returns_404(tmp_path) -> None:
+    client = _client(tmp_path)
+    created = _create_pool(client)
+
+    response = client.get(
+        "/api/atlas/pipeline/status/run_missing",
+        params={"pool_id": created["pool_id"]},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "pipeline state not found"
+
+
+def test_recovery_latest_marks_missing_run_state_as_stale(tmp_path) -> None:
+    client = _client(tmp_path)
+    created = _create_pool(client)
+    dry_run = client.post("/api/atlas/pipeline/dry-run", json={"pool_id": created["pool_id"]}).json()
+    for state_path in tmp_path.rglob("state.json"):
+        if dry_run["run_id"] in str(state_path):
+            state_path.unlink()
+
+    response = client.get("/api/atlas/recovery/latest")
+
+    assert response.status_code == 200
+    summary = response.json()["recovery_summary"]
+    assert summary["pool_id"] == created["pool_id"]
+    assert summary["run_id"] == dry_run["run_id"]
+    assert summary["status"] == "stale"
+    assert "pipeline_state_not_found" in summary["warnings"]
+    assert summary["next_action"] == "Start a new dry-run from the recovered PlanPool."
+
+
 def test_recovery_latest(tmp_path) -> None:
     client = _client(tmp_path)
     created = _create_pool(client)
