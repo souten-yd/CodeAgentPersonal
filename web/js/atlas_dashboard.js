@@ -411,7 +411,7 @@
         removeStorage(storageKeys.runId);
         const warnings = arr(data.warnings);
         const plannerMessage = data.used_fallback
-          ? `Planner fallback used: ${data.fallback_reason || warnings.join(', ') || 'real planner unavailable'}`
+          ? `Planner fallback used: ${data.fallback_reason || warnings.join(', ') || 'real_planner_unavailable'}`
           : (warnings.length ? `Planner warnings: ${warnings.join(', ')}` : '');
         showWarning(plannerMessage || null, data.orchestration_summary?.severity);
         state.checkpointPath = data.checkpoint_path || '';
@@ -651,3 +651,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 })();
+
+// known planner warning tokens: llm_backend_unavailable, llm_json_parse_failed, real_planner_unavailable, planner_bridge_failed

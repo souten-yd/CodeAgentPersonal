@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from agent.atlas_llm_json_adapter import AtlasLLMJsonAdapter
+
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
@@ -140,6 +142,43 @@ def _atlas_components(request: Request, workspace_id: str = "default") -> tuple[
 
 
 
+
+
+def _normalize_chat_completions_endpoint(raw_url: str) -> str:
+    value = str(raw_url or "").strip()
+    if not value:
+        return ""
+    if value.endswith("/v1/chat/completions"):
+        return value
+    if value.endswith("/v1"):
+        return value + "/chat/completions"
+    return value.rstrip("/") + "/v1/chat/completions"
+
+
+def _resolve_atlas_llm_backend_base_url(app: Any) -> str:
+    state = app.state
+    for attr in ("llm_base_url", "model_backend_url"):
+        raw = getattr(state, attr, "")
+        endpoint = _normalize_chat_completions_endpoint(str(raw or ""))
+        if endpoint:
+            return endpoint.replace("/v1/chat/completions", "").rstrip("/")
+    for key in ("CODEAGENT_LLM_BASE_URL", "OPENAI_BASE_URL", "LLAMA_SERVER_URL", "LLM_BASE_URL", "CODEAGENT_LLM_CHAT", "LLM_URL"):
+        endpoint = _normalize_chat_completions_endpoint(os.environ.get(key, ""))
+        if endpoint:
+            return endpoint.replace("/v1/chat/completions", "").rstrip("/")
+    return ""
+
+
+def register_atlas_llm_json_adapter(app: Any) -> None:
+    current = getattr(app.state, "atlas_llm_json_fn", None)
+    if callable(current):
+        return
+    model = str(os.environ.get("CODEAGENT_MODEL") or os.environ.get("OPENAI_MODEL") or "").strip()
+    base_url = _resolve_atlas_llm_backend_base_url(app)
+    if not base_url:
+        return
+    app.state.atlas_llm_json_fn = AtlasLLMJsonAdapter(base_url=base_url, model=model)
+
 def _resolve_callable_state(request: Request, name: str) -> Any:
     value = getattr(request.app.state, name, None)
     return value if callable(value) else None
@@ -179,6 +218,7 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
     if not root_goal:
         raise HTTPException(status_code=400, detail="input is empty")
 
+    register_atlas_llm_json_adapter(request.app)
     ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     builder = AtlasPlanPoolBuilder()
     planner_status = "planned"

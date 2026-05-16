@@ -618,3 +618,5 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 - Safely wire AtlasPlannerBridge llm_json_fn to the existing model backend so real Planner can run in real environments.
 - Preserve fallback PlanPool behavior when model wiring is unavailable or planner output fails validation.
 - Do not add automatic safe_apply, TestCommandRunner, DebugLoopRunner, DeepResearch/Web execution, or Task/Agent APIs.
+
+- Next PR: PR-ATLAS-PIPE-19 Planner clarification answer flow / Requirement refinement UI。

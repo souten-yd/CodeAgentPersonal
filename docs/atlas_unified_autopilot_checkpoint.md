@@ -123,3 +123,5 @@ AtlasPlannerBridgeのllm_json_fnを既存モデル接続へ安全に配線し、
 - Task/Agent API追加禁止。
 - 任意コマンド実行追加禁止。
 - 既存Lumen / Echo / Nexus破壊禁止。
+
+- Next PR: PR-ATLAS-PIPE-19 Planner clarification answer flow / Requirement refinement UI。
