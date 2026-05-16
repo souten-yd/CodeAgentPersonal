@@ -105,8 +105,11 @@ def test_launcher_stops_waiting_when_status_exposes_gpu_fail(monkeypatch, capsys
     sleep_calls = []
 
     def fake_request_json(url):
-        assert url == "http://api/model/status"
-        return status_payload
+        if url == "http://api/model/status":
+            return status_payload
+        if url == "http://api/llm/props":
+            return {}
+        raise AssertionError(f"unexpected url: {url}")
 
     def fake_sleep(seconds):
         sleep_calls.append(seconds)
@@ -115,6 +118,55 @@ def test_launcher_stops_waiting_when_status_exposes_gpu_fail(monkeypatch, capsys
     monkeypatch.setattr(launcher, "request_json", fake_request_json)
     monkeypatch.setattr(launcher, "request_status", lambda url: 200)
     monkeypatch.setattr(launcher.time, "sleep", fake_sleep)
+
+    ok = launcher.wait_llm_ready_with_model_manager(
+        api_base="http://api",
+        llm_base="http://llm",
+        timeout_sec=180,
+        cuda_expected=True,
+        proc=_RunningProc(),
+    )
+
+    out = capsys.readouterr().out
+    assert ok is False
+    assert sleep_calls == []
+    assert "[LLM][ERROR] GPU validation failed" in out
+    assert "LLM loading... 180s" not in out
+
+
+def test_launcher_falls_back_to_llm_props_when_model_status_unavailable(monkeypatch, capsys):
+    launcher = _load_launcher()
+    sleep_calls = []
+
+    def fake_request_json(url):
+        if url == "http://api/model/status":
+            return {
+                "status": "unavailable",
+                "current_key": "",
+                "catalog": {},
+                "last_model_load_status": "idle",
+                "gpu_validation_status": "unavailable",
+            }
+        if url == "http://api/llm/props":
+            return {
+                "last_model_load_status": "error",
+                "gpu_validation_status": "fail",
+                "cuda_init_failed": True,
+                "no_usable_gpu": True,
+            }
+        raise AssertionError(f"unexpected url: {url}")
+
+    def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+        raise AssertionError("wait_llm_ready_with_model_manager should not sleep after GPU fail")
+
+    monkeypatch.setattr(launcher, "request_json", fake_request_json)
+    monkeypatch.setattr(launcher, "request_status", lambda url: 200)
+    monkeypatch.setattr(launcher.time, "sleep", fake_sleep)
+
+    status = launcher._model_manager_status("http://api")
+    assert status["gpu_validation_status"] == "fail"
+    assert status["last_model_load_status"] == "error"
 
     ok = launcher.wait_llm_ready_with_model_manager(
         api_base="http://api",

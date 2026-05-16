@@ -83,6 +83,7 @@ def default_model_manager_status_payload() -> dict[str, Any]:
         "no_usable_gpu": False,
         "llama_log_parser_stale_suspected": False,
         "llama_readiness_signals": {},
+        "last_start_cmd": "",
     }
 
 

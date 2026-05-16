@@ -279,7 +279,16 @@ def cuda_expected_for_launcher(runpod: bool, os_profile: dict, gpu_profile: dict
 
 
 def _model_manager_status(api_base: str) -> dict:
-    return request_json(f"{api_base}/model/status") or request_json(f"{api_base}/llm/props") or {}
+    model_status = request_json(f"{api_base}/model/status") or {}
+    props_status = request_json(f"{api_base}/llm/props") or {}
+    unusable_model_status = (
+        model_status.get("status") == "unavailable"
+        or model_status.get("gpu_validation_status") is None
+        or model_status.get("last_model_load_status") is None
+    )
+    if unusable_model_status:
+        return {**model_status, **props_status}
+    return {**props_status, **model_status}
 
 
 def _llm_gpu_validation_failed(status: dict) -> bool:
