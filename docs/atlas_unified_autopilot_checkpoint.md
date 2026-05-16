@@ -30,14 +30,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-9: completed
 - PR-ATLAS-PIPE-10: completed
 - PR-ATLAS-PIPE-11: completed
+- PR-ATLAS-PIPE-12: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-12
+PR-ATLAS-PIPE-13
 
 ## Next PR
 
-PR-ATLAS-PIPE-13: Atlas API統合
+PR-ATLAS-PIPE-14: Atlas UI統合
 
 ## Important Constraints
 
@@ -70,6 +71,8 @@ PR-ATLAS-PIPE-13: Atlas API統合
 - PR-ATLAS-PIPE-10 adds Nexus ResearchRequest / ContextPack schema and adapter only and does not add API/UI behavior.
 - PR-ATLAS-PIPE-11 lets Pipeline Runner execute item_type=research through AtlasNexusResearchAdapter.
 - PR-ATLAS-PIPE-12 adds Nexus Outcome Writer schema/service only and does not add API/UI behavior.
+- PR-ATLAS-PIPE-13 adds minimal Atlas API integration for PlanPool creation, PlanPool retrieval, Pipeline dry_run, status, and recovery.
+- PR-ATLAS-PIPE-13 does not add Task/Agent APIs, safe_apply execution, test execution, DebugLoop execution, external Web access, or Deep Research jobs.
 - Outcome Writer can save success/failure/debug/research/safe_apply/pipeline outcomes to AtlasJournal and optionally to a Nexus client.
 - Research item execution does not start external Web access or Deep Research jobs.
 - Research item execution does not call ImplementationExecutor, safe_apply, or TestCommandRunner.
@@ -87,5 +90,5 @@ PR-ATLAS-PIPE-13: Atlas API統合
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-13を実装する。
-Atlas PlanPool / Pipeline / Recovery / Research / Outcome の内部基盤を既存Atlas APIへ段階統合する。ただしTask/Agent APIは増やさない。
+PR-ATLAS-PIPE-14を実装する。
+Atlas UIにPlanPool / Pipeline Status / Recovery表示を追加する。ただしiPhone Safariで横崩れしない縦カード中心のUIにする。

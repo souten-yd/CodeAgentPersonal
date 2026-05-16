@@ -431,24 +431,34 @@ Autopilot実行結果、run log、再利用可能lessonをNexusへ保存する�
 
 ### 目的
 
-Planner、Plan Pool、Autopilot PipelineをAtlas APIへ統合する。
+Planner、Plan Pool、Autopilot Pipelineを既存Atlas APIへ段階統合する。
 
 ### 主な変更
 
-- Atlas API endpointを追加または拡張する。
-- Task / Agent APIではなくAtlas APIとして提供する。
-- Approval操作をAtlas APIへ統合する。
+- `/api/atlas/*` 配下へ最小Atlas API統合を追加する。
+- PlanPool作成APIを追加する。
+- PlanPool取得APIを追加する。
+- PlanPool Markdown取得APIを追加する。
+- Pipeline dry_run APIを追加する。
+- Pipeline status取得APIを追加する。
+- Recovery latest / pool取得APIを追加する。
+- Task / Agent APIは追加しない。
+- safe_apply APIは追加しない。
 
 ### 完了条件
 
-- Atlas APIからPlan PoolとAutopilot dry_runを操作できる。
+- Atlas APIからPlanPool作成、PlanPool取得、Pipeline dry_run、Status取得、Recovery取得ができる。
 - Task / Agent APIが増えていない。
+- safe_apply/APIなし。
 - API contract testsがpassする。
 
 ### 変更禁止範囲
 
 - Standalone Task API追加禁止。
 - Standalone Agent API追加禁止。
+- safe_apply自動実行/API公開禁止。
+- TestCommandRunner / DebugLoopRunner自動実行禁止。
+- 外部Web / Deep Research Job起動禁止。
 - 既存Atlas / Lumen / Echo / Nexus API破壊禁止。
 
 ## PR-ATLAS-PIPE-14: Atlas UI統合

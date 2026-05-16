@@ -29,6 +29,8 @@ This PR is documentation and contract-test only. It does not change runtime beha
 - Do not create a new Agent Runner.
 - Do not add new Task / Agent API surfaces.
 - Integrate through Atlas API instead.
+- API integration must stay under `/api/atlas/*`: PlanPool creation/retrieval, Pipeline dry_run/status, and Recovery summaries are Atlas capabilities, not new Task or Agent APIs.
+- Atlas API dry_run integration must not automatically execute safe_apply, TestCommandRunner, DebugLoopRunner, external Web research, or Deep Research jobs.
 
 ## Current Baseline Assumptions
 
