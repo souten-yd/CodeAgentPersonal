@@ -31,8 +31,13 @@ def test_create_app_runtime_controls_fallbacks_return_safe_payloads():
         "last_model_load_status": "idle",
         "last_model_load_error": None,
         "gpu_validation_status": "unavailable",
+        "last_gpu_validation_status": "unavailable",
         "gpu_validation_reason": "runtime provider unavailable",
+        "last_gpu_validation_reason": "runtime provider unavailable",
         "gpu_validation_path": None,
+        "last_gpu_validation_path": None,
+        "cuda_init_failed": False,
+        "no_usable_gpu": False,
         "llama_log_parser_stale_suspected": False,
         "llama_readiness_signals": {},
         "last_start_cmd": "",
@@ -237,3 +242,46 @@ def test_runtime_cuda_debug_may_call_torch_probe(monkeypatch):
     assert calls["count"] == 1
     assert body["torch_cuda_available"] is False
     assert "RuntimeError: CUDA unknown error" in body["torch_cuda_error"]
+
+
+def test_llm_props_exposes_gpu_validation_failed_without_torch_probe(monkeypatch):
+    calls = {"is_available": 0}
+
+    class _Cuda:
+        def is_available(self):
+            calls["is_available"] += 1
+            raise AssertionError("torch.cuda.is_available must not be called by /llm/props")
+
+    class _Torch:
+        __version__ = "test"
+        cuda = _Cuda()
+
+    class FakeModelManager:
+        def llm_cached_status_dict(self):
+            return {
+                "last_model_load_status": "error",
+                "last_model_load_error": "GPU validation failed: cuda init failed; no usable GPU found",
+                "gpu_validation_status": "fail",
+                "last_gpu_validation_status": "fail",
+                "gpu_validation_reason": "cuda init failed; no usable GPU found",
+                "last_gpu_validation_reason": "cuda init failed; no usable GPU found",
+                "gpu_validation_path": "explicit_cuda_failure",
+                "last_gpu_validation_path": "explicit_cuda_failure",
+                "cuda_init_failed": True,
+                "no_usable_gpu": True,
+                "llama_log_parser_stale_suspected": False,
+                "llama_readiness_signals": {"process_signal": {"alive": False}},
+            }
+
+    monkeypatch.setitem(__import__("sys").modules, "torch", _Torch())
+    monkeypatch.setattr(main, "_model_manager", FakeModelManager())
+
+    response = TestClient(main.app).get("/llm/props")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert calls["is_available"] == 0
+    assert body["gpu_validation_status"] == "fail"
+    assert body["last_model_load_status"] == "error"
+    assert body["cuda_init_failed"] is True
+    assert body["no_usable_gpu"] is True

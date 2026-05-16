@@ -91,3 +91,41 @@ def test_launcher_pending_gpu_validation_does_not_mark_ready(monkeypatch, capsys
     out = capsys.readouterr().out
     assert ok is False
     assert "[OK] LLM ready" not in out
+
+
+def test_launcher_stops_waiting_when_status_exposes_gpu_fail(monkeypatch, capsys):
+    launcher = _load_launcher()
+    status_payload = {
+        "last_model_load_status": "error",
+        "gpu_validation_status": "fail",
+        "gpu_validation_reason": "cuda init failed; no usable GPU found",
+        "cuda_init_failed": True,
+        "no_usable_gpu": True,
+    }
+    sleep_calls = []
+
+    def fake_request_json(url):
+        assert url == "http://api/model/status"
+        return status_payload
+
+    def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+        raise AssertionError("wait_llm_ready_with_model_manager should not sleep after GPU fail")
+
+    monkeypatch.setattr(launcher, "request_json", fake_request_json)
+    monkeypatch.setattr(launcher, "request_status", lambda url: 200)
+    monkeypatch.setattr(launcher.time, "sleep", fake_sleep)
+
+    ok = launcher.wait_llm_ready_with_model_manager(
+        api_base="http://api",
+        llm_base="http://llm",
+        timeout_sec=180,
+        cuda_expected=True,
+        proc=_RunningProc(),
+    )
+
+    out = capsys.readouterr().out
+    assert ok is False
+    assert sleep_calls == []
+    assert "[LLM][ERROR] GPU validation failed" in out
+    assert "LLM loading... 180s" not in out
