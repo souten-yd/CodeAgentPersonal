@@ -238,5 +238,8 @@ def test_manual_safe_apply_ui_contract() -> None:
     assert "executeSafeApply(payload)" in ATLAS_API_JS
     assert "Manual safe apply is available only for approved low-risk items." in HTML
     assert "Safe Apply This Item" in ATLAS_DASHBOARD_JS
+    assert "'+renderSafeApplyEligibility(item)+'" not in ATLAS_DASHBOARD_JS
+    assert "Manual safe apply candidates" in ATLAS_DASHBOARD_JS
+    assert "Item-level manual apply only. Tests and autopilot continuation are not run." in ATLAS_DASHBOARD_JS
     for forbidden in ("Apply all", "Auto apply", "Continue autopilot", "Run tests automatically"):
         assert forbidden not in HTML + ATLAS_DASHBOARD_JS
