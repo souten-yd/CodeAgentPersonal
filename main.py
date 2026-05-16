@@ -1410,16 +1410,60 @@ class ModelManager:
         parsed_ngl = parsed.get("n_gpu_layers")
         offload_layers = parsed.get("gpu_offload_layers")
         cuda_buffer = parsed.get("cuda_buffer_mib")
+        cuda_device_detected = bool(parsed.get("cuda_device_detected", False))
+        cuda_build_detected = bool(parsed.get("cuda_build_detected", False))
+        model_loaded = bool(parsed.get("model_loaded", False))
+        server_listening = bool(parsed.get("server_listening", False))
+        cuda_init_failed = bool(parsed.get("cuda_init_failed", False))
+        no_usable_gpu = bool(parsed.get("no_usable_gpu", False))
         memory_delta = self._nvidia_smi_memory_delta_mib()
+
+        def _field_summary() -> str:
+            return (
+                "parsed fields: "
+                f"cuda_device_detected={cuda_device_detected}, "
+                f"cuda_build_detected={cuda_build_detected}, "
+                f"model_loaded={model_loaded}, "
+                f"server_listening={server_listening}, "
+                f"cuda_init_failed={cuda_init_failed}, "
+                f"no_usable_gpu={no_usable_gpu}, "
+                f"cuda_buffer_mib={cuda_buffer}, "
+                f"gpu_offload_layers={offload_layers}, "
+                f"n_gpu_layers={parsed_ngl}, "
+                f"nvidia_smi_memory_delta_mib={memory_delta}"
+            )
+
+        if cuda_init_failed or no_usable_gpu:
+            reasons = []
+            if cuda_init_failed:
+                reasons.append("cuda init failed")
+            if no_usable_gpu:
+                reasons.append("no usable GPU found")
+            reasons.append(_field_summary())
+            return False, "fail", "; ".join(reasons)
 
         if isinstance(parsed_ngl, int) and parsed_ngl > 0:
             return True, "ok", f"parsed_n_gpu_layers={parsed_ngl}"
         if isinstance(offload_layers, int) and offload_layers > 0:
             return True, "ok", f"parsed_gpu_offload_layers={offload_layers}"
-        if isinstance(cuda_buffer, (int, float)) and cuda_buffer > 0 and memory_delta > 0:
-            return True, "ok", f"cuda_buffer_mib={cuda_buffer} and nvidia_smi_memory_delta_mib={memory_delta}"
+        if isinstance(cuda_buffer, (int, float)) and cuda_buffer > 0:
+            if memory_delta > 0:
+                return True, "ok", f"cuda_buffer_mib={cuda_buffer} and nvidia_smi_memory_delta_mib={memory_delta}"
+            return True, "ok", f"cuda_buffer_mib={cuda_buffer}"
+        if memory_delta > 0:
+            return True, "ok", f"nvidia_smi_memory_delta_mib={memory_delta}"
+        if cuda_device_detected and cuda_build_detected and model_loaded and server_listening:
+            return True, "ok", f"accepted_new_llama_device_info_format; {_field_summary()}"
 
         reasons = []
+        if not cuda_device_detected:
+            reasons.append("CUDA device not detected")
+        if not cuda_build_detected:
+            reasons.append("CUDA build not detected")
+        if not model_loaded:
+            reasons.append("model loaded line not detected")
+        if not server_listening:
+            reasons.append("server listening line not detected")
         if not (isinstance(cuda_buffer, (int, float)) and cuda_buffer > 0):
             reasons.append("CUDA buffer not detected")
         if not (isinstance(offload_layers, int) and offload_layers > 0):
@@ -1430,6 +1474,7 @@ class ModelManager:
             reasons.append(f"n_gpu_layers={parsed_ngl}")
         elif parsed_ngl is None:
             reasons.append("n_gpu_layers not detected")
+        reasons.append(_field_summary())
         return False, "fail", "; ".join(reasons)
 
     def _record_ngl_search_debug(self, **kwargs) -> None:
@@ -2130,15 +2175,23 @@ class ModelManager:
         return "fail"
 
 
-    def _parse_llama_gpu_startup_log(self) -> dict[str, float | int | str | None]:
+    def _parse_llama_gpu_startup_log(self) -> dict[str, float | int | str | bool | None]:
         """Parse llama.cpp startup GPU placement details from the recent log tail."""
-        parsed: dict[str, float | int | str | None] = {
+        parsed: dict[str, float | int | str | bool | None] = {
             "n_gpu_layers": None,
             "total_layers": None,
             "gpu_offload_layers": None,
             "offload_line": None,
             "cuda_buffer_mib": None,
             "cpu_buffer_mib": None,
+            "cuda_device_detected": False,
+            "cuda_device_name": None,
+            "cuda_device_free_mib": None,
+            "cuda_build_detected": False,
+            "model_loaded": False,
+            "server_listening": False,
+            "cuda_init_failed": False,
+            "no_usable_gpu": False,
         }
         try:
             if not os.path.exists(LLAMA_STARTUP_LOG_PATH):
@@ -2150,6 +2203,29 @@ class ModelManager:
 
         for line in lines:
             clean_line = line.strip()
+            lower_line = line.lower()
+
+            m_device = re.search(
+                r"-\s*CUDA\d+\s*:\s*(.+?)\s*\((\d+)\s+MiB,\s*(\d+)\s+MiB\s+free\)",
+                line,
+                re.IGNORECASE,
+            )
+            if m_device:
+                parsed["cuda_device_detected"] = True
+                parsed["cuda_device_name"] = m_device.group(1).strip()
+                parsed["cuda_device_free_mib"] = int(m_device.group(3))
+
+            if "system_info:" in lower_line and "cuda :" in lower_line:
+                parsed["cuda_build_detected"] = True
+            if "srv" in lower_line and "main: model loaded" in lower_line:
+                parsed["model_loaded"] = True
+            if "server is listening" in lower_line:
+                parsed["server_listening"] = True
+            if "ggml_cuda_init: failed" in lower_line or "failed to initialize cuda" in lower_line:
+                parsed["cuda_init_failed"] = True
+            if "no usable gpu found" in lower_line:
+                parsed["no_usable_gpu"] = True
+
             if parsed["n_gpu_layers"] is None:
                 m = re.search(r"n_gpu_layers\s*=\s*(\d+)", line, re.IGNORECASE)
                 if m:
@@ -2457,6 +2533,14 @@ class ModelManager:
             "parsed_offload_line": parsed.get("offload_line"),
             "parsed_cuda_buffer_mib": parsed.get("cuda_buffer_mib"),
             "parsed_cpu_buffer_mib": parsed.get("cpu_buffer_mib"),
+            "parsed_cuda_device_detected": parsed.get("cuda_device_detected"),
+            "parsed_cuda_device_name": parsed.get("cuda_device_name"),
+            "parsed_cuda_device_free_mib": parsed.get("cuda_device_free_mib"),
+            "parsed_cuda_build_detected": parsed.get("cuda_build_detected"),
+            "parsed_model_loaded": parsed.get("model_loaded"),
+            "parsed_server_listening": parsed.get("server_listening"),
+            "parsed_cuda_init_failed": parsed.get("cuda_init_failed"),
+            "parsed_no_usable_gpu": parsed.get("no_usable_gpu"),
             "gpu_validation_status": validation_status,
             "gpu_validation_reason": validation_reason,
             "llama_startup_log_tail": log_tail,

@@ -183,6 +183,29 @@ def test_llama_startup_parser_counts_repeating_and_output_offload(tmp_path, monk
     assert "output layer" in parsed["offload_line"]
 
 
+def test_llama_startup_parser_accepts_new_device_info_format(tmp_path, monkeypatch):
+    manager, _spec = _manager(tmp_path, monkeypatch)
+    Path(main.LLAMA_STARTUP_LOG_PATH).write_text(
+        "0.00 I device_info:\n"
+        "0.00 I   - CUDA0   : NVIDIA GeForce RTX 3080 (9875 MiB, 9650 MiB free)\n"
+        "0.00 I system_info: n_threads = 8 | CUDA : ARCHS = 750,800,860 |\n"
+        "0.31 I srv          main: model loaded\n"
+        "0.31 I srv          main: server is listening on http://0.0.0.0:8080\n",
+        encoding="utf-8",
+    )
+
+    parsed = manager._parse_llama_gpu_startup_log()
+
+    assert parsed["cuda_device_detected"] is True
+    assert "NVIDIA GeForce RTX 3080" in parsed["cuda_device_name"]
+    assert parsed["cuda_device_free_mib"] == 9650
+    assert parsed["cuda_build_detected"] is True
+    assert parsed["model_loaded"] is True
+    assert parsed["server_listening"] is True
+    assert parsed["cuda_init_failed"] is False
+    assert parsed["no_usable_gpu"] is False
+
+
 def test_runpod_linux_validation_ok_without_ngl_when_cuda_and_offload_present(tmp_path, monkeypatch):
     manager, spec = _manager(tmp_path, monkeypatch)
     manager._last_runtime_decision = {
@@ -241,6 +264,74 @@ def test_runpod_linux_validation_ok_with_cuda_buffer_and_vram_increase(tmp_path,
     assert result == "ok"
     assert manager._last_llama_gpu_log["gpu_validation_status"] == "ok"
     assert "nvidia_smi_memory_delta_mib=3952" in manager._last_llama_gpu_log["gpu_validation_reason"]
+
+
+def test_runpod_linux_validation_accepts_new_llama_device_info_format(tmp_path, monkeypatch):
+    manager, spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    monkeypatch.setattr(main, "IS_RUNPOD_RUNTIME", True)
+    monkeypatch.setattr(main._sp, "Popen", lambda cmd, stdout=None, stderr=None, creationflags=0: _FakePopen(cmd, stdout, stderr, creationflags))
+    monkeypatch.setattr(
+        manager,
+        "_parse_llama_gpu_startup_log",
+        lambda: {
+            "n_gpu_layers": None,
+            "gpu_offload_layers": None,
+            "cuda_buffer_mib": None,
+            "cuda_device_detected": True,
+            "cuda_device_name": "NVIDIA GeForce RTX 3080",
+            "cuda_device_free_mib": 9650,
+            "cuda_build_detected": True,
+            "model_loaded": True,
+            "server_listening": True,
+            "cuda_init_failed": False,
+            "no_usable_gpu": False,
+        },
+    )
+
+    result = manager._try_start_once(spec, gpu_layers=999, eff_ck="q8_0", eff_cv="q8_0", gpu_vendor="nvidia", emit=lambda *a: None)
+
+    assert result == "ok"
+    assert manager._last_llama_gpu_log["gpu_validation_status"] == "ok"
+    assert "accepted_new_llama_device_info_format" in manager._last_llama_gpu_log["gpu_validation_reason"]
+
+
+def test_runpod_linux_validation_rejects_no_usable_gpu_even_with_server_lines(tmp_path, monkeypatch):
+    manager, spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    monkeypatch.setattr(main, "IS_RUNPOD_RUNTIME", True)
+    monkeypatch.setattr(main._sp, "Popen", lambda cmd, stdout=None, stderr=None, creationflags=0: _FakePopen(cmd, stdout, stderr, creationflags))
+    monkeypatch.setattr(
+        manager,
+        "_parse_llama_gpu_startup_log",
+        lambda: {
+            "cuda_device_detected": False,
+            "cuda_build_detected": True,
+            "model_loaded": True,
+            "server_listening": True,
+            "cuda_init_failed": True,
+            "no_usable_gpu": True,
+        },
+    )
+
+    result = manager._try_start_once(spec, gpu_layers=999, eff_ck="q8_0", eff_cv="q8_0", gpu_vendor="nvidia", emit=lambda *a: None)
+
+    assert result == "fail"
+    assert manager._last_llama_gpu_log["gpu_validation_status"] == "fail"
+    reason = manager._last_llama_gpu_log["gpu_validation_reason"]
+    assert "no usable GPU" in reason or "cuda init failed" in reason
 
 
 def test_cuda_debug_fixture_with_offloaded_layers_is_not_failed(tmp_path, monkeypatch):
