@@ -55,6 +55,7 @@ Planning:
 - used_fallback: {str(bool(summary.metadata.get("used_fallback", False))).lower()}
 - fallback_reason: {summary.metadata.get("fallback_reason", "")}
 - questions_count: {summary.metadata.get("questions_count", 0)}
+- clarification_session_id: {summary.metadata.get("clarification_session_id", "")}
 - orchestration_next_action: {summary.metadata.get("orchestration_next_action", summary.next_action)}
 
 Current Gate:
@@ -74,6 +75,8 @@ Current Gate:
 - safe_apply / TestCommand / DebugLoop / DeepResearchの自動実行はまだしない。
 - Create Planはplanner_modeに応じてreal Plannerまたはfallback PlanPoolを使う。fallback_usedの場合はreal Planner接続/LLM JSON functionを確認する。
 - waiting_for_clarificationの場合、次チャットではPlanner questionsを確認してgoalを補足する。
+- Questions are waiting in Atlas Dashboard Details
+- Answer them or choose assumptions, then re-plan
 - approval_requiredの場合、approval対象を確認し、自動実行は開始しない。
 - staleの場合、recovered PlanPoolから新しいdry-runを開始する。
 

@@ -70,6 +70,9 @@
     getContinuationPool(poolId, runId, workspaceId) {
       return atlasFetch(`/api/atlas/continuation/pools/${encodeURIComponent(poolId)}${query({ run_id: runId, workspace_id: workspaceId })}`);
     },
+    submitClarificationAnswers(payload) {
+      return atlasFetch("/api/atlas/clarifications/answer", { method: "POST", body: JSON.stringify(payload || {}) });
+    },
   };
 
   root.AtlasPipelineAPI = AtlasPipelineAPI;

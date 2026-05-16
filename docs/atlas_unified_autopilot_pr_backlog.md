@@ -640,3 +640,7 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 - 回答後に再Planningできる
 - fallback安全継続
 - safe_apply/TestCommand/DebugLoop/DeepResearchは実行しない
+
+- PR-ATLAS-PIPE-19 adds clarification answer flow for waiting_for_clarification.
+- Clarification answers are merged into Planner input / Requirement context and can trigger re-planning.
+- PR-ATLAS-PIPE-19 does not execute safe_apply/TestCommand/DebugLoop/DeepResearch.

@@ -130,4 +130,8 @@ waiting_for_clarification の質問にUIから回答し、RequirementDefinition�
 - 任意コマンド実行追加禁止。
 - 既存Lumen / Echo / Nexus破壊禁止。
 
-- Next PR: PR-ATLAS-PIPE-19 Planner clarification answer flow / Requirement refinement UI。
+- Next PR: PR-ATLAS-PIPE-20: Approval-aware continuation / safe apply preparation
+
+- PR-ATLAS-PIPE-19 adds clarification answer flow for waiting_for_clarification.
+- Clarification answers are merged into Planner input / Requirement context and can trigger re-planning.
+- PR-ATLAS-PIPE-19 does not execute safe_apply/TestCommand/DebugLoop/DeepResearch.
