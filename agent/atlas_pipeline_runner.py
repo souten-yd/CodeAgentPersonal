@@ -6,6 +6,7 @@ from uuid import uuid4
 from agent.atlas_autopilot_policy import AtlasAutopilotPolicyGate
 from agent.atlas_approval_gate import AtlasApprovalGate
 from agent.atlas_autopilot_policy_schema import AtlasPolicyEvaluation
+from agent.atlas_nexus_research_adapter import AtlasNexusResearchAdapter
 from agent.atlas_pipeline_runner_schema import (
     AtlasPipelineItemResult,
     AtlasPipelineRunRequest,
@@ -29,6 +30,7 @@ class AtlasPipelineRunner:
         approval_gate: AtlasApprovalGate | None = None,
         safe_apply_adapter: AtlasSafeApplyAdapter | None = None,
         test_command_runner: TestCommandRunner | None = None,
+        nexus_research_adapter: AtlasNexusResearchAdapter | None = None,
     ):
         self.storage = storage
         self.policy_gate = policy_gate or AtlasAutopilotPolicyGate()
@@ -36,6 +38,7 @@ class AtlasPipelineRunner:
         self.approval_gate = approval_gate
         self.safe_apply_adapter = safe_apply_adapter
         self.test_command_runner = test_command_runner
+        self.nexus_research_adapter = nexus_research_adapter
 
     def run_dry_run(self, request: AtlasPipelineRunRequest) -> AtlasPipelineRunState:
         if not request.dry_run:
@@ -197,6 +200,44 @@ class AtlasPipelineRunner:
             self._sync_state_lists_from_pool(state, pool)
             return state
 
+        if item.item_type == "research":
+            try:
+                item.status = "researching"
+                updated_pool = self.storage.update_item(pool.pool_id, item.item_id, status="researching")
+                self._copy_pool_state(pool, updated_pool)
+                state.add_event("item_research_started", item_id=item.item_id, message="Nexus research started.")
+                result.status = "dry_running"
+                context_pack_result = self.call_research_item(item, pool)
+                result.context_pack_result = context_pack_result
+                result.context_pack_id = str(context_pack_result.get("context_pack_id") or "")
+                updated_pool = self.storage.mark_item_completed(pool.pool_id, item.item_id)
+                self._copy_pool_state(pool, updated_pool)
+                result.status = "completed"
+                result.finished_at = _utc_now_iso()
+                state.completed_item_ids = self._dedupe([*state.completed_item_ids, item.item_id])
+                state.item_results.append(result)
+                state.add_event(
+                    "item_research_completed",
+                    item_id=item.item_id,
+                    message="Nexus research completed.",
+                    metadata={"context_pack_id": result.context_pack_id},
+                )
+                state.add_event("item_completed", item_id=item.item_id, message="Pipeline item completed.")
+            except Exception as exc:
+                error = str(exc) or exc.__class__.__name__
+                updated_pool = self.storage.mark_item_failed(pool.pool_id, item.item_id, error=error)
+                self._copy_pool_state(pool, updated_pool)
+                result.status = "failed"
+                result.errors.append(error)
+                result.finished_at = _utc_now_iso()
+                state.failed_item_ids = self._dedupe([*state.failed_item_ids, item.item_id])
+                state.status = "failed"
+                state.item_results.append(result)
+                state.add_event("item_failed", item_id=item.item_id, message=error)
+
+            self._sync_state_lists_from_pool(state, pool)
+            return state
+
         try:
             item.status = "executing"
             updated_pool = self.storage.update_item(pool.pool_id, item.item_id, status="executing")
@@ -272,6 +313,28 @@ class AtlasPipelineRunner:
         if not ready_items:
             return None
         return ready_items[0]
+
+
+    def call_research_item(self, item: AtlasPlanItem, pool: AtlasPlanPool) -> dict:
+        adapter = self.nexus_research_adapter or AtlasNexusResearchAdapter(nexus_client=None)
+        request = adapter.request_from_plan_item(item)
+        context_pack = adapter.run_research(request)
+        context_pack_result = self._dict_result(context_pack)
+        context_pack_id = str(context_pack_result.get("context_pack_id") or "")
+
+        metadata = dict(item.metadata)
+        if context_pack_id:
+            item.linked_context_pack_id = context_pack_id
+            metadata["context_pack_id"] = context_pack_id
+        item.metadata = metadata
+        updated_pool = self.storage.update_item(
+            pool.pool_id,
+            item.item_id,
+            linked_context_pack_id=item.linked_context_pack_id,
+            metadata=metadata,
+        )
+        self._copy_pool_state(pool, updated_pool)
+        return context_pack_result
 
     def call_implementation_dry_run(self, item: AtlasPlanItem, pool: AtlasPlanPool) -> dict:
         executor = self.implementation_executor

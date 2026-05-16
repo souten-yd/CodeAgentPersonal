@@ -380,6 +380,13 @@ PlanItemの一種としてResearch Itemを実行できるようにする。
 
 ### 完了条件
 
+- Pipeline Runnerが `item_type=research` を処理できる。
+- research itemはAtlasNexusResearchAdapterを呼ぶ。
+- research itemはImplementationExecutorを呼ばない。
+- research itemはsafe_apply/TestCommandRunnerを呼ばない。
+- adapter未指定でもwarning付きContextPackで完了できる。
+- ContextPackをJournalへ保存できる。
+- 外部Web/DeepResearch job/API/UIは追加しない。
 - Research ItemがContext Packを生成する。
 - 通常implementation itemと区別できる。
 - Testsがpassする。
