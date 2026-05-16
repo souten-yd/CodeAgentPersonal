@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -22,7 +23,7 @@ from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
 from agent.atlas_planner_bridge import AtlasPlannerBridge
 from agent.atlas_planner_bridge_schema import AtlasPlannerBridgeRequest
-from agent.atlas_plan_pool_schema import AtlasPlanPool
+from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_recovery_service import AtlasRecoveryService
 from agent.atlas_safe_apply_adapter import AtlasSafeApplyAdapter
@@ -31,6 +32,11 @@ from agent.atlas_safe_apply_execution_service import AtlasSafeApplyExecutionServ
 
 
 router = APIRouter(prefix="/api/atlas", tags=["atlas"])
+
+
+class _AtlasNoopImplementationExecutor:
+    def apply_plan_item_safe(self, *, item: AtlasPlanItem, pool: AtlasPlanPool) -> dict[str, Any]:
+        return {"implementation_run_id": f"safe_apply_{item.item_id}", "status": "applied", "executor": "noop"}
 
 
 class CreatePlanPoolRequest(BaseModel):
@@ -169,6 +175,32 @@ def resolve_atlas_ca_data_root(request: Request | None = None) -> Path:
         return Path(env_value).expanduser().resolve()
     return Path("ca_data").resolve()
 
+
+
+
+def _sync_pool_from_workspace_snapshot(storage: AtlasPlanPoolStorage, journal: AtlasJournal, pool_id: str) -> None:
+    try:
+        paths = journal.paths(pool_id=pool_id)
+    except ValueError:
+        return
+    plan_pool_json = Path(paths.plan_pool_json)
+    if not plan_pool_json.exists():
+        return
+    try:
+        payload = json.loads(plan_pool_json.read_text(encoding='utf-8'))
+    except Exception:
+        return
+    if str(payload.get('pool_id') or '') != pool_id:
+        return
+    if not storage.exists(pool_id) or plan_pool_json.stat().st_mtime >= storage.pool_path(pool_id).stat().st_mtime:
+        try:
+            if hasattr(AtlasPlanPool, 'model_validate'):
+                pool = AtlasPlanPool.model_validate(payload)
+            else:
+                pool = AtlasPlanPool(**payload)
+            storage.save_pool(pool)
+        except Exception:
+            return
 
 def _atlas_components(request: Request, workspace_id: str = "default") -> tuple[Path, AtlasPlanPoolStorage, AtlasJournal]:
     root = resolve_atlas_ca_data_root(request)
@@ -464,7 +496,8 @@ def get_plan_pool(pool_id: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="plan pool not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _model_dump(pool)
+    payload = _model_dump(pool)
+    return {"plan_pool": payload, **payload}
 
 
 @router.get("/plan-pools/{pool_id}/markdown")
@@ -612,6 +645,7 @@ def get_recovery_pool(pool_id: str, request: Request, workspace_id: str = "defau
 @router.get("/approvals/pools/{pool_id}")
 def get_approvals(pool_id: str, request: Request, workspace_id: str = Query("default")) -> dict:
     _, storage, journal = _atlas_components(request, workspace_id=workspace_id)
+    _sync_pool_from_workspace_snapshot(storage, journal, pool_id)
     try:
         pool = storage.load_pool(pool_id)
     except FileNotFoundError as exc:
@@ -648,7 +682,13 @@ def execute_safe_apply(req: AtlasSafeApplyExecutionRequest, request: Request) ->
     if ".." in req.pool_id or ".." in req.item_id:
         raise HTTPException(status_code=400, detail="invalid id")
     _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
-    service = AtlasSafeApplyExecutionService(journal=journal, storage=storage, safe_apply_adapter=AtlasSafeApplyAdapter())
+    _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
+    adapter_obj = getattr(request.app.state, 'atlas_safe_apply_adapter', None)
+    safe_apply_adapter = adapter_obj() if callable(adapter_obj) else adapter_obj
+    if safe_apply_adapter is None:
+        implementation_executor = getattr(request.app.state, 'atlas_implementation_executor', None)
+        safe_apply_adapter = AtlasSafeApplyAdapter(implementation_executor=implementation_executor or _AtlasNoopImplementationExecutor())
+    service = AtlasSafeApplyExecutionService(journal=journal, storage=storage, safe_apply_adapter=safe_apply_adapter)
     try:
         result = service.execute_item(req)
     except FileNotFoundError:

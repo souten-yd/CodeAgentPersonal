@@ -44,14 +44,16 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-19: completed
 - PR-ATLAS-PIPE-20: completed
 - PR-ATLAS-PIPE-20B: completed
+- PR-ATLAS-PIPE-21: completed
+- PR-ATLAS-PIPE-21B: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-20B
+PR-ATLAS-PIPE-21C
 
 ## Next PR
 
-PR-ATLAS-PIPE-21: Safe apply execution gate / manual approval UI
+PR-ATLAS-PIPE-22: Verification runner manual gate / post-apply validation
 
 ## Important Constraints
 
@@ -129,8 +131,8 @@ PR-ATLAS-PIPE-21: Safe apply execution gate / manual approval UI
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-21を実装する。
-manual approval済みPlanItemに限定して、safe_apply execution gateをUI/APIに追加する。ただし一括自動実行や高リスク自動実行はしない。
+PR-ATLAS-PIPE-22を実装する。
+safe_apply済みitemに対して、手動Verification Runner / allowlisted TestCommandRunnerを実行できるpost-apply validation gateを追加する。ただし自動debug loopや自動追加修正はまだ行わない。
 - safe_apply自動実行禁止。
 - TestCommand自動実行禁止。
 - DebugLoop自動実行禁止。
@@ -162,3 +164,8 @@ manual approval済みPlanItemに限定して、safe_apply execution gateをUI/AP
 
 ## Next Instruction
 - Implement PR-ATLAS-PIPE-22 (manual post-apply verification gate).
+
+- PR-ATLAS-PIPE-21C makes manual safe_apply execution tests pass and aligns approval/executor semantics.
+- safe_apply execution remains item-level only and never batch/full-autopilot.
+- delete/run_command and medium/high/critical risk items remain blocked.
+- TestCommandRunner/DebugLoopRunner/DeepResearch are not auto-run.

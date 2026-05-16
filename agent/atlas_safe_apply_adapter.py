@@ -163,7 +163,7 @@ class AtlasSafeApplyAdapter:
 
     def is_supported_action(self, item: AtlasPlanItem) -> bool:
         action_type = self._action_type(item)
-        if item.item_type != "implementation":
+        if item.item_type not in {"implementation", "documentation"}:
             return False
         if action_type in _FORBIDDEN_ACTION_TYPES:
             return False
@@ -177,8 +177,13 @@ class AtlasSafeApplyAdapter:
         pool: AtlasPlanPool,
         request: AtlasSafeApplyRequest | None = None,
     ) -> bool:
-        if self.approval_gate is not None:
-            return self.approval_gate.is_item_approved(pool.pool_id, item.item_id)
+        metadata_decision = str(((item.metadata or {}).get("approval") or {}).get("decision") or "").strip().lower()
+        if metadata_decision == "approved":
+            return True
+        if self.approval_gate is not None and self.approval_gate.is_item_approved(pool.pool_id, item.item_id):
+            return True
+        if item.approval_id:
+            return True
         if request is not None:
             return not request.require_approval
         return False

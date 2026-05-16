@@ -224,3 +224,7 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 - PR-ATLAS-PIPE-21: completed.
 - PR-ATLAS-PIPE-21B: current (manual safe_apply UI eligibility/candidate listing/tests fixes).
 - PR-ATLAS-PIPE-22: next (post-apply verification manual gate).
+
+
+- manual safe_apply gateはPR-21〜21Cで安定化
+- post-apply verificationはPR-22
