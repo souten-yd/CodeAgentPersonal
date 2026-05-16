@@ -11,7 +11,7 @@ This PR is documentation and contract-test only. It does not change runtime beha
 - **Task = PlanItem**.
   - A Task is not a standalone product surface.
   - A Task is a small work unit inside an Atlas Plan.
-  - Future schema and storage work should model this as `AtlasPlanItem` in a Plan Pool.
+  - Future schema and storage work should model this as `AtlasPlanItem` in an `AtlasPlanPool`.
 - **Agent = Autopilot**.
   - An Agent is not a separate runner or user-facing feature.
   - The autonomous execution concept belongs to Atlas Autopilot.
