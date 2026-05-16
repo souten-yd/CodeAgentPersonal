@@ -133,3 +133,61 @@ def test_no_forbidden_tokens_in_verification_service():
     src = Path('agent/atlas_verification_gate_service.py').read_text(encoding='utf-8')
     for t in ['shell=True', 'DebugLoopRunner(', 'safe_apply(', 'DeepResearch', 'run_command(']:
         assert t not in src
+
+
+def test_verification_response_includes_recovery_orchestration_and_continuation(tmp_path):
+    _clear_verification_state()
+    c = _client(tmp_path); pool = _create_pool(c); item = pool['plan_pool']['items'][0]
+    _mutate_item(tmp_path, pool['pool_id'], item['item_id'], status='completed', metadata={'safe_apply': {'status': 'applied'}})
+
+    class _FakeResult:
+        def model_dump(self):
+            return {'status': 'passed', 'command': 'python -m py_compile app/main.py'}
+
+    class _FakeBatch:
+        results = [_FakeResult()]
+
+    class _FakeRunner:
+        def run_many(self, reqs, stop_on_failure=False):
+            return _FakeBatch()
+
+    main.app.state.atlas_test_command_runner = _FakeRunner()
+    r = c.post('/api/atlas/verification/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'run_enrichment'}).json()
+    assert isinstance(r['recovery_summary'], dict)
+    assert isinstance(r['orchestration_summary'], dict)
+    assert isinstance(r['continuation_prompt'], str)
+    assert ('next_action' in r['orchestration_summary']) or ('phase' in r['orchestration_summary'])
+
+
+def test_verification_enrichment_does_not_call_missing_builder_method():
+    src = Path('app/api/atlas_pipeline.py').read_text(encoding='utf-8')
+    assert 'AtlasOrchestrationSummaryBuilder.build(' not in src
+    assert 'build_from_pool_and_state' in src
+
+
+def test_verification_enrichment_failure_is_warning_not_pass(tmp_path, monkeypatch):
+    _clear_verification_state()
+    c = _client(tmp_path); pool = _create_pool(c); item = pool['plan_pool']['items'][0]
+    _mutate_item(tmp_path, pool['pool_id'], item['item_id'], status='completed', metadata={'safe_apply': {'status': 'applied'}})
+
+    class _FakeResult:
+        def model_dump(self):
+            return {'status': 'passed', 'command': 'python -m py_compile app/main.py'}
+
+    class _FakeBatch:
+        results = [_FakeResult()]
+
+    class _FakeRunner:
+        def run_many(self, reqs, stop_on_failure=False):
+            return _FakeBatch()
+
+    main.app.state.atlas_test_command_runner = _FakeRunner()
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError('boom')
+
+    monkeypatch.setattr('app.api.atlas_pipeline.AtlasContinuationService.build_pool_summary', _boom)
+    r = c.post('/api/atlas/verification/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'run_warning'}).json()
+    assert r['status'] == 'passed'
+    assert 'verification_enrichment_failed' in r['warnings']
+    assert any('boom' in w or 'RuntimeError' in w for w in r['warnings'])

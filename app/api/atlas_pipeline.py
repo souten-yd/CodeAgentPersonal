@@ -621,13 +621,14 @@ def run_verification(req: AtlasVerificationRequest, request: Request) -> AtlasVe
     try:
         pool = storage.load_pool(req.pool_id)
         recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
-        orchestration = AtlasOrchestrationSummaryBuilder.build(pool, None, recovery_summary=recovery).model_dump()
+        orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None, recovery=recovery).model_dump()
         continuation = AtlasContinuationService(journal).build_pool_summary(req.pool_id, req.run_id)
         result.recovery_summary = recovery
         result.orchestration_summary = orchestration
         result.continuation_prompt = continuation.continuation_prompt
-    except Exception:
-        pass
+    except Exception as exc:
+        result.warnings.append("verification_enrichment_failed")
+        result.warnings.append(str(exc) or exc.__class__.__name__)
     return result
 
 @router.get("/continuation/latest", response_model=ContinuationResponse)
