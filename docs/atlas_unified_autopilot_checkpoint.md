@@ -22,14 +22,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-2: completed
 - PR-ATLAS-PIPE-3: completed
 - PR-ATLAS-PIPE-4: completed
+- PR-ATLAS-PIPE-5: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-5
+PR-ATLAS-PIPE-6
 
 ## Next PR
 
-PR-ATLAS-PIPE-6: Approval Gate
+PR-ATLAS-PIPE-7: low-risk safe_apply
 
 ## Important Constraints
 
@@ -54,6 +55,7 @@ PR-ATLAS-PIPE-6: Approval Gate
 - PR-ATLAS-PIPE-3 adds a pure mapper from existing planner/autopilot plan payloads to AtlasPlanPool and does not add runtime/storage/API/UI behavior.
 - PR-ATLAS-PIPE-4 adds Autopilot Policy Gate schema/service only and does not add runtime/storage/API/UI behavior.
 - PR-ATLAS-PIPE-5 adds a dry_run-only Pipeline Runner and does not add safe_apply/API/UI behavior.
+- PR-ATLAS-PIPE-6 adds Approval Gate records/service only and does not add safe_apply/API/UI behavior.
 
 ## Open Questions
 
@@ -63,5 +65,5 @@ PR-ATLAS-PIPE-6: Approval Gate
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-6を実装する。
-Pool / Item / Patch のApproval Gateを明示し、approvalなしでは適用処理へ進まない状態モデルを追加する。
+PR-ATLAS-PIPE-7を実装する。
+Policy GateとApproval Gateを通過したlow-risk create/updateだけを対象にsafe_applyへ段階接続する。ただしdelete/run_commandは禁止継続。

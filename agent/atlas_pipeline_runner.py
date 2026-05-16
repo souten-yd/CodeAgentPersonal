@@ -4,6 +4,7 @@ from typing import Any
 from uuid import uuid4
 
 from agent.atlas_autopilot_policy import AtlasAutopilotPolicyGate
+from agent.atlas_approval_gate import AtlasApprovalGate
 from agent.atlas_autopilot_policy_schema import AtlasPolicyEvaluation
 from agent.atlas_pipeline_runner_schema import (
     AtlasPipelineItemResult,
@@ -21,10 +22,12 @@ class AtlasPipelineRunner:
         storage: AtlasPlanPoolStorage,
         policy_gate: AtlasAutopilotPolicyGate | None = None,
         implementation_executor: object | None = None,
+        approval_gate: AtlasApprovalGate | None = None,
     ):
         self.storage = storage
         self.policy_gate = policy_gate or AtlasAutopilotPolicyGate()
         self.implementation_executor = implementation_executor
+        self.approval_gate = approval_gate
 
     def run_dry_run(self, request: AtlasPipelineRunRequest) -> AtlasPipelineRunState:
         if not request.dry_run:
@@ -159,7 +162,19 @@ class AtlasPipelineRunner:
 
         if evaluation.decision == "require_approval":
             item.status = "approval_required"
-            updated_pool = self.storage.update_item(pool.pool_id, item.item_id, status="approval_required")
+            updates: dict[str, Any] = {"status": "approval_required"}
+            event_metadata: dict[str, Any] = {}
+            if self.approval_gate is not None:
+                approval_record = self.approval_gate.request_approval(
+                    scope="item",
+                    pool_id=pool.pool_id,
+                    item_id=item.item_id,
+                    policy_evaluation=evaluation,
+                )
+                updates["approval_id"] = approval_record.approval_id
+                result.warnings.append(f"approval_id:{approval_record.approval_id}")
+                event_metadata["approval_id"] = approval_record.approval_id
+            updated_pool = self.storage.update_item(pool.pool_id, item.item_id, **updates)
             self._copy_pool_state(pool, updated_pool)
             result.status = "approval_required"
             result.finished_at = _utc_now_iso()
@@ -169,6 +184,7 @@ class AtlasPipelineRunner:
                 "pipeline_paused",
                 item_id=item.item_id,
                 message="Item requires approval before dry-run execution.",
+                metadata=event_metadata,
             )
             self._sync_state_lists_from_pool(state, pool)
             return state

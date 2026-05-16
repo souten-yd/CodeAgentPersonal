@@ -192,8 +192,15 @@ pool、item、patchのapproval gateを明示し、Autopilotの安全境界を固
 
 ### 完了条件
 
+- `agent/atlas_approval_schema.py` が存在する。
+- `agent/atlas_approval_gate.py` が存在する。
+- pool / item / patch approval recordを作成できる。
+- approve / reject / revoke ができる。
+- snapshotで承認状態を集約できる。
+- Pipeline Runnerがrequire_approval itemでpending approvalを作成できる。
 - Approval未取得の変更が適用されない。
 - Approval stateが保存される。
+- safe_apply / API / UI は追加しない。
 - Testsがpassする。
 
 ### 変更禁止範囲
