@@ -525,6 +525,8 @@ PR-ATLAS-PIPE-14で追加したAtlas Dashboardを、visual design rescue / stati
 
 ## PR-ATLAS-PIPE-15: Add Atlas continuation handoff and operational polish
 
+Status: completed
+
 ### 目的
 
 Atlas Journal / Recovery / checkpointを活用し、新しいチャットに貼れば続きから再開できるContinuation Prompt、現在のPlanPool/Pipeline/Recovery状態、次にやるべき操作をAtlas Dashboardと`/api/atlas/*`から取得・コピーできるようにする。
@@ -557,12 +559,14 @@ Atlas Journal / Recovery / checkpointを活用し、新しいチャットに貼�
 
 ### 目的
 
-既存TaskPlanningRunner / Requirement / DeepPlannerをAtlas PlanPool作成APIへ接続し、fallback PlanPoolだけでなく実Planning結果からPlanPoolを作れるようにする。
+Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / Requirement Analyzer の結果からPlanPoolを生成できるようにする。
 
-### 主な変更
+### 範囲
 
-- 既存Planner結果からAtlasPlanPoolを生成するbridgeをAPI経由で使う。
-- Create Planはfallback PlanPoolだけでなく実Planner結果を選べるようにする。
+- API/UIの既存導線を維持する。
+- `plan_payload`がある場合は既存どおりPlanPoolを生成する。
+- `plan_payload`がない場合でも、可能なら既存PlanningRunnerを呼ぶ。
+- PlanningRunnerが失敗/未接続の場合はfallback PlanPoolへ戻す。
 - Nexusが空でもfallbackに戻れるwarning扱いを維持する。
 
 ### 完了条件
@@ -573,6 +577,10 @@ Atlas Journal / Recovery / checkpointを活用し、新しいチャットに貼�
 
 ### 変更禁止範囲
 
-- Standalone Task / Agent API追加禁止。
+- safe_apply自動実行禁止。
+- TestCommand自動実行禁止。
+- DebugLoop自動実行禁止。
+- DeepResearch/Web job起動禁止。
+- Task/Agent API追加禁止。
 - 任意コマンド実行追加禁止。
 - 既存Lumen / Echo / Nexus破壊禁止。
