@@ -101,6 +101,12 @@ Plan Poolを保存・復元できる内部storageを追加する。
 
 ### 完了条件
 
+- `agent/atlas_plan_pool_builder.py` が存在する。
+- Plan payloadからAtlasPlanPoolを生成できる。
+- Autopilot preview planからAtlasPlanPoolを生成できる。
+- implementation_stepsが空でもfallback PlanItemsを生成できる。
+- mapperはファイル保存しない。
+- mapperはruntime/API/UIを変更しない。
 - Planner結果からPlan Poolが生成される。
 - 既存planning contractが維持される。
 - Nexusが空でもwarningで継続する。
