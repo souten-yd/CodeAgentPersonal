@@ -369,3 +369,43 @@ def test_safe_apply_item_once_delegates_to_adapter(tmp_path: Path) -> None:
 
     assert result.status == "simulated"
     assert adapter.calls == [{"item_id": "item_1", "pool_id": "pool_1", "request": None, "patch_metadata": None}]
+
+
+def test_implementation_item_still_uses_dry_run_executor(tmp_path: Path) -> None:
+    executor = FakeExecutor()
+    storage = make_storage(tmp_path, make_pool([make_item("item_1")]))
+
+    state = AtlasPipelineRunner(storage=storage, implementation_executor=executor).run_dry_run(
+        AtlasPipelineRunRequest(pool_id="pool_1")
+    )
+
+    assert state.status == "completed"
+    assert executor.calls == [{"item_id": "item_1", "pool_id": "pool_1", "dry_run": True}]
+    assert state.item_results[0].dry_run_result["run_id"] == "fake_run_item_1"
+    assert state.item_results[0].context_pack_id == ""
+
+
+def test_run_dry_run_does_not_call_nexus_adapter_for_implementation_item(tmp_path: Path) -> None:
+    class FakeNexusAdapter:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def request_from_plan_item(self, item: AtlasPlanItem) -> dict:
+            self.calls.append({"method": "request_from_plan_item", "item_id": item.item_id})
+            return {}
+
+        def run_research(self, request: dict) -> dict:
+            self.calls.append({"method": "run_research"})
+            return {}
+
+    adapter = FakeNexusAdapter()
+    storage = make_storage(tmp_path, make_pool([make_item("item_1")]))
+
+    state = AtlasPipelineRunner(
+        storage=storage,
+        implementation_executor=FakeExecutor(),
+        nexus_research_adapter=adapter,
+    ).run_dry_run(AtlasPipelineRunRequest(pool_id="pool_1"))
+
+    assert state.status == "completed"
+    assert adapter.calls == []

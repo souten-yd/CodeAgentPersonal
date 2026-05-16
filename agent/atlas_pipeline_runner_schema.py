@@ -40,6 +40,8 @@ AtlasPipelineEventType = Literal[
     "item_started",
     "item_dry_run_started",
     "item_dry_run_completed",
+    "item_research_started",
+    "item_research_completed",
     "item_completed",
     "item_blocked",
     "item_failed",
@@ -71,6 +73,8 @@ class AtlasPipelineItemResult(BaseModel):
     policy_categories: list[str] = Field(default_factory=list)
     implementation_run_id: str = ""
     dry_run_result: dict = Field(default_factory=dict)
+    context_pack_id: str = ""
+    context_pack_result: dict = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     started_at: str = ""

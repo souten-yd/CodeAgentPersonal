@@ -47,6 +47,13 @@ This PR is documentation and contract-test only. It does not change runtime beha
 - Nexus未接続、空、失敗時もAtlasは停止せず、warning付きContextPackで継続する。
 - UIデザイン調査、技術仕様調査、意図理解補助、数式/スコアリング補助、ログ調査などを将来扱う。
 
+## Research Item Execution Policy
+
+- PlanPool内のresearch itemは、実装itemとは別扱いにする。
+- research itemはNexus Research Adapterを呼び、ContextPackを生成する。
+- ContextPackはPlanner / Autopilotの判断材料としてJournalに保存する。
+- Nexus未接続や失敗時もwarning付きContextPackで継続する。
+
 ## Atlas Journal / Recovery Policy
 
 - JSONを機械可読の正本とする。
