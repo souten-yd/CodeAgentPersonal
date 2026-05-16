@@ -1405,6 +1405,93 @@ class ModelManager:
             return total
         return _total(self._last_nvidia_smi_after) - _total(self._last_nvidia_smi_before)
 
+    def _probe_llama_http_readiness(self, port: int | None = None) -> dict[str, Any]:
+        port = int(port or self.llm_port)
+        signal: dict[str, Any] = {"health_ok": False, "health_status": None, "models_ok": False, "models_status": None}
+        try:
+            import requests as _req
+            res = _req.get(f"http://127.0.0.1:{port}/health", timeout=2)
+            signal["health_status"] = res.status_code
+            signal["health_ok"] = res.status_code == 200
+        except Exception as exc:
+            signal["error"] = repr(exc)
+        try:
+            import requests as _req
+            res = _req.get(f"http://127.0.0.1:{port}/v1/models", timeout=2)
+            signal["models_status"] = res.status_code
+            signal["models_ok"] = res.status_code == 200
+        except Exception as exc:
+            signal["models_error"] = repr(exc)
+        return signal
+
+    def _probe_llama_process_readiness(self) -> dict[str, Any]:
+        proc = self._process
+        if proc is None:
+            return {"alive": False, "poll": None, "pid": None}
+        try:
+            poll_value = proc.poll()
+        except Exception as exc:
+            return {"alive": False, "poll": "error", "error": repr(exc), "pid": getattr(proc, "pid", None)}
+        return {"alive": poll_value is None, "poll": poll_value, "pid": getattr(proc, "pid", None)}
+
+    def _probe_llama_cuda_runtime_preflight(self) -> dict[str, Any]:
+        signal: dict[str, Any] = {"cuInit_rc": None, "torch_cuda_available": None}
+        try:
+            import torch  # type: ignore
+            signal["torch_version"] = str(getattr(torch, "__version__", ""))
+            signal["torch_cuda_version"] = str(getattr(getattr(torch, "version", None), "cuda", "") or "")
+            signal["torch_cuda_available"] = bool(torch.cuda.is_available())
+            signal["torch_cuda_device_count"] = int(torch.cuda.device_count())
+            if signal["torch_cuda_available"]:
+                signal["torch_cuda_device_name"] = str(torch.cuda.get_device_name(0))
+        except Exception as exc:
+            signal["torch_error"] = repr(exc)
+        try:
+            import ctypes
+            import ctypes.util
+            cuda = ctypes.CDLL(ctypes.util.find_library("cuda") or "libcuda.so.1")
+            signal["cuInit_rc"] = int(cuda.cuInit(0))
+        except Exception as exc:
+            signal["cuInit_error"] = repr(exc)
+        return signal
+
+    def _record_llama_validation_path(self, parsed: dict, path: str | None, reason: str | None = None) -> None:
+        parsed["gpu_validation_path"] = path
+        parsed["llama_gpu_validation_path"] = path
+        paths = list(parsed.get("llama_gpu_validation_paths") or [])
+        if path and path not in paths:
+            paths.append(path)
+        parsed["llama_gpu_validation_paths"] = paths
+        if reason is not None:
+            parsed["llama_gpu_validation_reason"] = reason
+
+    def _maybe_mark_llama_parser_stale(self, parsed: dict, validation_path: str | None = None) -> bool:
+        legacy_missing = (
+            parsed.get("n_gpu_layers") is None
+            and parsed.get("gpu_offload_layers") is None
+            and parsed.get("cuda_buffer_mib") is None
+        )
+        appears_ready = (
+            bool(parsed.get("cuda_device_detected"))
+            and bool(parsed.get("cuda_build_detected"))
+            and bool(parsed.get("model_loaded"))
+            and bool(parsed.get("server_listening"))
+        )
+        parser_independent_path = validation_path == "parser_independent_readiness"
+        suspected = bool(legacy_missing and (appears_ready or parser_independent_path))
+        reason = None
+        if suspected:
+            reason = (
+                "llama.cpp appears ready via CUDA0/device_info + model_loaded + server_listening, "
+                "but legacy placement fields were not present; parser may be stale or llama.cpp log format changed."
+            )
+        parsed["llama_log_parser_stale_suspected"] = suspected
+        parsed["llama_log_parser_stale_reason"] = reason
+        return suspected
+
+    def _validate_runpod_linux_startup_signals(self, parsed: dict | None = None) -> tuple[bool, str, str]:
+        return self._validate_runpod_linux_gpu_startup(parsed)
+
     def _validate_runpod_linux_gpu_startup(self, parsed: dict | None = None) -> tuple[bool, str, str]:
         parsed = parsed or self._last_llama_gpu_log or {}
         parsed_ngl = parsed.get("n_gpu_layers")
@@ -1418,6 +1505,39 @@ class ModelManager:
         no_usable_gpu = bool(parsed.get("no_usable_gpu", False))
         memory_delta = self._nvidia_smi_memory_delta_mib()
 
+        readiness = dict(parsed.get("llama_readiness_signals") or {})
+        http_signal = dict(readiness.get("http_signal") or {})
+        process_signal = dict(readiness.get("process_signal") or {})
+        if not http_signal:
+            http_signal = self._probe_llama_http_readiness(self.llm_port)
+        if not process_signal:
+            process_signal = self._probe_llama_process_readiness()
+        nvidia_smi_signal = {"memory_delta_mib": memory_delta}
+        readiness.update({
+            "log_parser_signal": {
+                "n_gpu_layers": parsed_ngl,
+                "gpu_offload_layers": offload_layers,
+                "cuda_buffer_mib": cuda_buffer,
+                "cuda_device_detected": cuda_device_detected,
+                "cuda_build_detected": cuda_build_detected,
+                "model_loaded": model_loaded,
+                "server_listening": server_listening,
+            },
+            "http_signal": http_signal,
+            "process_signal": process_signal,
+            "nvidia_smi_signal": nvidia_smi_signal,
+        })
+        parsed["llama_readiness_signals"] = readiness
+
+        def _finish(ok: bool, status: str, reason: str, path: str | None = None) -> tuple[bool, str, str]:
+            self._record_llama_validation_path(parsed, path, reason)
+            if path in {"new_llama_device_info", "parser_independent_readiness"}:
+                self._maybe_mark_llama_parser_stale(parsed, path)
+            else:
+                parsed.setdefault("llama_log_parser_stale_suspected", False)
+                parsed.setdefault("llama_log_parser_stale_reason", None)
+            return ok, status, reason
+
         def _field_summary() -> str:
             return (
                 "parsed fields: "
@@ -1430,6 +1550,8 @@ class ModelManager:
                 f"cuda_buffer_mib={cuda_buffer}, "
                 f"gpu_offload_layers={offload_layers}, "
                 f"n_gpu_layers={parsed_ngl}, "
+                f"health_ok={http_signal.get('health_ok')}, "
+                f"process_alive={process_signal.get('alive')}, "
                 f"nvidia_smi_memory_delta_mib={memory_delta}"
             )
 
@@ -1440,20 +1562,51 @@ class ModelManager:
             if no_usable_gpu:
                 reasons.append("no usable GPU found")
             reasons.append(_field_summary())
-            return False, "fail", "; ".join(reasons)
+            return _finish(False, "fail", "; ".join(reasons), "explicit_cuda_failure")
 
         if isinstance(parsed_ngl, int) and parsed_ngl > 0:
-            return True, "ok", f"parsed_n_gpu_layers={parsed_ngl}"
+            return _finish(True, "ok", f"parsed_n_gpu_layers={parsed_ngl}", "legacy_ngl")
         if isinstance(offload_layers, int) and offload_layers > 0:
-            return True, "ok", f"parsed_gpu_offload_layers={offload_layers}"
+            return _finish(True, "ok", f"parsed_gpu_offload_layers={offload_layers}", "legacy_offload_layers")
         if isinstance(cuda_buffer, (int, float)) and cuda_buffer > 0:
             if memory_delta > 0:
-                return True, "ok", f"cuda_buffer_mib={cuda_buffer} and nvidia_smi_memory_delta_mib={memory_delta}"
-            return True, "ok", f"cuda_buffer_mib={cuda_buffer}"
+                return _finish(True, "ok", f"cuda_buffer_mib={cuda_buffer} and nvidia_smi_memory_delta_mib={memory_delta}", "legacy_cuda_buffer")
+            return _finish(True, "ok", f"cuda_buffer_mib={cuda_buffer}", "legacy_cuda_buffer")
         if memory_delta > 0:
-            return True, "ok", f"nvidia_smi_memory_delta_mib={memory_delta}"
+            return _finish(True, "ok", f"nvidia_smi_memory_delta_mib={memory_delta}", "nvidia_smi_memory_delta")
+
+        if process_signal and process_signal.get("alive") is False:
+            return _finish(False, "fail", f"process exited before /health; {_field_summary()}", "process_exit")
+
+        cuda_preflight_signal = dict(readiness.get("cuda_preflight_signal") or {})
+        if not cuda_preflight_signal:
+            cuda_preflight_signal = self._probe_llama_cuda_runtime_preflight()
+        readiness["cuda_preflight_signal"] = cuda_preflight_signal
+        parsed["llama_readiness_signals"] = readiness
+        cuinit_rc = cuda_preflight_signal.get("cuInit_rc")
+        if cuinit_rc is not None and cuinit_rc != 0:
+            return _finish(False, "fail", f"cuInit rc != 0 ({cuinit_rc}); {_field_summary()}", "cuda_preflight_failed")
+
         if cuda_device_detected and cuda_build_detected and model_loaded and server_listening:
-            return True, "ok", f"accepted_new_llama_device_info_format; {_field_summary()}"
+            if http_signal.get("health_ok") is False:
+                return _finish(False, "fail", f"/health unreachable after timeout; {_field_summary()}", "health_unreachable")
+            if process_signal.get("alive") is False:
+                return _finish(False, "fail", f"process exited before /health; {_field_summary()}", "process_exit")
+            return _finish(
+                True,
+                "ok",
+                "accepted_new_llama_device_info_format; CUDA0 detected; "
+                f"model_loaded={model_loaded}; server_listening={server_listening}; {_field_summary()}",
+                "new_llama_device_info",
+            )
+
+        if http_signal.get("health_ok") and process_signal.get("alive") and cuinit_rc == 0:
+            return _finish(
+                True,
+                "ok",
+                "health_ok=True; process_alive=True; cuInit_rc=0; no explicit CUDA failure; parser placement fields missing",
+                "parser_independent_readiness",
+            )
 
         reasons = []
         if not cuda_device_detected:
@@ -1464,6 +1617,12 @@ class ModelManager:
             reasons.append("model loaded line not detected")
         if not server_listening:
             reasons.append("server listening line not detected")
+        if not http_signal.get("health_ok"):
+            reasons.append("/health unreachable after timeout")
+        if process_signal.get("alive") is False:
+            reasons.append("process exited before /health")
+        if cuinit_rc is not None:
+            reasons.append(f"cuInit_rc={cuinit_rc}")
         if not (isinstance(cuda_buffer, (int, float)) and cuda_buffer > 0):
             reasons.append("CUDA buffer not detected")
         if not (isinstance(offload_layers, int) and offload_layers > 0):
@@ -1475,7 +1634,7 @@ class ModelManager:
         elif parsed_ngl is None:
             reasons.append("n_gpu_layers not detected")
         reasons.append(_field_summary())
-        return False, "fail", "; ".join(reasons)
+        return _finish(False, "fail", "; ".join(reasons), "no_gpu_readiness_signal")
 
     def _record_ngl_search_debug(self, **kwargs) -> None:
         debug = dict(getattr(self, "_last_ngl_search_debug", {}) or {})
@@ -2140,6 +2299,11 @@ class ModelManager:
                     self._last_nvidia_smi_after = self._collect_nvidia_smi_memory()
                     self._last_llama_gpu_log = self._parse_llama_gpu_startup_log()
                     self._last_llama_gpu_log["requested_ngl"] = gpu_layers
+                    self._last_llama_gpu_log["llama_readiness_signals"] = {
+                        "http_signal": {"health_ok": True, "health_status": 200},
+                        "process_signal": self._probe_llama_process_readiness(),
+                        "nvidia_smi_signal": {"memory_delta_mib": self._nvidia_smi_memory_delta_mib()},
+                    }
                     if runpod_linux:
                         ok, status, reason = self._validate_runpod_linux_gpu_startup(self._last_llama_gpu_log)
                         self._last_llama_gpu_log["gpu_validation_status"] = status
@@ -2152,6 +2316,13 @@ class ModelManager:
                         if self._last_llama_gpu_log.get("n_gpu_layers") is None:
                             msg = f"Runpod/Linux GPU validation accepted without n_gpu_layers: {reason}"
                             print(f"[ModelManager][WARN] {msg}")
+                            self._last_startup_hints = list(self._last_startup_hints or []) + [msg]
+                        if self._last_llama_gpu_log.get("llama_log_parser_stale_suspected"):
+                            msg = (
+                                "[ModelManager][WARN] llama log parser may be stale: legacy GPU placement fields were not found, "
+                                "but CUDA0/device_info + health/process readiness indicate successful GPU startup."
+                            )
+                            print(msg)
                             self._last_startup_hints = list(self._last_startup_hints or []) + [msg]
                     return "ok"
             except Exception:
@@ -2494,7 +2665,17 @@ class ModelManager:
         runtime = self._last_runtime_decision or self._runtime_probe()
         parsed = self._last_llama_gpu_log or self._parse_llama_gpu_startup_log()
         search_debug = getattr(self, "_last_ngl_search_debug", {}) or {}
-        _validation_ok, validation_status, validation_reason = self._validate_runpod_linux_gpu_startup(parsed)
+        if self._is_runpod_linux_runtime(runtime):
+            _validation_ok, validation_status, validation_reason = self._validate_runpod_linux_gpu_startup(parsed)
+        else:
+            validation_status = parsed.get("gpu_validation_status") or "not_applicable"
+            validation_reason = parsed.get("gpu_validation_reason") or "Runpod/Linux CUDA validation is not applied for this runtime"
+            parsed.setdefault("llama_log_parser_stale_suspected", False)
+            parsed.setdefault("llama_log_parser_stale_reason", None)
+            parsed.setdefault("llama_readiness_signals", {})
+            parsed.setdefault("gpu_validation_path", None)
+            parsed.setdefault("llama_gpu_validation_path", None)
+            parsed.setdefault("llama_gpu_validation_paths", [])
         validation_status = parsed.get("gpu_validation_status") or validation_status
         validation_reason = parsed.get("gpu_validation_reason") or validation_reason
         log_tail = ""
@@ -2543,6 +2724,12 @@ class ModelManager:
             "parsed_no_usable_gpu": parsed.get("no_usable_gpu"),
             "gpu_validation_status": validation_status,
             "gpu_validation_reason": validation_reason,
+            "gpu_validation_path": parsed.get("gpu_validation_path") or parsed.get("llama_gpu_validation_path"),
+            "llama_gpu_validation_path": parsed.get("llama_gpu_validation_path") or parsed.get("gpu_validation_path"),
+            "llama_gpu_validation_paths": parsed.get("llama_gpu_validation_paths") or [],
+            "llama_log_parser_stale_suspected": bool(parsed.get("llama_log_parser_stale_suspected", False)),
+            "llama_log_parser_stale_reason": parsed.get("llama_log_parser_stale_reason"),
+            "llama_readiness_signals": parsed.get("llama_readiness_signals") or {},
             "llama_startup_log_tail": log_tail,
             "nvidia_smi_memory_before": self._last_nvidia_smi_before,
             "nvidia_smi_memory_after": self._last_nvidia_smi_after,

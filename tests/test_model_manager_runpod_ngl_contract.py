@@ -563,3 +563,225 @@ def test_runpod_linux_uses_calc_gpu_layers_when_row_ngl_missing(tmp_path, monkey
 
     assert manager._start_linux(spec, "q8_0", "q8_0", "nvidia", lambda *a: None, 123, 0, runtime) is True
     assert calls == [123]
+
+
+def test_runpod_linux_sets_parser_stale_warning_when_new_format_has_no_legacy_fields(tmp_path, monkeypatch):
+    manager, spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    monkeypatch.setattr(main, "IS_RUNPOD_RUNTIME", True)
+    monkeypatch.setattr(main._sp, "Popen", lambda cmd, stdout=None, stderr=None, creationflags=0: _FakePopen(cmd, stdout, stderr, creationflags))
+    monkeypatch.setattr(
+        manager,
+        "_parse_llama_gpu_startup_log",
+        lambda: {
+            "cuda_device_detected": True,
+            "cuda_build_detected": True,
+            "model_loaded": True,
+            "server_listening": True,
+            "n_gpu_layers": None,
+            "gpu_offload_layers": None,
+            "cuda_buffer_mib": None,
+            "cuda_init_failed": False,
+            "no_usable_gpu": False,
+        },
+    )
+
+    result = manager._try_start_once(spec, gpu_layers=999, eff_ck="q8_0", eff_cv="q8_0", gpu_vendor="nvidia", emit=lambda *a: None)
+
+    assert result == "ok"
+    assert manager._last_llama_gpu_log["gpu_validation_status"] == "ok"
+    assert manager._last_llama_gpu_log["gpu_validation_path"] == "new_llama_device_info"
+    assert manager._last_llama_gpu_log["llama_log_parser_stale_suspected"] is True
+    assert any("parser may be stale" in hint for hint in manager._last_startup_hints)
+
+
+def test_runpod_linux_parser_independent_readiness_accepts_health_process_cuda_without_legacy_log(tmp_path, monkeypatch):
+    manager, spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    monkeypatch.setattr(main, "IS_RUNPOD_RUNTIME", True)
+    monkeypatch.setattr(main._sp, "Popen", lambda cmd, stdout=None, stderr=None, creationflags=0: _FakePopen(cmd, stdout, stderr, creationflags))
+    monkeypatch.setattr(
+        manager,
+        "_parse_llama_gpu_startup_log",
+        lambda: {
+            "n_gpu_layers": None,
+            "gpu_offload_layers": None,
+            "cuda_buffer_mib": None,
+            "cuda_device_detected": False,
+            "cuda_build_detected": False,
+            "model_loaded": False,
+            "server_listening": False,
+            "cuda_init_failed": False,
+            "no_usable_gpu": False,
+        },
+    )
+    monkeypatch.setattr(manager, "_probe_llama_cuda_runtime_preflight", lambda: {"cuInit_rc": 0, "torch_cuda_available": True})
+
+    result = manager._try_start_once(spec, gpu_layers=999, eff_ck="q8_0", eff_cv="q8_0", gpu_vendor="nvidia", emit=lambda *a: None)
+
+    assert result == "ok"
+    assert manager._last_llama_gpu_log["gpu_validation_path"] == "parser_independent_readiness"
+
+
+def test_runpod_linux_parser_independent_readiness_rejects_cuda_init_failed(tmp_path, monkeypatch):
+    manager, spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    monkeypatch.setattr(main, "IS_RUNPOD_RUNTIME", True)
+    monkeypatch.setattr(main._sp, "Popen", lambda cmd, stdout=None, stderr=None, creationflags=0: _FakePopen(cmd, stdout, stderr, creationflags))
+    monkeypatch.setattr(
+        manager,
+        "_parse_llama_gpu_startup_log",
+        lambda: {"cuda_init_failed": True, "no_usable_gpu": False, "n_gpu_layers": None, "gpu_offload_layers": None, "cuda_buffer_mib": None},
+    )
+    monkeypatch.setattr(manager, "_probe_llama_cuda_runtime_preflight", lambda: {"cuInit_rc": 0, "torch_cuda_available": True})
+
+    result = manager._try_start_once(spec, gpu_layers=999, eff_ck="q8_0", eff_cv="q8_0", gpu_vendor="nvidia", emit=lambda *a: None)
+
+    assert result == "fail"
+    assert manager._last_llama_gpu_log["gpu_validation_status"] == "fail"
+
+
+def test_runpod_linux_parser_independent_readiness_rejects_process_exit(tmp_path, monkeypatch):
+    class _ExitedPopen(_FakePopen):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.returncode = 1
+
+        def poll(self):
+            return 1
+
+    manager, spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    monkeypatch.setattr(main, "IS_RUNPOD_RUNTIME", True)
+    monkeypatch.setattr(main._sp, "Popen", lambda cmd, stdout=None, stderr=None, creationflags=0: _ExitedPopen(cmd, stdout, stderr, creationflags))
+    monkeypatch.setattr(manager, "_probe_llama_cuda_runtime_preflight", lambda: {"cuInit_rc": 0, "torch_cuda_available": True})
+
+    result = manager._try_start_once(spec, gpu_layers=999, eff_ck="q8_0", eff_cv="q8_0", gpu_vendor="nvidia", emit=lambda *a: None)
+
+    assert result == "fail"
+
+
+def test_cuda_debug_payload_contains_parser_stale_fields(tmp_path, monkeypatch):
+    manager, _spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    manager._process = _FakePopen(["llama"])
+    manager._last_llama_gpu_log = {
+        "cuda_device_detected": True,
+        "cuda_build_detected": True,
+        "model_loaded": True,
+        "server_listening": True,
+        "n_gpu_layers": None,
+        "gpu_offload_layers": None,
+        "cuda_buffer_mib": None,
+        "cuda_init_failed": False,
+        "no_usable_gpu": False,
+        "llama_readiness_signals": {"http_signal": {"health_ok": True}, "process_signal": {"alive": True}},
+    }
+
+    debug = manager.cuda_debug_dict()
+
+    assert debug["llama_log_parser_stale_suspected"] is True
+    assert debug["llama_log_parser_stale_reason"]
+    assert debug["gpu_validation_path"] == "new_llama_device_info"
+    assert "http_signal" in debug["llama_readiness_signals"]
+
+
+def test_windows_amd_parser_independent_readiness_does_not_require_cuda(tmp_path, monkeypatch):
+    captured = {}
+    manager, spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": False,
+        "is_linux": False,
+        "is_windows": True,
+        "intended_backend": "vulkan",
+        "gpu_vendor": "amd",
+        "os_profile": {"os_name": "nt", "is_windows": True},
+    }
+    monkeypatch.setattr(main._sp, "CREATE_NEW_PROCESS_GROUP", 0, raising=False)
+    monkeypatch.setattr(main._sp, "Popen", lambda cmd, stdout=None, stderr=None, creationflags=0: captured.setdefault("cmd", cmd) or _FakePopen(cmd, stdout, stderr, creationflags))
+    monkeypatch.setattr(manager, "_parse_llama_gpu_startup_log", lambda: {"n_gpu_layers": None, "gpu_offload_layers": None, "cuda_buffer_mib": None})
+    monkeypatch.setattr(manager, "_collect_nvidia_smi_memory", lambda: [])
+    validate = mock.Mock(side_effect=AssertionError("Runpod validation must not run for Windows AMD"))
+    monkeypatch.setattr(manager, "_validate_runpod_linux_gpu_startup", validate)
+
+    with mock.patch.object(main.os, "name", "nt"):
+        result = manager._try_start_once(spec, gpu_layers=None, eff_ck="q8_0", eff_cv="q8_0", gpu_vendor="amd", emit=lambda *a: None)
+
+    assert result == "ok"
+    validate.assert_not_called()
+    assert not any("CUDA buffer not detected" in hint or "parser may be stale" in hint for hint in manager._last_startup_hints)
+
+
+def test_windows_amd_does_not_run_cuinit_preflight(tmp_path, monkeypatch):
+    manager, spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": False,
+        "is_linux": False,
+        "is_windows": True,
+        "intended_backend": "vulkan",
+        "gpu_vendor": "amd",
+        "os_profile": {"os_name": "nt", "is_windows": True},
+    }
+    monkeypatch.setattr(main._sp, "CREATE_NEW_PROCESS_GROUP", 0, raising=False)
+    monkeypatch.setattr(main._sp, "Popen", lambda cmd, stdout=None, stderr=None, creationflags=0: _FakePopen(cmd, stdout, stderr, creationflags))
+    monkeypatch.setattr(manager, "_parse_llama_gpu_startup_log", lambda: {"n_gpu_layers": None, "gpu_offload_layers": None, "cuda_buffer_mib": None})
+    monkeypatch.setattr(manager, "_probe_llama_cuda_runtime_preflight", lambda: (_ for _ in ()).throw(RuntimeError("cuInit should not run")))
+
+    with mock.patch.object(main.os, "name", "nt"):
+        result = manager._try_start_once(spec, gpu_layers=None, eff_ck="q8_0", eff_cv="q8_0", gpu_vendor="amd", emit=lambda *a: None)
+
+    assert result == "ok"
+
+
+def test_windows_amd_keeps_ngl_omitted(tmp_path, monkeypatch):
+    captured = {}
+    manager, spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": False,
+        "is_linux": False,
+        "is_windows": True,
+        "intended_backend": "vulkan",
+        "gpu_vendor": "amd",
+        "os_profile": {"os_name": "nt", "is_windows": True},
+    }
+    monkeypatch.setattr(main._sp, "CREATE_NEW_PROCESS_GROUP", 0, raising=False)
+    monkeypatch.setattr(main._sp, "Popen", lambda cmd, stdout=None, stderr=None, creationflags=0: captured.setdefault("cmd", cmd) or _FakePopen(cmd, stdout, stderr, creationflags))
+
+    with mock.patch.object(main.os, "name", "nt"):
+        result = manager._try_start_once(spec, gpu_layers=None, eff_ck="q8_0", eff_cv="q8_0", gpu_vendor="amd", emit=lambda *a: None)
+
+    assert result == "ok"
+    assert "-ngl" not in captured["cmd"]
+    assert "--n-gpu-layers" not in captured["cmd"]
+    assert "--flash-attn" not in captured["cmd"]
+    assert "on" not in captured["cmd"]

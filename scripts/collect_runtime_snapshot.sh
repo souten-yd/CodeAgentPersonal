@@ -30,6 +30,17 @@ curl_json voice_status "$BASE_URL/voice/status"
 curl_json models_db_status "$BASE_URL/models/db/status"
 curl_json llm_ctx "$BASE_URL/llm/ctx"
 curl_json llm_props "$BASE_URL/llm/props"
+
+for llama_port in 8080 18080; do
+  if curl -fsS --max-time 5 "http://127.0.0.1:${llama_port}/health" > "$OUT/llama_health_${llama_port}.json" 2> "$OUT/llama_health_${llama_port}.err"; then
+    :
+  elif [ "$llama_port" = "8080" ]; then
+    echo "llama health unavailable on port ${llama_port}" > "$OUT/llama_health_${llama_port}.error.txt"
+  else
+    rm -f "$OUT/llama_health_${llama_port}.json"
+  fi
+done
+
 curl_json nexus_web_status "$BASE_URL/nexus/web/status"
 curl_json echo_save_status "$BASE_URL/echo/save-status"
 
@@ -47,6 +58,31 @@ curl_json echo_save_status "$BASE_URL/echo/save-status"
 nvidia-smi > "$OUT/nvidia-smi.txt" 2>&1 || true
 ls -l /dev/nvidia* > "$OUT/dev_nvidia.txt" 2>&1 || true
 
+LLAMA_STARTUP_LOG="${LLAMA_STARTUP_LOG:-/workspace/ca_data/Logs/llama_startup.log}"
+tail -n 180 "$LLAMA_STARTUP_LOG" > "$OUT/llama_startup_log_tail.txt" 2>&1 || true
+grep -nEi 'device_info|CUDA0|system_info|model loaded|server is listening|cleaning up before exit|no usable GPU found|ggml_cuda_init|n_gpu_layers|offload|buffer' "$LLAMA_STARTUP_LOG" \
+  > "$OUT/llama_startup_gpu_lines.txt" 2>&1 || true
+
+if [ -f "$OUT/cuda_debug.json" ]; then
+  python - <<'PY' "$OUT/cuda_debug.json" "$OUT/llama_parser_stale_hint.txt" 2>/dev/null || true
+import json, sys
+try:
+    data = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as exc:
+    open(sys.argv[2], "w", encoding="utf-8").write(f"cuda_debug unreadable: {exc!r}\n")
+    raise SystemExit(0)
+keys = [
+    "llama_log_parser_stale_suspected",
+    "llama_log_parser_stale_reason",
+    "gpu_validation_path",
+    "llama_readiness_signals",
+]
+with open(sys.argv[2], "w", encoding="utf-8") as f:
+    for key in keys:
+        f.write(f"{key}={data.get(key)!r}\n")
+PY
+fi
+
 if [ -x "$PYTHON_BIN" ]; then
   "$PYTHON_BIN" - <<'PY' > "$OUT/python_cuda_probe.txt" 2>&1
 import os
@@ -63,6 +99,12 @@ try:
 except Exception as e:
     print("torch error:", repr(e))
 try:
+    import ctypes, ctypes.util
+    cuda = ctypes.CDLL(ctypes.util.find_library("cuda") or "libcuda.so.1")
+    print("cuInit rc", cuda.cuInit(0))
+except Exception as e:
+    print("cuInit error:", repr(e))
+try:
     import ctranslate2
     print("ctranslate2", ctranslate2.__version__)
     print("ct2 cuda devices", ctranslate2.get_cuda_device_count())
@@ -73,6 +115,7 @@ PY
 else
   echo "Python binary not executable: $PYTHON_BIN" > "$OUT/python_cuda_probe.txt"
 fi
+cp "$OUT/python_cuda_probe.txt" "$OUT/cuinit_probe.txt" 2>/dev/null || true
 
 "$LLAMA_SERVER_BIN" --version > "$OUT/llama_version.txt" 2>&1 || true
 ldd "$LLAMA_SERVER_BIN" > "$OUT/llama_ldd.txt" 2>&1 || true

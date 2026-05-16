@@ -17,6 +17,10 @@
 Runpod/Linux explicit search start high=999
 try -ngl=999 -> OK
 final -ngl=999 parsed_n_gpu_layers=43
+Runpod/Linux GPU validation accepted without n_gpu_layers
+accepted_new_llama_device_info_format
+CUDA0 detected
+model_loaded=True server_listening=True
 [OK] LLM ready
 [LLM] Warm-up complete
 ASR CUDA success / ASR CUDA 成功
@@ -43,6 +47,72 @@ CUDA buffer not detected
 nvidia-smi memory did not increase
 ASR CUDA initialization failed; falling back to CPU/int8
 ```
+
+
+## ModelManager parser stale / llama.cpp log format drift
+
+以下なら Runpod GPU / CUDA 自体は正常で、ModelManager parser false negative（または llama.cpp のログ形式変更）を疑います。
+
+- `cuInit rc 0`
+- `torch.cuda.is_available True`
+- `/app/llama/bin/llama-server --version` で `ggml_cuda_init failed` が出ない
+- 手動 `llama-server` 起動で以下が出る
+  - `CUDA0 : ...`
+  - `system_info: ... CUDA : ARCHS ...`
+  - `model loaded`
+  - `server is listening`
+- CodeAgent auto-load では以下で失敗する
+  - `CUDA buffer not detected`
+  - `GPU offload layers not detected`
+  - `n_gpu_layers not detected`
+- `llama_startup.log` には `model loaded` / `server is listening` があるのに、その直後に `cleaning up before exit` がある
+
+以下なら ModelManager parser ではなく、Runpod ホスト / NVIDIA container runtime / GPU attach 異常を疑います。
+
+- `cuInit rc 999`
+- `torch.cuda.is_available False`
+- `llama-server --version` で `ggml_cuda_init: failed to initialize CUDA`
+- `no usable GPU found`
+
+調査コマンド:
+
+```bash
+echo "=== CUDA preflight ==="
+export NVIDIA_DRIVER_CAPABILITIES="${NVIDIA_DRIVER_CAPABILITIES:-all}"
+export NVIDIA_VISIBLE_DEVICES="${NVIDIA_VISIBLE_DEVICES:-all}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+
+nvidia-smi
+ls -l /dev/nvidia* || true
+
+/opt/venv/bin/python - <<'PY'
+import os, ctypes, ctypes.util, torch
+print("CUDA_VISIBLE_DEVICES", os.environ.get("CUDA_VISIBLE_DEVICES"))
+print("NVIDIA_VISIBLE_DEVICES", os.environ.get("NVIDIA_VISIBLE_DEVICES"))
+print("NVIDIA_DRIVER_CAPABILITIES", os.environ.get("NVIDIA_DRIVER_CAPABILITIES"))
+print("torch", torch.__version__)
+print("torch.version.cuda", torch.version.cuda)
+print("torch.cuda.is_available", torch.cuda.is_available())
+print("torch.cuda.device_count", torch.cuda.device_count())
+if torch.cuda.is_available():
+    print("torch.cuda.device_name", torch.cuda.get_device_name(0))
+cuda = ctypes.CDLL(ctypes.util.find_library("cuda") or "libcuda.so.1")
+print("cuInit rc", cuda.cuInit(0))
+PY
+
+echo "=== llama startup log ==="
+LOG=/workspace/ca_data/Logs/llama_startup.log
+tail -n 180 "$LOG" 2>/dev/null || true
+grep -nEi "CUDA0|CUDA|gpu|n_gpu|offload|buffer|model loaded|server is listening|failed|error|no usable|device_info|system_info|load_model|cleaning up" "$LOG" 2>/dev/null | tail -180 || true
+```
+
+正常判定例は旧形式の `final -ngl=999 parsed_n_gpu_layers=43` だけではありません。新しい llama.cpp ログでは以下も正常として扱います。
+
+- `Runpod/Linux GPU validation accepted without n_gpu_layers`
+- `accepted_new_llama_device_info_format`
+- `CUDA0 detected`
+- `model_loaded=True`
+- `server_listening=True`
 
 ## 最初に貼るべきコマンド
 
