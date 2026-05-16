@@ -38,14 +38,16 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-15: completed
 - PR-ATLAS-PIPE-15B: completed
 - PR-ATLAS-PIPE-16: completed
+- PR-ATLAS-PIPE-17: completed
+- PR-ATLAS-PIPE-18: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-17
+PR-ATLAS-PIPE-19
 
 ## Next PR
 
-PR-ATLAS-PIPE-18: Planner LLM function wiring / model backend connection
+PR-ATLAS-PIPE-20: Approval-aware continuation / safe apply preparation
 
 ## Important Constraints
 
@@ -97,6 +99,10 @@ PR-ATLAS-PIPE-18: Planner LLM function wiring / model backend connection
 - PR-ATLAS-PIPE-17 adds Atlas orchestration summary for consistent next_action / gate handling.
 - PR-ATLAS-PIPE-17 improves waiting_for_clarification / approval_required / stale / completed / failed state handling in API and Dashboard.
 - PR-ATLAS-PIPE-17 does not add safe_apply/TestCommand/DebugLoop/DeepResearch execution controls.
+- PR-ATLAS-PIPE-18 wires AtlasPlannerBridge llm_json_fn to an OpenAI-compatible/local model backend through AtlasLLMJsonAdapter.
+- PR-ATLAS-PIPE-18 registers app.state.atlas_llm_json_fn only when no callable is already present.
+- PR-ATLAS-PIPE-18 keeps fallback PlanPool behavior when the backend is unavailable, times out, raises, or returns invalid JSON.
+- PR-ATLAS-PIPE-18 does not add safe_apply/TestCommand/DebugLoop/DeepResearch execution controls.
 - Outcome Writer can save success/failure/debug/research/safe_apply/pipeline outcomes to AtlasJournal and optionally to a Nexus client.
 - Research item execution does not start external Web access or Deep Research jobs.
 - Research item execution does not call ImplementationExecutor, safe_apply, or TestCommandRunner.
@@ -114,8 +120,8 @@ PR-ATLAS-PIPE-18: Planner LLM function wiring / model backend connection
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-18を実装する。
-AtlasPlannerBridgeのllm_json_fnを既存モデル接続へ安全に配線し、real Plannerが実環境で使えるようにする。ただし失敗時はfallback継続。
+PR-ATLAS-PIPE-19を実装する。
+waiting_for_clarification の質問にUIから回答し、RequirementDefinitionを更新して再Planningできる clarification answer flow を追加する。ただし実装適用はまだ行わない。
 - safe_apply自動実行禁止。
 - TestCommand自動実行禁止。
 - DebugLoop自動実行禁止。
