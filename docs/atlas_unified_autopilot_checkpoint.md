@@ -35,14 +35,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-14: completed
 - PR-ATLAS-PIPE-14B: completed
 - PR-ATLAS-PIPE-14C: completed
+- PR-ATLAS-PIPE-15: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-15
+PR-ATLAS-PIPE-16
 
 ## Next PR
 
-PR-ATLAS-PIPE-16: Atlas Planner integration / real planning bridge
+PR-ATLAS-PIPE-17: Pipeline execution orchestration polish / approval-aware continuation
 
 ## Important Constraints
 
