@@ -1,11 +1,11 @@
 # Atlas Unified Autopilot Master Plan
 
 
-## Current Delivery Status (PR-ATLAS-PIPE-23B)
+## Current Delivery Status (PR-ATLAS-PIPE-24)
 
 - post-apply verification gateはPR-22〜22Cで安定化。
 - DebugLoop review gateはPR-23/23Bで安定化（分析/提案のみ、auto patchなし）。
-- Patch proposal reviewはPR-24で実装する。
+- Patch proposal reviewはPR-24で実装済み。
 - 自動修正/自動適用はまだ禁止。
 
 ## Purpose
@@ -241,3 +241,10 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 - executor未接続ではnormal safe_applyをblockedにする
 - dry_runのみsimulated可能
 - post-apply verificationはPR-22
+
+
+## Patch Proposal Policy
+
+- Patch Proposalは提案レビューのみ。
+- 実適用はまだ禁止。
+- 次はPatch Proposal approval gate。
