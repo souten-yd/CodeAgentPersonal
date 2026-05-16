@@ -294,6 +294,13 @@ def test_runpod_linux_validation_accepts_new_llama_device_info_format(tmp_path, 
             "no_usable_gpu": False,
         },
     )
+    monkeypatch.setattr(
+        manager,
+        "_probe_llama_cuda_runtime_preflight",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("CUDA preflight should not run before new llama device_info acceptance")
+        ),
+    )
 
     result = manager._try_start_once(spec, gpu_layers=999, eff_ck="q8_0", eff_cv="q8_0", gpu_vendor="nvidia", emit=lambda *a: None)
 
