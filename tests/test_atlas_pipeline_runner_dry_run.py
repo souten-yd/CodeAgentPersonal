@@ -271,3 +271,55 @@ def test_runner_has_no_runtime_api_or_safe_apply_side_effect_tokens() -> None:
         "run_command(",
     ):
         assert token not in text
+
+
+def test_run_dry_run_does_not_call_safe_apply_adapter(tmp_path: Path) -> None:
+    class FakeSafeApplyAdapter:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def apply_low_risk_item(self, **kwargs) -> dict:
+            self.calls.append(kwargs)
+            return {}
+
+    adapter = FakeSafeApplyAdapter()
+    storage = make_storage(tmp_path, make_pool([make_item("item_1")]))
+
+    state = AtlasPipelineRunner(
+        storage=storage,
+        implementation_executor=FakeExecutor(),
+        safe_apply_adapter=adapter,
+    ).run_dry_run(AtlasPipelineRunRequest(pool_id="pool_1", safe_apply=True))
+
+    assert state.status == "completed"
+    assert adapter.calls == []
+
+
+def test_safe_apply_item_once_delegates_to_adapter(tmp_path: Path) -> None:
+    from agent.atlas_safe_apply_adapter_schema import AtlasSafeApplyResult
+
+    class FakeSafeApplyAdapter:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def apply_low_risk_item(self, item, pool, request=None, patch_metadata=None) -> AtlasSafeApplyResult:
+            self.calls.append(
+                {
+                    "item_id": item.item_id,
+                    "pool_id": pool.pool_id,
+                    "request": request,
+                    "patch_metadata": patch_metadata,
+                }
+            )
+            return AtlasSafeApplyResult(pool_id=pool.pool_id, item_id=item.item_id, status="simulated", decision="allow")
+
+    item = make_item("item_1")
+    pool = make_pool([item])
+    adapter = FakeSafeApplyAdapter()
+    storage = make_storage(tmp_path, pool)
+    runner = AtlasPipelineRunner(storage=storage, safe_apply_adapter=adapter)
+
+    result = runner.safe_apply_item_once(item, pool)
+
+    assert result.status == "simulated"
+    assert adapter.calls == [{"item_id": "item_1", "pool_id": "pool_1", "request": None, "patch_metadata": None}]

@@ -23,14 +23,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-3: completed
 - PR-ATLAS-PIPE-4: completed
 - PR-ATLAS-PIPE-5: completed
+- PR-ATLAS-PIPE-6: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-6
+PR-ATLAS-PIPE-7
 
 ## Next PR
 
-PR-ATLAS-PIPE-7: low-risk safe_apply
+PR-ATLAS-PIPE-8: TestCommandRunner
 
 ## Important Constraints
 
@@ -56,6 +57,8 @@ PR-ATLAS-PIPE-7: low-risk safe_apply
 - PR-ATLAS-PIPE-4 adds Autopilot Policy Gate schema/service only and does not add runtime/storage/API/UI behavior.
 - PR-ATLAS-PIPE-5 adds a dry_run-only Pipeline Runner and does not add safe_apply/API/UI behavior.
 - PR-ATLAS-PIPE-6 adds Approval Gate records/service only and does not add safe_apply/API/UI behavior.
+- PR-ATLAS-PIPE-7 adds guarded low-risk safe_apply adapter only and does not add API/UI behavior.
+- delete/run_command remain forbidden.
 
 ## Open Questions
 
@@ -65,5 +68,5 @@ PR-ATLAS-PIPE-7: low-risk safe_apply
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-7を実装する。
-Policy GateとApproval Gateを通過したlow-risk create/updateだけを対象にsafe_applyへ段階接続する。ただしdelete/run_commandは禁止継続。
+PR-ATLAS-PIPE-8を実装する。
+allowlist式のTestCommandRunnerを追加し、verification itemやPipeline後段で安全な検証コマンドだけを実行できるようにする。
