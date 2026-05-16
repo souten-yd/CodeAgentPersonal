@@ -8,10 +8,11 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 - PR-ATLAS-PIPE-0〜21D: completed
 - PR-ATLAS-PIPE-22: completed
+- PR-ATLAS-PIPE-22B: completed
 
 ## Current PR
 
-- PR-ATLAS-PIPE-22B
+- PR-ATLAS-PIPE-22C
 
 ## Next PR
 
@@ -36,7 +37,9 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - Verification is item-level/manual and never batch/full-autopilot.
 - Failed verification does not start DebugLoop or auto-fix.
 - PR-ATLAS-PIPE-22B fixes the verification API endpoint and test isolation.
-- PR-ATLAS-PIPE-22B does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
+- PR-ATLAS-PIPE-22C fixes verification response enrichment by using build_from_pool_and_state and avoids silent pass on enrichment failure.
+- Verification responses include recovery_summary / orchestration_summary / continuation_prompt when available.
+- PR-ATLAS-PIPE-22C does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
 
 ## Next Instruction
 

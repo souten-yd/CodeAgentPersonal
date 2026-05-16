@@ -1,9 +1,9 @@
 # Atlas Unified Autopilot Master Plan
 
 
-## Current Delivery Status (PR-ATLAS-PIPE-22B)
+## Current Delivery Status (PR-ATLAS-PIPE-22C)
 
-- post-apply verification gateはPR-22/22Bで安定化。
+- post-apply verification gateはPR-22〜22Cで安定化。
 - DebugLoop review gateはPR-23で実装する（分析/提案のみ、auto patchなし）。
 
 ## Purpose
