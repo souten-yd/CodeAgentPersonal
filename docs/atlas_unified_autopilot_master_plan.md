@@ -1,5 +1,11 @@
 # Atlas Unified Autopilot Master Plan
 
+
+## Current Delivery Status (PR-ATLAS-PIPE-22B)
+
+- post-apply verification gateはPR-22/22Bで安定化。
+- DebugLoop review gateはPR-23で実装する（分析/提案のみ、auto patchなし）。
+
 ## Purpose
 
 This document fixes the long-term Atlas direction in the repository: Task and Agent must not grow as independent user-facing features. They are unified into Atlas as Planner, Autopilot, Plan Pool, and Nexus Research Pipeline capabilities.
