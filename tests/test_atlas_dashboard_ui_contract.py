@@ -220,3 +220,14 @@ def test_waiting_for_clarification_uses_warning_not_error_contract() -> None:
 def test_dashboard_supports_llm_backend_unavailable_warning_strings() -> None:
     assert "llm_backend_unavailable" in ATLAS_DASHBOARD_JS
     assert "real_planner_unavailable" in ATLAS_DASHBOARD_JS
+
+
+def test_approval_summary_handles_needs_revision_count_contract() -> None:
+    assert "needs_revision_count" in ATLAS_DASHBOARD_JS
+    assert "needs revision:" in ATLAS_DASHBOARD_JS
+
+
+def test_refresh_approvals_not_called_consecutively_contract() -> None:
+    assert "await refreshApprovals();\n      await refreshApprovals();" not in ATLAS_DASHBOARD_JS
+    assert "await refreshApprovals();\n        await refreshApprovals();" not in ATLAS_DASHBOARD_JS
+

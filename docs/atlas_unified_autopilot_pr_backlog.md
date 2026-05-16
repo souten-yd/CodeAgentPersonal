@@ -646,7 +646,7 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 - PR-ATLAS-PIPE-19 does not execute safe_apply/TestCommand/DebugLoop/DeepResearch.
 
 
-## PR-ATLAS-PIPE-20: Current / Next implementation target
+## PR-ATLAS-PIPE-20: completed
 
 ### 範囲
 
@@ -668,3 +668,16 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 - Task/Agent API追加
 
 - PR-ATLAS-PIPE-20: approval-aware API/UI/Journal preparation (record-only, no safe_apply execution).
+
+
+## PR-ATLAS-PIPE-20B: Fix Approval Gate pending count and dashboard refresh duplication
+
+- pending_count is based on unresolved approval_required PlanItems.
+- approved/rejected/needs_revision counts are surfaced for dashboard summary.
+- dashboard refreshApprovals duplicate calls are removed.
+- safe_apply/TestCommand/DebugLoop/DeepResearch execution remains disabled.
+
+## PR-ATLAS-PIPE-21: Safe apply execution gate / manual approval UI
+
+- manual approval済みPlanItemに限定してsafe_apply execution gateを追加する。
+- 一括自動実行や高リスク自動実行は追加しない。
