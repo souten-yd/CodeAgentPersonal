@@ -1384,14 +1384,24 @@ class ModelManager:
     def llm_cached_status_dict(self) -> dict[str, Any]:
         parsed = dict(getattr(self, "_last_llama_gpu_log", {}) or {})
         search_debug = dict(getattr(self, "_last_ngl_search_debug", {}) or {})
-        validation_status = getattr(self, "last_gpu_validation_status", None) or parsed.get("gpu_validation_status") or "pending"
-        validation_reason = getattr(self, "last_gpu_validation_reason", None) or parsed.get("gpu_validation_reason")
-        validation_path = getattr(self, "last_gpu_validation_path", None) or parsed.get("gpu_validation_path") or parsed.get("llama_gpu_validation_path")
+        parsed_status = parsed.get("gpu_validation_status")
         cuda_init_failed = bool(getattr(self, "last_cuda_init_failed", False) or parsed.get("cuda_init_failed", False))
         no_usable_gpu = bool(getattr(self, "last_no_usable_gpu", False) or parsed.get("no_usable_gpu", False))
+        parsed_failure = parsed_status == "fail" or cuda_init_failed or no_usable_gpu
+        validation_status = getattr(self, "last_gpu_validation_status", None) or parsed_status or "pending"
+        if parsed_failure:
+            validation_status = "fail"
+        validation_reason = getattr(self, "last_gpu_validation_reason", None) or parsed.get("gpu_validation_reason")
+        validation_path = getattr(self, "last_gpu_validation_path", None) or parsed.get("gpu_validation_path") or parsed.get("llama_gpu_validation_path")
+        last_model_load_status = getattr(self, "last_model_load_status", "idle")
+        last_model_load_error = getattr(self, "last_model_load_error", None)
+        if validation_status == "fail":
+            last_model_load_status = "error"
+            if not last_model_load_error:
+                last_model_load_error = self._validation_failure_error(parsed, validation_reason)
         return {
-            "last_model_load_status": getattr(self, "last_model_load_status", "idle"),
-            "last_model_load_error": getattr(self, "last_model_load_error", None),
+            "last_model_load_status": last_model_load_status,
+            "last_model_load_error": last_model_load_error,
             "gpu_validation_status": validation_status,
             "gpu_validation_reason": validation_reason,
             "gpu_validation_path": validation_path,

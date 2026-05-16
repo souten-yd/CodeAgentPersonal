@@ -1,3 +1,5 @@
+import sys
+
 from fastapi.testclient import TestClient
 
 from app.api.model_settings import (
@@ -310,5 +312,83 @@ def test_model_status_exposes_gpu_validation_failed(monkeypatch):
     body = response.json()
     assert body["gpu_validation_status"] == "fail"
     assert body["last_model_load_status"] == "error"
+    assert body["cuda_init_failed"] is True
+    assert body["no_usable_gpu"] is True
+
+
+def _gpu_failed_model_manager_from_parsed_log():
+    manager = main.ModelManager.__new__(main.ModelManager)
+    manager._status = "ready"
+    manager.current_key = "coder-a"
+    manager._switch_eta = 0
+    manager._last_start_cmd = "llama-server --model coder-a.gguf -ngl 99"
+    manager.last_model_load_status = "loading"
+    manager.last_model_load_error = None
+    manager.last_gpu_validation_status = "pending"
+    manager.last_gpu_validation_reason = None
+    manager.last_gpu_validation_path = None
+    manager.last_cuda_init_failed = False
+    manager.last_no_usable_gpu = False
+    manager._last_ngl_search_debug = {}
+    manager._last_llama_gpu_log = {
+        "gpu_validation_status": "fail",
+        "gpu_validation_reason": "cuda init failed; no usable GPU found",
+        "gpu_validation_path": "explicit_cuda_failure",
+        "cuda_init_failed": True,
+        "no_usable_gpu": True,
+        "llama_log_parser_stale_suspected": False,
+        "llama_readiness_signals": {"process_signal": {"alive": False}},
+    }
+    manager._sync_current_model = lambda: None
+    manager._catalog = lambda: {
+        "coder-a": {
+            "name": "Coder A",
+            "description": "Test model",
+            "vram_gb": 8,
+            "load_sec": 1,
+            "path": "/models/coder-a.gguf",
+        }
+    }
+    return manager
+
+
+def test_model_status_provider_exposes_gpu_validation_failed_from_parsed_log(monkeypatch):
+    monkeypatch.setattr(main, "_model_manager", _gpu_failed_model_manager_from_parsed_log())
+
+    response = TestClient(main.app).get("/model/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["last_model_load_status"] == "error"
+    assert body["gpu_validation_status"] == "fail"
+    assert body["last_gpu_validation_status"] == "fail"
+    assert body["cuda_init_failed"] is True
+    assert body["no_usable_gpu"] is True
+    assert body["gpu_validation_reason"] == "cuda init failed; no usable GPU found"
+    assert body["last_start_cmd"] == "llama-server --model coder-a.gguf -ngl 99"
+
+
+def test_llm_props_exposes_gpu_validation_failed_without_torch_probe(monkeypatch):
+    class RaisingCuda:
+        calls = 0
+
+        @staticmethod
+        def is_available():
+            RaisingCuda.calls += 1
+            raise AssertionError("torch.cuda.is_available must not be called by /llm/props")
+
+    class FakeTorch:
+        cuda = RaisingCuda
+
+    monkeypatch.setitem(sys.modules, "torch", FakeTorch)
+    monkeypatch.setattr(main, "_model_manager", _gpu_failed_model_manager_from_parsed_log())
+
+    response = TestClient(main.app).get("/llm/props")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert RaisingCuda.calls == 0
+    assert body["last_model_load_status"] == "error"
+    assert body["gpu_validation_status"] == "fail"
     assert body["cuda_init_failed"] is True
     assert body["no_usable_gpu"] is True
