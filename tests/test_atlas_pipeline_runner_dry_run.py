@@ -2,7 +2,9 @@ from pathlib import Path
 
 import pytest
 
+from agent.atlas_approval_gate import AtlasApprovalGate
 from agent.atlas_autopilot_policy import AtlasAutopilotPolicyGate
+from agent.atlas_autopilot_policy_schema import AtlasPolicyEvaluation
 from agent.atlas_pipeline_runner import AtlasPipelineRunner
 from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
@@ -11,6 +13,30 @@ from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER_PATH = ROOT / "agent" / "atlas_pipeline_runner.py"
+
+
+class ItemApprovalPolicyGate(AtlasAutopilotPolicyGate):
+    def evaluate_pool(self, pool: AtlasPlanPool) -> AtlasPolicyEvaluation:
+        return AtlasPolicyEvaluation(
+            evaluation_id="eval_pool_allow",
+            scope="pool",
+            decision="allow",
+            pool_id=pool.pool_id,
+            auto_execution_allowed=True,
+        )
+
+    def evaluate_item(self, item: AtlasPlanItem, pool: AtlasPlanPool) -> AtlasPolicyEvaluation:
+        return AtlasPolicyEvaluation(
+            evaluation_id=f"eval_{item.item_id}",
+            scope="item",
+            decision="require_approval",
+            item_id=item.item_id,
+            pool_id=pool.pool_id,
+            risk_level="high",
+            reasons=["high risk item requires approval"],
+            categories=["high_risk"],
+            requires_user_confirmation=True,
+        )
 
 
 class FakeExecutor:
@@ -103,6 +129,49 @@ def test_pipeline_pauses_when_pool_requires_approval(tmp_path: Path) -> None:
     assert state.metadata["approval_required_item_ids"] == ["item_1"]
     assert executor.calls == []
     assert any(event.event_type in {"policy_evaluated", "pipeline_paused"} for event in state.events)
+
+
+def test_pipeline_requests_approval_when_item_requires_approval(tmp_path: Path) -> None:
+    executor = FakeExecutor()
+    approval_gate = AtlasApprovalGate()
+    storage = make_storage(tmp_path, make_pool([make_item("item_1", risk_level="high")]))
+
+    state = AtlasPipelineRunner(
+        storage=storage,
+        policy_gate=ItemApprovalPolicyGate(),
+        implementation_executor=executor,
+        approval_gate=approval_gate,
+    ).run_dry_run(AtlasPipelineRunRequest(pool_id="pool_1"))
+    loaded = storage.load_pool("pool_1")
+    item = loaded.get_item("item_1")
+    pending_records = approval_gate.find_records(scope="item", pool_id="pool_1", item_id="item_1", status="pending")
+
+    assert state.status == "paused"
+    assert len(pending_records) == 1
+    assert item is not None
+    assert item.status == "approval_required"
+    assert item.approval_id == pending_records[0].approval_id
+    assert state.item_results[0].warnings == [f"approval_id:{pending_records[0].approval_id}"]
+    assert executor.calls == []
+
+
+def test_pipeline_without_approval_gate_still_pauses_on_require_approval(tmp_path: Path) -> None:
+    executor = FakeExecutor()
+    storage = make_storage(tmp_path, make_pool([make_item("item_1", risk_level="high")]))
+
+    state = AtlasPipelineRunner(
+        storage=storage,
+        policy_gate=ItemApprovalPolicyGate(),
+        implementation_executor=executor,
+    ).run_dry_run(AtlasPipelineRunRequest(pool_id="pool_1"))
+    loaded = storage.load_pool("pool_1")
+    item = loaded.get_item("item_1")
+
+    assert state.status == "paused"
+    assert item is not None
+    assert item.status == "approval_required"
+    assert item.approval_id == ""
+    assert executor.calls == []
 
 
 def test_pipeline_dry_runs_allowed_ready_item_with_fake_executor(tmp_path: Path) -> None:
