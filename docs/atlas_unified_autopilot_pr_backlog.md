@@ -131,6 +131,11 @@ PlanReviewer等の既存risk detectionをAutopilot Policy Gateとして再利用
 
 ### 完了条件
 
+- `agent/atlas_autopilot_policy_schema.py` が存在する。
+- `agent/atlas_autopilot_policy.py` が存在する。
+- PlanItem / PlanPool / patch metadataをpolicy評価できる。
+- high/critical risk、protected path、delete、run_command、non-allowlisted test commandを検出できる。
+- policyは判定のみで、ファイル変更・コマンド実行・storage/API/UI操作をしない。
 - Risk判定結果がPlanItem実行可否に反映される。
 - High-risk itemはapproval待ちになる。
 - Testsがpassする。

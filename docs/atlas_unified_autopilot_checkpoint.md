@@ -20,14 +20,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-0: completed
 - PR-ATLAS-PIPE-1: completed
 - PR-ATLAS-PIPE-2: completed
+- PR-ATLAS-PIPE-3: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-3
+PR-ATLAS-PIPE-4
 
 ## Next PR
 
-PR-ATLAS-PIPE-4: Autopilot Policy追加
+PR-ATLAS-PIPE-5: Pipeline Runner dry_run
 
 ## Important Constraints
 
@@ -50,6 +51,7 @@ PR-ATLAS-PIPE-4: Autopilot Policy追加
 - PR-ATLAS-PIPE-1 adds schema only and does not add runtime/storage/API/UI behavior.
 - PR-ATLAS-PIPE-2 adds PlanPool storage only and does not add runtime/API/UI behavior.
 - PR-ATLAS-PIPE-3 adds a pure mapper from existing planner/autopilot plan payloads to AtlasPlanPool and does not add runtime/storage/API/UI behavior.
+- PR-ATLAS-PIPE-4 adds Autopilot Policy Gate schema/service only and does not add runtime/storage/API/UI behavior.
 
 ## Open Questions
 
@@ -59,5 +61,5 @@ PR-ATLAS-PIPE-4: Autopilot Policy追加
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-4を実装する。
-PlanReviewer等の既存risk detectionをAutopilot Policy Gateとして使うため、AtlasAutopilotPolicy schema/serviceを追加する。
+PR-ATLAS-PIPE-5を実装する。
+PlanPoolからready PlanItemを取得し、Policy Gateを通した上でImplementationExecutor dry_runを呼ぶPipeline Runnerを追加する。
