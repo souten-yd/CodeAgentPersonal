@@ -1,0 +1,65 @@
+(function () {
+  const root = (typeof window !== 'undefined' ? window : globalThis);
+  const API_BASE = root.API || '';
+
+  async function parseResponse(response) {
+    const contentType = response.headers.get('content-type') || '';
+    const payload = contentType.includes('application/json') ? await response.json() : await response.text();
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error: true,
+        message: (payload && payload.detail) || response.statusText || 'Atlas request failed',
+        detail: payload,
+      };
+    }
+    return { ok: true, status: response.status, data: payload };
+  }
+
+  async function atlasFetch(path, options) {
+    const response = await fetch(API_BASE + path, {
+      headers: { 'Content-Type': 'application/json', ...(options && options.headers ? options.headers : {}) },
+      ...options,
+    });
+    return parseResponse(response);
+  }
+
+  function query(params) {
+    const search = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && String(value) !== '') search.set(key, String(value));
+    });
+    const text = search.toString();
+    return text ? `?${text}` : '';
+  }
+
+  const AtlasPipelineAPI = {
+    createPlanPool(payload) {
+      return atlasFetch('/api/atlas/plan-pools', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    getPlanPool(poolId) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}`);
+    },
+    getPlanPoolMarkdown(poolId, workspaceId) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/markdown${query({ workspace_id: workspaceId })}`);
+    },
+    startPipelineDryRun(payload) {
+      return atlasFetch('/api/atlas/pipeline/dry-run', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    getPipelineStatus(poolId, runId, workspaceId) {
+      return atlasFetch(`/api/atlas/pipeline/status/${encodeURIComponent(runId)}${query({ pool_id: poolId, workspace_id: workspaceId })}`);
+    },
+    getPipelineEvents(poolId, runId, workspaceId) {
+      return atlasFetch(`/api/atlas/pipeline/events/${encodeURIComponent(poolId)}/${encodeURIComponent(runId)}${query({ workspace_id: workspaceId })}`);
+    },
+    getRecoveryLatest(workspaceId) {
+      return atlasFetch(`/api/atlas/recovery/latest${query({ workspace_id: workspaceId })}`);
+    },
+    getRecoveryPool(poolId, workspaceId) {
+      return atlasFetch(`/api/atlas/recovery/pools/${encodeURIComponent(poolId)}${query({ workspace_id: workspaceId })}`);
+    },
+  };
+
+  root.AtlasPipelineAPI = AtlasPipelineAPI;
+})();
