@@ -71,10 +71,26 @@ def test_planpool_pipeline_recovery_and_details_containers_exist() -> None:
 def test_fallback_planpool_note_and_stale_recovery_warning_contract() -> None:
     block = atlas_block()
     assert 'id="atlas-fallback-planpool-note"' in block
-    assert '現在のCreate Planは内部fallback PlanPoolを生成します。実Planner連携は次段階で追加予定です。' in block
+    assert 'Plannerが利用できない場合はfallback PlanPoolを生成します。real Planner統合は段階的に有効化されます。' in block
     assert 'id="atlas-warning-card"' in block
     assert '前回のRun状態が見つかりませんでした。PlanPoolは復元できます。必要ならStart Dry-runを再実行してください。' in block
 
+
+
+def test_advanced_settings_include_planner_mode_select() -> None:
+    block = atlas_block()
+    assert 'id="atlas-planner-mode"' in block
+    assert '<option value="auto" selected>auto</option>' in block
+    assert '<option value="real_planner">real_planner</option>' in block
+    assert '<option value="fallback_only">fallback_only</option>' in block
+    assert "planner_mode: $('atlas-planner-mode')?.value || 'auto'" in ATLAS_DASHBOARD_JS
+
+
+def test_dashboard_displays_planner_fallback_and_clarification_states() -> None:
+    assert "Planner fallback used:" in ATLAS_DASHBOARD_JS
+    assert "waiting_for_clarification" in ATLAS_DASHBOARD_JS
+    assert "追加確認が必要です。Detailsを確認してください。" in ATLAS_DASHBOARD_JS
+    assert "lastPlanResponse" in ATLAS_DASHBOARD_JS
 
 def test_dashboard_handles_pipeline_state_not_found_as_stale_recovery() -> None:
     assert "pipeline_state_not_found" in ATLAS_API_JS

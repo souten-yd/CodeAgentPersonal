@@ -10,6 +10,9 @@ API_FILE = Path("app/api/atlas_pipeline.py")
 
 def _client(tmp_path):
     main.app.state.atlas_ca_data_dir = str(tmp_path)
+    main.app.state.atlas_llm_json_fn = None
+    main.app.state.atlas_memory_search_fn = None
+    main.app.state.atlas_active_skills_fn = None
     return TestClient(main.app)
 
 
@@ -245,3 +248,106 @@ def test_api_has_no_deep_research_or_web_side_effect_tokens() -> None:
         "subprocess",
     ]:
         assert forbidden not in source
+
+
+def test_create_plan_pool_auto_falls_back_when_real_planner_unavailable(tmp_path) -> None:
+    client = _client(tmp_path)
+    if hasattr(main.app.state, "atlas_llm_json_fn"):
+        main.app.state.atlas_llm_json_fn = None
+
+    response = client.post("/api/atlas/plan-pools", json={"input": "Bridge fallback", "planner_mode": "auto"})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["used_fallback"] is True
+    assert body["planner_status"] == "fallback_used"
+    assert "real_planner_unavailable" in body["warnings"]
+    assert body["plan_pool"]["metadata"]["source"] == "fallback"
+
+
+def test_create_plan_pool_fallback_only(tmp_path) -> None:
+    client = _client(tmp_path)
+    main.app.state.atlas_llm_json_fn = lambda _prompt, _schema: {"ok": True}
+
+    response = client.post("/api/atlas/plan-pools", json={"input": "Force fallback", "planner_mode": "fallback_only"})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["used_fallback"] is True
+    assert body["plan_pool"]["metadata"]["source"] == "fallback"
+    main.app.state.atlas_llm_json_fn = None
+
+
+def test_create_plan_pool_with_plan_payload_still_works(tmp_path) -> None:
+    client = _client(tmp_path)
+    payload = {
+        "implementation_steps": [
+            {"step_id": "step_payload_001", "title": "Payload step", "action_type": "update", "target_files": ["README.md"]}
+        ]
+    }
+
+    response = client.post("/api/atlas/plan-pools", json={"input": "Use payload", "plan_payload": payload})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["used_fallback"] is False
+    assert body["planner_status"] == "skipped"
+    assert body["plan_pool"]["metadata"]["source"] == "plan_payload"
+    assert body["plan_pool"]["items"][0]["title"] == "Payload step"
+
+
+def test_create_plan_pool_does_not_add_task_or_agent_routes() -> None:
+    paths = {route.path for route in main.app.routes if hasattr(route, "path")}
+    api_source = API_FILE.read_text(encoding="utf-8")
+
+    assert "/api/agent/run" not in paths
+    assert '"/api/task' not in api_source
+    assert '"/api/agent' not in api_source
+
+
+def test_create_plan_pool_does_not_execute_safe_apply_test_debug_deepresearch() -> None:
+    sources = API_FILE.read_text(encoding="utf-8") + Path("agent/atlas_planner_bridge.py").read_text(encoding="utf-8")
+
+    for forbidden in [
+        "requests.",
+        "httpx",
+        "DeepResearch",
+        "deep_research_job",
+        "safe_apply(",
+        "run_command(",
+        "subprocess",
+        "TestCommandRunner(",
+        "DebugLoopRunner(",
+    ]:
+        assert forbidden not in sources
+
+
+def test_create_plan_pool_waiting_for_clarification_shape_if_mocked(tmp_path, monkeypatch) -> None:
+    import app.api.atlas_pipeline as atlas_pipeline
+    from agent.atlas_planner_bridge_schema import AtlasPlannerBridgeResult
+
+    class WaitingBridge:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def create_plan_pool(self, _request):
+            return AtlasPlannerBridgeResult(
+                status="waiting_for_clarification",
+                questions=[{"question_id": "q1", "prompt": "Need target?"}],
+                requirement={"requirement_id": "req_wait"},
+                warnings=["needs_user_input"],
+            )
+
+    monkeypatch.setattr(atlas_pipeline, "AtlasPlannerBridge", WaitingBridge)
+    client = _client(tmp_path)
+    main.app.state.atlas_llm_json_fn = lambda _prompt, _schema: {"ok": True}
+
+    response = client.post("/api/atlas/plan-pools", json={"input": "Needs details", "planner_mode": "real_planner"})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "waiting_for_clarification"
+    assert body["pool_id"] == ""
+    assert body["plan_pool"] == {}
+    assert body["questions"] == [{"question_id": "q1", "prompt": "Need target?"}]
+    main.app.state.atlas_llm_json_fn = None
