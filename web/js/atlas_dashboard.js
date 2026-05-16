@@ -31,6 +31,10 @@
     continuationCopied: '',
     lastPlanResponse: null,
     orchestrationSummary: null,
+    clarificationSessionId: "",
+    plannerQuestions: [],
+    clarificationAnswers: {},
+    clarificationSubmitting: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -309,16 +313,57 @@
     if ($('atlas-copy-status')) $('atlas-copy-status').textContent = state.continuationCopied || '';
   }
 
+  function setClarificationAnswer(questionId, value) {
+    state.clarificationAnswers[String(questionId || '')] = value;
+  }
+
   function renderQuestionsPanel() {
     const host = $('atlas-questions-panel');
     if (!host) return;
-    const questions = questionsFromState();
+    const questions = arr(state.plannerQuestions).length ? arr(state.plannerQuestions) : questionsFromState();
     if (!questions.length) {
       host.innerHTML = '<div class="atlas-empty-state">No planner questions.</div>';
       return;
     }
-    host.innerHTML = `<div class="atlas-info-card" data-atlas-clarification-warning="true"><b>追加確認が必要です。</b><span>DetailsでPlanner questionsを確認してください。</span></div>`
-      + `<ul class="atlas-questions-list">${questions.map((q, index) => `<li><b>${esc(q.question_id || `q${index + 1}`)}</b>: ${esc(q.prompt || q.question || q.message || JSON.stringify(q))}</li>`).join('')}</ul>`;
+    const cards = questions.map((q, index) => {
+      const qid = String(q.question_id || `q${index + 1}`);
+      const text = esc(q.prompt || q.question || q.message || JSON.stringify(q));
+      return `<div class="atlas-question-card"><div><b>${esc(qid)}</b>: ${text}</div><div class="atlas-question-meta">${esc(q.reason || '')} ${esc(q.importance || '')}</div><textarea class="atlas-question-input" data-qid="${esc(qid)}" placeholder="Answer"></textarea></div>`;
+    }).join('');
+    host.innerHTML = `<div class="atlas-info-card" data-atlas-clarification-warning="true"><b>追加確認が必要です。</b><span>DetailsでPlanner questionsを確認してください。</span></div><div class="atlas-questions-list">${cards}</div><div class="atlas-clarification-actions"><button id="atlas-submit-clarification-btn" class="atlas-secondary-btn" type="button">Submit Clarification Answers</button><button id="atlas-submit-assumptions-btn" class="atlas-ghost-btn" type="button">Use assumptions / おまかせ</button></div>`;
+    host.querySelectorAll('textarea[data-qid]').forEach((el)=>el.addEventListener('input',()=>setClarificationAnswer(el.dataset.qid, el.value)));
+    host.querySelector('#atlas-submit-clarification-btn')?.addEventListener('click', ()=>submitClarificationAnswers(false));
+    host.querySelector('#atlas-submit-assumptions-btn')?.addEventListener('click', ()=>submitClarificationAnswers(true));
+  }
+
+  async function submitClarificationAnswers(useAssumptions=false) {
+    if (state.clarificationSubmitting) return;
+    const questions = arr(state.plannerQuestions).length ? arr(state.plannerQuestions) : questionsFromState();
+    const answers = questions.map((q, i) => {
+      const qid = String(q.question_id || `q${i+1}`);
+      const raw = state.clarificationAnswers[qid];
+      const has = String(raw || '').trim() !== '';
+      return { question_id: qid, answer: has ? String(raw) : '', skipped: useAssumptions && !has, metadata: { ui: 'atlas_dashboard' } };
+    }).filter((a)=>a.skipped || String(a.answer).trim() !== '');
+    state.clarificationSubmitting = true;
+    const adv = advancedPayload();
+    const res = await handleResult(await root.AtlasPipelineAPI.submitClarificationAnswers({ session_id: state.clarificationSessionId || '', original_input: state.goalInput || ($('atlas-goal-input')?.value || ''), answers, workspace_id: adv.workspace_id, planner_mode: adv.planner_mode, planning_depth: adv.planning_depth, automation_level: adv.automation_level, execution_strategy: adv.execution_strategy }), 'Submit clarification failed');
+    state.clarificationSubmitting = false;
+    if (!res) { showWarning('Clarification submit failed.', 'warning'); render(); return; }
+    if (res.status === 'waiting_for_clarification') {
+      state.clarificationSessionId = res.session?.session_id || state.clarificationSessionId;
+      state.plannerQuestions = arr(res.questions);
+      showWarning('追加確認が必要です。DetailsでPlanner questionsを確認してください。', 'warning');
+    } else {
+      const pool = res.pool || {};
+      state.currentPoolId = res.metadata?.pool_id || pool.pool_id || '';
+      state.planPool = pool;
+      state.pipelineState = null;
+      state.plannerQuestions = [];
+      state.clarificationAnswers = {};
+      showWarning(arr(res.warnings).join(', ') || null, 'info');
+    }
+    render();
   }
 
   function renderRecovery() {
@@ -393,6 +438,8 @@
         state.planPool = null;
         applyOrchestrationSummary(data.orchestration_summary);
         state.pipelineState = { status: 'waiting_for_clarification', questions: arr(data.questions), warnings: arr(data.warnings) };
+        state.clarificationSessionId = data.clarification_session_id || '';
+        state.plannerQuestions = arr(data.questions);
         state.recoveryWarning = '';
         state.events = [];
         state.markdown = '';
@@ -416,6 +463,9 @@
         showWarning(plannerMessage || null, data.orchestration_summary?.severity);
         state.checkpointPath = data.checkpoint_path || '';
         writeStorage(storageKeys.poolId, state.currentPoolId);
+        state.plannerQuestions = [];
+        state.clarificationAnswers = {};
+        state.clarificationSessionId = '';
         await loadMarkdown();
         await refreshContinuation();
       }

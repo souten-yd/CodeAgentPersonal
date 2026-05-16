@@ -1527,3 +1527,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+.atlas-questions-panel{display:grid;gap:10px}
+.atlas-question-card{border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg2);word-break:break-word}
+.atlas-question-meta{font-size:11px;color:var(--text2);margin-top:4px}
+.atlas-question-options{display:flex;flex-wrap:wrap;gap:8px}
+.atlas-question-input{width:100%;margin-top:8px}
+.atlas-clarification-actions{display:flex;flex-wrap:wrap;gap:8px}
+@media (max-width: 768px){.atlas-questions-panel{grid-template-columns:1fr}}

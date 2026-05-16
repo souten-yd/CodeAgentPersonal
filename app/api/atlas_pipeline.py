@@ -11,6 +11,8 @@ from agent.atlas_llm_json_adapter import AtlasLLMJsonAdapter
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from agent.atlas_clarification_schema import AtlasClarificationSubmitRequest, AtlasClarificationSubmitResult
+from agent.atlas_clarification_service import AtlasClarificationService
 from agent.atlas_continuation_service import AtlasContinuationService
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_orchestration_summary import AtlasOrchestrationSummaryBuilder
@@ -59,6 +61,7 @@ class CreatePlanPoolResponse(BaseModel):
     plan: dict = Field(default_factory=dict)
     review_result: dict = Field(default_factory=dict)
     orchestration_summary: dict = Field(default_factory=dict)
+    clarification_session_id: str = ""
 
 
 class PipelineDryRunRequest(BaseModel):
@@ -85,11 +88,13 @@ class PipelineDryRunResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     orchestration_summary: dict = Field(default_factory=dict)
+    clarification_session_id: str = ""
 
 
 class RecoveryResponse(BaseModel):
     recovery_summary: dict
     orchestration_summary: dict = Field(default_factory=dict)
+    clarification_session_id: str = ""
 
 
 class ContinuationResponse(BaseModel):
@@ -297,7 +302,12 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
                 "requirement": requirement,
                 "plan": plan,
                 "review_result": review_result,
+                "clarification_session_id": "",
             }
+            clarification_service = AtlasClarificationService(journal=journal)
+            session = clarification_service.create_session_from_plan_response(root_goal, response_payload, req.model_dump())
+            clarification_service.save_session(session)
+            response_payload["clarification_session_id"] = session.session_id
             response_payload["orchestration_summary"] = _model_dump(
                 AtlasOrchestrationSummaryBuilder().build_from_create_plan_response(response_payload)
             )
@@ -351,8 +361,70 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
         plan=plan,
         review_result=review_result,
         orchestration_summary=_model_dump(summary),
+        clarification_session_id="",
     )
 
+
+
+
+@router.post("/clarifications/answer")
+def submit_clarification_answers(req: AtlasClarificationSubmitRequest, request: Request) -> dict[str, Any]:
+    register_atlas_llm_json_adapter(request.app)
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    service = AtlasClarificationService(journal=journal)
+    session = service.load_session(req.session_id, req.workspace_id) if req.session_id else None
+    if session is None:
+        from agent.atlas_clarification_schema import AtlasClarificationSession
+        session = AtlasClarificationSession(
+            session_id=req.session_id or "clarification_ad_hoc",
+            workspace_id=req.workspace_id,
+            original_input=req.original_input,
+            project_path=req.project_path,
+            project_name=req.project_name,
+            planner_mode=req.planner_mode,
+            requirement_mode=req.requirement_mode,
+            planning_depth=req.planning_depth,
+            automation_level=req.automation_level,
+            execution_strategy=req.execution_strategy,
+            metadata=dict(req.metadata),
+        )
+    session.answers = list(req.answers)
+    merged_input = service.merge_answers_into_input(session.original_input, session.questions, session.answers)
+    merged_requirement = service.merge_answers_into_requirement(session.requirement, session.answers)
+    builder = AtlasPlanPoolBuilder()
+    bridge = AtlasPlannerBridge(ca_data_dir=str(ca_data_root), llm_json_fn=_resolve_atlas_llm_json_fn(request), memory_search_fn=_resolve_callable_state(request, "atlas_memory_search_fn"), active_skills_fn=_resolve_callable_state(request, "atlas_active_skills_fn"), builder=builder)
+    try:
+        result = bridge.create_plan_pool(AtlasPlannerBridgeRequest(input=merged_input, project_path=session.project_path, project_name=session.project_name, planning_depth=session.planning_depth, automation_level=session.automation_level, execution_strategy=session.execution_strategy, requirement_mode=session.requirement_mode, use_nexus=True, mode=_normalize_planner_mode(session.planner_mode), workspace_id=session.workspace_id, metadata=dict(session.metadata)))
+        if result.status == "waiting_for_clarification" and result.pool is None:
+            session.questions = list(result.questions)
+            session.requirement = dict(result.requirement)
+            session.status = "waiting_for_clarification"
+            service.save_session(session)
+            return AtlasClarificationSubmitResult(status="waiting_for_clarification", session=session, questions=list(result.questions), warnings=list(result.warnings), errors=list(result.errors), metadata={"clarification_session_id": session.session_id}).model_dump()
+        pool = result.pool
+        if pool is None:
+            raise RuntimeError("planner bridge did not return a plan pool")
+        pool.status = "ready"
+        storage.save_pool(pool)
+        journal.save_plan_pool(pool)
+        summary = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None)
+        journal.write_checkpoint(pool=pool, next_action=_checkpoint_next_action(pool.status))
+        session.status = "planned"
+        session.requirement = merged_requirement
+        service.save_session(session)
+        status = "fallback_used" if result.used_fallback else "planned"
+        return AtlasClarificationSubmitResult(status=status, session=session, pool=_model_dump(pool), warnings=list(result.warnings), errors=list(result.errors), metadata={"pool_id": pool.pool_id, "item_count": len(pool.items), "orchestration_summary": _model_dump(summary)}).model_dump()
+    except Exception as exc:
+        fallback = AtlasPlanPoolBuilder().build_fallback_plan_pool(root_goal=merged_input, project_path=session.project_path, project_name=session.project_name, planning_depth=session.planning_depth, automation_level=session.automation_level, execution_strategy=session.execution_strategy)
+        fallback.status = "ready"
+        fallback.metadata.update({"source": "fallback", "fallback_reason": str(exc)})
+        storage.save_pool(fallback)
+        journal.save_plan_pool(fallback)
+        summary = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(fallback, None)
+        journal.write_checkpoint(pool=fallback, next_action=_checkpoint_next_action(fallback.status))
+        session.status = "fallback_used"
+        service.save_session(session)
+        return AtlasClarificationSubmitResult(status="fallback_used", session=session, pool=_model_dump(fallback), warnings=["clarification_replan_failed", str(exc)], metadata={"pool_id": fallback.pool_id, "item_count": len(fallback.items), "orchestration_summary": _model_dump(summary)}).model_dump()
 
 @router.get("/plan-pools/{pool_id}")
 def get_plan_pool(pool_id: str, request: Request) -> dict[str, Any]:
@@ -429,6 +501,7 @@ def run_pipeline_dry_run(req: PipelineDryRunRequest, request: Request) -> Pipeli
         warnings=list(state.warnings),
         errors=list(state.errors),
         orchestration_summary=_model_dump(summary),
+        clarification_session_id="",
     )
 
 

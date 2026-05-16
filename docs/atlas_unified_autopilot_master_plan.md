@@ -187,7 +187,7 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 
 - PR-ATLAS-PIPE-18: AtlasPlannerBridge llm_json_fn を既存モデル/OpenAI互換 backend へ配線。backend unavailable/timeout/invalid JSON時はfallback継続。
 
-- Next PR: PR-ATLAS-PIPE-19 Planner clarification answer flow / Requirement refinement UI。
+- Next PR: PR-ATLAS-PIPE-20: Approval-aware continuation / safe apply preparation
 
 ## Planner Backend Wiring Status
 
@@ -197,3 +197,7 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
   - または既存state/envからOpenAI互換backend base_urlが解決できる。
 - backend unavailable / timeout / raise / invalid JSON時はfallback PlanPoolへ戻る。
 - 次の課題はclarification answer flow（PR-ATLAS-PIPE-19）。
+
+- PR-ATLAS-PIPE-19 adds clarification answer flow for waiting_for_clarification.
+- Clarification answers are merged into Planner input / Requirement context and can trigger re-planning.
+- PR-ATLAS-PIPE-19 does not execute safe_apply/TestCommand/DebugLoop/DeepResearch.
