@@ -160,6 +160,13 @@ Plan PoolからPlanItemを取り出し、dry_run Pipelineとして実行する�
 
 ### 完了条件
 
+- `agent/atlas_pipeline_runner_schema.py` が存在する。
+- `agent/atlas_pipeline_runner.py` が存在する。
+- PlanPoolからready itemを選択できる。
+- Policy Gateを通してblock / require_approval / allowを処理できる。
+- allow itemだけdry_runできる。
+- executor未指定時はsimulation dry_runとして完了できる。
+- safe_apply / API / UI は追加しない。
 - PlanItemがdry_runで処理される。
 - ファイル変更は適用されない。
 - Pipeline contract testがpassする。
