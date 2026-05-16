@@ -646,7 +646,7 @@
     const candidateHtml = candidateItems.map((item)=>{
       const safeApplyHtml = renderSafeApplyEligibility(item);
       const applied = String(item?.status || '').toLowerCase() === 'completed';
-      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')} <span class="atlas-badge">Approved candidate</span><div class="atlas-clarification-actions">${applied ? '<small>Already applied</small>' : safeApplyHtml}<small>Item-level manual apply only. Tests and autopilot continuation are not run.</small></div></div>`;
+      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')} <span class="atlas-badge">Approved candidate</span><div class="atlas-clarification-actions">${applied ? '<small>Already applied</small>' : safeApplyHtml}<small>Item-level manual apply only. Tests and autopilot continuation are not run. If no implementation executor is connected, Atlas will block normal apply or simulate only in dry-run mode.</small></div></div>`;
     }).join('');
     if (!pendingHtml && !candidateHtml) { listEl.innerHTML = 'No approval-required items.'; return; }
     listEl.innerHTML = `<h4>Pending approval items</h4>${pendingHtml || '<small>None</small>'}<h4>Manual safe apply candidates</h4>${candidateHtml || '<small>None</small>'}`;
@@ -683,8 +683,10 @@
     applyOrchestrationSummary(response.orchestration_summary);
     state.continuationPrompt = response.continuation_prompt || state.continuationPrompt;
     await refreshApprovals();
-    if (response.status === 'applied') showWarning('Manual safe apply completed for item: '+itemId);
-    else showWarning('Manual safe apply '+response.status+' for item: '+itemId+' ('+(response.warnings||[]).join(',')+')');
+    if (response.status === 'applied') showSuccess('Manual safe apply completed for item: '+itemId);
+    else if (response.status === 'simulated') showWarning('Simulated only. No files were applied. item: '+itemId);
+    else if (response.status === 'blocked') showWarning('Manual safe apply blocked for item: '+itemId+' ('+(response.warnings||[]).join(',')+')');
+    else showError('Manual safe apply failed for item: '+itemId+' ('+(response.warnings||[]).join(',')+')');
     render();
   }
 

@@ -228,3 +228,8 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 
 - manual safe_apply gateはPR-21〜21Cで安定化
 - post-apply verificationはPR-22
+
+
+- executor未接続ではnormal safe_applyをblockedにする
+- dry_runのみsimulated可能
+- post-apply verificationはPR-22

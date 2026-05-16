@@ -62,6 +62,9 @@ class AtlasSafeApplyExecutionService:
         warnings: list[str] = []
         if self.safe_apply_adapter is None:
             return False, ['safe_apply_adapter_unavailable']
+        dry_run = bool(request.dry_run) if request is not None else False
+        if self.safe_apply_adapter.implementation_executor is None and not dry_run:
+            return False, ['safe_apply_executor_unavailable']
         if str(((item.metadata or {}).get('approval') or {}).get('decision') or '').lower() != 'approved':
             warnings.append('approval_not_approved')
         if str(item.risk_level or '').lower() != 'low':

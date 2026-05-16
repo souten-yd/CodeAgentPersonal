@@ -34,11 +34,6 @@ from agent.atlas_safe_apply_execution_service import AtlasSafeApplyExecutionServ
 router = APIRouter(prefix="/api/atlas", tags=["atlas"])
 
 
-class _AtlasNoopImplementationExecutor:
-    def apply_plan_item_safe(self, *, item: AtlasPlanItem, pool: AtlasPlanPool) -> dict[str, Any]:
-        return {"implementation_run_id": f"safe_apply_{item.item_id}", "status": "applied", "executor": "noop"}
-
-
 class CreatePlanPoolRequest(BaseModel):
     input: str
     project_path: str = ""
@@ -687,7 +682,7 @@ def execute_safe_apply(req: AtlasSafeApplyExecutionRequest, request: Request) ->
     safe_apply_adapter = adapter_obj() if callable(adapter_obj) else adapter_obj
     if safe_apply_adapter is None:
         implementation_executor = getattr(request.app.state, 'atlas_implementation_executor', None)
-        safe_apply_adapter = AtlasSafeApplyAdapter(implementation_executor=implementation_executor or _AtlasNoopImplementationExecutor())
+        safe_apply_adapter = AtlasSafeApplyAdapter(implementation_executor=implementation_executor)
     service = AtlasSafeApplyExecutionService(journal=journal, storage=storage, safe_apply_adapter=safe_apply_adapter)
     try:
         result = service.execute_item(req)
