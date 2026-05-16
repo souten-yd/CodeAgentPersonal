@@ -265,3 +265,13 @@ def test_verification_panel_manual_contract() -> None:
     merged = HTML + ATLAS_API_JS + ATLAS_DASHBOARD_JS
     for token in forbidden:
         assert token not in merged
+
+
+def test_manual_debug_review_ui_contract() -> None:
+    assert 'id="atlas-debug-review-panel"' in HTML
+    assert 'Manual analysis only' in HTML
+    assert 'runDebugReview(payload)' in ATLAS_API_JS
+    assert 'runDebugReview(itemId)' in ATLAS_DASHBOARD_JS
+    assert '/api/atlas/debug-review/run' in ATLAS_API_JS
+    for forbidden in ("Auto fix", "Apply proposed fix", "Re-run verification automatically", "Continue autopilot", "Run command"):
+        assert forbidden not in HTML + ATLAS_DASHBOARD_JS

@@ -31,6 +31,9 @@ from agent.atlas_safe_apply_execution_schema import AtlasSafeApplyExecutionReque
 from agent.atlas_safe_apply_execution_service import AtlasSafeApplyExecutionService
 from agent.atlas_verification_gate_schema import AtlasVerificationRequest, AtlasVerificationResult
 from agent.atlas_verification_gate_service import AtlasVerificationGateService
+from agent.atlas_debug_review_schema import AtlasDebugReviewRequest, AtlasDebugReviewResult
+from agent.atlas_debug_review_service import AtlasDebugReviewService
+import agent.debug_loop_runner as atlas_debug_loop_runner_module
 
 
 router = APIRouter(prefix="/api/atlas", tags=["atlas"])
@@ -606,6 +609,16 @@ def get_pipeline_events(
 
 
 
+
+
+def _resolve_atlas_debug_loop_runner(request: Request, journal: AtlasJournal):
+    runner = getattr(request.app.state, "atlas_debug_loop_runner", None)
+    if callable(runner):
+        return runner()
+    if runner is not None:
+        return runner
+    runner_cls = getattr(atlas_debug_loop_runner_module, "DebugLoopRunner")
+    return runner_cls(journal=journal)
 @router.post("/verification/run", response_model=AtlasVerificationResult)
 def run_verification(req: AtlasVerificationRequest, request: Request) -> AtlasVerificationResult:
     if ".." in req.pool_id or ".." in req.item_id:
@@ -656,6 +669,25 @@ def get_continuation_pool(
     return ContinuationResponse(**_model_dump(summary))
 
 
+
+
+@router.post("/debug-review/run", response_model=AtlasDebugReviewResult)
+def run_debug_review(req: AtlasDebugReviewRequest, request: Request) -> AtlasDebugReviewResult:
+    if ".." in req.pool_id or ".." in req.item_id:
+        raise HTTPException(status_code=400, detail="invalid identifier")
+    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
+    runner = _resolve_atlas_debug_loop_runner(request, journal)
+    service = AtlasDebugReviewService(journal=journal, storage=storage, debug_runner=runner)
+    try:
+        result = service.review_item(req)
+    except FileNotFoundError:
+        result = AtlasDebugReviewResult(pool_id=req.pool_id, item_id=req.item_id, run_id=req.run_id, status="blocked", warnings=["pool_not_found"])
+    recovery = AtlasRecoveryService(journal).recover_pool(req.pool_id)
+    result.recovery_summary = _model_dump(recovery)
+    result.orchestration_summary = _model_dump(AtlasOrchestrationSummaryBuilder().build_from_recovery(recovery))
+    result.continuation_prompt = AtlasContinuationService(journal).build_pool_summary(req.pool_id, req.run_id).continuation_prompt + "\n\nDebug review is advisory only. No patch/safe_apply/reverification was run."
+    return result
 @router.get("/recovery/latest", response_model=RecoveryResponse)
 def get_recovery_latest(request: Request, workspace_id: str = "default") -> RecoveryResponse:
     _, _, journal = _atlas_components(request, workspace_id=workspace_id)

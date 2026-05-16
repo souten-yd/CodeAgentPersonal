@@ -82,6 +82,9 @@
     runVerification(payload) {
       return atlasFetch('/api/atlas/verification/run', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+    runDebugReview(payload) {
+      return atlasFetch('/api/atlas/debug-review/run', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     submitClarificationAnswers(payload) {
       return atlasFetch("/api/atlas/clarifications/answer", { method: "POST", body: JSON.stringify(payload || {}) });
     },
