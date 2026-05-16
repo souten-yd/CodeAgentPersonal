@@ -473,8 +473,6 @@
         state.clarificationSessionId = '';
         await loadMarkdown();
         await refreshContinuation();
-    await refreshApprovals();
-      await refreshApprovals();
         await refreshApprovals();
       }
     }
@@ -509,7 +507,6 @@
       showWarning(null);
       await refreshStatus();
       await refreshContinuation();
-    await refreshApprovals();
       await refreshApprovals();
     }
     setBusy(false);
@@ -635,7 +632,7 @@
     const listEl = $('atlas-approval-list');
     if (!summaryEl || !listEl) return;
     const summary = state.approvalSummary || {};
-    summaryEl.textContent = `pending: ${summary.pending_count || 0} / approved: ${summary.approved_count || 0} / rejected: ${summary.rejected_count || 0}`;
+    summaryEl.textContent = `pending: ${summary.pending_count || 0} / approved: ${summary.approved_count || 0} / rejected: ${summary.rejected_count || 0} / needs revision: ${summary.needs_revision_count || 0}`;
     const items = state.approvalItems || [];
     if (!items.length) { listEl.innerHTML = 'No approval-required items.'; return; }
     listEl.innerHTML = items.map((item)=>`<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')}<textarea data-approval-reason="${esc(item.item_id)}" placeholder="reason"></textarea><div class="atlas-clarification-actions"><button data-approval="approved" data-item-id="${esc(item.item_id)}" type="button">Approve</button><button data-approval="rejected" data-item-id="${esc(item.item_id)}" type="button">Reject</button><button data-approval="needs_revision" data-item-id="${esc(item.item_id)}" type="button">Needs revision</button></div></div>`).join('');

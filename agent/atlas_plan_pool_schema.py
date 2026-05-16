@@ -32,6 +32,7 @@ AtlasPlanItemStatus = Literal[
     "debugging",
     "completed",
     "blocked",
+    "needs_revision",
     "failed",
     "skipped",
     "cancelled",

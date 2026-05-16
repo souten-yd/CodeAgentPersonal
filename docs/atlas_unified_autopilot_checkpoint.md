@@ -42,10 +42,12 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-18: completed
 - PR-ATLAS-PIPE-18B: completed
 - PR-ATLAS-PIPE-19: completed
+- PR-ATLAS-PIPE-20: completed
+- PR-ATLAS-PIPE-20B: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-20
+PR-ATLAS-PIPE-20B
 
 ## Next PR
 
@@ -127,8 +129,8 @@ PR-ATLAS-PIPE-21: Safe apply execution gate / manual approval UI
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-20を実装する。
-approval_required の表示・継続・Approval Gate連携を整え、safe_apply準備へ進む。ただし自動safe_applyはまだ有効化しない。
+PR-ATLAS-PIPE-21を実装する。
+manual approval済みPlanItemに限定して、safe_apply execution gateをUI/APIに追加する。ただし一括自動実行や高リスク自動実行はしない。
 - safe_apply自動実行禁止。
 - TestCommand自動実行禁止。
 - DebugLoop自動実行禁止。
@@ -138,3 +140,8 @@ approval_required の表示・継続・Approval Gate連携を整え、safe_apply
 - 既存Lumen / Echo / Nexus破壊禁止。
 
 - PR-ATLAS-PIPE-20: approval-aware API/UI/Journal preparation (record-only, no safe_apply execution).
+- PR-ATLAS-PIPE-20 adds approval-aware API/UI/Journal preparation for approval_required PlanItems.
+- Approval decisions can be recorded for PlanItems and reflected in PlanPool metadata/status.
+- Approval records are saved to AtlasJournal and shown in Dashboard Details.
+- PR-ATLAS-PIPE-20 does not execute safe_apply/TestCommand/DebugLoop/DeepResearch.
+- PR-ATLAS-PIPE-20B fixes approval pending_count and dashboard approval refresh duplication.

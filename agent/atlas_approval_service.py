@@ -15,20 +15,61 @@ class AtlasApprovalService:
 
     def list_pool_approvals(self, pool: AtlasPlanPool) -> dict:
         records = self._load_records(pool.pool_id)
-        required_items = [
-            self._item_payload(item)
+        required_items: list[dict] = []
+        pending_count = 0
+        approved_count = 0
+        rejected_count = 0
+        needs_revision_count = 0
+
+        for item in pool.items:
+            payload = self._item_payload(item)
+            decision = str(((payload.get("metadata") or {}).get("approval") or {}).get("decision") or "").strip().lower()
+            requires_approval = (
+                item.status in {"approval_required", "paused"}
+                or bool(item.requires_user_confirmation)
+                or (item.status == "ready" and bool(item.requires_user_confirmation) and not decision)
+            )
+            if decision == "approved":
+                approved_count += 1
+            elif decision == "rejected":
+                rejected_count += 1
+            elif decision == "needs_revision":
+                needs_revision_count += 1
+
+            if not requires_approval:
+                continue
+            if decision in {"approved", "rejected", "needs_revision"}:
+                continue
+            required_items.append(payload)
+            pending_count += 1
+
+        decided_item_ids = {
+            item.item_id
             for item in pool.items
-            if item.status in {"approval_required", "paused"} or bool(item.requires_user_confirmation)
-        ]
-        approved_count = sum(1 for r in records if r.get("status") == "approved")
-        rejected_count = sum(1 for r in records if r.get("status") == "rejected")
-        pending_count = sum(1 for r in records if r.get("status") == "pending")
+            if str(((item.metadata or {}).get("approval") or {}).get("decision") or "").strip().lower()
+            in {"approved", "rejected", "needs_revision"}
+        }
+        for r in records:
+            item_id = r.get("item_id")
+            if item_id in decided_item_ids:
+                continue
+            if r.get("status") == "approved":
+                approved_count += 1
+            elif r.get("status") == "rejected":
+                if ((r.get("metadata") or {}).get("decision") == "needs_revision"):
+                    needs_revision_count += 1
+                else:
+                    rejected_count += 1
+            elif r.get("status") == "needs_revision":
+                needs_revision_count += 1
+
         return {
             "approval_required_items": required_items,
             "approval_records": records,
             "pending_count": pending_count,
             "approved_count": approved_count,
             "rejected_count": rejected_count,
+            "needs_revision_count": needs_revision_count,
             "warnings": [],
             "errors": [],
         }

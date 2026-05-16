@@ -187,7 +187,7 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 
 - PR-ATLAS-PIPE-18: AtlasPlannerBridge llm_json_fn を既存モデル/OpenAI互換 backend へ配線。backend unavailable/timeout/invalid JSON時はfallback継続。
 
-- Next PR: PR-ATLAS-PIPE-20: Approval-aware continuation / safe apply preparation
+- Next PR: PR-ATLAS-PIPE-21: Safe apply execution gate / manual approval UI
 
 ## Planner Backend Wiring Status
 
@@ -212,3 +212,10 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 - approvalを記録しても、safe_apply自動実行はまだ別PRで扱う。
 
 - PR-ATLAS-PIPE-20: approval-aware API/UI/Journal preparation (record-only, no safe_apply execution).
+
+
+## Approval Gate status update
+
+- Approval GateはPR-20で記録/可視化まで実装済み。
+- PR-20Bでpending count/表示整合を修正。
+- safe_apply実行はPR-21以降。
