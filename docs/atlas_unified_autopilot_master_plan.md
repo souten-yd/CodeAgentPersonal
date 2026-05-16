@@ -38,6 +38,16 @@ This PR is documentation and contract-test only. It does not change runtime beha
 - Existing `PlanReviewer` already detects destructive changes, large changes, dependency risk, security risk, and DB/API/UI breakage risk, so it should be reused as the Policy Gate.
 - The current main branch after restoring the KasaneCore_v3.0 baseline is the source of truth.
 
+
+## Atlas Journal / Recovery Policy
+
+- JSONを機械可読の正本とする。
+- Markdownを人間/LLM向けの共有記録とする。
+- events.ndjsonを時系列復元ログとする。
+- UIは状態の正本ではなく、Journal / Recoveryから復元した状態を表示する。
+- ブラウザリロード後もサーバ側保存状態からCurrent Item / Status / Next Actionを復元する。
+- チャットが切れてもcheckpoint.mdを貼れば続きから再開できる。
+
 ## Execution Safety Policy
 
 - Initial execution is dry_run-centered.
