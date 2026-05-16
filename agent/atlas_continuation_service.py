@@ -74,6 +74,11 @@ Current Gate:
 - debug_review_retry_recommended: {str(bool(summary.metadata.get("debug_review_retry_recommended", False))).lower()}
 - debug_review_advisory_only: {str(bool(summary.metadata.get("debug_review_advisory_only", False))).lower()}
 - debug_review_note: no patch/safe_apply/reverification was run.
+- patch_proposal_status: {summary.metadata.get("patch_proposal_status", "")}
+- patch_proposal_summary: {summary.metadata.get("patch_proposal_summary", "")}
+- patch_proposal_risk_level: {summary.metadata.get("patch_proposal_risk_level", "")}
+- patch_proposal_md_path: {summary.metadata.get("patch_proposal_md_path", "")}
+- patch_proposal_note: proposal only, no patch/safe_apply/reverification was run
 
 重要方針:
 - Task独立機能は廃止。
@@ -226,6 +231,14 @@ Current Gate:
                 "debug_review_retry_recommended": bool(debug_review.get("retry_recommended", False)),
                 "debug_review_advisory_only": True,
             })
+        patch_proposal = self._latest_patch_proposal(pool)
+        if patch_proposal:
+            summary.metadata.update({
+                "patch_proposal_status": str(patch_proposal.get("status") or ""),
+                "patch_proposal_summary": str(patch_proposal.get("summary") or ""),
+                "patch_proposal_risk_level": str(patch_proposal.get("risk_level") or ""),
+                "patch_proposal_md_path": str(patch_proposal.get("proposal_md_path") or ""),
+            })
         summary.metadata["checkpoint_excerpt"] = self.read_checkpoint_excerpt(summary.pool_id, max_chars=4000)
         summary.continuation_prompt = self.build_prompt(summary)
         return summary
@@ -242,6 +255,19 @@ Current Gate:
             reviewed_at = str(debug.get("reviewed_at") or "")
             if not latest or reviewed_at >= str(latest.get("reviewed_at") or ""):
                 latest = dict(debug)
+        return latest
+
+    def _latest_patch_proposal(self, pool) -> dict[str, Any]:
+        latest: dict[str, Any] = {}
+        if pool is None:
+            return latest
+        for item in pool.items:
+            proposal = dict((item.metadata or {}).get("patch_proposal") or {})
+            if not proposal:
+                continue
+            proposed_at = str(proposal.get("proposed_at") or "")
+            if not latest or proposed_at >= str(latest.get("proposed_at") or ""):
+                latest = dict(proposal)
         return latest
 
     @staticmethod

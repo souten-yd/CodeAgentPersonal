@@ -47,6 +47,9 @@
     debugReviewResults: {},
     debugReviewSubmitting: false,
     debugReviewCandidates: [],
+    patchProposalResults: {},
+    patchProposalSubmitting: false,
+    patchProposalCandidates: [],
   };
 
   const $ = (id) => document.getElementById(id);
@@ -318,6 +321,7 @@
     refreshVerificationCandidates();
     renderVerificationPanel();
     refreshDebugReviewCandidates();
+    refreshPatchProposalCandidates();
     if ($('atlas-checkpoint-path')) $('atlas-checkpoint-path').textContent = state.checkpointPath || 'No checkpoint yet.';
     const summary = state.continuationSummary || {};
     if ($('atlas-continuation-summary')) {
@@ -680,6 +684,49 @@
     }).join('');
     el.querySelectorAll('button[data-debug-review-item]').forEach((btn)=>btn.addEventListener('click',()=>runDebugReview(btn.getAttribute('data-debug-review-item')||'')));
   }
+  function refreshPatchProposalCandidates() {
+    state.patchProposalCandidates = getItems().filter((item) => {
+      const review = item?.metadata?.debug_review || {};
+      return String(review.status || '').toLowerCase() === 'analyzed' && String(review.proposed_fix || '').trim() !== '';
+    });
+    renderPatchProposalPanel();
+  }
+
+  async function generatePatchProposal(itemId) {
+    if (!itemId || state.patchProposalSubmitting || !state.currentPoolId || !root.AtlasPipelineAPI?.generatePatchProposal) return;
+    state.patchProposalSubmitting = true;
+    renderPatchProposalPanel();
+    const payload = { pool_id: state.currentPoolId, item_id: itemId, run_id: state.currentRunId || '', workspace_id: workspaceId(), source_type: 'debug_review' };
+    const result = await root.AtlasPipelineAPI.generatePatchProposal(payload);
+    state.patchProposalSubmitting = false;
+    if (result.ok) {
+      state.patchProposalResults[itemId] = result.data || {};
+      applyOrchestrationSummary(result.data?.orchestration_summary);
+      state.continuationPrompt = result.data?.continuation_prompt || state.continuationPrompt;
+      await refreshPlanPool();
+    } else {
+      showWarning(result.message || 'Patch proposal generation failed');
+    }
+    renderPatchProposalPanel();
+  }
+
+  function renderPatchProposalPanel() {
+    const el = $('atlas-patch-proposal-list');
+    if (!el) return;
+    const rows = state.patchProposalCandidates || [];
+    if (!rows.length) { el.innerHTML = '<div class="atlas-muted">No DebugReview analyzed items with proposed fix.</div>'; return; }
+    el.innerHTML = rows.map((item) => {
+      const existing = item?.metadata?.patch_proposal || {};
+      const result = state.patchProposalResults[item.item_id] || {};
+      const proposal = result.proposal || {};
+      const summary = proposal.summary || existing.summary || '';
+      const risk = proposal.risk_level || existing.risk_level || item.risk_level || '';
+      const targetFiles = arr(proposal.target_files || existing.target_files || item.target_files).join(', ');
+      const mdPath = result.proposal_md_path || existing.proposal_md_path || '';
+      return `<div class="atlas-approval-item"><div><strong>${esc(item.item_id)}</strong> ${esc(item.title||'')}</div><div>Proposed fix: ${esc(item?.metadata?.debug_review?.proposed_fix||'')}<br>Proposal summary: ${esc(summary)}<br>Target files: ${esc(targetFiles)}<br>Risk: ${esc(risk)}<br>Proposal MD: ${esc(mdPath)}</div><button class="atlas-secondary-btn" data-patch-proposal-item="${esc(item.item_id)}" ${state.patchProposalSubmitting?'disabled':''}>Generate Patch Proposal</button></div>`;
+    }).join('');
+    el.querySelectorAll('button[data-patch-proposal-item]').forEach((btn)=>btn.addEventListener('click',()=>generatePatchProposal(btn.getAttribute('data-patch-proposal-item')||'')));
+  }
   function renderVerificationPanel() {
     const host = $('atlas-verification-list');
     if (!host) return;
@@ -880,6 +927,7 @@
     copyContinuationPrompt,
     copyAtlasIds,
     runVerification,
+    generatePatchProposal,
     refreshVerificationCandidates,
     renderVerificationPanel,
     render,

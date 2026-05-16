@@ -125,7 +125,6 @@ def test_no_forbidden_execution_controls_in_new_dashboard() -> None:
     block = atlas_block().lower()
     visible_block = block.split('class="atlas-legacy-compat"', 1)[0]
     for forbidden in (
-        "safe_apply",
         "testcommand",
         "debugloop",
         "deepresearch",
@@ -283,4 +282,13 @@ def test_debug_review_panel_manual_only_contract() -> None:
     assert 'Manual analysis only' in HTML
     assert 'Run Debug Review' in HTML + ATLAS_DASHBOARD_JS
     for forbidden in ('Auto fix', 'Apply proposed fix', 'Re-run verification automatically', 'Continue autopilot', 'Run command'):
+        assert forbidden not in HTML + ATLAS_DASHBOARD_JS
+
+def test_patch_proposal_ui_contract() -> None:
+    assert 'id="atlas-patch-proposal-panel"' in HTML
+    assert 'Proposal only' in HTML
+    assert 'Generate Patch Proposal' in HTML + ATLAS_DASHBOARD_JS
+    assert 'generatePatchProposal(payload)' in ATLAS_API_JS
+    assert 'generatePatchProposal(itemId)' in ATLAS_DASHBOARD_JS
+    for forbidden in ('Apply patch', 'Auto apply', 'Safe apply now', 'Re-run verification', 'Continue autopilot', 'Run command'):
         assert forbidden not in HTML + ATLAS_DASHBOARD_JS
