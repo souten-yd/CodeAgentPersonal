@@ -1,0 +1,426 @@
+from __future__ import annotations
+
+from typing import Any
+from uuid import uuid4
+
+from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
+
+
+VALID_ITEM_TYPES = {"research", "planning", "implementation", "verification", "documentation", "nexus_save"}
+VALID_PRIORITIES = {"low", "medium", "high"}
+VALID_RISK_LEVELS = {"low", "medium", "high", "critical"}
+VALID_PLANNING_DEPTHS = {"quick", "standard", "deep_nexus"}
+VALID_AUTOMATION_LEVELS = {"plan_only", "plan_then_ask", "auto_after_approval", "full_autopilot"}
+VALID_EXECUTION_STRATEGIES = {"sequential", "pause_after_each_item", "manual_gated"}
+RUN_ACTION_TYPE = "run" + "_command"
+
+
+def _new_pool_id() -> str:
+    return f"pool_{uuid4().hex[:12]}"
+
+
+def _generated_item_id(index: int) -> str:
+    return f"item_{index:03d}"
+
+
+def object_to_dict(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return dict(value)
+    if hasattr(value, "model_dump"):
+        payload = value.model_dump()
+        return payload if isinstance(payload, dict) else {}
+    if hasattr(value, "dict"):
+        payload = value.dict()
+        return payload if isinstance(payload, dict) else {}
+    return {}
+
+
+def coerce_list(value: Any) -> list[str]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, list | tuple | set):
+        result: list[str] = []
+        for item in value:
+            if item is None or item == "":
+                continue
+            if isinstance(item, dict):
+                result.append(str(item.get("title") or item.get("description") or item.get("name") or item))
+            else:
+                result.append(str(item))
+        return result
+    return [str(value)]
+
+
+def normalize_risk_level(value: Any) -> str:
+    candidate = str(value or "").strip().lower()
+    return candidate if candidate in VALID_RISK_LEVELS else "medium"
+
+
+def normalize_priority(value: Any) -> str:
+    candidate = str(value or "").strip().lower()
+    return candidate if candidate in VALID_PRIORITIES else "medium"
+
+
+def _normalize_choice(value: Any, valid_values: set[str], default: str) -> str:
+    candidate = str(value or "").strip().lower()
+    return candidate if candidate in valid_values else default
+
+
+def is_test_command_action(action_type: Any, title: Any, description: Any) -> bool:
+    action = str(action_type or "").strip().lower()
+    searchable = f"{title or ''} {description or ''}".lower()
+    return action == "test" or (
+        action == RUN_ACTION_TYPE
+        and any(keyword in searchable for keyword in ("test", "pytest", "verify", "verification", "check"))
+    )
+
+
+def infer_item_type(action_type: Any, title: Any, description: Any) -> str:
+    action = str(action_type or "").strip().lower()
+    searchable = f"{title or ''} {description or ''}".lower()
+    if action == "inspect":
+        return "research"
+    if is_test_command_action(action, title, description):
+        return "verification"
+    if action in {"research", "planning", "documentation", "nexus_save", "verification"}:
+        return action
+    if any(keyword in searchable for keyword in ("research", "investigate", "inspect")):
+        return "research"
+    if any(keyword in searchable for keyword in ("plan", "design")):
+        return "planning"
+    if any(keyword in searchable for keyword in ("test", "verify", "validation")):
+        return "verification"
+    return "implementation"
+
+
+def _compact_payload_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    summary_keys = (
+        "step_id",
+        "task_id",
+        "title",
+        "name",
+        "action_type",
+        "task_type",
+        "risk_level",
+        "priority",
+        "status",
+    )
+    return {key: payload[key] for key in summary_keys if key in payload}
+
+
+def _pool_metadata_from_plan_payload(plan_payload: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    for source_key, metadata_key in (
+        ("status", "plan_status"),
+        ("task_type", "task_type"),
+        ("mode", "mode"),
+        ("nexus_context_summary", "nexus_context_summary"),
+        ("selected_architecture", "selected_architecture"),
+        ("destructive_change_detected", "destructive_change_detected"),
+        ("requires_user_confirmation", "requires_user_confirmation"),
+    ):
+        if source_key in plan_payload:
+            metadata[metadata_key] = plan_payload[source_key]
+    if "review_result" in plan_payload:
+        review = plan_payload["review_result"]
+        metadata["review_result_summary"] = _compact_review_summary(review)
+    return metadata
+
+
+def _compact_review_summary(review: Any) -> Any:
+    if isinstance(review, str):
+        return review
+    review_payload = object_to_dict(review)
+    if not review_payload:
+        return review
+    return {
+        key: review_payload[key]
+        for key in ("status", "summary", "risk_level", "requires_user_confirmation", "destructive_change_detected")
+        if key in review_payload
+    }
+
+
+class AtlasPlanPoolBuilder:
+    def build_from_plan_payload(
+        self,
+        plan_payload: dict,
+        root_goal: str = "",
+        project_path: str = "",
+        project_name: str = "",
+        planning_depth: str = "standard",
+        automation_level: str = "plan_then_ask",
+        execution_strategy: str = "sequential",
+        pool_id: str = "",
+    ) -> AtlasPlanPool:
+        payload = object_to_dict(plan_payload)
+        effective_root_goal = root_goal or str(payload.get("root_goal") or payload.get("goal") or payload.get("title") or "")
+        pool_warnings = coerce_list(payload.get("warnings"))
+        pool_errors = coerce_list(payload.get("errors"))
+        steps = payload.get("implementation_steps")
+        if not isinstance(steps, list) or not steps:
+            steps = payload.get("steps")
+        if not isinstance(steps, list) or not steps:
+            pool = self.build_fallback_pool(
+                root_goal=effective_root_goal,
+                project_path=project_path,
+                project_name=project_name,
+                planning_depth=planning_depth,
+                automation_level=automation_level,
+                execution_strategy=execution_strategy,
+                pool_id=pool_id,
+                warnings=pool_warnings,
+            )
+            pool.linked_requirement_id = str(payload.get("requirement_id") or "")
+            pool.linked_plan_id = str(payload.get("plan_id") or "")
+            pool.errors = pool_errors
+            pool.metadata.update(_pool_metadata_from_plan_payload(payload))
+            return pool
+
+        effective_pool_id = pool_id or str(payload.get("pool_id") or "") or _new_pool_id()
+        linked_requirement_id = str(payload.get("requirement_id") or "")
+        linked_plan_id = str(payload.get("plan_id") or "")
+        pool_requires_confirmation = bool(payload.get("requires_user_confirmation")) or bool(
+            payload.get("destructive_change_detected")
+        )
+
+        items: list[AtlasPlanItem] = []
+        previous_item_id = ""
+        for index, raw_step in enumerate(steps, start=1):
+            step = object_to_dict(raw_step)
+            item_id = str(step.get("step_id") or step.get("item_id") or _generated_item_id(index))
+            title = str(step.get("title") or step.get("name") or f"Implementation step {index}")
+            description = str(step.get("description") or "")
+            goal = str(step.get("goal") or description or title or effective_root_goal)
+            action_type = step.get("action_type") or step.get("type")
+            risk_level = normalize_risk_level(step.get("risk_level"))
+            requires_confirmation = pool_requires_confirmation or risk_level in {"high", "critical"}
+            if "depends_on" in step:
+                depends_on = coerce_list(step.get("depends_on"))
+            else:
+                depends_on = [previous_item_id] if previous_item_id and execution_strategy == "sequential" else []
+            status = "ready" if not depends_on else "queued"
+            test_commands = coerce_list(step.get("test_commands"))
+            if is_test_command_action(action_type, title, description) and step.get("command"):
+                test_commands.append(str(step["command"]))
+
+            item = AtlasPlanItem(
+                item_id=item_id,
+                pool_id=effective_pool_id,
+                title=title,
+                goal=goal,
+                parent_plan_id=linked_plan_id,
+                description=description,
+                item_type=infer_item_type(action_type, title, description),
+                status=status,
+                priority=normalize_priority(step.get("priority")),
+                risk_level=risk_level,
+                depends_on=depends_on,
+                target_files=coerce_list(step.get("target_files")),
+                expected_changes=coerce_list(step.get("expected_changes") or step.get("changes")),
+                test_commands=test_commands,
+                done_definition=coerce_list(
+                    step.get("done_definition") or step.get("verification") or payload.get("done_definition")
+                ),
+                rollback_plan=coerce_list(step.get("rollback") or payload.get("rollback_plan")),
+                requires_user_confirmation=requires_confirmation,
+                auto_execution_allowed=risk_level == "low" and not requires_confirmation,
+                linked_requirement_id=linked_requirement_id,
+                linked_plan_id=linked_plan_id,
+                metadata={
+                    "action_type": action_type or "",
+                    "original_step_index": index - 1,
+                    "original_step_payload": _compact_payload_summary(step),
+                },
+            )
+            items.append(item)
+            previous_item_id = item_id
+
+        return AtlasPlanPool(
+            pool_id=effective_pool_id,
+            root_goal=effective_root_goal,
+            project_path=project_path,
+            project_name=project_name,
+            planning_depth=_normalize_choice(planning_depth, VALID_PLANNING_DEPTHS, "standard"),
+            automation_level=_normalize_choice(automation_level, VALID_AUTOMATION_LEVELS, "plan_then_ask"),
+            execution_strategy=_normalize_choice(execution_strategy, VALID_EXECUTION_STRATEGIES, "sequential"),
+            items=items,
+            linked_requirement_id=linked_requirement_id,
+            linked_plan_id=linked_plan_id,
+            warnings=pool_warnings,
+            errors=pool_errors,
+            metadata=_pool_metadata_from_plan_payload(payload),
+        )
+
+    def build_from_autopilot_plan(
+        self,
+        autopilot_plan: object | dict,
+        root_goal: str = "",
+        project_path: str = "",
+        project_name: str = "",
+        pool_id: str = "",
+    ) -> AtlasPlanPool:
+        payload = object_to_dict(autopilot_plan)
+        tasks = payload.get("tasks")
+        if not isinstance(tasks, list) or not tasks:
+            return self.build_fallback_pool(
+                root_goal=root_goal or str(payload.get("user_goal") or payload.get("interpreted_goal") or ""),
+                project_path=project_path or str(payload.get("project_path") or ""),
+                project_name=project_name or str(payload.get("project_name") or ""),
+                pool_id=pool_id,
+            )
+
+        ordered_tasks = self._order_autopilot_tasks(tasks, coerce_list(payload.get("execution_order")))
+        effective_pool_id = pool_id or str(payload.get("pool_id") or "") or _new_pool_id()
+        effective_root_goal = root_goal or str(payload.get("interpreted_goal") or payload.get("user_goal") or "")
+        linked_autopilot_id = str(payload.get("autopilot_id") or "")
+        items: list[AtlasPlanItem] = []
+
+        for index, raw_task in enumerate(ordered_tasks, start=1):
+            task = object_to_dict(raw_task)
+            item_id = str(task.get("task_id") or task.get("item_id") or _generated_item_id(index))
+            title = str(task.get("title") or f"Autopilot task {index}")
+            description = str(task.get("description") or "")
+            risk_level = normalize_risk_level(task.get("risk_level"))
+            task_type = str(task.get("task_type") or "").strip().lower()
+            item_type = task_type if task_type in VALID_ITEM_TYPES else infer_item_type(task_type, title, description)
+            status = self._map_autopilot_status(task.get("status"))
+            linked_requirement_id = str(task.get("linked_requirement_id") or payload.get("linked_requirement_id") or "")
+            linked_plan_id = str(task.get("linked_plan_id") or payload.get("linked_plan_id") or "")
+            item = AtlasPlanItem(
+                item_id=item_id,
+                pool_id=effective_pool_id,
+                title=title,
+                goal=str(task.get("goal") or description or title),
+                parent_plan_id=linked_plan_id,
+                description=description,
+                item_type=item_type,
+                status=status,
+                priority=normalize_priority(task.get("priority")),
+                risk_level=risk_level,
+                depends_on=coerce_list(task.get("depends_on")),
+                target_files=coerce_list(task.get("target_files")),
+                done_definition=coerce_list(task.get("acceptance_criteria") or payload.get("done_definition")),
+                requires_user_confirmation=risk_level in {"high", "critical"},
+                auto_execution_allowed=risk_level == "low",
+                linked_requirement_id=linked_requirement_id,
+                linked_plan_id=linked_plan_id,
+                linked_run_id=str(task.get("linked_run_id") or payload.get("linked_run_id") or ""),
+                metadata={
+                    "task_type": task.get("task_type") or "",
+                    "target_areas": coerce_list(task.get("target_areas")),
+                    "original_task_index": index - 1,
+                    "original_task_payload": _compact_payload_summary(task),
+                },
+            )
+            items.append(item)
+
+        return AtlasPlanPool(
+            pool_id=effective_pool_id,
+            root_goal=effective_root_goal,
+            project_path=project_path or str(payload.get("project_path") or ""),
+            project_name=project_name or str(payload.get("project_name") or ""),
+            items=items,
+            linked_autopilot_id=linked_autopilot_id,
+            warnings=coerce_list(payload.get("warnings")),
+            errors=coerce_list(payload.get("errors")),
+            metadata={
+                "autopilot_id": linked_autopilot_id,
+                "preview_only": payload.get("preview_only", True),
+                "assumptions": coerce_list(payload.get("assumptions")),
+                "risks": coerce_list(payload.get("risks")),
+                "safety_constraints": coerce_list(payload.get("safety_constraints")),
+                "selected_architecture_summary": payload.get("selected_architecture_summary") or "",
+                "task_decomposition_strategy": payload.get("task_decomposition_strategy") or "",
+                "execution_order": coerce_list(payload.get("execution_order")),
+            },
+        )
+
+    def build_fallback_pool(
+        self,
+        root_goal: str,
+        project_path: str = "",
+        project_name: str = "",
+        planning_depth: str = "standard",
+        automation_level: str = "plan_then_ask",
+        execution_strategy: str = "sequential",
+        pool_id: str = "",
+        warnings: list[str] | None = None,
+    ) -> AtlasPlanPool:
+        effective_pool_id = pool_id or _new_pool_id()
+        pool_warnings = list(warnings or [])
+        if "fallback_plan_items_generated" not in pool_warnings:
+            pool_warnings.append("fallback_plan_items_generated")
+        fallback_specs = [
+            (
+                "item_001",
+                "research",
+                "Review current project context",
+                "Collect repository and Nexus context before implementation",
+                [],
+                "ready",
+            ),
+            (
+                "item_002",
+                "planning",
+                "Prepare implementation plan",
+                "Convert the goal into concrete implementation steps",
+                ["item_001"],
+                "queued",
+            ),
+            (
+                "item_003",
+                "verification",
+                "Verify completion criteria",
+                "Check whether the final result satisfies the done definition",
+                ["item_002"],
+                "queued",
+            ),
+        ]
+        items = [
+            AtlasPlanItem(
+                item_id=item_id,
+                pool_id=effective_pool_id,
+                title=title,
+                goal=goal,
+                description=goal,
+                item_type=item_type,
+                status=status,
+                depends_on=depends_on,
+                auto_execution_allowed=False,
+                metadata={"fallback": True},
+            )
+            for item_id, item_type, title, goal, depends_on, status in fallback_specs
+        ]
+        return AtlasPlanPool(
+            pool_id=effective_pool_id,
+            root_goal=root_goal,
+            project_path=project_path,
+            project_name=project_name,
+            planning_depth=_normalize_choice(planning_depth, VALID_PLANNING_DEPTHS, "standard"),
+            automation_level=_normalize_choice(automation_level, VALID_AUTOMATION_LEVELS, "plan_then_ask"),
+            execution_strategy=_normalize_choice(execution_strategy, VALID_EXECUTION_STRATEGIES, "sequential"),
+            items=items,
+            warnings=pool_warnings,
+            metadata={"fallback_plan_items_generated": True},
+        )
+
+    @staticmethod
+    def _order_autopilot_tasks(tasks: list[Any], execution_order: list[str]) -> list[Any]:
+        if not execution_order:
+            return tasks
+        task_by_id = {str(object_to_dict(task).get("task_id") or ""): task for task in tasks}
+        ordered = [task_by_id[task_id] for task_id in execution_order if task_id in task_by_id]
+        ordered_ids = set(execution_order)
+        ordered.extend(task for task in tasks if str(object_to_dict(task).get("task_id") or "") not in ordered_ids)
+        return ordered
+
+    @staticmethod
+    def _map_autopilot_status(status: Any) -> str:
+        candidate = str(status or "").strip().lower()
+        if candidate == "blocked":
+            return "blocked"
+        if candidate == "failed":
+            return "failed"
+        return "queued"
