@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from agent.atlas_continuation_service import AtlasContinuationService
 from agent.atlas_journal import AtlasJournal
+from agent.atlas_orchestration_summary import AtlasOrchestrationSummaryBuilder
 from agent.atlas_pipeline_runner import AtlasPipelineRunner
 from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
@@ -55,6 +56,7 @@ class CreatePlanPoolResponse(BaseModel):
     requirement: dict = Field(default_factory=dict)
     plan: dict = Field(default_factory=dict)
     review_result: dict = Field(default_factory=dict)
+    orchestration_summary: dict = Field(default_factory=dict)
 
 
 class PipelineDryRunRequest(BaseModel):
@@ -80,10 +82,12 @@ class PipelineDryRunResponse(BaseModel):
     checkpoint_path: str
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+    orchestration_summary: dict = Field(default_factory=dict)
 
 
 class RecoveryResponse(BaseModel):
     recovery_summary: dict
+    orchestration_summary: dict = Field(default_factory=dict)
 
 
 class ContinuationResponse(BaseModel):
@@ -151,12 +155,21 @@ def _normalize_planner_mode(value: str) -> str:
 
 
 def _checkpoint_next_action(status: str) -> str:
-    if status == "completed":
-        return "Review the completed Atlas dry-run and decide whether to continue with a gated follow-up."
-    if status == "paused":
-        return "Review paused Atlas pipeline state before continuing."
-    if status == "failed":
-        return "Inspect the failed Atlas pipeline state and prepare a debug plan."
+    normalized = str(status or "").lower()
+    if normalized == "waiting_for_clarification":
+        return "Review planner questions and refine the goal before creating a PlanPool."
+    if normalized == "ready":
+        return "Start Dry-run to validate the generated PlanPool."
+    if normalized in {"stale", "interrupted"}:
+        return "Start a new dry-run from the recovered PlanPool."
+    if normalized in {"paused", "approval_required"}:
+        return "Review approval-required items before continuing."
+    if normalized in {"completed", "completed_with_warnings"}:
+        return "Review final report or create the next PlanPool."
+    if normalized == "failed":
+        return "Inspect failed items and prepare a debug follow-up."
+    if normalized == "blocked":
+        return "Review blocked items and policy reasons."
     return "Review the latest Atlas checkpoint."
 
 
@@ -229,22 +242,26 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
         bridge_warnings = list(bridge_result.warnings)
         bridge_errors = list(bridge_result.errors)
         if bridge_result.status == "waiting_for_clarification" and bridge_result.pool is None:
-            return CreatePlanPoolResponse(
-                pool_id="",
-                status="waiting_for_clarification",
-                item_count=0,
-                plan_pool={},
-                checkpoint_path="",
-                warnings=bridge_warnings,
-                errors=bridge_errors,
-                planner_status=planner_status,
-                used_fallback=False,
-                fallback_reason="",
-                questions=questions,
-                requirement=requirement,
-                plan=plan,
-                review_result=review_result,
+            response_payload = {
+                "pool_id": "",
+                "status": "waiting_for_clarification",
+                "item_count": 0,
+                "plan_pool": {},
+                "checkpoint_path": "",
+                "warnings": bridge_warnings,
+                "errors": bridge_errors,
+                "planner_status": planner_status,
+                "used_fallback": False,
+                "fallback_reason": "",
+                "questions": questions,
+                "requirement": requirement,
+                "plan": plan,
+                "review_result": review_result,
+            }
+            response_payload["orchestration_summary"] = _model_dump(
+                AtlasOrchestrationSummaryBuilder().build_from_create_plan_response(response_payload)
             )
+            return CreatePlanPoolResponse(**response_payload)
         if bridge_result.pool is None:
             raise HTTPException(status_code=500, detail="planner bridge did not return a PlanPool")
         pool = bridge_result.pool
@@ -263,12 +280,21 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
 
     storage.save_pool(pool)
     journal.save_plan_pool(pool)
+    summary = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None)
     checkpoint_path = journal.write_checkpoint(
         pool=pool,
-        next_action="Review the generated Atlas PlanPool before starting a dry-run.",
+        next_action=_checkpoint_next_action(pool.status),
     )
     warnings = list(dict.fromkeys([*bridge_warnings, *list(pool.warnings)]))
     errors = list(dict.fromkeys([*bridge_errors, *list(pool.errors)]))
+    summary.warnings = warnings
+    summary.errors = errors
+    summary.metadata.update({
+        "planner_status": planner_status,
+        "used_fallback": used_fallback,
+        "fallback_reason": fallback_reason,
+        "question_count": len(questions),
+    })
     return CreatePlanPoolResponse(
         pool_id=pool.pool_id,
         status=pool.status,
@@ -284,6 +310,7 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
         requirement=requirement,
         plan=plan,
         review_result=review_result,
+        orchestration_summary=_model_dump(summary),
     )
 
 
@@ -337,10 +364,11 @@ def run_pipeline_dry_run(req: PipelineDryRunRequest, request: Request) -> Pipeli
         for event in state.events:
             journal.append_event(pool.pool_id, state.run_id, event)
         updated_pool = storage.load_pool(pool.pool_id)
+        summary = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(updated_pool, state)
         checkpoint_path = journal.write_checkpoint(
             pool=updated_pool,
             state=state,
-            next_action=_checkpoint_next_action(state.status),
+            next_action=summary.next_action or _checkpoint_next_action(state.status),
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="plan pool not found") from exc
@@ -360,6 +388,7 @@ def run_pipeline_dry_run(req: PipelineDryRunRequest, request: Request) -> Pipeli
         checkpoint_path=str(checkpoint_path),
         warnings=list(state.warnings),
         errors=list(state.errors),
+        orchestration_summary=_model_dump(summary),
     )
 
 
@@ -426,11 +455,13 @@ def get_continuation_pool(
 def get_recovery_latest(request: Request, workspace_id: str = "default") -> RecoveryResponse:
     _, _, journal = _atlas_components(request, workspace_id=workspace_id)
     summary = AtlasRecoveryService(journal).recover_latest()
-    return RecoveryResponse(recovery_summary=_model_dump(summary))
+    orchestration_summary = AtlasOrchestrationSummaryBuilder().build_from_recovery(summary)
+    return RecoveryResponse(recovery_summary=_model_dump(summary), orchestration_summary=_model_dump(orchestration_summary))
 
 
 @router.get("/recovery/pools/{pool_id}", response_model=RecoveryResponse)
 def get_recovery_pool(pool_id: str, request: Request, workspace_id: str = "default") -> RecoveryResponse:
     _, _, journal = _atlas_components(request, workspace_id=workspace_id)
     summary = AtlasRecoveryService(journal).recover_pool(pool_id)
-    return RecoveryResponse(recovery_summary=_model_dump(summary))
+    orchestration_summary = AtlasOrchestrationSummaryBuilder().build_from_recovery(summary)
+    return RecoveryResponse(recovery_summary=_model_dump(summary), orchestration_summary=_model_dump(orchestration_summary))

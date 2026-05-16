@@ -172,3 +172,14 @@ Atlas Orchestrator
 - No new user-facing Agent feature.
 - No new Task / Agent API.
 - No new Task Runner / Agent Runner.
+
+
+## Orchestration Summary Policy
+
+Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces should share one orchestration summary vocabulary for phase, severity, next_action, and gate booleans. The summary keeps UI behavior consistent for not_started, plan_ready, clarification_required, approval_required, stale_recovery, running, completed, failed, and blocked states.
+
+- API responses may include `orchestration_summary` as an additive, backward-compatible helper.
+- Dashboard Next Action and dry-run/refresh button state should prefer `orchestration_summary` when present and fall back to legacy state derivation when absent.
+- Continuation prompts should include planner_mode, planner_status, used_fallback, fallback_reason, clarification/approval/stale gates, questions count, and the orchestration next_action.
+- Journal checkpoint next_action text should stay aligned with the same state-specific wording so Markdown recovery and UI recovery tell users the same next step.
+- This policy does not authorize safe_apply, TestCommandRunner, DebugLoopRunner, DeepResearch/Web execution, arbitrary command execution, or new Task/Agent APIs.

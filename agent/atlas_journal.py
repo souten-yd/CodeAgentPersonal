@@ -224,7 +224,7 @@ class AtlasJournal:
 
 ## Next Action
 
-{next_action or 'Continue from the latest saved Atlas state.'}
+{next_action or self._default_next_action(status)}
 
 ## Recovery Notes
 
@@ -236,6 +236,25 @@ class AtlasJournal:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8")
         return path
+
+    @staticmethod
+    def _default_next_action(status: str) -> str:
+        normalized = str(status or "").lower()
+        if normalized == "waiting_for_clarification":
+            return "Review planner questions and refine the goal before creating a PlanPool."
+        if normalized == "ready":
+            return "Start Dry-run to validate the generated PlanPool."
+        if normalized in {"stale", "interrupted"}:
+            return "Start a new dry-run from the recovered PlanPool."
+        if normalized in {"paused", "approval_required"}:
+            return "Review approval-required items before continuing."
+        if normalized in {"completed", "completed_with_warnings"}:
+            return "Review final report or create the next PlanPool."
+        if normalized == "failed":
+            return "Inspect failed items and prepare a debug follow-up."
+        if normalized == "blocked":
+            return "Review blocked items and policy reasons."
+        return "Continue from the latest saved Atlas state."
 
     def write_next_actions(self, pool_id: str, actions: list[str]) -> Path:
         body = "# Atlas Next Actions\n\n" + self._markdown_list(actions) + "\n"

@@ -158,15 +158,17 @@ class AtlasRecoveryService:
     @staticmethod
     def _next_action(status: AtlasRecoveryStatus) -> str:
         if status == "paused":
-            return "Review approval requirements and continue pipeline."
+            return "Review approval-required items before continuing."
         if status == "failed":
-            return "Inspect failure logs and prepare debug loop."
+            return "Inspect failed items and prepare a debug follow-up (debug loop planning only)."
         if status == "completed":
-            return "Review final report or start next plan pool."
+            return "Review final report or create the next PlanPool / next plan pool."
         if status in {"no_workspace", "no_plan_pool", "no_pipeline_run"}:
             return "Create or select an Atlas plan pool."
         if status == "blocked":
-            return "Inspect blocked items and resolve requirements before continuing."
+            return "Review blocked items and policy reasons."
         if status in {"stale", "interrupted"}:
             return "Start a new dry-run from the recovered PlanPool."
-        return "Continue pipeline from the recovered checkpoint."
+        if status == "ready":
+            return "Start Dry-run to validate the generated PlanPool."
+        return "Refresh status to update pipeline progress."

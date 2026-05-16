@@ -1490,3 +1490,40 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
   .atlas-ghost-btn { flex-basis: 100%; }
   .atlas-plan-item-meta { flex-direction: column; gap: 4px; }
 }
+
+.atlas-info-card,
+.atlas-success-card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.atlas-info-card { border: 1px solid rgba(68,136,255,.35); background: rgba(68,136,255,.08); color: #9bc4ff; }
+.atlas-success-card { border: 1px solid var(--accent-border); background: var(--accent-bg); color: var(--accent); }
+.atlas-warning-card[data-atlas-severity="success"] { border-color: var(--accent-border); background: var(--accent-bg); color: var(--accent); }
+.atlas-warning-card[data-atlas-severity="info"] { border-color: rgba(68,136,255,.35); background: rgba(68,136,255,.08); color: #9bc4ff; }
+.atlas-warning-card[data-atlas-severity="danger"] { border-color: rgba(255,68,102,.45); background: rgba(255,68,102,.09); color: var(--red); }
+.atlas-questions-panel { max-width: 100%; min-width: 0; }
+.atlas-questions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.atlas-questions-list li {
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255,255,255,.025);
+  color: var(--text2);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
