@@ -689,5 +689,12 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 
 
 - PR-ATLAS-PIPE-21: completed.
-- PR-ATLAS-PIPE-21B: current (manual safe_apply UI eligibility/candidate listing/tests fixes).
+- PR-ATLAS-PIPE-21B: completed (manual safe_apply UI eligibility/candidate listing/tests fixes).
 - PR-ATLAS-PIPE-22: next (post-apply verification manual gate).
+
+
+- PR-21: completed
+- PR-21B: completed
+- PR-21C: completed
+- PR-21D: Current
+- PR-22: Next
