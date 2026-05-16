@@ -9,6 +9,7 @@ from agent.atlas_pipeline_runner import AtlasPipelineRunner
 from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.test_command_runner_schema import AtlasTestCommandBatchResult
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,6 +50,20 @@ class FakeExecutor:
         if self.fail:
             raise RuntimeError("fake executor failed")
         return {"dry_run": True, "run_id": f"fake_run_{item.item_id}", "item_id": item.item_id}
+
+
+class FakeTestCommandRunner:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def run_item_tests(
+        self,
+        item: AtlasPlanItem,
+        cwd: str = "",
+        stop_on_failure: bool = True,
+    ) -> AtlasTestCommandBatchResult:
+        self.calls.append({"item_id": item.item_id, "cwd": cwd, "stop_on_failure": stop_on_failure})
+        return AtlasTestCommandBatchResult(passed_count=len(item.test_commands))
 
 
 def make_storage(tmp_path: Path, pool: AtlasPlanPool) -> AtlasPlanPoolStorage:
@@ -255,6 +270,37 @@ def test_max_items_limits_processed_items(tmp_path: Path) -> None:
     assert first is not None and first.status == "completed"
     assert second is not None and second.status == "ready"
     assert len(executor.calls) == 1
+
+
+def test_run_dry_run_does_not_call_test_command_runner(tmp_path: Path) -> None:
+    test_runner = FakeTestCommandRunner()
+    executor = FakeExecutor()
+    item = make_item("item_1")
+    item.test_commands = ["python -m py_compile agent/test_command_runner.py"]
+    storage = make_storage(tmp_path, make_pool([item]))
+
+    state = AtlasPipelineRunner(
+        storage=storage,
+        implementation_executor=executor,
+        test_command_runner=test_runner,
+    ).run_dry_run(AtlasPipelineRunRequest(pool_id="pool_1"))
+
+    assert state.status == "completed"
+    assert executor.calls == [{"item_id": "item_1", "pool_id": "pool_1", "dry_run": True}]
+    assert test_runner.calls == []
+
+
+def test_run_item_tests_delegates_to_test_command_runner(tmp_path: Path) -> None:
+    test_runner = FakeTestCommandRunner()
+    item = make_item("item_1")
+    item.test_commands = ["python -m py_compile agent/test_command_runner.py"]
+    storage = make_storage(tmp_path, make_pool([item]))
+    runner = AtlasPipelineRunner(storage=storage, test_command_runner=test_runner)
+
+    result = runner.run_item_tests(item, cwd="agent", stop_on_failure=False)
+
+    assert result.passed_count == 1
+    assert test_runner.calls == [{"item_id": "item_1", "cwd": "agent", "stop_on_failure": False}]
 
 
 def test_runner_has_no_runtime_api_or_safe_apply_side_effect_tokens() -> None:
