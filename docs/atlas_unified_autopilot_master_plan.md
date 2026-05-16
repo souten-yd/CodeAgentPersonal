@@ -183,3 +183,8 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 - Continuation prompts should include planner_mode, planner_status, used_fallback, fallback_reason, clarification/approval/stale gates, questions count, and the orchestration next_action.
 - Journal checkpoint next_action text should stay aligned with the same state-specific wording so Markdown recovery and UI recovery tell users the same next step.
 - This policy does not authorize safe_apply, TestCommandRunner, DebugLoopRunner, DeepResearch/Web execution, arbitrary command execution, or new Task/Agent APIs.
+
+
+- PR-ATLAS-PIPE-18: AtlasPlannerBridge llm_json_fn を既存モデル/OpenAI互換 backend へ配線。backend unavailable/timeout/invalid JSON時はfallback継続。
+
+- Next PR: PR-ATLAS-PIPE-19 Planner clarification answer flow / Requirement refinement UI。

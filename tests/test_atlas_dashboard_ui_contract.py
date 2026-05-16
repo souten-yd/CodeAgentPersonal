@@ -215,3 +215,8 @@ def test_waiting_for_clarification_uses_warning_not_error_contract() -> None:
     assert "showError" not in nearby
     assert "atlas-questions-panel" in HTML
     assert "atlas-questions-list" in CSS
+
+
+def test_dashboard_supports_llm_backend_unavailable_warning_strings() -> None:
+    assert "llm_backend_unavailable" in ATLAS_DASHBOARD_JS
+    assert "real_planner_unavailable" in ATLAS_DASHBOARD_JS

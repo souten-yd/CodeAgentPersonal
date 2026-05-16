@@ -1,0 +1,26 @@
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+
+class AtlasLLMJsonRequest(BaseModel):
+    system_prompt: str
+    user_prompt: str
+    schema_hint: str = ""
+    model: str = ""
+    temperature: float = 0.1
+    max_tokens: int = 4096
+    timeout_seconds: int = 120
+    metadata: dict = Field(default_factory=dict)
+
+
+class AtlasLLMJsonResult(BaseModel):
+    ok: bool = False
+    data: dict = Field(default_factory=dict)
+    raw_text: str = ""
+    model: str = ""
+    backend: str = ""
+    used_fallback: bool = False
+    error: str = ""
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
