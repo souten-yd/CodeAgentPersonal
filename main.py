@@ -1302,6 +1302,8 @@ class ModelManager:
         self.last_gpu_validation_status: str = "pending"
         self.last_gpu_validation_reason: str | None = None
         self.last_gpu_validation_path: str | None = None
+        self.last_cuda_init_failed: bool = False
+        self.last_no_usable_gpu: bool = False
         self._startup_log_fd = None
         self._load_guard_lock = _mm_thread.Lock()
         self._load_in_progress = False
@@ -1319,9 +1321,15 @@ class ModelManager:
         gpu_status: str | None = None,
         gpu_reason: str | None = None,
         gpu_path: str | None = None,
+        cuda_init_failed: bool | None = None,
+        no_usable_gpu: bool | None = None,
     ) -> None:
         self.last_model_load_status = status
         self.last_model_load_error = error
+        if cuda_init_failed is not None:
+            self.last_cuda_init_failed = bool(cuda_init_failed)
+        if no_usable_gpu is not None:
+            self.last_no_usable_gpu = bool(no_usable_gpu)
         if gpu_status is not None:
             self.last_gpu_validation_status = gpu_status
             self.last_gpu_validation_reason = gpu_reason
@@ -1331,6 +1339,36 @@ class ModelManager:
                 self.last_gpu_validation_reason = gpu_reason
             if gpu_path is not None:
                 self.last_gpu_validation_path = gpu_path
+
+
+    def _publish_runpod_gpu_validation_failure(
+        self,
+        parsed: dict | None = None,
+        *,
+        requested_ngl: int | None = None,
+        default_error: str = "llama-server failed during load",
+    ) -> bool:
+        """Publish cached Runpod/Linux GPU validation failure state, if detected."""
+        parsed = parsed or self._parse_llama_gpu_startup_log()
+        parsed["requested_ngl"] = requested_ngl
+        self._last_llama_gpu_log = parsed
+        ok, status, reason = self._validate_runpod_linux_gpu_startup(parsed)
+        parsed["gpu_validation_status"] = status
+        parsed["gpu_validation_reason"] = reason
+        validation_path = parsed.get("gpu_validation_path") or parsed.get("llama_gpu_validation_path")
+        if ok or status != "fail":
+            return False
+        msg = self._validation_failure_error(parsed, reason) if reason else default_error
+        self._set_model_load_state(
+            "error",
+            msg,
+            gpu_status="fail",
+            gpu_reason=reason,
+            gpu_path=validation_path,
+            cuda_init_failed=bool(parsed.get("cuda_init_failed", False)),
+            no_usable_gpu=bool(parsed.get("no_usable_gpu", False)),
+        )
+        return True
 
     def _validation_failure_error(self, parsed: dict | None = None, reason: str | None = None) -> str:
         parsed = parsed or self._last_llama_gpu_log or {}
@@ -1349,6 +1387,8 @@ class ModelManager:
         validation_status = getattr(self, "last_gpu_validation_status", None) or parsed.get("gpu_validation_status") or "pending"
         validation_reason = getattr(self, "last_gpu_validation_reason", None) or parsed.get("gpu_validation_reason")
         validation_path = getattr(self, "last_gpu_validation_path", None) or parsed.get("gpu_validation_path") or parsed.get("llama_gpu_validation_path")
+        cuda_init_failed = bool(getattr(self, "last_cuda_init_failed", False) or parsed.get("cuda_init_failed", False))
+        no_usable_gpu = bool(getattr(self, "last_no_usable_gpu", False) or parsed.get("no_usable_gpu", False))
         return {
             "last_model_load_status": getattr(self, "last_model_load_status", "idle"),
             "last_model_load_error": getattr(self, "last_model_load_error", None),
@@ -1358,8 +1398,8 @@ class ModelManager:
             "last_gpu_validation_status": validation_status,
             "last_gpu_validation_reason": validation_reason,
             "last_gpu_validation_path": validation_path,
-            "cuda_init_failed": bool(parsed.get("cuda_init_failed", False)),
-            "no_usable_gpu": bool(parsed.get("no_usable_gpu", False)),
+            "cuda_init_failed": cuda_init_failed,
+            "no_usable_gpu": no_usable_gpu,
             "llama_log_parser_stale_suspected": bool(parsed.get("llama_log_parser_stale_suspected", False)),
             "llama_readiness_signals": parsed.get("llama_readiness_signals") or {},
             "last_start_cmd": getattr(self, "_last_start_cmd", ""),
@@ -2390,6 +2430,8 @@ class ModelManager:
                                 gpu_status="fail",
                                 gpu_reason=reason,
                                 gpu_path=validation_path,
+                                cuda_init_failed=bool(self._last_llama_gpu_log.get("cuda_init_failed", False)),
+                                no_usable_gpu=bool(self._last_llama_gpu_log.get("no_usable_gpu", False)),
                             )
                             self._kill_process()
                             return "fail"
@@ -2410,16 +2452,61 @@ class ModelManager:
                         gpu_status=("ok" if runpod_linux else "not_applicable"),
                         gpu_reason=(self._last_llama_gpu_log or {}).get("gpu_validation_reason"),
                         gpu_path=(self._last_llama_gpu_log or {}).get("gpu_validation_path") or (self._last_llama_gpu_log or {}).get("llama_gpu_validation_path"),
+                        cuda_init_failed=bool((self._last_llama_gpu_log or {}).get("cuda_init_failed", False)),
+                        no_usable_gpu=bool((self._last_llama_gpu_log or {}).get("no_usable_gpu", False)),
                     )
                     return "ok"
             except Exception:
                 pass
+            if runpod_linux:
+                parsed = self._parse_llama_gpu_startup_log()
+                parsed["llama_readiness_signals"] = {
+                    "http_signal": {"health_ok": False, "health_status": None},
+                    "process_signal": self._probe_llama_process_readiness(),
+                    "nvidia_smi_signal": {"memory_delta_mib": self._nvidia_smi_memory_delta_mib()},
+                }
+                if parsed.get("cuda_init_failed") or parsed.get("no_usable_gpu"):
+                    if self._publish_runpod_gpu_validation_failure(
+                        parsed,
+                        requested_ngl=gpu_layers,
+                        default_error="llama-server GPU validation failed during load",
+                    ):
+                        reason = self.last_gpu_validation_reason or self.last_model_load_error or "unknown reason"
+                        print(f"[ModelManager] Runpod/Linux GPU validation failed during load: {reason}")
+                        self._kill_process()
+                        return "fail"
             if self._process.poll() is not None:
                 print("[ModelManager] process exited during load")
+                if runpod_linux:
+                    parsed = self._parse_llama_gpu_startup_log()
+                    parsed["llama_readiness_signals"] = {
+                        "http_signal": {"health_ok": False, "health_status": None},
+                        "process_signal": self._probe_llama_process_readiness(),
+                        "nvidia_smi_signal": {"memory_delta_mib": self._nvidia_smi_memory_delta_mib()},
+                    }
+                    if self._publish_runpod_gpu_validation_failure(
+                        parsed,
+                        requested_ngl=gpu_layers,
+                        default_error="llama-server process exited during GPU validation",
+                    ):
+                        break
                 self._set_model_load_state("error", "llama-server process exited during load")
                 break
 
         # ─── 失敗判定: OOMか否か ──────────────────────────────
+        if runpod_linux:
+            parsed = self._parse_llama_gpu_startup_log()
+            parsed["llama_readiness_signals"] = {
+                "http_signal": {"health_ok": False, "health_status": None},
+                "process_signal": self._probe_llama_process_readiness(),
+                "nvidia_smi_signal": {"memory_delta_mib": self._nvidia_smi_memory_delta_mib()},
+            }
+            if self._publish_runpod_gpu_validation_failure(
+                parsed,
+                requested_ngl=gpu_layers,
+                default_error="llama-server GPU validation failed during load",
+            ):
+                return "fail"
         self._last_startup_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
         if self._last_startup_hints:
             print(f"[ModelManager] startup hints: {self._last_startup_hints}")

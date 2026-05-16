@@ -71,6 +71,18 @@ def default_model_manager_status_payload() -> dict[str, Any]:
         "status": "unavailable",
         "current_key": "",
         "catalog": {},
+        "last_model_load_status": "idle",
+        "last_model_load_error": None,
+        "gpu_validation_status": "unavailable",
+        "last_gpu_validation_status": "unavailable",
+        "gpu_validation_reason": "runtime provider unavailable",
+        "last_gpu_validation_reason": "runtime provider unavailable",
+        "gpu_validation_path": None,
+        "last_gpu_validation_path": None,
+        "cuda_init_failed": False,
+        "no_usable_gpu": False,
+        "llama_log_parser_stale_suspected": False,
+        "llama_readiness_signals": {},
     }
 
 

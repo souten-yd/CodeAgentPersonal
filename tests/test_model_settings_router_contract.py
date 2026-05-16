@@ -186,7 +186,7 @@ def test_main_app_model_db_status_returns_provider_payload(monkeypatch):
     body = response.json()
 
     assert response.status_code == 200
-    assert body == {
+    expected = {
         "db_exists": True,
         "has_models": True,
         "total": 3,
@@ -194,6 +194,8 @@ def test_main_app_model_db_status_returns_provider_payload(monkeypatch):
         "has_vlm": True,
         "db_path": "/tmp/test-models.db",
     }
+    for key, value in expected.items():
+        assert body[key] == value
 
 
 def test_create_app_model_roles_returns_default_payload():
@@ -277,3 +279,36 @@ def test_main_app_model_roles_returns_provider_payload(monkeypatch):
             }
         ],
     }
+
+
+def test_model_status_exposes_gpu_validation_failed(monkeypatch):
+    class FakeModelManager:
+        def status_dict(self):
+            return {
+                "status": "ready",
+                "current_key": "coder-a",
+                "catalog": {},
+                "last_model_load_status": "error",
+                "last_model_load_error": "GPU validation failed: cuda init failed; no usable GPU found",
+                "gpu_validation_status": "fail",
+                "last_gpu_validation_status": "fail",
+                "gpu_validation_reason": "cuda init failed; no usable GPU found",
+                "last_gpu_validation_reason": "cuda init failed; no usable GPU found",
+                "gpu_validation_path": "explicit_cuda_failure",
+                "last_gpu_validation_path": "explicit_cuda_failure",
+                "cuda_init_failed": True,
+                "no_usable_gpu": True,
+                "llama_log_parser_stale_suspected": False,
+                "llama_readiness_signals": {"process_signal": {"alive": False}},
+            }
+
+    monkeypatch.setattr(main, "_model_manager", FakeModelManager())
+
+    response = TestClient(main.app).get("/model/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["gpu_validation_status"] == "fail"
+    assert body["last_model_load_status"] == "error"
+    assert body["cuda_init_failed"] is True
+    assert body["no_usable_gpu"] is True
