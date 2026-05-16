@@ -271,6 +271,37 @@ low-risk PlanItemに限定してsafe_applyを段階導入する。
 - delete自動実行禁止。
 - UI変更禁止。
 
+
+## PR-ATLAS-PIPE-8B: Atlas Journal / Recovery checkpoint foundation
+
+### 目的
+
+Atlas Pipelineの大規模・長時間実行に備えて、PlanPool / PipelineRunState / events / checkpointをJSON、Markdown、events.ndjsonとして保存し、reload/chat recovery summaryを復元できる内部基盤を追加する。
+
+### 主な変更
+
+- `agent/atlas_journal_schema.py` を追加する。
+- `agent/atlas_journal.py` を追加する。
+- `agent/atlas_recovery_service.py` を追加する。
+- JSON + Markdown + events.ndjson保存を追加する。
+- reload/chat recovery summaryを返す内部serviceを追加する。
+
+### 完了条件
+
+- PlanPoolをjournal配下にJSON/Markdown保存できる。
+- PipelineRunStateをJSON/Markdown保存できる。
+- events.ndjsonにappend/readできる。
+- checkpoint.md / next_actions.md / final_report.mdを書ける。
+- latest/pool/runを復元できる。
+- API/UIは追加しない。
+
+### 変更禁止範囲
+
+- API変更禁止。
+- UI変更禁止。
+- DebugLoopRunner追加禁止。
+- TestCommandRunnerやsafe_applyの自動実行追加禁止。
+
 ## PR-ATLAS-PIPE-9: DebugLoopRunner
 
 ### 目的
