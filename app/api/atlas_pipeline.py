@@ -29,6 +29,8 @@ from agent.atlas_recovery_service import AtlasRecoveryService
 from agent.atlas_safe_apply_adapter import AtlasSafeApplyAdapter
 from agent.atlas_safe_apply_execution_schema import AtlasSafeApplyExecutionRequest, AtlasSafeApplyExecutionResult
 from agent.atlas_safe_apply_execution_service import AtlasSafeApplyExecutionService
+from agent.atlas_verification_gate_schema import AtlasVerificationRequest, AtlasVerificationResult
+from agent.atlas_verification_gate_service import AtlasVerificationGateService
 
 
 router = APIRouter(prefix="/api/atlas", tags=["atlas"])
@@ -595,6 +597,26 @@ def get_pipeline_events(
     _, _, journal = _atlas_components(request, workspace_id=workspace_id)
     return {"pool_id": pool_id, "run_id": run_id, "events": journal.read_events(pool_id, run_id, limit=max(1, limit))}
 
+
+
+@router.post("/verification/run", response_model=AtlasVerificationResult)
+def run_verification(req: AtlasVerificationRequest, request: Request) -> AtlasVerificationResult:
+    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
+    runner = getattr(request.app.state, "atlas_test_command_runner", None)
+    service = AtlasVerificationGateService(journal=journal, storage=storage, test_runner=runner)
+    result = service.verify_item(req)
+    try:
+        pool = storage.load_pool(req.pool_id)
+        recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
+        orchestration = AtlasOrchestrationSummaryBuilder.build(pool, None, recovery_summary=recovery).model_dump()
+        continuation = AtlasContinuationService(journal).build_pool_summary(req.pool_id, req.run_id)
+        result.recovery_summary = recovery
+        result.orchestration_summary = orchestration
+        result.continuation_prompt = continuation.continuation_prompt
+    except Exception:
+        pass
+    return result
 
 @router.get("/continuation/latest", response_model=ContinuationResponse)
 def get_continuation_latest(request: Request, workspace_id: str = "default") -> ContinuationResponse:

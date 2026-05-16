@@ -39,11 +39,11 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 ## Current PR
 
-PR-ATLAS-PIPE-21D
+PR-ATLAS-PIPE-22
 
 ## Next PR
 
-PR-ATLAS-PIPE-22: Verification runner manual gate / post-apply validation
+PR-ATLAS-PIPE-23: Manual DebugLoop review gate / no auto patch
 
 ## Important Constraints
 
@@ -55,7 +55,7 @@ PR-ATLAS-PIPE-22: Verification runner manual gate / post-apply validation
 ## Known Current Code Facts
 
 - PR-ATLAS-PIPE-21C aligns manual safe_apply approval semantics and makes previous tests pass.
-- PR-ATLAS-PIPE-21D removes noop executor applied semantics.
+- PR-ATLAS-PIPE-22 removes noop executor applied semantics.
 - executor unavailable blocks normal safe_apply unless dry_run simulation is explicitly requested.
 - safe_apply remains item-level only and never batch/full-autopilot.
 - delete/run_command and medium/high/critical risk items remain blocked.
@@ -63,5 +63,15 @@ PR-ATLAS-PIPE-22: Verification runner manual gate / post-apply validation
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-22を実装する。
-safe_apply済みitemに対して、手動Verification Runner / allowlisted TestCommandRunnerを実行できるpost-apply validation gateを追加する。ただし自動debug loopや自動追加修正はまだ行わない。
+PR-ATLAS-PIPE-23を実装する。
+verification failed itemに対して、DebugLoopRunnerの分析/提案だけを手動で実行できるreview gateを追加する。ただし自動patch生成・自動safe_apply・自動再検証は行わない。
+
+
+- PR-ATLAS-PIPE-22 adds manual post-apply verification gate for safe_applied PlanItems.
+- Verification uses allowlisted TestCommandRunner only.
+- Verification is item-level/manual and never batch/full-autopilot.
+- Failed verification does not start DebugLoop or auto-fix.
+- PR-ATLAS-PIPE-22 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
+
+Next PR
+- PR-ATLAS-PIPE-23: Manual DebugLoop review gate / no auto patch

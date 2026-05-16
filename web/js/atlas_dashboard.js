@@ -42,6 +42,8 @@
     approvalSubmitting: false,
     safeApplySubmitting: false,
     safeApplyResults: {},
+    verificationResults: {},
+    verificationSubmitting: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -310,6 +312,8 @@
     if ($('atlas-markdown-panel')) $('atlas-markdown-panel').textContent = state.markdown || 'No markdown loaded.';
     renderQuestionsPanel();
     renderApprovalPanel();
+    refreshVerificationCandidates();
+    renderVerificationPanel();
     if ($('atlas-checkpoint-path')) $('atlas-checkpoint-path').textContent = state.checkpointPath || 'No checkpoint yet.';
     const summary = state.continuationSummary || {};
     if ($('atlas-continuation-summary')) {
@@ -621,6 +625,44 @@
   }
 
 
+
+  function refreshVerificationCandidates() {
+    const items = getItems();
+    state.verificationCandidates = items.filter((item) => {
+      const safe = String(item?.metadata?.safe_apply?.status || '').toLowerCase();
+      const st = String(item?.status || '').toLowerCase();
+      return ['applied','simulated'].includes(safe) || ['completed','applied'].includes(st);
+    });
+  }
+
+  function renderVerificationPanel() {
+    const host = $('atlas-verification-list');
+    if (!host) return;
+    const items = arr(state.verificationCandidates);
+    if (!items.length) { host.innerHTML = 'No verification candidates.'; return; }
+    host.innerHTML = items.map((item)=>{
+      const status = state.verificationResults[item.item_id]?.status || item?.metadata?.verification?.status || '-';
+      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')} <span class="atlas-badge">status: ${esc(status)}</span><div class="atlas-clarification-actions"><button data-verify="${esc(item.item_id)}" type="button">Run Verification</button></div></div>`;
+    }).join('');
+    host.querySelectorAll('button[data-verify]').forEach((btn)=>btn.addEventListener('click', ()=>runVerification(btn.dataset.verify)));
+  }
+
+  async function runVerification(itemId) {
+    if (state.verificationSubmitting || !state.currentPoolId || !root.AtlasPipelineAPI?.runVerification) return;
+    state.verificationSubmitting = true;
+    const response = await handleResult(await root.AtlasPipelineAPI.runVerification({ pool_id: state.currentPoolId, item_id: itemId, run_id: state.currentRunId || '', workspace_id: workspaceId(), metadata: { ui: 'atlas_dashboard' } }), 'Verification failed');
+    state.verificationSubmitting = false;
+    if (!response) return;
+    state.verificationResults[itemId] = response;
+    state.planPool = response.plan_pool || state.planPool;
+    applyOrchestrationSummary(response.orchestration_summary);
+    state.continuationPrompt = response.continuation_prompt || state.continuationPrompt;
+    if (response.status === 'passed') showSuccess('Verification passed: '+itemId);
+    else if (response.status === 'failed') showWarning('Verification failed: '+itemId+' (DebugLoop is not automatically started.)');
+    else showWarning('Verification blocked: '+itemId+' ('+(response.warnings||[]).join(',')+')');
+    render();
+  }
+
   async function refreshApprovals() {
     if (!state.currentPoolId || !root.AtlasPipelineAPI?.getApprovals) return;
     const result = await root.AtlasPipelineAPI.getApprovals(state.currentPoolId, workspaceId());
@@ -792,6 +834,9 @@
     decideApproval,
     copyContinuationPrompt,
     copyAtlasIds,
+    runVerification,
+    refreshVerificationCandidates,
+    renderVerificationPanel,
     render,
   };
 

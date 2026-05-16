@@ -243,3 +243,12 @@ def test_manual_safe_apply_ui_contract() -> None:
     assert "Item-level manual apply only. Tests and autopilot continuation are not run." in ATLAS_DASHBOARD_JS
     for forbidden in ("Apply all", "Auto apply", "Continue autopilot", "Run tests automatically"):
         assert forbidden not in HTML + ATLAS_DASHBOARD_JS
+
+
+def test_manual_verification_ui_contract() -> None:
+    assert "id=\"atlas-verification-panel\"" in HTML
+    assert "Manual verification only" in HTML
+    assert "runVerification(payload)" in ATLAS_API_JS
+    assert "runVerification(itemId)" in ATLAS_DASHBOARD_JS
+    for forbidden in ("Run all tests", "Auto fix", "Debug automatically", "Continue autopilot", "Run arbitrary command"):
+        assert forbidden not in HTML + ATLAS_DASHBOARD_JS
