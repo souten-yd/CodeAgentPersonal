@@ -252,3 +252,16 @@ def test_manual_verification_ui_contract() -> None:
     assert "runVerification(itemId)" in ATLAS_DASHBOARD_JS
     for forbidden in ("Run all tests", "Auto fix", "Debug automatically", "Continue autopilot", "Run arbitrary command"):
         assert forbidden not in HTML + ATLAS_DASHBOARD_JS
+
+
+def test_verification_panel_manual_contract() -> None:
+    block = atlas_block()
+    assert 'atlas-verification-panel' in block
+    assert 'Manual verification only' in HTML
+    assert 'Run Verification' in (HTML + ATLAS_DASHBOARD_JS)
+    assert 'runVerification' in ATLAS_API_JS
+    assert 'runVerification' in ATLAS_DASHBOARD_JS
+    forbidden = ('Run all tests', 'Auto fix', 'Debug automatically', 'Continue autopilot', 'Run arbitrary command')
+    merged = HTML + ATLAS_API_JS + ATLAS_DASHBOARD_JS
+    for token in forbidden:
+        assert token not in merged

@@ -251,6 +251,13 @@ def _resolve_atlas_llm_json_fn(request: Request) -> Any:
     return _resolve_callable_state(request, "atlas_llm_json_fn")
 
 
+def _resolve_atlas_test_command_runner(request: Request) -> Any:
+    runner = getattr(request.app.state, "atlas_test_command_runner", None)
+    if callable(runner):
+        return runner()
+    return runner
+
+
 def _normalize_planner_mode(value: str) -> str:
     candidate = str(value or "auto").strip().lower()
     return candidate if candidate in {"auto", "real_planner", "fallback_only"} else "auto"
@@ -601,11 +608,16 @@ def get_pipeline_events(
 
 @router.post("/verification/run", response_model=AtlasVerificationResult)
 def run_verification(req: AtlasVerificationRequest, request: Request) -> AtlasVerificationResult:
+    if ".." in req.pool_id or ".." in req.item_id:
+        raise HTTPException(status_code=400, detail="invalid id")
     _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
-    runner = getattr(request.app.state, "atlas_test_command_runner", None)
+    runner = _resolve_atlas_test_command_runner(request)
     service = AtlasVerificationGateService(journal=journal, storage=storage, test_runner=runner)
-    result = service.verify_item(req)
+    try:
+        result = service.verify_item(req)
+    except FileNotFoundError:
+        result = AtlasVerificationResult(pool_id=req.pool_id, item_id=req.item_id, run_id=req.run_id, status="blocked", warnings=["pool_not_found"])
     try:
         pool = storage.load_pool(req.pool_id)
         recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
