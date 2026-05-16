@@ -40,14 +40,16 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-16: completed
 - PR-ATLAS-PIPE-17: completed
 - PR-ATLAS-PIPE-18: completed
+- PR-ATLAS-PIPE-18B: completed
+- PR-ATLAS-PIPE-19: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-19
+PR-ATLAS-PIPE-20
 
 ## Next PR
 
-PR-ATLAS-PIPE-20: Approval-aware continuation / safe apply preparation
+PR-ATLAS-PIPE-21: Safe apply execution gate / manual approval UI
 
 ## Important Constraints
 
@@ -103,6 +105,11 @@ PR-ATLAS-PIPE-20: Approval-aware continuation / safe apply preparation
 - PR-ATLAS-PIPE-18 registers app.state.atlas_llm_json_fn only when no callable is already present.
 - PR-ATLAS-PIPE-18 keeps fallback PlanPool behavior when the backend is unavailable, times out, raises, or returns invalid JSON.
 - PR-ATLAS-PIPE-18 does not add safe_apply/TestCommand/DebugLoop/DeepResearch execution controls.
+- PR-ATLAS-PIPE-19 adds clarification answer flow for waiting_for_clarification.
+- Clarification answers are stored in AtlasClarificationSession and can be merged into Planner input / Requirement context.
+- Atlas Dashboard can show Planner questions in Details and submit answers or use assumptions.
+- POST /api/atlas/clarifications/answer can re-run planning and return a PlanPool, another waiting_for_clarification response, or fallback PlanPool.
+- PR-ATLAS-PIPE-19 does not execute safe_apply/TestCommand/DebugLoop/DeepResearch and does not add Task/Agent APIs.
 - Outcome Writer can save success/failure/debug/research/safe_apply/pipeline outcomes to AtlasJournal and optionally to a Nexus client.
 - Research item execution does not start external Web access or Deep Research jobs.
 - Research item execution does not call ImplementationExecutor, safe_apply, or TestCommandRunner.
@@ -120,8 +127,8 @@ PR-ATLAS-PIPE-20: Approval-aware continuation / safe apply preparation
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-19を実装する。
-waiting_for_clarification の質問にUIから回答し、RequirementDefinitionを更新して再Planningできる clarification answer flow を追加する。ただし実装適用はまだ行わない。
+PR-ATLAS-PIPE-20を実装する。
+approval_required の表示・継続・Approval Gate連携を整え、safe_apply準備へ進む。ただし自動safe_applyはまだ有効化しない。
 - safe_apply自動実行禁止。
 - TestCommand自動実行禁止。
 - DebugLoop自動実行禁止。
@@ -129,9 +136,3 @@ waiting_for_clarification の質問にUIから回答し、RequirementDefinition�
 - Task/Agent API追加禁止。
 - 任意コマンド実行追加禁止。
 - 既存Lumen / Echo / Nexus破壊禁止。
-
-- Next PR: PR-ATLAS-PIPE-20: Approval-aware continuation / safe apply preparation
-
-- PR-ATLAS-PIPE-19 adds clarification answer flow for waiting_for_clarification.
-- Clarification answers are merged into Planner input / Requirement context and can trigger re-planning.
-- PR-ATLAS-PIPE-19 does not execute safe_apply/TestCommand/DebugLoop/DeepResearch.
