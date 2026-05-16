@@ -51,6 +51,11 @@ def _manager(tmp_path, monkeypatch):
     manager._last_nvidia_smi_before = []
     manager._last_nvidia_smi_after = []
     manager._last_ngl_search_debug = {}
+    manager.last_model_load_status = "idle"
+    manager.last_model_load_error = None
+    manager.last_gpu_validation_status = "pending"
+    manager.last_gpu_validation_reason = None
+    manager.last_gpu_validation_path = None
     manager._startup_log_fd = None
 
     monkeypatch.setattr(manager, "_collect_nvidia_smi_memory", lambda: [])
@@ -792,3 +797,36 @@ def test_windows_amd_keeps_ngl_omitted(tmp_path, monkeypatch):
     assert "--n-gpu-layers" not in captured["cmd"]
     assert "--flash-attn" not in captured["cmd"]
     assert "on" not in captured["cmd"]
+
+
+def test_gpu_validation_failed_is_not_parser_stale_success(tmp_path, monkeypatch):
+    manager, _spec = _manager(tmp_path, monkeypatch)
+    manager._last_runtime_decision = {
+        "runpod_detected": True,
+        "is_linux": True,
+        "is_windows": False,
+        "intended_backend": "cuda",
+        "gpu_vendor": "nvidia",
+        "os_profile": {"os_name": "posix", "is_linux": True},
+    }
+    manager._process = _FakePopen(["llama"])
+    parsed = {
+        "model_loaded": True,
+        "server_listening": True,
+        "cuda_init_failed": True,
+        "no_usable_gpu": True,
+        "cuda_device_detected": True,
+        "cuda_build_detected": True,
+        "n_gpu_layers": None,
+        "gpu_offload_layers": None,
+        "cuda_buffer_mib": None,
+        "llama_readiness_signals": {"http_signal": {"health_ok": True}, "process_signal": {"alive": True}},
+    }
+
+    ok, status, reason = manager._validate_runpod_linux_gpu_startup(parsed)
+
+    assert ok is False
+    assert status == "fail"
+    assert "cuda init failed" in reason
+    assert parsed["gpu_validation_path"] == "explicit_cuda_failure"
+    assert parsed["llama_log_parser_stale_suspected"] is False

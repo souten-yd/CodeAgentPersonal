@@ -271,6 +271,71 @@ def wait_http_200(url: str, timeout_sec: int, label: str, proc: subprocess.Popen
     return False
 
 
+def cuda_expected_for_launcher(runpod: bool, os_profile: dict, gpu_profile: dict) -> bool:
+    vendor = str(gpu_profile.get("vendor") or "").lower()
+    is_linux = bool(os_profile.get("is_linux")) or str(os_profile.get("system", "")).lower() == "linux"
+    is_windows = bool(os_profile.get("is_windows")) or str(os_profile.get("system", "")).lower().startswith("windows")
+    return bool(runpod and is_linux and not is_windows and vendor == "nvidia")
+
+
+def _model_manager_status(api_base: str) -> dict:
+    return request_json(f"{api_base}/model/status") or request_json(f"{api_base}/llm/props") or {}
+
+
+def _llm_gpu_validation_failed(status: dict) -> bool:
+    validation = status.get("gpu_validation_status") or status.get("last_gpu_validation_status")
+    return bool(
+        status.get("last_model_load_status") == "error"
+        or validation == "fail"
+        or status.get("cuda_init_failed") is True
+        or status.get("no_usable_gpu") is True
+    )
+
+
+def _llm_gpu_validation_ready(status: dict, cuda_expected: bool) -> bool:
+    if not cuda_expected:
+        return True
+    validation = status.get("gpu_validation_status") or status.get("last_gpu_validation_status")
+    return bool(
+        status.get("last_model_load_status") == "ready"
+        and validation == "ok"
+        and status.get("cuda_init_failed") is not True
+        and status.get("no_usable_gpu") is not True
+    )
+
+
+def wait_llm_ready_with_model_manager(
+    *,
+    api_base: str,
+    llm_base: str,
+    timeout_sec: int,
+    cuda_expected: bool,
+    proc: subprocess.Popen | None = None,
+) -> bool:
+    if not cuda_expected:
+        return wait_http_200(f"{llm_base}/health", timeout_sec, "LLM", proc=proc)
+    waited = 0
+    while waited < timeout_sec:
+        if proc is not None and proc.poll() is not None:
+            print(f"[ERROR] LLM process exited early with code {proc.returncode}")
+            return False
+        status = _model_manager_status(api_base)
+        if _llm_gpu_validation_failed(status):
+            reason = status.get("gpu_validation_reason") or status.get("last_model_load_error") or "unknown reason"
+            print(f"[LLM][ERROR] GPU validation failed: {reason}")
+            return False
+        if _llm_gpu_validation_ready(status, cuda_expected):
+            health_status = request_status(f"{llm_base}/health")
+            if health_status == 200:
+                print("[OK] LLM ready")
+                return True
+        time.sleep(2)
+        waited += 2
+        validation = (status or {}).get("gpu_validation_status") or (status or {}).get("last_gpu_validation_status") or "pending"
+        print(f"  LLM loading... {waited}s (gpu_validation_status={validation})")
+    return False
+
+
 def choose_mode() -> tuple[str, str]:
     return AUTO_MODE_KEY, AUTO_MODE_NUM
 
@@ -553,6 +618,8 @@ def main() -> int:
             proc.terminate()
             return 1
 
+        cuda_expected = cuda_expected_for_launcher(runpod, os_profile, gpu_profile)
+
         status = request_json(f"http://127.0.0.1:{args.port}/models/db/status")
         if not status:
             print("[ModelDB] status unavailable. Skipping LLM startup wait.")
@@ -566,6 +633,7 @@ def main() -> int:
         allow_unbenchmarked_request = runpod or is_windows_local
         should_request_autoload = db_exists and db_total > 0 and (benchmarked_total > 0 or allow_unbenchmarked_request or not require_benchmark)
 
+        llm_ok = True
         if should_request_autoload:
             if benchmarked_total <= 0 and (runpod or is_windows_local):
                 print("[ModelDB] model_db has models but no benchmarked models. Requesting auto-load; server will decide if unbenchmarked load is allowed.")
@@ -585,26 +653,42 @@ def main() -> int:
                 print("[ModelDB] auto-load skipped: no model files. Skipping LLM wait.")
             llm_ok = True
             if should_wait_llm:
-                llm_ok = wait_http_200(f"http://127.0.0.1:{args.primary_port}/health", args.llm_timeout, "LLM")
-            if not llm_ok:
-                print(f"[WARN] LLM is still not ready after {args.llm_timeout}s.")
-            else:
-                # Warm-up: pre-fill KV cache so the first user request is fast
-                print("[LLM] Sending warm-up request to pre-load KV cache...")
-                warmup_payload = {
-                    "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 1,
-                    "temperature": 0,
-                }
-                warmup_status = post_json(
-                    f"http://127.0.0.1:{args.primary_port}/v1/chat/completions",
-                    warmup_payload,
-                    timeout=60.0,
+                llm_ok = wait_llm_ready_with_model_manager(
+                    api_base=f"http://127.0.0.1:{args.port}",
+                    llm_base=f"http://127.0.0.1:{args.primary_port}",
+                    timeout_sec=args.llm_timeout,
+                    cuda_expected=cuda_expected,
+                    proc=proc,
                 )
-                if warmup_status and warmup_status < 300:
-                    print("[LLM] Warm-up complete.")
+            if not llm_ok:
+                failed_status_payload = _model_manager_status(f"http://127.0.0.1:{args.port}") if cuda_expected else {}
+                if cuda_expected and _llm_gpu_validation_failed(failed_status_payload):
+                    print("[WARN] LLM startup stopped because GPU validation failed.")
                 else:
-                    print("[LLM][WARN] Warm-up request did not succeed (non-critical).")
+                    print(f"[WARN] LLM is still not ready after {args.llm_timeout}s.")
+            else:
+                # Warm-up: pre-fill KV cache only after ModelManager GPU validation is OK.
+                if cuda_expected:
+                    warmup_status_payload = _model_manager_status(f"http://127.0.0.1:{args.port}")
+                    if not _llm_gpu_validation_ready(warmup_status_payload, cuda_expected):
+                        print("[LLM][WARN] Warm-up skipped until GPU validation is OK.")
+                        llm_ok = False
+                if llm_ok:
+                    print("[LLM] Sending warm-up request to pre-load KV cache...")
+                    warmup_payload = {
+                        "messages": [{"role": "user", "content": "hi"}],
+                        "max_tokens": 1,
+                        "temperature": 0,
+                    }
+                    warmup_status = post_json(
+                        f"http://127.0.0.1:{args.primary_port}/v1/chat/completions",
+                        warmup_payload,
+                        timeout=60.0,
+                    )
+                    if warmup_status and warmup_status < 300:
+                        print("[LLM] Warm-up complete.")
+                    else:
+                        print("[LLM][WARN] Warm-up request did not succeed (non-critical).")
         elif db_exists and db_total > 0 and require_benchmark:
             print(
                 "[WAIT] model_db has models but no benchmarked models. "
@@ -621,7 +705,7 @@ def main() -> int:
 
         lan_ip = detect_lan_ip()
         print("\n==============================================")
-        print(" CodeAgent ready!")
+        print(" CodeAgent ready!" if llm_ok else " CodeAgent ready with warnings")
         print(f"  Local : http://localhost:{args.port}/")
         print(f"  LAN   : http://{lan_ip}:{args.port}/")
         print(f"  Mode  : {mode_num}  Profile: {mode_key}")

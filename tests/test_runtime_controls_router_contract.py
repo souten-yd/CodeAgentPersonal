@@ -28,6 +28,16 @@ def test_create_app_runtime_controls_fallbacks_return_safe_payloads():
         "n_ctx_runtime": 0,
         "n_ctx_train": 0,
         "raw": {},
+        "last_model_load_status": "idle",
+        "last_model_load_error": None,
+        "gpu_validation_status": "unavailable",
+        "gpu_validation_reason": "runtime provider unavailable",
+        "gpu_validation_path": None,
+        "llama_log_parser_stale_suspected": False,
+        "llama_readiness_signals": {},
+        "last_start_cmd": "",
+        "requested_ngl": None,
+        "final_requested_ngl": None,
         "note": "runtime provider unavailable",
     }
 
@@ -131,7 +141,9 @@ def test_main_app_runtime_controls_use_provider_backed_existing_payloads(monkeyp
     props_body = props_response.json()
     assert props_body["n_ctx"] == 65535
     assert props_body["n_ctx_runtime"] == 24576
-    assert props_body["note"] == "using server default"
+    assert props_body["note"] == "using cached runtime status; no live llama/CUDA probe"
+    assert "last_model_load_status" in props_body
+    assert "gpu_validation_status" in props_body
 
     assert search_response.status_code == 200
     assert search_response.json() == {"enabled": True, "num_results": 7}
@@ -169,3 +181,59 @@ def test_main_app_runtime_controls_use_provider_backed_existing_payloads(monkeyp
     assert model_startup_body["log_path"] == "/tmp/nonexistent-codeagent-test.log"
     assert model_startup_body["log_tail"] == ""
     assert model_startup_body["runtime_cuda_debug"] == cuda_debug_payload
+
+
+def test_llm_props_does_not_call_torch_cuda_probe(monkeypatch):
+    class _Cuda:
+        def is_available(self):
+            raise AssertionError("torch.cuda.is_available must not be called by /llm/props")
+
+    class _Torch:
+        __version__ = "test"
+        cuda = _Cuda()
+
+    monkeypatch.setitem(__import__("sys").modules, "torch", _Torch())
+    monkeypatch.setattr(main, "_current_n_ctx", 4096)
+    client = TestClient(main.app)
+
+    response = client.get("/llm/props")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["n_ctx_runtime"] == 4096
+    assert body["note"] == "using cached runtime status; no live llama/CUDA probe"
+
+
+def test_runtime_cuda_debug_may_call_torch_probe(monkeypatch):
+    calls = {"count": 0}
+
+    class _Cuda:
+        def is_available(self):
+            calls["count"] += 1
+            raise RuntimeError("CUDA unknown error")
+
+        def device_count(self):
+            return 0
+
+    class _Version:
+        cuda = "12.test"
+
+    class _Torch:
+        __version__ = "test"
+        version = _Version()
+        cuda = _Cuda()
+
+    monkeypatch.setitem(__import__("sys").modules, "torch", _Torch())
+    monkeypatch.setattr(main, "_CUDA_DEBUG_TORCH_CACHE", None)
+    monkeypatch.setattr(main, "_CUDA_DEBUG_CT2_CACHE", None)
+
+    client = TestClient(main.app)
+    response = client.get("/runtime/cuda-debug")
+    second = client.get("/runtime/cuda-debug")
+
+    assert response.status_code == 200
+    assert second.status_code == 200
+    body = response.json()
+    assert calls["count"] == 1
+    assert body["torch_cuda_available"] is False
+    assert "RuntimeError: CUDA unknown error" in body["torch_cuda_error"]

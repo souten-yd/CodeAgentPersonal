@@ -1297,6 +1297,11 @@ class ModelManager:
         self._last_nvidia_smi_before: list[dict[str, int | str]] = []
         self._last_nvidia_smi_after: list[dict[str, int | str]] = []
         self._last_ngl_search_debug: dict[str, Any] = {}
+        self.last_model_load_status: str = "idle"
+        self.last_model_load_error: str | None = None
+        self.last_gpu_validation_status: str = "pending"
+        self.last_gpu_validation_reason: str | None = None
+        self.last_gpu_validation_path: str | None = None
         self._startup_log_fd = None
         self._load_guard_lock = _mm_thread.Lock()
         self._load_in_progress = False
@@ -1305,6 +1310,62 @@ class ModelManager:
             print(f"[ModelManager] WARNING: llama-server not found: {self.llama_path}")
         # 起動時に実際に動いているモデルを検出してcurrent_keyを同期
         self._sync_current_model()
+
+    def _set_model_load_state(
+        self,
+        status: str,
+        error: str | None = None,
+        *,
+        gpu_status: str | None = None,
+        gpu_reason: str | None = None,
+        gpu_path: str | None = None,
+    ) -> None:
+        self.last_model_load_status = status
+        self.last_model_load_error = error
+        if gpu_status is not None:
+            self.last_gpu_validation_status = gpu_status
+            self.last_gpu_validation_reason = gpu_reason
+            self.last_gpu_validation_path = gpu_path
+        else:
+            if gpu_reason is not None:
+                self.last_gpu_validation_reason = gpu_reason
+            if gpu_path is not None:
+                self.last_gpu_validation_path = gpu_path
+
+    def _validation_failure_error(self, parsed: dict | None = None, reason: str | None = None) -> str:
+        parsed = parsed or self._last_llama_gpu_log or {}
+        fields = {
+            "cuda_init_failed": bool(parsed.get("cuda_init_failed", False)),
+            "no_usable_gpu": bool(parsed.get("no_usable_gpu", False)),
+            "health_ok": bool(((parsed.get("llama_readiness_signals") or {}).get("http_signal") or {}).get("health_ok", False)),
+            "process_alive": bool(((parsed.get("llama_readiness_signals") or {}).get("process_signal") or {}).get("alive", False)),
+        }
+        details = ", ".join(f"{k}={v}" for k, v in fields.items())
+        return f"GPU validation failed: {details}; {reason or parsed.get('gpu_validation_reason') or 'unknown reason'}"
+
+    def llm_cached_status_dict(self) -> dict[str, Any]:
+        parsed = dict(getattr(self, "_last_llama_gpu_log", {}) or {})
+        search_debug = dict(getattr(self, "_last_ngl_search_debug", {}) or {})
+        validation_status = getattr(self, "last_gpu_validation_status", None) or parsed.get("gpu_validation_status") or "pending"
+        validation_reason = getattr(self, "last_gpu_validation_reason", None) or parsed.get("gpu_validation_reason")
+        validation_path = getattr(self, "last_gpu_validation_path", None) or parsed.get("gpu_validation_path") or parsed.get("llama_gpu_validation_path")
+        return {
+            "last_model_load_status": getattr(self, "last_model_load_status", "idle"),
+            "last_model_load_error": getattr(self, "last_model_load_error", None),
+            "gpu_validation_status": validation_status,
+            "gpu_validation_reason": validation_reason,
+            "gpu_validation_path": validation_path,
+            "last_gpu_validation_status": validation_status,
+            "last_gpu_validation_reason": validation_reason,
+            "last_gpu_validation_path": validation_path,
+            "cuda_init_failed": bool(parsed.get("cuda_init_failed", False)),
+            "no_usable_gpu": bool(parsed.get("no_usable_gpu", False)),
+            "llama_log_parser_stale_suspected": bool(parsed.get("llama_log_parser_stale_suspected", False)),
+            "llama_readiness_signals": parsed.get("llama_readiness_signals") or {},
+            "last_start_cmd": getattr(self, "_last_start_cmd", ""),
+            "requested_ngl": parsed.get("requested_ngl"),
+            "final_requested_ngl": search_debug.get("final_requested_ngl"),
+        }
 
     def has_llama_server(self) -> bool:
         return bool(self.llama_path and os.path.exists(self.llama_path))
@@ -1776,6 +1837,7 @@ class ModelManager:
 
         with self._lock:
             self._status = "switching"
+            self._set_model_load_state("loading", None, gpu_status="pending", gpu_reason=None, gpu_path=None)
             catalog = self._catalog()
             spec = catalog[key]
             self._switch_eta = _mm_time.time() + spec["load_sec"]
@@ -1792,6 +1854,9 @@ class ModelManager:
             if ok:
                 self.current_key = key
                 self._status = "ready"
+                if self.last_gpu_validation_status == "pending":
+                    self.last_gpu_validation_status = "not_applicable"
+                self._set_model_load_state("ready", None)
                 self._last_startup_hints = []  # 起動成功時はヒントをクリア
                 # _current_n_ctxをモデルのctxに合わせて更新
                 global _current_n_ctx
@@ -1801,6 +1866,8 @@ class ModelManager:
                 return True
             else:
                 self._status = "error"
+                if not self.last_model_load_error:
+                    self._set_model_load_state("error", f"Failed to load {spec['name']}")
                 emit("model_error", f"Failed to load {spec['name']}", -1, 0)
                 return False
 
@@ -2190,6 +2257,7 @@ class ModelManager:
         Returns: "ok" | "oom" | "fail"
         """
         self._last_llama_gpu_log = {}
+        self._set_model_load_state("loading", None, gpu_status="pending", gpu_reason=None, gpu_path=None)
         self._last_nvidia_smi_before = []
         self._last_nvidia_smi_after = []
         runpod_linux = self._is_runpod_linux_runtime(self._last_runtime_decision or None)
@@ -2197,6 +2265,7 @@ class ModelManager:
             msg = "Runpod/Linux requires explicit -ngl/--n-gpu-layers; refusing auto-fit command"
             print(f"[ModelManager] {msg}")
             self._last_startup_hints = [msg]
+            self._set_model_load_state("error", msg, gpu_status="fail", gpu_reason=msg, gpu_path="runpod_explicit_ngl_required")
             return "fail"
 
         # ─── コマンド構築 ─────────────────────────────────────
@@ -2252,6 +2321,7 @@ class ModelManager:
             msg = f"Runpod/Linux command missing explicit -ngl/--n-gpu-layers: {self._last_start_cmd}"
             print(f"[ModelManager] {msg}")
             self._last_startup_hints = [msg]
+            self._set_model_load_state("error", msg, gpu_status="fail", gpu_reason=msg, gpu_path="runpod_explicit_ngl_required")
             return "fail"
 
         # ─── プロセス起動 ─────────────────────────────────────
@@ -2283,6 +2353,7 @@ class ModelManager:
                     pass
             self._startup_log_fd = None
             print(f"[ModelManager] Popen error: {e}")
+            self._set_model_load_state("error", f"Popen error: {e}")
             return "fail"
 
         # ─── ヘルスチェックループ ─────────────────────────────
@@ -2308,10 +2379,19 @@ class ModelManager:
                         ok, status, reason = self._validate_runpod_linux_gpu_startup(self._last_llama_gpu_log)
                         self._last_llama_gpu_log["gpu_validation_status"] = status
                         self._last_llama_gpu_log["gpu_validation_reason"] = reason
+                        validation_path = self._last_llama_gpu_log.get("gpu_validation_path") or self._last_llama_gpu_log.get("llama_gpu_validation_path")
                         if not ok:
                             msg = f"Runpod/Linux GPU validation failed: {reason}"
                             print(f"[ModelManager] {msg}")
                             self._last_startup_hints = [msg]
+                            self._set_model_load_state(
+                                "error",
+                                self._validation_failure_error(self._last_llama_gpu_log, reason),
+                                gpu_status="fail",
+                                gpu_reason=reason,
+                                gpu_path=validation_path,
+                            )
+                            self._kill_process()
                             return "fail"
                         if self._last_llama_gpu_log.get("n_gpu_layers") is None:
                             msg = f"Runpod/Linux GPU validation accepted without n_gpu_layers: {reason}"
@@ -2324,11 +2404,19 @@ class ModelManager:
                             )
                             print(msg)
                             self._last_startup_hints = list(self._last_startup_hints or []) + [msg]
+                    self._set_model_load_state(
+                        "ready",
+                        None,
+                        gpu_status=("ok" if runpod_linux else "not_applicable"),
+                        gpu_reason=(self._last_llama_gpu_log or {}).get("gpu_validation_reason"),
+                        gpu_path=(self._last_llama_gpu_log or {}).get("gpu_validation_path") or (self._last_llama_gpu_log or {}).get("llama_gpu_validation_path"),
+                    )
                     return "ok"
             except Exception:
                 pass
             if self._process.poll() is not None:
                 print("[ModelManager] process exited during load")
+                self._set_model_load_state("error", "llama-server process exited during load")
                 break
 
         # ─── 失敗判定: OOMか否か ──────────────────────────────
@@ -2342,7 +2430,9 @@ class ModelManager:
             "ggml_cuda_device_malloc", "not enough memory", "メモリ",
         )
         if any(kw in hints_text for kw in _oom_keywords):
+            self._set_model_load_state("error", "llama-server failed with OOM during load")
             return "oom"
+        self._set_model_load_state("error", "; ".join(self._last_startup_hints) or "llama-server failed during load")
         return "fail"
 
 
@@ -2658,7 +2748,8 @@ class ModelManager:
                     "available": bool(v["path"])}
                 for k, v in catalog.items()
             },
-            "runtime_cuda_debug": self.cuda_debug_dict(),
+            "runtime_cuda_debug": self.llm_cached_status_dict(),
+            **self.llm_cached_status_dict(),
         }
 
     def cuda_debug_dict(self) -> dict:
@@ -2737,25 +2828,51 @@ class ModelManager:
 
 
 
+_CUDA_DEBUG_TORCH_CACHE: dict[str, Any] | None = None
+_CUDA_DEBUG_CT2_CACHE: dict[str, Any] | None = None
+
+
 def _probe_cuda_debug_torch() -> dict[str, Any]:
-    """Probe main-venv torch CUDA state only when /runtime/cuda-debug is called."""
+    """Probe main-venv torch CUDA state only for /runtime/cuda-debug and cache it."""
+    global _CUDA_DEBUG_TORCH_CACHE
+    if _CUDA_DEBUG_TORCH_CACHE is not None:
+        return dict(_CUDA_DEBUG_TORCH_CACHE)
+    runtime = (_model_manager._last_runtime_decision if "_model_manager" in globals() else {}) or {}
+    runpod_linux_nvidia = bool(
+        runtime.get("runpod_detected")
+        and runtime.get("is_linux")
+        and not runtime.get("is_windows")
+        and str(runtime.get("gpu_vendor") or "").lower() == "nvidia"
+    )
     try:
         import torch  # type: ignore
 
         available = bool(torch.cuda.is_available())
-        return {
+        result = {
             "available": available,
             "error": "",
+            "warning": "",
             "torch_version": str(getattr(torch, "__version__", "")),
             "cuda_version": str(getattr(getattr(torch, "version", None), "cuda", "") or ""),
             "device_count": int(torch.cuda.device_count()) if hasattr(torch.cuda, "device_count") else 0,
+            "cached": False,
         }
     except Exception as exc:
-        return {"available": False, "error": f"{type(exc).__name__}: {exc}"}
+        result = {
+            "available": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "warning": "" if runpod_linux_nvidia else "torch CUDA probe failed outside Runpod/Linux/NVIDIA; treating as warning",
+            "cached": False,
+        }
+    _CUDA_DEBUG_TORCH_CACHE = dict(result)
+    return result
 
 
 def _probe_cuda_debug_ctranslate2() -> dict[str, Any]:
-    """Probe ctranslate2 CUDA state only when /runtime/cuda-debug is called."""
+    """Probe ctranslate2 CUDA state only for /runtime/cuda-debug and cache it."""
+    global _CUDA_DEBUG_CT2_CACHE
+    if _CUDA_DEBUG_CT2_CACHE is not None:
+        return dict(_CUDA_DEBUG_CT2_CACHE)
     try:
         import ctranslate2  # type: ignore
 
@@ -2768,15 +2885,18 @@ def _probe_cuda_debug_ctranslate2() -> dict[str, Any]:
         if callable(get_supported):
             supported_compute_types = [str(x) for x in (get_supported("cuda") or [])]
         available = bool((device_count is not None and device_count > 0) or supported_compute_types)
-        return {
+        result = {
             "available": available,
             "error": "",
             "version": str(getattr(ctranslate2, "__version__", "")),
             "device_count": device_count,
             "supported_compute_types": supported_compute_types,
+            "cached": False,
         }
     except Exception as exc:
-        return {"available": False, "error": f"{type(exc).__name__}: {exc}"}
+        result = {"available": False, "error": f"{type(exc).__name__}: {exc}", "cached": False}
+    _CUDA_DEBUG_CT2_CACHE = dict(result)
+    return result
 
 _model_manager = ModelManager()
 
@@ -15199,27 +15319,17 @@ app.state.project_files_provider = project_files_payload
 # =========================
 
 def runtime_llm_props_payload():
-    """llama-serverのプロパティ(最大コンテキスト長等)を返す"""
+    """Return lightweight cached LLM props/status without live llama or CUDA probes."""
     ui_max_ctx = 65535
-    try:
-        res = requests.get(f"http://127.0.0.1:{_model_manager.llm_port}/props", timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            # /propsのn_ctxが信頼できる場合はそれを使用
-            # ただし llama-server は /props で default_generation_settings.n_ctx を返す場合がある
-            n_ctx = (data.get("default_generation_settings", {}).get("n_ctx")
-                     or data.get("n_ctx")
-                     or _current_n_ctx)
-            return {
-                "n_ctx": max(int(n_ctx or 0), ui_max_ctx),
-                "n_ctx_runtime": int(n_ctx or _current_n_ctx),
-                "n_ctx_train": data.get("n_ctx_train", n_ctx),
-                "raw": {k: v for k, v in data.items() if k in ("n_ctx","n_ctx_train","model_path","total_slots")}
-            }
-    except Exception:
-        pass
-    # フォールバック: サーバー側の_current_n_ctxを返す（スライダーがずれない）
-    return {"n_ctx": ui_max_ctx, "n_ctx_runtime": _current_n_ctx, "note": "using server default"}
+    cached = _model_manager.llm_cached_status_dict()
+    return {
+        "n_ctx": max(int(_current_n_ctx or 0), ui_max_ctx),
+        "n_ctx_runtime": int(_current_n_ctx or 0),
+        "n_ctx_train": _current_n_ctx,
+        "raw": {},
+        "note": "using cached runtime status; no live llama/CUDA probe",
+        **cached,
+    }
 
 # =========================
 # コンテキスト長設定
@@ -16547,6 +16657,7 @@ def model_db_status_payload() -> dict:
         "benchmarked": len(benchmarked),
         "has_vlm": has_vlm,
         "db_path": MODEL_DB_PATH,
+        **_model_manager.llm_cached_status_dict(),
     }
 
 
