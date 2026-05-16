@@ -706,3 +706,7 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 - PR-21C: completed
 - PR-21D: Current
 - PR-22: Next
+
+- PR-22C completed
+- PR-23 current
+- PR-24 next

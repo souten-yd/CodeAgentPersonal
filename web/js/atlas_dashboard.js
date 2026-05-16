@@ -44,6 +44,9 @@
     safeApplyResults: {},
     verificationResults: {},
     verificationSubmitting: false,
+    debugReviewResults: {},
+    debugReviewSubmitting: false,
+    debugReviewCandidates: [],
   };
 
   const $ = (id) => document.getElementById(id);
@@ -314,6 +317,7 @@
     renderApprovalPanel();
     refreshVerificationCandidates();
     renderVerificationPanel();
+    refreshDebugReviewCandidates();
     if ($('atlas-checkpoint-path')) $('atlas-checkpoint-path').textContent = state.checkpointPath || 'No checkpoint yet.';
     const summary = state.continuationSummary || {};
     if ($('atlas-continuation-summary')) {
@@ -635,6 +639,47 @@
     });
   }
 
+
+
+  function refreshDebugReviewCandidates() {
+    state.debugReviewCandidates = getItems().filter((item) => {
+      const verificationStatus = String(item?.metadata?.verification?.status || '').toLowerCase();
+      const itemStatus = String(item?.status || '').toLowerCase();
+      return verificationStatus === 'failed' || itemStatus === 'failed';
+    });
+    renderDebugReviewPanel();
+  }
+
+  async function runDebugReview(itemId) {
+    if (!itemId || state.debugReviewSubmitting) return;
+    state.debugReviewSubmitting = true;
+    renderDebugReviewPanel();
+    const payload = { pool_id: state.currentPoolId, item_id: itemId, run_id: state.currentRunId || '', workspace_id: workspaceId(), source_type: 'verification' };
+    const result = await root.AtlasPipelineAPI.runDebugReview(payload);
+    state.debugReviewSubmitting = false;
+    if (result.ok) {
+      state.debugReviewResults[itemId] = result.data || {};
+      applyOrchestrationSummary(result.data?.orchestration_summary);
+      state.continuationPrompt = result.data?.continuation_prompt || state.continuationPrompt;
+      await refreshPlanPool();
+    } else {
+      showWarning(result.message || 'Debug review failed');
+    }
+    renderDebugReviewPanel();
+  }
+
+  function renderDebugReviewPanel() {
+    const el = $('atlas-debug-review-list');
+    if (!el) return;
+    const rows = state.debugReviewCandidates || [];
+    if (!rows.length) { el.innerHTML = '<div class="atlas-muted">No failed verification items.</div>'; return; }
+    el.innerHTML = rows.map((item) => {
+      const review = item?.metadata?.debug_review || state.debugReviewResults[item.item_id] || {};
+      const status = review.status || state.debugReviewResults[item.item_id]?.status || '';
+      return `<div class="atlas-approval-item"><div><strong>${esc(item.item_id)}</strong> ${esc(item.title||'')}</div><div>Status: ${esc(status)} / Root cause: ${esc(review.root_cause_category||'')}<br>Proposed fix: ${esc(review.proposed_fix||'')}</div><button class="atlas-secondary-btn" data-debug-review-item="${esc(item.item_id)}" ${state.debugReviewSubmitting?'disabled':''}>Run Debug Review</button></div>`;
+    }).join('');
+    el.querySelectorAll('button[data-debug-review-item]').forEach((btn)=>btn.addEventListener('click',()=>runDebugReview(btn.getAttribute('data-debug-review-item')||'')));
+  }
   function renderVerificationPanel() {
     const host = $('atlas-verification-list');
     if (!host) return;
