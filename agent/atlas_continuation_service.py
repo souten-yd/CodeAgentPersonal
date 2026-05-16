@@ -5,6 +5,7 @@ from typing import Any
 
 from agent.atlas_continuation_schema import AtlasContinuationSummary
 from agent.atlas_journal import AtlasJournal
+from agent.atlas_orchestration_summary import AtlasOrchestrationSummaryBuilder
 from agent.atlas_recovery_service import AtlasRecoveryService
 
 
@@ -48,6 +49,20 @@ class AtlasContinuationService:
 - Last Event: {summary.last_event_type} - {summary.last_event_message}
 - Next Action: {summary.next_action}
 
+Planning:
+- planner_mode: {summary.metadata.get("planner_mode", "")}
+- planner_status: {summary.metadata.get("planner_status", "")}
+- used_fallback: {str(bool(summary.metadata.get("used_fallback", False))).lower()}
+- fallback_reason: {summary.metadata.get("fallback_reason", "")}
+- questions_count: {summary.metadata.get("questions_count", 0)}
+- orchestration_next_action: {summary.metadata.get("orchestration_next_action", summary.next_action)}
+
+Current Gate:
+- gate: {summary.metadata.get("current_gate", "none")}
+- requires_clarification: {str(bool(summary.metadata.get("requires_clarification", False))).lower()}
+- requires_approval: {str(bool(summary.metadata.get("requires_approval", False))).lower()}
+- stale_recovery_warning: {summary.metadata.get("stale_recovery_warning", "")}
+
 重要方針:
 - Task独立機能は廃止。
 - Task = PlanItem。
@@ -57,7 +72,10 @@ class AtlasContinuationService:
 - AutopilotはPlanPoolをpipeline実行する。
 - Journal / Markdown / events.ndjson を正として状態復元する。
 - safe_apply / TestCommand / DebugLoop / DeepResearchの自動実行はまだしない。
-- 現在のCreate Planはfallback PlanPoolを生成する。実Planner統合は次段階。
+- Create Planはplanner_modeに応じてreal Plannerまたはfallback PlanPoolを使う。fallback_usedの場合はreal Planner接続/LLM JSON functionを確認する。
+- waiting_for_clarificationの場合、次チャットではPlanner questionsを確認してgoalを補足する。
+- approval_requiredの場合、approval対象を確認し、自動実行は開始しない。
+- staleの場合、recovered PlanPoolから新しいdry-runを開始する。
 
 次にやること:
 {summary.next_action}
@@ -109,6 +127,7 @@ class AtlasContinuationService:
 
     def _finalize(self, summary: AtlasContinuationSummary) -> AtlasContinuationSummary:
         pool = None
+        state = None
         if summary.pool_id:
             try:
                 pool = self.journal.load_plan_pool(summary.pool_id)
@@ -147,6 +166,35 @@ class AtlasContinuationService:
                 if pool is not None and summary.current_item_id:
                     item = pool.get_item(summary.current_item_id)
                     summary.current_item_title = item.title if item else summary.current_item_title
+        recovery_metadata = dict(summary.metadata.get("recovery") or {})
+        orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, state if summary.pool_id and summary.run_id else None, recovery=recovery_metadata)
+        orchestration_data = _model_dump(orchestration)
+        pool_metadata = _model_dump(pool).get("metadata", {}) if pool is not None else {}
+        summary.metadata.update({
+            "orchestration_summary": orchestration_data,
+            "orchestration_next_action": orchestration.next_action,
+            "planner_mode": pool_metadata.get("planner_mode", pool_metadata.get("mode", "")),
+            "planner_status": pool_metadata.get("planner_status", ""),
+            "used_fallback": bool(pool_metadata.get("used_fallback", False)),
+            "fallback_reason": pool_metadata.get("fallback_reason", ""),
+            "requires_clarification": orchestration.requires_clarification,
+            "requires_approval": orchestration.requires_approval,
+            "questions_count": int(pool_metadata.get("questions_count", 0) or pool_metadata.get("question_count", 0) or 0),
+            "stale_recovery_warning": "Start a new dry-run from the recovered PlanPool." if orchestration.is_stale else "",
+            "current_gate": self._current_gate(orchestration),
+        })
+        if not summary.next_action or summary.next_action in {"Continue pipeline from the recovered checkpoint."}:
+            summary.next_action = orchestration.next_action or summary.next_action
         summary.metadata["checkpoint_excerpt"] = self.read_checkpoint_excerpt(summary.pool_id, max_chars=4000)
         summary.continuation_prompt = self.build_prompt(summary)
         return summary
+
+    @staticmethod
+    def _current_gate(orchestration) -> str:
+        if orchestration.requires_clarification:
+            return "clarification_required"
+        if orchestration.requires_approval:
+            return "approval_required"
+        if orchestration.is_stale:
+            return "stale"
+        return "none"

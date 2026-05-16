@@ -63,6 +63,7 @@ def test_planpool_pipeline_recovery_and_details_containers_exist() -> None:
         'id="atlas-details-drawer"',
         'id="atlas-markdown-panel"',
         'id="atlas-events-panel"',
+        'id="atlas-questions-panel"',
         'id="atlas-json-panel"',
     ):
         assert token in block
@@ -89,8 +90,11 @@ def test_advanced_settings_include_planner_mode_select() -> None:
 def test_dashboard_displays_planner_fallback_and_clarification_states() -> None:
     assert "Planner fallback used:" in ATLAS_DASHBOARD_JS
     assert "waiting_for_clarification" in ATLAS_DASHBOARD_JS
-    assert "追加確認が必要です。Detailsを確認してください。" in ATLAS_DASHBOARD_JS
+    assert "追加確認が必要です。DetailsでPlanner questionsを確認してください。" in ATLAS_DASHBOARD_JS
     assert "lastPlanResponse" in ATLAS_DASHBOARD_JS
+    assert "orchestrationSummary" in ATLAS_DASHBOARD_JS
+    assert "applyOrchestrationSummary" in ATLAS_DASHBOARD_JS
+    assert "requires_clarification" in ATLAS_DASHBOARD_JS
 
 def test_dashboard_handles_pipeline_state_not_found_as_stale_recovery() -> None:
     assert "pipeline_state_not_found" in ATLAS_API_JS
@@ -194,3 +198,20 @@ def test_continuation_css_contract() -> None:
         "overflow-wrap: anywhere",
     ):
         assert token in CSS
+
+
+def test_dashboard_orchestration_summary_controls_next_action_and_buttons() -> None:
+    assert "state.orchestrationSummary?.next_action" in ATLAS_DASHBOARD_JS
+    assert "can_start_dry_run" in ATLAS_DASHBOARD_JS
+    assert "can_refresh_status" in ATLAS_DASHBOARD_JS
+    assert "updateActionButtons" in ATLAS_DASHBOARD_JS
+    assert "approval required before dry-run continuation" in ATLAS_DASHBOARD_JS
+
+
+def test_waiting_for_clarification_uses_warning_not_error_contract() -> None:
+    waiting_index = ATLAS_DASHBOARD_JS.index("waiting_for_clarification")
+    nearby = ATLAS_DASHBOARD_JS[waiting_index:waiting_index + 900]
+    assert "showWarning" in nearby
+    assert "showError" not in nearby
+    assert "atlas-questions-panel" in HTML
+    assert "atlas-questions-list" in CSS

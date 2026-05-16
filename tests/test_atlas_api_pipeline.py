@@ -31,6 +31,8 @@ def test_create_plan_pool_from_empty_payload_returns_fallback_pool(tmp_path) -> 
     assert body["pool_id"]
     assert body["item_count"] >= 3
     assert Path(body["checkpoint_path"]).exists()
+    assert body["orchestration_summary"]["phase"] == "plan_ready"
+    assert body["orchestration_summary"]["can_start_dry_run"] is True
     item_types = {item["item_type"] for item in body["plan_pool"]["items"]}
     assert {"research", "planning", "verification"}.issubset(item_types)
 
@@ -72,6 +74,8 @@ def test_pipeline_dry_run_runs_fallback_pool(tmp_path) -> None:
     assert body["pool_id"] == created["pool_id"]
     assert body["status"] in {"completed", "paused", "blocked", "failed", "completed_with_warnings"}
     assert Path(body["checkpoint_path"]).exists()
+    assert body["orchestration_summary"]["pool_id"] == created["pool_id"]
+    assert body["orchestration_summary"]["phase"] in {"completed", "approval_required", "blocked", "failed", "running"}
     assert body["events"]
 
 
@@ -125,12 +129,15 @@ def test_recovery_latest_marks_missing_run_state_as_stale(tmp_path) -> None:
     response = client.get("/api/atlas/recovery/latest")
 
     assert response.status_code == 200
-    summary = response.json()["recovery_summary"]
+    payload = response.json()
+    summary = payload["recovery_summary"]
     assert summary["pool_id"] == created["pool_id"]
     assert summary["run_id"] == dry_run["run_id"]
     assert summary["status"] == "stale"
     assert "pipeline_state_not_found" in summary["warnings"]
     assert summary["next_action"] == "Start a new dry-run from the recovered PlanPool."
+    assert payload["orchestration_summary"]["is_stale"] is True
+    assert payload["orchestration_summary"]["can_start_dry_run"] is True
 
 
 def test_recovery_latest(tmp_path) -> None:
@@ -350,4 +357,14 @@ def test_create_plan_pool_waiting_for_clarification_shape_if_mocked(tmp_path, mo
     assert body["pool_id"] == ""
     assert body["plan_pool"] == {}
     assert body["questions"] == [{"question_id": "q1", "prompt": "Need target?"}]
+    assert body["orchestration_summary"]["requires_clarification"] is True
+    assert body["orchestration_summary"]["phase"] == "clarification_required"
     main.app.state.atlas_llm_json_fn = None
+
+
+def test_api_still_does_not_expose_runner_execution_controls() -> None:
+    paths = {route.path for route in main.app.routes if hasattr(route, "path")}
+    atlas_paths = [path.lower() for path in paths if path.startswith("/api/atlas/")]
+
+    for forbidden in ("safe_apply", "safe-apply", "test-command", "testcommand", "debug-loop", "debugloop", "deep-research", "deepresearch"):
+        assert all(forbidden not in path for path in atlas_paths)

@@ -30,6 +30,7 @@
     continuationPrompt: '',
     continuationCopied: '',
     lastPlanResponse: null,
+    orchestrationSummary: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -61,6 +62,18 @@
 
   function normalizePipeline(payload) {
     return payload?.state ? payload.state : payload;
+  }
+
+  function applyOrchestrationSummary(summary) {
+    if (summary && typeof summary === 'object') state.orchestrationSummary = summary;
+  }
+
+  function questionsFromState() {
+    return arr(state.orchestrationSummary?.metadata?.questions).length
+      ? arr(state.orchestrationSummary.metadata.questions)
+      : arr(state.lastPlanResponse?.questions).length
+        ? arr(state.lastPlanResponse.questions)
+        : arr(normalizePipeline(state.pipelineState)?.questions);
   }
 
   function statusClass(status) {
@@ -112,16 +125,18 @@
     card.hidden = false;
   }
 
-  function showWarning(message) {
+  function showWarning(message, severity) {
     state.warning = message || null;
     const card = $('atlas-warning-card');
     if (!card) return;
     if (!message) {
       card.hidden = true;
+      card.dataset.atlasSeverity = '';
       return;
     }
     const text = $('atlas-warning-message');
     if (text) text.textContent = message;
+    card.dataset.atlasSeverity = severity || state.orchestrationSummary?.severity || 'warning';
     card.hidden = false;
   }
 
@@ -148,7 +163,9 @@
     const event = lastEvent();
     const completed = arr(pipeline?.completed_item_ids).length || arr(pool?.completed_item_ids).length;
     const total = items.length;
-    const status = pipeline?.status || (state.recoveryWarning ? 'stale' : pool?.status || 'Ready');
+    const summary = state.orchestrationSummary || {};
+    const status = summary.status || pipeline?.status || (state.recoveryWarning ? 'stale' : pool?.status || 'Ready');
+    const phase = summary.phase || '-';
     const fill = total ? Math.round((completed / total) * 100) : 0;
     const failed = arr(pipeline?.failed_item_ids).length || arr(pool?.failed_item_ids).length;
     const blocked = arr(pipeline?.blocked_item_ids).length || arr(pool?.blocked_item_ids).length;
@@ -160,6 +177,7 @@
     if ($('atlas-status-items')) $('atlas-status-items').textContent = String(total);
     if ($('atlas-status-pipeline')) $('atlas-status-pipeline').textContent = pipeline?.status || (state.recoveryWarning ? 'stale' : 'idle');
     if ($('atlas-status-last-event')) $('atlas-status-last-event').textContent = eventLabel(event);
+    if ($('atlas-status-phase')) $('atlas-status-phase').textContent = phase;
     if ($('atlas-planpool-id')) $('atlas-planpool-id').textContent = state.currentPoolId || 'No pool';
     if ($('atlas-pipeline-run-id')) $('atlas-pipeline-run-id').textContent = state.currentRunId || 'No run';
     if ($('atlas-progress-fill')) $('atlas-progress-fill').style.width = `${fill}%`;
@@ -168,20 +186,37 @@
     if ($('atlas-blocked-count')) $('atlas-blocked-count').textContent = String(blocked);
     if ($('atlas-current-item-id')) $('atlas-current-item-id').textContent = pipeline?.current_item_id || pool?.current_item_id || '-';
     if ($('atlas-next-action')) $('atlas-next-action').textContent = deriveNextAction(pool, pipeline);
-    renderPipelineStatusBadge(pipeline?.status || (state.recoveryWarning ? 'stale' : 'idle'));
+    updateActionButtons();
+    renderPipelineStatusBadge(status || (state.recoveryWarning ? 'stale' : 'idle'));
   }
 
   function deriveNextAction(pool, pipeline) {
+    if (state.orchestrationSummary?.next_action) return state.orchestrationSummary.next_action;
     const recoveryNext = state.recoverySummary?.next_action;
-    if (state.recoveryWarning) return 'Start Dry-run to create a fresh pipeline state for the recovered PlanPool.';
+    if (state.recoveryWarning) return 'Start a new dry-run from the recovered PlanPool.';
     if (recoveryNext) return recoveryNext;
     const status = pipeline?.status || '';
     if (status === 'completed') return 'Review final report or start next plan.';
     if (status === 'failed') return 'Inspect failed items in Details and prepare a follow-up plan.';
-    if (status === 'paused') return 'Review paused item before continuing.';
+    if (status === 'paused' || status === 'approval_required') return 'Review approval-required items before continuing.';
+    if (status === 'blocked') return 'Review blocked items and policy/approval reasons.';
     if (state.currentPoolId && !state.currentRunId) return 'Start Dry-run to validate the PlanPool.';
     if (!pool) return 'Create a PlanPool to begin.';
     return 'Review PlanItem cards and dry-run status.';
+  }
+
+  function updateActionButtons() {
+    const summary = state.orchestrationSummary || {};
+    const dryRunBtn = $('atlas-start-dry-run-btn');
+    const refreshBtn = $('atlas-recovery-refresh-btn');
+    if (dryRunBtn) {
+      const summaryDecides = Object.prototype.hasOwnProperty.call(summary, 'can_start_dry_run');
+      dryRunBtn.disabled = Boolean(state.loading || (summaryDecides ? !summary.can_start_dry_run : !state.currentPoolId));
+      dryRunBtn.title = summary.requires_approval ? 'approval required before dry-run continuation' : (summary.requires_clarification ? 'clarification required before dry-run' : '');
+    }
+    if (refreshBtn && Object.prototype.hasOwnProperty.call(summary, 'can_refresh_status')) {
+      refreshBtn.disabled = Boolean(state.loading || !summary.can_refresh_status);
+    }
   }
 
   function renderPipelineStatusBadge(status) {
@@ -257,10 +292,12 @@
       recoverySummary: state.recoverySummary,
       continuationSummary: state.continuationSummary,
       lastPlanResponse: state.lastPlanResponse,
+      orchestrationSummary: state.orchestrationSummary,
     };
     json.recoveryWarning = state.recoveryWarning;
     if ($('atlas-json-panel')) $('atlas-json-panel').textContent = JSON.stringify(json, null, 2);
     if ($('atlas-markdown-panel')) $('atlas-markdown-panel').textContent = state.markdown || 'No markdown loaded.';
+    renderQuestionsPanel();
     if ($('atlas-checkpoint-path')) $('atlas-checkpoint-path').textContent = state.checkpointPath || 'No checkpoint yet.';
     const summary = state.continuationSummary || {};
     if ($('atlas-continuation-summary')) {
@@ -270,6 +307,18 @@
     }
     if ($('atlas-continuation-prompt')) $('atlas-continuation-prompt').value = state.continuationPrompt || '';
     if ($('atlas-copy-status')) $('atlas-copy-status').textContent = state.continuationCopied || '';
+  }
+
+  function renderQuestionsPanel() {
+    const host = $('atlas-questions-panel');
+    if (!host) return;
+    const questions = questionsFromState();
+    if (!questions.length) {
+      host.innerHTML = '<div class="atlas-empty-state">No planner questions.</div>';
+      return;
+    }
+    host.innerHTML = `<div class="atlas-info-card" data-atlas-clarification-warning="true"><b>追加確認が必要です。</b><span>DetailsでPlanner questionsを確認してください。</span></div>`
+      + `<ul class="atlas-questions-list">${questions.map((q, index) => `<li><b>${esc(q.question_id || `q${index + 1}`)}</b>: ${esc(q.prompt || q.question || q.message || JSON.stringify(q))}</li>`).join('')}</ul>`;
   }
 
   function renderRecovery() {
@@ -342,6 +391,7 @@
         state.currentPoolId = '';
         state.currentRunId = '';
         state.planPool = null;
+        applyOrchestrationSummary(data.orchestration_summary);
         state.pipelineState = { status: 'waiting_for_clarification', questions: arr(data.questions), warnings: arr(data.warnings) };
         state.recoveryWarning = '';
         state.events = [];
@@ -349,8 +399,9 @@
         state.checkpointPath = '';
         removeStorage(storageKeys.poolId);
         removeStorage(storageKeys.runId);
-        showWarning('追加確認が必要です。Detailsを確認してください。');
+        showWarning('追加確認が必要です。DetailsでPlanner questionsを確認してください。', 'warning');
       } else {
+        applyOrchestrationSummary(data.orchestration_summary);
         state.currentPoolId = data.pool_id;
         state.currentRunId = '';
         state.planPool = data.plan_pool || data;
@@ -362,7 +413,7 @@
         const plannerMessage = data.used_fallback
           ? `Planner fallback used: ${data.fallback_reason || warnings.join(', ') || 'real planner unavailable'}`
           : (warnings.length ? `Planner warnings: ${warnings.join(', ')}` : '');
-        showWarning(plannerMessage || null);
+        showWarning(plannerMessage || null, data.orchestration_summary?.severity);
         state.checkpointPath = data.checkpoint_path || '';
         writeStorage(storageKeys.poolId, state.currentPoolId);
         await loadMarkdown();
@@ -390,6 +441,7 @@
     };
     const data = await handleResult(await root.AtlasPipelineAPI.startPipelineDryRun(payload), 'Start Dry-run failed');
     if (data) {
+      applyOrchestrationSummary(data.orchestration_summary);
       state.currentRunId = data.run_id;
       state.pipelineState = data;
       state.events = arr(data.events);
@@ -435,6 +487,7 @@
       }
       const data = await handleResult(result, 'Refresh Status failed');
       if (data) {
+        applyOrchestrationSummary(data.orchestration_summary);
         state.recoveryWarning = '';
         showWarning(null);
         state.pipelineState = normalizePipeline(data);
@@ -512,11 +565,15 @@
     if (!result?.ok) return;
     const recovery = result.data?.recovery_summary || result.data;
     state.recoverySummary = recovery;
+    applyOrchestrationSummary(result.data?.orchestration_summary);
     const recoveredPool = recovery?.pool_id || readStorage(storageKeys.poolId);
     const recoveredRun = recovery?.run_id || readStorage(storageKeys.runId);
     if (recoveredPool) state.currentPoolId = recoveredPool;
     if (recoveredRun && recovery?.status !== 'stale') state.currentRunId = recoveredRun;
-    if (recovery?.status === 'stale') markStaleRecovery();
+    if (recovery?.status === 'stale') {
+      markStaleRecovery();
+      applyOrchestrationSummary(result.data?.orchestration_summary);
+    }
     if (recoveredPool || recoveredRun) state.restored = true;
     if (state.currentPoolId) await refreshStatus();
     await refreshContinuation();

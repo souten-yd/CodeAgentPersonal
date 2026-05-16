@@ -586,7 +586,7 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 - 既存Lumen / Echo / Nexus破壊禁止。
 
 
-## Current: PR-ATLAS-PIPE-16: Integrate real Planner bridge into Atlas PlanPool creation
+## Completed: PR-ATLAS-PIPE-16: Integrate real Planner bridge into Atlas PlanPool creation
 
 - Add AtlasPlannerBridge and schema as an internal bridge from existing TaskPlanningRunner output to AtlasPlanPool.
 - Extend POST /api/atlas/plan-pools with planner_mode and requirement_mode while keeping plan_payload compatibility.
@@ -594,7 +594,27 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 - Preserve waiting_for_clarification as a non-error response shape for Details/JSON display.
 - Do not add Task/Agent APIs or execute safe_apply/TestCommand/DebugLoop/DeepResearch.
 
-## Next: PR-ATLAS-PIPE-17: Pipeline execution orchestration polish / approval-aware continuation
+## Current: PR-ATLAS-PIPE-17: Pipeline execution orchestration polish / approval-aware continuation
 
 - Make pipeline orchestration and continuation handling consistent for approval_required, waiting_for_clarification, stale recovery, and next-action prompts.
 - Keep safe_apply automatic execution out of scope.
+
+## Next: PR-ATLAS-PIPE-18: Planner LLM function wiring / model backend connection
+
+- Wire AtlasPlannerBridge llm_json_fn to the existing model backend while preserving fallback behavior.
+- Keep execution controls and Task/Agent APIs out of scope.
+
+
+## PR-ATLAS-PIPE-17: Polish Atlas Pipeline orchestration and approval-aware continuation
+
+- Status: current
+- Adds AtlasOrchestrationSummary as a shared API/UI/Continuation helper for phase, severity, next_action, and gate flags.
+- Improves waiting_for_clarification, approval_required/paused, stale recovery, completed, failed, and blocked handling without adding execution controls.
+- Keeps safe_apply/TestCommandRunner/DebugLoopRunner/DeepResearch execution UI/API disabled.
+
+## PR-ATLAS-PIPE-18: Planner LLM function wiring / model backend connection
+
+- Status: next
+- Safely wire AtlasPlannerBridge llm_json_fn to the existing model backend so real Planner can run in real environments.
+- Preserve fallback PlanPool behavior when model wiring is unavailable or planner output fails validation.
+- Do not add automatic safe_apply, TestCommandRunner, DebugLoopRunner, DeepResearch/Web execution, or Task/Agent APIs.

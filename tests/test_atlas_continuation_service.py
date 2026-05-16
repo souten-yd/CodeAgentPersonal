@@ -90,6 +90,11 @@ def test_build_prompt_contains_handoff_fields_and_policy(tmp_path) -> None:
     assert "Task = PlanItem" in prompt
     assert "Agent = Autopilot" in prompt
     assert "safe_apply / TestCommand / DebugLoop / DeepResearch" in prompt
+    assert "Planning:" in prompt
+    assert "planner_status:" in prompt
+    assert "used_fallback:" in prompt
+    assert "Current Gate:" in prompt
+    assert "orchestration_next_action:" in prompt
 
 
 def test_checkpoint_excerpt_is_truncated(tmp_path) -> None:
@@ -109,3 +114,20 @@ def test_service_has_no_runtime_side_effect_tokens() -> None:
 
     for forbidden in ["subprocess", "requests.", "httpx", "run_command(", "safe_apply("]:
         assert forbidden not in source
+
+
+def test_continuation_prompt_includes_approval_and_fallback_guidance(tmp_path) -> None:
+    journal = AtlasJournal(tmp_path)
+    pool = _pool()
+    pool.metadata["planner_status"] = "fallback_used"
+    pool.metadata["used_fallback"] = True
+    pool.metadata["fallback_reason"] = "real_planner_unavailable"
+    pool.items[0].requires_user_confirmation = True
+    journal.save_plan_pool(pool)
+
+    summary = AtlasContinuationService(journal).build_pool_summary(pool.pool_id)
+
+    assert summary.metadata["requires_approval"] is True
+    assert "gate: approval_required" in summary.continuation_prompt
+    assert "fallback_usedの場合はreal Planner接続/LLM JSON functionを確認する" in summary.continuation_prompt
+    assert "approval_requiredの場合、approval対象を確認" in summary.continuation_prompt

@@ -37,14 +37,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-14C: completed
 - PR-ATLAS-PIPE-15: completed
 - PR-ATLAS-PIPE-15B: completed
+- PR-ATLAS-PIPE-16: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-16
+PR-ATLAS-PIPE-17
 
 ## Next PR
 
-PR-ATLAS-PIPE-17: Pipeline execution orchestration polish / approval-aware continuation
+PR-ATLAS-PIPE-18: Planner LLM function wiring / model backend connection
 
 ## Important Constraints
 
@@ -93,6 +94,9 @@ PR-ATLAS-PIPE-17: Pipeline execution orchestration polish / approval-aware conti
 - PR-ATLAS-PIPE-16 connects Atlas PlanPool creation to existing TaskPlanningRunner / Requirement / Planner / DeepPlanner / PlanReviewer when an LLM JSON function is available.
 - PR-ATLAS-PIPE-16 falls back to fallback PlanPool when real planner is unavailable or fails.
 - PR-ATLAS-PIPE-16 does not execute safe_apply/TestCommand/DebugLoop/DeepResearch and does not add Task/Agent APIs.
+- PR-ATLAS-PIPE-17 adds Atlas orchestration summary for consistent next_action / gate handling.
+- PR-ATLAS-PIPE-17 improves waiting_for_clarification / approval_required / stale / completed / failed state handling in API and Dashboard.
+- PR-ATLAS-PIPE-17 does not add safe_apply/TestCommand/DebugLoop/DeepResearch execution controls.
 - Outcome Writer can save success/failure/debug/research/safe_apply/pipeline outcomes to AtlasJournal and optionally to a Nexus client.
 - Research item execution does not start external Web access or Deep Research jobs.
 - Research item execution does not call ImplementationExecutor, safe_apply, or TestCommandRunner.
@@ -110,5 +114,12 @@ PR-ATLAS-PIPE-17: Pipeline execution orchestration polish / approval-aware conti
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-17を実装する。
-Pipeline execution orchestrationを磨き、approval_required / waiting_for_clarification / stale recovery / continuation prompt を一貫して扱う。ただしsafe_applyの自動実行はまだ増やさない。
+PR-ATLAS-PIPE-18を実装する。
+AtlasPlannerBridgeのllm_json_fnを既存モデル接続へ安全に配線し、real Plannerが実環境で使えるようにする。ただし失敗時はfallback継続。
+- safe_apply自動実行禁止。
+- TestCommand自動実行禁止。
+- DebugLoop自動実行禁止。
+- DeepResearch/Web job起動禁止。
+- Task/Agent API追加禁止。
+- 任意コマンド実行追加禁止。
+- 既存Lumen / Echo / Nexus破壊禁止。
