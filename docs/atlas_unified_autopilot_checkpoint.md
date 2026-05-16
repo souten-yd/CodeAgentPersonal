@@ -26,14 +26,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-6: completed
 - PR-ATLAS-PIPE-7: completed
 - PR-ATLAS-PIPE-8: completed
+- PR-ATLAS-PIPE-8B: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-8B
+PR-ATLAS-PIPE-9
 
 ## Next PR
 
-PR-ATLAS-PIPE-9: DebugLoopRunner
+PR-ATLAS-PIPE-10: Nexus Research Request
 
 ## Important Constraints
 
@@ -62,6 +63,8 @@ PR-ATLAS-PIPE-9: DebugLoopRunner
 - PR-ATLAS-PIPE-7 adds guarded low-risk safe_apply adapter only and does not add API/UI behavior.
 - PR-ATLAS-PIPE-8 adds allowlisted TestCommandRunner only and does not add API/UI behavior.
 - PR-ATLAS-PIPE-8B adds Atlas Journal / Recovery checkpoint foundation only and does not add API/UI behavior.
+- PR-ATLAS-PIPE-9 adds DebugLoopRunner analysis/planning only and does not add automatic patch generation, safe_apply execution, TestCommand execution, API, or UI behavior.
+- DebugLoopRunner can write debug_notes.md and debug_attempt_recorded events through AtlasJournal.
 - Atlas Journal stores JSON state, Markdown summaries, and events.ndjson for reload/chat recovery.
 - TestCommandRunner uses shell=False and rejects non-allowlisted commands.
 - delete/run_command remain forbidden.
@@ -74,5 +77,5 @@ PR-ATLAS-PIPE-9: DebugLoopRunner
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-9を実装する。
-TestCommandRunnerやsafe_apply結果の失敗ログを受け取り、max retry付きのDebugLoopRunnerを追加する。DebugLoopRunnerはAtlasJournalへdebug notes/eventsを保存できるようにする。
+PR-ATLAS-PIPE-10を実装する。
+Planner / Autopilot がNexusへResearch Requestを出し、ContextPackを受け取れるschema/adapterを追加する。

@@ -316,6 +316,14 @@ Atlas Pipelineの大規模・長時間実行に備えて、PlanPool / PipelineRu
 
 ### 完了条件
 
+- `agent/debug_loop_schema.py` が存在する。
+- `agent/debug_loop_runner.py` が存在する。
+- test/safe_apply/pipeline失敗結果をDebugInputへ要約できる。
+- syntax/import/test/policy/approval/timeout等を分類できる。
+- max retryで停止できる。
+- DebugLoopStateにattemptを記録できる。
+- AtlasJournalへdebug_notes.md/eventsを保存できる。
+- 自動patch生成 / safe_apply / test execution / API / UI は追加しない。
 - max retryを超えたら停止する。
 - Debug loopがpolicy / approvalを迂回しない。
 - Testsがpassする。

@@ -48,6 +48,13 @@ This PR is documentation and contract-test only. It does not change runtime beha
 - ブラウザリロード後もサーバ側保存状態からCurrent Item / Status / Next Actionを復元する。
 - チャットが切れてもcheckpoint.mdを貼れば続きから再開できる。
 
+## DebugLoop Policy
+
+- DebugLoopRunnerは失敗ログを読み、原因要約・最小修正方針・再試行可否を判断する。
+- DebugLoopRunnerは最初は分析/計画のみで、patch生成や適用は行わない。
+- 実行履歴はAtlasJournalへdebug_notes.md/events.ndjsonとして保存する。
+- max retryを超えたら停止し、ユーザー確認または再計画へ回す。
+
 ## Execution Safety Policy
 
 - Initial execution is dry_run-centered.
