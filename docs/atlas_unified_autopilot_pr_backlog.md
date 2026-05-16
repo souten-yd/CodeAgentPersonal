@@ -5,13 +5,14 @@
 
 # Atlas Unified Autopilot PR Backlog
 
-## Sequencing Status (Updated in PR-ATLAS-PIPE-22C)
+## Sequencing Status (Updated in PR-ATLAS-PIPE-23B)
 
 - PR-21D: completed
 - PR-22: completed
 - PR-22B: completed
-- PR-22C: Current
-- PR-23: Next
+- PR-23: completed
+- PR-23B: current
+- PR-24: next
 
 ## PR-ATLAS-PIPE-0: 計画書とチャット継続用docs追加
 

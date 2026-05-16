@@ -275,3 +275,12 @@ def test_manual_debug_review_ui_contract() -> None:
     assert '/api/atlas/debug-review/run' in ATLAS_API_JS
     for forbidden in ("Auto fix", "Apply proposed fix", "Re-run verification automatically", "Continue autopilot", "Run command"):
         assert forbidden not in HTML + ATLAS_DASHBOARD_JS
+
+def test_debug_review_panel_manual_only_contract() -> None:
+    assert 'atlas-debug-review-panel' in HTML
+    assert 'runDebugReview(payload)' in ATLAS_API_JS
+    assert 'runDebugReview(itemId)' in ATLAS_DASHBOARD_JS
+    assert 'Manual analysis only' in HTML
+    assert 'Run Debug Review' in HTML + ATLAS_DASHBOARD_JS
+    for forbidden in ('Auto fix', 'Apply proposed fix', 'Re-run verification automatically', 'Continue autopilot', 'Run command'):
+        assert forbidden not in HTML + ATLAS_DASHBOARD_JS

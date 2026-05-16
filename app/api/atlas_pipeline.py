@@ -683,10 +683,22 @@ def run_debug_review(req: AtlasDebugReviewRequest, request: Request) -> AtlasDeb
         result = service.review_item(req)
     except FileNotFoundError:
         result = AtlasDebugReviewResult(pool_id=req.pool_id, item_id=req.item_id, run_id=req.run_id, status="blocked", warnings=["pool_not_found"])
-    recovery = AtlasRecoveryService(journal).recover_pool(req.pool_id)
-    result.recovery_summary = _model_dump(recovery)
-    result.orchestration_summary = _model_dump(AtlasOrchestrationSummaryBuilder().build_from_recovery(recovery))
-    result.continuation_prompt = AtlasContinuationService(journal).build_pool_summary(req.pool_id, req.run_id).continuation_prompt + "\n\nDebug review is advisory only. No patch/safe_apply/reverification was run."
+    try:
+        pool = storage.load_pool(req.pool_id)
+        recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
+        orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(
+            pool,
+            None,
+            recovery=recovery,
+        ).model_dump()
+        continuation = AtlasContinuationService(journal).build_pool_summary(req.pool_id, req.run_id)
+        result.plan_pool = pool.model_dump()
+        result.recovery_summary = recovery
+        result.orchestration_summary = orchestration
+        result.continuation_prompt = continuation.continuation_prompt
+    except Exception as exc:
+        result.warnings.append("debug_review_enrichment_failed")
+        result.warnings.append(str(exc) or exc.__class__.__name__)
     return result
 @router.get("/recovery/latest", response_model=RecoveryResponse)
 def get_recovery_latest(request: Request, workspace_id: str = "default") -> RecoveryResponse:
