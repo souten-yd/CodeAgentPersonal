@@ -494,6 +494,35 @@ PR-ATLAS-PIPE-13で追加した `/api/atlas/*` APIを使い、旧Atlas UIの複�
 - safe_apply/TestCommandRunner/DebugLoopRunner/DeepResearchの実行UI追加禁止。
 - 既存Lumen / Echo / Nexus UI破壊禁止。
 
+## PR-ATLAS-PIPE-14B: Fix Atlas Dashboard visual design and static asset loading
+
+### 目的
+
+PR-ATLAS-PIPE-14で追加したAtlas Dashboardを、visual design rescue / static asset loading verificationとして実画面で使えるカード型UIへ整える。
+
+### 主な変更
+
+- Atlas Dashboardを正式Dashboardとして見えるカード型UIに再設計する。
+- CSS/JSのcache bustingを追加し、ブラウザが古いstatic assetを読み続ける問題を避ける。
+- 配信対象の`web/css/app.css`にAtlas専用selectorが含まれることをcontract testで確認する。
+- iPhone Safari相当の幅で横崩れしないように、shell/grid/card/preのoverflowとmin-widthを整理する。
+- safe_apply/TestCommand/DebugLoop/DeepResearch等の実行UIは追加しない。
+
+### 完了条件
+
+- 実画面でAtlas Dashboardがカード型UIとして表示される。
+- CSSが確実に反映される。
+- cache bustingがある。
+- iPhone Safariで横崩れしない。
+- safe_apply等の実行UIなし。
+
+### 変更禁止範囲
+
+- Standalone Task page追加禁止。
+- Standalone Agent page追加禁止。
+- safe_apply/TestCommandRunner/DebugLoopRunner/DeepResearchの実行UI追加禁止。
+- 既存Lumen / Echo / Nexus UI破壊禁止。
+
 ## PR-ATLAS-PIPE-15: チャット継続運用の自動化
 
 ### 目的

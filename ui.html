@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-14b">
 </head>
 <body>
 
@@ -155,18 +155,18 @@
   <!-- ATLAS MODE -->
   <div class="atlas-panel-col mob-hidden" id="atlas-panel-col" style="display:none">
     <section class="atlas-dashboard" id="atlas-dashboard" data-atlas-dashboard-root="true" aria-label="Atlas Dashboard">
-      <div class="plan-card" id="atlas-workbench-card" data-atlas-current-subview="dashboard">
-        <div class="atlas-hero">
+      <div class="atlas-dashboard-shell plan-card" id="atlas-workbench-card" data-atlas-current-subview="dashboard">
+        <section class="atlas-hero-card">
           <div class="atlas-hero-copy">
             <p class="atlas-kicker">Atlas Dashboard</p>
-            <h1 class="atlas-dashboard-heading">Plan, run, recover your development pipeline.</h1>
-            <p class="atlas-hero-text">GoalからPlanPoolを作り、dry-run Pipelineの進捗とRecovery状態を1つの画面で確認できます。</p>
+            <h1 class="atlas-dashboard-heading">Plan. Run. Recover.</h1>
+            <p class="atlas-hero-text">PlanPoolを作成し、dry-runとRecoveryを確認します。</p>
           </div>
-          <div class="atlas-workbench-summary" aria-label="Atlas compact summary">
+          <div class="atlas-hero-status atlas-workbench-summary" aria-label="Atlas compact summary">
             <div class="atlas-workbench-summary-item"><span class="atlas-workbench-summary-label">Last Run:</span><span id="atlas-workbench-summary-last-run">-</span></div>
             <div class="atlas-workbench-summary-item"><span class="atlas-workbench-summary-label">Status:</span><span id="atlas-workbench-summary-status">Ready</span></div>
           </div>
-        </div>
+        </section>
 
         <div id="atlas-workbench-status" class="atlas-inline-status" aria-live="polite">Ready</div>
         <div id="atlas-workbench-card-resume-notice" style="display:none"></div>
@@ -174,12 +174,12 @@
         <section class="atlas-goal-card" aria-labelledby="atlas-goal-title">
           <div class="atlas-section-title-row">
             <div>
-              <h2 id="atlas-goal-title">Goal Composer</h2>
-              <p>目的を書いてPlanPoolを作成し、初期UIではdry-runだけを開始します。</p>
+              <h2 id="atlas-goal-title">What should Atlas build or fix?</h2>
+              <p>Goalを書いてPlanPoolを作成し、dry-runで進捗を確認します。</p>
             </div>
           </div>
-          <label class="atlas-field-label" for="atlas-goal-input">Development goal</label>
-          <textarea id="atlas-goal-input" class="atlas-goal-input" rows="4" placeholder="Atlasに進めたい開発内容を書いてください。例: Atlasの進捗UIを改善する"></textarea>
+          <label class="atlas-field-label" for="atlas-goal-input">Goal Composer</label>
+          <textarea id="atlas-goal-input" class="atlas-goal-input" rows="4" placeholder="例: AtlasのPipeline進捗UIを改善し、リロード後も状態復元できるようにする"></textarea>
           <div class="atlas-button-row" aria-label="Atlas primary actions">
             <button id="atlas-create-plan-btn" class="atlas-primary-btn" type="button" onclick="window.AtlasDashboard?.createPlanPool()">Create Plan</button>
             <button id="atlas-start-dry-run-btn" class="atlas-secondary-btn" type="button" onclick="window.AtlasDashboard?.startDryRun()">Start Dry-run</button>
@@ -207,15 +207,15 @@
           <div class="atlas-status-card"><span>PlanPool</span><b id="atlas-status-planpool">not created</b></div>
           <div class="atlas-status-card"><span>Items</span><b id="atlas-status-items">0</b></div>
           <div class="atlas-status-card"><span>Pipeline</span><b id="atlas-status-pipeline">idle</b></div>
-          <div class="atlas-status-card"><span>Last</span><b id="atlas-status-last-event">-</b></div>
+          <div class="atlas-status-card"><span>Last Event</span><b id="atlas-status-last-event">-</b></div>
         </section>
 
-        <div class="atlas-main-grid">
+        <div class="atlas-work-grid atlas-main-grid">
           <section class="atlas-panel-card" aria-labelledby="atlas-planpool-title">
             <div class="atlas-section-title-row">
               <div>
                 <h2 id="atlas-planpool-title">PlanPool Overview</h2>
-                <p>PlanItemをカード/ステップとして表示します。</p>
+                <p>PlanItemをタイムラインカードとして表示します。</p>
               </div>
               <span id="atlas-planpool-id" class="atlas-id-chip">No pool</span>
             </div>
@@ -15871,8 +15871,8 @@ function testSkill(skillName) {
 <script src="/static/js/lumen_tools.js"></script>
 <script src="/static/js/lumen.js"></script>
 <script src="/static/js/nexus.js"></script>
-<script src="/static/js/atlas_pipeline_api.js"></script>
-<script src="/static/js/atlas_dashboard.js"></script>
+<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-14b"></script>
+<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-14b"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>
