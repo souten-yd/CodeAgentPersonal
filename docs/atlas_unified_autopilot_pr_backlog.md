@@ -72,7 +72,12 @@ Plan Poolを保存・復元できる内部storageを追加する。
 
 ### 完了条件
 
-- PlanPoolを作成、保存、読み込みできる。
+- `agent/atlas_plan_pool_storage.py` が存在する。
+- PlanPoolを ca_data/atlas/plan_pools/ に保存できる。
+- PlanPoolを読み込める。
+- item状態更新時に item.status と completed/failed/blocked/skipped lists が同期する。
+- path traversalを拒否する。
+- runtime / API / UI は変更しない。
 - 既存PlanStorageを壊さない。
 - Contract / unit testsがpassする。
 

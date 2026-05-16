@@ -18,14 +18,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 ## Completed PRs
 
 - PR-ATLAS-PIPE-0: completed
+- PR-ATLAS-PIPE-1: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-1
+PR-ATLAS-PIPE-2
 
 ## Next PR
 
-PR-ATLAS-PIPE-2: PlanPool storage追加
+PR-ATLAS-PIPE-3: Planner出力をPlan Pool化
 
 ## Important Constraints
 
@@ -46,6 +47,7 @@ PR-ATLAS-PIPE-2: PlanPool storage追加
 - PlanReviewer has risk detection.
 - Current main includes Restore KasaneCore_v3.0 baseline.
 - PR-ATLAS-PIPE-1 adds schema only and does not add runtime/storage/API/UI behavior.
+- PR-ATLAS-PIPE-2 adds PlanPool storage only and does not add runtime/API/UI behavior.
 
 ## Open Questions
 
@@ -55,5 +57,5 @@ PR-ATLAS-PIPE-2: PlanPool storage追加
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-2を実装する。
-PlanPool storageを追加し、ca_data/atlas/plan_pools/ にPlanPoolを保存・読み込みできるようにする。
+PR-ATLAS-PIPE-3を実装する。
+既存 Planner / DeepPlanner / TaskPlanningRunner の出力を AtlasPlanPool / AtlasPlanItem へ変換する mapper を追加する。
