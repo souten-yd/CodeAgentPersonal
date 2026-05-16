@@ -38,6 +38,7 @@
     approvalSummary: null,
     approvalRecords: [],
     approvalItems: [],
+    safeApplyCandidateItems: [],
     approvalSubmitting: false,
     safeApplySubmitting: false,
     safeApplyResults: {},
@@ -627,6 +628,7 @@
     state.approvalSummary = result.data || null;
     state.approvalRecords = arr(result.data?.approval_records);
     state.approvalItems = arr(result.data?.approval_required_items);
+    state.safeApplyCandidateItems = arr(result.data?.safe_apply_candidate_items);
   }
 
   function renderApprovalPanel() {
@@ -635,9 +637,19 @@
     if (!summaryEl || !listEl) return;
     const summary = state.approvalSummary || {};
     summaryEl.textContent = `pending: ${summary.pending_count || 0} / approved: ${summary.approved_count || 0} / rejected: ${summary.rejected_count || 0} / needs revision: ${summary.needs_revision_count || 0}`;
-    const items = state.approvalItems || [];
-    if (!items.length) { listEl.innerHTML = 'No approval-required items.'; return; }
-    listEl.innerHTML = items.map((item)=>`<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')}<textarea data-approval-reason="${esc(item.item_id)}" placeholder="reason"></textarea><div class="atlas-clarification-actions"><button data-approval="approved" data-item-id="${esc(item.item_id)}" type="button">Approve</button><button data-approval="rejected" data-item-id="${esc(item.item_id)}" type="button">Reject</button><button data-approval="needs_revision" data-item-id="${esc(item.item_id)}" type="button">Needs revision</button>'+renderSafeApplyEligibility(item)+'</div></div>`).join('');
+    const pendingItems = state.approvalItems || [];
+    const candidateItems = state.safeApplyCandidateItems || [];
+    const pendingHtml = pendingItems.map((item)=>{
+      const safeApplyHtml = renderSafeApplyEligibility(item);
+      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')}<textarea data-approval-reason="${esc(item.item_id)}" placeholder="reason"></textarea><div class="atlas-clarification-actions"><button data-approval="approved" data-item-id="${esc(item.item_id)}" type="button">Approve</button><button data-approval="rejected" data-item-id="${esc(item.item_id)}" type="button">Reject</button><button data-approval="needs_revision" data-item-id="${esc(item.item_id)}" type="button">Needs revision</button>${safeApplyHtml}</div></div>`;
+    }).join('');
+    const candidateHtml = candidateItems.map((item)=>{
+      const safeApplyHtml = renderSafeApplyEligibility(item);
+      const applied = String(item?.status || '').toLowerCase() === 'completed';
+      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')} <span class="atlas-badge">Approved candidate</span><div class="atlas-clarification-actions">${applied ? '<small>Already applied</small>' : safeApplyHtml}<small>Item-level manual apply only. Tests and autopilot continuation are not run.</small></div></div>`;
+    }).join('');
+    if (!pendingHtml && !candidateHtml) { listEl.innerHTML = 'No approval-required items.'; return; }
+    listEl.innerHTML = `<h4>Pending approval items</h4>${pendingHtml || '<small>None</small>'}<h4>Manual safe apply candidates</h4>${candidateHtml || '<small>None</small>'}`;
     listEl.querySelectorAll('button[data-approval]').forEach((btn)=>btn.addEventListener('click', ()=>decideApproval(btn.dataset.itemId, btn.dataset.approval)));
     listEl.querySelectorAll('button[data-safe-apply]').forEach((btn)=>btn.addEventListener('click', ()=>executeSafeApply(btn.dataset.safeApply)));
   }

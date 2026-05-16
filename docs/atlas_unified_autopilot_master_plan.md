@@ -219,3 +219,8 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 - Approval GateはPR-20で記録/可視化まで実装済み。
 - PR-20Bでpending count/表示整合を修正。
 - safe_apply実行はPR-21以降。
+
+
+- PR-ATLAS-PIPE-21: completed.
+- PR-ATLAS-PIPE-21B: current (manual safe_apply UI eligibility/candidate listing/tests fixes).
+- PR-ATLAS-PIPE-22: next (post-apply verification manual gate).

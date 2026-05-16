@@ -145,3 +145,20 @@ manual approval済みPlanItemに限定して、safe_apply execution gateをUI/AP
 - Approval records are saved to AtlasJournal and shown in Dashboard Details.
 - PR-ATLAS-PIPE-20 does not execute safe_apply/TestCommand/DebugLoop/DeepResearch.
 - PR-ATLAS-PIPE-20B fixes approval pending_count and dashboard approval refresh duplication.
+
+
+## Current PR
+- PR-ATLAS-PIPE-21B
+
+## Next PR
+- PR-ATLAS-PIPE-22: Verification runner manual gate / post-apply validation
+
+## Known Current Code Facts (update)
+- PR-ATLAS-PIPE-21 adds manual safe_apply execution gate for approved low-risk PlanItems.
+- safe_apply execution is item-level only and never batch/full-autopilot.
+- delete/run_command and medium/high/critical risk items remain blocked.
+- PR-ATLAS-PIPE-21 does not auto-run TestCommandRunner/DebugLoopRunner/DeepResearch.
+- PR-ATLAS-PIPE-21B fixes manual safe_apply UI eligibility, candidate listing, tests, and checkpoint consistency.
+
+## Next Instruction
+- Implement PR-ATLAS-PIPE-22 (manual post-apply verification gate).

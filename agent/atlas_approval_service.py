@@ -16,6 +16,7 @@ class AtlasApprovalService:
     def list_pool_approvals(self, pool: AtlasPlanPool) -> dict:
         records = self._load_records(pool.pool_id)
         required_items: list[dict] = []
+        safe_apply_candidate_items: list[dict] = []
         pending_count = 0
         approved_count = 0
         rejected_count = 0
@@ -35,6 +36,17 @@ class AtlasApprovalService:
                 rejected_count += 1
             elif decision == "needs_revision":
                 needs_revision_count += 1
+
+            action = str(((payload.get("metadata") or {}).get("action_type") or "")).strip().lower()
+            is_candidate = (
+                decision == "approved"
+                and str(item.risk_level or "").lower() == "low"
+                and item.item_type in {"implementation", "documentation"}
+                and action not in {"delete", "run_command"}
+                and item.status not in {"completed"}
+            )
+            if is_candidate:
+                safe_apply_candidate_items.append(payload)
 
             if not requires_approval:
                 continue
@@ -66,6 +78,7 @@ class AtlasApprovalService:
         return {
             "approval_required_items": required_items,
             "approval_records": records,
+            "safe_apply_candidate_items": safe_apply_candidate_items,
             "pending_count": pending_count,
             "approved_count": approved_count,
             "rejected_count": rejected_count,

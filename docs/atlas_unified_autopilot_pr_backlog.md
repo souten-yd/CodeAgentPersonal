@@ -681,3 +681,8 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 
 - manual approval済みPlanItemに限定してsafe_apply execution gateを追加する。
 - 一括自動実行や高リスク自動実行は追加しない。
+
+
+- PR-ATLAS-PIPE-21: completed.
+- PR-ATLAS-PIPE-21B: current (manual safe_apply UI eligibility/candidate listing/tests fixes).
+- PR-ATLAS-PIPE-22: next (post-apply verification manual gate).
