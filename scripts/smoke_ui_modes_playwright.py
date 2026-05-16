@@ -29,73 +29,6 @@ DEFAULT_DESKTOP_VIEWPORT = {"width": 1280, "height": 900}
 DEFAULT_MOBILE_VIEWPORT = {"width": 390, "height": 844}
 
 
-FEATURE_MANIFEST_PATH = ROOT / "web" / "feature_manifest.json"
-
-
-def load_feature_manifest() -> dict:
-  try:
-    return json.loads(FEATURE_MANIFEST_PATH.read_text(encoding="utf-8"))
-  except FileNotFoundError as exc:
-    raise AssertionError(f"feature manifest missing: {FEATURE_MANIFEST_PATH}") from exc
-  except json.JSONDecodeError as exc:
-    raise AssertionError(f"feature manifest invalid JSON: {FEATURE_MANIFEST_PATH}: {exc}") from exc
-
-
-async def collect_manifest_diagnostic(page, selector: str) -> dict:
-  body_head = ""
-  try:
-    body_head = (await page.locator("body").inner_text())[:1000]
-  except Exception as exc:
-    body_head = f"<body unavailable: {type(exc).__name__}: {exc}>"
-  return {"selector": selector, "url": page.url, "body_text_head": body_head}
-
-
-async def assert_manifest_selector(page, selector: str, label: str) -> None:
-  count = await page.locator(selector).count()
-  if count <= 0:
-    diag = await collect_manifest_diagnostic(page, selector)
-    raise AssertionError(f"Missing manifest selector: {label} selector={selector}; diagnostic={diag}")
-
-
-async def check_manifest_required_ui(page, manifest: dict) -> None:
-  failures: list[str] = []
-  for section in ("tabs", "root_panels", "required_controls"):
-    for item in manifest.get(section, []):
-      selector = item.get("selector")
-      label = f"{section}:{item.get('id') or item.get('name') or selector}"
-      if not selector:
-        failures.append(f"{label}: missing selector in manifest")
-        continue
-      try:
-        await assert_manifest_selector(page, selector, label)
-      except AssertionError as exc:
-        failures.append(str(exc))
-      panel_selector = item.get("panel_selector")
-      if panel_selector:
-        try:
-          await assert_manifest_selector(page, panel_selector, f"{label}:panel_selector")
-        except AssertionError as exc:
-          failures.append(str(exc))
-  if failures:
-    raise AssertionError("Feature manifest UI check failed:\n" + "\n".join(failures))
-
-
-async def check_manifest_modules_loaded(page, manifest: dict) -> None:
-  failures: list[str] = []
-  for module in manifest.get("modules", []):
-    path = module.get("path")
-    name = module.get("name", path)
-    if not path:
-      failures.append(f"module:{name}: missing path")
-      continue
-    count = await page.locator(f'script[src="{path}"]').count()
-    if count <= 0:
-      diag = await collect_manifest_diagnostic(page, f'script[src="{path}"]')
-      failures.append(f"module:{name}: script not found: {path}; diagnostic={diag}")
-  if failures:
-    raise AssertionError("Feature manifest module check failed:\n" + "\n".join(failures))
-
-
 
 def _is_browser_launch_infra_error(exc: Exception) -> bool:
   text = f"{type(exc).__name__}: {exc}".lower()
@@ -2386,7 +2319,7 @@ def safe_artifact_path(path: Path) -> str:
     return str(resolved_path)
 
 
-async def run_smoke_scenario(name: str, browser, base_url: str, coro_factory, results: list[dict[str, str]], viewport: dict[str, int] | None = None, feature_manifest: dict | None = None) -> None:
+async def run_smoke_scenario(name: str, browser, base_url: str, coro_factory, results: list[dict[str, str]], viewport: dict[str, int] | None = None) -> None:
   scenario_errors: list[str] = []
   page = await browser.new_page(viewport=viewport or DEFAULT_DESKTOP_VIEWPORT)
   page.on("pageerror", lambda e: scenario_errors.append(f"pageerror: {e}"))
@@ -2394,9 +2327,6 @@ async def run_smoke_scenario(name: str, browser, base_url: str, coro_factory, re
   try:
     await page.goto(base_url)
     await page.wait_for_load_state("domcontentloaded")
-    if feature_manifest is not None:
-      await check_manifest_required_ui(page, feature_manifest)
-      await check_manifest_modules_loaded(page, feature_manifest)
     await coro_factory(page)
     if scenario_errors:
       raise AssertionError("\n".join(scenario_errors))
@@ -2561,7 +2491,6 @@ async def main() -> None:
     print("python -m pip install playwright")
     print("python -m playwright install chromium")
     return
-  feature_manifest = load_feature_manifest()
   syntax_rc = check_ui_syntax_main()
   if syntax_rc != 0:
     raise AssertionError(f"ui inline script syntax check failed: rc={syntax_rc}")
@@ -2776,10 +2705,10 @@ async def main() -> None:
     scenarios = [(name, scenario_runners[name]) for name in selected_scenarios]
 
     for scenario_name, scenario_fn in scenarios:
-      await run_smoke_scenario(scenario_name, browser, base_url, scenario_fn, results, DEFAULT_DESKTOP_VIEWPORT, feature_manifest)
+      await run_smoke_scenario(scenario_name, browser, base_url, scenario_fn, results, DEFAULT_DESKTOP_VIEWPORT)
 
     if not (preflight_only_mode or full_backend_e2e_mode) and (not only or "mobile_mode_switches" in set(only)):
-      await run_smoke_scenario("mobile_mode_switches", browser, base_url, lambda page: verify_mobile_mode_switches(page), results, DEFAULT_MOBILE_VIEWPORT, feature_manifest)
+      await run_smoke_scenario("mobile_mode_switches", browser, base_url, lambda page: verify_mobile_mode_switches(page), results, DEFAULT_MOBILE_VIEWPORT)
     await browser.close()
     if mock_server:
       server, thread = mock_server

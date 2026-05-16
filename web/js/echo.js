@@ -58,8 +58,8 @@ function _renderAsrRuntimeUi() {
 }
 
 function _echoSetStatus(text) {
-  if (window.EchoUI?.setEchoStatus) window.EchoUI.setEchoStatus(text);
-  else { const el = document.getElementById('echo-status'); if (el) el.textContent = text; }
+  const el = document.getElementById('echo-status');
+  if (el) el.textContent = text;
   _echoSyncBusyStatus(text || '');
   _syncEchoMinutesButtonUi();
 }
@@ -78,7 +78,6 @@ function _echoSyncBusyStatus(statusText = '') {
 
 function _echoSetConn(state) {
   // state: 'connected' | 'disconnected' | 'reconnecting' | 'error'
-  if (window.EchoUI?.setEchoConnectionState) window.EchoUI.setEchoConnectionState(state);
   const el = document.getElementById('echo-conn-status');
   if (!el) return;
   const map = {
@@ -89,7 +88,8 @@ function _echoSetConn(state) {
   };
   const [text, cls] = map[state] || map.disconnected;
   echo._connState = state;
-  if (!window.EchoUI?.setEchoConnectionState) { el.textContent = text; el.className = cls; }
+  el.textContent = text;
+  el.className = cls;
   if (state === 'disconnected' && !echo._isStoppingOrSaving && !echo.recording) {
     _echoVaultSetInfo('');
   }
@@ -147,13 +147,22 @@ function _echoUploadSetStatus(msg = '', tone = 'info', showRetry = false, transc
 }
 
 function _echoVaultSetInfo(msg = '', tone = 'warn') {
-  if (window.EchoUI?.setEchoVaultInfo) return window.EchoUI.setEchoVaultInfo(msg, tone);
   const el = document.getElementById('echo-vault-info');
   if (!el) return;
-  if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
-  el.style.display = ''; el.textContent = msg;
-  if (tone === 'ok') { el.style.borderColor = 'var(--green,#4caf50)'; el.style.background = 'rgba(76,175,80,.12)'; }
-  else { el.style.borderColor = 'var(--amber)'; el.style.background = 'rgba(255,184,0,.12)'; }
+  if (!msg) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  el.style.display = '';
+  el.textContent = msg;
+  if (tone === 'ok') {
+    el.style.borderColor = 'var(--green,#4caf50)';
+    el.style.background = 'rgba(76,175,80,.12)';
+  } else {
+    el.style.borderColor = 'var(--amber)';
+    el.style.background = 'rgba(255,184,0,.12)';
+  }
 }
 
 window.syncEchoTranslateUi = syncEchoTranslateUi;

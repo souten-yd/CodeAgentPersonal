@@ -1715,12 +1715,6 @@
       </div>
 
       <!-- Web検索 -->
-      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🩺 Runtime Diagnostics</div>
-      <div style="padding:4px 0 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <button id="runtime-diagnostics-copy-btn" class="phase1-tab-btn" type="button" onclick="copyRuntimeDiagnosticsBundle()">Copy diagnostics</button>
-        <span id="runtime-diagnostics-status" style="font-size:11px;color:var(--text3)"></span>
-      </div>
-
       <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔍 Web検索</div>
       <div style="padding:4px 0 14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -2101,38 +2095,6 @@ function initTheme() {
   setTheme(saved, false);
 }
 
-// Compatibility shim: inline onclick handler delegates diagnostics collection to RuntimeDiagnostics module.
-async function copyRuntimeDiagnosticsBundle(mode = "detailed") {
-  const statusEl = document.getElementById("runtime-diagnostics-status");
-  try {
-    if (statusEl) statusEl.textContent = "Collecting diagnostics...";
-    const diagnosticsApi = window.RuntimeDiagnostics;
-    if (!diagnosticsApi || typeof diagnosticsApi.collectDiagnostics !== "function" || typeof diagnosticsApi.formatDiagnosticBundle !== "function") {
-      throw new Error("RuntimeDiagnostics module is not available");
-    }
-    const bundle = await diagnosticsApi.collectDiagnostics({ timeoutMs: 3500 });
-    const text = diagnosticsApi.formatDiagnosticBundle(bundle, mode);
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-      await navigator.clipboard.writeText(text);
-    } else {
-      const fallback = document.createElement("textarea");
-      fallback.value = text;
-      fallback.setAttribute("readonly", "readonly");
-      fallback.style.position = "fixed";
-      fallback.style.left = "-9999px";
-      document.body.appendChild(fallback);
-      fallback.select();
-      document.execCommand("copy");
-      document.body.removeChild(fallback);
-    }
-    if (statusEl) statusEl.textContent = "Diagnostics copied.";
-    return true;
-  } catch (error) {
-    if (statusEl) statusEl.textContent = `Diagnostics failed: ${error && error.message ? error.message : String(error)}`;
-    return false;
-  }
-}
-
 function updateSystemLlmName() {
   const llmEl = document.getElementById('sys-llm-name');
   if (!llmEl) return;
@@ -2360,24 +2322,20 @@ function _normalizeStyleBertVits2Model(model) {
   return value || DEFAULT_STYLE_BERT_VITS2_MODEL;
 }
 tts.engine = _normalizeTtsEngine(tts.engine);
-function cleanupDeprecatedLegacyTtsStorage() {
+function cleanupDeprecatedQwen3TtsStorage() {
   try {
-    [
-      'tts_qwen3model',
-      'tsasr_qwen3model',
-      'echo_qwen3model',
-      'qwen3_ref_text',
-      'qwen3_clone_require_ref_text',
-      'qwen3_clone_test_text',
-      'echo_tts_engine',
-      'tts_engine',
-      'engine',
-      'engine_key',
-      'selected_tts_engine'
-    ].forEach((key) => localStorage.removeItem(key));
+    ['tts_qwen3model','tsasr_qwen3model','echo_qwen3model'].forEach((key) => {
+      const value = localStorage.getItem(key);
+      if (!value) return;
+      if (/qwen3|qwen_tts|qwen3tts/i.test(value)) localStorage.removeItem(key);
+    });
+    ['tts_engine', 'echo_tts_engine', 'engine', 'engine_key', 'selected_tts_engine'].forEach((key) => localStorage.removeItem(key));
+    localStorage.removeItem('qwen3_ref_text');
+    localStorage.removeItem('qwen3_clone_require_ref_text');
+    localStorage.removeItem('qwen3_clone_test_text');
   } catch (_) {}
 }
-cleanupDeprecatedLegacyTtsStorage();
+cleanupDeprecatedQwen3TtsStorage();
 if (!tts.styleBertVits2Model) {
   tts.styleBertVits2Model = localStorage.getItem('echo_style_bert_vits2_model')
                          || localStorage.getItem('echo_stylebertvits2_model')
@@ -3618,12 +3576,10 @@ async function tryPlayTtsQueue({userGesture = false} = {}) {
   };
 
   player.onended = () => {
-    if (window.EchoStream?.setPlaybackState) window.EchoStream.setPlaybackState('ended');
     console.info(`[TTS][play_done] id=${id} reason=ended`);
     done({ok: true, reason: 'ended'});
   };
   player.onerror = () => {
-    if (window.EchoStream?.setPlaybackState) window.EchoStream.setPlaybackState('error');
     console.warn(`[TTS][play_error] id=${id} reason=audio_error`);
     _logTtsError(new Error('audio playback error'), item?.meta?.source || item?.meta?.context || 'chat', 'audio element error');
     done({ok: false, reason: 'audio_error'});
@@ -3823,7 +3779,7 @@ async function ensureStyleBertVits2LoadedForEcho() {
       _setStyleBertVits2Status('モデル読み込み状態を確認中...');
       const statusResp = await fetch(API + '/tts/status');
       const status = await statusResp.json().catch(() => ({}));
-      const loadedEngine = status?.engine || status?.current_engine || status?.[['tts','engine'].join('_')] || '';
+      const loadedEngine = status?.engine || status?.current_engine || status?.tts_engine || '';
       const loadedModel = status?.model || status?.model_id || status?.tts_model || status?.style_bert_vits2_model || '';
       const isLoaded = status?.loaded === true || status?.is_loaded === true || status?.style_bert_vits2_loaded === true;
       if (String(loadedEngine) === 'style_bert_vits2' && isLoaded && (!loadedModel || String(loadedModel) === model)) {
@@ -4028,32 +3984,23 @@ function _updateEchoSbv2LanguageNote() {
   if (jpExtraNote) jpExtraNote.style.display = isForced ? 'block' : 'none';
 }
 
-// Compatibility shim: legacy handlers still call this inline function; data/rendering is delegated to EchoAPI/EchoUI.
 async function refreshStyleBertVits2Models(context = 'echo') {
   const statusEl = document.getElementById('tsasr-style-bert-vits2-status');
   const refreshBtn = document.getElementById('tsasr-style-bert-vits2-refresh-btn');
   if (refreshBtn) refreshBtn.disabled = true;
   if (statusEl) statusEl.textContent = 'モデル一覧を取得中...';
   try {
-    const data = await window.EchoAPI.listStyleBertVits2Models();
+    const resp = await fetch(API + '/api/tts/style-bert-vits2/models');
+    const data = await resp.json();
     const models = Array.isArray(data.models) ? data.models : [];
     const details = Array.isArray(data.model_details) ? data.model_details : [];
     _styleBertVits2ModelMeta.clear();
     details.forEach((item) => {
       if (item && item.model) _styleBertVits2ModelMeta.set(item.model, item);
     });
-    const selectedModel = (echo.styleBertVits2Model || tts.styleBertVits2Model || DEFAULT_STYLE_BERT_VITS2_MODEL);
-    if (window.EchoUI?.renderStyleBertVits2Models) {
-      const chosen = window.EchoUI.renderStyleBertVits2Models({models, details, selectedModel, defaultModel: DEFAULT_STYLE_BERT_VITS2_MODEL});
-      echo.styleBertVits2Model = _normalizeStyleBertVits2Model(chosen);
-      tts.styleBertVits2Model = echo.styleBertVits2Model;
-      localStorage.setItem('echo_style_bert_vits2_model', echo.styleBertVits2Model);
-      localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model);
-    } else {
-      _setStyleBertModelOptions(models);
-      if (statusEl) statusEl.textContent = models.length ? `モデル ${models.length} 件` : 'モデルがありません';
-    }
+    _setStyleBertModelOptions(models);
     _updateEchoSbv2LanguageNote();
+    if (statusEl) statusEl.textContent = models.length ? `モデル ${models.length} 件` : 'モデルがありません';
   } catch (e) {
     if (statusEl) statusEl.textContent = `取得失敗: ${e.message}`;
   } finally {
@@ -4170,7 +4117,7 @@ function _ttsSyncUnloadBtn(engine) {
   const unloadBtn = document.getElementById('tts-unload-btn');
   const loadBtn   = document.getElementById('tts-engine-load-btn');
   if (!unloadBtn || !loadBtn) return;
-  window.EchoAPI.getTtsStatus().then(s => {
+  fetch(API + '/tts/status').then(r => r.json()).then(s => {
     _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
     const loaded = false;
     unloadBtn.style.display = loaded ? '' : 'none';
@@ -4761,7 +4708,7 @@ function saveTtsTranslateSettings(context = 'echo') {
 function refreshAsrTab() {
   _echoInitSettingsUI();
   _loadAsrRuntimeConfig().then(()=>_renderAsrRuntimeUi());
-  window.EchoAPI.getVoiceStatus().then(s => {
+  fetch(API + '/voice/status').then(r => r.json()).then(s => {
     const statusEl = document.getElementById('tsasr-asr-status');
     const loadBtn  = document.getElementById('tsasr-asr-load-btn');
     const unloadBtn = document.getElementById('tsasr-asr-unload-btn');
@@ -4795,7 +4742,7 @@ function refreshTtsTab() {
   refreshStyleBertVits2Models('echo').finally(() => {
     setTimeout(() => { ensureStyleBertVits2LoadedForEcho().catch((e) => console.warn(e)); }, 0);
   });
-  window.EchoAPI.getTtsStatus().then(s => {
+  fetch(API + '/tts/status').then(r => r.json()).then(s => {
     _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
     const sb = s?.engines?.style_bert_vits2 || s?.style_bert_vits2 || {};
     const backend = String(sb?.selected_tts_backend || '').toLowerCase();
@@ -4803,8 +4750,8 @@ function refreshTtsTab() {
     if (isWindows && backend.includes('onnx directml')) {
       echo.ttsEngine = 'style_bert_vits2';
       tts.engine = 'style_bert_vits2';
-      localStorage.setItem(['echo','_tts_engine'].join(''), 'style_bert_vits2');
-      localStorage.setItem(['tts','_engine'].join(''), 'style_bert_vits2');
+      localStorage.setItem('echo_tts_engine', 'style_bert_vits2');
+      localStorage.setItem('tts_engine', 'style_bert_vits2');
     }
   }).catch(() => {});
   const ttsPreload = document.getElementById('tsasr-tts-preload');
@@ -4887,7 +4834,8 @@ function _ttsInitSettingsUI() {
 
 async function _loadAsrRuntimeConfig() {
   try {
-    asrRuntimeConfig = await window.EchoAPI.getAsrConfig();
+    const r = await fetch(API + '/asr/config');
+    asrRuntimeConfig = await r.json();
   } catch(_) {}
 }
 
@@ -4899,7 +4847,7 @@ function _asrInitSettingsUI() {
   if (minSpeechEl) minSpeechEl.value = String(voiceAsrSettings.minSpeechMs);
   if (autoSendEl) autoSendEl.checked = !!voiceAsrSettings.autoSendAfterAsr;
   _loadAsrRuntimeConfig().then(()=>_renderAsrRuntimeUi());
-  window.EchoAPI.getVoiceStatus().then(s => {
+  fetch(API + '/voice/status').then(r => r.json()).then(s => {
     const statusTxt = document.getElementById('asr-status-txt');
     const unloadBtn = document.getElementById('asr-unload-btn');
     const loadBtn   = document.getElementById('asr-load-btn');
@@ -11372,13 +11320,11 @@ function _echoHandleEvent(ev) {
     _echoSetStatus(stateMap[ev.state] || ev.state);
   } else if (ev.type === 'summary_done') {
     echo._isStoppingOrSaving = false;
-    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(false);
     _echoSetStatus('✓ 保存完了: ' + (ev.filename || ''));
     _echoVaultSetInfo('');
     refreshEchoVault();
   } else if (ev.type === 'session_stopping') {
     echo._isStoppingOrSaving = true;
-    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(true);
     _echoSetStatus('✓ 停止完了（保存はバックグラウンドで継続）');
     _echoScheduleVaultRefresh();
   } else if (ev.type === 'error') {
@@ -11398,7 +11344,6 @@ function _echoScheduleVaultRefresh(attempt = 0) {
     const saving = await _echoHasPendingSave();
     if (!saving) {
       echo._isStoppingOrSaving = false;
-    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(false);
       if (!echo.recording) _echoSetStatus('Ready');
       _echoSyncBusyStatus(document.getElementById('echo-status')?.textContent || '');
       _syncEchoMinutesButtonUi();
@@ -11423,7 +11368,6 @@ function _echoScheduleReconnect() {
   const delay = Math.min(1000 * Math.pow(2, echo.reconnectCount), 8000);
   echo.reconnectCount++;
   _echoSetConn('reconnecting');
-  if (window.EchoStream?.setConnectionState) window.EchoStream.setConnectionState('reconnecting');
   _echoSetStatus(`再接続中... (${echo.reconnectCount}回目, ${delay/1000}秒後)`);
   echo._reconnectTimer = setTimeout(() => {
     echo._reconnectTimer = null;
@@ -11435,18 +11379,15 @@ function _echoConnectWs(wsMode) {
   if (echo.ws) {
     try { echo.ws.close(); } catch(e) {}
     echo.ws = null;
-    if (window.EchoStream?.setWebSocket) window.EchoStream.setWebSocket(null);
   }
   const ws = new WebSocket(_echoWsUrl());
   ws.binaryType = 'arraybuffer';
   echo.ws = ws;
-  if (window.EchoStream?.setWebSocket) window.EchoStream.setWebSocket(ws);
 
   ws.onopen = () => {
     if (echo.ws !== ws) return;
     echo.reconnectCount = 0;
     _echoSetConn('connected');
-    if (window.EchoStream?.setConnectionState) window.EchoStream.setConnectionState('connected');
     const payload = wsMode === 'resume'
       ? {type: 'resume', session_id: echo.sessionId}
       : {
@@ -11492,20 +11433,20 @@ function _echoConnectWs(wsMode) {
   ws.onclose = () => {
     if (echo.ws !== ws) return;
     _echoSetConn('disconnected');
-    if (window.EchoStream?.setConnectionState) window.EchoStream.setConnectionState('disconnected');
     if (echo.recording) _echoScheduleReconnect();
   };
   ws.onerror = () => {
     if (echo.ws !== ws) return;
     _echoSetConn('error');
-    if (window.EchoStream?.setConnectionState) window.EchoStream.setConnectionState('error');
     if (echo.recording) _echoScheduleReconnect();
   };
 }
 
 async function _echoHasPendingSave() {
   try {
-    const d = await window.EchoAPI.getEchoSaveStatus();
+    const r = await fetch(API + '/echo/save-status');
+    if (!r.ok) return false;
+    const d = await r.json();
     return !!d.saving;
   } catch (_) {
     return false;
@@ -11515,22 +11456,18 @@ async function _echoHasPendingSave() {
 async function _echoStart() {
   if (echo._isStoppingOrSaving || await _echoHasPendingSave()) {
     echo._isStoppingOrSaving = true;
-    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(true);
     _echoSetStatus('議事録作成中のため、開始できません。完了後に再度 Start を押してください。');
     _echoSetConn('disconnected');
-    if (window.EchoStream?.setConnectionState) window.EchoStream.setConnectionState('disconnected');
     _echoScheduleVaultRefresh();
     return;
   }
   echo._isStoppingOrSaving = false;
-    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(false);
   try {
     const selectedInput = String(echo.asrInputDeviceId || 'default');
     const audioConstraints = selectedInput && selectedInput !== 'default'
       ? {deviceId: {exact: selectedInput}}
       : true;
     echo.stream = await navigator.mediaDevices.getUserMedia({audio: audioConstraints});
-    if (window.EchoStream?.setMediaStream) window.EchoStream.setMediaStream(echo.stream);
   } catch(e) {
     _echoSetStatus('マイクのアクセスが拒否されました: ' + e.message);
     return;
@@ -11557,7 +11494,6 @@ async function _echoStart() {
   echo._highpassLastY = 0;
   echo.startTime  = Date.now();
   echo.recording  = true;
-  if (window.EchoStream?.setRecording) window.EchoStream.setRecording(true);
   _echoVaultSetInfo('');
   _echoAutoScroll = true;
   _echoPreviewMode = false;
@@ -11797,9 +11733,7 @@ async function _echoStart() {
 
 async function _echoStop() {
   echo.recording = false;
-  if (window.EchoStream?.setRecording) window.EchoStream.setRecording(false);
   echo._isStoppingOrSaving = true;
-    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(true);
   _echoAutoScroll = false;
   // タイマー停止
   if (echo.durationTimer) { clearInterval(echo.durationTimer); echo.durationTimer = null; }
@@ -11887,7 +11821,6 @@ async function _echoStop() {
   if (echo.stream) {
     echo.stream.getTracks().forEach(t => t.stop());
     echo.stream = null;
-    if (window.EchoStream?.setMediaStream) window.EchoStream.setMediaStream(null);
   }
   // UI更新
   const btn = document.getElementById('echo-record-btn');
@@ -11900,7 +11833,6 @@ async function _echoStop() {
   }
   _echoScheduleVaultRefresh();
   _echoSetConn('disconnected');
-    if (window.EchoStream?.setConnectionState) window.EchoStream.setConnectionState('disconnected');
   _echoUpdateClearBtn();
 }
 
@@ -12120,7 +12052,6 @@ async function _echoVaultGenerateMinutes(transcriptFilename) {
   }
   _echoVaultSetInfo('議事録を作成中です...', 'warn');
   echo._isStoppingOrSaving = true;
-    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(true);
   _syncEchoMinutesButtonUi();
   try {
     const resp = await fetch(API + '/echo/generate-minutes', {
@@ -12136,18 +12067,17 @@ async function _echoVaultGenerateMinutes(transcriptFilename) {
     _echoVaultSetInfo(`議事録作成に失敗しました: ${e.message || String(e)}`, 'warn');
   } finally {
     echo._isStoppingOrSaving = false;
-    if (window.EchoStream?.setStoppingOrSaving) window.EchoStream.setStoppingOrSaving(false);
     _syncEchoMinutesButtonUi();
   }
 }
 
-// Compatibility shim: legacy refresh button and flows call this inline wrapper around EchoAPI/EchoUI.
 async function refreshEchoVault() {
   const el = document.getElementById('echovault-list');
   if (!el) return;
   el.innerHTML = '<div style="font-size:11px;color:var(--text3);text-align:center;padding:12px;font-family:var(--font-mono)">読み込み中...</div>';
   try {
-    const d = await window.EchoAPI.listEchoSessions();
+    const r = await fetch(API + '/echo/sessions');
+    const d = await r.json();
     const files = d.files || [];
     if (!files.length) {
       el.innerHTML = '<div style="font-size:12px;color:var(--text3);text-align:center;padding:24px 0;font-family:var(--font-mono)">セッションデータはまだありません</div>';
@@ -12207,7 +12137,7 @@ async function refreshEchoVault() {
       </div>`;
     };
 
-    const renderedHtml = orderedGroups.map(g => {
+    el.innerHTML = orderedGroups.map(g => {
       const rows = [
         renderRow(g.files.audio, 'audio'),
         renderRow(g.files.transcript, 'transcript'),
@@ -12228,8 +12158,6 @@ async function refreshEchoVault() {
         ${rows}
       </div>`;
     }).filter(Boolean).join('');
-    if (window.EchoUI?.renderEchoVaultSessions) window.EchoUI.renderEchoVaultSessions(renderedHtml);
-    else el.innerHTML = renderedHtml;
     return orderedGroups.length;
   } catch(e) {
     el.innerHTML = `<div style="font-size:11px;color:var(--red)">エラー: ${esc(e.message)}</div>`;
@@ -12556,23 +12484,10 @@ const ATLAS_LAST_SUBVIEW_KEY = 'atlas:lastSubview';
 const ATLAS_REQUIREMENT_INPUT_KEY = 'atlas:requirementInput';
 const ATLAS_SUBVIEWS = ['start', 'autopilot', 'plan', 'history', 'activity'];
 
-function _atlasLsGet(key, fallback = '') {
-  if (window.AtlasState?.safeGet) return window.AtlasState.safeGet(key, fallback);
-  try { return localStorage.getItem(key) || fallback; } catch(_) { return fallback; }
-}
-function _atlasLsSet(key, value) {
-  if (window.AtlasState?.safeSet) return window.AtlasState.safeSet(key, value);
-  try { localStorage.setItem(key, String(value ?? '')); return true; } catch(_) { return false; }
-}
-function _atlasLsRemove(key) {
-  if (window.AtlasState?.safeRemove) return window.AtlasState.safeRemove(key);
-  try { localStorage.removeItem(key); return true; } catch(_) { return false; }
-}
+function _atlasLsGet(key) { try { return localStorage.getItem(key) || ''; } catch(_) { return ''; } }
+function _atlasLsSet(key, value) { try { localStorage.setItem(key, value || ''); } catch(_) {} }
 
-function getAtlasLastRunId() {
-  if (window.AtlasState?.getLastRunId) return window.AtlasState.getLastRunId() || '';
-  return _atlasLsGet(ATLAS_LAST_RUN_KEY) || '';
-}
+function getAtlasLastRunId() { return _atlasLsGet(ATLAS_LAST_RUN_KEY) || ''; }
 
 function restoreAtlasLastRunState() {
   const lastRun = getAtlasLastRunId();
@@ -12608,7 +12523,6 @@ const planWorkflowState = {
   source: 'atlas',
   workspace: 'Atlas',
 };
-if (window.AtlasState?.setPlanWorkflowState) window.AtlasState.setPlanWorkflowState(planWorkflowState);
 
 function _isRequirementIdLeak(v = '') {
   const s = String(v || '').trim();
@@ -12902,7 +12816,8 @@ async function createAutopilotPreview() {
   const previewEl = document.getElementById('atlas-autopilot-plan-preview');
   if (previewEl) previewEl.textContent = 'Creating preview...';
   try {
-    const data = await window.AtlasAPI.createAutopilotPreview({user_goal: goal || 'Autopilot goal'});
+    const r = await fetch('/api/atlas/autopilot/preview', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_goal: goal || 'Autopilot goal'})});
+    const data = await r.json();
     currentAutopilotId = String(data.autopilot_id || '');
     currentAutopilotPlan = data;
     currentAutopilotTasks = Array.isArray(data.tasks) ? data.tasks.map(t => ({...t, statusMessage:'Ready.'})) : [];
@@ -12924,7 +12839,9 @@ async function generateAutopilotTaskPlan(btn){
   const statusEl = card?.querySelector('[data-role="task-status"]');
   if (statusEl) statusEl.textContent = 'Generating plan...';
   try {
-    const data = await window.AtlasAPI.generateAutopilotTaskPlan(autopilotId, taskId);
+    const r = await fetch(`/api/atlas/autopilot/${encodeURIComponent(autopilotId)}/tasks/${encodeURIComponent(taskId)}/plan`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error || data?.message || `HTTP ${r.status}`);
     const message = data.message || '';
     if (statusEl) statusEl.innerHTML = `status: ${esc(data.status || '-')}<br>requirement_id: ${esc(data.requirement_id || '-')}<br>plan_id: ${esc(data.plan_id || '-')}<br>review_status: ${esc(data.review_status || '-')}<br>message: ${esc(message || '-')}`;
     if (task) { task.planResult = data; task.statusMessage = `plan:${data.status || '-'}`; }
@@ -12936,7 +12853,8 @@ async function prepareAutopilotExecutionPreview(btn){
   const statusEl = card?.querySelector('[data-role="task-status"]');
   if (statusEl) statusEl.textContent = 'Preparing execution preview...';
   try {
-    const data = await window.AtlasAPI.prepareAutopilotExecutionPreview(autopilotId, taskId);
+    const r = await fetch(`/api/atlas/autopilot/${encodeURIComponent(autopilotId)}/tasks/${encodeURIComponent(taskId)}/execution-preview`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
+    const data = await r.json();
     const st = String(data.status || '');
     if (st === 'plan_required') { statusEl.innerHTML = 'Plan generation is required before execution preview.'; }
     else if (st === 'approval_required') { statusEl.innerHTML = 'Approval required before execution preview. Open the Plan tab and approve the plan first.'; }
@@ -13033,7 +12951,6 @@ function _updatePlanWorkflowState(partial = {}) {
 }
 
 function setAtlasRequirementStatus(message) {
-  if (window.AtlasUI?.setRequirementStatus) return window.AtlasUI.setRequirementStatus(message);
   const status = document.getElementById('atlas-requirement-status');
   if (!status) return;
   status.textContent = message || 'Ready to start Atlas.';
@@ -13041,7 +12958,6 @@ function setAtlasRequirementStatus(message) {
 
 
 function updateAtlasRequirementCharCount() {
-  if (window.AtlasUI?.updateRequirementCharCount) return window.AtlasUI.updateRequirementCharCount();
   const input = document.getElementById('atlas-requirement-input');
   const counter = document.getElementById('atlas-requirement-char-count');
   if (!counter) return;
@@ -13052,33 +12968,24 @@ function updateAtlasRequirementCharCount() {
 function persistAtlasRequirementInput() {
   const input = document.getElementById('atlas-requirement-input');
   if (!input) return;
-  try {
-    if (window.AtlasState?.setRequirementInput) window.AtlasState.setRequirementInput(input.value || '');
-    else _atlasLsSet(ATLAS_REQUIREMENT_INPUT_KEY, input.value || '');
-  } catch (err) { console.warn('persistAtlasRequirementInput failed:', err); }
+  try { _atlasLsSet(ATLAS_REQUIREMENT_INPUT_KEY, input.value || ''); } catch (err) { console.warn('persistAtlasRequirementInput failed:', err); }
 }
 
 function restoreAtlasRequirementInput() {
   const input = document.getElementById('atlas-requirement-input');
   if (!input) return;
-  const saved = window.AtlasState?.getRequirementInput ? window.AtlasState.getRequirementInput() : _atlasLsGet(ATLAS_REQUIREMENT_INPUT_KEY);
+  const saved = _atlasLsGet(ATLAS_REQUIREMENT_INPUT_KEY);
   if (saved && !input.value) input.value = saved;
   updateAtlasRequirementCharCount();
   setAtlasRequirementStatus(input.value.trim() ? 'Requirement draft restored.' : 'Ready to start Atlas.');
 }
 
 function clearAtlasRequirementInput() {
-  if (window.AtlasUI?.clearRequirementInputDom) window.AtlasUI.clearRequirementInputDom('Requirement cleared.');
-  else {
-    const input = document.getElementById('atlas-requirement-input');
-    if (input) input.value = '';
-    updateAtlasRequirementCharCount();
-    setAtlasRequirementStatus('Requirement cleared.');
-  }
-  try {
-    if (window.AtlasState?.clearRequirementInput) window.AtlasState.clearRequirementInput();
-    else _atlasLsSet(ATLAS_REQUIREMENT_INPUT_KEY, '');
-  } catch (err) { console.warn('clearAtlasRequirementInput failed:', err); }
+  const input = document.getElementById('atlas-requirement-input');
+  if (input) input.value = '';
+  try { _atlasLsSet(ATLAS_REQUIREMENT_INPUT_KEY, ''); } catch (err) { console.warn('clearAtlasRequirementInput failed:', err); }
+  updateAtlasRequirementCharCount();
+  setAtlasRequirementStatus('Requirement cleared.');
 }
 
 function initAtlasRequirementInputHandlers() {
@@ -13159,12 +13066,7 @@ function updateAtlasWorkbenchCompactSummary() {
   const currentRun = planWorkflowState.currentRunId || planWorkflowState.lastRunId || lastRun;
   const currentJob = planWorkflowState.currentJobId || '';
   if (lastRunEl) lastRunEl.textContent = currentRun || '-';
-  const statusText = `${flow.plan || 'pending'} / review ${flow.review || 'pending'} / approval ${flow.approval || 'locked'} / job ${currentJob || '-'}`;
-  if (window.AtlasUI?.updateWorkbenchSummary) {
-    window.AtlasUI.updateWorkbenchSummary({ nextAction: flow.nextAction || 'Start Atlas', currentRun: currentRun || '-', statusText });
-    return;
-  }
-  if (statusEl) statusEl.textContent = statusText;
+  if (statusEl) statusEl.textContent = `${flow.plan || 'pending'} / review ${flow.review || 'pending'} / approval ${flow.approval || 'locked'} / job ${currentJob || '-'}`;
 }
 
 function setAtlasWorkbenchCollapsed(collapsed) {
@@ -13181,39 +13083,31 @@ function setAtlasWorkbenchCollapsed(collapsed) {
 }
 
 function toggleAtlasWorkbenchCollapse() {
-  if (window.AtlasUI?.toggleWorkbenchCollapse) {
-    const collapsed = window.AtlasUI.toggleWorkbenchCollapse();
-    updateAtlasWorkbenchCompactSummary();
-    return collapsed;
-  }
   const card = document.getElementById('atlas-workbench-card');
   setAtlasWorkbenchCollapsed(!(card?.classList.contains('is-collapsed')));
 }
 
 function normalizeAtlasSubview(name) {
-  if (window.AtlasUI?.normalizeSubview) return window.AtlasUI.normalizeSubview(name);
   return ATLAS_SUBVIEWS.includes(name) ? name : 'start';
 }
 
 function getAtlasLastSubview() {
-  const raw = window.AtlasState?.getLastSubview ? window.AtlasState.getLastSubview() : _atlasLsGet(ATLAS_LAST_SUBVIEW_KEY);
-  return normalizeAtlasSubview(raw);
+  return normalizeAtlasSubview(_atlasLsGet(ATLAS_LAST_SUBVIEW_KEY));
 }
 
 function updateAtlasResumeNotice(subview) {
-  const current = normalizeAtlasSubview(subview || getAtlasLastSubview());
-  const lastRun = getAtlasLastRunId();
-  if (window.AtlasUI?.updateResumeNotice) return window.AtlasUI.updateResumeNotice(current, { lastRunId: lastRun, lastSubview: current });
   const notice = document.getElementById('atlas-workbench-card-resume-notice');
   if (!notice) return;
+  const current = normalizeAtlasSubview(subview || getAtlasLastSubview());
   const labelMap = {
     start: 'Start',
-    autopilot: 'Autopilot',
     plan: 'Plan',
-    history: 'History',
-    activity: 'Activity',
+    runs: 'Runs',
+    execute: 'Execute',
+    patch: 'Patch Review',
   };
   const label = labelMap[current] || 'Start';
+  const lastRun = getAtlasLastRunId();
   if (lastRun) {
     notice.textContent = `Atlas restored: ${label}. Last Run: ${lastRun}. Content is not auto-loaded. Use the resume buttons below.`;
   } else {
@@ -13258,36 +13152,32 @@ function restoreAtlasSubviewState() {
   }
 }
 
-// Compatibility shim: external inline handlers still call setAtlasSubview; implementation delegates to AtlasUI/AtlasState.
-function setAtlasSubview(name, options = {}) {
-  const next = normalizeAtlasSubview(name);
-  let applied = next;
-  if (window.AtlasUI?.applySubview) {
-    applied = window.AtlasUI.applySubview(next, { lastRunId: getAtlasLastRunId(), focusSelector: options.focusSelector });
-  } else {
-    const root = document.getElementById('atlas-workbench-card');
-    if (!root) return next;
-    const hasPanel = !!root.querySelector(`[data-atlas-subview-panel="${next}"]`);
-    applied = hasPanel ? next : 'start';
-    root.dataset.atlasCurrentSubview = applied;
-    root.querySelectorAll('[data-atlas-subview-panel]').forEach((el) => {
-      const active = el.getAttribute('data-atlas-subview-panel') === applied;
-      el.hidden = !active;
-      el.style.display = active ? '' : 'none';
-    });
-    root.querySelectorAll('[data-atlas-subview-tab]').forEach((btn) => {
-      btn.classList.toggle('active', btn.getAttribute('data-atlas-subview-tab') === applied);
-    });
-    updateAtlasResumeNotice(applied);
-  }
-  const persisted = applied || next;
+function setAtlasSubview(name) {
+  const allowed = Array.isArray(ATLAS_SUBVIEWS) ? ATLAS_SUBVIEWS : ['start'];
+  const next = allowed.includes(name) ? name : 'start';
+  const root = document.getElementById('atlas-workbench-card');
+  if (!root) return next;
+  root.dataset.atlasCurrentSubview = next;
   try {
-    if (window.AtlasState?.setLastSubview) window.AtlasState.setLastSubview(persisted);
-    else _atlasLsSet(ATLAS_LAST_SUBVIEW_KEY, persisted);
+    _atlasLsSet(ATLAS_LAST_SUBVIEW_KEY, next);
   } catch (err) {
     console.warn('Atlas subview persistence failed:', err);
   }
-  return persisted;
+  root.querySelectorAll('[data-atlas-subview-panel]').forEach((el) => {
+    const active = el.getAttribute('data-atlas-subview-panel') === next;
+    el.hidden = !active;
+    el.style.display = active ? '' : 'none';
+  });
+  root.querySelectorAll('[data-atlas-subview-tab]').forEach((btn) => {
+    btn.classList.toggle('active', btn.getAttribute('data-atlas-subview-tab') === next);
+  });
+  if (next === 'runs' || next === 'execute' || next === 'patch') {
+    try { ensureAtlasWorkbenchHost(); } catch (err) { console.warn('ensureAtlasWorkbenchHost failed:', err); }
+  }
+  if (typeof updateAtlasResumeNotice === 'function') {
+    try { updateAtlasResumeNotice(next); } catch (err) { console.warn('updateAtlasResumeNotice failed:', err); }
+  }
+  return next;
 }
 
 
@@ -13359,8 +13249,7 @@ async function openManualAtlasRunExecuteFromWorkbench() {
   const runId = manual || getAtlasLastRunId();
   if (!runId) { addMsg('system', 'run_id is required. Run Atlas once, load recent runs, or enter run_id.'); return; }
   cardRoot.dataset.lastRunId = runId;
-  if (window.AtlasState?.setLastRunId) window.AtlasState.setLastRunId(runId);
-  else _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
+  _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
   await loadAtlasRunExecute(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');
   appendAtlasActivityCard('patch_review_ready', { runId });
 }
@@ -13381,8 +13270,7 @@ async function openPatchReviewFromWorkbench() {
   const runId = manual || getAtlasLastRunId();
   if (!runId) { addMsg('system', 'run_id is required for patch review. Run Atlas once, load recent runs, or enter run_id.'); return; }
   cardRoot.dataset.lastRunId = runId;
-  if (window.AtlasState?.setLastRunId) window.AtlasState.setLastRunId(runId);
-  else _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
+  _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
   await loadAtlasRunExecute(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');
   setTimeout(() => {
     const btn = cardRoot.querySelector('[data-atlas-dashboard-action="open-patch-review"]');
@@ -13812,7 +13700,9 @@ async function loadAtlasRunExecute(cid, runId, cardRoot, openedFrom = "current")
   const dashboardEl = root?.querySelector(`#${cid}-atlas-dashboard`);
   if (!dashboardEl || !runId) return;
   try {
-    const d = await window.AtlasAPI.getRunPatchDashboard(runId);
+    const r = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(`api_task_plan_http_error:${r.status}:${d.detail || ''}`);
     const db = d.dashboard || {};
     const c = db.counts || {};
     const att = db.attention || {};
@@ -13835,8 +13725,7 @@ async function loadAtlasRunExecute(cid, runId, cardRoot, openedFrom = "current")
       ${renderList('Quality not evaluated patches', att.quality_not_evaluated_patch_ids || [])}
       ${renderList('Reproposal candidates', att.reproposal_needed_patch_ids || [])}
     `;
-    if (window.AtlasState?.setLastRunId) window.AtlasState.setLastRunId(runId);
-  else _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
+    _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
     _atlasLsSet(ATLAS_LAST_DASHBOARD_RUN_KEY, runId);
     if (root) root.dataset.lastRunId = runId;
     const lastEl = root?.querySelector(`#${cid}-atlas-last-run`);
@@ -13861,7 +13750,9 @@ async function loadRecentAtlasRuns(cid, cardRoot) {
   const listEl = cardRoot.querySelector(`#${cid}-atlas-runs-list`);
   const lastEl = cardRoot.querySelector(`#${cid}-atlas-last-run`);
   if (lastEl) lastEl.textContent = _atlasLsGet(ATLAS_LAST_RUN_KEY) || '-';
-  const d = await window.AtlasAPI.listAtlasRuns(20);
+  const r = await fetch(API + '/api/atlas/runs?limit=20');
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
   const runs = Array.isArray(d.runs) ? d.runs : [];
   listEl.innerHTML = runs.map((x)=>`<div style="margin-top:4px">- ${esc(x.run_id||'')} | patches=${esc(String(x.patch_count||0))} | blocked=${esc(String(x.blocked_count||0))} | failed=${esc(String(x.verification_failed_count||0))} | low_quality=${esc(String(x.low_quality_count||0))} | status=${esc(x.status||'unknown')} <button class="phase1-tab-btn" data-recent-open="${esc(x.run_id||'')}">Open Execute</button> <button class="phase1-tab-btn" data-recent-review="${esc(x.run_id||'')}">Open Patch Review</button></div>`).join('') || '<div style="color:var(--text3)">No runs.</div>';
   listEl.querySelectorAll('[data-recent-open]').forEach((b)=>b.addEventListener('click', async ()=>{ const runId=b.getAttribute('data-recent-open')||''; if(!runId)return; cardRoot.dataset.lastRunId=runId; _atlasLsSet(ATLAS_LAST_RUN_KEY, runId); await loadAtlasRunExecute(cid, runId, cardRoot, 'recentList'); }));
@@ -13936,13 +13827,15 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
 
   async function loadPhase8Patches(cid, runId) {
     const listEl = cardRoot.querySelector(`#${cid}-patch-list`);
-    const d = await window.AtlasAPI.getRunPatches(runId);
+    const r = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patches`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(`api_task_plan_http_error:${r.status}:${d.detail || ''}`);
     const patches = Array.isArray(d.patches) ? d.patches : [];
     _updatePlanWorkflowState({runId, latestPatchIds: patches.map((p)=>p.patch_id).filter(Boolean), lastError: ''});
     let dashboardData = null;
     let dashboardNoteHtml = '';
     try {
-      const dr = await window.AtlasAPI.getRunPatchDashboardResponse(runId);
+      const dr = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
       const dd = await dr.json();
       if (dr.ok) dashboardData = dd.dashboard || null;
       if (dr.status === 404) dashboardNoteHtml = '<div style="color:var(--text3);margin-bottom:6px">Execute not available yet</div>';
@@ -14109,9 +14002,9 @@ function _bindPhase6ExecutionActions(cardRoot, result) {
       if (kind === 'open-last-atlas-dashboard') { const lastRun=_atlasLsGet(ATLAS_LAST_RUN_KEY); if (lastRun) { cardRoot.dataset.lastRunId=lastRun; await loadAtlasRunExecute(cid, lastRun, cardRoot, 'lastRun'); } return; }
       if (kind === 'open-run-dashboard') { const manual=(cardRoot.querySelector(`#${cid}-atlas-run-input`)?.value||'').trim(); if (manual) { cardRoot.dataset.lastRunId=manual; _atlasLsSet(ATLAS_LAST_RUN_KEY, manual); await loadAtlasRunExecute(cid, manual, cardRoot, 'manualInput'); } return; }
       const ep = kind === 'report' ? `/api/runs/${encodeURIComponent(runId)}/report` : `/api/runs/${encodeURIComponent(runId)}/log`;
-      const d = kind === 'report'
-        ? await window.AtlasAPI.getRunReport(runId)
-        : await window.AtlasAPI.getRunLog(runId);
+      const r = await fetch(API + ep);
+      const d = await r.json();
+      if (!r.ok) throw new Error(`api_task_plan_http_error:${r.status}:${d.detail || ''}`);
       if (outEl) outEl.textContent = kind === 'report' ? String(d.report || '') : String(d.log || '');
     } catch (e) {
       if (outEl) outEl.textContent = `Error: ${e.message || String(e)}`;
@@ -15928,20 +15821,12 @@ function testSkill(skillName) {
 </script>
 <script src="/static/js/app.js"></script>
 <script src="/static/js/settings.js"></script>
-<script src="/static/js/skills_memory.js"></script>
 <script src="/static/js/panels.js"></script>
 <script src="/static/js/lumen_api.js"></script>
 <script src="/static/js/lumen_tools.js"></script>
 <script src="/static/js/lumen.js"></script>
-<script src="/static/js/atlas_api.js"></script>
-<script src="/static/js/atlas_state.js"></script>
-<script src="/static/js/atlas_ui.js"></script>
+<script src="/static/js/skills_memory.js"></script>
 <script src="/static/js/nexus.js"></script>
-<script src="/static/js/echo_api.js"></script>
-<script src="/static/js/echo_stream.js"></script>
-<script src="/static/js/echo_ui.js"></script>
-<!-- EchoUI.setEchoStatus / EchoUI.setEchoConnectionState delegated via web/js/echo.js -->
-<script src="/static/js/runtime_diagnostics.js"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>

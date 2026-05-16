@@ -1297,9 +1297,6 @@ class ModelManager:
         self._last_nvidia_smi_before: list[dict[str, int | str]] = []
         self._last_nvidia_smi_after: list[dict[str, int | str]] = []
         self._last_ngl_search_debug: dict[str, Any] = {}
-        self._auto_load_failed = False
-        self._auto_load_failure_reason = ""
-        self._auto_load_failure_detail = ""
         self._startup_log_fd = None
         self._load_guard_lock = _mm_thread.Lock()
         self._load_in_progress = False
@@ -1439,16 +1436,6 @@ class ModelManager:
         debug = dict(getattr(self, "_last_ngl_search_debug", {}) or {})
         debug.update(kwargs)
         self._last_ngl_search_debug = debug
-
-    def _set_auto_load_failure(self, reason: str, detail: str = "") -> None:
-        self._auto_load_failed = True
-        self._auto_load_failure_reason = str(reason or "")
-        self._auto_load_failure_detail = str(detail or "")
-
-    def _clear_auto_load_failure(self) -> None:
-        self._auto_load_failed = False
-        self._auto_load_failure_reason = ""
-        self._auto_load_failure_detail = ""
 
     def _collect_nvidia_smi_memory(self) -> list[dict[str, int | str]]:
         if shutil.which("nvidia-smi") is None:
@@ -1601,7 +1588,6 @@ class ModelManager:
             if ok:
                 self.current_key = key
                 self._status = "ready"
-                self._clear_auto_load_failure()
                 self._last_startup_hints = []  # 起動成功時はヒントをクリア
                 # _current_n_ctxをモデルのctxに合わせて更新
                 global _current_n_ctx
@@ -1788,9 +1774,6 @@ class ModelManager:
                     remember_attempt(gpu_layers, result)
                     self._kill_process()
                     print(f"[ModelManager] Runpod/Linux explicit -ngl={gpu_layers} failed without OOM; aborting")
-                    failure_detail = str((self._last_llama_gpu_log or {}).get("gpu_validation_reason") or "")
-                    self._set_auto_load_failure("runpod_gpu_validation_failed_without_oom", failure_detail)
-                    print("[ModelManager] LLM auto-load failed: runpod_gpu_validation_failed_without_oom; see /debug/model-startup for details")
                     return False
                 if gpu_layers <= 0:
                     self._kill_process()
@@ -1825,9 +1808,6 @@ class ModelManager:
                     remember_attempt(mid, result, binary=True)
                     self._kill_process()
                     print(f"[ModelManager] Runpod/Linux binary -ngl={mid} failed without OOM; aborting")
-                    failure_detail = str((self._last_llama_gpu_log or {}).get("gpu_validation_reason") or "")
-                    self._set_auto_load_failure("runpod_gpu_validation_failed_without_oom", failure_detail)
-                    print("[ModelManager] LLM auto-load failed: runpod_gpu_validation_failed_without_oom; see /debug/model-startup for details")
                     return False
 
             # Phase 4: 採用値で最終起動。最後に起動している成功プロセスが違う場合のみ再起動。
@@ -2122,16 +2102,6 @@ class ModelManager:
                         if not ok:
                             msg = f"Runpod/Linux GPU validation failed: {reason}"
                             print(f"[ModelManager] {msg}")
-                            self._record_ngl_search_debug(
-                                requested_ngl_initial=gpu_layers,
-                                final_requested_ngl=gpu_layers,
-                                final_parsed_n_gpu_layers=self._last_llama_gpu_log.get("n_gpu_layers"),
-                                parsed_cuda_buffer_mib=self._last_llama_gpu_log.get("cuda_buffer_mib"),
-                                parsed_cpu_buffer_mib=self._last_llama_gpu_log.get("cpu_buffer_mib"),
-                                parsed_gpu_offload_layers=self._last_llama_gpu_log.get("gpu_offload_layers"),
-                                parsed_total_layers=self._last_llama_gpu_log.get("total_layers"),
-                                parsed_offload_line=self._last_llama_gpu_log.get("offload_line"),
-                            )
                             self._last_startup_hints = [msg]
                             return "fail"
                         if self._last_llama_gpu_log.get("n_gpu_layers") is None:
@@ -2429,13 +2399,8 @@ class ModelManager:
             self._sync_current_model()
         catalog = self._catalog()
         spec = catalog.get(self.current_key, {})
-        llm_ready = self._status == "ready" and not bool(self._auto_load_failed)
         return {
             "status": self._status,
-            "llm_ready": llm_ready,
-            "auto_load_failed": bool(self._auto_load_failed),
-            "auto_load_failure_reason": self._auto_load_failure_reason,
-            "auto_load_failure_detail": self._auto_load_failure_detail,
             "current_key": self.current_key,
             "current_name": spec.get("name", ""),
             "vram_gb": spec.get("vram_gb", 0),
@@ -2486,7 +2451,6 @@ class ModelManager:
             "ok_low": search_debug.get("ok_low"),
             "final_requested_ngl": search_debug.get("final_requested_ngl"),
             "final_parsed_n_gpu_layers": search_debug.get("final_parsed_n_gpu_layers"),
-            "last_start_cmd": self._last_start_cmd,
             "parsed_n_gpu_layers": parsed.get("n_gpu_layers"),
             "parsed_gpu_offload_layers": parsed.get("gpu_offload_layers"),
             "parsed_total_layers": parsed.get("total_layers"),
@@ -2498,11 +2462,6 @@ class ModelManager:
             "llama_startup_log_tail": log_tail,
             "nvidia_smi_memory_before": self._last_nvidia_smi_before,
             "nvidia_smi_memory_after": self._last_nvidia_smi_after,
-            "nvidia_smi_memory_delta_mib": self._nvidia_smi_memory_delta_mib(),
-            "auto_load_failed": bool(self._auto_load_failed),
-            "auto_load_failure_reason": self._auto_load_failure_reason,
-            "auto_load_failure_detail": self._auto_load_failure_detail,
-            "llm_ready": self._status == "ready" and not bool(self._auto_load_failed),
         }
 
 

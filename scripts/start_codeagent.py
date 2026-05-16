@@ -584,38 +584,10 @@ def main() -> int:
                 should_wait_llm = False
                 print("[ModelDB] auto-load skipped: no model files. Skipping LLM wait.")
             llm_ok = True
-            llm_failure_reason = ""
             if should_wait_llm:
-                deadline = time.time() + float(args.llm_timeout)
-                health_url = f"http://127.0.0.1:{args.primary_port}/health"
-                status_url = f"http://127.0.0.1:{args.port}/model/status"
-                while time.time() < deadline:
-                    code = request_status(health_url, timeout=2.0)
-                    if code == 200:
-                        llm_ok = True
-                        break
-                    model_status = request_json(status_url, timeout=2.0) or {}
-                    if model_status.get("auto_load_failed"):
-                        llm_ok = False
-                        llm_failure_reason = str(model_status.get("auto_load_failure_reason") or "unknown")
-                        llm_failure_detail = str(model_status.get("auto_load_failure_detail") or "").strip()
-                        print(f"[WARN] LLM auto-load failed early: {llm_failure_reason}")
-                        if llm_failure_detail:
-                            print(f"[WARN] LLM auto-load detail: {llm_failure_detail}")
-                        print(f"[WARN] See: http://127.0.0.1:{args.port}/debug/model-startup")
-                        print("[WARN] Collect runtime snapshot:")
-                        print("       bash scripts/collect_runtime_snapshot.sh /workspace/ca_data/debug_runtime_snapshots/manual-$(date -u +%Y%m%d-%H%M%S)")
-                        break
-                    wait_sec = max(int(deadline - time.time()), 0)
-                    print(f"[WAIT] LLM loading... {wait_sec}s")
-                    time.sleep(2.0)
-                else:
-                    llm_ok = False
+                llm_ok = wait_http_200(f"http://127.0.0.1:{args.primary_port}/health", args.llm_timeout, "LLM")
             if not llm_ok:
-                if llm_failure_reason:
-                    print(f"[WARN] LLM auto-load failed: {llm_failure_reason}")
-                else:
-                    print(f"[WARN] LLM is still not ready after {args.llm_timeout}s.")
+                print(f"[WARN] LLM is still not ready after {args.llm_timeout}s.")
             else:
                 # Warm-up: pre-fill KV cache so the first user request is fast
                 print("[LLM] Sending warm-up request to pre-load KV cache...")
@@ -649,14 +621,7 @@ def main() -> int:
 
         lan_ip = detect_lan_ip()
         print("\n==============================================")
-        if should_request_autoload and not llm_ok:
-            print(" CodeAgent ready with warnings!")
-            print("  FastAPI : ready")
-            print("  LLM     : failed auto-load")
-            if llm_failure_reason:
-                print(f"  Reason  : {llm_failure_reason}")
-        else:
-            print(" CodeAgent ready!")
+        print(" CodeAgent ready!")
         print(f"  Local : http://localhost:{args.port}/")
         print(f"  LAN   : http://{lan_ip}:{args.port}/")
         print(f"  Mode  : {mode_num}  Profile: {mode_key}")
