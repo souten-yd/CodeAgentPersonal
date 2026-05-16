@@ -68,6 +68,12 @@ Current Gate:
 - approval_rejected_count: {summary.metadata.get("approval_rejected_count", 0)}
 - approval_pending_item_ids: {summary.metadata.get("approval_pending_item_ids", [])}
 - approval_note: Approval records exist, but safe_apply is not automatically executed.
+- debug_review_status: {summary.metadata.get("debug_review_status", "")}
+- debug_review_root_cause_category: {summary.metadata.get("debug_review_root_cause_category", "")}
+- debug_review_proposed_fix: {summary.metadata.get("debug_review_proposed_fix", "")}
+- debug_review_retry_recommended: {str(bool(summary.metadata.get("debug_review_retry_recommended", False))).lower()}
+- debug_review_advisory_only: {str(bool(summary.metadata.get("debug_review_advisory_only", False))).lower()}
+- debug_review_note: no patch/safe_apply/reverification was run.
 
 重要方針:
 - Task独立機能は廃止。
@@ -211,9 +217,32 @@ Current Gate:
         })
         if not summary.next_action or summary.next_action in {"Continue pipeline from the recovered checkpoint."}:
             summary.next_action = orchestration.next_action or summary.next_action
+        debug_review = self._latest_debug_review(pool)
+        if debug_review:
+            summary.metadata.update({
+                "debug_review_status": str(debug_review.get("status") or ""),
+                "debug_review_root_cause_category": str(debug_review.get("root_cause_category") or ""),
+                "debug_review_proposed_fix": str(debug_review.get("proposed_fix") or ""),
+                "debug_review_retry_recommended": bool(debug_review.get("retry_recommended", False)),
+                "debug_review_advisory_only": True,
+            })
         summary.metadata["checkpoint_excerpt"] = self.read_checkpoint_excerpt(summary.pool_id, max_chars=4000)
         summary.continuation_prompt = self.build_prompt(summary)
         return summary
+
+
+    def _latest_debug_review(self, pool) -> dict[str, Any]:
+        latest: dict[str, Any] = {}
+        if pool is None:
+            return latest
+        for item in pool.items:
+            debug = dict((item.metadata or {}).get("debug_review") or {})
+            if not debug:
+                continue
+            reviewed_at = str(debug.get("reviewed_at") or "")
+            if not latest or reviewed_at >= str(latest.get("reviewed_at") or ""):
+                latest = dict(debug)
+        return latest
 
     @staticmethod
     def _current_gate(orchestration) -> str:

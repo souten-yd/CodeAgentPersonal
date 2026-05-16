@@ -6,52 +6,38 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 ## Completed PRs
 
-- PR-ATLAS-PIPE-0〜21D: completed
-- PR-ATLAS-PIPE-22: completed
-- PR-ATLAS-PIPE-22B: completed
+- PR-ATLAS-PIPE-0〜22C: completed
+- PR-ATLAS-PIPE-23: completed
 
 ## Current PR
 
-- PR-ATLAS-PIPE-22C
+- PR-ATLAS-PIPE-23B
 
 ## Next PR
 
-- PR-ATLAS-PIPE-23: Manual DebugLoop review gate / no auto patch
+- PR-ATLAS-PIPE-24: Manual patch proposal review / no auto apply
 
 ## Important Constraints
 
 - Verificationはitem-level/manualのみ。
-- batch/full-autopilot verificationは禁止。
+- Debug reviewはitem-level/manualのみ。
+- batch/full-autopilot verification/debug reviewは禁止。
 - arbitrary command inputは禁止。
-- TestCommandRunnerはallowlisted commandのみ。
-- failed verificationでもDebugLoop/auto-fixは起動しない。
+- Debug reviewはadvisory only。
+- patch自動生成・safe_apply自動実行・verification自動再実行は禁止。
 - DeepResearch/Web jobは起動しない。
 - /api/task/* /api/agent/* は追加しない。
 
 ## Known Current Code Facts
 
-- PR-ATLAS-PIPE-21D removes noop executor applied semantics.
-- executor unavailable blocks normal safe_apply unless dry_run simulation is explicitly requested.
-- PR-ATLAS-PIPE-22 adds manual post-apply verification gate for safe_applied PlanItems.
-- Verification uses allowlisted TestCommandRunner only.
-- Verification is item-level/manual and never batch/full-autopilot.
-- Failed verification does not start DebugLoop or auto-fix.
-- PR-ATLAS-PIPE-22B fixes the verification API endpoint and test isolation.
-- PR-ATLAS-PIPE-22C fixes verification response enrichment by using build_from_pool_and_state and avoids silent pass on enrichment failure.
-- Verification responses include recovery_summary / orchestration_summary / continuation_prompt when available.
-- PR-ATLAS-PIPE-22C does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
-
-## Next Instruction
-
-PR-ATLAS-PIPE-23を実装する。
-verification failed itemに対して、DebugLoopRunnerの分析/提案だけを手動で実行できるreview gateを追加する。ただし自動patch生成・自動safe_apply・自動再検証は行わない。
-
-
-Next PR:
-- PR-ATLAS-PIPE-24: Manual patch proposal review / no auto apply
-
 - PR-ATLAS-PIPE-23 adds manual DebugLoop review gate for failed verification items.
 - Debug review is advisory only: root cause/proposed fix/reusable lesson.
 - Debug review does not generate patches, does not run safe_apply, and does not rerun verification.
 - Debug review is item-level/manual and never batch/full-autopilot.
-- PR-ATLAS-PIPE-23 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
+- PR-ATLAS-PIPE-23B fixes the Debug Review API route and integration tests.
+- PR-ATLAS-PIPE-23B does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
+
+## Next Instruction
+
+PR-ATLAS-PIPE-24を実装する。
+DebugReviewのproposed_fixを元に、LLM/Plannerがpatch proposalを作る「提案レビュー」だけを追加する。ただしpatch自動適用・safe_apply自動実行・verification自動再実行はしない。
