@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 from tests.helpers.ui_contract import load_ui_contract_text
 
@@ -8,22 +9,32 @@ HTML = (ROOT / "ui.html").read_text(encoding="utf-8")
 ATLAS_API_JS = (ROOT / "web" / "js" / "atlas_pipeline_api.js").read_text(encoding="utf-8")
 ATLAS_DASHBOARD_JS = (ROOT / "web" / "js" / "atlas_dashboard.js").read_text(encoding="utf-8")
 CSS = (ROOT / "web" / "css" / "app.css").read_text(encoding="utf-8")
+ASSET_VERSION = "atlas-dashboard-14b"
 
 
 def atlas_block() -> str:
     return HTML.split("<!-- ATLAS MODE -->", 1)[1].split('<div class="agent-col mob-hidden"', 1)[0]
 
 
-def test_atlas_dashboard_root_and_goal_composer_exist() -> None:
+def test_atlas_dashboard_root_shell_and_goal_composer_exist() -> None:
     block = atlas_block()
     assert 'id="atlas-dashboard"' in block
     assert 'class="atlas-dashboard"' in block
+    assert 'class="atlas-dashboard-shell plan-card"' in block
     assert 'id="atlas-goal-input"' in block
-    assert 'Atlasに進めたい開発内容を書いてください。例: Atlasの進捗UIを改善する' in block
+    assert '例: AtlasのPipeline進捗UIを改善し、リロード後も状態復元できるようにする' in block
     assert 'id="atlas-create-plan-btn"' in block
     assert 'Create Plan' in block
     assert 'id="atlas-start-dry-run-btn"' in block
     assert 'Start Dry-run' in block
+
+
+def test_primary_actions_do_not_render_as_default_buttons() -> None:
+    block = atlas_block()
+    create = re.search(r'<button[^>]+id="atlas-create-plan-btn"[^>]+>', block)
+    dry_run = re.search(r'<button[^>]+id="atlas-start-dry-run-btn"[^>]+>', block)
+    assert create and 'class="atlas-primary-btn"' in create.group(0)
+    assert dry_run and 'class="atlas-secondary-btn"' in dry_run.group(0)
 
 
 def test_advanced_settings_are_collapsed_inside_details_by_default() -> None:
@@ -84,20 +95,30 @@ def test_no_forbidden_execution_controls_in_new_dashboard() -> None:
     assert "start dry-run" in visible_block
 
 
-def test_mobile_overflow_guard_classes_and_css_exist() -> None:
+def test_css_contract_contains_visual_rescue_selectors() -> None:
     for token in (
-        ".atlas-dashboard{width:100%;max-width:100%;min-width:0;overflow-x:hidden",
-        ".atlas-status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr))",
-        ".atlas-button-row{display:flex;gap:8px;flex-wrap:wrap",
-        ".atlas-log-panel{max-width:100%;overflow-x:auto",
-        "@media(max-width:768px){.atlas-dashboard",
-        ".atlas-goal-input,.atlas-button-row button{width:100%}",
+        ".atlas-dashboard",
+        ".atlas-dashboard-shell",
+        ".atlas-hero-card",
+        ".atlas-goal-input",
+        ".atlas-primary-btn",
+        ".atlas-secondary-btn",
+        ".atlas-status-grid",
+        ".atlas-plan-item-card",
+        ".atlas-progress",
+        ".atlas-log-panel",
     ):
         assert token in CSS
+    assert "border-radius: 999px" in CSS
+    assert "min-height: 120px" in CSS
+    assert "grid-template-columns: repeat(4, minmax(0, 1fr))" in CSS
+    assert "overflow-x: hidden" in CSS
+    assert "@media (max-width: 768px)" in CSS
 
 
-def test_dashboard_scripts_are_loaded_after_core_assets() -> None:
-    assert '<script src="/static/js/atlas_pipeline_api.js"></script>' in HTML
-    assert '<script src="/static/js/atlas_dashboard.js"></script>' in HTML
+def test_ui_loads_cache_busted_static_assets() -> None:
+    assert f'<link rel="stylesheet" href="/static/css/app.css?v={ASSET_VERSION}">' in HTML
+    assert f'<script src="/static/js/atlas_pipeline_api.js?v={ASSET_VERSION}"></script>' in HTML
+    assert f'<script src="/static/js/atlas_dashboard.js?v={ASSET_VERSION}"></script>' in HTML
     assert "AtlasPipelineAPI" in ATLAS_API_JS
     assert "AtlasDashboard" in ATLAS_DASHBOARD_JS

@@ -8,7 +8,12 @@ CSS_PATH = "/static/css/app.css"
 CSS_TOKENS = (
     ":root{",
     "--bg:",
-    ".atlas-subview-tabs",
+    ".atlas-dashboard-shell",
+    ".atlas-primary-btn",
+    ".atlas-goal-input",
+    ".atlas-status-grid",
+    ".atlas-plan-item-card",
+    ".atlas-progress",
     ".mob-tabs",
 )
 
@@ -28,4 +33,4 @@ def test_app_css_is_served_as_css_with_expected_tokens():
 def test_ui_html_links_external_app_css():
     ui_html = load_root_ui_html_text()
 
-    assert f'<link rel="stylesheet" href="{CSS_PATH}">' in ui_html
+    assert f'<link rel="stylesheet" href="{CSS_PATH}?v=atlas-dashboard-14b">' in ui_html

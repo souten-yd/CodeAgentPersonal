@@ -32,10 +32,11 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-11: completed
 - PR-ATLAS-PIPE-12: completed
 - PR-ATLAS-PIPE-13: completed
+- PR-ATLAS-PIPE-14: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-14
+PR-ATLAS-PIPE-14B
 
 ## Next PR
 
@@ -78,6 +79,9 @@ PR-ATLAS-PIPE-15: Chat continuation / operational polish
 - PR-ATLAS-PIPE-14 intentionally does not preserve the old complex Atlas UI layout.
 - Advanced settings are hidden by default.
 - PR-ATLAS-PIPE-14 does not add safe_apply/TestCommand/DebugLoop/DeepResearch execution controls.
+- PR-ATLAS-PIPE-14B fixes Atlas Dashboard visual design and static asset loading.
+- PR-ATLAS-PIPE-14B adds cache busting/static asset checks so the redesigned UI styles are actually applied.
+- PR-ATLAS-PIPE-14B does not add safe_apply/TestCommand/DebugLoop/DeepResearch execution controls.
 - Outcome Writer can save success/failure/debug/research/safe_apply/pipeline outcomes to AtlasJournal and optionally to a Nexus client.
 - Research item execution does not start external Web access or Deep Research jobs.
 - Research item execution does not call ImplementationExecutor, safe_apply, or TestCommandRunner.
