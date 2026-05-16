@@ -196,8 +196,17 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
   - `app.state.atlas_llm_json_fn` がcallable。
   - または既存state/envからOpenAI互換backend base_urlが解決できる。
 - backend unavailable / timeout / raise / invalid JSON時はfallback PlanPoolへ戻る。
-- 次の課題はclarification answer flow（PR-ATLAS-PIPE-19）。
+- PR-ATLAS-PIPE-19でclarification answer flowは実装済み。
+- 次の課題はapproval_required itemをAtlas Dashboard / API / Continuationで扱うこと。
+- approvalを記録しても、safe_apply自動実行はまだ別PRで扱う。
 
 - PR-ATLAS-PIPE-19 adds clarification answer flow for waiting_for_clarification.
 - Clarification answers are merged into Planner input / Requirement context and can trigger re-planning.
 - PR-ATLAS-PIPE-19 does not execute safe_apply/TestCommand/DebugLoop/DeepResearch.
+
+
+## Current Sequencing Note
+
+- PR-ATLAS-PIPE-19でClarification answer flowは実装済み。
+- 次の課題はapproval_required itemをAtlas Dashboard / API / Continuationで扱うこと。
+- approvalを記録しても、safe_apply自動実行はまだ別PRで扱う。

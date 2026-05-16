@@ -630,7 +630,7 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 
 実装・merge済み。
 
-## PR-ATLAS-PIPE-19: Current / Next implementation target
+## PR-ATLAS-PIPE-19: completed
 
 ### 範囲
 
@@ -644,3 +644,25 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 - PR-ATLAS-PIPE-19 adds clarification answer flow for waiting_for_clarification.
 - Clarification answers are merged into Planner input / Requirement context and can trigger re-planning.
 - PR-ATLAS-PIPE-19 does not execute safe_apply/TestCommand/DebugLoop/DeepResearch.
+
+
+## PR-ATLAS-PIPE-20: Current / Next implementation target
+
+### 範囲
+
+- approval_required itemをUI/API/Continuationで一貫表示
+- Approval Gate recordsをJournal/Recovery/Continuationに出せるようにする
+- Approval request / approve / reject の薄いAPIを /api/atlas 配下に追加する
+- Dashboard DetailsにApproval panelを追加する
+- Approval済みかどうかをPipeline continuationが判断できるようにする
+- safe_apply実行そのものはまだ自動化しない
+- TestCommand/DebugLoop/DeepResearchも実行しない
+
+### 禁止
+
+- safe_apply自動実行
+- safe_apply一括実行UI
+- TestCommand自動実行
+- DebugLoop自動実行
+- DeepResearch/Web job起動
+- Task/Agent API追加
