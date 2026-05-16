@@ -43,6 +43,10 @@ Atlas PlannerとAutopilotの境界になるPlanItem / PlanPool schemaを追加�
 
 ### 完了条件
 
+- `agent/atlas_plan_pool_schema.py` が存在する。
+- `AtlasPlanItem` / `AtlasPlanPool` が定義される。
+- SchemaはJSON roundtrip可能。
+- runtime / storage / API / UI は変更しない。
 - Schema contract testがpassする。
 - runtime executionはまだ行わない。
 - 既存API挙動に差分がない。
