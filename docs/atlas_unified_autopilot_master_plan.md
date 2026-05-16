@@ -96,6 +96,11 @@ This PR is documentation and contract-test only. It does not change runtime beha
 - The UI must be integrated into Atlas surfaces.
 - iPhone Safari must not suffer horizontal layout breakage.
 - Any future UI work should favor responsive layouts, wrapping text, scroll-safe containers, and mobile-safe button groups.
+- PR-ATLAS-PIPE-14 redesigns Atlas as an Atlas Dashboard instead of preserving the old complex UI layout.
+- The redesigned Atlas UI should be simple, graphical, and card-centered: Goal Composer, PlanPool cards, Pipeline progress, Current Item, Recovery, and Details drawer.
+- Detailed settings, raw JSON, Markdown, and event logs should be shown only when needed through collapsed details panels.
+- Browser reload should restore state from Recovery/latest plus the persisted last pool/run identifiers.
+- The initial Dashboard surface remains dry-run only and must not expose safe_apply, TestCommandRunner, DebugLoopRunner, external Web research, or Deep Research execution controls.
 
 ## Target Architecture
 

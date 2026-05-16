@@ -31,14 +31,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-10: completed
 - PR-ATLAS-PIPE-11: completed
 - PR-ATLAS-PIPE-12: completed
+- PR-ATLAS-PIPE-13: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-13
+PR-ATLAS-PIPE-14
 
 ## Next PR
 
-PR-ATLAS-PIPE-14: Atlas UI統合
+PR-ATLAS-PIPE-15: Chat continuation / operational polish
 
 ## Important Constraints
 
@@ -49,7 +50,7 @@ PR-ATLAS-PIPE-14: Atlas UI統合
 - Nexusが空でも処理継続。
 - iPhone SafariでUIを崩さない。
 - 既存 Lumen / Echo / Nexus を壊さない。
-- runtime / UI / API はこのPRでは変更しない。
+- 初期UIではdry-runのみを表示し、safe_apply/TestCommand/DebugLoop/DeepResearch実行UIは追加しない。
 
 ## Known Current Code Facts
 
@@ -73,6 +74,10 @@ PR-ATLAS-PIPE-14: Atlas UI統合
 - PR-ATLAS-PIPE-12 adds Nexus Outcome Writer schema/service only and does not add API/UI behavior.
 - PR-ATLAS-PIPE-13 adds minimal Atlas API integration for PlanPool creation, PlanPool retrieval, Pipeline dry_run, status, and recovery.
 - PR-ATLAS-PIPE-13 does not add Task/Agent APIs, safe_apply execution, test execution, DebugLoop execution, external Web access, or Deep Research jobs.
+- PR-ATLAS-PIPE-14 adds a redesigned Atlas Dashboard UI for PlanPool, Pipeline dry-run status, and Recovery.
+- PR-ATLAS-PIPE-14 intentionally does not preserve the old complex Atlas UI layout.
+- Advanced settings are hidden by default.
+- PR-ATLAS-PIPE-14 does not add safe_apply/TestCommand/DebugLoop/DeepResearch execution controls.
 - Outcome Writer can save success/failure/debug/research/safe_apply/pipeline outcomes to AtlasJournal and optionally to a Nexus client.
 - Research item execution does not start external Web access or Deep Research jobs.
 - Research item execution does not call ImplementationExecutor, safe_apply, or TestCommandRunner.
@@ -90,5 +95,5 @@ PR-ATLAS-PIPE-14: Atlas UI統合
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-14を実装する。
-Atlas UIにPlanPool / Pipeline Status / Recovery表示を追加する。ただしiPhone Safariで横崩れしない縦カード中心のUIにする。
+PR-ATLAS-PIPE-15を実装する。
+チャット継続・checkpoint更新・UIからのrecovery表示・運用polishを仕上げる。

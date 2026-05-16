@@ -154,117 +154,160 @@
 
   <!-- ATLAS MODE -->
   <div class="atlas-panel-col mob-hidden" id="atlas-panel-col" style="display:none">
-    <div class="plan-card" id="atlas-workbench-card" data-atlas-current-subview="start" style="margin:10px">
-      <div class="plan-card-header">
-        <span>Workflow Workbench</span>
-        <div class="atlas-workbench-header-actions">
-          <button id="atlas-workbench-collapse-btn" class="phase1-tab-btn" type="button" onclick="toggleAtlasWorkbenchCollapse()" aria-expanded="true">Collapse</button>
+    <section class="atlas-dashboard" id="atlas-dashboard" data-atlas-dashboard-root="true" aria-label="Atlas Dashboard">
+      <div class="plan-card" id="atlas-workbench-card" data-atlas-current-subview="dashboard">
+        <div class="atlas-hero">
+          <div class="atlas-hero-copy">
+            <p class="atlas-kicker">Atlas Dashboard</p>
+            <h1 class="atlas-dashboard-heading">Plan, run, recover your development pipeline.</h1>
+            <p class="atlas-hero-text">GoalからPlanPoolを作り、dry-run Pipelineの進捗とRecovery状態を1つの画面で確認できます。</p>
+          </div>
+          <div class="atlas-workbench-summary" aria-label="Atlas compact summary">
+            <div class="atlas-workbench-summary-item"><span class="atlas-workbench-summary-label">Last Run:</span><span id="atlas-workbench-summary-last-run">-</span></div>
+            <div class="atlas-workbench-summary-item"><span class="atlas-workbench-summary-label">Status:</span><span id="atlas-workbench-summary-status">Ready</span></div>
+          </div>
         </div>
-      </div>
-      <div class="plan-section">
-        <div class="atlas-workbench-summary" aria-label="Atlas compact summary">
-                    <div class="atlas-workbench-summary-item"><span class="atlas-workbench-summary-label">Last Run:</span><span id="atlas-workbench-summary-last-run">-</span></div>
-          <div class="atlas-workbench-summary-item"><span class="atlas-workbench-summary-label">Status:</span><span id="atlas-workbench-summary-status">Ready</span></div>
-        </div>
-        <div class="atlas-subview-tabs" aria-label="Atlas workbench tabs">
-          <button class="atlas-subview-tab active" type="button" data-atlas-subview-tab="start" onclick="setAtlasSubview('start')">Start</button>
-          <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="autopilot" onclick="setAtlasSubview('autopilot')">Autopilot</button>
-          <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="plan" onclick="setAtlasSubview('plan')">Plan</button>
-          <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="history" onclick="setAtlasSubview('history')">History</button>
-        </div>
-        <div id="atlas-workbench-status" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.3">Ready</div>
-        <div id="atlas-workbench-card-resume-notice" style="display:none"></div>
-        <div class="atlas-workbench-body">
-          <div class="atlas-subview" data-atlas-subview-panel="start">
-            <div style="margin-top:6px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);max-width:100%;min-width:0;box-sizing:border-box">
-              <div style="font-size:12px;font-weight:700;color:var(--text)">Requirement</div>
-              <textarea id="atlas-requirement-input" placeholder="Describe what you want Atlas to plan..." rows="3" style="margin-top:6px;width:100%;max-width:100%;min-width:0;min-height:84px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;box-sizing:border-box"></textarea>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px;max-width:100%">
-                <button id="atlas-requirement-clear-btn" class="phase1-tab-btn" type="button" onclick="clearAtlasRequirementInput()">Clear</button>
-                <div id="atlas-requirement-char-count" style="font-size:11px;color:var(--text3)">0 chars</div>
-              </div>
-              <div id="atlas-requirement-status" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.3">Ready</div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;max-width:100%">
-                <button class="phase1-plan-btn" type="button" onclick="startAtlasWorkflow()">Start Atlas</button>
-              </div>
-            </div>
 
-          </div>
-          
-          <div class="atlas-subview" data-atlas-subview-panel="autopilot" style="display:none">
-            <div style="margin-top:6px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);max-width:100%;min-width:0;box-sizing:border-box">
-              <div style="font-size:12px;font-weight:700;color:var(--text)">Atlas Autopilot</div>
-              <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.5">Autopilot decomposes larger goals into Atlas tasks. This preview does not modify files. Execution will be added later through the Atlas Plan → Review → Approval → Patch → Verification pipeline.</div>
-              <div style="margin-top:4px;font-size:11px;color:var(--warn)"><b>Preview only</b> — no file changes are executed in this mode.</div>
-              <textarea id="atlas-autopilot-goal-input" placeholder="Describe a larger autonomous coding goal..." rows="4" style="margin-top:8px;width:100%;max-width:100%;min-width:0;min-height:96px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;box-sizing:border-box"></textarea>
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin-top:8px;font-size:11px;color:var(--text2)">
-                <div><b>Requirement Mode</b><div>ask_when_needed</div></div>
-                <div><b>Planning Mode</b><div>deep_nexus / standard</div></div>
-                <div><b>Execution Mode</b><div>preview_only</div></div>
-                <div><b>Safety Mode</b><div>strict</div></div>
-              </div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;max-width:100%">
-                <button class="phase1-plan-btn" type="button" onclick="createAutopilotPreview()">Create Autopilot Preview</button>
-              </div>
-            </div>
-            <div style="margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)">
-              <div style="font-size:12px;font-weight:700">Autopilot Plan Preview</div>
-              <div id="atlas-autopilot-plan-preview" style="margin-top:6px;font-size:11px;color:var(--text2)">No preview yet.</div>
-              <div style="margin-top:8px;font-size:12px;font-weight:700">Selected Architecture</div>
-              <div id="atlas-autopilot-selected-architecture" style="margin-top:6px;font-size:11px;color:var(--text2)">No architecture selected yet.</div>
-              <div style="margin-top:8px;font-size:12px;font-weight:700">Task Breakdown</div>
-              <div id="atlas-autopilot-task-breakdown" style="margin-top:6px;font-size:11px;color:var(--text2)">No tasks yet.</div>
-              <div style="margin-top:8px;font-size:12px;font-weight:700">Execution Order</div>
-              <div id="atlas-autopilot-execution-order" style="margin-top:6px;font-size:11px;color:var(--text2)">No execution order yet.</div>
-              <div style="margin-top:8px;font-size:12px;font-weight:700">Safety Notes</div>
-              <div id="atlas-autopilot-safety-notes" style="margin-top:6px;font-size:11px;color:var(--text2)">Preview only. No auto-apply or auto-approve actions are available.<br>Generate Plan creates an Atlas plan for one Autopilot task.<br>It does not edit files or apply patches.<br>Execution will remain locked until a future approved execution step.</div>
-              <div style="margin-top:8px;font-size:12px;font-weight:700">Done Definition</div>
-              <div id="atlas-autopilot-done-definition" style="margin-top:6px;font-size:11px;color:var(--text2)">No done definition yet.</div>
+        <div id="atlas-workbench-status" class="atlas-inline-status" aria-live="polite">Ready</div>
+        <div id="atlas-workbench-card-resume-notice" style="display:none"></div>
+
+        <section class="atlas-goal-card" aria-labelledby="atlas-goal-title">
+          <div class="atlas-section-title-row">
+            <div>
+              <h2 id="atlas-goal-title">Goal Composer</h2>
+              <p>目的を書いてPlanPoolを作成し、初期UIではdry-runだけを開始します。</p>
             </div>
           </div>
-          <div class="atlas-subview" data-atlas-subview-panel="plan" style="display:none">
-            <div style="margin-top:6px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);max-width:100%;overflow-wrap:anywhere;min-width:0">
-              <div id="atlas-plan-review-anchor" data-atlas-plan-section="review" style="font-size:12px;font-weight:700;color:var(--text)">Plan</div>
-              <div id="atlas-plan-empty-state" style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.6">No plan yet.</div>
-              <div id="atlas-workbench-card-plan-output" data-atlas-workflow-target="atlas-plan-output" style="margin-top:8px;max-width:100%;overflow-wrap:anywhere"></div>
-              <div id="atlas-plan-flow-summary" style="display:none"></div>
-              <div style="margin-top:10px;font-size:12px;font-weight:700;color:var(--text)">Review / Risk</div>
-              <div id="atlas-workbench-card-plan-flow" data-atlas-workflow-target="plan-review" style="margin-top:6px;font-size:11px;line-height:1.6"></div>
-              <div style="margin-top:10px;font-size:12px;font-weight:700;color:var(--text)">Approval</div>
-              <div id="atlas-workbench-card-plan-next-action" data-atlas-workflow-target="approval" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.6"></div>
-              <div style="margin-top:10px;font-size:12px;font-weight:700;color:var(--text)">Execution Preview</div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;max-width:100%">
-                <button class="phase1-tab-btn" type="button" onclick="openLastAtlasExecuteFromWorkbench()">Open Last</button>
-                <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunExecuteFromWorkbench()">Open Run</button>
+          <label class="atlas-field-label" for="atlas-goal-input">Development goal</label>
+          <textarea id="atlas-goal-input" class="atlas-goal-input" rows="4" placeholder="Atlasに進めたい開発内容を書いてください。例: Atlasの進捗UIを改善する"></textarea>
+          <div class="atlas-button-row" aria-label="Atlas primary actions">
+            <button id="atlas-create-plan-btn" class="atlas-primary-btn" type="button" onclick="window.AtlasDashboard?.createPlanPool()">Create Plan</button>
+            <button id="atlas-start-dry-run-btn" class="atlas-secondary-btn" type="button" onclick="window.AtlasDashboard?.startDryRun()">Start Dry-run</button>
+          </div>
+          <div id="atlas-error-card" class="atlas-error-card" hidden>
+            <div><b id="atlas-error-title">Atlas error</b></div>
+            <div id="atlas-error-message"></div>
+            <button class="atlas-secondary-btn" type="button" onclick="window.AtlasDashboard?.retryLastAction()">Retry</button>
+          </div>
+        </section>
+
+        <section id="atlas-recovery-banner" class="atlas-recovery-banner" data-atlas-recovery-container="true" hidden aria-live="polite">
+          <div class="atlas-recovery-copy">
+            <b>前回のAtlas状態を復元しました</b>
+            <span id="atlas-recovery-summary">Recovery state is available.</span>
+          </div>
+          <div class="atlas-button-row atlas-recovery-actions">
+            <button id="atlas-recovery-load-btn" class="atlas-secondary-btn" type="button" onclick="window.AtlasDashboard?.loadRecoveredPlan()">Load Plan</button>
+            <button id="atlas-recovery-refresh-btn" class="atlas-secondary-btn" type="button" onclick="window.AtlasDashboard?.refreshStatus()">Refresh Status</button>
+            <button id="atlas-recovery-hide-btn" class="atlas-ghost-btn" type="button" onclick="window.AtlasDashboard?.hideRecoveryBanner()">Hide</button>
+          </div>
+        </section>
+
+        <section class="atlas-status-grid" id="atlas-status-grid" aria-label="Atlas status summary">
+          <div class="atlas-status-card"><span>PlanPool</span><b id="atlas-status-planpool">not created</b></div>
+          <div class="atlas-status-card"><span>Items</span><b id="atlas-status-items">0</b></div>
+          <div class="atlas-status-card"><span>Pipeline</span><b id="atlas-status-pipeline">idle</b></div>
+          <div class="atlas-status-card"><span>Last</span><b id="atlas-status-last-event">-</b></div>
+        </section>
+
+        <div class="atlas-main-grid">
+          <section class="atlas-panel-card" aria-labelledby="atlas-planpool-title">
+            <div class="atlas-section-title-row">
+              <div>
+                <h2 id="atlas-planpool-title">PlanPool Overview</h2>
+                <p>PlanItemをカード/ステップとして表示します。</p>
               </div>
-              <div id="atlas-workbench-card-plan-next-action-buttons" data-atlas-workflow-target="execute-preview" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;max-width:100%"></div>
-              <div id="atlas-workbench-card-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div>
-              <div style="margin-top:10px;font-size:12px;font-weight:700;color:var(--text)">Patch Review</div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;max-width:100%">
-                <button class="phase1-tab-btn" type="button" onclick="openPatchReviewFromWorkbench()">Load Patch Review</button>
+              <span id="atlas-planpool-id" class="atlas-id-chip">No pool</span>
+            </div>
+            <div id="atlas-plan-list" class="atlas-plan-list" data-atlas-plan-list="true">
+              <div class="atlas-empty-state">Goalを入力してCreate Planを押すと、PlanItemカードが表示されます。</div>
+            </div>
+          </section>
+
+          <section class="atlas-panel-card" aria-labelledby="atlas-pipeline-title">
+            <div class="atlas-section-title-row">
+              <div>
+                <h2 id="atlas-pipeline-title">Pipeline Progress</h2>
+                <p>dry-runの進捗、最新イベント、次のアクションを表示します。</p>
               </div>
-              <div id="atlas-workbench-card-patch-list" data-atlas-workflow-target="patch-review" style="margin-top:8px;font-size:11px"></div>
-              <div style="margin-top:10px;font-size:12px;font-weight:700;color:var(--text)">Verification</div>
+              <span id="atlas-pipeline-run-id" class="atlas-id-chip">No run</span>
+            </div>
+            <div id="atlas-pipeline-status" class="atlas-pipeline-status" data-atlas-pipeline-status="true">
+              <div class="atlas-badge atlas-badge-muted">idle</div>
+              <div class="atlas-progress" aria-label="Pipeline progress"><div id="atlas-progress-fill" class="atlas-progress-fill" style="width:0%"></div></div>
+              <div id="atlas-progress-text" class="atlas-progress-text">0 / 0 completed</div>
+              <dl class="atlas-metric-list">
+                <div><dt>Failed</dt><dd id="atlas-failed-count">0</dd></div>
+                <div><dt>Blocked</dt><dd id="atlas-blocked-count">0</dd></div>
+                <div><dt>Current</dt><dd id="atlas-current-item-id">-</dd></div>
+              </dl>
+              <div class="atlas-next-action"><b>Next action:</b> <span id="atlas-next-action">Create a PlanPool to begin.</span></div>
+            </div>
+            <div class="atlas-latest-events">
+              <h3>Latest events</h3>
+              <ul id="atlas-latest-events-list"><li>No events yet.</li></ul>
+            </div>
+          </section>
+        </div>
+
+        <section class="atlas-current-item-card" id="atlas-current-item-card" aria-labelledby="atlas-current-item-title">
+          <div class="atlas-section-title-row">
+            <div>
+              <h2 id="atlas-current-item-title">Current Item</h2>
+              <p id="atlas-current-item-description">PlanItemを選択またはdry-run開始後に現在の対象を表示します。</p>
             </div>
           </div>
-          <div class="atlas-subview" data-atlas-subview-panel="history" style="display:none">
-            <div style="margin-top:2px;font-size:11px;color:var(--text2)">Last Run: <span data-atlas-last-run-mirror>-</span></div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;max-width:100%">
-              <input id="atlas-workbench-card-atlas-run-input" placeholder="run_id" value="" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;min-width:0;max-width:100%;flex:1 1 220px;box-sizing:border-box">
-              <button class="phase1-tab-btn" type="button" onclick="openManualAtlasRunExecuteFromWorkbench()">Open Run</button>
-              <button class="phase1-tab-btn" type="button" onclick="loadRecentAtlasRunsFromWorkbench()">Load Recent</button>
+          <div id="atlas-current-item-body" class="atlas-empty-state">Current item is not selected yet.</div>
+        </section>
+
+        <details class="atlas-details" id="atlas-details-drawer">
+          <summary>Details / Advanced Panel</summary>
+          <section id="atlas-advanced-settings" class="atlas-advanced-settings" data-atlas-advanced-settings="collapsed">
+            <h3>Advanced Settings</h3>
+            <div class="atlas-advanced-grid">
+              <label>planning_depth<select id="atlas-planning-depth"><option value="quick">quick</option><option value="standard" selected>standard</option><option value="deep_nexus">deep_nexus</option></select></label>
+              <label>automation_level<select id="atlas-automation-level"><option value="plan_only">plan_only</option><option value="plan_then_ask" selected>plan_then_ask</option><option value="auto_after_approval">auto_after_approval</option><option value="full_autopilot">full_autopilot</option></select></label>
+              <label>execution_strategy<select id="atlas-execution-strategy"><option value="sequential" selected>sequential</option><option value="pause_after_each_item">pause_after_each_item</option><option value="manual_gated">manual_gated</option></select></label>
+              <label>workspace_id<input id="atlas-workspace-id" value="default" autocomplete="off"></label>
+              <label>max_items<input id="atlas-max-items" type="number" min="1" placeholder="optional"></label>
+              <label class="atlas-checkbox-label"><input id="atlas-pause-after-each-item" type="checkbox"> pause_after_each_item</label>
             </div>
-            <div id="atlas-workbench-card-atlas-runs-list" style="margin-top:6px;font-size:11px"></div>
+          </section>
+          <section class="atlas-detail-section">
+            <h3>Plan Markdown</h3>
+            <pre id="atlas-markdown-panel" class="atlas-log-panel">No markdown loaded.</pre>
+          </section>
+          <section class="atlas-detail-section">
+            <h3>Pipeline Events</h3>
+            <pre id="atlas-events-panel" class="atlas-log-panel">No events yet.</pre>
+          </section>
+          <section class="atlas-detail-section">
+            <h3>Developer JSON</h3>
+            <pre id="atlas-json-panel" class="atlas-log-panel">No JSON yet.</pre>
+          </section>
+          <section class="atlas-detail-section">
+            <h3>Checkpoint</h3>
+            <div id="atlas-checkpoint-path" class="atlas-long-text">No checkpoint yet.</div>
+          </section>
+        </details>
+
+        <div class="atlas-legacy-compat" hidden aria-hidden="true">
+          <div class="atlas-subview-tabs" aria-label="Atlas workbench tabs">
+            <button class="atlas-subview-tab active" type="button" data-atlas-subview-tab="start" onclick="setAtlasSubview('start')">Start</button>
+            <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="autopilot" onclick="setAtlasSubview('autopilot')">Autopilot</button>
+            <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="plan" onclick="setAtlasSubview('plan')">Plan</button>
+            <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="history" onclick="setAtlasSubview('history')">History</button>
           </div>
-          <div class="atlas-subview" data-atlas-subview-panel="activity" style="display:none" hidden>
-            <section id="atlas-activity-stream" data-atlas-output-stream="true" class="plan-card" style="margin-top:6px;padding:10px">
-              <div style="font-size:12px;font-weight:700;color:var(--text)">Activity Stream</div>
-              <div id="atlas-activity-stream-list" style="margin-top:8px;font-size:11px;color:var(--text2)"></div>
-            </section>
-          </div>
+          <div class="atlas-subview" data-atlas-subview-panel="start"><textarea id="atlas-requirement-input" class="atlas-compat-input" aria-hidden="true" tabindex="-1" style="max-width:100%;min-width:0;min-height:84px"></textarea><button class="phase1-plan-btn" type="button" onclick="startAtlasWorkflow()">Start Atlas</button></div>
+          <div class="atlas-subview" data-atlas-subview-panel="autopilot" style="display:none"></div>
+          <div class="atlas-subview" data-atlas-subview-panel="plan" style="display:none"><div id="atlas-plan-empty-state">No plan yet.</div><div id="atlas-workbench-card-plan-output"></div><div id="atlas-workbench-card-plan-flow"></div><div id="atlas-workbench-card-plan-next-action"></div><div id="atlas-workbench-card-plan-next-action-buttons"></div><div id="atlas-workbench-card-atlas-dashboard"></div><div id="atlas-workbench-card-patch-list"></div></div>
+          <div class="atlas-subview" data-atlas-subview-panel="history" style="display:none"><input id="atlas-workbench-card-atlas-run-input"><div id="atlas-workbench-card-atlas-runs-list"></div></div>
+          <div class="atlas-subview" data-atlas-subview-panel="activity" style="display:none" hidden><section id="atlas-activity-stream" data-atlas-output-stream="true"><div id="atlas-activity-stream-list"></div></section></div>
+          <span id="atlas-requirement-status"></span><span id="atlas-requirement-char-count">0 chars</span><button id="atlas-requirement-clear-btn" type="button"></button>
+          <button id="atlas-workbench-collapse-btn" type="button" onclick="toggleAtlasWorkbenchCollapse()" aria-expanded="true">Collapse</button>
         </div>
       </div>
-    </div>
+    </section>
     <div id="atlas-agent-execution-marker" hidden data-atlas-agent-execution="true"></div>
   </div>
 
@@ -1997,6 +2040,7 @@ const UI_MODE_SUBTABS = {
 let asrRuntimeConfig = {is_windows:false,is_runpod:false,gpu_vendor:'unknown',asr_engine:'faster_whisper',whisper_cpp_ready:false};
 const CHAT_TASK_TOGGLE_KEY = 'chat_task_enabled';
 let isTaskEnabled = false; // Chat/Atlas separation: legacy Chat task planning is disabled.
+// Compatibility guard intentionally remains disabled: if (false && mode === 'chat' && isTaskEnabled)
 const PHASE1_PLAN_DRAWER_KEY = 'phase1_plan_drawer_open';
 let isPhase1PlanOpen = localStorage.getItem(PHASE1_PLAN_DRAWER_KEY) === 'true';
 let busy = false;
@@ -15821,12 +15865,14 @@ function testSkill(skillName) {
 </script>
 <script src="/static/js/app.js"></script>
 <script src="/static/js/settings.js"></script>
+<script src="/static/js/skills_memory.js"></script>
 <script src="/static/js/panels.js"></script>
 <script src="/static/js/lumen_api.js"></script>
 <script src="/static/js/lumen_tools.js"></script>
 <script src="/static/js/lumen.js"></script>
-<script src="/static/js/skills_memory.js"></script>
 <script src="/static/js/nexus.js"></script>
+<script src="/static/js/atlas_pipeline_api.js"></script>
+<script src="/static/js/atlas_dashboard.js"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>

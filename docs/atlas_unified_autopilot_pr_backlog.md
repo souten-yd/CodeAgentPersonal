@@ -461,29 +461,37 @@ Planner、Plan Pool、Autopilot Pipelineを既存Atlas APIへ段階統合する�
 - 外部Web / Deep Research Job起動禁止。
 - 既存Atlas / Lumen / Echo / Nexus API破壊禁止。
 
-## PR-ATLAS-PIPE-14: Atlas UI統合
+## PR-ATLAS-PIPE-14: Add redesigned Atlas UI for PlanPool, Pipeline and Recovery
 
 ### 目的
 
-Plan Pool、approval、dry_run結果をAtlas UIに統合する。
+PR-ATLAS-PIPE-13で追加した `/api/atlas/*` APIを使い、旧Atlas UIの複雑なボタン群を前面に出さない新Atlas Dashboardへ再設計する。
 
 ### 主な変更
 
-- Atlas UI内にPlan Pool viewを追加する。
-- Approval controlsを追加する。
-- Pipeline run log / final report表示を追加する。
-- iPhone Safariで横崩れしないresponsive layoutにする。
+- 新Atlas Dashboard UIを追加する。
+- Goal ComposerからPlanPoolを作成する。
+- PlanPool itemsをPlanItemカード/タイムラインとして表示する。
+- Pipeline dry-run progressをstatus card、progress bar、latest events、next actionで表示する。
+- Recovery bannerから最新状態を読み込み、ブラウザリロード後もPlanPool/status/eventsを復元する。
+- Details drawerにMarkdown、events、raw JSON、checkpoint pathを隠す。
+- Advanced settingsは初期状態でcollapsedにする。
+- iPhone Safari対応として1カラム、flex-wrap、min-width:0、pre/logのみ横スクロールを徹底する。
+- safe_apply/TestCommand/DebugLoop/DeepResearch等の実行UIは追加しない。
 
 ### 完了条件
 
-- Atlas UIからPlan PoolとAutopilot状態を確認できる。
+- Atlas Dashboard root、Goal textarea、Create Plan、Start Dry-run、PlanPool list、Pipeline status、Recovery container、Details drawerが存在する。
+- Advanced Settingsは初期状態で閉じている。
 - iPhone Safari相当の幅で横崩れしない。
-- UI contract testsがpassする。
+- Task / Agent API文字列やsafe_apply等の実行ボタンを新UIに増やしていない。
+- UI contract testsと既存Atlas internal testsがpassする。
 
 ### 変更禁止範囲
 
 - Standalone Task page追加禁止。
 - Standalone Agent page追加禁止。
+- safe_apply/TestCommandRunner/DebugLoopRunner/DeepResearchの実行UI追加禁止。
 - 既存Lumen / Echo / Nexus UI破壊禁止。
 
 ## PR-ATLAS-PIPE-15: チャット継続運用の自動化
