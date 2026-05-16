@@ -54,6 +54,13 @@ This PR is documentation and contract-test only. It does not change runtime beha
 - ContextPackはPlanner / Autopilotの判断材料としてJournalに保存する。
 - Nexus未接続や失敗時もwarning付きContextPackで継続する。
 
+## Outcome Persistence Policy
+
+- Atlasは成功・失敗・debug lesson・research context・verification/safe_apply結果をOutcomeとして記録する。
+- OutcomeはJournalへJSON/Markdownで保存し、可能ならNexusへ保存する。
+- Nexus未接続や保存失敗時もAtlas flowを止めない。
+- Outcomeは将来のPlanner/Nexus Context Builderが再利用する。
+
 ## Atlas Journal / Recovery Policy
 
 - JSONを機械可読の正本とする。
