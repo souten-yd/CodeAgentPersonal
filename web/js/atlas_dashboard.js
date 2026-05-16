@@ -35,6 +35,10 @@
     plannerQuestions: [],
     clarificationAnswers: {},
     clarificationSubmitting: false,
+    approvalSummary: null,
+    approvalRecords: [],
+    approvalItems: [],
+    approvalSubmitting: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -302,6 +306,7 @@
     if ($('atlas-json-panel')) $('atlas-json-panel').textContent = JSON.stringify(json, null, 2);
     if ($('atlas-markdown-panel')) $('atlas-markdown-panel').textContent = state.markdown || 'No markdown loaded.';
     renderQuestionsPanel();
+    renderApprovalPanel();
     if ($('atlas-checkpoint-path')) $('atlas-checkpoint-path').textContent = state.checkpointPath || 'No checkpoint yet.';
     const summary = state.continuationSummary || {};
     if ($('atlas-continuation-summary')) {
@@ -468,6 +473,9 @@
         state.clarificationSessionId = '';
         await loadMarkdown();
         await refreshContinuation();
+    await refreshApprovals();
+      await refreshApprovals();
+        await refreshApprovals();
       }
     }
     setBusy(false);
@@ -501,6 +509,8 @@
       showWarning(null);
       await refreshStatus();
       await refreshContinuation();
+    await refreshApprovals();
+      await refreshApprovals();
     }
     setBusy(false);
     render();
@@ -610,6 +620,42 @@
     renderDetails();
   }
 
+
+  async function refreshApprovals() {
+    if (!state.currentPoolId || !root.AtlasPipelineAPI?.getApprovals) return;
+    const result = await root.AtlasPipelineAPI.getApprovals(state.currentPoolId, workspaceId());
+    if (!result?.ok) return;
+    state.approvalSummary = result.data || null;
+    state.approvalRecords = arr(result.data?.approval_records);
+    state.approvalItems = arr(result.data?.approval_required_items);
+  }
+
+  function renderApprovalPanel() {
+    const summaryEl = $('atlas-approval-summary');
+    const listEl = $('atlas-approval-list');
+    if (!summaryEl || !listEl) return;
+    const summary = state.approvalSummary || {};
+    summaryEl.textContent = `pending: ${summary.pending_count || 0} / approved: ${summary.approved_count || 0} / rejected: ${summary.rejected_count || 0}`;
+    const items = state.approvalItems || [];
+    if (!items.length) { listEl.innerHTML = 'No approval-required items.'; return; }
+    listEl.innerHTML = items.map((item)=>`<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')}<textarea data-approval-reason="${esc(item.item_id)}" placeholder="reason"></textarea><div class="atlas-clarification-actions"><button data-approval="approved" data-item-id="${esc(item.item_id)}" type="button">Approve</button><button data-approval="rejected" data-item-id="${esc(item.item_id)}" type="button">Reject</button><button data-approval="needs_revision" data-item-id="${esc(item.item_id)}" type="button">Needs revision</button></div></div>`).join('');
+    listEl.querySelectorAll('button[data-approval]').forEach((btn)=>btn.addEventListener('click', ()=>decideApproval(btn.dataset.itemId, btn.dataset.approval)));
+  }
+
+  async function decideApproval(itemId, decision) {
+    if (state.approvalSubmitting || !state.currentPoolId) return;
+    state.approvalSubmitting = true;
+    const reasonEl = document.querySelector(`textarea[data-approval-reason="${itemId}"]`);
+    const response = await handleResult(await root.AtlasPipelineAPI.decideApproval({ pool_id: state.currentPoolId, item_id: itemId, run_id: state.currentRunId || '', decision, reason: reasonEl?.value || '', workspace_id: workspaceId(), metadata: { ui: 'atlas_dashboard' } }), 'Approval decision failed');
+    state.approvalSubmitting = false;
+    if (!response) return;
+    state.planPool = response.plan_pool || state.planPool;
+    applyOrchestrationSummary(response.orchestration_summary);
+    state.continuationPrompt = response.continuation_prompt || state.continuationPrompt;
+    await refreshApprovals();
+    render();
+  }
+
   async function loadRecoveryLatest() {
     const result = await root.AtlasPipelineAPI.getRecoveryLatest(workspaceId());
     if (!result?.ok) return;
@@ -627,6 +673,7 @@
     if (recoveredPool || recoveredRun) state.restored = true;
     if (state.currentPoolId) await refreshStatus();
     await refreshContinuation();
+    await refreshApprovals();
     render();
   }
 
@@ -693,6 +740,8 @@
     retryLastAction,
     loadRecoveryLatest,
     refreshContinuation,
+    refreshApprovals,
+    decideApproval,
     copyContinuationPrompt,
     copyAtlasIds,
     render,
