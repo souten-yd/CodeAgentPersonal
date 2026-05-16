@@ -9,7 +9,7 @@ HTML = (ROOT / "ui.html").read_text(encoding="utf-8")
 ATLAS_API_JS = (ROOT / "web" / "js" / "atlas_pipeline_api.js").read_text(encoding="utf-8")
 ATLAS_DASHBOARD_JS = (ROOT / "web" / "js" / "atlas_dashboard.js").read_text(encoding="utf-8")
 CSS = (ROOT / "web" / "css" / "app.css").read_text(encoding="utf-8")
-ASSET_VERSION = "atlas-dashboard-14b"
+ASSET_VERSION = "atlas-dashboard-14c"
 
 
 def atlas_block() -> str:
@@ -58,12 +58,31 @@ def test_planpool_pipeline_recovery_and_details_containers_exist() -> None:
         'id="atlas-current-item-card"',
         'id="atlas-recovery-banner"',
         'data-atlas-recovery-container="true"',
+        'id="atlas-warning-card"',
+        'data-atlas-stale-recovery-warning="true"',
         'id="atlas-details-drawer"',
         'id="atlas-markdown-panel"',
         'id="atlas-events-panel"',
         'id="atlas-json-panel"',
     ):
         assert token in block
+
+
+def test_fallback_planpool_note_and_stale_recovery_warning_contract() -> None:
+    block = atlas_block()
+    assert 'id="atlas-fallback-planpool-note"' in block
+    assert '現在のCreate Planは内部fallback PlanPoolを生成します。実Planner連携は次段階で追加予定です。' in block
+    assert 'id="atlas-warning-card"' in block
+    assert '前回のRun状態が見つかりませんでした。PlanPoolは復元できます。必要ならStart Dry-runを再実行してください。' in block
+
+
+def test_dashboard_handles_pipeline_state_not_found_as_stale_recovery() -> None:
+    assert "pipeline_state_not_found" in ATLAS_API_JS
+    assert "pipeline_state_not_found" in ATLAS_DASHBOARD_JS
+    assert "isPipelineStateNotFound" in ATLAS_DASHBOARD_JS
+    assert "markStaleRecovery" in ATLAS_DASHBOARD_JS
+    assert "removeStorage(storageKeys.runId)" in ATLAS_DASHBOARD_JS
+    assert "showError(null)" in ATLAS_DASHBOARD_JS
 
 
 def test_atlas_dashboard_uses_existing_atlas_api_only() -> None:

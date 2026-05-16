@@ -1189,17 +1189,33 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .atlas-ghost-btn:hover { transform: translateY(-1px); }
 .atlas-primary-btn:disabled,
 .atlas-secondary-btn:disabled { opacity: .55; cursor: progress; transform: none; }
-.atlas-error-card {
+.atlas-muted-note {
+  margin: 8px 0 0;
+  color: var(--text3);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.atlas-error-card,
+.atlas-warning-card {
   margin-top: 12px;
   padding: 12px;
-  border: 1px solid rgba(255,68,102,.45);
   border-radius: 14px;
-  background: rgba(255,68,102,.09);
-  color: var(--red);
   font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+.atlas-error-card {
+  border: 1px solid rgba(255,68,102,.45);
+  background: rgba(255,68,102,.09);
+  color: var(--red);
+}
+.atlas-warning-card {
+  border: 1px solid rgba(255,170,0,.46);
+  background: rgba(255,170,0,.1);
+  color: var(--amber);
+}
+.atlas-warning-card[hidden] { display: none; }
 
 .atlas-recovery-banner {
   display: flex;

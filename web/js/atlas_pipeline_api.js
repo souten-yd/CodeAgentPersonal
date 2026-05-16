@@ -6,11 +6,16 @@
     const contentType = response.headers.get('content-type') || '';
     const payload = contentType.includes('application/json') ? await response.json() : await response.text();
     if (!response.ok) {
+      const detail = payload && typeof payload === 'object' ? payload.detail : payload;
+      const code = response.status === 404 && String(detail || '').toLowerCase().includes('pipeline state not found')
+        ? 'pipeline_state_not_found'
+        : (payload && typeof payload === 'object' ? payload.code : '');
       return {
         ok: false,
         status: response.status,
+        code,
         error: true,
-        message: (payload && payload.detail) || response.statusText || 'Atlas request failed',
+        message: detail || response.statusText || 'Atlas request failed',
         detail: payload,
       };
     }
