@@ -411,7 +411,13 @@ Autopilot実行結果、run log、再利用可能lessonをNexusへ保存する�
 
 ### 完了条件
 
-- Outcomeが保存される。
+- `agent/nexus_outcome_schema.py` が存在する。
+- `agent/nexus_outcome_writer.py` が存在する。
+- pipeline/debug/safe_apply/research結果からOutcomeを生成できる。
+- JournalへOutcome JSON/Markdownを保存できる。
+- optional nexus_clientへsave_outcome/save_memory/add_memoryで保存できる。
+- Nexus未接続でも処理継続する。
+- API/UI/Nexus DB schema変更はしない。
 - 保存失敗がPipeline全体の不要なhard failureにならない。
 - Testsがpassする。
 

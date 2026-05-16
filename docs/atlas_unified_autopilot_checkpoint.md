@@ -29,14 +29,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-8B: completed
 - PR-ATLAS-PIPE-9: completed
 - PR-ATLAS-PIPE-10: completed
+- PR-ATLAS-PIPE-11: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-11
+PR-ATLAS-PIPE-12
 
 ## Next PR
 
-PR-ATLAS-PIPE-12: Nexus Outcome Writer
+PR-ATLAS-PIPE-13: Atlas API統合
 
 ## Important Constraints
 
@@ -68,6 +69,8 @@ PR-ATLAS-PIPE-12: Nexus Outcome Writer
 - PR-ATLAS-PIPE-9 adds DebugLoopRunner analysis/planning only and does not add automatic patch generation, safe_apply execution, TestCommand execution, API, or UI behavior.
 - PR-ATLAS-PIPE-10 adds Nexus ResearchRequest / ContextPack schema and adapter only and does not add API/UI behavior.
 - PR-ATLAS-PIPE-11 lets Pipeline Runner execute item_type=research through AtlasNexusResearchAdapter.
+- PR-ATLAS-PIPE-12 adds Nexus Outcome Writer schema/service only and does not add API/UI behavior.
+- Outcome Writer can save success/failure/debug/research/safe_apply/pipeline outcomes to AtlasJournal and optionally to a Nexus client.
 - Research item execution does not start external Web access or Deep Research jobs.
 - Research item execution does not call ImplementationExecutor, safe_apply, or TestCommandRunner.
 - Nexus unavailable/empty/errors must not stop Atlas planning or pipeline flows.
@@ -84,5 +87,5 @@ PR-ATLAS-PIPE-12: Nexus Outcome Writer
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-12を実装する。
-Pipeline / DebugLoop / SafeApply / Researchの成功・失敗知見をNexus/Journalへ保存するNexus Outcome Writerを追加する。
+PR-ATLAS-PIPE-13を実装する。
+Atlas PlanPool / Pipeline / Recovery / Research / Outcome の内部基盤を既存Atlas APIへ段階統合する。ただしTask/Agent APIは増やさない。
