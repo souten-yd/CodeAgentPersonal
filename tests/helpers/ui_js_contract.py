@@ -4,13 +4,6 @@ SKILLS_MEMORY_JS_PATH = "/static/js/skills_memory.js"
 PANELS_JS_PATH = "/static/js/panels.js"
 NEXUS_JS_PATH = "/static/js/nexus.js"
 ECHO_JS_PATH = "/static/js/echo.js"
-ATLAS_API_JS_PATH = "/static/js/atlas_api.js"
-ATLAS_STATE_JS_PATH = "/static/js/atlas_state.js"
-ATLAS_UI_JS_PATH = "/static/js/atlas_ui.js"
-ECHO_API_JS_PATH = "/static/js/echo_api.js"
-ECHO_STREAM_JS_PATH = "/static/js/echo_stream.js"
-ECHO_UI_JS_PATH = "/static/js/echo_ui.js"
-RUNTIME_DIAGNOSTICS_JS_PATH = "/static/js/runtime_diagnostics.js"
 
 MOVED_ECHO_DISPLAY_HELPER_FUNCTION_DEFINITIONS = (
     "function syncEchoTranslateUi",

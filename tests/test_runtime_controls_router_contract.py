@@ -62,11 +62,6 @@ def test_main_app_runtime_controls_use_provider_backed_existing_payloads(monkeyp
         "intended_backend": "cuda",
         "runpod_detected": True,
         "gpu_validation_status": "ok",
-        "gpu_validation_reason": "parsed_n_gpu_layers=99",
-        "final_requested_ngl": 99,
-        "final_parsed_n_gpu_layers": 99,
-        "llama_startup_log_tail": "tail",
-        "last_start_cmd": "llama-server -ngl 99",
     }
     monkeypatch.setattr(main._model_manager, "cuda_debug_dict", lambda: cuda_debug_payload)
     monkeypatch.setattr(main._model_manager, "_last_startup_hints", ["hint from manager"])
@@ -174,9 +169,3 @@ def test_main_app_runtime_controls_use_provider_backed_existing_payloads(monkeyp
     assert model_startup_body["log_path"] == "/tmp/nonexistent-codeagent-test.log"
     assert model_startup_body["log_tail"] == ""
     assert model_startup_body["runtime_cuda_debug"] == cuda_debug_payload
-    assert model_startup_body["runtime_cuda_debug"]["last_start_cmd"] == "llama-server -ngl 99"
-    assert model_startup_body["runtime_cuda_debug"]["gpu_validation_status"] == "ok"
-    assert model_startup_body["runtime_cuda_debug"]["gpu_validation_reason"] == "parsed_n_gpu_layers=99"
-    assert model_startup_body["runtime_cuda_debug"]["final_requested_ngl"] == 99
-    assert model_startup_body["runtime_cuda_debug"]["final_parsed_n_gpu_layers"] == 99
-    assert model_startup_body["runtime_cuda_debug"]["llama_startup_log_tail"] == "tail"

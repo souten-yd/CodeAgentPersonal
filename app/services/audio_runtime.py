@@ -6,7 +6,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 import tempfile
 import time
 import traceback
@@ -15,7 +14,6 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Mapping
 
-from app.services.sbv2_runtime_policy import resolve_sbv2_runtime_policy
 
 AUDIO_RUNTIME_ENDPOINT_OWNERSHIP: dict[str, dict[str, str]] = {
     "GET /voice/status": {
@@ -1149,26 +1147,8 @@ def run_sbv2_prepare_service_body(
     """Run the SBV2 prepare body while keeping the FastAPI route in main.py."""
 
     source_req = dict(req or {})
-    policy = resolve_sbv2_runtime_policy(os.environ, platform=sys.platform)
-    policy_debug = {
-        "engine": policy.engine,
-        "default_model": policy.default_model,
-        "device": policy.device,
-        "runtime_profile": policy.runtime_profile,
-        "prefer_safetensors": policy.prefer_safetensors,
-        "allow_onnx": policy.allow_onnx,
-        "prefer_onnx": policy.prefer_onnx,
-        "force_pytorch_jit_zero": policy.force_pytorch_jit_zero,
-        "dummy_warmup_enabled": policy.dummy_warmup_enabled,
-        "import_time_side_effects_allowed": policy.import_time_side_effects_allowed,
-    }
     requested_model = str(source_req.get("model", "") or "").strip()
     requested_device = str(source_req.get("device", "") or "").strip().lower()
-    policy_default_model = str(policy_debug.get("default_model") or "").strip()
-    fallback_default_model = str(deps.default_model() or "").strip()
-    default_model = policy_default_model or fallback_default_model
-    policy_device = str(policy_debug.get("device") or "auto").strip().lower()
-    resolved_device = requested_device or policy_device or "auto"
     prepare_id = str(deps.prepare_id_factory())
     deps.logger.info(
         "[Style-Bert-VITS2][prepare:%s] start repo=%s venv=%s models=%s init_flag=%s",
@@ -1383,13 +1363,14 @@ def run_sbv2_prepare_service_body(
             if preload_model:
                 deps.ensure_model_exists(preload_model, deps.models_dir)
             elif status.get("models"):
+                default_model = str(deps.default_model() or "").strip()
                 if default_model and default_model in status["models"]:
                     preload_model = default_model
                 else:
                     preload_model = status["models"][0]
             prepare_payload = {"model": preload_model} if preload_model else {}
-            if resolved_device:
-                prepare_payload["device"] = resolved_device
+            if requested_device:
+                prepare_payload["device"] = requested_device
             preload_result = deps.runtime_prepare(prepare_payload)
             status["runtime_prepare"] = preload_result
             status["runtime_ready"] = bool(
@@ -1399,7 +1380,6 @@ def run_sbv2_prepare_service_body(
                 status["runtime_prepare"]["device"] = preload_result.get("device")
                 status["runtime_prepare"]["warmup_elapsed_ms"] = preload_result.get("warmup_elapsed_ms")
                 status["runtime_prepare"]["cache_hit"] = preload_result.get("cache_hit")
-            status["sbv2_runtime_policy"] = dict(policy_debug)
             deps.logger.info(
                 "[Style-Bert-VITS2][prepare:%s] worker_prepare result=%s",
                 prepare_id,
@@ -1898,30 +1878,6 @@ def classify_audio_endpoint_risk(method_and_path: str) -> str:
     return "unknown"
 
 
-def build_sbv2_runtime_policy_debug(
-    env: Mapping[str, str] | None = None,
-    *,
-    platform: str | None = None,
-) -> dict[str, Any]:
-    policy = resolve_sbv2_runtime_policy(
-        env or os.environ,
-        platform=platform or sys.platform,
-    )
-    data = asdict(policy)
-    return {
-        "engine": data["engine"],
-        "default_model": data["default_model"],
-        "device": data["device"],
-        "runtime_profile": data["runtime_profile"],
-        "prefer_safetensors": data["prefer_safetensors"],
-        "allow_onnx": data["allow_onnx"],
-        "prefer_onnx": data["prefer_onnx"],
-        "force_pytorch_jit_zero": data["force_pytorch_jit_zero"],
-        "dummy_warmup_enabled": data["dummy_warmup_enabled"],
-        "import_time_side_effects_allowed": data["import_time_side_effects_allowed"],
-    }
-
-
 def build_audio_runtime_debug_payload(
     extra: Mapping[str, Any] | None = None,
     *,
@@ -1945,7 +1901,6 @@ def build_audio_runtime_debug_payload(
     ):
         diagnostics = AudioRuntimeDiagnostics(details=dict(extra or {})).to_dict()
         diagnostics["endpoints"] = {key: dict(value) for key, value in AUDIO_RUNTIME_ENDPOINT_OWNERSHIP.items()}
-        diagnostics["sbv2_runtime_policy"] = build_sbv2_runtime_policy_debug()
         return diagnostics
 
     runtime = dict(runtime_config or {})
@@ -1971,5 +1926,4 @@ def build_audio_runtime_debug_payload(
         "audio_cuda_serialize_lock": {
             "asr_lock_locked": _coerce_bool(voice.get("lock_locked", False)),
         },
-        "sbv2_runtime_policy": build_sbv2_runtime_policy_debug(),
     }
