@@ -1,3 +1,8 @@
+- PR-21: completed
+- PR-21B: completed
+- PR-21C: Current
+- PR-22: Next
+
 # Atlas Unified Autopilot PR Backlog
 
 ## PR-ATLAS-PIPE-0: 計画書とチャット継続用docs追加

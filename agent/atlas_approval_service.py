@@ -157,6 +157,11 @@ class AtlasApprovalService:
             "title": item.title,
             "status": item.status,
             "risk_level": item.risk_level,
+            "item_type": item.item_type,
+            "expected_changes": item.expected_changes,
+            "requires_user_confirmation": item.requires_user_confirmation,
+            "done_definition": item.done_definition,
+            "rollback_plan": item.rollback_plan,
             "target_files": list(item.target_files),
             "metadata": dict(item.metadata or {}),
         }

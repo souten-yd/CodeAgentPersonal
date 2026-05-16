@@ -25,7 +25,7 @@ class AtlasSafeApplyExecutionService:
         if item is None:
             self._append_event(pool.pool_id, request.run_id, 'safe_apply_manual_blocked', None, status='blocked', warnings=['item_not_found'])
             return AtlasSafeApplyExecutionResult(pool_id=pool.pool_id, item_id=request.item_id, run_id=request.run_id, status='blocked', warnings=['item_not_found'], plan_pool=pool.model_dump(), safe_apply_result={'decision': 'block', 'status': 'blocked', 'reasons': ['item_not_found']})
-        ok, warnings = self.validate_item_for_safe_apply(pool, item)
+        ok, warnings = self.validate_item_for_safe_apply(pool, item, request=request)
         if not ok:
             self._append_event(pool.pool_id, request.run_id, 'safe_apply_manual_blocked', item, status='blocked', warnings=warnings)
             return AtlasSafeApplyExecutionResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status='blocked', warnings=warnings, plan_pool=pool.model_dump(), safe_apply_result={'decision': 'block', 'status': 'blocked', 'reasons': warnings})
@@ -35,12 +35,22 @@ class AtlasSafeApplyExecutionService:
         self.mark_item_from_result(pool, item, result_payload)
         self.storage.save_pool(pool)
         self.journal.save_plan_pool(pool)
-        status = 'applied' if result_payload.get('status') == 'applied' else ('blocked' if result_payload.get('status') in {'blocked', 'skipped'} else 'failed')
+        result_status = str(result_payload.get('status') or '').lower()
+        if result_status == 'applied':
+            status = 'applied'
+        elif result_status == 'simulated':
+            status = 'simulated'
+        elif result_status in {'blocked', 'skipped'}:
+            status = result_status
+        else:
+            status = 'failed'
         reasons = list(result_payload.get('reasons') or [])
         execution_record = {'request': request.model_dump(), 'result': result_payload, 'pool': pool.model_dump(), 'status': status}
         json_path, md_path = self.save_execution_record(pool.pool_id, item.item_id, request=request, item=item, status=status, result=result_payload, warnings=reasons)
         if status == 'applied':
             event_type = 'safe_apply_manual_completed'
+        elif status == 'simulated':
+            event_type = 'safe_apply_manual_simulated'
         elif status == 'blocked':
             event_type = 'safe_apply_manual_blocked'
         else:
@@ -48,7 +58,7 @@ class AtlasSafeApplyExecutionService:
         self._append_event(pool.pool_id, request.run_id, event_type, item, status=status, warnings=reasons, execution_record_json=json_path, execution_record_md=md_path)
         return AtlasSafeApplyExecutionResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status=status, safe_apply_result={**result_payload, 'decision': 'allow' if status == 'applied' else 'block', 'status': status, 'reasons': reasons}, plan_pool=pool.model_dump(), warnings=reasons, metadata={'execution_record_json': json_path, 'execution_record_md': md_path})
 
-    def validate_item_for_safe_apply(self, pool: AtlasPlanPool, item: AtlasPlanItem):
+    def validate_item_for_safe_apply(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasSafeApplyExecutionRequest | None = None):
         warnings: list[str] = []
         if self.safe_apply_adapter is None:
             return False, ['safe_apply_adapter_unavailable']
@@ -71,7 +81,13 @@ class AtlasSafeApplyExecutionService:
         if st == 'applied':
             item.status = 'completed'
             pool.completed_item_ids = list(dict.fromkeys(pool.completed_item_ids + [item.item_id]))
-        elif st in {'blocked', 'skipped'}:
+        elif st == 'simulated':
+            # keep item status unchanged for simulated execution
+            pass
+        elif st == 'blocked':
+            item.status = 'blocked'
+            pool.blocked_item_ids = list(dict.fromkeys(pool.blocked_item_ids + [item.item_id]))
+        elif st == 'skipped':
             item.status = 'blocked'
             pool.blocked_item_ids = list(dict.fromkeys(pool.blocked_item_ids + [item.item_id]))
         else:
