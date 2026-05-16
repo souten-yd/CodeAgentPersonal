@@ -64,6 +64,12 @@
     getRecoveryPool(poolId, workspaceId) {
       return atlasFetch(`/api/atlas/recovery/pools/${encodeURIComponent(poolId)}${query({ workspace_id: workspaceId })}`);
     },
+    getContinuationLatest(workspaceId) {
+      return atlasFetch(`/api/atlas/continuation/latest${query({ workspace_id: workspaceId })}`);
+    },
+    getContinuationPool(poolId, runId, workspaceId) {
+      return atlasFetch(`/api/atlas/continuation/pools/${encodeURIComponent(poolId)}${query({ run_id: runId, workspace_id: workspaceId })}`);
+    },
   };
 
   root.AtlasPipelineAPI = AtlasPipelineAPI;

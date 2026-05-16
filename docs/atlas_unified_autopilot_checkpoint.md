@@ -34,14 +34,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-13: completed
 - PR-ATLAS-PIPE-14: completed
 - PR-ATLAS-PIPE-14B: completed
+- PR-ATLAS-PIPE-14C: completed
 
 ## Current PR
 
-PR-ATLAS-PIPE-14C
+PR-ATLAS-PIPE-15
 
 ## Next PR
 
-PR-ATLAS-PIPE-15: Chat continuation / operational polish
+PR-ATLAS-PIPE-16: Atlas Planner integration / real planning bridge
 
 ## Important Constraints
 
@@ -84,6 +85,9 @@ PR-ATLAS-PIPE-15: Chat continuation / operational polish
 - PR-ATLAS-PIPE-14B adds cache busting/static asset checks so the redesigned UI styles are actually applied.
 - PR-ATLAS-PIPE-14B does not add safe_apply/TestCommand/DebugLoop/DeepResearch execution controls.
 - PR-ATLAS-PIPE-14C treats missing pipeline state after Recovery as stale recovery warning, not a fatal dashboard error.
+- PR-ATLAS-PIPE-15 adds continuation handoff service/API/UI polish.
+- Atlas Dashboard can generate a copyable continuation prompt for new chats.
+- Continuation uses AtlasJournal / Recovery / Markdown paths and does not execute safe_apply/TestCommand/DebugLoop/DeepResearch.
 - Current Create Plan may generate fallback PlanPool until real Planner integration lands in PR-ATLAS-PIPE-16.
 - Outcome Writer can save success/failure/debug/research/safe_apply/pipeline outcomes to AtlasJournal and optionally to a Nexus client.
 - Research item execution does not start external Web access or Deep Research jobs.
@@ -102,5 +106,5 @@ PR-ATLAS-PIPE-15: Chat continuation / operational polish
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-15を実装する。
-Chat continuation / operational polishを仕上げる。
+PR-ATLAS-PIPE-16を実装する。
+既存TaskPlanningRunner / Requirement / DeepPlanner をAtlas PlanPool作成APIへ接続し、fallback PlanPoolだけでなく実Planning結果からPlanPoolを作れるようにする。

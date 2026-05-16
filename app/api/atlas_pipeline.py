@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from agent.atlas_continuation_service import AtlasContinuationService
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_pipeline_runner import AtlasPipelineRunner
 from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
@@ -72,6 +73,31 @@ class PipelineDryRunResponse(BaseModel):
 
 class RecoveryResponse(BaseModel):
     recovery_summary: dict
+
+
+class ContinuationResponse(BaseModel):
+    workspace_id: str
+    pool_id: str = ""
+    run_id: str = ""
+    status: str = ""
+    current_goal: str = ""
+    current_item_id: str = ""
+    current_item_title: str = ""
+    completed_count: int = 0
+    failed_count: int = 0
+    blocked_count: int = 0
+    total_items: int = 0
+    last_event_type: str = ""
+    last_event_message: str = ""
+    next_action: str = ""
+    checkpoint_md_path: str = ""
+    plan_pool_md_path: str = ""
+    state_json_path: str = ""
+    events_ndjson_path: str = ""
+    continuation_prompt: str = ""
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
 
 
 def _model_dump(value: Any) -> dict[str, Any]:
@@ -271,6 +297,31 @@ def get_pipeline_events(
 ) -> dict[str, Any]:
     _, _, journal = _atlas_components(request, workspace_id=workspace_id)
     return {"pool_id": pool_id, "run_id": run_id, "events": journal.read_events(pool_id, run_id, limit=max(1, limit))}
+
+
+@router.get("/continuation/latest", response_model=ContinuationResponse)
+def get_continuation_latest(request: Request, workspace_id: str = "default") -> ContinuationResponse:
+    try:
+        _, _, journal = _atlas_components(request, workspace_id=workspace_id)
+        summary = AtlasContinuationService(journal).build_latest_summary()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ContinuationResponse(**_model_dump(summary))
+
+
+@router.get("/continuation/pools/{pool_id}", response_model=ContinuationResponse)
+def get_continuation_pool(
+    pool_id: str,
+    request: Request,
+    run_id: str = "",
+    workspace_id: str = "default",
+) -> ContinuationResponse:
+    try:
+        _, _, journal = _atlas_components(request, workspace_id=workspace_id)
+        summary = AtlasContinuationService(journal).build_pool_summary(pool_id, run_id=run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ContinuationResponse(**_model_dump(summary))
 
 
 @router.get("/recovery/latest", response_model=RecoveryResponse)
