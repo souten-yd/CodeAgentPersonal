@@ -39,7 +39,15 @@ def test_main_app_model_manager_status_returns_provider_payload(monkeypatch):
     response = TestClient(main.app).get("/model/status")
 
     assert response.status_code == 200
-    assert response.json() == expected
+    body = response.json()
+    for key, value in expected.items():
+        assert body[key] == value
+    assert body["last_model_load_status"] == "idle"
+    assert body["gpu_validation_status"] == "pending"
+    assert body["last_gpu_validation_status"] == "pending"
+    assert body["cuda_init_failed"] is False
+    assert body["no_usable_gpu"] is False
+    assert body["llama_readiness_signals"] == {}
 
 
 def test_create_app_model_orchestration_returns_default_payload():
