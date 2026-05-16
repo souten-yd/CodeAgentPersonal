@@ -210,8 +210,7 @@ def test_continuation_api_has_no_execution_side_effect_tokens() -> None:
         "requests.",
         "httpx",
         "deep_research_job",
-        "safe_apply(",
-        "run_command(",
+                "run_command(",
         "subprocess",
     ]:
         assert forbidden not in source
@@ -228,19 +227,6 @@ def test_no_task_or_agent_routes_added() -> None:
     assert '"/api/agent' not in api_source
 
 
-def test_api_does_not_expose_safe_apply(tmp_path) -> None:
-    client = _client(tmp_path)
-    created = _create_pool(client)
-    paths = {route.path for route in main.app.routes if hasattr(route, "path")}
-
-    assert all("safe_apply" not in path and "safe-apply" not in path for path in paths if path.startswith("/api/atlas/"))
-    response = client.post(
-        "/api/atlas/pipeline/dry-run",
-        json={"pool_id": created["pool_id"], "safe_apply": True},
-    )
-    assert response.status_code == 200
-    assert response.json()["pool_id"] == created["pool_id"]
-
 
 def test_api_has_no_deep_research_or_web_side_effect_tokens() -> None:
     source = API_FILE.read_text(encoding="utf-8")
@@ -250,8 +236,7 @@ def test_api_has_no_deep_research_or_web_side_effect_tokens() -> None:
         "httpx",
         "DeepResearch",
         "deep_research_job",
-        "safe_apply(",
-        "run_command(",
+                "run_command(",
         "subprocess",
     ]:
         assert forbidden not in source
@@ -318,8 +303,7 @@ def test_create_plan_pool_does_not_execute_safe_apply_test_debug_deepresearch() 
         "httpx",
         "DeepResearch",
         "deep_research_job",
-        "safe_apply(",
-        "run_command(",
+                "run_command(",
         "subprocess",
         "TestCommandRunner(",
         "DebugLoopRunner(",
@@ -364,8 +348,9 @@ def test_api_still_does_not_expose_runner_execution_controls() -> None:
     paths = {route.path for route in main.app.routes if hasattr(route, "path")}
     atlas_paths = [path.lower() for path in paths if path.startswith("/api/atlas/")]
 
-    for forbidden in ("safe_apply", "safe-apply", "test-command", "testcommand", "debug-loop", "debugloop", "deep-research", "deepresearch"):
+    for forbidden in ("test-command", "testcommand", "debug-loop", "debugloop", "deep-research", "deepresearch"):
         assert all(forbidden not in path for path in atlas_paths)
+    assert any("safe-apply/execute" in path for path in atlas_paths)
 
 
 def test_create_plan_pool_uses_registered_atlas_llm_json_fn(tmp_path) -> None:

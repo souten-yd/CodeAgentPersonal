@@ -39,6 +39,8 @@
     approvalRecords: [],
     approvalItems: [],
     approvalSubmitting: false,
+    safeApplySubmitting: false,
+    safeApplyResults: {},
   };
 
   const $ = (id) => document.getElementById(id);
@@ -635,8 +637,43 @@
     summaryEl.textContent = `pending: ${summary.pending_count || 0} / approved: ${summary.approved_count || 0} / rejected: ${summary.rejected_count || 0} / needs revision: ${summary.needs_revision_count || 0}`;
     const items = state.approvalItems || [];
     if (!items.length) { listEl.innerHTML = 'No approval-required items.'; return; }
-    listEl.innerHTML = items.map((item)=>`<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')}<textarea data-approval-reason="${esc(item.item_id)}" placeholder="reason"></textarea><div class="atlas-clarification-actions"><button data-approval="approved" data-item-id="${esc(item.item_id)}" type="button">Approve</button><button data-approval="rejected" data-item-id="${esc(item.item_id)}" type="button">Reject</button><button data-approval="needs_revision" data-item-id="${esc(item.item_id)}" type="button">Needs revision</button></div></div>`).join('');
+    listEl.innerHTML = items.map((item)=>`<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')}<textarea data-approval-reason="${esc(item.item_id)}" placeholder="reason"></textarea><div class="atlas-clarification-actions"><button data-approval="approved" data-item-id="${esc(item.item_id)}" type="button">Approve</button><button data-approval="rejected" data-item-id="${esc(item.item_id)}" type="button">Reject</button><button data-approval="needs_revision" data-item-id="${esc(item.item_id)}" type="button">Needs revision</button>'+renderSafeApplyEligibility(item)+'</div></div>`).join('');
     listEl.querySelectorAll('button[data-approval]').forEach((btn)=>btn.addEventListener('click', ()=>decideApproval(btn.dataset.itemId, btn.dataset.approval)));
+    listEl.querySelectorAll('button[data-safe-apply]').forEach((btn)=>btn.addEventListener('click', ()=>executeSafeApply(btn.dataset.safeApply)));
+  }
+
+
+
+  function isSafeApplyEligible(item) {
+    const decision = String(item?.metadata?.approval?.decision || '').toLowerCase();
+    const risk = String(item?.risk_level || '').toLowerCase();
+    const action = String(item?.metadata?.action_type || '').toLowerCase();
+    if (decision !== 'approved') return { eligible: false, reason: 'approval_not_approved' };
+    if (risk !== 'low') return { eligible: false, reason: 'risk_not_low' };
+    if (action === 'delete' || action === 'run_command') return { eligible: false, reason: 'forbidden_action_type' };
+    return { eligible: true, reason: '' };
+  }
+
+  function renderSafeApplyEligibility(item) {
+    const v = isSafeApplyEligible(item);
+    return v.eligible ? '<button data-safe-apply="'+esc(item.item_id)+'" type="button">Safe Apply This Item</button>' : '<small>Not eligible for safe apply: '+esc(v.reason)+'</small>';
+  }
+
+  async function executeSafeApply(itemId) {
+    if (state.safeApplySubmitting || !state.currentPoolId || !root.AtlasPipelineAPI?.executeSafeApply) return;
+    if (!confirm('Apply this approved low-risk PlanItem? This does not run tests or continue autopilot.')) return;
+    state.safeApplySubmitting = true;
+    const response = await handleResult(await root.AtlasPipelineAPI.executeSafeApply({ pool_id: state.currentPoolId, item_id: itemId, run_id: state.currentRunId || '', workspace_id: workspaceId(), metadata: { ui: 'atlas_dashboard' } }), 'Safe apply failed');
+    state.safeApplySubmitting = false;
+    if (!response) return;
+    state.safeApplyResults[itemId] = response;
+    state.planPool = response.plan_pool || state.planPool;
+    applyOrchestrationSummary(response.orchestration_summary);
+    state.continuationPrompt = response.continuation_prompt || state.continuationPrompt;
+    await refreshApprovals();
+    if (response.status === 'applied') showWarning('Manual safe apply completed for item: '+itemId);
+    else showWarning('Manual safe apply '+response.status+' for item: '+itemId+' ('+(response.warnings||[]).join(',')+')');
+    render();
   }
 
   async function decideApproval(itemId, decision) {

@@ -25,6 +25,9 @@ from agent.atlas_planner_bridge_schema import AtlasPlannerBridgeRequest
 from agent.atlas_plan_pool_schema import AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_recovery_service import AtlasRecoveryService
+from agent.atlas_safe_apply_adapter import AtlasSafeApplyAdapter
+from agent.atlas_safe_apply_execution_schema import AtlasSafeApplyExecutionRequest, AtlasSafeApplyExecutionResult
+from agent.atlas_safe_apply_execution_service import AtlasSafeApplyExecutionService
 
 
 router = APIRouter(prefix="/api/atlas", tags=["atlas"])
@@ -638,3 +641,25 @@ def decide_approval(req: AtlasApprovalDecisionRequest, request: Request) -> Atla
     continuation = AtlasContinuationService(journal).build_pool_summary(pool.pool_id, req.run_id).continuation_prompt
     journal.write_checkpoint(pool=pool, next_action=_checkpoint_next_action(pool.status))
     return AtlasApprovalDecisionResponse(pool_id=req.pool_id, item_id=req.item_id, decision=req.decision, status=pool.status, approval_record=approval_record, plan_pool=_model_dump(pool), recovery_summary=recovery, orchestration_summary=orchestration, continuation_prompt=continuation)
+
+
+@router.post("/safe-apply/execute", response_model=AtlasSafeApplyExecutionResult)
+def execute_safe_apply(req: AtlasSafeApplyExecutionRequest, request: Request) -> AtlasSafeApplyExecutionResult:
+    if ".." in req.pool_id or ".." in req.item_id:
+        raise HTTPException(status_code=400, detail="invalid id")
+    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    service = AtlasSafeApplyExecutionService(journal=journal, storage=storage, safe_apply_adapter=AtlasSafeApplyAdapter())
+    try:
+        result = service.execute_item(req)
+    except FileNotFoundError:
+        return AtlasSafeApplyExecutionResult(pool_id=req.pool_id, item_id=req.item_id, run_id=req.run_id, status="blocked", warnings=["pool_not_found"])
+    except Exception as exc:
+        return AtlasSafeApplyExecutionResult(pool_id=req.pool_id, item_id=req.item_id, run_id=req.run_id, status="failed", errors=[str(exc) or exc.__class__.__name__])
+
+    recovery = AtlasRecoveryService(journal).recover_pool(req.pool_id)
+    continuation = AtlasContinuationService(journal).build_pool_summary(req.pool_id, req.run_id)
+    orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(storage.load_pool(req.pool_id), None, recovery=_model_dump(recovery).get("metadata") or {})
+    result.recovery_summary = _model_dump(recovery)
+    result.orchestration_summary = _model_dump(orchestration)
+    result.continuation_prompt = continuation.continuation_prompt
+    return result
