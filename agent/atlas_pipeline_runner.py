@@ -16,6 +16,8 @@ from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_safe_apply_adapter import AtlasSafeApplyAdapter
 from agent.atlas_safe_apply_adapter_schema import AtlasSafeApplyRequest, AtlasSafeApplyResult
+from agent.test_command_runner import TestCommandRunner
+from agent.test_command_runner_schema import AtlasTestCommandBatchResult
 
 
 class AtlasPipelineRunner:
@@ -26,12 +28,14 @@ class AtlasPipelineRunner:
         implementation_executor: object | None = None,
         approval_gate: AtlasApprovalGate | None = None,
         safe_apply_adapter: AtlasSafeApplyAdapter | None = None,
+        test_command_runner: TestCommandRunner | None = None,
     ):
         self.storage = storage
         self.policy_gate = policy_gate or AtlasAutopilotPolicyGate()
         self.implementation_executor = implementation_executor
         self.approval_gate = approval_gate
         self.safe_apply_adapter = safe_apply_adapter
+        self.test_command_runner = test_command_runner
 
     def run_dry_run(self, request: AtlasPipelineRunRequest) -> AtlasPipelineRunState:
         if not request.dry_run:
@@ -253,6 +257,15 @@ class AtlasPipelineRunner:
             implementation_executor=self.implementation_executor,
         )
         return adapter.apply_low_risk_item(item, pool, request=request, patch_metadata=patch_metadata)
+
+    def run_item_tests(
+        self,
+        item: AtlasPlanItem,
+        cwd: str = "",
+        stop_on_failure: bool = True,
+    ) -> AtlasTestCommandBatchResult:
+        runner = self.test_command_runner or TestCommandRunner()
+        return runner.run_item_tests(item, cwd=cwd, stop_on_failure=stop_on_failure)
 
     def select_next_ready_item(self, pool: AtlasPlanPool) -> AtlasPlanItem | None:
         ready_items = pool.get_ready_items()

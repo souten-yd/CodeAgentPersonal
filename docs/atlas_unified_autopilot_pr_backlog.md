@@ -253,6 +253,14 @@ low-risk PlanItemに限定してsafe_applyを段階導入する。
 
 ### 完了条件
 
+- `agent/test_command_runner_schema.py` が存在する。
+- `agent/test_command_runner.py` が存在する。
+- allowlist式で検証コマンドだけ実行できる。
+- shell=Falseを使用する。
+- forbidden tokenを拒否する。
+- run_many / run_item_tests がある。
+- Pipeline Runnerのrun_dry_runではtest commandを自動実行しない。
+- API / UI は追加しない。
 - allowlistされたtest commandのみ実行される。
 - 非allowlist commandは拒否される。
 - Testsがpassする。
