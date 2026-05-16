@@ -666,3 +666,5 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 - DebugLoop自動実行
 - DeepResearch/Web job起動
 - Task/Agent API追加
+
+- PR-ATLAS-PIPE-20: approval-aware API/UI/Journal preparation (record-only, no safe_apply execution).

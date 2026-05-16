@@ -210,3 +210,5 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 - PR-ATLAS-PIPE-19でClarification answer flowは実装済み。
 - 次の課題はapproval_required itemをAtlas Dashboard / API / Continuationで扱うこと。
 - approvalを記録しても、safe_apply自動実行はまだ別PRで扱う。
+
+- PR-ATLAS-PIPE-20: approval-aware API/UI/Journal preparation (record-only, no safe_apply execution).

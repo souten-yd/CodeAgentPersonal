@@ -136,3 +136,5 @@ approval_required の表示・継続・Approval Gate連携を整え、safe_apply
 - Task/Agent API追加禁止。
 - 任意コマンド実行追加禁止。
 - 既存Lumen / Echo / Nexus破壊禁止。
+
+- PR-ATLAS-PIPE-20: approval-aware API/UI/Journal preparation (record-only, no safe_apply execution).

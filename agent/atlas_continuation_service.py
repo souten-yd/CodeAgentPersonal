@@ -63,6 +63,11 @@ Current Gate:
 - requires_clarification: {str(bool(summary.metadata.get("requires_clarification", False))).lower()}
 - requires_approval: {str(bool(summary.metadata.get("requires_approval", False))).lower()}
 - stale_recovery_warning: {summary.metadata.get("stale_recovery_warning", "")}
+- approval_pending_count: {summary.metadata.get("approval_pending_count", 0)}
+- approval_approved_count: {summary.metadata.get("approval_approved_count", 0)}
+- approval_rejected_count: {summary.metadata.get("approval_rejected_count", 0)}
+- approval_pending_item_ids: {summary.metadata.get("approval_pending_item_ids", [])}
+- approval_note: Approval records exist, but safe_apply is not automatically executed.
 
 重要方針:
 - Task独立機能は廃止。
@@ -185,6 +190,24 @@ Current Gate:
             "questions_count": int(pool_metadata.get("questions_count", 0) or pool_metadata.get("question_count", 0) or 0),
             "stale_recovery_warning": "Start a new dry-run from the recovered PlanPool." if orchestration.is_stale else "",
             "current_gate": self._current_gate(orchestration),
+        })
+        approval_pending_items = []
+        approval_approved_count = 0
+        approval_rejected_count = 0
+        if pool is not None:
+            for item in pool.items:
+                decision = str((item.metadata or {}).get("approval", {}).get("decision", ""))
+                if item.status in {"approval_required", "paused"}:
+                    approval_pending_items.append(item.item_id)
+                if decision == "approved":
+                    approval_approved_count += 1
+                if decision in {"rejected", "needs_revision"}:
+                    approval_rejected_count += 1
+        summary.metadata.update({
+            "approval_pending_count": len(approval_pending_items),
+            "approval_approved_count": approval_approved_count,
+            "approval_rejected_count": approval_rejected_count,
+            "approval_pending_item_ids": approval_pending_items,
         })
         if not summary.next_action or summary.next_action in {"Continue pipeline from the recovered checkpoint."}:
             summary.next_action = orchestration.next_action or summary.next_action

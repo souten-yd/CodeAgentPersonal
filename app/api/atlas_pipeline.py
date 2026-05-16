@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from agent.atlas_clarification_schema import AtlasClarificationSubmitRequest, AtlasClarificationSubmitResult
 from agent.atlas_clarification_service import AtlasClarificationService
+from agent.atlas_approval_service import AtlasApprovalService
 from agent.atlas_continuation_service import AtlasContinuationService
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_orchestration_summary import AtlasOrchestrationSummaryBuilder
@@ -95,6 +96,31 @@ class RecoveryResponse(BaseModel):
     recovery_summary: dict
     orchestration_summary: dict = Field(default_factory=dict)
     clarification_session_id: str = ""
+
+
+class AtlasApprovalDecisionRequest(BaseModel):
+    pool_id: str
+    item_id: str
+    run_id: str = ""
+    decision: str
+    reason: str = ""
+    approver: str = "user"
+    workspace_id: str = "default"
+    metadata: dict = Field(default_factory=dict)
+
+
+class AtlasApprovalDecisionResponse(BaseModel):
+    pool_id: str
+    item_id: str
+    decision: str
+    status: str
+    approval_record: dict = Field(default_factory=dict)
+    plan_pool: dict = Field(default_factory=dict)
+    recovery_summary: dict = Field(default_factory=dict)
+    orchestration_summary: dict = Field(default_factory=dict)
+    continuation_prompt: str = ""
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
 
 
 class ContinuationResponse(BaseModel):
@@ -578,3 +604,37 @@ def get_recovery_pool(pool_id: str, request: Request, workspace_id: str = "defau
     summary = AtlasRecoveryService(journal).recover_pool(pool_id)
     orchestration_summary = AtlasOrchestrationSummaryBuilder().build_from_recovery(summary)
     return RecoveryResponse(recovery_summary=_model_dump(summary), orchestration_summary=_model_dump(orchestration_summary))
+
+
+@router.get("/approvals/pools/{pool_id}")
+def get_approvals(pool_id: str, request: Request, workspace_id: str = Query("default")) -> dict:
+    _, storage, journal = _atlas_components(request, workspace_id=workspace_id)
+    try:
+        pool = storage.load_pool(pool_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="plan pool not found") from exc
+    service = AtlasApprovalService(journal)
+    data = service.list_pool_approvals(pool)
+    data["pool_id"] = pool_id
+    return data
+
+
+@router.post("/approvals/decide", response_model=AtlasApprovalDecisionResponse)
+def decide_approval(req: AtlasApprovalDecisionRequest, request: Request) -> AtlasApprovalDecisionResponse:
+    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    try:
+        pool = storage.load_pool(req.pool_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="plan pool not found") from exc
+    service = AtlasApprovalService(journal)
+    try:
+        approval_record = service.decide(pool, item_id=req.item_id, run_id=req.run_id, decision=req.decision, reason=req.reason, approver=req.approver, metadata=req.metadata)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+    recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
+    orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None, recovery=recovery).model_dump()
+    continuation = AtlasContinuationService(journal).build_pool_summary(pool.pool_id, req.run_id).continuation_prompt
+    journal.write_checkpoint(pool=pool, next_action=_checkpoint_next_action(pool.status))
+    return AtlasApprovalDecisionResponse(pool_id=req.pool_id, item_id=req.item_id, decision=req.decision, status=pool.status, approval_record=approval_record, plan_pool=_model_dump(pool), recovery_summary=recovery, orchestration_summary=orchestration, continuation_prompt=continuation)

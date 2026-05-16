@@ -1534,3 +1534,5 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .atlas-question-input{width:100%;margin-top:8px}
 .atlas-clarification-actions{display:flex;flex-wrap:wrap;gap:8px}
 @media (max-width: 768px){.atlas-questions-panel{grid-template-columns:1fr}}
+
+.atlas-approval-panel{margin-top:10px}.atlas-approval-summary{font-size:12px}.atlas-approval-list{display:grid;gap:8px}
