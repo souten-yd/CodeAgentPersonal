@@ -1578,15 +1578,6 @@ class ModelManager:
         if process_signal and process_signal.get("alive") is False:
             return _finish(False, "fail", f"process exited before /health; {_field_summary()}", "process_exit")
 
-        cuda_preflight_signal = dict(readiness.get("cuda_preflight_signal") or {})
-        if not cuda_preflight_signal:
-            cuda_preflight_signal = self._probe_llama_cuda_runtime_preflight()
-        readiness["cuda_preflight_signal"] = cuda_preflight_signal
-        parsed["llama_readiness_signals"] = readiness
-        cuinit_rc = cuda_preflight_signal.get("cuInit_rc")
-        if cuinit_rc is not None and cuinit_rc != 0:
-            return _finish(False, "fail", f"cuInit rc != 0 ({cuinit_rc}); {_field_summary()}", "cuda_preflight_failed")
-
         if cuda_device_detected and cuda_build_detected and model_loaded and server_listening:
             if http_signal.get("health_ok") is False:
                 return _finish(False, "fail", f"/health unreachable after timeout; {_field_summary()}", "health_unreachable")
@@ -1599,6 +1590,15 @@ class ModelManager:
                 f"model_loaded={model_loaded}; server_listening={server_listening}; {_field_summary()}",
                 "new_llama_device_info",
             )
+
+        cuda_preflight_signal = dict(readiness.get("cuda_preflight_signal") or {})
+        if not cuda_preflight_signal:
+            cuda_preflight_signal = self._probe_llama_cuda_runtime_preflight()
+        readiness["cuda_preflight_signal"] = cuda_preflight_signal
+        parsed["llama_readiness_signals"] = readiness
+        cuinit_rc = cuda_preflight_signal.get("cuInit_rc")
+        if cuinit_rc is not None and cuinit_rc != 0:
+            return _finish(False, "fail", f"cuInit rc != 0 ({cuinit_rc}); {_field_summary()}", "cuda_preflight_failed")
 
         if http_signal.get("health_ok") and process_signal.get("alive") and cuinit_rc == 0:
             return _finish(
