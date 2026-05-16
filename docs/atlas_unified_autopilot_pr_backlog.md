@@ -523,27 +523,56 @@ PR-ATLAS-PIPE-14で追加したAtlas Dashboardを、visual design rescue / stati
 - safe_apply/TestCommandRunner/DebugLoopRunner/DeepResearchの実行UI追加禁止。
 - 既存Lumen / Echo / Nexus UI破壊禁止。
 
-## PR-ATLAS-PIPE-15: チャット継続運用の自動化
+## PR-ATLAS-PIPE-15: Add Atlas continuation handoff and operational polish
 
 ### 目的
 
-長いChatGPTチャットから新しいチャットへ移っても、checkpointを貼るだけで再開できる運用を強化する。
+Atlas Journal / Recovery / checkpointを活用し、新しいチャットに貼れば続きから再開できるContinuation Prompt、現在のPlanPool/Pipeline/Recovery状態、次にやるべき操作をAtlas Dashboardと`/api/atlas/*`から取得・コピーできるようにする。
 
 ### 主な変更
 
-- Checkpoint更新手順を整備する。
-- Completed PRs / Current PR / Next PRの更新ルールを追加する。
-- BacklogとADRの同期確認を追加する。
+- `AtlasContinuationService`と`AtlasContinuationSummary`を追加する。
+- `/api/atlas/continuation/latest` と `/api/atlas/continuation/pools/{pool_id}` を追加する。
+- Details / Advanced Panel内にChat Continuation panelを追加する。
+- Copy Continuation Prompt / Copy IDsを追加する。
+- Recovery/latest、PlanPool Markdown、Pipeline state、events.ndjson、checkpoint pathをContinuation Summaryに接続する。
 
 ### 完了条件
 
-- 新チャットでcheckpointから作業再開できる。
-- PRごとにcheckpoint更新が確認される。
-- Contract testsがpassする。
+- Atlas DashboardからContinuation Promptを生成・コピーできる。
+- Continuation APIがsummary/prompt/path情報を返す。
+- stale recoveryはwarning扱いを維持する。
+- safe_apply/TestCommand/DebugLoop/DeepResearchの実行UIや実行APIを追加しない。
+- iPhone Safari相当の幅でContinuation panelが横崩れしない。
 
 ### 変更禁止範囲
 
-- runtime変更禁止。
-- UI変更禁止。
-- API変更禁止。
-- 既存Atlas / Lumen / Echo / Nexus挙動変更禁止。
+- Standalone Task / Agent UI追加禁止。
+- `/api/task/*` / `/api/agent/*` 追加禁止。
+- safe_apply/TestCommandRunner/DebugLoopRunner/DeepResearch/Web調査起動UI追加禁止。
+- 任意コマンド実行追加禁止。
+- 既存Atlas / Lumen / Echo / Nexus挙動破壊禁止。
+
+## PR-ATLAS-PIPE-16: Atlas Planner integration / real planning bridge
+
+### 目的
+
+既存TaskPlanningRunner / Requirement / DeepPlannerをAtlas PlanPool作成APIへ接続し、fallback PlanPoolだけでなく実Planning結果からPlanPoolを作れるようにする。
+
+### 主な変更
+
+- 既存Planner結果からAtlasPlanPoolを生成するbridgeをAPI経由で使う。
+- Create Planはfallback PlanPoolだけでなく実Planner結果を選べるようにする。
+- Nexusが空でもfallbackに戻れるwarning扱いを維持する。
+
+### 完了条件
+
+- Atlas Create Planが実Planner結果からPlanPoolを作れる。
+- fallback PlanPoolは安全な代替経路として残る。
+- safe_apply/TestCommand/DebugLoop/DeepResearchの自動実行は追加しない。
+
+### 変更禁止範囲
+
+- Standalone Task / Agent API追加禁止。
+- 任意コマンド実行追加禁止。
+- 既存Lumen / Echo / Nexus破壊禁止。

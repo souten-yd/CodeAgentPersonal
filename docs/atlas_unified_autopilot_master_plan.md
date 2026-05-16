@@ -100,6 +100,9 @@ This PR is documentation and contract-test only. It does not change runtime beha
 - The redesigned Atlas UI should be simple, graphical, and card-centered: Goal Composer, PlanPool cards, Pipeline progress, Current Item, Recovery, and Details drawer.
 - Detailed settings, raw JSON, Markdown, and event logs should be shown only when needed through collapsed details panels.
 - Browser reload should restore state from Recovery/latest plus the persisted last pool/run identifiers.
+- Chat continuation / handoff is an Atlas Dashboard Details capability, not a separate Task or Agent surface.
+- A user can paste the Dashboard-generated Continuation Prompt into a new chat to resume from the latest Atlas Journal / Recovery / checkpoint state.
+- Continuation summaries should include the current goal, pool/run IDs, pipeline status, progress counts, last event, next action, checkpoint path, PlanPool Markdown path, pipeline state path, and events.ndjson path.
 - The initial Dashboard surface remains dry-run only and must not expose safe_apply, TestCommandRunner, DebugLoopRunner, external Web research, or Deep Research execution controls.
 
 ## Target Architecture

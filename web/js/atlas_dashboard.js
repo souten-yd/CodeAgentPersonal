@@ -26,6 +26,9 @@
     recoveryHidden: false,
     restored: false,
     checkpointPath: '',
+    continuationSummary: null,
+    continuationPrompt: '',
+    continuationCopied: '',
   };
 
   const $ = (id) => document.getElementById(id);
@@ -87,7 +90,7 @@
 
   function setBusy(busy) {
     state.loading = busy;
-    ['atlas-create-plan-btn', 'atlas-start-dry-run-btn', 'atlas-recovery-load-btn', 'atlas-recovery-refresh-btn'].forEach((id) => {
+    ['atlas-create-plan-btn', 'atlas-start-dry-run-btn', 'atlas-recovery-load-btn', 'atlas-recovery-refresh-btn', 'atlas-continuation-refresh-btn'].forEach((id) => {
       const el = $(id);
       if (el) el.disabled = busy;
     });
@@ -247,11 +250,24 @@
   }
 
   function renderDetails() {
-    const json = { planPool: normalizePool(state.planPool), pipelineState: normalizePipeline(state.pipelineState), recoverySummary: state.recoverySummary };
+    const json = {
+      planPool: normalizePool(state.planPool),
+      pipelineState: normalizePipeline(state.pipelineState),
+      recoverySummary: state.recoverySummary,
+      continuationSummary: state.continuationSummary,
+    };
     json.recoveryWarning = state.recoveryWarning;
     if ($('atlas-json-panel')) $('atlas-json-panel').textContent = JSON.stringify(json, null, 2);
     if ($('atlas-markdown-panel')) $('atlas-markdown-panel').textContent = state.markdown || 'No markdown loaded.';
     if ($('atlas-checkpoint-path')) $('atlas-checkpoint-path').textContent = state.checkpointPath || 'No checkpoint yet.';
+    const summary = state.continuationSummary || {};
+    if ($('atlas-continuation-summary')) {
+      $('atlas-continuation-summary').textContent = summary.pool_id
+        ? `workspace: ${summary.workspace_id || workspaceId()} / pool_id: ${summary.pool_id || '-'} / run_id: ${summary.run_id || '-'} / status: ${summary.status || '-'} / next: ${summary.next_action || '-'}`
+        : 'No continuation summary yet.';
+    }
+    if ($('atlas-continuation-prompt')) $('atlas-continuation-prompt').value = state.continuationPrompt || '';
+    if ($('atlas-copy-status')) $('atlas-copy-status').textContent = state.continuationCopied || '';
   }
 
   function renderRecovery() {
@@ -329,6 +345,7 @@
       state.checkpointPath = data.checkpoint_path || '';
       writeStorage(storageKeys.poolId, state.currentPoolId);
       await loadMarkdown();
+      await refreshContinuation();
     }
     setBusy(false);
     render();
@@ -359,6 +376,7 @@
       state.recoveryWarning = '';
       showWarning(null);
       await refreshStatus();
+      await refreshContinuation();
     }
     setBusy(false);
     render();
@@ -408,6 +426,65 @@
     render();
   }
 
+
+
+  async function refreshContinuation() {
+    const api = root.AtlasPipelineAPI;
+    if (!api) return;
+    const result = state.currentPoolId
+      ? await api.getContinuationPool(state.currentPoolId, state.currentRunId, workspaceId())
+      : await api.getContinuationLatest(workspaceId());
+    if (!result?.ok) {
+      state.continuationCopied = `Continuation refresh failed: ${result?.message || 'unknown error'}`;
+      renderDetails();
+      return;
+    }
+    state.continuationSummary = result.data || null;
+    state.continuationPrompt = result.data?.continuation_prompt || '';
+    state.continuationCopied = '';
+    if (result.data?.pool_id) state.currentPoolId = result.data.pool_id;
+    if (result.data?.run_id && result.data?.status !== 'stale') state.currentRunId = result.data.run_id;
+    renderDetails();
+  }
+
+  async function copyTextWithFallback(text, textareaId) {
+    if (!text) return false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (_err) {}
+    const el = $(textareaId);
+    if (!el) return false;
+    try {
+      el.focus();
+      el.select();
+      return document.execCommand('copy');
+    } catch (_err) {
+      return false;
+    }
+  }
+
+  async function copyContinuationPrompt() {
+    if (!state.continuationPrompt) await refreshContinuation();
+    const ok = await copyTextWithFallback(state.continuationPrompt, 'atlas-continuation-prompt');
+    state.continuationCopied = ok ? 'Continuation prompt copied.' : 'Copy failed. Select the prompt manually.';
+    renderDetails();
+  }
+
+  async function copyAtlasIds() {
+    const summary = state.continuationSummary || {};
+    const text = [
+      `workspace_id=${summary.workspace_id || workspaceId()}`,
+      `pool_id=${summary.pool_id || state.currentPoolId || ''}`,
+      `run_id=${summary.run_id || state.currentRunId || ''}`,
+    ].join('\n');
+    const ok = await copyTextWithFallback(text, 'atlas-continuation-prompt');
+    state.continuationCopied = ok ? 'Atlas IDs copied.' : 'Copy failed. Select the IDs manually.';
+    renderDetails();
+  }
+
   async function loadRecoveryLatest() {
     const result = await root.AtlasPipelineAPI.getRecoveryLatest(workspaceId());
     if (!result?.ok) return;
@@ -420,6 +497,7 @@
     if (recovery?.status === 'stale') markStaleRecovery();
     if (recoveredPool || recoveredRun) state.restored = true;
     if (state.currentPoolId) await refreshStatus();
+    await refreshContinuation();
     render();
   }
 
@@ -450,6 +528,12 @@
       });
     }
     const details = $('atlas-details-drawer');
+    const refreshContinuationBtn = $('atlas-continuation-refresh-btn');
+    if (refreshContinuationBtn) refreshContinuationBtn.addEventListener('click', refreshContinuation);
+    const copyContinuationBtn = $('atlas-continuation-copy-btn');
+    if (copyContinuationBtn) copyContinuationBtn.addEventListener('click', copyContinuationPrompt);
+    const copyIdsBtn = $('atlas-continuation-copy-ids-btn');
+    if (copyIdsBtn) copyIdsBtn.addEventListener('click', copyAtlasIds);
     if (details) {
       details.addEventListener('toggle', () => {
         state.advancedOpen = details.open;
@@ -479,6 +563,9 @@
     hideRecoveryBanner,
     retryLastAction,
     loadRecoveryLatest,
+    refreshContinuation,
+    copyContinuationPrompt,
+    copyAtlasIds,
     render,
   };
 

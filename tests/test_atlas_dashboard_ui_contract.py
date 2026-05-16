@@ -9,7 +9,7 @@ HTML = (ROOT / "ui.html").read_text(encoding="utf-8")
 ATLAS_API_JS = (ROOT / "web" / "js" / "atlas_pipeline_api.js").read_text(encoding="utf-8")
 ATLAS_DASHBOARD_JS = (ROOT / "web" / "js" / "atlas_dashboard.js").read_text(encoding="utf-8")
 CSS = (ROOT / "web" / "css" / "app.css").read_text(encoding="utf-8")
-ASSET_VERSION = "atlas-dashboard-14c"
+ASSET_VERSION = "atlas-dashboard-15"
 
 
 def atlas_block() -> str:
@@ -93,6 +93,8 @@ def test_atlas_dashboard_uses_existing_atlas_api_only() -> None:
         "/api/atlas/pipeline/events/",
         "/api/atlas/recovery/latest",
         "/api/atlas/recovery/pools/",
+        "/api/atlas/continuation/latest",
+        "/api/atlas/continuation/pools/",
     ):
         assert endpoint in ATLAS_API_JS
     assert "/api/task" not in ATLAS_API_JS + ATLAS_DASHBOARD_JS
@@ -141,3 +143,38 @@ def test_ui_loads_cache_busted_static_assets() -> None:
     assert f'<script src="/static/js/atlas_dashboard.js?v={ASSET_VERSION}"></script>' in HTML
     assert "AtlasPipelineAPI" in ATLAS_API_JS
     assert "AtlasDashboard" in ATLAS_DASHBOARD_JS
+
+
+def test_continuation_panel_contract() -> None:
+    block = atlas_block()
+    assert 'id="atlas-continuation-panel"' in block
+    assert 'id="atlas-continuation-prompt"' in block
+    assert 'Refresh Continuation' in block
+    assert 'Copy Continuation Prompt' in block
+    assert 'Copy IDs' in block
+    assert 'refreshContinuation' in ATLAS_DASHBOARD_JS
+    assert 'copyContinuationPrompt' in ATLAS_DASHBOARD_JS
+    assert 'copyAtlasIds' in ATLAS_DASHBOARD_JS
+    assert 'getContinuationLatest' in ATLAS_API_JS
+    assert 'getContinuationPool' in ATLAS_API_JS
+
+
+def test_continuation_panel_is_inside_details() -> None:
+    block = atlas_block()
+    details_start = block.index('id="atlas-details-drawer"')
+    details_end = block.index('</details>', details_start)
+    panel_index = block.index('id="atlas-continuation-panel"')
+    assert details_start < panel_index < details_end
+
+
+def test_continuation_css_contract() -> None:
+    for token in (
+        ".atlas-continuation-panel",
+        ".atlas-continuation-summary",
+        ".atlas-continuation-prompt",
+        ".atlas-copy-row",
+        ".atlas-copy-status",
+        "white-space: pre-wrap",
+        "overflow-wrap: anywhere",
+    ):
+        assert token in CSS

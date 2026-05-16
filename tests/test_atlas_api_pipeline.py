@@ -144,6 +144,69 @@ def test_recovery_latest(tmp_path) -> None:
     assert summary["status"] in {"completed", "paused", "blocked", "failed", "running", "ready"}
 
 
+def test_continuation_latest_returns_200(tmp_path) -> None:
+    client = _client(tmp_path)
+
+    response = client.get("/api/atlas/continuation/latest")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["workspace_id"] == "default"
+    assert "continuation_prompt" in body
+
+
+def test_continuation_latest_after_create_plan_includes_pool_id(tmp_path) -> None:
+    client = _client(tmp_path)
+    created = _create_pool(client)
+
+    response = client.get("/api/atlas/continuation/latest")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["pool_id"] == created["pool_id"]
+    assert created["pool_id"] in body["continuation_prompt"]
+
+
+def test_continuation_latest_after_dry_run_includes_run_status(tmp_path) -> None:
+    client = _client(tmp_path)
+    created = _create_pool(client)
+    dry_run = client.post("/api/atlas/pipeline/dry-run", json={"pool_id": created["pool_id"]}).json()
+
+    response = client.get("/api/atlas/continuation/latest")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["run_id"] == dry_run["run_id"]
+    assert body["status"] == dry_run["status"]
+
+
+def test_continuation_pool_returns_prompt(tmp_path) -> None:
+    client = _client(tmp_path)
+    created = _create_pool(client)
+
+    response = client.get(f"/api/atlas/continuation/pools/{created['pool_id']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["pool_id"] == created["pool_id"]
+    assert "CodeAgentPersonal / KasaneCore" in body["continuation_prompt"]
+    assert "Task = PlanItem" in body["continuation_prompt"]
+
+
+def test_continuation_api_has_no_execution_side_effect_tokens() -> None:
+    source = API_FILE.read_text(encoding="utf-8")
+
+    for forbidden in [
+        "requests.",
+        "httpx",
+        "deep_research_job",
+        "safe_apply(",
+        "run_command(",
+        "subprocess",
+    ]:
+        assert forbidden not in source
+
+
 def test_no_task_or_agent_routes_added() -> None:
     paths = {route.path for route in main.app.routes if hasattr(route, "path")}
     api_source = API_FILE.read_text(encoding="utf-8")

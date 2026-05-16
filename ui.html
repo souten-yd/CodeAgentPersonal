@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-14c">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-15">
 </head>
 <body>
 
@@ -276,6 +276,22 @@
               <label>workspace_id<input id="atlas-workspace-id" value="default" autocomplete="off"></label>
               <label>max_items<input id="atlas-max-items" type="number" min="1" placeholder="optional"></label>
               <label class="atlas-checkbox-label"><input id="atlas-pause-after-each-item" type="checkbox"> pause_after_each_item</label>
+            </div>
+          </section>
+          <section id="atlas-continuation-panel" class="atlas-detail-section atlas-continuation-panel" aria-labelledby="atlas-continuation-title">
+            <div class="atlas-section-title-row">
+              <div>
+                <h3 id="atlas-continuation-title">Chat Continuation</h3>
+                <p>新しいチャットに貼ると、Atlasの続きから再開できます。</p>
+              </div>
+            </div>
+            <div id="atlas-continuation-summary" class="atlas-continuation-summary">No continuation summary yet.</div>
+            <textarea id="atlas-continuation-prompt" class="atlas-continuation-prompt" readonly rows="12" aria-label="Atlas continuation prompt"></textarea>
+            <div class="atlas-copy-row">
+              <button id="atlas-continuation-refresh-btn" class="atlas-ghost-btn" type="button">Refresh Continuation</button>
+              <button id="atlas-continuation-copy-btn" class="atlas-secondary-btn" type="button">Copy Continuation Prompt</button>
+              <button id="atlas-continuation-copy-ids-btn" class="atlas-ghost-btn" type="button">Copy IDs</button>
+              <span id="atlas-copy-status" class="atlas-copy-status" aria-live="polite"></span>
             </div>
           </section>
           <section class="atlas-detail-section">
@@ -15876,8 +15892,8 @@ function testSkill(skillName) {
 <script src="/static/js/lumen_tools.js"></script>
 <script src="/static/js/lumen.js"></script>
 <script src="/static/js/nexus.js"></script>
-<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-14c"></script>
-<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-14c"></script>
+<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-15"></script>
+<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-15"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>
