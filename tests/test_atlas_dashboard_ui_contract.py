@@ -231,3 +231,12 @@ def test_refresh_approvals_not_called_consecutively_contract() -> None:
     assert "await refreshApprovals();\n      await refreshApprovals();" not in ATLAS_DASHBOARD_JS
     assert "await refreshApprovals();\n        await refreshApprovals();" not in ATLAS_DASHBOARD_JS
 
+
+
+def test_manual_safe_apply_ui_contract() -> None:
+    assert "executeSafeApply" in ATLAS_DASHBOARD_JS
+    assert "executeSafeApply(payload)" in ATLAS_API_JS
+    assert "Manual safe apply is available only for approved low-risk items." in HTML
+    assert "Safe Apply This Item" in ATLAS_DASHBOARD_JS
+    for forbidden in ("Apply all", "Auto apply", "Continue autopilot", "Run tests automatically"):
+        assert forbidden not in HTML + ATLAS_DASHBOARD_JS
