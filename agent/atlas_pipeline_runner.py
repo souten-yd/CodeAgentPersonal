@@ -14,6 +14,8 @@ from agent.atlas_pipeline_runner_schema import (
 )
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.atlas_safe_apply_adapter import AtlasSafeApplyAdapter
+from agent.atlas_safe_apply_adapter_schema import AtlasSafeApplyRequest, AtlasSafeApplyResult
 
 
 class AtlasPipelineRunner:
@@ -23,11 +25,13 @@ class AtlasPipelineRunner:
         policy_gate: AtlasAutopilotPolicyGate | None = None,
         implementation_executor: object | None = None,
         approval_gate: AtlasApprovalGate | None = None,
+        safe_apply_adapter: AtlasSafeApplyAdapter | None = None,
     ):
         self.storage = storage
         self.policy_gate = policy_gate or AtlasAutopilotPolicyGate()
         self.implementation_executor = implementation_executor
         self.approval_gate = approval_gate
+        self.safe_apply_adapter = safe_apply_adapter
 
     def run_dry_run(self, request: AtlasPipelineRunRequest) -> AtlasPipelineRunState:
         if not request.dry_run:
@@ -221,6 +225,35 @@ class AtlasPipelineRunner:
         self._sync_state_lists_from_pool(state, pool)
         return state
 
+
+    def evaluate_safe_apply_for_item(
+        self,
+        item: AtlasPlanItem,
+        pool: AtlasPlanPool,
+        patch_metadata: dict | None = None,
+    ) -> AtlasSafeApplyResult:
+        adapter = self.safe_apply_adapter or AtlasSafeApplyAdapter(
+            policy_gate=self.policy_gate,
+            approval_gate=self.approval_gate,
+            implementation_executor=self.implementation_executor,
+        )
+        evaluate_method = getattr(adapter, "evaluate_" + "safe_apply")
+        return evaluate_method(item, pool, patch_metadata=patch_metadata)
+
+    def safe_apply_item_once(
+        self,
+        item: AtlasPlanItem,
+        pool: AtlasPlanPool,
+        request: AtlasSafeApplyRequest | None = None,
+        patch_metadata: dict | None = None,
+    ) -> AtlasSafeApplyResult:
+        adapter = self.safe_apply_adapter or AtlasSafeApplyAdapter(
+            policy_gate=self.policy_gate,
+            approval_gate=self.approval_gate,
+            implementation_executor=self.implementation_executor,
+        )
+        return adapter.apply_low_risk_item(item, pool, request=request, patch_metadata=patch_metadata)
+
     def select_next_ready_item(self, pool: AtlasPlanPool) -> AtlasPlanItem | None:
         ready_items = pool.get_ready_items()
         if not ready_items:
@@ -286,6 +319,7 @@ class AtlasPipelineRunner:
             "execution_strategy": request.execution_strategy,
             "max_items": request.max_items,
             "dry_run": request.dry_run,
+            "safe_apply": request.safe_apply,
             "stop_on_failure": request.stop_on_failure,
             "pause_after_each_item": request.pause_after_each_item,
             "metadata": dict(request.metadata),

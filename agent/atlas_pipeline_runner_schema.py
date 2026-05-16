@@ -57,6 +57,7 @@ class AtlasPipelineRunRequest(BaseModel):
     execution_strategy: str = "sequential"
     max_items: int | None = None
     dry_run: bool = True
+    safe_apply: bool = False
     stop_on_failure: bool = True
     pause_after_each_item: bool = False
     metadata: dict = Field(default_factory=dict)

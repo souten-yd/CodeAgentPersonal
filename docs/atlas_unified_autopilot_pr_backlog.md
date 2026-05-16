@@ -223,8 +223,14 @@ low-risk PlanItemに限定してsafe_applyを段階導入する。
 
 ### 完了条件
 
-- low-riskかつ承認済みのPlanItemのみsafe_applyできる。
-- high-riskはdry_runまたはapproval待ちになる。
+- `agent/atlas_safe_apply_adapter_schema.py` が存在する。
+- `agent/atlas_safe_apply_adapter.py` が存在する。
+- low-risk create/updateだけsafe_apply対象として評価できる。
+- delete/run_commandは禁止継続。
+- protected path / non-low-risk / policy block / approval missing を検出できる。
+- executor未指定時はsimulation可能。
+- run_dry_runはsafe_applyを呼ばない。
+- API / UI は追加しない。
 - Testsがpassする。
 
 ### 変更禁止範囲
