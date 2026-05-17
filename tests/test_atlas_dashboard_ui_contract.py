@@ -317,6 +317,7 @@ def test_patch_proposal_planitem_draft_refreshes_approvals_contract() -> None:
       state.continuationPrompt = result.data?.continuation_prompt || state.continuationPrompt;
       await refreshPlanPool();
       await refreshApprovals();
+      render();
     }"""
     assert snippet in ATLAS_DASHBOARD_JS
 

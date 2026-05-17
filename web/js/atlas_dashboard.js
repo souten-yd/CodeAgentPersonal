@@ -751,8 +751,9 @@
       state.continuationPrompt = result.data?.continuation_prompt || state.continuationPrompt;
       await refreshPlanPool();
       await refreshApprovals();
+      render();
     } else showWarning(result.message || 'Patch proposal PlanItem draft failed');
-    renderPatchProposalPanel();
+    if (!result.ok) renderPatchProposalPanel();
   }
   function renderPatchProposalPanel() {
     const el = $('atlas-patch-proposal-list');
