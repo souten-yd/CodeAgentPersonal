@@ -70,5 +70,11 @@
 - restoreで元に戻せることを確認する。
 - content_missing の場合はPatch Proposalの実変更内容が不足している。
 
-- Current PR: PR-ATLAS-PIPE-36E
+- PR-ATLAS-PIPE-36F updates
+- Patch Proposal由来draft safe_applyのE2E assertionを厳密化した。
+- safe_apply前後で実ファイル内容が old → new へ変わることを検証する。
+- restoreが restored で、manual restoreにより new → old へ戻ることを検証する。
+- content_missing は applied として通過できないことを検証する。
+
+- Current PR: PR-ATLAS-PIPE-36F
 - Next PR: PR-ATLAS-PIPE-37

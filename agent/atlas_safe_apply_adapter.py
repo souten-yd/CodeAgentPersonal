@@ -157,6 +157,24 @@ class AtlasSafeApplyAdapter:
 
         result.executor_result = executor_result
         result.implementation_run_id = str(executor_result.get("implementation_run_id") or executor_result.get("run_id") or "")
+        executor_status = str(executor_result.get("status") or "").strip().lower()
+        if executor_status in {"blocked", "failed", "skipped", "simulated"}:
+            result.status = executor_status
+            result.applied = False
+            if executor_status in {"blocked", "failed"}:
+                reasons = executor_result.get("reasons")
+                if isinstance(reasons, list):
+                    for reason in reasons:
+                        self._add(result.reasons, str(reason))
+                reason = executor_result.get("reason")
+                if isinstance(reason, str) and reason:
+                    self._add(result.reasons, reason)
+                errors = executor_result.get("errors")
+                if isinstance(errors, list):
+                    for err in errors:
+                        if str(err):
+                            result.errors.append(str(err))
+            return result
         result.status = "applied"
         result.applied = True
         return result
