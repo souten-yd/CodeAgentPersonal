@@ -339,3 +339,15 @@ def test_verification_panel_shows_patch_proposal_draft_manual_only_copy() -> Non
     assert "DebugLoop is not started automatically." in ATLAS_DASHBOARD_JS
     for forbidden in ("Run all tests", "Auto verify", "Auto fix", "Debug automatically", "Continue autopilot", "Run arbitrary command"):
         assert forbidden not in HTML + ATLAS_DASHBOARD_JS
+
+
+def test_patch_proposal_panel_manual_contract() -> None:
+    assert 'id="atlas-patch-proposal-panel"' in HTML
+    assert 'Generate Patch Proposal' in (HTML + ATLAS_DASHBOARD_JS)
+    assert 'Patch Proposal Draft' in ATLAS_DASHBOARD_JS
+    assert 'Manual proposal only.' in ATLAS_DASHBOARD_JS
+    assert 'No patch is applied automatically.' in ATLAS_DASHBOARD_JS
+    assert 'No safe_apply or verification rerun is executed automatically.' in ATLAS_DASHBOARD_JS
+    assert 'Next: review and approve/reject the proposal manually.' in ATLAS_DASHBOARD_JS
+    for forbidden in ("Apply patch", "Auto apply", "Safe apply now", "Re-run verification", "Continue autopilot", "Run command", "Generate automatically"):
+        assert forbidden not in (HTML + ATLAS_DASHBOARD_JS)

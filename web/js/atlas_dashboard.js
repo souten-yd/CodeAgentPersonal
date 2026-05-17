@@ -707,6 +707,16 @@
     renderPatchProposalPanel();
   }
 
+  function patchProposalResultText(result) {
+    const proposal = result?.proposal || {};
+    const files = arr(proposal.target_files || []).join(', ');
+    const mdPath = result?.proposal_md_path || '';
+    if (result?.status === 'proposed') return `Patch Proposal generated. summary: ${proposal.summary || '-'} / risk: ${proposal.risk_level || '-'} / files: ${files || '-'} / md: ${mdPath || '-'} / Next: review and approve/reject the proposal manually.`;
+    if (result?.status === 'blocked') return `Patch Proposal blocked: ${(arr(result?.warnings)).join(',') || '-'}`;
+    if (result?.status === 'failed') return `Patch Proposal failed: ${(arr(result?.errors)).join(',') || '-'}`;
+    return '';
+  }
+
   async function decidePatchProposal(itemId, decision) {
     if (!itemId || !decision || state.patchProposalApprovalSubmitting || !state.currentPoolId || !root.AtlasPipelineAPI?.decidePatchProposal) return;
     const reason = document.querySelector(`textarea[data-patch-proposal-reason="${itemId}"]`)?.value || '';
@@ -738,9 +748,14 @@
       applyOrchestrationSummary(result.data?.orchestration_summary);
       state.continuationPrompt = result.data?.continuation_prompt || state.continuationPrompt;
       await refreshPlanPool();
+      const text = patchProposalResultText(result.data || {});
+      if (text) showSuccess(text);
     } else {
       showWarning(result.message || 'Patch proposal generation failed');
     }
+    const outcome = result.ok ? (result.data || {}) : {};
+    if (outcome.status === 'blocked') showWarning(patchProposalResultText(outcome));
+    else if (outcome.status === 'failed') showError(patchProposalResultText(outcome));
     renderPatchProposalPanel();
   }
 
@@ -773,6 +788,8 @@
     if (!rows.length) { el.innerHTML = '<div class="atlas-muted">No DebugReview analyzed items with proposed fix.</div>'; return; }
     el.innerHTML = rows.map((item) => {
       const existing = item?.metadata?.patch_proposal || {};
+      const review = item?.metadata?.debug_review || {};
+      const isPatchDraft = String(review.source || '').toLowerCase() === 'patch_proposal_planitem_draft' || String(item?.metadata?.source || '').toLowerCase() === 'patch_proposal';
       const result = state.patchProposalResults[item.item_id] || {};
       const proposal = result.proposal || {};
       const summary = proposal.summary || existing.summary || '';
@@ -795,7 +812,7 @@
       const statusNote = status === 'approved'
         ? '<br>Approved. No patch has been applied yet.<br>No patch is applied.<br>PlanItem approval is still required before safe_apply.'
         : (status === 'rejected' ? '<br>Rejected. No patch has been applied.' : '');
-      return `<div class="atlas-approval-item"><div><strong>${esc(item.item_id)}</strong> ${esc(item.title||'')}</div><div>Proposed fix: ${esc(item?.metadata?.debug_review?.proposed_fix||'')}<br>Proposal status: ${esc(status)}<br>Proposal summary: ${esc(summary)}<br>Target files: ${esc(targetFiles)}<br>Risk: ${esc(risk)}<br>Proposal MD: ${esc(mdPath)}<br>Approval reason: ${esc(reason)}${statusNote}</div><textarea data-patch-proposal-reason="${esc(item.item_id)}" placeholder="reason">${esc(reason)}</textarea>${generateBtn}${decisionActions}${draftAction}</div>`;
+      return `<div class="atlas-approval-item"><div><strong>${esc(item.item_id)}</strong> ${esc(item.title||'')} ${isPatchDraft ? '<span class="atlas-badge">Patch Proposal Draft</span>' : ''}</div><div>debug review status: ${esc(review.status || '-')}<br>source proposal id: ${esc(review.source_proposal_id || item?.metadata?.source_proposal_id || '-')}<br>Root cause: ${esc(review.root_cause_category||'')}<br>Proposed fix: ${esc(review.proposed_fix||'')}<br>Reusable lesson: ${esc(review.reusable_lesson||'')}<br>Target files: ${esc(targetFiles)}<br><small>Manual proposal only.</small><br><small>No patch is applied automatically.</small><br><small>No safe_apply or verification rerun is executed automatically.</small><br>Proposal status: ${esc(status)}<br>Proposal summary: ${esc(summary)}<br>Risk: ${esc(risk)}<br>Proposal MD: ${esc(mdPath)}<br>Approval reason: ${esc(reason)}${statusNote}${status==='proposed' ? '<br><small>Next: review and approve/reject the proposal manually.</small>' : ''}</div><textarea data-patch-proposal-reason="${esc(item.item_id)}" placeholder="reason">${esc(reason)}</textarea>${generateBtn}${decisionActions}${draftAction}</div>`;
     }).join('');
     el.querySelectorAll('button[data-patch-proposal-item]:not([data-patch-proposal-decision])').forEach((btn)=>btn.addEventListener('click',()=>generatePatchProposal(btn.getAttribute('data-patch-proposal-item')||'')));
     el.querySelectorAll('button[data-patch-proposal-decision]').forEach((btn)=>btn.addEventListener('click',()=>decidePatchProposal(btn.getAttribute('data-patch-proposal-item')||'', btn.getAttribute('data-patch-proposal-decision')||'')));
