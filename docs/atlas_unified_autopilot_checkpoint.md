@@ -43,3 +43,8 @@ Nexus Context Refreshを追加し、implementation/debug/evaluation時に必要�
 - No side effects: no safe_apply/verification/debug/patch/restore/rollback.
 - Next: PR-ATLAS-PIPE-44 LLM Evaluator uses context bundle + diff/tests.
 
+
+- PR-ATLAS-PIPE-43B hardens Context Refresh before LLM Evaluator: Nexus sources in bundle, changed_files metadata resolution, audit events, collector partial failure, and bundle API path-traversal safety.
+
+Current PR: PR-ATLAS-PIPE-43B
+Next PR: PR-ATLAS-PIPE-44
