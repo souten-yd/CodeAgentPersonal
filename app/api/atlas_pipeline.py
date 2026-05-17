@@ -47,6 +47,9 @@ from agent.atlas_auto_policy_presets import atlas_auto_policy_presets
 from agent.atlas_automation_gate_service import AtlasAutomationGateService
 from agent.atlas_auto_safe_apply_schema import AtlasAutoSafeApplyRequest, AtlasAutoSafeApplyResult
 from agent.atlas_auto_safe_apply_service import AtlasAutoSafeApplyService
+from agent.atlas_auto_verification_schema import AtlasAutoVerificationRequest, AtlasAutoVerificationResult
+from agent.atlas_auto_verification_service import AtlasAutoVerificationService
+from agent.atlas_verification_allowlist import atlas_verification_allowlist
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 
 
@@ -159,6 +162,22 @@ class AtlasAutomationDecisionResponse(BaseModel):
     plan_pool: dict = Field(default_factory=dict)
     orchestration_summary: dict = Field(default_factory=dict)
     continuation_prompt: str = ""
+
+
+class AtlasAutoSafeApplyAndVerifyRequest(BaseModel):
+    pool_id: str
+    item_id: str
+    preset_id: str = "guarded_low_risk"
+    workspace_id: str = "default"
+    run_id: str = ""
+    command_id: str = ""
+    metadata: dict = Field(default_factory=dict)
+
+
+class AtlasAutoSafeApplyAndVerifyResult(BaseModel):
+    auto_safe_apply_result: dict = Field(default_factory=dict)
+    auto_verification_result: dict = Field(default_factory=dict)
+    status: str = "failed"
 
 
 class ContinuationResponse(BaseModel):
@@ -983,3 +1002,46 @@ def atlas_automation_safe_apply_one(request_body: AtlasAutoSafeApplyRequest, req
     result.orchestration_summary = _model_dump(summary)
     result.continuation_prompt = continuation.continuation_prompt
     return result
+
+
+@router.get("/verification/allowlist")
+def atlas_verification_allowlist_route() -> dict:
+    commands = atlas_verification_allowlist()
+    return {"commands": [c.model_dump() for c in commands.values()]}
+
+
+@router.post("/automation/verify-one", response_model=AtlasAutoVerificationResult)
+def atlas_automation_verify_one(request_body: AtlasAutoVerificationRequest, request: Request) -> AtlasAutoVerificationResult:
+    _, storage, journal = _atlas_components(request, workspace_id=request_body.workspace_id)
+    _sync_pool_from_workspace_snapshot(storage, journal, request_body.pool_id)
+    runner = _resolve_atlas_test_command_runner(request)
+    service = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=runner)
+    result = service.run_after_auto_safe_apply(request_body)
+    try:
+        refreshed_pool = storage.load_pool(request_body.pool_id)
+        summary = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(refreshed_pool, None)
+        continuation = AtlasContinuationService(journal).build_pool_summary(request_body.pool_id, request_body.run_id)
+        result.plan_pool = _model_dump(refreshed_pool)
+        result.orchestration_summary = _model_dump(summary)
+        result.continuation_prompt = continuation.continuation_prompt
+    except Exception:
+        pass
+    return result
+
+
+@router.post("/automation/safe-apply-one-and-verify", response_model=AtlasAutoSafeApplyAndVerifyResult)
+def atlas_automation_safe_apply_one_and_verify(request_body: AtlasAutoSafeApplyAndVerifyRequest, request: Request) -> AtlasAutoSafeApplyAndVerifyResult:
+    safe = atlas_automation_safe_apply_one(AtlasAutoSafeApplyRequest(pool_id=request_body.pool_id, item_id=request_body.item_id, preset_id=request_body.preset_id, workspace_id=request_body.workspace_id, run_id=request_body.run_id, metadata=dict(request_body.metadata or {})), request)
+    verify = AtlasAutoVerificationResult(pool_id=request_body.pool_id, item_id=request_body.item_id, run_id=request_body.run_id, preset_id=request_body.preset_id, status="skipped", warnings=["safe_apply_not_applied"])
+    if safe.status == "applied":
+        verify = atlas_automation_verify_one(AtlasAutoVerificationRequest(pool_id=request_body.pool_id, item_id=request_body.item_id, preset_id=request_body.preset_id, workspace_id=request_body.workspace_id, run_id=request_body.run_id, command_id=request_body.command_id, metadata=dict(request_body.metadata or {})), request)
+    status = "failed"
+    if safe.status != "applied":
+        status = "safe_apply_blocked"
+    elif verify.status == "passed":
+        status = "applied_and_verified"
+    elif verify.status == "failed":
+        status = "applied_but_verification_failed"
+    elif verify.status == "blocked":
+        status = "verification_blocked"
+    return AtlasAutoSafeApplyAndVerifyResult(auto_safe_apply_result=safe.model_dump(), auto_verification_result=verify.model_dump(), status=status)

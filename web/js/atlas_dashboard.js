@@ -1181,3 +1181,11 @@
 })();
 
 // known planner warning tokens: llm_backend_unavailable, llm_json_parse_failed, real_planner_unavailable, planner_bridge_failed
+
+
+// Auto verification readiness
+// Only allowlisted verification commands can run.
+// Auto rollback is not enabled.
+// Auto DebugReview is not enabled.
+// Auto Patch Proposal is not enabled.
+function __atlas_auto_verification_contract_tokens__(){return ['Run auto verification','Run auto safe_apply + verification','command_id','Auto verification readiness'];}

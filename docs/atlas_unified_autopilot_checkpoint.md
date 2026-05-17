@@ -71,3 +71,11 @@ Next PR:
 - Auto safe_apply requires project_path, approval, safe target_files, executor-readable patch content, and Change Snapshot.
 - Snapshot is created before auto safe_apply executor is called.
 - PR-38 does not add auto verification, auto DebugReview, auto Patch Proposal, auto rollback, batch execution, or Task/Agent APIs.
+
+
+- PR-38 adds gated auto safe_apply for exactly one guarded_low_risk approved item.
+- PR-39 adds allowlisted auto verification after gated auto safe_apply.
+- Verification commands are allowlisted only.
+- Arbitrary command input is forbidden.
+- Auto verification failure stops the loop and does not auto restore, debug, or patch.
+- PR-39 does not add auto rollback, auto DebugReview, auto Patch Proposal, batch execution, or Task/Agent APIs.

@@ -284,3 +284,16 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 - Next PR: PR-ATLAS-PIPE-37
 
 - PR-36C unifies safe_apply executor, snapshot, and restore workspace root.
+
+
+- PR-38: one-item auto safe_apply
+- PR-39: auto verification
+- PR-40: failure stop + manual restore suggestion
+- PR-41: read-only Dev Tooling Pack
+- PR-42: symbol index / related test finder
+- PR-43: Nexus Context Refresh
+- PR-44: LLM Evaluator
+- PR-45: multi-item guarded autopilot
+- PR-46: bounded retry loop
+- PR-47: supervised patch regeneration
+- PR-48: large project impact analysis
