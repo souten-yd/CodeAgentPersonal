@@ -6,11 +6,11 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 ## Completed PRs
 
-- PR-ATLAS-PIPE-0〜23B: completed
+- PR-ATLAS-PIPE-0〜24: completed
 
 ## Current PR
 
-- PR-ATLAS-PIPE-24
+- PR-ATLAS-PIPE-24B
 
 ## Next PR
 
@@ -33,7 +33,9 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - Patch proposal is advisory only and saved as JSON/MD.
 - Patch proposal does not apply patches, does not run safe_apply, and does not rerun verification.
 - Patch proposal may use llm_json_fn when available, otherwise fallback proposal is generated.
-- PR-ATLAS-PIPE-24 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
+- PR-ATLAS-PIPE-24B hardens LLM patch proposal normalization so untrusted fields cannot mark proposals as applied/accepted.
+- PR-ATLAS-PIPE-24B normalizes risk_level, filters unsafe target_files, and truncates large diff previews.
+- PR-ATLAS-PIPE-24B does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
 
 ## Next Instruction
 

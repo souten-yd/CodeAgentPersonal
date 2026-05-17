@@ -13,6 +13,10 @@ from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 
 class AtlasPatchProposalService:
     ALLOWED_SOURCE_TYPES = {"debug_review"}
+    LLM_ALLOWED_FIELDS = {"title", "summary", "root_cause", "proposed_fix", "target_files", "suggested_changes", "unified_diff_preview", "risk_level", "verification_plan", "rollback_plan", "assumptions"}
+    LLM_UNTRUSTED_FIELDS = {"status", "pool_id", "item_id", "run_id", "proposal_id", "metadata", "warnings", "errors", "proposal_json_path", "proposal_md_path", "created_at"}
+    ALLOWED_RISK_LEVELS = {"low", "medium", "high", "critical"}
+    MAX_DIFF_PREVIEW_CHARS = 12000
 
     def __init__(self, *, journal: AtlasJournal, storage: AtlasPlanPoolStorage, llm_json_fn: Callable[[str, str], dict | None] | None = None):
         self.journal = journal
@@ -102,24 +106,76 @@ class AtlasPatchProposalService:
         user_prompt = json.dumps(input_payload, ensure_ascii=False)
         try:
             output = self.llm_json_fn(system_prompt, user_prompt) or {}
+            if not isinstance(output, dict):
+                raise ValueError("llm_output_not_dict")
             debug = input_payload.get("debug_review") or {}
             item = input_payload.get("item") or {}
+            warnings: list[str] = []
+
+            ignored_untrusted = bool(self.LLM_UNTRUSTED_FIELDS.intersection(output.keys()))
+            if ignored_untrusted:
+                warnings.append("llm_untrusted_fields_ignored")
+
+            llm_allowed = {k: output[k] for k in self.LLM_ALLOWED_FIELDS if k in output}
+
+            raw_risk = str(llm_allowed.get("risk_level") or item.get("risk_level") or "medium").strip().lower()
+            risk_level = raw_risk if raw_risk in self.ALLOWED_RISK_LEVELS else "medium"
+            if raw_risk != risk_level:
+                warnings.append("llm_risk_level_normalized")
+
+            target_files = self._normalize_target_files(llm_allowed.get("target_files"), list(item.get("target_files") or []), warnings)
+
+            diff_preview = str(llm_allowed.get("unified_diff_preview") or "")
+            if len(diff_preview) > self.MAX_DIFF_PREVIEW_CHARS:
+                diff_preview = diff_preview[: self.MAX_DIFF_PREVIEW_CHARS]
+                warnings.append("diff_preview_truncated")
+
             normalized = AtlasPatchProposal.model_validate({
-                "proposal_id": str(output.get("proposal_id") or f"proposal_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}") ,
+                "proposal_id": f"proposal_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
                 "pool_id": str(input_payload.get("pool_id") or ""),
                 "item_id": str(input_payload.get("item_id") or ""),
                 "run_id": str(input_payload.get("run_id") or ""),
-                "summary": str(output.get("summary") or debug.get("proposed_fix") or ""),
-                "proposed_fix": str(output.get("proposed_fix") or debug.get("proposed_fix") or ""),
-                "root_cause": str(output.get("root_cause") or debug.get("root_cause_category") or ""),
-                "target_files": list(output.get("target_files") or item.get("target_files") or []),
-                **{k: v for k, v in output.items() if k in AtlasPatchProposal.model_fields},
+                "status": "proposed",
+                "title": str(llm_allowed.get("title") or f"Patch proposal for {item.get('title') or input_payload.get('item_id') or ''}"),
+                "summary": str(llm_allowed.get("summary") or debug.get("proposed_fix") or ""),
+                "proposed_fix": str(llm_allowed.get("proposed_fix") or debug.get("proposed_fix") or ""),
+                "root_cause": str(llm_allowed.get("root_cause") or debug.get("root_cause_category") or ""),
+                "target_files": target_files,
+                "suggested_changes": list(llm_allowed.get("suggested_changes") or []),
+                "unified_diff_preview": diff_preview,
+                "risk_level": risk_level,
+                "verification_plan": list(llm_allowed.get("verification_plan") or []),
+                "rollback_plan": list(llm_allowed.get("rollback_plan") or []),
+                "assumptions": list(llm_allowed.get("assumptions") or []),
+                "warnings": warnings,
             })
             return normalized
         except Exception:
             fallback = self.generate_fallback_proposal(input_payload)
             fallback.warnings.append("llm_invalid_json_fallback_proposal")
             return fallback
+
+    def _normalize_target_files(self, raw_target_files: object, fallback_target_files: list[str], warnings: list[str]) -> list[str]:
+        if not isinstance(raw_target_files, list):
+            return list(fallback_target_files)
+        safe_files: list[str] = []
+        ignored = False
+        for path in raw_target_files:
+            if not isinstance(path, str):
+                ignored = True
+                continue
+            candidate = path.strip()
+            if not candidate:
+                ignored = True
+                continue
+            path_obj = Path(candidate)
+            if path_obj.is_absolute() or ".." in path_obj.parts:
+                ignored = True
+                continue
+            safe_files.append(candidate)
+        if ignored:
+            warnings.append("unsafe_target_files_ignored")
+        return safe_files or list(fallback_target_files)
 
     def generate_fallback_proposal(self, input_payload: dict) -> AtlasPatchProposal:
         debug = input_payload.get("debug_review") or {}
