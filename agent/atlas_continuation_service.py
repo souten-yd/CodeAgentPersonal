@@ -89,7 +89,8 @@ Current Gate:
 - patch_proposal_approval_decision: {summary.metadata.get("patch_proposal_approval_decision", "")}
 - patch_proposal_approval_reason: {summary.metadata.get("patch_proposal_approval_reason", "")}
 - patch_proposal_approval_md_path: {summary.metadata.get("patch_proposal_approval_md_path", "")}
-- patch_proposal_approval_note: approval only, no patch/safe_apply/reverification was run
+- patch_proposal_approval_manual_only: {str(bool(summary.metadata.get("patch_proposal_approval_manual_only", False))).lower()}
+- patch_proposal_approval_note: Approval was recorded only. No PlanItem draft, patch, safe_apply, or verification rerun was performed.
 - patch_proposal_planitem_draft_status: {summary.metadata.get("patch_proposal_planitem_draft_status", "")}
 - patch_proposal_planitem_draft_item_id: {summary.metadata.get("patch_proposal_planitem_draft_item_id", "")}
 - patch_proposal_planitem_draft_md_path: {summary.metadata.get("patch_proposal_planitem_draft_md_path", "")}
@@ -299,9 +300,15 @@ Current Gate:
                 "patch_proposal_approval_decision": decision,
                 "patch_proposal_approval_reason": str(patch_proposal_approval.get("reason") or ""),
                 "patch_proposal_approval_md_path": str(patch_proposal_approval.get("approval_md_path") or ""),
+                "patch_proposal_approval_manual_only": bool(patch_proposal_approval.get("manual_only", False)),
+                "patch_proposal_approval_note": "Approval was recorded only. No PlanItem draft, patch, safe_apply, or verification rerun was performed.",
             })
             if decision == "approved":
                 summary.next_action = "Create manual safe_apply PlanItem Draft."
+            elif decision == "rejected":
+                summary.next_action = "Review rejected Patch Proposal and decide whether to revise manually."
+            elif decision == "needs_revision":
+                summary.next_action = "Generate revised Patch Proposal manually."
         verification = self._latest_verification(pool)
         if verification:
             status = str(verification.get("status") or "")
