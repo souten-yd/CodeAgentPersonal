@@ -245,11 +245,14 @@ Current Gate:
             })
         patch_proposal_approval = self._latest_patch_proposal_approval(pool)
         if patch_proposal_approval:
+            decision = str(patch_proposal_approval.get("decision") or "")
             summary.metadata.update({
-                "patch_proposal_approval_decision": str(patch_proposal_approval.get("decision") or ""),
+                "patch_proposal_approval_decision": decision,
                 "patch_proposal_approval_reason": str(patch_proposal_approval.get("reason") or ""),
                 "patch_proposal_approval_md_path": str(patch_proposal_approval.get("approval_md_path") or ""),
             })
+            if decision == "approved":
+                summary.next_action = "Convert approved Patch Proposal to manual safe_apply PlanItem draft."
         summary.metadata["checkpoint_excerpt"] = self.read_checkpoint_excerpt(summary.pool_id, max_chars=4000)
         summary.continuation_prompt = self.build_prompt(summary)
         return summary

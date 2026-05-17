@@ -6,15 +6,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 ## Completed PRs
 
-- PR-ATLAS-PIPE-0〜24: completed
+- PR-ATLAS-PIPE-0〜25: completed
 
 ## Current PR
 
-- PR-ATLAS-PIPE-24B
+- PR-ATLAS-PIPE-25B
 
 ## Next PR
 
-- PR-ATLAS-PIPE-25: Patch proposal approval gate / no apply
+- PR-ATLAS-PIPE-26: Convert approved patch proposal to manual safe_apply PlanItem / no auto execute
 
 ## Important Constraints
 
@@ -33,17 +33,19 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - Patch proposal is advisory only and saved as JSON/MD.
 - Patch proposal does not apply patches, does not run safe_apply, and does not rerun verification.
 - Patch proposal may use llm_json_fn when available, otherwise fallback proposal is generated.
-- PR-ATLAS-PIPE-24B hardens LLM patch proposal normalization so untrusted fields cannot mark proposals as applied/accepted.
-- PR-ATLAS-PIPE-24B normalizes risk_level, filters unsafe target_files, and truncates large diff previews.
-- PR-ATLAS-PIPE-24B does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
+- PR-ATLAS-PIPE-25B hardens LLM patch proposal normalization so untrusted fields cannot mark proposals as applied/accepted.
+- PR-ATLAS-PIPE-25B normalizes risk_level, filters unsafe target_files, and truncates large diff previews.
+- PR-ATLAS-PIPE-25B does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-25を実装する。
-Patch Proposalをユーザーがapprove/reject/needs_revisionできるapproval gateを追加する。ただしpatch適用・safe_apply実行・verification再実行はまだ行わない。
+PR-ATLAS-PIPE-26を実装する。
+approved Patch Proposalを、手動safe_apply可能なPlanItem draftへ変換する。ただし自動safe_apply・自動verification・自動debug loopは実行しない。
 
 - PR-ATLAS-PIPE-25 adds patch proposal approval gate.
 - Patch Proposal can be approved/rejected/needs_revision by the user.
 - Approval records are saved as JSON/MD and reflected in PlanItem metadata.
 - Patch proposal approval does not apply patches, does not run safe_apply, and does not rerun verification.
 - PR-ATLAS-PIPE-25 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
+- PR-ATLAS-PIPE-25B locks approved/rejected patch proposals to avoid approval/proposal metadata mismatch.
+- PR-ATLAS-PIPE-25B keeps patch/safe_apply/verification execution disabled.

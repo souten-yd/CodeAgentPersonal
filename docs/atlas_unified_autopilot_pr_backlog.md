@@ -1,3 +1,8 @@
+Status snapshot:
+- PR-25 completed
+- PR-25B current
+- PR-26 next
+
 - PR-21: completed
 - PR-21B: completed
 - PR-21C: Current

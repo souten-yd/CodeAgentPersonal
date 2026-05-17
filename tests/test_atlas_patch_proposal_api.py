@@ -143,3 +143,16 @@ def test_patch_proposal_truncates_large_diff_preview(tmp_path):
     body = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'r10'}).json()
     assert len(body['proposal']['unified_diff_preview']) <= 12000
     assert 'diff_preview_truncated' in body['proposal']['warnings']
+
+
+def test_patch_proposal_needs_revision_regeneration_policy(tmp_path):
+    c = _client(tmp_path); pool = _create_pool(c); item = pool['plan_pool']['items'][0]
+    _set_debug_review(c, pool['pool_id'], item['item_id'])
+    first = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'nr1'}).json()
+    c.post('/api/atlas/patch-proposals/decide', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'proposal_id': first['proposal']['proposal_id'], 'run_id': 'nr2', 'decision': 'needs_revision'})
+    second = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'nr3'}).json()
+    assert second['status'] == 'proposed'
+    assert second['proposal']['proposal_id'] != first['proposal']['proposal_id']
+    after = c.get(f"/api/atlas/plan-pools/{pool['pool_id']}").json()['plan_pool']
+    meta = next(i for i in after['items'] if i['item_id'] == item['item_id'])['metadata']
+    assert int(meta['patch_proposal_revision_count']) >= 2

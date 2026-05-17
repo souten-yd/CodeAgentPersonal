@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from uuid import uuid4
 from pathlib import Path
 from typing import Callable
 
@@ -64,7 +65,11 @@ class AtlasPatchProposalService:
         if request.source_type not in self.ALLOWED_SOURCE_TYPES:
             warnings.append("source_type_not_allowed")
         patch_status = str(((item.metadata or {}).get("patch_proposal") or {}).get("status") or "").lower()
-        if patch_status in {"accepted", "applied"}:
+        if patch_status == "approved":
+            warnings.append("patch_proposal_already_approved")
+        elif patch_status == "rejected":
+            warnings.append("patch_proposal_already_rejected")
+        elif patch_status in {"accepted", "applied"}:
             warnings.append("patch_proposal_blocked")
         return len(warnings) == 0, warnings
 
@@ -131,7 +136,7 @@ class AtlasPatchProposalService:
                 warnings.append("diff_preview_truncated")
 
             normalized = AtlasPatchProposal.model_validate({
-                "proposal_id": f"proposal_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+                "proposal_id": f"proposal_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid4().hex[:8]}",
                 "pool_id": str(input_payload.get("pool_id") or ""),
                 "item_id": str(input_payload.get("item_id") or ""),
                 "run_id": str(input_payload.get("run_id") or ""),
@@ -181,7 +186,7 @@ class AtlasPatchProposalService:
         debug = input_payload.get("debug_review") or {}
         item = input_payload.get("item") or {}
         return AtlasPatchProposal(
-            proposal_id=f"proposal_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+            proposal_id=f"proposal_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid4().hex[:8]}",
             pool_id=str(input_payload.get("pool_id") or ""),
             item_id=str(input_payload.get("item_id") or ""),
             run_id=str(input_payload.get("run_id") or ""),
@@ -213,6 +218,16 @@ class AtlasPatchProposalService:
     def mark_item_from_patch_proposal(self, pool: AtlasPlanPool, item: AtlasPlanItem, result: AtlasPatchProposalResult) -> None:
         proposal = result.proposal or AtlasPatchProposal(proposal_id="", pool_id=pool.pool_id, item_id=item.item_id)
         item.metadata.setdefault("patch_proposal", {})
+        previous = dict(item.metadata.get("patch_proposal") or {})
+        revision_count = int(previous.get("revision_count", 0) or 0) + 1
+        item.metadata["patch_proposal_previous"] = {
+            "proposal_id": previous.get("proposal_id", ""),
+            "status": previous.get("status", ""),
+            "summary": previous.get("summary", ""),
+            "risk_level": previous.get("risk_level", ""),
+            "proposed_at": previous.get("proposed_at", ""),
+        } if previous else item.metadata.get("patch_proposal_previous")
+        item.metadata["patch_proposal_revision_count"] = revision_count
         item.metadata["patch_proposal"].update({
             "status": result.status,
             "proposal_id": proposal.proposal_id,
@@ -222,6 +237,7 @@ class AtlasPatchProposalService:
             "risk_level": proposal.risk_level,
             "target_files": list(proposal.target_files),
             "proposed_at": datetime.now(timezone.utc).isoformat(),
+            "revision_count": revision_count,
         })
 
     def _append_event(self, pool_id: str, run_id: str, event_type: str, item: AtlasPlanItem | None, status: str, warnings: list[str] | None = None, errors: list[str] | None = None) -> None:
