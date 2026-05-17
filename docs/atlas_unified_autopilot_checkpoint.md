@@ -1,74 +1,39 @@
 # Atlas Unified Autopilot Continuation Checkpoint
 
-## Current Goal
-
-Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合する。
-
 ## Completed PRs
 
-- PR-ATLAS-PIPE-0〜39B: completed
+- PR-ATLAS-PIPE-0〜41: completed
+- PR-SEARXNG-SECRET-SYNC-01: completed
 
 ## Current PR
 
-- PR-ATLAS-PIPE-39C
+- PR-ATLAS-PIPE-41B
 
 ## Next PR
 
-- PR-ATLAS-PIPE-40: Verification failure stop policy and manual restore suggestion / no auto rollback
+- PR-ATLAS-PIPE-42: Dev Tooling Pack 2 - symbol index, dependency graph, related tests
+
 
 ## Important Constraints
 
-- 自動safe_applyはしない。
-- 自動verificationはしない。
-- 自動DebugReviewはしない。
-- 自動Patch Proposalはしない。
-- 自動rollbackはしない。
-- restoreは手動のみ。
-- delete/run_commandは禁止維持。
+- 任意コマンド実行は禁止。
 - shell=Trueは禁止。
+- auto rollbackは現時点では行わない。
 - /api/task/* /api/agent/* は追加しない。
 
 ## Known Current Code Facts
 
 - PR-ATLAS-PIPE-34 adds final real-device smoke/checklist and reload recovery checks.
 - PR-ATLAS-PIPE-35 adds Change Snapshot backup before manual safe_apply.
-- PR-ATLAS-PIPE-36A adds concrete manual safe_apply executor proof for low-risk file updates.
-- PR-ATLAS-PIPE-36B adds manual restore from Change Snapshot without auto rollback.
-- PR-ATLAS-PIPE-36C unifies safe_apply executor, snapshot, and restore workspace root.
-- PR-ATLAS-PIPE-36D finalizes checkpoint/docs and strengthens create/restore E2E coverage.
-- PR-ATLAS-PIPE-36E wires Patch Proposal change content into PlanItem Draft safe_apply.
-- PR-ATLAS-PIPE-36F hardens Patch Proposal draft safe_apply E2E assertions.
-- PR-ATLAS-PIPE-36G fixes project_path persistence/storage sync for Patch Proposal draft safe_apply E2E.
-- PR-ATLAS-PIPE-37 adds Auto Policy Presets and Automation Gate.
-- PR-ATLAS-PIPE-38 adds gated auto safe_apply for exactly one guarded_low_risk approved item.
-- PR-39 adds allowlisted auto verification after gated auto safe_apply.
-- PR-39B requires project_path before auto verification and adds initial auto verification E2E coverage.
-- PR-39C strictly asserts auto verification pass/fail E2E.
-- safe-apply-one-and-verify success requires applied_and_verified.
-- verification failure requires applied_but_verification_failed and does not auto restore/debug/patch/rollback.
-- Arbitrary command input remains forbidden.
-- shell=True remains forbidden.
-- PR-39C does not add batch execution, auto rollback, auto DebugReview, auto Patch Proposal, or Task/Agent APIs.
+- PR-40 adds verification failure stop policy and manual restore suggestion.
+- PR-41 adds scalable read-only local repo inspection tools.
+- PR-SEARXNG-SECRET-SYNC-01 fixes Windows SearXNG settings.yml server.secret_key sync.
+- PR-41B creates scale autopilot design docs and reconciles checkpoint.
+- Local repo mode works without GitHub authentication.
+- GitHub authentication is optional and needed only for remote operations.
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-40を実装する。
-auto verification失敗時に停止し、Change Snapshotからmanual restore候補を提示する。ただしauto rollbackはまだ行わない。
-
-
-Next PR:
-- PR-ATLAS-PIPE-42: Dev Tooling Pack 2 - symbol index, dependency graph, related tests: Dev Tooling Pack 1 - git status/diff, project tree, file outline / read-only tools
-
-Known Current Code Facts:
-- PR-40 adds verification failure stop policy and manual restore suggestion.
-- Verification failure produces a restore candidate but does not auto restore.
-- Auto rollback remains disabled.
-- PR-40 does not add auto DebugReview, auto Patch Proposal, batch execution, or Task/Agent APIs.
-
-Next Instruction:
-PR-ATLAS-PIPE-41を実装する。
-Dev Tooling Pack 1として、読み取り専用のgit status/git diff/project tree/file outline toolsを追加する。ただし任意コマンド実行は追加しない。
-
-
-Completed PRs:
-- PR-ATLAS-PIPE-0〜40: completed
+PR-ATLAS-PIPE-42を実装する。
+Dev Tooling Pack 2として、symbol index、dependency graph、related tests finderを追加する。
+ただし任意コマンド実行、remote git操作、auto rollback、Task/Agent APIは追加しない。

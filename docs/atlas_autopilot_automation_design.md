@@ -1,0 +1,33 @@
+# Atlas Autopilot Automation Design (PR-ATLAS-PIPE-41B)
+
+## Current Automation Loop
+
+- Automation Gate
+- one-item auto safe_apply
+- Change Snapshot
+- auto verification allowlist
+- verification failure stop
+- manual restore suggestion
+
+## Current States
+
+- planned
+- auto_safe_apply_allowed
+- auto_safe_apply_applied
+- auto_verification_passed
+- auto_verification_failed
+- automation_stopped
+
+## Future Loop
+
+- multi-item guarded autopilot
+- bounded retry
+- Nexus Context Refresh
+- LLM Evaluator
+- supervised patch regeneration
+
+## Failure Handling
+
+- 現在は auto rollback しない
+- manual restore suggestion のみ
+- 将来 auto rollback は別 policy で導入
