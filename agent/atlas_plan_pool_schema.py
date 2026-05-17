@@ -45,6 +45,8 @@ AtlasPlanPoolStatus = Literal[
     "approved",
     "running",
     "paused",
+    "waiting",
+    "dependency_waiting",
     "completed",
     "completed_with_warnings",
     "failed",
@@ -126,15 +128,30 @@ class AtlasPlanPool(BaseModel):
     def item_ids(self) -> list[str]:
         return [item.item_id for item in self.items]
 
+    def _dependency_aliases(self, item: AtlasPlanItem, index: int) -> set[str]:
+        aliases = {item.item_id, f"step_{index}", f"item_{index}"}
+        step_id = str(getattr(item, "metadata", {}).get("step_id") or "").strip()
+        if step_id:
+            aliases.add(step_id)
+        item_step_id = str(getattr(item, "metadata", {}).get("item_step_id") or "").strip()
+        if item_step_id:
+            aliases.add(item_step_id)
+        return {a for a in aliases if a}
+
     def get_ready_items(self) -> list[AtlasPlanItem]:
         completed = set(self.completed_item_ids)
+        completed_aliases: set[str] = set(completed)
+        for idx, item in enumerate(self.items, start=1):
+            if item.item_id in completed or item.status in {"completed", "skipped"}:
+                completed_aliases.update(self._dependency_aliases(item, idx))
+
         unavailable = completed | set(self.failed_item_ids) | set(self.blocked_item_ids) | set(self.skipped_item_ids)
         return [
             item
             for item in self.items
             if item.status == "ready"
             and item.item_id not in unavailable
-            and all(dependency_id in completed for dependency_id in item.depends_on)
+            and all(dependency_id in completed_aliases for dependency_id in item.depends_on)
         ]
 
     def get_item(self, item_id: str) -> AtlasPlanItem | None:

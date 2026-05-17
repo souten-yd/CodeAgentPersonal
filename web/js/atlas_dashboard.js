@@ -204,7 +204,7 @@
     if ($('atlas-planpool-id')) $('atlas-planpool-id').textContent = state.currentPoolId || 'No pool';
     if ($('atlas-pipeline-run-id')) $('atlas-pipeline-run-id').textContent = state.currentRunId || 'No run';
     if ($('atlas-progress-fill')) $('atlas-progress-fill').style.width = `${fill}%`;
-    if ($('atlas-progress-text')) $('atlas-progress-text').textContent = `${completed} / ${total} completed`;
+    if ($('atlas-progress-text')) $('atlas-progress-text').textContent = formatPipelineProgressText(pool, pipeline, completed, total);
     if ($('atlas-failed-count')) $('atlas-failed-count').textContent = String(failed);
     if ($('atlas-blocked-count')) $('atlas-blocked-count').textContent = String(blocked);
     if ($('atlas-current-item-id')) $('atlas-current-item-id').textContent = pipeline?.current_item_id || pool?.current_item_id || '-';
@@ -213,6 +213,17 @@
     renderPipelineStatusBadge(status || (state.recoveryWarning ? 'stale' : 'idle'));
   }
 
+
+  function formatPipelineProgressText(pool, pipeline, completed, total) {
+    const status = pipeline?.status || pool?.status || '';
+    const meta = pipeline?.metadata || {};
+    const queued = Number(meta.queued_count || 0);
+    const incomplete = status === 'paused' || status === 'waiting' || status === 'dependency_waiting' || (meta.no_ready_items_remaining && completed < total);
+    if (incomplete && total > 0 && completed < total) {
+      return `Pipeline paused: ${completed}/${total} completed, ${queued || Math.max(total - completed, 0)} queued. No ready item remains. This is not a patch stage yet.`;
+    }
+    return `${completed} / ${total} completed`;
+  }
   function deriveNextAction(pool, pipeline) {
     if (state.orchestrationSummary?.next_action) return state.orchestrationSummary.next_action;
     const recoveryNext = state.recoverySummary?.next_action;
@@ -220,8 +231,9 @@
     if (recoveryNext) return recoveryNext;
     const status = pipeline?.status || '';
     if (status === 'completed') return 'Review final report or start next plan.';
-    if (status === 'failed') return 'Inspect failed items in Details and prepare a follow-up plan.';
-    if (status === 'paused' || status === 'approval_required') return 'Review approval-required items before continuing.';
+    if (status === 'failed') return 'Inspect failed items in Details and prepare a follow-up plan. Open Details / Advanced Panel → Debug Review.';
+    if (status === 'approval_required') return 'Open Details / Advanced Panel → Approval Gate.';
+    if (status === 'paused' || status === 'waiting' || status === 'dependency_waiting') return 'No ready item remains. Check dependencies or approve required items. Open Details / Advanced Panel.';
     if (status === 'blocked') return 'Review blocked items and policy/approval reasons.';
     if (state.currentPoolId && !state.currentRunId) return 'Start Dry-run to validate the PlanPool.';
     if (!pool) return 'Create a PlanPool to begin.';
