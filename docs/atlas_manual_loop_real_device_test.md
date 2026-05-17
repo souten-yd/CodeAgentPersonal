@@ -52,3 +52,13 @@
 - Next PR: PR-ATLAS-PIPE-37
 
 - PR-36C unifies safe_apply executor, snapshot, and restore workspace root.
+
+
+## PR-ATLAS-PIPE-36D updates
+- manual safe_applyで実ファイルが変更されることを確認する。
+- actual_file_changed / changed_files / workspace_root を確認する。
+- restoreでupdate変更を元に戻せることを確認する。
+- create変更は`confirm_delete_missing_before=false`では削除せずskipする。
+- `confirm_delete_missing_before=true`で作成ファイルを削除できる。
+- auto rollbackはまだない。
+- restoreは手動操作のみ。
