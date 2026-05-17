@@ -12,7 +12,8 @@
 - PR-22B: completed
 - PR-23: completed
 - PR-23B: completed
-- PR-24: current
+- PR-24: completed
+- PR-24B: current
 - PR-25: next
 
 ## PR-ATLAS-PIPE-0: 計画書とチャット継続用docs追加

@@ -48,10 +48,10 @@ def test_patch_proposal_generates_from_debug_review_with_fallback(tmp_path):
 
 def test_patch_proposal_uses_injected_llm_json_fn(tmp_path):
     c = _client(tmp_path)
-    c.app.state.atlas_llm_json_fn = lambda s, u: {'proposal_id': 'fake1', 'summary': 'from llm', 'proposed_fix': 'llm fix', 'target_files': ['a.py'], 'risk_level': 'low'}
+    c.app.state.atlas_llm_json_fn = lambda s, u: {'summary': 'from llm', 'proposed_fix': 'llm fix', 'target_files': ['a.py'], 'risk_level': 'low'}
     pool = _create_pool(c); item = pool['plan_pool']['items'][0]; _set_debug_review(c, pool['pool_id'], item['item_id'])
     body = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'r3'}).json()
-    assert body['status'] == 'proposed' and body['proposal']['proposal_id'] == 'fake1' and body['proposal']['summary'] == 'from llm'
+    assert body['status'] == 'proposed' and body['proposal']['summary'] == 'from llm' and body['proposal']['risk_level'] == 'low'
 
 
 def test_patch_proposal_record_saved_and_event(tmp_path):
@@ -95,3 +95,51 @@ def test_patch_proposal_request_has_no_patch_command_apply_fields():
     fields = set(AtlasPatchProposalRequest.model_fields.keys())
     for forbidden in ('patch', 'command', 'apply', 'shell', 'execute'):
         assert forbidden not in fields
+
+
+def test_patch_proposal_ignores_llm_status_applied(tmp_path):
+    c = _client(tmp_path)
+    c.app.state.atlas_llm_json_fn = lambda s, u: {
+        'status': 'applied',
+        'proposal_id': 'malicious',
+        'pool_id': 'other',
+        'item_id': 'other_item',
+        'run_id': 'other_run',
+        'summary': 'from llm',
+        'proposed_fix': 'safe proposal',
+    }
+    pool = _create_pool(c); item = pool['plan_pool']['items'][0]; _set_debug_review(c, pool['pool_id'], item['item_id'])
+    body = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'r7'}).json()
+    assert body['status'] == 'proposed'
+    assert body['proposal']['status'] == 'proposed'
+    assert body['proposal']['pool_id'] == pool['pool_id']
+    assert body['proposal']['item_id'] == item['item_id']
+    assert body['proposal']['run_id'] == 'r7'
+    assert 'llm_untrusted_fields_ignored' in body['proposal']['warnings']
+
+
+def test_patch_proposal_normalizes_invalid_risk_level(tmp_path):
+    c = _client(tmp_path)
+    c.app.state.atlas_llm_json_fn = lambda s, u: {'risk_level': 'please_apply_now', 'proposed_fix': 'x'}
+    pool = _create_pool(c); item = pool['plan_pool']['items'][0]; _set_debug_review(c, pool['pool_id'], item['item_id'])
+    body = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'r8'}).json()
+    assert body['proposal']['risk_level'] == 'medium'
+    assert 'llm_risk_level_normalized' in body['proposal']['warnings']
+
+
+def test_patch_proposal_filters_unsafe_target_files(tmp_path):
+    c = _client(tmp_path)
+    c.app.state.atlas_llm_json_fn = lambda s, u: {'target_files': ['../secret', '/etc/passwd', 'safe.py'], 'proposed_fix': 'x'}
+    pool = _create_pool(c); item = pool['plan_pool']['items'][0]; _set_debug_review(c, pool['pool_id'], item['item_id'])
+    body = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'r9'}).json()
+    assert body['proposal']['target_files'] == ['safe.py']
+    assert 'unsafe_target_files_ignored' in body['proposal']['warnings']
+
+
+def test_patch_proposal_truncates_large_diff_preview(tmp_path):
+    c = _client(tmp_path)
+    c.app.state.atlas_llm_json_fn = lambda s, u: {'unified_diff_preview': 'x' * 20000, 'proposed_fix': 'x'}
+    pool = _create_pool(c); item = pool['plan_pool']['items'][0]; _set_debug_review(c, pool['pool_id'], item['item_id'])
+    body = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'r10'}).json()
+    assert len(body['proposal']['unified_diff_preview']) <= 12000
+    assert 'diff_preview_truncated' in body['proposal']['warnings']
