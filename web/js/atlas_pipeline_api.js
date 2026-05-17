@@ -119,6 +119,25 @@
     getFailureSuggestion(payload) {
       return atlasFetch('/api/atlas/automation/failure-suggestion', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+
+    devToolGitStatus(payload) {
+      return atlasFetch('/api/atlas/dev-tools/git-status', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    devToolGitDiff(payload) {
+      return atlasFetch('/api/atlas/dev-tools/git-diff', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    devToolGitLsFiles(payload) {
+      return atlasFetch('/api/atlas/dev-tools/git-ls-files', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    devToolProjectTree(payload) {
+      return atlasFetch('/api/atlas/dev-tools/project-tree', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    devToolListFiles(payload) {
+      return atlasFetch('/api/atlas/dev-tools/list-files', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    devToolFileOutline(payload) {
+      return atlasFetch('/api/atlas/dev-tools/file-outline', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     submitClarificationAnswers(payload) {
       return atlasFetch("/api/atlas/clarifications/answer", { method: "POST", body: JSON.stringify(payload || {}) });
     },

@@ -57,7 +57,7 @@ auto verification失敗時に停止し、Change Snapshotからmanual restore候�
 
 
 Next PR:
-- PR-ATLAS-PIPE-41: Dev Tooling Pack 1 - git status/diff, project tree, file outline / read-only tools
+- PR-ATLAS-PIPE-42: Dev Tooling Pack 2 - symbol index, dependency graph, related tests: Dev Tooling Pack 1 - git status/diff, project tree, file outline / read-only tools
 
 Known Current Code Facts:
 - PR-40 adds verification failure stop policy and manual restore suggestion.
@@ -68,3 +68,7 @@ Known Current Code Facts:
 Next Instruction:
 PR-ATLAS-PIPE-41を実装する。
 Dev Tooling Pack 1として、読み取り専用のgit status/git diff/project tree/file outline toolsを追加する。ただし任意コマンド実行は追加しない。
+
+
+Completed PRs:
+- PR-ATLAS-PIPE-0〜40: completed
