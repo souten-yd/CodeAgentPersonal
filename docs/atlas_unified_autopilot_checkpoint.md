@@ -49,3 +49,8 @@ approved Patch Proposalを、手動safe_apply可能なPlanItem draftへ変換す
 - PR-ATLAS-PIPE-25 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
 - PR-ATLAS-PIPE-25B locks approved/rejected patch proposals to avoid approval/proposal metadata mismatch.
 - PR-ATLAS-PIPE-25B keeps patch/safe_apply/verification execution disabled.
+
+- PR-ATLAS-PIPE-26 converts approved Patch Proposal into approval_required PlanItem draft.
+- Conversion does not apply patches, does not run safe_apply, and does not run verification.
+- Draft PlanItem still requires normal PlanItem approval before manual safe_apply.
+- PR-ATLAS-PIPE-26 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.

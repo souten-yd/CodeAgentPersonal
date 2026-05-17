@@ -722,3 +722,9 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 - PR-24B completed
 - PR-25 current
 - PR-26 next
+
+- PR-25B completed
+
+- PR-26 current
+
+- PR-27 next
