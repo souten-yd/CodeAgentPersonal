@@ -105,8 +105,30 @@ class AtlasPatchProposalPlanItemDraftService:
             "action_type": "update",
             "expected_changes": list(patch.get("suggested_changes") or []),
         }
-        if patch.get("unified_diff_preview"):
-            metadata["unified_diff_preview"] = str(patch.get("unified_diff_preview") or "")
+        proposed_content = ""
+        patch_metadata = patch.get("metadata") if isinstance(patch.get("metadata"), dict) else {}
+        if patch.get("proposed_content"):
+            proposed_content = str(patch.get("proposed_content") or "")
+        elif patch_metadata.get("proposed_content"):
+            proposed_content = str(patch_metadata.get("proposed_content") or "")
+
+        diff_preview = str(patch.get("unified_diff_preview") or "") if patch.get("unified_diff_preview") else ""
+        if diff_preview:
+            metadata["unified_diff_preview"] = diff_preview
+            metadata["patch"] = diff_preview
+        if proposed_content:
+            metadata["proposed_content"] = proposed_content
+
+        patch_proposal_metadata = {
+            "proposal_id": str(patch.get("proposal_id") or ""),
+            "target_files": list(patch.get("target_files") or []),
+            "risk_level": str(patch.get("risk_level") or ""),
+        }
+        if proposed_content:
+            patch_proposal_metadata["proposed_content"] = proposed_content
+        if diff_preview:
+            patch_proposal_metadata["unified_diff_preview"] = diff_preview
+        metadata["patch_proposal"] = patch_proposal_metadata
         return AtlasPlanItem(
             item_id=draft_item_id,
             pool_id=pool.pool_id,
