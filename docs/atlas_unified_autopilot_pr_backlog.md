@@ -1,34 +1,10 @@
-Status snapshot:
-- PR-28 completed
-- PR-29 current
-- PR-30 next
-
-- PR-27 completed
-- PR-28 current
-- PR-29 next
-
-Status snapshot:
-- PR-25 completed
-- PR-25B current
-- PR-26 next
-
-- PR-21: completed
-- PR-21B: completed
-- PR-21C: Current
-- PR-22: Next
-
 # Atlas Unified Autopilot PR Backlog
 
-## Sequencing Status (Updated in PR-ATLAS-PIPE-23B)
+## Sequencing Status (Updated in PR-ATLAS-PIPE-29B)
 
-- PR-21D: completed
-- PR-22: completed
-- PR-22B: completed
-- PR-23: completed
-- PR-23B: completed
-- PR-24: completed
-- PR-24B: current
-- PR-25: next
+- PR-ATLAS-PIPE-29: completed
+- PR-ATLAS-PIPE-29B: current
+- PR-ATLAS-PIPE-30: next
 
 ## PR-ATLAS-PIPE-0: 計画書とチャット継続用docs追加
 
