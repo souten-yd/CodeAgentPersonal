@@ -307,3 +307,22 @@ def test_patch_proposal_approval_ui_contract() -> None:
     assert "Rejected. No patch has been applied." in ATLAS_DASHBOARD_JS
     for forbidden in ("Apply patch", "Auto apply", "Safe apply now", "Re-run verification", "Continue autopilot", "Run command"):
         assert forbidden not in (HTML + ATLAS_DASHBOARD_JS)
+
+
+def test_patch_proposal_planitem_draft_refreshes_approvals_contract() -> None:
+    snippet = """if (result.ok) {
+      state.patchProposalDraftResults[itemId] = result.data || {};
+      state.planPool = result.data?.plan_pool || state.planPool;
+      applyOrchestrationSummary(result.data?.orchestration_summary);
+      state.continuationPrompt = result.data?.continuation_prompt || state.continuationPrompt;
+      await refreshPlanPool();
+      await refreshApprovals();
+    }"""
+    assert snippet in ATLAS_DASHBOARD_JS
+
+
+def test_patch_proposal_planitem_draft_ui_text_contract() -> None:
+    assert "Create manual safe_apply PlanItem Draft" in (HTML + ATLAS_DASHBOARD_JS)
+    assert "PlanItem approval is still required" in (HTML + ATLAS_DASHBOARD_JS)
+    for forbidden in ("Apply patch", "Auto apply", "Safe apply now", "Re-run verification", "Continue autopilot", "Run command"):
+        assert forbidden not in (HTML + ATLAS_DASHBOARD_JS)

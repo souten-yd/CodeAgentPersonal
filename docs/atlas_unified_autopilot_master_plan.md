@@ -260,3 +260,6 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 - draftはapproval_required
 - 実適用は既存manual approval + manual safe_apply gateに委ねる
 - 自動実行はまだ禁止
+- approved Patch Proposal → PlanItem draft → Approval Gate → manual safe_apply candidate までをPR-26Bで固定
+- 実行は引き続き手動
+- 次はapproved draft PlanItemのmanual safe_apply UX/E2E
