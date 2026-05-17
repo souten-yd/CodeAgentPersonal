@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agent.atlas_change_snapshot_service import AtlasChangeSnapshotService
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
@@ -17,6 +18,7 @@ class AtlasSafeApplyExecutionService:
         self.journal = journal
         self.storage = storage
         self.safe_apply_adapter = safe_apply_adapter
+        self.change_snapshot_service = AtlasChangeSnapshotService(journal=journal, storage=storage)
 
     def execute_item(self, request: AtlasSafeApplyExecutionRequest) -> AtlasSafeApplyExecutionResult:
         pool = self.storage.load_pool(request.pool_id)
@@ -29,6 +31,22 @@ class AtlasSafeApplyExecutionService:
         if not ok:
             self._append_event(pool.pool_id, request.run_id, 'safe_apply_manual_blocked', item, status='blocked', warnings=warnings)
             return AtlasSafeApplyExecutionResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status='blocked', warnings=warnings, plan_pool=pool.model_dump(), safe_apply_result={'decision': 'block', 'status': 'blocked', 'reasons': warnings})
+
+
+        snapshot_result = self.change_snapshot_service.create_snapshot(pool.pool_id, item.item_id, run_id=request.run_id, workspace_id=request.workspace_id)
+        snapshot_meta = {}
+        if snapshot_result.snapshot is not None:
+            snapshot_meta = {
+                'snapshot_id': snapshot_result.snapshot.snapshot_id,
+                'manifest_path': snapshot_result.snapshot.manifest_path,
+                'snapshot_dir': snapshot_result.snapshot.snapshot_dir,
+                'file_count': len(snapshot_result.snapshot.target_files),
+                'skipped_count': len([f for f in snapshot_result.snapshot.target_files if f.skipped]),
+                'warnings': list(snapshot_result.warnings or []),
+            }
+        if snapshot_result.status in {'blocked', 'failed'}:
+            self._append_event(pool.pool_id, request.run_id, 'safe_apply_manual_blocked', item, status='blocked', warnings=list(snapshot_result.warnings or ['change_snapshot_failed']))
+            return AtlasSafeApplyExecutionResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status='blocked', warnings=list(snapshot_result.warnings or ['change_snapshot_failed']), plan_pool=pool.model_dump(), safe_apply_result={'decision': 'block', 'status': 'blocked', 'reasons': list(snapshot_result.warnings or ['change_snapshot_failed']), 'change_snapshot': snapshot_meta}, metadata={'change_snapshot': snapshot_meta})
 
         apply_result = self.safe_apply_adapter.apply_low_risk_item(item, pool, request=AtlasSafeApplyRequest(pool_id=pool.pool_id, item_id=item.item_id, dry_run=request.dry_run, require_approval=False, allow_simulation_without_executor=True, metadata=dict(request.metadata or {})))
         result_payload = apply_result.model_dump() if hasattr(apply_result, 'model_dump') else dict(apply_result)
@@ -45,8 +63,8 @@ class AtlasSafeApplyExecutionService:
         else:
             status = 'failed'
         reasons = list(result_payload.get('reasons') or [])
-        execution_record = {'request': request.model_dump(), 'result': result_payload, 'pool': pool.model_dump(), 'status': status}
-        json_path, md_path = self.save_execution_record(pool.pool_id, item.item_id, request=request, item=item, status=status, result=result_payload, warnings=reasons)
+        execution_record = {'request': request.model_dump(), 'result': result_payload, 'pool': pool.model_dump(), 'status': status, 'change_snapshot': snapshot_meta}
+        json_path, md_path = self.save_execution_record(pool.pool_id, item.item_id, request=request, item=item, status=status, result=result_payload, warnings=reasons, change_snapshot=snapshot_meta)
         if status == 'applied':
             event_type = 'safe_apply_manual_completed'
         elif status == 'simulated':
@@ -56,7 +74,11 @@ class AtlasSafeApplyExecutionService:
         else:
             event_type = 'safe_apply_manual_failed'
         self._append_event(pool.pool_id, request.run_id, event_type, item, status=status, warnings=reasons, execution_record_json=json_path, execution_record_md=md_path)
-        return AtlasSafeApplyExecutionResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status=status, safe_apply_result={**result_payload, 'decision': 'allow' if status == 'applied' else 'block', 'status': status, 'reasons': reasons}, plan_pool=pool.model_dump(), warnings=reasons, metadata={'execution_record_json': json_path, 'execution_record_md': md_path})
+        item.metadata.setdefault('safe_apply', {})
+        item.metadata['safe_apply'].update({'change_snapshot_id': snapshot_meta.get('snapshot_id', ''), 'change_snapshot_manifest_path': snapshot_meta.get('manifest_path', '')})
+        self.storage.save_pool(pool)
+        self.journal.save_plan_pool(pool)
+        return AtlasSafeApplyExecutionResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status=status, safe_apply_result={**result_payload, 'decision': 'allow' if status == 'applied' else 'block', 'status': status, 'reasons': reasons, 'change_snapshot': snapshot_meta}, plan_pool=pool.model_dump(), warnings=reasons, metadata={'execution_record_json': json_path, 'execution_record_md': md_path, 'change_snapshot': snapshot_meta})
 
     def validate_item_for_safe_apply(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasSafeApplyExecutionRequest | None = None):
         warnings: list[str] = []
@@ -109,13 +131,13 @@ class AtlasSafeApplyExecutionService:
             })
         item.metadata['safe_apply'].update(safe_apply_meta)
 
-    def save_execution_record(self, pool_id, item_id, *, request: AtlasSafeApplyExecutionRequest, item: AtlasPlanItem, status: str, result: dict, warnings: list[str]):
+    def save_execution_record(self, pool_id, item_id, *, request: AtlasSafeApplyExecutionRequest, item: AtlasPlanItem, status: str, result: dict, warnings: list[str], change_snapshot: dict | None = None):
         ts = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
         out_dir = Path(self.journal.paths(pool_id=pool_id).plan_pool_json).parent / 'safe_apply'
         out_dir.mkdir(parents=True, exist_ok=True)
         json_path = out_dir / f'{item_id}_{ts}.json'
         md_path = out_dir / f'{item_id}_{ts}.md'
-        payload = {'request': request.model_dump(), 'result': result, 'status': status, 'warnings': warnings, 'item_id': item_id, 'pool_id': pool_id}
+        payload = {'request': request.model_dump(), 'result': result, 'status': status, 'warnings': warnings, 'item_id': item_id, 'pool_id': pool_id, 'change_snapshot': dict(change_snapshot or {})}
         json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
         md_path.write_text(
             f"""# Atlas Safe Apply Execution
@@ -131,6 +153,8 @@ class AtlasSafeApplyExecutionService:
 - Target files: {', '.join(item.target_files or [])}
 - Safe apply result summary: {result.get('summary','')}
 - Warnings: {', '.join(warnings)}
+- Change Snapshot ID: {(change_snapshot or {}).get('snapshot_id','')}
+- Change Snapshot manifest: {(change_snapshot or {}).get('manifest_path','')}
 - Errors: {', '.join(result.get('errors') or [])}
 """,
             encoding='utf-8',

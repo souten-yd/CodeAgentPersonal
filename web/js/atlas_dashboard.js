@@ -913,9 +913,10 @@
       const sourceProposalId = String(item?.metadata?.source_proposal_id || '');
       const targetFiles = arr(item?.target_files).join(', ');
       const result = state.safeApplyResults[item.item_id] || item?.metadata?.safe_apply || null;
+      const snapshot = result?.change_snapshot || result?.metadata?.change_snapshot || item?.metadata?.change_snapshot || null;
       const resultStatus = result ? String(result.status || '') : '';
       const resultClass = resultStatus === 'applied' ? 'atlas-ok' : (resultStatus === 'blocked' ? 'atlas-warn' : 'atlas-muted');
-      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')} <span class="atlas-badge">Approved candidate</span>${isPatchDraft ? ' <span class="atlas-badge">Patch Proposal Draft</span>' : ''}<div class="atlas-clarification-actions">${applied ? '<small>Already applied</small>' : safeApplyHtml}<small>Item-level manual apply only. Tests and autopilot continuation are not run.</small><small>Manual safe_apply only. Verification and DebugLoop are not run automatically.</small>${isPatchDraft ? `<small>source proposal id: ${esc(sourceProposalId || '-')}</small><small>target files: ${esc(targetFiles || '-')}</small><small>Verification is not run automatically.</small>` : ''}${resultStatus ? `<small class="${resultClass}">safe_apply result: ${esc(resultStatus)}</small>` : ''}${resultStatus === 'applied' ? '<small>Next: run manual verification from Post-Apply Verification panel.</small>' : ''}</div></div>`;
+      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')} <span class="atlas-badge">Approved candidate</span>${isPatchDraft ? ' <span class="atlas-badge">Patch Proposal Draft</span>' : ''}<div class="atlas-clarification-actions">${applied ? '<small>Already applied</small>' : safeApplyHtml}<small>Item-level manual apply only. Tests and autopilot continuation are not run.</small><small>Manual safe_apply only. Verification and DebugLoop are not run automatically.</small>${isPatchDraft ? `<small>source proposal id: ${esc(sourceProposalId || '-')}</small><small>target files: ${esc(targetFiles || '-')}</small><small>Verification is not run automatically.</small>` : ''}${resultStatus ? `<small class="${resultClass}">safe_apply result: ${esc(resultStatus)}</small>` : ''}${resultStatus === 'applied' ? '<small>Next: run manual verification from Post-Apply Verification panel.</small>' : ''}${snapshot?.manifest_path ? `<small>Change Snapshot manifest: ${esc(snapshot.manifest_path)}</small>` : ''}</div></div>`;
     }).join('');
     if (!pendingHtml && !candidateHtml) { listEl.innerHTML = 'No approval-required items.'; return; }
     listEl.innerHTML = `<h4>Pending approval items</h4>${pendingHtml || '<small>None</small>'}<h4>Manual safe apply candidates</h4>${candidateHtml || '<small>None</small>'}`;
@@ -953,6 +954,8 @@
     state.continuationPrompt = response.continuation_prompt || state.continuationPrompt;
     await refreshApprovals();
     if (response.status === 'applied') showSuccess('Manual safe apply completed for item: '+itemId+'. Next: run manual verification from Post-Apply Verification panel.');
+    const snap = response?.metadata?.change_snapshot || response?.safe_apply_result?.change_snapshot || null;
+    if (snap) showSuccess('Change Snapshot saved / snapshot id: '+(snap.snapshot_id||'-')+' / manifest: '+(snap.manifest_path||'-')+' / file count: '+String(snap.file_count||0)+' / skipped: '+String(snap.skipped_count||0)+' / Rollback is not automatic yet. / Use this snapshot for manual restore if needed.');
     else if (response.status === 'simulated') showWarning('Simulated only. No files were applied. item: '+itemId);
     else if (response.status === 'blocked') showWarning('Manual safe apply blocked for item: '+itemId+' ('+(response.warnings||[]).join(',')+')');
     else showError('Manual safe apply failed for item: '+itemId+' ('+(response.warnings||[]).join(',')+')');

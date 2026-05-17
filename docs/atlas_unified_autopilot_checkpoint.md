@@ -41,3 +41,12 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 ## Next Instruction
 
 PR-ATLAS-PIPE-35を実装する。safe_apply前に対象ファイルのChange Snapshot backupを保存する仕組みを追加する。ただしこのPRでは自動rollbackは行わない。
+
+- Current PR: PR-ATLAS-PIPE-35
+- Next PR: PR-ATLAS-PIPE-36: Manual restore from Change Snapshot / no auto rollback
+- Known Current Code Facts:
+  - PR-ATLAS-PIPE-35 adds Change Snapshot backup before manual safe_apply.
+  - Change Snapshot is saved before safe_apply executor is called.
+  - Snapshot failure blocks safe_apply.
+  - PR-ATLAS-PIPE-35 does not perform restore/rollback automatically.
+  - PR-ATLAS-PIPE-35 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.

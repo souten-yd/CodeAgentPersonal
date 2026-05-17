@@ -34,3 +34,7 @@
 
 ## 6. 次PR
 - PR-ATLAS-PIPE-35: Change Snapshot backup before safe_apply。
+
+- PR-ATLAS-PIPE-35以降、manual safe_apply前にChange Snapshot backupを保存する。
+- PR-ATLAS-PIPE-35ではrollback/restoreはまだ手動実装なし。
+- safe_apply実行時はsnapshot manifest pathを確認する。
