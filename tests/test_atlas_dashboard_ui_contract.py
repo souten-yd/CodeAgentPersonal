@@ -386,3 +386,10 @@ def test_forbidden_ui_tokens_absent_contract() -> None:
     merged = HTML + ATLAS_DASHBOARD_JS
     for forbidden in ('Auto apply', 'Auto verify', 'Auto debug', 'Continue autopilot', 'Run command', 'Apply all'):
         assert forbidden not in merged
+
+def test_change_snapshot_ui_contract_strings_and_forbidden_controls() -> None:
+    assert "Change Snapshot saved" in ATLAS_DASHBOARD_JS
+    assert "Rollback is not automatic yet." in ATLAS_DASHBOARD_JS
+    assert "Use this snapshot for manual restore if needed." in ATLAS_DASHBOARD_JS
+    for forbidden in ("Restore now", "Auto rollback", "Rollback automatically", "Apply all", "Auto apply", "Auto verify", "Auto debug", "Run command"):
+        assert forbidden not in HTML + ATLAS_DASHBOARD_JS
