@@ -54,6 +54,8 @@
     patchProposalApprovalSubmitting: false,
     patchProposalDraftResults: {},
     patchProposalDraftSubmitting: false,
+    autoPolicyPresets: [],
+    automationDecision: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -211,6 +213,10 @@
     if ($('atlas-next-action')) $('atlas-next-action').textContent = deriveNextAction(pool, pipeline);
     updateActionButtons();
     renderPipelineStatusBadge(status || (state.recoveryWarning ? 'stale' : 'idle'));
+
+    if ($('atlas-auto-readiness-decision')) $('atlas-auto-readiness-decision').textContent = state.automationDecision?.decision?.decision || '-';
+    if ($('atlas-auto-readiness-reasons')) $('atlas-auto-readiness-reasons').textContent = 'reasons: ' + (arr(state.automationDecision?.decision?.reasons).join(', ') || '-');
+    if ($('atlas-auto-readiness-warnings')) $('atlas-auto-readiness-warnings').textContent = 'warnings: ' + (arr(state.automationDecision?.decision?.warnings).join(', ') || '-');
   }
 
 
@@ -1073,6 +1079,17 @@
     if (typeof state.lastAction === 'function') state.lastAction();
   }
 
+
+  async function checkAutomationReadiness() {
+    const item = getItems().find((x) => String(x?.item_id || '') === String(state.planPool?.current_item_id || '')) || getItems()[0];
+    if (!item || !state.currentPoolId || !root.AtlasPipelineAPI?.decideAutomation) return;
+    const presetId = $('atlas-auto-preset')?.value || 'manual_only';
+    const response = await handleResult(await root.AtlasPipelineAPI.decideAutomation({ pool_id: state.currentPoolId, item_id: item.item_id, preset_id: presetId, phase: 'pre_safe_apply', workspace_id: workspaceId() }), 'Automation readiness failed');
+    if (!response) return;
+    state.automationDecision = response;
+    render();
+  }
+
   function bind() {
     const goal = $('atlas-goal-input');
     const compat = $('atlas-requirement-input');
@@ -1089,6 +1106,8 @@
     if (copyContinuationBtn) copyContinuationBtn.addEventListener('click', copyContinuationPrompt);
     const copyIdsBtn = $('atlas-continuation-copy-ids-btn');
     if (copyIdsBtn) copyIdsBtn.addEventListener('click', copyAtlasIds);
+    const autoBtn = $('atlas-check-automation-readiness-btn');
+    if (autoBtn) autoBtn.addEventListener('click', checkAutomationReadiness);
     if (details) {
       details.addEventListener('toggle', () => {
         state.advancedOpen = details.open;

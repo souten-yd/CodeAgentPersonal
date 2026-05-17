@@ -97,6 +97,12 @@
     createPatchProposalPlanItemDraft(payload) {
       return atlasFetch('/api/atlas/patch-proposals/planitem-draft', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+    getAutoPolicyPresets() {
+      return atlasFetch('/api/atlas/auto-policy/presets');
+    },
+    decideAutomation(payload) {
+      return atlasFetch('/api/atlas/automation/decide', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     submitClarificationAnswers(payload) {
       return atlasFetch("/api/atlas/clarifications/answer", { method: "POST", body: JSON.stringify(payload || {}) });
     },

@@ -42,6 +42,9 @@ from agent.atlas_patch_proposal_planitem_service import AtlasPatchProposalPlanIt
 from agent.atlas_change_snapshot_restore_schema import AtlasChangeSnapshotRestoreRequest, AtlasChangeSnapshotRestoreResult
 from agent.atlas_change_snapshot_restore_service import AtlasChangeSnapshotRestoreService
 from agent.atlas_workspace_root import resolve_atlas_workspace_root
+from agent.atlas_auto_policy_schema import AtlasAutomationDecision
+from agent.atlas_auto_policy_presets import atlas_auto_policy_presets
+from agent.atlas_automation_gate_service import AtlasAutomationGateService
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 
 
@@ -139,6 +142,21 @@ class AtlasApprovalDecisionResponse(BaseModel):
     continuation_prompt: str = ""
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+
+
+class AtlasAutomationDecisionRequest(BaseModel):
+    pool_id: str
+    item_id: str
+    preset_id: str = "manual_only"
+    phase: str = "pre_safe_apply"
+    workspace_id: str = "default"
+
+
+class AtlasAutomationDecisionResponse(BaseModel):
+    decision: AtlasAutomationDecision
+    plan_pool: dict = Field(default_factory=dict)
+    orchestration_summary: dict = Field(default_factory=dict)
+    continuation_prompt: str = ""
 
 
 class ContinuationResponse(BaseModel):
@@ -902,3 +920,32 @@ def execute_safe_apply(req: AtlasSafeApplyExecutionRequest, request: Request) ->
     result.orchestration_summary = _model_dump(orchestration)
     result.continuation_prompt = continuation.continuation_prompt
     return result
+
+
+@router.get("/auto-policy/presets")
+def atlas_auto_policy_presets_route() -> dict:
+    presets = atlas_auto_policy_presets()
+    return {"presets": [preset.model_dump() for preset in presets.values()]}
+
+
+@router.post("/automation/decide", response_model=AtlasAutomationDecisionResponse)
+def atlas_automation_decide(request_body: AtlasAutomationDecisionRequest, request: Request) -> AtlasAutomationDecisionResponse:
+    _, storage, journal = _atlas_components(request, workspace_id=request_body.workspace_id)
+    pool = storage.load_pool(request_body.pool_id)
+    item = pool.get_item(request_body.item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="item_not_found")
+    presets = atlas_auto_policy_presets()
+    preset = presets.get(request_body.preset_id)
+    if preset is None:
+        raise HTTPException(status_code=404, detail="preset_not_found")
+    gate = AtlasAutomationGateService()
+    decision = gate.decide_pre_safe_apply(pool, item, preset)
+    summary = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None)
+    continuation = AtlasContinuationService(journal).build_pool_summary(request_body.pool_id, run_id="")
+    return AtlasAutomationDecisionResponse(
+        decision=decision,
+        plan_pool=_model_dump(pool),
+        orchestration_summary=_model_dump(summary),
+        continuation_prompt=continuation.continuation_prompt,
+    )

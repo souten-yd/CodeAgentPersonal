@@ -6,15 +6,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 ## Completed PRs
 
-- PR-ATLAS-PIPE-0〜36F: completed
+- PR-ATLAS-PIPE-0〜36G: completed
 
 ## Current PR
 
-- PR-ATLAS-PIPE-36G
+- PR-ATLAS-PIPE-37
 
 ## Next PR
 
-- PR-ATLAS-PIPE-37: Manual Action Center for real-device implementation loop / no auto execution
+- PR-ATLAS-PIPE-38: Gated auto safe_apply for one low-risk approved item / snapshot required
 
 ## Important Constraints
 
@@ -56,4 +56,14 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-37を実装する。Manual Action Centerを追加し、現在状態から次に押すべき手動アクションをトップ画面に表示する。ただし自動実行は行わない。
+PR-ATLAS-PIPE-38を実装する。guarded_low_riskでallowになった1件だけ、snapshot必須でauto safe_applyできるAPI/runnerを追加する。ただしauto verification、auto DebugReview、auto Patch Proposal、auto rollbackはまだ行わない。
+
+
+Next PR:
+- PR-ATLAS-PIPE-38: Gated auto safe_apply for one low-risk approved item / snapshot required
+
+- PR-36G proves Patch Proposal draft safe_apply changes repo file old → new and manual restore returns new → old.
+- PR-37 adds Auto Policy Presets and Automation Gate.
+- PR-37 only decides automation readiness and does not execute safe_apply automatically.
+- guarded_low_risk preset can allow auto safe_apply only for approved low-risk create/update items with safe target_files, project_path, snapshot requirement, and executor-readable patch content.
+- PR-37 does not add auto verification, auto DebugReview, auto Patch Proposal, auto rollback, or Task/Agent APIs.
