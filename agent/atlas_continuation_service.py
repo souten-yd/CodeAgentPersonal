@@ -96,6 +96,10 @@ Current Gate:
 - patch_proposal_planitem_draft_md_path: {summary.metadata.get("patch_proposal_planitem_draft_md_path", "")}
 - patch_proposal_planitem_draft_manual_only: {str(bool(summary.metadata.get("patch_proposal_planitem_draft_manual_only", False))).lower()}
 - patch_proposal_planitem_draft_note: Draft was created only. PlanItem approval, safe_apply, and verification were not run automatically.
+- planitem_approval_decision: {summary.metadata.get("planitem_approval_decision", "")}
+- planitem_approval_item_id: {summary.metadata.get("planitem_approval_item_id", "")}
+- planitem_approval_source: {summary.metadata.get("planitem_approval_source", "")}
+- planitem_approval_note: {summary.metadata.get("planitem_approval_note", "")}
 - verification_status: {summary.metadata.get("verification_status", "")}
 - verification_source: {summary.metadata.get("verification_source", "")}
 - verification_source_proposal_id: {summary.metadata.get("verification_source_proposal_id", "")}
@@ -316,6 +320,21 @@ Current Gate:
                 summary.next_action = "Review rejected Patch Proposal and decide whether to revise manually."
             elif decision == "needs_revision":
                 summary.next_action = "Generate revised Patch Proposal manually."
+        planitem_approval = self._latest_planitem_approval(pool)
+        if planitem_approval and str(planitem_approval.get("source") or "") == "patch_proposal_planitem_draft":
+            decision = str(planitem_approval.get("decision") or "")
+            summary.metadata.update({
+                "planitem_approval_decision": decision,
+                "planitem_approval_item_id": str(planitem_approval.get("item_id") or ""),
+                "planitem_approval_source": "patch_proposal_planitem_draft",
+                "planitem_approval_note": "PlanItem approval was recorded only. safe_apply, verification, and DebugReview were not run automatically.",
+            })
+            if decision == "approved":
+                summary.next_action = "Run manual safe_apply from Manual safe apply candidates."
+            elif decision == "rejected":
+                summary.next_action = "Review rejected draft PlanItem manually."
+            elif decision == "needs_revision":
+                summary.next_action = "Revise Patch Proposal or recreate PlanItem draft manually."
         verification = self._latest_verification(pool)
         if verification:
             status = str(verification.get("status") or "")
@@ -413,4 +432,18 @@ Current Gate:
             verified_at = str(verification.get("verified_at") or "")
             if not latest or verified_at >= str(latest.get("verified_at") or ""):
                 latest = dict(verification)
+        return latest
+
+    def _latest_planitem_approval(self, pool) -> dict[str, Any]:
+        latest: dict[str, Any] = {}
+        if pool is None:
+            return latest
+        for item in pool.items:
+            approval = dict((item.metadata or {}).get("approval") or {})
+            if not approval:
+                continue
+            decided_at = str(approval.get("decided_at") or "")
+            candidate = {**approval, "item_id": item.item_id}
+            if not latest or decided_at >= str(latest.get("decided_at") or ""):
+                latest = candidate
         return latest

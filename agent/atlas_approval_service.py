@@ -108,12 +108,25 @@ class AtlasApprovalService:
             item.status = "needs_revision"
 
         item.metadata.setdefault("approval", {})
+        existing = dict(item.metadata.get("approval") or {})
+        raw_source = str(existing.get("source") or (item.metadata or {}).get("source") or "")
+        source = "patch_proposal_planitem_draft" if raw_source == "patch_proposal" else raw_source
+        source_item_id = str(existing.get("source_item_id") or (item.metadata or {}).get("source_item_id") or "")
+        source_proposal_id = str(existing.get("source_proposal_id") or (item.metadata or {}).get("source_proposal_id") or "")
         item.metadata["approval"] = {
+            **existing,
             "decision": decision,
             "reason": reason,
             "approver": approver,
             "approval_id": record.approval_id,
             "decided_at": record.decided_at,
+            "source": source,
+            "source_item_id": source_item_id,
+            "source_proposal_id": source_proposal_id,
+            "manual_only": True,
+            "auto_safe_apply": False,
+            "auto_verification": False,
+            "auto_debug_review": False,
         }
         payload = record.model_dump()
         payload["run_id"] = run_id
