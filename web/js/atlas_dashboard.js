@@ -667,12 +667,19 @@
     state.debugReviewSubmitting = false;
     if (result.ok) {
       state.debugReviewResults[itemId] = result.data || {};
+      if (result.data?.plan_pool) state.planPool = result.data.plan_pool;
       applyOrchestrationSummary(result.data?.orchestration_summary);
       state.continuationPrompt = result.data?.continuation_prompt || state.continuationPrompt;
       await refreshPlanPool();
+      refreshPatchProposalCandidates();
+      const reviewed = state.debugReviewResults[itemId] || {};
+      if (reviewed.status === 'analyzed') showSuccess(`Debug review analyzed: ${itemId}. Next: generate a Patch Proposal manually from Patch Proposal panel.`);
+      else if (reviewed.status === 'blocked') showWarning(`Debug review blocked: ${itemId} (${(reviewed.warnings||[]).join(',')})`);
+      else if (reviewed.status === 'failed') showError(`Debug review failed: ${itemId} (${(reviewed.errors||[]).join(',')})`);
     } else {
       showWarning(result.message || 'Debug review failed');
     }
+    render();
     renderDebugReviewPanel();
   }
 
@@ -684,7 +691,11 @@
     el.innerHTML = rows.map((item) => {
       const review = item?.metadata?.debug_review || state.debugReviewResults[item.item_id] || {};
       const status = review.status || state.debugReviewResults[item.item_id]?.status || '';
-      return `<div class="atlas-approval-item"><div><strong>${esc(item.item_id)}</strong> ${esc(item.title||'')}</div><div>Status: ${esc(status)} / Root cause: ${esc(review.root_cause_category||'')}<br>Proposed fix: ${esc(review.proposed_fix||'')}</div><button class="atlas-secondary-btn" data-debug-review-item="${esc(item.item_id)}" ${state.debugReviewSubmitting?'disabled':''}>Run Debug Review</button></div>`;
+      const verificationStatus = String(item?.metadata?.verification?.status || '').toLowerCase();
+      const isPatchDraft = String(item?.metadata?.source || '').toLowerCase() === 'patch_proposal';
+      const sourceProposalId = String(item?.metadata?.source_proposal_id || item?.metadata?.verification?.source_proposal_id || '');
+      const targetFiles = arr(item?.target_files).join(', ');
+      return `<div class="atlas-approval-item"><div><strong>${esc(item.item_id)}</strong> ${esc(item.title||'')}</div><div>Status: ${esc(status || verificationStatus || '-')}${isPatchDraft ? ' <span class="atlas-badge">Patch Proposal Draft</span>' : ''}<br>verification status: ${esc(verificationStatus || '-')}<br>source proposal id: ${esc(sourceProposalId || '-')}<br>target files: ${esc(targetFiles || '-')}<br>Root cause: ${esc(review.root_cause_category||'')}<br>Proposed fix: ${esc(review.proposed_fix||'')}<br>Reusable lesson: ${esc(review.reusable_lesson || state.debugReviewResults[item.item_id]?.debug_attempt?.reusable_lesson || '')}<br><small>Manual analysis only.</small><br><small>No patch proposal is generated automatically.</small><br><small>No safe_apply or verification rerun is executed automatically.</small><br><small>Next after failed verification: use Run Debug Review, then generate a Patch Proposal manually from Patch Proposal panel.</small></div><button class="atlas-secondary-btn" data-debug-review-item="${esc(item.item_id)}" ${state.debugReviewSubmitting?'disabled':''}>Run Debug Review</button></div>`;
     }).join('');
     el.querySelectorAll('button[data-debug-review-item]').forEach((btn)=>btn.addEventListener('click',()=>runDebugReview(btn.getAttribute('data-debug-review-item')||'')));
   }

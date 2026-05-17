@@ -1,10 +1,10 @@
 # Atlas Unified Autopilot Master Plan
 
-## Current Delivery Status (PR-ATLAS-PIPE-28)
+## Current Delivery Status (PR-ATLAS-PIPE-29)
 
-- approved Patch Proposal → PlanItem draft → Approval Gate → manual safe_apply → manual verification までをPR-28で固定。
-- DebugReviewは引き続き手動。
-- 次はfailed verification → manual DebugReview UX/E2E。
+- approved Patch Proposal → PlanItem draft → Approval Gate → manual safe_apply → manual verification → manual DebugReview までをPR-29で固定。
+- Patch Proposal生成は引き続き手動。
+- 次はDebugReview analyzed → manual Patch Proposal UX/E2E。
 
 
 
