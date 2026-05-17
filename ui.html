@@ -216,6 +216,18 @@
           <div class="atlas-status-card"><span>Last Event</span><b id="atlas-status-last-event">-</b></div>
         </section>
 
+        <section class="atlas-panel-card" aria-labelledby="atlas-automation-readiness-title">
+          <div class="atlas-section-title-row">
+            <h2 id="atlas-automation-readiness-title">Automation readiness</h2>
+          </div>
+          <div>Selected preset: <select id="atlas-auto-preset"><option value="manual_only">manual_only</option><option value="guarded_low_risk">guarded_low_risk</option></select></div>
+          <div>Auto safe_apply readiness: <b id="atlas-auto-readiness-decision">-</b></div>
+          <div id="atlas-auto-readiness-reasons">reasons: -</div>
+          <div id="atlas-auto-readiness-warnings">warnings: -</div>
+          <p>This is a decision only. No action is executed automatically in this PR.</p>
+          <button id="atlas-check-automation-readiness-btn" class="atlas-secondary-btn" type="button">Check automation readiness</button>
+        </section>
+
         <div class="atlas-work-grid atlas-main-grid">
           <section class="atlas-panel-card" aria-labelledby="atlas-planpool-title">
             <div class="atlas-section-title-row">
