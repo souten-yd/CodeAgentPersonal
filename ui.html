@@ -232,8 +232,14 @@
             <div>target item id: <b id="atlas-auto-safe-apply-item-id">-</b></div>
             <p>Snapshot is required before auto safe_apply.</p>
             <p>Only one low-risk approved item will be auto-applied.</p>
-            <p>Auto verification is not enabled yet.</p>
-            <p>Auto rollback is not enabled yet.</p>
+            <p>Auto verification readiness</p>
+            <p>command_id: <b id="atlas-auto-verification-command-id">-</b></p>
+            <p>Only allowlisted verification commands can run.</p>
+            <p>Auto rollback is not enabled.</p>
+            <p>Auto DebugReview is not enabled.</p>
+            <p>Auto Patch Proposal is not enabled.</p>
+            <button id="atlas-auto-verify-run-btn" class="atlas-secondary-btn" type="button">Run auto verification</button>
+            <button id="atlas-auto-safe-apply-and-verify-run-btn" class="atlas-secondary-btn" type="button">Run auto safe_apply + verification</button>
             <button id="atlas-auto-safe-apply-run-btn" class="atlas-secondary-btn" type="button">Run gated auto safe_apply for this item</button>
             <pre id="atlas-auto-safe-apply-result">No result yet.</pre>
           </div>
