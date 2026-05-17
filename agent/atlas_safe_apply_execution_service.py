@@ -97,7 +97,17 @@ class AtlasSafeApplyExecutionService:
             item.status = 'failed'
             pool.failed_item_ids = list(dict.fromkeys(pool.failed_item_ids + [item.item_id]))
         item.metadata.setdefault('safe_apply', {})
-        item.metadata['safe_apply'].update({'status': st, 'applied_at': datetime.now(timezone.utc).isoformat()})
+        safe_apply_meta = {'status': st, 'applied_at': datetime.now(timezone.utc).isoformat()}
+        source = str((item.metadata or {}).get('source') or '').lower()
+        if source == 'patch_proposal':
+            safe_apply_meta.update({
+                'source': 'patch_proposal_planitem_draft',
+                'source_item_id': str((item.metadata or {}).get('source_item_id') or ''),
+                'source_proposal_id': str((item.metadata or {}).get('source_proposal_id') or ''),
+                'manual_only': True,
+                'auto_verification': False,
+            })
+        item.metadata['safe_apply'].update(safe_apply_meta)
 
     def save_execution_record(self, pool_id, item_id, *, request: AtlasSafeApplyExecutionRequest, item: AtlasPlanItem, status: str, result: dict, warnings: list[str]):
         ts = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
