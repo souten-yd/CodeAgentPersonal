@@ -891,7 +891,20 @@
     const candidateItems = state.safeApplyCandidateItems || [];
     const pendingHtml = pendingItems.map((item)=>{
       const safeApplyHtml = renderSafeApplyEligibility(item);
-      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')}<textarea data-approval-reason="${esc(item.item_id)}" placeholder="reason"></textarea><div class="atlas-clarification-actions"><button data-approval="approved" data-item-id="${esc(item.item_id)}" type="button">Approve</button><button data-approval="rejected" data-item-id="${esc(item.item_id)}" type="button">Reject</button><button data-approval="needs_revision" data-item-id="${esc(item.item_id)}" type="button">Needs revision</button>${safeApplyHtml}</div></div>`;
+      const approval = item?.metadata?.approval || {};
+      const decision = String(approval.decision || '').toLowerCase();
+      const isPatchDraft = String(item?.metadata?.source || '').toLowerCase() === 'patch_proposal';
+      const sourceProposalId = String(item?.metadata?.source_proposal_id || approval.source_proposal_id || '');
+      const sourceItemId = String(item?.metadata?.source_item_id || approval.source_item_id || '');
+      const targetFiles = arr(item?.target_files).join(', ');
+      const nextNote = decision === 'approved'
+        ? '<small>Approved. Next: run manual safe_apply from Manual safe apply candidates.</small>'
+        : (decision === 'rejected'
+          ? '<small>Rejected. No patch was applied.</small>'
+          : (decision === 'needs_revision'
+            ? '<small>Needs revision. Return to Patch Proposal / PlanItem draft flow manually.</small>'
+            : ''));
+      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')}${isPatchDraft ? ' <span class="atlas-badge">Patch Proposal Draft</span>' : ''}<br><small>draft item id: ${esc(item.item_id)}</small>${isPatchDraft ? `<br><small>source proposal id: ${esc(sourceProposalId || '-')}</small><br><small>source item id: ${esc(sourceItemId || '-')}</small><br><small>target files: ${esc(targetFiles || '-')}</small><br><small>risk level: ${esc(item?.risk_level || '-')}</small><br><small>approval status: ${esc(decision || '-')}</small><br><small>PlanItem approval only.</small><br><small>No safe_apply is executed automatically.</small><br><small>No verification or DebugReview is executed automatically.</small>${nextNote}` : ''}<textarea data-approval-reason="${esc(item.item_id)}" placeholder="reason"></textarea><div class="atlas-clarification-actions"><button data-approval="approved" data-item-id="${esc(item.item_id)}" type="button">Approve</button><button data-approval="rejected" data-item-id="${esc(item.item_id)}" type="button">Reject</button><button data-approval="needs_revision" data-item-id="${esc(item.item_id)}" type="button">Needs revision</button>${safeApplyHtml}</div></div>`;
     }).join('');
     const candidateHtml = candidateItems.map((item)=>{
       const safeApplyHtml = renderSafeApplyEligibility(item);
@@ -956,6 +969,12 @@
     state.planPool = response.plan_pool || state.planPool;
     applyOrchestrationSummary(response.orchestration_summary);
     state.continuationPrompt = response.continuation_prompt || state.continuationPrompt;
+    state.approvalSummary = response.approval_summary || state.approvalSummary;
+    state.safeApplyCandidateItems = arr(response.approval_summary?.safe_apply_candidate_items || state.safeApplyCandidateItems);
+    if (decision === 'approved') showSuccess('Approved. Next: run manual safe_apply from Manual safe apply candidates.');
+    else if (decision === 'rejected') showWarning('Rejected. No patch was applied.');
+    else if (decision === 'needs_revision') showWarning('Needs revision. Return to Patch Proposal / PlanItem draft flow manually.');
+    await refreshPlanPool();
     await refreshApprovals();
     render();
   }

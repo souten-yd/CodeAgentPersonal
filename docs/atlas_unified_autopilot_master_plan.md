@@ -1,6 +1,10 @@
+- manual loop through safe_apply candidateをPR-33で固定
+- 実機テスト前にPR-34でfinal smoke/checklist
+- 自動実行はまだ開始しない
+
 # Atlas Unified Autopilot Master Plan
 
-## Current Delivery Status (PR-ATLAS-PIPE-32)
+## Current Delivery Status (PR-ATLAS-PIPE-33)
 
 - approved Patch Proposal → PlanItem draft → Approval Gate → manual safe_apply → manual verification → manual DebugReview → manual Patch Proposal まで固定済み。
 - Patch Proposal generation remains manual only.
