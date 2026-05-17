@@ -41,3 +41,9 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 PR-ATLAS-PIPE-25を実装する。
 Patch Proposalをユーザーがapprove/reject/needs_revisionできるapproval gateを追加する。ただしpatch適用・safe_apply実行・verification再実行はまだ行わない。
+
+- PR-ATLAS-PIPE-25 adds patch proposal approval gate.
+- Patch Proposal can be approved/rejected/needs_revision by the user.
+- Approval records are saved as JSON/MD and reflected in PlanItem metadata.
+- Patch proposal approval does not apply patches, does not run safe_apply, and does not rerun verification.
+- PR-ATLAS-PIPE-25 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
