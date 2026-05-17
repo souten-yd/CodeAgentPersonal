@@ -305,6 +305,8 @@ def test_patch_proposal_approval_ui_contract() -> None:
     assert "Reject Proposal" in (HTML + ATLAS_DASHBOARD_JS)
     assert "Needs Revision" in (HTML + ATLAS_DASHBOARD_JS)
     assert "Approval only" in (HTML + ATLAS_DASHBOARD_JS)
+    assert "No PlanItem draft is created automatically" in (HTML + ATLAS_DASHBOARD_JS)
+    assert "No patch, safe_apply, or verification rerun is executed automatically" in (HTML + ATLAS_DASHBOARD_JS)
 
     assert "status !== 'approved' && status !== 'rejected'" in ATLAS_DASHBOARD_JS
     assert "Approved. Next: create manual safe_apply PlanItem Draft manually." in ATLAS_DASHBOARD_JS
