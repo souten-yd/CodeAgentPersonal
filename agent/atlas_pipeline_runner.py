@@ -118,9 +118,7 @@ class AtlasPipelineRunner:
                 break
 
         if state.status == "running":
-            state.status = "completed"
-            pool.status = "completed"
-            state.add_event("pipeline_completed", message="Pipeline dry-run completed.")
+            self._finalize_running_state(state, pool)
         elif state.status == "failed":
             pool.status = "failed"
             state.add_event("pipeline_failed", message="Pipeline dry-run failed.")
@@ -135,6 +133,57 @@ class AtlasPipelineRunner:
         pool.updated_at = _utc_now_iso()
         self.storage.save_pool(pool)
         return state
+
+
+    def _finalize_running_state(self, state: AtlasPipelineRunState, pool: AtlasPlanPool) -> None:
+        statuses = [item.status for item in pool.items]
+        total_items = len(pool.items)
+        completed_count = sum(1 for st in statuses if st in {"completed", "skipped"})
+        queued_count = sum(1 for st in statuses if st == "queued")
+        waiting_statuses = {"queued", "pending", "approval_required", "paused", "waiting", "dependency_waiting", "researching", "executing", "needs_revision", "ready"}
+        waiting_item_ids = [item.item_id for item in pool.items if item.status in waiting_statuses]
+        waiting_count = len(waiting_item_ids)
+
+        if any(st == "failed" for st in statuses):
+            state.status = "failed"
+            pool.status = "failed"
+            state.add_event("pipeline_failed", message="Pipeline dry-run failed.")
+            return
+        if any(st == "blocked" for st in statuses):
+            state.status = "blocked"
+            pool.status = "blocked"
+            state.add_event("pipeline_blocked", message="Pipeline dry-run blocked.")
+            return
+        if total_items and completed_count == total_items:
+            state.status = "completed"
+            pool.status = "completed"
+            state.add_event("pipeline_completed", message="Pipeline dry-run completed.")
+            return
+
+        ready_items = pool.get_ready_items()
+        if not ready_items:
+            state.status = "paused"
+            pool.status = "dependency_waiting" if waiting_count > 0 else "paused"
+            state.warnings = self._dedupe([*state.warnings, "no_ready_items_remaining"])
+            pool.warnings = self._dedupe([*pool.warnings, "no_ready_items_remaining"])
+            state.metadata.update({
+                "total_items": total_items,
+                "completed_count": completed_count,
+                "queued_count": queued_count,
+                "waiting_count": waiting_count,
+                "waiting_item_ids": waiting_item_ids,
+                "possible_dependency_waiting": waiting_count > 0,
+                "no_ready_items_remaining": True,
+            })
+            state.add_event(
+                "pipeline_waiting",
+                message="Pipeline paused because no ready items remain, but not all items are complete.",
+                metadata={"pipeline_status": "pipeline_waiting", "waiting_item_ids": waiting_item_ids},
+            )
+            return
+
+        state.status = "running"
+        pool.status = "running"
 
     def run_next_item(self, state: AtlasPipelineRunState, pool: AtlasPlanPool) -> AtlasPipelineRunState:
         item = self.select_next_ready_item(pool)

@@ -38,3 +38,11 @@
 - PR-ATLAS-PIPE-35以降、manual safe_apply前にChange Snapshot backupを保存する。
 - PR-ATLAS-PIPE-35ではrollback/restoreはまだ手動実装なし。
 - safe_apply実行時はsnapshot manifest pathを確認する。
+
+
+## PR-ATLAS-PIPE-35B updates
+- dry-runだけではPatch Proposalは出ない。
+- Patch Proposalは failed verification → manual DebugReview analyzed 後に出る。
+- 1/N completedでcompleted表示された問題はPR-35Bで修正。
+- queued/dependency waitingが残っている場合はcompletedではなくpaused/waiting。
+- PR-35でsafe_apply前snapshot backup済み。rollback/restoreはPR-36以降。

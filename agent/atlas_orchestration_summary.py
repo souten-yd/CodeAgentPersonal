@@ -129,8 +129,10 @@ class AtlasOrchestrationSummaryBuilder:
             return _summary_copy(base, {"phase": "not_started", "next_action": "Create a PlanPool to begin.", "user_message": "No PlanPool is selected yet."})
         if s == "waiting_for_clarification":
             return _summary_copy(base, {"phase": "clarification_required", "severity": "warning", "requires_clarification": True, "next_action": "Review planner questions in Details and refine the goal.", "user_message": "Additional planner clarification is required before creating a PlanPool."})
-        if s in {"approval_required", "paused"}:
-            return _summary_copy(base, {"phase": "approval_required", "severity": "warning", "requires_approval": True, "next_action": "Review approval-required items before continuing.", "user_message": "The pipeline is paused at an approval gate."})
+        if s in {"approval_required"}:
+            return _summary_copy(base, {"phase": "approval_required", "severity": "warning", "requires_approval": True, "next_action": "Open Details / Advanced Panel → Approval Gate.", "user_message": "The pipeline is paused at an approval gate."})
+        if s in {"paused", "waiting", "dependency_waiting"}:
+            return _summary_copy(base, {"phase": "dependency_waiting", "severity": "warning", "next_action": "Resolve dependencies or regenerate PlanPool.", "user_message": "No ready item remains. Check dependencies or approve required items."})
         if s in {"stale", "interrupted"}:
             return _summary_copy(base, {"phase": "stale_recovery", "severity": "warning", "is_stale": True, "can_start_dry_run": bool(pool_id), "next_action": "Start a new dry-run from the recovered PlanPool.", "user_message": "Recovered PlanPool is available, but the previous run state is stale."})
         if s == "running" or (s == "created" and run_id):

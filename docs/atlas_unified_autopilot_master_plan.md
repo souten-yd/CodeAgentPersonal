@@ -271,3 +271,8 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 - approved Patch Proposal → manual PlanItem draft creation までをPR-32で固定
 - PlanItem approvalは引き続き手動
 - 次はgenerated draft → manual PlanItem approval UX/E2E
+
+
+- PR-35 completed
+- PR-35B current
+- PR-36 next (Change Snapshot manual restore, no auto rollback)

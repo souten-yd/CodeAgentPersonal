@@ -728,3 +728,8 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 - PR-26C completed
 - PR-27 current
 - PR-28 next
+
+
+- PR-35 completed
+- PR-35B current
+- PR-36 next (Change Snapshot manual restore, no auto rollback)
