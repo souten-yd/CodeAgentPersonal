@@ -6,15 +6,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 ## Completed PRs
 
-- PR-ATLAS-PIPE-0〜30: completed
+- PR-ATLAS-PIPE-0〜30B: completed
 
 ## Current PR
 
-- PR-ATLAS-PIPE-30B
+- PR-ATLAS-PIPE-31
 
 ## Next PR
 
-- PR-ATLAS-PIPE-31: Manual Patch Proposal approval UX/E2E from generated proposal / no draft auto-create
+- PR-ATLAS-PIPE-32: Manual PlanItem draft creation UX/E2E from approved Patch Proposal / no auto safe_apply
 
 ## Important Constraints
 
@@ -49,10 +49,20 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - Patch Proposal generation remains item-level/manual only.
 - Patch Proposal generation does not auto-approve, does not create PlanItem draft, does not run safe_apply, and does not rerun verification.
 - Patch Proposal may use llm_json_fn when available; otherwise fallback proposal is generated.
-- PR-ATLAS-PIPE-30B finalizes checkpoint/docs and fixes continuation next_action after patch proposal generation.
-- PR-ATLAS-PIPE-30B does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
+- PR-ATLAS-PIPE-31 finalizes checkpoint/docs and fixes continuation next_action after patch proposal generation.
+- PR-ATLAS-PIPE-31 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
 
 ## Next Instruction
 
 PR-ATLAS-PIPE-31を実装する。
 manual Patch Proposal generated結果から、Patch Proposal Approval panelへ自然に誘導し、手動approve/reject/needs_revision UX/E2Eを整える。ただしPlanItem draft自動作成・patch自動適用・safe_apply自動実行・verification自動再実行は行わない。
+
+- PR-ATLAS-PIPE-31 improves manual Patch Proposal approval UX/E2E from generated proposal.
+- Generated Patch Proposal can be approved/rejected/needs_revision manually.
+- Patch Proposal approval remains item-level/manual only.
+- Patch Proposal approval does not auto-create PlanItem draft, does not apply patch, does not run safe_apply, and does not rerun verification.
+- PR-ATLAS-PIPE-31 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
+
+## Next Instruction
+
+PR-ATLAS-PIPE-32を実装する。manual approved Patch Proposal結果から、PlanItem Draft作成panelへ自然に誘導し、手動PlanItem draft作成UX/E2Eを整える。ただしPlanItem approval自動実行・safe_apply自動実行・verification自動再実行は行わない。
