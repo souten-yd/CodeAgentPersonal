@@ -142,6 +142,94 @@ def repair_safe_research_settings(settings_file: Path, disabled_engines: list[st
         _log(log_file, f"[SearXNG][windows][WARN] safe_research settings repair failed: {exc}")
         return False
 
+def validate_settings_secret_key(settings_file: Path) -> tuple[bool, str]:
+    if not settings_file.exists():
+        return False, "secret_key_missing"
+    text = settings_file.read_text(encoding="utf-8")
+    secret = _extract_secret_from_settings(text)
+    if not secret:
+        return False, "secret_key_missing"
+    if secret.strip() == "ultrasecretkey":
+        return False, "secret_key_default_ultrasecretkey"
+    return True, "ok"
+
+
+def ensure_settings_secret_key(settings_file: Path, secret: str, log_file: Path) -> bool:
+    if not settings_file.exists():
+        return False
+    text = settings_file.read_text(encoding="utf-8")
+    if importlib.util.find_spec("yaml") is not None:
+        try:
+            yaml = importlib.import_module("yaml")
+            data = yaml.safe_load(text) or {}
+            if not isinstance(data, dict):
+                data = {}
+            server = data.get("server")
+            if not isinstance(server, dict):
+                server = {}
+            current = str(server.get("secret_key") or "").strip()
+            if current and current != "ultrasecretkey":
+                return False
+            backup = settings_file.with_name(f"{settings_file.name}.bak.{time.strftime('%Y%m%d%H%M%S', time.gmtime())}")
+            shutil.copy2(settings_file, backup)
+            server["secret_key"] = secret
+            data["server"] = server
+            rendered = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+            settings_file.write_text(SAFE_RESEARCH_MARKER + "\n" + rendered.lstrip(), encoding="utf-8")
+            _log(log_file, f"[SearXNG][windows] settings secret_key synchronized backup={backup}")
+            return True
+        except Exception as exc:  # noqa: BLE001
+            _log(log_file, f"[SearXNG][windows][WARN] yaml secret_key sync failed: {exc}")
+    current = _extract_secret_from_settings(text) or ""
+    if current and current != "ultrasecretkey":
+        return False
+    backup = settings_file.with_name(f"{settings_file.name}.bak.{time.strftime('%Y%m%d%H%M%S', time.gmtime())}")
+    shutil.copy2(settings_file, backup)
+    body = text.rstrip() + "\n\n" if text.strip() else ""
+    body += (
+        "server:\n"
+        f"  secret_key: \"{secret}\"\n"
+        "  bind_address: \"0.0.0.0\"\n"
+        "  port: 8080\n"
+        "  base_url: false\n"
+    )
+    settings_file.write_text(body, encoding="utf-8")
+    _log(log_file, f"[SearXNG][windows] settings secret_key synchronized backup={backup}")
+    return True
+
+
+def ensure_settings_contract(settings_file: Path, log_file: Path) -> bool:
+    if not settings_file.exists() or importlib.util.find_spec("yaml") is None:
+        return False
+    yaml = importlib.import_module("yaml")
+    data = yaml.safe_load(settings_file.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        data = {}
+    changed = False
+    search = data.get("search")
+    if not isinstance(search, dict):
+        search = {}
+        changed = True
+    formats = search.get("formats")
+    if not isinstance(formats, list):
+        formats = ["html", "json"]
+        changed = True
+    elif "json" not in formats:
+        formats.append("json")
+        changed = True
+    search["formats"] = formats
+    search.setdefault("safe_search", 0)
+    data["search"] = search
+    data.setdefault("ui", {}).setdefault("static_use_hash", True)
+    if changed:
+        backup = settings_file.with_name(f"{settings_file.name}.bak.{time.strftime('%Y%m%d%H%M%S', time.gmtime())}")
+        shutil.copy2(settings_file, backup)
+        rendered = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+        settings_file.write_text(SAFE_RESEARCH_MARKER + "\n" + rendered.lstrip(), encoding="utf-8")
+        _log(log_file, f"[SearXNG][windows] settings contract synchronized backup={backup}")
+    return changed
+
+
 def ensure_settings(config_dir: Path, env: dict[str, str] | None = None, log_file: Path | None = None) -> Path:
     env = env or os.environ.copy()
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -173,10 +261,17 @@ def ensure_settings(config_dir: Path, env: dict[str, str] | None = None, log_fil
         settings_file.write_text(body, encoding="utf-8")
     engine_profile = env.get("SEARXNG_ENGINE_PROFILE", "safe_research")
     repair_enabled = env.get("SEARXNG_REPAIR_SETTINGS", "true").lower() in {"1", "true", "yes", "on"}
+    active_log = log_file or (config_dir / "searxng.log")
     if engine_profile in {"safe_research", "safe_docs"} and repair_enabled:
-        repair_safe_research_settings(settings_file, _disabled_engines_from_env(env), _safe_keep_only_from_env(env), log_file or (config_dir / "searxng.log"))
+        repair_safe_research_settings(settings_file, _disabled_engines_from_env(env), _safe_keep_only_from_env(env), active_log)
     elif log_file is not None:
         _log(log_file, f"[SearXNG][windows] settings repair skipped engine_profile={engine_profile} repair={repair_enabled}")
+    ensure_settings_secret_key(settings_file, secret, active_log)
+    ensure_settings_contract(settings_file, active_log)
+    ok, reason = validate_settings_secret_key(settings_file)
+    if not ok:
+        ensure_settings_secret_key(settings_file, secret, active_log)
+        _log(active_log, f"[SearXNG][windows][WARN] secret_key validation failed reason={reason}")
     return settings_file
 
 
@@ -260,9 +355,14 @@ def main() -> int:
     if state == "running":
         logs = _run(["docker", "logs", CONTAINER_NAME, "--tail", "100"]).stdout
         if any(s in logs for s in ["server.secret_key is not changed", "ultrasecretkey", "403 Forbidden"]):
-            ensure_settings(config_dir, env=env, log_file=log_file)
-            _run(["docker", "rm", "-f", CONTAINER_NAME])
-            state = ""
+            settings_file = ensure_settings(config_dir, env=env, log_file=log_file)
+            valid, reason = validate_settings_secret_key(settings_file)
+            if valid:
+                _run(["docker", "rm", "-f", CONTAINER_NAME])
+                state = ""
+            else:
+                _log(log_file, f"[SearXNG][windows][ERROR] settings repair failed reason={reason}")
+                return 0
 
     if not state:
         _run(

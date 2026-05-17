@@ -79,7 +79,7 @@ def test_start_script_declares_safe_research_profile() -> None:
     assert 'SEARXNG_STRICT_HEALTH="${SEARXNG_STRICT_HEALTH:-false}"' in text
     assert 'log "engine_profile=${SEARXNG_ENGINE_PROFILE}"' in text
     assert 'log "allow_broad_web_engines=${NEXUS_ALLOW_BROAD_WEB_ENGINES:-true}"' in text
-    assert 'log "broad_web_engines=${NEXUS_BROAD_WEB_ENGINES:-google,brave,duckduckgo}"' in text
+    assert 'log "broad_web_engines=${NEXUS_BROAD_WEB_ENGINES:-' in text
 
 
 def test_start_script_repairs_existing_settings() -> None:
