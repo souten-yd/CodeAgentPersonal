@@ -4,13 +4,15 @@
 
 # Atlas Unified Autopilot Master Plan
 
-## Current Delivery Status (PR-ATLAS-PIPE-34)
+## Current Delivery Status (PR-ATLAS-PIPE-35C)
 
 - manual loop through safe_apply candidateはPR-33で固定済み（Patch Proposal generate → approve → PlanItem draft create → PlanItem approve → manual safe_apply candidate）。
-- PR-34は実機テスト前のfinal smoke/checklistとreload recovery確認を行う。
+- PR-35でsafe_apply前のChange Snapshot backupを追加済み。
+- PR-35Bでincomplete dry-run completion stateを修正済み。
+- PR-35Cでqueued dependency chain（step_1 alias含む）の進行を修正。
 - safe_apply / verification / DebugReview / Patch Proposalの自動実行はまだ開始しない。
-- 次はPR-35としてsafe_apply前のChange Snapshot backupを追加する。
-- rollback自動化はbackup追加後の別PRで扱う。
+- 次はPR-36としてChange Snapshotのmanual restore API/UIを追加する。
+- rollback自動化はmanual restore追加後の別PRで扱う。
 
 ## Purpose
 

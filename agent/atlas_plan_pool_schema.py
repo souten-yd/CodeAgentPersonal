@@ -146,13 +146,19 @@ class AtlasPlanPool(BaseModel):
                 completed_aliases.update(self._dependency_aliases(item, idx))
 
         unavailable = completed | set(self.failed_item_ids) | set(self.blocked_item_ids) | set(self.skipped_item_ids)
-        return [
-            item
-            for item in self.items
-            if item.status == "ready"
-            and item.item_id not in unavailable
-            and all(dependency_id in completed_aliases for dependency_id in item.depends_on)
-        ]
+        ready_items: list[AtlasPlanItem] = []
+        for item in self.items:
+            if item.item_id in unavailable:
+                continue
+            dependencies_satisfied = all(dependency_id in completed_aliases for dependency_id in item.depends_on)
+            if not dependencies_satisfied:
+                continue
+            if item.status == "ready":
+                ready_items.append(item)
+                continue
+            if item.status == "queued" and item.depends_on:
+                ready_items.append(item)
+        return ready_items
 
     def get_item(self, item_id: str) -> AtlasPlanItem | None:
         for item in self.items:
