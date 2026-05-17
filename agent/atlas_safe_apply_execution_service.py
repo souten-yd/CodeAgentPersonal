@@ -50,6 +50,10 @@ class AtlasSafeApplyExecutionService:
 
         apply_result = self.safe_apply_adapter.apply_low_risk_item(item, pool, request=AtlasSafeApplyRequest(pool_id=pool.pool_id, item_id=item.item_id, dry_run=request.dry_run, require_approval=False, allow_simulation_without_executor=True, metadata=dict(request.metadata or {})))
         result_payload = apply_result.model_dump() if hasattr(apply_result, 'model_dump') else dict(apply_result)
+        executor_connected = self.safe_apply_adapter is not None and self.safe_apply_adapter.implementation_executor is not None
+        result_payload.setdefault('executor_connected', executor_connected)
+        result_payload.setdefault('actual_file_changed', bool(result_payload.get('status') == 'applied'))
+        result_payload.setdefault('changed_files', list(item.target_files if result_payload.get('status') == 'applied' else []))
         self.mark_item_from_result(pool, item, result_payload)
         self.storage.save_pool(pool)
         self.journal.save_plan_pool(pool)

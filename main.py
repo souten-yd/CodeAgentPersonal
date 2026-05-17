@@ -51,6 +51,7 @@ from agent.run_storage import RunStorage
 from agent.task_planning_runner import TaskPlanningRunner
 from agent.atlas_autopilot import AtlasAutopilot
 from agent.atlas_autopilot_schema import AtlasAutopilotRequest
+from agent.atlas_file_safe_apply_executor import AtlasFileSafeApplyExecutor
 from app.tts.engine_registry import EngineRegistry, TTSEngineRuntime
 from app.tts.style_bert_vits2_runtime import StyleBertVITS2Runtime, _read_model_version
 from app.tts.language_router import resolve_tts_language_route
@@ -204,6 +205,8 @@ async def lifespan(app):
 app = FastAPI(lifespan=lifespan)
 include_routers(app)
 app.include_router(nexus_router, prefix="/nexus", tags=["nexus"])
+
+app.state.atlas_implementation_executor = AtlasFileSafeApplyExecutor(workspace_root=Path.cwd())
 
 
 def nexus_summary_payload(project: str = "default") -> dict[str, Any]:
