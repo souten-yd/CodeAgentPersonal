@@ -40,3 +40,9 @@
 - symbol_index
 - dependency_graph
 - related_tests
+
+
+## PR-ATLAS-PIPE-42
+- Added read-only code intelligence tools: `symbol_index`, `dependency_graph`, `related_tests`.
+- All tools are local-only, require `project_path`, and do not require GitHub auth.
+- Constraints: no arbitrary command execution, no `shell=True`, no remote git operations, no `/api/task/*` or `/api/agent/*` additions.

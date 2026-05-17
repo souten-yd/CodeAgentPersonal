@@ -41,3 +41,9 @@
 - checkpoint had duplicated stale sections before PR-41B
 - Manual UI remains minimal
 - Dev Tooling Pack 1 not yet integrated into planner/evaluator decisions
+
+
+## PR-42 Status Update
+- Completed PRs: PR-ATLAS-PIPE-0〜41, PR-ATLAS-PIPE-41B, PR-SEARXNG-SECRET-SYNC-01.
+- Current PR: PR-ATLAS-PIPE-42.
+- Next PR: PR-ATLAS-PIPE-43 (Nexus Context Refresh).
