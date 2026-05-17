@@ -522,7 +522,8 @@ def submit_clarification_answers(req: AtlasClarificationSubmitRequest, request: 
 
 @router.get("/plan-pools/{pool_id}")
 def get_plan_pool(pool_id: str, request: Request) -> dict[str, Any]:
-    _, storage, _ = _atlas_components(request)
+    _, storage, journal = _atlas_components(request)
+    _sync_pool_from_workspace_snapshot(storage, journal, pool_id)
     try:
         pool = storage.load_pool(pool_id)
     except FileNotFoundError as exc:

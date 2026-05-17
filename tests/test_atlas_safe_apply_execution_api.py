@@ -147,6 +147,26 @@ def test_execute_safe_apply_uses_injected_adapter(tmp_path):
     assert r.json()['status'] == 'simulated'
     assert calls['count'] == 1
 
+def test_safe_apply_adapter_preserves_executor_blocked_status(tmp_path):
+    _clear_safe_apply_state()
+    class _BlockedExecutor:
+        def apply_plan_item_safe(self, *, item, pool):
+            return {'status': 'blocked', 'reasons': ['content_missing']}
+    main.app.state.atlas_implementation_executor = _BlockedExecutor()
+    c = _client(tmp_path); pool = _create_pool(c); item = pool['plan_pool']['items'][0]
+    _prepare_eligible_item(tmp_path, pool['pool_id'], item['item_id'])
+    r = c.post('/api/atlas/safe-apply/execute', json={'pool_id': pool['pool_id'], 'item_id': item['item_id']})
+    body = r.json()
+    assert body['status'] == 'blocked'
+    assert body['status'] != 'applied'
+    joined = " ".join(
+        [str(x) for x in body.get('warnings', [])]
+        + [str(x) for x in body.get('errors', [])]
+        + [str(x) for x in body.get('metadata', {}).get('reasons', [])]
+        + [str(x) for x in body.get('metadata', {}).get('safe_apply_result', {}).get('reasons', [])]
+    )
+    assert 'content_missing' in joined
+
 
 def test_execute_safe_apply_saves_journal_record_and_event(tmp_path):
     _clear_safe_apply_state()
