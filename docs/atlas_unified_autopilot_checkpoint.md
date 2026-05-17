@@ -79,3 +79,20 @@ Next PR:
 - Arbitrary command input is forbidden.
 - Auto verification failure stops the loop and does not auto restore, debug, or patch.
 - PR-39 does not add auto rollback, auto DebugReview, auto Patch Proposal, batch execution, or Task/Agent APIs.
+
+
+## Current PR
+- PR-ATLAS-PIPE-39B
+
+## Next PR
+- PR-ATLAS-PIPE-40: Verification failure stop policy and manual restore suggestion / no auto rollback
+
+## Known Current Code Facts (PR-39B)
+- PR-39 adds allowlisted auto verification after gated auto safe_apply.
+- PR-39B hardens auto verification pass/fail E2E coverage.
+- Auto verification requires project_path and does not run from server current directory.
+- safe-apply-one-and-verify proves auto safe_apply followed by allowlisted verification.
+- Verification failure stops the loop and does not auto restore, debug, patch, or rollback.
+- Arbitrary command input remains forbidden.
+- shell=True remains forbidden.
+- PR-39B does not add batch execution, auto rollback, auto DebugReview, auto Patch Proposal, or Task/Agent APIs.

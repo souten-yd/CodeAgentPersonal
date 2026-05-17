@@ -297,3 +297,6 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 - PR-46: bounded retry loop
 - PR-47: supervised patch regeneration
 - PR-48: large project impact analysis
+
+
+- PR-39B: auto verification pass/fail E2Eを固定。project_pathなしではauto verificationしない。verification失敗時は停止のみ（auto restore/rollbackなし）。次はmanual restore suggestion。

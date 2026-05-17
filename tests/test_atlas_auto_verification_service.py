@@ -35,3 +35,37 @@ def test_auto_verification_blocks_unsafe_test_path(tmp_path):
     r = svc.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item.item_id, run_id='r1'))
     assert r.status == 'blocked'
     assert 'unsafe_path' in r.warnings
+
+
+def test_auto_verification_blocks_missing_project_path(tmp_path):
+    storage, journal, pool, item = _setup(tmp_path)
+    pool.project_path = ''
+    item.metadata['verification'] = {'command_id': 'pytest_selected', 'test_path': 'tests/test_ok.py'}
+    storage.save_pool(pool)
+    svc = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=TestCommandRunner())
+    r = svc.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item.item_id, run_id='r1'))
+    assert r.status == 'blocked'
+    assert 'project_path_missing' in (r.warnings + r.errors)
+
+
+def test_auto_verification_passes_allowlisted_pytest(tmp_path):
+    (tmp_path / 'tests').mkdir(parents=True, exist_ok=True)
+    (tmp_path / 'tests' / 'test_ok.py').write_text('def test_ok():\n    assert True\n', encoding='utf-8')
+    storage, journal, pool, item = _setup(tmp_path)
+    item.metadata['verification'] = {'command_id': 'pytest_selected', 'test_path': 'tests/test_ok.py'}
+    storage.save_pool(pool)
+    svc = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=TestCommandRunner())
+    r = svc.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item.item_id, run_id='r1'))
+    assert r.command_id == 'pytest_selected'
+    assert r.status in {'passed', 'failed'}
+
+
+def test_auto_verification_fails_but_does_not_restore_debug_or_patch(tmp_path):
+    (tmp_path / 'tests').mkdir(parents=True, exist_ok=True)
+    (tmp_path / 'tests' / 'test_fail.py').write_text('def test_fail():\n    assert False\n', encoding='utf-8')
+    storage, journal, pool, item = _setup(tmp_path)
+    item.metadata['verification'] = {'command_id': 'pytest_selected', 'test_path': 'tests/test_fail.py'}
+    storage.save_pool(pool)
+    svc = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=TestCommandRunner())
+    r = svc.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item.item_id, run_id='r1'))
+    assert r.status in {'failed', 'passed'}

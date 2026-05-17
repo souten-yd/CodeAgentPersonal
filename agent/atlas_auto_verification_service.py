@@ -24,6 +24,10 @@ class AtlasAutoVerificationService:
         if str(safe or "").lower() != "applied" and str(auto_safe or "").lower() != "applied":
             return AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status="skipped", warnings=["safe_apply_not_applied"], plan_pool=pool.model_dump())
 
+        workspace_root = str(getattr(pool, "project_path", "") or "").strip()
+        if not workspace_root:
+            return self._blocked(pool, item.item_id, request, "project_path_missing")
+
         self._append_event(pool.pool_id, request.run_id, "auto_verification_started", item.item_id, status="started")
         allowlist = atlas_verification_allowlist()
         if request.metadata.get("command"):
@@ -52,7 +56,6 @@ class AtlasAutoVerificationService:
             else:
                 command.append(tok)
 
-        workspace_root = str(pool.project_path or "")
         res = self.command_runner.run_command(AtlasTestCommandRequest(command=" ".join(command), cwd=workspace_root, timeout_seconds=spec.timeout_seconds, metadata={"pool_id": pool.pool_id, "item_id": item.item_id, "source": "auto_verification"}))
         status = "passed" if res.status == "passed" else "failed"
         event = "auto_verification_passed" if status == "passed" else "auto_verification_failed"
