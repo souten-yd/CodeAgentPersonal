@@ -5,7 +5,19 @@ import main
 
 def _client(tmp_path):
     main.app.state.atlas_ca_data_dir = str(tmp_path)
-    main.app.state.atlas_test_command_runner = TestCommandRunner
+
+    class _Runner(TestCommandRunner):
+        def __init__(self):
+            super().__init__(allowed_commands=[
+                'python -m pytest -q',
+                'pytest -q',
+                'node --check',
+                'python -m py_compile',
+                'python -m json.tool',
+                'python scripts/check_ui_inline_script_syntax.py',
+            ])
+
+    main.app.state.atlas_test_command_runner = _Runner
     return TestClient(main.app)
 
 
@@ -96,8 +108,42 @@ def test_safe_apply_one_and_verify_success(tmp_path):
     _set_impl_item(tmp_path, created['pool_id'], item['item_id'])
     _set_item(tmp_path, created['pool_id'], item['item_id'], metadata={'verification': {'command_id': 'pytest_selected', 'test_path': 'tests/test_app.py'}})
     res = c.post('/api/atlas/automation/safe-apply-one-and-verify', json={'pool_id': created['pool_id'], 'item_id': item['item_id'], 'run_id': 'r1'}).json()
-    assert res['status'] in {'applied_and_verified', 'applied_but_verification_failed'}
+    assert res['status'] == 'applied_and_verified'
     assert (res.get('auto_safe_apply_result') or {}).get('status') == 'applied'
+    assert (res.get('auto_verification_result') or {}).get('status') == 'passed'
+    assert (Path(tmp_path) / 'app.py').read_text(encoding='utf-8') == 'new\n'
+    manifest_path = (res.get('auto_safe_apply_result') or {}).get('change_snapshot', {}).get('manifest_path')
+    assert manifest_path
+    assert Path(manifest_path).exists()
+    events_path = Path(tmp_path) / 'atlas' / 'workspaces' / 'default' / 'plan_pools' / created['pool_id'] / 'pipeline_runs' / 'r1' / 'events.ndjson'
+    events_text = events_path.read_text(encoding='utf-8') if events_path.exists() else ''
+    assert '"event_type": "auto_safe_apply_completed"' in events_text
+    assert '"event_type": "auto_verification_passed"' in events_text
+    assert '"event_type": "auto_verification_failed"' not in events_text
+
+
+def test_safe_apply_one_and_verify_verification_failed_no_auto_rollback(tmp_path):
+    (Path(tmp_path) / 'app.py').write_text('old\n', encoding='utf-8')
+    (Path(tmp_path) / 'tests').mkdir(parents=True, exist_ok=True)
+    (Path(tmp_path) / 'tests' / 'test_app.py').write_text('def test_app_file_exists():\n    assert False\n', encoding='utf-8')
+    c = _client(tmp_path)
+    created = c.post('/api/atlas/plan-pools', json={'input': 'x', 'project_path': str(tmp_path)}).json()['plan_pool']
+    item = created['items'][0]
+    _set_impl_item(tmp_path, created['pool_id'], item['item_id'])
+    _set_item(tmp_path, created['pool_id'], item['item_id'], metadata={'verification': {'command_id': 'pytest_selected', 'test_path': 'tests/test_app.py'}})
+    res = c.post('/api/atlas/automation/safe-apply-one-and-verify', json={'pool_id': created['pool_id'], 'item_id': item['item_id'], 'run_id': 'r1'}).json()
+    assert res['status'] == 'applied_but_verification_failed'
+    assert (res.get('auto_safe_apply_result') or {}).get('status') == 'applied'
+    assert (res.get('auto_verification_result') or {}).get('status') == 'failed'
+    assert (Path(tmp_path) / 'app.py').read_text(encoding='utf-8') == 'new\n'
+    events_path = Path(tmp_path) / 'atlas' / 'workspaces' / 'default' / 'plan_pools' / created['pool_id'] / 'pipeline_runs' / 'r1' / 'events.ndjson'
+    events_text = events_path.read_text(encoding='utf-8') if events_path.exists() else ''
+    assert '"event_type": "auto_verification_failed"' in events_text
+    assert '"event_type": "change_snapshot_restore_manual_started"' not in events_text
+    assert '"event_type": "change_snapshot_restore_auto_started"' not in events_text
+    assert '"event_type": "auto_rollback_started"' not in events_text
+    assert '"event_type": "debug_review_auto_started"' not in events_text
+    assert '"event_type": "patch_proposal_auto_started"' not in events_text
 
 
 def test_safe_apply_one_and_verify_safe_apply_blocked_skips_verification(tmp_path):
