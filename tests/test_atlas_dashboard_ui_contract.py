@@ -304,12 +304,12 @@ def test_patch_proposal_approval_ui_contract() -> None:
     assert "Approve Proposal" in (HTML + ATLAS_DASHBOARD_JS)
     assert "Reject Proposal" in (HTML + ATLAS_DASHBOARD_JS)
     assert "Needs Revision" in (HTML + ATLAS_DASHBOARD_JS)
-    assert "Approval only" in HTML
+    assert "Approval only" in (HTML + ATLAS_DASHBOARD_JS)
 
     assert "status !== 'approved' && status !== 'rejected'" in ATLAS_DASHBOARD_JS
-    assert "Approved. No patch has been applied yet." in ATLAS_DASHBOARD_JS
-    assert "Rejected. No patch has been applied." in ATLAS_DASHBOARD_JS
-    for forbidden in ("Apply patch", "Auto apply", "Safe apply now", "Re-run verification", "Continue autopilot", "Run command"):
+    assert "Approved. Next: create manual safe_apply PlanItem Draft manually." in ATLAS_DASHBOARD_JS
+    assert "Rejected. No patch was applied." in ATLAS_DASHBOARD_JS
+    for forbidden in ("Apply patch", "Auto apply", "Safe apply now", "Create draft automatically", "Re-run verification", "Continue autopilot", "Run command"):
         assert forbidden not in (HTML + ATLAS_DASHBOARD_JS)
 
 
@@ -328,8 +328,8 @@ def test_patch_proposal_planitem_draft_refreshes_approvals_contract() -> None:
 
 def test_patch_proposal_planitem_draft_ui_text_contract() -> None:
     assert "Create manual safe_apply PlanItem Draft" in (HTML + ATLAS_DASHBOARD_JS)
-    assert "PlanItem approval is still required" in (HTML + ATLAS_DASHBOARD_JS)
-    for forbidden in ("Apply patch", "Auto apply", "Safe apply now", "Re-run verification", "Continue autopilot", "Run command"):
+    assert "create manual safe_apply PlanItem Draft manually" in (HTML + ATLAS_DASHBOARD_JS)
+    for forbidden in ("Apply patch", "Auto apply", "Safe apply now", "Create draft automatically", "Re-run verification", "Continue autopilot", "Run command"):
         assert forbidden not in (HTML + ATLAS_DASHBOARD_JS)
 
 
@@ -345,9 +345,9 @@ def test_patch_proposal_panel_manual_contract() -> None:
     assert 'id="atlas-patch-proposal-panel"' in HTML
     assert 'Generate Patch Proposal' in (HTML + ATLAS_DASHBOARD_JS)
     assert 'Patch Proposal Draft' in ATLAS_DASHBOARD_JS
-    assert 'Manual proposal only.' in ATLAS_DASHBOARD_JS
-    assert 'No patch is applied automatically.' in ATLAS_DASHBOARD_JS
-    assert 'No safe_apply or verification rerun is executed automatically.' in ATLAS_DASHBOARD_JS
+    assert 'Approval only.' in ATLAS_DASHBOARD_JS
+    assert 'No PlanItem draft is created automatically.' in ATLAS_DASHBOARD_JS
+    assert 'No patch, safe_apply, or verification rerun is executed automatically.' in ATLAS_DASHBOARD_JS
     assert 'Next: review and approve/reject the proposal manually.' in ATLAS_DASHBOARD_JS
     for forbidden in ("Apply patch", "Auto apply", "Safe apply now", "Re-run verification", "Continue autopilot", "Run command", "Generate automatically"):
         assert forbidden not in (HTML + ATLAS_DASHBOARD_JS)

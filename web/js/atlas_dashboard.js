@@ -728,11 +728,22 @@
     const result = await root.AtlasPipelineAPI.decidePatchProposal(payload);
     state.patchProposalApprovalSubmitting = false;
     if (result.ok) {
-      state.patchProposalApprovalResults[itemId] = result.data || {};
-      applyOrchestrationSummary(result.data?.orchestration_summary);
-      state.continuationPrompt = result.data?.continuation_prompt || state.continuationPrompt;
+      const response = result.data || {};
+      state.patchProposalApprovalResults[itemId] = response;
+      if (response.plan_pool) state.planPool = response.plan_pool;
+      applyOrchestrationSummary(response.orchestration_summary);
+      state.continuationPrompt = response.continuation_prompt || state.continuationPrompt;
+      if (response.status === 'approved') showSuccess('Approved. Next: create manual safe_apply PlanItem Draft manually.');
+      else if (response.status === 'rejected') showWarning('Rejected. No patch was applied.');
+      else if (response.status === 'needs_revision') showWarning('Needs revision. Generate a revised Patch Proposal manually.');
+      else if (response.status === 'blocked') showWarning('Patch Proposal approval blocked: '+(arr(response.warnings).join(',') || '-'));
+      else if (response.status === 'failed') showError('Patch Proposal approval failed: '+(arr(response.errors).join(',') || '-'));
       await refreshPlanPool();
-    } else showWarning(result.message || 'Patch proposal approval failed');
+      renderPatchProposalPanel();
+      render();
+      return;
+    }
+    showWarning(result.message || 'Patch proposal approval failed');
     renderPatchProposalPanel();
   }
 
@@ -810,9 +821,9 @@
         ? (draftItemId ? `<br>Draft created: ${esc(draftItemId)}` : `<div class="atlas-clarification-actions"><button class="atlas-secondary-btn" data-patch-proposal-draft-item="${esc(item.item_id)}" ${state.patchProposalDraftSubmitting?'disabled':''}>Create manual safe_apply PlanItem Draft</button></div>`)
         : '';
       const statusNote = status === 'approved'
-        ? '<br>Approved. No patch has been applied yet.<br>No patch is applied.<br>PlanItem approval is still required before safe_apply.'
-        : (status === 'rejected' ? '<br>Rejected. No patch has been applied.' : '');
-      return `<div class="atlas-approval-item"><div><strong>${esc(item.item_id)}</strong> ${esc(item.title||'')} ${isPatchDraft ? '<span class="atlas-badge">Patch Proposal Draft</span>' : ''}</div><div>debug review status: ${esc(review.status || '-')}<br>source proposal id: ${esc(review.source_proposal_id || item?.metadata?.source_proposal_id || '-')}<br>Root cause: ${esc(review.root_cause_category||'')}<br>Proposed fix: ${esc(review.proposed_fix||'')}<br>Reusable lesson: ${esc(review.reusable_lesson||'')}<br>Target files: ${esc(targetFiles)}<br><small>Manual proposal only.</small><br><small>No patch is applied automatically.</small><br><small>No safe_apply or verification rerun is executed automatically.</small><br>Proposal status: ${esc(status)}<br>Proposal summary: ${esc(summary)}<br>Risk: ${esc(risk)}<br>Proposal MD: ${esc(mdPath)}<br>Approval reason: ${esc(reason)}${statusNote}${status==='proposed' ? '<br><small>Next: review and approve/reject the proposal manually.</small>' : ''}</div><textarea data-patch-proposal-reason="${esc(item.item_id)}" placeholder="reason">${esc(reason)}</textarea>${generateBtn}${decisionActions}${draftAction}</div>`;
+        ? '<br>Approved. No patch has been applied yet.<br>Next: create manual safe_apply PlanItem Draft manually.'
+        : (status === 'rejected' ? '<br>Rejected. No patch was applied.' : (status === 'needs_revision' ? '<br>Needs revision. Generate a revised Patch Proposal manually.' : ''));
+      return `<div class="atlas-approval-item"><div><strong>${esc(item.item_id)}</strong> ${esc(item.title||'')} ${isPatchDraft ? '<span class="atlas-badge">Patch Proposal Draft</span>' : ''}</div><div>debug review status: ${esc(review.status || '-')}<br>source proposal id: ${esc(review.source_proposal_id || item?.metadata?.source_proposal_id || '-')}<br>Root cause: ${esc(review.root_cause_category||'')}<br>Proposed fix: ${esc(review.proposed_fix||'')}<br>Reusable lesson: ${esc(review.reusable_lesson||'')}<br>Target files: ${esc(targetFiles)}<br><small>Approval only.</small><br><small>No PlanItem draft is created automatically.</small><br><small>No patch, safe_apply, or verification rerun is executed automatically.</small><br>Proposal status: ${esc(status)}<br>Proposal summary: ${esc(summary)}<br>Risk: ${esc(risk)}<br>Proposal MD: ${esc(mdPath)}<br>Approval reason: ${esc(reason)}${statusNote}${status==='proposed' ? '<br><small>Next: review and approve/reject the proposal manually.</small>' : ''}</div><textarea data-patch-proposal-reason="${esc(item.item_id)}" placeholder="reason">${esc(reason)}</textarea>${generateBtn}${decisionActions}${draftAction}</div>`;
     }).join('');
     el.querySelectorAll('button[data-patch-proposal-item]:not([data-patch-proposal-decision])').forEach((btn)=>btn.addEventListener('click',()=>generatePatchProposal(btn.getAttribute('data-patch-proposal-item')||'')));
     el.querySelectorAll('button[data-patch-proposal-decision]').forEach((btn)=>btn.addEventListener('click',()=>decidePatchProposal(btn.getAttribute('data-patch-proposal-item')||'', btn.getAttribute('data-patch-proposal-decision')||'')));

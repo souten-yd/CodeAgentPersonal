@@ -155,7 +155,7 @@ def test_continuation_next_action_patch_proposal_approved(tmp_path) -> None:
 
     summary = AtlasContinuationService(journal).build_pool_summary(pool.pool_id)
 
-    assert summary.next_action == "Convert approved Patch Proposal to manual safe_apply PlanItem draft."
+    assert summary.next_action == "Create manual safe_apply PlanItem Draft."
 
 
 def test_continuation_next_action_patch_proposal_needs_revision(tmp_path) -> None:

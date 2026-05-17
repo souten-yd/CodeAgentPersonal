@@ -104,6 +104,8 @@ class AtlasPatchProposalApprovalService:
     def mark_item_from_approval(self, pool, item, result) -> None:
         patch = (item.metadata or {}).setdefault("patch_proposal", {})
         appr = (item.metadata or {}).setdefault("patch_proposal_approval", {})
+        source = str(patch.get("source") or "patch_proposal_planitem_draft")
+        source_proposal_id = str(patch.get("source_proposal_id") or patch.get("proposal_id") or "")
         appr.update({
             "decision": result.status,
             "proposal_id": result.approval_record.proposal_id if result.approval_record else "",
@@ -111,6 +113,15 @@ class AtlasPatchProposalApprovalService:
             "approver": result.approval_record.approver if result.approval_record else "",
             "approval_id": result.approval_record.approval_id if result.approval_record else "",
             "decided_at": result.approval_record.decided_at if result.approval_record else "",
+            "source": source,
+            "source_proposal_id": source_proposal_id,
+            "proposal_status_before_decision": "proposed",
+            "manual_only": True,
+            "auto_draft_create": False,
+            "auto_apply": False,
+            "auto_safe_apply": False,
+            "auto_verification": False,
+            "approval_json_path": str((result.metadata or {}).get("approval_json_path") or ""),
             "approval_md_path": str((result.metadata or {}).get("approval_md_path") or ""),
         })
         patch["status"] = result.status

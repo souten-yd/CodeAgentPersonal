@@ -26,8 +26,8 @@ def _set_debug(c, pool_id, item_id, fix='Fix assertion', source='patch_proposal_
 
 def test_debug_review_analyzed_draft_appears_as_patch_proposal_candidate_contract():
     assert "review.status || '').toLowerCase() === 'analyzed'" in DASH
-    assert 'Patch Proposal Draft' in DASH and 'Manual proposal only.' in DASH
-    assert 'No patch is applied automatically.' in DASH
+    assert 'Patch Proposal Draft' in DASH and 'Approval only.' in DASH
+    assert 'No PlanItem draft is created automatically.' in DASH
 
 def test_manual_patch_proposal_generates_from_debug_reviewed_draft_with_fallback(tmp_path):
     c=_client(tmp_path);pool=_create_pool(c);item=pool['plan_pool']['items'][0];_set_debug(c,pool['pool_id'],item['item_id'])

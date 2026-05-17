@@ -264,7 +264,7 @@ Current Gate:
             elif patch_proposal_status == "needs_revision":
                 patch_proposal_next_manual_step = "Generate revised Patch Proposal manually."
             elif patch_proposal_status == "approved":
-                patch_proposal_next_manual_step = "Convert approved Patch Proposal to manual safe_apply PlanItem draft."
+                patch_proposal_next_manual_step = "Create manual safe_apply PlanItem Draft."
             elif patch_proposal_status == "rejected":
                 patch_proposal_next_manual_step = "Review rejected Patch Proposal and decide whether to revise manually."
             summary.metadata.update({
@@ -282,7 +282,7 @@ Current Gate:
             elif patch_proposal_status == "needs_revision":
                 summary.next_action = "Generate revised Patch Proposal manually."
             elif patch_proposal_status == "approved":
-                summary.next_action = "Convert approved Patch Proposal to manual safe_apply PlanItem draft."
+                summary.next_action = "Create manual safe_apply PlanItem Draft."
             elif patch_proposal_status == "rejected":
                 summary.next_action = "Review rejected Patch Proposal and decide whether to revise manually."
         patch_proposal_planitem_draft = self._latest_patch_proposal_planitem_draft(pool)
@@ -301,7 +301,7 @@ Current Gate:
                 "patch_proposal_approval_md_path": str(patch_proposal_approval.get("approval_md_path") or ""),
             })
             if decision == "approved":
-                summary.next_action = "Convert approved Patch Proposal to manual safe_apply PlanItem draft."
+                summary.next_action = "Create manual safe_apply PlanItem Draft."
         verification = self._latest_verification(pool)
         if verification:
             status = str(verification.get("status") or "")
