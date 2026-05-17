@@ -49,6 +49,8 @@ from agent.atlas_auto_safe_apply_schema import AtlasAutoSafeApplyRequest, AtlasA
 from agent.atlas_auto_safe_apply_service import AtlasAutoSafeApplyService
 from agent.atlas_auto_verification_schema import AtlasAutoVerificationRequest, AtlasAutoVerificationResult
 from agent.atlas_auto_verification_service import AtlasAutoVerificationService
+from agent.atlas_failure_stop_schema import AtlasFailureStopSuggestion
+from agent.atlas_failure_stop_service import AtlasFailureStopService
 from agent.atlas_verification_allowlist import atlas_verification_allowlist
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 
@@ -178,7 +180,18 @@ class AtlasAutoSafeApplyAndVerifyResult(BaseModel):
     auto_safe_apply_result: dict = Field(default_factory=dict)
     auto_verification_result: dict = Field(default_factory=dict)
     status: str = "failed"
+    failure_stop_suggestion: dict = Field(default_factory=dict)
+    continuation_prompt: str = ""
 
+
+
+
+class AtlasFailureSuggestionRequest(BaseModel):
+    pool_id: str
+    item_id: str
+    run_id: str = ""
+    phase: str = "auto_verification"
+    workspace_id: str = "default"
 
 class ContinuationResponse(BaseModel):
     workspace_id: str
@@ -1036,12 +1049,39 @@ def atlas_automation_safe_apply_one_and_verify(request_body: AtlasAutoSafeApplyA
     if safe.status == "applied":
         verify = atlas_automation_verify_one(AtlasAutoVerificationRequest(pool_id=request_body.pool_id, item_id=request_body.item_id, preset_id=request_body.preset_id, workspace_id=request_body.workspace_id, run_id=request_body.run_id, command_id=request_body.command_id, metadata=dict(request_body.metadata or {})), request)
     status = "failed"
+    failure_stop_suggestion = {}
+    continuation_prompt = str(getattr(verify, "continuation_prompt", "") or getattr(safe, "continuation_prompt", "") or "")
     if safe.status != "applied":
         status = "safe_apply_blocked"
     elif verify.status == "passed":
         status = "applied_and_verified"
     elif verify.status == "failed":
         status = "applied_but_verification_failed"
+        _, storage, journal = _atlas_components(request, workspace_id=request_body.workspace_id)
+        pool = storage.load_pool(request_body.pool_id)
+        item = pool.get_item(request_body.item_id)
+        if item is not None:
+            suggestion = AtlasFailureStopService(journal=journal).build_for_verification_failure(pool, item, request_body.run_id, verify.model_dump())
+            suggestion_payload = suggestion.model_dump()
+            safe_snapshot = (safe.model_dump().get("change_snapshot") or {})
+            if safe_snapshot.get("manifest_path") and not suggestion_payload.get("snapshot_manifest_path"):
+                suggestion_payload["snapshot_manifest_path"] = str(safe_snapshot.get("manifest_path") or "")
+                suggestion_payload["changed_files"] = list(safe_snapshot.get("changed_files") or [])
+                suggestion_payload["restore_candidate"] = {"manifest_path": suggestion_payload["snapshot_manifest_path"], "changed_files": suggestion_payload["changed_files"], "snapshot_id": str(safe_snapshot.get("snapshot_id") or "")}
+            failure_stop_suggestion = suggestion_payload
+            continuation_prompt = (continuation_prompt + "\n\nManual next steps: Review verification failure. Inspect changed files. Restore from Change Snapshot manually if needed. Run Debug Review manually if restore is not desired.").strip()
     elif verify.status == "blocked":
         status = "verification_blocked"
-    return AtlasAutoSafeApplyAndVerifyResult(auto_safe_apply_result=safe.model_dump(), auto_verification_result=verify.model_dump(), status=status)
+    return AtlasAutoSafeApplyAndVerifyResult(auto_safe_apply_result=safe.model_dump(), auto_verification_result=verify.model_dump(), status=status, failure_stop_suggestion=failure_stop_suggestion, continuation_prompt=continuation_prompt)
+
+
+@router.post("/automation/failure-suggestion", response_model=AtlasFailureStopSuggestion)
+def atlas_automation_failure_suggestion(request_body: AtlasFailureSuggestionRequest, request: Request) -> AtlasFailureStopSuggestion:
+    _, storage, journal = _atlas_components(request, workspace_id=request_body.workspace_id)
+    _sync_pool_from_workspace_snapshot(storage, journal, request_body.pool_id)
+    pool = storage.load_pool(request_body.pool_id)
+    item = pool.get_item(request_body.item_id)
+    if item is None:
+        return AtlasFailureStopSuggestion(pool_id=request_body.pool_id, item_id=request_body.item_id, run_id=request_body.run_id, failure_phase="auto_verification", status="blocked", reason="item_not_found", errors=["item_not_found"])
+    verification_result = ((item.metadata or {}).get("auto_verification") or {})
+    return AtlasFailureStopService(journal=journal).build_for_verification_failure(pool, item, request_body.run_id, verification_result)

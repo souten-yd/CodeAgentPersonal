@@ -54,3 +54,17 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 PR-ATLAS-PIPE-40を実装する。
 auto verification失敗時に停止し、Change Snapshotからmanual restore候補を提示する。ただしauto rollbackはまだ行わない。
+
+
+Next PR:
+- PR-ATLAS-PIPE-41: Dev Tooling Pack 1 - git status/diff, project tree, file outline / read-only tools
+
+Known Current Code Facts:
+- PR-40 adds verification failure stop policy and manual restore suggestion.
+- Verification failure produces a restore candidate but does not auto restore.
+- Auto rollback remains disabled.
+- PR-40 does not add auto DebugReview, auto Patch Proposal, batch execution, or Task/Agent APIs.
+
+Next Instruction:
+PR-ATLAS-PIPE-41を実装する。
+Dev Tooling Pack 1として、読み取り専用のgit status/git diff/project tree/file outline toolsを追加する。ただし任意コマンド実行は追加しない。

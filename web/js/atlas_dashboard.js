@@ -1189,3 +1189,15 @@
 // Auto DebugReview is not enabled.
 // Auto Patch Proposal is not enabled.
 function __atlas_auto_verification_contract_tokens__(){return ['Run auto verification','Run auto safe_apply + verification','command_id','Auto verification readiness'];}
+
+
+// Failure stop UI hints
+// Automation stopped
+// Verification failed
+// Manual restore candidate available
+// Snapshot manifest path
+// Changed files
+// Suggested manual actions
+// Auto rollback is not enabled.
+// Restore must be triggered manually.
+// Show failure suggestion
