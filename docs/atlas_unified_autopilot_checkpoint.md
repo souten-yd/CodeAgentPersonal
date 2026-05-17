@@ -6,15 +6,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 ## Completed PRs
 
-- PR-ATLAS-PIPE-0〜32: completed
+- PR-ATLAS-PIPE-0〜33: completed
 
 ## Current PR
 
-- PR-ATLAS-PIPE-33
+- PR-ATLAS-PIPE-34
 
 ## Next PR
 
-- PR-ATLAS-PIPE-34: Manual loop final real-device smoke checklist / no auto execution
+- PR-ATLAS-PIPE-35: Change Snapshot backup before safe_apply / no auto rollback
 
 ## Important Constraints
 
@@ -29,26 +29,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 ## Known Current Code Facts
 
-- PR-ATLAS-PIPE-33 improves manual Patch Proposal approval UX/E2E from generated proposal.
-- Generated Patch Proposal can be approved/rejected/needs_revision manually.
-- Patch Proposal approval remains item-level/manual only.
-- Patch Proposal approval does not auto-create PlanItem draft, does not apply patch, does not run safe_apply, and does not rerun verification.
-- PR-ATLAS-PIPE-33 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
-
-## Next Instruction
-
-PR-ATLAS-PIPE-34を実装する。実機テスト前の最終manual loop smoke/checklistを整備する。UI/APIで、Patch Proposal生成からmanual safe_apply候補表示までの一連の手動操作を確認できるようにし、リロード後の状態復元も確認する。ただし自動safe_apply・自動verification・自動DebugReviewは行わない。
-
-
-- PR-ATLAS-PIPE-33 improves manual PlanItem draft creation UX/E2E from approved Patch Proposal.
-- PlanItem draft creation remains item-level/manual only.
-- PlanItem draft creation does not auto-approve PlanItem, does not run safe_apply, and does not rerun verification.
-- PR-ATLAS-PIPE-33 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
-
 - PR-ATLAS-PIPE-31 improves manual Patch Proposal approval UX/E2E from generated proposal.
 - PR-ATLAS-PIPE-32 improves manual PlanItem draft creation UX/E2E from approved Patch Proposal.
 - PR-ATLAS-PIPE-33 improves manual PlanItem approval UX/E2E for generated draft.
-- Manual loop is now connected through: Patch Proposal generate → Patch Proposal approve → PlanItem draft create → PlanItem approve → manual safe_apply candidate.
+- Manual loop is connected through: Patch Proposal generate → Patch Proposal approve → PlanItem draft create → PlanItem approve → manual safe_apply candidate.
 - PlanItem approval remains item-level/manual only.
 - PlanItem approval does not run safe_apply, verification, DebugReview, or Patch Proposal generation.
-- PR-ATLAS-PIPE-33 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
+- PR-ATLAS-PIPE-34 adds final real-device smoke/checklist and reload recovery checks.
+- PR-ATLAS-PIPE-34 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
+
+## Next Instruction
+
+PR-ATLAS-PIPE-35を実装する。safe_apply前に対象ファイルのChange Snapshot backupを保存する仕組みを追加する。ただしこのPRでは自動rollbackは行わない。

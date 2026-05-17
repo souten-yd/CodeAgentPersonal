@@ -1,0 +1,36 @@
+# Atlas Manual Loop Real Device Test
+
+## 1. 目的
+実機テスト前に、manual loopの最終smoke/checklistとreload recoveryを確認する。
+
+## 2. 前提
+- FastAPIを起動していること。
+- UI3 / Atlas dashboardを開けること。
+- llama-server接続は任意。
+- safe_apply executorが未接続の場合、safe_apply実行がblockedでもよい。
+
+## 3. 手順
+1. PlanPoolを作成する。
+2. DebugReview analyzed相当のitemを用意する（または既存UIでfailed→DebugReviewまで進める）。
+3. Patch Proposalを生成する。
+4. Patch Proposalを承認する。
+5. PlanItem Draftを作成する。
+6. PlanItemを承認する。
+7. Manual safe apply candidatesに表示されることを確認する。
+8. ページをreloadする。
+9. pool/run/candidates/approval/continuationが復元されることを確認する。
+
+## 4. 合格条件
+- safe_apply candidateが表示される。
+- reload後も状態が復元される。
+- 自動safe_apply / verification / DebugReviewが走らない。
+
+## 5. 既知の未実装
+- safe_apply前backup（Change Snapshot backup）は未実装。
+- rollbackは未実装。
+- Nexus Context Refreshは未実装。
+- Auto policyは未実装。
+- Task/Agent APIは追加しない。
+
+## 6. 次PR
+- PR-ATLAS-PIPE-35: Change Snapshot backup before safe_apply。

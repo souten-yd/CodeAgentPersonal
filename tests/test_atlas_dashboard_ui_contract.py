@@ -363,3 +363,26 @@ def test_patch_proposal_draft_creation_panel_contract() -> None:
         'Create draft automatically', 'Re-run verification', 'Continue autopilot', 'Run command',
     ):
         assert forbidden not in (HTML + ATLAS_DASHBOARD_JS)
+
+
+def test_manual_loop_checklist_contract() -> None:
+    assert "Manual Loop Checklist" in HTML
+    assert "Manual loop test mode." in HTML
+    assert "No safe_apply, verification, or DebugReview is executed automatically." in HTML
+    assert "Reload recovery should restore current pool and approval state." in HTML
+    assert "Manual safe apply candidates" in (HTML + ATLAS_DASHBOARD_JS)
+    assert "Patch Proposal Draft" in ATLAS_DASHBOARD_JS
+
+
+def test_load_recovery_latest_refresh_contract() -> None:
+    snippet = ATLAS_DASHBOARD_JS[ATLAS_DASHBOARD_JS.index('async function loadRecoveryLatest()'):ATLAS_DASHBOARD_JS.index('async function loadRecoveredPlan()')]
+    assert 'await refreshStatus();' in snippet
+    assert 'await refreshContinuation();' in snippet
+    assert 'await refreshApprovals();' in snippet
+    assert 'render();' in snippet
+
+
+def test_forbidden_ui_tokens_absent_contract() -> None:
+    merged = HTML + ATLAS_DASHBOARD_JS
+    for forbidden in ('Auto apply', 'Auto verify', 'Auto debug', 'Continue autopilot', 'Run command', 'Apply all'):
+        assert forbidden not in merged

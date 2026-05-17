@@ -4,16 +4,13 @@
 
 # Atlas Unified Autopilot Master Plan
 
-## Current Delivery Status (PR-ATLAS-PIPE-33)
+## Current Delivery Status (PR-ATLAS-PIPE-34)
 
-- approved Patch Proposal → PlanItem draft → Approval Gate → manual safe_apply → manual verification → manual DebugReview → manual Patch Proposal まで固定済み。
-- Patch Proposal generation remains manual only.
-- Patch Proposal Approvalは引き続き手動。
-- approved Patch Proposal → PlanItem draft → Approval Gate → manual safe_apply → manual verification → manual DebugReview → manual Patch Proposal → manual Patch Proposal approval までをPR-31で固定。
-- PlanItem Draft作成は引き続き手動。
-- 次はapproved Patch Proposal → manual PlanItem Draft UX/E2E。
-- PR-ATLAS-PIPE-30Bはdocs/continuation/test polishのみで新規実行系は追加しない。
-
+- manual loop through safe_apply candidateはPR-33で固定済み（Patch Proposal generate → approve → PlanItem draft create → PlanItem approve → manual safe_apply candidate）。
+- PR-34は実機テスト前のfinal smoke/checklistとreload recovery確認を行う。
+- safe_apply / verification / DebugReview / Patch Proposalの自動実行はまだ開始しない。
+- 次はPR-35としてsafe_apply前のChange Snapshot backupを追加する。
+- rollback自動化はbackup追加後の別PRで扱う。
 
 ## Purpose
 
@@ -202,7 +199,7 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 
 - PR-ATLAS-PIPE-18: AtlasPlannerBridge llm_json_fn を既存モデル/OpenAI互換 backend へ配線。backend unavailable/timeout/invalid JSON時はfallback継続。
 
-- Next PR: PR-ATLAS-PIPE-21: Safe apply execution gate / manual approval UI
+- Next PR: PR-ATLAS-PIPE-35: Change Snapshot backup before safe_apply / no auto rollback
 
 ## Planner Backend Wiring Status
 

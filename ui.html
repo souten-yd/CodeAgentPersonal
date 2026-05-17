@@ -266,7 +266,16 @@
           <div id="atlas-current-item-body" class="atlas-empty-state">Current item is not selected yet.</div>
         </section>
 
-        <details class="atlas-details" id="atlas-details-drawer">
+                <section id="atlas-manual-loop-checklist" class="atlas-panel-card" aria-label="Manual loop checklist">
+          <h3>Manual Loop Checklist</h3>
+          <p>Manual loop test mode.</p>
+          <ul>
+            <li>1. Generate Patch Proposal</li><li>2. Approve Patch Proposal</li><li>3. Create manual safe_apply PlanItem Draft</li><li>4. Approve draft PlanItem</li><li>5. Confirm item appears under Manual safe apply candidates</li><li>6. Reload page and confirm pool/candidates are restored</li><li>7. Do not run safe_apply automatically</li>
+          </ul>
+          <p>No safe_apply, verification, or DebugReview is executed automatically.</p>
+          <p>Reload recovery should restore current pool and approval state.</p>
+        </section>
+<details class="atlas-details" id="atlas-details-drawer">
           <summary>Details / Advanced Panel</summary>
           <section id="atlas-advanced-settings" class="atlas-advanced-settings" data-atlas-advanced-settings="collapsed">
             <h3>Advanced Settings</h3>
