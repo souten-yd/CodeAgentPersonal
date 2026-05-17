@@ -928,12 +928,13 @@
       const snapshot = result?.change_snapshot || result?.metadata?.change_snapshot || item?.metadata?.change_snapshot || null;
       const resultStatus = result ? String(result.status || '') : '';
       const resultClass = resultStatus === 'applied' ? 'atlas-ok' : (resultStatus === 'blocked' ? 'atlas-warn' : 'atlas-muted');
-      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')} <span class="atlas-badge">Approved candidate</span>${isPatchDraft ? ' <span class="atlas-badge">Patch Proposal Draft</span>' : ''}<div class="atlas-clarification-actions">${applied ? '<small>Already applied</small>' : safeApplyHtml}<small>Item-level manual apply only. Tests and autopilot continuation are not run.</small><small>Manual safe_apply only. Verification and DebugLoop are not run automatically.</small>${isPatchDraft ? `<small>source proposal id: ${esc(sourceProposalId || '-')}</small><small>target files: ${esc(targetFiles || '-')}</small><small>Verification is not run automatically.</small>` : ''}${resultStatus ? `<small class="${resultClass}">safe_apply result: ${esc(resultStatus)}</small>` : ''}${resultStatus === 'applied' ? '<small>Next: run manual verification from Post-Apply Verification panel.</small>' : ''}${snapshot?.manifest_path ? `<small>Change Snapshot manifest: ${esc(snapshot.manifest_path)}</small>` : ''}</div></div>`;
+      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')} <span class="atlas-badge">Approved candidate</span>${isPatchDraft ? ' <span class="atlas-badge">Patch Proposal Draft</span>' : ''}<div class="atlas-clarification-actions">${applied ? '<small>Already applied</small>' : safeApplyHtml}<small>Item-level manual apply only. Tests and autopilot continuation are not run.</small><small>Manual safe_apply only. Verification and DebugLoop are not run automatically.</small>${isPatchDraft ? `<small>source proposal id: ${esc(sourceProposalId || '-')}</small><small>target files: ${esc(targetFiles || '-')}</small><small>Verification is not run automatically.</small>` : ''}${resultStatus ? `<small class="${resultClass}">safe_apply result: ${esc(resultStatus)}</small>` : ''}${resultStatus === 'applied' ? '<small>Next: run manual verification from Post-Apply Verification panel.</small>' : ''}${snapshot?.manifest_path ? `<small>Change Snapshot manifest: ${esc(snapshot.manifest_path)}</small><button data-snapshot-restore-manifest="${esc(snapshot.manifest_path)}" data-snapshot-restore-item="${esc(item.item_id)}" type="button">Restore from Snapshot</button><small>Restore is manual only</small><small>Auto rollback is not enabled</small>` : ''}</div></div>`;
     }).join('');
     if (!pendingHtml && !candidateHtml) { listEl.innerHTML = 'No approval-required items.'; return; }
     listEl.innerHTML = `<h4>Pending approval items</h4>${pendingHtml || '<small>None</small>'}<h4>Manual safe apply candidates</h4>${candidateHtml || '<small>None</small>'}`;
     listEl.querySelectorAll('button[data-approval]').forEach((btn)=>btn.addEventListener('click', ()=>decideApproval(btn.dataset.itemId, btn.dataset.approval)));
     listEl.querySelectorAll('button[data-safe-apply]').forEach((btn)=>btn.addEventListener('click', ()=>executeSafeApply(btn.dataset.safeApply)));
+    listEl.querySelectorAll('button[data-snapshot-restore-manifest]').forEach((btn)=>btn.addEventListener('click', ()=>restoreFromSnapshot(btn.dataset.snapshotRestoreManifest, btn.dataset.snapshotRestoreItem)));
   }
 
 
@@ -974,6 +975,19 @@
     render();
   }
 
+
+
+  async function restoreFromSnapshot(manifestPath, itemId) {
+    if (!state.currentPoolId || !root.AtlasPipelineAPI?.restoreChangeSnapshot) return;
+    if (!manifestPath) return;
+    if (!confirm('Restore from snapshot manually? Auto rollback is not enabled.')) return;
+    const confirmDelete = confirm('Delete files that did not exist before snapshot? (Recommended: Cancel to skip)');
+    const response = await handleResult(await root.AtlasPipelineAPI.restoreChangeSnapshot({ pool_id: state.currentPoolId, item_id: itemId || '', run_id: state.currentRunId || '', workspace_id: workspaceId(), manifest_path: manifestPath, confirm_delete_missing_before: confirmDelete, metadata: { ui: 'atlas_dashboard', manual_only: true } }), 'Snapshot restore failed');
+    if (!response) return;
+    if (response.status === 'restored') showSuccess('Snapshot restore completed manually. report: '+(response.report_json_path || '-'));
+    else showWarning('Snapshot restore finished with status: '+response.status+' / warnings: '+(response.warnings || []).join(','));
+    render();
+  }
   async function decideApproval(itemId, decision) {
     if (state.approvalSubmitting || !state.currentPoolId) return;
     state.approvalSubmitting = true;
