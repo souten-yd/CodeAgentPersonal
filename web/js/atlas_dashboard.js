@@ -843,7 +843,13 @@
     const candidateHtml = candidateItems.map((item)=>{
       const safeApplyHtml = renderSafeApplyEligibility(item);
       const applied = String(item?.status || '').toLowerCase() === 'completed';
-      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')} <span class="atlas-badge">Approved candidate</span><div class="atlas-clarification-actions">${applied ? '<small>Already applied</small>' : safeApplyHtml}<small>Item-level manual apply only. Tests and autopilot continuation are not run. If no implementation executor is connected, Atlas will block normal apply or simulate only in dry-run mode.</small></div></div>`;
+      const isPatchDraft = String(item?.metadata?.source || '').toLowerCase() === 'patch_proposal';
+      const sourceProposalId = String(item?.metadata?.source_proposal_id || '');
+      const targetFiles = arr(item?.target_files).join(', ');
+      const result = state.safeApplyResults[item.item_id] || item?.metadata?.safe_apply || null;
+      const resultStatus = result ? String(result.status || '') : '';
+      const resultClass = resultStatus === 'applied' ? 'atlas-ok' : (resultStatus === 'blocked' ? 'atlas-warn' : 'atlas-muted');
+      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')} <span class="atlas-badge">Approved candidate</span>${isPatchDraft ? ' <span class="atlas-badge">Patch Proposal Draft</span>' : ''}<div class="atlas-clarification-actions">${applied ? '<small>Already applied</small>' : safeApplyHtml}<small>Item-level manual apply only. Tests and autopilot continuation are not run.</small><small>Manual safe_apply only. Verification and DebugLoop are not run automatically.</small>${isPatchDraft ? `<small>source proposal id: ${esc(sourceProposalId || '-')}</small><small>target files: ${esc(targetFiles || '-')}</small><small>Verification is not run automatically.</small>` : ''}${resultStatus ? `<small class="${resultClass}">safe_apply result: ${esc(resultStatus)}</small>` : ''}${resultStatus === 'applied' ? '<small>Next: run manual verification from Post-Apply Verification panel.</small>' : ''}</div></div>`;
     }).join('');
     if (!pendingHtml && !candidateHtml) { listEl.innerHTML = 'No approval-required items.'; return; }
     listEl.innerHTML = `<h4>Pending approval items</h4>${pendingHtml || '<small>None</small>'}<h4>Manual safe apply candidates</h4>${candidateHtml || '<small>None</small>'}`;
@@ -880,7 +886,7 @@
     applyOrchestrationSummary(response.orchestration_summary);
     state.continuationPrompt = response.continuation_prompt || state.continuationPrompt;
     await refreshApprovals();
-    if (response.status === 'applied') showSuccess('Manual safe apply completed for item: '+itemId);
+    if (response.status === 'applied') showSuccess('Manual safe apply completed for item: '+itemId+'. Next: run manual verification from Post-Apply Verification panel.');
     else if (response.status === 'simulated') showWarning('Simulated only. No files were applied. item: '+itemId);
     else if (response.status === 'blocked') showWarning('Manual safe apply blocked for item: '+itemId+' ('+(response.warnings||[]).join(',')+')');
     else showError('Manual safe apply failed for item: '+itemId+' ('+(response.warnings||[]).join(',')+')');
