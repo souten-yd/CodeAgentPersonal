@@ -37,3 +37,12 @@
 PR-ATLAS-PIPE-42を実装する。
 Dev Tooling Pack 2として、symbol index、dependency graph、related tests finderを追加する。
 ただし任意コマンド実行、remote git操作、auto rollback、Task/Agent APIは追加しない。
+
+
+### PR-ATLAS-PIPE-42 checkpoint refresh
+- Current PR: PR-ATLAS-PIPE-42
+- Next PR: PR-ATLAS-PIPE-43: Nexus Context Refresh for implementation/debug/evaluation
+- Known Current Code Facts:
+  - PR-42 adds read-only code intelligence tools.
+  - `symbol_index`, `dependency_graph`, `related_tests` are local-only and require `project_path`.
+  - PR-42 does not add arbitrary command execution, remote git operations, auto rollback, or Task/Agent APIs.

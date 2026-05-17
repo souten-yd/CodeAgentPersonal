@@ -26,3 +26,9 @@
 - PR-48: large project module graph / impact analysis
 - PR-49: optional GitHub remote integration
 - PR-50: Autopilot dashboard / run recovery
+
+
+### PR-42 Update
+- `symbol_index`, `dependency_graph`, `related_tests` are local-first and GitHub optional.
+- GitHub auth is only needed for remote operations.
+- Next milestone: PR-43 Nexus Context Refresh for implementation/debug/evaluation.

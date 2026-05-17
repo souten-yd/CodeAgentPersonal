@@ -145,3 +145,21 @@
 
   root.AtlasPipelineAPI = AtlasPipelineAPI;
 })();
+
+export async function getSymbolIndex(payload) {
+  const r = await fetch("/api/atlas/code-intel/symbol-index", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  if (!r.ok) throw new Error(`symbol-index failed: ${r.status}`);
+  return r.json();
+}
+
+export async function getDependencyGraph(payload) {
+  const r = await fetch("/api/atlas/code-intel/dependency-graph", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  if (!r.ok) throw new Error(`dependency-graph failed: ${r.status}`);
+  return r.json();
+}
+
+export async function getRelatedTests(payload) {
+  const r = await fetch("/api/atlas/code-intel/related-tests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  if (!r.ok) throw new Error(`related-tests failed: ${r.status}`);
+  return r.json();
+}
