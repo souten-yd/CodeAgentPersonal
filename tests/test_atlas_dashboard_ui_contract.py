@@ -327,3 +327,11 @@ def test_patch_proposal_planitem_draft_ui_text_contract() -> None:
     assert "PlanItem approval is still required" in (HTML + ATLAS_DASHBOARD_JS)
     for forbidden in ("Apply patch", "Auto apply", "Safe apply now", "Re-run verification", "Continue autopilot", "Run command"):
         assert forbidden not in (HTML + ATLAS_DASHBOARD_JS)
+
+
+def test_verification_panel_shows_patch_proposal_draft_manual_only_copy() -> None:
+    assert "Patch Proposal Draft" in ATLAS_DASHBOARD_JS
+    assert "Manual verification only." in ATLAS_DASHBOARD_JS
+    assert "DebugLoop is not started automatically." in ATLAS_DASHBOARD_JS
+    for forbidden in ("Run all tests", "Auto verify", "Auto fix", "Debug automatically", "Continue autopilot", "Run arbitrary command"):
+        assert forbidden not in HTML + ATLAS_DASHBOARD_JS

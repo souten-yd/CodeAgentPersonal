@@ -796,8 +796,13 @@
     const items = arr(state.verificationCandidates);
     if (!items.length) { host.innerHTML = 'No verification candidates.'; return; }
     host.innerHTML = items.map((item)=>{
+      const safeStatus = String(item?.metadata?.safe_apply?.status || '').toLowerCase();
+      const isPatchDraft = String(item?.metadata?.source || '').toLowerCase() === 'patch_proposal';
+      const sourceProposalId = String(item?.metadata?.source_proposal_id || '');
+      const targetFiles = arr(item?.target_files).join(', ');
       const status = state.verificationResults[item.item_id]?.status || item?.metadata?.verification?.status || '-';
-      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')} <span class="atlas-badge">status: ${esc(status)}</span><div class="atlas-clarification-actions"><button data-verify="${esc(item.item_id)}" type="button">Run Verification</button></div></div>`;
+      const failedNote = status === 'failed' ? '<small>DebugLoop is not automatically started. Use Debug Review panel manually.</small>' : '';
+      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')} <span class="atlas-badge">status: ${esc(status)}</span>${isPatchDraft ? ' <span class="atlas-badge">Patch Proposal Draft</span>' : ''}<div class="atlas-clarification-actions"><button data-verify="${esc(item.item_id)}" type="button">Run Verification</button><small>Manual verification only.</small><small>DebugLoop is not started automatically.</small>${safeStatus ? `<small>safe_apply status: ${esc(safeStatus)}</small>` : ''}${isPatchDraft ? `<small>source proposal id: ${esc(sourceProposalId || '-')}</small><small>target files: ${esc(targetFiles || '-')}</small>` : ''}${failedNote}</div></div>`;
     }).join('');
     host.querySelectorAll('button[data-verify]').forEach((btn)=>btn.addEventListener('click', ()=>runVerification(btn.dataset.verify)));
   }
@@ -812,9 +817,10 @@
     state.planPool = response.plan_pool || state.planPool;
     applyOrchestrationSummary(response.orchestration_summary);
     state.continuationPrompt = response.continuation_prompt || state.continuationPrompt;
-    if (response.status === 'passed') showSuccess('Verification passed: '+itemId);
-    else if (response.status === 'failed') showWarning('Verification failed: '+itemId+' (DebugLoop is not automatically started.)');
+    if (response.status === 'passed') showSuccess('Verification passed: '+itemId+'. Review final result / continue to next PlanItem.');
+    else if (response.status === 'failed') showWarning('Verification failed: '+itemId+'. DebugLoop is not automatically started. Use Debug Review panel manually.');
     else showWarning('Verification blocked: '+itemId+' ('+(response.warnings||[]).join(',')+')');
+    refreshDebugReviewCandidates();
     render();
   }
 
