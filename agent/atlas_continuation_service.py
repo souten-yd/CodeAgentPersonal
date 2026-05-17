@@ -255,15 +255,36 @@ Current Gate:
                 "debug_review_advisory_only": True,
             })
         patch_proposal = self._latest_patch_proposal(pool)
+        patch_proposal_status = ""
         if patch_proposal:
+            patch_proposal_status = str(patch_proposal.get("status") or "")
+            patch_proposal_next_manual_step = ""
+            if patch_proposal_status == "proposed":
+                patch_proposal_next_manual_step = "Review and approve/reject Patch Proposal manually."
+            elif patch_proposal_status == "needs_revision":
+                patch_proposal_next_manual_step = "Generate revised Patch Proposal manually."
+            elif patch_proposal_status == "approved":
+                patch_proposal_next_manual_step = "Convert approved Patch Proposal to manual safe_apply PlanItem draft."
+            elif patch_proposal_status == "rejected":
+                patch_proposal_next_manual_step = "Review rejected Patch Proposal and decide whether to revise manually."
             summary.metadata.update({
-                "patch_proposal_status": str(patch_proposal.get("status") or ""),
+                "patch_proposal_status": patch_proposal_status,
                 "patch_proposal_source": str(patch_proposal.get("source") or ""),
                 "patch_proposal_source_proposal_id": str(patch_proposal.get("source_proposal_id") or ""),
                 "patch_proposal_summary": str(patch_proposal.get("summary") or ""),
                 "patch_proposal_risk_level": str(patch_proposal.get("risk_level") or ""),
                 "patch_proposal_md_path": str(patch_proposal.get("proposal_md_path") or ""),
+                "patch_proposal_next_manual_step": patch_proposal_next_manual_step,
+                "patch_proposal_note": "Patch was not applied automatically. No safe_apply or verification rerun was performed.",
             })
+            if patch_proposal_status == "proposed":
+                summary.next_action = "Review and approve/reject Patch Proposal manually."
+            elif patch_proposal_status == "needs_revision":
+                summary.next_action = "Generate revised Patch Proposal manually."
+            elif patch_proposal_status == "approved":
+                summary.next_action = "Convert approved Patch Proposal to manual safe_apply PlanItem draft."
+            elif patch_proposal_status == "rejected":
+                summary.next_action = "Review rejected Patch Proposal and decide whether to revise manually."
         patch_proposal_planitem_draft = self._latest_patch_proposal_planitem_draft(pool)
         if patch_proposal_planitem_draft:
             summary.metadata.update({
@@ -292,7 +313,7 @@ Current Gate:
                 "verification_auto_debug": bool(verification.get("auto_debug", False)),
                 "verification_note": "DebugLoop was not started automatically." if status == "failed" else "",
             })
-            if status == "failed":
+            if status == "failed" and not patch_proposal_status:
                 summary.next_action = "Run manual Debug Review."
             elif status == "passed":
                 summary.next_action = "Review final result / continue to next PlanItem."
