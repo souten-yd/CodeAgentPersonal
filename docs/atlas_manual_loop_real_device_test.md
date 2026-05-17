@@ -78,3 +78,6 @@
 
 - Current PR: PR-ATLAS-PIPE-36F
 - Next PR: PR-ATLAS-PIPE-37
+
+
+- PR-39B: auto verification pass/fail E2Eを固定。project_pathなしではauto verificationしない。verification失敗時は停止のみ（auto restore/rollbackなし）。次はmanual restore suggestion。
