@@ -62,3 +62,13 @@
 - `confirm_delete_missing_before=true`で作成ファイルを削除できる。
 - auto rollbackはまだない。
 - restoreは手動操作のみ。
+
+
+## PR-ATLAS-PIPE-36E updates
+- Patch Proposal由来のPlanItem Draftでsafe_applyする場合、draft metadataに executor-readable patch/proposed_content があることを確認する。
+- safe_apply後に actual_file_changed / changed_files / workspace_root を確認する。
+- restoreで元に戻せることを確認する。
+- content_missing の場合はPatch Proposalの実変更内容が不足している。
+
+- Current PR: PR-ATLAS-PIPE-36E
+- Next PR: PR-ATLAS-PIPE-37

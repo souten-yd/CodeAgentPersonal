@@ -6,11 +6,11 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 ## Completed PRs
 
-- PR-ATLAS-PIPE-0〜36C: completed
+- PR-ATLAS-PIPE-0〜36D: completed
 
 ## Current PR
 
-- PR-ATLAS-PIPE-36D
+- PR-ATLAS-PIPE-36E
 
 ## Next PR
 
@@ -39,7 +39,13 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - Restore remains manual only.
 - Auto rollback is not enabled.
 - PR-36D finalizes checkpoint/docs and strengthens create/restore E2E coverage.
-- PR-36D does not add auto safe_apply, auto verification, auto DebugReview, auto Patch Proposal, auto rollback, or Task/Agent APIs.
+- PR-36E wires Patch Proposal change content into PlanItem Draft safe_apply.
+- Patch Proposal derived PlanItem Draft can carry executor-readable patch/proposed_content.
+- Manual safe_apply from Patch Proposal draft can update a real file when executable change content exists.
+- Manual restore can revert the change.
+- Restore remains manual only.
+- Auto rollback is not enabled.
+- PR-36E does not add auto safe_apply, auto verification, auto DebugReview, auto Patch Proposal, auto rollback, or Task/Agent APIs.
 
 ## Next Instruction
 

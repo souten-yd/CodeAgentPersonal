@@ -79,6 +79,21 @@ class AtlasFileSafeApplyExecutor:
             if parsed is None:
                 return {"status": "blocked", "reason": "unsupported_patch_format"}
             return {"status": "ok", "content": parsed}
+
+        unified_diff_preview = metadata.get("unified_diff_preview")
+        if isinstance(unified_diff_preview, str) and unified_diff_preview:
+            parsed = self._content_from_unified_diff(unified_diff_preview)
+            if parsed is None:
+                return {"status": "blocked", "reason": "unsupported_patch_format"}
+            return {"status": "ok", "content": parsed}
+
+        proposal_diff = patch_proposal.get("unified_diff_preview") if isinstance(patch_proposal, dict) else None
+        if isinstance(proposal_diff, str) and proposal_diff:
+            parsed = self._content_from_unified_diff(proposal_diff)
+            if parsed is None:
+                return {"status": "blocked", "reason": "unsupported_patch_format"}
+            return {"status": "ok", "content": parsed}
+
         return {"status": "blocked", "reason": "content_missing"}
 
     def _content_from_unified_diff(self, patch: str) -> str | None:

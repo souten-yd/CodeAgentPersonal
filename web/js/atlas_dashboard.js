@@ -928,7 +928,7 @@
       const snapshot = result?.change_snapshot || result?.metadata?.change_snapshot || item?.metadata?.change_snapshot || null;
       const resultStatus = result ? String(result.status || '') : '';
       const resultClass = resultStatus === 'applied' ? 'atlas-ok' : (resultStatus === 'blocked' ? 'atlas-warn' : 'atlas-muted');
-      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')} <span class="atlas-badge">Approved candidate</span>${isPatchDraft ? ' <span class="atlas-badge">Patch Proposal Draft</span>' : ''}<div class="atlas-clarification-actions">${applied ? '<small>Already applied</small>' : safeApplyHtml}<small>Item-level manual apply only. Tests and autopilot continuation are not run.</small><small>Manual safe_apply only. Verification and DebugLoop are not run automatically.</small>${isPatchDraft ? `<small>source proposal id: ${esc(sourceProposalId || '-')}</small><small>target files: ${esc(targetFiles || '-')}</small><small>Verification is not run automatically.</small>` : ''}${resultStatus ? `<small class="${resultClass}">safe_apply result: ${esc(resultStatus)}</small>` : ''}${resultStatus === 'applied' ? '<small>Next: run manual verification from Post-Apply Verification panel.</small>' : ''}${snapshot?.manifest_path ? `<small>Change Snapshot manifest: ${esc(snapshot.manifest_path)}</small><button data-snapshot-restore-manifest="${esc(snapshot.manifest_path)}" data-snapshot-restore-item="${esc(item.item_id)}" type="button">Restore from Snapshot</button><small>Restore is manual only</small><small>Auto rollback is not enabled</small>` : ''}</div></div>`;
+      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')} <span class="atlas-badge">Approved candidate</span>${isPatchDraft ? ' <span class="atlas-badge">Patch Proposal Draft</span>' : ''}<div class="atlas-clarification-actions">${applied ? '<small>Already applied</small>' : safeApplyHtml}<small>Item-level manual apply only. Tests and autopilot continuation are not run.</small><small>Manual safe_apply only. Verification and DebugLoop are not run automatically.</small>${renderPatchContentHint(item)}${isPatchDraft ? `<small>source proposal id: ${esc(sourceProposalId || '-')}</small><small>target files: ${esc(targetFiles || '-')}</small><small>Verification is not run automatically.</small>` : ''}${resultStatus ? `<small class="${resultClass}">safe_apply result: ${esc(resultStatus)}</small>` : ''}${resultStatus === 'applied' ? '<small>Next: run manual verification from Post-Apply Verification panel.</small>' : ''}${snapshot?.manifest_path ? `<small>Change Snapshot manifest: ${esc(snapshot.manifest_path)}</small><button data-snapshot-restore-manifest="${esc(snapshot.manifest_path)}" data-snapshot-restore-item="${esc(item.item_id)}" type="button">Restore from Snapshot</button><small>Restore is manual only</small><small>Auto rollback is not enabled</small>` : ''}</div></div>`;
     }).join('');
     if (!pendingHtml && !candidateHtml) { listEl.innerHTML = 'No approval-required items.'; return; }
     listEl.innerHTML = `<h4>Pending approval items</h4>${pendingHtml || '<small>None</small>'}<h4>Manual safe apply candidates</h4>${candidateHtml || '<small>None</small>'}`;
@@ -938,6 +938,29 @@
   }
 
 
+
+
+  function getPatchSource(item) {
+    const metadata = item?.metadata || {};
+    const patchProposal = metadata?.patch_proposal || {};
+    const candidates = [
+      ['proposed_content', metadata?.proposed_content],
+      ['patch', metadata?.patch],
+      ['unified_diff_preview', metadata?.unified_diff_preview],
+      ['patch_proposal.proposed_content', patchProposal?.proposed_content],
+      ['patch_proposal.unified_diff_preview', patchProposal?.unified_diff_preview],
+    ];
+    for (const [source, value] of candidates) {
+      if (typeof value === 'string' && value.trim()) return source;
+    }
+    return '';
+  }
+
+  function renderPatchContentHint(item) {
+    const source = getPatchSource(item);
+    if (!source) return '<small>executable change content: no</small><small>This draft has no executor-readable patch content.</small>'; 
+    return `<small>executable change content: yes</small><small>patch source: ${esc(source)}</small>`;
+  }
 
   function isSafeApplyEligible(item) {
     const decision = String(item?.metadata?.approval?.decision || '').toLowerCase();
