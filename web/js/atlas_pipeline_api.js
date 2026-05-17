@@ -151,6 +151,18 @@
     getLatestContextRefresh(payload) {
       return atlasFetch('/api/atlas/context-refresh/latest', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+    getEvaluatorPolicies() {
+      return atlasFetch('/api/atlas/evaluator/policies');
+    },
+    runEvaluator(payload) {
+      return atlasFetch('/api/atlas/evaluator/evaluate', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    getEvaluatorResult(poolId, evalId) {
+      return atlasFetch(`/api/atlas/evaluator/results/${encodeURIComponent(poolId)}/${encodeURIComponent(evalId)}`);
+    },
+    getLatestEvaluatorResult(payload) {
+      return atlasFetch('/api/atlas/evaluator/latest', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     submitClarificationAnswers(payload) {
       return atlasFetch("/api/atlas/clarifications/answer", { method: "POST", body: JSON.stringify(payload || {}) });
     },
