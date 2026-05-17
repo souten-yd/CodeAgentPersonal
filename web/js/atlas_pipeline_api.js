@@ -79,6 +79,9 @@
     executeSafeApply(payload) {
       return atlasFetch('/api/atlas/safe-apply/execute', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+    restoreChangeSnapshot(payload) {
+      return atlasFetch('/api/atlas/change-snapshots/restore', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     runVerification(payload) {
       return atlasFetch('/api/atlas/verification/run', { method: 'POST', body: JSON.stringify(payload || {}) });
     },

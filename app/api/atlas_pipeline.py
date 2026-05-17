@@ -39,6 +39,8 @@ from agent.atlas_patch_proposal_approval_schema import AtlasPatchProposalApprova
 from agent.atlas_patch_proposal_approval_service import AtlasPatchProposalApprovalService
 from agent.atlas_patch_proposal_planitem_schema import AtlasPatchProposalPlanItemDraftRequest, AtlasPatchProposalPlanItemDraftResult
 from agent.atlas_patch_proposal_planitem_service import AtlasPatchProposalPlanItemDraftService
+from agent.atlas_change_snapshot_restore_schema import AtlasChangeSnapshotRestoreRequest, AtlasChangeSnapshotRestoreResult
+from agent.atlas_change_snapshot_restore_service import AtlasChangeSnapshotRestoreService
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 
 
@@ -836,6 +838,15 @@ def decide_approval(req: AtlasApprovalDecisionRequest, request: Request) -> Atla
     return AtlasApprovalDecisionResponse(pool_id=req.pool_id, item_id=req.item_id, decision=req.decision, status=pool.status, approval_record=approval_record, plan_pool=_model_dump(pool), recovery_summary=recovery, orchestration_summary=orchestration, continuation_prompt=continuation)
 
 
+
+
+@router.post("/change-snapshots/restore", response_model=AtlasChangeSnapshotRestoreResult)
+def restore_change_snapshot(req: AtlasChangeSnapshotRestoreRequest, request: Request) -> AtlasChangeSnapshotRestoreResult:
+    if ".." in req.pool_id or (req.item_id and ".." in req.item_id):
+        raise HTTPException(status_code=400, detail="invalid id")
+    _, _, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    service = AtlasChangeSnapshotRestoreService(journal=journal)
+    return service.restore(req)
 @router.post("/safe-apply/execute", response_model=AtlasSafeApplyExecutionResult)
 def execute_safe_apply(req: AtlasSafeApplyExecutionRequest, request: Request) -> AtlasSafeApplyExecutionResult:
     if ".." in req.pool_id or ".." in req.item_id:
