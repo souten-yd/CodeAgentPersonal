@@ -87,6 +87,12 @@ Current Gate:
 - patch_proposal_planitem_draft_item_id: {summary.metadata.get("patch_proposal_planitem_draft_item_id", "")}
 - patch_proposal_planitem_draft_md_path: {summary.metadata.get("patch_proposal_planitem_draft_md_path", "")}
 - patch_proposal_planitem_draft_note: Draft created only. PlanItem approval is still required before manual safe_apply.
+- verification_status: {summary.metadata.get("verification_status", "")}
+- verification_source: {summary.metadata.get("verification_source", "")}
+- verification_source_proposal_id: {summary.metadata.get("verification_source_proposal_id", "")}
+- verification_manual_only: {str(bool(summary.metadata.get("verification_manual_only", False))).lower()}
+- verification_auto_debug: {str(bool(summary.metadata.get("verification_auto_debug", False))).lower()}
+- verification_note: {summary.metadata.get("verification_note", "")}
 
 重要方針:
 - Task独立機能は廃止。
@@ -264,6 +270,21 @@ Current Gate:
             })
             if decision == "approved":
                 summary.next_action = "Convert approved Patch Proposal to manual safe_apply PlanItem draft."
+        verification = self._latest_verification(pool)
+        if verification:
+            status = str(verification.get("status") or "")
+            summary.metadata.update({
+                "verification_status": status,
+                "verification_source": str(verification.get("source") or ""),
+                "verification_source_proposal_id": str(verification.get("source_proposal_id") or ""),
+                "verification_manual_only": bool(verification.get("manual_only", False)),
+                "verification_auto_debug": bool(verification.get("auto_debug", False)),
+                "verification_note": "DebugLoop was not started automatically." if status == "failed" else "",
+            })
+            if status == "failed":
+                summary.next_action = "Run manual Debug Review."
+            elif status == "passed":
+                summary.next_action = "Review final result / continue to next PlanItem."
         summary.metadata["checkpoint_excerpt"] = self.read_checkpoint_excerpt(summary.pool_id, max_chars=4000)
         summary.continuation_prompt = self.build_prompt(summary)
         return summary
@@ -333,4 +354,17 @@ Current Gate:
             created_at = str(draft.get("created_at") or "")
             if not latest or created_at >= str(latest.get("created_at") or ""):
                 latest = dict(draft)
+        return latest
+
+    def _latest_verification(self, pool) -> dict[str, Any]:
+        latest: dict[str, Any] = {}
+        if pool is None:
+            return latest
+        for item in pool.items:
+            verification = dict((item.metadata or {}).get("verification") or {})
+            if not verification:
+                continue
+            verified_at = str(verification.get("verified_at") or "")
+            if not latest or verified_at >= str(latest.get("verified_at") or ""):
+                latest = dict(verification)
         return latest

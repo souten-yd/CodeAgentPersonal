@@ -89,8 +89,16 @@ class AtlasVerificationGateService:
 
     def mark_item_from_verification(self, pool: AtlasPlanPool, item: AtlasPlanItem, result: dict) -> None:
         status = str(result.get("status") or "").lower()
+        safe_apply_meta = (item.metadata or {}).get("safe_apply") or {}
         item.metadata.setdefault("verification", {})
-        item.metadata["verification"].update({"status": status, "verified_at": datetime.now(timezone.utc).isoformat()})
+        item.metadata["verification"].update({
+            "status": status,
+            "verified_at": datetime.now(timezone.utc).isoformat(),
+            "source": safe_apply_meta.get("source") or "",
+            "source_proposal_id": safe_apply_meta.get("source_proposal_id") or "",
+            "manual_only": True,
+            "auto_debug": False,
+        })
 
     def _append_event(self, pool_id: str, run_id: str, event_type: str, item: AtlasPlanItem | None, *, status: str, warnings: list[str] | None = None, execution_record_json: str = '', execution_record_md: str = '') -> None:
         if not run_id:
