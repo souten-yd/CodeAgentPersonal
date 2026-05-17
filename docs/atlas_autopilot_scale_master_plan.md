@@ -32,3 +32,10 @@
 - `symbol_index`, `dependency_graph`, `related_tests` are local-first and GitHub optional.
 - GitHub auth is only needed for remote operations.
 - Next milestone: PR-43 Nexus Context Refresh for implementation/debug/evaluation.
+
+## PR-ATLAS-PIPE-43 Context Refresh
+- Adds bounded local-first Nexus Context Refresh bundles.
+- Web/Deep Research require explicit manual policy and budget.
+- No side effects: no safe_apply/verification/debug/patch/restore/rollback.
+- Next: PR-ATLAS-PIPE-44 LLM Evaluator uses context bundle + diff/tests.
+

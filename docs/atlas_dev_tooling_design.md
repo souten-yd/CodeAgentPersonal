@@ -54,3 +54,10 @@
 - Per-file read failures are skipped safely without aborting whole indexing/graph runs.
 - `related_tests` now returns structured `verification_hint` instead of arbitrary command arrays.
 - Dependency graph edges now include target resolution metadata (`raw_target`, `resolved_target_path`, `resolution`) when possible.
+
+## PR-ATLAS-PIPE-43 Context Refresh
+- Adds bounded local-first Nexus Context Refresh bundles.
+- Web/Deep Research require explicit manual policy and budget.
+- No side effects: no safe_apply/verification/debug/patch/restore/rollback.
+- Next: PR-ATLAS-PIPE-44 LLM Evaluator uses context bundle + diff/tests.
+
