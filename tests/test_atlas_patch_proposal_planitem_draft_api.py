@@ -107,3 +107,60 @@ def test_ui_contract_for_draft_controls():
     assert 'PlanItem approval is still required' in dash
     for forbidden in ['Apply patch', 'Auto apply', 'Safe apply now', 'Re-run verification', 'Continue autopilot', 'Run command']:
         assert forbidden not in (api + dash)
+
+
+def test_planitem_draft_appears_in_approval_required_items(tmp_path):
+    c = _client(tmp_path); pool_id, item_id = _seed_pool(c); _set_patch(c, pool_id, item_id)
+    body = c.post('/api/atlas/patch-proposals/planitem-draft', json={"pool_id": pool_id, "item_id": item_id}).json()
+    draft_item_id = body["draft_item"]["draft_item_id"]
+    approvals = c.get(f"/api/atlas/approvals/pools/{pool_id}").json()
+    assert any(it["item_id"] == draft_item_id for it in approvals["approval_required_items"])
+    assert approvals["pending_count"] >= 1
+
+
+def test_planitem_draft_can_be_approved_by_existing_approval_gate(tmp_path):
+    c = _client(tmp_path); pool_id, item_id = _seed_pool(c); _set_patch(c, pool_id, item_id)
+    body = c.post('/api/atlas/patch-proposals/planitem-draft', json={"pool_id": pool_id, "item_id": item_id}).json()
+    draft_item_id = body["draft_item"]["draft_item_id"]
+    c.post('/api/atlas/approvals/decide', json={"pool_id": pool_id, "item_id": draft_item_id, "decision": "approved"})
+    pool = c.get(f"/api/atlas/plan-pools/{pool_id}").json()["plan_pool"]
+    draft = next(it for it in pool["items"] if it["item_id"] == draft_item_id)
+    assert draft["metadata"]["approval"]["decision"] == "approved"
+    assert draft["status"] in {"ready", "approved", "completed"}
+
+
+def test_approved_draft_becomes_safe_apply_candidate(tmp_path):
+    c = _client(tmp_path); pool_id, item_id = _seed_pool(c); _set_patch(c, pool_id, item_id)
+    body = c.post('/api/atlas/patch-proposals/planitem-draft', json={"pool_id": pool_id, "item_id": item_id}).json()
+    draft_item_id = body["draft_item"]["draft_item_id"]
+    c.post('/api/atlas/approvals/decide', json={"pool_id": pool_id, "item_id": draft_item_id, "decision": "approved"})
+    approvals = c.get(f"/api/atlas/approvals/pools/{pool_id}").json()
+    assert any(it["item_id"] == draft_item_id for it in approvals["safe_apply_candidate_items"])
+
+
+def test_approved_draft_safe_apply_without_executor_is_blocked(tmp_path):
+    c = _client(tmp_path); pool_id, item_id = _seed_pool(c); _set_patch(c, pool_id, item_id)
+    body = c.post('/api/atlas/patch-proposals/planitem-draft', json={"pool_id": pool_id, "item_id": item_id}).json()
+    draft_item_id = body["draft_item"]["draft_item_id"]
+    c.post('/api/atlas/approvals/decide', json={"pool_id": pool_id, "item_id": draft_item_id, "decision": "approved"})
+    for key in ("atlas_safe_apply_adapter", "atlas_implementation_executor"):
+        if hasattr(main.app.state, key):
+            delattr(main.app.state, key)
+    result = c.post('/api/atlas/safe-apply/execute', json={"pool_id": pool_id, "item_id": draft_item_id, "run_id": "run_draft_1"}).json()
+    assert result["status"] == "blocked"
+    assert "safe_apply_executor_unavailable" in result["warnings"]
+    pool = c.get(f"/api/atlas/plan-pools/{pool_id}").json()["plan_pool"]
+    draft = next(it for it in pool["items"] if it["item_id"] == draft_item_id)
+    assert draft["status"] != "completed"
+
+
+def test_planitem_draft_flow_does_not_auto_execute(tmp_path):
+    c = _client(tmp_path); pool_id, item_id = _seed_pool(c); _set_patch(c, pool_id, item_id)
+    c.post('/api/atlas/patch-proposals/planitem-draft', json={"pool_id": pool_id, "item_id": item_id, "run_id": "run_no_auto"}).json()
+    events_path = Path(tmp_path) / 'atlas' / 'workspaces' / 'default' / 'plan_pools' / pool_id / 'pipeline_runs' / 'run_no_auto' / 'events.ndjson'
+    events = events_path.read_text(encoding='utf-8') if events_path.exists() else ''
+    for forbidden_event in ("safe_apply_manual_", "verification_", "debug_loop", "test_command"):
+        assert forbidden_event not in events
+    source = Path('agent/atlas_patch_proposal_planitem_service.py').read_text(encoding='utf-8')
+    for token in ["safe_apply(", "execute_safe_apply", "runVerification", "TestCommandRunner(", "DebugLoopRunner(", "ImplementationExecutor", "subprocess", "shell=True", "run_command("]:
+        assert token not in source

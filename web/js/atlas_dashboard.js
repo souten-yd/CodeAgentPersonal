@@ -746,9 +746,11 @@
     state.patchProposalDraftSubmitting = false;
     if (result.ok) {
       state.patchProposalDraftResults[itemId] = result.data || {};
+      state.planPool = result.data?.plan_pool || state.planPool;
       applyOrchestrationSummary(result.data?.orchestration_summary);
       state.continuationPrompt = result.data?.continuation_prompt || state.continuationPrompt;
       await refreshPlanPool();
+      await refreshApprovals();
     } else showWarning(result.message || 'Patch proposal PlanItem draft failed');
     renderPatchProposalPanel();
   }
