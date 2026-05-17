@@ -6,11 +6,11 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 ## Completed PRs
 
-- PR-ATLAS-PIPE-0〜36D: completed
+- PR-ATLAS-PIPE-0〜36E: completed
 
 ## Current PR
 
-- PR-ATLAS-PIPE-36E
+- PR-ATLAS-PIPE-36F
 
 ## Next PR
 
@@ -46,6 +46,10 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - Restore remains manual only.
 - Auto rollback is not enabled.
 - PR-36E does not add auto safe_apply, auto verification, auto DebugReview, auto Patch Proposal, auto rollback, or Task/Agent APIs.
+- PR-36F hardens Patch Proposal draft safe_apply E2E assertions.
+- E2E now verifies actual file content changes from old to new.
+- Manual restore is verified to return file content to old.
+- content_missing cannot pass as applied.
 
 ## Next Instruction
 
