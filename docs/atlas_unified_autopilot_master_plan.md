@@ -249,3 +249,7 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 - Patch Proposalは提案レビューのみ。
 - 実適用はまだ禁止。
 - 次はPatch Proposal approval gate。
+
+- Patch Proposal approvalは記録のみ
+- 実適用はまだ禁止
+- 次はapproved proposalをsafe_apply PlanItem draftへ変換

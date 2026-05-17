@@ -35,6 +35,8 @@ from agent.atlas_debug_review_schema import AtlasDebugReviewRequest, AtlasDebugR
 from agent.atlas_debug_review_service import AtlasDebugReviewService
 from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest, AtlasPatchProposalResult
 from agent.atlas_patch_proposal_service import AtlasPatchProposalService
+from agent.atlas_patch_proposal_approval_schema import AtlasPatchProposalApprovalRequest, AtlasPatchProposalApprovalResult
+from agent.atlas_patch_proposal_approval_service import AtlasPatchProposalApprovalService
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 
 
@@ -728,6 +730,33 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
         result.warnings.append("patch_proposal_enrichment_failed")
         result.warnings.append(str(exc) or exc.__class__.__name__)
     return result
+
+
+@router.post("/patch-proposals/decide", response_model=AtlasPatchProposalApprovalResult)
+def decide_patch_proposal(req: AtlasPatchProposalApprovalRequest, request: Request) -> AtlasPatchProposalApprovalResult:
+    if ".." in req.pool_id or ".." in req.item_id:
+        raise HTTPException(status_code=400, detail="invalid identifier")
+    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
+    service = AtlasPatchProposalApprovalService(journal=journal, storage=storage)
+    try:
+        result = service.decide(req)
+    except FileNotFoundError:
+        result = AtlasPatchProposalApprovalResult(pool_id=req.pool_id, item_id=req.item_id, proposal_id=req.proposal_id, status="blocked", warnings=["pool_not_found"])
+    try:
+        pool = storage.load_pool(req.pool_id)
+        recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
+        orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None, recovery=recovery).model_dump()
+        continuation = AtlasContinuationService(journal).build_pool_summary(req.pool_id, req.run_id)
+        result.plan_pool = pool.model_dump()
+        result.recovery_summary = recovery
+        result.orchestration_summary = orchestration
+        result.continuation_prompt = continuation.continuation_prompt
+    except Exception as exc:
+        result.warnings.append("patch_proposal_approval_enrichment_failed")
+        result.warnings.append(str(exc) or exc.__class__.__name__)
+    return result
+
 @router.get("/recovery/latest", response_model=RecoveryResponse)
 def get_recovery_latest(request: Request, workspace_id: str = "default") -> RecoveryResponse:
     _, _, journal = _atlas_components(request, workspace_id=workspace_id)

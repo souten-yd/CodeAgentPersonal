@@ -88,6 +88,9 @@
     generatePatchProposal(payload) {
       return atlasFetch('/api/atlas/patch-proposals/generate', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+    decidePatchProposal(payload) {
+      return atlasFetch('/api/atlas/patch-proposals/decide', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     submitClarificationAnswers(payload) {
       return atlasFetch("/api/atlas/clarifications/answer", { method: "POST", body: JSON.stringify(payload || {}) });
     },

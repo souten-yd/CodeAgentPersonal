@@ -292,3 +292,14 @@ def test_patch_proposal_ui_contract() -> None:
     assert 'generatePatchProposal(itemId)' in ATLAS_DASHBOARD_JS
     for forbidden in ('Apply patch', 'Auto apply', 'Safe apply now', 'Re-run verification', 'Continue autopilot', 'Run command'):
         assert forbidden not in HTML + ATLAS_DASHBOARD_JS
+
+
+def test_patch_proposal_approval_ui_contract() -> None:
+    assert "decidePatchProposal(payload)" in ATLAS_API_JS
+    assert "decidePatchProposal(itemId, decision)" in ATLAS_DASHBOARD_JS
+    assert "Approve Proposal" in (HTML + ATLAS_DASHBOARD_JS)
+    assert "Reject Proposal" in (HTML + ATLAS_DASHBOARD_JS)
+    assert "Needs Revision" in (HTML + ATLAS_DASHBOARD_JS)
+    assert "Approval only" in HTML
+    for forbidden in ("Apply patch", "Auto apply", "Safe apply now", "Re-run verification", "Continue autopilot", "Run command"):
+        assert forbidden not in (HTML + ATLAS_DASHBOARD_JS)

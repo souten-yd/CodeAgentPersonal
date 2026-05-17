@@ -79,6 +79,10 @@ Current Gate:
 - patch_proposal_risk_level: {summary.metadata.get("patch_proposal_risk_level", "")}
 - patch_proposal_md_path: {summary.metadata.get("patch_proposal_md_path", "")}
 - patch_proposal_note: proposal only, no patch/safe_apply/reverification was run
+- patch_proposal_approval_decision: {summary.metadata.get("patch_proposal_approval_decision", "")}
+- patch_proposal_approval_reason: {summary.metadata.get("patch_proposal_approval_reason", "")}
+- patch_proposal_approval_md_path: {summary.metadata.get("patch_proposal_approval_md_path", "")}
+- patch_proposal_approval_note: approval only, no patch/safe_apply/reverification was run
 
 重要方針:
 - Task独立機能は廃止。
@@ -239,6 +243,13 @@ Current Gate:
                 "patch_proposal_risk_level": str(patch_proposal.get("risk_level") or ""),
                 "patch_proposal_md_path": str(patch_proposal.get("proposal_md_path") or ""),
             })
+        patch_proposal_approval = self._latest_patch_proposal_approval(pool)
+        if patch_proposal_approval:
+            summary.metadata.update({
+                "patch_proposal_approval_decision": str(patch_proposal_approval.get("decision") or ""),
+                "patch_proposal_approval_reason": str(patch_proposal_approval.get("reason") or ""),
+                "patch_proposal_approval_md_path": str(patch_proposal_approval.get("approval_md_path") or ""),
+            })
         summary.metadata["checkpoint_excerpt"] = self.read_checkpoint_excerpt(summary.pool_id, max_chars=4000)
         summary.continuation_prompt = self.build_prompt(summary)
         return summary
@@ -255,6 +266,20 @@ Current Gate:
             reviewed_at = str(debug.get("reviewed_at") or "")
             if not latest or reviewed_at >= str(latest.get("reviewed_at") or ""):
                 latest = dict(debug)
+        return latest
+
+
+    def _latest_patch_proposal_approval(self, pool) -> dict[str, Any]:
+        latest: dict[str, Any] = {}
+        if pool is None:
+            return latest
+        for item in pool.items:
+            approval = dict((item.metadata or {}).get("patch_proposal_approval") or {})
+            if not approval:
+                continue
+            decided_at = str(approval.get("decided_at") or "")
+            if not latest or decided_at >= str(latest.get("decided_at") or ""):
+                latest = dict(approval)
         return latest
 
     def _latest_patch_proposal(self, pool) -> dict[str, Any]:
@@ -279,3 +304,5 @@ Current Gate:
         if orchestration.is_stale:
             return "stale"
         return "none"
+
+
