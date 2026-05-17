@@ -54,7 +54,7 @@ class AtlasPatchProposalPlanItemDraftService:
                 metadata=dict(draft_item.metadata or {}),
             )
             json_path, md_path = self.save_draft_record(pool.pool_id, source_item.item_id, draft)
-            result = AtlasPatchProposalPlanItemDraftResult(pool_id=pool.pool_id, item_id=source_item.item_id, proposal_id=draft.source_proposal_id, status="drafted", draft_item=draft, metadata={"draft_json_path": json_path, "draft_md_path": md_path})
+            result = AtlasPatchProposalPlanItemDraftResult(pool_id=pool.pool_id, item_id=source_item.item_id, proposal_id=draft.source_proposal_id, status="created", draft_item=draft, metadata={"draft_json_path": json_path, "draft_md_path": md_path})
             self.mark_source_item_from_draft(pool, source_item, draft_item, result)
             self.storage.save_pool(pool)
             self.journal.save_plan_pool(pool)
@@ -71,7 +71,7 @@ class AtlasPatchProposalPlanItemDraftService:
         patch = dict((item.metadata or {}).get("patch_proposal") or {})
         approval = dict((item.metadata or {}).get("patch_proposal_approval") or {})
         if str(patch.get("status") or "").lower() != "approved": warnings.append("patch_proposal_not_approved")
-        if str(approval.get("decision") or "").lower() != "approved": warnings.append("patch_proposal_approval_missing")
+        if str(approval.get("decision") or "").lower() != "approved": warnings.append("patch_proposal_approval_not_approved")
         req_pid = str(request.proposal_id or "").strip()
         if req_pid and req_pid != str(patch.get("proposal_id") or "").strip(): warnings.append("proposal_id_mismatch")
         target_files = list(patch.get("target_files") or [])
@@ -79,7 +79,7 @@ class AtlasPatchProposalPlanItemDraftService:
         if any(Path(str(p)).is_absolute() or ".." in Path(str(p)).parts for p in target_files): warnings.append("unsafe_target_files")
         if str(patch.get("risk_level") or "").lower() != "low": warnings.append("patch_proposal_risk_not_low")
         if (item.metadata or {}).get("patch_proposal_planitem_draft", {}).get("draft_item_id"):
-            warnings.append("patch_proposal_planitem_already_drafted")
+            warnings.append("draft_already_exists")
         return len(warnings) == 0, warnings
 
     def build_draft_item(self, pool, item, request) -> AtlasPlanItem:
@@ -101,6 +101,7 @@ class AtlasPatchProposalPlanItemDraftService:
             "manual_safe_apply_required": True,
             "auto_execute": False,
             "auto_verification": False,
+            "requires_planitem_approval": True,
             "action_type": "update",
             "expected_changes": list(patch.get("suggested_changes") or []),
         }
@@ -144,6 +145,12 @@ class AtlasPatchProposalPlanItemDraftService:
         source_item.metadata["patch_proposal_planitem_draft"].update({
             "status": result.status,
             "draft_item_id": draft_item.item_id,
+            "source_proposal_id": str((source_item.metadata.get("patch_proposal") or {}).get("proposal_id") or ""),
+            "source": "patch_proposal_planitem_draft",
+            "manual_only": True,
+            "auto_planitem_approval": False,
+            "auto_safe_apply": False,
+            "auto_verification": False,
             "draft_md_path": str((result.metadata or {}).get("draft_md_path") or ""),
             "draft_json_path": str((result.metadata or {}).get("draft_json_path") or ""),
             "created_at": datetime.now(timezone.utc).isoformat(),

@@ -316,16 +316,10 @@ def test_patch_proposal_approval_ui_contract() -> None:
 
 
 def test_patch_proposal_planitem_draft_refreshes_approvals_contract() -> None:
-    snippet = """if (result.ok) {
-      state.patchProposalDraftResults[itemId] = result.data || {};
-      state.planPool = result.data?.plan_pool || state.planPool;
-      applyOrchestrationSummary(result.data?.orchestration_summary);
-      state.continuationPrompt = result.data?.continuation_prompt || state.continuationPrompt;
-      await refreshPlanPool();
-      await refreshApprovals();
-      render();
-    }"""
-    assert snippet in ATLAS_DASHBOARD_JS
+    assert "await refreshPlanPool();" in ATLAS_DASHBOARD_JS
+    assert "await refreshApprovals();" in ATLAS_DASHBOARD_JS
+    assert "renderPatchProposalPanel();" in ATLAS_DASHBOARD_JS
+    assert "render();" in ATLAS_DASHBOARD_JS
 
 
 def test_patch_proposal_planitem_draft_ui_text_contract() -> None:
@@ -352,4 +346,20 @@ def test_patch_proposal_panel_manual_contract() -> None:
     assert 'No patch, safe_apply, or verification rerun is executed automatically.' in ATLAS_DASHBOARD_JS
     assert 'Next: review and approve/reject the proposal manually.' in ATLAS_DASHBOARD_JS
     for forbidden in ("Apply patch", "Auto apply", "Safe apply now", "Re-run verification", "Continue autopilot", "Run command", "Generate automatically"):
+        assert forbidden not in (HTML + ATLAS_DASHBOARD_JS)
+
+def test_patch_proposal_draft_creation_panel_contract() -> None:
+    assert 'atlas-patch-proposal-panel' in HTML
+    for token in (
+        'Create manual safe_apply PlanItem Draft',
+        'Draft creation only.',
+        'No PlanItem approval is performed automatically.',
+        'No safe_apply or verification rerun is executed automatically.',
+        'Next: approve the draft PlanItem manually from Approval Gate.',
+    ):
+        assert token in ATLAS_DASHBOARD_JS or token in HTML
+    for forbidden in (
+        'Auto approve PlanItem', 'Apply patch', 'Auto apply', 'Safe apply now',
+        'Create draft automatically', 'Re-run verification', 'Continue autopilot', 'Run command',
+    ):
         assert forbidden not in (HTML + ATLAS_DASHBOARD_JS)

@@ -94,7 +94,8 @@ Current Gate:
 - patch_proposal_planitem_draft_status: {summary.metadata.get("patch_proposal_planitem_draft_status", "")}
 - patch_proposal_planitem_draft_item_id: {summary.metadata.get("patch_proposal_planitem_draft_item_id", "")}
 - patch_proposal_planitem_draft_md_path: {summary.metadata.get("patch_proposal_planitem_draft_md_path", "")}
-- patch_proposal_planitem_draft_note: Draft created only. PlanItem approval is still required before manual safe_apply.
+- patch_proposal_planitem_draft_manual_only: {str(bool(summary.metadata.get("patch_proposal_planitem_draft_manual_only", False))).lower()}
+- patch_proposal_planitem_draft_note: Draft was created only. PlanItem approval, safe_apply, and verification were not run automatically.
 - verification_status: {summary.metadata.get("verification_status", "")}
 - verification_source: {summary.metadata.get("verification_source", "")}
 - verification_source_proposal_id: {summary.metadata.get("verification_source_proposal_id", "")}
@@ -288,10 +289,13 @@ Current Gate:
                 summary.next_action = "Review rejected Patch Proposal and decide whether to revise manually."
         patch_proposal_planitem_draft = self._latest_patch_proposal_planitem_draft(pool)
         if patch_proposal_planitem_draft:
+            summary.next_action = "Approve draft PlanItem manually from Approval Gate."
             summary.metadata.update({
                 "patch_proposal_planitem_draft_status": str(patch_proposal_planitem_draft.get("status") or ""),
                 "patch_proposal_planitem_draft_item_id": str(patch_proposal_planitem_draft.get("draft_item_id") or ""),
                 "patch_proposal_planitem_draft_md_path": str(patch_proposal_planitem_draft.get("draft_md_path") or ""),
+                "patch_proposal_planitem_draft_manual_only": bool(patch_proposal_planitem_draft.get("manual_only", False)),
+                "patch_proposal_planitem_draft_note": "Draft was created only. PlanItem approval, safe_apply, and verification were not run automatically.",
             })
         patch_proposal_approval = self._latest_patch_proposal_approval(pool)
         if patch_proposal_approval:
@@ -304,7 +308,10 @@ Current Gate:
                 "patch_proposal_approval_note": "Approval was recorded only. No PlanItem draft, patch, safe_apply, or verification rerun was performed.",
             })
             if decision == "approved":
-                summary.next_action = "Create manual safe_apply PlanItem Draft."
+                if patch_proposal_planitem_draft:
+                    summary.next_action = "Approve draft PlanItem manually from Approval Gate."
+                else:
+                    summary.next_action = "Create manual safe_apply PlanItem Draft."
             elif decision == "rejected":
                 summary.next_action = "Review rejected Patch Proposal and decide whether to revise manually."
             elif decision == "needs_revision":

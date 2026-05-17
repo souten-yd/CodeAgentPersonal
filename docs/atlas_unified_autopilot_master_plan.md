@@ -1,6 +1,6 @@
 # Atlas Unified Autopilot Master Plan
 
-## Current Delivery Status (PR-ATLAS-PIPE-31)
+## Current Delivery Status (PR-ATLAS-PIPE-32)
 
 - approved Patch Proposal → PlanItem draft → Approval Gate → manual safe_apply → manual verification → manual DebugReview → manual Patch Proposal まで固定済み。
 - Patch Proposal generation remains manual only.
@@ -265,3 +265,8 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 - approved Patch Proposal → PlanItem draft → Approval Gate → manual safe_apply candidate までをPR-26Bで固定
 - 実行は引き続き手動
 - 次はapproved draft PlanItemのmanual safe_apply UX/E2E
+
+
+- approved Patch Proposal → manual PlanItem draft creation までをPR-32で固定
+- PlanItem approvalは引き続き手動
+- 次はgenerated draft → manual PlanItem approval UX/E2E

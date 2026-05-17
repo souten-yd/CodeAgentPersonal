@@ -45,13 +45,13 @@ def test_planitem_draft_requires_approved_patch_proposal(tmp_path):
 def test_planitem_draft_requires_approval_decision(tmp_path):
     c = _client(tmp_path); pool_id, item_id = _seed_pool(c); _set_patch(c, pool_id, item_id, approval=False)
     r = c.post('/api/atlas/patch-proposals/planitem-draft', json={"pool_id": pool_id, "item_id": item_id})
-    assert r.json()["status"] == "blocked" and "patch_proposal_approval_missing" in r.json()["warnings"]
+    assert r.json()["status"] == "blocked" and "patch_proposal_approval_not_approved" in r.json()["warnings"]
 
 
 def test_planitem_draft_creates_approval_required_planitem(tmp_path):
     c = _client(tmp_path); pool_id, item_id = _seed_pool(c); _set_patch(c, pool_id, item_id)
     body = c.post('/api/atlas/patch-proposals/planitem-draft', json={"pool_id": pool_id, "item_id": item_id}).json()
-    d = body["draft_item"]; assert body["status"] == "drafted"; assert d["status"] == "approval_required"; assert d["requires_user_confirmation"] is True
+    d = body["draft_item"]; assert body["status"] == "created"; assert d["status"] == "approval_required"; assert d["requires_user_confirmation"] is True
     assert d["metadata"]["source"] == "patch_proposal" and d["metadata"]["manual_safe_apply_required"] is True and d["metadata"]["auto_execute"] is False
 
 
@@ -65,7 +65,7 @@ def test_planitem_draft_blocks_duplicate_creation(tmp_path):
     c = _client(tmp_path); pool_id, item_id = _seed_pool(c); _set_patch(c, pool_id, item_id)
     c.post('/api/atlas/patch-proposals/planitem-draft', json={"pool_id": pool_id, "item_id": item_id})
     b = c.post('/api/atlas/patch-proposals/planitem-draft', json={"pool_id": pool_id, "item_id": item_id}).json()
-    assert b["status"] == "blocked" and "patch_proposal_planitem_already_drafted" in b["warnings"]
+    assert b["status"] == "blocked" and "draft_already_exists" in b["warnings"]
 
 
 def test_planitem_draft_blocks_unsafe_target_files(tmp_path):
@@ -104,7 +104,7 @@ def test_ui_contract_for_draft_controls():
     assert 'createPatchProposalPlanItemDraft(payload)' in api
     assert 'createPatchProposalPlanItemDraft(itemId)' in dash
     assert 'Create manual safe_apply PlanItem Draft' in dash
-    assert 'PlanItem approval is still required' in dash
+    assert 'No PlanItem approval is performed automatically.' in dash
     for forbidden in ['Apply patch', 'Auto apply', 'Safe apply now', 'Re-run verification', 'Continue autopilot', 'Run command']:
         assert forbidden not in (api + dash)
 

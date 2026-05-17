@@ -1,13 +1,14 @@
 # Atlas Unified Autopilot PR Backlog
 
-## Sequencing Status (Updated in PR-ATLAS-PIPE-31)
+## Sequencing Status (Updated in PR-ATLAS-PIPE-32)
 
 - PR-ATLAS-PIPE-29: completed
 - PR-ATLAS-PIPE-29B: completed
 - PR-ATLAS-PIPE-30: completed
 - PR-ATLAS-PIPE-30B: completed
-- PR-ATLAS-PIPE-31: current
-- PR-ATLAS-PIPE-32: next
+- PR-ATLAS-PIPE-31: completed
+- PR-ATLAS-PIPE-32: current
+- PR-ATLAS-PIPE-33: next
 
 ## PR-ATLAS-PIPE-0: 計画書とチャット継続用docs追加
 
