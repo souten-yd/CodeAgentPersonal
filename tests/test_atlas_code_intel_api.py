@@ -15,6 +15,11 @@ def test_code_intel_endpoints_read_only_and_project_path_required(tmp_path):
     ok3 = client.post('/api/atlas/code-intel/related-tests', json={'project_path': str(repo), 'changed_files': ['a.py']})
     assert ok1.status_code == 200 and ok2.status_code == 200 and ok3.status_code == 200
 
+    bad = client.post('/api/atlas/code-intel/symbol-index', json={'project_path': str(repo), 'relative_path': '../x'})
+    assert bad.status_code == 400
+    assert bad.json()['detail']['error'] == 'invalid_request'
+    assert bad.json()['detail']['reason']
+
     for method in ('get', 'put', 'delete', 'patch'):
         resp = getattr(client, method)('/api/atlas/code-intel/symbol-index')
         assert resp.status_code in (404, 405)

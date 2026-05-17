@@ -2,17 +2,16 @@
 
 ## Completed PRs
 
-- PR-ATLAS-PIPE-0〜41: completed
+- PR-ATLAS-PIPE-0〜42: completed
 - PR-SEARXNG-SECRET-SYNC-01: completed
 
 ## Current PR
 
-- PR-ATLAS-PIPE-41B
+- PR-ATLAS-PIPE-42B
 
 ## Next PR
 
-- PR-ATLAS-PIPE-42: Dev Tooling Pack 2 - symbol index, dependency graph, related tests
-
+- PR-ATLAS-PIPE-43: Nexus Context Refresh for implementation/debug/evaluation
 
 ## Important Constraints
 
@@ -23,26 +22,17 @@
 
 ## Known Current Code Facts
 
-- PR-ATLAS-PIPE-34 adds final real-device smoke/checklist and reload recovery checks.
-- PR-ATLAS-PIPE-35 adds Change Snapshot backup before manual safe_apply.
-- PR-40 adds verification failure stop policy and manual restore suggestion.
-- PR-41 adds scalable read-only local repo inspection tools.
-- PR-SEARXNG-SECRET-SYNC-01 fixes Windows SearXNG settings.yml server.secret_key sync.
-- PR-41B creates scale autopilot design docs and reconciles checkpoint.
-- Local repo mode works without GitHub authentication.
-- GitHub authentication is optional and needed only for remote operations.
+- PR-42 adds read-only code intelligence tools.
+- PR-42B hardens Code Intel tools for large repositories.
+- Code Intel supports single-file relative_path, safe per-file read failures, dependency resolution metadata, and safe related test verification hints.
+- PR-42B does not add arbitrary command execution, remote git operations, auto rollback, or Task/Agent APIs.
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-42を実装する。
-Dev Tooling Pack 2として、symbol index、dependency graph、related tests finderを追加する。
-ただし任意コマンド実行、remote git操作、auto rollback、Task/Agent APIは追加しない。
+PR-ATLAS-PIPE-43を実装する。
+Nexus Context Refreshを追加し、implementation/debug/evaluation時に必要な追加情報をNexus経由で取得できるようにする。
+ただし自動Web/DeepResearchの無制限実行は行わず、明示的なbudget/trigger/policyを設ける。
 
-
-### PR-ATLAS-PIPE-42 checkpoint refresh
-- Current PR: PR-ATLAS-PIPE-42
-- Next PR: PR-ATLAS-PIPE-43: Nexus Context Refresh for implementation/debug/evaluation
-- Known Current Code Facts:
-  - PR-42 adds read-only code intelligence tools.
-  - `symbol_index`, `dependency_graph`, `related_tests` are local-only and require `project_path`.
-  - PR-42 does not add arbitrary command execution, remote git operations, auto rollback, or Task/Agent APIs.
+## Historical Compatibility Markers
+- PR-ATLAS-PIPE-34
+- PR-ATLAS-PIPE-35
