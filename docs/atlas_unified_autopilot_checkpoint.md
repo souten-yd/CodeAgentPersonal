@@ -36,3 +36,10 @@ Nexus Context Refreshを追加し、implementation/debug/evaluation時に必要�
 ## Historical Compatibility Markers
 - PR-ATLAS-PIPE-34
 - PR-ATLAS-PIPE-35
+
+## PR-ATLAS-PIPE-43 Context Refresh
+- Adds bounded local-first Nexus Context Refresh bundles.
+- Web/Deep Research require explicit manual policy and budget.
+- No side effects: no safe_apply/verification/debug/patch/restore/rollback.
+- Next: PR-ATLAS-PIPE-44 LLM Evaluator uses context bundle + diff/tests.
+

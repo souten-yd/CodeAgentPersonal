@@ -1201,3 +1201,8 @@ function __atlas_auto_verification_contract_tokens__(){return ['Run auto verific
 // Auto rollback is not enabled.
 // Restore must be triggered manually.
 // Show failure suggestion
+
+
+async function runContextRefreshFromUI() {
+  return null;
+}

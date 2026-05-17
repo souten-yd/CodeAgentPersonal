@@ -138,6 +138,19 @@
     devToolFileOutline(payload) {
       return atlasFetch('/api/atlas/dev-tools/file-outline', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+
+    getContextRefreshPolicies() {
+      return atlasFetch('/api/atlas/context-refresh/policies');
+    },
+    runContextRefresh(payload) {
+      return atlasFetch('/api/atlas/context-refresh/run', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    getContextRefreshBundle(poolId, bundleId) {
+      return atlasFetch(`/api/atlas/context-refresh/bundles/${encodeURIComponent(poolId)}/${encodeURIComponent(bundleId)}`);
+    },
+    getLatestContextRefresh(payload) {
+      return atlasFetch('/api/atlas/context-refresh/latest', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     submitClarificationAnswers(payload) {
       return atlasFetch("/api/atlas/clarifications/answer", { method: "POST", body: JSON.stringify(payload || {}) });
     },

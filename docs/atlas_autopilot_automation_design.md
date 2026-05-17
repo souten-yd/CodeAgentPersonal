@@ -31,3 +31,10 @@
 - 現在は auto rollback しない
 - manual restore suggestion のみ
 - 将来 auto rollback は別 policy で導入
+
+## PR-ATLAS-PIPE-43 Context Refresh
+- Adds bounded local-first Nexus Context Refresh bundles.
+- Web/Deep Research require explicit manual policy and budget.
+- No side effects: no safe_apply/verification/debug/patch/restore/rollback.
+- Next: PR-ATLAS-PIPE-44 LLM Evaluator uses context bundle + diff/tests.
+
