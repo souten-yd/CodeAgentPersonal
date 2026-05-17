@@ -83,6 +83,10 @@ Current Gate:
 - patch_proposal_approval_reason: {summary.metadata.get("patch_proposal_approval_reason", "")}
 - patch_proposal_approval_md_path: {summary.metadata.get("patch_proposal_approval_md_path", "")}
 - patch_proposal_approval_note: approval only, no patch/safe_apply/reverification was run
+- patch_proposal_planitem_draft_status: {summary.metadata.get("patch_proposal_planitem_draft_status", "")}
+- patch_proposal_planitem_draft_item_id: {summary.metadata.get("patch_proposal_planitem_draft_item_id", "")}
+- patch_proposal_planitem_draft_md_path: {summary.metadata.get("patch_proposal_planitem_draft_md_path", "")}
+- patch_proposal_planitem_draft_note: Draft created only. PlanItem approval is still required before manual safe_apply.
 
 重要方針:
 - Task独立機能は廃止。
@@ -243,6 +247,13 @@ Current Gate:
                 "patch_proposal_risk_level": str(patch_proposal.get("risk_level") or ""),
                 "patch_proposal_md_path": str(patch_proposal.get("proposal_md_path") or ""),
             })
+        patch_proposal_planitem_draft = self._latest_patch_proposal_planitem_draft(pool)
+        if patch_proposal_planitem_draft:
+            summary.metadata.update({
+                "patch_proposal_planitem_draft_status": str(patch_proposal_planitem_draft.get("status") or ""),
+                "patch_proposal_planitem_draft_item_id": str(patch_proposal_planitem_draft.get("draft_item_id") or ""),
+                "patch_proposal_planitem_draft_md_path": str(patch_proposal_planitem_draft.get("draft_md_path") or ""),
+            })
         patch_proposal_approval = self._latest_patch_proposal_approval(pool)
         if patch_proposal_approval:
             decision = str(patch_proposal_approval.get("decision") or "")
@@ -309,3 +320,17 @@ Current Gate:
         return "none"
 
 
+
+
+    def _latest_patch_proposal_planitem_draft(self, pool) -> dict[str, Any]:
+        latest: dict[str, Any] = {}
+        if pool is None:
+            return latest
+        for item in pool.items:
+            draft = dict((item.metadata or {}).get("patch_proposal_planitem_draft") or {})
+            if not draft:
+                continue
+            created_at = str(draft.get("created_at") or "")
+            if not latest or created_at >= str(latest.get("created_at") or ""):
+                latest = dict(draft)
+        return latest

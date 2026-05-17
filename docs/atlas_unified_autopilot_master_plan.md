@@ -256,3 +256,7 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 
 - approved/rejected proposalは再生成で上書きしない
 - needs_revision時のみrevision proposalを許可するか、別フローにする
+- approved proposalはPlanItem draftへ変換
+- draftはapproval_required
+- 実適用は既存manual approval + manual safe_apply gateに委ねる
+- 自動実行はまだ禁止

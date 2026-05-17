@@ -52,6 +52,8 @@
     patchProposalCandidates: [],
     patchProposalApprovalResults: {},
     patchProposalApprovalSubmitting: false,
+    patchProposalDraftResults: {},
+    patchProposalDraftSubmitting: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -731,6 +733,25 @@
     renderPatchProposalPanel();
   }
 
+
+
+  async function createPatchProposalPlanItemDraft(itemId) {
+    if (!itemId || state.patchProposalDraftSubmitting || !state.currentPoolId || !root.AtlasPipelineAPI?.createPatchProposalPlanItemDraft) return;
+    const item = getItems().find((row)=>row.item_id===itemId) || {};
+    const proposalId = item?.metadata?.patch_proposal?.proposal_id || '';
+    state.patchProposalDraftSubmitting = true;
+    renderPatchProposalPanel();
+    const payload = { pool_id: state.currentPoolId, item_id: itemId, proposal_id: proposalId, run_id: state.currentRunId || '', workspace_id: workspaceId() };
+    const result = await root.AtlasPipelineAPI.createPatchProposalPlanItemDraft(payload);
+    state.patchProposalDraftSubmitting = false;
+    if (result.ok) {
+      state.patchProposalDraftResults[itemId] = result.data || {};
+      applyOrchestrationSummary(result.data?.orchestration_summary);
+      state.continuationPrompt = result.data?.continuation_prompt || state.continuationPrompt;
+      await refreshPlanPool();
+    } else showWarning(result.message || 'Patch proposal PlanItem draft failed');
+    renderPatchProposalPanel();
+  }
   function renderPatchProposalPanel() {
     const el = $('atlas-patch-proposal-list');
     if (!el) return;
@@ -752,13 +773,19 @@
       const generateLabel = status === 'needs_revision' ? 'Generate Revised Patch Proposal' : 'Generate Patch Proposal';
       const showGenerate = status !== 'approved' && status !== 'rejected';
       const generateBtn = showGenerate ? `<button class="atlas-secondary-btn" data-patch-proposal-item="${esc(item.item_id)}" ${state.patchProposalSubmitting?'disabled':''}>${generateLabel}</button>` : '';
+      const draftInfo = item?.metadata?.patch_proposal_planitem_draft || {};
+      const draftItemId = draftInfo.draft_item_id || state.patchProposalDraftResults[item.item_id]?.draft_item?.draft_item_id || '';
+      const draftAction = status === 'approved'
+        ? (draftItemId ? `<br>Draft created: ${esc(draftItemId)}` : `<div class="atlas-clarification-actions"><button class="atlas-secondary-btn" data-patch-proposal-draft-item="${esc(item.item_id)}" ${state.patchProposalDraftSubmitting?'disabled':''}>Create manual safe_apply PlanItem Draft</button></div>`)
+        : '';
       const statusNote = status === 'approved'
-        ? '<br>Approved. No patch has been applied yet. Next step: convert to manual safe_apply PlanItem draft.'
+        ? '<br>Approved. No patch has been applied yet.<br>No patch is applied.<br>PlanItem approval is still required before safe_apply.'
         : (status === 'rejected' ? '<br>Rejected. No patch has been applied.' : '');
-      return `<div class="atlas-approval-item"><div><strong>${esc(item.item_id)}</strong> ${esc(item.title||'')}</div><div>Proposed fix: ${esc(item?.metadata?.debug_review?.proposed_fix||'')}<br>Proposal status: ${esc(status)}<br>Proposal summary: ${esc(summary)}<br>Target files: ${esc(targetFiles)}<br>Risk: ${esc(risk)}<br>Proposal MD: ${esc(mdPath)}<br>Approval reason: ${esc(reason)}${statusNote}</div><textarea data-patch-proposal-reason="${esc(item.item_id)}" placeholder="reason">${esc(reason)}</textarea>${generateBtn}${decisionActions}</div>`;
+      return `<div class="atlas-approval-item"><div><strong>${esc(item.item_id)}</strong> ${esc(item.title||'')}</div><div>Proposed fix: ${esc(item?.metadata?.debug_review?.proposed_fix||'')}<br>Proposal status: ${esc(status)}<br>Proposal summary: ${esc(summary)}<br>Target files: ${esc(targetFiles)}<br>Risk: ${esc(risk)}<br>Proposal MD: ${esc(mdPath)}<br>Approval reason: ${esc(reason)}${statusNote}</div><textarea data-patch-proposal-reason="${esc(item.item_id)}" placeholder="reason">${esc(reason)}</textarea>${generateBtn}${decisionActions}${draftAction}</div>`;
     }).join('');
     el.querySelectorAll('button[data-patch-proposal-item]:not([data-patch-proposal-decision])').forEach((btn)=>btn.addEventListener('click',()=>generatePatchProposal(btn.getAttribute('data-patch-proposal-item')||'')));
     el.querySelectorAll('button[data-patch-proposal-decision]').forEach((btn)=>btn.addEventListener('click',()=>decidePatchProposal(btn.getAttribute('data-patch-proposal-item')||'', btn.getAttribute('data-patch-proposal-decision')||'')));
+    el.querySelectorAll('button[data-patch-proposal-draft-item]').forEach((btn)=>btn.addEventListener('click',()=>createPatchProposalPlanItemDraft(btn.getAttribute('data-patch-proposal-draft-item')||'')));
   }
   function renderVerificationPanel() {
     const host = $('atlas-verification-list');
