@@ -326,6 +326,30 @@
     if (fullHost) fullHost.textContent = state.events.length ? state.events.map((event) => JSON.stringify(event)).join('\n') : 'No events yet.';
   }
 
+
+  function renderAutoSafeApplyPanel() {
+    const panel = $('atlas-auto-safe-apply-panel');
+    if (!panel) return;
+    const decision = state.automationDecision?.decision?.decision;
+    const itemId = state.automationDecision?.decision?.item_id || '';
+    panel.hidden = decision !== 'allow';
+    if ($('atlas-auto-safe-apply-item-id')) $('atlas-auto-safe-apply-item-id').textContent = itemId || '-';
+  }
+
+  async function runAutoSafeApplyOne() {
+    const decision = state.automationDecision?.decision;
+    if (!decision || decision.decision !== 'allow' || !state.currentPoolId || !root.AtlasPipelineAPI?.autoSafeApplyOne) return;
+    const payload = { pool_id: state.currentPoolId, item_id: decision.item_id, preset_id: 'guarded_low_risk', workspace_id: workspaceId(), run_id: state.currentRunId || '' };
+    const response = await handleResult(await root.AtlasPipelineAPI.autoSafeApplyOne(payload), 'Auto safe_apply failed');
+    if (!response) return;
+    const resultEl = $('atlas-auto-safe-apply-result');
+    if (resultEl) {
+      const snap = response.change_snapshot || response.safe_apply_result?.change_snapshot || {};
+      resultEl.textContent = JSON.stringify({ status: response.status, workspace_root: response.workspace_root || '', changed_files: response.changed_files || [], actual_file_changed: !!response.actual_file_changed, snapshot_manifest: snap.manifest_path || '', warnings: response.warnings || [], errors: response.errors || [] }, null, 2);
+    }
+    await refreshStatus();
+  }
+
   function renderDetails() {
     const json = {
       planPool: normalizePool(state.planPool),
@@ -353,6 +377,7 @@
     }
     if ($('atlas-continuation-prompt')) $('atlas-continuation-prompt').value = state.continuationPrompt || '';
     if ($('atlas-copy-status')) $('atlas-copy-status').textContent = state.continuationCopied || '';
+    renderAutoSafeApplyPanel();
   }
 
   function setClarificationAnswer(questionId, value) {
@@ -1108,6 +1133,8 @@
     if (copyIdsBtn) copyIdsBtn.addEventListener('click', copyAtlasIds);
     const autoBtn = $('atlas-check-automation-readiness-btn');
     if (autoBtn) autoBtn.addEventListener('click', checkAutomationReadiness);
+    const autoRunBtn = $('atlas-auto-safe-apply-run-btn');
+    if (autoRunBtn) autoRunBtn.addEventListener('click', runAutoSafeApplyOne);
     if (details) {
       details.addEventListener('toggle', () => {
         state.advancedOpen = details.open;

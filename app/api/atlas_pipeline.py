@@ -45,6 +45,8 @@ from agent.atlas_workspace_root import resolve_atlas_workspace_root
 from agent.atlas_auto_policy_schema import AtlasAutomationDecision
 from agent.atlas_auto_policy_presets import atlas_auto_policy_presets
 from agent.atlas_automation_gate_service import AtlasAutomationGateService
+from agent.atlas_auto_safe_apply_schema import AtlasAutoSafeApplyRequest, AtlasAutoSafeApplyResult
+from agent.atlas_auto_safe_apply_service import AtlasAutoSafeApplyService
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 
 
@@ -949,3 +951,35 @@ def atlas_automation_decide(request_body: AtlasAutomationDecisionRequest, reques
         orchestration_summary=_model_dump(summary),
         continuation_prompt=continuation.continuation_prompt,
     )
+
+
+@router.post("/automation/safe-apply-one", response_model=AtlasAutoSafeApplyResult)
+def atlas_automation_safe_apply_one(request_body: AtlasAutoSafeApplyRequest, request: Request) -> AtlasAutoSafeApplyResult:
+    _, storage, journal = _atlas_components(request, workspace_id=request_body.workspace_id)
+    _sync_pool_from_workspace_snapshot(storage, journal, request_body.pool_id)
+    try:
+        pool = storage.load_pool(request_body.pool_id)
+    except FileNotFoundError:
+        return AtlasAutoSafeApplyResult(pool_id=request_body.pool_id, item_id=request_body.item_id, run_id=request_body.run_id, preset_id=request_body.preset_id, status="blocked", warnings=["pool_not_found"])
+    workspace_root = _resolve_pool_workspace_root(storage=storage, ca_data_root=Path(getattr(request.app.state, 'atlas_ca_data_dir', './ca_data')), workspace_id=request_body.workspace_id, pool_id=request_body.pool_id)
+    adapter_obj = getattr(request.app.state, 'atlas_safe_apply_adapter', None)
+    safe_apply_adapter = adapter_obj() if callable(adapter_obj) else adapter_obj
+    if safe_apply_adapter is None:
+        implementation_executor = getattr(request.app.state, 'atlas_implementation_executor', None)
+        safe_apply_adapter = AtlasSafeApplyAdapter(implementation_executor=implementation_executor)
+    if getattr(safe_apply_adapter, "implementation_executor", None) is not None:
+        impl = safe_apply_adapter.implementation_executor
+        if hasattr(impl, "workspace_root"):
+            try:
+                safe_apply_adapter.implementation_executor = impl.__class__(workspace_root=workspace_root)
+            except Exception:
+                impl.workspace_root = workspace_root
+    auto_service = AtlasAutoSafeApplyService(automation_gate=AtlasAutomationGateService(), safe_apply_service=AtlasSafeApplyExecutionService(journal=journal, storage=storage, safe_apply_adapter=safe_apply_adapter, workspace_root=workspace_root), journal=journal, storage=storage)
+    result = auto_service.execute_one(request_body)
+    refreshed_pool = storage.load_pool(request_body.pool_id)
+    summary = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(refreshed_pool, None)
+    continuation = AtlasContinuationService(journal).build_pool_summary(request_body.pool_id, request_body.run_id)
+    result.plan_pool = _model_dump(refreshed_pool)
+    result.orchestration_summary = _model_dump(summary)
+    result.continuation_prompt = continuation.continuation_prompt
+    return result

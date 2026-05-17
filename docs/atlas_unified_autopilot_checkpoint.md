@@ -6,15 +6,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 ## Completed PRs
 
-- PR-ATLAS-PIPE-0〜36G: completed
+- PR-ATLAS-PIPE-0〜37: completed
 
 ## Current PR
 
-- PR-ATLAS-PIPE-37
+- PR-ATLAS-PIPE-38
 
 ## Next PR
 
-- PR-ATLAS-PIPE-38: Gated auto safe_apply for one low-risk approved item / snapshot required
+- PR-ATLAS-PIPE-39: Auto verification after gated auto safe_apply / no auto rollback
 
 ## Important Constraints
 
@@ -56,14 +56,18 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 ## Next Instruction
 
-PR-ATLAS-PIPE-38を実装する。guarded_low_riskでallowになった1件だけ、snapshot必須でauto safe_applyできるAPI/runnerを追加する。ただしauto verification、auto DebugReview、auto Patch Proposal、auto rollbackはまだ行わない。
+PR-ATLAS-PIPE-39を実装する。gated auto safe_apply成功後に、allowlistされたverification commandだけを自動実行する。ただしverification失敗時のauto restore/rollback、DebugReview、Patch Proposalはまだ行わない。
 
 
 Next PR:
-- PR-ATLAS-PIPE-38: Gated auto safe_apply for one low-risk approved item / snapshot required
+- PR-ATLAS-PIPE-39: Auto verification after gated auto safe_apply / no auto rollback
 
 - PR-36G proves Patch Proposal draft safe_apply changes repo file old → new and manual restore returns new → old.
 - PR-37 adds Auto Policy Presets and Automation Gate.
 - PR-37 only decides automation readiness and does not execute safe_apply automatically.
 - guarded_low_risk preset can allow auto safe_apply only for approved low-risk create/update items with safe target_files, project_path, snapshot requirement, and executor-readable patch content.
 - PR-37 does not add auto verification, auto DebugReview, auto Patch Proposal, auto rollback, or Task/Agent APIs.
+- PR-38 adds gated auto safe_apply for exactly one guarded_low_risk approved item.
+- Auto safe_apply requires project_path, approval, safe target_files, executor-readable patch content, and Change Snapshot.
+- Snapshot is created before auto safe_apply executor is called.
+- PR-38 does not add auto verification, auto DebugReview, auto Patch Proposal, auto rollback, batch execution, or Task/Agent APIs.
