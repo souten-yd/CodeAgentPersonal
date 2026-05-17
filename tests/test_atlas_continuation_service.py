@@ -131,3 +131,51 @@ def test_continuation_prompt_includes_approval_and_fallback_guidance(tmp_path) -
     assert "gate: approval_required" in summary.continuation_prompt
     assert "fallback_usedの場合はreal Planner接続/LLM JSON functionを確認する" in summary.continuation_prompt
     assert "approval_requiredの場合、approval対象を確認" in summary.continuation_prompt
+
+
+def test_continuation_next_action_after_patch_proposal_generated(tmp_path) -> None:
+    journal = AtlasJournal(tmp_path)
+    pool = _pool()
+    item = pool.items[0]
+    item.metadata["patch_proposal"] = {"status": "proposed", "proposed_at": "2026-05-17T00:00:00Z"}
+    item.metadata["verification"] = {"status": "failed", "verified_at": "2026-05-17T00:01:00Z"}
+    journal.save_plan_pool(pool)
+
+    summary = AtlasContinuationService(journal).build_pool_summary(pool.pool_id)
+
+    assert summary.next_action == "Review and approve/reject Patch Proposal manually."
+    assert summary.metadata["patch_proposal_next_manual_step"] == "Review and approve/reject Patch Proposal manually."
+
+
+def test_continuation_next_action_patch_proposal_approved(tmp_path) -> None:
+    journal = AtlasJournal(tmp_path)
+    pool = _pool()
+    pool.items[0].metadata["patch_proposal"] = {"status": "approved", "proposed_at": "2026-05-17T00:00:00Z"}
+    journal.save_plan_pool(pool)
+
+    summary = AtlasContinuationService(journal).build_pool_summary(pool.pool_id)
+
+    assert summary.next_action == "Convert approved Patch Proposal to manual safe_apply PlanItem draft."
+
+
+def test_continuation_next_action_patch_proposal_needs_revision(tmp_path) -> None:
+    journal = AtlasJournal(tmp_path)
+    pool = _pool()
+    pool.items[0].metadata["patch_proposal"] = {"status": "needs_revision", "proposed_at": "2026-05-17T00:00:00Z"}
+    journal.save_plan_pool(pool)
+
+    summary = AtlasContinuationService(journal).build_pool_summary(pool.pool_id)
+
+    assert summary.next_action == "Generate revised Patch Proposal manually."
+
+
+def test_continuation_patch_proposal_note_says_no_auto_execution(tmp_path) -> None:
+    journal = AtlasJournal(tmp_path)
+    pool = _pool()
+    pool.items[0].metadata["patch_proposal"] = {"status": "proposed", "proposed_at": "2026-05-17T00:00:00Z"}
+    journal.save_plan_pool(pool)
+
+    summary = AtlasContinuationService(journal).build_pool_summary(pool.pool_id)
+
+    assert "Patch was not applied automatically" in summary.metadata["patch_proposal_note"]
+    assert "No safe_apply or verification rerun was performed" in summary.metadata["patch_proposal_note"]
