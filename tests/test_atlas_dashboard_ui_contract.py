@@ -301,5 +301,9 @@ def test_patch_proposal_approval_ui_contract() -> None:
     assert "Reject Proposal" in (HTML + ATLAS_DASHBOARD_JS)
     assert "Needs Revision" in (HTML + ATLAS_DASHBOARD_JS)
     assert "Approval only" in HTML
+
+    assert "status !== 'approved' && status !== 'rejected'" in ATLAS_DASHBOARD_JS
+    assert "Approved. No patch has been applied yet." in ATLAS_DASHBOARD_JS
+    assert "Rejected. No patch has been applied." in ATLAS_DASHBOARD_JS
     for forbidden in ("Apply patch", "Auto apply", "Safe apply now", "Re-run verification", "Continue autopilot", "Run command"):
         assert forbidden not in (HTML + ATLAS_DASHBOARD_JS)

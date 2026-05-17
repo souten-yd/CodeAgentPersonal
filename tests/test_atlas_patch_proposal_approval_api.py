@@ -84,3 +84,43 @@ def test_patch_proposal_approval_request_has_no_patch_command_apply_fields():
     fields = set(AtlasPatchProposalApprovalRequest.model_fields.keys())
     for forbidden in ('patch', 'command', 'apply', 'shell', 'execute'):
         assert forbidden not in fields
+
+
+def test_patch_proposal_generation_blocked_after_approved(tmp_path):
+    c = _client(tmp_path); pool = _create_pool(c); item = pool['plan_pool']['items'][0]
+    _set_debug_review(c, pool['pool_id'], item['item_id'])
+    p = _propose(c, pool['pool_id'], item['item_id'], run_id='ra1')
+    c.post('/api/atlas/patch-proposals/decide', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'proposal_id': p['proposal']['proposal_id'], 'run_id': 'ra2', 'decision': 'approved'})
+    body = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'ra3'}).json()
+    assert body['status'] == 'blocked'
+    assert 'patch_proposal_already_approved' in body['warnings']
+
+
+def test_patch_proposal_generation_blocked_after_rejected(tmp_path):
+    c = _client(tmp_path); pool = _create_pool(c); item = pool['plan_pool']['items'][0]
+    _set_debug_review(c, pool['pool_id'], item['item_id'])
+    p = _propose(c, pool['pool_id'], item['item_id'], run_id='rr1')
+    c.post('/api/atlas/patch-proposals/decide', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'proposal_id': p['proposal']['proposal_id'], 'run_id': 'rr2', 'decision': 'rejected'})
+    body = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'rr3'}).json()
+    assert body['status'] == 'blocked'
+    assert 'patch_proposal_already_rejected' in body['warnings']
+
+
+def test_approval_record_still_points_to_original_proposal(tmp_path):
+    c = _client(tmp_path); pool = _create_pool(c); item = pool['plan_pool']['items'][0]
+    _set_debug_review(c, pool['pool_id'], item['item_id'])
+    first = _propose(c, pool['pool_id'], item['item_id'], run_id='ro1')
+    proposal_id = first['proposal']['proposal_id']
+    c.post('/api/atlas/patch-proposals/decide', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'proposal_id': proposal_id, 'run_id': 'ro2', 'decision': 'approved'})
+    blocked = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'ro3'}).json()
+    assert blocked['status'] == 'blocked'
+    after = c.get(f"/api/atlas/plan-pools/{pool['pool_id']}").json()['plan_pool']
+    meta = next(i for i in after['items'] if i['item_id'] == item['item_id'])['metadata']
+    assert meta['patch_proposal_approval']['proposal_id'] == proposal_id
+
+
+def test_no_apply_or_safe_apply_still():
+    for file in ('agent/atlas_patch_proposal_service.py', 'agent/atlas_patch_proposal_approval_service.py'):
+        src = Path(file).read_text(encoding='utf-8')
+        for t in ('safe_apply(', 'execute_safe_apply', 'runVerification', 'TestCommandRunner(', 'ImplementationExecutor', 'subprocess', 'shell=True', 'run_command('):
+            assert t not in src

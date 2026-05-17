@@ -106,6 +106,7 @@ class AtlasPatchProposalApprovalService:
         appr = (item.metadata or {}).setdefault("patch_proposal_approval", {})
         appr.update({
             "decision": result.status,
+            "proposal_id": result.approval_record.proposal_id if result.approval_record else "",
             "reason": result.approval_record.reason if result.approval_record else "",
             "approver": result.approval_record.approver if result.approval_record else "",
             "approval_id": result.approval_record.approval_id if result.approval_record else "",

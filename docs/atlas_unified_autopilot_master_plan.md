@@ -253,3 +253,6 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 - Patch Proposal approvalは記録のみ
 - 実適用はまだ禁止
 - 次はapproved proposalをsafe_apply PlanItem draftへ変換
+
+- approved/rejected proposalは再生成で上書きしない
+- needs_revision時のみrevision proposalを許可するか、別フローにする

@@ -747,10 +747,15 @@
       const approval = item?.metadata?.patch_proposal_approval || state.patchProposalApprovalResults[item.item_id] || {};
       const status = existing.status || result.status || '';
       const reason = approval.reason || '';
-      const noApplyNote = status === 'approved' ? '<br>No patch has been applied yet.' : '';
       const decisionActions = status === 'proposed'
         ? `<div class="atlas-clarification-actions"><button class="atlas-secondary-btn" data-patch-proposal-decision="approved" data-patch-proposal-item="${esc(item.item_id)}" ${state.patchProposalApprovalSubmitting?'disabled':''}>Approve Proposal</button><button class="atlas-secondary-btn" data-patch-proposal-decision="rejected" data-patch-proposal-item="${esc(item.item_id)}" ${state.patchProposalApprovalSubmitting?'disabled':''}>Reject Proposal</button><button class="atlas-secondary-btn" data-patch-proposal-decision="needs_revision" data-patch-proposal-item="${esc(item.item_id)}" ${state.patchProposalApprovalSubmitting?'disabled':''}>Needs Revision</button></div>` : '';
-      return `<div class="atlas-approval-item"><div><strong>${esc(item.item_id)}</strong> ${esc(item.title||'')}</div><div>Proposed fix: ${esc(item?.metadata?.debug_review?.proposed_fix||'')}<br>Proposal status: ${esc(status)}<br>Proposal summary: ${esc(summary)}<br>Target files: ${esc(targetFiles)}<br>Risk: ${esc(risk)}<br>Proposal MD: ${esc(mdPath)}<br>Approval reason: ${esc(reason)}${noApplyNote}</div><textarea data-patch-proposal-reason="${esc(item.item_id)}" placeholder="reason">${esc(reason)}</textarea><button class="atlas-secondary-btn" data-patch-proposal-item="${esc(item.item_id)}" ${state.patchProposalSubmitting?'disabled':''}>Generate Patch Proposal</button>${decisionActions}</div>`;
+      const generateLabel = status === 'needs_revision' ? 'Generate Revised Patch Proposal' : 'Generate Patch Proposal';
+      const showGenerate = status !== 'approved' && status !== 'rejected';
+      const generateBtn = showGenerate ? `<button class="atlas-secondary-btn" data-patch-proposal-item="${esc(item.item_id)}" ${state.patchProposalSubmitting?'disabled':''}>${generateLabel}</button>` : '';
+      const statusNote = status === 'approved'
+        ? '<br>Approved. No patch has been applied yet. Next step: convert to manual safe_apply PlanItem draft.'
+        : (status === 'rejected' ? '<br>Rejected. No patch has been applied.' : '');
+      return `<div class="atlas-approval-item"><div><strong>${esc(item.item_id)}</strong> ${esc(item.title||'')}</div><div>Proposed fix: ${esc(item?.metadata?.debug_review?.proposed_fix||'')}<br>Proposal status: ${esc(status)}<br>Proposal summary: ${esc(summary)}<br>Target files: ${esc(targetFiles)}<br>Risk: ${esc(risk)}<br>Proposal MD: ${esc(mdPath)}<br>Approval reason: ${esc(reason)}${statusNote}</div><textarea data-patch-proposal-reason="${esc(item.item_id)}" placeholder="reason">${esc(reason)}</textarea>${generateBtn}${decisionActions}</div>`;
     }).join('');
     el.querySelectorAll('button[data-patch-proposal-item]:not([data-patch-proposal-decision])').forEach((btn)=>btn.addEventListener('click',()=>generatePatchProposal(btn.getAttribute('data-patch-proposal-item')||'')));
     el.querySelectorAll('button[data-patch-proposal-decision]').forEach((btn)=>btn.addEventListener('click',()=>decidePatchProposal(btn.getAttribute('data-patch-proposal-item')||'', btn.getAttribute('data-patch-proposal-decision')||'')));
