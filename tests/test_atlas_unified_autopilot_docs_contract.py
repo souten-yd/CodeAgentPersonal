@@ -56,3 +56,16 @@ def test_pr_backlog_contains_initial_and_final_pipe_prs() -> None:
 
     for term in ("PR-ATLAS-PIPE-1", "PR-ATLAS-PIPE-15"):
         assert term in text
+
+
+def test_pr34_checkpoint_and_real_device_doc_contract() -> None:
+    checkpoint = read_text(CHECKPOINT)
+    assert 'PR-ATLAS-PIPE-34' in checkpoint
+    assert 'PR-ATLAS-PIPE-35' in checkpoint
+    real_device = DOCS / 'atlas_manual_loop_real_device_test.md'
+    assert real_device.exists()
+    text = read_text(real_device)
+    assert 'manual safe_apply candidate' in text or 'Manual safe apply candidates' in text
+    assert 'backup' in text and '未実装' in text
+    assert 'rollback' in text and '未実装' in text
+    assert 'Task/Agent API' in text and '追加しない' in text
