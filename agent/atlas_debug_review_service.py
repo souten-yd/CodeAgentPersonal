@@ -119,6 +119,10 @@ class AtlasDebugReviewService:
 
     def mark_item_from_debug_review(self, pool: AtlasPlanPool, item: AtlasPlanItem, result: AtlasDebugReviewResult) -> None:
         attempt = result.debug_attempt or {}
+        verification = (item.metadata or {}).get("verification") or {}
+        safe_apply = (item.metadata or {}).get("safe_apply") or {}
+        source = str(verification.get("source") or safe_apply.get("source") or item.metadata.get("source") or "")
+        source_proposal_id = str(verification.get("source_proposal_id") or safe_apply.get("source_proposal_id") or item.metadata.get("source_proposal_id") or "")
         item.metadata.setdefault("debug_review", {})
         item.metadata["debug_review"].update({
             "status": result.status,
@@ -126,8 +130,16 @@ class AtlasDebugReviewService:
             "root_cause_category": attempt.get("root_cause_category", "unknown"),
             "retry_recommended": bool(attempt.get("retry_recommended", False)),
             "proposed_fix": attempt.get("proposed_fix", ""),
+            "reusable_lesson": attempt.get("reusable_lesson", ""),
             "debug_notes_path": result.debug_notes_path,
             "reviewed_at": datetime.now(timezone.utc).isoformat(),
+            "source": "patch_proposal_planitem_draft" if source in {"patch_proposal", "patch_proposal_planitem_draft"} else source,
+            "source_proposal_id": source_proposal_id,
+            "verification_status": str(verification.get("status") or ""),
+            "manual_only": True,
+            "auto_patch_proposal": False,
+            "auto_safe_apply": False,
+            "auto_verification": False,
         })
 
     def _append_event(self, pool_id: str, run_id: str, event_type: str, item: AtlasPlanItem | None, status: str, warnings: list[str] | None = None, errors: list[str] | None = None) -> None:

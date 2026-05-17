@@ -281,6 +281,10 @@ def test_debug_review_panel_manual_only_contract() -> None:
     assert 'runDebugReview(itemId)' in ATLAS_DASHBOARD_JS
     assert 'Manual analysis only' in HTML
     assert 'Run Debug Review' in HTML + ATLAS_DASHBOARD_JS
+    assert 'Patch Proposal Draft' in ATLAS_DASHBOARD_JS
+    assert 'No patch proposal is generated automatically.' in ATLAS_DASHBOARD_JS
+    assert 'No safe_apply or verification rerun is executed automatically.' in ATLAS_DASHBOARD_JS
+    assert 'Next after failed verification' in ATLAS_DASHBOARD_JS
     for forbidden in ('Auto fix', 'Apply proposed fix', 'Re-run verification automatically', 'Continue autopilot', 'Run command'):
         assert forbidden not in HTML + ATLAS_DASHBOARD_JS
 

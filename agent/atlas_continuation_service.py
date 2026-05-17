@@ -69,11 +69,14 @@ Current Gate:
 - approval_pending_item_ids: {summary.metadata.get("approval_pending_item_ids", [])}
 - approval_note: Approval records exist, but safe_apply is not automatically executed.
 - debug_review_status: {summary.metadata.get("debug_review_status", "")}
+- debug_review_source: {summary.metadata.get("debug_review_source", "")}
+- debug_review_source_proposal_id: {summary.metadata.get("debug_review_source_proposal_id", "")}
 - debug_review_root_cause_category: {summary.metadata.get("debug_review_root_cause_category", "")}
 - debug_review_proposed_fix: {summary.metadata.get("debug_review_proposed_fix", "")}
 - debug_review_retry_recommended: {str(bool(summary.metadata.get("debug_review_retry_recommended", False))).lower()}
 - debug_review_advisory_only: {str(bool(summary.metadata.get("debug_review_advisory_only", False))).lower()}
 - debug_review_note: no patch/safe_apply/reverification was run.
+- debug_review_next_manual_step: Generate Patch Proposal manually.
 - patch_proposal_status: {summary.metadata.get("patch_proposal_status", "")}
 - patch_proposal_summary: {summary.metadata.get("patch_proposal_summary", "")}
 - patch_proposal_risk_level: {summary.metadata.get("patch_proposal_risk_level", "")}
@@ -240,6 +243,8 @@ Current Gate:
         if debug_review:
             summary.metadata.update({
                 "debug_review_status": str(debug_review.get("status") or ""),
+                "debug_review_source": str(debug_review.get("source") or ""),
+                "debug_review_source_proposal_id": str(debug_review.get("source_proposal_id") or ""),
                 "debug_review_root_cause_category": str(debug_review.get("root_cause_category") or ""),
                 "debug_review_proposed_fix": str(debug_review.get("proposed_fix") or ""),
                 "debug_review_retry_recommended": bool(debug_review.get("retry_recommended", False)),
