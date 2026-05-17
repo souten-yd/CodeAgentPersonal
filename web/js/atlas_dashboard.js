@@ -968,7 +968,11 @@
     await refreshApprovals();
     if (response.status === 'applied') showSuccess('Manual safe apply completed for item: '+itemId+'. Next: run manual verification from Post-Apply Verification panel.');
     const snap = response?.metadata?.change_snapshot || response?.safe_apply_result?.change_snapshot || null;
-    if (snap) showSuccess('Change Snapshot saved / snapshot id: '+(snap.snapshot_id||'-')+' / manifest: '+(snap.manifest_path||'-')+' / file count: '+String(snap.file_count||0)+' / skipped: '+String(snap.skipped_count||0)+' / Rollback is not automatic yet. / Use this snapshot for manual restore if needed.');
+    if (snap) {
+      const meta = response?.metadata || {};
+      const ex = meta.executor_result || response?.safe_apply_result || {};
+      showSuccess('Change Snapshot saved / snapshot id: '+(snap.snapshot_id||'-')+' / manifest: '+(snap.manifest_path||'-')+' / file count: '+String(snap.file_count||0)+' / skipped: '+String(snap.skipped_count||0)+' / Executor workspace root: '+(meta.workspace_root||'-')+' / Change Snapshot workspace root: '+(snap.workspace_root||'-')+' / actual_file_changed: '+String(Boolean(ex.actual_file_changed))+' / changed_files: '+String((ex.changed_files||[]).join(','))+' / Rollback is not automatic yet. / Use this snapshot for manual restore if needed.');
+    }
     else if (response.status === 'simulated') showWarning('Simulated only. No files were applied. item: '+itemId);
     else if (response.status === 'blocked') showWarning('Manual safe apply blocked for item: '+itemId+' ('+(response.warnings||[]).join(',')+')');
     else showError('Manual safe apply failed for item: '+itemId+' ('+(response.warnings||[]).join(',')+')');

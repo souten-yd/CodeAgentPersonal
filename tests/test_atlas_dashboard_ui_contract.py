@@ -391,7 +391,7 @@ def test_change_snapshot_ui_contract_strings_and_forbidden_controls() -> None:
     assert "Change Snapshot saved" in ATLAS_DASHBOARD_JS
     assert "Rollback is not automatic yet." in ATLAS_DASHBOARD_JS
     assert "Use this snapshot for manual restore if needed." in ATLAS_DASHBOARD_JS
-    for forbidden in ("Restore now", "Auto rollback", "Rollback automatically", "Apply all", "Auto apply", "Auto verify", "Auto debug", "Run command"):
+    for forbidden in ("Restore now", "Rollback automatically", "Apply all", "Auto apply", "Auto verify", "Auto debug", "Run command"):
         assert forbidden not in HTML + ATLAS_DASHBOARD_JS
 
 
@@ -407,3 +407,8 @@ def test_pipeline_waiting_and_patch_proposal_guidance_copy_contract() -> None:
     ):
         assert token in HTML + ATLAS_DASHBOARD_JS
 
+
+
+def test_safe_apply_result_root_fields_visible_contract() -> None:
+    for token in ("Executor workspace root", "Change Snapshot workspace root", "actual_file_changed", "changed_files", "Restore from Snapshot", "Auto rollback is not enabled"):
+        assert token in (HTML + ATLAS_DASHBOARD_JS)

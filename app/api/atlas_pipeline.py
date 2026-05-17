@@ -41,6 +41,7 @@ from agent.atlas_patch_proposal_planitem_schema import AtlasPatchProposalPlanIte
 from agent.atlas_patch_proposal_planitem_service import AtlasPatchProposalPlanItemDraftService
 from agent.atlas_change_snapshot_restore_schema import AtlasChangeSnapshotRestoreRequest, AtlasChangeSnapshotRestoreResult
 from agent.atlas_change_snapshot_restore_service import AtlasChangeSnapshotRestoreService
+from agent.atlas_workspace_root import resolve_atlas_workspace_root
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 
 
@@ -215,7 +216,24 @@ def _atlas_components(request: Request, workspace_id: str = "default") -> tuple[
     return root, AtlasPlanPoolStorage(root), AtlasJournal(root, workspace_id=workspace_id or "default")
 
 
+def _resolve_pool_workspace_root(*, storage: AtlasPlanPoolStorage, ca_data_root: Path, workspace_id: str, pool_id: str) -> Path:
+    project_path = ""
+    try:
+        pool = storage.load_pool(pool_id)
+        project_path = str(getattr(pool, "project_path", "") or "")
+    except Exception:
+        project_path = ""
+    return resolve_atlas_workspace_root(ca_data_root=ca_data_root, workspace_id=workspace_id, project_path=project_path)
 
+
+def _validate_restore_manifest_path(manifest_path: Path, ca_data_root: Path) -> None:
+    resolved = manifest_path.expanduser().resolve()
+    if not resolved.exists():
+        raise HTTPException(status_code=400, detail="manifest_not_found")
+    data_root = ca_data_root.resolve()
+    snapshot_root = (data_root / "atlas" / "workspaces").resolve()
+    if not (resolved == data_root or data_root in resolved.parents or resolved == snapshot_root or snapshot_root in resolved.parents):
+        raise HTTPException(status_code=400, detail="manifest_path_outside_allowed_roots")
 
 
 def _normalize_chat_completions_endpoint(raw_url: str) -> str:
@@ -532,7 +550,7 @@ def get_plan_pool_markdown(pool_id: str, request: Request, workspace_id: str = "
 
 @router.post("/pipeline/dry-run", response_model=PipelineDryRunResponse)
 def run_pipeline_dry_run(req: PipelineDryRunRequest, request: Request) -> PipelineDryRunResponse:
-    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     try:
         pool = storage.load_pool(req.pool_id)
         runner = AtlasPipelineRunner(storage=storage)
@@ -631,7 +649,7 @@ def _resolve_atlas_debug_loop_runner(request: Request, journal: AtlasJournal):
 def run_verification(req: AtlasVerificationRequest, request: Request) -> AtlasVerificationResult:
     if ".." in req.pool_id or ".." in req.item_id:
         raise HTTPException(status_code=400, detail="invalid id")
-    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
     runner = _resolve_atlas_test_command_runner(request)
     service = AtlasVerificationGateService(journal=journal, storage=storage, test_runner=runner)
@@ -683,7 +701,7 @@ def get_continuation_pool(
 def run_debug_review(req: AtlasDebugReviewRequest, request: Request) -> AtlasDebugReviewResult:
     if ".." in req.pool_id or ".." in req.item_id:
         raise HTTPException(status_code=400, detail="invalid identifier")
-    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
     runner = _resolve_atlas_debug_loop_runner(request, journal)
     service = AtlasDebugReviewService(journal=journal, storage=storage, debug_runner=runner)
@@ -714,7 +732,7 @@ def run_debug_review(req: AtlasDebugReviewRequest, request: Request) -> AtlasDeb
 def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) -> AtlasPatchProposalResult:
     if ".." in req.pool_id or ".." in req.item_id:
         raise HTTPException(status_code=400, detail="invalid identifier")
-    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
     service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=_resolve_atlas_llm_json_fn(request))
     try:
@@ -740,7 +758,7 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
 def decide_patch_proposal(req: AtlasPatchProposalApprovalRequest, request: Request) -> AtlasPatchProposalApprovalResult:
     if ".." in req.pool_id or ".." in req.item_id:
         raise HTTPException(status_code=400, detail="invalid identifier")
-    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
     service = AtlasPatchProposalApprovalService(journal=journal, storage=storage)
     try:
@@ -767,7 +785,7 @@ def decide_patch_proposal(req: AtlasPatchProposalApprovalRequest, request: Reque
 def create_patch_proposal_planitem_draft(req: AtlasPatchProposalPlanItemDraftRequest, request: Request) -> AtlasPatchProposalPlanItemDraftResult:
     if ".." in req.pool_id or ".." in req.item_id:
         raise HTTPException(status_code=400, detail="invalid identifier")
-    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
     service = AtlasPatchProposalPlanItemDraftService(journal=journal, storage=storage)
     try:
@@ -819,7 +837,7 @@ def get_approvals(pool_id: str, request: Request, workspace_id: str = Query("def
 
 @router.post("/approvals/decide", response_model=AtlasApprovalDecisionResponse)
 def decide_approval(req: AtlasApprovalDecisionRequest, request: Request) -> AtlasApprovalDecisionResponse:
-    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     try:
         pool = storage.load_pool(req.pool_id)
     except FileNotFoundError as exc:
@@ -844,21 +862,31 @@ def decide_approval(req: AtlasApprovalDecisionRequest, request: Request) -> Atla
 def restore_change_snapshot(req: AtlasChangeSnapshotRestoreRequest, request: Request) -> AtlasChangeSnapshotRestoreResult:
     if ".." in req.pool_id or (req.item_id and ".." in req.item_id):
         raise HTTPException(status_code=400, detail="invalid id")
-    _, _, journal = _atlas_components(request, workspace_id=req.workspace_id)
-    service = AtlasChangeSnapshotRestoreService(journal=journal)
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    _validate_restore_manifest_path(Path(req.manifest_path), ca_data_root)
+    workspace_root = _resolve_pool_workspace_root(storage=storage, ca_data_root=ca_data_root, workspace_id=req.workspace_id, pool_id=req.pool_id)
+    service = AtlasChangeSnapshotRestoreService(journal=journal, workspace_root=workspace_root)
     return service.restore(req)
 @router.post("/safe-apply/execute", response_model=AtlasSafeApplyExecutionResult)
 def execute_safe_apply(req: AtlasSafeApplyExecutionRequest, request: Request) -> AtlasSafeApplyExecutionResult:
     if ".." in req.pool_id or ".." in req.item_id:
         raise HTTPException(status_code=400, detail="invalid id")
-    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
     adapter_obj = getattr(request.app.state, 'atlas_safe_apply_adapter', None)
     safe_apply_adapter = adapter_obj() if callable(adapter_obj) else adapter_obj
     if safe_apply_adapter is None:
         implementation_executor = getattr(request.app.state, 'atlas_implementation_executor', None)
         safe_apply_adapter = AtlasSafeApplyAdapter(implementation_executor=implementation_executor)
-    service = AtlasSafeApplyExecutionService(journal=journal, storage=storage, safe_apply_adapter=safe_apply_adapter)
+    workspace_root = _resolve_pool_workspace_root(storage=storage, ca_data_root=ca_data_root, workspace_id=req.workspace_id, pool_id=req.pool_id)
+    if getattr(safe_apply_adapter, "implementation_executor", None) is not None:
+        impl = safe_apply_adapter.implementation_executor
+        if hasattr(impl, "workspace_root"):
+            try:
+                safe_apply_adapter.implementation_executor = impl.__class__(workspace_root=workspace_root)
+            except Exception:
+                impl.workspace_root = workspace_root
+    service = AtlasSafeApplyExecutionService(journal=journal, storage=storage, safe_apply_adapter=safe_apply_adapter, workspace_root=workspace_root)
     try:
         result = service.execute_item(req)
     except FileNotFoundError:

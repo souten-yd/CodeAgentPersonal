@@ -278,3 +278,9 @@ Atlas API, Dashboard, Continuation, Recovery, and Journal checkpoint surfaces sh
 - PR-35 completed
 - PR-35B current
 - PR-36 next (Change Snapshot manual restore, no auto rollback)
+
+
+- Current PR: PR-ATLAS-PIPE-36C
+- Next PR: PR-ATLAS-PIPE-37
+
+- PR-36C unifies safe_apply executor, snapshot, and restore workspace root.

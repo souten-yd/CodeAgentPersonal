@@ -46,3 +46,9 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 ## Next Instruction
 
 PR-ATLAS-PIPE-36を実装する。Change Snapshotから手動restoreできるAPI/UIを追加する。ただしverification失敗時の自動rollbackはまだ行わない。
+
+
+- Current PR: PR-ATLAS-PIPE-36C
+- Next PR: PR-ATLAS-PIPE-37
+
+- PR-36C unifies safe_apply executor, snapshot, and restore workspace root.

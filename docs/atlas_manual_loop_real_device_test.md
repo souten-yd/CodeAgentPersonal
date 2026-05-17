@@ -46,3 +46,9 @@
 - 1/N completedでcompleted表示された問題はPR-35Bで修正。
 - queued/dependency waitingが残っている場合はcompletedではなくpaused/waiting。
 - PR-35でsafe_apply前snapshot backup済み。rollback/restoreはPR-36以降。
+
+
+- Current PR: PR-ATLAS-PIPE-36C
+- Next PR: PR-ATLAS-PIPE-37
+
+- PR-36C unifies safe_apply executor, snapshot, and restore workspace root.
