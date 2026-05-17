@@ -6,15 +6,15 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 
 ## Completed PRs
 
-- PR-ATLAS-PIPE-0〜29: completed
+- PR-ATLAS-PIPE-0〜29B: completed
 
 ## Current PR
 
-- PR-ATLAS-PIPE-29B
+- PR-ATLAS-PIPE-30
 
 ## Next PR
 
-- PR-ATLAS-PIPE-30: Manual Patch Proposal UX/E2E from DebugReview result / no auto apply
+- PR-ATLAS-PIPE-31: Manual Patch Proposal approval UX/E2E from generated proposal / no draft auto-create
 
 ## Important Constraints
 
@@ -43,10 +43,22 @@ Atlasを Planner + Autopilot + Plan Pool + Nexus Research Pipeline へ統合す�
 - PR-ATLAS-PIPE-29 improves manual Debug Review UX/E2E for failed draft verification.
 - Debug Review remains item-level/manual only.
 - Debug Review does not auto-generate Patch Proposal, does not run safe_apply, and does not rerun verification.
-- PR-ATLAS-PIPE-29B finalizes checkpoint/docs and strengthens no-auto-patch assertions.
-- PR-ATLAS-PIPE-29B does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
+- PR-ATLAS-PIPE-30 finalizes checkpoint/docs and strengthens no-auto-patch assertions.
+- PR-ATLAS-PIPE-30 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
 
 ## Next Instruction
 
 PR-ATLAS-PIPE-30を実装する。
 draft由来PlanItemのmanual DebugReview analyzed結果から、Patch Proposal panelへ自然に誘導し、手動Patch Proposal UX/E2Eを整える。ただしpatch自動適用・safe_apply自動実行・verification自動再実行は行わない。
+
+- PR-ATLAS-PIPE-30 improves manual Patch Proposal UX/E2E from DebugReview analyzed result.
+- DebugReview analyzed draft items appear as manual Patch Proposal candidates.
+- Patch Proposal generation remains item-level/manual only.
+- Patch Proposal generation does not auto-approve, does not create PlanItem draft, does not run safe_apply, and does not rerun verification.
+- Patch Proposal may use llm_json_fn when available; otherwise fallback proposal is generated.
+- PR-ATLAS-PIPE-30 does not execute DeepResearch/Web jobs and does not add Task/Agent APIs.
+
+## Next Instruction
+
+PR-ATLAS-PIPE-31を実装する。
+manual Patch Proposal generated結果から、Patch Proposal Approval panelへ自然に誘導し、手動approve/reject/needs_revision UX/E2Eを整える。ただしPlanItem draft自動作成・patch自動適用・safe_apply自動実行・verification自動再実行は行わない。

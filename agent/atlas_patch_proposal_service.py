@@ -228,6 +228,11 @@ class AtlasPatchProposalService:
             "proposed_at": previous.get("proposed_at", ""),
         } if previous else item.metadata.get("patch_proposal_previous")
         item.metadata["patch_proposal_revision_count"] = revision_count
+        debug_review = (item.metadata or {}).get("debug_review") or {}
+        source = str(debug_review.get("source") or "")
+        source_proposal_id = str(debug_review.get("source_proposal_id") or item.metadata.get("source_proposal_id") or "")
+        root_cause_category = str(debug_review.get("root_cause_category") or "")
+        proposed_fix = str(debug_review.get("proposed_fix") or "")
         item.metadata["patch_proposal"].update({
             "status": result.status,
             "proposal_id": proposal.proposal_id,
@@ -238,6 +243,15 @@ class AtlasPatchProposalService:
             "target_files": list(proposal.target_files),
             "proposed_at": datetime.now(timezone.utc).isoformat(),
             "revision_count": revision_count,
+            "source": source or "patch_proposal_planitem_draft",
+            "source_proposal_id": source_proposal_id,
+            "debug_review_status": str(debug_review.get("status") or ""),
+            "root_cause_category": root_cause_category,
+            "proposed_fix": proposed_fix,
+            "manual_only": True,
+            "auto_apply": False,
+            "auto_safe_apply": False,
+            "auto_verification": False,
         })
 
     def _append_event(self, pool_id: str, run_id: str, event_type: str, item: AtlasPlanItem | None, status: str, warnings: list[str] | None = None, errors: list[str] | None = None) -> None:

@@ -78,10 +78,14 @@ Current Gate:
 - debug_review_note: no patch/safe_apply/reverification was run.
 - debug_review_next_manual_step: Generate Patch Proposal manually.
 - patch_proposal_status: {summary.metadata.get("patch_proposal_status", "")}
+- patch_proposal_source: {summary.metadata.get("patch_proposal_source", "")}
+- patch_proposal_source_proposal_id: {summary.metadata.get("patch_proposal_source_proposal_id", "")}
 - patch_proposal_summary: {summary.metadata.get("patch_proposal_summary", "")}
 - patch_proposal_risk_level: {summary.metadata.get("patch_proposal_risk_level", "")}
 - patch_proposal_md_path: {summary.metadata.get("patch_proposal_md_path", "")}
-- patch_proposal_note: proposal only, no patch/safe_apply/reverification was run
+- patch_proposal_next_manual_step: Review and approve/reject Patch Proposal manually.
+- patch_proposal_note: Patch was not applied automatically.
+- patch_proposal_note_2: No safe_apply or verification rerun was performed.
 - patch_proposal_approval_decision: {summary.metadata.get("patch_proposal_approval_decision", "")}
 - patch_proposal_approval_reason: {summary.metadata.get("patch_proposal_approval_reason", "")}
 - patch_proposal_approval_md_path: {summary.metadata.get("patch_proposal_approval_md_path", "")}
@@ -254,6 +258,8 @@ Current Gate:
         if patch_proposal:
             summary.metadata.update({
                 "patch_proposal_status": str(patch_proposal.get("status") or ""),
+                "patch_proposal_source": str(patch_proposal.get("source") or ""),
+                "patch_proposal_source_proposal_id": str(patch_proposal.get("source_proposal_id") or ""),
                 "patch_proposal_summary": str(patch_proposal.get("summary") or ""),
                 "patch_proposal_risk_level": str(patch_proposal.get("risk_level") or ""),
                 "patch_proposal_md_path": str(patch_proposal.get("proposal_md_path") or ""),
