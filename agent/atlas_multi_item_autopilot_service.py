@@ -9,6 +9,8 @@ from agent.atlas_auto_safe_apply_schema import AtlasAutoSafeApplyRequest
 from agent.atlas_auto_policy_presets import atlas_auto_policy_presets
 from agent.atlas_auto_verification_schema import AtlasAutoVerificationRequest
 from agent.atlas_context_refresh_schema import AtlasContextRefreshRequest
+from agent.atlas_bounded_retry_schema import AtlasBoundedRetryRequest
+from agent.atlas_bounded_retry_service import AtlasBoundedRetryService
 from agent.atlas_dev_tool_path import validate_relative_path
 from agent.atlas_failure_stop_service import AtlasFailureStopService
 from agent.atlas_llm_evaluator_schema import AtlasEvaluatorRequest
@@ -21,7 +23,7 @@ from agent.atlas_multi_item_autopilot_schema import (
 
 
 class AtlasMultiItemAutopilotService:
-    def __init__(self, *, storage, journal, automation_gate, auto_safe_apply_service, auto_verification_service, context_refresh_service, evaluator_service):
+    def __init__(self, *, storage, journal, automation_gate, auto_safe_apply_service, auto_verification_service, context_refresh_service, evaluator_service, bounded_retry_service=None):
         self.storage = storage
         self.journal = journal
         self.automation_gate = automation_gate
@@ -30,6 +32,7 @@ class AtlasMultiItemAutopilotService:
         self.context_refresh_service = context_refresh_service
         self.evaluator_service = evaluator_service
         self.failure_stop_service = AtlasFailureStopService(journal=journal)
+        self.bounded_retry_service = bounded_retry_service
 
     def run(self, request: AtlasMultiItemAutopilotRequest) -> AtlasMultiItemAutopilotResult:
         pool = self.storage.load_pool(request.pool_id)
@@ -71,7 +74,7 @@ class AtlasMultiItemAutopilotService:
             result.metadata = {"planned_steps": planned_steps}
             try:
                 if request.include_context_refresh:
-                    ctx = self.context_refresh_service.refresh(AtlasContextRefreshRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, trigger="pre_safe_apply", workspace_id=request.workspace_id, project_path=request.project_path or pool.project_path, changed_files=target_files, policy_id=request.context_policy_id, include_local_tools=True, include_nexus_search=False, include_deep_research=False))
+                    ctx = self.context_refresh_service.refresh(AtlasContextRefreshRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, trigger="pre_safe_apply", workspace_id=request.workspace_id, project_path=self.resolve_project_path(request, pool, item), changed_files=target_files, policy_id=request.context_policy_id, include_local_tools=True, include_nexus_search=False, include_deep_research=False))
                     result.context_bundle_id = ctx.bundle_id
                     self.emit("multi_item_autopilot_context_refresh_completed", request, autopilot_run_id, item_id=item_id, item_index=idx, status=ctx.status, context_bundle_id=ctx.bundle_id)
                     if ctx.status in {"blocked", "failed"} and policy.require_context_refresh:
@@ -91,8 +94,15 @@ class AtlasMultiItemAutopilotService:
                         self.emit("multi_item_autopilot_verification_completed", request, autopilot_run_id, item_id=item_id, item_index=idx, status=vr.status)
                         if vr.status == "failed":
                             result.failure_stop_suggestion = self.failure_stop_service.build_for_verification_failure(pool, item, run_id, vr.model_dump()).model_dump()
+                        if request.include_bounded_retry and self.bounded_retry_service and vr.status != "passed" and result.failure_stop_suggestion:
+                            rr = self.bounded_retry_service.run(AtlasBoundedRetryRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id, project_path=self.resolve_project_path(request, pool, item), policy_id=request.retry_policy_id, context_policy_id=request.context_policy_id, evaluator_policy_id=request.evaluator_policy_id, verification_result=vr.model_dump(), safe_apply_result=result.safe_apply_result, failure_stop_suggestion=result.failure_stop_suggestion, changed_files=target_files, max_attempts=request.max_retry_attempts_per_item))
+                            result.metadata["bounded_retry_result"] = rr.model_dump()
+                            if rr.status == "recovered":
+                                result.status = "completed"
+                                result.reason = "bounded_retry_recovered"
+                                vr = type("V", (), {"status": "passed", "model_dump": lambda self: {"status":"passed"}})()
                         if request.include_evaluator and vr.status in {"passed", "failed"}:
-                            ev = self.evaluator_service.evaluate(AtlasEvaluatorRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, trigger="verification_failure" if vr.status == "failed" else "post_verification", context_bundle_id=result.context_bundle_id, use_latest_context_bundle=False, project_path=request.project_path or pool.project_path, changed_files=target_files, verification_result=vr.model_dump(), safe_apply_result=result.safe_apply_result, failure_stop_suggestion=result.failure_stop_suggestion, policy_id=request.evaluator_policy_id, metadata={"autopilot_run_id": autopilot_run_id, "item_index": idx}))
+                            ev = self.evaluator_service.evaluate(AtlasEvaluatorRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, trigger="verification_failure" if vr.status == "failed" else "post_verification", context_bundle_id=result.context_bundle_id, use_latest_context_bundle=False, project_path=self.resolve_project_path(request, pool, item), changed_files=target_files, verification_result=vr.model_dump(), safe_apply_result=result.safe_apply_result, failure_stop_suggestion=result.failure_stop_suggestion, policy_id=request.evaluator_policy_id, metadata={"autopilot_run_id": autopilot_run_id, "item_index": idx}))
                             result.evaluator_result_id = str((ev.metadata or {}).get("eval_id") or "")
                             result.evaluator_decision = ev.decision.model_dump()
                         if vr.status in {"blocked", "skipped"}:
@@ -143,9 +153,12 @@ class AtlasMultiItemAutopilotService:
         self.emit("completed" if out.status in {"completed", "partial"} else "failed" if out.status == "failed" else "stopped", request, autopilot_run_id, status=out.status)
         return out
 
+    def resolve_project_path(self, request, pool, item):
+        return str(request.project_path or getattr(pool, "project_path", "") or getattr(item, "project_path", "") or "")
+
     def _check_eligibility(self, request, policy, item, *, target_files, changed_total):
         planned_steps = ["context_refresh", "safe_apply", "verification", "evaluator"]
-        if not (request.project_path or getattr(item, "project_path", "") or ""):
+        if not self.resolve_project_path(request, self.storage.load_pool(request.pool_id), item):
             return {"status": "ineligible", "reason": "project_path_missing", "planned_steps": planned_steps}
         if request.require_approval and str(((item.metadata or {}).get("approval") or {}).get("decision") or "").lower() != "approved":
             return {"status": "ineligible", "reason": "approval_required", "planned_steps": planned_steps}

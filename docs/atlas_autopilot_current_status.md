@@ -42,3 +42,11 @@
 - Evaluator emits evaluator_started/evaluator_completed/evaluator_fallback_used/evaluator_policy_override/evaluator_blocked/evaluator_failed.
 - Evaluator remains decision-only and side-effect-free.
 - Next: PR-ATLAS-PIPE-45 Multi-item guarded autopilot consumes evaluator results and audit events.
+
+
+## PR-ATLAS-PIPE-46
+- Adds bounded retry loop for verification failures (verification rerun only).
+- Retryable: transient/environment/blocked/skipped; non-retryable: deterministic code/test failures.
+- Safety: no safe_apply rerun, no rollback/restore/debug review/patch regeneration.
+- Multi-item integration is opt-in (`include_bounded_retry=false` by default).
+- Next PR: PR-ATLAS-PIPE-47 supervised patch regeneration.
