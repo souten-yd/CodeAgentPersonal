@@ -163,6 +163,19 @@
     getLatestEvaluatorResult(payload) {
       return atlasFetch('/api/atlas/evaluator/latest', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+
+    getMultiItemAutopilotPolicies() {
+      return atlasFetch('/api/atlas/multi-item-autopilot/policies');
+    },
+    runMultiItemAutopilot(payload) {
+      return atlasFetch('/api/atlas/multi-item-autopilot/run', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    getMultiItemAutopilotResult(poolId, autopilotRunId) {
+      return atlasFetch(`/api/atlas/multi-item-autopilot/results/${encodeURIComponent(poolId)}/${encodeURIComponent(autopilotRunId)}`);
+    },
+    getLatestMultiItemAutopilotResult(payload) {
+      return atlasFetch('/api/atlas/multi-item-autopilot/latest', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     submitClarificationAnswers(payload) {
       return atlasFetch("/api/atlas/clarifications/answer", { method: "POST", body: JSON.stringify(payload || {}) });
     },

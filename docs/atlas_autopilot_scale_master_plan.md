@@ -41,3 +41,12 @@
 
 
 - PR-ATLAS-PIPE-43B hardens Context Refresh before LLM Evaluator: Nexus sources in bundle, changed_files metadata resolution, audit events, collector partial failure, and bundle API path-traversal safety.
+
+
+## PR-ATLAS-PIPE-45
+- Added guarded multi-item autopilot (low-risk approved items only) with strict budget controls: max_items/max_runtime/max_failures/max_changed_files_total.
+- Per-item chain: Context Refresh -> auto safe_apply -> auto verification -> failure stop suggestion (if failed) -> Evaluator decision.
+- Stop on verification failure, evaluator stop/manual_required/revise, blocked safe_apply/context/evaluator, or budget exhaustion.
+- No auto rollback/restore/debug review/patch regeneration.
+- Persist run result JSON/MD at ca_data/atlas/multi_item_autopilot/{pool_id}/{auto_id}.(json|md).
+- Next PR: PR-ATLAS-PIPE-46 bounded retry loop (without auto rollback).
