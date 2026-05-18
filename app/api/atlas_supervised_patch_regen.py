@@ -29,7 +29,11 @@ def policies():
 def run(payload: AtlasPatchRegenRequest):
     payload.pool_id = _validate(payload.pool_id, 'pool_id'); payload.item_id = _validate(payload.item_id, 'item_id')
     if payload.run_id: payload.run_id = _validate(payload.run_id, 'run_id')
-    payload.target_files = [validate_relative_path(p) for p in payload.target_files]
+    if payload.context_bundle_id: payload.context_bundle_id = _validate(payload.context_bundle_id, 'context_bundle_id', 'ctx_')
+    if payload.retry_run_id: payload.retry_run_id = _validate(payload.retry_run_id, 'retry_run_id', 'retry_')
+    if payload.evaluator_result_id: payload.evaluator_result_id = _validate(payload.evaluator_result_id, 'evaluator_result_id', 'eval_')
+    if payload.regen_run_id: payload.regen_run_id = _validate(payload.regen_run_id, 'regen_run_id', 'regen_')
+    payload.target_files = [_validate(p, 'target_file') for p in payload.target_files]
     return AtlasSupervisedPatchRegenService().regenerate(payload).model_dump()
 
 @router.get('/results/{pool_id}/{regen_run_id}')

@@ -65,3 +65,5 @@
 ## PR-ATLAS-PIPE-46B
 - Bounded retry remains verification-rerun only and forbids safe_apply rerun, rollback, restore, debug review, and patch regeneration.
 - Runtime budget and changed-file drift are enforced during retries.
+
+- PR-ATLAS-PIPE-47B hardens supervised patch regeneration (audit events, prompt contract, evidence loading, target validation, manual approval only).
