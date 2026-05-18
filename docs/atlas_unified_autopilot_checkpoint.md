@@ -104,3 +104,22 @@ Current PR:
 
 Next PR:
 - PR-ATLAS-PIPE-53: Execute supervised patch regeneration from recommendation with manual trigger
+
+## PR-ATLAS-PIPE-53 Checkpoint
+
+Completed PRs:
+- PR-ATLAS-PIPE-0〜52C: completed
+- PR-ATLAS-UI-FIX-50A: completed
+- PR-SEARXNG-SECRET-SYNC-01: completed
+
+Current PR:
+- PR-ATLAS-PIPE-53
+
+Next PR:
+- PR-ATLAS-PIPE-54: Finalize supervised item status transitions from loop outcomes
+
+Known Current Code Facts:
+- PR-53 manually executes supervised patch regeneration from saved recommendation payloads.
+- PR-53 only creates patch candidates.
+- PR-53 does not approve, apply, verify, retry, rollback, restore, run DebugReview, use remote git, or continue multi-item autopilot.
+- Generated candidates remain manual approval required.

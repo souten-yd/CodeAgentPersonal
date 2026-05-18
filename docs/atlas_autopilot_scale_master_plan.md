@@ -66,3 +66,10 @@
 
 
 - PR-ATLAS-PIPE-52: Patch regen recommendation payload for exhausted/not_retryable supervised retry outcomes (recommendation only; no execution).
+
+## PR-ATLAS-PIPE-53 Patch Regen From Recommendation
+- `recommendation_ready` Patch Regen Recommendation results can now be manually triggered to create a supervised patch regeneration candidate.
+- PR-53 only creates patch candidates from saved `recommended_payload` data; manual approval is still required.
+- Safety remains explicit: no safe_apply / no verification / no retry / no rollback / no restore / no DebugReview / no remote git / no multi-item autopilot resume.
+- Generated candidates keep `approval_required=true`, `approval_status=pending`, and `safe_apply_ready=false`.
+- Next PR: PR-ATLAS-PIPE-54 finalizes supervised item status transitions from loop outcomes.

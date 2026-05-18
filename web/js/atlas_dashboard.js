@@ -56,6 +56,8 @@
     patchProposalDraftSubmitting: false,
     autoPolicyPresets: [],
     automationDecision: null,
+    patchRegenFromRecommendationResult: null,
+    patchRegenFromRecommendationSubmitting: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -460,6 +462,7 @@
   }
 
   function render() {
+    renderPatchRegenFromRecommendationPanel();
     updateSummary();
     renderPlanList();
     renderCurrentItem();
@@ -1114,6 +1117,42 @@
   }
 
 
+
+  function renderPatchRegenFromRecommendationPanel() {
+    const panel = $('atlas-patch-regen-from-recommendation-panel');
+    if (!panel) return;
+    const result = state.patchRegenFromRecommendationResult || {};
+    const candidate = result.patch_regen_result?.candidate || {};
+    panel.textContent = `status: ${result.status || 'none'} / patch_regen_result_id: ${result.patch_regen_result_id || '-'} / patch_regen_status: ${result.patch_regen_result?.status || '-'} / candidate approval_status: ${candidate.approval_status || '-'} / safe_apply_ready: ${String(candidate.safe_apply_ready === true)}`;
+  }
+
+  async function runPatchRegenFromRecommendation() {
+    if (state.patchRegenFromRecommendationSubmitting || !state.currentPoolId || !root.AtlasPipelineAPI?.runPatchRegenFromRecommendation) return;
+    const item = getItems().find((x) => String(x?.item_id || '') === String(state.planPool?.current_item_id || '')) || getItems()[0];
+    const recommendationRunId = $('atlas-patch-regen-from-rec-id')?.value || item?.metadata?.latest_patch_regen_recommendation_id || '';
+    if (!item || !recommendationRunId) { showWarning('Patch Regen From Recommendation requires a current item and recommendation_run_id.'); return; }
+    state.patchRegenFromRecommendationSubmitting = true;
+    const response = await handleResult(await root.AtlasPipelineAPI.runPatchRegenFromRecommendation({
+      pool_id: state.currentPoolId,
+      item_id: item.item_id,
+      run_id: state.currentRunId || '',
+      workspace_id: workspaceId(),
+      recommendation_run_id: recommendationRunId,
+      dry_run: Boolean($('atlas-patch-regen-from-rec-dry-run')?.checked),
+      reviewer: $('atlas-patch-regen-from-rec-reviewer')?.value || 'manual',
+      reason: $('atlas-patch-regen-from-rec-reason')?.value || '',
+      metadata: { ui: 'atlas_dashboard', manual_trigger: true }
+    }), 'Patch regen from recommendation failed');
+    state.patchRegenFromRecommendationSubmitting = false;
+    if (!response) return;
+    state.patchRegenFromRecommendationResult = response;
+    if (response.status === 'patch_regen_created') showSuccess('Patch candidate generated from recommendation. Manual approval is still required; no verification or safe_apply was run.');
+    else if (response.status === 'dry_run') showWarning('Dry run validated recommendation only; patch regeneration was not executed.');
+    else showWarning('Patch regen from recommendation finished with status: '+(response.status || '-'));
+    await refreshPlanPool();
+    render();
+  }
+
   async function checkAutomationReadiness() {
     const item = getItems().find((x) => String(x?.item_id || '') === String(state.planPool?.current_item_id || '')) || getItems()[0];
     if (!item || !state.currentPoolId || !root.AtlasPipelineAPI?.decideAutomation) return;
@@ -1144,6 +1183,8 @@
     if (autoBtn) autoBtn.addEventListener('click', checkAutomationReadiness);
     const autoRunBtn = $('atlas-auto-safe-apply-run-btn');
     if (autoRunBtn) autoRunBtn.addEventListener('click', runAutoSafeApplyOne);
+    const regenFromRecBtn = $('atlas-run-patch-regen-from-recommendation');
+    if (regenFromRecBtn) regenFromRecBtn.addEventListener('click', runPatchRegenFromRecommendation);
     if (details) {
       details.addEventListener('toggle', () => {
         state.advancedOpen = details.open;
@@ -1182,6 +1223,8 @@
     generatePatchProposal,
     refreshVerificationCandidates,
     renderVerificationPanel,
+    runPatchRegenFromRecommendation,
+    renderPatchRegenFromRecommendationPanel,
     render,
   };
 
