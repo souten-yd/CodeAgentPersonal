@@ -212,3 +212,11 @@ export async function getPatchRegenPolicies(){ return apiGet('/api/atlas/patch-r
 export async function runPatchRegen(payload){ return apiPost('/api/atlas/patch-regen/run', payload); }
 export async function getPatchRegenResult(poolId, regenRunId){ return apiGet(`/api/atlas/patch-regen/results/${encodeURIComponent(poolId)}/${encodeURIComponent(regenRunId)}`); }
 export async function getLatestPatchRegenResult(payload){ return apiPost('/api/atlas/patch-regen/latest', payload); }
+
+
+export async function getPatchCandidateApprovalPolicies(){return apiGet('/api/atlas/patch-candidate-approval/policies');}
+export async function decidePatchCandidateApproval(payload){return apiPost('/api/atlas/patch-candidate-approval/decide',payload);}
+export async function getPatchCandidateApprovalResult(poolId, approvalRunId){return apiGet(`/api/atlas/patch-candidate-approval/results/${encodeURIComponent(poolId)}/${encodeURIComponent(approvalRunId)}`);}
+export async function getLatestPatchCandidateApproval(payload){return apiPost('/api/atlas/patch-candidate-approval/latest',payload);}
+export async function getSafeApplyHandoff(poolId, handoffId){return apiGet(`/api/atlas/safe-apply-handoffs/${encodeURIComponent(poolId)}/${encodeURIComponent(handoffId)}`);}
+export async function getLatestSafeApplyHandoff(payload){return apiPost('/api/atlas/safe-apply-handoffs/latest',payload);}
