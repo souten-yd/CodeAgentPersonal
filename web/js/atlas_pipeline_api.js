@@ -207,3 +207,8 @@ export async function getBoundedRetryPolicies(){ return apiGet("/api/atlas/bound
 export async function runBoundedRetry(payload){ return apiPost("/api/atlas/bounded-retry/run", payload); }
 export async function getBoundedRetryResult(poolId, retryRunId){ return apiGet(`/api/atlas/bounded-retry/results/${encodeURIComponent(poolId)}/${encodeURIComponent(retryRunId)}`); }
 export async function getLatestBoundedRetryResult(payload){ return apiPost("/api/atlas/bounded-retry/latest", payload); }
+
+export async function getPatchRegenPolicies(){ return apiGet('/api/atlas/patch-regen/policies'); }
+export async function runPatchRegen(payload){ return apiPost('/api/atlas/patch-regen/run', payload); }
+export async function getPatchRegenResult(poolId, regenRunId){ return apiGet(`/api/atlas/patch-regen/results/${encodeURIComponent(poolId)}/${encodeURIComponent(regenRunId)}`); }
+export async function getLatestPatchRegenResult(payload){ return apiPost('/api/atlas/patch-regen/latest', payload); }
