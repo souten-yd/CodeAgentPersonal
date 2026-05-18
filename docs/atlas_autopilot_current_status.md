@@ -55,3 +55,5 @@
 - Retryable transient verification failures can continue through max attempts with per-attempt reclassification.
 - Multi-item bounded-retry recovered results normalize `verification_result.status` to `passed` with recovery metadata.
 - Next PR: PR-ATLAS-PIPE-47 supervised patch regeneration with manual approval gate.
+
+- PR-ATLAS-PIPE-47B hardens supervised patch regeneration (audit events, prompt contract, evidence loading, target validation, manual approval only).

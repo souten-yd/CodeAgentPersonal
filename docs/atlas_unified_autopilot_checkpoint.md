@@ -67,3 +67,5 @@ Next PR: PR-ATLAS-PIPE-46 Bounded retry loop
 
 ## Next PR
 - PR-ATLAS-PIPE-47: Supervised patch regeneration after failed verification with manual approval gate
+
+- PR-ATLAS-PIPE-47B hardens supervised patch regeneration (audit events, prompt contract, evidence loading, target validation, manual approval only).

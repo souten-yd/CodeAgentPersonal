@@ -63,3 +63,5 @@
 - Reclassifies retryability on every verification rerun attempt.
 - Enforces `max_runtime_seconds` and changed-file drift guard.
 - Keeps safety invariants: no safe_apply rerun/rollback/restore/debug/patch regeneration.
+
+- PR-ATLAS-PIPE-47B hardens supervised patch regeneration (audit events, prompt contract, evidence loading, target validation, manual approval only).
