@@ -62,6 +62,15 @@
   const esc = (value) => String(value ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
   const arr = (value) => Array.isArray(value) ? value : [];
 
+  function getAtlasAutomationExtensionsHost() {
+    const host = document.getElementById("atlas-automation-extensions-panel");
+    if (!host) {
+      console.warn('[AtlasDashboard] automation extensions host not found (#atlas-automation-extensions-panel)');
+      return null;
+    }
+    return host;
+  }
+
   function readStorage(key) {
     try { return localStorage.getItem(key) || ''; } catch (_err) { return ''; }
   }

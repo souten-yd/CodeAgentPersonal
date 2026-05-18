@@ -346,6 +346,49 @@
             <div class="atlas-continuation-summary">Manual verification only. Debug loop and automatic fixes are not run.</div>
             <div id="atlas-verification-list" class="atlas-questions-panel">No verification candidates.</div>
           </section>
+
+          <section id="atlas-automation-extensions-panel" class="atlas-detail-section" aria-labelledby="atlas-automation-extensions-title">
+            <h3 id="atlas-automation-extensions-title">Automation Extensions</h3>
+            <p class="atlas-muted-note">Guarded automation tools. These panels do not run rollback, restore, or unrestricted commands.</p>
+            <div class="atlas-automation-extension-grid">
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Multi-item Autopilot</summary>
+                <p>Run guarded autopilot for low-risk approved items.</p><p>No auto rollback.</p><p>No auto patch regeneration.</p><p>Stops on failed verification or evaluator stop.</p>
+                <div class="atlas-extension-actions"><button id="atlas-run-guarded-autopilot" type="button" class="atlas-secondary-btn">Run guarded autopilot</button></div>
+                <div id="atlas-multi-item-autopilot-panel" class="atlas-extension-result">No run yet.</div>
+              </details>
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Context Refresh</summary>
+                <p>Local-first context refresh.</p><p>Web and Deep Research require explicit policy.</p><p>No code changes are applied by context refresh.</p>
+                <div id="atlas-context-refresh-panel" class="atlas-extension-result">No refresh run yet.</div>
+              </details>
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Bounded Retry</summary>
+                <p>Safety: No auto rollback / No auto restore / No patch regeneration / Verification rerun only</p>
+                <div class="atlas-extension-actions"><button id="atlas-run-retry-check" type="button" class="atlas-secondary-btn">Run retry check</button></div>
+                <div id="bounded-retry-panel" class="atlas-extension-result">No retry run yet.</div>
+              </details>
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Supervised Patch Regeneration</summary>
+                <p>Manual approval required. Patch is not applied. No verification is run. No rollback/restore.</p>
+                <div class="atlas-extension-actions"><button id="atlas-run-patch-regen" type="button" class="atlas-secondary-btn">Run patch regeneration</button></div>
+                <div id="atlas-patch-regen-panel" class="atlas-extension-result">No patch regeneration run yet.</div>
+              </details>
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Patch Candidate Approval</summary>
+                <p>Candidate approval is manual and scoped to explicit operator confirmation only.</p>
+                <div class="atlas-extension-actions"><button id="atlas-approve-candidate-btn" type="button" class="atlas-secondary-btn">Approve candidate</button></div>
+                <div id="atlas-patch-candidate-approval-panel" class="atlas-extension-result">No candidate approval action yet.</div>
+              </details>
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Supervised Handoff Safe Apply</summary>
+                <p>This applies an already approved handoff patch. This does not run verification. This does not rollback or restore.</p>
+                <div class="atlas-extension-actions"><button id="atlas-execute-supervised-safe-apply" type="button" class="atlas-secondary-btn">Execute supervised safe_apply</button></div>
+                <div id="atlas-handoff-safe-apply-panel" class="atlas-extension-result">Run verification separately after apply.</div>
+              </details>
+            </div>
+          </section>
+
           <section id="atlas-continuation-panel" class="atlas-detail-section atlas-continuation-panel" aria-labelledby="atlas-continuation-title">
             <div class="atlas-section-title-row">
               <div>
@@ -15965,12 +16008,3 @@ function testSkill(skillName) {
 <script src="/static/js/echo.js"></script>
 </body>
 </html>
-
-<section id="atlas-multi-item-autopilot-panel"><h3>Multi-item Autopilot</h3><p>Run guarded autopilot for low-risk approved items.</p><p>No auto rollback.</p><p>No auto patch regeneration.</p><p>Stops on failed verification or evaluator stop.</p></section>
-<section id="atlas-context-refresh-panel"><h3>Context Refresh</h3><p>Local-first context refresh.</p><p>Web and Deep Research require explicit policy.</p><p>No code changes are applied by context refresh.</p></section>
-
-<div id="bounded-retry-panel"><h3>Bounded Retry</h3><p>Safety: No auto rollback / No auto restore / No patch regeneration / Verification rerun only</p></div>
-
-<section id="atlas-patch-regen-panel"><h3>Supervised Patch Regeneration</h3><p>Manual approval required. Patch is not applied. No verification is run. No rollback/restore.</p><button id="atlas-run-patch-regen">Run patch regeneration</button></section>
-
-<!-- Supervised Handoff Safe Apply: This applies an already approved handoff patch. This does not run verification. This does not rollback or restore. Run verification separately after apply. -->
