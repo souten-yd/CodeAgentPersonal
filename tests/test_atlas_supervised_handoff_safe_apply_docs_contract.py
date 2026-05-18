@@ -2,4 +2,4 @@ from pathlib import Path
 
 def test_docs_mentions_pr49():
     t=Path('docs/atlas_unified_autopilot_checkpoint.md').read_text(encoding='utf-8')
-    assert 'PR-ATLAS-PIPE-49' in t
+    assert 'PR-ATLAS-PIPE-49B' in t

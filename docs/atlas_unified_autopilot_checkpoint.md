@@ -73,3 +73,15 @@ Next PR: PR-ATLAS-PIPE-46 Bounded retry loop
 - PR-ATLAS-PIPE-48: Added manual approval gate for regenerated patch candidates; approved candidates now create safe_apply handoff artifacts only (no apply/verification/retry/rollback/restore/debug/autopilot resume). Next: PR-ATLAS-PIPE-49 supervised safe_apply execution from approved handoff.
 
 - PR-ATLAS-PIPE-49: supervised safe_apply from approved handoff; requires approved handoff/hash/gate recheck; supports dry_run; safe_apply only; no verification/retry/rollback/restore. Next: PR-ATLAS-PIPE-50 supervised verification after handoff safe_apply.
+
+- PR-ATLAS-PIPE-49B: Harden supervised handoff safe_apply atomicity, metadata updates, and audit events before verification.
+
+Completed PRs:
+- PR-ATLAS-PIPE-0〜49: completed
+- PR-SEARXNG-SECRET-SYNC-01: completed
+
+Current PR:
+- PR-ATLAS-PIPE-49B
+
+Next PR:
+- PR-ATLAS-PIPE-50: Supervised verification after handoff safe_apply and result evaluation
