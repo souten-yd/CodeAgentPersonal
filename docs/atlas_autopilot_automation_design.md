@@ -77,3 +77,14 @@
 - Completed PRs: PR-ATLAS-PIPE-0〜51, PR-ATLAS-UI-FIX-50A, PR-SEARXNG-SECRET-SYNC-01
 - Current PR: PR-ATLAS-PIPE-51B
 - Next PR: PR-ATLAS-PIPE-52: Close supervised loop by routing exhausted/not-retryable verification failures to patch regeneration recommendation
+
+## PR-ATLAS-PIPE-53 Patch Regen From Recommendation
+- Saved Patch Regen Recommendation artifacts with `status=recommendation_ready` may be executed only by a manual trigger.
+- The manual trigger loads the saved `recommended_payload`, validates paths and failure evidence again, and calls supervised patch regeneration directly to create a candidate.
+- Dry run validates and previews the patch regen request only; it does not call patch regeneration.
+- The PR-53 path does not approve, apply, verify, retry, rollback, restore, run DebugReview, use remote git, or continue multi-item autopilot.
+- Audit events are scoped to `patch_regen_from_recommendation_*` and generated candidates remain pending manual approval with `safe_apply_ready=false`.
+
+Completed PRs: PR-ATLAS-PIPE-0〜52C, PR-ATLAS-UI-FIX-50A, PR-SEARXNG-SECRET-SYNC-01
+Current PR: PR-ATLAS-PIPE-53
+Next PR: PR-ATLAS-PIPE-54: Finalize supervised item status transitions from loop outcomes

@@ -179,6 +179,18 @@
     submitClarificationAnswers(payload) {
       return atlasFetch("/api/atlas/clarifications/answer", { method: "POST", body: JSON.stringify(payload || {}) });
     },
+    getPatchRegenFromRecommendationPolicies() {
+      return atlasFetch('/api/atlas/patch-regen-from-recommendation/policies');
+    },
+    runPatchRegenFromRecommendation(payload) {
+      return atlasFetch('/api/atlas/patch-regen-from-recommendation/run', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    getPatchRegenFromRecommendationResult(poolId, recommendationExecId) {
+      return atlasFetch(`/api/atlas/patch-regen-from-recommendation/results/${encodeURIComponent(poolId)}/${encodeURIComponent(recommendationExecId)}`);
+    },
+    getLatestPatchRegenFromRecommendation(payload) {
+      return atlasFetch('/api/atlas/patch-regen-from-recommendation/latest', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
   };
 
   root.AtlasPipelineAPI = AtlasPipelineAPI;
@@ -241,3 +253,8 @@ export async function getPatchRegenRecommendationPolicies(){ return apiGet('/api
 export async function runPatchRegenRecommendation(payload){ return apiPost('/api/atlas/patch-regen-recommendation/run', payload); }
 export async function getPatchRegenRecommendationResult(poolId, recommendationRunId){ return apiGet(`/api/atlas/patch-regen-recommendation/results/${encodeURIComponent(poolId)}/${encodeURIComponent(recommendationRunId)}`); }
 export async function getLatestPatchRegenRecommendation(payload){ return apiPost('/api/atlas/patch-regen-recommendation/latest', payload); }
+
+export async function getPatchRegenFromRecommendationPolicies(){return apiGet('/api/atlas/patch-regen-from-recommendation/policies');}
+export async function runPatchRegenFromRecommendation(payload){return apiPost('/api/atlas/patch-regen-from-recommendation/run',payload);}
+export async function getPatchRegenFromRecommendationResult(poolId,recommendationExecId){return apiGet(`/api/atlas/patch-regen-from-recommendation/results/${encodeURIComponent(poolId)}/${encodeURIComponent(recommendationExecId)}`);}
+export async function getLatestPatchRegenFromRecommendation(payload){return apiPost('/api/atlas/patch-regen-from-recommendation/latest',payload);}
