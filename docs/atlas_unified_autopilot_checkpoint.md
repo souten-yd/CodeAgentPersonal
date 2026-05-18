@@ -98,3 +98,9 @@ Current PR: PR-ATLAS-PIPE-50B
 - Completed PRs: PR-ATLAS-PIPE-0〜51, PR-ATLAS-UI-FIX-50A, PR-SEARXNG-SECRET-SYNC-01
 - Current PR: PR-ATLAS-PIPE-51B
 - Next PR: PR-ATLAS-PIPE-52: Close supervised loop by routing exhausted/not-retryable verification failures to patch regeneration recommendation
+
+Current PR:
+- PR-ATLAS-PIPE-52B
+
+Next PR:
+- PR-ATLAS-PIPE-53: Execute supervised patch regeneration from recommendation with manual trigger
