@@ -61,3 +61,7 @@
 - Safety: no safe_apply rerun, no rollback/restore/debug review/patch regeneration.
 - Multi-item integration is opt-in (`include_bounded_retry=false` by default).
 - Next PR: PR-ATLAS-PIPE-47 supervised patch regeneration.
+
+## PR-ATLAS-PIPE-46B
+- Bounded retry remains verification-rerun only and forbids safe_apply rerun, rollback, restore, debug review, and patch regeneration.
+- Runtime budget and changed-file drift are enforced during retries.

@@ -57,3 +57,13 @@ Next PR: PR-ATLAS-PIPE-46 Bounded retry loop
 - Evaluator emits evaluator_started/evaluator_completed/evaluator_fallback_used/evaluator_policy_override/evaluator_blocked/evaluator_failed.
 - Evaluator remains decision-only and side-effect-free.
 - Next: PR-ATLAS-PIPE-45 Multi-item guarded autopilot consumes evaluator results and audit events.
+
+## Completed PRs
+- PR-ATLAS-PIPE-0〜46: completed
+- PR-SEARXNG-SECRET-SYNC-01: completed
+
+## Current PR
+- PR-ATLAS-PIPE-46B
+
+## Next PR
+- PR-ATLAS-PIPE-47: Supervised patch regeneration after failed verification with manual approval gate

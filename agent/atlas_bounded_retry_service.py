@@ -40,59 +40,92 @@ class AtlasBoundedRetryService:
         return {"retry_allowed": False, "reason": "status_not_retryable"}
 
     def run(self, request: AtlasBoundedRetryRequest) -> AtlasBoundedRetryResult:
-        pool = self.storage.load_pool(request.pool_id)
-        item = pool.get_item(request.item_id)
-        policy = get_bounded_retry_policy(request.policy_id)
         retry_run_id = f"retry_{uuid4().hex[:10]}"
-        result = AtlasBoundedRetryResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, retry_run_id=retry_run_id, policy_id=policy.policy_id, status="failed")
-        self.emit("bounded_retry_started", request, retry_run_id, attempt_index=0)
-        cl = self.classify_retryability(request.verification_result, request.failure_stop_suggestion, policy)
-        self.emit("bounded_retry_classified", request, retry_run_id, retry_allowed=cl["retry_allowed"], retry_reason=cl["reason"], verification_status=(request.verification_result or {}).get("status", ""))
-        if not cl["retry_allowed"]:
-            result.status, result.stop_reason = "not_retryable", cl["reason"]
-            result.attempts.append(AtlasRetryAttemptResult(attempt_index=1, status="retry_skipped", retry_allowed=False, retry_reason=cl["reason"], verification_result=request.verification_result))
-            result.attempt_count = 1
+        result = None
+        try:
+            pool = self.storage.load_pool(request.pool_id)
+            item = pool.get_item(request.item_id)
+            policy = get_bounded_retry_policy(request.policy_id)
+            started_at = datetime.now(timezone.utc)
+            result = AtlasBoundedRetryResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, retry_run_id=retry_run_id, policy_id=policy.policy_id, status="failed")
+            self.emit("bounded_retry_started", request, retry_run_id, attempt_index=0)
+            cl = self.classify_retryability(request.verification_result, request.failure_stop_suggestion, policy)
+            max_attempts = min(request.max_attempts, policy.max_attempts)
+            changed_files = list(request.changed_files or [])
+            result.metadata = {"started_at": started_at.isoformat(), "initial_retry_allowed": cl["retry_allowed"], "initial_retry_reason": cl["reason"], "max_attempts": max_attempts, "max_runtime_seconds": policy.max_runtime_seconds, "require_same_changed_files": policy.require_same_changed_files, "safe_apply_rerun": False, "auto_restore": False, "auto_rollback": False, "auto_debug_review": False, "auto_patch_regeneration": False}
+            self.emit("bounded_retry_classified", request, retry_run_id, retry_allowed=cl["retry_allowed"], retry_reason=cl["reason"], verification_status=(request.verification_result or {}).get("status", ""))
+            if not cl["retry_allowed"]:
+                result.status, result.stop_reason = "not_retryable", cl["reason"]
+                result.attempts.append(AtlasRetryAttemptResult(attempt_index=1, status="retry_skipped", retry_allowed=False, retry_reason=cl["reason"], verification_result=request.verification_result, metadata={"classification_source": "initial", "initial_retry_reason": cl["reason"], "attempt_retry_allowed": False, "attempt_retry_reason": cl["reason"], "changed_files_baseline": changed_files}))
+                result.attempt_count = 1
+                self.save_result(result)
+                self.emit("bounded_retry_not_retryable", request, retry_run_id, attempt_index=1, retry_allowed=False, retry_reason=cl["reason"])
+                return result
+            if request.dry_run or policy.policy_id == "verification_retry_dry_run_v1":
+                result.status, result.stop_reason = "dry_run", "dry_run_only"
+                result.attempts.append(AtlasRetryAttemptResult(attempt_index=1, status="retry_skipped", retry_allowed=True, retry_reason=cl["reason"], verification_result=request.verification_result, metadata={"classification_source": "initial", "initial_retry_reason": cl["reason"]}))
+                result.attempt_count = 1
+                self.save_result(result)
+                return result
+            for i in range(1, max_attempts + 1):
+                if (datetime.now(timezone.utc) - started_at).total_seconds() > policy.max_runtime_seconds:
+                    result.status, result.stop_reason = "stopped", "max_runtime_seconds_exceeded"
+                    self.emit("bounded_retry_stopped", request, retry_run_id, attempt_index=i, stop_reason=result.stop_reason)
+                    break
+                ctx_id = ""
+                project_path = self.resolve_project_path(request, pool, item)
+                if policy.allow_context_refresh:
+                    ctx = self.context_refresh_service.refresh(AtlasContextRefreshRequest(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, trigger="verification_failure", workspace_id=request.workspace_id, project_path=project_path, changed_files=changed_files, policy_id=request.context_policy_id, include_local_tools=True, include_nexus_search=False, include_deep_research=False))
+                    ctx_id = ctx.bundle_id
+                    self.emit("bounded_retry_context_refresh_completed", request, retry_run_id, attempt_index=i, context_bundle_id=ctx_id)
+                self.emit("bounded_retry_verification_started", request, retry_run_id, attempt_index=i)
+                vr = self.auto_verification_service.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id))
+                self.emit("bounded_retry_verification_completed", request, retry_run_id, attempt_index=i, verification_status=vr.status)
+                vr_dump = vr.model_dump()
+                attempt_cl = self.classify_retryability(vr_dump, request.failure_stop_suggestion, policy)
+                ev = self.evaluator_service.evaluate(AtlasEvaluatorRequest(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, trigger="post_verification" if vr.status == "passed" else "verification_failure", context_bundle_id=ctx_id, use_latest_context_bundle=False, project_path=project_path, changed_files=changed_files, verification_result=vr_dump, safe_apply_result=request.safe_apply_result, failure_stop_suggestion=request.failure_stop_suggestion, policy_id=request.evaluator_policy_id, metadata={"retry_run_id": retry_run_id, "attempt_index": i, "bounded_retry": True})) if policy.allow_evaluator else None
+                decision = (ev.decision.model_dump() if ev else {})
+                if policy.require_same_changed_files and set((vr_dump.get("changed_files") or changed_files)) != set(changed_files):
+                    result.status, result.stop_reason = "failed", "changed_files_changed_during_retry"
+                    self.emit("bounded_retry_failed", request, retry_run_id, attempt_index=i, stop_reason=result.stop_reason)
+                    break
+                attempt_status = "verification_passed" if vr.status == "passed" else f"verification_{vr.status}" if vr.status in {"failed", "blocked", "skipped"} else "failed"
+                ar = AtlasRetryAttemptResult(attempt_index=i, status=attempt_status, retry_allowed=attempt_cl["retry_allowed"], retry_reason=attempt_cl["reason"], verification_result=vr_dump, context_bundle_id=ctx_id, evaluator_result_id=str((ev.metadata or {}).get("eval_id") or "") if ev else "", evaluator_decision=decision, metadata={"classification_source": "attempt", "initial_retry_reason": cl["reason"], "attempt_retry_allowed": attempt_cl["retry_allowed"], "attempt_retry_reason": attempt_cl["reason"], "verification_status": vr.status, "context_bundle_id": ctx_id, "evaluator_result_id": str((ev.metadata or {}).get("eval_id") or "") if ev else "", "evaluator_decision": decision.get("decision", ""), "changed_files_baseline": changed_files})
+                result.attempts.append(ar)
+                result.attempt_count = len(result.attempts)
+                result.final_verification_status = vr.status
+                self.emit("bounded_retry_attempt_completed", request, retry_run_id, attempt_index=i, verification_status=vr.status, retry_allowed=attempt_cl["retry_allowed"], retry_reason=attempt_cl["reason"], evaluator_decision=decision.get("decision", ""))
+                if vr.status == "passed":
+                    if decision.get("decision") == "stop":
+                        result.status, result.stop_reason = "stopped", "evaluator_stop"
+                        self.emit("bounded_retry_stopped", request, retry_run_id, attempt_index=i, evaluator_decision=decision.get("decision"), stop_reason=result.stop_reason)
+                    else:
+                        result.status = "recovered"
+                        self.emit("bounded_retry_recovered", request, retry_run_id, attempt_index=i, attempt_count=result.attempt_count, final_verification_status=result.final_verification_status)
+                    break
+                if not attempt_cl["retry_allowed"]:
+                    result.status, result.stop_reason = "not_retryable", attempt_cl["reason"]
+                    self.emit("bounded_retry_not_retryable", request, retry_run_id, attempt_index=i, retry_allowed=False, retry_reason=attempt_cl["reason"])
+                    break
+                if decision.get("decision") == "manual_required":
+                    result.status, result.stop_reason = "stopped", f"evaluator_{decision.get('decision')}"
+                    self.emit("bounded_retry_stopped", request, retry_run_id, attempt_index=i, evaluator_decision=decision.get("decision"), stop_reason=result.stop_reason)
+                    break
+                if i == max_attempts:
+                    result.status, result.stop_reason = "exhausted", "max_attempts_exhausted"
+                    self.emit("bounded_retry_exhausted", request, retry_run_id, attempt_index=i, attempt_count=result.attempt_count)
+            result.metadata["finished_at"] = datetime.now(timezone.utc).isoformat()
+            result.metadata["elapsed_seconds"] = (datetime.now(timezone.utc) - started_at).total_seconds()
             self.save_result(result)
-            self.emit("bounded_retry_not_retryable", request, retry_run_id, attempt_index=1, retry_allowed=False, retry_reason=cl["reason"])
             return result
-        if request.dry_run or policy.policy_id == "verification_retry_dry_run_v1":
-            result.status, result.stop_reason = "dry_run", "dry_run_only"
-            result.attempts.append(AtlasRetryAttemptResult(attempt_index=1, status="retry_skipped", retry_allowed=True, retry_reason=cl["reason"], verification_result=request.verification_result))
-            result.attempt_count = 1
-            self.save_result(result)
-            return result
-        max_attempts = min(request.max_attempts, policy.max_attempts)
-        changed_files = list(request.changed_files or [])
-        for i in range(1, max_attempts + 1):
-            ctx_id = ""
-            project_path = self.resolve_project_path(request, pool, item)
-            if policy.allow_context_refresh:
-                ctx = self.context_refresh_service.refresh(AtlasContextRefreshRequest(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, trigger="verification_failure", workspace_id=request.workspace_id, project_path=project_path, changed_files=changed_files, policy_id=request.context_policy_id, include_local_tools=True, include_nexus_search=False, include_deep_research=False))
-                ctx_id = ctx.bundle_id
-                self.emit("bounded_retry_context_refresh_completed", request, retry_run_id, attempt_index=i, context_bundle_id=ctx_id)
-            self.emit("bounded_retry_verification_started", request, retry_run_id, attempt_index=i)
-            vr = self.auto_verification_service.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id))
-            self.emit("bounded_retry_verification_completed", request, retry_run_id, attempt_index=i, verification_status=vr.status)
-            ev = self.evaluator_service.evaluate(AtlasEvaluatorRequest(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, trigger="post_verification" if vr.status == "passed" else "verification_failure", context_bundle_id=ctx_id, use_latest_context_bundle=False, project_path=project_path, changed_files=changed_files, verification_result=vr.model_dump(), safe_apply_result=request.safe_apply_result, failure_stop_suggestion=request.failure_stop_suggestion, policy_id=request.evaluator_policy_id, metadata={"retry_run_id": retry_run_id, "attempt_index": i, "bounded_retry": True})) if policy.allow_evaluator else None
-            decision = (ev.decision.model_dump() if ev else {})
-            attempt_status = "verification_passed" if vr.status == "passed" else f"verification_{vr.status}" if vr.status in {"failed", "blocked", "skipped"} else "failed"
-            ar = AtlasRetryAttemptResult(attempt_index=i, status=attempt_status, retry_allowed=True, retry_reason=cl["reason"], verification_result=vr.model_dump(), context_bundle_id=ctx_id, evaluator_result_id=str((ev.metadata or {}).get("eval_id") or "") if ev else "", evaluator_decision=decision)
-            result.attempts.append(ar)
-            result.attempt_count = len(result.attempts)
-            result.final_verification_status = vr.status
-            if decision.get("decision") in {"stop", "manual_required", "revise"}:
-                result.status, result.stop_reason = "stopped", f"evaluator_{decision.get('decision')}"
-                self.emit("bounded_retry_stopped", request, retry_run_id, attempt_index=i, evaluator_decision=decision.get("decision"))
-                break
-            if vr.status == "passed":
-                result.status = "recovered"
-                self.emit("bounded_retry_recovered", request, retry_run_id, attempt_index=i)
-                break
-            if i == max_attempts:
-                result.status, result.stop_reason = "exhausted", "max_attempts_exhausted"
-                self.emit("bounded_retry_exhausted", request, retry_run_id, attempt_index=i)
-        self.save_result(result)
-        return result
+        except Exception as exc:
+            if result is not None:
+                result.status = "failed"
+                result.stop_reason = f"exception:{type(exc).__name__}"
+                result.errors.append(f"bounded_retry_exception:{type(exc).__name__}")
+                self.emit("bounded_retry_failed", request, retry_run_id, stop_reason=result.stop_reason)
+                self.save_result(result)
+            raise
 
     def save_result(self, result: AtlasBoundedRetryResult):
         validate_relative_path(result.pool_id)

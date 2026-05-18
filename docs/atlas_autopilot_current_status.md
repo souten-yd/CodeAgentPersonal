@@ -50,3 +50,8 @@
 - Safety: no safe_apply rerun, no rollback/restore/debug review/patch regeneration.
 - Multi-item integration is opt-in (`include_bounded_retry=false` by default).
 - Next PR: PR-ATLAS-PIPE-47 supervised patch regeneration.
+
+## PR-ATLAS-PIPE-46B
+- Retryable transient verification failures can continue through max attempts with per-attempt reclassification.
+- Multi-item bounded-retry recovered results normalize `verification_result.status` to `passed` with recovery metadata.
+- Next PR: PR-ATLAS-PIPE-47 supervised patch regeneration with manual approval gate.
