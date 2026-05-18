@@ -57,3 +57,5 @@
 - Manual approval required. No auto apply, no verification, no retry execution, no rollback/restore/debug.
 - Candidate is saved and attached to item metadata.
 - Next PR: PR-ATLAS-PIPE-48 approval gate for regenerated patch candidates and supervised safe_apply handoff.
+
+- PR-ATLAS-PIPE-48: Added manual approval gate for regenerated patch candidates; approved candidates now create safe_apply handoff artifacts only (no apply/verification/retry/rollback/restore/debug/autopilot resume). Next: PR-ATLAS-PIPE-49 supervised safe_apply execution from approved handoff.
