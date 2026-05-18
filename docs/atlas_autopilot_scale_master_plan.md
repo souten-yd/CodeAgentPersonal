@@ -50,3 +50,10 @@
 - No auto rollback/restore/debug review/patch regeneration.
 - Persist run result JSON/MD at ca_data/atlas/multi_item_autopilot/{pool_id}/{auto_id}.(json|md).
 - Next PR: PR-ATLAS-PIPE-46 bounded retry loop (without auto rollback).
+
+
+## PR-ATLAS-PIPE-47 Supervised patch regeneration
+- deterministic/code failure after bounded retry can generate a patch proposal candidate only.
+- Manual approval required. No auto apply, no verification, no retry execution, no rollback/restore/debug.
+- Candidate is saved and attached to item metadata.
+- Next PR: PR-ATLAS-PIPE-48 approval gate for regenerated patch candidates and supervised safe_apply handoff.
