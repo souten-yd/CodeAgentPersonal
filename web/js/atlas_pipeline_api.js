@@ -235,3 +235,9 @@ export async function getSupervisedHandoffRetryPolicies(){return apiGet("/api/at
 export async function runSupervisedHandoffRetry(payload){return apiPost("/api/atlas/supervised-handoff-retry/run",payload);}
 export async function getSupervisedHandoffRetryResult(poolId, supervisedRetryRunId){return apiGet(`/api/atlas/supervised-handoff-retry/results/${encodeURIComponent(poolId)}/${encodeURIComponent(supervisedRetryRunId)}`);}
 export async function getLatestSupervisedHandoffRetry(payload){return apiPost("/api/atlas/supervised-handoff-retry/latest",payload);}
+
+
+export async function getPatchRegenRecommendationPolicies(){ return apiGet('/api/atlas/patch-regen-recommendation/policies'); }
+export async function runPatchRegenRecommendation(payload){ return apiPost('/api/atlas/patch-regen-recommendation/run', payload); }
+export async function getPatchRegenRecommendationResult(poolId, recommendationRunId){ return apiGet(`/api/atlas/patch-regen-recommendation/results/${encodeURIComponent(poolId)}/${encodeURIComponent(recommendationRunId)}`); }
+export async function getLatestPatchRegenRecommendation(payload){ return apiPost('/api/atlas/patch-regen-recommendation/latest', payload); }

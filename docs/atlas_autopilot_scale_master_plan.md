@@ -63,3 +63,6 @@
 - PR-ATLAS-PIPE-49: supervised safe_apply from approved handoff; requires approved handoff/hash/gate recheck; supports dry_run; safe_apply only; no verification/retry/rollback/restore. Next: PR-ATLAS-PIPE-50 supervised verification after handoff safe_apply.
 
 - PR-ATLAS-PIPE-50: supervised handoff verification after applied safe_apply (allowlisted verification + local-only context refresh + evaluator, no rerun/retry/rollback/restore/debug/regen).
+
+
+- PR-ATLAS-PIPE-52: Patch regen recommendation payload for exhausted/not_retryable supervised retry outcomes (recommendation only; no execution).
