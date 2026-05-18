@@ -24,34 +24,49 @@ class AtlasSupervisedHandoffSafeApplyService:
         self.safe_apply_service = safe_apply_service or AtlasSafeApplyExecutionService(journal=self.journal, storage=self.storage)
 
     def execute(self, request: AtlasSupervisedHandoffSafeApplyRequest) -> AtlasSupervisedHandoffSafeApplyResult:
-        now = datetime.now(timezone.utc).isoformat(); execution_id = f"safehandoff_{uuid4().hex[:12]}"
+        now = datetime.now(timezone.utc).isoformat(); execution_id = f"safehandoff_{uuid4().hex[:12]}"; rid = request.run_id or execution_id
         policy = get_supervised_handoff_safe_apply_policy(request.policy_id)
+        self._emit(request, execution_id, "supervised_handoff_execution_started", None)
         pool = self.storage.load_pool(request.pool_id); item = pool.get_item(request.item_id)
         handoff = self._load_handoff(request.pool_id, request.handoff_id)
+        self._emit(request, execution_id, "supervised_handoff_loaded", None)
         before = {"safe_apply_executed": bool(handoff.get("safe_apply_executed", False)), "status": str(handoff.get("status", ""))}
-        errs = self._validate_handoff(handoff, request, policy)
-        gate = self._gate_recheck(pool, item, handoff)
-        gate_bad = gate.get("decision") != "allow" or gate.get("decision") == "manual_required" or gate.get("risk_level") in {"medium", "high"}
-        if errs or gate_bad:
-            res = AtlasSupervisedHandoffSafeApplyResult(pool_id=request.pool_id,item_id=request.item_id,run_id=request.run_id,handoff_id=request.handoff_id,execution_id=execution_id,policy_id=policy.policy_id,status="dry_run" if request.dry_run else "blocked",gate_decision=gate,metadata={"validation_errors":errs,"would_apply":False,"gate_rechecked":True,"patch_sha256":handoff.get("metadata",{}).get("patch_sha256","")},handoff_status_before=before,handoff_status_after=before,warnings=errs,errors=[],created_at=now)
-            self._save_result(res, handoff)
-            self._emit(request, execution_id, "supervised_handoff_safe_apply_blocked", res)
+        try:
+            errs = self._validate_handoff(handoff, request, policy)
+            self._emit(request, execution_id, "supervised_handoff_validation_completed", None)
+            gate = self._gate_recheck(pool, item, handoff)
+            self._emit(request, execution_id, "supervised_handoff_gate_rechecked", None)
+            gate_bad = (not request.dry_run) and (gate.get("decision") != "allow" or gate.get("decision") == "manual_required" or gate.get("risk_level") in {"high"})
+            if request.dry_run and not errs and not gate_bad:
+                res = AtlasSupervisedHandoffSafeApplyResult(pool_id=request.pool_id,item_id=request.item_id,run_id=request.run_id,handoff_id=request.handoff_id,execution_id=execution_id,policy_id=policy.policy_id,status="dry_run",gate_decision=gate,metadata={"validation_errors":[],"would_apply":True,"gate_rechecked":True,"target_files":handoff.get("target_files",[]),"patch_sha256":handoff.get("metadata",{}).get("patch_sha256",""),"dry_run":True,"side_effects":self._side_effects(False),"temp_pool_write_used":False,"original_item_restored":True},handoff_status_before=before,handoff_status_after=before,created_at=now)
+                self._append_item_result_history(request, res); self._save_result(res, handoff); self._emit(request, execution_id, "supervised_handoff_result_saved", res)
+                return res
+            if errs or gate_bad:
+                res = AtlasSupervisedHandoffSafeApplyResult(pool_id=request.pool_id,item_id=request.item_id,run_id=request.run_id,handoff_id=request.handoff_id,execution_id=execution_id,policy_id=policy.policy_id,status="blocked",gate_decision=gate,metadata={"validation_errors":errs,"would_apply":False,"gate_rechecked":True,"patch_sha256":handoff.get("metadata",{}).get("patch_sha256",""),"dry_run":request.dry_run,"side_effects":self._side_effects(False),"temp_pool_write_used":False,"original_item_restored":True},handoff_status_before=before,handoff_status_after=before,warnings=errs,errors=[],created_at=now)
+                self._update_handoff_item(request, res, handoff); self._append_item_result_history(request, res); self._save_result(res, handoff)
+                self._emit(request, execution_id, "supervised_handoff_safe_apply_blocked", res); self._emit(request, execution_id, "supervised_handoff_result_saved", res)
+                return res
+            self._emit(request, execution_id, "supervised_handoff_safe_apply_started", None)
+            temp = deepcopy(item); temp.metadata = {**dict(item.metadata or {}), "patch": handoff.get("patch",""), "target_files": handoff.get("target_files",[]), "action_type":"patch", "approval": {"decision":"approved"}}; temp.target_files = list(handoff.get("target_files") or [])
+            orig = deepcopy(pool.get_item(item.item_id)); pool.items = [temp if x.item_id==item.item_id else x for x in pool.items]; self.storage.save_pool(pool)
+            restored = False
+            try:
+                safe = self.safe_apply_service.execute_item(AtlasSafeApplyExecutionRequest(pool_id=request.pool_id,item_id=request.item_id,run_id=rid,workspace_id=request.workspace_id,requested_by="atlas_supervised_handoff_safe_apply"))
+            finally:
+                pool = self.storage.load_pool(request.pool_id); pool.items = [orig if x.item_id==item.item_id else x for x in pool.items]; self.storage.save_pool(pool); restored = True
+            sp = safe.model_dump(); sf = sp.get("safe_apply_result") or {}; changed = list((sp.get("metadata") or {}).get("executor_result",{}).get("changed_files") or sf.get("changed_files") or [])
+            snap = ((sp.get("metadata") or {}).get("change_snapshot") or sf.get("change_snapshot") or {}).get("snapshot_id","")
+            st = "applied" if sp.get("status")=="applied" else "failed"
+            after = dict(before); after.update({"safe_apply_executed": st=="applied", "status": "applied" if st=="applied" else handoff.get("status","ready")})
+            res = AtlasSupervisedHandoffSafeApplyResult(pool_id=request.pool_id,item_id=request.item_id,run_id=request.run_id,handoff_id=request.handoff_id,execution_id=execution_id,policy_id=policy.policy_id,status=st,safe_apply_result=sf,handoff_status_before=before,handoff_status_after=after,gate_decision=gate,changed_files=changed,snapshot_id=snap,created_at=now,metadata={"validation_errors":[],"gate_rechecked":True,"gate_decision":gate.get("decision",""),"handoff_patch_sha256":handoff.get("metadata",{}).get("patch_sha256",""),"patch_targets":handoff.get("target_files",[]),"dry_run":False,"would_apply":st=="applied","side_effects":self._side_effects(st=="applied"),"original_item_restored":restored,"temp_pool_write_used":True})
+            self._update_handoff_item(request, res, handoff); self._append_item_result_history(request, res); self._save_result(res, handoff)
+            self._emit(request, execution_id, "supervised_handoff_safe_apply_completed" if st=="applied" else "supervised_handoff_safe_apply_failed", res); self._emit(request, execution_id, "supervised_handoff_result_saved", res)
             return res
-        if request.dry_run or policy.policy_id.endswith("dry_run_v1"):
-            res = AtlasSupervisedHandoffSafeApplyResult(pool_id=request.pool_id,item_id=request.item_id,run_id=request.run_id,handoff_id=request.handoff_id,execution_id=execution_id,policy_id=policy.policy_id,status="dry_run",gate_decision=gate,metadata={"validation_errors":[],"would_apply":True,"gate_rechecked":True,"target_files":handoff.get("target_files",[]),"patch_sha256":handoff.get("metadata",{}).get("patch_sha256","")},handoff_status_before=before,handoff_status_after=before,created_at=now)
-            self._save_result(res, handoff); self._emit(request, execution_id, "supervised_handoff_result_saved", res); return res
-        temp = deepcopy(item); temp.metadata = {**dict(item.metadata or {}), "patch": handoff.get("patch",""), "target_files": handoff.get("target_files",[]), "action_type":"patch", "approval": {"decision":"approved"}}; temp.target_files = list(handoff.get("target_files") or [])
-        orig = pool.get_item(item.item_id); pool.items = [temp if x.item_id==item.item_id else x for x in pool.items]; self.storage.save_pool(pool)
-        safe = self.safe_apply_service.execute_item(AtlasSafeApplyExecutionRequest(pool_id=request.pool_id,item_id=request.item_id,run_id=request.run_id or execution_id,workspace_id=request.workspace_id,requested_by="atlas_supervised_handoff_safe_apply"))
-        pool = self.storage.load_pool(request.pool_id); pool.items = [orig if x.item_id==item.item_id else x for x in pool.items]; self.storage.save_pool(pool)
-        sp = safe.model_dump(); sf = sp.get("safe_apply_result") or {}; changed = list((sp.get("metadata") or {}).get("executor_result",{}).get("changed_files") or sf.get("changed_files") or [])
-        snap = ((sp.get("metadata") or {}).get("change_snapshot") or sf.get("change_snapshot") or {}).get("snapshot_id","")
-        st = "applied" if sp.get("status")=="applied" else "failed"
-        after = dict(before); after.update({"safe_apply_executed": st=="applied", "status": "applied" if st=="applied" else handoff.get("status","ready")})
-        res = AtlasSupervisedHandoffSafeApplyResult(pool_id=request.pool_id,item_id=request.item_id,run_id=request.run_id,handoff_id=request.handoff_id,execution_id=execution_id,policy_id=policy.policy_id,status=st,safe_apply_result=sf,handoff_status_before=before,handoff_status_after=after,gate_decision=gate,changed_files=changed,snapshot_id=snap,created_at=now,metadata={"gate_rechecked":True})
-        self._update_handoff_item(request, res, handoff)
-        self._save_result(res, handoff); self._emit(request, execution_id, "supervised_handoff_safe_apply_completed" if st=="applied" else "supervised_handoff_safe_apply_failed", res)
-        return res
+        except Exception as exc:
+            res = AtlasSupervisedHandoffSafeApplyResult(pool_id=request.pool_id,item_id=request.item_id,run_id=request.run_id,handoff_id=request.handoff_id,execution_id=execution_id,policy_id=policy.policy_id,status="failed",handoff_status_before=before,handoff_status_after=before,created_at=now,errors=[f"safe_apply_exception:{type(exc).__name__}"],metadata={"dry_run":request.dry_run,"would_apply":False,"side_effects":self._side_effects(False),"original_item_restored":True,"temp_pool_write_used":True})
+            self._update_handoff_item(request, res, handoff); self._append_item_result_history(request, res); self._save_result(res, handoff)
+            self._emit(request, execution_id, "supervised_handoff_safe_apply_failed", res); self._emit(request, execution_id, "supervised_handoff_result_saved", res)
+            raise
 
     def _load_handoff(self, pool_id, hid):
         if not hid.startswith("handoff_"): raise ValueError("invalid_handoff_id")
@@ -93,10 +108,27 @@ class AtlasSupervisedHandoffSafeApplyService:
 
     def _update_handoff_item(self, req, res, handoff):
         hp=Path(self.storage.root_dir)/"atlas"/"safe_apply_handoffs"/req.pool_id/f"{req.handoff_id}.json"
-        handoff["safe_apply_executed"]=res.status=="applied"; handoff["safe_apply_execution_id"]=res.execution_id; handoff["verification_executed"]=False
+        handoff["safe_apply_executed"]=res.status=="applied"; handoff["safe_apply_execution_id"]=res.execution_id; handoff["verification_executed"]=False; handoff["safe_apply_result_path"]=f"ca_data/atlas/supervised_handoff_safe_apply/{res.pool_id}/{res.execution_id}.json"; handoff["safe_apply_executed_at"]=datetime.now(timezone.utc).isoformat(); handoff["changed_files"]=list(res.changed_files or []); handoff["snapshot_id"]=res.snapshot_id
         handoff["status"]="applied" if res.status=="applied" else handoff.get("status","ready")
-        handoff.setdefault("metadata",{})["last_execution_status"]=res.status
+        handoff.setdefault("metadata",{}).update({"last_execution_status":res.status,"last_execution_id":res.execution_id,"last_errors":list(res.errors or []),"last_warnings":list(res.warnings or [])})
         hp.write_text(json.dumps(handoff,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    def _append_item_result_history(self, req, res):
+        pool = self.storage.load_pool(req.pool_id); item = pool.get_item(req.item_id)
+        item.metadata = dict(item.metadata or {})
+        rows = list(item.metadata.get("supervised_handoff_safe_apply_results") or [])
+        rows.append({"execution_id":res.execution_id,"handoff_id":req.handoff_id,"status":res.status,"changed_files":list(res.changed_files or []),"snapshot_id":res.snapshot_id,"created_at":res.created_at,"result_path":f"ca_data/atlas/supervised_handoff_safe_apply/{res.pool_id}/{res.execution_id}.json"})
+        item.metadata["supervised_handoff_safe_apply_results"] = rows
+        item.metadata["latest_supervised_safe_apply_result_id"] = res.execution_id
+        hs = list(item.metadata.get("safe_apply_handoffs") or [])
+        for h in hs:
+            if h.get("handoff_id") == req.handoff_id:
+                h.update({"safe_apply_executed":res.status=="applied","safe_apply_execution_id":res.execution_id,"safe_apply_executed_at":datetime.now(timezone.utc).isoformat(),"changed_files":list(res.changed_files or []),"snapshot_id":res.snapshot_id})
+        item.metadata["safe_apply_handoffs"] = hs
+        self.storage.save_pool(pool)
+
+    def _side_effects(self, safe_apply_executed):
+        return {"safe_apply_executed":safe_apply_executed,"verification_executed":False,"bounded_retry_executed":False,"rollback_executed":False,"restore_executed":False,"debug_review_executed":False,"patch_regeneration_executed":False}
 
     def _save_result(self,res,handoff):
         d=Path(self.storage.root_dir)/"atlas"/"supervised_handoff_safe_apply"/res.pool_id; d.mkdir(parents=True,exist_ok=True)
@@ -106,4 +138,4 @@ class AtlasSupervisedHandoffSafeApplyService:
 
     def _emit(self, req, execution_id, event_type, res):
         rid = req.run_id or execution_id
-        self.journal.append_event(req.pool_id, rid, {"event_type":event_type,"execution_id":execution_id,"pool_id":req.pool_id,"item_id":req.item_id,"run_id":rid,"handoff_id":req.handoff_id,"policy_id":req.policy_id,"status":res.status,"snapshot_id":res.snapshot_id,"changed_files":res.changed_files,"verification_executed":False,"rollback_executed":False,"restore_executed":False,"created_at":datetime.now(timezone.utc).isoformat()})
+        self.journal.append_event(req.pool_id, rid, {"event_type":event_type,"execution_id":execution_id,"pool_id":req.pool_id,"item_id":req.item_id,"run_id":rid,"handoff_id":req.handoff_id,"policy_id":req.policy_id,"status":getattr(res,'status','started'),"safe_apply_status":getattr(res,'status','started'),"snapshot_id":getattr(res,'snapshot_id',''),"changed_files":getattr(res,'changed_files',[]),"gate_decision":(getattr(res,'gate_decision',{}) or {}).get('decision',''),"warning_count":len(getattr(res,'warnings',[]) or []),"error_count":len(getattr(res,'errors',[]) or []),"verification_executed":False,"bounded_retry_executed":False,"rollback_executed":False,"restore_executed":False,"created_at":datetime.now(timezone.utc).isoformat()})
