@@ -64,3 +64,8 @@
 - PR-ATLAS-PIPE-49B: Hardened supervised handoff safe_apply (atomic restore on failure, result history metadata, dry_run invalid=>blocked, audit event completeness). Next: PR-ATLAS-PIPE-50 supervised verification after safe_apply result evaluation.
 
 - PR-ATLAS-PIPE-50: supervised handoff verification after applied safe_apply (allowlisted verification + local-only context refresh + evaluator, no rerun/retry/rollback/restore/debug/regen).
+
+
+- Completed PRs: PR-ATLAS-PIPE-0〜51, PR-ATLAS-UI-FIX-50A, PR-SEARXNG-SECRET-SYNC-01
+- Current PR: PR-ATLAS-PIPE-51B
+- Next PR: PR-ATLAS-PIPE-52: Close supervised loop by routing exhausted/not-retryable verification failures to patch regeneration recommendation
