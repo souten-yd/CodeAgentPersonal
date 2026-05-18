@@ -112,6 +112,7 @@ def include_routers(app: FastAPI) -> None:
     from app.api.atlas_supervised_patch_regen import router as atlas_patch_regen_router
     from app.api.atlas_patch_candidate_approval import router as atlas_patch_candidate_approval_router, handoff_router as atlas_safe_apply_handoffs_router
     from app.api.atlas_supervised_handoff_safe_apply import router as atlas_supervised_handoff_safe_apply_router
+    from app.api.atlas_supervised_handoff_verification import router as atlas_supervised_handoff_verification_router
     from app.api.audio import router as audio_router
     from app.api.echo import router as echo_router
     from app.api.jobs import router as jobs_router
@@ -135,6 +136,7 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(atlas_patch_candidate_approval_router)
     app.include_router(atlas_safe_apply_handoffs_router)
     app.include_router(atlas_supervised_handoff_safe_apply_router)
+    app.include_router(atlas_supervised_handoff_verification_router)
     app.include_router(audio_router)
     app.include_router(echo_router)
     app.include_router(jobs_router)

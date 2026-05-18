@@ -85,3 +85,5 @@ Current PR:
 
 Next PR:
 - PR-ATLAS-PIPE-50: Supervised verification after handoff safe_apply and result evaluation
+
+- PR-ATLAS-PIPE-50: supervised handoff verification after applied safe_apply (allowlisted verification + local-only context refresh + evaluator, no rerun/retry/rollback/restore/debug/regen).
