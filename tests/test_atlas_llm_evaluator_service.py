@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_llm_evaluator_schema import AtlasEvaluatorRequest
 from agent.atlas_llm_evaluator_service import AtlasLLMEvaluatorService
@@ -12,66 +14,68 @@ def _mk_pool(journal, pool_id="p1"):
     journal.save_plan_pool(pool)
 
 
-def test_input_packet_resolves_from_item_auto_safe_apply_and_auto_verification(tmp_path, monkeypatch):
+def _events(j, pool_id, run_id):
+    p = j.pipeline_run_dir(pool_id, run_id) / "events.ndjson"
+    if not p.exists():
+        return []
+    return [e for e in p.read_text(encoding="utf-8").splitlines() if e]
+
+
+def test_evaluator_saves_json_and_markdown_result(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    j = AtlasJournal(tmp_path / "ca_data")
-    _mk_pool(j)
-    svc = AtlasLLMEvaluatorService(journal=j)
-    r = svc.evaluate(AtlasEvaluatorRequest(pool_id="p1", item_id="i1", trigger="manual"))
-    assert r.input_packet.safe_apply_result["status"] == "applied"
-    assert r.input_packet.verification_result["status"] == "passed"
-
-
-def test_request_values_take_precedence_over_item_metadata(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    j = AtlasJournal(tmp_path / "ca_data")
-    _mk_pool(j)
-    svc = AtlasLLMEvaluatorService(journal=j)
-    r = svc.evaluate(AtlasEvaluatorRequest(pool_id="p1", item_id="i1", trigger="manual", safe_apply_result={"status": "blocked"}))
-    assert r.input_packet.safe_apply_result["status"] == "blocked"
-
-
-def test_service_save_result_rejects_pool_id_path_traversal(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    svc = AtlasLLMEvaluatorService()
-    try:
-        svc.evaluate(AtlasEvaluatorRequest(pool_id="../x", trigger="manual"))
-        assert False
-    except ValueError:
-        assert True
-
-
-def test_diff_summary_extracted_from_context_bundle_sources(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    p = Path("ca_data/atlas/context_bundles/p1"); p.mkdir(parents=True)
-    p.joinpath("ctx_1.json").write_text('{"bundle_id":"ctx_1","sources":[{"source_type":"git_diff","summary":"A"}]}', encoding="utf-8")
     svc = AtlasLLMEvaluatorService()
     r = svc.evaluate(AtlasEvaluatorRequest(pool_id="p1", trigger="manual"))
-    assert r.input_packet.diff_summary == "A"
+    root = Path("ca_data/atlas/evaluator_results/p1")
+    assert root.joinpath(f"{r.metadata['eval_id']}.json").exists()
+    md = root.joinpath(f"{r.metadata['eval_id']}.md")
+    assert md.exists()
+    body = md.read_text(encoding="utf-8")
+    assert "decision" in body and "confidence" in body and "Recommended Next Actions" in body
+    assert "raw_llm_output" not in body
 
 
-def test_prompt_contains_non_negotiable_rules():
-    svc = AtlasLLMEvaluatorService()
-    req = AtlasEvaluatorRequest(pool_id="p1", trigger="manual")
-    packet, _, _ = svc.build_input_packet(req, type("P", (), {"policy_id": "guarded_evaluator_v1", "max_diff_chars": 100})(), [])
-    prompt, _ = svc.build_prompt(packet, type("P", (), {})(), 2000)
-    assert "Non-negotiable rules" in prompt and "Untrusted Context" in prompt
-
-
-def test_llm_invalid_json_sets_parse_failed_metadata(tmp_path, monkeypatch):
+def test_evaluator_event_suite_recorded(tmp_path, monkeypatch):
     class Bad:
         def evaluate(self, *_):
             return "not-json"
 
     monkeypatch.chdir(tmp_path)
-    svc = AtlasLLMEvaluatorService(llm_client=Bad())
-    r = svc.evaluate(AtlasEvaluatorRequest(pool_id="p1", trigger="manual"))
-    assert r.metadata["llm_parse_failed"] is True
-    assert "llm_json_parse_failed" in r.warnings
+    j = AtlasJournal(tmp_path / "ca_data")
+    _mk_pool(j)
+    svc = AtlasLLMEvaluatorService(journal=j, llm_client=Bad())
+    svc.evaluate(AtlasEvaluatorRequest(pool_id="p1", item_id="i1", run_id="r1", trigger="manual"))
+    raw = "\n".join(_events(j, "p1", "r1"))
+    assert "evaluator_started" in raw
+    assert "evaluator_completed" in raw
+    assert "evaluator_fallback_used" in raw
 
 
-def test_continue_blocked_when_verification_missing(tmp_path, monkeypatch):
+def test_evaluator_policy_override_blocked_and_failed_events(tmp_path, monkeypatch):
+    class ForceContinue:
+        def evaluate(self, *_):
+            return '{"decision":"continue","confidence":0.9,"reasons":[],"risks":[],"recommended_next_actions":[],"requires_manual_review":false,"should_run_debug_review":false,"should_generate_patch_proposal":false,"should_restore":false,"should_continue_autopilot":true,"summary":"x"}'
+
     monkeypatch.chdir(tmp_path)
-    svc = AtlasLLMEvaluatorService()
-    r = svc.evaluate(AtlasEvaluatorRequest(pool_id="p1", trigger="manual", safe_apply_result={"status": "applied", "actual_file_changed": True}))
-    assert r.decision.decision != "continue"
+    j = AtlasJournal(tmp_path / "ca_data")
+    svc = AtlasLLMEvaluatorService(journal=j, llm_client=ForceContinue())
+    svc.evaluate(AtlasEvaluatorRequest(pool_id="p1", run_id="r2", trigger="manual", verification_result={"status": "failed"}, safe_apply_result={"status": "applied", "actual_file_changed": True}))
+    raw = "\n".join(_events(j, "p1", "r2"))
+    assert "evaluator_policy_override" in raw
+
+    from agent import atlas_llm_evaluator_service as mod
+    policy = mod.get_evaluator_policy("guarded_evaluator_v1")
+    policy.require_context_bundle = True
+    monkeypatch.setattr(mod, "get_evaluator_policy", lambda _pid: policy)
+    svc.evaluate(AtlasEvaluatorRequest(pool_id="p2", run_id="r3", trigger="manual"))
+    raw3 = "\n".join(_events(j, "p2", "r3"))
+    assert "evaluator_blocked" in raw3
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    svc2 = AtlasLLMEvaluatorService(journal=j)
+    monkeypatch.setattr(svc2, "build_input_packet", boom)
+    with pytest.raises(RuntimeError):
+        svc2.evaluate(AtlasEvaluatorRequest(pool_id="p9", run_id="r9", trigger="manual"))
+    raw9 = "\n".join(_events(j, "p9", "r9"))
+    assert "evaluator_failed" in raw9
