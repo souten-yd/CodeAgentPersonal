@@ -220,3 +220,7 @@ export async function getPatchCandidateApprovalResult(poolId, approvalRunId){ret
 export async function getLatestPatchCandidateApproval(payload){return apiPost('/api/atlas/patch-candidate-approval/latest',payload);}
 export async function getSafeApplyHandoff(poolId, handoffId){return apiGet(`/api/atlas/safe-apply-handoffs/${encodeURIComponent(poolId)}/${encodeURIComponent(handoffId)}`);}
 export async function getLatestSafeApplyHandoff(payload){return apiPost('/api/atlas/safe-apply-handoffs/latest',payload);}
+export async function getSupervisedHandoffSafeApplyPolicies(){return apiGet('/api/atlas/supervised-handoff-safe-apply/policies');}
+export async function executeSupervisedHandoffSafeApply(payload){return apiPost('/api/atlas/supervised-handoff-safe-apply/execute',payload);}
+export async function getSupervisedHandoffSafeApplyResult(poolId, executionId){return apiGet(`/api/atlas/supervised-handoff-safe-apply/results/${encodeURIComponent(poolId)}/${encodeURIComponent(executionId)}`);}
+export async function getLatestSupervisedHandoffSafeApply(payload){return apiPost('/api/atlas/supervised-handoff-safe-apply/latest',payload);}
