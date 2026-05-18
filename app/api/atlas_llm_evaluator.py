@@ -33,7 +33,15 @@ def get_policies():
 
 @router.post("/evaluate")
 def evaluate(payload: AtlasEvaluatorRequest):
-    return _svc.evaluate(payload).model_dump()
+    try:
+        payload.pool_id = _validate_id(payload.pool_id, "pool_id")
+        if payload.item_id:
+            payload.item_id = _validate_id(payload.item_id, "item_id")
+        if payload.run_id:
+            payload.run_id = _validate_id(payload.run_id, "run_id")
+        return _svc.evaluate(payload).model_dump()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error": "invalid_request", "reason": str(exc)}) from exc
 
 
 @router.get("/results/{pool_id}/{eval_id}")
