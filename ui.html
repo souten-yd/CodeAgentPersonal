@@ -381,6 +381,12 @@
                 <div id="atlas-patch-candidate-approval-panel" class="atlas-extension-result">No candidate approval action yet.</div>
               </details>
               <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Supervised Handoff Retry</summary>
+                <p>This reruns allowlisted verification only.</p><p>This does not re-apply the patch.</p><p>This does not rollback or restore.</p><p>This does not regenerate patches.</p>
+                <div class="atlas-extension-actions"><button id="atlas-run-supervised-handoff-retry" type="button" class="atlas-secondary-btn">Run supervised retry</button></div>
+                <div id="atlas-supervised-handoff-retry-panel" class="atlas-extension-result">No supervised retry run yet.</div>
+              </details>
+              <details class="atlas-extension-details atlas-automation-extension-card">
                 <summary>Supervised Handoff Safe Apply</summary>
                 <p>This applies an already approved handoff patch. This does not run verification. This does not rollback or restore.</p>
                 <div class="atlas-extension-actions"><button id="atlas-execute-supervised-safe-apply" type="button" class="atlas-secondary-btn">Execute supervised safe_apply</button></div>

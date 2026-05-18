@@ -230,3 +230,8 @@ export async function getSupervisedHandoffVerificationPolicies(){ const r=await 
 export async function runSupervisedHandoffVerification(payload){ const r=await fetch("/api/atlas/supervised-handoff-verification/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); return r.json(); }
 export async function getSupervisedHandoffVerificationResult(poolId, verificationRunId){ const r=await fetch(`/api/atlas/supervised-handoff-verification/results/${encodeURIComponent(poolId)}/${encodeURIComponent(verificationRunId)}`); return r.json(); }
 export async function getLatestSupervisedHandoffVerification(payload){ const r=await fetch("/api/atlas/supervised-handoff-verification/latest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); return r.json(); }
+
+export async function getSupervisedHandoffRetryPolicies(){return apiGet("/api/atlas/supervised-handoff-retry/policies");}
+export async function runSupervisedHandoffRetry(payload){return apiPost("/api/atlas/supervised-handoff-retry/run",payload);}
+export async function getSupervisedHandoffRetryResult(poolId, supervisedRetryRunId){return apiGet(`/api/atlas/supervised-handoff-retry/results/${encodeURIComponent(poolId)}/${encodeURIComponent(supervisedRetryRunId)}`);}
+export async function getLatestSupervisedHandoffRetry(payload){return apiPost("/api/atlas/supervised-handoff-retry/latest",payload);}
