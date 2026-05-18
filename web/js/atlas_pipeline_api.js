@@ -201,3 +201,9 @@ export async function getRelatedTests(payload) {
   if (!r.ok) throw new Error(`related-tests failed: ${r.status}`);
   return r.json();
 }
+
+
+export async function getBoundedRetryPolicies(){ return apiGet("/api/atlas/bounded-retry/policies"); }
+export async function runBoundedRetry(payload){ return apiPost("/api/atlas/bounded-retry/run", payload); }
+export async function getBoundedRetryResult(poolId, retryRunId){ return apiGet(`/api/atlas/bounded-retry/results/${encodeURIComponent(poolId)}/${encodeURIComponent(retryRunId)}`); }
+export async function getLatestBoundedRetryResult(payload){ return apiPost("/api/atlas/bounded-retry/latest", payload); }

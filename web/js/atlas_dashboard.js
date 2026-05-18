@@ -1206,3 +1206,7 @@ function __atlas_auto_verification_contract_tokens__(){return ['Run auto verific
 async function runContextRefreshFromUI() {
   return null;
 }
+
+
+// Bounded Retry minimal UI marker
+window.__atlasBoundedRetrySafety = ["No auto rollback", "No auto restore", "No patch regeneration", "Verification rerun only"];

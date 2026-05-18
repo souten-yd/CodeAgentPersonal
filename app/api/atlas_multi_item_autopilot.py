@@ -10,6 +10,7 @@ from agent.atlas_auto_safe_apply_service import AtlasAutoSafeApplyService
 from agent.atlas_auto_verification_service import AtlasAutoVerificationService
 from agent.atlas_automation_gate_service import AtlasAutomationGateService
 from agent.atlas_context_refresh_service import AtlasContextRefreshService
+from agent.atlas_bounded_retry_service import AtlasBoundedRetryService
 from agent.atlas_dev_tool_path import validate_relative_path
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_llm_evaluator_service import AtlasLLMEvaluatorService
@@ -48,6 +49,7 @@ def _service() -> AtlasMultiItemAutopilotService:
         auto_verification_service=AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=TestCommandRunner()),
         context_refresh_service=AtlasContextRefreshService(journal=journal),
         evaluator_service=AtlasLLMEvaluatorService(journal=journal),
+        bounded_retry_service=AtlasBoundedRetryService(storage=storage, journal=journal, auto_verification_service=AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=TestCommandRunner()), context_refresh_service=AtlasContextRefreshService(journal=journal), evaluator_service=AtlasLLMEvaluatorService(journal=journal)),
     )
 
 

@@ -22,6 +22,9 @@ class AtlasMultiItemAutopilotRequest(BaseModel):
     require_approval: bool = True
     include_context_refresh: bool = True
     include_evaluator: bool = True
+    include_bounded_retry: bool = False
+    retry_policy_id: str = "verification_retry_v1"
+    max_retry_attempts_per_item: int = 2
     metadata: dict = Field(default_factory=dict)
 
 
