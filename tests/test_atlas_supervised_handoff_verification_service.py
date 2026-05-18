@@ -1,0 +1,3 @@
+def test_placeholder_supervised_handoff_verification_service_import():
+    from agent.atlas_supervised_handoff_verification_service import AtlasSupervisedHandoffVerificationService
+    assert AtlasSupervisedHandoffVerificationService is not None
