@@ -1,5 +1,7 @@
 from __future__ import annotations
 import json
+import re
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -14,6 +16,15 @@ from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 
 
 class AtlasPatchCandidateApprovalService:
+    SECRET_PATTERNS = [
+        re.compile(r"sk-[A-Za-z0-9_-]+"),
+        re.compile(r"AKIA[0-9A-Z]{16}"),
+        re.compile(r"password\s*=\s*[^\s\n]+", re.IGNORECASE),
+        re.compile(r"token\s*=\s*[^\s\n]+", re.IGNORECASE),
+        re.compile(r"secret\s*=\s*[^\s\n]+", re.IGNORECASE),
+        re.compile(r"OPENAI_API_KEY\s*=\s*[^\s\n]+"),
+        re.compile(r"-----BEGIN PRIVATE KEY-----[\s\S]*?-----END PRIVATE KEY-----"),
+    ]
     def __init__(self, *, storage: AtlasPlanPoolStorage | None = None, journal: AtlasJournal | None = None, gate: AtlasAutomationGateService | None = None):
         self.storage = storage or AtlasPlanPoolStorage(Path("ca_data"))
         self.journal = journal or AtlasJournal(Path("ca_data"))
@@ -24,7 +35,9 @@ class AtlasPatchCandidateApprovalService:
         pool = self.storage.load_pool(request.pool_id)
         item = pool.get_item(request.item_id)
         if item is None:
-            return AtlasPatchCandidateApprovalResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, regen_run_id=request.regen_run_id, proposal_id=request.proposal_id, approval_run_id=approval_run_id, policy_id=request.policy_id, status="blocked", decision=request.decision, reviewer=request.reviewer, warnings=["item_not_found"])
+            result = self._blocked(request, approval_run_id, "item_not_found")
+            self._save_result(result)
+            return result
         policy = get_patch_candidate_approval_policy(request.policy_id)
         self._emit(request, approval_run_id, "patch_candidate_approval_started", item.item_id, "started", [])
         result = self._do_decide(request, approval_run_id, pool, item, policy)
@@ -45,28 +58,55 @@ class AtlasPatchCandidateApprovalService:
             status = "rejected" if request.decision == "reject" else "request_changes"
             self._emit(request, approval_run_id, f"patch_candidate_{'rejected' if status=='rejected' else 'changes_requested'}", item.item_id, status, [])
             return AtlasPatchCandidateApprovalResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, regen_run_id=request.regen_run_id, proposal_id=str(cand.get("proposal_id") or request.proposal_id), approval_run_id=approval_run_id, policy_id=policy.policy_id, status=status, decision=request.decision, reviewer=request.reviewer, reason=request.reason)
-        warnings = []
+        warnings = []; validation_errors = []
         if regen.get("status") != "proposal_ready" or cand.get("status") != "proposal_ready": warnings.append("status_not_proposal_ready")
+        if not cand.get("approval_required", False): warnings.append("approval_required_false")
+        if cand.get("approval_status") != "pending": warnings.append("approval_status_not_pending")
+        if bool(cand.get("safe_apply_ready", False)): warnings.append("safe_apply_ready_true")
         if cand.get("patch_format") != "unified_diff" or not str(cand.get("patch") or "").strip(): warnings.append("invalid_patch_format_or_empty")
         if len(str(cand.get("patch") or "")) > policy.max_patch_chars: warnings.append("patch_too_large")
         tf = list(cand.get("target_files") or [])
         if not tf or len(tf) > policy.max_target_files: warnings.append("invalid_target_files")
         if list((regen.get("candidate") or {}).get("target_files") or []) != tf: warnings.append("target_files_mismatch")
         if list(cand.get("errors") or []): warnings.append("candidate_errors_present")
+        if list(regen.get("errors") or []): warnings.append("regen_errors_present")
         if "secret_like_content_detected" in list(cand.get("warnings") or []): warnings.append("secret_warning")
+        side_effects = dict((regen.get("metadata") or {}).get("side_effects") or {})
+        if any(bool(v) for v in side_effects.values()): warnings.append("side_effects_detected")
+        if str(cand.get("approval_status") or "").lower() in {"approved", "rejected", "request_changes"}: warnings.append("already_reviewed")
+        extracted_paths = sorted(self._extract_patch_paths(cand))
+        for p in extracted_paths:
+            if p in {"/dev/null", ""} or p.startswith("/") or ".." in p.split("/") or p.startswith("etc/"): validation_errors.append(f"dangerous_patch_path:{p}")
+            try: validate_relative_path(p)
+            except Exception: validation_errors.append(f"invalid_patch_path:{p}")
+        allowed_target_files = []
+        for p in tf:
+            try:
+                safe = validate_relative_path(str(p))
+                if safe: allowed_target_files.append(safe)
+            except Exception:
+                validation_errors.append(f"invalid_target_file:{p}")
+        if any(p not in set(allowed_target_files) for p in extracted_paths): validation_errors.append("extracted_patch_paths_outside_target_files")
+        patch_text = str(cand.get("patch") or "")
+        if "GIT binary patch" in patch_text or re.search(r"^Binary files .* differ$", patch_text, re.MULTILINE): validation_errors.append("binary_or_unsupported_patch")
+        if validation_errors: warnings.extend(validation_errors)
         if warnings:
             self._emit(request, approval_run_id, "patch_candidate_approval_blocked", item.item_id, "blocked", warnings)
-            return AtlasPatchCandidateApprovalResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, regen_run_id=request.regen_run_id, proposal_id=str(cand.get("proposal_id") or ""), approval_run_id=approval_run_id, policy_id=policy.policy_id, status="blocked", decision=request.decision, reviewer=request.reviewer, warnings=warnings)
-        decision = self.gate.decide_pre_safe_apply(pool, item, atlas_auto_policy_presets()["guarded_low_risk"])
+            self._emit(request, approval_run_id, "patch_candidate_validation_completed", item.item_id, "blocked", warnings)
+            return AtlasPatchCandidateApprovalResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, regen_run_id=request.regen_run_id, proposal_id=str(cand.get("proposal_id") or ""), approval_run_id=approval_run_id, policy_id=policy.policy_id, status="blocked", decision=request.decision, reviewer=request.reviewer, warnings=warnings, metadata={"validation_errors": warnings, "extracted_patch_paths": extracted_paths, "allowed_target_files": allowed_target_files, "side_effects": side_effects, "handoff_created": False})
+        self._emit(request, approval_run_id, "patch_candidate_validation_completed", item.item_id, "validated", [])
+        gate_item = type("GateItem", (), {"item_id": item.item_id, "metadata": {**dict(item.metadata or {}), "action_type": "patch", "patch": cand.get("patch") or "", "target_files": allowed_target_files}})()
+        decision = self.gate.decide_pre_safe_apply(pool, gate_item, atlas_auto_policy_presets()["guarded_low_risk"])
         gate_payload = {"decision": decision.decision, "reasons": list(decision.reasons), "risk_level": (decision.metadata or {}).get("risk_level", ""), "metadata": dict(decision.metadata or {})}
-        if decision.decision != "allow" or (decision.metadata or {}).get("risk_level") in {"medium", "high"}:
-            return AtlasPatchCandidateApprovalResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, regen_run_id=request.regen_run_id, proposal_id=str(cand.get("proposal_id") or ""), approval_run_id=approval_run_id, policy_id=policy.policy_id, status="blocked", decision=request.decision, reviewer=request.reviewer, warnings=["automation_gate_blocked"], metadata={"gate_decision": gate_payload})
+        if decision.decision != "allow" or decision.decision == "manual_required" or (decision.metadata or {}).get("risk_level") in {"medium", "high"}:
+            self._emit(request, approval_run_id, "patch_candidate_approval_blocked", item.item_id, "blocked", ["automation_gate_blocked"])
+            return AtlasPatchCandidateApprovalResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, regen_run_id=request.regen_run_id, proposal_id=str(cand.get("proposal_id") or ""), approval_run_id=approval_run_id, policy_id=policy.policy_id, status="blocked", decision=request.decision, reviewer=request.reviewer, warnings=["automation_gate_blocked"], metadata={"gate_decision": gate_payload, "validation_errors": [], "extracted_patch_paths": extracted_paths, "allowed_target_files": allowed_target_files, "side_effects": side_effects, "handoff_created": False})
         handoff = self._create_handoff(request, approval_run_id, cand, gate_payload, regen_path)
         self._update_item(item, request, handoff)
         self.storage.save_pool(pool); self.journal.save_plan_pool(pool)
         self._emit(request, approval_run_id, "patch_candidate_approved", item.item_id, "approved", [])
         self._emit(request, approval_run_id, "safe_apply_handoff_created", item.item_id, "ready", [])
-        return AtlasPatchCandidateApprovalResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, regen_run_id=request.regen_run_id, proposal_id=str(cand.get("proposal_id") or ""), approval_run_id=approval_run_id, policy_id=policy.policy_id, status="approved", decision=request.decision, reviewer=request.reviewer, reason=request.reason, handoff=handoff)
+        return AtlasPatchCandidateApprovalResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, regen_run_id=request.regen_run_id, proposal_id=str(cand.get("proposal_id") or ""), approval_run_id=approval_run_id, policy_id=policy.policy_id, status="approved", decision=request.decision, reviewer=request.reviewer, reason=request.reason, handoff=handoff, metadata={"validation_errors": [], "extracted_patch_paths": extracted_paths, "allowed_target_files": allowed_target_files, "gate_decision": gate_payload, "side_effects": side_effects, "handoff_created": True})
 
     def _update_item(self, item, request, handoff):
         md = item.metadata or {}
@@ -86,10 +126,12 @@ class AtlasPatchCandidateApprovalService:
 
     def _create_handoff(self, request, approval_run_id, cand, gate_payload, regen_path):
         hid = f"handoff_{uuid4().hex[:12]}"; now = datetime.now(timezone.utc).isoformat()
-        handoff = AtlasSafeApplyHandoff(handoff_id=hid, status="ready", pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, regen_run_id=request.regen_run_id, proposal_id=str(cand.get("proposal_id") or ""), patch=str(cand.get("patch") or ""), patch_format="unified_diff", target_files=list(cand.get("target_files") or []), approval_status="approved", safe_apply_ready=True, safe_apply_executed=False, verification_executed=False, gate_decision=gate_payload, metadata={"approval_run_id": approval_run_id, "reviewer": request.reviewer, "policy_id": request.policy_id, "original_regen_result_path": str(regen_path)})
+        patch = str(cand.get("patch") or "")
+        handoff = AtlasSafeApplyHandoff(handoff_id=hid, status="ready", pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, regen_run_id=request.regen_run_id, proposal_id=str(cand.get("proposal_id") or ""), patch=patch, patch_format="unified_diff", target_files=list(cand.get("target_files") or []), approval_status="approved", safe_apply_ready=True, safe_apply_executed=False, verification_executed=False, gate_decision=gate_payload, metadata={"approval_run_id": approval_run_id, "reviewer": request.reviewer, "policy_id": request.policy_id, "original_regen_result_path": str(regen_path), "patch_sha256": hashlib.sha256(patch.encode("utf-8")).hexdigest(), "side_effects": {"safe_apply_executed": False, "verification_executed": False, "bounded_retry_executed": False, "rollback_executed": False, "restore_executed": False, "debug_review_executed": False}})
         root = Path("ca_data") / "atlas" / "safe_apply_handoffs" / request.pool_id; root.mkdir(parents=True, exist_ok=True)
         (root / f"{hid}.json").write_text(json.dumps({**handoff.model_dump(), "created_at": now}, ensure_ascii=False, indent=2), encoding="utf-8")
-        preview = handoff.patch[:3000].replace("sk-", "[REDACTED]-")
+        preview = handoff.patch[:3000]
+        for p in self.SECRET_PATTERNS: preview = p.sub("[REDACTED_SECRET]", preview)
         (root / f"{hid}.md").write_text(f"# Safe Apply Handoff\n\n- handoff_id: {hid}\n- safe_apply_executed: false\n- verification_executed: false\n\n## Patch Preview\n\n```diff\n{preview}\n```\n\n## Safety\n- manual approval recorded: true\n- safe_apply executed: false\n- verification executed: false\n- rollback executed: false\n- restore executed: false\n- debug review executed: false\n", encoding="utf-8")
         return handoff
 
@@ -103,4 +145,19 @@ class AtlasPatchCandidateApprovalService:
         self.journal.append_event(request.pool_id, request.run_id, {"event_type": event_type, "approval_run_id": approval_run_id, "pool_id": request.pool_id, "item_id": item_id, "run_id": request.run_id, "regen_run_id": request.regen_run_id, "proposal_id": request.proposal_id, "decision": request.decision, "status": status, "reviewer": request.reviewer, "warnings": list(warnings or []), "errors": [], "safe_apply_executed": False, "created_at": datetime.now(timezone.utc).isoformat()})
 
     def _blocked(self, request, approval_run_id, reason):
-        return AtlasPatchCandidateApprovalResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, regen_run_id=request.regen_run_id, proposal_id=request.proposal_id, approval_run_id=approval_run_id, policy_id=request.policy_id, status="blocked", decision=request.decision, reviewer=request.reviewer, warnings=[reason])
+        return AtlasPatchCandidateApprovalResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, regen_run_id=request.regen_run_id, proposal_id=request.proposal_id, approval_run_id=approval_run_id, policy_id=request.policy_id, status="blocked", decision=request.decision, reviewer=request.reviewer, warnings=[reason], metadata={"handoff_created": False})
+
+    def _extract_patch_paths(self, candidate: dict) -> set[str]:
+        md = dict(candidate.get("metadata") or {})
+        vals = md.get("extracted_patch_paths")
+        if isinstance(vals, list) and vals:
+            return {str(v) for v in vals if str(v).strip()}
+        patch = str(candidate.get("patch") or "")
+        out = set()
+        for ln in patch.splitlines():
+            m_git = re.match(r"^diff --git\s+(.+)\s+(.+)$", ln); m_hdr = re.match(r"^(---|\+\+\+)\s+(.+)$", ln)
+            parts = [m_git.group(1), m_git.group(2)] if m_git else ([m_hdr.group(2)] if m_hdr else [])
+            for v in parts:
+                p = v.strip().strip('"').removeprefix("a/").removeprefix("b/")
+                if p and p != "/dev/null": out.add(p)
+        return out
