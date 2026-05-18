@@ -100,7 +100,9 @@ class AtlasMultiItemAutopilotService:
                             if rr.status == "recovered":
                                 result.status = "completed"
                                 result.reason = "bounded_retry_recovered"
-                                vr = type("V", (), {"status": "passed", "model_dump": lambda self: {"status":"passed"}})()
+                                recovered_vr = {"status": "passed", "recovered_by_bounded_retry": True, "retry_run_id": rr.retry_run_id, "final_verification_status": rr.final_verification_status, "attempt_count": rr.attempt_count}
+                                result.verification_result = recovered_vr
+                                vr = type("V", (), {"status": "passed", "model_dump": lambda self: recovered_vr})()
                         if request.include_evaluator and vr.status in {"passed", "failed"}:
                             ev = self.evaluator_service.evaluate(AtlasEvaluatorRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, trigger="verification_failure" if vr.status == "failed" else "post_verification", context_bundle_id=result.context_bundle_id, use_latest_context_bundle=False, project_path=self.resolve_project_path(request, pool, item), changed_files=target_files, verification_result=vr.model_dump(), safe_apply_result=result.safe_apply_result, failure_stop_suggestion=result.failure_stop_suggestion, policy_id=request.evaluator_policy_id, metadata={"autopilot_run_id": autopilot_run_id, "item_index": idx}))
                             result.evaluator_result_id = str((ev.metadata or {}).get("eval_id") or "")
@@ -194,7 +196,7 @@ class AtlasMultiItemAutopilotService:
             lines.append(f"- {k}: {getattr(result, k)}")
         lines += ["", "## Item Results"]
         for r in result.item_results:
-            lines += [f"- item_id: {r.item_id}", f"  - status: {r.status}", f"  - reason: {r.reason}", f"  - context_bundle_id: {r.context_bundle_id}", f"  - evaluator_result_id: {r.evaluator_result_id}", f"  - evaluator_decision.decision: {(r.evaluator_decision or {}).get('decision','')}", f"  - verification_result.status: {(r.verification_result or {}).get('status','')}", f"  - safe_apply_result.status: {(r.safe_apply_result or {}).get('status','')}"]
+            lines += [f"- item_id: {r.item_id}", f"  - status: {r.status}", f"  - reason: {r.reason}", f"  - context_bundle_id: {r.context_bundle_id}", f"  - evaluator_result_id: {r.evaluator_result_id}", f"  - evaluator_decision.decision: {(r.evaluator_decision or {}).get('decision','')}", f"  - verification_result.status: {(r.verification_result or {}).get('status','')}", f"  - verification_result.recovered_by_bounded_retry: {(r.verification_result or {}).get('recovered_by_bounded_retry', False)}", f"  - safe_apply_result.status: {(r.safe_apply_result or {}).get('status','')}"]
         lines += ["", "## Warnings"] + ([f"- {w}" for w in result.warnings] or ["- (none)"]) + ["", "## Errors"] + ([f"- {e}" for e in result.errors] or ["- (none)"])
         (root / f"{result.autopilot_run_id}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
