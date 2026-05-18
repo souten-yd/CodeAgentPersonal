@@ -25,35 +25,54 @@ class AtlasLLMEvaluatorService:
         warnings: list[str] = []
         errors: list[str] = []
         self.emit_event("evaluator_started", request, eval_id, "manual_required", 0.0, "")
-        packet, context_bundle_id, resolution_sources = self.build_input_packet(request, policy, warnings)
-        if policy.require_context_bundle and not packet.context_bundle:
-            decision = AtlasEvaluatorDecision(decision="manual_required", confidence=0.6, reasons=["context_bundle_required"], risks=["missing_context"], recommended_next_actions=["Run context refresh and evaluate again."], requires_manual_review=True)
-            return self.save_result(eval_id, request, policy.policy_id, "blocked", decision, packet, context_bundle_id, "", "", warnings, errors, used_llm=False, used_fallback=True, overridden=False, resolution_sources=resolution_sources)
-        prompt, prompt_context_truncated = self.build_prompt(packet, policy, min(request.max_prompt_chars, policy.max_prompt_chars))
-        if prompt_context_truncated:
-            warnings.append("prompt_context_truncated")
-        raw = ""
-        used_llm = False
-        status = "fallback_evaluated"
-        decision = self.fallback_decision(packet)
-        parse_failed = False
-        if policy.allow_llm and not isinstance(self.llm_client, AtlasEvaluatorNullLLMClient):
-            try:
-                raw = self.llm_client.evaluate(prompt, {"policy_id": policy.policy_id})
-                used_llm = True
-                status = "evaluated"
-                decision, parse_failed = self.parse_decision(raw)
-                if parse_failed:
-                    warnings.append("llm_json_parse_failed")
-                    status = "fallback_evaluated"
-            except Exception:
-                warnings.append("llm_unavailable")
-        elif policy.policy_id == "manual_review_only":
-            decision = AtlasEvaluatorDecision(decision="manual_required", confidence=0.9, reasons=["manual_review_policy"], risks=["automation_disabled_by_policy"], recommended_next_actions=["Manual review required by policy."], requires_manual_review=True)
-        overridden = self.validate_decision(decision, packet, policy)
-        if overridden:
-            warnings.append("decision_overridden_by_policy")
-        return self.save_result(eval_id, request, policy.policy_id, status, decision, packet, context_bundle_id, prompt[:1000], raw[:4000], warnings, errors, used_llm=used_llm, used_fallback=(not used_llm) or parse_failed, overridden=overridden, prompt_context_truncated=prompt_context_truncated, diff_summary_chars=len(packet.diff_summary), diff_summary_truncated=bool(packet.metadata.get("diff_summary_truncated", False)), llm_parse_failed=parse_failed, resolution_sources=resolution_sources)
+        try:
+            packet, context_bundle_id, resolution_sources = self.build_input_packet(request, policy, warnings)
+            if policy.require_context_bundle and not packet.context_bundle:
+                decision = AtlasEvaluatorDecision(decision="manual_required", confidence=0.6, reasons=["context_bundle_required"], risks=["missing_context"], recommended_next_actions=["Run context refresh and evaluate again."], requires_manual_review=True)
+                result = self.save_result(eval_id, request, policy.policy_id, "blocked", decision, packet, context_bundle_id, "", "", warnings, errors, used_llm=False, used_fallback=True, overridden=False, resolution_sources=resolution_sources)
+                self.emit_event("evaluator_blocked", request, eval_id, decision.decision, decision.confidence, context_bundle_id, status="blocked", warnings=warnings, errors=errors, metadata={"reason": "context_bundle_required", "warning_count": len(warnings), "error_count": len(errors)})
+                self.emit_event("evaluator_fallback_used", request, eval_id, decision.decision, decision.confidence, context_bundle_id, metadata={"reason": "fallback_rule"})
+                self.emit_event("evaluator_completed", request, eval_id, decision.decision, decision.confidence, context_bundle_id, status="blocked", warnings=warnings, errors=errors, metadata={"pool_id": request.pool_id, "item_id": request.item_id, "run_id": request.run_id, "warning_count": len(warnings), "error_count": len(errors), "used_llm": False, "used_fallback": True, "decision_overridden_by_policy": False, "llm_parse_failed": False})
+                return result
+            prompt, prompt_context_truncated = self.build_prompt(packet, policy, min(request.max_prompt_chars, policy.max_prompt_chars))
+            if prompt_context_truncated:
+                warnings.append("prompt_context_truncated")
+            raw = ""
+            used_llm = False
+            status = "fallback_evaluated"
+            decision = self.fallback_decision(packet)
+            parse_failed = False
+            fallback_reason = "fallback_rule"
+            if policy.allow_llm and not isinstance(self.llm_client, AtlasEvaluatorNullLLMClient):
+                try:
+                    raw = self.llm_client.evaluate(prompt, {"policy_id": policy.policy_id})
+                    used_llm = True
+                    status = "evaluated"
+                    decision, parse_failed = self.parse_decision(raw)
+                    if parse_failed:
+                        warnings.append("llm_json_parse_failed")
+                        status = "fallback_evaluated"
+                        fallback_reason = "llm_json_parse_failed"
+                except Exception:
+                    warnings.append("llm_unavailable")
+                    fallback_reason = "llm_unavailable"
+            elif policy.policy_id == "manual_review_only":
+                decision = AtlasEvaluatorDecision(decision="manual_required", confidence=0.9, reasons=["manual_review_policy"], risks=["automation_disabled_by_policy"], recommended_next_actions=["Manual review required by policy."], requires_manual_review=True)
+                fallback_reason = "manual_review_policy"
+            elif isinstance(self.llm_client, AtlasEvaluatorNullLLMClient):
+                fallback_reason = "null_llm_client"
+            overridden, override_reasons = self.validate_decision(decision, packet, policy)
+            if overridden:
+                warnings.append("decision_overridden_by_policy")
+                self.emit_event("evaluator_policy_override", request, eval_id, decision.decision, decision.confidence, context_bundle_id, metadata={"final_decision": decision.decision, "policy_id": policy.policy_id, "decision_overridden_by_policy": True, "override_reasons": override_reasons, "verification_status": (packet.verification_result or {}).get("status"), "safe_apply_status": (packet.safe_apply_result or {}).get("status")})
+            result = self.save_result(eval_id, request, policy.policy_id, status, decision, packet, context_bundle_id, prompt[:1000], raw[:4000], warnings, errors, used_llm=used_llm, used_fallback=(not used_llm) or parse_failed, overridden=overridden, prompt_context_truncated=prompt_context_truncated, diff_summary_chars=len(packet.diff_summary), diff_summary_truncated=bool(packet.metadata.get("diff_summary_truncated", False)), llm_parse_failed=parse_failed, resolution_sources=resolution_sources)
+            if result.metadata.get("used_fallback"):
+                self.emit_event("evaluator_fallback_used", request, eval_id, decision.decision, decision.confidence, context_bundle_id, metadata={"reason": fallback_reason})
+            self.emit_event("evaluator_completed", request, eval_id, decision.decision, decision.confidence, context_bundle_id, status=result.status, warnings=warnings, errors=errors, metadata={"pool_id": request.pool_id, "item_id": request.item_id, "run_id": request.run_id, "warning_count": len(warnings), "error_count": len(errors), "used_llm": result.metadata.get("used_llm"), "used_fallback": result.metadata.get("used_fallback"), "decision_overridden_by_policy": result.metadata.get("decision_overridden_by_policy"), "llm_parse_failed": result.metadata.get("llm_parse_failed")})
+            return result
+        except Exception as exc:
+            self.emit_event("evaluator_failed", request, eval_id, "manual_required", 0.0, "", status="failed", warnings=warnings, errors=errors + [str(exc)], metadata={"error_type": type(exc).__name__})
+            raise
 
     def build_input_packet(self, request, policy, warnings):
         bundle = {}
@@ -154,21 +173,23 @@ class AtlasLLMEvaluatorService:
 
     def validate_decision(self, decision, packet, policy):
         overridden = False
+        override_reasons = []
         if decision.decision not in {"continue", "stop", "revise", "manual_required"}:
-            decision.decision = "manual_required"; overridden = True
+            decision.decision = "manual_required"; overridden = True; override_reasons.append("invalid_decision")
         vr = str((packet.verification_result or {}).get("status") or "").lower()
         sr = str((packet.safe_apply_result or {}).get("status") or "").lower()
         decision.confidence = max(0.0, min(1.0, float(decision.confidence)))
-        if vr == "failed" and decision.decision == "continue": decision.decision = "stop"; overridden = True
-        if not vr and policy.require_verification_result_for_continue and decision.decision == "continue": decision.decision = "manual_required"; overridden = True
-        if sr != "applied" and decision.decision == "continue": decision.decision = "revise"; overridden = True
-        if decision.decision == "continue" and decision.confidence < policy.confidence_threshold_continue: decision.decision = "manual_required"; overridden = True
+        if vr == "failed" and decision.decision == "continue": decision.decision = "stop"; overridden = True; override_reasons.append("verification_failed")
+        if not vr and policy.require_verification_result_for_continue and decision.decision == "continue": decision.decision = "manual_required"; overridden = True; override_reasons.append("verification_missing")
+        if sr != "applied" and decision.decision == "continue": decision.decision = "revise"; overridden = True; override_reasons.append("safe_apply_not_applied")
+        if decision.decision == "continue" and decision.confidence < policy.confidence_threshold_continue: decision.decision = "manual_required"; overridden = True; override_reasons.append("confidence_below_threshold")
         if decision.should_restore:
             decision.should_restore = False
             decision.recommended_next_actions.append("Manual restore review required.")
             overridden = True
+            override_reasons.append("restore_forbidden")
         decision.should_continue_autopilot = False
-        return overridden
+        return overridden, override_reasons
 
     def save_result(self, eval_id, request, policy_id, status, decision, packet, context_bundle_id, prompt_preview, raw, warnings, errors, *, used_llm, used_fallback, overridden, prompt_context_truncated=False, diff_summary_chars=0, diff_summary_truncated=False, llm_parse_failed=False, resolution_sources=None):
         validate_relative_path(request.pool_id)
@@ -177,9 +198,38 @@ class AtlasLLMEvaluatorService:
         root = Path("ca_data") / "atlas" / "evaluator_results" / request.pool_id
         root.mkdir(parents=True, exist_ok=True)
         (root / f"{eval_id}.json").write_text(json.dumps(result.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
+        (root / f"{eval_id}.md").write_text(self.result_to_markdown(eval_id, result), encoding="utf-8")
         return result
 
-    def emit_event(self, event_type, request, eval_id, decision, confidence, context_bundle_id):
+    def result_to_markdown(self, eval_id, result: AtlasEvaluatorResult) -> str:
+        d = result.decision
+        m = result.metadata or {}
+        lines = ["# Evaluator Result", "", "## Summary"]
+        for k, v in [("eval_id", eval_id), ("pool_id", result.pool_id), ("item_id", result.item_id), ("run_id", result.run_id), ("trigger", result.trigger), ("policy_id", result.policy_id), ("status", result.status), ("decision", d.decision), ("confidence", d.confidence), ("context_bundle_id", result.context_bundle_id), ("used_llm", m.get("used_llm")), ("used_fallback", m.get("used_fallback")), ("decision_overridden_by_policy", m.get("decision_overridden_by_policy")), ("llm_parse_failed", m.get("llm_parse_failed"))]:
+            lines.append(f"- {k}: {v}")
+        def add_list(title, arr):
+            lines.append("")
+            lines.append(f"## {title}")
+            vals = arr or []
+            if vals:
+                lines.extend([f"- {x}" for x in vals])
+            else:
+                lines.append("- (none)")
+        add_list("Reasons", d.reasons)
+        add_list("Risks", d.risks)
+        add_list("Recommended Next Actions", d.recommended_next_actions)
+        lines += ["", "## Safety Flags", f"- requires_manual_review: {d.requires_manual_review}", f"- should_run_debug_review: {d.should_run_debug_review}", f"- should_generate_patch_proposal: {d.should_generate_patch_proposal}", f"- should_restore: {d.should_restore}", f"- should_continue_autopilot: {d.should_continue_autopilot}"]
+        add_list("Warnings", result.warnings)
+        add_list("Errors", result.errors)
+        return "\n".join(lines) + "\n"
+
+    def emit_event(self, event_type, request, eval_id, decision, confidence, context_bundle_id, *, status="ok", warnings=None, errors=None, metadata=None):
         if not self.journal or not request.run_id:
             return
-        self.journal.append_event(request.pool_id, request.run_id, {"event_type": event_type, "pool_id": request.pool_id, "item_id": request.item_id, "run_id": request.run_id, "status": "ok", "warnings": [], "errors": [], "created_at": datetime.now(timezone.utc).isoformat(), "metadata": {"eval_id": eval_id, "trigger": request.trigger, "policy_id": request.policy_id, "decision": decision, "confidence": confidence, "context_bundle_id": context_bundle_id}})
+        payload = {"eval_id": eval_id, "trigger": request.trigger, "policy_id": request.policy_id, "decision": decision, "confidence": confidence, "context_bundle_id": context_bundle_id}
+        if metadata:
+            payload.update(metadata)
+        try:
+            self.journal.append_event(request.pool_id, request.run_id, {"event_type": event_type, "pool_id": request.pool_id, "item_id": request.item_id, "run_id": request.run_id, "status": status, "warnings": list(warnings or []), "errors": list(errors or []), "created_at": datetime.now(timezone.utc).isoformat(), "metadata": payload})
+        except Exception:
+            return
