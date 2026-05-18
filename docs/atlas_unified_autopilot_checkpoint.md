@@ -91,3 +91,5 @@ Next PR:
 Next PR: PR-51 Optional bounded retry after failed supervised handoff verification
 
 Current PR: PR-ATLAS-PIPE-50B
+
+- PR-ATLAS-PIPE-51: Optional bounded retry after failed supervised handoff verification
