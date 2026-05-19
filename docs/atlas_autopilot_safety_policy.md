@@ -116,3 +116,7 @@
 - Hardened Manual Executor / Post Refresh CA_DATA root resolution via request-aware resolved root.
 - Manual Executor persistence now writes final metadata before JSON/MD persistence.
 - Root consistency is required before semi-auto; this PR adds no semi-auto or auto-continue behavior.
+
+
+- PR-ATLAS-PIPE-60B hardens guarded semi-auto loop (UI binding, dry_run_next_action, policy flags, real tests).
+- no full autonomous agent / no execute all / no auto continue / no follow-up execution after refresh.
