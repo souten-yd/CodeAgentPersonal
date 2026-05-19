@@ -53,6 +53,7 @@ from agent.atlas_failure_stop_schema import AtlasFailureStopSuggestion
 from agent.atlas_failure_stop_service import AtlasFailureStopService
 from agent.atlas_verification_allowlist import atlas_verification_allowlist
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
+from app.api.atlas_root import resolve_atlas_ca_data_root
 
 
 router = APIRouter(prefix="/api/atlas", tags=["atlas"])
@@ -224,17 +225,6 @@ def _model_dump(value: Any) -> dict[str, Any]:
     if hasattr(value, "dict"):
         return value.dict()
     return dict(value)
-
-
-def resolve_atlas_ca_data_root(request: Request | None = None) -> Path:
-    if request is not None:
-        state_value = getattr(request.app.state, "atlas_ca_data_dir", "")
-        if state_value:
-            return Path(str(state_value)).expanduser().resolve()
-    env_value = os.environ.get("CODEAGENT_CA_DATA_DIR") or os.environ.get("CA_DATA")
-    if env_value:
-        return Path(env_value).expanduser().resolve()
-    return Path("ca_data").resolve()
 
 
 

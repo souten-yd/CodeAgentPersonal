@@ -170,3 +170,9 @@ Next PR:
 - Button guards and disabled reasons are now explicit.
 - Confirmation token is never persisted.
 - Execute remains dry-run-first and manual-click-only.
+
+
+## PR-ATLAS-PIPE-59C update
+- Hardened Manual Executor / Post Refresh CA_DATA root resolution via request-aware resolved root.
+- Manual Executor persistence now writes final metadata before JSON/MD persistence.
+- Root consistency is required before semi-auto; this PR adds no semi-auto or auto-continue behavior.

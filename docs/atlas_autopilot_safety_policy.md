@@ -110,3 +110,9 @@
 - No auto continue, no execute all, no rollback/restore/debug/remote git, and no backend execution semantics added.
 - Current PR: PR-ATLAS-PIPE-59
 - Next PR: PR-ATLAS-PIPE-60: Guarded semi-automatic operator loop with per-step confirmation
+
+
+## PR-ATLAS-PIPE-59C update
+- Hardened Manual Executor / Post Refresh CA_DATA root resolution via request-aware resolved root.
+- Manual Executor persistence now writes final metadata before JSON/MD persistence.
+- Root consistency is required before semi-auto; this PR adds no semi-auto or auto-continue behavior.
