@@ -401,6 +401,12 @@
                 <div class="atlas-extension-actions"><button id="atlas-run-patch-regen-from-recommendation" type="button" class="atlas-secondary-btn">Run patch regen from recommendation</button></div>
                 <div id="atlas-patch-regen-from-recommendation-panel" class="atlas-extension-result">status: none / patch_regen_result_id: - / patch_regen_status: - / candidate approval_status: - / safe_apply_ready: false</div>
               </details>
+              
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Multi-item Supervised Status</summary>
+                <p>This only builds a supervised status queue.</p><p>This does not execute the next action.</p><p>This does not apply, verify, retry, approve, or regenerate patches.</p>
+                <div id="atlas-multi-item-supervised-status-panel" class="atlas-extension-result">No supervised status queue yet.</div>
+              </details>
               <details class="atlas-extension-details atlas-automation-extension-card">
                 <summary>Supervised Handoff Safe Apply</summary>
                 <p>This applies an already approved handoff patch. This does not run verification. This does not rollback or restore.</p>
