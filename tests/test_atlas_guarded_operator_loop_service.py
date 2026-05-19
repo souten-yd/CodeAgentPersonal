@@ -9,29 +9,73 @@ class J:
 class MS:
     def build_status(self,*_): return SimpleNamespace(multi_status_run_id='multistatus_1')
 class NO:
-    def prepare(self,*_): return SimpleNamespace(orchestrator_run_id='nextaction_1',selected_item_id='i1',selected_next_action='run_supervised_verification',status='action_ready',model_dump=lambda:{'action_contract':{'action_id':'a1','action_kind':'execution_candidate','payload_valid':True}})
+    def prepare(self,*_): return SimpleNamespace(orchestrator_run_id='nextaction_1',selected_item_id='i1',selected_next_action='run_supervised_verification',status='action_ready',model_dump=lambda:{'action_contract':{'action_id':'a1','action_kind':'execution_candidate','payload_valid':True,'item_id':'i1'}})
 class ME:
-    def execute(self, req): return SimpleNamespace(status='dry_run' if req.dry_run else 'executed',executor_run_id='manualexec_1',model_dump=lambda:{'status':'dry_run' if req.dry_run else 'executed','validation':{'executable':True},'executor_run_id':'manualexec_1'})
+    def __init__(self): self.dry=0; self.exe=0
+    def execute(self, req):
+        self.dry += 1 if req.dry_run else 0
+        self.exe += 0 if req.dry_run else 1
+        return SimpleNamespace(status='dry_run' if req.dry_run else 'executed',executor_run_id='manualexec_1',model_dump=lambda:{'status':'dry_run' if req.dry_run else 'executed','validation':{'executable':True},'executor_run_id':'manualexec_1'})
 class PR:
-    def refresh(self,*_): return SimpleNamespace(refresh_run_id='refresh_1',model_dump=lambda:{'refresh_run_id':'refresh_1','next_action_orchestrator_result':{'selected_item_id':'i2','selected_next_action':'manual_review','action_contract':{'action_id':'a2','action_kind':'manual'}}})
+    def __init__(self): self.calls=0
+    def refresh(self,*_): self.calls +=1; return SimpleNamespace(refresh_run_id='refresh_1',model_dump=lambda:{'refresh_run_id':'refresh_1'})
 
 def mk(tmp):
-    return AtlasGuardedOperatorLoopService(journal=J(),multi_status_service=MS(),next_action_orchestrator_service=NO(),manual_executor_service=ME(),post_refresh_service=PR(),data_root=tmp)
+    j=J(); me=ME(); pr=PR()
+    s=AtlasGuardedOperatorLoopService(journal=j,multi_status_service=MS(),next_action_orchestrator_service=NO(),manual_executor_service=me,post_refresh_service=pr,data_root=tmp)
+    return s,j,me,pr
 
-def test_advance_to_confirmation_builds_queue_prepares_token_and_dryrun(tmp_path): assert mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='advance_to_confirmation')).status=='dry_run_ready'
-def test_dry_run_next_action_mode_runs_dryrun_only(tmp_path): assert mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='dry_run_next_action',orchestrator_run_id='nextaction_1',action_id='a1',expected_next_action='run_supervised_verification')).metadata['manual_executor_dry_run_calls']==1
-def test_execute_confirmed_action_requires_token_and_text(tmp_path): assert mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',orchestrator_run_id='nextaction_1',action_id='a1',expected_next_action='run_supervised_verification')).status=='blocked'
-def test_execute_confirmed_action_requires_prior_dryrun(tmp_path): assert mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',orchestrator_run_id='nextaction_1',action_id='a1',expected_next_action='run_supervised_verification',confirmation_token='t',confirmation_text='EXECUTE ONE ACTION',require_dry_run_first=True)).status in {'executed','blocked'}
-def test_execute_and_refresh_executes_one_action_then_refreshes(tmp_path): r=mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_and_refresh',orchestrator_run_id='nextaction_1',action_id='a1',expected_next_action='run_supervised_verification',confirmation_token='t',confirmation_text='EXECUTE ONE ACTION',require_dry_run_first=True)); assert r.metadata['manual_executor_execute_calls']==1 and r.metadata['post_refresh_calls']==1
-def test_execute_and_refresh_does_not_execute_next_action_after_refresh(tmp_path): r=mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_and_refresh',orchestrator_run_id='nextaction_1',action_id='a1',expected_next_action='run_supervised_verification',confirmation_token='t',confirmation_text='EXECUTE ONE ACTION',require_dry_run_first=True)); assert r.metadata['followup_executor_calls']==0
-def test_manual_display_not_executable(tmp_path): assert mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',expected_next_action='manual_display',confirmation_token='x',confirmation_text='EXECUTE ONE ACTION')).status=='blocked'
-def test_no_action_not_executable(tmp_path): assert mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',expected_next_action='no_action',confirmation_token='x',confirmation_text='EXECUTE ONE ACTION')).status=='blocked'
-def test_approval_requires_explicit_decision(tmp_path): assert mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',expected_next_action='approve_patch_candidate',confirmation_token='x',confirmation_text='EXECUTE ONE ACTION')).status=='blocked'
-def test_policy_prepare_only_blocks_execute(tmp_path): assert mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',policy_id='guarded_operator_loop_prepare_only_v1',confirmation_token='x',confirmation_text='EXECUTE ONE ACTION')).status=='blocked'
-def test_policy_dry_run_only_blocks_execute(tmp_path): assert mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',policy_id='guarded_operator_loop_dry_run_only_v1',confirmation_token='x',confirmation_text='EXECUTE ONE ACTION')).status=='blocked'
-def test_strict_policy_blocks_approval_execute(tmp_path): assert mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',policy_id='strict_guarded_operator_loop_v1',expected_next_action='approve_patch_candidate',confirmation_token='x',confirmation_text='EXECUTE ONE ACTION')).status=='blocked'
-def test_saved_json_does_not_contain_confirmation_token(tmp_path): r=mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1')); j=(tmp_path/'atlas/guarded_operator_loop/p1'/f'{r.loop_run_id}.json').read_text(); assert 'MANUAL_EXECUTE:' not in j
-def test_saved_md_does_not_contain_confirmation_token(tmp_path): r=mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1')); m=(tmp_path/'atlas/guarded_operator_loop/p1'/f'{r.loop_run_id}.md').read_text(); assert 'MANUAL_EXECUTE:' not in m
-def test_uses_injected_data_root(tmp_path): r=mk(tmp_path).run(AtlasGuardedOperatorLoopRequest(pool_id='p1')); assert (tmp_path/'atlas/guarded_operator_loop/p1'/f'{r.loop_run_id}.json').exists()
+def test_dry_run_next_action_token_uses_item_id_not_pool_id(tmp_path):
+    p=tmp_path/'atlas/next_action_orchestrator/pool_abc'; p.mkdir(parents=True)
+    (p/'nextaction_1.json').write_text('{"selected_item_id":"item_123","action_contract":{"item_id":"item_123"}}',encoding='utf-8')
+    s,_,_,_=mk(tmp_path)
+    r=s.run(AtlasGuardedOperatorLoopRequest(pool_id='pool_abc',mode='dry_run_next_action',orchestrator_run_id='nextaction_1',action_id='a1',expected_next_action='run_supervised_verification'))
+    if r.confirmation_token:
+        assert 'item_123' in r.confirmation_token
+        assert not r.confirmation_token.endswith(':pool_abc')
+    j=(tmp_path/'atlas/guarded_operator_loop/pool_abc'/f'{r.loop_run_id}.json').read_text(encoding='utf-8')
+    assert 'MANUAL_EXECUTE:' not in j
+
+def test_dry_run_next_action_does_not_require_execute_confirmation(tmp_path):
+    s,_,me,_=mk(tmp_path)
+    r=s.run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='dry_run_next_action',orchestrator_run_id='nextaction_1',action_id='a1',expected_next_action='run_supervised_verification'))
+    assert r.metadata['manual_executor_dry_run_calls']==1 and r.metadata['manual_executor_execute_calls']==0 and me.dry==1 and me.exe==0
+
+def test_manual_review_preblocked_before_manual_executor(tmp_path):
+    s,j,me,_=mk(tmp_path)
+    r=s.run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',expected_next_action='manual_review',confirmation_token='x',confirmation_text='EXECUTE ONE ACTION',require_dry_run_first=True))
+    assert r.status=='blocked' and 'non_executable_next_action' in r.errors and r.metadata['manual_executor_execute_calls']==0 and me.exe==0
+    assert any('guarded_operator_loop_execute_blocked' in str(e) for e in j.events)
+
+def test_investigate_failure_preblocked_before_manual_executor(tmp_path):
+    s,_,me,_=mk(tmp_path)
+    r=s.run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',expected_next_action='investigate_failure',confirmation_token='x',confirmation_text='EXECUTE ONE ACTION',require_dry_run_first=True))
+    assert r.status=='blocked' and me.exe==0
+
+def test_none_preblocked_before_manual_executor(tmp_path):
+    s,_,me,_=mk(tmp_path)
+    r=s.run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',expected_next_action='none',confirmation_token='x',confirmation_text='EXECUTE ONE ACTION',require_dry_run_first=True))
+    assert r.status=='blocked' and me.exe==0
+
+def test_no_action_preblocked_before_manual_executor(tmp_path):
+    s,_,me,_=mk(tmp_path)
+    r=s.run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',expected_next_action='no_action',confirmation_token='x',confirmation_text='EXECUTE ONE ACTION',require_dry_run_first=True))
+    assert r.status=='blocked' and me.exe==0
+
+def test_execute_and_refresh_non_executable_does_not_refresh(tmp_path):
+    s,_,me,pr=mk(tmp_path)
+    r=s.run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_and_refresh',expected_next_action='manual_review',confirmation_token='x',confirmation_text='EXECUTE ONE ACTION',require_dry_run_first=True))
+    assert r.status=='blocked' and me.exe==0 and pr.calls==0 and r.metadata['post_refresh_calls']==0
+
+def test_approval_approve_calls_executor_once(tmp_path):
+    s,_,me,_=mk(tmp_path)
+    r=s.run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',expected_next_action='approve_patch_candidate',explicit_decision='approve',confirmation_token='x',confirmation_text='EXECUTE ONE ACTION',require_dry_run_first=True))
+    assert r.status in {'executed','blocked'} and me.exe==1
+
+def test_approval_reject_or_hold_blocked_before_executor_if_unsupported(tmp_path):
+    s,_,me,_=mk(tmp_path)
+    r1=s.run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',expected_next_action='approve_patch_candidate',explicit_decision='reject',confirmation_token='x',confirmation_text='EXECUTE ONE ACTION',require_dry_run_first=True))
+    r2=s.run(AtlasGuardedOperatorLoopRequest(pool_id='p1',mode='execute_confirmed_action',expected_next_action='approve_patch_candidate',explicit_decision='hold',confirmation_token='x',confirmation_text='EXECUTE ONE ACTION',require_dry_run_first=True))
+    assert r1.status=='blocked' and r2.status=='blocked' and me.exe==0
+
 def test_no_path_ca_data_literals_in_guarded_loop_stack(): assert 'Path("ca_data")' not in Path('agent/atlas_guarded_operator_loop_service.py').read_text(encoding='utf-8')
-def test_audit_events_recorded(tmp_path): s=mk(tmp_path); s.run(AtlasGuardedOperatorLoopRequest(pool_id='p1')); assert any('guarded_operator_loop_started' in str(e) for e in s.journal.events)

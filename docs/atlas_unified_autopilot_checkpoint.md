@@ -180,3 +180,9 @@ Next PR:
 
 - PR-ATLAS-PIPE-60B hardens guarded semi-auto loop (UI binding, dry_run_next_action, policy flags, real tests).
 - no full autonomous agent / no execute all / no auto continue / no follow-up execution after refresh.
+
+Current PR:
+- PR-ATLAS-PIPE-60C
+
+Next PR:
+- PR-ATLAS-SCALE-61: Persistent repo symbol index and incremental dependency graph
