@@ -131,3 +131,14 @@ Known Current Code Facts:
 - Completes single-item supervised loop state tracking.
 - Next PR: PR-ATLAS-PIPE-55 integrate supervised status into multi-item guarded autopilot.
 
+
+## PR-ATLAS-PIPE-54B
+- Hardened supervised item status finalization evidence selection with explicit source_type/source_run_id routing and created_at-prioritized latest selection.
+- Added expanded audit events, detailed transition markdown, and best-effort persistence for item_not_found/exception paths.
+- Enriched transition rules and next_action_payload contracts for approval/safe_apply/verification/retry/recommendation/manual investigation flows.
+
+Current PR:
+- PR-ATLAS-PIPE-54B
+
+Next PR:
+- PR-ATLAS-PIPE-55: Integrate supervised item status into multi-item guarded autopilot
