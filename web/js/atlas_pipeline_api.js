@@ -206,6 +206,12 @@
     getNextActionOrchestratorResult(poolId, orchestratorRunId) { return atlasFetch(`/api/atlas/next-action-orchestrator/results/${encodeURIComponent(poolId)}/${encodeURIComponent(orchestratorRunId)}`); },
     getLatestNextActionOrchestrator(payload) { return atlasFetch('/api/atlas/next-action-orchestrator/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
 
+
+    getPostManualExecutionRefreshPolicies() { return atlasFetch('/api/atlas/post-manual-execution-refresh/policies'); },
+    refreshAfterManualExecution(payload) { return atlasFetch('/api/atlas/post-manual-execution-refresh/refresh', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getPostManualExecutionRefreshResult(poolId, refreshRunId) { return atlasFetch(`/api/atlas/post-manual-execution-refresh/results/${encodeURIComponent(poolId)}/${encodeURIComponent(refreshRunId)}`); },
+    getLatestPostManualExecutionRefresh(payload) { return atlasFetch('/api/atlas/post-manual-execution-refresh/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+
   };
 
   root.AtlasPipelineAPI = AtlasPipelineAPI;
