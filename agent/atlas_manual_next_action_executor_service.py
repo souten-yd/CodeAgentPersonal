@@ -21,8 +21,8 @@ ALLOW = {
 }
 
 class AtlasManualNextActionExecutorService:
-    def __init__(self, *, storage, journal, approval_service, safe_apply_service, verification_service, retry_service, patch_regen_service):
-        self.storage=storage; self.journal=journal; self.approval_service=approval_service; self.safe_apply_service=safe_apply_service; self.verification_service=verification_service; self.retry_service=retry_service; self.patch_regen_service=patch_regen_service
+    def __init__(self, *, storage, journal, approval_service, safe_apply_service, verification_service, retry_service, patch_regen_service, data_root: str | Path | None = None):
+        self.storage=storage; self.journal=journal; self.approval_service=approval_service; self.safe_apply_service=safe_apply_service; self.verification_service=verification_service; self.retry_service=retry_service; self.patch_regen_service=patch_regen_service; self.data_root=Path(data_root or "ca_data").expanduser().resolve()
 
     def execute(self, request: AtlasManualNextActionExecutorRequest) -> AtlasManualNextActionExecutionResult:
         exid=f"manualexec_{uuid4().hex[:10]}"; rid=request.run_id or exid; pol=get_manual_next_action_executor_policy(request.policy_id)
@@ -68,11 +68,11 @@ class AtlasManualNextActionExecutorService:
 
     def _load_orchestrator(self, req, r):
         if not req.orchestrator_run_id.startswith("nextaction_"): raise ValueError("invalid_orchestrator_run_id")
-        p=Path("ca_data")/"atlas"/"next_action_orchestrator"/validate_relative_path(req.pool_id)/f"{validate_relative_path(req.orchestrator_run_id)}.json"
+        p=self.data_root/"atlas"/"next_action_orchestrator"/validate_relative_path(req.pool_id)/f"{validate_relative_path(req.orchestrator_run_id)}.json"
         if not p.exists(): raise FileNotFoundError("orchestrator_result_not_found")
         data=json.loads(p.read_text(encoding="utf-8")); self._emit(req,r,"manual_next_action_executor_orchestrator_loaded"); return data
     def _has_prior_dryrun(self, req, r):
-        root=Path("ca_data")/"atlas"/"manual_next_action_executor"/validate_relative_path(req.pool_id)
+        root=self.data_root/"atlas"/"manual_next_action_executor"/validate_relative_path(req.pool_id)
         if not root.exists(): return False
         now=datetime.now(timezone.utc)
         for p in sorted(root.glob("manualexec_*.json"), key=lambda x:x.stat().st_mtime, reverse=True):
@@ -93,16 +93,19 @@ class AtlasManualNextActionExecutorService:
             return self.retry_service.run(AtlasSupervisedHandoffRetryRequest(pool_id=p["pool_id"],item_id=p["item_id"],run_id=req.run_id,workspace_id=req.workspace_id,verification_run_id=p["verification_run_id"],safe_apply_execution_id=p["safe_apply_execution_id"],handoff_id=p.get("handoff_id","") ,dry_run=req.dry_run,reviewer=req.reviewer,reason=req.reason,metadata=m)).model_dump()
         return self.patch_regen_service.run(AtlasPatchRegenFromRecommendationRequest(pool_id=p["pool_id"],item_id=p["item_id"],run_id=req.run_id,workspace_id=req.workspace_id,recommendation_run_id=p["recommendation_run_id"],dry_run=req.dry_run,reviewer=req.reviewer,reason=req.reason,metadata=m)).model_dump()
     def _save(self, req, r, update_metadata=False):
-        root=Path("ca_data")/"atlas"/"manual_next_action_executor"/req.pool_id; root.mkdir(parents=True, exist_ok=True)
-        (root/f"{r.executor_run_id}.json").write_text(json.dumps(r.model_dump(),ensure_ascii=False,indent=2),encoding="utf-8")
-        (root/f"{r.executor_run_id}.md").write_text(f"# Manual Next Action Executor\n\n## Summary\n- executor_run_id: {r.executor_run_id}\n- orchestrator_run_id: {r.orchestrator_run_id}\n- pool_id: {r.pool_id}\n- status: {r.status}\n\n## Confirmation\n- confirmation_required: true\n- confirmation_valid: {r.validation.get("confirmation_valid", False)}\n\n## Action Contract\n- action_id: {r.action_id}\n- selected_next_action: {r.selected_next_action}\n- target_service: {r.target_service}\n\n## Execution Result\n- execution_result_id: {r.execution_result_id}\n- error_count: {len(r.errors)}\n\n## Safety\n- auto_continue_executed: false\n- multi_item_autopilot_continued: false\n- remote_git: false\n",encoding="utf-8")
+        result_rel_path=f"atlas/manual_next_action_executor/{r.pool_id}/{r.executor_run_id}.json"
+        json_path=self.data_root/result_rel_path
+        md_path=json_path.with_suffix(".md")
+        r.metadata.update({"dry_run":req.dry_run,"confirmation_required":True,"confirmation_valid":bool((r.validation or {}).get("confirmation_valid")),"dry_run_first_required":bool(req.require_dry_run_first),"dry_run_first_satisfied":bool((r.validation or {}).get("dry_run_first_satisfied",False)),"one_action_executed":r.status=="executed","service_called":bool(r.execution_result),"target_service":r.target_service,"target_api_path":r.target_api_path,"explicit_decision_used":req.explicit_decision if r.selected_next_action=="approve_patch_candidate" else "","suggested_decision_ignored":True,"result_path":str(json_path),"result_path_relative":result_rel_path,"side_effects":{"auto_continue_executed":False,"multi_item_autopilot_continued":False,"rollback":False,"restore":False,"debug":False,"remote_git":False}})
         if update_metadata:
             pool=self.storage.load_pool(req.pool_id); item=pool.get_item(r.selected_item_id)
             if item:
                 md=item.metadata or {}; rows=list(md.get("manual_next_action_executions") or [])
-                rows.append({"executor_run_id":r.executor_run_id,"orchestrator_run_id":r.orchestrator_run_id,"action_id":r.action_id,"next_action":r.selected_next_action,"status":r.status,"dry_run":req.dry_run,"execution_result_id":r.execution_result_id,"created_at":r.created_at,"result_path":f"ca_data/atlas/manual_next_action_executor/{r.pool_id}/{r.executor_run_id}.json"})
+                rows.append({"executor_run_id":r.executor_run_id,"orchestrator_run_id":r.orchestrator_run_id,"action_id":r.action_id,"next_action":r.selected_next_action,"status":r.status,"dry_run":req.dry_run,"execution_result_id":r.execution_result_id,"created_at":r.created_at,"result_path":str(json_path),"result_path_relative":result_rel_path,"ca_data_style_result_path":f"ca_data/{result_rel_path}"})
                 md["manual_next_action_executions"]=rows; md["latest_manual_next_action_executor_run_id"]=r.executor_run_id; item.metadata=md; self.storage.save_pool(pool); self.journal.save_plan_pool(pool)
-        r.metadata.update({"dry_run":req.dry_run,"confirmation_required":True,"confirmation_valid":bool((r.validation or {}).get("confirmation_valid")),"dry_run_first_required":bool(req.require_dry_run_first),"dry_run_first_satisfied":bool((r.validation or {}).get("dry_run_first_satisfied",False)),"one_action_executed":r.status=="executed","service_called":bool(r.execution_result),"target_service":r.target_service,"target_api_path":r.target_api_path,"explicit_decision_used":req.explicit_decision if r.selected_next_action=="approve_patch_candidate" else "","suggested_decision_ignored":True,"side_effects":{"auto_continue_executed":False,"multi_item_autopilot_continued":False,"rollback":False,"restore":False,"debug":False,"remote_git":False}})
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        json_path.write_text(json.dumps(r.model_dump(),ensure_ascii=False,indent=2),encoding="utf-8")
+        md_path.write_text(f"# Manual Next Action Executor\n\n## Summary\n- executor_run_id: {r.executor_run_id}\n- orchestrator_run_id: {r.orchestrator_run_id}\n- pool_id: {r.pool_id}\n- status: {r.status}\n\n## Confirmation\n- confirmation_required: true\n- confirmation_valid: {r.validation.get('confirmation_valid', False)}\n\n## Action Contract\n- action_id: {r.action_id}\n- selected_next_action: {r.selected_next_action}\n- target_service: {r.target_service}\n\n## Execution Result\n- execution_result_id: {r.execution_result_id}\n- error_count: {len(r.errors)}\n\n## Safety\n- auto_continue_executed: false\n- multi_item_autopilot_continued: false\n- remote_git: false\n",encoding="utf-8")
         self._emit(req,r,"manual_next_action_executor_result_saved"); return r
     def _emit(self, req, r, event):
         self.journal.append_event(req.pool_id, req.run_id or r.executor_run_id,{"event_type":event,"executor_run_id":r.executor_run_id,"orchestrator_run_id":req.orchestrator_run_id,"pool_id":req.pool_id,"run_id":req.run_id or r.executor_run_id,"selected_item_id":r.selected_item_id,"selected_next_action":r.selected_next_action,"action_id":r.action_id,"target_service":r.target_service,"target_api_path":r.target_api_path,"status":r.status,"dry_run":req.dry_run,"execution_result_id":r.execution_result_id,"one_action_executed":r.status=="executed","next_action_executed":r.status=="executed","auto_continue_executed":False,"multi_item_autopilot_continued":False,"rollback_executed":False,"restore_executed":False,"debug_review_executed":False,"remote_git_executed":False,"created_at":datetime.now(timezone.utc).isoformat()})
