@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-15">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-16">
 </head>
 <body>
 
@@ -402,6 +402,13 @@
                 <div id="atlas-patch-regen-from-recommendation-panel" class="atlas-extension-result">status: none / patch_regen_result_id: - / patch_regen_status: - / candidate approval_status: - / safe_apply_ready: false</div>
               </details>
               
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Supervised Item Status</summary>
+                <p>This only finalizes item status and next action.</p>
+                <p>This does not apply, verify, retry, approve, or regenerate patches.</p>
+                <div id="atlas-supervised-item-status-panel" class="atlas-extension-result">No supervised item status result yet.</div>
+              </details>
+
               <details class="atlas-extension-details atlas-automation-extension-card">
                 <summary>Multi-item Supervised Status</summary>
                 <p>This only builds a supervised status queue.</p><p>This does not execute the next action.</p><p>This does not apply, verify, retry, approve, or regenerate patches.</p>
@@ -16041,11 +16048,9 @@ function testSkill(skillName) {
 <script src="/static/js/lumen_tools.js"></script>
 <script src="/static/js/lumen.js"></script>
 <script src="/static/js/nexus.js"></script>
-<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-15"></script>
-<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-15"></script>
+<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-16"></script>
+<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-16"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>
 
-<!-- PR-54 Supervised Item Status -->
-<div id="atlas-supervised-item-status-note">This only finalizes item status and next action. This does not apply, verify, retry, approve, or regenerate patches.</div>

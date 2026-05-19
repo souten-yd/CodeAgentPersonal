@@ -9,7 +9,7 @@ HTML = (ROOT / "ui.html").read_text(encoding="utf-8")
 ATLAS_API_JS = (ROOT / "web" / "js" / "atlas_pipeline_api.js").read_text(encoding="utf-8")
 ATLAS_DASHBOARD_JS = (ROOT / "web" / "js" / "atlas_dashboard.js").read_text(encoding="utf-8")
 CSS = (ROOT / "web" / "css" / "app.css").read_text(encoding="utf-8")
-ASSET_VERSION = "atlas-dashboard-15"
+ASSET_VERSION = "atlas-dashboard-16"
 
 
 def atlas_block() -> str:
@@ -181,7 +181,7 @@ def test_continuation_panel_contract() -> None:
 def test_continuation_panel_is_inside_details() -> None:
     block = atlas_block()
     details_start = block.index('id="atlas-details-drawer"')
-    details_end = block.index('</details>', details_start)
+    details_end = block.rindex('</details>')
     panel_index = block.index('id="atlas-continuation-panel"')
     assert details_start < panel_index < details_end
 
