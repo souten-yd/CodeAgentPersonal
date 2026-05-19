@@ -273,3 +273,9 @@ export async function getPatchRegenFromRecommendationPolicies(){return apiGet('/
 export async function runPatchRegenFromRecommendation(payload){return apiPost('/api/atlas/patch-regen-from-recommendation/run',payload);}
 export async function getPatchRegenFromRecommendationResult(poolId,recommendationExecId){return apiGet(`/api/atlas/patch-regen-from-recommendation/results/${encodeURIComponent(poolId)}/${encodeURIComponent(recommendationExecId)}`);}
 export async function getLatestPatchRegenFromRecommendation(payload){return apiPost('/api/atlas/patch-regen-from-recommendation/latest',payload);}
+
+export async function getManualNextActionExecutorPolicies() { return apiGet('/api/atlas/manual-next-action-executor/policies'); }
+export async function executeManualNextAction(payload) { return apiPost('/api/atlas/manual-next-action-executor/execute', payload); }
+export async function getManualNextActionExecutorResult(poolId, executorRunId) { return apiGet(`/api/atlas/manual-next-action-executor/results/${encodeURIComponent(poolId)}/${encodeURIComponent(executorRunId)}`); }
+export async function getLatestManualNextActionExecutor(payload) { return apiPost('/api/atlas/manual-next-action-executor/latest', payload); }
+export async function previewManualNextActionConfirmationToken(payload) { return apiPost('/api/atlas/manual-next-action-executor/confirmation-token-preview', payload); }
