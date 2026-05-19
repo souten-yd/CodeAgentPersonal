@@ -91,4 +91,4 @@
 - Next Action Orchestrator added: reads multi-item supervised status queues, selects one next action, builds a normalized action contract, and saves JSON/Markdown artifacts.
 - It does not execute next actions; manual confirmation remains required.
 - No apply/verify/retry/approval/patch-regeneration/rollback/restore/debug-review/remote-git/autopilot-auto-continue actions are executed.
-- Current PR: PR-ATLAS-PIPE-56. Next PR: PR-ATLAS-PIPE-57 Manual Next Action Executor with explicit confirmation gate.
+- Current PR: PR-ATLAS-PIPE-57B. Next PR: PR-ATLAS-PIPE-58: Refresh status queue after manual execution and recommend next manual step.
