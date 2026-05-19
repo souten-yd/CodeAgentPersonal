@@ -109,6 +109,8 @@ def start_mock_server():
         return _json_response(self, {"ok": False, "error": "mock smoke backend: planner unavailable"})
       if path == "/api/atlas/plan-pools":
         return _json_response(self, {"status": "ready", "pool_id": "pool_smoke_001", "plan_pool": {"pool_id": "pool_smoke_001", "status": "ready", "items": []}})
+      if path == "/api/atlas/pipeline/dry-run":
+        return _json_response(self, {"status": "ok", "run_id": "run_smoke_001", "summary": {"state": "running"}})
       return _json_response(self, {})
 
   server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -1902,11 +1904,33 @@ async def verify_atlas_current_ui_smoke(page) -> None:
   atlas_api_contract = await page.evaluate("""() => ({
     apiType: typeof window.AtlasPipelineAPI,
     dashboardType: typeof window.AtlasDashboard,
-    createPlanType: typeof window.AtlasDashboard?.createPlanPool
+    dashboardCreatePlanType: typeof window.AtlasDashboard?.createPlanPool,
+    pipelineCreatePlanType: typeof window.AtlasPipelineAPI?.createPlanPool,
+    pipelineStartDryRunType: typeof window.AtlasPipelineAPI?.startPipelineDryRun
   })""")
   assert atlas_api_contract["apiType"] == "object"
   assert atlas_api_contract["dashboardType"] == "object"
-  assert atlas_api_contract["createPlanType"] == "function"
+  assert atlas_api_contract["dashboardCreatePlanType"] == "function"
+  assert atlas_api_contract["pipelineCreatePlanType"] == "function"
+  assert atlas_api_contract["pipelineStartDryRunType"] == "function"
+
+  await page.evaluate("""() => {
+    if (window.__atlasFetchHookInstalled) return;
+    const originalFetch = window.fetch.bind(window);
+    window.__atlasFetches = [];
+    window.fetch = (...args) => {
+      const url = String(args[0] || '');
+      window.__atlasFetches.push(url);
+      return originalFetch(...args);
+    };
+    window.__atlasFetchHookInstalled = true;
+  }""")
+
+  await click_named(page, "atlas_create_plan_smoke", "#atlas-create-plan-btn")
+  await wait_named(page, "atlas_create_plan_fetch", "() => (window.__atlasFetches || []).some((u) => u.includes('/api/atlas/plan-pools'))")
+
+  await click_named(page, "atlas_start_dry_run_smoke", "#atlas-start-dry-run-btn")
+  await wait_named(page, "atlas_dry_run_fetch", "() => (window.__atlasFetches || []).some((u) => u.includes('/api/atlas/pipeline/dry-run'))")
 
   assert "Workflow Workbench" in atlas_text
   assert "Workflow Workbench: Requirement / Plan / Review / Approval / Agent Execution / Execute Preview / Patch Review / Apply." not in atlas_text
