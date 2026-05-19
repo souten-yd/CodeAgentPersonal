@@ -15,6 +15,9 @@ from agent.atlas_dev_tool_path import validate_relative_path
 from agent.atlas_failure_stop_service import AtlasFailureStopService
 from agent.atlas_llm_evaluator_schema import AtlasEvaluatorRequest
 from agent.atlas_multi_item_autopilot_policies import get_multi_item_policy
+from agent.atlas_multi_item_supervised_status_schema import AtlasMultiItemSupervisedStatusRequest
+from agent.atlas_multi_item_supervised_status_service import AtlasMultiItemSupervisedStatusService
+from agent.atlas_supervised_item_status_service import AtlasSupervisedItemStatusService
 from agent.atlas_multi_item_autopilot_schema import (
     AtlasAutopilotItemResult,
     AtlasMultiItemAutopilotRequest,
@@ -33,6 +36,7 @@ class AtlasMultiItemAutopilotService:
         self.evaluator_service = evaluator_service
         self.failure_stop_service = AtlasFailureStopService(journal=journal)
         self.bounded_retry_service = bounded_retry_service
+        self.supervised_status_service = AtlasMultiItemSupervisedStatusService(storage=storage, journal=journal, supervised_item_status_service=AtlasSupervisedItemStatusService(storage=storage, journal=journal))
 
     def run(self, request: AtlasMultiItemAutopilotRequest) -> AtlasMultiItemAutopilotResult:
         pool = self.storage.load_pool(request.pool_id)
@@ -147,6 +151,11 @@ class AtlasMultiItemAutopilotService:
                 out.status, out.stop_reason = "stopped", "max_failures_reached"
             if out.status in {"stopped", "failed"}:
                 break
+        try:
+            ss = self.supervised_status_service.build_status(AtlasMultiItemSupervisedStatusRequest(pool_id=request.pool_id, run_id=request.run_id, workspace_id=request.workspace_id, project_path=request.project_path, item_ids=ids, dry_run=True, refresh_item_status=False, update_item_status=False, update_metadata=False))
+            out.metadata.update({"supervised_status_integrated": True, "multi_status_run_id": ss.multi_status_run_id, "next_item_id": (ss.next_item.item_id if ss.next_item else ""), "next_action": (ss.next_item.next_action if ss.next_item else ""), "counts": ss.counts, "supervised_status_summary": ss.model_dump()})
+        except Exception as ex:
+            out.warnings.append(f"supervised_status_integration_failed:{ex}")
         if out.status == "completed" and out.completed_count == 0 and out.blocked_count > 0:
             out.status = "blocked"
         if out.status == "stopped" and out.completed_count > 0:

@@ -142,3 +142,10 @@ Current PR:
 
 Next PR:
 - PR-ATLAS-PIPE-55: Integrate supervised item status into multi-item guarded autopilot
+
+
+Current PR:
+- PR-ATLAS-PIPE-55
+
+Next PR:
+- PR-ATLAS-PIPE-56: Next Action Orchestrator for supervised multi-item workflow
