@@ -251,6 +251,10 @@
     getLatestManualNextActionExecutor(payload) { return atlasFetch('/api/atlas/manual-next-action-executor/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
     previewManualNextActionConfirmationToken(payload) { return atlasFetch('/api/atlas/manual-next-action-executor/confirmation-token-preview', { method: 'POST', body: JSON.stringify(payload || {}) }); },
 
+    getGuardedOperatorLoopPolicies() { return atlasFetch('/api/atlas/guarded-operator-loop/policies'); },
+    runGuardedOperatorLoop(payload) { return atlasFetch('/api/atlas/guarded-operator-loop/run', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getGuardedOperatorLoopResult(poolId, loopRunId) { return atlasFetch(`/api/atlas/guarded-operator-loop/results/${encodeURIComponent(poolId)}/${encodeURIComponent(loopRunId)}`); },
+    getLatestGuardedOperatorLoop(payload) { return atlasFetch('/api/atlas/guarded-operator-loop/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
 
   };
 
