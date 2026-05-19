@@ -3,10 +3,10 @@ import json
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from agent.atlas_manual_next_action_executor_schema import ALLOWED_NEXT_ACTIONS, AtlasManualNextActionExecutorRequest
 from agent.atlas_dev_tool_path import validate_relative_path
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_manual_next_action_executor_policies import list_manual_next_action_executor_policies
-from agent.atlas_manual_next_action_executor_schema import AtlasManualNextActionExecutorRequest
 from agent.atlas_manual_next_action_executor_service import AtlasManualNextActionExecutorService
 from agent.atlas_patch_candidate_approval_service import AtlasPatchCandidateApprovalService
 from agent.atlas_patch_regen_from_recommendation_service import AtlasPatchRegenFromRecommendationService
@@ -22,6 +22,9 @@ class TokenReq(BaseModel): orchestrator_run_id:str; action_id:str; expected_next
 def _v(v,f):
     try:return validate_relative_path(v)
     except Exception as exc: raise HTTPException(status_code=400, detail={"error":"invalid_request","reason":f"invalid_{f}:{exc}"})
+def _bad(reason:str):
+    raise HTTPException(status_code=400, detail={"error":"invalid_request","reason":reason})
+
 def _svc():
     st=AtlasPlanPoolStorage('ca_data');jr=AtlasJournal('ca_data')
     return AtlasManualNextActionExecutorService(storage=st,journal=jr,approval_service=AtlasPatchCandidateApprovalService(storage=st,journal=jr),safe_apply_service=AtlasSupervisedHandoffSafeApplyService(storage=st,journal=jr),verification_service=AtlasSupervisedHandoffVerificationService(storage=st,journal=jr),retry_service=AtlasSupervisedHandoffRetryService(storage=st,journal=jr),patch_regen_service=AtlasPatchRegenFromRecommendationService(storage=st,journal=jr))
@@ -32,7 +35,7 @@ def policies(): return {'policies':[p.model_dump() for p in list_manual_next_act
 def execute(payload:AtlasManualNextActionExecutorRequest):
     payload.pool_id=_v(payload.pool_id,'pool_id')
     if payload.run_id: payload.run_id=_v(payload.run_id,'run_id')
-    if not payload.orchestrator_run_id.startswith('nextaction_'): raise HTTPException(status_code=400, detail={"error":"invalid_request","reason":"invalid_orchestrator_run_id"})
+    if not payload.orchestrator_run_id.startswith('nextaction_'): _bad("invalid_orchestrator_run_id")
     return _svc().execute(payload).model_dump()
 @router.get('/results/{pool_id}/{executor_run_id}')
 def result(pool_id:str, executor_run_id:str):
@@ -48,5 +51,11 @@ def latest(payload:LatestReq):
     return json.loads(files[0].read_text(encoding='utf-8'))
 @router.post('/confirmation-token-preview')
 def token_preview(payload:TokenReq):
-    if not payload.orchestrator_run_id.startswith('nextaction_'): raise HTTPException(status_code=400, detail={"error":"invalid_request","reason":"invalid_orchestrator_run_id"})
-    return {"confirmation_token":f"MANUAL_EXECUTE:{payload.orchestrator_run_id}:{payload.action_id}:{payload.expected_next_action}:{payload.item_id}","confirmation_text":"EXECUTE ONE ACTION"}
+    if not payload.orchestrator_run_id.startswith('nextaction_'): _bad("invalid_orchestrator_run_id")
+    if payload.expected_next_action not in ALLOWED_NEXT_ACTIONS: _bad("invalid_expected_next_action")
+    try:
+        action_id = validate_relative_path(payload.action_id)
+        item_id = validate_relative_path(payload.item_id)
+    except Exception as exc:
+        _bad(f"invalid_relative_path:{exc}")
+    return {"confirmation_token":f"MANUAL_EXECUTE:{payload.orchestrator_run_id}:{action_id}:{payload.expected_next_action}:{item_id}","confirmation_text":"EXECUTE ONE ACTION"}

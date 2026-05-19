@@ -1,6 +1,9 @@
 from __future__ import annotations
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+ALLOWED_NEXT_ACTIONS = {"approve_patch_candidate","run_supervised_safe_apply","run_supervised_verification","run_supervised_retry","run_patch_regen_from_recommendation"}
+ALLOWED_APPROVAL_DECISIONS = {"approve", "reject", "hold"}
 
 class AtlasManualNextActionExecutorRequest(BaseModel):
     pool_id: str
@@ -19,6 +22,20 @@ class AtlasManualNextActionExecutorRequest(BaseModel):
     reason: str = ""
     explicit_decision: str = ""
     metadata: dict = Field(default_factory=dict)
+
+    @field_validator("expected_next_action")
+    @classmethod
+    def _validate_expected_next_action(cls, v: str) -> str:
+        if v and v not in ALLOWED_NEXT_ACTIONS:
+            raise ValueError("invalid_expected_next_action")
+        return v
+
+    @field_validator("explicit_decision")
+    @classmethod
+    def _validate_explicit_decision(cls, v: str) -> str:
+        if v and v not in ALLOWED_APPROVAL_DECISIONS:
+            raise ValueError("invalid_explicit_decision")
+        return v
 
 class AtlasManualNextActionExecutorPolicy(BaseModel):
     policy_id: str; name: str; description: str
