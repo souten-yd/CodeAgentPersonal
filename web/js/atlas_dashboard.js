@@ -1153,6 +1153,33 @@
     render();
   }
 
+
+  async function prepareNextActionOrchestrator() {
+    if (!state.currentPoolId || !root.AtlasPipelineAPI?.prepareNextAction) return;
+    const response = await handleResult(await root.AtlasPipelineAPI.prepareNextAction({
+      pool_id: state.currentPoolId,
+      run_id: state.currentRunId || '',
+      workspace_id: workspaceId(),
+      multi_status_run_id: $('atlas-next-action-multi-status-run-id')?.value || '',
+      item_id: $('atlas-next-action-item-id')?.value || '',
+      requested_next_action: $('atlas-next-action-requested-action')?.value || '',
+      reviewer: 'manual', metadata: { ui: 'atlas_dashboard' }
+    }), 'Next Action Orchestrator prepare failed');
+    if (!response) return;
+    const c = response.action_contract || {};
+    const preview = JSON.stringify(c.payload || {}, null, 2);
+    const txt = `status: ${response.status || '-'}
+selected_item_id: ${response.selected_item_id || '-'}
+selected_next_action: ${response.selected_next_action || '-'}
+action_kind: ${c.action_kind || '-'}
+target_api_path: ${c.target_api_path || '-'}
+payload_valid: ${String(Boolean(c.payload_valid))}
+missing_fields: ${arr(c.missing_fields).join(', ') || '-'}
+payload_preview:
+${preview}`;
+    const panel = $('atlas-next-action-orchestrator-panel'); if (panel) panel.textContent = txt;
+  }
+
   async function checkAutomationReadiness() {
     const item = getItems().find((x) => String(x?.item_id || '') === String(state.planPool?.current_item_id || '')) || getItems()[0];
     if (!item || !state.currentPoolId || !root.AtlasPipelineAPI?.decideAutomation) return;
@@ -1185,6 +1212,8 @@
     if (autoRunBtn) autoRunBtn.addEventListener('click', runAutoSafeApplyOne);
     const regenFromRecBtn = $('atlas-run-patch-regen-from-recommendation');
     if (regenFromRecBtn) regenFromRecBtn.addEventListener('click', runPatchRegenFromRecommendation);
+    const nextActionBtn = $('atlas-prepare-next-action');
+    if (nextActionBtn) nextActionBtn.addEventListener('click', prepareNextActionOrchestrator);
     if (details) {
       details.addEventListener('toggle', () => {
         state.advancedOpen = details.open;

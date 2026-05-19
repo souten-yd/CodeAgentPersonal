@@ -118,6 +118,7 @@ def include_routers(app: FastAPI) -> None:
     from app.api.atlas_patch_regen_from_recommendation import router as atlas_patch_regen_from_recommendation_router
     from app.api.atlas_supervised_item_status import router as atlas_supervised_item_status_router
     from app.api.atlas_multi_item_supervised_status import router as atlas_multi_item_supervised_status_router
+    from app.api.atlas_next_action_orchestrator import router as atlas_next_action_orchestrator_router
     from app.api.audio import router as audio_router
     from app.api.echo import router as echo_router
     from app.api.jobs import router as jobs_router
@@ -147,6 +148,7 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(atlas_patch_regen_from_recommendation_router)
     app.include_router(atlas_supervised_item_status_router)
     app.include_router(atlas_multi_item_supervised_status_router)
+    app.include_router(atlas_next_action_orchestrator_router)
     app.include_router(audio_router)
     app.include_router(echo_router)
     app.include_router(jobs_router)
