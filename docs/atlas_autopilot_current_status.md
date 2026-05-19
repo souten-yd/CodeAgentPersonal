@@ -111,3 +111,8 @@
 
 - PR-ATLAS-PIPE-60B hardens guarded semi-auto loop (UI binding, dry_run_next_action, policy flags, real tests).
 - no full autonomous agent / no execute all / no auto continue / no follow-up execution after refresh.
+
+- PR-ATLAS-PIPE-60C fixes dry_run_next_action token construction.
+- Non-executable next actions are pre-blocked before Manual Executor.
+- manual_review / investigate_failure / none cannot enter executor path.
+- no execute all / no auto continue remains enforced.

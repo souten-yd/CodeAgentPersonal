@@ -17,10 +17,22 @@ class AtlasGuardedOperatorLoopService:
 
     def _block(self, r, field): r.status='blocked'; r.errors.append(f'policy_violation:{field}'); self._emit(r,'guarded_operator_loop_blocked'); return r
 
+    def _build_confirmation_token_from_orchestrator(self, *, pool_id, orchestrator_run_id, action_id, expected_next_action):
+        try:
+            pool=validate_relative_path(pool_id); run=validate_relative_path(orchestrator_run_id)
+            path=self.data_root/'atlas'/'next_action_orchestrator'/pool/f'{run}.json'
+            data=json.loads(path.read_text(encoding='utf-8'))
+            item_id=str((((data.get('action_contract') or {}).get('item_id')) or data.get('selected_item_id') or '')).strip()
+            if not item_id: return ''
+            return f"MANUAL_EXECUTE:{orchestrator_run_id}:{action_id}:{expected_next_action}:{item_id}"
+        except Exception:
+            return ''
+
     def run(self, request: AtlasGuardedOperatorLoopRequest) -> AtlasGuardedOperatorLoopResult:
         lid=f"guardloop_{uuid4().hex[:10]}"; rid=request.run_id or lid; p=get_guarded_operator_loop_policy(request.policy_id)
         r=AtlasGuardedOperatorLoopResult(pool_id=request.pool_id,run_id=rid,loop_run_id=lid,policy_id=p.policy_id,mode=request.mode,status='blocked',created_at=datetime.now(timezone.utc).isoformat())
         md={"mode":request.mode,"confirmed_action_executed":False,"followup_action_executed":False,"auto_continue_executed":False,"execute_all_executed":False,"manual_executor_execute_calls":0,"manual_executor_dry_run_calls":0,"post_refresh_calls":0,"followup_executor_calls":0}
+        r.metadata.update(md)
         self._emit(r,'guarded_operator_loop_started')
         try:
             validate_relative_path(request.pool_id)
@@ -44,15 +56,17 @@ class AtlasGuardedOperatorLoopService:
             elif request.mode=='dry_run_next_action':
                 if not p.allow_auto_dry_run: return self._block(r,'allow_auto_dry_run')
                 if not (request.orchestrator_run_id and request.action_id and request.expected_next_action): return self._block(r,'required_fields')
-                r.orchestrator_run_id=request.orchestrator_run_id; r.action_id=request.action_id; r.selected_next_action=request.expected_next_action; r.confirmation_token=f"MANUAL_EXECUTE:{request.orchestrator_run_id}:{request.action_id}:{request.expected_next_action}:{request.pool_id}"; md['confirmation_token_returned']=True
+                r.orchestrator_run_id=request.orchestrator_run_id; r.action_id=request.action_id; r.selected_next_action=request.expected_next_action
+                r.confirmation_token=self._build_confirmation_token_from_orchestrator(pool_id=request.pool_id,orchestrator_run_id=request.orchestrator_run_id,action_id=request.action_id,expected_next_action=request.expected_next_action); md['confirmation_token_returned']=bool(r.confirmation_token)
                 self._emit(r,'guarded_operator_loop_dry_run_started')
-                ex=self.manual_executor_service.execute(AtlasManualNextActionExecutorRequest(pool_id=request.pool_id,run_id=rid,workspace_id=request.workspace_id,orchestrator_run_id=request.orchestrator_run_id,action_id=request.action_id,expected_next_action=request.expected_next_action,confirmation_token=r.confirmation_token,confirmation_text='EXECUTE ONE ACTION',dry_run=True,require_dry_run_first=True,reviewer=request.reviewer,reason=request.reason,metadata={"source":"guarded_operator_loop"}))
+                ex=self.manual_executor_service.execute(AtlasManualNextActionExecutorRequest(pool_id=request.pool_id,run_id=rid,workspace_id=request.workspace_id,orchestrator_run_id=request.orchestrator_run_id,action_id=request.action_id,expected_next_action=request.expected_next_action,confirmation_token='',confirmation_text='EXECUTE ONE ACTION',dry_run=True,require_dry_run_first=True,reviewer=request.reviewer,reason=request.reason,metadata={"source":"guarded_operator_loop"}))
                 r.dry_run_result=ex.model_dump(); r.executor_run_id=ex.executor_run_id; md['manual_executor_dry_run_calls']=1; r.status='dry_run_ready' if ex.status=='dry_run' else 'blocked'; self._emit(r,'guarded_operator_loop_dry_run_completed')
             elif request.mode in {'execute_confirmed_action','execute_and_refresh'}:
                 if not p.allow_execute_confirmed_action: return self._block(r,'allow_execute_confirmed_action')
                 if request.mode=='execute_and_refresh' and (not p.allow_post_execution_refresh or not p.allow_prepare_after_refresh or p.allow_multi_action or p.allow_execute_all or p.allow_auto_continue or p.max_actions_per_request!=1): return self._block(r,'execute_and_refresh_policy')
                 if not request.confirmation_token or request.confirmation_text!='EXECUTE ONE ACTION' or not request.require_dry_run_first: self._emit(r,'guarded_operator_loop_execute_blocked'); return self._block(r,'confirmation_or_dry_run')
-                if request.expected_next_action in {'manual_display','no_action'}: return self._block(r,'not_executable_action')
+                if request.expected_next_action in {'manual_review','investigate_failure','none','manual_display','no_action',''}:
+                    r.status='blocked'; r.errors.append('non_executable_next_action'); self._emit(r,'guarded_operator_loop_execute_blocked'); return r
                 if request.expected_next_action=='approve_patch_candidate' and request.explicit_decision!='approve': return self._block(r,'explicit_decision_required')
                 if p.policy_id=='strict_guarded_operator_loop_v1' and request.expected_next_action=='approve_patch_candidate': return self._block(r,'strict_approval_block')
                 self._emit(r,'guarded_operator_loop_execute_started')
