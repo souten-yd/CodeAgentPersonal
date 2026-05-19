@@ -76,9 +76,7 @@ class AtlasPatchRegenFromRecommendationService:
                     warnings.extend(patch_validation.get("warnings") or [])
                     if patch_validation.get("errors"):
                         errors.extend(patch_validation["errors"])
-                        status = "blocked"
-                    else:
-                        status = "patch_regen_created"
+                    status = self.map_patch_regen_status(patch_regen_result, patch_validation)
                     self.emit_event("patch_regen_from_recommendation_patch_regen_completed", request, recommendation_exec_id, run_id=run_id, patch_regen_result_id=patch_regen_result_id, patch_regen_status=patch_regen_result.get("status", ""), target_files=patch_request.target_files, warnings=warnings, errors=errors)
             else:
                 status = "blocked"
@@ -108,21 +106,90 @@ class AtlasPatchRegenFromRecommendationService:
             validation=validation,
             warnings=warnings,
             errors=errors,
-            metadata={
-                "reviewer": request.reviewer,
-                "reason": request.reason,
-                "patch_regen_request_preview": patch_request_preview,
-                "result_path": self.result_json_path(request.pool_id, recommendation_exec_id),
-                "side_effects": self.side_effects(status == "patch_regen_created"),
-            },
+            metadata=self.result_metadata(
+                request,
+                recommendation_exec_id,
+                patch_regen_result,
+                patch_regen_result_id,
+                status,
+                patch_request_preview,
+            ),
         )
         saved_json, _ = self.save_result(result)
-        if status == "patch_regen_created":
-            self.update_handoff_metadata(result)
-            self.update_item_metadata(result)
-            self.emit_event("patch_regen_from_recommendation_created", request, recommendation_exec_id, run_id=run_id, patch_regen_result_id=patch_regen_result_id, patch_regen_status=patch_regen_result.get("status", ""), target_files=recommended_payload.get("target_files") or [], warnings=warnings, errors=errors)
+        self.update_handoff_metadata(result)
+        self.update_item_metadata(result)
+        terminal_event = self.status_event_type(status)
+        if terminal_event:
+            self.emit_event(terminal_event, request, recommendation_exec_id, run_id=run_id, patch_regen_result_id=patch_regen_result_id, patch_regen_status=patch_regen_result.get("status", ""), target_files=recommended_payload.get("target_files") or [], warnings=warnings, errors=errors)
         self.emit_event("patch_regen_from_recommendation_result_saved", request, recommendation_exec_id, run_id=run_id, patch_regen_result_id=patch_regen_result_id, patch_regen_status=patch_regen_result.get("status", ""), target_files=recommended_payload.get("target_files") or [], warnings=warnings, errors=errors, metadata={"result_path": str(saved_json)})
         return result
+
+    def map_patch_regen_status(self, patch_regen_result: dict, patch_validation: dict) -> str:
+        if patch_validation.get("errors"):
+            return "patch_regen_blocked"
+        result_status = str(patch_regen_result.get("status") or "")
+        candidate = patch_regen_result.get("candidate") or {}
+        candidate_status = str(candidate.get("status") or "")
+        if result_status == "proposal_ready" and candidate_status == "proposal_ready":
+            return "patch_regen_created"
+        if result_status == "manual_required" or candidate_status == "manual_required":
+            return "manual_required"
+        if result_status == "not_regeneratable":
+            return "not_regeneratable"
+        if result_status == "blocked":
+            return "patch_regen_blocked"
+        if result_status == "failed":
+            return "failed_internal"
+        return "patch_regen_blocked"
+
+    def status_event_type(self, status: str) -> str:
+        return {
+            "patch_regen_created": "patch_regen_from_recommendation_created",
+            "manual_required": "patch_regen_from_recommendation_manual_required",
+            "not_regeneratable": "patch_regen_from_recommendation_not_regeneratable",
+            "patch_regen_blocked": "patch_regen_from_recommendation_patch_regen_blocked",
+            "blocked": "patch_regen_from_recommendation_blocked",
+            "failed_internal": "patch_regen_from_recommendation_failed_internal",
+            "dry_run": "patch_regen_from_recommendation_dry_run",
+        }.get(status, "")
+
+    def result_metadata(self, request, recommendation_exec_id: str, patch_regen_result: dict, patch_regen_result_id: str, status: str, patch_request_preview: dict) -> dict:
+        patch_regen_status = str((patch_regen_result or {}).get("status") or "")
+        candidate = (patch_regen_result or {}).get("candidate") or {}
+        patch_regen_service_called = bool(patch_regen_result)
+        patch_candidate_created = bool(candidate)
+        approval_required = bool(candidate.get("approval_required")) if candidate else False
+        approval_status = str(candidate.get("approval_status") or "")
+        safe_apply_ready = bool(candidate.get("safe_apply_ready")) if candidate else False
+        return {
+            "reviewer": request.reviewer,
+            "reason": request.reason,
+            "patch_regen_request_preview": patch_request_preview,
+            "result_path": self.result_json_path(request.pool_id, recommendation_exec_id),
+            "patch_regen_service_called": patch_regen_service_called,
+            "patch_candidate_created": patch_candidate_created,
+            "patch_regen_status": patch_regen_status,
+            "patch_regen_result_id": patch_regen_result_id,
+            "approval_required": approval_required,
+            "approval_status": approval_status,
+            "safe_apply_ready": safe_apply_ready,
+            "status_mapping": self.status_mapping_description(status),
+            "side_effects": self.side_effects(
+                patch_regen_service_called=patch_regen_service_called,
+                patch_candidate_created=patch_candidate_created,
+            ),
+        }
+
+    def status_mapping_description(self, status: str) -> str:
+        return {
+            "patch_regen_created": "service_called_result_proposal_ready_candidate_proposal_ready",
+            "manual_required": "service_called_result_or_candidate_manual_required",
+            "not_regeneratable": "service_called_result_not_regeneratable",
+            "patch_regen_blocked": "service_called_result_blocked_or_validation_blocked",
+            "blocked": "pre_validation_blocked_service_not_called",
+            "failed_internal": "exception_or_internal_failure",
+            "dry_run": "service_not_called",
+        }.get(status, status)
 
     def resolve_policy(self, policy_id: str):
         return get_patch_regen_from_recommendation_policy(policy_id)
@@ -275,7 +342,7 @@ class AtlasPatchRegenFromRecommendationService:
         if candidate.get("safe_apply_ready") is not False:
             errors.append("safe_apply_ready_not_false")
         side_effects = (result.get("metadata") or {}).get("side_effects") or {}
-        for key in ["safe_apply_executed", "verification_executed", "bounded_retry_executed", "rollback_executed", "restore_executed", "debug_review_executed"]:
+        for key in ["safe_apply_executed", "verification_executed", "bounded_retry_executed", "rollback_executed", "restore_executed", "debug_review_executed", "auto_approval_executed"]:
             if side_effects.get(key) is not False:
                 errors.append(f"side_effect_{key}")
         allowed_targets = set(recommended_payload.get("target_files") or [])
@@ -314,14 +381,17 @@ class AtlasPatchRegenFromRecommendationService:
             md["latest_patch_regen_from_recommendation_exec_id"] = result.recommendation_exec_id
             for rec_entry in md.get("patch_regen_recommendations") or []:
                 if rec_entry.get("recommendation_run_id") == result.recommendation_run_id:
-                    rec_entry["patch_regen_executed"] = True
+                    rec_entry["patch_regen_attempted"] = True
+                    rec_entry["last_patch_regen_exec_id"] = result.recommendation_exec_id
+                    rec_entry["last_patch_regen_status"] = result.status
+                    rec_entry["patch_regen_executed"] = result.status == "patch_regen_created"
                     rec_entry["patch_regen_exec_id"] = result.recommendation_exec_id
                     rec_entry["patch_regen_result_id"] = result.patch_regen_result_id
                     rec_entry["patch_regen_status"] = result.patch_regen_result.get("status", "")
             handoff_id = result.recommendation_result.get("handoff_id") or ""
             for handoff_entry in md.get("safe_apply_handoffs") or []:
                 if handoff_entry.get("handoff_id") == handoff_id:
-                    handoff_entry["patch_regen_executed_from_recommendation"] = True
+                    handoff_entry["patch_regen_executed_from_recommendation"] = result.status == "patch_regen_created"
                     handoff_entry["last_patch_regen_from_recommendation_exec_id"] = result.recommendation_exec_id
                     handoff_entry["last_patch_regen_result_id"] = result.patch_regen_result_id
                     handoff_entry.setdefault("patch_regen_from_recommendation_results", []).append(self.metadata_entry(result, include_targets=False))
@@ -340,11 +410,16 @@ class AtlasPatchRegenFromRecommendationService:
             "created_at": result.created_at,
             "result_path": self.result_json_path(result.pool_id, result.recommendation_exec_id),
         }
+        entry.update({
+            "patch_regen_service_called": (result.metadata or {}).get("patch_regen_service_called", False),
+            "patch_candidate_created": (result.metadata or {}).get("patch_candidate_created", False),
+            "approval_required": (result.metadata or {}).get("approval_required", False),
+            "approval_status": (result.metadata or {}).get("approval_status", ""),
+            "safe_apply_ready": False,
+            "auto_approved": False,
+        })
         if include_targets:
             entry["target_files"] = result.recommended_payload.get("target_files") or []
-        else:
-            entry["auto_approved"] = False
-            entry["safe_apply_ready"] = False
         return entry
 
     def save_result(self, result):
@@ -360,7 +435,11 @@ class AtlasPatchRegenFromRecommendationService:
         rec = result.recommendation_result or {}
         payload = result.recommended_payload or {}
         candidate = (result.patch_regen_result or {}).get("candidate") or {}
-        safety = self.side_effects(result.status == "patch_regen_created")
+        md = result.metadata or {}
+        safety = md.get("side_effects") or self.side_effects(
+            patch_regen_service_called=md.get("patch_regen_service_called", False),
+            patch_candidate_created=md.get("patch_candidate_created", False),
+        )
         return f"""# Patch Regen From Recommendation
 
 ## Summary
@@ -370,7 +449,13 @@ class AtlasPatchRegenFromRecommendationService:
 - item_id: {result.item_id}
 - status: {result.status}
 - patch_regen_result_id: {result.patch_regen_result_id}
-- patch_regen_status: {(result.patch_regen_result or {}).get('status', '')}
+- patch_regen_status: {md.get('patch_regen_status', (result.patch_regen_result or {}).get('status', ''))}
+- patch_regen_service_called: {md.get('patch_regen_service_called', False)}
+- patch_candidate_created: {md.get('patch_candidate_created', False)}
+- approval_required: {md.get('approval_required', False)}
+- approval_status: {md.get('approval_status', '')}
+- safe_apply_ready: {md.get('safe_apply_ready', False)}
+- actual status mapping: {md.get('status_mapping', '')}
 - reviewer: {(result.metadata or {}).get('reviewer', '')}
 - reason: {(result.metadata or {}).get('reason', '')}
 
@@ -392,7 +477,8 @@ class AtlasPatchRegenFromRecommendationService:
 - safe_apply_ready: {candidate.get('safe_apply_ready', '')}
 
 ## Safety
-- patch regeneration executed: {str(safety['patch_regeneration_executed']).lower()}
+- patch regen service called: {str(safety['patch_regeneration_service_called']).lower()}
+- patch candidate created: {str(safety['patch_candidate_created']).lower()}
 - safe_apply executed: false
 - verification executed: false
 - bounded retry executed: false
@@ -429,7 +515,9 @@ class AtlasPatchRegenFromRecommendationService:
                 "target_files": target_files or [],
                 "warning_count": len(warnings or []),
                 "error_count": len(errors or []),
-                "patch_regeneration_executed": event_type in {"patch_regen_from_recommendation_patch_regen_completed", "patch_regen_from_recommendation_created"},
+                "actual_event_type": event_type,
+                "patch_regeneration_service_called": event_type in {"patch_regen_from_recommendation_patch_regen_completed", "patch_regen_from_recommendation_created", "patch_regen_from_recommendation_manual_required", "patch_regen_from_recommendation_not_regeneratable", "patch_regen_from_recommendation_patch_regen_blocked"},
+                "patch_regeneration_executed": event_type in {"patch_regen_from_recommendation_patch_regen_completed", "patch_regen_from_recommendation_created", "patch_regen_from_recommendation_manual_required", "patch_regen_from_recommendation_not_regeneratable", "patch_regen_from_recommendation_patch_regen_blocked"},
                 "safe_apply_executed": False,
                 "verification_executed": False,
                 "bounded_retry_executed": False,
@@ -439,7 +527,7 @@ class AtlasPatchRegenFromRecommendationService:
                 "auto_approval_executed": False,
                 **(metadata or {}),
             }
-            event = {"event_id": f"atlas_pipeline_event_{uuid4().hex}", "run_id": run_id or request.run_id or recommendation_exec_id, "event_type": "item_completed", "item_id": request.item_id, "message": event_type, "created_at": datetime.now(timezone.utc).isoformat(), "metadata": meta}
+            event = {"event_id": f"atlas_pipeline_event_{uuid4().hex}", "run_id": run_id or request.run_id or recommendation_exec_id, "event_type": event_type, "item_id": request.item_id, "message": event_type, "created_at": datetime.now(timezone.utc).isoformat(), "metadata": meta}
             self.journal.append_event(request.pool_id, run_id or request.run_id or recommendation_exec_id, event)
         except Exception:
             pass
@@ -460,9 +548,11 @@ class AtlasPatchRegenFromRecommendationService:
     def result_json_path(self, pool_id: str, recommendation_exec_id: str) -> str:
         return f"ca_data/atlas/patch_regen_from_recommendations/{pool_id}/{recommendation_exec_id}.json"
 
-    def side_effects(self, patch_regeneration_executed: bool) -> dict:
+    def side_effects(self, *, patch_regen_service_called: bool = False, patch_candidate_created: bool = False) -> dict:
         return {
-            "patch_regeneration_executed": patch_regeneration_executed,
+            "patch_regeneration_service_called": patch_regen_service_called,
+            "patch_candidate_created": patch_candidate_created,
+            "patch_regeneration_executed": patch_regen_service_called,
             "safe_apply_executed": False,
             "verification_executed": False,
             "bounded_retry_executed": False,

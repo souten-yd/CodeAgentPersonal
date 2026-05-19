@@ -10,13 +10,26 @@ from agent.atlas_supervised_patch_regen_schema import AtlasPatchProposalCandidat
 
 
 class FakePatchRegen:
-    def __init__(self):
+    def __init__(self, *, status="proposal_ready", candidate_status="proposal_ready", candidate_target_files=None, raise_exc=None):
         self.calls = []
+        self.status = status
+        self.candidate_status = candidate_status
+        self.candidate_target_files = candidate_target_files
+        self.raise_exc = raise_exc
+
     def regenerate(self, req):
         self.calls.append(req)
-        candidate = AtlasPatchProposalCandidate(proposal_id="proposal_1", status="proposal_ready", patch="diff --git a/src/a.py b/src/a.py", target_files=["src/a.py"], summary="fix")
+        if self.raise_exc:
+            raise self.raise_exc
+        candidate = AtlasPatchProposalCandidate(
+            proposal_id="proposal_1",
+            status=self.candidate_status,
+            patch="diff --git a/src/a.py b/src/a.py",
+            target_files=self.candidate_target_files or ["src/a.py"],
+            summary="fix",
+        )
         packet = AtlasPatchRegenInputPacket(pool_id=req.pool_id, item_id=req.item_id, run_id=req.run_id, policy_id=req.policy_id, target_files=req.target_files, original_patch=req.original_patch)
-        return AtlasPatchRegenResult(pool_id=req.pool_id, item_id=req.item_id, run_id=req.run_id, regen_run_id="regen_fake1", policy_id=req.policy_id, status="proposal_ready", candidate=candidate, input_packet=packet, metadata={"side_effects":{"safe_apply_executed":False,"verification_executed":False,"bounded_retry_executed":False,"rollback_executed":False,"restore_executed":False,"debug_review_executed":False}})
+        return AtlasPatchRegenResult(pool_id=req.pool_id, item_id=req.item_id, run_id=req.run_id, regen_run_id="regen_fake1", policy_id=req.policy_id, status=self.status, candidate=candidate, input_packet=packet, metadata={"side_effects":{"safe_apply_executed":False,"verification_executed":False,"bounded_retry_executed":False,"rollback_executed":False,"restore_executed":False,"debug_review_executed":False,"auto_approval_executed":False}})
 
 
 def setup_env(tmp_path, monkeypatch, *, rec_status="recommendation_ready", payload=True, target_files=None, original_patch="diff --git a/src/a.py b/src/a.py", prior=False):
@@ -94,10 +107,15 @@ def test_candidate_requires_manual_approval(tmp_path, monkeypatch):
     assert candidate["safe_apply_ready"] is False
 
 
-def test_does_not_call_safe_apply_verification_retry(tmp_path, monkeypatch):
+def test_no_safe_apply_verification_retry_rollback_restore_debug(tmp_path, monkeypatch):
     storage = setup_env(tmp_path, monkeypatch); fake = FakePatchRegen()
     result = run_service(storage, fake)
-    assert result.metadata["side_effects"] == {"patch_regeneration_executed": True, "safe_apply_executed": False, "verification_executed": False, "bounded_retry_executed": False, "rollback_executed": False, "restore_executed": False, "debug_review_executed": False, "auto_approval_executed": False}
+    side_effects = result.metadata["side_effects"]
+    assert side_effects["patch_regeneration_service_called"] is True
+    assert side_effects["patch_candidate_created"] is True
+    assert side_effects["patch_regeneration_executed"] is True
+    for key in ["safe_apply_executed", "verification_executed", "bounded_retry_executed", "rollback_executed", "restore_executed", "debug_review_executed", "auto_approval_executed"]:
+        assert side_effects[key] is False
     events = "\n".join(p.read_text() for p in Path("ca_data/atlas/workspaces/default/plan_pools/p1").glob("pipeline_runs/*/events.ndjson"))
     assert "safe_apply_auto_started" not in events
     assert "auto_verification_started" not in events
@@ -153,3 +171,90 @@ def test_item_patch_safe_apply_not_overwritten(tmp_path, monkeypatch):
     assert after["patch"] == before["patch"]
     assert after["safe_apply"] == before["safe_apply"]
     assert after["auto_safe_apply"] == before["auto_safe_apply"]
+
+
+def test_patch_regen_result_proposal_ready_maps_to_patch_regen_created(tmp_path, monkeypatch):
+    storage = setup_env(tmp_path, monkeypatch); fake = FakePatchRegen(status="proposal_ready", candidate_status="proposal_ready")
+    result = run_service(storage, fake)
+    assert result.status == "patch_regen_created"
+    assert result.metadata["patch_regen_service_called"] is True
+    assert result.metadata["patch_candidate_created"] is True
+
+
+def test_patch_regen_result_manual_required_maps_to_manual_required(tmp_path, monkeypatch):
+    storage = setup_env(tmp_path, monkeypatch); fake = FakePatchRegen(status="manual_required", candidate_status="manual_required")
+    result = run_service(storage, fake)
+    assert result.status == "manual_required"
+    assert result.metadata["patch_regen_status"] == "manual_required"
+
+
+def test_patch_regen_result_not_regeneratable_maps_to_not_regeneratable(tmp_path, monkeypatch):
+    storage = setup_env(tmp_path, monkeypatch); fake = FakePatchRegen(status="not_regeneratable", candidate_status="proposal_ready")
+    result = run_service(storage, fake)
+    assert result.status == "not_regeneratable"
+
+
+def test_patch_regen_result_blocked_maps_to_patch_regen_blocked(tmp_path, monkeypatch):
+    storage = setup_env(tmp_path, monkeypatch); fake = FakePatchRegen(status="blocked", candidate_status="proposal_ready")
+    result = run_service(storage, fake)
+    assert result.status == "patch_regen_blocked"
+
+
+def test_patch_validation_errors_map_to_patch_regen_blocked(tmp_path, monkeypatch):
+    storage = setup_env(tmp_path, monkeypatch); fake = FakePatchRegen(candidate_target_files=["src/not_allowed.py"])
+    result = run_service(storage, fake)
+    assert result.status == "patch_regen_blocked"
+    assert "candidate_target_files_not_subset" in result.errors
+
+
+def test_side_effects_distinguish_service_called_and_candidate_created(tmp_path, monkeypatch):
+    storage = setup_env(tmp_path, monkeypatch); fake = FakePatchRegen()
+    result = run_service(storage, fake)
+    side_effects = result.metadata["side_effects"]
+    assert side_effects["patch_regeneration_service_called"] is True
+    assert side_effects["patch_candidate_created"] is True
+    assert side_effects["patch_regeneration_executed"] is True
+
+
+def test_event_type_is_actual_event_type(tmp_path, monkeypatch):
+    storage = setup_env(tmp_path, monkeypatch); fake = FakePatchRegen()
+    run_service(storage, fake)
+    event_lines = []
+    for path in Path("ca_data/atlas/workspaces/default/plan_pools/p1").glob("pipeline_runs/*/events.ndjson"):
+        event_lines.extend(path.read_text().splitlines())
+    events = [json.loads(line) for line in event_lines if line.strip()]
+    assert any(event["event_type"] == "patch_regen_from_recommendation_created" for event in events)
+    assert all(event["event_type"] != "item_completed" for event in events)
+    assert all(event["metadata"]["actual_event_type"] == event["event_type"] for event in events)
+
+
+def test_blocked_result_updates_item_history(tmp_path, monkeypatch):
+    storage = setup_env(tmp_path, monkeypatch, rec_status="blocked"); fake = FakePatchRegen()
+    result = run_service(storage, fake)
+    item = storage.load_pool("p1").get_item("i1")
+    history = item.metadata["patch_regen_from_recommendation_results"]
+    assert result.status == "blocked"
+    assert history[-1]["status"] == "blocked"
+    assert item.metadata["patch_regen_recommendations"][0]["patch_regen_attempted"] is True
+    assert item.metadata["patch_regen_recommendations"][0]["patch_regen_executed"] is False
+
+
+def test_dry_run_updates_item_history_or_explicitly_metadata_dry_run_history(tmp_path, monkeypatch):
+    storage = setup_env(tmp_path, monkeypatch); fake = FakePatchRegen()
+    result = run_service(storage, fake, dry_run=True)
+    item = storage.load_pool("p1").get_item("i1")
+    history = item.metadata["patch_regen_from_recommendation_results"]
+    assert result.status == "dry_run"
+    assert history[-1]["status"] == "dry_run"
+    assert history[-1]["patch_regen_service_called"] is False
+    assert item.metadata["patch_regen_recommendations"][0]["last_patch_regen_status"] == "dry_run"
+
+
+def test_failed_internal_saves_result_and_history_if_possible(tmp_path, monkeypatch):
+    storage = setup_env(tmp_path, monkeypatch); fake = FakePatchRegen(raise_exc=RuntimeError("boom"))
+    result = run_service(storage, fake)
+    item = storage.load_pool("p1").get_item("i1")
+    saved = Path("ca_data/atlas/patch_regen_from_recommendations/p1", f"{result.recommendation_exec_id}.json")
+    assert result.status == "failed_internal"
+    assert saved.exists()
+    assert item.metadata["patch_regen_from_recommendation_results"][-1]["status"] == "failed_internal"

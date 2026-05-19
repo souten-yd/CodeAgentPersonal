@@ -30,7 +30,7 @@ def test_api_run_patch_regen_from_recommendation(tmp_path, monkeypatch):
     run = c.post("/api/atlas/patch-regen-from-recommendation/run", json=payload)
     assert run.status_code == 200
     body = run.json()
-    assert body["status"] in {"patch_regen_created", "blocked"}
+    assert body["status"] in {"patch_regen_created", "patch_regen_blocked", "blocked"}
     assert body["recommendation_exec_id"].startswith("regenexec_")
     got = c.get(f"/api/atlas/patch-regen-from-recommendation/results/p1/{body['recommendation_exec_id']}")
     assert got.status_code == 200
