@@ -159,9 +159,14 @@ Next PR:
 \n- PR-ATLAS-PIPE-58: Post Manual Execution Refresh reads manual executor result, refreshes supervised item status, rebuilds multi-item queue, prepares next manual action contract only (no execute/auto-continue).
 
 
-## PR-ATLAS-PIPE-59 Operator Loop UI
+## PR-ATLAS-PIPE-59B Operator Loop UI hardening
 - Added UI-only operator loop over existing APIs: prepare -> dry_run -> execute one action -> refresh -> next step.
 - Execute requires dry_run first and confirmation token/text (EXECUTE ONE ACTION).
 - No auto continue, no execute all, no rollback/restore/debug/remote git, and no backend execution semantics added.
-- Current PR: PR-ATLAS-PIPE-59
+- Current PR: PR-ATLAS-PIPE-59B
 - Next PR: PR-ATLAS-PIPE-60: Guarded semi-automatic operator loop with per-step confirmation
+- PR-59B fixes Operator Loop state transition after refresh.
+- Refresh prepares next action but does not execute it.
+- Button guards and disabled reasons are now explicit.
+- Confirmation token is never persisted.
+- Execute remains dry-run-first and manual-click-only.

@@ -9,7 +9,7 @@ HTML = (ROOT / "ui.html").read_text(encoding="utf-8")
 ATLAS_API_JS = (ROOT / "web" / "js" / "atlas_pipeline_api.js").read_text(encoding="utf-8")
 ATLAS_DASHBOARD_JS = (ROOT / "web" / "js" / "atlas_dashboard.js").read_text(encoding="utf-8")
 CSS = (ROOT / "web" / "css" / "app.css").read_text(encoding="utf-8")
-ASSET_VERSION = "atlas-dashboard-17"
+ASSET_VERSION = "atlas-dashboard-18"
 
 
 def atlas_block() -> str:
