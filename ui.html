@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-17">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-18">
 </head>
 <body>
 
@@ -437,7 +437,12 @@
                   <button id="atlas-operator-loop-execute-btn" type="button" class="atlas-secondary-btn">Execute One Action</button>
                   <button id="atlas-operator-loop-refresh-btn" type="button" class="atlas-secondary-btn">Refresh</button>
                   <button id="atlas-operator-loop-reset-btn" type="button" class="atlas-ghost-btn">Reset</button>
+                  <button id="atlas-operator-loop-copy-payload-btn" type="button" class="atlas-ghost-btn">Copy Payload</button>
                 </div>
+                <div id="atlas-operator-loop-disabled-reason" class="atlas-extension-result">Build Queue requires pool_id.</div>
+                <div id="atlas-operator-loop-current-step" class="atlas-extension-result">Current step: idle.</div>
+                <div id="atlas-operator-loop-next-action-summary" class="atlas-extension-result">No next action prepared.</div>
+                <pre id="atlas-operator-loop-diagnostics" class="atlas-extension-result">No diagnostics yet.</pre>
                 <pre id="atlas-operator-loop-queue-result" class="atlas-extension-result">No queue result.</pre>
                 <pre id="atlas-operator-loop-contract-result" class="atlas-extension-result">No action contract.</pre>
                 <pre id="atlas-operator-loop-executor-result" class="atlas-extension-result">No executor result.</pre>
@@ -16077,9 +16082,8 @@ function testSkill(skillName) {
 <script src="/static/js/lumen_tools.js"></script>
 <script src="/static/js/lumen.js"></script>
 <script src="/static/js/nexus.js"></script>
-<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-17"></script>
-<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-17"></script>
+<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-18"></script>
+<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-18"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>
-
