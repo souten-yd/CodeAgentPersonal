@@ -107,3 +107,9 @@
 
 - PR-ATLAS-PIPE-60B hardens guarded semi-auto loop (UI binding, dry_run_next_action, policy flags, real tests).
 - no full autonomous agent / no execute all / no auto continue / no follow-up execution after refresh.
+
+- PR-ATLAS-PIPE-60D completes CA_DATA root propagation for MultiStatus and NextActionOrchestrator.
+- GuardedLoop / MultiStatus / Orchestrator / ManualExecutor / PostRefresh now use the same resolved root.
+- Path("ca_data") direct usage is prohibited in these stacks.
+- This PR does not add execute-all or auto-continue.
+- PR-61 can now focus on persistent repo symbol index and dependency graph.

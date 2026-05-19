@@ -10,10 +10,11 @@ from agent.atlas_supervised_item_status_schema import AtlasSupervisedItemStatusF
 
 
 class AtlasMultiItemSupervisedStatusService:
-    def __init__(self, *, storage, journal, supervised_item_status_service):
+    def __init__(self, *, storage, journal, supervised_item_status_service, data_root: str | Path | None = None):
         self.storage = storage
         self.journal = journal
         self.supervised_item_status_service = supervised_item_status_service
+        self.data_root = Path(data_root or "ca_data").expanduser().resolve()
 
     def _event_payload(self, req, msid, *, item_count=0, selected_count=0, refreshed_count=0, failed_count=0, next_item_id="", next_action="", counts=None, warning_count=0, error_count=0):
         rid = req.run_id or msid
@@ -159,9 +160,15 @@ class AtlasMultiItemSupervisedStatusService:
         side_effects = {"next_action_executed": False, "safe_apply_executed": False, "verification_executed": False, "bounded_retry_executed": False, "patch_regeneration_executed": False, "approval_executed": False, "rollback_executed": False, "restore_executed": False, "debug_review_executed": False}
         res = AtlasMultiItemSupervisedStatusResult(pool_id=request.pool_id, run_id=request.run_id, multi_status_run_id=msid, policy_id=policy.policy_id, status=status, item_summaries=sums, next_item=next_item, next_actions_by_type=groups, counts=counts, warnings=warnings, errors=errors, metadata={"supervised_status_integrated": True, "queue_only": True, "next_action_executed": False, "next_item_id": (next_item.item_id if next_item else ""), "next_action": (next_item.next_action if next_item else ""), "counts": counts, "selected_count": len(ids), "refreshed_count": refreshed_count, "failed_count": failed_count, "unselectable_count": unselectable_count, "payload_validation_summary": payload_validation_summary, "side_effects": side_effects, **side_effects})
 
-        root = Path("ca_data") / "atlas" / "multi_item_supervised_status" / request.pool_id
+        pool_id = validate_relative_path(request.pool_id)
+        result_rel_path = f"atlas/multi_item_supervised_status/{pool_id}/{msid}.json"
+        md_rel_path = f"atlas/multi_item_supervised_status/{pool_id}/{msid}.md"
+        json_path = self.data_root / result_rel_path
+        md_path = self.data_root / md_rel_path
+        root = json_path.parent
         root.mkdir(parents=True, exist_ok=True)
-        (root / f"{msid}.json").write_text(json.dumps(res.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
+        res.metadata.update({"data_root": str(self.data_root), "result_path": str(json_path), "result_path_relative": result_rel_path, "md_path": str(md_path), "md_path_relative": md_rel_path})
+        json_path.write_text(json.dumps(res.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
 
         lines = ["# Multi-item Supervised Status", "", "## Summary", f"- multi_status_run_id: {msid}", f"- pool_id: {request.pool_id}", f"- status: {status}", f"- next_item_id: {next_item.item_id if next_item else ''}", f"- next_action: {next_item.next_action if next_item else ''}", "", "## Counts"]
         for k in ["completed", "patch_candidate_ready", "safe_apply_ready", "verification_required", "patch_regen_recommended", "needs_revision", "manual_required", "blocked", "failed_internal", "unchanged"]:
@@ -176,7 +183,7 @@ class AtlasMultiItemSupervisedStatusService:
             lines.append(f"- {k}: {len(v)}")
         lines.append(f"- unselectable_count: {unselectable_count}")
         lines += ["", "## Payload Validation"] + [f"- {k}: {v}" for k, v in payload_validation_summary.items()] + ["", "## Safety", "- next action executed: false", "- safe_apply executed: false", "- verification executed: false", "- bounded retry executed: false", "- patch regeneration executed: false", "- approval executed: false", "- rollback/restore/debug executed: false"]
-        (root / f"{msid}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
         self._emit("multi_item_supervised_status_result_saved", request, msid, item_count=len(source_ids), selected_count=len(ids), refreshed_count=refreshed_count, failed_count=failed_count, next_item_id=(next_item.item_id if next_item else ""), next_action=(next_item.next_action if next_item else ""), counts=counts, warning_count=len(warnings), error_count=len(errors))
         return res

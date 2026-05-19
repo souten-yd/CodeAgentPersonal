@@ -29,7 +29,7 @@ def v(x,n):
     except Exception as exc: bad(f'invalid_{n}:{exc}')
 
 def svc(request: Request):
-    root=resolve_atlas_ca_data_root(request); st=AtlasPlanPoolStorage(root); jr=AtlasJournal(root); sis=AtlasSupervisedItemStatusService(storage=st,journal=jr); ms=AtlasMultiItemSupervisedStatusService(storage=st,journal=jr,supervised_item_status_service=sis); no=AtlasNextActionOrchestratorService(storage=st,journal=jr,supervised_status_service=ms)
+    root=resolve_atlas_ca_data_root(request); st=AtlasPlanPoolStorage(root); jr=AtlasJournal(root); sis=AtlasSupervisedItemStatusService(storage=st,journal=jr); ms=AtlasMultiItemSupervisedStatusService(storage=st,journal=jr,supervised_item_status_service=sis,data_root=root); no=AtlasNextActionOrchestratorService(storage=st,journal=jr,supervised_status_service=ms,data_root=root)
     me=AtlasManualNextActionExecutorService(storage=st,journal=jr,approval_service=AtlasPatchCandidateApprovalService(storage=st,journal=jr),safe_apply_service=AtlasSupervisedHandoffSafeApplyService(storage=st,journal=jr),verification_service=AtlasSupervisedHandoffVerificationService(storage=st,journal=jr),retry_service=AtlasSupervisedHandoffRetryService(storage=st,journal=jr),patch_regen_service=AtlasPatchRegenFromRecommendationService(storage=st,journal=jr),data_root=root)
     pr=AtlasPostManualExecutionRefreshService(storage=st,journal=jr,supervised_item_status_service=sis,multi_status_service=ms,next_action_orchestrator_service=no,data_root=root)
     return AtlasGuardedOperatorLoopService(journal=jr,multi_status_service=ms,next_action_orchestrator_service=no,manual_executor_service=me,post_refresh_service=pr,data_root=root)
