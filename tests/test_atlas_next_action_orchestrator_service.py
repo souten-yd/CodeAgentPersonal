@@ -5,10 +5,10 @@ from tests.test_atlas_multi_item_supervised_status_service import DummyFinalize,
 from agent.atlas_multi_item_supervised_status_service import AtlasMultiItemSupervisedStatusService
 
 
-def _build_orchestrator(action='approve_patch_candidate', payload=None):
+def _build_orchestrator(action='approve_patch_candidate', payload=None, data_root=None):
     journal = RecordingJournal()
-    ms = AtlasMultiItemSupervisedStatusService(storage=DummyStorage(mk_pool()), journal=journal, supervised_item_status_service=DummyFinalize(action=action, payload=payload))
-    svc = AtlasNextActionOrchestratorService(storage=DummyStorage(mk_pool()), journal=journal, supervised_status_service=ms)
+    ms = AtlasMultiItemSupervisedStatusService(storage=DummyStorage(mk_pool()), journal=journal, supervised_item_status_service=DummyFinalize(action=action, payload=payload), data_root=data_root)
+    svc = AtlasNextActionOrchestratorService(storage=DummyStorage(mk_pool()), journal=journal, supervised_status_service=ms, data_root=data_root)
     return svc, journal
 
 
@@ -107,17 +107,18 @@ def test_manual_display_event_emitted():
     assert 'next_action_orchestrator_manual_display' in events
 
 
-def test_failed_internal_result_saved_on_exception(monkeypatch):
-    svc, _ = _build_orchestrator()
+def test_failed_internal_result_saved_on_exception(monkeypatch, tmp_path):
+    svc, _ = _build_orchestrator(data_root=tmp_path)
     monkeypatch.setattr(svc, 'map_next_action_to_contract', lambda *a, **k: (_ for _ in ()).throw(RuntimeError('x')))
     out = svc.prepare(AtlasNextActionOrchestratorRequest(pool_id='p1', run_id='r1'))
     assert out.status == 'failed_internal'
-    assert Path(f"ca_data/atlas/next_action_orchestrator/p1/{out.orchestrator_run_id}.json").exists()
+    assert Path(tmp_path / f"atlas/next_action_orchestrator/p1/{out.orchestrator_run_id}.json").exists()
 
 
-def test_markdown_contains_action_contract_payload_preview_queue_summary():
-    out, _ = _run(action='manual_review', payload={})
-    t = Path(f"ca_data/atlas/next_action_orchestrator/p1/{out.orchestrator_run_id}.md").read_text(encoding='utf-8')
+def test_markdown_contains_action_contract_payload_preview_queue_summary(tmp_path):
+    svc, _ = _build_orchestrator(action='manual_review', payload={}, data_root=tmp_path)
+    out = svc.prepare(AtlasNextActionOrchestratorRequest(pool_id='p1', run_id='r1', refresh_queue=True))
+    t = Path(tmp_path / f"atlas/next_action_orchestrator/p1/{out.orchestrator_run_id}.md").read_text(encoding='utf-8')
     assert '## Action Contract' in t and '## Payload Preview' in t and '## Queue Summary' in t
 
 

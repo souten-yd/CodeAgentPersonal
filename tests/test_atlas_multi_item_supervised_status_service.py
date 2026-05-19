@@ -28,9 +28,9 @@ def mk_pool(item_ids=('i1',)):
     return AtlasPlanPool(pool_id='p1', root_goal='g', items=[AtlasPlanItem(pool_id='p1', item_id=i, title=i, goal='g') for i in item_ids])
 
 
-def build(action, payload):
+def build(action, payload, data_root=None):
     journal = RecordingJournal()
-    svc = AtlasMultiItemSupervisedStatusService(storage=DummyStorage(mk_pool()), journal=journal, supervised_item_status_service=DummyFinalize(action=action, payload=payload))
+    svc = AtlasMultiItemSupervisedStatusService(storage=DummyStorage(mk_pool()), journal=journal, supervised_item_status_service=DummyFinalize(action=action, payload=payload), data_root=data_root)
     return svc.build_status(AtlasMultiItemSupervisedStatusRequest(pool_id='p1', run_id='r1')), journal
 
 
@@ -115,10 +115,9 @@ def test_result_metadata_contains_queue_summary_and_payload_validation():
     assert md['side_effects']['next_action_executed'] is False
 
 
-def test_markdown_contains_counts_action_queue_payload_validation_safety():
-    res, _ = build('manual_review', {})
-    from pathlib import Path
-    p = Path('ca_data/atlas/multi_item_supervised_status/p1') / f"{res.multi_status_run_id}.md"
+def test_markdown_contains_counts_action_queue_payload_validation_safety(tmp_path):
+    res, _ = build('manual_review', {}, data_root=tmp_path)
+    p = tmp_path / "atlas/multi_item_supervised_status/p1" / f"{res.multi_status_run_id}.md"
     t = p.read_text(encoding='utf-8')
     assert '## Counts' in t and '## Action Queue' in t and '## Payload Validation' in t and '## Safety' in t
 

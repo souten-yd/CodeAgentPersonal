@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 from agent.atlas_multi_item_supervised_status_schema import AtlasMultiItemSupervisedStatusRequest, AtlasMultiItemSupervisedStatusResult
+from agent.atlas_dev_tool_path import validate_relative_path
 from agent.atlas_next_action_orchestrator_policies import get_next_action_orchestrator_policy
 from agent.atlas_next_action_orchestrator_schema import AtlasNextActionContract, AtlasNextActionOrchestratorRequest, AtlasNextActionOrchestratorResult
 
@@ -30,10 +31,11 @@ SIDE_EFFECT_FLAGS = {
 
 
 class AtlasNextActionOrchestratorService:
-    def __init__(self, *, storage, journal, supervised_status_service):
+    def __init__(self, *, storage, journal, supervised_status_service, data_root: str | Path | None = None):
         self.storage = storage
         self.journal = journal
         self.supervised_status_service = supervised_status_service
+        self.data_root = Path(data_root or "ca_data").expanduser().resolve()
 
     def prepare(self, request: AtlasNextActionOrchestratorRequest) -> AtlasNextActionOrchestratorResult:
         pol = get_next_action_orchestrator_policy(request.policy_id)
@@ -137,7 +139,7 @@ class AtlasNextActionOrchestratorService:
         return errors, warnings
 
     def load_or_build_multi_status_queue(self, request):
-        root = Path("ca_data") / "atlas" / "multi_item_supervised_status" / request.pool_id
+        root = self.data_root / "atlas" / "multi_item_supervised_status" / validate_relative_path(request.pool_id)
         warnings = []
         errors = []
         qmeta = {"queue_loaded_from": "", "multi_status_run_id": ""}
@@ -222,14 +224,20 @@ class AtlasNextActionOrchestratorService:
         result.queue_summary = {"counts": (queue.counts if queue else {}), "next_item_id": (queue.next_item.item_id if queue and queue.next_item else ""), "next_action": (queue.next_item.next_action if queue and queue.next_item else ""), "queue_loaded_from": qmeta.get("queue_loaded_from", ""), "queue_status": (queue.status if queue else "")}
 
     def save_result(self, r):
-        root = Path("ca_data") / "atlas" / "next_action_orchestrator" / r.pool_id; root.mkdir(parents=True, exist_ok=True)
-        (root / f"{r.orchestrator_run_id}.json").write_text(json.dumps(r.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
+        pool_id = validate_relative_path(r.pool_id)
+        result_rel_path = f"atlas/next_action_orchestrator/{pool_id}/{r.orchestrator_run_id}.json"
+        md_rel_path = f"atlas/next_action_orchestrator/{pool_id}/{r.orchestrator_run_id}.md"
+        json_path = self.data_root / result_rel_path
+        md_path = self.data_root / md_rel_path
+        root = json_path.parent; root.mkdir(parents=True, exist_ok=True)
+        r.metadata.update({"data_root": str(self.data_root), "result_path": str(json_path), "result_path_relative": result_rel_path, "md_path": str(md_path), "md_path_relative": md_rel_path})
+        json_path.write_text(json.dumps(r.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
         c = r.action_contract
         preview = {}
         if c:
             preview = {k: v for k, v in c.payload.items() if k not in {"patch", "stdout", "stderr", "secrets"}}
         lines = ["# Next Action Orchestrator", "", "## Summary", f"- orchestrator_run_id: {r.orchestrator_run_id}", f"- pool_id: {r.pool_id}", f"- status: {r.status}", f"- multi_status_run_id: {r.multi_status_run_id}", f"- selected_item_id: {r.selected_item_id}", f"- selected_next_action: {r.selected_next_action}", "", "## Action Contract", f"- action_kind: {c.action_kind if c else ''}", f"- target_api_method: {c.target_api_method if c else ''}", f"- target_api_path: {c.target_api_path if c else ''}", f"- target_service: {c.target_service if c else ''}", f"- manual_required: {c.manual_required if c else False}", f"- execution_allowed: {c.execution_allowed if c else False}", f"- payload_valid: {c.payload_valid if c else False}", f"- missing_fields: {c.missing_fields if c else []}", f"- blocked_reason: {c.blocked_reason if c else ''}", f"- errors: {c.errors if c else []}", f"- warnings: {c.warnings if c else []}", "", "## Payload Preview", "```json", json.dumps(preview, ensure_ascii=False, indent=2), "```", "", "## Queue Summary", f"- counts: {r.metadata.get('queue_counts', {})}", f"- next_item_id: {r.metadata.get('queue_next_item_id', '')}", f"- next_action: {r.metadata.get('queue_next_action', '')}", f"- queue_loaded_from: {r.metadata.get('queue_loaded_from', '')}", f"- queue_status: {r.metadata.get('queue_status', '')}", "", "## Safety", "- next action executed: false", "- safe_apply executed: false", "- verification executed: false", "- bounded retry executed: false", "- patch regeneration executed: false", "- approval executed: false", "- rollback/restore/debug executed: false", "- remote git executed: false"]
-        (root / f"{r.orchestrator_run_id}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def emit(self, event_type, request, oid, **kw):
         self.journal.append_event(request.pool_id, request.run_id or oid, {"event_type": event_type, "orchestrator_run_id": oid, "pool_id": request.pool_id, "run_id": request.run_id or oid, "created_at": datetime.now(timezone.utc).isoformat(), **SIDE_EFFECT_FLAGS, **kw})

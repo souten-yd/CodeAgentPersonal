@@ -116,3 +116,9 @@
 - Non-executable next actions are pre-blocked before Manual Executor.
 - manual_review / investigate_failure / none cannot enter executor path.
 - no execute all / no auto continue remains enforced.
+
+- PR-ATLAS-PIPE-60D completes CA_DATA root propagation for MultiStatus and NextActionOrchestrator.
+- GuardedLoop / MultiStatus / Orchestrator / ManualExecutor / PostRefresh now use the same resolved root.
+- Path("ca_data") direct usage is prohibited in these stacks.
+- This PR does not add execute-all or auto-continue.
+- PR-61 can now focus on persistent repo symbol index and dependency graph.
