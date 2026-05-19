@@ -59,5 +59,8 @@ class AtlasPatchRegenFromRecommendationResult(BaseModel):
     validation: dict = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+    # Expected semantic keys: patch_regen_service_called, patch_candidate_created,
+    # patch_regen_status, patch_regen_result_id, approval_required, approval_status,
+    # safe_apply_ready, status_mapping, and side_effects with explicit no-op guards.
     metadata: dict = Field(default_factory=dict)
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
