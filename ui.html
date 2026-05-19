@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-16">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-17">
 </head>
 <body>
 
@@ -415,6 +415,35 @@
                 <div id="atlas-multi-item-supervised-status-panel" class="atlas-extension-result">No supervised status queue yet.</div>
               </details>
               
+
+              <details id="atlas-operator-loop-card" class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Operator Loop</summary>
+                <p>Prepare, dry-run, execute one action, then refresh the next manual step.</p>
+                <p>This never auto-continues.</p>
+                <p>Execution requires dry run and explicit confirmation.</p>
+                <div id="atlas-operator-loop-status" class="atlas-extension-result">Ready.</div>
+                <label>pool_id <input id="atlas-operator-loop-pool-id" type="text" placeholder="pool_..." /></label>
+                <label>run_id <input id="atlas-operator-loop-run-id" type="text" placeholder="run_..." /></label>
+                <label>reviewer <input id="atlas-operator-loop-reviewer" type="text" value="manual" /></label>
+                <label>reason <input id="atlas-operator-loop-reason" type="text" placeholder="optional reason" /></label>
+                <label>confirmation_token <textarea id="atlas-operator-loop-confirmation-token" rows="2" placeholder="token preview"></textarea></label>
+                <label>confirmation_text <input id="atlas-operator-loop-confirmation-text" type="text" value="EXECUTE ONE ACTION" /></label>
+                <label>explicit_decision <input id="atlas-operator-loop-explicit-decision" type="text" placeholder="approve (if required)" /></label>
+                <div class="atlas-extension-actions">
+                  <button id="atlas-operator-loop-build-queue-btn" type="button" class="atlas-secondary-btn">Build Queue</button>
+                  <button id="atlas-operator-loop-prepare-btn" type="button" class="atlas-secondary-btn">Prepare</button>
+                  <button id="atlas-operator-loop-token-btn" type="button" class="atlas-secondary-btn">Preview Token</button>
+                  <button id="atlas-operator-loop-dry-run-btn" type="button" class="atlas-secondary-btn">Dry Run</button>
+                  <button id="atlas-operator-loop-execute-btn" type="button" class="atlas-secondary-btn">Execute One Action</button>
+                  <button id="atlas-operator-loop-refresh-btn" type="button" class="atlas-secondary-btn">Refresh</button>
+                  <button id="atlas-operator-loop-reset-btn" type="button" class="atlas-ghost-btn">Reset</button>
+                </div>
+                <pre id="atlas-operator-loop-queue-result" class="atlas-extension-result">No queue result.</pre>
+                <pre id="atlas-operator-loop-contract-result" class="atlas-extension-result">No action contract.</pre>
+                <pre id="atlas-operator-loop-executor-result" class="atlas-extension-result">No executor result.</pre>
+                <pre id="atlas-operator-loop-refresh-result" class="atlas-extension-result">No refresh result.</pre>
+                <pre id="atlas-operator-loop-next-step" class="atlas-extension-result">No next step yet.</pre>
+              </details>
               <details class="atlas-extension-details atlas-automation-extension-card">
                 <summary>Next Action Orchestrator</summary>
                 <p>This prepares the next action only.</p><p>This does not execute the action.</p><p>Manual confirmation is required.</p>
@@ -16048,8 +16077,8 @@ function testSkill(skillName) {
 <script src="/static/js/lumen_tools.js"></script>
 <script src="/static/js/lumen.js"></script>
 <script src="/static/js/nexus.js"></script>
-<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-16"></script>
-<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-16"></script>
+<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-17"></script>
+<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-17"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>

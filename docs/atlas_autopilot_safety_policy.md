@@ -102,3 +102,11 @@
 - No apply/verify/retry/approval/patch-regeneration/rollback/restore/debug-review/remote-git/autopilot-auto-continue actions are executed.
 - Current PR: PR-ATLAS-PIPE-57B. Next PR: PR-ATLAS-PIPE-58: Refresh status queue after manual execution and recommend next manual step.
 \n- PR-ATLAS-PIPE-58: Post Manual Execution Refresh reads manual executor result, refreshes supervised item status, rebuilds multi-item queue, prepares next manual action contract only (no execute/auto-continue).
+
+
+## PR-ATLAS-PIPE-59 Operator Loop UI
+- Added UI-only operator loop over existing APIs: prepare -> dry_run -> execute one action -> refresh -> next step.
+- Execute requires dry_run first and confirmation token/text (EXECUTE ONE ACTION).
+- No auto continue, no execute all, no rollback/restore/debug/remote git, and no backend execution semantics added.
+- Current PR: PR-ATLAS-PIPE-59
+- Next PR: PR-ATLAS-PIPE-60: Guarded semi-automatic operator loop with per-step confirmation

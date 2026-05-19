@@ -111,6 +111,19 @@ def start_mock_server():
         return _json_response(self, {"status": "ready", "pool_id": "pool_smoke_001", "plan_pool": {"pool_id": "pool_smoke_001", "status": "ready", "items": []}})
       if path == "/api/atlas/pipeline/dry-run":
         return _json_response(self, {"status": "ok", "run_id": "run_smoke_001", "summary": {"state": "running"}})
+      if path == "/api/atlas/multi-item-supervised-status/build":
+        return _json_response(self, {"status":"built","multi_status_run_id":"multistatus_smoke","next_item_id":"item_1","next_action":"safe_apply"})
+      if path == "/api/atlas/next-action-orchestrator/prepare":
+        return _json_response(self, {"status":"action_ready","orchestrator_run_id":"orchestrator_smoke","selected_item_id":"item_1","selected_next_action":"safe_apply","action_id":"action_1","action_contract":{"action_kind":"execution_candidate","payload_valid":True,"payload":{}}})
+      if path == "/api/atlas/manual-next-action-executor/confirmation-token-preview":
+        return _json_response(self, {"status":"ok","confirmation_token":"token_smoke"})
+      if path == "/api/atlas/manual-next-action-executor/execute":
+        body = json.loads(self.rfile.read(int(self.headers.get('Content-Length','0') or '0')) or b'{}')
+        if body.get('dry_run'):
+          return _json_response(self, {"status":"dry_run","executor_run_id":"manualexec_dryrun_smoke","validation":{"executable":True}})
+        return _json_response(self, {"status":"executed","executor_run_id":"manualexec_execute_smoke","execution_status":"ok"})
+      if path == "/api/atlas/post-manual-execution-refresh/refresh":
+        return _json_response(self, {"status":"refreshed","refresh_run_id":"refresh_smoke","multi_status_result":{"multi_status_run_id":"multistatus_smoke2"},"next_action_orchestrator_result":{"orchestrator_run_id":"orchestrator_smoke2"}})
       return _json_response(self, {})
 
   server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
