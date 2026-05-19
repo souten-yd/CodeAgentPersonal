@@ -407,6 +407,17 @@
                 <p>This only builds a supervised status queue.</p><p>This does not execute the next action.</p><p>This does not apply, verify, retry, approve, or regenerate patches.</p>
                 <div id="atlas-multi-item-supervised-status-panel" class="atlas-extension-result">No supervised status queue yet.</div>
               </details>
+              
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Next Action Orchestrator</summary>
+                <p>This prepares the next action only.</p><p>This does not execute the action.</p><p>Manual confirmation is required.</p>
+                <label>multi_status_run_id <input id="atlas-next-action-multi-status-run-id" type="text" placeholder="multistatus_..." /></label>
+                <label>item_id <input id="atlas-next-action-item-id" type="text" placeholder="optional" /></label>
+                <label>requested_next_action <input id="atlas-next-action-requested-action" type="text" placeholder="optional" /></label>
+                <div class="atlas-extension-actions"><button id="atlas-prepare-next-action" type="button" class="atlas-secondary-btn">Prepare next action</button></div>
+                <pre id="atlas-next-action-orchestrator-panel" class="atlas-extension-result">No orchestrator result yet.</pre>
+              </details>
+
               <details class="atlas-extension-details atlas-automation-extension-card">
                 <summary>Supervised Handoff Safe Apply</summary>
                 <p>This applies an already approved handoff patch. This does not run verification. This does not rollback or restore.</p>

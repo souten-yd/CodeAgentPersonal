@@ -200,6 +200,12 @@
     buildMultiItemSupervisedStatus(payload) { return atlasFetch('/api/atlas/multi-item-supervised-status/build', { method: 'POST', body: JSON.stringify(payload || {}) }); },
     getMultiItemSupervisedStatusResult(poolId, multiStatusRunId) { return atlasFetch(`/api/atlas/multi-item-supervised-status/results/${encodeURIComponent(poolId)}/${encodeURIComponent(multiStatusRunId)}`); },
     getLatestMultiItemSupervisedStatus(payload) { return atlasFetch('/api/atlas/multi-item-supervised-status/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+
+    getNextActionOrchestratorPolicies() { return atlasFetch('/api/atlas/next-action-orchestrator/policies'); },
+    prepareNextAction(payload) { return atlasFetch('/api/atlas/next-action-orchestrator/prepare', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getNextActionOrchestratorResult(poolId, orchestratorRunId) { return atlasFetch(`/api/atlas/next-action-orchestrator/results/${encodeURIComponent(poolId)}/${encodeURIComponent(orchestratorRunId)}`); },
+    getLatestNextActionOrchestrator(payload) { return atlasFetch('/api/atlas/next-action-orchestrator/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+
   };
 
   root.AtlasPipelineAPI = AtlasPipelineAPI;

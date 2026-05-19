@@ -153,7 +153,7 @@ class AtlasMultiItemAutopilotService:
                 break
         try:
             ss = self.supervised_status_service.build_status(AtlasMultiItemSupervisedStatusRequest(pool_id=request.pool_id, run_id=request.run_id, workspace_id=request.workspace_id, project_path=request.project_path, item_ids=ids, dry_run=True, refresh_item_status=False, update_item_status=False, update_metadata=False))
-            out.metadata.update({"supervised_status_integrated": True, "multi_status_run_id": ss.multi_status_run_id, "next_item_id": (ss.next_item.item_id if ss.next_item else ""), "next_action": (ss.next_item.next_action if ss.next_item else ""), "counts": ss.counts, "queue_only": True, "next_action_executed": False, "supervised_status_summary": ss.model_dump()})
+            out.metadata.update({"supervised_status_integrated": True, "multi_status_run_id": ss.multi_status_run_id, "next_item_id": (ss.next_item.item_id if ss.next_item else ""), "next_action": (ss.next_item.next_action if ss.next_item else ""), "counts": ss.counts, "queue_only": True, "next_action_executed": False, "supervised_status_summary": ss.model_dump(), "next_action_orchestrator_available": True, "latest_next_action_contract_path": "", "next_action_execution_supported": False})
         except Exception as ex:
             out.warnings.append(f"supervised_status_integration_failed:{ex}")
         if out.status == "completed" and out.completed_count == 0 and out.blocked_count > 0:

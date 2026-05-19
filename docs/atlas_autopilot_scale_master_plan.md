@@ -81,3 +81,10 @@
 - Completes single-item supervised loop state tracking.
 - Next PR: PR-ATLAS-PIPE-55 integrate supervised status into multi-item guarded autopilot.
 
+
+
+## PR-ATLAS-PIPE-56
+- Next Action Orchestrator added: reads multi-item supervised status queues, selects one next action, builds a normalized action contract, and saves JSON/Markdown artifacts.
+- It does not execute next actions; manual confirmation remains required.
+- No apply/verify/retry/approval/patch-regeneration/rollback/restore/debug-review/remote-git/autopilot-auto-continue actions are executed.
+- Current PR: PR-ATLAS-PIPE-56. Next PR: PR-ATLAS-PIPE-57 Manual Next Action Executor with explicit confirmation gate.
