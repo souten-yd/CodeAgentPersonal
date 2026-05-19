@@ -191,6 +191,10 @@
     getLatestPatchRegenFromRecommendation(payload) {
       return atlasFetch('/api/atlas/patch-regen-from-recommendation/latest', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+    getSupervisedItemStatusPolicies() { return atlasFetch('/api/atlas/supervised-item-status/policies'); },
+    finalizeSupervisedItemStatus(payload) { return atlasFetch('/api/atlas/supervised-item-status/finalize', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getSupervisedItemStatusResult(poolId, finalizeRunId) { return atlasFetch(`/api/atlas/supervised-item-status/results/${encodeURIComponent(poolId)}/${encodeURIComponent(finalizeRunId)}`); },
+    getLatestSupervisedItemStatus(payload) { return atlasFetch('/api/atlas/supervised-item-status/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
   };
 
   root.AtlasPipelineAPI = AtlasPipelineAPI;

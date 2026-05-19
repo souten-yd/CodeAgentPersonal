@@ -123,3 +123,11 @@ Known Current Code Facts:
 - PR-53 only creates patch candidates.
 - PR-53 does not approve, apply, verify, retry, rollback, restore, run DebugReview, use remote git, or continue multi-item autopilot.
 - Generated candidates remain manual approval required.
+
+## PR-ATLAS-PIPE-54
+- Finalizes PlanItem supervised status from loop artifacts.
+- Calculates next_action but does not execute next_action.
+- No safe_apply/verification/retry/patch regen/approval execution.
+- Completes single-item supervised loop state tracking.
+- Next PR: PR-ATLAS-PIPE-55 integrate supervised status into multi-item guarded autopilot.
+

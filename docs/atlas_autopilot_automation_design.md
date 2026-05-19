@@ -88,3 +88,11 @@
 Completed PRs: PR-ATLAS-PIPE-0〜52C, PR-ATLAS-UI-FIX-50A, PR-SEARXNG-SECRET-SYNC-01
 Current PR: PR-ATLAS-PIPE-53
 Next PR: PR-ATLAS-PIPE-54: Finalize supervised item status transitions from loop outcomes
+
+## PR-ATLAS-PIPE-54
+- Finalizes PlanItem supervised status from loop artifacts.
+- Calculates next_action but does not execute next_action.
+- No safe_apply/verification/retry/patch regen/approval execution.
+- Completes single-item supervised loop state tracking.
+- Next PR: PR-ATLAS-PIPE-55 integrate supervised status into multi-item guarded autopilot.
+
