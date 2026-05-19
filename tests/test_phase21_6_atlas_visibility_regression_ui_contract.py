@@ -17,14 +17,9 @@ class TestPhase21_6AtlasVisibilityRegressionUiContract(unittest.TestCase):
         for token in [
             'id="atlas-panel-col"',
             'id="atlas-workbench-card"',
-            "Atlas Workbench",
-            ">Overview<",
-            ">Plan<",
-            ">Runs<",
-            ">Dashboard<",
-            ">Patch Review<",
-            ">Legacy<",
-            ">Start Atlas<",
+            "Atlas Dashboard",
+            ">Create Plan<",
+            ">Start Dry-run<",
         ]:
             self.assertIn(token, self.ui)
 
@@ -36,7 +31,7 @@ class TestPhase21_6AtlasVisibilityRegressionUiContract(unittest.TestCase):
         self.assertIn("restoreAtlasSubviewState();", body)
         self.assertIn("try {", body)
         self.assertIn("catch (err)", body)
-        self.assertIn("setAtlasSubview('overview')", body)
+        self.assertIn("setAtlasSubview('start')", body)
 
     def test_non_atlas_modes_hide_atlas_panel(self):
         self.assertGreaterEqual(self.ui.count("if (atlasPanelCol) atlasPanelCol.style.display = 'none';"), 3)
@@ -48,7 +43,7 @@ class TestPhase21_6AtlasVisibilityRegressionUiContract(unittest.TestCase):
         body = m.group(1)
         self.assertIn("try {", body)
         self.assertIn("normalizeAtlasSubview", body)
-        self.assertIn("setAtlasSubview('overview')", body)
+        self.assertIn("setAtlasSubview('start')", body)
         self.assertNotIn("loadAtlasRunDashboard", body)
         self.assertNotIn("loadPhase8Patches", body)
         self.assertNotIn("loadRecentAtlasRuns", body)

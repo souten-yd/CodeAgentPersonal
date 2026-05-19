@@ -212,76 +212,47 @@
     getPostManualExecutionRefreshResult(poolId, refreshRunId) { return atlasFetch(`/api/atlas/post-manual-execution-refresh/results/${encodeURIComponent(poolId)}/${encodeURIComponent(refreshRunId)}`); },
     getLatestPostManualExecutionRefresh(payload) { return atlasFetch('/api/atlas/post-manual-execution-refresh/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
 
+    getSymbolIndex(payload) { return atlasFetch('/api/atlas/code-intel/symbol-index', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getDependencyGraph(payload) { return atlasFetch('/api/atlas/code-intel/dependency-graph', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getRelatedTests(payload) { return atlasFetch('/api/atlas/code-intel/related-tests', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getBoundedRetryPolicies() { return atlasFetch('/api/atlas/bounded-retry/policies'); },
+    runBoundedRetry(payload) { return atlasFetch('/api/atlas/bounded-retry/run', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getBoundedRetryResult(poolId, retryRunId) { return atlasFetch(`/api/atlas/bounded-retry/results/${encodeURIComponent(poolId)}/${encodeURIComponent(retryRunId)}`); },
+    getLatestBoundedRetryResult(payload) { return atlasFetch('/api/atlas/bounded-retry/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getPatchRegenPolicies() { return atlasFetch('/api/atlas/patch-regen/policies'); },
+    runPatchRegen(payload) { return atlasFetch('/api/atlas/patch-regen/run', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getPatchRegenResult(poolId, regenRunId) { return atlasFetch(`/api/atlas/patch-regen/results/${encodeURIComponent(poolId)}/${encodeURIComponent(regenRunId)}`); },
+    getLatestPatchRegenResult(payload) { return atlasFetch('/api/atlas/patch-regen/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getPatchCandidateApprovalPolicies() { return atlasFetch('/api/atlas/patch-candidate-approval/policies'); },
+    decidePatchCandidateApproval(payload) { return atlasFetch('/api/atlas/patch-candidate-approval/decide', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getPatchCandidateApprovalResult(poolId, approvalRunId) { return atlasFetch(`/api/atlas/patch-candidate-approval/results/${encodeURIComponent(poolId)}/${encodeURIComponent(approvalRunId)}`); },
+    getLatestPatchCandidateApproval(payload) { return atlasFetch('/api/atlas/patch-candidate-approval/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getSafeApplyHandoff(poolId, handoffId) { return atlasFetch(`/api/atlas/safe-apply-handoffs/${encodeURIComponent(poolId)}/${encodeURIComponent(handoffId)}`); },
+    getLatestSafeApplyHandoff(payload) { return atlasFetch('/api/atlas/safe-apply-handoffs/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getSupervisedHandoffSafeApplyPolicies() { return atlasFetch('/api/atlas/supervised-handoff-safe-apply/policies'); },
+    executeSupervisedHandoffSafeApply(payload) { return atlasFetch('/api/atlas/supervised-handoff-safe-apply/execute', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getSupervisedHandoffSafeApplyResult(poolId, executionId) { return atlasFetch(`/api/atlas/supervised-handoff-safe-apply/results/${encodeURIComponent(poolId)}/${encodeURIComponent(executionId)}`); },
+    getLatestSupervisedHandoffSafeApply(payload) { return atlasFetch('/api/atlas/supervised-handoff-safe-apply/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getSupervisedHandoffVerificationPolicies() { return atlasFetch('/api/atlas/supervised-handoff-verification/policies'); },
+    runSupervisedHandoffVerification(payload) { return atlasFetch('/api/atlas/supervised-handoff-verification/run', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getSupervisedHandoffVerificationResult(poolId, verificationRunId) { return atlasFetch(`/api/atlas/supervised-handoff-verification/results/${encodeURIComponent(poolId)}/${encodeURIComponent(verificationRunId)}`); },
+    getLatestSupervisedHandoffVerification(payload) { return atlasFetch('/api/atlas/supervised-handoff-verification/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getSupervisedHandoffRetryPolicies() { return atlasFetch('/api/atlas/supervised-handoff-retry/policies'); },
+    runSupervisedHandoffRetry(payload) { return atlasFetch('/api/atlas/supervised-handoff-retry/run', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getSupervisedHandoffRetryResult(poolId, supervisedRetryRunId) { return atlasFetch(`/api/atlas/supervised-handoff-retry/results/${encodeURIComponent(poolId)}/${encodeURIComponent(supervisedRetryRunId)}`); },
+    getLatestSupervisedHandoffRetry(payload) { return atlasFetch('/api/atlas/supervised-handoff-retry/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getPatchRegenRecommendationPolicies() { return atlasFetch('/api/atlas/patch-regen-recommendation/policies'); },
+    runPatchRegenRecommendation(payload) { return atlasFetch('/api/atlas/patch-regen-recommendation/run', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getPatchRegenRecommendationResult(poolId, recommendationRunId) { return atlasFetch(`/api/atlas/patch-regen-recommendation/results/${encodeURIComponent(poolId)}/${encodeURIComponent(recommendationRunId)}`); },
+    getLatestPatchRegenRecommendation(payload) { return atlasFetch('/api/atlas/patch-regen-recommendation/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getManualNextActionExecutorPolicies() { return atlasFetch('/api/atlas/manual-next-action-executor/policies'); },
+    executeManualNextAction(payload) { return atlasFetch('/api/atlas/manual-next-action-executor/execute', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    getManualNextActionExecutorResult(poolId, executorRunId) { return atlasFetch(`/api/atlas/manual-next-action-executor/results/${encodeURIComponent(poolId)}/${encodeURIComponent(executorRunId)}`); },
+    getLatestManualNextActionExecutor(payload) { return atlasFetch('/api/atlas/manual-next-action-executor/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+    previewManualNextActionConfirmationToken(payload) { return atlasFetch('/api/atlas/manual-next-action-executor/confirmation-token-preview', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+
+
   };
 
   root.AtlasPipelineAPI = AtlasPipelineAPI;
 })();
-
-export async function getSymbolIndex(payload) {
-  const r = await fetch("/api/atlas/code-intel/symbol-index", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  if (!r.ok) throw new Error(`symbol-index failed: ${r.status}`);
-  return r.json();
-}
-
-export async function getDependencyGraph(payload) {
-  const r = await fetch("/api/atlas/code-intel/dependency-graph", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  if (!r.ok) throw new Error(`dependency-graph failed: ${r.status}`);
-  return r.json();
-}
-
-export async function getRelatedTests(payload) {
-  const r = await fetch("/api/atlas/code-intel/related-tests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  if (!r.ok) throw new Error(`related-tests failed: ${r.status}`);
-  return r.json();
-}
-
-
-export async function getBoundedRetryPolicies(){ return apiGet("/api/atlas/bounded-retry/policies"); }
-export async function runBoundedRetry(payload){ return apiPost("/api/atlas/bounded-retry/run", payload); }
-export async function getBoundedRetryResult(poolId, retryRunId){ return apiGet(`/api/atlas/bounded-retry/results/${encodeURIComponent(poolId)}/${encodeURIComponent(retryRunId)}`); }
-export async function getLatestBoundedRetryResult(payload){ return apiPost("/api/atlas/bounded-retry/latest", payload); }
-
-export async function getPatchRegenPolicies(){ return apiGet('/api/atlas/patch-regen/policies'); }
-export async function runPatchRegen(payload){ return apiPost('/api/atlas/patch-regen/run', payload); }
-export async function getPatchRegenResult(poolId, regenRunId){ return apiGet(`/api/atlas/patch-regen/results/${encodeURIComponent(poolId)}/${encodeURIComponent(regenRunId)}`); }
-export async function getLatestPatchRegenResult(payload){ return apiPost('/api/atlas/patch-regen/latest', payload); }
-
-
-export async function getPatchCandidateApprovalPolicies(){return apiGet('/api/atlas/patch-candidate-approval/policies');}
-export async function decidePatchCandidateApproval(payload){return apiPost('/api/atlas/patch-candidate-approval/decide',payload);}
-export async function getPatchCandidateApprovalResult(poolId, approvalRunId){return apiGet(`/api/atlas/patch-candidate-approval/results/${encodeURIComponent(poolId)}/${encodeURIComponent(approvalRunId)}`);}
-export async function getLatestPatchCandidateApproval(payload){return apiPost('/api/atlas/patch-candidate-approval/latest',payload);}
-export async function getSafeApplyHandoff(poolId, handoffId){return apiGet(`/api/atlas/safe-apply-handoffs/${encodeURIComponent(poolId)}/${encodeURIComponent(handoffId)}`);}
-export async function getLatestSafeApplyHandoff(payload){return apiPost('/api/atlas/safe-apply-handoffs/latest',payload);}
-export async function getSupervisedHandoffSafeApplyPolicies(){return apiGet('/api/atlas/supervised-handoff-safe-apply/policies');}
-export async function executeSupervisedHandoffSafeApply(payload){return apiPost('/api/atlas/supervised-handoff-safe-apply/execute',payload);}
-export async function getSupervisedHandoffSafeApplyResult(poolId, executionId){return apiGet(`/api/atlas/supervised-handoff-safe-apply/results/${encodeURIComponent(poolId)}/${encodeURIComponent(executionId)}`);}
-export async function getLatestSupervisedHandoffSafeApply(payload){return apiPost('/api/atlas/supervised-handoff-safe-apply/latest',payload);}
-
-
-export async function getSupervisedHandoffVerificationPolicies(){ const r=await fetch("/api/atlas/supervised-handoff-verification/policies"); return r.json(); }
-export async function runSupervisedHandoffVerification(payload){ const r=await fetch("/api/atlas/supervised-handoff-verification/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); return r.json(); }
-export async function getSupervisedHandoffVerificationResult(poolId, verificationRunId){ const r=await fetch(`/api/atlas/supervised-handoff-verification/results/${encodeURIComponent(poolId)}/${encodeURIComponent(verificationRunId)}`); return r.json(); }
-export async function getLatestSupervisedHandoffVerification(payload){ const r=await fetch("/api/atlas/supervised-handoff-verification/latest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); return r.json(); }
-
-export async function getSupervisedHandoffRetryPolicies(){return apiGet("/api/atlas/supervised-handoff-retry/policies");}
-export async function runSupervisedHandoffRetry(payload){return apiPost("/api/atlas/supervised-handoff-retry/run",payload);}
-export async function getSupervisedHandoffRetryResult(poolId, supervisedRetryRunId){return apiGet(`/api/atlas/supervised-handoff-retry/results/${encodeURIComponent(poolId)}/${encodeURIComponent(supervisedRetryRunId)}`);}
-export async function getLatestSupervisedHandoffRetry(payload){return apiPost("/api/atlas/supervised-handoff-retry/latest",payload);}
-
-
-export async function getPatchRegenRecommendationPolicies(){ return apiGet('/api/atlas/patch-regen-recommendation/policies'); }
-export async function runPatchRegenRecommendation(payload){ return apiPost('/api/atlas/patch-regen-recommendation/run', payload); }
-export async function getPatchRegenRecommendationResult(poolId, recommendationRunId){ return apiGet(`/api/atlas/patch-regen-recommendation/results/${encodeURIComponent(poolId)}/${encodeURIComponent(recommendationRunId)}`); }
-export async function getLatestPatchRegenRecommendation(payload){ return apiPost('/api/atlas/patch-regen-recommendation/latest', payload); }
-
-export async function getPatchRegenFromRecommendationPolicies(){return apiGet('/api/atlas/patch-regen-from-recommendation/policies');}
-export async function runPatchRegenFromRecommendation(payload){return apiPost('/api/atlas/patch-regen-from-recommendation/run',payload);}
-export async function getPatchRegenFromRecommendationResult(poolId,recommendationExecId){return apiGet(`/api/atlas/patch-regen-from-recommendation/results/${encodeURIComponent(poolId)}/${encodeURIComponent(recommendationExecId)}`);}
-export async function getLatestPatchRegenFromRecommendation(payload){return apiPost('/api/atlas/patch-regen-from-recommendation/latest',payload);}
-
-export async function getManualNextActionExecutorPolicies() { return apiGet('/api/atlas/manual-next-action-executor/policies'); }
-export async function executeManualNextAction(payload) { return apiPost('/api/atlas/manual-next-action-executor/execute', payload); }
-export async function getManualNextActionExecutorResult(poolId, executorRunId) { return apiGet(`/api/atlas/manual-next-action-executor/results/${encodeURIComponent(poolId)}/${encodeURIComponent(executorRunId)}`); }
-export async function getLatestManualNextActionExecutor(payload) { return apiPost('/api/atlas/manual-next-action-executor/latest', payload); }
-export async function previewManualNextActionConfirmationToken(payload) { return apiPost('/api/atlas/manual-next-action-executor/confirmation-token-preview', payload); }

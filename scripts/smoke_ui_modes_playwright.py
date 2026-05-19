@@ -107,6 +107,8 @@ def start_mock_server():
         return _json_response(self, {"ok": False, "message": "mock smoke backend"})
       if path == "/api/task/plan":
         return _json_response(self, {"ok": False, "error": "mock smoke backend: planner unavailable"})
+      if path == "/api/atlas/plan-pools":
+        return _json_response(self, {"status": "ready", "pool_id": "pool_smoke_001", "plan_pool": {"pool_id": "pool_smoke_001", "status": "ready", "items": []}})
       return _json_response(self, {})
 
   server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -1893,6 +1895,19 @@ async def verify_atlas_current_ui_smoke(page) -> None:
 
   await open_atlas(page)
   atlas_text = await page.locator("#atlas-panel-col").inner_text()
+
+  leaked_note_visible = await page.evaluate("""() => (document.body?.innerText || '').includes('This only finalizes item status and next action') && !document.getElementById('atlas-panel-col')?.contains(document.activeElement)""")
+  assert not leaked_note_visible
+
+  atlas_api_contract = await page.evaluate("""() => ({
+    apiType: typeof window.AtlasPipelineAPI,
+    dashboardType: typeof window.AtlasDashboard,
+    createPlanType: typeof window.AtlasDashboard?.createPlanPool
+  })""")
+  assert atlas_api_contract["apiType"] == "object"
+  assert atlas_api_contract["dashboardType"] == "object"
+  assert atlas_api_contract["createPlanType"] == "function"
+
   assert "Workflow Workbench" in atlas_text
   assert "Workflow Workbench: Requirement / Plan / Review / Approval / Agent Execution / Execute Preview / Patch Review / Apply." not in atlas_text
   assert "Agent execution is moving under Atlas" not in atlas_text
