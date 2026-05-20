@@ -11,12 +11,15 @@ from agent.atlas_context_refresh_policies import get_context_refresh_policy
 from agent.atlas_context_refresh_schema import AtlasContextBundle, AtlasContextRefreshRequest, AtlasContextSource
 from agent.atlas_dev_tool_path import validate_relative_path
 from agent.atlas_journal import AtlasJournal
+from agent.atlas_repo_context_schema import AtlasRepoContextRequest
+from agent.atlas_repo_context_service import AtlasRepoContextService
 
 
 class AtlasContextRefreshService:
-    def __init__(self, journal: AtlasJournal | None = None, nexus_adapter: AtlasContextNexusAdapter | None = None):
+    def __init__(self, journal: AtlasJournal | None = None, nexus_adapter: AtlasContextNexusAdapter | None = None, data_root: Path | None = None):
         self.journal = journal
         self.nexus_adapter = nexus_adapter or AtlasContextNexusAdapter()
+        self.data_root = data_root or Path.cwd()
 
     def refresh(self, request: AtlasContextRefreshRequest) -> AtlasContextBundle:
         policy = get_context_refresh_policy(request.policy_id)
@@ -133,6 +136,31 @@ class AtlasContextRefreshService:
             },
             created_at=datetime.now(timezone.utc).isoformat(),
         )
+        try:
+            snapshot = AtlasRepoContextService(data_root=self.data_root).build_snapshot(
+                AtlasRepoContextRequest(
+                    workspace_id=request.workspace_id,
+                    project_path=request.project_path,
+                    changed_files=changed_files,
+                    target_files=request.target_files,
+                    mode="scope_summary",
+                    allow_build_if_missing=False,
+                )
+            )
+            bundle.metadata["repo_context_snapshot"] = snapshot.model_dump()
+            lines = [
+                "",
+                "## Repo Context",
+                f"- status: {snapshot.status}",
+                f"- index_run_id: {snapshot.index_run_id}",
+                f"- impacted_files: {', '.join(snapshot.impacted_files[:8])}",
+                f"- related_tests: {', '.join(snapshot.related_tests[:8])}",
+            ]
+            if snapshot.warnings:
+                lines.append(f"- warnings: {', '.join(snapshot.warnings[:8])}")
+            bundle.context_text = f"{bundle.context_text}\n" + "\n".join(lines)
+        except Exception:
+            bundle.metadata["repo_context_snapshot"] = {"status": "failed_internal"}
         self._save_bundle(bundle)
         event_name = "context_refresh_completed"
         if status == "partial":

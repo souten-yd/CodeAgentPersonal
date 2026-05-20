@@ -287,6 +287,21 @@
     getRepoIndexResult(projectHash, indexRunId) {
       return atlasFetch(`/api/atlas/repo-index/results/${encodeURIComponent(projectHash)}/${encodeURIComponent(indexRunId)}`);
     },
+    getRepoContextPolicies() {
+      return atlasFetch('/api/atlas/repo-context/policies');
+    },
+    getRepoContextSnapshot(payload) {
+      return atlasFetch('/api/atlas/repo-context/snapshot', {
+        method: 'POST',
+        body: JSON.stringify(payload || {})
+      });
+    },
+    getRepoContextScopeSummary(payload) {
+      return atlasFetch('/api/atlas/repo-context/scope-summary', {
+        method: 'POST',
+        body: JSON.stringify(payload || {})
+      });
+    },
 
   };
 
