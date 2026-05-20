@@ -208,3 +208,9 @@ Current PR:
 
 Next PR:
 - PR-ATLAS-SCALE-63: Use repo context in planner prompt packaging and impacted-test recommendations
+
+- PR-ATLAS-SCALE-63: Repo Context planner prompt packaging added (advisory/read-only).
+- Impacted-test recommendations are suggestions only (no auto execution).
+- No patch generation/safe_apply/verification/Guarded Loop integration.
+- Repo Index missing remains non-blocking.
+

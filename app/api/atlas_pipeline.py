@@ -54,6 +54,7 @@ from agent.atlas_failure_stop_service import AtlasFailureStopService
 from agent.atlas_verification_allowlist import atlas_verification_allowlist
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
 from agent.atlas_repo_context_service import AtlasRepoContextService
+from agent.atlas_repo_context_planner_packager import AtlasRepoContextPlannerPackager
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
@@ -377,6 +378,9 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
     review_result: dict = {}
     bridge_warnings: list[str] = []
     bridge_errors: list[str] = []
+    repo_context_package_payload: dict = {}
+    planner_context_text: str = ""
+    impacted_test_recommendation_payload: dict = {}
 
     if req.plan_payload:
         payload = dict(req.plan_payload)
@@ -403,6 +407,27 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
             active_skills_fn=_resolve_callable_state(request, "atlas_active_skills_fn"),
             builder=builder,
         )
+        if req.enable_repo_context and (req.project_path or "").strip():
+            try:
+                repo_req = AtlasRepoContextRequest(
+                    workspace_id=req.workspace_id,
+                    project_path=req.project_path,
+                    changed_files=list(req.metadata.get("changed_files", [])) if isinstance(req.metadata, dict) else [],
+                    target_files=list(req.metadata.get("target_files", [])) if isinstance(req.metadata, dict) else [],
+                    goal=root_goal,
+                    allow_build_if_missing=False,
+                    mode="scope_summary",
+                )
+                packager = AtlasRepoContextPlannerPackager(data_root=ca_data_root)
+                pkg = packager.build_package(repo_req)
+                repo_context_package_payload = pkg.model_dump()
+                planner_context_text = pkg.planner_context_text
+                impacted_test_recommendation_payload = packager.build_impacted_test_recommendation(repo_req).model_dump()
+            except Exception:
+                repo_context_package_payload = {"status": "failed_internal", "confidence": "unknown"}
+                planner_context_text = "Repo Context status: failed_internal. Advisory only."
+                impacted_test_recommendation_payload = {"status": "missing", "executed": False}
+
         bridge_result = bridge.create_plan_pool(
             AtlasPlannerBridgeRequest(
                 input=root_goal,
@@ -417,6 +442,8 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
                 pool_id=req.pool_id,
                 workspace_id=req.workspace_id,
                 metadata=dict(req.metadata),
+                repo_context_package=repo_context_package_payload,
+                planner_context_text=planner_context_text,
             )
         )
         planner_status = bridge_result.status
@@ -486,6 +513,33 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
             }
         except Exception:
             pool.metadata["repo_context"] = {"status": "failed_internal", "confidence": "unknown"}
+
+    if repo_context_package_payload:
+        pool.metadata["repo_context_package"] = {
+            "status": repo_context_package_payload.get("status", "missing"),
+            "index_run_id": repo_context_package_payload.get("index_run_id", ""),
+            "impacted_files": list(repo_context_package_payload.get("impacted_files", []))[:50],
+            "related_tests": list(repo_context_package_payload.get("related_tests", []))[:30],
+            "confidence": repo_context_package_payload.get("confidence", "unknown"),
+        }
+    if impacted_test_recommendation_payload:
+        pool.metadata["impacted_test_recommendation"] = {
+            "status": impacted_test_recommendation_payload.get("status", "missing"),
+            "related_tests": list(impacted_test_recommendation_payload.get("related_tests", []))[:30],
+            "recommended_commands": list(impacted_test_recommendation_payload.get("recommended_commands", []))[:5],
+            "confidence": impacted_test_recommendation_payload.get("confidence", "unknown"),
+            "executed": False,
+        }
+        for item in (pool.items or []):
+            md = item.metadata if isinstance(item.metadata, dict) else {}
+            md["repo_context"] = {
+                "impacted_files": list(repo_context_package_payload.get("impacted_files", []))[:10],
+                "related_tests": list(impacted_test_recommendation_payload.get("related_tests", []))[:10],
+                "confidence": repo_context_package_payload.get("confidence", "unknown"),
+            }
+            md["recommended_tests"] = list(impacted_test_recommendation_payload.get("related_tests", []))[:10]
+            md["recommended_test_commands"] = list(impacted_test_recommendation_payload.get("recommended_commands", []))[:5]
+            item.metadata = md
     pool.metadata.update(
         {
             "api_created": True,

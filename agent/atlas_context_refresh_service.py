@@ -13,6 +13,7 @@ from agent.atlas_dev_tool_path import validate_relative_path
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
 from agent.atlas_repo_context_service import AtlasRepoContextService
+from agent.atlas_repo_context_planner_packager import AtlasRepoContextPlannerPackager
 
 
 class AtlasContextRefreshService:

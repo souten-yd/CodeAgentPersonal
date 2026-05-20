@@ -302,6 +302,12 @@
         body: JSON.stringify(payload || {})
       });
     },
+    getRepoContextImpactedTests(payload) {
+      return atlasFetch('/api/atlas/repo-context/impacted-tests', {
+        method: 'POST',
+        body: JSON.stringify(payload || {})
+      });
+    },
 
   };
 

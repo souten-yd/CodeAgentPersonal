@@ -30,6 +30,8 @@ class AtlasPlannerBridgeRequest(BaseModel):
     pool_id: str = ""
     workspace_id: str = "default"
     metadata: dict = Field(default_factory=dict)
+    repo_context_package: dict = Field(default_factory=dict)
+    planner_context_text: str = ""
 
 
 class AtlasPlannerBridgeResult(BaseModel):
@@ -46,3 +48,5 @@ class AtlasPlannerBridgeResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
+    repo_context_package: dict = Field(default_factory=dict)
+    planner_context_text: str = ""

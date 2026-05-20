@@ -132,3 +132,9 @@ Next PR: PR-ATLAS-PIPE-54: Finalize supervised item status transitions from loop
 
 - PR-ATLAS-SCALE-61: Persistent repo symbol index and incremental dependency graph (no execution semantics changes).
 - Next PR: PR-ATLAS-SCALE-62 for PlanPool scope/context refresh integration.
+
+- PR-ATLAS-SCALE-63: Repo Context planner prompt packaging added (advisory/read-only).
+- Impacted-test recommendations are suggestions only (no auto execution).
+- No patch generation/safe_apply/verification/Guarded Loop integration.
+- Repo Index missing remains non-blocking.
+
