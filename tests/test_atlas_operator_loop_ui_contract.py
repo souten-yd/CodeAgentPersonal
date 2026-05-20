@@ -88,4 +88,4 @@ def test_operator_loop_no_import_export():
     assert not re.search(r'^\s*export\s+', API, re.M)
 
 def test_script_cache_bust_updated_if_js_changed():
-    assert 'atlas-dashboard-21' in HTML
+    assert 'atlas-dashboard-22' in HTML

@@ -58,6 +58,11 @@
     automationDecision: null,
     patchRegenFromRecommendationResult: null,
     patchRegenFromRecommendationSubmitting: false,
+    repoIndexResult: null,
+    repoIndexLatest: null,
+    repoIndexImpacts: null,
+    repoIndexRelatedTests: null,
+    repoIndexSubmitting: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -1207,6 +1212,127 @@ ${preview}`;
   async function operatorLoopRefresh(){ operatorLoopReadInputs(); const r=await handleResult(await root.AtlasPipelineAPI.refreshAfterManualExecution({pool_id:operatorLoopState.poolId,run_id:operatorLoopState.runId,executor_run_id:operatorLoopState.executedExecutorRunId||operatorLoopState.dryRunExecutorRunId,dry_run:false,refresh_item_status:true,rebuild_multi_status_queue:true,prepare_next_action:true,reviewer:operatorLoopState.reviewer,reason:operatorLoopState.reason,metadata:{source:'operator_loop_ui'}}),'Refresh failed'); if(!r)return; const n=r.next_action_orchestrator_result||{}; operatorLoopState.lastRefreshResult=r; operatorLoopState.postRefreshRunId=r.refresh_run_id||''; operatorLoopState.multiStatusRunId=r.multi_status_result?.multi_status_run_id||operatorLoopState.multiStatusRunId; operatorLoopState.orchestratorRunId=n.orchestrator_run_id||''; operatorLoopState.selectedItemId=n.selected_item_id||''; operatorLoopState.selectedNextAction=n.selected_next_action||''; operatorLoopState.actionId=n.action_contract?.action_id||n.action_id||''; operatorLoopState.actionKind=n.action_contract?.action_kind||''; operatorLoopState.lastContractResult=n; operatorLoopState.confirmationToken=''; operatorLoopState.dryRunExecutorRunId=''; operatorLoopState.executedExecutorRunId=''; operatorLoopState.lastDryRunResult=null; operatorLoopState.lastExecuteResult=null; $('atlas-operator-loop-confirmation-token').value=''; $('atlas-operator-loop-executor-result').textContent='Next action prepared. Dry run required.'; $('atlas-operator-loop-next-step').textContent=`Next step: item=${operatorLoopState.selectedItemId||'-'} / action=${operatorLoopState.selectedNextAction||'-'} / kind=${operatorLoopState.actionKind||'-'}`; $('atlas-operator-loop-refresh-result').textContent=JSON.stringify(r,null,2); persistOperatorLoopState(); operatorLoopRender(); }
   async function operatorLoopAdvanceToConfirmation(){ operatorLoopReadInputs(); const r=await handleResult(await root.AtlasPipelineAPI.runGuardedOperatorLoop({pool_id:operatorLoopState.poolId,run_id:operatorLoopState.runId,workspace_id:workspaceId(),project_path:'',mode:'advance_to_confirmation',reviewer:operatorLoopState.reviewer,reason:operatorLoopState.reason,metadata:{source:'operator_loop_ui',operator_loop_phase:'advance_to_confirmation'}}),'Advance to confirmation failed'); if(!r)return; operatorLoopState.guardedLoopRunId=r.loop_run_id||''; operatorLoopState.lastGuardedLoopResult=r; operatorLoopState.semiAutoMode=r.mode||''; operatorLoopState.semiAutoStatus=r.status||''; operatorLoopState.multiStatusRunId=r.multi_status_run_id||''; operatorLoopState.orchestratorRunId=r.orchestrator_run_id||''; operatorLoopState.selectedItemId=r.selected_item_id||''; operatorLoopState.selectedNextAction=r.selected_next_action||''; operatorLoopState.actionId=r.action_id||''; operatorLoopState.actionKind=r.action_kind||''; operatorLoopState.confirmationToken=r.confirmation_token||''; operatorLoopState.dryRunExecutorRunId=r.executor_run_id||''; operatorLoopState.lastDryRunResult=r.dry_run_result||null; $('atlas-operator-loop-semi-auto-status').textContent=r.status||'-'; $('atlas-operator-loop-guarded-result').textContent=JSON.stringify(r,null,2); $('atlas-operator-loop-confirmation-token').value=operatorLoopState.confirmationToken; persistOperatorLoopState(); operatorLoopRender(); }
   async function operatorLoopExecuteAndRefresh(){ operatorLoopReadInputs(); const r=await handleResult(await root.AtlasPipelineAPI.runGuardedOperatorLoop({pool_id:operatorLoopState.poolId,run_id:operatorLoopState.runId,workspace_id:workspaceId(),project_path:'',mode:'execute_and_refresh',orchestrator_run_id:operatorLoopState.orchestratorRunId,action_id:operatorLoopState.actionId,expected_next_action:operatorLoopState.selectedNextAction,confirmation_token:operatorLoopState.confirmationToken,confirmation_text:'EXECUTE ONE ACTION',explicit_decision:operatorLoopState.explicitDecision,require_dry_run_first:true,reviewer:operatorLoopState.reviewer,reason:operatorLoopState.reason,metadata:{source:'operator_loop_ui',operator_loop_phase:'execute_and_refresh'}}),'Execute and refresh failed'); if(!r)return; operatorLoopState.guardedLoopRunId=r.loop_run_id||''; operatorLoopState.executedExecutorRunId=r.executor_run_id||''; operatorLoopState.postRefreshRunId=r.post_refresh_run_id||''; const n=r.refresh_result?.next_action_orchestrator_result||{}; operatorLoopState.orchestratorRunId=n.orchestrator_run_id||operatorLoopState.orchestratorRunId; operatorLoopState.selectedItemId=n.selected_item_id||operatorLoopState.selectedItemId; operatorLoopState.selectedNextAction=n.selected_next_action||operatorLoopState.selectedNextAction; operatorLoopState.actionId=n.action_contract?.action_id||n.action_id||operatorLoopState.actionId; operatorLoopState.actionKind=n.action_contract?.action_kind||operatorLoopState.actionKind; operatorLoopState.confirmationToken=''; operatorLoopState.dryRunExecutorRunId=''; operatorLoopState.lastDryRunResult=null; operatorLoopState.lastExecuteResult=null; $('atlas-operator-loop-confirmation-token').value=''; $('atlas-operator-loop-guarded-result').textContent=JSON.stringify(r,null,2); $('atlas-operator-loop-semi-auto-status').textContent=r.status||'-'; persistOperatorLoopState(); operatorLoopRender(); }
+  function repoIndexProjectPath() {
+    const uiPath = ($('atlas-repo-index-project-path')?.value || '').trim();
+    return uiPath || state.currentProjectPath || state.workspaceProjectPath || '';
+  }
+
+  function repoIndexChangedFiles() {
+    return String($('atlas-repo-index-changed-files')?.value || '')
+      .split(/[\n,]/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+  }
+
+  function renderRepoIndexPanel() {
+    const statusEl = $('atlas-repo-index-status');
+    const summaryEl = $('atlas-repo-index-summary');
+    const resultEl = $('atlas-repo-index-result');
+    const active = state.repoIndexResult || state.repoIndexLatest || state.repoIndexImpacts || state.repoIndexRelatedTests || {};
+    const payload = active?.data || active;
+    const statusText = payload?.status || active?.message || (state.repoIndexSubmitting ? 'submitting' : 'idle');
+    if (statusEl) statusEl.textContent = statusText;
+
+    const summary = {
+      index_run_id: payload?.index_run_id || '-',
+      status: payload?.status || '-',
+      total_files: payload?.total_files ?? 0,
+      indexed_files: payload?.indexed_files ?? 0,
+      skipped_files: payload?.skipped_files ?? 0,
+      symbol_count: payload?.symbol_count ?? 0,
+      edge_count: payload?.edge_count ?? 0,
+      impacted_files: Array.isArray((state.repoIndexImpacts?.data || state.repoIndexImpacts)?.impacted_files) ? (state.repoIndexImpacts?.data || state.repoIndexImpacts).impacted_files.length : 0,
+      related_tests: Array.isArray((state.repoIndexRelatedTests?.data || state.repoIndexRelatedTests)?.related_tests) ? (state.repoIndexRelatedTests?.data || state.repoIndexRelatedTests).related_tests.length : 0,
+    };
+    if (summaryEl) summaryEl.textContent = Object.entries(summary).map(([k, v]) => `${k}: ${v}`).join(' / ');
+
+    const output = {
+      result: state.repoIndexResult,
+      latest: state.repoIndexLatest,
+      impacts: state.repoIndexImpacts,
+      related_tests: state.repoIndexRelatedTests,
+    };
+    if (resultEl) resultEl.textContent = JSON.stringify(output, null, 2);
+  }
+
+  function repoIndexBasePayload() {
+    return {
+      project_path: repoIndexProjectPath(),
+      workspace_id: workspaceId(),
+      mode: 'build_or_update',
+      incremental: true,
+      changed_files: repoIndexChangedFiles(),
+    };
+  }
+
+  async function buildRepoIndexFromUI() {
+    const api = root.AtlasPipelineAPI;
+    if (!api) return;
+    const payload = repoIndexBasePayload();
+    if (!payload.project_path) {
+      state.repoIndexResult = { status: 'error', message: 'project_path is required' };
+      renderRepoIndexPanel();
+      return;
+    }
+    state.repoIndexSubmitting = true;
+    renderRepoIndexPanel();
+    const response = await api.buildRepoIndex(payload);
+    state.repoIndexSubmitting = false;
+    state.repoIndexResult = response;
+    renderRepoIndexPanel();
+  }
+
+  async function loadLatestRepoIndexFromUI() {
+    const api = root.AtlasPipelineAPI;
+    if (!api) return;
+    const payload = repoIndexBasePayload();
+    if (!payload.project_path) {
+      state.repoIndexLatest = { status: 'error', message: 'project_path is required' };
+      renderRepoIndexPanel();
+      return;
+    }
+    state.repoIndexSubmitting = true;
+    renderRepoIndexPanel();
+    const response = await api.getLatestRepoIndex(payload);
+    state.repoIndexSubmitting = false;
+    state.repoIndexLatest = response;
+    renderRepoIndexPanel();
+  }
+
+  async function queryRepoIndexImpactsFromUI() {
+    const api = root.AtlasPipelineAPI;
+    if (!api) return;
+    const payload = repoIndexBasePayload();
+    if (!payload.project_path) {
+      state.repoIndexImpacts = { status: 'error', message: 'project_path is required' };
+      renderRepoIndexPanel();
+      return;
+    }
+    state.repoIndexSubmitting = true;
+    renderRepoIndexPanel();
+    const response = await api.getRepoIndexImpacts(payload);
+    state.repoIndexSubmitting = false;
+    state.repoIndexImpacts = response;
+    renderRepoIndexPanel();
+  }
+
+  async function queryRepoIndexRelatedTestsFromUI() {
+    const api = root.AtlasPipelineAPI;
+    if (!api) return;
+    const payload = repoIndexBasePayload();
+    if (!payload.project_path) {
+      state.repoIndexRelatedTests = { status: 'error', message: 'project_path is required' };
+      renderRepoIndexPanel();
+      return;
+    }
+    state.repoIndexSubmitting = true;
+    renderRepoIndexPanel();
+    const response = await api.getRepoIndexRelatedTests(payload);
+    state.repoIndexSubmitting = false;
+    state.repoIndexRelatedTests = response;
+    renderRepoIndexPanel();
+  }
+
   function bindOperatorLoop(){ loadOperatorLoopState(); ['pool-id','run-id','reviewer','reason'].forEach((k)=>{ const el=$('atlas-operator-loop-'+k); if(el) el.value=operatorLoopState[k.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]||''; }); const ct=$('atlas-operator-loop-confirmation-text'); if(ct) ct.value='EXECUTE ONE ACTION'; ['confirmation-token','confirmation-text','explicit-decision','pool-id','run-id','reviewer','reason'].forEach((k)=>$('atlas-operator-loop-'+k)?.addEventListener('input',()=>{operatorLoopReadInputs(); operatorLoopRender();})); $('atlas-operator-loop-build-queue-btn')?.addEventListener('click',operatorLoopBuildQueue); $('atlas-operator-loop-prepare-btn')?.addEventListener('click',operatorLoopPrepare); $('atlas-operator-loop-token-btn')?.addEventListener('click',operatorLoopToken); $('atlas-operator-loop-dry-run-btn')?.addEventListener('click',()=>operatorLoopExec(true)); $('atlas-operator-loop-execute-btn')?.addEventListener('click',()=>{ if(!operatorLoopCanExecute()) return; return operatorLoopExec(false);}); $('atlas-operator-loop-refresh-btn')?.addEventListener('click',operatorLoopRefresh); $('atlas-operator-loop-advance-btn')?.addEventListener('click',operatorLoopAdvanceToConfirmation); $('atlas-operator-loop-execute-refresh-btn')?.addEventListener('click',operatorLoopExecuteAndRefresh); $('atlas-operator-loop-copy-payload-btn')?.addEventListener('click',async ()=>{ const p=operatorLoopState.lastContractResult?.action_contract?.payload||{}; try{await navigator.clipboard.writeText(JSON.stringify(p,null,2));}catch(_e){} operatorLoopRender();}); $('atlas-operator-loop-reset-btn')?.addEventListener('click',()=>{ Object.assign(operatorLoopState,{poolId:'',runId:'',reviewer:'manual',reason:'',multiStatusRunId:'',orchestratorRunId:'',actionId:'',selectedItemId:'',selectedNextAction:'',actionKind:'',confirmationToken:'',confirmationText:'EXECUTE ONE ACTION',explicitDecision:'',dryRunExecutorRunId:'',executedExecutorRunId:'',postRefreshRunId:'',lastQueueResult:null,lastContractResult:null,lastDryRunResult:null,lastExecuteResult:null,lastRefreshResult:null}); try{localStorage.removeItem(operatorLoopStorageKey);}catch(_e){} ['queue','contract','executor','refresh','next-step'].forEach((x)=>{ const el=$('atlas-operator-loop-'+x+'-result')||$('atlas-operator-loop-'+x); if(el) el.textContent='';}); const tok=$('atlas-operator-loop-confirmation-token'); if(tok) tok.value=''; operatorLoopRender(); }); operatorLoopRender(); }
   function bind() {
     const goal = $('atlas-goal-input');
@@ -1232,6 +1358,16 @@ ${preview}`;
     if (regenFromRecBtn) regenFromRecBtn.addEventListener('click', runPatchRegenFromRecommendation);
     const nextActionBtn = $('atlas-prepare-next-action');
     if (nextActionBtn) nextActionBtn.addEventListener('click', prepareNextActionOrchestrator);
+
+    const repoBuildBtn = $('atlas-repo-index-build-btn');
+    if (repoBuildBtn) repoBuildBtn.addEventListener('click', buildRepoIndexFromUI);
+    const repoLatestBtn = $('atlas-repo-index-latest-btn');
+    if (repoLatestBtn) repoLatestBtn.addEventListener('click', loadLatestRepoIndexFromUI);
+    const repoImpactsBtn = $('atlas-repo-index-impacts-btn');
+    if (repoImpactsBtn) repoImpactsBtn.addEventListener('click', queryRepoIndexImpactsFromUI);
+    const repoRelatedTestsBtn = $('atlas-repo-index-related-tests-btn');
+    if (repoRelatedTestsBtn) repoRelatedTestsBtn.addEventListener('click', queryRepoIndexRelatedTestsFromUI);
+    renderRepoIndexPanel();
     if (details) {
       details.addEventListener('toggle', () => {
         state.advancedOpen = details.open;
@@ -1310,27 +1446,3 @@ async function runContextRefreshFromUI() {
 
 // Bounded Retry minimal UI marker
 window.__atlasBoundedRetrySafety = ["No auto rollback", "No auto restore", "No patch regeneration", "Verification rerun only"];
-
-(function(){
-  if (!window.AtlasDashboard) return;
-  const state = window.AtlasDashboard.state || (window.AtlasDashboard.state = {});
-  state.repoIndexResult = null; state.repoIndexLatest = null; state.repoIndexImpacts = null; state.repoIndexRelatedTests = null;
-  function gid(id){ return document.getElementById(id); }
-  function parseChangedFiles(v){ return String(v||'').split(/[\n,]/).map(s=>s.trim()).filter(Boolean); }
-  function resolveProjectPath(){ const ui=(gid('atlas-repo-index-project-path')||{}).value||''; return ui||state.currentProjectPath||state.workspaceProjectPath||''; }
-  function renderRepoIndexPanel(){
-    const status=gid('atlas-repo-index-status'), summary=gid('atlas-repo-index-summary'), out=gid('atlas-repo-index-result');
-    const d=state.repoIndexResult||state.repoIndexLatest||{}; if(status) status.textContent=d.status||'idle';
-    if(summary) summary.textContent=`index_run_id=${d.index_run_id||'-'} total_files=${d.total_files||0} indexed_files=${d.indexed_files||0} skipped_files=${d.skipped_files||0} symbol_count=${d.symbol_count||0} edge_count=${d.edge_count||0}`;
-    if(out) out.textContent=JSON.stringify({result:state.repoIndexResult,latest:state.repoIndexLatest,impacts:state.repoIndexImpacts,related_tests:state.repoIndexRelatedTests},null,2);
-  }
-  async function buildRepoIndexFromUI(){ const api=window.AtlasPipelineAPI; if(!api) return; const project_path=resolveProjectPath(); if(!project_path){ state.repoIndexResult={error:'project_path_required'}; renderRepoIndexPanel(); return; } const changed_files=parseChangedFiles((gid('atlas-repo-index-changed-files')||{}).value); const res=await api.buildRepoIndex({project_path,changed_files,incremental:true}); state.repoIndexResult=res.data||res; renderRepoIndexPanel(); }
-  async function loadLatestRepoIndexFromUI(){ const api=window.AtlasPipelineAPI; if(!api) return; const project_path=resolveProjectPath(); if(!project_path){ state.repoIndexLatest={error:'project_path_required'}; renderRepoIndexPanel(); return; } const res=await api.getLatestRepoIndex({project_path}); state.repoIndexLatest=res.data||res; renderRepoIndexPanel(); }
-  async function queryRepoIndexImpactsFromUI(){ const api=window.AtlasPipelineAPI; if(!api) return; const project_path=resolveProjectPath(); if(!project_path){ state.repoIndexImpacts={error:'project_path_required'}; renderRepoIndexPanel(); return; } const changed_files=parseChangedFiles((gid('atlas-repo-index-changed-files')||{}).value); const res=await api.getRepoIndexImpacts({project_path,changed_files}); state.repoIndexImpacts=res.data||res; renderRepoIndexPanel(); }
-  async function queryRepoIndexRelatedTestsFromUI(){ const api=window.AtlasPipelineAPI; if(!api) return; const project_path=resolveProjectPath(); if(!project_path){ state.repoIndexRelatedTests={error:'project_path_required'}; renderRepoIndexPanel(); return; } const changed_files=parseChangedFiles((gid('atlas-repo-index-changed-files')||{}).value); const res=await api.getRepoIndexRelatedTests({project_path,changed_files}); state.repoIndexRelatedTests=res.data||res; renderRepoIndexPanel(); }
-  const b=gid('atlas-repo-index-build-btn'); if (b) b.addEventListener('click', buildRepoIndexFromUI);
-  const l=gid('atlas-repo-index-latest-btn'); if (l) l.addEventListener('click', loadLatestRepoIndexFromUI);
-  const i=gid('atlas-repo-index-impacts-btn'); if (i) i.addEventListener('click', queryRepoIndexImpactsFromUI);
-  const r=gid('atlas-repo-index-related-tests-btn'); if (r) r.addEventListener('click', queryRepoIndexRelatedTestsFromUI);
-  renderRepoIndexPanel();
-})();
